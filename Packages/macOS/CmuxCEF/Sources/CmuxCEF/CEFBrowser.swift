@@ -67,6 +67,13 @@ public final class CEFBrowser {
 
     private var handle: OpaquePointer?
     private var eventContinuations: [UUID: AsyncStream<Event>.Continuation] = [:]
+    // Initial CEF lifecycle callbacks can arrive synchronously while `create`
+    // is still returning. Retain the latest values so late subscribers do not
+    // miss the renderer's first navigation state.
+    private var didPublishCreated = false
+    private var latestTitle: String?
+    private var latestAddress: String?
+    private var latestLoadingState: (isLoading: Bool, canGoBack: Bool, canGoForward: Bool)?
     private var devToolsContinuations: [UUID: AsyncStream<Data>.Continuation] = [:]
     private var closeWaiters: [UUID: CheckedContinuation<Bool, Never>] = [:]
     private var closeTimeoutTasks: [UUID: Task<Void, Never>] = [:]
@@ -231,9 +238,8 @@ public final class CEFBrowser {
 
     /// Streams navigation and lifecycle events until the browser closes.
     ///
-    /// CEF delivers window and browser creation synchronously during
-    /// `create`, so a subscriber attaching afterwards replays `.created`
-    /// immediately instead of waiting for an event that already happened.
+    /// CEF delivers initial window, address, and loading callbacks synchronously
+    /// during `create`, so a late subscriber replays the latest lifecycle state.
     public func events() -> AsyncStream<Event> {
         let id = UUID()
         return AsyncStream(bufferingPolicy: .bufferingOldest(64)) { continuation in
@@ -242,8 +248,21 @@ public final class CEFBrowser {
                 return
             }
             eventContinuations[id] = continuation
-            if nsWindow != nil {
+            if didPublishCreated || nsWindow != nil {
                 continuation.yield(.created)
+            }
+            if let latestAddress {
+                continuation.yield(.addressChanged(latestAddress))
+            }
+            if let latestTitle {
+                continuation.yield(.titleChanged(latestTitle))
+            }
+            if let latestLoadingState {
+                continuation.yield(.loadingStateChanged(
+                    isLoading: latestLoadingState.isLoading,
+                    canGoBack: latestLoadingState.canGoBack,
+                    canGoForward: latestLoadingState.canGoForward
+                ))
             }
             continuation.onTermination = { [weak self] _ in
                 Task { @MainActor in
@@ -367,6 +386,7 @@ public final class CEFBrowser {
 
     private func handleCreated(window: NSWindow?) {
         nsWindow = window
+        didPublishCreated = true
         publish(.created)
     }
 
@@ -408,6 +428,18 @@ public final class CEFBrowser {
     }
 
     private func publish(_ event: Event) {
+        switch event {
+        case .created:
+            didPublishCreated = true
+        case .titleChanged(let value):
+            latestTitle = value
+        case .addressChanged(let value):
+            latestAddress = value
+        case .loadingStateChanged(let isLoading, let canGoBack, let canGoForward):
+            latestLoadingState = (isLoading, canGoBack, canGoForward)
+        case .closed, .rendererCrashed:
+            break
+        }
         for continuation in eventContinuations.values { continuation.yield(event) }
     }
 

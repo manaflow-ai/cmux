@@ -44,7 +44,12 @@ final class CEFBrowserPaneEngineAdapter: BrowserPaneEngineAdapter {
     private var readyContinuations: [UUID: CheckedContinuation<Void, any Error>] = [:]
     private var readyTimeoutTasks: [UUID: Task<Void, Never>] = [:]
     private var isReady = false
+    private var hasObservedInitialLoadingState = false
+    private var initialLoadContinuations: [UUID: CheckedContinuation<Void, any Error>] = [:]
+    private var initialLoadTimeoutTasks: [UUID: Task<Void, Never>] = [:]
+    private var isBootstrapping = false
     private static let readyDeadline: Duration = .seconds(15)
+    private static let initialLoadDeadline: Duration = .seconds(15)
 
     // Mirrored navigation state for snapshot synthesis.
     private var currentURL: URL?
@@ -67,6 +72,7 @@ final class CEFBrowserPaneEngineAdapter: BrowserPaneEngineAdapter {
     private var styleScriptIdentifiers: [String: String] = [:]
     private var documentScriptGeneration: UInt64 = 0
     private var emulatedColorScheme: String?
+    private var colorSchemeGeneration: UInt64 = 0
 
     init(
         profileID: UUID,
@@ -102,6 +108,8 @@ final class CEFBrowserPaneEngineAdapter: BrowserPaneEngineAdapter {
     func start(initialURL: URL?) {
         guard !hasStarted else { return }
         hasStarted = true
+        hasObservedInitialLoadingState = false
+        isBootstrapping = true
         publishSnapshot(state: .starting)
         startupTask?.cancel()
         let startPrerequisite = self.startPrerequisite
@@ -118,22 +126,44 @@ final class CEFBrowserPaneEngineAdapter: BrowserPaneEngineAdapter {
                     try self.completeStart()
                 } catch {
                     self.cleanupAfterStartupFailure()
+                    self.isBootstrapping = false
                     self.publishFailure(ChromiumBrowserDiagnostic.startupFailed.message)
                     self.onStartupFailure?()
                     return
                 }
                 try await self.ready()
+                try await self.awaitInitialLoadingState()
+                // Complete a round-trip before sending the remaining renderer
+                // commands. CEF installs the DevTools observer asynchronously;
+                // a navigation-history response is the reliable readiness
+                // barrier for this in-process channel.
+                _ = try await self.sendCommand(method: "Page.getNavigationHistory")
                 try await self.installStoredDocumentScripts()
+                let colorSchemeGenerationAtApply = self.colorSchemeGeneration
                 try await self.applyStoredColorScheme()
                 if let initialURL {
                     let revision = self.currentNavigationRevision()
                     try await self.navigate(to: initialURL)
                     try await self.waitForNavigation(to: initialURL, after: revision)
                 }
+                // CEF requires the Runtime domain to be enabled before it
+                // returns Runtime.evaluate results. Do this after the initial
+                // document navigation; the acknowledgement is unreliable
+                // while the blank renderer is still attaching.
+                _ = try await self.sendCommand(method: "Runtime.enable")
+                self.isBootstrapping = false
+                // A theme update can arrive while the startup handshake is in
+                // flight. Apply the latest value once the command channel is
+                // fully ready so that update cannot race the bootstrap write.
+                if self.colorSchemeGeneration != colorSchemeGenerationAtApply {
+                    self.scheduleColorSchemeApply()
+                }
+                self.scheduleNavigationHistoryRefresh()
             } catch is CancellationError {
                 return
             } catch {
                 self.cleanupAfterStartupFailure()
+                self.isBootstrapping = false
                 self.publishFailure(ChromiumBrowserDiagnostic.startupFailed.message)
             }
         }
@@ -269,6 +299,7 @@ final class CEFBrowserPaneEngineAdapter: BrowserPaneEngineAdapter {
         navigationHistoryTask?.cancel()
         navigationHistoryTask = nil
         cancelReadyWaiters()
+        cancelInitialLoadingStateWaiters()
         hostView.detach()
         browser?.stopLoading()
         return browser
@@ -281,6 +312,8 @@ final class CEFBrowserPaneEngineAdapter: BrowserPaneEngineAdapter {
         remoteDebuggingEndpoint = nil
         hasStarted = false
         isReady = false
+        isBootstrapping = false
+        hasObservedInitialLoadingState = false
         backHistoryURLs = nil
         forwardHistoryURLs = nil
         publishSnapshot(state: .stopped)
@@ -573,9 +606,25 @@ final class CEFBrowserPaneEngineAdapter: BrowserPaneEngineAdapter {
 
     func setEmulatedColorScheme(_ scheme: String?) {
         emulatedColorScheme = scheme
+        colorSchemeGeneration &+= 1
+        scheduleColorSchemeApply()
+    }
+
+    private func scheduleColorSchemeApply() {
         colorSchemeTask?.cancel()
-        colorSchemeTask = Task { [weak self] in
-            try? await self?.applyStoredColorScheme()
+        guard !isBootstrapping, browser != nil else { return }
+        let generation = colorSchemeGeneration
+        colorSchemeTask = Task { @MainActor [weak self] in
+            guard let self else { return }
+            do {
+                try await self.applyStoredColorScheme()
+            } catch is CancellationError {
+                return
+            } catch {
+                return
+            }
+            guard self.colorSchemeGeneration != generation else { return }
+            self.scheduleColorSchemeApply()
         }
     }
 
@@ -632,9 +681,18 @@ final class CEFBrowserPaneEngineAdapter: BrowserPaneEngineAdapter {
             Self.effectivePort(for: url) == Self.effectivePort(for: target) &&
             url.user == target.user &&
             url.password == target.password &&
-            url.path == target.path &&
+            Self.navigationPath(for: url) == Self.navigationPath(for: target) &&
             url.query == target.query &&
             url.fragment == target.fragment
+    }
+
+    /// Normalizes the empty HTTP(S) origin path to Chromium's `/` spelling.
+    private static func navigationPath(for url: URL) -> String {
+        guard url.path.isEmpty else { return url.path }
+        switch url.scheme?.lowercased() {
+        case "http", "https": return "/"
+        default: return url.path
+        }
     }
 
     private static func effectivePort(for url: URL) -> Int? {
@@ -655,7 +713,9 @@ final class CEFBrowserPaneEngineAdapter: BrowserPaneEngineAdapter {
             if let cefWindow = browser?.nsWindow {
                 hostView.attach(cefWindow: cefWindow)
             }
-            scheduleNavigationHistoryRefresh()
+            if !isBootstrapping {
+                scheduleNavigationHistoryRefresh()
+            }
             publishSnapshot(state: .running(nil))
             let waiters = readyContinuations.values
             readyContinuations.removeAll()
@@ -668,13 +728,25 @@ final class CEFBrowserPaneEngineAdapter: BrowserPaneEngineAdapter {
         case .addressChanged(let value):
             currentURL = URL(string: value)
             navigationRevision &+= 1
-            scheduleNavigationHistoryRefresh()
+            if !isBootstrapping {
+                scheduleNavigationHistoryRefresh()
+            }
             publishSnapshot(state: .running(nil))
         case .loadingStateChanged(let loading, let back, let forward):
             isLoading = loading
             canGoBack = back
             canGoForward = forward
-            scheduleNavigationHistoryRefresh()
+            if !hasObservedInitialLoadingState {
+                hasObservedInitialLoadingState = true
+                let waiters = initialLoadContinuations.values
+                initialLoadContinuations.removeAll()
+                for task in initialLoadTimeoutTasks.values { task.cancel() }
+                initialLoadTimeoutTasks.removeAll()
+                for waiter in waiters { waiter.resume(returning: ()) }
+            }
+            if !isBootstrapping {
+                scheduleNavigationHistoryRefresh()
+            }
             publishSnapshot(state: .running(nil))
         case .rendererCrashed:
             isReady = false
@@ -687,6 +759,7 @@ final class CEFBrowserPaneEngineAdapter: BrowserPaneEngineAdapter {
             eventTask?.cancel()
             eventTask = nil
             cancelReadyWaiters()
+            cancelInitialLoadingStateWaiters()
             hostView.detach()
             remoteDebuggingEndpoint = nil
             browser?.close()
@@ -708,6 +781,7 @@ final class CEFBrowserPaneEngineAdapter: BrowserPaneEngineAdapter {
             documentScriptRemovalTask = nil
             colorSchemeTask?.cancel()
             colorSchemeTask = nil
+            cancelInitialLoadingStateWaiters()
             remoteDebuggingEndpoint = nil
             hostView.detach()
             browser = nil
@@ -823,6 +897,7 @@ final class CEFBrowserPaneEngineAdapter: BrowserPaneEngineAdapter {
         colorSchemeTask?.cancel()
         colorSchemeTask = nil
         cancelReadyWaiters()
+        cancelInitialLoadingStateWaiters()
         hostView.detach()
         browser?.close()
         browser = nil
@@ -830,6 +905,67 @@ final class CEFBrowserPaneEngineAdapter: BrowserPaneEngineAdapter {
         remoteDebuggingEndpoint = nil
         hasStarted = false
         isReady = false
+        isBootstrapping = false
+        hasObservedInitialLoadingState = false
+    }
+
+    /// Waits for the first loading-state signal from the initial document.
+    /// CEF can emit only the `isLoading` transition while the renderer attaches;
+    /// waiting for a later idle transition can therefore deadlock startup.
+    private func awaitInitialLoadingState() async throws {
+        if hasObservedInitialLoadingState { return }
+        let waiterID = UUID()
+        try await withTaskCancellationHandler(
+            operation: {
+                try await withCheckedThrowingContinuation {
+                    (continuation: CheckedContinuation<Void, any Error>) in
+                    if Task.isCancelled {
+                        continuation.resume(throwing: CancellationError())
+                    } else if hasObservedInitialLoadingState {
+                        continuation.resume(returning: ())
+                    } else {
+                        initialLoadContinuations[waiterID] = continuation
+                        initialLoadTimeoutTasks[waiterID] = Task { @MainActor [weak self] in
+                            do {
+                                try await Task.sleep(for: Self.initialLoadDeadline)
+                            } catch {
+                                return
+                            }
+                            self?.finishInitialLoadingStateWaiter(
+                                waiterID,
+                                error: ChromiumBrowserDiagnostic.startupTimedOut
+                            )
+                        }
+                    }
+                }
+            },
+            onCancel: {
+                Task { @MainActor [weak self] in
+                    self?.finishInitialLoadingStateWaiter(waiterID, error: CancellationError())
+                }
+            }
+        )
+    }
+
+    private func finishInitialLoadingStateWaiter(
+        _ waiterID: UUID,
+        error: (any Error)? = nil
+    ) {
+        guard let waiter = initialLoadContinuations.removeValue(forKey: waiterID) else { return }
+        initialLoadTimeoutTasks.removeValue(forKey: waiterID)?.cancel()
+        if let error {
+            waiter.resume(throwing: error)
+        } else {
+            waiter.resume(returning: ())
+        }
+    }
+
+    private func cancelInitialLoadingStateWaiters() {
+        let waiters = initialLoadContinuations.values
+        initialLoadContinuations.removeAll()
+        for task in initialLoadTimeoutTasks.values { task.cancel() }
+        initialLoadTimeoutTasks.removeAll()
+        for waiter in waiters { waiter.resume(throwing: CancellationError()) }
     }
 
     private func cancelReadyWaiters() {

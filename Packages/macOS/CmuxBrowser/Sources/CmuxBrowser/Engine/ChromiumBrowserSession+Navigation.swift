@@ -473,9 +473,20 @@ extension ChromiumBrowserSession {
             Self.effectivePort(for: url) == Self.effectivePort(for: target) &&
             url.user == target.user &&
             url.password == target.password &&
-            url.path == target.path &&
+            Self.navigationPath(for: url) == Self.navigationPath(for: target) &&
             url.query == target.query &&
             url.fragment == target.fragment
+    }
+
+    /// Returns the URL path in the form Chromium reports for navigation.
+    /// Foundation leaves the path empty for an HTTP(S) origin without a
+    /// trailing slash, while Chromium reports `/` for that same origin.
+    private static func navigationPath(for url: URL) -> String {
+        guard url.path.isEmpty else { return url.path }
+        switch url.scheme?.lowercased() {
+        case "http", "https": return "/"
+        default: return url.path
+        }
     }
 
     private static func effectivePort(for url: URL) -> Int? {
