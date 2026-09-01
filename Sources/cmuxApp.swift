@@ -242,12 +242,13 @@ struct cmuxApp: App {
         KeyboardShortcutSettings.settingsFileStore.applyDeferredManagedDefaultSideEffects()
         StartupBreadcrumbLog.append("app.init.keyboardShortcuts.sideEffectsApplied")
         StartupBreadcrumbLog.append("app.init.tabManager.begin")
+        let declarativeTerminalConfigurationModel = settingsRuntime.declarativeTerminalConfigurationModel
         let tabManager = TabManager(
             workspaceCustomizationStore: workspaceCustomizationStore,
             nativeSSHConnectionBroker: TerminalController.shared.nativeSSHConnectionBroker,
-            declarativeTerminalConfigurationSource: settingsRuntime.declarativeTerminalConfigurationModel,
+            declarativeTerminalConfigurationSource: declarativeTerminalConfigurationModel,
             initialWorkspaceReadiness: {
-                await settingsRuntime.declarativeTerminalConfigurationModel.waitForInitialSnapshot()
+                await declarativeTerminalConfigurationModel.waitForInitialSnapshot()
             }
         )
         _tabManager = StateObject(wrappedValue: tabManager)
