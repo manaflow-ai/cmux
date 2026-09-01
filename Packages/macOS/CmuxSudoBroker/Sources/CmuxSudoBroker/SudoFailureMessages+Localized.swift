@@ -42,7 +42,7 @@ extension SudoFailureMessages {
             ),
             cleanupFailed: String(
                 localized: "sudo.error.cleanup_failed",
-                defaultValue: "sudo execution timed out, but one or more processes survived cleanup"
+                defaultValue: "sudo could not finish process cleanup; one or more processes survived"
             )
         )
     }

@@ -271959,8 +271959,8 @@
     "sudo.error.cleanup_failed": {
       "extractionState": "manual",
       "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "sudo execution timed out, but one or more processes survived cleanup" } },
-        "ja": { "stringUnit": { "state": "translated", "value": "sudo の実行がタイムアウトしましたが、クリーンアップ後も 1 つ以上のプロセスが残っています" } },
+        "en": { "stringUnit": { "state": "translated", "value": "sudo could not finish process cleanup; one or more processes survived" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "sudo のプロセスを完全にクリーンアップできませんでした。1 つ以上のプロセスが残っています" } },
         "de": { "stringUnit": { "state": "translated", "value": "sudo-Ausführung ist abgelaufen, aber ein oder mehrere Prozesse haben die Bereinigung überlebt" } },
         "ar": { "stringUnit": { "state": "translated", "value": "انتهت مهلة تنفيذ sudo، لكن عملية واحدة أو أكثر نجت من التنظيف" } },
         "bs": { "stringUnit": { "state": "translated", "value": "sudo izvršenje je isteklo, ali jedan ili više procesa je preživio čišćenje" } },
