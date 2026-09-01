@@ -19,6 +19,14 @@ extension View {
     /// decouples the bar from the content, so it stays expanded exactly like
     /// the terminal surface, where no system scroll view exists to discover.
     ///
+    /// The stand-in cannot host the iOS 26 scroll edge effect for the
+    /// terminal's under-bar band: UIKit renders that effect on the tracked
+    /// scroll view's own content subtree, and the terminal's pixels live in
+    /// the Ghostty render layer outside any scroll view (verified on-device;
+    /// an on-window frozen mid-scroll stand-in overlaying the band renders
+    /// nothing). The band's fade is instead screen-anchored chrome in
+    /// `GhosttySurfaceHostView`.
+    ///
     /// On iOS 27 the native opt-out is applied as well once an Xcode 27
     /// toolchain builds this target.
     @ViewBuilder
