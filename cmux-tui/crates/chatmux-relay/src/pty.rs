@@ -931,10 +931,11 @@ impl PtyManager {
         self.detach_matching(|_| true).retire();
     }
 
-    /// One transport dropped: release only its attachments and cancel only
-    /// its in-flight opens. Sessions live on either way (docs/TERMINAL.md).
+    /// One legacy relay transport dropped: release only its attachments and
+    /// cancel only its in-flight opens. Identified tunnel transports must use
+    /// `detach_transport_kind`, because transport IDs are scoped by kind.
     pub fn detach_transport(&self, transport_id: &str) {
-        self.detach_matching(|owner| owner.id.as_deref() == Some(transport_id)).retire();
+        self.detach_transport_kind(transport_id, TransportKind::Relay);
     }
 
     /// One typed transport dropped. This avoids treating an opaque relay ID
@@ -5339,6 +5340,30 @@ mod tests {
         assert!(h.manager.has_attachment("p-tunnel"), "the tunnel viewer must survive");
         h.manager.detach_all();
         assert!(!h.manager.has_attachment("p-tunnel"));
+    }
+
+    #[tokio::test]
+    async fn legacy_detach_transport_does_not_cross_transport_kind() {
+        let h = harness(None, None);
+        h.open_with_transport("p-relay", "relay-side", "shared-id").await;
+
+        let mut tunnel = h.context_with_transport("supervised", h.owner.clone(), Some("shared-id"));
+        tunnel.transport_kind = TransportKind::Tunnel;
+        h.manager.update_transport_auth(&tunnel);
+        let frame = serde_json::json!({
+            "version": 4,
+            "type": "pty_open",
+            "ptyId": "p-tunnel",
+            "session": "tunnel-side",
+            "cols": 80,
+            "rows": 24,
+            "actorId": "user_owner",
+        });
+        h.manager.handle_frame(&frame, &tunnel).await;
+
+        h.manager.detach_transport("shared-id");
+        assert!(!h.manager.has_attachment("p-relay"));
+        assert!(h.manager.has_attachment("p-tunnel"));
     }
 
     #[tokio::test]
