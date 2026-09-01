@@ -77,7 +77,9 @@ const FLOW_RESUME_BYTES: u64 = 32_768;
 /// Bound decoded client frames while the ordered dispatcher is waiting for an
 /// open or control operation. The reader must keep observing EOF and
 /// cancellation instead of waiting on an unbounded work queue.
-const TUNNEL_DISPATCH_QUEUE_ITEMS: usize = 64;
+// Eight 1 MiB frames cap each stalled connection's decoded client backlog at
+// roughly 8 MiB. The output path has its separate 1 MiB byte cap.
+const TUNNEL_DISPATCH_QUEUE_ITEMS: usize = 8;
 
 /// Relay pty_error codes -> browser wire codes. Mirrors the Worker's
 /// browserErrorCode map (apps/backend/src/terminal/relay-pty.ts). KEEP IN

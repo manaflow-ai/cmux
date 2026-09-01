@@ -971,6 +971,21 @@ impl ControlGuard {
     }
 }
 
+async fn request_control_with_cancellation(
+    control: &Arc<dyn ControlHandle>,
+    cmd: &str,
+    params: Value,
+    cancellation: &CancellationToken,
+) -> Option<Value> {
+    tokio::select! {
+        response = control.request(cmd, params) => response,
+        _ = cancellation.cancelled() => {
+            control.end();
+            None
+        }
+    }
+}
+
 impl Drop for ControlGuard {
     fn drop(&mut self) {
         if let Some(control) = self.0.take() {
@@ -1819,7 +1834,13 @@ impl Inner {
         } else {
             json!({ "surface": surface_id })
         };
-        let attached = control.request("attach-surface", attach_params).await;
+        let attached = request_control_with_cancellation(
+            &control,
+            "attach-surface",
+            attach_params,
+            &context.cancellation,
+        )
+        .await;
         if attached.as_ref().and_then(|v| v.get("ok")).and_then(Value::as_bool) != Some(true) {
             control.end();
             let reason = attached
