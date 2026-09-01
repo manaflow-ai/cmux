@@ -5448,6 +5448,7 @@ struct CMUXCLI {
         // Workspace inspection and pane/surface topology listings use distinct
         // preservation sets at their call sites below.
         let preservesStableIDsByDefault = jsonOutput && idFormatArg == nil
+        let paneSurfacePreservingIDKinds: Set<String> = preservesStableIDsByDefault ? ["pane", "surface"] : []
         // Most CLI --window routing focuses first so commands without an
         // explicit window_id still target the selected window.
         if let windowId, Self.shouldFocusWindowBeforeDispatch(command: command, commandArgs: commandArgs) {
@@ -6882,7 +6883,7 @@ struct CMUXCLI {
                 print(jsonString(formatIDs(
                     payload,
                     mode: idFormat,
-                    preservingIDKinds: preservesStableIDsByDefault ? ["pane", "surface"] : []
+                    preservingIDKinds: paneSurfacePreservingIDKinds
                 )))
             } else {
                 let panes = payload["panes"] as? [[String: Any]] ?? []
@@ -6916,7 +6917,7 @@ struct CMUXCLI {
                 print(jsonString(formatIDs(
                     payload,
                     mode: idFormat,
-                    preservingIDKinds: preservesStableIDsByDefault ? ["pane", "surface"] : []
+                    preservingIDKinds: paneSurfacePreservingIDKinds
                 )))
             } else {
                 let surfaces = payload["surfaces"] as? [[String: Any]] ?? []
