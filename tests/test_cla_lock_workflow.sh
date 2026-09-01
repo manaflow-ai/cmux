@@ -62,6 +62,11 @@ gh() {
   if [[ "${FAKE_MODE:-}" == api-failure && "$endpoint" == repos/*/pulls/123 ]]; then
     return 1
   fi
+  if [[ "${FAKE_MODE:-}" == already-locked-read-failure &&
+        "$endpoint" == repos/*/pulls/123 &&
+        -f "${FAKE_LOCK_FILE}.recheck" ]]; then
+    return 1
+  fi
 
   case "$endpoint" in
     repos/manaflow-ai/cmux/pulls/123)
@@ -122,7 +127,8 @@ gh() {
       local locked=false
       [[ -f "${FAKE_LOCK_FILE}" ]] && locked="$(<"${FAKE_LOCK_FILE}")"
       if [[ " $* " == *" --jq .locked "* ]]; then
-        if [[ "${FAKE_MODE:-}" == already-locked-reopen-after-read ]]; then
+        if [[ "${FAKE_MODE:-}" == already-locked-reopen-after-read ||
+              "${FAKE_MODE:-}" == already-locked-read-failure ]]; then
           printf 'seen\n' >"${FAKE_LOCK_FILE}.recheck"
         fi
         printf '%s\n' "$locked"
@@ -158,7 +164,8 @@ run_case() {
   local event_head_repo_id="$EVENT_HEAD_REPO_ID"
   : >"$work/posts-$mode"
   : >"$work/lock-$mode"
-  if [[ "$mode" == already-locked || "$mode" == already-locked-reopen-after-read ]]; then
+  if [[ "$mode" == already-locked || "$mode" == already-locked-reopen-after-read ||
+        "$mode" == already-locked-read-failure ]]; then
     printf 'true\n' >"$work/lock-$mode"
   fi
   if [[ "$mode" == deleted-fork || "$mode" == deleted-fork-metadata-mismatch ]]; then
@@ -208,3 +215,4 @@ run_case api-failure 1 "Could not query the merged pull request" 0
 run_case lock-failure 1 "Could not lock the merged pull request" 1
 run_case reopen-after-lock 1 "changed after locking; the stale lock was removed" 2
 run_case already-locked-reopen-after-read 1 "already-locked pull request changed; the stale lock was removed" 1
+run_case already-locked-read-failure 1 "Could not verify the already-locked pull request" 0

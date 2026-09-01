@@ -644,7 +644,6 @@ jobs:
             # event. Recheck the live state before treating it as valid, and
             # remove it if the pull request was reopened or retargeted.
             if ! live_pr_json="$(gh api "repos/${GH_REPO}/pulls/${PR_NUMBER}" 2>/dev/null)"; then
-              unlock_after_state_change
               fail "Could not verify the already-locked pull request"
             fi
             if ! validate_live_merged_pr "${live_pr_json}"; then
