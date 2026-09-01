@@ -72,7 +72,8 @@ struct CloudTuiCommandLine: Sendable {
     }
 
     /// `terminal <term_id> keys <key>…` (spec `terminal.input.keys`): named keys such as
-    /// `enter`, `tab`, `escape`, `ctrl-c`, `up`; the daemon rejects empty names.
+    /// `enter`, `tab`, `escape`, `up`, and `+`-joined chords such as `ctrl+c` (verified
+    /// live; `ctrl-c` is `validation.invalid`). The daemon rejects empty names.
     static func keysArguments(socketPath: String, terminalID: String, keys: [String]) -> [String] {
         ["--socket", socketPath, "--json", "terminal", terminalID, "keys"] + keys
     }
