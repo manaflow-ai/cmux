@@ -5538,6 +5538,16 @@ def _self_test() -> int:
             "sock.bind(('127.0.0.1', 8080))\n"
             '"""\n',
         ),
+        # Swift block comments may nest; all content remains inert until the
+        # matching outer terminator.
+        (
+            "cmuxTests/n31.swift",
+            "/* outer comment\n"
+            " /* inner comment */\n"
+            " Task.sleep(nanoseconds: 1)\n"
+            " #expect(false)\n"
+            "*/\n",
+        ),
     ]
 
     failures: list[str] = []

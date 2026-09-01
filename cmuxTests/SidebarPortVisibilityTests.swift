@@ -173,6 +173,36 @@ struct SidebarPortVisibilityTests {
         #expect(workspace.sidebarVisibleListeningPorts == [3_000])
     }
 
+    @Test("Closing a pane batches listening-port recomputation")
+    func closingPaneBatchesListeningPortRecomputation() throws {
+        let (defaults, suiteName) = try makeDefaults()
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let workspace = Workspace(settings: UserDefaultsSettingsClient(defaults: defaults))
+        let firstPanelID = try #require(workspace.focusedPanelId)
+        let secondPanel = try #require(
+            workspace.newTerminalSplit(from: firstPanelID, orientation: .horizontal)
+        )
+        let closingPaneID = try #require(workspace.paneId(forPanelId: secondPanel.id))
+        let thirdPanel = try #require(
+            workspace.newTerminalSurface(inPane: closingPaneID, focus: false)
+        )
+
+        workspace.setSurfaceListeningPorts([3_000], for: firstPanelID)
+        workspace.setSurfaceListeningPorts([4_000], for: secondPanel.id)
+        workspace.setSurfaceListeningPorts([5_000], for: thirdPanel.id)
+        workspace.recomputeListeningPorts()
+
+        var aggregatePublications = 0
+        let cancellable = workspace.$listeningPorts
+            .dropFirst()
+            .sink { _ in aggregatePublications += 1 }
+
+        #expect(workspace.bonsplitController.closePane(closingPaneID))
+        #expect(aggregatePublications == 1)
+        #expect(workspace.listeningPorts == [3_000])
+        withExtendedLifetime(cancellable) {}
+    }
+
     @Test("cmux.json parses exact ports and inclusive ignored ranges")
     func settingsFileParsesExactPortsAndInclusiveRanges() throws {
         let catalog = SettingCatalog()
