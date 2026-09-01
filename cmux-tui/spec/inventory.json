@@ -108,6 +108,7 @@
     "terminal.input.write",
     "terminal.list",
     "terminal.move",
+    "terminal.output_read",
     "terminal.process.get",
     "terminal.project",
     "terminal.renderer_grant.create",
@@ -1425,12 +1426,5 @@
       "spec": "programmability.md"
     }
   ],
-  "pending_heads": [
-    {
-      "name": "terminal-shortcuts",
-      "url": "https://github.com/manaflow-ai/cmux/pull/8698",
-      "status": "pending",
-      "note": "Adds clear-history and structured key work. It is not part of the main protocol inventory."
-    }
-  ]
+  "pending_heads": []
 }

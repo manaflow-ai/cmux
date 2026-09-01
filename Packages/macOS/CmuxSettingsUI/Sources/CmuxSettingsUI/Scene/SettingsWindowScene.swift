@@ -41,6 +41,10 @@ public struct SettingsWindowRoot: View {
     // there is no SwiftUI scene to store into (cmux issue #7777).
     @AppStorage("selectedSettingsSection") private var selectedSectionRaw: String = SettingsSectionID.account.rawValue
     @AppStorage("selectedSettingsSidebarEntry") private var selectedSidebarEntryID: String = "section:\(SettingsSectionID.account.rawValue)"
+    // Mirrors BetaFeaturesCatalogSection.cloudMachines so flipping the Beta
+    // Features toggle shows/hides the Cloud sidebar row without reopening
+    // Settings; the host folds in the remote rollout flag.
+    @AppStorage("cloud.beta.machines.enabled") private var cloudMachinesBetaEnabled = false
     // Legacy `SettingsRootView` binds `NavigationSplitView`'s
     // `columnVisibility` so the user can collapse the sidebar via the
     // toolbar button (or the SidebarCommands menu) and have that state
@@ -169,10 +173,24 @@ public struct SettingsWindowRoot: View {
         navigate(to: target, preferSectionSelection: !shouldPreserveSearchSelection)
     }
 
+    /// The Cloud section stays out of the sidebar (and search) until the
+    /// remote rollout flag or the Beta Features opt-in makes its surfaces
+    /// real; its pane already renders nothing while unavailable.
+    private func isEntryVisible(_ entry: SettingsSearchIndex.Entry) -> Bool {
+        let cloudAvailable = hostActions.isCloudMachinesAvailable || cloudMachinesBetaEnabled
+        guard !cloudAvailable else { return true }
+        switch entry.kind {
+        case .section:
+            return entry.id != "section:\(SettingsSectionID.cloudMachines.rawValue)"
+        case .setting(let parent):
+            return parent != .cloudMachines
+        }
+    }
+
     @ViewBuilder
     private var sidebar: some View {
         List(selection: sidebarSelectionBinding) {
-            let matches = sidebarEntries(matching: searchText)
+            let matches = sidebarEntries(matching: searchText).filter(isEntryVisible)
             if matches.isEmpty {
                 Text(String(localized: "settings.search.noResults", defaultValue: "No Results"))
                     .foregroundStyle(.secondary)
@@ -456,6 +474,9 @@ public struct SettingsWindowRoot: View {
         MobileSection(defaultsStore: defaultsStore, catalog: catalog, hostActions: hostActions)
             .id(anchorID(for: .mobile))
 
+        CloudMachinesSection(hostActions: hostActions)
+            .id(anchorID(for: .cloudMachines))
+
         IrohNetworkingSection(hostActions: hostActions)
             .id(anchorID(for: .networking))
 
@@ -485,6 +506,15 @@ public struct SettingsWindowRoot: View {
         if visibleSections.contains(.subrouter) {
             SubrouterSection(defaultsStore: defaultsStore, catalog: catalog)
                 .id(anchorID(for: .subrouter))
+        }
+        if visibleSections.contains(.computerUse) {
+            ComputerUseSection(
+                jsonStore: jsonStore,
+                catalog: catalog,
+                errorLog: runtime.errorLog,
+                hostActions: hostActions
+            )
+            .id(anchorID(for: .computerUse))
         }
 
         BrowserSection(

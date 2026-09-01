@@ -396,7 +396,7 @@ enum BrowserSettingsFileMapping {
         ),
         .init(
             jsonKey: "urlsToAlwaysOpenExternally",
-            defaultsKey: BrowserLinkOpenSettings.browserExternalOpenPatternsKey,
+            defaultsKey: BrowserExternalURLPolicy.userDefaultsKey,
             invalidPath: "browser.urlsToAlwaysOpenExternally"
         ),
         .init(

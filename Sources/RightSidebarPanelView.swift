@@ -5,6 +5,10 @@ import CmuxAppKitSupportUI
 import CmuxFoundation
 import CmuxSettings
 import CmuxSettingsUI
+import CmuxSidebarInterpreterClient
+import CmuxSidebarRemoteRender
+import CmuxSwiftRender
+import CmuxSwiftRenderUI
 import SwiftUI
 
 private func rightSidebarDebugResponder(_ responder: NSResponder?) -> String {
@@ -20,6 +24,7 @@ enum RightSidebarMode: String, CaseIterable, Codable, Sendable {
     case feed
     case dock
     case agents
+    case machines
     case customSidebar = "custom-sidebar"
 
     var label: String {
@@ -30,9 +35,11 @@ enum RightSidebarMode: String, CaseIterable, Codable, Sendable {
         case .feed: return String(localized: "rightSidebar.mode.feed", defaultValue: "Feed")
         case .dock: return String(localized: "rightSidebar.mode.dock", defaultValue: "Dock")
         case .agents: return String(localized: "rightSidebar.mode.agents", defaultValue: "Subrouter")
+        case .machines: return String(localized: "rightSidebar.mode.machines", defaultValue: "Cloud")
         case .customSidebar: return String(localized: "rightSidebar.mode.customSidebar", defaultValue: "Custom")
         }
     }
+
 
     var symbolName: String {
         switch self {
@@ -42,6 +49,7 @@ enum RightSidebarMode: String, CaseIterable, Codable, Sendable {
         case .feed: return "dot.radiowaves.left.and.right"
         case .dock: return "dock.rectangle"
         case .agents: return "arrow.triangle.branch"
+        case .machines: return "cloud"
         case .customSidebar: return "wand.and.stars"
         }
     }
@@ -54,6 +62,7 @@ enum RightSidebarMode: String, CaseIterable, Codable, Sendable {
         case .feed: return .switchRightSidebarToFeed
         case .dock: return .switchRightSidebarToDock
         case .agents: return .switchRightSidebarToAgents
+        case .machines: return .switchRightSidebarToMachines
         case .customSidebar: return nil
         }
     }
@@ -79,7 +88,7 @@ enum FileExplorerRootSyncPolicy {
         switch mode {
         case .files, .find:
             return true
-        case .sessions, .feed, .dock, .agents, .customSidebar:
+        case .sessions, .feed, .dock, .agents, .machines, .customSidebar:
             return false
         }
     }
@@ -121,6 +130,9 @@ struct RightSidebarPanelView: View {
     let onOpenFilePreview: (String) -> Void
     let onOpenAsPane: (RightSidebarMode) -> Void
     let onClose: () -> Void
+    /// Live data context for the Custom mode's JS/Swift sidebar (built by the
+    /// window's ContentView, which owns the unread model this view never sees).
+    let customSidebarDataContext: (Date) -> [String: SwiftValue]
 
     @State private var modeShortcutHintMonitor = WindowScopedShortcutHintModifierMonitor(activation: .commandOrControl) { window in
         guard let responder = window.firstResponder else { return false }
@@ -142,6 +154,13 @@ struct RightSidebarPanelView: View {
     private var dockEnabled = RightSidebarBetaFeatureSettings.defaultDockEnabled
     @AppStorage(SubrouterIntegrationSettings.enabledKey)
     private var subrouterEnabled = SubrouterIntegrationSettings.defaultEnabled
+    @AppStorage(RightSidebarBetaFeatureSettings.cloudMachinesEnabledKey)
+    private var cloudMachinesBetaEnabled = RightSidebarBetaFeatureSettings.defaultCloudMachinesEnabled
+    @LiveSetting(\.customSidebars.renderer) private var customSidebarRenderer
+    /// The right rail's OWN worker client. Never share the left sidebar's:
+    /// the remote host swaps files in place on one client, so a shared client
+    /// would make the two rails fight over one worker process.
+    @State private var customSidebarWorkerClient: RenderWorkerClient?
 
     // Re-reading the observable store inside modeBar causes SwiftUI to
     // track the pending count so the badge updates live when hooks push
@@ -159,7 +178,8 @@ struct RightSidebarPanelView: View {
             // flag flips (Internal Flags window or a PostHog payload).
             agentsEnabled: CmuxFeatureFlags.shared.isSubrouterUIEnabled
                 && subrouterEnabled
-                && runtimeEnabled
+                && runtimeEnabled,
+            machinesEnabled: CmuxFeatureFlags.shared.isCloudVMUIEnabled || cloudMachinesBetaEnabled
         )
     }
 
@@ -254,6 +274,7 @@ struct RightSidebarPanelView: View {
             // UserDefaults; move the selection immediately when that happens.
             refreshModeAvailabilityAndFocusIfNeeded()
         }
+        .onChange(of: cloudMachinesBetaEnabled) { _, _ in refreshModeAvailabilityAndFocusIfNeeded() }
     }
 
     private var modeBar: some View {
@@ -455,12 +476,66 @@ struct RightSidebarPanelView: View {
                     isSidebarVisible: fileExplorerState.isVisible,
                     tabManager: tabManager
                 )
+            case .machines:
+                MachinesPanelView(
+                    chromeBackgroundColor: windowAppearance.resolvedChromeBackgroundColor
+                )
             case .customSidebar:
-                EmptyView()
+                customSidebarPanel
             }
         } else {
             Color.clear
         }
+    }
+
+    /// Custom mode: mounts the selected `~/.config/cmux/sidebars/<name>.{js,swift,json}`
+    /// through the same surface as the left sidebar and panes (file-watched,
+    /// hot-reloading, same data keys and `cmux(...)` actions).
+    @ViewBuilder
+    private var customSidebarPanel: some View {
+        if let name = fileExplorerState.customSidebarName,
+           let fileURL = CmuxExtensionSidebarSelection.customSidebarFileURL(forName: name) {
+            TimelineView(.periodic(from: .now, by: 1)) { timeline in
+                CustomSidebarSurface(
+                    fileURL: fileURL,
+                    dataContext: customSidebarDataContext(timeline.date),
+                    dispatch: makeCmuxSidebarActionDispatch(),
+                    contentInsets: CustomSidebarContentInsets(top: 8, bottom: 8),
+                    rendersInProcess: customSidebarRenderer == .inProcess,
+                    client: $customSidebarWorkerClient
+                )
+            }
+            .onDisappear {
+                shutdownCustomSidebarWorkerClient()
+            }
+        } else {
+            VStack(spacing: 6) {
+                Image(systemName: "wand.and.stars")
+                    .font(.system(size: 20))
+                    .foregroundStyle(.tertiary)
+                Text(String(
+                    localized: "rightSidebar.customSidebar.empty",
+                    defaultValue: "No custom sidebar selected"
+                ))
+                .font(.callout)
+                .foregroundStyle(.secondary)
+                Text(String(
+                    localized: "rightSidebar.customSidebar.emptyHint",
+                    defaultValue: "Pick one with: cmux right-sidebar set custom <name>"
+                ))
+                .font(.caption)
+                .foregroundStyle(.tertiary)
+                .multilineTextAlignment(.center)
+            }
+            .padding(16)
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+        }
+    }
+
+    private func shutdownCustomSidebarWorkerClient() {
+        guard let client = customSidebarWorkerClient else { return }
+        customSidebarWorkerClient = nil
+        Task { await client.shutdown() }
     }
 
     private var sessionIndexDirectory: String? {

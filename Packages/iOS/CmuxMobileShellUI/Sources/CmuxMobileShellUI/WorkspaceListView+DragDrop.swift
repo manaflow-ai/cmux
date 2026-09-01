@@ -173,7 +173,8 @@ extension WorkspaceListView {
         case .workspace(let workspace, _):
             movedWorkspaceID = workspace.id
         case .groupHeader(let group, _):
-            movedWorkspaceID = group.anchorWorkspaceID
+            guard let anchorWorkspaceID = group.liveAnchorWorkspaceID else { return }
+            movedWorkspaceID = anchorWorkspaceID
         case .groupFooter:
             return
         }

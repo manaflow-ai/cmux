@@ -16,6 +16,10 @@ extension RightSidebarMode {
             return .dock
         case "agents", "subrouter":
             return .agents
+        case "cloud", "machines", "vms":
+            return .machines
+        case "custom", "custom-sidebar":
+            return .customSidebar
         default:
             return nil
         }
@@ -28,16 +32,41 @@ extension RightSidebarMode {
             dockEnabled: RightSidebarBetaFeatureSettings.isDockEnabled(defaults: defaults),
             agentsEnabled: settings.isEnabled
                 && settings.hasValidEndpointSetting
-                && SubrouterAppRuntime.isRuntimeEnabledForAvailability
+                && SubrouterAppRuntime.isRuntimeEnabledForAvailability,
+            machinesEnabled: CloudMachinesFeature.offMainIsEnabled(defaults: defaults)
         )
     }
 
     static func availableModes(feedEnabled: Bool, dockEnabled: Bool, agentsEnabled: Bool) -> [RightSidebarMode] {
+        availableModes(
+            feedEnabled: feedEnabled,
+            dockEnabled: dockEnabled,
+            agentsEnabled: agentsEnabled,
+            machinesEnabled: false
+        )
+    }
+
+    static func availableModes(feedEnabled: Bool, dockEnabled: Bool, machinesEnabled: Bool) -> [RightSidebarMode] {
+        availableModes(
+            feedEnabled: feedEnabled,
+            dockEnabled: dockEnabled,
+            agentsEnabled: false,
+            machinesEnabled: machinesEnabled
+        )
+    }
+
+    static func availableModes(
+        feedEnabled: Bool,
+        dockEnabled: Bool,
+        agentsEnabled: Bool,
+        machinesEnabled: Bool
+    ) -> [RightSidebarMode] {
         allCases.filter {
-            $0 != .customSidebar && $0.isAvailable(
+            $0.isAvailable(
                 feedEnabled: feedEnabled,
                 dockEnabled: dockEnabled,
-                agentsEnabled: agentsEnabled
+                agentsEnabled: agentsEnabled,
+                machinesEnabled: machinesEnabled
             )
         }
     }
@@ -49,11 +78,35 @@ extension RightSidebarMode {
             dockEnabled: RightSidebarBetaFeatureSettings.isDockEnabled(defaults: defaults),
             agentsEnabled: settings.isEnabled
                 && settings.hasValidEndpointSetting
-                && SubrouterAppRuntime.isRuntimeEnabledForAvailability
+                && SubrouterAppRuntime.isRuntimeEnabledForAvailability,
+            machinesEnabled: CloudMachinesFeature.offMainIsEnabled(defaults: defaults)
         )
     }
 
     func isAvailable(feedEnabled: Bool, dockEnabled: Bool, agentsEnabled: Bool) -> Bool {
+        isAvailable(
+            feedEnabled: feedEnabled,
+            dockEnabled: dockEnabled,
+            agentsEnabled: agentsEnabled,
+            machinesEnabled: false
+        )
+    }
+
+    func isAvailable(feedEnabled: Bool, dockEnabled: Bool, machinesEnabled: Bool) -> Bool {
+        isAvailable(
+            feedEnabled: feedEnabled,
+            dockEnabled: dockEnabled,
+            agentsEnabled: false,
+            machinesEnabled: machinesEnabled
+        )
+    }
+
+    func isAvailable(
+        feedEnabled: Bool,
+        dockEnabled: Bool,
+        agentsEnabled: Bool,
+        machinesEnabled: Bool
+    ) -> Bool {
         switch self {
         case .files, .find, .sessions:
             return true
@@ -63,8 +116,13 @@ extension RightSidebarMode {
             return dockEnabled
         case .agents:
             return agentsEnabled
+        case .machines:
+            return machinesEnabled
         case .customSidebar:
-            return false
+            // Available once the custom-sidebars beta is on AND a right-side
+            // sidebar has been picked (right_sidebar set custom <name>).
+            return CmuxExtensionSidebarSelection.customSidebarsEnabled
+                && FileExplorerState.persistedCustomSidebarName() != nil
         }
     }
 }

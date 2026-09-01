@@ -432,7 +432,7 @@ extension CMUXCLI {
 
     func isRightSidebarCLIMode(_ value: String) -> Bool {
         switch value.lowercased() {
-        case "files", "find", "vault", "sessions", "feed", "dock", "agents", "subrouter":
+        case "files", "find", "vault", "sessions", "feed", "dock", "agents", "subrouter", "cloud", "machines", "vms", "custom", "custom-sidebar":
             return true
         default:
             return false
@@ -446,6 +446,10 @@ extension CMUXCLI {
         case "subrouter":
             // The mode's wire name; `subrouter` is the tab-label alias.
             return "agents"
+        case "files", "find", "vault", "sessions", "feed", "dock", "machines", "custom", "custom-sidebar":
+            return value.lowercased()
+        case "cloud", "vms":
+            return "machines"
         default:
             return value
         }

@@ -10,6 +10,7 @@ extension ShortcutAction {
         case .switchRightSidebarToFiles, .switchRightSidebarToFind,
              .switchRightSidebarToSessions, .switchRightSidebarToFeed, .switchRightSidebarToDock,
              .switchRightSidebarToAgents,
+             .switchRightSidebarToMachines,
              .commandPaletteNext, .commandPalettePrevious,
              .simulatorHome, .simulatorRotateLeft, .simulatorRotateRight,
              .simulatorToggleAppearance, .simulatorToggleSoftwareKeyboard:

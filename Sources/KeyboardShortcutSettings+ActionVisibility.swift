@@ -8,6 +8,7 @@ extension KeyboardShortcutSettings.Action {
              .switchRightSidebarToFeed,
              .switchRightSidebarToDock,
              .switchRightSidebarToAgents:
+             .switchRightSidebarToMachines:
             return false
         default:
             return true
