@@ -857,6 +857,59 @@ import Testing
         XCTAssertTrue(result.stdout.contains("legacy=\(root.path)|kept"), result.diagnostics)
     }
 
+    @Test func testRestoreRetargetsGeneratedLegacyCwdGuardToExplicitRecoveryDirectory() throws {
+        let cliPath = try bundledCLIPath()
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux legacy cwd recovery \(UUID().uuidString)", isDirectory: true)
+        let deletedDirectory = root.appendingPathComponent("deleted project", isDirectory: true)
+        let recoveryDirectory = root.appendingPathComponent("chosen successor", isDirectory: true)
+        try FileManager.default.createDirectory(at: deletedDirectory, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: recoveryDirectory, withIntermediateDirectories: true)
+        try FileManager.default.removeItem(at: deletedDirectory)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let checkpointID = "legacy-cwd-\(UUID().uuidString)"
+        let legacyCommand = "cd -- \(shellSingleQuote(deletedDirectory.path)) 2>/dev/null && "
+            + #"printf 'legacy-cwd=%s\n' "$PWD""#
+        let response = try restoreResponse(result: [
+            "restore_record": [
+                "mode": "resumeAgent",
+                "kind": "command",
+                "checkpoint_id": checkpointID,
+                "working_directory": deletedDirectory.path,
+                "environment": [:],
+                "legacy_command": legacyCommand,
+            ],
+        ])
+        let socketPath = "/tmp/cmux-legacy-cwd-\(UUID().uuidString.prefix(8)).sock"
+        let responder = try UnixSocketResponder(path: socketPath, response: response)
+        defer { responder.stop() }
+        var environment = ProcessInfo.processInfo.environment
+        for key in Array(environment.keys) where key.hasPrefix("CMUX_") {
+            environment.removeValue(forKey: key)
+        }
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+        environment["CMUX_SOCKET_PATH"] = socketPath
+        environment["CMUX_SURFACE_ID"] = UUID().uuidString
+        environment["SHELL"] = "/bin/sh"
+
+        let result = runProcess(
+            executablePath: cliPath,
+            arguments: [
+                "restore", "--cwd", recoveryDirectory.path, "command", checkpointID,
+            ],
+            environment: environment,
+            timeout: 5
+        )
+
+        XCTAssertFalse(result.timedOut, result.diagnostics)
+        XCTAssertEqual(result.status, 0, result.diagnostics)
+        XCTAssertTrue(
+            result.stdout.contains("legacy-cwd=\(recoveryDirectory.path)"),
+            result.diagnostics
+        )
+    }
+
     @Test func testRestoreFallsBackWhenStructuredPlannerCannotBuildInvocation() throws {
         let cliPath = try bundledCLIPath()
         let root = FileManager.default.temporaryDirectory
