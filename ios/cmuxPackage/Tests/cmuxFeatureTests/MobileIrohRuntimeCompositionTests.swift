@@ -1822,6 +1822,14 @@ private actor MobileIrohRevocationBroker: CmxIrohClientBrokerServing {
         bindingIDs.append(bindingID)
     }
 
+    func revokeStale(bindingID: String) {
+        bindingIDs.append(bindingID)
+    }
+
+    func forgetMac(bindingID: String) {
+        bindingIDs.append(bindingID)
+    }
+
     func setDiscoverySnapshot(_ snapshot: CmxIrohDiscoveryResponse) {
         discoverySnapshot = snapshot
     }
@@ -1885,6 +1893,16 @@ private actor MobileIrohCredentialFetchingBroker: CmxIrohClientBrokerServing {
     }
 
     func revoke(bindingID: String) async throws {
+        try await fetchCredentialPair()
+        revoked.append(bindingID)
+    }
+
+    func revokeStale(bindingID: String) async throws {
+        try await fetchCredentialPair()
+        revoked.append(bindingID)
+    }
+
+    func forgetMac(bindingID: String) async throws {
         try await fetchCredentialPair()
         revoked.append(bindingID)
     }
