@@ -3,6 +3,12 @@ import CmuxFoundation
 import Combine
 import Foundation
 import CmuxSettings
+import OSLog
+
+nonisolated private let cmuxConfigImageLogger = Logger(
+    subsystem: "com.cmuxterm.app",
+    category: "ConfigImage"
+)
 
 extension CodingUserInfoKey {
     static let cmuxWorkspaceColorDefaults = CodingUserInfoKey(rawValue: "cmuxWorkspaceColorDefaults")!
@@ -479,7 +485,6 @@ enum CmuxButtonIcon: Codable, Sendable, Hashable {
                 relativeToConfig: configSourcePath,
                 globalConfigPath: globalConfigPath
             ) else {
-                NSLog("[CmuxConfig] icon image path is not allowed: %@", path)
                 return .systemImage("questionmark.circle")
             }
             if preparedImage.isProjectLocal && !allowProjectLocalImage {
@@ -553,7 +558,9 @@ enum CmuxButtonIcon: Codable, Sendable, Hashable {
                 isProjectLocal: isProjectLocal
             )
         case .failure(let failure):
-            NSLog("[CmuxConfig] icon image path rejected (%@): %@", path, failure.description)
+            cmuxConfigImageLogger.warning(
+                "icon image path rejected: \(failure.description, privacy: .public)"
+            )
             return nil
         }
     }
