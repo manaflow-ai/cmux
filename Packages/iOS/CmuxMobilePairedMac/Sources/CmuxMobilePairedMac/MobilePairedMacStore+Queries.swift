@@ -22,28 +22,35 @@ extension Collection where Element == MobilePairedMac {
             macDeviceID: macDeviceID,
             instanceTag: instanceTag
         )
-        return filter { candidate in
+        var newestMatch: MobilePairedMac?
+        for candidate in self {
             let candidateIdentity = CmxMacAppInstanceIdentity(
                 macDeviceID: candidate.macDeviceID,
                 instanceTag: candidate.instanceTag
             )
             guard candidateIdentity.macDeviceID == requestedIdentity.macDeviceID else {
-                return false
+                continue
             }
-            guard let requestedTag = requestedIdentity.instanceTag else {
-                return true
+            if let requestedTag = requestedIdentity.instanceTag,
+               candidateIdentity.instanceTag != requestedTag {
+                continue
             }
-            return candidateIdentity.instanceTag == requestedTag
+            guard let current = newestMatch else {
+                newestMatch = candidate
+                continue
+            }
+            let candidateIsNewer: Bool
+            if candidate.lastSeenAt != current.lastSeenAt {
+                candidateIsNewer = candidate.lastSeenAt > current.lastSeenAt
+            } else if candidate.id != current.id {
+                candidateIsNewer = candidate.id < current.id
+            } else {
+                candidateIsNewer = (candidate.teamID ?? "") < (current.teamID ?? "")
+            }
+            if candidateIsNewer {
+                newestMatch = candidate
+            }
         }
-        .sorted {
-            if $0.lastSeenAt != $1.lastSeenAt {
-                return $0.lastSeenAt > $1.lastSeenAt
-            }
-            if $0.id != $1.id {
-                return $0.id < $1.id
-            }
-            return ($0.teamID ?? "") < ($1.teamID ?? "")
-        }
-        .first
+        return newestMatch
     }
 }

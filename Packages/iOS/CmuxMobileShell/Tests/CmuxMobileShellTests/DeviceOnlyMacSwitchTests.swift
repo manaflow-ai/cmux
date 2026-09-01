@@ -9,6 +9,7 @@ import Testing
 /// which saved app instance owns the row.
 @MainActor
 @Suite struct DeviceOnlyMacSwitchTests {
+    /// A nil-tag switch resolves a single tagged row and dials its route.
     @Test func deviceOnlySwitchResolvesAndDialsTaggedRow() async throws {
         let now = Date(timeIntervalSince1970: 1_000)
         let router = LivenessHostRouter()
@@ -48,6 +49,7 @@ import Testing
         #expect(store.activeMacInstanceTag == "feature-a")
     }
 
+    /// A nil-tag switch chooses the newest tagged row without crossing devices.
     @Test func deviceOnlySwitchUsesMostRecentTaggedRowForOneMac() async throws {
         let now = Date(timeIntervalSince1970: 2_000)
         let router = LivenessHostRouter()
@@ -112,6 +114,7 @@ import Testing
         #expect(store.activeMacInstanceTag == "new-build")
     }
 
+    /// A supplied tag selects only its exact saved app-instance row.
     @Test func taggedSwitchStillUsesExactInstanceRow() async throws {
         let now = Date(timeIntervalSince1970: 3_000)
         let router = LivenessHostRouter()
@@ -164,6 +167,7 @@ import Testing
         #expect(!factory.attemptedPorts().contains(51_031))
     }
 
+    /// Creates a loopback route for a scripted transport attempt.
     private func loopbackRoute(id: String, port: Int) throws -> CmxAttachRoute {
         try CmxAttachRoute(
             id: id,
@@ -173,6 +177,7 @@ import Testing
         )
     }
 
+    /// Creates an isolated SQLite paired-Mac store for one test.
     private func makePairedMacStore() throws -> (MobilePairedMacStore, URL) {
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString, isDirectory: true)
@@ -186,6 +191,7 @@ import Testing
         return (store, directory)
     }
 
+    /// Builds a shell wired to the test transport and identity provider.
     private func makeShell(
         pairedStore: MobilePairedMacStore,
         factory: RouteRecordingTransportFactory,
@@ -209,6 +215,7 @@ import Testing
         )
     }
 
+    /// Disables background secondary dials so switch attempts stay observable.
     private func aggregationDefaults() -> UserDefaults {
         let defaults = UserDefaults(
             suiteName: "device-only-switch-aggregation-\(UUID().uuidString)"
