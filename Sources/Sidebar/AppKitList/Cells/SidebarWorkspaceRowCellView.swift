@@ -67,6 +67,8 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
     private var renameSession: SidebarRowInlineRenameSession?
     var isEditing: Bool { renameSession != nil }
     private var pumpCancellables: [AnyCancellable] = []
+    private weak var pumpWorkspace: Workspace?
+    private var pumpRebuild: (@MainActor () -> Void)?
     private var isPresentationActive = true
 
 #if DEBUG
@@ -81,17 +83,20 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
         workspace: Workspace,
         rebuild: @escaping @MainActor () -> Void
     ) {
+        pumpRebuild = rebuild
+        guard pumpWorkspace !== workspace else { return }
         pumpCancellables.removeAll()
+        pumpWorkspace = workspace
         workspace.sidebarImmediateObservationPublisher
             .receive(on: DispatchQueue.main)
-            .sink { _ in
-                MainActor.assumeIsolated { rebuild() }
+            .sink { [weak self] _ in
+                MainActor.assumeIsolated { self?.pumpRebuild?() }
             }
             .store(in: &pumpCancellables)
         workspace.sidebarObservationPublisher
             .debounce(for: .milliseconds(40), scheduler: DispatchQueue.main)
-            .sink { _ in
-                MainActor.assumeIsolated { rebuild() }
+            .sink { [weak self] _ in
+                MainActor.assumeIsolated { self?.pumpRebuild?() }
             }
             .store(in: &pumpCancellables)
         rebuild()
@@ -287,6 +292,8 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
         contextMenuDidClose = nil
         contextMenuVisible = false
         pumpCancellables.removeAll()
+        pumpWorkspace = nil
+        pumpRebuild = nil
         setPresentationActive(false)
         return postUpdateActions
     }
