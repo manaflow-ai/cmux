@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 
 import {
   isPaidVmPlan,
+  isVmFreeProvisioningAllowed,
   isVmProGateBlocked,
   isVmProGateEnforced,
 } from "../services/vms/entitlements";
@@ -22,25 +23,42 @@ describe("Cloud VM Pro gate", () => {
     expect(isPaidVmPlan("enterprise-unknown")).toBe(false);
   });
 
-  test("enforcement is off unless CMUX_VM_REQUIRE_PRO is truthy (ships dark)", () => {
-    expect(isVmProGateEnforced({})).toBe(false);
-    expect(isVmProGateEnforced({ CMUX_VM_REQUIRE_PRO: "" })).toBe(false);
-    expect(isVmProGateEnforced({ CMUX_VM_REQUIRE_PRO: "0" })).toBe(false);
-    expect(isVmProGateEnforced({ CMUX_VM_REQUIRE_PRO: "false" })).toBe(false);
+  test("enforcement is on by default and only an explicit allow switch opens it", () => {
+    expect(isVmProGateEnforced({})).toBe(true);
+    expect(isVmProGateEnforced({ CMUX_VM_REQUIRE_PRO: "" })).toBe(true);
     expect(isVmProGateEnforced({ CMUX_VM_REQUIRE_PRO: "1" })).toBe(true);
-    expect(isVmProGateEnforced({ CMUX_VM_REQUIRE_PRO: "true" })).toBe(true);
-    expect(isVmProGateEnforced({ CMUX_VM_REQUIRE_PRO: "ON" })).toBe(true);
+    expect(isVmProGateEnforced({ CMUX_VM_ALLOW_FREE_PROVISIONING: "" })).toBe(true);
+    expect(isVmProGateEnforced({ CMUX_VM_ALLOW_FREE_PROVISIONING: "0" })).toBe(true);
+    expect(isVmProGateEnforced({ CMUX_VM_ALLOW_FREE_PROVISIONING: "false" })).toBe(true);
+    expect(isVmProGateEnforced({ CMUX_VM_ALLOW_FREE_PROVISIONING: "1" })).toBe(false);
+    expect(isVmProGateEnforced({ CMUX_VM_ALLOW_FREE_PROVISIONING: "ON" })).toBe(false);
   });
 
-  test("enforcement OFF never blocks any plan", () => {
-    expect(isVmProGateBlocked(ent("free"), {})).toBe(false);
+  test("legacy CMUX_VM_REQUIRE_PRO false values remain a compatibility escape hatch", () => {
+    expect(isVmFreeProvisioningAllowed({ CMUX_VM_REQUIRE_PRO: "0" })).toBe(true);
+    expect(isVmFreeProvisioningAllowed({ CMUX_VM_REQUIRE_PRO: "false" })).toBe(true);
+    expect(isVmFreeProvisioningAllowed({ CMUX_VM_REQUIRE_PRO: "off" })).toBe(true);
+    expect(isVmFreeProvisioningAllowed({ CMUX_VM_REQUIRE_PRO: "garbage" })).toBe(false);
+    // The new switch is authoritative when both names are present.
+    expect(isVmFreeProvisioningAllowed({
+      CMUX_VM_ALLOW_FREE_PROVISIONING: "0",
+      CMUX_VM_REQUIRE_PRO: "0",
+    })).toBe(false);
+  });
+
+  test("the explicit free-provisioning switch never blocks any plan", () => {
+    const env = { CMUX_VM_ALLOW_FREE_PROVISIONING: "1" };
+    expect(isVmProGateBlocked(ent("free"), env)).toBe(false);
     expect(isVmProGateBlocked(ent("pro"), {})).toBe(false);
   });
 
-  test("enforcement ON blocks free but allows pro/team", () => {
-    const env = { CMUX_VM_REQUIRE_PRO: "1" };
+  test("default enforcement blocks every non-paid plan but allows pro/team/founders", () => {
+    const env = {};
     expect(isVmProGateBlocked(ent("free"), env)).toBe(true);
+    expect(isVmProGateBlocked(ent(""), env)).toBe(true);
+    expect(isVmProGateBlocked(ent("unknown"), env)).toBe(true);
     expect(isVmProGateBlocked(ent("pro"), env)).toBe(false);
     expect(isVmProGateBlocked(ent("team"), env)).toBe(false);
+    expect(isVmProGateBlocked(ent("founders"), env)).toBe(false);
   });
 });

@@ -35,6 +35,8 @@ const VM_ENV_KEYS = [
   "CMUX_VM_PLAN_PRO_MAX_MEMORY_MB",
   "CMUX_VM_PLAN_PRO_DEFAULT_MEMORY_MB",
   "CMUX_VM_REQUIRE_PRO",
+  "CMUX_VM_ALLOW_FREE_PROVISIONING",
+  "CMUX_VM_DEFAULT_PLAN",
   "CMUX_VM_DEFAULT_PROVIDER",
   "VERCEL",
   "VERCEL_ENV",
@@ -594,6 +596,7 @@ describe("VM REST auth", () => {
   });
 
   test("rejects a memory size above the plan ceiling before the workflow", async () => {
+    process.env.CMUX_VM_ALLOW_FREE_PROVISIONING = "1";
     getUser.mockResolvedValue(freePlanStackUser());
 
     const response = await POST(
@@ -630,9 +633,53 @@ describe("VM REST auth", () => {
     expect(runVmWorkflow).not.toHaveBeenCalled();
   });
 
-  test("blocks a free plan from provisioning when CMUX_VM_REQUIRE_PRO is enforced", async () => {
-    process.env.CMUX_VM_REQUIRE_PRO = "1";
+  test("blocks a free plan by default even when its legacy active limit is permissive", async () => {
+    process.env.CMUX_VM_FREE_MAX_ACTIVE_VMS = "5";
     getUser.mockResolvedValue(freePlanStackUser());
+
+    const response = await POST(
+      new Request("https://cmux.test/api/vm", {
+        method: "POST",
+        headers: { origin: "https://cmux.test" },
+        body: JSON.stringify({ provider: "freestyle", image: "snapshot-test" }),
+      }),
+    );
+
+    expect(response.status).toBe(402);
+    expect((await response.json() as { error: string }).error).toBe("vm_requires_pro");
+    expect(createVm).not.toHaveBeenCalled();
+  });
+
+  test("an explicit free-provisioning switch reopens the configured demo allowance", async () => {
+    process.env.CMUX_VM_ALLOW_FREE_PROVISIONING = "1";
+    process.env.CMUX_VM_FREE_MAX_ACTIVE_VMS = "5";
+    getUser.mockResolvedValue(freePlanStackUser());
+    runVmWorkflow.mockResolvedValue({
+      providerVmId: "provider-vm-free-demo",
+      provider: "freestyle",
+      image: "snapshot-test",
+      imageVersion: null,
+      createdAt: 1_777_000_000_000,
+    });
+
+    const response = await POST(
+      new Request("https://cmux.test/api/vm", {
+        method: "POST",
+        headers: { origin: "https://cmux.test" },
+        body: JSON.stringify({ provider: "freestyle", image: "snapshot-test" }),
+      }),
+    );
+
+    expect(response.status).toBe(200);
+    expect(createVm).toHaveBeenCalledWith(expect.objectContaining({
+      billingPlanId: "free",
+      maxActiveVms: 5,
+    }));
+  });
+
+  test("a paid deployment default cannot grant a paid plan to an account without metadata", async () => {
+    process.env.CMUX_VM_DEFAULT_PLAN = "pro";
+    getUser.mockResolvedValue(stackUserForPlan(undefined));
 
     const response = await POST(
       new Request("https://cmux.test/api/vm", {
@@ -668,6 +715,158 @@ describe("VM REST auth", () => {
 
     expect(response.status).toBe(200);
     expect(createVm).toHaveBeenCalled();
+  });
+
+  test("every provisioning route applies the paid-plan gate before workflow/provider work", async () => {
+    const provisioningRoutes = [
+      {
+        name: "create",
+        constructor: createVm,
+        invoke: () => POST(
+          new Request("https://cmux.test/api/vm", {
+            method: "POST",
+            headers: { origin: "https://cmux.test" },
+            // Deliberately use an unknown image and disable provider creates:
+            // a free caller must still receive the entitlement response first.
+            body: JSON.stringify({ provider: "freestyle", image: "not-a-real-image" }),
+          }),
+        ),
+      },
+      {
+        name: "base-open",
+        constructor: openBaseVm,
+        invoke: () => baseOpenRoute.POST(
+          new Request("https://cmux.test/api/vm/base/open", {
+            method: "POST",
+            headers: { origin: "https://cmux.test" },
+            body: JSON.stringify({ provider: "freestyle", image: "not-a-real-image" }),
+          }),
+        ),
+      },
+      {
+        name: "base-reset",
+        constructor: resetBaseVm,
+        invoke: () => baseResetRoute.POST(
+          new Request("https://cmux.test/api/vm/base/reset", {
+            method: "POST",
+            headers: { origin: "https://cmux.test" },
+            body: JSON.stringify({ provider: "freestyle", image: "not-a-real-image" }),
+          }),
+        ),
+      },
+      {
+        name: "fork",
+        constructor: forkVm,
+        invoke: () => forkRoute.POST(
+          new Request("https://cmux.test/api/vm/provider-vm-1/fork", {
+            method: "POST",
+            headers: { origin: "https://cmux.test" },
+            body: "{}",
+          }),
+          { params: Promise.resolve({ id: "provider-vm-1" }) },
+        ),
+      },
+      {
+        name: "restore",
+        constructor: restoreVm,
+        invoke: () => restoreRoute.POST(
+          new Request("https://cmux.test/api/vm/restore", {
+            method: "POST",
+            headers: { origin: "https://cmux.test" },
+            body: JSON.stringify({ snapshotId: "snapshot-1", provider: "freestyle" }),
+          }),
+        ),
+      },
+    ] as const;
+
+    const provisioningConstructors = [createVm, openBaseVm, resetBaseVm, forkVm, restoreVm];
+    const workflowResult = (name: (typeof provisioningRoutes)[number]["name"]): unknown => {
+      if (name === "fork") {
+        return {
+          snapshot: null,
+          fork: {
+            providerVmId: "provider-vm-forked",
+            provider: "freestyle",
+            image: "snapshot-test",
+            imageVersion: null,
+            status: "running",
+            createdAt: 1_777_000_000_000,
+          },
+        };
+      }
+      if (name === "base-open" || name === "base-reset") {
+        return {
+          providerVmId: `provider-vm-${name}`,
+          provider: "freestyle",
+          image: "snapshot-test",
+          imageVersion: null,
+          status: "running",
+          createdAt: 1_777_000_000_000,
+          baseId: "base-1",
+          baseName: "Base",
+          generation: 1,
+          retainedProviderVmId: null,
+        };
+      }
+      return {
+        providerVmId: `provider-vm-${name}`,
+        provider: "freestyle",
+        image: "snapshot-test",
+        imageVersion: null,
+        status: "running",
+        createdAt: 1_777_000_000_000,
+      };
+    };
+
+    // Free and no-plan accounts are denied on every allocation surface. The
+    // provider kill switch is also off here to prove entitlement wins before
+    // provider/configuration checks.
+    for (const plan of ["free", undefined]) {
+      process.env.CMUX_VM_CREATE_ENABLED = "0";
+      process.env.CMUX_VM_ALLOW_FREE_PROVISIONING = "0";
+      delete process.env.CMUX_VM_REQUIRE_PRO;
+      delete process.env.CMUX_VM_DEFAULT_PLAN;
+      process.env.CMUX_VM_FREE_MAX_ACTIVE_VMS = "5";
+      getUser.mockResolvedValue(stackUserForPlan(plan));
+      for (const route of provisioningRoutes) {
+        for (const constructor of provisioningConstructors) constructor.mockClear();
+        runVmWorkflow.mockClear();
+        const response = await route.invoke();
+        expect(response.status).toBe(402);
+        const payload = await response.json() as {
+          error?: string;
+          upgradeRequired?: boolean;
+          upgradeUrl?: string;
+        };
+        expect(payload.error).toBe("vm_requires_pro");
+        expect(payload.upgradeRequired).toBe(true);
+        expect(payload.upgradeUrl).toBe("https://cmux.com/pricing");
+        for (const constructor of provisioningConstructors) {
+          expect(constructor).not.toHaveBeenCalled();
+        }
+        expect(runVmWorkflow).not.toHaveBeenCalled();
+      }
+    }
+
+    // All paid plan ids recognized by the server gate continue through their
+    // corresponding workflow, including Founder's Edition operator grants.
+    process.env.CMUX_VM_CREATE_ENABLED = "1";
+    process.env.CMUX_VM_ALLOW_FREE_PROVISIONING = "0";
+    process.env.CMUX_VM_ALLOW_UNMANIFESTED_IMAGES = "1";
+    process.env.CMUX_VM_FREESTYLE_ENABLED = "1";
+    delete process.env.CMUX_VM_REQUIRE_PRO;
+    for (const plan of ["pro", "team", "founders"] as const) {
+      getUser.mockResolvedValue(stackUserForPlan(plan));
+      for (const route of provisioningRoutes) {
+        for (const constructor of provisioningConstructors) constructor.mockClear();
+        runVmWorkflow.mockClear();
+        runVmWorkflow.mockResolvedValue(workflowResult(route.name));
+        const response = await route.invoke();
+        expect(response.status).toBe(200);
+        expect(runVmWorkflow).toHaveBeenCalledTimes(1);
+        expect(route.constructor).toHaveBeenCalledTimes(1);
+      }
+    }
   });
 
   test("still lists VMs for a free plan under Pro enforcement (management is not gated)", async () => {
@@ -825,6 +1024,7 @@ describe("VM REST auth", () => {
   });
 
   test("uses the native client's requested Stack team for billing", async () => {
+    process.env.CMUX_VM_ALLOW_FREE_PROVISIONING = "1";
     const listTeams = mock(async () => [
       {
         id: "team-1",
@@ -876,6 +1076,7 @@ describe("VM REST auth", () => {
   });
 
   test("validates a JSON body team id only when it differs from the selected team", async () => {
+    process.env.CMUX_VM_ALLOW_FREE_PROVISIONING = "1";
     const listTeams = mock(async () => [
       {
         id: "team-1",
@@ -992,6 +1193,7 @@ describe("VM REST auth", () => {
   });
 
   test("uses the single Stack team when personal team auto-create populated listTeams", async () => {
+    process.env.CMUX_VM_ALLOW_FREE_PROVISIONING = "1";
     const listTeams = mock(async () => [{
       id: "team-personal",
       clientReadOnlyMetadata: { cmuxVmPlan: "free" },
@@ -2143,33 +2345,26 @@ function restoreVmEnv(): void {
 }
 
 function authedStackUser() {
-  return {
-    id: "user-1",
-    displayName: null,
-    primaryEmail: "user@example.com",
-    selectedTeam: {
-      id: "team-1",
-      clientReadOnlyMetadata: { cmuxVmPlan: "pro" },
-    },
-    listTeams: async () => [{
-      id: "team-1",
-      clientReadOnlyMetadata: { cmuxVmPlan: "pro" },
-    }],
-  };
+  return stackUserForPlan("pro");
 }
 
 function freePlanStackUser() {
+  return stackUserForPlan("free");
+}
+
+function stackUserForPlan(plan: string | undefined) {
+  const clientReadOnlyMetadata = plan ? { cmuxVmPlan: plan } : {};
   return {
     id: "user-1",
     displayName: null,
     primaryEmail: "user@example.com",
     selectedTeam: {
       id: "team-1",
-      clientReadOnlyMetadata: { cmuxVmPlan: "free" },
+      clientReadOnlyMetadata,
     },
     listTeams: async () => [{
       id: "team-1",
-      clientReadOnlyMetadata: { cmuxVmPlan: "free" },
+      clientReadOnlyMetadata,
     }],
   };
 }

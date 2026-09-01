@@ -204,4 +204,9 @@ describe("required runtime env keys cover the production provider path", () => {
       expect(requiredRuntimeEnvKeys).not.toContain(key);
     }
   });
+
+  test("the free-provisioning escape hatch is visible but never required", () => {
+    expect(recommendedRuntimeEnvKeys).toContain("CMUX_VM_ALLOW_FREE_PROVISIONING");
+    expect(requiredRuntimeEnvKeys).not.toContain("CMUX_VM_ALLOW_FREE_PROVISIONING");
+  });
 });
