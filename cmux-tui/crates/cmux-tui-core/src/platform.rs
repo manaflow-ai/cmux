@@ -917,7 +917,14 @@ pub fn local_terminal_pwd_to_local_path(value: &str) -> Option<PathBuf> {
 /// may be ordinary absolute paths, while terminal-reported OSC 7 values must
 /// go through the stricter host check above.
 pub fn spawn_cwd_to_local_path(value: &str) -> Option<PathBuf> {
-    if !value.is_empty() && !value.contains('\0') && url::Url::parse(value).is_err() {
+    if value.is_empty() || value.contains('\0') {
+        return None;
+    }
+    let bytes = value.as_bytes();
+    let is_drive_path = bytes.len() >= 2
+        && bytes[0].is_ascii_alphabetic()
+        && bytes[1] == b':';
+    if is_drive_path || !value.contains("://") {
         return Some(PathBuf::from(value));
     }
     terminal_pwd_to_local_path(value)
@@ -1456,6 +1463,14 @@ mod tests {
     #[test]
     fn spawn_cwd_preserves_trusted_relative_paths() {
         assert_eq!(spawn_cwd_to_local_path("subdir"), Some(PathBuf::from("subdir")));
+        assert_eq!(
+            spawn_cwd_to_local_path("build:debug"),
+            Some(PathBuf::from("build:debug"))
+        );
+        assert_eq!(
+            spawn_cwd_to_local_path(r"C:\Users\alice\src"),
+            Some(PathBuf::from(r"C:\Users\alice\src"))
+        );
         assert_eq!(spawn_cwd_to_local_path("file:///tmp/hostless"), None);
     }
 
