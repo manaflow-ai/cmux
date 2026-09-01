@@ -28,7 +28,9 @@ struct CLITmuxCompatStoreConcurrencyTests {
         let initialData = try JSONSerialization.data(withJSONObject: initialStore, options: [])
         try initialData.write(to: storeURL, options: .atomic)
 
-        let socketPath = root.appendingPathComponent("test.sock").path
+        // Keep the socket name short: macOS limits sockaddr_un.sun_path to
+        // 104 bytes, while XCTest temporary-directory paths can be long.
+        let socketPath = "/tmp/cmux-11262-\(UUID().uuidString.prefix(8)).sock"
         let listenerFD = try Self.bindUnixSocket(at: socketPath)
         defer {
             Darwin.close(listenerFD)
@@ -171,7 +173,10 @@ struct CLITmuxCompatStoreConcurrencyTests {
         let timedOut = exited.wait(timeout: .now() + timeout) == .timedOut
         if timedOut {
             process.terminate()
-            _ = exited.wait(timeout: .now() + 1)
+            if exited.wait(timeout: .now() + 1) == .timedOut {
+                kill(process.processIdentifier, SIGKILL)
+                _ = exited.wait(timeout: .now() + 1)
+            }
         }
         let stderr = String(
             data: stderrPipe.fileHandleForReading.readDataToEndOfFile(),
