@@ -75,7 +75,8 @@ struct CloudTreeStyle: Equatable, Identifiable, Sendable {
     let showsGroupCounts: Bool
     /// The daemon-tab count badge on pool terminal rows.
     let showsViewBadges: Bool
-    /// The CPU/Mem/Disk line under a machine (two-line layout only).
+    /// The CPU/Mem/Disk reading: a line under the machine in two-line layout,
+    /// the dim inline fact after the name in single-line layout.
     let showsMachineStats: Bool
     let machineVerticalPadding: CGFloat
 
@@ -107,7 +108,7 @@ struct CloudTreeStyle: Equatable, Identifiable, Sendable {
         indentPerLevel: 12,
         machineNameSize: 13, titleSize: 13, detailSize: 11, groupLabelSize: 11.5,
         iconSize: 11, iconSlot: 16, iconGap: 7,
-        showsGroupCounts: true, showsViewBadges: true, showsMachineStats: false,
+        showsGroupCounts: true, showsViewBadges: true, showsMachineStats: true,
         machineVerticalPadding: 3
     )
 
@@ -121,7 +122,7 @@ struct CloudTreeStyle: Equatable, Identifiable, Sendable {
         indentPerLevel: 13,
         machineNameSize: 12.5, titleSize: 12, detailSize: 10.5, groupLabelSize: 11,
         iconSize: 10.5, iconSlot: 22, iconGap: 7,
-        showsGroupCounts: true, showsViewBadges: true, showsMachineStats: false,
+        showsGroupCounts: true, showsViewBadges: true, showsMachineStats: true,
         machineVerticalPadding: 3
     )
 
@@ -135,7 +136,7 @@ struct CloudTreeStyle: Equatable, Identifiable, Sendable {
         indentPerLevel: 12,
         machineNameSize: 12, titleSize: 11.5, detailSize: 10, groupLabelSize: 9,
         iconSize: 10, iconSlot: 15, iconGap: 6,
-        showsGroupCounts: true, showsViewBadges: true, showsMachineStats: false,
+        showsGroupCounts: true, showsViewBadges: true, showsMachineStats: true,
         machineVerticalPadding: 3
     )
 
@@ -149,7 +150,7 @@ struct CloudTreeStyle: Equatable, Identifiable, Sendable {
         indentPerLevel: 9,
         machineNameSize: 11, titleSize: 10.5, detailSize: 9.5, groupLabelSize: 8.5,
         iconSize: 8.5, iconSlot: 11, iconGap: 5,
-        showsGroupCounts: true, showsViewBadges: true, showsMachineStats: false,
+        showsGroupCounts: true, showsViewBadges: true, showsMachineStats: true,
         machineVerticalPadding: 2
     )
 
