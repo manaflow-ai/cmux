@@ -883,12 +883,16 @@ struct CMUXMobileRootView: View {
             isAuthenticated: isAuthenticated,
             connectionPhase: onboardingConnectionPhase,
             connectionMethod: connectionMethodStore?.method ?? .automatic,
+            keepAwakeOffer: OnboardingKeepAwakeOfferSource.offer(from: store),
             onSelectConnectionMethod: { connectionMethodStore?.method = $0 },
             onEnablePush: { await pushCoordinator.enable(trigger: "onboarding") },
             onReachedConnection: markOnboardingReadyToConnect,
             onSkip: completeOnboarding,
             onRetryConnection: retryAutomaticConnection,
             onStartTailscalePairing: showOnboardingPairingScanner,
+            onSetKeepAwake: { [store] enabled in
+                await OnboardingKeepAwakeOfferSource.set(enabled, on: store)
+            },
             onComplete: completeOnboarding
         )
         #else
