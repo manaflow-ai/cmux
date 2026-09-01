@@ -290,8 +290,6 @@ final class CLISocketSentryTelemetry {
                 code: cliErrorMetadata.code,
                 message: classificationMessage
             ) ||
-                (!hasStructuredCLIErrorCode &&
-                    noiseFilter.isExpectedLegacyCLIAppLifecycleMessage(classificationMessage)) ||
                 cliErrorMetadata.socketPathMissing)
         let isExpectedLegacyCLIError: Bool
         if !hasStructuredCLIErrorCode {
