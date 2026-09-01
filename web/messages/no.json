@@ -1115,7 +1115,7 @@
           "hideTabCloseButton": "Skjul lukkeknapper for faner i faneraden i ruten.",
           "forkConversationDefaultDestination": "Standardmål for den primære Fork Conversation-handlingen i fanehurtigmenyen. Undermenyen viser fortsatt alle mål.",
           "globalFontMagnification": "Skalerer cmux-eide terminaler, fanetitler, sidefelt, innstillinger, overlegg og app-chrome med denne prosenten. Rendret innhold på nettlesersider er utelatt.",
-          "tabBarWrap": "Bryt faner som ikke får plass i panelet over i flere rader i stedet for å rulle vannrett. Innebygd dra-og-slipp for omorganisering er ikke tilgjengelig når bryting er aktivert."
+          "tabBarWrap": "Vis faner som ikke får plass i panelet på flere rader i stedet for å rulle vannrett. Innebygd dra-og-slipp for omorganisering er ikke tilgjengelig når visning på flere rader er aktivert."
         },
         "terminal": {
           "sessionContentMaxWidth": "Valgfri maksimal bredde i punkter for terminalinnhold og den innebygde agentchatten. Angi false for å bruke hele rutens bredde.",
