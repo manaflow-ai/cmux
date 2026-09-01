@@ -64,20 +64,11 @@ final class AutomationConfigStore {
     /// Loads and decodes the configuration on a utility task.
 #if compiler(>=6.2)
     @concurrent
-#else
+    #else
     @Sendable
-#endif
+    #endif
     nonisolated func loadOffMain() async throws -> AutomationConfiguration {
-        let url = fileURL
-        let fileManager = fileManager
-        let mutationCoordinator = mutationCoordinator
-        return try await Task.detached(priority: .utility) {
-            try AutomationConfigStore(
-                fileURL: url,
-                fileManager: fileManager,
-                mutationCoordinator: mutationCoordinator
-            ).load()
-        }.value
+        try await mutationCoordinator.load()
     }
 
     /// Updates one rule off the main actor and returns the persisted snapshot.

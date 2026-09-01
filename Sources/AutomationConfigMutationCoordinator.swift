@@ -11,6 +11,14 @@ actor AutomationConfigMutationCoordinator {
         self.fileManager = fileManager
     }
 
+    func load() throws -> AutomationConfiguration {
+        try AutomationConfigStore(
+            fileURL: fileURL,
+            fileManager: fileManager,
+            mutationCoordinator: self
+        ).load()
+    }
+
     func updateRule(
         id: String,
         _ update: @Sendable (inout AutomationRule) -> Void

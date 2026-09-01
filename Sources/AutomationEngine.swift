@@ -10,6 +10,7 @@ import Foundation
 final class AutomationEngine {
     typealias NotificationHandler = @MainActor (UUID, UUID?, String, String, String) -> Void
     typealias RPCRunner = @Sendable (String, [String: Any], Bool, CmuxAutomationEventOrigin) async -> String
+    typealias RecoverySleeper = @Sendable (Duration) async throws -> Void
     typealias ProcessRunner = @Sendable (String, [String: String]) async -> AutomationActionExecutionResult
     typealias WebhookRunner = @Sendable (URL, [String: String], Data) async -> AutomationActionExecutionResult
     typealias WorkspaceTagsResolver = @MainActor (UUID) -> [String]
@@ -36,6 +37,7 @@ final class AutomationEngine {
     private let webhookRunner: WebhookRunner?
     private let workspaceTagsResolver: WorkspaceTagsResolver
     private let payloadRedactor = AutomationPayloadRedactor()
+    private let recoverySleeper: RecoverySleeper
 
     private var rules: [AutomationRule] = []
     private var rulesByEventName: [String: [AutomationRule]] = [:]
@@ -52,8 +54,9 @@ final class AutomationEngine {
     private var pendingTagResolutions = Set<UUID>()
     private var lastSequence: Int64?
     private var restartTask: Task<Void, Never>?
+    private var restartAttempt = 0
     private var reloadTask: Task<Void, Never>?
-    private var enabledUpdateTasks: [UUID: Task<Void, Never>] = [:]
+    private var enabledUpdateTasks: [String: (requestID: UUID, task: Task<Void, Never>)] = [:]
 
     init(
         configStore: AutomationConfigStore = AutomationConfigStore(),
@@ -78,7 +81,10 @@ final class AutomationEngine {
         },
         processRunner: ProcessRunner? = nil,
         webhookRunner: WebhookRunner? = nil,
-        workspaceTagsResolver: @escaping WorkspaceTagsResolver = { _ in [] }
+        workspaceTagsResolver: @escaping WorkspaceTagsResolver = { _ in [] },
+        recoverySleeper: @escaping RecoverySleeper = { duration in
+            try await ContinuousClock().sleep(for: duration)
+        }
     ) {
         self.configStore = configStore
         self.eventBus = eventBus
@@ -87,6 +93,7 @@ final class AutomationEngine {
         self.processRunner = processRunner
         self.webhookRunner = webhookRunner
         self.workspaceTagsResolver = workspaceTagsResolver
+        self.recoverySleeper = recoverySleeper
     }
 
     deinit {
@@ -95,7 +102,7 @@ final class AutomationEngine {
         restartTask?.cancel()
         reloadTask?.cancel()
         firingTasks.values.forEach { $0.cancel() }
-        enabledUpdateTasks.values.forEach { $0.cancel() }
+        enabledUpdateTasks.values.forEach { $0.task.cancel() }
     }
 
     /// Starts the live subscription. Calling this more than once is harmless.
@@ -109,14 +116,16 @@ final class AutomationEngine {
         guard shouldRun else { return }
         restartTask?.cancel()
         restartTask = nil
+        let effectiveAfterSequence = afterSequence ?? eventBus.latestSequence
         let filters = subscriptionFilters()
         let snapshot = eventBus.subscribe(
-            afterSequence: afterSequence,
+            afterSequence: effectiveAfterSequence,
             names: filters.names,
             categories: filters.categories
         )
         subscription = snapshot.subscription
         let subscription = snapshot.subscription
+        lastSequence = max(lastSequence ?? effectiveAfterSequence, effectiveAfterSequence)
         for event in snapshot.replay {
             receive(event)
         }
@@ -143,18 +152,24 @@ final class AutomationEngine {
         subscription = nil
         eventTask = nil
         guard shouldRun else { return }
-        // A slow consumer closes its bounded queue. Re-arm from the current
-        // tail through one coalesced, event-driven task. The subscription's
-        // bounded queue remains the admission/backpressure boundary; no timer
-        // or polling loop is needed to recover it.
+        // A slow consumer closes its bounded queue. Re-arm from the
+        // authoritative event-bus tail with one coalesced, cancellable retry.
+        // The bounded clock delay prevents a sustained flood from spinning the
+        // main actor while preserving automatic recovery.
         guard restartTask == nil else { return }
-        let cursor = lastSequence
+        let delayMilliseconds = min(5_000, 250 * (1 << min(restartAttempt, 5)))
+        restartAttempt = min(restartAttempt + 1, 5)
+        let sleeper = recoverySleeper
         restartTask = Task { @MainActor [weak self] in
             guard let self else { return }
+            do {
+                try await sleeper(.milliseconds(delayMilliseconds))
+            } catch {
+                return
+            }
             self.restartTask = nil
-            await Task.yield()
             guard self.shouldRun else { return }
-            self.installSubscription(afterSequence: cursor)
+            self.installSubscription(afterSequence: self.eventBus.latestSequence)
         }
     }
 
@@ -173,10 +188,8 @@ final class AutomationEngine {
         eventTask?.cancel()
         eventTask = nil
         firingTasks.values.forEach { $0.cancel() }
-        firingTasks.removeAll(keepingCapacity: true)
-        enabledUpdateTasks.values.forEach { $0.cancel() }
+        enabledUpdateTasks.values.forEach { $0.task.cancel() }
         enabledUpdateTasks.removeAll(keepingCapacity: true)
-        concurrentFirings = 0
         workspaceTagsCache.removeAll(keepingCapacity: true)
         pendingTagResolutions.removeAll(keepingCapacity: true)
     }
@@ -236,7 +249,10 @@ final class AutomationEngine {
         rulesByCategory.removeAll(keepingCapacity: true)
         unindexedRules.removeAll(keepingCapacity: true)
         fireDatesByRuleID.removeAll(keepingCapacity: true)
-        concurrentFirings = 0
+        // Keep the firing reservation count until canceled tasks run their
+        // deferred release; resetting it here could admit new actions while
+        // old shells/webhooks are still unwinding.
+        firingTasks.values.forEach { $0.cancel() }
         workspaceTagsCache.removeAll(keepingCapacity: true)
         pendingTagResolutions.removeAll(keepingCapacity: true)
         if let subscription {
@@ -256,10 +272,12 @@ final class AutomationEngine {
         unindexedRules.removeAll(keepingCapacity: true)
         for rule in rules {
             let exactEvent = rule.when.event.flatMap { value in
-                value.isEmpty || value.contains("*") ? nil : value
+                let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+                return trimmed.isEmpty || trimmed.contains("*") ? nil : trimmed
             }
             let exactCategory = rule.when.category.flatMap { value in
-                value.isEmpty || value.contains("*") ? nil : value
+                let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+                return trimmed.isEmpty || trimmed.contains("*") ? nil : trimmed
             }
             if let exactEvent, rule.when.category == nil {
                 rulesByEventName[AutomationRule.caseInsensitiveMatchKey(exactEvent), default: []].append(rule)
@@ -311,9 +329,14 @@ final class AutomationEngine {
 
     func scheduleSetEnabled(id: String, enabled: Bool) -> Bool {
         guard rules.contains(where: { $0.id == id }) else { return false }
-        let taskID = UUID()
+        enabledUpdateTasks[id]?.task.cancel()
+        let requestID = UUID()
         let task = Task { @MainActor [weak self] in
-            defer { self?.enabledUpdateTasks.removeValue(forKey: taskID) }
+            defer {
+                guard let self,
+                      self.enabledUpdateTasks[id]?.requestID == requestID else { return }
+                self.enabledUpdateTasks.removeValue(forKey: id)
+            }
             guard let self else { return }
             guard !Task.isCancelled else { return }
             let result = await self.setEnabled(id: id, enabled: enabled)
@@ -336,7 +359,7 @@ final class AutomationEngine {
                 )
             }
         }
-        enabledUpdateTasks[taskID] = task
+        enabledUpdateTasks[id] = (requestID: requestID, task: task)
         return true
     }
 
