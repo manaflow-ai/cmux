@@ -134,4 +134,18 @@ struct SurfaceSelectionChangeEventPublisherTests {
         scheduler.fire()
         #expect(sink.published.isEmpty)
     }
+
+    @Test
+    func signalAcceptsNewestReplacementAndCoalescesBeforeConsumption() async {
+        let signal = TerminalSelectionChangeSignal()
+        #expect(signal.request())
+        #expect(signal.request())
+        signal.finish()
+
+        var yieldedCount = 0
+        for await _ in signal.events {
+            yieldedCount += 1
+        }
+        #expect(yieldedCount == 1)
+    }
 }

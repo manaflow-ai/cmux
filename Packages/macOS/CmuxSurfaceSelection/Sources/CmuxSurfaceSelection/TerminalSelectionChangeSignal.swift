@@ -20,14 +20,18 @@ public final class TerminalSelectionChangeSignal: Sendable {
 
     /// Requests delivery of one selection-change signal.
     ///
-    /// Returns `true` when the signal was enqueued (or replaced the buffered
-    /// newest signal), and `false` after the stream has been finished.
+    /// Returns `true` when the stream accepts the request. Repeated requests
+    /// can replace the buffered value and coalesce into one yielded signal;
+    /// returns `false` after the stream has been finished.
     @discardableResult
     public nonisolated func request() -> Bool {
         switch continuation.yield(()) {
         case .enqueued:
             return true
-        case .dropped, .terminated:
+        case .dropped:
+            // bufferingNewest(1) drops the older value to accept this one.
+            return true
+        case .terminated:
             return false
         @unknown default:
             return false
