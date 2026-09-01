@@ -84,13 +84,18 @@ export function makeCoderouterSessionPostHandler(
     if (dependencies.hostedProRequired()) {
       try {
         const userBillingPlanId = resolved.value.user.userBillingPlanId;
-        const entitlement = userBillingPlanId
-          ? await dependencies.entitlement(
-              userId,
-              resolved.value.team.teamId,
-              userBillingPlanId,
-            )
-          : await dependencies.entitlement(userId, resolved.value.team.teamId);
+        const userHasManualVmPlanOverride =
+          resolved.value.user.userHasManualVmPlanOverride;
+        const entitlement =
+          userBillingPlanId !== undefined ||
+          userHasManualVmPlanOverride !== undefined
+            ? await dependencies.entitlement(
+                userId,
+                resolved.value.team.teamId,
+                userBillingPlanId,
+                userHasManualVmPlanOverride,
+              )
+            : await dependencies.entitlement(userId, resolved.value.team.teamId);
         entitlementBasis = entitlement.basis;
         if (!entitlement.allowed) {
           return Response.json(

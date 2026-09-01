@@ -66,7 +66,8 @@ describe("mintVmModelPlaneEnv", () => {
       {
         teamId: "team-1",
         stackUserId: "user-1",
-        userBillingPlanId: "founders",
+        userBillingPlanId: "pro",
+        userHasManualVmPlanOverride: false,
         requestUrl: "https://cmux.example/api/vm",
       },
       deps({
@@ -79,7 +80,7 @@ describe("mintVmModelPlaneEnv", () => {
     );
 
     expect(env?.OPENAI_API_KEY).toBe("crt_test-token");
-    expect(receivedPlan).toBe("founders");
+    expect(receivedPlan).toBe("pro");
   });
 
   test("skips the entitlement read when hosted gating is off", async () => {

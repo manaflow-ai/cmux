@@ -14,6 +14,7 @@ import {
   resolveBillingTeam,
   type BillingTeamLike,
 } from "../billing/teamResolution";
+import { hasManualVmPlanOverride } from "../billing/pro";
 
 export type AuthedUser = {
   id: string;
@@ -25,6 +26,8 @@ export type AuthedUser = {
   teams: readonly AuthedTeam[];
   teamIds: readonly string[];
   userBillingPlanId: string | null;
+  /** Whether cmuxVmPlan is explicitly operator-controlled for this user. */
+  userHasManualVmPlanOverride?: boolean;
   billingPlanId: string | null;
   resolveSubrouterPermissions: (
     teamId: string,
@@ -542,6 +545,9 @@ async function authedUserFromStackUser(
     listTeams: async () => listedTeams,
   });
   const userBillingPlanId = billingPlanIdFromMetadata(user.clientReadOnlyMetadata) ?? null;
+  const userHasManualVmPlanOverride = hasManualVmPlanOverride(
+    user.clientReadOnlyMetadata,
+  );
   const billingPlanId = billingPlanIdFromMetadata(billingTeam?.clientReadOnlyMetadata) ?? userBillingPlanId;
   const rawTeams = new Map<string, unknown>();
   if (selectedTeam) rawTeams.set(selectedTeam.id, selectedTeamRaw);
@@ -573,6 +579,7 @@ async function authedUserFromStackUser(
     teams: authedTeams,
     teamIds,
     userBillingPlanId,
+    userHasManualVmPlanOverride,
     billingPlanId,
     resolveSubrouterPermissions: async (teamId) => {
       const cached = subrouterPermissionCache.get(teamId);

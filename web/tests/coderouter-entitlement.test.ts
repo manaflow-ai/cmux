@@ -63,7 +63,7 @@ describe("coderouter entitlement", () => {
       hasActiveSubscription: hasActiveSubscription as never,
     });
 
-    await expect(check("user_1", "team_1", "founders")).resolves.toEqual({
+    await expect(check("user_1", "team_1", "founders", false)).resolves.toEqual({
       allowed: true,
       basis: "subscription",
       accountCount: 7,
@@ -72,7 +72,44 @@ describe("coderouter entitlement", () => {
       "user_1",
       "team_1",
       "founders",
+      false,
     );
+  });
+
+  test("a durable Founder row remains effective after metadata normalizes to Pro", async () => {
+    const check = createCoderouterEntitlementCheck({
+      countAccounts: async () => 7,
+      hasActiveSubscription: async (
+        _userId,
+        _teamId,
+        userBillingPlanId,
+        userHasManualVmPlanOverride,
+      ) => userBillingPlanId === "pro" && userHasManualVmPlanOverride === false,
+    });
+
+    await expect(check("user_1", "team_1", "pro", false)).resolves.toEqual({
+      allowed: true,
+      basis: "subscription",
+      accountCount: 7,
+    });
+  });
+
+  test("a non-Founder VM override suppresses a durable Founder row", async () => {
+    const check = createCoderouterEntitlementCheck({
+      countAccounts: async () => 7,
+      hasActiveSubscription: async (
+        _userId,
+        _teamId,
+        _userBillingPlanId,
+        userHasManualVmPlanOverride,
+      ) => userHasManualVmPlanOverride !== true,
+    });
+
+    await expect(check("user_1", "team_1", "free", true)).resolves.toEqual({
+      allowed: false,
+      basis: "pro_required",
+      accountCount: 7,
+    });
   });
 });
 

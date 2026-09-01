@@ -237,8 +237,9 @@ describe("resolveProPlanStatus", () => {
     user.primaryEmailVerified = true;
     user.isAnonymous = false;
     user.isRestricted = false;
+    let claimed = false;
     const claimPendingBilling = async (candidate: { id: string }) => {
-      expect(candidate.id).toBe("user-verified");
+      claimed = candidate.id === "user-verified";
     };
 
     await expect(
@@ -250,14 +251,16 @@ describe("resolveProPlanStatus", () => {
       planId: FREE_PLAN_ID,
       isPro: false,
     });
+    expect(claimed).toBe(true);
   });
 
   test("does not claim billing from an unverified account", async () => {
     const user = metadataUser({}, "user-unverified");
     user.primaryEmail = "buyer@example.com";
     user.primaryEmailVerified = false;
+    let claimed = false;
     const claimPendingBilling = async () => {
-      throw new Error("must not run");
+      claimed = true;
     };
 
     await expect(
@@ -269,6 +272,7 @@ describe("resolveProPlanStatus", () => {
       planId: FREE_PLAN_ID,
       isPro: false,
     });
+    expect(claimed).toBe(false);
   });
 
   test("normalizes a verified Founder entitlement to Pro without Stripe management", async () => {

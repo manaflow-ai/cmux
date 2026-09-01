@@ -1235,6 +1235,79 @@ describe("recordFoundersCheckoutCompletion", () => {
     expect(listUsers).toHaveBeenCalledTimes(1);
   });
 
+  test("retries post-commit reconciliation after a mapped replay", async () => {
+    const anonymous = {
+      id: "anonymous_retry_source",
+      isAnonymous: true,
+      primaryEmail: null,
+      clientReadOnlyMetadata: {},
+      update: mock(async () => undefined),
+    };
+    let failFirstMetadataWrite = true;
+    let metadataWriteCount = 0;
+    const real = {
+      id: "canonical_retry_owner",
+      isAnonymous: false,
+      isRestricted: false,
+      primaryEmail: "buyer@example.com",
+      primaryEmailVerified: true,
+      clientReadOnlyMetadata: {},
+      update: mock(async () => {
+        metadataWriteCount += 1;
+        if (failFirstMetadataWrite) {
+          failFirstMetadataWrite = false;
+          throw new Error("temporary metadata failure");
+        }
+      }),
+    };
+    const getUser = mock(async (...args: unknown[]) =>
+      args[0] === anonymous.id ? anonymous : real,
+    );
+    const listUsers = mock(async () => [
+      {
+        id: real.id,
+        primaryEmail: real.primaryEmail,
+        primaryEmailVerified: true,
+        isAnonymous: false,
+        isRestricted: false,
+      },
+    ]);
+    const input = checkoutInput("cus_retry_reconciliation");
+    input.session.client_reference_id = anonymous.id;
+    input.subscription.metadata.stackUserId = anonymous.id;
+    const db = fakeDb();
+
+    selectResults = Array.from({ length: 30 }, () => []);
+    await expect(
+      recordCheckoutCompletion(input as never, {
+        db: db as never,
+        stackApp: { getUser, listUsers } as never,
+      }),
+    ).rejects.toThrow("temporary metadata failure");
+    expect(metadataWriteCount).toBe(1);
+
+    // The durable customer/subscription mapping makes the next webhook a
+    // replay. It must retry the failed post-commit metadata work before it
+    // acknowledges the event.
+    selectResults = [
+      [{ stackUserId: real.id, stackTeamId: null }],
+      [],
+      [{ id: "sub_123" }],
+      ...Array.from({ length: 30 }, () => []),
+    ];
+    await expect(
+      recordCheckoutCompletion(input as never, {
+        db: db as never,
+        stackApp: { getUser, listUsers } as never,
+      }),
+    ).resolves.toEqual({
+      scope: "user",
+      stackUserId: real.id,
+      subscriptionId: "sub_123",
+    });
+    expect(metadataWriteCount).toBe(2);
+  });
+
   test("does not acknowledge a claimed replay for a different subscription", async () => {
     const source = {
       id: "anonymous_stale_replay",

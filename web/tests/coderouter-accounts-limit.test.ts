@@ -73,7 +73,11 @@ describe("coderouter account addition limit", () => {
       ...context,
       value: {
         ...context.value,
-        user: { ...context.value.user, userBillingPlanId: "founders" },
+        user: {
+          ...context.value.user,
+          userBillingPlanId: "founders",
+          userHasManualVmPlanOverride: false,
+        },
       },
     };
     const POST = makeCoderouterAccountsPostHandler({
@@ -88,6 +92,7 @@ describe("coderouter account addition limit", () => {
     expect(response.status).toBe(201);
     expect(additionAllowed).toHaveBeenCalledWith(expect.objectContaining({
       userBillingPlanId: "founders",
+      userHasManualVmPlanOverride: false,
     }));
   });
 

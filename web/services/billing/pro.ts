@@ -184,6 +184,11 @@ export function hasEffectiveFounderEntitlement(
   );
 }
 
+/** Return whether the metadata carries a non-empty operator VM override. */
+export function hasManualVmPlanOverride(raw: unknown): boolean {
+  return hasManualVmOverride(proMetadataRecord(raw));
+}
+
 /**
  * Read-time reconciliation: compares the `cmuxPlan` metadata against the
  * actual Stripe Pro subscription state and syncs it in either direction.
@@ -471,6 +476,7 @@ export async function hasActiveCoderouterSubscription(
   stackUserId: string,
   stackTeamId: string,
   userBillingPlanId?: string | null,
+  userHasManualVmPlanOverride = false,
 ): Promise<boolean> {
   // Auth already resolved this Stack user's authoritative personal plan. Keep
   // the hosted CodeRouter gate on the same Founder-aware source as billing and
@@ -478,7 +484,17 @@ export async function hasActiveCoderouterSubscription(
   if (isFounderPlanId(userBillingPlanId)) return true;
   try {
     const rows = await cloudDb()
-      .select({ id: stripeSubscriptions.id })
+      .select({
+        regular: sql<boolean>`coalesce(bool_or(
+          ${stripeSubscriptions.scope} = 'team' or
+          (${stripeSubscriptions.scope} = 'user' and
+            ${stripeSubscriptions.raw}->'metadata'->>'founders_edition' is distinct from 'true')
+        ), false)`,
+        founder: sql<boolean>`coalesce(bool_or(
+          ${stripeSubscriptions.scope} = 'user' and
+          ${stripeSubscriptions.raw}->'metadata'->>'founders_edition' = 'true'
+        ), false)`,
+      })
       .from(stripeSubscriptions)
       .where(
         and(
@@ -488,9 +504,6 @@ export async function hasActiveCoderouterSubscription(
               eq(stripeSubscriptions.stackUserId, stackUserId),
               eq(stripeSubscriptions.scope, "user"),
               eq(stripeSubscriptions.plan, PRO_PLAN_ID),
-              // A non-Founder personal override must not be bypassed by a
-              // durable Founder row; regular Stripe Pro remains valid.
-              sql`${stripeSubscriptions.raw}->'metadata'->>'founders_edition' is distinct from 'true'`,
             ),
             and(
               eq(stripeSubscriptions.stackTeamId, stackTeamId),
@@ -501,11 +514,43 @@ export async function hasActiveCoderouterSubscription(
         ),
       )
       .limit(1);
-    return rows.length > 0;
+    const aggregate = rows[0] as
+      | { regular?: unknown; founder?: unknown }
+      | undefined;
+    if (aggregate && ("regular" in aggregate || "founder" in aggregate)) {
+      if (aggregate.regular === true) return true;
+      return hasCoderouterFounderEntitlement(
+        userBillingPlanId,
+        userHasManualVmPlanOverride,
+        aggregate.founder === true,
+      );
+    }
+    // Lightweight test doubles and older adapters may return raw rows instead
+    // of the aggregate projection. Keep this fallback bounded by the adapter.
+    const rawRows = rows as unknown as readonly { raw?: unknown }[];
+    const regular = rawRows.some((row) => !isFounderSubscriptionRaw(row.raw));
+    if (regular) return true;
+    const founder = rawRows.some((row) => isFounderSubscriptionRaw(row.raw));
+    return hasCoderouterFounderEntitlement(
+      userBillingPlanId,
+      userHasManualVmPlanOverride,
+      founder,
+    );
   } catch (error) {
     if (isMissingDatabaseConfig(error)) return false;
     throw error;
   }
+}
+
+function hasCoderouterFounderEntitlement(
+  userBillingPlanId: string | null | undefined,
+  userHasManualVmPlanOverride: boolean,
+  hasActiveFounderSubscription: boolean,
+): boolean {
+  const metadata = userHasManualVmPlanOverride
+    ? { cmuxVmPlan: userBillingPlanId }
+    : { cmuxPlan: userBillingPlanId };
+  return hasEffectiveFounderEntitlement(metadata, hasActiveFounderSubscription);
 }
 
 export async function isTestflightEligible(

@@ -365,6 +365,25 @@ export async function recordCheckoutCompletion(
         )),
     );
     if (claimedReplay || canonicalOwnerReplay) {
+      if (!mappedOwner || !checkoutEmailValue) {
+        throw new Error("Stripe checkout customer ownership conflict");
+      }
+      // The durable rows make this replay ownership-safe, but the first
+      // delivery may have failed after the transaction (metadata, claims, or
+      // provider reconciliation). Re-run the idempotent post-commit work
+      // before acknowledging the webhook so a transient failure is retryable.
+      await retryMappedCheckoutPostCommit({
+        db,
+        checkout: input,
+        subscription,
+        customerId,
+        targetStackUserId: mappedCustomerBeforeLookup.stackUserId,
+        sourceStackUserId: requestedStackUserId,
+        targetUser: mappedOwner,
+        email: checkoutEmailValue,
+        stackApp: checkoutStackApp,
+        dependencies,
+      });
       return {
         scope: "user",
         stackUserId: mappedCustomerBeforeLookup.stackUserId,
@@ -1867,6 +1886,69 @@ async function syncUserCheckoutAfterCommit(
       }
     },
   });
+}
+
+/**
+ * Retry the idempotent work that follows a checkout transaction when a later
+ * webhook replay sees the customer and exact subscription already mapped.
+ */
+async function retryMappedCheckoutPostCommit(input: {
+  readonly db: BillingDb;
+  readonly checkout: CheckoutCompletionInput;
+  readonly subscription: Stripe.Subscription;
+  readonly customerId: string;
+  readonly targetStackUserId: string;
+  readonly sourceStackUserId: string;
+  readonly targetUser: StackBillingUser;
+  readonly email: string;
+  readonly stackApp: StackBillingApp | null | undefined;
+  readonly dependencies: BillingPurchaseDependencies;
+}): Promise<void> {
+  await syncUserCheckoutAfterCommit(
+    input.db,
+    {
+      user: input.targetUser,
+      email: input.email,
+      checkoutSessionId: input.checkout.session.id,
+      stripeCustomerId: input.customerId,
+      stackUserId: input.targetStackUserId,
+      stackApp: input.stackApp,
+      deferProMetadataUntilVerification:
+        input.checkout.deferProMetadataUntilVerification,
+      sendRecoveryMagicLink: input.checkout.sendRecoveryMagicLink,
+    },
+    input.dependencies,
+  );
+
+  if (input.sourceStackUserId !== input.targetStackUserId) {
+    try {
+      await syncStackUserMetadataWithAccountDeletionGuard({
+        db: input.db,
+        stackUserId: input.sourceStackUserId,
+        stackApp: input.stackApp,
+        sync: async (source, mutationLease) => {
+          if (await hasActiveUserProSubscription(input.db, source.id)) return;
+          await syncProPlanMetadata(source, false, mutationLease);
+        },
+      });
+    } catch {
+      // The durable ownership move is safe; source cleanup can be retried on
+      // the next billing read without moving the customer back.
+    }
+    await syncResolvedStripeOwnership(
+      input.customerId,
+      input.subscription.id,
+      input.targetStackUserId,
+      input.dependencies,
+    );
+  }
+  await resolveBillingEmailClaimsForCustomer(
+    input.db,
+    input.customerId,
+    input.targetStackUserId,
+    input.targetUser,
+    input.email,
+  );
 }
 
 async function cleanupCheckoutStripeResourcesForAccountDeletion(input: {

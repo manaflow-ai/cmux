@@ -10,7 +10,6 @@ import {
   ACTIVE_STRIPE_PRO_STATUSES,
   PRO_PLAN_ID,
   TEAM_PLAN_ID,
-  isFounderSubscriptionRaw,
 } from "../../../../services/billing/pro";
 import {
   isStripeBillingConfigured,
@@ -153,7 +152,7 @@ async function activeStripeSubscriptionForStackUser(stackUserId: string) {
     )
     .orderBy(desc(stripeSubscriptions.currentPeriodEnd), desc(stripeSubscriptions.updatedAt))
     .limit(1);
-  return rows.find((row) => !isFounderSubscriptionRaw(row.raw)) ?? null;
+  return rows[0] ?? null;
 }
 
 async function activeStripeSubscriptionForStackTeam(stackTeamId: string) {

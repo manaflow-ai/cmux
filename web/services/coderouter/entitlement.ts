@@ -22,6 +22,7 @@ export type CoderouterEntitlementDependencies = {
     stackUserId: string,
     teamId: string,
     userBillingPlanId?: string | null,
+    userHasManualVmPlanOverride?: boolean,
   ) => Promise<boolean>;
 };
 
@@ -36,8 +37,14 @@ export function createCoderouterEntitlementCheck(
   stackUserId: string,
   teamId: string,
   userBillingPlanId?: string | null,
+  userHasManualVmPlanOverride?: boolean,
 ) => Promise<CoderouterEntitlement> {
-  return async (stackUserId, teamId, userBillingPlanId) => {
+  return async (
+    stackUserId,
+    teamId,
+    userBillingPlanId,
+    userHasManualVmPlanOverride,
+  ) => {
     const accountCount = await dependencies.countAccounts(teamId);
     if (accountCount <= CODEROUTER_FREE_ACCOUNT_LIMIT) {
       return { allowed: true, basis: "free_tier", accountCount };
@@ -46,6 +53,7 @@ export function createCoderouterEntitlementCheck(
       stackUserId,
       teamId,
       userBillingPlanId,
+      userHasManualVmPlanOverride,
     );
     return subscribed
       ? { allowed: true, basis: "subscription", accountCount }
@@ -82,6 +90,7 @@ export function createAccountAdditionGate(
   stackUserId: string;
   teamId: string;
   userBillingPlanId?: string | null;
+  userHasManualVmPlanOverride?: boolean;
   provider: CodeRouterProvider;
   providerAccountId: string;
 }) => Promise<AccountAdditionDecision> {
@@ -100,6 +109,7 @@ export function createAccountAdditionGate(
       input.stackUserId,
       input.teamId,
       input.userBillingPlanId,
+      input.userHasManualVmPlanOverride,
     );
     return { allowed: subscribed, accountCount };
   };

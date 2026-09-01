@@ -446,6 +446,7 @@ export async function POST(request: Request): Promise<Response> {
             teamId: entitlements.billingTeamId,
             stackUserId: user.id,
             userBillingPlanId: user.userBillingPlanId,
+            userHasManualVmPlanOverride: user.userHasManualVmPlanOverride,
             requestUrl: request.url,
           }));
         setSpanAttributes(span, { "cmux.vm.model_plane_env": !!modelPlaneEnvs });

@@ -166,7 +166,10 @@ describe("billing portal route", () => {
 
   test("does not open the Stripe portal for a Founder-only entitlement", async () => {
     signedInUser.clientReadOnlyMetadata = { cmuxVmPlan: "founders" };
-    stripeSubscriptionRows = [];
+    stripeSubscriptionRows = [{
+      id: "sub_founder_only",
+      raw: { metadata: { founders_edition: "true" } },
+    }];
 
     const response = await GET(
       new NextRequest("https://cmux.test/api/billing/portal"),
