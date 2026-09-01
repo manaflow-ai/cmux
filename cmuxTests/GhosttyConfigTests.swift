@@ -81,9 +81,8 @@ final class GhosttyConfigTests: XCTestCase {
             "Expected Ghostty to expose shell integration features"
         )
 
-        // ShellIntegrationFeatures is a packed struct whose first field is
-        // `cursor`; clearing it prevents Ghostty's prompt hook from emitting
-        // the bar-cursor escape sequence.
+        // ShellIntegrationFeatures is packed; its first field is `cursor`.
+        // Clearing it prevents the prompt hook's bar-cursor escape sequence.
         XCTAssertEqual(
             features & 1,
             0,
@@ -91,6 +90,7 @@ final class GhosttyConfigTests: XCTestCase {
         )
     }
 
+    /// Verifies bundled Ghostty resources take precedence over inherited paths.
     func testLaunchGhosttyResourcesPreferCurrentBundleOverInheritedEnvironment() throws {
         let fileManager = FileManager.default
         let root = fileManager.temporaryDirectory
