@@ -12,7 +12,7 @@ permissions: {}
 jobs:
   validate:
     name: CLA policy guard
-    runs-on: ubuntu-24.04
+    runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 10
     permissions:
       contents: read

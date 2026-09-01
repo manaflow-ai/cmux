@@ -55,7 +55,7 @@ cp "${TEST_FIXTURE_ARCHIVE:?}" "$OUTPUT"
 EOF
 chmod +x "$BIN_DIR/curl"
 
-EXPECTED_TAG="xcframework-${FIXTURE_SHA}-crashsubdir-cmux-crash-sentry-off-v1"
+EXPECTED_TAG="xcframework-${FIXTURE_SHA}-crashsubdir-cmux-crash-sentry-off-noi18n-v2"
 EXPECTED_URL="https://github.com/manaflow-ai/ghostty/releases/download/${EXPECTED_TAG}/GhosttyKit.xcframework.tar.gz"
 
 PATH="$BIN_DIR:$PATH" \
