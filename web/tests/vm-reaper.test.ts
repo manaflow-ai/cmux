@@ -68,38 +68,22 @@ function repository(overrides: Partial<VmRepositoryShape> = {}): VmRepositorySha
   return { ...baseRepository(), ...overrides };
 }
 
-type ReaperObservation = {
-  readonly volumeName: string;
-  readonly firstObservedAt: Date;
-};
-
-type ReaperRepositoryExtensions = {
-  readonly listOrphanVolumeObservations: (input: {
-    readonly provider: ProviderId;
-    readonly volumeNames: readonly string[];
-  }) => Effect.Effect<readonly ReaperObservation[], never>;
-  readonly recordOrphanVolumeObservation: (input: {
-    readonly provider: ProviderId;
-    readonly volumeName: string;
-    readonly observedAt: Date;
-  }) => Effect.Effect<void, never>;
-};
-
 function withObservations(
   repo: VmRepositoryShape,
   observations: Map<string, Date> = new Map(),
 ): VmRepositoryShape {
-  const extended = repo as VmRepositoryShape & ReaperRepositoryExtensions;
-  extended.listOrphanVolumeObservations = ({ volumeNames }) => Effect.succeed(
-    volumeNames.flatMap((volumeName) => {
-      const firstObservedAt = observations.get(volumeName);
-      return firstObservedAt ? [{ volumeName, firstObservedAt }] : [];
+  return {
+    ...repo,
+    listOrphanVolumeObservations: ({ volumeNames }) => Effect.succeed(
+      volumeNames.flatMap((volumeName) => {
+        const firstObservedAt = observations.get(volumeName);
+        return firstObservedAt ? [{ volumeName, firstObservedAt }] : [];
+      }),
+    ),
+    recordOrphanVolumeObservation: ({ volumeName, observedAt }) => Effect.sync(() => {
+      if (!observations.has(volumeName)) observations.set(volumeName, observedAt);
     }),
-  );
-  extended.recordOrphanVolumeObservation = ({ volumeName, observedAt }) => Effect.sync(() => {
-    if (!observations.has(volumeName)) observations.set(volumeName, observedAt);
-  });
-  return extended;
+  };
 }
 
 function oldVolume(name: string, ageMs = 3 * 60 * 60 * 1000): VMVolume {
@@ -343,6 +327,34 @@ describe("Cloud VM reaper", () => {
     const oldEnough = await run(new Date(NOW.getTime() + 2 * 60 * 60 * 1000));
     expect(oldEnough.orphanVolumes.deleted).toBe(1);
     expect(deleted).toEqual([name]);
+  });
+
+  test("does not delete an old volume on its first orphan observation", async () => {
+    const deleted: string[] = [];
+    const name = "cmux-home-abcdef123456-old-first-observation";
+    const observations = new Map<string, Date>();
+    const repo = withObservations(repository({
+      listLiveHomeVolumeNames: () => Effect.succeed([]),
+      isLiveHomeVolumeReferenced: () => Effect.succeed(false),
+      stuckProvisioningCandidates: () => Effect.succeed([]),
+    }), observations);
+    const provider = {
+      ...baseProvider(),
+      listVolumes: () => Effect.succeed([oldVolume(name)]),
+      deleteHomeVolume: (_provider: ProviderId, volumeName: string) =>
+        Effect.sync(() => deleted.push(volumeName)),
+    };
+
+    const result = await Effect.runPromise(
+      reapVmResources({ now: NOW, deleteVolumes: true }).pipe(
+        Effect.provide(workflowLayer(repo, provider)),
+      ),
+    );
+
+    expect(result.orphanVolumes.deleted).toBe(0);
+    expect(result.orphanVolumes.reported).toBe(1);
+    expect(observations.get(name)).toEqual(NOW);
+    expect(deleted).toEqual([]);
   });
 
   test("does not overwrite a provisioning row that changed while provider status was read", async () => {
