@@ -438,7 +438,8 @@ extension Workspace {
         requestTransferredRemoteCleanup: Bool,
         discardAgentHibernationTracking: Bool = true,
         cleanupControllerSurfaceState: Bool = false,
-        preservesTerminalForTransfer: Bool = false
+        preservesTerminalForTransfer: Bool = false,
+        recomputePortProjection: Bool = true
     ) -> WorkspaceRemoteConfiguration? {
         appLinkHandoffCoordinator.cancel(sourcePanelID: panelId)
         if publishSurfaceClosedEvent {
@@ -544,7 +545,9 @@ extension Workspace {
         clearRestoredAgentSnapshot(panelId: panelId)
         invalidatedRestoredAgentFingerprintsByPanelId.removeValue(forKey: panelId)
         PortScanner.shared.unregisterPanel(workspaceId: id, panelId: panelId)
-        recomputeListeningPorts()
+        if recomputePortProjection {
+            recomputeListeningPorts()
+        }
         removeTerminalConfigInheritanceSource(panelId: panelId)
         if clearSurfaceNotifications {
             AppDelegate.shared?.notificationStore?.clearNotifications(forTabId: id, surfaceId: panelId)
