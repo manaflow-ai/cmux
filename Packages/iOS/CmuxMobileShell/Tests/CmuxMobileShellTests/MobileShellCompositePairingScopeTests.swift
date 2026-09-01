@@ -80,7 +80,11 @@ import Testing
         #expect(refine(.connected, connectedTag: nil, rowTag: "nightly") == nil)
         // Legacy and sibling rows cannot borrow the connected build's status.
         #expect(refine(.connected, connectedTag: "stable", rowTag: nil) == nil)
-        #expect(refine(.reconnecting, connectedTag: "stable", rowTag: "nightly") == .reconnecting)
+        // A redial targeting one pairing must not mark the sibling build's
+        // row; with no known target the device status still passes through.
+        #expect(refine(.reconnecting, connectedTag: "stable", rowTag: "nightly") == nil)
+        #expect(refine(.reconnecting, connectedTag: "stable", rowTag: "stable") == .reconnecting)
+        #expect(refine(.reconnecting, connectedTag: nil, rowTag: "nightly") == .reconnecting)
         #expect(refine(nil, connectedTag: "stable", rowTag: "nightly") == nil)
         // Tagged rows never consume the legacy physical-device fallback.
         #expect(MobileShellComposite.exactPairingConnectionStatus(

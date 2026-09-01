@@ -4,6 +4,10 @@ import Foundation
 
 extension MobileShellComposite {
     func ensureTerminalLane(surfaceID: String) {
+        // Demo surfaces have no Mac-side lane; without this guard a mounted
+        // demo terminal would open a lane at whatever REAL Mac holds the
+        // foreground ticket, for a surface that Mac has never heard of.
+        guard !demonstrationOwnsSurface(surfaceID) else { return }
         guard let terminalLaneCoordinator,
               connectionState == .connected,
               terminalOutputTransport != .renderGrid,
@@ -13,11 +17,19 @@ extension MobileShellComposite {
               let activeTicket else {
             return
         }
+        // A lane request can redial the peer session, so it must carry the
+        // same method-pinned allowlist as the control dial or a Direct or
+        // Tailscale Only Computer's lane reconnect could ride relay or
+        // discovered paths the method forbids.
         let request = CmxByteTransportRequest(
             route: activeRoute,
             expectedPeerDeviceID: activeTicket.macDeviceID,
             authorizationMode: .transportAdmission,
-            sessionPurpose: .featureLane
+            sessionPurpose: .featureLane,
+            irohDirectOnlyDialCandidates: irohMethodPinnedDialCandidates(
+                forMacDeviceID: activeTicket.macDeviceID,
+                instanceTag: activeMacInstanceTag
+            )
         )
         let connectionGeneration = connectionGeneration
         let lifecycleID = terminalLaneLifecycleID

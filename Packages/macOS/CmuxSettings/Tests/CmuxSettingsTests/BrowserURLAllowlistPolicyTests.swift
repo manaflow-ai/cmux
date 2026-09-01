@@ -48,7 +48,7 @@ struct BrowserURLAllowlistPolicyTests {
         #expect(!policy.allows(try #require(URL(string: "https://outside.example"))))
     }
 
-    @Test func anEmptyManagedArrayFailsClosed() throws {
+    @Test func anEmptyManagedArrayFailsClosedForRemoteOrigins() throws {
         let policy = BrowserURLAllowlistPolicy(managedPatterns: [])
         #expect(policy.isManaged)
         #expect(!policy.allows(try #require(URL(string: "https://example.com"))))

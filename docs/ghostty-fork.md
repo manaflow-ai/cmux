@@ -12,12 +12,13 @@ When we change the fork, update this document and the parent submodule SHA.
 
 ## Current fork changes
 
-The submodule pinned by this branch is `b17f1726f`, the fork-main merge of the
-latest Ghostty renderer and iOS fixes. It includes the prior fork changes below,
-including the cmux theme encoder at `987780a132`, tokened iOS render disposition
-at `3da10da73`, VT formatter cursor restoration at `f76c132e5`, VT
-stream-boundary visibility at `9513174f2`, and Hangul canonical font resolution
-at `3fbdd078d`.
+The submodule pinned by this branch is `466f85867`, reachable from fork `main`.
+It carries the renderer/API compatibility pin plus the Fish SSH feature-gating
+fix (`fd13a3fc2`): the embedded Ghostty CLI wrapper is installed whenever
+either `ssh-env` or `ssh-terminfo` is enabled. The pin includes the prior fork
+changes below, including the cmux theme encoder at `987780a132`, tokened iOS
+render dispositions, VT formatter cursor restoration, VT stream-boundary
+visibility, and Hangul canonical font resolution.
 
 ### Conditional cmux theme encoding
 
@@ -40,8 +41,11 @@ at `3fbdd078d`.
 - Artifact:
   - https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-987780a132a33fd69ab800b09e254b4584537d04-crashsubdir-cmux-crash-sentry-off-v1
   - SHA-256 `6f7a62fbc9ae63e85f12b78e42c0f8a8d7abecb07df13cf6d2a7d0c95dad91fd`
-  - This artifact is retained for the cmux theme fix; the pinned fork-main
-    artifact also includes the later Ghostty changes below.
+
+The corresponding universal ReleaseFast GhosttyKit archive is published at
+https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-466f8586749216b686c5397d9f03e10eac1955c4-crashsubdir-cmux-crash-sentry-off-v1
+with SHA-256 `a27c76e786da0b625b4cab8c0e0ae052e559bbf598fecca1935087b262844afb`
+pinned in `scripts/ghosttykit-checksums.txt`.
 
 ### iOS tokened render disposition and nonblocking prompt reveal
 
@@ -84,11 +88,16 @@ at `3fbdd078d`.
   - SHA-256 `6a02a2ec3794de79a02af993083292a89517d2533eb20c746deca377f23456bd`
     is pinned in `scripts/ghosttykit-checksums.txt`.
 
-The current fork-main pin `b17f1726f` has a ReleaseFast artifact at:
+The prior fork-main pin `b17f1726f` has a ReleaseFast artifact at:
 
 - https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-b17f1726fc53495dd827f7d85c9ec38da3d03814-crashsubdir-cmux-crash-sentry-off-v1
 - SHA-256 `1a790e1363a03f2fbd2c2e0bca13e99efac0ac03ba8d7083ad335e4d39e45a0a`
   is pinned in `scripts/ghosttykit-checksums.txt`.
+
+The pinned lineage also contains the hard-newline URL boundary fix from
+Ghostty PR #183. Its regression test and width-filled-row guard keep a short
+slash-terminated URL from absorbing unrelated output on the next hard newline,
+while preserving indented continuations and terminal soft wraps.
 
 ### VT formatter cursor restoration after margins
 

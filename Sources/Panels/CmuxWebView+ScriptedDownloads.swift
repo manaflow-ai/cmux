@@ -420,34 +420,51 @@ extension CmuxWebView {
         }
     }
 
-    static func cookiesForDownloadRequest(_ cookies: [HTTPCookie], url: URL) -> [HTTPCookie] {
-        guard let host = url.host?.lowercased() else { return [] }
-        let requestPath = url.path.isEmpty ? "/" : url.path
-        let isHTTPS = url.scheme?.caseInsensitiveCompare("https") == .orderedSame
+    nonisolated static func cookiesForDownloadRequest(_ cookies: [HTTPCookie], url: URL) -> [HTTPCookie] {
         let now = Date.now
 
-        return cookies.filter { cookie in
-            if cookie.isSecure && !isHTTPS { return false }
-            if let expires = cookie.expiresDate, expires <= now { return false }
-            guard domain(cookie.domain, matches: host) else { return false }
-            return path(cookie.path, matches: requestPath)
-        }
+        return cookies.filter { cookieMatchesURL($0, url: url, now: now) }
     }
 
-    private static func domain(_ cookieDomain: String, matches host: String) -> Bool {
+    /// Returns whether a cookie would be sent with a request to the URL.
+    ///
+    /// Cookie clearing and scripted-download cookie forwarding share this
+    /// predicate so URL scoping cannot silently drift between mutation and
+    /// request paths.
+    nonisolated static func cookieMatchesURL(_ cookie: HTTPCookie, url: URL, now: Date = .now) -> Bool {
+        guard let host = url.host?.lowercased() else { return false }
+        let requestPath = url.path.isEmpty ? "/" : url.path
+        let isHTTPS = url.scheme?.caseInsensitiveCompare("https") == .orderedSame
+
+        if cookie.isSecure && !isHTTPS { return false }
+        if let expires = cookie.expiresDate, expires <= now { return false }
+        guard cookieDomainMatchesHost(cookie.domain, host: host) else { return false }
+        return cookiePathMatches(cookie.path, requestPath: requestPath)
+    }
+
+    /// Returns whether a stored cookie domain is within a requested domain scope.
+    nonisolated static func cookieDomainMatchesFilter(_ cookieDomain: String, filter: String) -> Bool {
+        let normalizedCookieDomain = cookieDomain.trimmingCharacters(in: CharacterSet(charactersIn: ".")).lowercased()
+        let normalizedFilter = filter.trimmingCharacters(in: CharacterSet(charactersIn: ".")).lowercased()
+        guard !normalizedCookieDomain.isEmpty, !normalizedFilter.isEmpty else { return false }
+        return normalizedCookieDomain == normalizedFilter || normalizedCookieDomain.hasSuffix(".\(normalizedFilter)")
+    }
+
+    /// Returns whether a cookie path matches a request path under RFC cookie rules.
+    nonisolated static func cookiePathMatches(_ cookiePath: String, requestPath: String) -> Bool {
+        let normalized = cookiePath.isEmpty ? "/" : cookiePath
+        if normalized == "/" || requestPath == normalized { return true }
+        guard requestPath.hasPrefix(normalized) else { return false }
+        return normalized.hasSuffix("/") || requestPath.dropFirst(normalized.count).first == "/"
+    }
+
+    nonisolated private static func cookieDomainMatchesHost(_ cookieDomain: String, host: String) -> Bool {
         let normalized = cookieDomain.trimmingCharacters(in: CharacterSet(charactersIn: ".")).lowercased()
         guard !normalized.isEmpty else { return false }
         if cookieDomain.hasPrefix(".") {
             return host == normalized || host.hasSuffix(".\(normalized)")
         }
         return host == normalized
-    }
-
-    private static func path(_ cookiePath: String, matches requestPath: String) -> Bool {
-        let normalized = cookiePath.isEmpty ? "/" : cookiePath
-        if normalized == "/" || requestPath == normalized { return true }
-        guard requestPath.hasPrefix(normalized) else { return false }
-        return normalized.hasSuffix("/") || requestPath.dropFirst(normalized.count).first == "/"
     }
 
     private static let sharedScriptedDownloadMessageHandler = ScriptedDownloadMessageHandler()

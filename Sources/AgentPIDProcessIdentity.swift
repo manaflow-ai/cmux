@@ -25,11 +25,24 @@ struct AgentPIDProcessIdentity: Equatable, Hashable, Sendable {
     /// a readable identity keeps meaning the process is running — callers such
     /// as session restore treat it as proof the agent is still alive.
     init?(pid: pid_t) {
-        guard let entry = Self.processTableEntry(pid: pid), !entry.hasExited else { return nil }
-        self.init(
-            pid: pid,
-            startSeconds: entry.startSeconds,
-            startMicroseconds: entry.startMicroseconds
+        guard let snapshot = Self.processSnapshot(pid: pid) else { return nil }
+        self = snapshot.identity
+    }
+
+    /// Reads identity and ancestry from one kernel snapshot so callers do not
+    /// accidentally combine a reused pid with metadata from different process
+    /// generations. Zombies are rejected just as in `init?(pid:)`.
+    static func processSnapshot(
+        pid: pid_t
+    ) -> (identity: AgentPIDProcessIdentity, parentPID: pid_t)? {
+        guard let entry = processTableEntry(pid: pid), !entry.hasExited else { return nil }
+        return (
+            identity: AgentPIDProcessIdentity(
+                pid: pid,
+                startSeconds: entry.startSeconds,
+                startMicroseconds: entry.startMicroseconds
+            ),
+            parentPID: entry.parentPID
         )
     }
 
@@ -47,7 +60,7 @@ struct AgentPIDProcessIdentity: Equatable, Hashable, Sendable {
     /// into different privilege or liveness behavior.
     private static func processTableEntry(
         pid: pid_t
-    ) -> (startSeconds: Int64, startMicroseconds: Int64, hasExited: Bool)? {
+    ) -> (startSeconds: Int64, startMicroseconds: Int64, parentPID: pid_t, hasExited: Bool)? {
         guard pid > 0 else { return nil }
         var mib: [Int32] = [CTL_KERN, KERN_PROC, KERN_PROC_PID, pid]
         var info = kinfo_proc()
@@ -61,6 +74,7 @@ struct AgentPIDProcessIdentity: Equatable, Hashable, Sendable {
         return (
             Int64(started.tv_sec),
             Int64(started.tv_usec),
+            pid_t(info.kp_eproc.e_ppid),
             info.kp_proc.p_stat == Int8(SZOMB)
         )
     }
