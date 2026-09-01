@@ -44,6 +44,7 @@ final class DockSplitStore: BonsplitDelegate, FilePreviewTabMetadataHost {
     private(set) var errorMessage: String?
     private(set) var trustRequest: DockTrustRequest?
     private(set) var isVisibleInUI: Bool = false
+    @ObservationIgnored private(set) var isRetired = false
     /// Host views currently showing this Dock. Normally at most one (the owning
     /// window's right sidebar), but SwiftUI remounts can briefly overlap an old
     /// and new host, so visibility is the union rather than a single flag.
@@ -90,6 +91,14 @@ final class DockSplitStore: BonsplitDelegate, FilePreviewTabMetadataHost {
         terminalStartupRestoreCoordinator.lifecycle
     }
     @ObservationIgnored var surfaceResumeBindingsByPanelId: [UUID: SurfaceResumeBindingSnapshot] = [:]
+    /// In-memory compare-and-claim state held while a CLI restore hands the
+    /// validated binding to its child process.
+    @ObservationIgnored var surfaceResumeRestoreClaimsByPanelId: [
+        UUID: (binding: SurfaceResumeBindingSnapshot, claimedAt: Date)
+    ] = [:]
+    @ObservationIgnored var deferredAgentResumeRestoresByPanelId: [UUID: DeferredAgentResumeRestore] = [:]
+    @ObservationIgnored var deferredAgentResumeClaimsByPanelId: [UUID: (kind: String, sessionId: String)] = [:]
+    @ObservationIgnored var deferredAgentResumeIndexTask: Task<Void, Never>?
     /// Authoritative agent-hook identity for a Dock panel. The effective
     /// surface binding may temporarily become a process-detected tmux binding,
     /// but hook teardown must still address the managed agent generation.
@@ -132,11 +141,17 @@ final class DockSplitStore: BonsplitDelegate, FilePreviewTabMetadataHost {
     @ObservationIgnored var reactGrabTaskPanelId: UUID?
     @ObservationIgnored var terminalViewReattachCoalescingDepth = 0
     @ObservationIgnored var pendingTerminalViewReattachPanelIds: Set<UUID> = []
+    /// Prevents synchronous Bonsplit selection callbacks from materializing
+    /// deferred browser panels while a restore tree is still being assembled.
+    @ObservationIgnored var sessionRestoreDepth = 0
+    /// Browser panel IDs requested by a host while the restore transaction was active.
+    @ObservationIgnored var pendingDeferredBrowserMaterializationPanelIds: Set<UUID> = []
     @ObservationIgnored let focusHistoryNavigation: any FocusHistoryNavigating
     @ObservationIgnored let terminalWorkingDirectoryResolver: TerminalWorkingDirectoryResolver
     private let settings: any SettingsReading
     private let settingsCatalog = SettingCatalog()
     let agentSessionAutoResumeDefaults: UserDefaults
+    @ObservationIgnored let restorableAgentIndexProvider: @MainActor () -> RestorableAgentSessionIndex?
 
     /// Weak registry of every live Dock store. Lets control-surface routing
     /// resolve a Dock surface/pane by querying only the workspaces that actually
@@ -297,7 +312,8 @@ final class DockSplitStore: BonsplitDelegate, FilePreviewTabMetadataHost {
         agentSessionAutoResumeDefaults: UserDefaults = .standard,
         agentChatResumeIntentRecorder: any AgentChatResumeIntentRecording = AgentChatTranscriptResumeIntentRecorder(),
         terminalWorkingDirectoryResolver: TerminalWorkingDirectoryResolver = TerminalWorkingDirectoryResolver(),
-        closedItemHistoryStore: ClosedItemHistoryStore? = nil
+        closedItemHistoryStore: ClosedItemHistoryStore? = nil,
+        restorableAgentIndexProvider: (@MainActor () -> RestorableAgentSessionIndex?)? = nil
     ) {
         let tabDragTransferRegistry = tabDragTransferRegistry ?? TabDragTransferRegistry()
         self.workspaceId = workspaceId
@@ -309,6 +325,9 @@ final class DockSplitStore: BonsplitDelegate, FilePreviewTabMetadataHost {
             terminalTitleUpdateCoalescer ?? NotificationBurstCoalescer()
         self.settings = settings
         self.agentSessionAutoResumeDefaults = agentSessionAutoResumeDefaults
+        self.restorableAgentIndexProvider = restorableAgentIndexProvider ?? {
+            SharedLiveAgentIndex.shared.currentIndexForOwnershipSensitiveRestore()
+        }
         self.terminalStartupRestoreCoordinator = TerminalStartupRestoreCoordinator(
             workspaceID: workspaceId,
             lifecycle: RestoredAgentLifecycleCoordinator(),
@@ -344,6 +363,7 @@ final class DockSplitStore: BonsplitDelegate, FilePreviewTabMetadataHost {
         // so Bonsplit routes it here; the live panel is moved (not copied).
         self.bonsplitController.onExternalTabDrop = { [weak self] request in
             guard let self else { return false }
+            guard !self.isRetired else { return false }
             if let handled = self.performRegisteredPaneTransferDrop(request) {
                 return handled
             }
@@ -389,6 +409,37 @@ final class DockSplitStore: BonsplitDelegate, FilePreviewTabMetadataHost {
 
     func browserPanel(for panelId: UUID) -> BrowserPanel? {
         panels[panelId] as? BrowserPanel
+    }
+
+    /// Resolves the mute state for a live or deferred browser tab.
+    func resolvedAudioMuted(for panel: any Panel) -> Bool {
+        (panel as? BrowserPanel)?.isMuted
+            ?? (panel as? DeferredBrowserPanel)?.sessionPanelSnapshot.browser?.isMuted
+            ?? false
+    }
+
+    /// Requests a deferred browser transition from the Dock owner.
+    @discardableResult
+    func requestDeferredBrowserMaterialization(
+        panelId: UUID,
+        isVisibleInUI: Bool,
+        reason: String = "browser.deferred.request"
+    ) -> Bool {
+        guard let deferredPanel = panels[panelId] as? DeferredBrowserPanel else {
+            return panels[panelId] is BrowserPanel
+        }
+        guard isVisibleInUI else { return false }
+        guard sessionRestoreDepth == 0 else {
+            pendingDeferredBrowserMaterializationPanelIds.insert(panelId)
+            return false
+        }
+#if DEBUG
+        cmuxDebugLog(
+            "session.restore.dockBrowser.materialize.request dock=\(workspaceId.uuidString.prefix(8)) " +
+                "panel=\(panelId.uuidString.prefix(8)) reason=\(reason)"
+        )
+#endif
+        return materializeDeferredBrowserPanel(deferredPanel) != nil
     }
 
     /// Binds a Dock tab to its panel and makes that tab the authoritative reverse lookup.
@@ -457,6 +508,7 @@ final class DockSplitStore: BonsplitDelegate, FilePreviewTabMetadataHost {
     /// Drives Dock activation from the right sidebar: loads config on first
     /// visible activation and toggles panel UI visibility.
     func setActive(isVisible: Bool, mode: RightSidebarMode, visibilityHostId: UUID? = nil) {
+        guard !isRetired else { return }
         let shouldBeVisible = isVisible && mode == .dock
         if shouldBeVisible {
             if hasLoadedConfiguration {
@@ -477,6 +529,7 @@ final class DockSplitStore: BonsplitDelegate, FilePreviewTabMetadataHost {
     }
 
     private func reloadIfBaseDirectoryChanged() {
+        guard !isRetired else { return }
         guard hasLoadedConfiguration else { return }
         let rootDirectory = currentBaseDirectory()
         if configurationLoadTask != nil, rootDirectory != configurationLoadRootDirectory { reload(); return }
@@ -521,7 +574,19 @@ final class DockSplitStore: BonsplitDelegate, FilePreviewTabMetadataHost {
         removeAllPanels()
     }
 
+    /// Permanently retires this Dock before releasing its panels. A retained
+    /// sidebar callback may still hold the store after its workspace closes,
+    /// so retirement—not temporary emptiness—is the authoritative boundary.
+    func retire() {
+        guard !isRetired else { return }
+        isRetired = true
+        Self.liveStoresTable.remove(self)
+        clearDockPortalReconcile()
+        closeAllPanels()
+    }
+
     func ensureLoaded() {
+        guard !isRetired else { return }
         guard !hasLoadedConfiguration else { return }
         hasLoadedConfiguration = true
         startConfigurationLoad(replacingPanels: false)
@@ -554,6 +619,7 @@ final class DockSplitStore: BonsplitDelegate, FilePreviewTabMetadataHost {
         allowsExternalBrowserFallback: Bool = true,
         websiteDataStore: WKWebsiteDataStore? = nil
     ) -> UUID? {
+        guard !isRetired else { return nil }
         ensureLoaded()
         let source = resolveSourcePanelId(sourcePanelId, preferredPaneId: paneId)
         let resolvedBrowserProfileID = kind == .browser
@@ -636,6 +702,7 @@ final class DockSplitStore: BonsplitDelegate, FilePreviewTabMetadataHost {
         websiteDataStore: WKWebsiteDataStore? = nil,
         focus: Bool = true
     ) -> UUID? {
+        guard !isRetired else { return nil }
         ensureLoaded()
         let source = resolveSourcePanelId(sourcePanelId)
         let resolvedBrowserProfileID = kind == .browser
@@ -935,6 +1002,7 @@ final class DockSplitStore: BonsplitDelegate, FilePreviewTabMetadataHost {
         allowsExternalBrowserFallback: Bool = true,
         websiteDataStore: WKWebsiteDataStore? = nil
     ) -> (any Panel)? {
+        guard !isRetired else { return nil }
         switch kind {
         case .terminal:
             return makeTerminalPanel(
@@ -973,6 +1041,7 @@ final class DockSplitStore: BonsplitDelegate, FilePreviewTabMetadataHost {
     }
 
     private func makePanel(for def: DockControlDefinition, baseDirectory: String) -> (any Panel)? {
+        guard !isRetired else { return nil }
         switch def.kind {
         case .terminal:
             let workingDirectory = Self.resolvedWorkingDirectory(def.cwd, baseDirectory: baseDirectory)
@@ -1068,6 +1137,10 @@ final class DockSplitStore: BonsplitDelegate, FilePreviewTabMetadataHost {
         title: String,
         inPane paneId: PaneID?
     ) -> TabID? {
+        guard !isRetired else {
+            panel.close()
+            return nil
+        }
         panels[panel.id] = panel
         guard let tabId = bonsplitController.createTab(
             title: title,
@@ -1311,6 +1384,7 @@ final class DockSplitStore: BonsplitDelegate, FilePreviewTabMetadataHost {
     // MARK: - Config loading
 
     func reload() {
+        guard !isRetired else { return }
         removeAllPanels()
         hasLoadedConfiguration = true
         hasAppliedConfigurationSeed = false
@@ -1318,6 +1392,7 @@ final class DockSplitStore: BonsplitDelegate, FilePreviewTabMetadataHost {
     }
 
     func trustAndReload() {
+        guard !isRetired else { return }
         if let trustRequest {
             CmuxActionTrust.shared.trust(trustRequest.descriptor)
         }
@@ -1325,6 +1400,7 @@ final class DockSplitStore: BonsplitDelegate, FilePreviewTabMetadataHost {
     }
 
     private func startConfigurationLoad(replacingPanels: Bool) {
+        guard !isRetired else { return }
         configurationLoadGeneration += 1
         let generation = configurationLoadGeneration
         let rootDirectory = currentBaseDirectory()
@@ -1344,6 +1420,7 @@ final class DockSplitStore: BonsplitDelegate, FilePreviewTabMetadataHost {
     }
 
     private func applyConfigurationIdentity(_ current: DockConfigIdentity, generation: Int) {
+        guard !isRetired else { return }
         guard generation == configurationIdentityGeneration else { return }
         configurationIdentityTask = nil
         if lastLoadedConfigIdentity == nil, hasAppliedConfigurationSeed {
@@ -1375,6 +1452,7 @@ final class DockSplitStore: BonsplitDelegate, FilePreviewTabMetadataHost {
         generation: Int,
         replacingPanels: Bool
     ) {
+        guard !isRetired else { return }
         guard generation == configurationLoadGeneration else { return }
         configurationLoadTask = nil; configurationLoadRootDirectory = nil
         errorMessage = nil
@@ -1420,6 +1498,7 @@ final class DockSplitStore: BonsplitDelegate, FilePreviewTabMetadataHost {
     /// Bonsplit tree cannot pin absolute point heights, but the proportions are
     /// preserved and remain user-resizable).
     private func seed(definitions: [DockControlDefinition], baseDirectory: String) {
+        guard !isRetired else { return }
         // Build panels first so divider math runs over the entries actually
         // created (e.g. browser entries are skipped when the browser is disabled).
         let created: [(definition: DockControlDefinition, panel: any Panel)] = definitions.compactMap { definition in

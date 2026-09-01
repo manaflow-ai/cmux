@@ -1,5 +1,6 @@
 #if canImport(UIKit)
 import CmuxMobileDiagnostics
+import CmuxMobileTerminalKit
 import GhosttyKit
 import UIKit
 import os
@@ -26,9 +27,34 @@ extension GhosttySurfaceView {
         pumpLocalPixelScroll()
     }
 
+    /// Re-asserts the held scroll position after a verified replay completed
+    /// mid-gesture. The replay reset the mirror to the bottom and the anchor
+    /// restore stands down for user interaction, so without this a stationary
+    /// finger would see the reset until the next real delta.
+    func reassertLocalPixelScrollPositionAfterReplay() {
+        // Pixel scrolling exists only on the confirmed-primary screen. Alt
+        // screens replay constantly (every frame is verified), and a stale
+        // held anchor from earlier primary scrolling must never drive alt
+        // renders, so anything but an active primary-screen gesture clears
+        // the pixel state outright.
+        guard scrollInteractionActive,
+              delegate?.ghosttySurfaceViewOwnsLocalPrimaryScreenScroll(self) == true,
+              localPixelScrollState.withLock({ $0.lastApplied }) != nil else {
+            localPixelScrollState.withLock {
+                $0.epoch &+= 1
+                $0.remainderPx = 0
+                $0.lastApplied = nil
+                $0.topRevealPx = 0
+            }
+            return
+        }
+        pendingLocalPixelScrollReassert = true
+        pumpLocalPixelScroll()
+    }
+
     func pumpLocalPixelScroll() {
         guard !localPixelScrollApplyInFlight,
-              pendingLocalScrollPixels != 0,
+              pendingLocalScrollPixels != 0 || pendingLocalPixelScrollReassert,
               let surface else {
             return
         }
@@ -37,6 +63,12 @@ extension GhosttySurfaceView {
             ?? viewportRestoreGate.withLock { $0.interactionGeneration }
         pendingLocalScrollPixels = 0
         pendingLocalPixelScrollInteractionGeneration = nil
+        pendingLocalPixelScrollReassert = false
+        // While the finger (or deceleration) owns the gesture, the pump is
+        // the position authority: rebase from the last applied position so a
+        // verified-replay bottom reset between batches cannot hijack the
+        // gesture. Idle batches keep trusting the live viewport.
+        let rebaseFromHeldPosition = scrollInteractionActive
         localPixelScrollApplyInFlight = true
         localPixelScrollApplyInFlightGeneration = interactionGeneration
         let token = makeSurfaceOperationID()
@@ -46,11 +78,14 @@ extension GhosttySurfaceView {
         let operation = LocalPixelScrollSurfaceOperation(
             surface: surface,
             generation: surfaceGeneration,
-            token: token
+            token: token,
+            pixelStateEpoch: localPixelScrollState.withLock { $0.epoch },
+            maxTopRevealPx: hostedScrollTopRevealBudgetPx
         )
         let workQueue = outputQueue
         let gate = viewportRestoreGate
         let pixelState = localPixelScrollState
+        let pushedRowsCounter = localScrollbackRowsPushed
         #if DEBUG
         let enqueuedAt = CACurrentMediaTime()
         #endif
@@ -61,7 +96,9 @@ extension GhosttySurfaceView {
             Self.applyPixelScrollBatch(
                 operation: operation,
                 deltaPixels: deltaPixels,
-                pixelState: pixelState
+                rebaseFromHeldPosition: rebaseFromHeldPosition,
+                pixelState: pixelState,
+                pushedRowsCounter: pushedRowsCounter
             )
             gate.withLock {
                 $0.appliedInteractionGeneration = max(
@@ -131,26 +168,71 @@ extension GhosttySurfaceView {
     private nonisolated static func applyPixelScrollBatch(
         operation: LocalPixelScrollSurfaceOperation,
         deltaPixels: Double,
-        pixelState: OSAllocatedUnfairLock<LocalPixelScrollState>
+        rebaseFromHeldPosition: Bool,
+        pixelState: OSAllocatedUnfairLock<LocalPixelScrollState>,
+        // lint:allow lock - the view's cumulative push counter threaded to the
+        // serial batch; same discipline as pixelState above.
+        pushedRowsCounter: OSAllocatedUnfairLock<UInt64>
     ) {
         let size = ghostty_surface_size(operation.surface)
         let cellHeightPx = Double(size.cell_height_px)
         guard cellHeightPx >= 1 else {
-            pixelState.withLock { $0.remainderPx = 0 }
+            pixelState.withLock {
+                guard $0.epoch == operation.pixelStateEpoch else { return }
+                $0.remainderPx = 0
+            }
             return
         }
-        var remainder = pixelState.withLock { $0.remainderPx }
+        var (remainder, held, reveal) = pixelState.withLock {
+            ($0.remainderPx, $0.lastApplied, $0.topRevealPx)
+        }
         for _ in 0..<2 {
             var scrollbar = ghostty_surface_scrollbar_s()
             guard ghostty_surface_scrollbar(operation.surface, &scrollbar) else { break }
             let total = scrollbar.total
             let len = min(scrollbar.len, total)
             let maxPosition = Double(total - len) * cellHeightPx
-            let current = min(Double(scrollbar.offset) * cellHeightPx + remainder, maxPosition)
-            let next = min(max(current + deltaPixels, 0), maxPosition)
+            let rowsPushedNow = pushedRowsCounter.withLock { $0 }
+            // Mid-gesture the held position is the authority; see
+            // `gestureBasePositionPx` for the anchoring contract (docked
+            // holds target the live tail, undocked holds keep their content,
+            // revision changes rebase content-true, unreconcilable spaces
+            // fall back to the live viewport).
+            let current = GhosttySurfaceView.LocalPixelScrollState.gestureBasePositionPx(
+                rebaseFromHeldPosition: rebaseFromHeldPosition,
+                held: held,
+                scrollbarOffset: scrollbar.offset,
+                scrollbarRevision: scrollbar.row_space_revision,
+                scrollbarTotal: total,
+                rowsPushedNow: rowsPushedNow,
+                remainderPx: remainder,
+                cellHeightPx: cellHeightPx,
+                maxPositionPx: maxPosition
+            )
+            // The axis continues past scrollback-top into the top-reveal
+            // zone (the keyboard-up presentation's clipped top), so the
+            // oldest rows stay reachable while the keyboard is up. The grid
+            // gets the non-negative side; the host's content cap follows the
+            // reveal side on its display link.
+            let resolved = TerminalLetterboxGeometry.scrollTopRevealResolution(
+                currentPositionPx: current,
+                currentRevealPx: reveal,
+                deltaPixels: deltaPixels,
+                maxPositionPx: maxPosition,
+                maxRevealPx: operation.maxTopRevealPx
+            )
+            let next = resolved.positionPx
             var row = UInt64((next / cellHeightPx).rounded(.down))
-            var pixelOffset = next - Double(row) * cellHeightPx
-            if next >= maxPosition - 0.5 {
+            // Ghostty gets whole device pixels: a fractional-pixel offset
+            // makes glyph antialiasing resample every frame (shimmer);
+            // native scrollers always move content by integral pixels.
+            var pixelOffset = (next - Double(row) * cellHeightPx).rounded()
+            if pixelOffset >= cellHeightPx {
+                row += 1
+                pixelOffset = 0
+            }
+            let dockedAtTail = next >= maxPosition - 0.5
+            if dockedAtTail {
                 // Docked at the tail: target the absolute bottom and let
                 // Ghostty clamp the row into the active area.
                 row = total
@@ -166,29 +248,46 @@ extension GhosttySurfaceView {
             ) {
                 let appliedRow = row
                 let appliedOffset = pixelOffset
+                let appliedPosition = next
+                let appliedReveal = resolved.revealPx
                 let appliedRevision = applied.row_space_revision
                 let appliedTotal = applied.total
                 pixelState.withLock {
+                    // A snap or surface replacement bumped the epoch while
+                    // this batch was in flight; its result must not
+                    // resurrect the cleared scroll authority.
+                    guard $0.epoch == operation.pixelStateEpoch else { return }
                     $0.remainderPx = appliedOffset
-                    #if DEBUG
-                    $0.lastApplied = (
+                    $0.topRevealPx = appliedReveal
+                    $0.lastApplied = LocalPixelScrollState.Held(
                         row: appliedRow,
                         remainderPx: appliedOffset,
+                        positionPx: appliedPosition,
                         revision: appliedRevision,
-                        total: appliedTotal
+                        total: appliedTotal,
+                        rowsPushed: rowsPushedNow,
+                        dockedAtTail: dockedAtTail
                     )
-                    #endif
                 }
                 return
             }
-            // Content changed shape mid-batch; rebase once from bottom-of-row.
+            // Content changed shape mid-batch; retry once with a zeroed
+            // remainder. The held position stays: the next iteration's fresh
+            // scrollbar and push counter rebase it content-true, or reject it
+            // and fall back to the live viewport. The reveal survives: it is
+            // presentation-space, not row-space, so a reflow does not
+            // invalidate how far the render has slid.
             remainder = 0
         }
         // Two mismatches in one batch: same units the legacy line path derives
-        // from `enqueueScrollMechanicsDelta` (points = px/scale, divisor 3x
-        // cell height), so the fallback scrolls the same distance in rows.
+        // from `enqueueScrollMechanicsDelta` (one line per cell-height of
+        // travel), so the fallback scrolls the same distance in rows.
         let shouldLog = pixelState.withLock { state -> Bool in
-            state.remainderPx = 0
+            if state.epoch == operation.pixelStateEpoch {
+                state.remainderPx = 0
+                state.lastApplied = nil
+                state.topRevealPx = 0
+            }
             let now = CACurrentMediaTime()
             guard now - state.lastFallbackLogTime >= 1 else { return false }
             state.lastFallbackLogTime = now
@@ -202,7 +301,7 @@ extension GhosttySurfaceView {
         ghostty_surface_mouse_scroll(
             operation.surface,
             0,
-            -deltaPixels / (cellHeightPx * 3),
+            -deltaPixels / cellHeightPx,
             0
         )
     }
@@ -215,5 +314,12 @@ private nonisolated struct LocalPixelScrollSurfaceOperation: @unchecked Sendable
     let surface: ghostty_surface_t
     let generation: UInt64
     let token: UInt64
+    /// Pixel-state epoch captured at pump time; the batch only commits its
+    /// results while the state still carries this epoch.
+    let pixelStateEpoch: UInt64
+    /// The scroll-top reveal budget in device pixels, captured on the main
+    /// actor at pump time: how much of the render the keyboard-up bottom-pin
+    /// clips above the screen (0 with the keyboard down).
+    let maxTopRevealPx: Double
 }
 #endif

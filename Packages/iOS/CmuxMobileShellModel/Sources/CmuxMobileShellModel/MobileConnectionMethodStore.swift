@@ -11,6 +11,10 @@ public enum MobileConnectionMethod: String, CaseIterable, Sendable {
     /// pairing code shown on the Mac once, which authorizes that exact peer;
     /// Iroh is never used as a fallback while this method is selected.
     case tailscale
+    /// Dial only the user-enabled direct addresses configured on the
+    /// Computer (LAN, WireGuard, or any other reachable network). No other
+    /// method is ever used as a fallback while this method is selected.
+    case direct
 }
 
 extension MobileConnectionMethod {
@@ -20,6 +24,7 @@ extension MobileConnectionMethod {
         switch self {
         case .automatic: .automatic
         case .tailscale: .tailscale
+        case .direct: .direct
         }
     }
 }
