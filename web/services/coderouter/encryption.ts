@@ -224,14 +224,11 @@ function strictBase64(value: string, label: string): Buffer {
 function parseCredential(value: unknown): CodeRouterCredential | null {
   if (!isRecord(value)) return null;
   if (value.provider === "anthropic-apikey" || value.provider === "openai-apikey") {
-    return string(value.apiKey) && string(value.accountId) && string(value.email)
-      ? {
-        provider: value.provider,
-        apiKey: value.apiKey,
-        accountId: value.accountId,
-        email: value.email,
-      }
-      : null;
+    if (!string(value.apiKey) || !string(value.accountId) || !string(value.email)) return null;
+    const key = { apiKey: value.apiKey, accountId: value.accountId, email: value.email };
+    return value.provider === "anthropic-apikey"
+      ? { provider: "anthropic-apikey", ...key }
+      : { provider: "openai-apikey", ...key };
   }
   const {
     accessToken,

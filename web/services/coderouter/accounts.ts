@@ -150,7 +150,9 @@ export function parseCredential(value: unknown): CodeRouterCredential | null {
     const email = boundedString(value.email, 320) ??
       boundedString(value.label, 320) ??
       accountId;
-    return { provider, apiKey, accountId, email };
+    return provider === "anthropic-apikey"
+      ? { provider, apiKey, accountId, email }
+      : { provider, apiKey, accountId, email };
   }
   const accessToken = boundedString(value.accessToken, 32_768);
   const refreshToken = boundedString(value.refreshToken, 32_768);

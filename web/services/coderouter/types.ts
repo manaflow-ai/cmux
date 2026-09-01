@@ -57,14 +57,23 @@ export type ClaudeCredential = {
  * A long-lived provider API key. Nothing rotates: there is no refresh token
  * and no expiry, so a provider 401 means the key itself is dead.
  */
-export type ApiKeyCredential = {
-  readonly provider: "anthropic-apikey" | "openai-apikey";
+type ApiKeyCredentialBase = {
   readonly apiKey: string;
   /** Dedupe identity within the team (a hash of the key, or a mirror id). */
   readonly accountId: string;
   /** Display label; doubles as the vault's non-empty "email" slot. */
   readonly email: string;
 };
+
+export type AnthropicApiKeyCredential = ApiKeyCredentialBase & {
+  readonly provider: "anthropic-apikey";
+};
+
+export type OpenAiApiKeyCredential = ApiKeyCredentialBase & {
+  readonly provider: "openai-apikey";
+};
+
+export type ApiKeyCredential = AnthropicApiKeyCredential | OpenAiApiKeyCredential;
 
 export type CodeRouterCredential =
   | CodexCredential

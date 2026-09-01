@@ -12,9 +12,16 @@ import {
   reportCoderouterFailure,
 } from "./observability";
 import { observeModelUsage, type ModelUsage } from "./responseUsage";
+import {
+  CODEX_PLANE_PROVIDERS,
+  type CodeRouterCredential,
+  type CodexCredential,
+  type OpenAiApiKeyCredential,
+} from "./types";
 
 const CODEX_UPSTREAM = "https://chatgpt.com/backend-api/codex/responses";
 const CODEX_MODELS_UPSTREAM = "https://chatgpt.com/backend-api/codex/models";
+const OPENAI_RESPONSES_UPSTREAM = "https://api.openai.com/v1/responses";
 const ALLOWED_REQUEST_HEADERS = [
   "accept",
   "content-encoding",
@@ -158,7 +165,7 @@ async function proxyCodexRequestWith(
   for (let attempt = 0; attempt < 8; attempt++) {
     const account = await dependencies.select({
       teamId: identity.teamId,
-      provider: "codex",
+      provider: CODEX_PLANE_PROVIDERS,
       sessionKey,
       excludedAccountIds: attempted,
     });
@@ -189,7 +196,7 @@ async function proxyCodexRequestWith(
       }
       throw error;
     }
-    if (credential.provider !== "codex") continue;
+    if (!isCodexPlaneCredential(credential)) continue;
     try {
       upstream = await sendCodex(request.clone(), forwardedHeaders, credential);
     } catch (error) {
@@ -222,7 +229,7 @@ async function proxyCodexRequestWith(
           expectedRevision: account.vaultRevision,
           force: true,
         });
-        if (refreshed.provider !== "codex") continue;
+        if (!isCodexPlaneCredential(refreshed)) continue;
         upstream = await sendCodex(
           request.clone(),
           forwardedHeaders,
@@ -444,16 +451,34 @@ export const proxyCodexModels = createCodexModelsProxy({
   providerRead: fetchProviderRead,
 });
 
+type CodexPlaneCredential = CodexCredential | OpenAiApiKeyCredential;
+
+function isCodexPlaneCredential(
+  credential: CodeRouterCredential,
+): credential is CodexPlaneCredential {
+  return credential.provider === "codex" || credential.provider === "openai-apikey";
+}
+
 async function sendCodex(
   request: Request,
   forwardedHeaders: Headers,
-  credential: { accessToken: string; accountId: string },
+  credential: CodexPlaneCredential,
 ): Promise<Response> {
   const headers = new Headers(forwardedHeaders);
-  headers.set("authorization", `Bearer ${credential.accessToken}`);
-  headers.set("chatgpt-account-id", credential.accountId);
-  headers.set("originator", "coderouter");
-  return await fetch(CODEX_UPSTREAM, {
+  // Same Responses-API body either way; only the upstream and its auth differ.
+  // A ChatGPT subscription goes to the Codex backend with its account id, an
+  // OpenAI API key goes to the public API with nothing but the bearer.
+  const upstream = credential.provider === "openai-apikey"
+    ? OPENAI_RESPONSES_UPSTREAM
+    : CODEX_UPSTREAM;
+  if (credential.provider === "openai-apikey") {
+    headers.set("authorization", `Bearer ${credential.apiKey}`);
+  } else {
+    headers.set("authorization", `Bearer ${credential.accessToken}`);
+    headers.set("chatgpt-account-id", credential.accountId);
+    headers.set("originator", "coderouter");
+  }
+  return await fetch(upstream, {
     method: "POST",
     headers,
     body: request.body,
