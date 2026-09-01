@@ -140,7 +140,7 @@ extension CMUXCLI {
         }
         let compactTranscriptPath = normalizedHookValue(parsedInput.transcriptPath)
             ?? (try? sessionStore.lookup(sessionId: sessionId))?.transcriptPath
-        let compactTranscriptLineCount = compactTranscriptPath.flatMap { path in
+        let compactTranscriptLineCount = compactTranscriptPath.flatMap { path -> Int? in
             guard let lines = readRecentTextFileLines(path: path, maxBytes: 512 * 1024) else { return nil }
             return textFileGrowthMetric(path: path, fallbackLineCount: lines.count)
         }
