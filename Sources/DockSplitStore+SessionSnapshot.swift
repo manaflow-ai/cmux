@@ -46,19 +46,27 @@ extension DockSplitStore {
         let panelSnapshots = orderedPanelIds
             .prefix(SessionPersistencePolicy.maxPanelsPerWorkspace)
             .compactMap { panelId in
-                let transfer = detachedSurfaceTransfersByPanelId[panelId]
-                let observationWorkspaceId = transfer?.sessionRestoreWorkspaceId ?? workspaceId
+                // A Dock's owner UUID can change when its window/workspace is restored or
+                // when the panel moves between containers. The panel UUID is persisted,
+                // so select the newest safe record for that stable surface while preserving
+                // live process evidence for the current owner.
+                let observationWorkspaceId = detachedSurfaceTransfersByPanelId[panelId]?
+                    .sessionRestoreWorkspaceId ?? workspaceId
                 return sessionPanelSnapshot(
                     panelId: panelId,
                     includeScrollback: includeScrollback,
-                    observation: restorableAgentIndex?.entry(
+                    observation: restorableAgentIndex?.entryForStablePanel(
+                        workspaceId: observationWorkspaceId,
+                        panelId: panelId,
+                        processIdentityProvider: currentAgentProcessIdentity,
+                        processPresenceProvider: agentProcessPresence,
+                        revalidateProcessEvidence: false
+                    ),
+                    detectedResumeBinding: surfaceResumeBindingIndex?.bindingForStablePanel(
                         workspaceId: observationWorkspaceId,
                         panelId: panelId
                     ),
-                    detectedResumeBinding: surfaceResumeBindingIndex?.binding(
-                        workspaceId: observationWorkspaceId,
-                        panelId: panelId
-                    ),
+                    detectedResumeBindingIsAmbiguous: surfaceResumeBindingIndex?.hasAmbiguousPanel(panelId) == true,
                     terminalFontSizeSnapshotProjection:
                         terminalFontSizeSnapshotProjection,
                     notificationStore: notificationStore,
@@ -145,11 +153,24 @@ extension DockSplitStore {
         return sessionPanelSnapshot(
             panelId: panelId,
             includeScrollback: true,
-            observation: restorableAgentIndex?.entry(
+            observation: restorableAgentIndex?.entryForStablePanel(
                 workspaceId: observationWorkspaceId,
-                panelId: panelId
+                panelId: panelId,
+                processIdentityProvider: {
+                    guard $0 > 0, $0 <= Int(Int32.max) else { return nil }
+                    return AgentPIDProcessIdentity(pid: pid_t($0))
+                },
+                processPresenceProvider: {
+                    guard $0 > 0, $0 <= Int(Int32.max) else {
+                        return .absent
+                    }
+                    return PIDPresence.current(pid: pid_t($0))
+                },
+                revalidateProcessEvidence: false
             ),
             detectedResumeBinding: nil,
+            detectedResumeBindingIsAmbiguous:
+                surfaceResumeBindingsByPanelId[panelId]?.isProcessDetected == true,
             terminalFontSizeSnapshotProjection:
                 terminalFontSizeSnapshotProjection,
             notificationStore: resolvedNotificationStore(),
@@ -189,6 +210,7 @@ extension DockSplitStore {
         includeScrollback: Bool,
         observation: RestorableAgentSessionIndex.Entry?,
         detectedResumeBinding: SurfaceResumeBindingSnapshot?,
+        detectedResumeBindingIsAmbiguous: Bool = false,
         terminalFontSizeSnapshotProjection:
             WorkspaceTerminalFontSizeSnapshotProjection?,
         notificationStore: TerminalNotificationStore?,
@@ -220,7 +242,8 @@ extension DockSplitStore {
             let managedResumeBinding = managedAgentResumeBinding(panelId: panelId)
             let resumeBinding = effectiveSessionResumeBinding(
                 panelId: panelId,
-                detected: detectedResumeBinding
+                detected: detectedResumeBinding,
+                detectedIsAmbiguous: detectedResumeBindingIsAmbiguous
             )
             let restorableAgent = effectiveSessionRestorableAgent(
                 panelId: panelId,
@@ -403,7 +426,8 @@ extension DockSplitStore {
 
     private func effectiveSessionResumeBinding(
         panelId: UUID,
-        detected: SurfaceResumeBindingSnapshot?
+        detected: SurfaceResumeBindingSnapshot?,
+        detectedIsAmbiguous: Bool
     ) -> SurfaceResumeBindingSnapshot? {
         let stored = surfaceResumeBindingsByPanelId[panelId]
         if let stored,
@@ -417,7 +441,9 @@ extension DockSplitStore {
         } else if let detected {
             effective = detected
         } else if stored?.isProcessDetected == true {
-            effective = nil
+            effective = detectedIsAmbiguous
+                ? stored?.disablingAutomaticResume()
+                : nil
         } else {
             effective = stored
         }

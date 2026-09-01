@@ -61,6 +61,8 @@ final class FileDropOverlayView: NSView {
     let hintBadgeView = FileDropHintBadgeView(frame: .zero)
     var lastHitTestLogSignature: String?
     var lastDragRouteLogSignatureByPhase: [String: String] = [:]
+    weak var hitTestReferenceView: NSView?
+    var dragUpdateHitTest: (location: NSPoint, view: NSView?)?
 
     override var acceptsFirstResponder: Bool { false }
 

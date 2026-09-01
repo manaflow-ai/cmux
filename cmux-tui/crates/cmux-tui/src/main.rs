@@ -1375,6 +1375,9 @@ fn main() {
 }
 
 fn run_main() {
+    // Pin the launch directory before any subsystem can move the process:
+    // new terminals default to it (not $HOME) for the daemon's lifetime.
+    cmux_tui_core::platform::capture_launch_cwd();
     let mut raw_args = std::env::args().skip(1).collect::<Vec<_>>();
     #[cfg(unix)]
     if raw_args.first().map(String::as_str) == Some("__agent-browser-provider") {

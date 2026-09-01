@@ -54,7 +54,9 @@ NPM_PACKAGE_NAMES_WITH_WINDOWS = (
 )
 NPM_PLATFORM_FILES = frozenset({"package.json", "bin/cmux-tui", "bin/cmux-tui-hook"})
 NPM_LAUNCHER_FILES = frozenset({"package.json", "bin/cmux.js"})
-NPM_RELAY_PLATFORM_FILES = frozenset({"package.json", "bin/cmux-relay"})
+NPM_RELAY_PLATFORM_FILES = frozenset(
+    {"package.json", "bin/chatmux-relay", "bin/cmux-tui"}
+)
 NPM_RELAY_LAUNCHER_FILES = frozenset({"package.json", "bin/cmux-relay.js"})
 
 
@@ -75,7 +77,11 @@ def npm_executable_files(include_windows: bool = False) -> tuple[str, ...]:
     )
     return (
         tuple(path for target in targets for path in _target_binary_paths(target, ("cmux-tui", "cmux-tui-hook")))
-        + tuple(path for target in relay_targets for path in _target_binary_paths(target, ("cmux-relay",)))
+        + tuple(
+            path
+            for target in relay_targets
+            for path in _target_binary_paths(target, ("chatmux-relay", "cmux-tui"))
+        )
         + ("cmux/bin/cmux.js", "cmux-relay/bin/cmux-relay.js")
     )
 
@@ -155,6 +161,8 @@ def _require_relay_autostart_guard(path: Path) -> None:
         '"--autostart"',
         '"_npx"',
         "npm install --global cmux-relay",
+        "unsupported_platform",
+        "requires a Unix PTY backend",
     )
     missing = [marker for marker in required_markers if marker not in source]
     if missing:
@@ -340,11 +348,12 @@ def validate_npm_tree(
         _validate_package_files(
             packages_dir / target.name,
             target,
-            binary_names=("cmux-relay",),
+            binary_names=("chatmux-relay", "cmux-tui"),
             expected_files=frozenset(
                 {
                     "package.json",
-                    f"bin/cmux-relay{'.exe' if target.os == 'win32' else ''}",
+                    f"bin/chatmux-relay{'.exe' if target.os == 'win32' else ''}",
+                    f"bin/cmux-tui{'.exe' if target.os == 'win32' else ''}",
                 }
             ),
             label=target.name,

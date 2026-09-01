@@ -9062,11 +9062,18 @@ impl Mux {
                 }
                 let remaining = deadline.saturating_duration_since(Instant::now());
                 if remaining.is_zero() {
-                    drop(budget);
-                    self.cancel_kitty_image_surface_reservation(surface);
-                    anyhow::bail!(
-                        "timed out waiting for existing terminals to release Kitty image quota"
-                    );
+                    // Kitty graphics are optional. Keep the terminal admission
+                    // alive when an existing host does not acknowledge its
+                    // quota update in time. The worker can apply the target
+                    // limits after the outstanding update recovers.
+                    let entry = budget.entries.get_mut(&surface).ok_or_else(|| {
+                        anyhow::anyhow!("Kitty image budget reservation disappeared")
+                    })?;
+                    entry.owns_quota = false;
+                    entry.applied = KittyGraphicsLimits::disabled();
+                    Self::rebalance_kitty_image_budget_owners(&mut budget);
+                    self.kitty_image_budget_changed.notify_all();
+                    break KittyGraphicsLimits::disabled();
                 }
                 let (next, _) =
                     self.kitty_image_budget_changed.wait_timeout(budget, remaining).unwrap();
@@ -19418,6 +19425,86 @@ mod tests {
             "terminal creation bypassed the in-flight Kitty quota shrink"
         );
         close_terminal_runtime_for_test(&mux, &surface);
+    }
+
+    #[test]
+    fn kitty_quota_timeout_degrades_a_new_terminal_instead_of_rejecting_it() {
+        let mux = test_mux();
+        let first = mux.new_workspace(None, Some((80, 24))).unwrap();
+        let pane = mux.with_state(|state| state.pane_of(first.id).unwrap());
+        let second = mux.new_tab(Some(pane), None, Some((80, 24))).unwrap();
+        wait_for_kitty_image_budget(&mux);
+
+        let gate = Arc::new((Mutex::new(false), Condvar::new()));
+        let (started_sender, started_receiver) = std::sync::mpsc::sync_channel(1);
+        *mux.kitty_image_budget_operation.lock().unwrap() = Some(Arc::new({
+            let gate = gate.clone();
+            let first_id = first.id;
+            move |surface, limits, _deadline| {
+                if surface.id == first_id && limits == kitty_image_limits_for_capacity(1) {
+                    let _ = started_sender.try_send(());
+                    let (released, changed) = &*gate;
+                    let mut released = released.lock().unwrap();
+                    while !*released {
+                        released = changed.wait(released).unwrap();
+                    }
+                }
+                surface.set_kitty_graphics_limits(
+                    limits.image_bytes,
+                    limits.inflight_bytes,
+                    limits.images,
+                    limits.placements,
+                )
+            }
+        }));
+
+        close_terminal_runtime_for_test(&mux, &second);
+        started_receiver
+            .recv_timeout(Duration::from_secs(2))
+            .expect("Kitty quota shrink did not start");
+
+        let (sender, receiver) = std::sync::mpsc::channel();
+        let creating_mux = mux.clone();
+        let creator = std::thread::spawn(move || {
+            let _ = sender.send(creating_mux.new_tab(Some(pane), None, Some((80, 24))));
+        });
+        let created = receiver
+            .recv_timeout(
+                crate::terminal_host_runtime::CONTROL_RESPONSE_TIMEOUT
+                    .saturating_add(Duration::from_secs(1)),
+            )
+            .expect("terminal creation did not resolve after the Kitty quota timeout")
+            .expect("Kitty quota timeout rejected terminal creation");
+        assert_eq!(
+            created.with_terminal(|terminal| terminal.kitty_image_count_limit().unwrap()).unwrap(),
+            0,
+            "a timed-out Kitty quota reservation must start with graphics disabled"
+        );
+        {
+            let budget = mux.kitty_image_budget.lock().unwrap();
+            let entry = budget.entries.get(&created.id).expect("degraded reservation was removed");
+            assert_eq!(
+                entry.applied,
+                KittyGraphicsLimits::disabled(),
+                "a timed-out Kitty quota reservation must stay disabled while admitted"
+            );
+        }
+
+        {
+            let (released, changed) = &*gate;
+            *released.lock().unwrap() = true;
+            changed.notify_all();
+        }
+        creator.join().unwrap();
+        *mux.kitty_image_budget_operation.lock().unwrap() = None;
+        wait_for_kitty_image_budget(&mux);
+        assert!(
+            created.with_terminal(|terminal| terminal.kitty_image_count_limit().unwrap()).unwrap()
+                > 0,
+            "a degraded terminal was not promoted after the quota worker recovered"
+        );
+        close_terminal_runtime_for_test(&mux, &created);
+        close_terminal_runtime_for_test(&mux, &first);
     }
 
     #[test]

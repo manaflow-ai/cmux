@@ -173,6 +173,43 @@ SSH supplies authentication, encryption, host verification, and process transpor
 
 Complete-message framing is the session-client boundary. Unix sockets and relay stdio use JSON lines. WebSocket adapters use one text frame per message without adding a newline. A future transport can supply different framing without changing terminal mirroring or the machine rail.
 
+### PTY lifecycle errors and `terminal_gone`
+
+The PTY relay dialect reports errors as JSON frames. A `pty_error` frame has this
+shape:
+
+```text
+object{version:uint,type:"pty_error",ptyId:string,code:string,message:string}
+```
+
+The `terminal_gone` code is definitive only for a resource lookup. The relay
+emits it after a successful, schema-valid `list-workspaces` response contains no
+live PTY with the requested resource reference. A missing, non-success, or
+malformed control response uses `failed`, because it does not prove that the
+terminal is gone. A numeric surface reference is checked by `attach-surface`,
+so an attach failure also remains `failed` unless a future control contract adds
+an explicit not-found result.
+
+Clients must close the failed local PTY view after `terminal_gone`, discard input
+queued for that resource, and avoid retrying the same resource reference. They
+may retry `failed` after a new authenticated transport generation when the
+command's ownership and idempotency rules permit it. The generated PTY error
+contract also defines `overflow`, `trust_revoked`, and `busy`. These additive
+operational codes are enabled only after outer relay protocol version 7; the PTY
+frame itself remains version 4. Older Workers receive `failed` with the same
+retry or reattach instruction in `message`. Unknown codes are protocol-invalid.
+
+Frames for one PTY are ordered on the logical stream. A reconnect creates a new
+transport generation, and clients must re-authenticate and rediscover the
+resource before opening it again. A transport close is not proof that the PTY is
+gone. Repeated opens must follow the command's ownership and idempotency
+contract; this relay does not add a separate request-id or retryable field to
+the `pty_error` envelope.
+
+WebSocket adapters must preserve JSON message order and treat a closed socket as
+an ambiguous delivery boundary, never as proof that a PTY is missing. This is an
+application-level rule on top of RFC 6455 framing.
+
 Relay grants the remote SSH principal the authority of the selected local Unix socket. Deployments must restrict SSH admission and the remote socket with the same care as direct socket access.
 
 The server classifies relay traffic as Unix because relay terminates at the Unix socket. The remote SSH principal therefore receives local-admin operations, including `shutdown-daemon` and `pairing-response`. Deployments that need less authority must use a future distinct relay profile.

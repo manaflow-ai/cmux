@@ -160,7 +160,7 @@ struct AgentSessionAutoResumeSwiftTests {
 
         let manager = TabManager()
         let dockWorkspace = try #require(manager.selectedWorkspace)
-        let dock = dockWorkspace.dockSplit
+        let dock = try #require(dockWorkspace.dockSplit)
         defer {
             dock.closeAllPanels()
             dockWorkspace.teardownAllPanels()

@@ -604,10 +604,12 @@ final class SidebarGroupHeaderTableCellView: NSTableCellView {
         menu.addItem(.separator())
         appendConfigAndDocsItems(to: menu)
         menu.addItem(.separator())
-        menu.addItem(menuItem(
-            String(localized: "workspaceGroup.contextMenu.ungroup", defaultValue: "Ungroup Workspaces"),
-            action: actions.onUngroup
-        ))
+        if !model.isPinned || model.memberCount > 0 {
+            menu.addItem(menuItem(
+                String(localized: "workspaceGroup.contextMenu.ungroup", defaultValue: "Ungroup Workspaces"),
+                action: actions.onUngroup
+            ))
+        }
         menu.addItem(menuItem(
             String(localized: "workspaceGroup.contextMenu.delete", defaultValue: "Delete Group"),
             action: actions.onDelete

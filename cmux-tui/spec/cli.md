@@ -25,6 +25,34 @@ from `cmux terminal list` and renders only that terminal, without session
 chrome or unrelated event traffic. Startup attach does not accept internal
 runtime identifiers, abbreviated identifiers, names, or `current`.
 
+Interactive and headless ownership are intentionally separate:
+
+| Form | Contract |
+| --- | --- |
+| `cmux` or `cmux --session NAME` | Create or attach an interactive session. |
+| `cmux server start --session NAME` | Start a headless owner. |
+| `cmux attach --session NAME` | Attach an existing owner and fail if it is absent. |
+
+The explicit split prevents two clients from silently creating competing
+owners. A future attach-or-create shortcut needs a readiness and concurrency
+contract before it can be added safely.
+
+Migration from tmux or Zellij keeps the owner and client steps visible. Run the
+owner in one terminal:
+
+```bash
+cmux server start --session agents
+```
+
+Then attach from another terminal:
+
+```bash
+cmux attach --session agents
+```
+
+Callers supervise the owner. A blind attach retry cannot distinguish a missing
+owner from an owner still starting.
+
 `server` is the local durable mux owner for exactly one named session:
 
 ```text

@@ -980,9 +980,9 @@ impl VtBoundaryState {
 }
 
 /// Ghostty's parser intentionally treats bytes >= 0x80 as UTF-8 in ground
-/// state, while PTYs can still emit the 8-bit OSC/APC/ST forms. Normalize only
-/// standalone C1 control bytes; continuation bytes inside UTF-8 text remain
-/// byte-for-byte unchanged.
+/// state, while PTYs can still emit 8-bit C1 control-string forms. Normalize
+/// only standalone C1 control bytes; continuation bytes inside UTF-8 text
+/// remain byte-for-byte unchanged.
 #[derive(Default)]
 struct C1Normalizer {
     utf8_remaining: u8,
@@ -1000,7 +1000,10 @@ impl C1Normalizer {
                 false
             };
             let replacement = (!continuation).then_some(byte).and_then(|byte| match byte {
+                0x90 => Some(b'P'),
+                0x98 => Some(b'X'),
                 0x9d => Some(b']'),
+                0x9e => Some(b'^'),
                 0x9f => Some(b'_'),
                 0x9c => Some(b'\\'),
                 _ => None,
@@ -1982,8 +1985,9 @@ impl Terminal {
     }
 
     /// Feed VT-encoded bytes and return the exact byte stream accepted by
-    /// Ghostty. Standalone 8-bit OSC/ST controls are returned in their 7-bit
-    /// forms, while UTF-8 continuation bytes remain unchanged across calls.
+    /// Ghostty. Standalone 8-bit control-string/ST controls are returned in
+    /// their 7-bit forms, while UTF-8 continuation bytes remain unchanged
+    /// across calls.
     ///
     /// Process hosts should publish this returned stream so every frontend
     /// parses the same bytes as the authoritative terminal.
@@ -4346,8 +4350,8 @@ mod tests {
     };
 
     use super::{
-        Callbacks, ClearHistoryOutcome, KittyReplayCatalog, MouseModeChangeDetector, PaletteOsc,
-        PromptSemantic, PromptSemanticTracker, PromptTrackState, Screen, Terminal,
+        C1Normalizer, Callbacks, ClearHistoryOutcome, KittyReplayCatalog, MouseModeChangeDetector,
+        PaletteOsc, PromptSemantic, PromptSemanticTracker, PromptTrackState, Screen, Terminal,
         kitty_replay_image_encodings, kitty_replay_image_len, kitty_replay_placement,
         reset_kitty_replay_image_encodings, vt_replay_row_window,
     };
@@ -5295,6 +5299,32 @@ mod tests {
             terminal.kitty_inflight.replay_prefix(usize::MAX).is_empty(),
             "a UTF-8 continuation byte that Ghostty parsed as text became a replayable Kitty APC"
         );
+    }
+
+    #[test]
+    fn c1_control_string_introducers_normalize_to_escape_forms() {
+        let mut normalizer = C1Normalizer::default();
+        assert_eq!(normalizer.normalize(b"a\x90b"), b"a\x1bPb".as_slice());
+        assert_eq!(normalizer.normalize(b"a\x98b"), b"a\x1bXb".as_slice());
+        assert_eq!(normalizer.normalize(b"a\x9eb"), b"a\x1b^b".as_slice());
+    }
+
+    #[test]
+    fn c1_control_string_normalization_handles_split_sequences_and_st() {
+        let mut normalizer = C1Normalizer::default();
+        assert_eq!(normalizer.normalize(b"\x90payload"), b"\x1bPpayload".as_slice());
+        assert_eq!(normalizer.normalize(b"\x9c"), b"\x1b\\".as_slice());
+
+        assert_eq!(normalizer.normalize(b"\x98part"), b"\x1bXpart".as_slice());
+        assert_eq!(normalizer.normalize(b"ial\x9e"), b"ial\x1b^".as_slice());
+        assert_eq!(normalizer.normalize(b"body\x9c"), b"body\x1b\\".as_slice());
+    }
+
+    #[test]
+    fn c1_control_string_continuation_bytes_are_not_normalized() {
+        let mut normalizer = C1Normalizer::default();
+        assert_eq!(normalizer.normalize(&[0xe2]).as_ref(), &[0xe2]);
+        assert_eq!(normalizer.normalize(&[0x98, 0x80]).as_ref(), &[0x98, 0x80]);
     }
 
     #[test]

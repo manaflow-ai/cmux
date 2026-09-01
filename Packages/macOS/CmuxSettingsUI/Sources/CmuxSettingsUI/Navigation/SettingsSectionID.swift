@@ -46,7 +46,7 @@ public enum SettingsSectionID: String, CaseIterable, Identifiable, Sendable, Has
         case .textBox: return String(localized: "settings.section.textBox", defaultValue: "TextBox (Beta)")
         case .sleepyMode: return String(localized: "settings.section.sleepyMode", defaultValue: "Sleepy Mode")
         case .mobile: return String(localized: "settings.section.mobile", defaultValue: "Mobile")
-        case .cloudMachines: return String(localized: "settings.section.cloudMachines", defaultValue: "Cloud Machines")
+        case .cloudMachines: return String(localized: "settings.section.cloudMachines", defaultValue: "Cloud")
         case .networking: return String(localized: "settings.section.networking", defaultValue: "Networking")
         case .sidebarAppearance: return "Sidebar"
         case .customSidebars: return String(localized: "settings.section.customSidebars", defaultValue: "Custom Sidebars")
@@ -71,7 +71,7 @@ public enum SettingsSectionID: String, CaseIterable, Identifiable, Sendable, Has
         case .textBox: return "textformat"
         case .sleepyMode: return "moon.zzz"
         case .mobile: return "iphone"
-        case .cloudMachines: return "server.rack"
+        case .cloudMachines: return "cloud"
         case .networking: return "network"
         case .sidebarAppearance: return "sidebar.left"
         case .customSidebars: return "sidebar.squares.left"

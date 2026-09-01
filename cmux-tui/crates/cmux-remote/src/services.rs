@@ -37,7 +37,7 @@ use crate::workspace::{
 
 const MAX_RPC_MESSAGE: usize = 16 * 1024 * 1024;
 #[cfg(unix)]
-const MAX_RENDERER_GRANT_LINE_BYTES: usize = 16 * 1024 * 1024;
+const MAX_RENDERER_GRANT_LINE_BYTES: usize = 64 * 1024;
 const RPC_CODEC_OFFLOAD_BYTES: usize = 64 * 1024;
 // A JSON control escape can expand one input byte to six output bytes. Leave
 // room for field names and collection punctuation without scanning strings on
@@ -59,6 +59,7 @@ const TERMINAL_BYTES_HANDSHAKE_TTL_MS: u64 = 10_000;
 #[cfg(unix)]
 const TERMINAL_BYTES_HANDSHAKE_TIMEOUT: std::time::Duration =
     std::time::Duration::from_millis(TERMINAL_BYTES_HANDSHAKE_TTL_MS);
+#[cfg(unix)]
 const _: () = assert!(MAX_BUFFERED_MUX_NON_INTERACTIVE_BYTES < MAX_BUFFERED_MUX_UPLOAD_BYTES);
 const _: () = assert!(MAX_BUFFERED_MUX_BULK_BYTES < MAX_BUFFERED_MUX_NON_INTERACTIVE_BYTES);
 
@@ -702,16 +703,15 @@ impl DaemonServices {
         mux.write_all(b"\n").await?;
         mux.flush().await?;
         let mut response = String::new();
-        let reader = BufReader::new(mux);
-        let read = reader
+        let size = BufReader::new(mux)
             .take((MAX_RENDERER_GRANT_LINE_BYTES + 1) as u64)
             .read_line(&mut response)
             .await?;
-        if response.len() > MAX_RENDERER_GRANT_LINE_BYTES {
-            return Err(ServicesError::Remote("renderer grant response is too large".into()));
-        }
-        if read == 0 {
+        if size == 0 {
             return Err(ServicesError::Remote("mux closed before renderer grant".into()));
+        }
+        if size > MAX_RENDERER_GRANT_LINE_BYTES || !response.ends_with('\n') {
+            return Err(ServicesError::Remote("renderer grant response exceeds size limit".into()));
         }
         let response: serde_json::Value = serde_json::from_str(&response)?;
         if response.get("ok").and_then(serde_json::Value::as_bool) != Some(true) {

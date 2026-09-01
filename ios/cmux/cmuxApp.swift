@@ -32,7 +32,13 @@ struct cmuxApp: App {
             reachability: reachability,
             diagnosticLog: diagnosticLog
         )
-        let buildCompatibilityPolicy = MobileMacBuildCompatibilityPolicy.current()
+        // Per-tag isolation by default: this build pairs only with its own
+        // Mac tag plus the runtime grant set its anchor Mac advertises
+        // (`cmux mobile compatible-tags`), persisted across launches.
+        let buildCompatibilityPolicy = MobileMacBuildCompatibilityPolicy.current(
+            buildScope: MobileIOSBuildScope.current(),
+            additionalInstanceTags: MobileMacTagAllowlist.persisted()
+        )
         let iroh = MobileIrohRuntimeComposition(
             apiBaseURL: auth.config.apiBaseURL,
             reachability: reachability,
