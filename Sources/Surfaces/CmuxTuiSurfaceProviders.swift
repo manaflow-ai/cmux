@@ -240,9 +240,7 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
         if CmuxTuiSnapshotParser.machineHasDesktop(image: summary.image) {
             prefetchDesktopEndpoint()
         }
-        // A provider that reports no stats (`capabilities.stats == false`) is not asked:
-        // the control plane would only answer 501 vm_operation_unsupported every sync.
-        async let stats: VMStats? = capabilities.stats ? (try? client.stats(id: machineID)) : nil
+        async let stats = sampledStats(client: client)
         var linkState: SurfaceLinkState = .connected
         var linkError: String?
         var remoteWorkspaces: [SurfaceRemoteWorkspace]?
@@ -591,6 +589,14 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
             _ = try? await self.endpoint(port: port, desktop: true)
             self.endpointPrefetch = nil
         }
+    }
+
+    /// The machine's live readings, or nil when its provider reports none
+    /// (`capabilities.stats == false`): asking would only get 501 vm_operation_unsupported
+    /// on every re-sync.
+    private func sampledStats(client: VMClient) async -> VMStats? {
+        guard capabilities.stats else { return nil }
+        return try? await client.stats(id: machineID)
     }
 
     private func ports(client: VMClient, force: Bool) async -> [Int] {
