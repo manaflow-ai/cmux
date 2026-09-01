@@ -2911,6 +2911,16 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn denied_close_does_not_remove_attachment() {
+        let h = harness(None, None);
+        h.open_with_transport("p1", "main", "transport-a").await;
+        let denied = h.context_with_transport("observe", Some("other-user".to_owned()), Some("transport-a"));
+        let close = serde_json::json!({ "version": 4, "type": "pty_close", "ptyId": "p1" });
+        h.manager.handle_frame(&close, &denied).await;
+        assert!(h.manager.has_attachment("p1"));
+    }
+
+    #[tokio::test]
     async fn detach_transport_releases_only_that_transports_attachments() {
         let h = harness(None, None);
         h.open_with_transport("p-relay", "relay-side", "transport-relay").await;
