@@ -92,7 +92,11 @@ The daemon keeps OSC title and progress as generic terminal metadata and may
 retain them across a process change. The scanner records the output revision at
 each identity edge and ignores those fields until a later revision proves that
 the new process produced output. Older daemons without revisions use the
-startup-grace compatibility path.
+startup-grace compatibility path. A local screen hash may schedule a read when
+the host does not expose a revision, but it is never used as a generation
+fence. Exit fencing uses only the host revision supplied for that exit; if it
+is absent, the compatibility path stays open rather than comparing unrelated
+tokens.
 
 On Linux, hosts that do not expose a controlling-terminal foreground group can
 opt in to herdr-compatible child-group inference with
