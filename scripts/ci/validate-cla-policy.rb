@@ -25,6 +25,13 @@ CLA_ACTION = "manaflow-ai/cla-github-action@fc608ba7106e7029d981d487d7bad28a6432
 # checked below. Policy changes require a separate, reviewed update to this
 # base-controlled guard, followed by the workflow change.
 EXPECTED_WORKFLOW_DIGEST = "d4db98df5a1b1e6f3b006a82639761a0513eeeaf153a9eb2b98d42d1af782145"
+EXPECTED_RERUN_DIGEST = "f4f1fa51bb05b062ebf3f60cc949d8d5b4b501e7849cb065e9a07d7a34030840"
+EXPECTED_GUARD_WORKFLOW_DIGEST = "796d55eb22d05bfe06e821c3e704e7d4404081dd35d6af7c49b2fb3618bcd194"
+EXPECTED_GUARD_SCRIPT_DIGEST = "dd5465765c5e3b20db76ca7b939a40b50a2dcc02800015310f384429031cfab3"
+# Current organization administrators who may approve a trusted control-plane
+# update. IDs are used instead of names, and the review must target the exact
+# PR head. This is the human path for intentional policy maintenance.
+TRUSTED_REVIEWER_IDS = %w[54008264 38676809].freeze
 
 def fail!(message)
   raise PolicyError, message
@@ -46,6 +53,28 @@ def api_json(repository, endpoint, allow_missing: false)
   JSON.parse(stdout)
 rescue JSON::ParserError
   fail!("GitHub API returned malformed JSON for #{endpoint}")
+end
+
+def require_trusted_review!(repository, pr_number, head_sha)
+  latest = {}
+  1.upto(3) do |page|
+    reviews = api_json(repository, "repos/#{repository}/pulls/#{pr_number}/reviews?per_page=100&page=#{page}")
+    fail!("pull-request review response is malformed") unless reviews.is_a?(Array)
+    reviews.each do |review|
+      user = review["user"]
+      next unless user.is_a?(Hash) && TRUSTED_REVIEWER_IDS.include?(user["id"].to_s)
+      next unless review["commit_id"] == head_sha
+      reviewer_id = user["id"].to_s
+      previous = latest[reviewer_id]
+      if previous.nil? || review["submitted_at"].to_s > previous["submitted_at"].to_s
+        latest[reviewer_id] = review
+      end
+    end
+    break if reviews.length < 100
+    fail!("pull-request review history is too large") if page == 3
+  end
+  approved = latest.values.any? { |review| review["state"] == "APPROVED" }
+  fail!("trusted approval for this control-plane update is required") unless approved
 end
 
 def fetch_file(repository, sha, path, allow_missing: false)
@@ -88,6 +117,14 @@ def canonical(value)
   end
 end
 
+def guard_script_digest(raw)
+  normalized = raw.sub(
+    /EXPECTED_GUARD_SCRIPT_DIGEST = "[0-9a-f]{64}"/,
+    'EXPECTED_GUARD_SCRIPT_DIGEST = "<self-digest>"'
+  )
+  Digest::SHA256.hexdigest(normalized)
+end
+
 def job(document, name)
   jobs = document["jobs"]
   fail!("jobs is not a mapping") unless jobs.is_a?(Hash)
@@ -122,7 +159,7 @@ def validate_workflow(raw)
   document = YAML.safe_load(raw, aliases: false)
   fail!("CLA workflow is not a YAML mapping") unless document.is_a?(Hash)
   digest = Digest::SHA256.hexdigest(JSON.generate(canonical(document)))
-  fail!("privileged CLA workflow is not the reviewed policy digest") unless digest == EXPECTED_WORKFLOW_DIGEST
+  require_trusted_review!(ENV.fetch("GH_REPO"), ENV.fetch("PR_NUMBER"), ENV.fetch("HEAD_SHA")) unless digest == EXPECTED_WORKFLOW_DIGEST
 
   triggers = document["on"] || document[true]
   fail!("CLA workflow has no mapping of triggers") unless triggers.is_a?(Hash)
@@ -222,6 +259,9 @@ end
 
 def validate_script(raw)
   fail!("CLA rerun script is missing a shell shebang") unless raw.start_with?("#!/usr/bin/env bash")
+  if Digest::SHA256.hexdigest(raw) != EXPECTED_RERUN_DIGEST
+    require_trusted_review!(ENV.fetch("GH_REPO"), ENV.fetch("PR_NUMBER"), ENV.fetch("HEAD_SHA"))
+  end
   Tempfile.create(["cla-rerun", ".sh"]) do |file|
     file.write(raw)
     file.close
@@ -233,6 +273,10 @@ end
 def validate_guard_workflow(raw)
   document = YAML.safe_load(raw, aliases: false)
   fail!("guard workflow is not a YAML mapping") unless document.is_a?(Hash)
+  digest = Digest::SHA256.hexdigest(JSON.generate(canonical(document)))
+  if digest != EXPECTED_GUARD_WORKFLOW_DIGEST
+    require_trusted_review!(ENV.fetch("GH_REPO"), ENV.fetch("PR_NUMBER"), ENV.fetch("HEAD_SHA"))
+  end
   triggers = document["on"] || document[true]
   fail!("guard workflow has unsafe triggers") unless
     triggers.is_a?(Hash) &&
@@ -260,6 +304,9 @@ end
 
 def validate_guard_script(raw)
   fail!("guard script is missing a Ruby shebang") unless raw.start_with?("#!/usr/bin/env ruby")
+  if guard_script_digest(raw) != EXPECTED_GUARD_SCRIPT_DIGEST
+    require_trusted_review!(ENV.fetch("GH_REPO"), ENV.fetch("PR_NUMBER"), ENV.fetch("HEAD_SHA"))
+  end
   [
     "EXPECTED_WORKFLOW_DIGEST",
     "def validate_workflow",
