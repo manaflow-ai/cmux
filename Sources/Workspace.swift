@@ -8576,10 +8576,12 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         }
         // A split next to a pane projecting a cloud resource creates the terminal ON
         // that machine and projects it back (Workspace+CloudPaneRouting). Only plain
-        // requests route: an explicit command, cwd, PTY session, or restore scaffold
-        // is a local-terminal request by construction (including the attach panes the
-        // routed create itself materializes, whose initialCommand is the attach argv).
-        if initialCommand == nil, tmuxStartCommand == nil, remotePTYSessionID == nil,
+        // requests route: an explicit command, initial input, cwd, PTY session, or
+        // restore scaffold is a local-terminal request by construction, including the
+        // attach panes the routed create itself materializes (whose initialCommand is
+        // the attach argv).
+        if initialCommand == nil, initialInput == nil,
+           tmuxStartCommand == nil, remotePTYSessionID == nil,
            workingDirectory == nil, !suppressWorkspaceRemoteStartupCommand,
            routeCloudPaneTerminalSplit(from: panelId, orientation: orientation, insertFirst: insertFirst, focus: focus) {
             return .routedToRemote
