@@ -232,14 +232,24 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
                 cmux_group = $3
                 cmux_pid = $1
                 if ($4 ~ /Z/) next
+                cmux_started = $5 "_" $6 "_" $7 "_" $8 "_" $9
                 cmux_total[cmux_group]++
                 if (cmux_pid in cmux_tree) cmux_inside[cmux_group]++
+                if (cmux_pid == cmux_group) {
+                  cmux_leader_started[cmux_group] = cmux_started
+                  cmux_leader_live[cmux_group] = 1
+                  cmux_leader_inside[cmux_group] = (cmux_pid in cmux_tree)
+                }
               }
               END {
                 for (cmux_group in cmux_total) {
                   if (cmux_group != "" && cmux_group != "0" &&
                       cmux_group != cmux_caller_group &&
-                      cmux_total[cmux_group] == cmux_inside[cmux_group]) print cmux_group
+                      cmux_total[cmux_group] == cmux_inside[cmux_group] &&
+                      cmux_leader_live[cmux_group] &&
+                      cmux_leader_inside[cmux_group]) {
+                    print cmux_group, cmux_group, cmux_leader_started[cmux_group]
+                  }
                 }
               }
             ' "$cmux_ssh_auth_members" "$cmux_ssh_auth_snapshot" > "$cmux_ssh_auth_groups"
@@ -324,12 +334,12 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
               "$cmux_ssh_auth_snapshot" >> "$cmux_ssh_auth_dynamic_groups"
           }
 
-          # A TERM handler in the generated authentication wrapper writes one
-          # root PID after it has waited for its child and completed its
-          # cleanup. The helper acknowledges only after the post-TERM process
-          # group snapshot, so the wrapper remains the parent while a new
-          # session leader is recorded. A bounded read keeps plain fixtures and
-          # failed wrappers from blocking cleanup.
+          # The generated authentication wrapper writes one root PID after it
+          # has sent TERM to its command, then waits for the helper ACK before
+          # it waits for that command and exits. This keeps the wrapper alive
+          # while the helper takes the post-TERM process-group snapshot. A
+          # bounded read keeps plain fixtures and failed wrappers from
+          # blocking cleanup.
           cmux_ssh_auth_wait_for_term_event() {
             [ "$cmux_ssh_auth_wait_for_term_event_enabled" = 1 ] || return 0
             if [ ! -p "$cmux_ssh_auth_term_event_fifo" ]; then return 0; fi
@@ -596,11 +606,13 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
             kill -TERM "$cmux_pid" >/dev/null 2>&1 || true
             kill -CONT "$cmux_pid" >/dev/null 2>&1 || true
           done < "$cmux_ssh_auth_term"
-          # Capture replacements while the TERM handler is still anchored to
-          # the original tree, then refresh once more after its completion
-          # event. The leader identity journal remains valid after reparenting.
-          cmux_ssh_auth_record_dynamic_groups || true
+          # The wrapper sends its event immediately after forwarding TERM and
+          # waits for our ACK. Snapshot before ACK so a replacement is still
+          # attached to the live wrapper even when its direct parent exits.
           cmux_ssh_auth_wait_for_term_event
+          cmux_ssh_auth_record_dynamic_groups || true
+          # Refresh once more before releasing the wrapper. The leader
+          # identity journal remains valid after reparenting.
           cmux_ssh_auth_record_dynamic_groups || true
           cmux_ssh_auth_ack_term_event
 
@@ -613,7 +625,11 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
                 cmux_owned_identity[$2 SUBSEP $4 SUBSEP $6] = 1
                 next
               }
-              FILENAME == ARGV[2] { cmux_exclusive_group[$1] = 1; next }
+              FILENAME == ARGV[2] {
+                cmux_exclusive_leader_pid[$1] = $2
+                cmux_exclusive_leader_started[$1] = $3
+                next
+              }
               FILENAME == ARGV[3] {
                 cmux_dynamic_leader[$1] = $2 SUBSEP $3
                 next
@@ -627,18 +643,39 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
                 cmux_row[cmux_pid] = cmux_pid " " $2 " " $3 " " $4 " " cmux_started[cmux_pid]
                 cmux_process[cmux_pid] = 1
                 cmux_children[$2] = cmux_children[$2] " " cmux_pid
-                if ((cmux_pid SUBSEP $3 SUBSEP cmux_started[cmux_pid]) in cmux_owned_identity ||
-                    $3 in cmux_exclusive_group) {
+                if ((cmux_pid SUBSEP $3 SUBSEP cmux_started[cmux_pid]) in cmux_owned_identity) {
                   cmux_seen[cmux_pid] = 1
                   cmux_queue[++cmux_queue_tail] = cmux_pid
                   cmux_depth[cmux_pid] = 0
                 }
-                if (cmux_pid == $3 &&
-                    cmux_dynamic_leader[$3] == (cmux_pid SUBSEP cmux_started[cmux_pid])) {
-                  cmux_dynamic_group[$3] = 1
-                }
               }
               END {
+                # A process group ID is reusable. Accept the group-wide
+                # ownership path only while the original leader has the
+                # exact PID/start identity captured before TERM.
+                for (cmux_group_id in cmux_exclusive_leader_pid) {
+                  cmux_leader_pid = cmux_exclusive_leader_pid[cmux_group_id]
+                  cmux_leader_started = cmux_exclusive_leader_started[cmux_group_id]
+                  if (cmux_leader_pid in cmux_process &&
+                      cmux_group[cmux_leader_pid] == cmux_group_id &&
+                      cmux_started[cmux_leader_pid] == cmux_leader_started &&
+                      cmux_state[cmux_leader_pid] !~ /Z/) {
+                    cmux_valid_exclusive_group[cmux_group_id] = 1
+                  }
+                }
+                for (cmux_pid in cmux_process) {
+                  if (cmux_valid_exclusive_group[cmux_group[cmux_pid]] &&
+                      !(cmux_pid in cmux_seen) && cmux_state[cmux_pid] !~ /Z/) {
+                    cmux_seen[cmux_pid] = 1
+                    cmux_queue[++cmux_queue_tail] = cmux_pid
+                    cmux_depth[cmux_pid] = 0
+                  }
+                  if (cmux_pid == cmux_group[cmux_pid] &&
+                      cmux_dynamic_leader[cmux_group[cmux_pid]] ==
+                        (cmux_pid SUBSEP cmux_started[cmux_pid])) {
+                    cmux_dynamic_group[cmux_group[cmux_pid]] = 1
+                  }
+                }
                 # A dynamic group is valid only while its recorded leader
                 # still has the exact PID/start identity. Once validated,
                 # every current member of that group is owned, including
@@ -810,6 +847,9 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
             "CMUX_SSH_AUTH_ROOT_PID=\"$$\"; export CMUX_SSH_AUTH_ROOT_PID",
             "cmux_ssh_auth_term_event_fifo=\"${TMPDIR:-/tmp}/cmux-ssh-auth-term.${CMUX_SSH_AUTH_ROOT_PID}/done\"",
             "cmux_ssh_auth_term_event_ack_fifo=\"${TMPDIR:-/tmp}/cmux-ssh-auth-term.${CMUX_SSH_AUTH_ROOT_PID}/ack\"",
+            // Notify the cleanup helper after forwarding TERM, then wait for
+            // its ACK. The helper uses this pause to snapshot replacements
+            // before the command handler can orphan them.
             "cmux_ssh_auth_signal_completion() { if [ -p \"$cmux_ssh_auth_term_event_fifo\" ]; then if exec 8<> \"$cmux_ssh_auth_term_event_fifo\" 2>/dev/null; then printf '%s\\n' \"$$\" >&8 2>/dev/null || true; exec 8>&-; fi; if [ -p \"$cmux_ssh_auth_term_event_ack_fifo\" ] && exec 8<> \"$cmux_ssh_auth_term_event_ack_fifo\" 2>/dev/null; then cmux_ssh_auth_completion_ack=; IFS= read -r -t 2 cmux_ssh_auth_completion_ack <&8 || true; exec 8>&-; fi; fi; }",
             "cmux_ssh_auth_capture_cleanup() {",
             "  if [ -n \"${cmux_ssh_auth_classifier_guard_fd:-}\" ]; then",
@@ -830,11 +870,11 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
             "  trap - EXIT HUP INT TERM",
             "  if [ -n \"${cmux_ssh_auth_command_pid:-}\" ]; then",
             "    /bin/kill -\"$cmux_ssh_auth_capture_signal_name\" \"$cmux_ssh_auth_command_pid\" >/dev/null 2>&1 || true",
+            "    cmux_ssh_auth_signal_completion",
             "    wait \"$cmux_ssh_auth_command_pid\" 2>/dev/null || true",
             "    cmux_ssh_auth_command_pid=",
             "  fi",
             "  cmux_ssh_auth_capture_cleanup",
-            "  cmux_ssh_auth_signal_completion",
             "  exit \"$cmux_ssh_auth_capture_signal_status\"",
             "}",
             "trap 'cmux_ssh_auth_capture_cleanup' EXIT",
