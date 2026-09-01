@@ -4178,9 +4178,13 @@ final class SocketClient {
             deadline: deadline
         )
 
+        // The server resolves this key from the enclosing app bundle. The CLI
+        // executable has no catalog of its own, so use that same bundle when
+        // matching the wire response before mapping it to a CLIError below.
         let localizedAccessDeniedResponse = "ERROR: " + String(
             localized: "socket.client.accessDenied",
-            defaultValue: "Access denied - only processes started inside cmux can connect"
+            defaultValue: "Access denied - only processes started inside cmux can connect",
+            bundle: CLIExecutableLocator.enclosingAppBundle() ?? .main
         )
         while true {
             let line = try readStreamLine(deadline: deadline)
