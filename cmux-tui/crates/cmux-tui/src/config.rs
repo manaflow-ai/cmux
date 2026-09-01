@@ -8919,7 +8919,9 @@ mod tests {
         assert!(!config.sidebar.views[0].filter.is_active());
         assert_eq!(config.sidebar.views[1].sort, AgentSortMode::Recency);
         assert_eq!(config.sidebar.views[1].filter.agents, vec!["claude".to_string()]);
-        assert!(!config.sidebar.views[1].filter.is_active());
+        assert!(config.sidebar.views[1].filter.is_active());
+        assert!(config.sidebar.views[1].filter.states.is_empty());
+        assert_eq!(config.sidebar.views[1].filter.seen, None);
     }
 
     #[test]
