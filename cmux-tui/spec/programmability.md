@@ -47,7 +47,7 @@ unknown ownership signal rejects the action instead of selecting either route.
 
 ## Required vNext primitives
 
-The implemented v10 inventory is complete as a description of current wire behavior. The following primitives are required before the affected feature family can claim portable automation completeness.
+The implemented v10 inventory is complete as a description of current wire behavior. The machine-readable `secondary_protocols.terminal_host_v1` key is a stable legacy alias for the terminal-host-v4 message catalog; the protocol domain row uses the current v4 identity. The following primitives are required before the affected feature family can claim portable automation completeness.
 
 | Feature family | Current route | Required addition |
 | --- | --- | --- |
