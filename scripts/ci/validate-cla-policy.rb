@@ -1064,29 +1064,29 @@ def run_guard_contract_regression_matrix!
     )
   end
 
-  current_layout = guard_step_layout(GUARD_TRIGGER, 3)
+  expected_trigger = {
+    "branches" => ["main"],
+    "types" => %w[opened edited reopened synchronize ready_for_review]
+  }
+  fail!("current guard trigger regression failed") unless GUARD_TRIGGER == expected_trigger
+  checks += 1
+  current_layout = guard_step_layout(GUARD_TRIGGER, 4)
   fail!("current guard layout regression failed") unless
     current_layout == {
-      verification_index: 1,
-      validation_index: 2,
-      hosted: false,
-      allowed_secret_paths: GUARD_ALLOWED_SECRET_PATHS
-    }
-  checks += 1
-  hosted_layout = guard_step_layout(GUARD_HOSTED_TRIGGER, 4)
-  fail!("future hosted guard layout regression failed") unless
-    hosted_layout == {
       verification_index: 2,
       validation_index: 3,
       hosted: true,
       allowed_secret_paths: GUARD_HOSTED_ALLOWED_SECRET_PATHS
     }
   checks += 1
-  expect_failure.call("hosted trigger without runner guard") do
-    guard_step_layout(GUARD_HOSTED_TRIGGER, 3)
+  expect_failure.call("legacy trigger without hosted guard") do
+    guard_step_layout(
+      { "branches" => ["main"], "types" => %w[opened edited reopened synchronize] },
+      3
+    )
   end
-  expect_failure.call("runner guard without ready trigger") do
-    guard_step_layout(GUARD_TRIGGER, 4)
+  expect_failure.call("hosted trigger without runner guard") do
+    guard_step_layout(GUARD_TRIGGER, 3)
   end
 
   verification = { "env" => GUARD_VERIFY_ENV.dup, "run" => GUARD_VERIFY_RUN }
