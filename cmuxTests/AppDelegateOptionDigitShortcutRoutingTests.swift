@@ -44,7 +44,7 @@ struct AppDelegateOptionDigitShortcutRoutingTests {
             let testWindow = try #require(self.window(withId: windowId))
             let manager = try #require(appDelegate.tabManagerFor(windowId: windowId))
             let firstWorkspace = try #require(manager.selectedWorkspace)
-            let secondWorkspace = manager.addTab(select: false)
+            let secondWorkspace = try #require(manager.addTab(select: false))
             manager.selectTab(at: 0)
 
             let terminalPanelId = try #require(firstWorkspace.focusedPanelId)
@@ -184,7 +184,7 @@ struct AppDelegateOptionDigitShortcutRoutingTests {
             let testWindow = try #require(self.window(withId: windowId))
             let manager = try #require(appDelegate.tabManagerFor(windowId: windowId))
 
-            let secondWorkspace = manager.addTab(select: false)
+            let secondWorkspace = try #require(manager.addTab(select: false))
             manager.selectTab(at: 0)
 
             let optionWorkspaceNumber = optionDigitWorkspaceShortcut()
@@ -214,7 +214,7 @@ struct AppDelegateOptionDigitShortcutRoutingTests {
             let testWindow = try #require(self.window(withId: windowId))
             let manager = try #require(appDelegate.tabManagerFor(windowId: windowId))
             let firstWorkspace = try #require(manager.selectedWorkspace)
-            let secondWorkspace = manager.addTab(select: true)
+            let secondWorkspace = try #require(manager.addTab(select: true))
 
             let reboundBack = StoredShortcut(
                 key: "y",
@@ -309,7 +309,7 @@ struct AppDelegateOptionDigitShortcutRoutingTests {
             let testWindow = try #require(self.window(withId: windowId))
             let manager = try #require(appDelegate.tabManagerFor(windowId: windowId))
             let firstWorkspace = try #require(manager.selectedWorkspace)
-            let secondWorkspace = manager.addTab(select: true)
+            let secondWorkspace = try #require(manager.addTab(select: true))
             let terminalPanelId = try #require(secondWorkspace.focusedPanelId)
             let terminalPanel = try #require(secondWorkspace.terminalPanel(for: terminalPanelId))
             let back = KeyboardShortcutSettings.shortcut(for: .focusHistoryBack)
@@ -383,7 +383,7 @@ struct AppDelegateOptionDigitShortcutRoutingTests {
             let testWindow = try #require(self.window(withId: windowId))
             let manager = try #require(appDelegate.tabManagerFor(windowId: windowId))
             let firstWorkspace = try #require(manager.selectedWorkspace)
-            let secondWorkspace = manager.addTab(select: true)
+            let secondWorkspace = try #require(manager.addTab(select: true))
             let back = KeyboardShortcutSettings.shortcut(for: .focusHistoryBack)
             let forward = KeyboardShortcutSettings.shortcut(for: .focusHistoryForward)
             let originalGhosttyPrevious = appDelegate.ghosttyGotoSplitPreviousShortcut
@@ -418,7 +418,7 @@ struct AppDelegateOptionDigitShortcutRoutingTests {
 
             let testWindow = try #require(self.window(withId: windowId))
             let manager = try #require(appDelegate.tabManagerFor(windowId: windowId))
-            let secondWorkspace = manager.addTab(select: true)
+            let secondWorkspace = try #require(manager.addTab(select: true))
             let browserPanelId = try #require(manager.openBrowser(inWorkspace: secondWorkspace.id))
             let browserPanel = try #require(secondWorkspace.browserPanel(for: browserPanelId))
             let back = KeyboardShortcutSettings.shortcut(for: .browserBack)
@@ -526,7 +526,7 @@ struct AppDelegateOptionDigitShortcutRoutingTests {
 
             let testWindow = try #require(self.window(withId: windowId))
             let manager = try #require(appDelegate.tabManagerFor(windowId: windowId))
-            let selectedWorkspace = manager.addTab(select: true)
+            let selectedWorkspace = try #require(manager.addTab(select: true))
             let textView = MarkedOptionTextView(frame: NSRect(x: 0, y: 0, width: 120, height: 24))
             testWindow.contentView?.addSubview(textView)
             testWindow.makeKeyAndOrderFront(nil)
@@ -594,7 +594,7 @@ struct AppDelegateOptionDigitShortcutRoutingTests {
             let panelId = try #require(workspace.focusedPanelId)
             let terminalPanel = try #require(workspace.terminalPanel(for: panelId))
 
-            let secondWorkspace = manager.addTab(select: false)
+            let secondWorkspace = try #require(manager.addTab(select: false))
             manager.selectTab(at: 0)
             terminalPanel.hostedView.setVisibleInUI(true)
             terminalPanel.hostedView.setActive(true)

@@ -49,6 +49,9 @@ use crate::terminal_host_protocol::{
 };
 use cmux_tui_cdp::BrowserMode;
 
+/// Ghostty's default maximum retained scrollback backing storage.
+pub const DEFAULT_SCROLLBACK_LIMIT_BYTES: usize = 50_000_000;
+
 /// Result of encoding terminal mouse input against a previously observed
 /// pointer snapshot without blocking on terminal parsing.
 #[derive(Debug)]
@@ -103,6 +106,8 @@ pub struct SurfaceOptions {
     pub term: String,
     pub cols: u16,
     pub rows: u16,
+    /// Maximum retained scrollback storage in bytes, matching Ghostty's
+    /// `max_scrollback` API. This is not a line count.
     pub scrollback: usize,
     /// Extra environment for children (e.g. CMUX_TUI_SOCKET).
     pub extra_env: Vec<(String, String)>,
@@ -167,7 +172,7 @@ impl Default for SurfaceOptions {
                 .unwrap_or_else(|_| default_child_term()),
             cols: 80,
             rows: 24,
-            scrollback: 10_000,
+            scrollback: DEFAULT_SCROLLBACK_LIMIT_BYTES,
             extra_env: Vec::new(),
             chrome_binary: None,
             cdp_url: None,
@@ -2284,10 +2289,7 @@ impl Surface {
         for (k, v) in &opts.extra_env {
             cmd.env(k, v);
         }
-        let cwd = opts
-            .cwd
-            .clone()
-            .or_else(|| platform::home_dir().map(|path| path.to_string_lossy().into_owned()));
+        let cwd = opts.cwd.clone().or_else(platform::default_terminal_cwd);
         if let Some(cwd) = cwd.as_deref() {
             cmd.cwd(cwd);
         }
@@ -4261,10 +4263,11 @@ impl Surface {
             }
             #[cfg(unix)]
             PtyRuntime::Hosted(host) => host.send(MessageKind::Input, bytes),
+            // A keep-on-exit terminal outlives its child, so typing into the
+            // dead PTY is an expected interaction: drop the bytes silently
+            // instead of failing every keystroke on the final screen.
             #[cfg(unix)]
-            PtyRuntime::ExitedHosted => {
-                Err(std::io::Error::new(std::io::ErrorKind::BrokenPipe, "terminal host has exited"))
-            }
+            PtyRuntime::ExitedHosted => Ok(()),
         }
     }
 
@@ -4286,11 +4289,10 @@ impl Surface {
             if let PtyRuntime::Hosted(host) = &*runtime {
                 return host.send(MessageKind::Paste, bytes);
             }
+            // Keep-on-exit terminals accept and drop paste input the same
+            // way as keystrokes: the final screen is read-only, not broken.
             if matches!(&*runtime, PtyRuntime::ExitedHosted) {
-                return Err(std::io::Error::new(
-                    std::io::ErrorKind::BrokenPipe,
-                    "terminal host has exited",
-                ));
+                return Ok(());
             }
         }
         let bracketed = {
@@ -8021,7 +8023,7 @@ mod tests {
 
     #[cfg(unix)]
     #[test]
-    fn exited_host_placeholder_preserves_identity_and_rejects_input() {
+    fn exited_host_placeholder_preserves_identity_and_swallows_input() {
         let mux = Mux::new_for_test("exited-host-placeholder", SurfaceOptions::default());
         let identity = crate::terminal_host_runtime::TerminalHostIdentity {
             terminal_id: crate::terminal_host::TerminalId::random().unwrap().to_hex(),
@@ -8041,10 +8043,10 @@ mod tests {
             Some(TerminalHostConnectionState::Exited)
         );
         assert!(surface.is_dead());
-        assert_eq!(
-            surface.write_bytes(b"must not reach a dead host").unwrap_err().kind(),
-            std::io::ErrorKind::BrokenPipe
-        );
+        // Keep-on-exit terminals stay interactive surfaces after their child
+        // dies, so input to the dead PTY is a harmless no-op, not an error.
+        surface.write_bytes(b"must not reach a dead host").unwrap();
+        surface.write_paste(b"must not reach a dead host").unwrap();
     }
 
     #[test]
