@@ -2970,13 +2970,21 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         // then recovered by that refreshed-route retry (or the next backoff
         // attempt) instead of taxing every launch with the fetch.
         // The merge writes straight into the SQLite store, so every later
-        // read (the refreshed-route retry below, the next reconnect, list
-        // loads) observes it without an extra publish step here.
+        // read (the refreshed-route retry below, the next reconnect) observes
+        // it. The published list does not: the store serves rows already on
+        // disk without waiting for this merge, so a Mac paired or forgotten on
+        // another device reaches `pairedMacs` only through the reload chained
+        // here once the merge lands (before, the awaited refresh preceded the
+        // first list load).
         var pendingBackupRefresh: Task<Void, Never>?
         if refreshBackupBeforeDial,
            let refresher = pairedMacStore as? any PairedMacBackupRefreshing {
-            pendingBackupRefresh = Task {
-                await refresher.refreshFromBackup(stackUserID: scope.userID)
+            pendingBackupRefresh = Task { [weak self] in
+                let changed = await refresher.refreshFromBackupReportingChange(
+                    stackUserID: scope.userID
+                )
+                guard changed, let self, await self.isScopeCurrent(scope) else { return }
+                await self.loadPairedMacs()
             }
         }
         markReconnectPreambleStage(

@@ -9,7 +9,12 @@ import Testing
 /// Backup double whose fetches park until the test releases them, modeling
 /// the per-user backup round trip on a cold launch. Uploads succeed inline.
 actor GatedFetchBackup: PairedMacBackingUp {
+    private let records: [PairedMacBackupRecord]
     private var fetchStarted = false
+
+    init(records: [PairedMacBackupRecord] = []) {
+        self.records = records
+    }
     private var released = false
     private var startWaiters: [CheckedContinuation<Void, Never>] = []
     private var fetchBlockers: [CheckedContinuation<Void, Never>] = []
@@ -39,7 +44,7 @@ actor GatedFetchBackup: PairedMacBackingUp {
         if !released {
             await withCheckedContinuation { fetchBlockers.append($0) }
         }
-        return PairedMacBackupSnapshot(records: [], resolvedTeamID: teamID)
+        return PairedMacBackupSnapshot(records: records, resolvedTeamID: teamID)
     }
 
     func waitUntilFetchStarted() async {
@@ -101,7 +106,24 @@ actor GatedFetchBackup: PairedMacBackingUp {
             teamID: nil,
             now: clock.now
         )
-        let backup = GatedFetchBackup()
+        // The backup knows a Mac this device has never seen (paired elsewhere).
+        let backup = GatedFetchBackup(records: [
+            PairedMacBackupRecord(
+                macDeviceID: "mac-from-backup",
+                displayName: "Other Mac",
+                routes: [
+                    try CmxAttachRoute(
+                        id: "other",
+                        kind: .debugLoopback,
+                        endpoint: .hostPort(host: "127.0.0.1", port: 51005),
+                        priority: 0
+                    ),
+                ],
+                createdAt: clock.now.timeIntervalSince1970 * 1_000,
+                lastSeenAt: clock.now.timeIntervalSince1970 * 1_000,
+                isActive: false
+            ),
+        ])
         // A fresh BackingUpPairedMacStore is a fresh process: nothing restored yet.
         let pairedStore = BackingUpPairedMacStore(inner: inner, backup: backup)
         let store = MobileShellComposite(
@@ -136,6 +158,12 @@ actor GatedFetchBackup: PairedMacBackingUp {
 
         await backup.release()
         #expect(await reconnect.value)
+        // The list did not wait for the merge, so the merge must publish
+        // itself: the Mac known only to the backup appears without a pull.
+        let backupMacPublished = try await pollUntil(attempts: 300) {
+            store.pairedMacs.contains { $0.macDeviceID == "mac-from-backup" }
+        }
+        #expect(backupMacPublished, "published macs: \(store.pairedMacs.map(\.macDeviceID))")
         await store.remoteClient?.disconnect()
     }
 

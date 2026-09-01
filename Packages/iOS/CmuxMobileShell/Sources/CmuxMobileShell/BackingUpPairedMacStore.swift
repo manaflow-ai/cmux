@@ -1023,7 +1023,12 @@ public actor BackingUpPairedMacStore: MobilePairedMacStoring, PairedMacBackupRef
     /// the read-only workspace fetch dials it. Best-effort; failures leave the
     /// local store untouched (``PairedMacRestore`` no-ops on a failed fetch).
     public func refreshFromBackup(stackUserID: String?) async {
-        guard let account = stackUserID, !account.isEmpty else { return }
+        await refreshFromBackupReportingChange(stackUserID: stackUserID)
+    }
+
+    @discardableResult
+    public func refreshFromBackupReportingChange(stackUserID: String?) async -> Bool {
+        guard let account = stackUserID, !account.isEmpty else { return false }
         diagnosticLog?.recordAppEvent(
             .pairedMacBackupRefreshStarted,
             correlationID: account
@@ -1103,12 +1108,13 @@ public actor BackingUpPairedMacStore: MobilePairedMacStoring, PairedMacBackupRef
         // A sign-out wipe across the await already cleared inFlight/restoredScopes;
         // do not re-touch them (clobbering a post-wipe inFlight entry, or memoizing
         // a scope the wipe removed and suppressing a same-launch re-sign-in restore).
-        guard resetGeneration == generation else { return }
+        guard resetGeneration == generation else { return false }
         inFlight[scope] = nil
         if outcome.completed {
             restoredScopes.insert(scope)
             await flushPendingDeletes(scope: scope, account: account, teamID: restoreTeam)
         }
+        return outcome.completed && outcome.restored > 0
     }
 
     // MARK: - Internals

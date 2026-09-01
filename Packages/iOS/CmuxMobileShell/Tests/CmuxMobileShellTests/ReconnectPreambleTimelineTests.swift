@@ -31,9 +31,12 @@ extension ReconnectRouteSelectionTests {
         "dial-start c0",
     ]
 
-    /// Generous against a loaded CI host; the structural cost measures in
-    /// single-digit milliseconds, and the device symptom is ~1300ms.
-    static let coldLaunchPreambleDialBoundMilliseconds = 250.0
+    /// A tripwire, not the gate: the structural cost measures ~4ms, but under
+    /// a parallel full-suite run on a loaded host this path was observed at
+    /// 710ms, so a tight bound only measures the host. The deterministic gate
+    /// is `ReconnectColdLaunchRestoreGateTests` (gated fake backup); this bound
+    /// catches only a stall on the order of the device symptom (~1300ms).
+    static let coldLaunchPreambleDialBoundMilliseconds = 1_000.0
 
     @Test func coldLaunchPreambleReachesFirstDialWithinBound() async throws {
         let clock = TestClock()
