@@ -2317,7 +2317,7 @@ mod tests {
                 buffered_amount: Arc::new(move || buffered.load(Ordering::SeqCst)),
                 trust: trust.to_owned(),
                 local_roots: None,
-                owner_user_id: owner,
+                owner_user_id: owner.clone(),
                 transport_id: None,
                 current_auth: {
                     let trust = trust.to_owned();
