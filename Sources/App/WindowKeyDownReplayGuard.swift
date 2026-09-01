@@ -264,8 +264,8 @@ struct CmuxPrefixChordKeyEquivalentScope {
             event: event,
             windowNumber: windowNumber,
             isActive: isActive,
-            shouldBypass: shouldBypass,
-            coordinator: coordinator
+            coordinator: coordinator,
+            shouldBypass: shouldBypass
         )
     }
 
