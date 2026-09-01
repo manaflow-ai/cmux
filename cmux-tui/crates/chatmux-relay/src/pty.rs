@@ -2001,6 +2001,87 @@ mod tests {
 
     static NEXT_TEST_DIRECTORY: AtomicU64 = AtomicU64::new(0);
 
+    struct RawAttachBlockingControl {
+        started: Arc<Notify>,
+    }
+
+    impl ControlHandle for RawAttachBlockingControl {
+        fn request(
+            &self,
+            cmd: &str,
+            _params: Value,
+        ) -> std::pin::Pin<Box<dyn Future<Output = Option<Value>> + Send + '_>> {
+            match cmd {
+                "identify" => Box::pin(async {
+                    Some(serde_json::json!({
+                        "ok": true,
+                        "data": { "protocol": CONTROL_MIN_PROTOCOL, "capabilities": [] },
+                    }))
+                }),
+                "list-workspaces" => Box::pin(async {
+                    Some(serde_json::json!({
+                        "ok": true,
+                        "data": {
+                            "workspaces": [{
+                                "name": "work",
+                                "screens": [{
+                                    "panes": [{
+                                        "tabs": [{
+                                            "kind": "pty",
+                                            "surface": 7,
+                                            "terminal_resource_id": "terminal-7",
+                                        }]
+                                    }]
+                                }]
+                            }]
+                        }
+                    }))
+                }),
+                "attach-surface" => {
+                    self.started.notify_one();
+                    Box::pin(std::future::pending())
+                }
+                _ => Box::pin(async { None }),
+            }
+        }
+        fn send(&self, _cmd: &str, _params: Value) {}
+        fn on_event(&self, _handler: EventHandler) {}
+        fn on_close(&self, _handler: CloseHandler) {}
+        fn pause(&self) {}
+        fn resume(&self) {}
+        fn end(&self) {}
+    }
+
+    #[tokio::test]
+    async fn raw_attach_open_observes_cancellation() {
+        let started = Arc::new(Notify::new());
+        let control = Arc::new(RawAttachBlockingControl { started: Arc::clone(&started) });
+        let cmux = CmuxTui { file: "/opt/cmux-tui".to_owned(), prefix: Vec::new() };
+        let h = harness_with_control(Some(cmux), None, None, Some(control));
+        let frame = serde_json::json!({
+            "version": 4,
+            "type": "pty_open",
+            "ptyId": "p1",
+            "session": "work",
+            "surface": "terminal-7",
+            "cols": 80,
+            "rows": 24,
+            "actorId": "user_owner",
+            "allowedRoots": Value::Null,
+        });
+        let context = h.context("supervised", h.owner.clone());
+        let cancellation = context.cancellation.clone();
+        let manager = Arc::new(h.manager);
+        let task = tokio::spawn(async move { manager.handle_frame(&frame, &context).await });
+
+        started.notified().await;
+        cancellation.cancel();
+        tokio::time::timeout(Duration::from_secs(1), task)
+            .await
+            .expect("canceled raw attach must finish promptly")
+            .expect("raw attach task must not panic");
+    }
+
     /// A unique, real directory for tests that exercise cwd canonicalization.
     /// Do not reuse a process-id-only path: tests run in parallel and a stale
     /// path from an interrupted run must never be removed or reused.
