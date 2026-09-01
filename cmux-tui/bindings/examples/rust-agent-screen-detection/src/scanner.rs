@@ -1029,4 +1029,43 @@ mod tests {
         assert!(first.len() <= 128);
         assert!(second.len() <= 128);
     }
+
+    #[test]
+    fn terminal_retention_keeps_uncertain_appends_for_replay() {
+        let terminal_id = "terminal-1".to_string();
+        let mut state = ScannerState::new();
+        state.pending_appends.insert(
+            terminal_id.clone(),
+            PendingAppend {
+                emission: crate::detect::ScreenDetectEmission {
+                    terminal_id: terminal_id.clone(),
+                    agent: "codex".into(),
+                    state: AgentState::Working,
+                    matched_rule: None,
+                    visible_idle: false,
+                    visible_blocker: false,
+                    visible_working: true,
+                },
+                ingress: JournalIngress {
+                    producer_id: "plugin".into(),
+                    manifest_version: 1,
+                    kind: "plugin.agent.state.changed".into(),
+                    schema_version: 1,
+                    occurred_at_ms: None,
+                    subjects: Vec::new(),
+                    sensitivity: None,
+                    payload: json!({}),
+                    causation_id: None,
+                    correlation_id: None,
+                },
+                idempotency_key: "key".into(),
+                attempts: 1,
+                retry_not_before: Instant::now(),
+            },
+        );
+
+        state.retain_terminals(&HashSet::new());
+
+        assert!(state.pending_appends.contains_key(&terminal_id));
+    }
 }
