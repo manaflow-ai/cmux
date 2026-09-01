@@ -30,7 +30,9 @@ concurrency:
 
 jobs:
   browser-skill:
-    runs-on: ubuntu-24.04
+    # This job executes PR-controlled skill documentation and scripts; keep it
+    # on an immutable GitHub-hosted runner rather than configurable CI hosts.
+    runs-on: ubuntu-24.04 # github-hosted-required: browser skill PRs run untrusted code
     timeout-minutes: 5
     steps:
       - name: Checkout
