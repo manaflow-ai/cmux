@@ -1713,7 +1713,6 @@ impl Inner {
             "ptyId": pty_id,
             "code": code,
         }));
-        drop(_publication);
     }
 
     /// Detach, NOT kill: idempotent, unknown ptyId tolerated.
@@ -2524,14 +2523,27 @@ impl Inner {
 
         let start_session = Arc::clone(&shell_session);
         let start: Box<dyn FnOnce() + Send> = Box::new(move || {
-            let _dispatch = start_session.dispatch_lock.lock().expect("shell dispatch lock");
             let (banner, replay, alive) = {
-                let inner = start_session.inner.lock().expect("shell inner lock");
+                let _dispatch = start_session.dispatch_lock.lock().expect("shell dispatch lock");
+                let _flow = start_session.flow_lock.lock().expect("shell flow lock");
+                let mut inner = start_session.inner.lock().expect("shell inner lock");
+                if released.load(Ordering::SeqCst) {
+                    return;
+                }
                 let banner = created.then(|| start_session.banner.clone()).flatten();
                 let replay = (!created && inner.ring_size > 0).then(|| {
                     inner.ring.iter().flat_map(|c| c.iter().copied()).collect::<Vec<u8>>()
                 });
-                (banner, replay, inner.alive)
+                let alive = inner.alive;
+                if alive {
+                    inner.viewers.push(ViewerSink {
+                        id: viewer_id,
+                        on_data: Arc::clone(&on_data),
+                        on_exit: Arc::clone(&on_exit),
+                    });
+                    inner.draining_viewers.insert(viewer_id);
+                }
+                (banner, replay, alive)
             };
             if let Some(banner) = banner {
                 on_data(Bytes::from(banner));
@@ -2546,9 +2558,29 @@ impl Inner {
                 on_exit(0);
                 return;
             }
-            let mut inner = start_session.inner.lock().expect("shell inner lock");
-            if !released.load(Ordering::SeqCst) && inner.alive {
-                inner.viewers.push(ViewerSink { id: viewer_id, on_data, on_exit });
+            loop {
+                let chunk = {
+                    let _flow = start_session.flow_lock.lock().expect("shell flow lock");
+                    let mut inner = start_session.inner.lock().expect("shell inner lock");
+                    if released.load(Ordering::SeqCst) {
+                        inner.paused_backlog.remove(&viewer_id);
+                        inner.draining_viewers.remove(&viewer_id);
+                        None
+                    } else {
+                        let chunk = inner.paused_backlog.get_mut(&viewer_id).and_then(|backlog| {
+                            let chunk = backlog.chunks.pop_front()?;
+                            backlog.bytes -= chunk.len();
+                            Some(chunk)
+                        });
+                        if chunk.is_none() {
+                            inner.paused_backlog.remove(&viewer_id);
+                            inner.draining_viewers.remove(&viewer_id);
+                        }
+                        chunk
+                    }
+                };
+                let Some(chunk) = chunk else { break };
+                on_data(chunk);
             }
         });
 
@@ -2632,7 +2664,6 @@ impl PtyControl for ShellViewerControl {
     }
 
     fn drain_backlog(&self) {
-        let _dispatch = self.session.dispatch_lock.lock().expect("shell dispatch lock");
         loop {
             let next = {
                 let _flow = self.session.flow_lock.lock().expect("shell flow lock");
@@ -2642,23 +2673,25 @@ impl PtyControl for ShellViewerControl {
                     inner.draining_viewers.remove(&self.viewer_id);
                     None
                 } else {
-                    let Some(on_data) = inner
+                    if let Some(on_data) = inner
                         .viewers
                         .iter()
                         .find(|viewer| viewer.id == self.viewer_id)
                         .map(|viewer| Arc::clone(&viewer.on_data))
-                    else {
-                        inner.paused_backlog.remove(&self.viewer_id);
-                        inner.draining_viewers.remove(&self.viewer_id);
-                        None
-                    };
-                    let chunk = inner.paused_backlog.get_mut(&self.viewer_id).and_then(|backlog| {
-                        let chunk = backlog.chunks.pop_front()?;
-                        backlog.bytes -= chunk.len();
-                        Some(chunk)
-                    });
-                    if let Some(chunk) = chunk {
-                        Some((on_data, chunk))
+                    {
+                        let chunk =
+                            inner.paused_backlog.get_mut(&self.viewer_id).and_then(|backlog| {
+                                let chunk = backlog.chunks.pop_front()?;
+                                backlog.bytes -= chunk.len();
+                                Some(chunk)
+                            });
+                        if let Some(chunk) = chunk {
+                            Some((on_data, chunk))
+                        } else {
+                            inner.paused_backlog.remove(&self.viewer_id);
+                            inner.draining_viewers.remove(&self.viewer_id);
+                            None
+                        }
                     } else {
                         inner.paused_backlog.remove(&self.viewer_id);
                         inner.draining_viewers.remove(&self.viewer_id);
