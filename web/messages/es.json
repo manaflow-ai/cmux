@@ -1061,7 +1061,7 @@
       "shortcutsWhenBooleanKeys": "claves booleanas. Una clave desconocida o ausente se evalúa como false; también se aceptan los literales true y false.",
       "shortcutsWhenTypedKeys": "claves tipadas para comparaciones: el modo activo de la barra lateral derecha (cadena) y los recuentos de paneles y espacios de trabajo (enteros).",
       "shortcutsWhenOperators": "operadores booleanos, comparaciones tipadas, coincidencia por expresión regular y pertenencia a listas. Las comparaciones ligan más fuerte que && y ||.",
-      "shortcutsWhenExample": "Por ejemplo, esto hace que Ctrl+1–9 seleccione espacios de trabajo en todas partes salvo cuando la barra lateral derecha tiene el foco (dejando Ctrl+1–5 libre para el selector de modo de la barra lateral), y limita la selección de superficie a la barra lateral de búsqueda cuando el espacio de trabajo tiene varios paneles:"
+      "shortcutsWhenExample": "Por ejemplo, esto hace que Ctrl+1–9 seleccione espacios de trabajo en todas partes salvo cuando la barra lateral derecha tiene el foco (dejando Ctrl+1–6 libre para el selector de modo de la barra lateral), y limita la selección de superficie a la barra lateral de búsqueda cuando el espacio de trabajo tiene varios paneles:"
     },
     "customCommands": {
       "title": "Comandos personalizados",

@@ -1061,7 +1061,7 @@
       "shortcutsWhenBooleanKeys": "boolesche Schlüssel. Ein unbekannter oder fehlender Schlüssel gilt als false; die Literale true und false werden ebenfalls akzeptiert.",
       "shortcutsWhenTypedKeys": "typisierte Schlüssel für Vergleiche: der aktive Modus der rechten Seitenleiste (Zeichenkette) sowie Pane- und Workspace-Anzahl (Ganzzahlen).",
       "shortcutsWhenOperators": "boolesche Operatoren, typisierte Vergleiche, Regex-Abgleich und Listenzugehörigkeit. Vergleiche binden stärker als && und ||.",
-      "shortcutsWhenExample": "Damit wählt Ctrl+1–9 zum Beispiel überall Workspaces aus, außer wenn die rechte Seitenleiste fokussiert ist (Ctrl+1–5 bleibt für den Modus-Umschalter der Seitenleiste frei), und die Surface-Auswahl ist auf die Suchen-Seitenleiste beschränkt, wenn der Workspace mehrere Panes hat:"
+      "shortcutsWhenExample": "Damit wählt Ctrl+1–9 zum Beispiel überall Workspaces aus, außer wenn die rechte Seitenleiste fokussiert ist (Ctrl+1–6 bleibt für den Modus-Umschalter der Seitenleiste frei), und die Surface-Auswahl ist auf die Suchen-Seitenleiste beschränkt, wenn der Workspace mehrere Panes hat:"
     },
     "customCommands": {
       "title": "Benutzerdefinierte Befehle",

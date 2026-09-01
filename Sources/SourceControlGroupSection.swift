@@ -10,8 +10,9 @@ struct SourceControlGroupSection: Identifiable, Equatable, Sendable {
     /// Builds the immutable Source Control projection used by the panel.
     ///
     /// Callers run this while a status result is being prepared, outside the
-    /// SwiftUI render path. The panel can therefore consume the resulting
-    /// sections without scanning, sorting, or touching the filesystem.
+    /// SwiftUI render path. The status provider preserves Git's path order, so
+    /// partitioning remains linear and the panel consumes the result without
+    /// scanning, sorting, or touching the filesystem.
     static func makeSections(
         entries: [GitStatusSnapshotEntry],
         root: String
@@ -29,10 +30,7 @@ struct SourceControlGroupSection: Identifiable, Equatable, Sendable {
         }
 
         return SourceControlGroup.allCases.compactMap { group in
-            guard var resources = grouped[group], !resources.isEmpty else { return nil }
-            resources.sort {
-                $0.relativePath.localizedStandardCompare($1.relativePath) == .orderedAscending
-            }
+            guard let resources = grouped[group], !resources.isEmpty else { return nil }
             return SourceControlGroupSection(group: group, resources: resources)
         }
     }
@@ -40,6 +38,9 @@ struct SourceControlGroupSection: Identifiable, Equatable, Sendable {
     private static func relativePath(_ path: String, root: String) -> String {
         guard !root.isEmpty else { return path }
         let normalizedRoot = root.hasSuffix("/") ? String(root.dropLast()) : root
+        if normalizedRoot == "/" {
+            return path.hasPrefix("/") ? String(path.dropFirst()) : path
+        }
         guard path.hasPrefix(normalizedRoot + "/") else { return path }
         return String(path.dropFirst(normalizedRoot.count + 1))
     }

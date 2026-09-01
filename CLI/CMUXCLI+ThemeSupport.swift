@@ -431,26 +431,10 @@ extension CMUXCLI {
     }
 
     func isRightSidebarCLIMode(_ value: String) -> Bool {
-        switch value.lowercased() {
-        case "files", "find", "vault", "sessions", "feed", "dock", "source-control", "sourcecontrol", "cloud", "machines", "vms":
-            return true
-        default:
-            return false
-        }
+        RightSidebarPanelRegistry().mode(forCLIArgument: value) != nil
     }
 
     func normalizedRightSidebarCLIArgument(_ value: String) -> String {
-        switch value.lowercased() {
-        case "files", "find", "vault", "sessions", "feed", "dock", "machines":
-            return value.lowercased()
-        case "sourcecontrol":
-            return "source-control"
-        case "source-control":
-            return "source-control"
-        case "cloud", "vms":
-            return "machines"
-        default:
-            return value
-        }
+        RightSidebarPanelRegistry().canonicalCLIArgument(value) ?? value
     }
 }

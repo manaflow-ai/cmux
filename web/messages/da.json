@@ -1061,7 +1061,7 @@
       "shortcutsWhenBooleanKeys": "boolske nøgler. En ukendt eller manglende nøgle læses som false; litteralerne true og false accepteres også.",
       "shortcutsWhenTypedKeys": "typede nøgler til sammenligninger: den højre sidebjælkes aktive tilstand (streng) samt antal paneler og workspaces (heltal).",
       "shortcutsWhenOperators": "boolske operatorer, typede sammenligninger, regex-match og listemedlemskab. Sammenligninger binder tættere end && og ||.",
-      "shortcutsWhenExample": "Dette får for eksempel Ctrl+1–9 til at vælge workspaces overalt, undtagen når højre sidebjælke har fokus (så Ctrl+1–5 er fri til sidebjælkens tilstandsskifter), og begrænser overfladevalg til Find-sidebjælken, når workspacet har flere paneler:"
+      "shortcutsWhenExample": "Dette får for eksempel Ctrl+1–9 til at vælge workspaces overalt, undtagen når højre sidebjælke har fokus (så Ctrl+1–6 er fri til sidebjælkens tilstandsskifter), og begrænser overfladevalg til Find-sidebjælken, når workspacet har flere paneler:"
     },
     "customCommands": {
       "title": "Brugerdefinerede kommandoer",

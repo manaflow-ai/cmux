@@ -8,6 +8,21 @@ import Testing
 #endif
 
 extension TerminalControllerSocketSecurityTests {
+    private func parseRightSidebarRequestForTesting(
+        _ commandLine: String,
+        defaults: UserDefaults = .standard
+    ) -> Result<RightSidebarRemoteRequest, RightSidebarRemoteParseError> {
+        let trimmed = commandLine.trimmingCharacters(in: .whitespacesAndNewlines)
+        let parts = trimmed.split(separator: " ", maxSplits: 1).map(String.init)
+        guard parts.first?.lowercased() == "right_sidebar" else {
+            return .failure(.init(message: "ERROR: Usage: right_sidebar <toggle|show|hide|focus|set|set-mode|mode>"))
+        }
+        return RightSidebarRemoteRequest.parse(
+            tokens: SidebarMetadataArgumentParser().tokenize(parts.count > 1 ? parts[1] : ""),
+            defaults: defaults
+        )
+    }
+
     @Test func v1CommandsDriveExistingState() throws {
         let previousAppDelegate = AppDelegate.shared
         let appDelegate = AppDelegate()
@@ -151,7 +166,7 @@ extension TerminalControllerSocketSecurityTests {
         ]
 
         for (line, expected) in cases {
-            let result = TerminalController.shared.parseRightSidebarRemoteRequestForTesting(line)
+            let result = parseRightSidebarRequestForTesting(line)
             #expect(try result.get() == expected, Comment(rawValue: line))
         }
 
@@ -159,7 +174,7 @@ extension TerminalControllerSocketSecurityTests {
             ("right_sidebar", "Usage: right_sidebar"),
             ("right_sidebar set", "Usage: right_sidebar set"),
             ("right_sidebar set unknown", "Unknown right sidebar mode"),
-            ("right_sidebar set-mode source-control", "enable Source Control in Settings"),
+            ("right_sidebar set-mode source-control", "Settings"),
             ("right_sidebar show --no-focus", "Usage: right_sidebar show"),
             ("right_sidebar files --no-focus", "--no-focus is only valid"),
             ("right_sidebar --bad", "Unknown right sidebar option"),
@@ -174,7 +189,7 @@ extension TerminalControllerSocketSecurityTests {
         defer { defaults.removePersistentDomain(forName: suiteName) }
 
         for (line, expectedMessage) in invalidCases {
-            switch TerminalController.shared.parseRightSidebarRemoteRequestForTesting(line, defaults: defaults) {
+            switch parseRightSidebarRequestForTesting(line, defaults: defaults) {
             case .success(let request):
                 Issue.record("Expected parser failure for \(line), got \(request)")
             case .failure(let error):

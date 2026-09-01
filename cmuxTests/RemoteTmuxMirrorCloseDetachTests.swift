@@ -462,9 +462,9 @@ import Testing
 @Suite(.serialized) struct RemoteTmuxMirrorDedicatedPlacementTests {
     /// `--new-window` must consolidate every mirror for the host even when the
     /// Move Workspace action previously distributed those mirrors across several
-    /// Cached control connections keep this test network-free. Source managers
-/// are deliberately windowless: the regression is about workspace ownership
-/// and must not require a Ghostty renderer or AppKit window to be created.
+    /// cached control connections. Keep this test network-free. Source managers
+    /// are deliberately windowless: the regression is about workspace ownership
+    /// and must not require a Ghostty renderer or AppKit window to be created.
     @Test func dedicatedWindowConsolidatesMirrorsFromEverySourceWindow() throws {
         let originalAppDelegate = AppDelegate.shared
         let appDelegate = AppDelegate()

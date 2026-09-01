@@ -98,6 +98,10 @@ struct RightSidebarPanelView: View {
     }
 
     private var availableModes: [RightSidebarMode] {
+        // Read the observable remote flag here so a PostHog update invalidates
+        // the mode bar immediately; the registry's off-main mirror supplies
+        // the same value to its availability closure.
+        _ = CmuxFeatureFlags.shared.isCloudVMUIEnabled
         fileExplorerState.panelRegistry.availableModes()
     }
 

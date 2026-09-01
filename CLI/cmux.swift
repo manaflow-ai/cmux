@@ -19919,7 +19919,8 @@ struct CMUXCLI {
               cmux sidebar-state --workspace workspace:2
             """
         case "right-sidebar":
-            return String(localized: "cli.rightSidebar.usage", defaultValue: """
+            let modeList = RightSidebarPanelRegistry().cliArgumentsDescription
+            let usage = String(localized: "cli.rightSidebar.usage", defaultValue: """
             Usage: cmux right-sidebar <command> [flags]
 
             Control the right sidebar from the CLI.
@@ -19929,10 +19930,10 @@ struct CMUXCLI {
               show                           Show the right sidebar
               hide                           Hide the right sidebar
               focus                          Focus the current right sidebar mode
-              set|set-mode <files|find|vault|sessions|feed|dock|source-control|cloud|machines>
+              set|set-mode <%1$@>
                                              Show, switch mode, and focus
               mode                           Print {"visible":bool,"mode":string}
-              files|find|vault|sessions|feed|dock|source-control|cloud|machines
+              %1$@
                                              Alias for show + set|set-mode + focus
 
             Flags:
@@ -19945,6 +19946,7 @@ struct CMUXCLI {
               cmux right-sidebar set find
               cmux right-sidebar mode
             """)
+            return String(format: usage, locale: Locale.current, modeList, modeList)
         case "sidebar":
             return String(localized: "cli.sidebar.usage", defaultValue: """
             Usage: cmux sidebar <validate|reload|select|open> [name|--all] [--json]
@@ -20654,6 +20656,9 @@ struct CMUXCLI {
             throw CLIError(message: String(localized: "cli.rightSidebar.error.missingCommand", defaultValue: "right-sidebar requires a subcommand"))
         }
 
+        let registry = RightSidebarPanelRegistry()
+        let modeList = registry.cliArgumentsDescription
+
         switch action {
         case "toggle", "show", "hide", "focus", "mode":
             guard parsed.positional.count == 1 else {
@@ -20666,36 +20671,42 @@ struct CMUXCLI {
 
         case "set", "set-mode":
             guard parsed.positional.count == 2 else {
-                throw CLIError(message: String(localized: "cli.rightSidebar.error.setRequiresMode", defaultValue: "right-sidebar set requires a mode: files, find, vault, sessions, feed, dock, source-control, or machines"))
+                throw CLIError(message: localizedFormat(
+                    "cli.rightSidebar.error.setRequiresMode",
+                    defaultValue: "right-sidebar set requires a mode: %@",
+                    modeList
+                ))
             }
             let mode = parsed.positional[1].trimmingCharacters(in: .whitespacesAndNewlines)
-            guard isRightSidebarCLIMode(mode) else {
-                throw CLIError(message: String(localized: "cli.rightSidebar.error.unknownMode", defaultValue: "Unknown right-sidebar mode '\(parsed.positional[1])'"))
+            guard let canonical = registry.canonicalCLIArgument(mode) else {
+                throw CLIError(message: localizedFormat(
+                    "cli.rightSidebar.error.unknownMode",
+                    defaultValue: "Unknown right-sidebar mode '%@'",
+                    parsed.positional[1]
+                ))
             }
-            var args = ["set", normalizedRightSidebarCLIArgument(mode)]
+            var args = ["set", canonical]
             if parsed.noFocus {
                 args.append("--no-focus")
             }
             return args
 
-        case "files", "find", "vault", "sessions", "feed", "dock", "source-control", "cloud", "machines":
-            guard parsed.positional.count == 1 else {
-                throw CLIError(message: String(localized: "cli.rightSidebar.error.unexpectedArguments", defaultValue: "right-sidebar \(action) received unexpected arguments"))
-            }
-            guard !parsed.noFocus else {
-                throw CLIError(message: String(localized: "cli.rightSidebar.error.noFocusOnlySet", defaultValue: "right-sidebar: --no-focus is only valid with set"))
-            }
-            return ["set", action]
-
         default:
             let rawAction = parsed.positional[0].trimmingCharacters(in: .whitespacesAndNewlines)
-            guard parsed.positional.count == 1, isRightSidebarCLIMode(rawAction) else {
-                throw CLIError(message: String(localized: "cli.rightSidebar.error.unknownCommand", defaultValue: "Unknown right-sidebar command '\(action)'"))
+            if let canonical = registry.canonicalCLIArgument(rawAction) {
+                guard parsed.positional.count == 1 else {
+                    throw CLIError(message: String(localized: "cli.rightSidebar.error.unexpectedArguments", defaultValue: "right-sidebar \(action) received unexpected arguments"))
+                }
+                guard !parsed.noFocus else {
+                    throw CLIError(message: String(localized: "cli.rightSidebar.error.noFocusOnlySet", defaultValue: "right-sidebar: --no-focus is only valid with set"))
+                }
+                return ["set", canonical]
             }
-            guard !parsed.noFocus else {
-                throw CLIError(message: String(localized: "cli.rightSidebar.error.noFocusOnlySet", defaultValue: "right-sidebar: --no-focus is only valid with set"))
-            }
-            return ["set", normalizedRightSidebarCLIArgument(rawAction)]
+            throw CLIError(message: localizedFormat(
+                "cli.rightSidebar.error.unknownCommand",
+                defaultValue: "Unknown right-sidebar command '%@'",
+                action
+            ))
         }
     }
 
@@ -40286,7 +40297,7 @@ export default CMUXSessionRestore;
           open-notification --id <uuid>
           jump-to-unread
           clear-notifications [--workspace <id|ref|index>] [--window <id|ref|index>]
-          right-sidebar <toggle|show|hide|focus|set|set-mode|mode|files|find|vault|sessions|feed|dock|source-control|cloud|machines> [--workspace <id|ref|index>] [--window <id|ref|index>] [--no-focus]
+          right-sidebar <toggle|show|hide|focus|set|set-mode|mode|\(RightSidebarPanelRegistry().cliArgumentsDescription)> [--workspace <id|ref|index>] [--window <id|ref|index>] [--no-focus]
           sidebar <validate|reload|select|open> [name]
           set-status <key> <value> [--workspace <id|ref|index>] [--window <id|ref|index>] [--icon <name>] [--color <#hex>] [--priority <n>]
           clear-status <key> [--workspace <id|ref|index>] [--window <id|ref|index>]

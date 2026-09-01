@@ -11,6 +11,8 @@ struct RightSidebarPanelDescriptor: Identifiable {
     let isAvailable: (UserDefaults) -> Bool
     let shortcutAction: KeyboardShortcutSettings.Action?
     let cliArgument: String
+    /// Additional user-facing aliases accepted by CLI/socket entry points.
+    let cliAliases: [String]
     let commandPaletteCommandID: String
     let paneCommandID: String?
     let paneTitle: String?

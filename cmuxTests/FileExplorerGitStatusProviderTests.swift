@@ -102,6 +102,20 @@ struct FileExplorerGitStatusProviderTests {
     }
 
     @Test
+    func sourceControlSectionsStripExactlyOneSlashAtFilesystemRoot() {
+        let sections = SourceControlGroupSection.makeSections(
+            entries: [
+                GitStatusSnapshotEntry(path: "/changed.swift", status: .modified),
+                GitStatusSnapshotEntry(path: "/nested/added.swift", status: .added),
+            ],
+            root: "/"
+        )
+
+        let resources = sections.flatMap(\.resources)
+        #expect(resources.map(\.relativePath) == ["changed.swift", "nested/added.swift"])
+    }
+
+    @Test
     func statusQueryMapsTypeChangedAndUnmergedEntries() throws {
         let repoURL = try Self.makeTemporaryDirectory()
         defer { try? FileManager.default.removeItem(at: repoURL) }
@@ -158,7 +172,7 @@ struct FileExplorerGitStatusProviderTests {
             if [ "${CMUX_TEST_SSH_ENV:-}" != "expected" ]; then
                 exit 3
             fi
-            printf '%s\n---GIT_STATUS---\n M remote.txt\0' "$CMUX_TEST_REPO_ROOT"
+            printf '%s\0 M remote---GIT_STATUS---.txt\0' "$CMUX_TEST_REPO_ROOT"
             """#,
             named: "fake-ssh",
             in: repoURL
@@ -179,7 +193,7 @@ struct FileExplorerGitStatusProviderTests {
         )
 
         #expect(
-            status[repoURL.appendingPathComponent("remote.txt").path] == .some(.modified)
+            status[repoURL.appendingPathComponent("remote---GIT_STATUS---.txt").path] == .some(.modified)
         )
     }
 
@@ -197,7 +211,7 @@ struct FileExplorerGitStatusProviderTests {
             #"""
             #!/bin/sh
             for arg in "$@"; do printf '%s\n' "$arg"; done > "$CMUX_TEST_SSH_ARGV_LOG"
-            printf '%s\n---GIT_STATUS---\n M remote.txt\0' "$CMUX_TEST_REPO_ROOT"
+            printf '%s\0 M remote---GIT_STATUS---.txt\0' "$CMUX_TEST_REPO_ROOT"
             """#,
             named: "fake-ssh",
             in: repoURL
@@ -218,7 +232,7 @@ struct FileExplorerGitStatusProviderTests {
         )
 
         #expect(
-            status[repoURL.appendingPathComponent("remote.txt").path] == .some(.modified)
+            status[repoURL.appendingPathComponent("remote---GIT_STATUS---.txt").path] == .some(.modified)
         )
         let argv = try String(contentsOf: argvLog, encoding: .utf8)
             .split(separator: "\n", omittingEmptySubsequences: false)

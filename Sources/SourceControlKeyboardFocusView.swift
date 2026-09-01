@@ -2,6 +2,8 @@ import AppKit
 
 /// AppKit focus endpoint for the SwiftUI Source Control panel.
 final class SourceControlKeyboardFocusView: NSView {
+    var focusFirstItemAction: (@MainActor () -> Bool)?
+
     override var acceptsFirstResponder: Bool { true }
     override var canBecomeKeyView: Bool { true }
 
@@ -46,7 +48,10 @@ final class SourceControlKeyboardFocusView: NSView {
 
     @discardableResult
     func focusFirstItemFromCoordinator() -> Bool {
-        focusHostFromCoordinator()
+        if let focusFirstItemAction, focusFirstItemAction() {
+            return true
+        }
+        return focusHostFromCoordinator()
     }
 
     func focusHostFromCoordinator() -> Bool {

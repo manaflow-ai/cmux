@@ -5,6 +5,7 @@ struct SourceControlGroupView: View {
     let group: SourceControlGroup
     let resources: [SourceControlResourceRow]
     let onOpenDiffViewer: (String) -> Void
+    let focusedResourceID: FocusState<String?>.Binding
 
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
@@ -39,6 +40,9 @@ struct SourceControlGroupView: View {
                     .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
+                .focusable()
+                .focused(focusedResourceID, equals: resource.id)
+                .id(resource.id)
                 .padding(.vertical, 3)
                 .accessibilityLabel(
                     String.localizedStringWithFormat(

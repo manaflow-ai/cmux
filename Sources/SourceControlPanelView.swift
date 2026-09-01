@@ -11,6 +11,7 @@ struct SourceControlPanelView: View {
     @ObservedObject var tabManager: TabManager
     @ObservedObject var fileExplorerStore: FileExplorerStore
     let onOpenDiffViewer: (String) -> Void
+    @FocusState private var focusedResourceID: String?
 
     init(context: RightSidebarPanelContext) {
         tabManager = context.tabManager
@@ -35,7 +36,9 @@ struct SourceControlPanelView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(Color(nsColor: NSColor.controlBackgroundColor))
         .background(
-            SourceControlKeyboardFocusBridge()
+            SourceControlKeyboardFocusBridge(
+                focusFirstItem: focusFirstSourceControlResource
+            )
                 .frame(width: 1, height: 1)
         )
         .accessibilityIdentifier("RightSidebar.SourceControl")
@@ -92,19 +95,36 @@ struct SourceControlPanelView: View {
                 detail: String(localized: "sourceControl.empty.clean.detail", defaultValue: "Your working tree is clean.")
             )
         } else {
-            ScrollView {
-                LazyVStack(alignment: .leading, spacing: 12) {
-                    ForEach(sections) { section in
-                        SourceControlGroupView(
-                            group: section.group,
-                            resources: section.resources,
-                            onOpenDiffViewer: onOpenDiffViewer
-                        )
+            ScrollViewReader { proxy in
+                ScrollView {
+                    LazyVStack(alignment: .leading, spacing: 12) {
+                        ForEach(sections) { section in
+                            SourceControlGroupView(
+                                group: section.group,
+                                resources: section.resources,
+                                onOpenDiffViewer: onOpenDiffViewer,
+                                focusedResourceID: $focusedResourceID
+                            )
+                        }
                     }
+                    .padding(10)
                 }
-                .padding(10)
+                .onChange(of: focusedResourceID) { _, resourceID in
+                    guard let resourceID else { return }
+                    proxy.scrollTo(resourceID, anchor: .center)
+                }
             }
         }
+    }
+
+    @MainActor
+    private func focusFirstSourceControlResource() -> Bool {
+        guard let resourceID = fileExplorerStore.sourceControlGroups
+            .first?.resources.first?.id else {
+            return false
+        }
+        focusedResourceID = resourceID
+        return true
     }
 
     private func emptyState(title: String, detail: String) -> some View {

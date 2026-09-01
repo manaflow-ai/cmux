@@ -15,7 +15,6 @@ struct RightSidebarPanelRegistry {
         let beta = BetaFeaturesCatalogSection()
         let feedKey = beta.rightSidebarFeed
         let dockKey = beta.rightSidebarDock
-        let cloudMachinesKey = beta.cloudMachines
         let sourceControlKey = beta.sourceControl
 
         self.descriptors = [
@@ -26,6 +25,7 @@ struct RightSidebarPanelRegistry {
                 order: 10,
                 shortcutAction: .switchRightSidebarToFiles,
                 cliArgument: "files",
+                cliAliases: [],
                 commandPaletteCommandID: "palette.showRightSidebarFiles",
                 paneCommandID: "palette.openFilesPane",
                 paneTitle: String(localized: "command.openFilesPane.title", defaultValue: "Open Files as Pane"),
@@ -48,6 +48,7 @@ struct RightSidebarPanelRegistry {
                 order: 20,
                 shortcutAction: .switchRightSidebarToFind,
                 cliArgument: "find",
+                cliAliases: [],
                 commandPaletteCommandID: "palette.showRightSidebarFind",
                 paneCommandID: "palette.openFindPane",
                 paneTitle: String(localized: "command.openFindPane.title", defaultValue: "Open Find as Pane"),
@@ -70,6 +71,7 @@ struct RightSidebarPanelRegistry {
                 order: 30,
                 shortcutAction: .switchRightSidebarToSessions,
                 cliArgument: "vault",
+                cliAliases: ["sessions"],
                 commandPaletteCommandID: "palette.showRightSidebarSessions",
                 paneCommandID: "palette.openVaultPane",
                 paneTitle: String(localized: "command.openVaultPane.title", defaultValue: "Open Vault as Pane"),
@@ -95,6 +97,7 @@ struct RightSidebarPanelRegistry {
                 isAvailable: { defaults in Self.isEnabled(feedKey, defaults: defaults) },
                 shortcutAction: .switchRightSidebarToFeed,
                 cliArgument: "feed",
+                cliAliases: [],
                 commandPaletteCommandID: "palette.showRightSidebarFeed",
                 paneCommandID: nil,
                 paneTitle: nil,
@@ -111,6 +114,7 @@ struct RightSidebarPanelRegistry {
                 isAvailable: { defaults in Self.isEnabled(dockKey, defaults: defaults) },
                 shortcutAction: .switchRightSidebarToDock,
                 cliArgument: "dock",
+                cliAliases: [],
                 commandPaletteCommandID: "palette.showRightSidebarDock",
                 paneCommandID: nil,
                 paneTitle: nil,
@@ -124,12 +128,10 @@ struct RightSidebarPanelRegistry {
                 title: String(localized: "rightSidebar.mode.machines", defaultValue: "Cloud"),
                 symbolName: "cloud",
                 order: 60,
-                isAvailable: { defaults in
-                    CloudMachinesFeature.offMainIsEnabled(defaults: defaults)
-                        || Self.isEnabled(cloudMachinesKey, defaults: defaults)
-                },
+                isAvailable: { defaults in CloudMachinesFeature.offMainIsEnabled(defaults: defaults) },
                 shortcutAction: .switchRightSidebarToMachines,
                 cliArgument: "machines",
+                cliAliases: ["cloud", "vms"],
                 commandPaletteCommandID: "palette.showRightSidebarMachines",
                 paneCommandID: nil,
                 paneTitle: nil,
@@ -150,6 +152,7 @@ struct RightSidebarPanelRegistry {
                 isAvailable: { defaults in Self.isEnabled(sourceControlKey, defaults: defaults) },
                 shortcutAction: .switchRightSidebarToSourceControl,
                 cliArgument: "source-control",
+                cliAliases: ["sourcecontrol"],
                 commandPaletteCommandID: "palette.showRightSidebarSourceControl",
                 paneCommandID: nil,
                 paneTitle: nil,
@@ -170,8 +173,26 @@ struct RightSidebarPanelRegistry {
         let argument = rawValue.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
         return descriptors.first { descriptor in
             descriptor.cliArgument.lowercased() == argument
+                || descriptor.cliAliases.contains(where: { $0.lowercased() == argument })
                 || descriptor.id.lowercased() == argument
         }.flatMap { RightSidebarMode(rawValue: $0.id) }
+    }
+
+    /// All canonical CLI mode names and aliases, in descriptor order.
+    var cliArguments: [String] {
+        descriptors.flatMap { [$0.cliArgument] + $0.cliAliases }
+    }
+
+    /// A compact mode list suitable for localized usage and validation errors.
+    var cliArgumentsDescription: String {
+        cliArguments.joined(separator: "|")
+    }
+
+    /// Returns the canonical CLI spelling for a mode argument.
+    func canonicalCLIArgument(_ rawValue: String) -> String? {
+        guard let mode = mode(forCLIArgument: rawValue),
+              let descriptor = descriptor(for: mode) else { return nil }
+        return descriptor.cliArgument
     }
 
     func availableModes(defaults: UserDefaults = .standard) -> [RightSidebarMode] {
@@ -203,6 +224,7 @@ struct RightSidebarPanelRegistry {
         isAvailable: @escaping (UserDefaults) -> Bool = { _ in true },
         shortcutAction: KeyboardShortcutSettings.Action?,
         cliArgument: String,
+        cliAliases: [String],
         commandPaletteCommandID: String,
         paneCommandID: String?,
         paneTitle: String?,
@@ -218,6 +240,7 @@ struct RightSidebarPanelRegistry {
             isAvailable: isAvailable,
             shortcutAction: shortcutAction,
             cliArgument: cliArgument,
+            cliAliases: cliAliases,
             commandPaletteCommandID: commandPaletteCommandID,
             paneCommandID: paneCommandID,
             paneTitle: paneTitle,

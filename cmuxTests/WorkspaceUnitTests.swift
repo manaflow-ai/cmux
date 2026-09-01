@@ -524,6 +524,16 @@ final class WorkspaceRenameShortcutDefaultsTests: XCTestCase {
             XCTAssertFalse(KeyboardShortcutSettings.publicShortcutActions.contains(action))
             XCTAssertFalse(KeyboardShortcutSettings.settingsVisibleActions.contains(action))
         }
+
+        let sourceControl = KeyboardShortcutSettings.Action.switchRightSidebarToSourceControl
+        XCTAssertEqual(sourceControl.defaultShortcut.key, "6")
+        XCTAssertFalse(sourceControl.defaultShortcut.command)
+        XCTAssertFalse(sourceControl.defaultShortcut.shift)
+        XCTAssertFalse(sourceControl.defaultShortcut.option)
+        XCTAssertTrue(sourceControl.defaultShortcut.control)
+        XCTAssertTrue(sourceControl.isPublicShortcutAction)
+        XCTAssertTrue(KeyboardShortcutSettings.publicShortcutActions.contains(sourceControl))
+        XCTAssertTrue(KeyboardShortcutSettings.settingsVisibleActions.contains(sourceControl))
     }
 
     func testSettingsVisibleShortcutActionsIncludeRemappableExampleShortcuts() {

@@ -15,7 +15,7 @@ struct RightSidebarPanelRegistryTests {
     func descriptorsPreserveBuiltInOrder() {
         let defaults = makeDefaults()
         let ids = RightSidebarPanelRegistry().descriptors.map(\.id)
-        #expect(ids == ["files", "find", "sessions", "feed", "dock", "sourceControl"])
+        #expect(ids == ["files", "find", "sessions", "feed", "dock", "machines", "sourceControl"])
     }
 
     @Test("Source Control stays hidden until its beta flag is enabled")
@@ -33,6 +33,10 @@ struct RightSidebarPanelRegistryTests {
         #expect(RightSidebarMode.from(cliArgument: "source-control") == .sourceControl)
         #expect(RightSidebarMode.from(cliArgument: "sourceControl") == .sourceControl)
         #expect(RightSidebarMode.from(cliArgument: "vault") == .sessions)
+        #expect(RightSidebarMode.from(cliArgument: "cloud") == .machines)
+        #expect(RightSidebarMode.from(cliArgument: "vms") == .machines)
+        #expect(RightSidebarPanelRegistry().canonicalCLIArgument("sourceControl") == "source-control")
+        #expect(RightSidebarPanelRegistry().canonicalCLIArgument("cloud") == "machines")
     }
 
     @Test("Existing pane eligibility remains descriptor-owned")

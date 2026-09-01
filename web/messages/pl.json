@@ -1062,7 +1062,7 @@
       "shortcutsWhenBooleanKeys": "klucze logiczne. Nieznany lub nieobecny klucz jest traktowany jako false; akceptowane są też literały true i false.",
       "shortcutsWhenTypedKeys": "klucze typowane do porównań: aktywny tryb prawego paska bocznego (łańcuch) oraz liczby paneli i obszarów roboczych (liczby całkowite).",
       "shortcutsWhenOperators": "operatory logiczne, porównania typowane, dopasowanie wyrażeniem regularnym i przynależność do listy. Porównania wiążą mocniej niż && i ||.",
-      "shortcutsWhenExample": "Na przykład poniższe sprawia, że Ctrl+1–9 wybiera obszary robocze wszędzie poza sytuacją, gdy fokus ma prawy pasek boczny (pozostawiając Ctrl+1–5 przełącznikowi trybów paska bocznego), i ogranicza wybór powierzchni do paska bocznego wyszukiwania, gdy obszar roboczy ma wiele paneli:"
+      "shortcutsWhenExample": "Na przykład poniższe sprawia, że Ctrl+1–9 wybiera obszary robocze wszędzie poza sytuacją, gdy fokus ma prawy pasek boczny (pozostawiając Ctrl+1–6 przełącznikowi trybów paska bocznego), i ogranicza wybór powierzchni do paska bocznego wyszukiwania, gdy obszar roboczy ma wiele paneli:"
     },
     "customCommands": {
       "title": "Niestandardowe polecenia",

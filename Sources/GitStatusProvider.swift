@@ -63,7 +63,7 @@ struct GitStatusProvider: Sendable {
         let cmd = [
             "cd '\(escapedDir)' 2>/dev/null",
             "\(Self.nonLockingRemoteGitCommand) rev-parse --show-toplevel 2>/dev/null",
-            "echo '---GIT_STATUS---'",
+            "printf '\\0'",
             "\(Self.nonLockingRemoteGitCommand) status --porcelain=v1 -z 2>/dev/null",
         ].joined(separator: " && ")
         guard let output = runSSH(
@@ -71,12 +71,17 @@ struct GitStatusProvider: Sendable {
             port: port, identityFile: identityFile, sshOptions: sshOptions
         ) else { return .empty }
 
-        let parts = output.components(separatedBy: "---GIT_STATUS---\n")
-        guard parts.count == 2 else { return .empty }
-        let repoRoot = parts[0].trimmingCharacters(in: CharacterSet.whitespacesAndNewlines)
+        guard let separator = output.firstIndex(of: "\0") else { return .empty }
+        let repoRoot = String(output[..<separator]).trimmingCharacters(in: CharacterSet.whitespacesAndNewlines)
+        let statusStart = output.index(after: separator)
         // Remote paths must not be resolved against the local filesystem, so the comparison
         // space and the key space are both the caller's spelling here.
-        return parseGitStatus(output: parts[1], repoRoot: repoRoot, explorerRoot: directory, keyRoot: directory)
+        return parseGitStatus(
+            output: String(output[statusStart...]),
+            repoRoot: repoRoot,
+            explorerRoot: directory,
+            keyRoot: directory
+        )
     }
 
     private func parseGitStatus(
@@ -85,6 +90,11 @@ struct GitStatusProvider: Sendable {
         guard let output, !output.isEmpty else { return .empty }
         var statusMap: [String: GitFileStatus] = [:]
         var directoryPaths: Set<String> = []
+        // Keep the order emitted by `git status`. Git's porcelain stream is
+        // path-ordered, so Source Control can partition this sequence in one
+        // linear pass without re-sorting every group during rendering.
+        var orderedPaths: [String] = []
+        var orderedPathSet: Set<String> = []
         let normalizedRepoRoot = Self.pathWithoutTrailingSlashes(repoRoot)
         let normalizedExplorerRoot = Self.pathWithoutTrailingSlashes(explorerRoot)
         let normalizedKeyRoot = Self.pathWithoutTrailingSlashes(keyRoot)
@@ -99,7 +109,9 @@ struct GitStatusProvider: Sendable {
             }
             let indexStatus = entry[entry.startIndex]
             let workTreeStatus = entry[entry.index(after: entry.startIndex)]
-            let path = String(entry.dropFirst(3))
+            let rawPath = String(entry.dropFirst(3))
+            let pathIsDirectory = rawPath.hasSuffix("/")
+            let path = Self.pathWithoutTrailingSlashes(rawPath)
             let usesSecondPath = Self.statusUsesSecondPath(index: indexStatus, workTree: workTreeStatus)
             entryIndex += usesSecondPath ? 2 : 1
             guard let status = parseStatusChars(index: indexStatus, workTree: workTreeStatus) else { continue }
@@ -120,6 +132,12 @@ struct GitStatusProvider: Sendable {
             }
 
             statusMap[key] = status
+            if pathIsDirectory {
+                directoryPaths.insert(key)
+            }
+            if orderedPathSet.insert(key).inserted {
+                orderedPaths.append(key)
+            }
             markParentDirectories(
                 absolutePath: key,
                 explorerRoot: normalizedKeyRoot,
@@ -128,8 +146,9 @@ struct GitStatusProvider: Sendable {
                 directoryPaths: &directoryPaths
             )
         }
-        let displayableEntries = statusMap.compactMap { path, status in
-            directoryPaths.contains(path) ? nil : GitStatusSnapshotEntry(path: path, status: status)
+        let displayableEntries = orderedPaths.compactMap { path in
+            guard !directoryPaths.contains(path), let status = statusMap[path] else { return nil }
+            return GitStatusSnapshotEntry(path: path, status: status)
         }
         return GitStatusSnapshot(
             statusesByPath: statusMap,

@@ -1061,7 +1061,7 @@
       "shortcutsWhenBooleanKeys": "布林鍵。未知或不存在的鍵視為 false；也接受常值 true 和 false。",
       "shortcutsWhenTypedKeys": "用於比較的型別化鍵：右側邊欄的目前模式（字串），以及窗格與工作區數量（整數）。",
       "shortcutsWhenOperators": "布林運算子、型別化比較、正規表示式比對與清單成員判斷。比較的結合優先順序高於 && 和 ||。",
-      "shortcutsWhenExample": "例如，以下設定讓 Ctrl+1–9 在右側邊欄未取得焦點時選取工作區（將 Ctrl+1–5 留給側邊欄模式切換器），並在工作區有多個窗格時，將表面選取限制在尋找側邊欄："
+      "shortcutsWhenExample": "例如，以下設定讓 Ctrl+1–9 在右側邊欄未取得焦點時選取工作區（將 Ctrl+1–6 留給側邊欄模式切換器），並在工作區有多個窗格時，將表面選取限制在尋找側邊欄："
     },
     "customCommands": {
       "title": "自訂指令",

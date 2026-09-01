@@ -717,7 +717,10 @@ final class FileExplorerStore: ObservableObject {
     /// the store's single observation signal for existing Files consumers.
     private(set) var gitStatusSnapshot: GitStatusSnapshot = .empty
     /// Precomputed Source Control sections built off the SwiftUI render path.
-    @Published private(set) var sourceControlGroups: [SourceControlGroupSection] = []
+    /// The existing `gitStatusByPath` publication remains the observation signal;
+    /// this immutable projection is assigned before that signal fires so rows
+    /// below SwiftUI list boundaries never retain the store itself.
+    private(set) var sourceControlGroups: [SourceControlGroupSection] = []
     @Published private(set) var contentRevision = 0
     @Published private(set) var rootStatusMessage: String?
     private(set) var workspaceRootIdentity: UUID?
