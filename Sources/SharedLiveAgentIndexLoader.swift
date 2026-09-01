@@ -79,7 +79,8 @@ struct SharedLiveAgentIndexLoader {
         )
         return (
             index: index,
-            liveAgentProcessFingerprint: index.liveAgentProcessFingerprint(),
+            liveAgentProcessFingerprint: index.liveAgentProcessFingerprint()
+                .union(index.liveSessionOwnerFingerprint),
             processScopeFingerprint: Self.processScopeFingerprint(
                 from: processSnapshot,
                 hibernationProcessScopes: hibernationProcessScopes

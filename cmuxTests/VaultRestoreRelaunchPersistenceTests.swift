@@ -149,8 +149,8 @@ struct VaultRestoreRelaunchPersistenceTests {
         #expect(restoredPanel.surface.debugInitialInputForTesting() == launch.initialInput)
     }
 
-    @Test("Cancelling a staged relaunch releases its launch claim and closes the terminal")
-    func cancelledRelaunchRestoreReleasesClaimAndClosesTerminal() throws {
+    @Test("Cancelling a staged relaunch needs no pre-exec claim and closes the terminal")
+    func cancelledRelaunchRestoreNeedsNoClaimAndClosesTerminal() throws {
         let sessionID = "vault-cancelled-relaunch-\(UUID().uuidString)"
         let launch = try makeLaunch(sessionID: sessionID)
         let snapshot = try #require(launch.startupRestoreAgent)
@@ -188,10 +188,14 @@ struct VaultRestoreRelaunchPersistenceTests {
 
         #expect(!restoredPanel.surface.canCreateRuntimeSurface)
         #expect(
-            !AgentResumeLaunchGuard.shared.claimResumeLaunch(
+            AgentResumeLaunchGuard.shared.claimResumeLaunch(
                 kind: snapshot.kind.rawValue,
                 sessionId: sessionID
             )
+        )
+        AgentResumeLaunchGuard.shared.releaseResumeLaunch(
+            kind: snapshot.kind.rawValue,
+            sessionId: sessionID
         )
 
         restored.terminalStartupRestoreCoordinator.cancelPendingRestore(
@@ -199,12 +203,6 @@ struct VaultRestoreRelaunchPersistenceTests {
         )
 
         #expect(restoredPanel.surface.debugTeardownRequest().requestedAt != nil)
-        #expect(
-            AgentResumeLaunchGuard.shared.claimResumeLaunch(
-                kind: snapshot.kind.rawValue,
-                sessionId: sessionID
-            )
-        )
     }
 
     @Test("Cancelling a Vault startup preserves a resume claim owned elsewhere")

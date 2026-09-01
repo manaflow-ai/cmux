@@ -90,6 +90,11 @@ public enum ControlCommandExecutionPolicy: Sendable, Equatable {
         "feed.permission.reply",
         "feed.question.reply",
         "feed.exit_plan.reply",
+        // Performs a fresh off-main process scan before one agent exec. Only
+        // the final target revalidation and launch claim hop to MainActor.
+        "agent.restore.admit",
+        // Releases only the tokenized claim owned by a failed restore exec.
+        "agent.restore.release",
         "browser.download.wait",
         "browser.profiles.list",
         "browser.profiles.create",

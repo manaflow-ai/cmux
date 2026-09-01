@@ -19,6 +19,7 @@ final class AgentJournalLifecycleCenter: Sendable {
 
     private enum Operation: Sendable {
         case ingest(AgentJournalEvent)
+        case append(AgentJournalEventDraft)
         case recordAliases(workspaces: [String: String], surfaces: [String: String])
         case startupReplay
     }
@@ -43,6 +44,7 @@ final class AgentJournalLifecycleCenter: Sendable {
         var continuation: AsyncStream<Operation>.Continuation?
         let stream = AsyncStream<Operation>(bufferingPolicy: .unbounded) { continuation = $0 }
         self.operations = continuation
+        let operationContinuation = continuation
         self.consumerTask = Task.detached(priority: .utility) {
             let reducer = AgentLifecycleReducer()
             let replayPolicy = AgentJournalReplayPolicy()
@@ -100,6 +102,29 @@ final class AgentJournalLifecycleCenter: Sendable {
                         await MainActor.run {
                             Self.apply(application.assignment, workspaceHint: application.workspaceHint)
                         }
+                    }
+                case .append(let draft):
+                    do {
+                        let outcome = try store.append(draft)
+                        operationContinuation?.yield(
+                            .ingest(
+                                AgentJournalEvent(
+                                    sequence: outcome.sequence,
+                                    committedAtMs: outcome.committedAtMs,
+                                    draft: draft
+                                )
+                            )
+                        )
+                    } catch {
+                        CmuxEventBus.shared.publish(
+                            name: "agent.journal.append_failed",
+                            category: "agent",
+                            source: "journal",
+                            payload: ["kind": draft.kind.rawValue]
+                        )
+#if DEBUG
+                        cmuxDebugLog("agentJournal.append.error \(String(describing: error))")
+#endif
                     }
                 case .recordAliases(let workspaces, let surfaces):
                     do {
@@ -215,6 +240,12 @@ final class AgentJournalLifecycleCenter: Sendable {
 #endif
             return "ERROR: agent journal append failed"
         }
+    }
+
+    /// Queues a diagnostic event for the owned journal consumer without
+    /// blocking the caller on SQLite I/O.
+    func enqueueAppend(_ draft: AgentJournalEventDraft) {
+        operations?.yield(.append(draft))
     }
 
     /// Records the workspace/panel identity remaps produced by one restored
@@ -464,32 +495,5 @@ final class AgentJournalLifecycleCenter: Sendable {
         case .idle: .idle
         case .error: .needsInput
         }
-    }
-
-    private static func defaultDatabaseURL(
-        bundleIdentifier: String? = Bundle.main.bundleIdentifier,
-        isRunningUnderAutomatedTests: Bool = SessionRestorePolicy.isRunningUnderAutomatedTests()
-    ) -> URL? {
-        if let override = ProcessInfo.processInfo.environment["CMUX_AGENT_JOURNAL_PATH"],
-           !override.isEmpty {
-            return URL(fileURLWithPath: override)
-        }
-        guard !isRunningUnderAutomatedTests else { return nil }
-        guard let appSupport = FileManager.default.urls(
-            for: .applicationSupportDirectory,
-            in: .userDomainMask
-        ).first else {
-            return nil
-        }
-        let bundleID = bundleIdentifier?.trimmingCharacters(in: .whitespacesAndNewlines)
-        let resolvedBundleID = bundleID?.isEmpty == false ? bundleID! : "com.cmuxterm.app"
-        let safeBundleID = resolvedBundleID.replacingOccurrences(
-            of: "[^A-Za-z0-9._-]",
-            with: "_",
-            options: .regularExpression
-        )
-        return appSupport
-            .appendingPathComponent("cmux", isDirectory: true)
-            .appendingPathComponent("agent-journal-\(safeBundleID).sqlite3", isDirectory: false)
     }
 }

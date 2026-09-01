@@ -36,6 +36,24 @@ struct AgentResumeLaunchGuardTests {
     }
 
     @Test
+    func piPathAndUUIDUseTheSameVaultIdentity() {
+        let launchGuard = AgentResumeLaunchGuard()
+        let sessionID = "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"
+        #expect(launchGuard.claimResumeLaunch(
+            kind: "pi",
+            sessionId: "/tmp/project_\(sessionID).jsonl"
+        ))
+        #expect(!launchGuard.claimResumeLaunch(kind: "pi", sessionId: sessionID))
+    }
+
+    @Test
+    func customAgentKindsRemainCaseSensitive() {
+        let launchGuard = AgentResumeLaunchGuard()
+        #expect(launchGuard.claimResumeLaunch(kind: "CustomAgent", sessionId: "session-1"))
+        #expect(launchGuard.claimResumeLaunch(kind: "customagent", sessionId: "session-1"))
+    }
+
+    @Test
     func freshInstancesDoNotShareClaims() {
         let first = AgentResumeLaunchGuard()
         let second = AgentResumeLaunchGuard()
@@ -82,6 +100,34 @@ struct AgentResumeLaunchGuardTests {
         let launchGuard = AgentResumeLaunchGuard()
         launchGuard.releaseResumeLaunch(kind: "codex", sessionId: "never-claimed")
         #expect(launchGuard.claimResumeLaunch(kind: "codex", sessionId: "never-claimed") == true)
+    }
+
+    @Test
+    func tokenReleaseCannotRemoveANewerClaim() throws {
+        var now = Date(timeIntervalSince1970: 0)
+        let launchGuard = AgentResumeLaunchGuard(dateProvider: { now })
+        let first = try #require(launchGuard.claimResumeLaunchWithToken(
+            kind: "codex",
+            sessionId: "session-1"
+        ))
+        now = now.addingTimeInterval(61)
+        let second = try #require(launchGuard.claimResumeLaunchWithToken(
+            kind: "codex",
+            sessionId: "session-1"
+        ))
+
+        #expect(!launchGuard.releaseResumeLaunch(
+            kind: "codex",
+            sessionId: "session-1",
+            claim: first
+        ))
+        #expect(!launchGuard.claimResumeLaunch(kind: "codex", sessionId: "session-1"))
+        #expect(launchGuard.releaseResumeLaunch(
+            kind: "codex",
+            sessionId: "session-1",
+            claim: second
+        ))
+        #expect(launchGuard.claimResumeLaunch(kind: "codex", sessionId: "session-1"))
     }
 
     /// Expired claims must not accumulate forever in a long-running app

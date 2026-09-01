@@ -693,6 +693,56 @@ extension Workspace {
             }
             let ownershipPanelID = restore.stablePanelID
             let expectedSessionId = restore.restorableAgent?.sessionId ?? restore.resumeBinding?.checkpointId
+            let liveSessionOwner: LiveAgentSessionOwner? = if let expectedKind,
+                let expectedSessionId {
+                index.liveSessionOwner(
+                    kind: expectedKind,
+                    sessionID: expectedSessionId,
+                    revalidateProcessEvidence: true
+                )
+            } else {
+                nil
+            }
+            if let liveSessionOwner {
+                let noticeInput = AgentRestoreLiveOwnerNotice(
+                    processID: liveSessionOwner.processID
+                ).startupInput(
+                    dialect: restore.restoresRemoteWorkspaceTerminalSnapshot
+                        ? .remoteHost
+                        : .loginShell
+                )
+                removeDeferredAgentResumeRestore(panelId: panelId)
+                restoredAgentLifecycle.setResumeState(
+                    .manualResumeAvailable,
+                    panelId: panelId
+                )
+                if restore.remoteResumeCommandEmbedded {
+                    if let remoteResumeContext = restore.remoteResumeContext,
+                       let remoteNoticeCommand = persistentSSHLiveOwnerNoticeCommand(
+                           noticeInput
+                       ) {
+                        terminal.surface.setStartupRestoreAdmissionFallbackCommand(
+                            remotePTYAttachStartupCommand(
+                                sessionID: remoteResumeContext.persistentPTYSessionID,
+                                remoteCommand: remoteNoticeCommand
+                            )
+                        )
+                    }
+                    terminal.surface.cancelStartupRestoreAdmission()
+                } else {
+                    _ = terminal.surface.admitStartupRestoreRuntime(
+                        initialInput: noticeInput
+                    )
+                }
+                AgentRestoreSuppressionJournal().record(
+                    kind: liveSessionOwner.kind,
+                    sessionID: liveSessionOwner.sessionID,
+                    workspaceID: id,
+                    surfaceID: panelId,
+                    processID: liveSessionOwner.processID
+                )
+                continue
+            }
             // Deferred admission has no exact-owner snapshot that can override a
             // stable-panel tie, so structural ambiguity remains fail-closed even
             // after the old owners' PIDs have exited.
@@ -768,16 +818,19 @@ extension Workspace {
                 cancelDeferredAgentResumeRestore(panelId: panelId, restore: restore)
                 continue
             }
-            if let claim,
+            let ownedClaim = restore.restoresRemoteWorkspaceTerminalSnapshot
+                ? claim
+                : nil
+            if let ownedClaim,
                !AgentResumeLaunchGuard.shared.claimResumeLaunch(
-                   kind: claim.kind,
-                   sessionId: claim.sessionId
+                   kind: ownedClaim.kind,
+                   sessionId: ownedClaim.sessionId
                ) {
                 cancelDeferredAgentResumeRestore(panelId: panelId, restore: restore)
                 continue
             }
-            if let claim {
-                deferredAgentResumeClaimsByPanelId[panelId] = claim
+            if let ownedClaim {
+                deferredAgentResumeClaimsByPanelId[panelId] = ownedClaim
             }
             if let restoreWorkingDirectory = restore.resumeWorkingDirectory {
                 restoredResumeSessionWorkingDirectoriesByPanelId[panelId] = restoreWorkingDirectory
@@ -790,10 +843,10 @@ extension Workspace {
                 initialInput: restore.remoteResumeCommandEmbedded ? nil : startupInput
             )
             if !admitted {
-                if let claim {
+                if let ownedClaim {
                     AgentResumeLaunchGuard.shared.releaseResumeLaunch(
-                        kind: claim.kind,
-                        sessionId: claim.sessionId
+                        kind: ownedClaim.kind,
+                        sessionId: ownedClaim.sessionId
                     )
                 }
                 deferredAgentResumeClaimsByPanelId.removeValue(forKey: panelId)
@@ -810,10 +863,10 @@ extension Workspace {
                     workingDirectory: restore.resumeWorkingDirectory ?? restore.workingDirectory
                 )
                 deferredAgentResumeRestoresByPanelId.removeValue(forKey: panelId)
-                if let claim,
+                if let ownedClaim,
                    let pendingClaim = deferredAgentResumeClaimsByPanelId[panelId],
-                   pendingClaim.kind == claim.kind,
-                   pendingClaim.sessionId == claim.sessionId {
+                   pendingClaim.kind == ownedClaim.kind,
+                   pendingClaim.sessionId == ownedClaim.sessionId {
                     // After admission the guard's bounded TTL owns this claim;
                     // do not let later panel teardown release a newer claimant.
                     deferredAgentResumeClaimsByPanelId.removeValue(forKey: panelId)

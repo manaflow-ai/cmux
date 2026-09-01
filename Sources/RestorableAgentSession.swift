@@ -1061,6 +1061,7 @@ struct RestorableAgentSessionIndex: Sendable {
     }
 
     private let entriesByPanel: [PanelKey: Entry]
+    let liveSessionOwners: LiveAgentSessionOwnerIndex
     /// Whether every present hook-store file was read and decoded successfully.
     /// Missing files are complete (the agent kind may not be installed); a
     /// present but unreadable/invalid file is incomplete and unsafe for auto-resume.
@@ -1590,6 +1591,10 @@ struct RestorableAgentSessionIndex: Sendable {
 
         return RestorableAgentSessionIndex(
             entriesByPanel: revalidatedEntries,
+            liveSessionOwners: self.liveSessionOwners.revalidated(
+                processArgumentsProvider: processArgumentsProvider,
+                processIdentityProvider: processIdentityProvider
+            ),
             isComplete: self.isComplete,
             incompleteCodexPanelKeys: self.incompleteCodexPanelKeys,
             verifiedCodexPanelKeys: self.verifiedCodexPanelKeys,
@@ -1698,6 +1703,7 @@ struct RestorableAgentSessionIndex: Sendable {
         var hookCandidatesBySession: [SessionKey: Entry] = [:]
         var hookCandidatesByPanelAndKind: [PanelKindKey: Entry] = [:]
         var hookCandidatesByPanelIdAndKind: [PanelIDKindKey: PanelIDKindCandidate] = [:]
+        var liveSessionOwnerObservations: [LiveAgentSessionOwnerObservation] = []
 
         var codexVerificationByKey: [String: CodexSessionResumeVerification] = [:]
         var codexRequestsByHome: [String: [CodexSessionResumeVerificationRequest]] = [:]
@@ -2074,7 +2080,36 @@ struct RestorableAgentSessionIndex: Sendable {
                         startMicroseconds: startMicroseconds
                     )
                 }()
-                let currentProcessIdentity = effectiveRecord.pid.flatMap(processIdentityProvider)
+                // Capture one coherent process snapshot for this hook record.
+                // Both owner admission and panel-scoped liveness must reason
+                // about the same PID generation and argv, rather than racing
+                // two sysctl reads against an exec or PID reuse.
+                let recordedProcessID = effectiveRecord.pid
+                let currentProcessArguments = recordedProcessID.flatMap(processArgumentsProvider)
+                let currentProcessIdentity = recordedProcessID.flatMap(processIdentityProvider)
+                let processArgumentsForRecord: (Int) -> CmuxTopProcessArguments? = { candidatePID in
+                    guard candidatePID == recordedProcessID else {
+                        return processArgumentsProvider(candidatePID)
+                    }
+                    return currentProcessArguments
+                }
+                let processIdentityForRecord: (Int) -> AgentPIDProcessIdentity? = { candidatePID in
+                    guard candidatePID == recordedProcessID else {
+                        return processIdentityProvider(candidatePID)
+                    }
+                    return currentProcessIdentity
+                }
+                if let liveOwner = LiveAgentSessionOwnerObservation.validatingHookRecord(
+                    snapshot: snapshot,
+                    record: effectiveRecord,
+                    workspaceID: workspaceId,
+                    surfaceID: panelId,
+                    processArgumentsProvider: processArgumentsForRecord,
+                    processIdentityProvider: processIdentityForRecord,
+                    validator: cachedAgentProcessValidator
+                ) {
+                    liveSessionOwnerObservations.append(liveOwner)
+                }
                 let processObservation = RestorableAgentProcessObservation(
                     recordedProcessID: effectiveRecord.pid
                 ) { pid in
@@ -2085,7 +2120,7 @@ struct RestorableAgentSessionIndex: Sendable {
                         processID: pid,
                         recordedProcessIdentity: recordedProcessIdentity,
                         currentProcessIdentity: currentProcessIdentity,
-                        processArgumentsProvider: processArgumentsProvider,
+                        processArgumentsProvider: processArgumentsForRecord,
                         processPresenceProvider: processPresenceProvider,
                         validator: cachedAgentProcessValidator,
                         hermesSessionValidation: .currentHookRecord
@@ -2212,6 +2247,20 @@ struct RestorableAgentSessionIndex: Sendable {
         }
 
         for (key, detected) in detectedSnapshots {
+            if case .explicit = detected.sessionIDSource {
+                liveSessionOwnerObservations.append(contentsOf:
+                    LiveAgentSessionOwnerObservation.processDetected(
+                        snapshot: detected.snapshot,
+                        workspaceID: key.workspaceId,
+                        surfaceID: key.panelId,
+                        processIDs: detected.agentProcessIDs,
+                        observedAt: detected.updatedAt,
+                        processArgumentsProvider: processArgumentsProvider,
+                        processIdentityProvider: processIdentityProvider,
+                        validator: cachedAgentProcessValidator
+                    )
+                )
+            }
             let sameKindPanelCandidate = hookCandidatesByPanelAndKind[
                 PanelKindKey(panelKey: key, kind: detected.snapshot.kind)
             ]
@@ -2282,6 +2331,9 @@ struct RestorableAgentSessionIndex: Sendable {
 
         return RestorableAgentSessionIndex(
             entriesByPanel: resolved,
+            liveSessionOwners: LiveAgentSessionOwnerIndex(
+                observations: liveSessionOwnerObservations
+            ),
             isComplete: isComplete,
             incompleteCodexPanelKeys: incompleteCodexPanelKeys,
             verifiedCodexPanelKeys: verifiedCodexPanelKeys,
@@ -3494,12 +3546,14 @@ struct RestorableAgentSessionIndex: Sendable {
 
     private init(
         entriesByPanel: [PanelKey: Entry],
+        liveSessionOwners: LiveAgentSessionOwnerIndex = .empty,
         isComplete: Bool = true,
         incompleteCodexPanelKeys: Set<PanelKey> = [],
         verifiedCodexPanelKeys: Set<PanelKey> = [],
         hasUnboundedCodexIncompleteness: Bool = false
     ) {
         self.entriesByPanel = entriesByPanel
+        self.liveSessionOwners = liveSessionOwners
         self.isComplete = isComplete
         self.incompleteCodexPanelKeys = incompleteCodexPanelKeys
         self.incompleteCodexPanelIds = Set(incompleteCodexPanelKeys.map(\.panelId))

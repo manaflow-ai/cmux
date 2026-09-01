@@ -1586,6 +1586,16 @@ extension Workspace {
             let restoreIndexUnavailable = shouldCheckAgentOwnership && restoreAgentIndex == nil
             let expectedAgentKind = restorableAgent?.kind.rawValue ?? resumeBinding?.kind
             let expectedSessionId = restorableAgent?.sessionId ?? resumeBinding?.checkpointId
+            let liveSessionOwner: LiveAgentSessionOwner? = if let expectedAgentKind,
+                let expectedSessionId {
+                restoreAgentIndex?.liveSessionOwner(
+                    kind: expectedAgentKind,
+                    sessionID: expectedSessionId,
+                    revalidateProcessEvidence: true
+                )
+            } else {
+                nil
+            }
             let stablePanelHasLiveProcess = restoreAgentIndex?.hasCurrentLiveProcessForStablePanel(
                 workspaceId: id,
                 panelId: snapshot.id,
@@ -1615,6 +1625,7 @@ extension Workspace {
             let resumeBindingForStartup =
                 restoredHibernation != nil ||
                 restoreStartupBlocked ||
+                liveSessionOwner != nil ||
                 stablePanelHasLiveProcess ||
                 (resumeBinding?.isProcessDetected == true && resumeBinding?.autoResume != true)
                     ? nil
@@ -1664,6 +1675,7 @@ extension Workspace {
                 !restoresRemoteWorkspaceTerminalSnapshot
             let unresolvedBindingLaunch: SurfaceResumeStartupLaunch? =
                 if !restoreStartupBlocked,
+                   liveSessionOwner == nil,
                    !stablePanelHasLiveProcess,
                    canAttemptLocalBindingResume,
                    let effectiveResumeBindingForStartup {
@@ -1702,6 +1714,7 @@ extension Workspace {
             }()
             let restoredBindingLaunch = unresolvedBindingLaunch
             let restorableTmuxStartCommand = !restoreStartupBlocked &&
+                liveSessionOwner == nil &&
                 !stablePanelHasLiveProcess &&
                 restorableAgent == nil && restoredBindingLaunch == nil
                 ? sessionRestorePolicy.restorableTmuxStartCommand(snapshot.terminal?.tmuxStartCommand)
@@ -1719,9 +1732,9 @@ extension Workspace {
             // resume`/`claude --resume` on top of it just piles up redundant
             // processes contending for the same on-disk session data (#8446).
             // Consult the same live-process index already used for "reopen
-            // closed tab" / Fork Conversation availability, and fall back to a
-            // per-launch dedup claim so two panels can't both win the race
-            // before the freshly spawned process becomes visible to the index.
+            // closed tab" / Fork Conversation availability. Local commands
+            // claim at the CLI's pre-exec boundary; direct remote launches
+            // retain the in-app claim below.
             let agentSessionAlreadyActive: Bool = {
                 guard shouldAutoResumeAgent, restorableAgentCanAutoResume,
                       restoredHibernation == nil, restoredBindingLaunch == nil,
@@ -1736,6 +1749,9 @@ extension Workspace {
                 if restoreStartupBlocked {
                     // A conflicting live owner must suppress this launch even
                     // when the persisted session is not the selected entry.
+                    return true
+                }
+                if liveSessionOwner != nil {
                     return true
                 }
                 if restoreAgentIndex.hasCurrentAmbiguousPanel(
@@ -1754,6 +1770,12 @@ extension Workspace {
                     revalidateProcessEvidence: false
                 ) {
                     return true
+                }
+                // Local restores converge on the CLI admission RPC immediately
+                // before exec. Remote compatibility launches cannot use that
+                // local socket boundary, so they retain the in-app tie-breaker.
+                if !restoresRemoteWorkspaceTerminalSnapshot {
+                    return false
                 }
                 return !AgentResumeLaunchGuard.shared.claimResumeLaunch(
                     kind: restorableAgent.kind.rawValue,
@@ -1778,6 +1800,13 @@ extension Workspace {
                 } else {
                     nil
                 }
+            let liveOwnerNoticeInput = liveSessionOwner.map {
+                AgentRestoreLiveOwnerNotice(processID: $0.processID).startupInput(
+                    dialect: restoresRemoteWorkspaceTerminalSnapshot
+                        ? .remoteHost
+                        : .loginShell
+                )
+            }
             // Build the candidate before arming the gate. A binding that is
             // disabled, unapproved, or cannot render a command must start as an
             // ordinary shell instead of waiting behind deferred admission.
@@ -1825,10 +1854,14 @@ extension Workspace {
                 hasResumeStartupWork: restoredBindingLaunch != nil ||
                     restoredAgentResumeLaunch != nil || deferredAgentResumeStartupInput != nil
             )
+            let restoredRemoteLiveOwnerNoticeCommand = restoredRemotePTYSessionID == nil
+                ? nil
+                : liveOwnerNoticeInput.flatMap(persistentSSHLiveOwnerNoticeCommand)
             let restoredRemotePTYAttachCommand = restoredRemotePTYSessionID.map {
                 remotePTYAttachStartupCommand(
                     sessionID: $0,
                     remoteCommand: effectivePersistentSSHResumeCommand
+                        ?? restoredRemoteLiveOwnerNoticeCommand
                 )
             }
             let restoredStartupCommand =
@@ -1837,13 +1870,15 @@ extension Workspace {
             let restoredStartupInput = restoredRemotePTYAttachCommand == nil
                 ? (restoredBindingLaunch?.initialInput ??
                     restoredAgentResumeLaunch?.initialInput ??
-                    deferredAgentResumeStartupInput)
+                    deferredAgentResumeStartupInput ??
+                    liveOwnerNoticeInput)
                 : nil
             let startupHandlesWorkingDirectory =
                 restoredTmuxStartupScript != nil ||
                 restoredAgentResumeLaunch != nil ||
                 restoredBindingLaunch != nil ||
-                deferredAgentResumeStartupInput != nil
+                deferredAgentResumeStartupInput != nil ||
+                liveOwnerNoticeInput != nil
             // Guarded startup commands cd themselves and tolerate deleted saved directories.
             // Passing the same cwd to Ghostty can fail before the guarded command runs.
             let suppressWorkspaceRemoteStartupCommand =
@@ -1942,7 +1977,9 @@ extension Workspace {
                 // The claim taken above (if any) was for a launch that never
                 // actually happened; release it immediately instead of
                 // leaving it to block a legitimate resume for up to the TTL.
-                if restoredAgentResumeLaunch != nil, let restorableAgent {
+                if restoredAgentResumeLaunch != nil,
+                   restoresRemoteWorkspaceTerminalSnapshot,
+                   let restorableAgent {
                     AgentResumeLaunchGuard.shared.releaseResumeLaunch(
                         kind: restorableAgent.kind.rawValue,
                         sessionId: restorableAgent.sessionId
@@ -2044,12 +2081,23 @@ extension Workspace {
                     ? resumeSessionWorkingDirectory
                     : nil,
                 chatWorkingDirectory: resumeSessionWorkingDirectory,
-                agentSessionAlreadyActive: deferredAgentResumeAdmission
-                    ? true
-                    : (restoreIndexUnavailable ? false : agentSessionAlreadyActive),
-                ownsResumeLaunchClaim: restoredAgentResumeLaunch != nil,
+                agentSessionAlreadyActive: liveSessionOwner != nil ||
+                    (deferredAgentResumeAdmission
+                        ? true
+                        : (restoreIndexUnavailable ? false : agentSessionAlreadyActive)),
+                ownsResumeLaunchClaim: restoredAgentResumeLaunch != nil &&
+                    restoresRemoteWorkspaceTerminalSnapshot,
                 defersStartupRestoreAdmission: deferredAgentResumeAdmission
             )
+            if let liveSessionOwner {
+                AgentRestoreSuppressionJournal().record(
+                    kind: liveSessionOwner.kind,
+                    sessionID: liveSessionOwner.sessionID,
+                    workspaceID: id,
+                    surfaceID: terminalPanel.id,
+                    processID: liveSessionOwner.processID
+                )
+            }
             if deferredAgentResumeAdmission {
                 deferAgentResumeRestore(
                     panelId: terminalPanel.id,
