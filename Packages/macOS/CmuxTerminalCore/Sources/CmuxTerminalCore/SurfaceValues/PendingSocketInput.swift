@@ -43,7 +43,7 @@ public enum PendingSocketInput: Sendable {
             _
         ):
             return preparationKeys.reduce(
-                text.utf8.count + submitKey.queuedByteCost
+                text.count + submitKey.queuedByteCost
             ) { byteCount, event in
                 byteCount + event.queuedByteCost
             }
