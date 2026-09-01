@@ -5328,17 +5328,12 @@ pub struct Selection {
     pub head: (u16, u64),
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 enum SelectionMode {
+    #[default]
     Cell,
     Word,
     Line,
-}
-
-impl Default for SelectionMode {
-    fn default() -> Self {
-        Self::Cell
-    }
 }
 
 /// State shared by the press and drag halves of one terminal selection
@@ -16911,10 +16906,8 @@ impl App {
             .flatten()
     }
 
-    fn mark_selection_dragged(&mut self, surface: SurfaceId, current: (u16, u64)) {
-        let moved = self.selection_anchor_cell(surface).is_none_or(|anchor| anchor != current);
-        if moved
-            && let Some(sequence) = self.selection_click_sequence.as_mut()
+    fn mark_selection_dragged(&mut self, surface: SurfaceId) {
+        if let Some(sequence) = self.selection_click_sequence.as_mut()
             && sequence.surface == surface
         {
             sequence.dragged = true;
@@ -17115,7 +17108,7 @@ impl App {
             col.min(content.width.saturating_sub(1).saturating_add(source_x)),
             offset + edge_row as u64,
         );
-        self.mark_selection_dragged(surface_id, edge_cell);
+        self.mark_selection_dragged(surface_id);
         if self.selection_mode != SelectionMode::Cell
             && self.selection_mode_surface == Some(surface_id)
         {
@@ -22256,7 +22249,7 @@ impl App {
                     .unwrap_or(0);
                 let current = (col, offset + (cy - content.y) as u64);
                 if let Some(surface) = selection_surface {
-                    self.mark_selection_dragged(surface, current);
+                    self.mark_selection_dragged(surface);
                 }
                 let mode = selection_surface
                     .filter(|surface| self.selection_mode_surface == Some(*surface))
