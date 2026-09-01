@@ -221,6 +221,37 @@ private struct LocalLinuxComputerStatusOverlay: View {
     }
 }
 
+/// Placeholder returned when the shared Ghostty renderer cannot be created.
+///
+/// SwiftUI calls ``UIViewRepresentable.makeUIView`` during reconciliation.
+/// Publishing the failure from that method can mutate the parent observable
+/// during the update transaction. UIKit calls these lifecycle hooks after the
+/// placeholder is installed, so the coordinator can publish safely there.
+@MainActor
+private final class LocalLinuxProductionRendererFailurePlaceholderView: UIView {
+    var onInstall: (@MainActor () -> Void)?
+
+    private var didReportInstallation = false
+
+    override func didMoveToSuperview() {
+        super.didMoveToSuperview()
+        reportInstallationIfNeeded()
+    }
+
+    override func didMoveToWindow() {
+        super.didMoveToWindow()
+        reportInstallationIfNeeded()
+    }
+
+    private func reportInstallationIfNeeded() {
+        guard superview != nil || window != nil, !didReportInstallation else { return }
+        didReportInstallation = true
+        let callback = onInstall
+        onInstall = nil
+        callback?()
+    }
+}
+
 private struct LocalLinuxTerminalRepresentable: UIViewRepresentable {
     let controller: LocalLinuxComputerController
     let sceneIsActive: Bool
@@ -231,23 +262,13 @@ private struct LocalLinuxTerminalRepresentable: UIViewRepresentable {
 
     func makeUIView(context: Context) -> UIView {
         guard let runtime = try? GhosttyRuntime.shared() else {
-            // UIKit asks `makeUIView` during a SwiftUI update transaction.
-            // Defer the observable state write one main-actor turn so the
-            // failure overlay does not trigger a "state changed during view
-            // update" diagnostic.
-            Task { @MainActor [controller] in
-                controller.markRendererFailure()
+            let placeholder = LocalLinuxProductionRendererFailurePlaceholderView()
+            placeholder.onInstall = { [weak coordinator = context.coordinator] in
+                coordinator?.rendererFailurePlaceholderDidInstall()
             }
-            let label = UILabel()
-            label.numberOfLines = 0
-            label.textAlignment = .center
-            label.textColor = .white
-            label.backgroundColor = .black
-            label.text = L10n.string(
-                "mobile.localLinux.error.renderer",
-                defaultValue: "The terminal renderer could not start."
-            )
-            return label
+            placeholder.backgroundColor = .black
+            placeholder.isAccessibilityElement = false
+            return placeholder
         }
 
         let view = GhosttySurfaceView(
@@ -297,6 +318,8 @@ private struct LocalLinuxTerminalRepresentable: UIViewRepresentable {
         private var lane: LocalLinuxTerminalLane?
         private var lastGrid: TerminalGridSize?
         private var inputGeneration: UInt64
+        private var rendererFailureTask: Task<Void, Never>?
+        private var isStopped = false
 
         init(controller: LocalLinuxComputerController, sceneIsActive: Bool) {
             self.controller = controller
@@ -306,6 +329,7 @@ private struct LocalLinuxTerminalRepresentable: UIViewRepresentable {
         }
 
         deinit {
+            rendererFailureTask?.cancel()
             outputTask?.cancel()
             if let lane {
                 Task { await lane.close() }
@@ -425,9 +449,25 @@ private struct LocalLinuxTerminalRepresentable: UIViewRepresentable {
         }
 
         func stop() {
+            isStopped = true
+            rendererFailureTask?.cancel()
+            rendererFailureTask = nil
             isWindowAttached = false
             stopLane()
             surfaceView = nil
+        }
+
+        func rendererFailurePlaceholderDidInstall() {
+            guard !isStopped, rendererFailureTask == nil else { return }
+            rendererFailureTask = Task { @MainActor [weak self] in
+                // Give UIKit a full turn after insertion before publishing the
+                // observable failure. This keeps the write outside SwiftUI's
+                // representable creation transaction.
+                await Task.yield()
+                guard let self, !Task.isCancelled, !self.isStopped else { return }
+                self.controller.markRendererFailure()
+                self.rendererFailureTask = nil
+            }
         }
 
         private func stopLane() {
