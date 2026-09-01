@@ -171,8 +171,8 @@ import Testing
         // `keys` takes bare key names, `screen read` / `screen wait --pattern` read back.
         #expect(CloudTuiCommandLine.writeArguments(socketPath: "/tmp/s.sock", terminalID: "term_1", text: "echo hi $((6*7))")
             == ["--socket", "/tmp/s.sock", "--json", "terminal", "term_1", "write", "--text", "echo hi $((6*7))"])
-        #expect(CloudTuiCommandLine.keysArguments(socketPath: "/tmp/s.sock", terminalID: "term_1", keys: ["ctrl-c", "enter"])
-            == ["--socket", "/tmp/s.sock", "--json", "terminal", "term_1", "keys", "ctrl-c", "enter"])
+        #expect(CloudTuiCommandLine.keysArguments(socketPath: "/tmp/s.sock", terminalID: "term_1", keys: ["ctrl+c", "enter"])
+            == ["--socket", "/tmp/s.sock", "--json", "terminal", "term_1", "keys", "ctrl+c", "enter"])
         #expect(CloudTuiCommandLine.screenReadArguments(socketPath: "/tmp/s.sock", terminalID: "term_1")
             == ["--socket", "/tmp/s.sock", "--json", "terminal", "term_1", "screen", "read"])
         #expect(CloudTuiCommandLine.screenWaitArguments(socketPath: "/tmp/s.sock", terminalID: "term_1", pattern: "pass|fail", timeoutMs: 5000)

@@ -416,7 +416,8 @@ extension TerminalController {
     }
 
     /// `vm.terminal_write {id, terminal_id, text?, keys?}` → types `text` (as-is, no
-    /// newline) and then presses `keys` (named: enter, ctrl-c, …) in the remote terminal.
+    /// newline) and then presses `keys` (named: enter, escape, tab, up; chords join with
+    /// `+`: ctrl+c — verified live, `ctrl-c` is rejected) in the remote terminal.
     /// Nothing is attached or focused; the terminal's panes, if any, simply show it.
     nonisolated func socketWorkerVMTerminalWriteResponse(id: Any?, params: [String: Any]) -> String {
         guard let vmId = Self.surfaceString(params["id"]), !vmId.isEmpty,

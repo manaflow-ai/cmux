@@ -18223,7 +18223,7 @@ struct CMUXCLI {
                                         terminal in it. Permanent.
               terminal close <machine> <term-id>
                                         End a terminal on the machine.
-              terminal send <machine> <term-id> [text] [--keys enter,ctrl-c,…]
+              terminal send <machine> <term-id> [text] [--keys enter,ctrl+c,…]
                                         Type into a machine terminal headlessly (no
                                         pane, no focus); --keys presses named keys after.
               terminal read <machine> <term-id>
