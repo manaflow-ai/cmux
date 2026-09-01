@@ -1953,24 +1953,31 @@ extension FileExplorerContainerView: NSSearchFieldDelegate, NSTableViewDataSourc
         operation: NSDragOperation
     ) {
         guard tableView === searchResultsView else { return }
-        if searchResultsView.activeNativeDragSession === session {
-            if !searchResultsView.activeNativeDragOwnerships.isEmpty {
-                for ownership in searchResultsView.activeNativeDragOwnerships {
-                    ownership.finish(from: session.draggingPasteboard)
+        defer {
+            if searchResultsView.activeNativeDragSession === session {
+                if !searchResultsView.activeNativeDragOwnerships.isEmpty {
+                    for ownership in searchResultsView.activeNativeDragOwnerships {
+                        ownership.finish(from: session.draggingPasteboard)
+                    }
+                } else {
+                    // This is the matching generation, so the fallback cannot
+                    // accidentally parse a newer session's shared pasteboard.
+                    FilePreviewDragPasteboardWriter.discardRegisteredDrag(from: session)
                 }
-            } else {
-                // This is the matching generation, so the fallback cannot
-                // accidentally parse a newer session's shared pasteboard.
-                FilePreviewDragPasteboardWriter.discardRegisteredDrag(from: session)
+                searchResultsView.activeNativeDragDelegateMarker = nil
+                searchResultsView.activeNativeDragWriter?.releaseSourceGraph()
+                searchResultsView.activeNativeDragWriter = nil
+                searchResultsView.activeNativeDragOwnerships = []
+                searchResultsView.activeNativeDragOwnership = nil
+                searchResultsView.activeNativeDragSession = nil
+                coordinator.forgetTrackedNativeDrag(matching: session)
             }
-            searchResultsView.activeNativeDragDelegateMarker = nil
-            searchResultsView.activeNativeDragWriter?.releaseSourceGraph()
-            searchResultsView.activeNativeDragWriter = nil
-            searchResultsView.activeNativeDragOwnerships = []
-            searchResultsView.activeNativeDragOwnership = nil
-            searchResultsView.activeNativeDragSession = nil
-            coordinator.forgetTrackedNativeDrag(matching: session)
         }
+        // Keep the deferred callback's lifetime semantics explicit: AppKit's
+        // terminal callback remains the cleanup boundary even when the body
+        // has no other work after scheduling it.
+        _ = screenPoint
+        _ = operation
     }
 
     /// Reclaims a search drag whose native terminal callback was lost before a
