@@ -205433,6 +205433,159 @@
         }
       }
     },
+    "settings.terminal.videoBackground": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Video Background"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ビデオ背景"
+          }
+        }
+      }
+    },
+    "settings.terminal.videoBackground.subtitleOn": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A muted video plays behind terminal content in every window. It never takes clicks or keystrokes, and it pauses automatically while the window is hidden."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ミュートされたビデオが各ウィンドウのターミナルコンテンツの背後で再生されます。クリックやキー入力を奪うことはなく、ウィンドウが隠れている間は自動的に一時停止します。"
+          }
+        }
+      }
+    },
+    "settings.terminal.videoBackground.subtitleOff": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Terminal windows use the regular static background."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ターミナルウィンドウは通常の静的な背景を使用します。"
+          }
+        }
+      }
+    },
+    "settings.terminal.videoBackground.source": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Video Source"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ビデオソース"
+          }
+        }
+      }
+    },
+    "settings.terminal.videoBackground.source.subtitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A YouTube video or playlist URL, or a local .mp4/.mov file path. Playlists loop and advance automatically. Press Return to apply."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "YouTube の動画またはプレイリストの URL、あるいはローカルの .mp4／.mov ファイルパス。プレイリストはループしながら自動で次の動画へ進みます。Return キーで適用します。"
+          }
+        }
+      }
+    },
+    "settings.terminal.videoBackground.source.placeholder": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "https://www.youtube.com/watch?v=…"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "https://www.youtube.com/watch?v=…"
+          }
+        }
+      }
+    },
+    "settings.terminal.videoBackground.dimOpacity": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Video Dimming"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ビデオの減光"
+          }
+        }
+      }
+    },
+    "settings.terminal.videoBackground.dimOpacity.subtitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Opacity of the terminal background drawn over the video. Higher keeps text more readable; 100% hides the video entirely."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ビデオの上に描画されるターミナル背景の不透明度。高いほどテキストが読みやすくなり、100% でビデオは完全に隠れます。"
+          }
+        }
+      }
+    },
+    "settings.terminal.videoBackground.dimOpacity.percent": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld%%"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld%%"
+          }
+        }
+      }
+    },
     "settings.terminal.copyOnSelect": {
       "extractionState": "manual",
       "localizations": {
