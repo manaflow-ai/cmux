@@ -18,11 +18,16 @@ import {
   type CmuxRemoteAttachOptions,
   type CmuxRemoteEndpoint,
 } from "./drivers";
-import { VmProviderOperationError } from "./errors";
+import { VmOperationUnsupportedError, VmProviderOperationError } from "./errors";
 
 export type VmProviderGatewayShape = {
   readonly create: (provider: ProviderId, options: CreateOptions) => Effect.Effect<VMHandle, VmProviderOperationError>;
   readonly destroy: (provider: ProviderId, vmId: string) => Effect.Effect<void, VmProviderOperationError>;
+  /** Optional: delete a machine-owned persistent home volume after its machine is destroyed. */
+  readonly deleteHomeVolume?: (
+    provider: ProviderId,
+    volumeName: string,
+  ) => Effect.Effect<void, VmProviderOperationError>;
   readonly getStatus?: (provider: ProviderId, vmId: string) => Effect.Effect<VMStatus, VmProviderOperationError>;
   readonly resume?: (provider: ProviderId, vmId: string) => Effect.Effect<VMHandle, VmProviderOperationError>;
   readonly pause?: (provider: ProviderId, vmId: string) => Effect.Effect<void, VmProviderOperationError>;
@@ -97,6 +102,13 @@ export const VmProviderGatewayLive = Layer.succeed(VmProviderGateway, {
     providerEffect(provider, "create", () => getProvider(provider).create(options)),
   destroy: (provider, vmId) =>
     providerEffect(provider, "destroy", () => getProvider(provider).destroy(vmId)),
+  deleteHomeVolume: (provider, volumeName) =>
+    providerEffect(provider, "deleteHomeVolume", async () => {
+      const impl = getProvider(provider);
+      // Providers without persistent volumes have nothing to delete.
+      if (!impl.deleteHomeVolume) return;
+      await impl.deleteHomeVolume(volumeName);
+    }),
   getStatus: (provider, vmId) =>
     providerEffect(provider, "getStatus", async () => {
       const driver = getProvider(provider);
@@ -115,7 +127,7 @@ export const VmProviderGatewayLive = Layer.succeed(VmProviderGateway, {
     providerEffect(provider, "fork", async () => {
       const driver = getProvider(provider);
       if (!driver.fork) {
-        throw new Error("Cloud VM forks are not supported by this provider");
+        throw new VmOperationUnsupportedError({ provider, operation: "fork" });
       }
       return await driver.fork(vmId);
     }),

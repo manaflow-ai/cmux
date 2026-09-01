@@ -52419,13 +52419,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "right-sidebar set requires a mode: files, find, vault, sessions, feed, dock, or cloud"
+            "value": "right-sidebar set requires a mode: files, find, vault, sessions, feed, dock, cloud, or custom [sidebar-name]"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "right-sidebar set にはモードが必要です: files, find, vault, sessions, feed, dock, cloud"
+            "value": "right-sidebar set にはモードが必要です: files, find, vault, sessions, feed, dock, cloud, custom [sidebar-name]"
           }
         }
       }
@@ -52572,13 +52572,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Usage: cmux right-sidebar <command> [flags]\n\nControl the right sidebar from the CLI.\n\nCommands:\n  toggle                         Toggle right sidebar visibility\n  show                           Show the right sidebar\n  hide                           Hide the right sidebar\n  focus                          Focus the current right sidebar mode\n  set <files|find|vault|sessions|feed|dock|cloud>\n                                 Show, switch mode, and focus\n  mode                           Print {\"visible\":bool,\"mode\":string}\n  files|find|vault|sessions|feed|dock|cloud\n                                 Alias for show + set + focus\n\nFlags:\n  --workspace <id|ref|index>     Target the window containing a workspace\n  --window <id|ref|index>        Target a window\n  --no-focus                     With set, switch mode without moving focus\n\nExamples:\n  cmux right-sidebar toggle\n  cmux right-sidebar set find\n  cmux right-sidebar set vault --no-focus\n  cmux right-sidebar mode"
+            "value": "Usage: cmux right-sidebar <command> [flags]\n\nControl the right sidebar from the CLI.\n\nCommands:\n  toggle                         Toggle right sidebar visibility\n  show                           Show the right sidebar\n  hide                           Hide the right sidebar\n  focus                          Focus the current right sidebar mode\n  set <files|find|vault|sessions|feed|dock|cloud|custom> [sidebar-name]\n                                 Show, switch mode, and focus. `custom` renders a\n                                 JS/Swift sidebar from ~/.config/cmux/sidebars as\n                                 a right panel; the optional name picks which one.\n  mode                           Print {\"visible\":bool,\"mode\":string}\n  files|find|vault|sessions|feed|dock|cloud|custom\n                                 Alias for show + set + focus\n\nFlags:\n  --workspace <id|ref|index>     Target the window containing a workspace\n  --window <id|ref|index>        Target a window\n  --no-focus                     With set, switch mode without moving focus\n\nExamples:\n  cmux right-sidebar toggle\n  cmux right-sidebar set find\n  cmux right-sidebar set vault --no-focus\n  cmux right-sidebar mode"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "使用法: cmux right-sidebar <command> [flags]\n\nCLI から右サイドバーを操作します。\n\nコマンド:\n  toggle                         右サイドバーの表示を切り替えます\n  show                           右サイドバーを表示します\n  hide                           右サイドバーを隠します\n  focus                          現在の右サイドバーモードにフォーカスします\n  set <files|find|vault|sessions|feed|dock|cloud>\n                                 表示して、モードを切り替え、フォーカスします\n  mode                           {\"visible\":bool,\"mode\":string} を出力します\n  files|find|vault|sessions|feed|dock|cloud\n                                 show + set + focus のエイリアス\n\nフラグ:\n  --workspace <id|ref|index>     ワークスペースを含むウィンドウを対象にします\n  --window <id|ref|index>        ウィンドウを対象にします\n  --no-focus                     set で、フォーカスを移さずにモードだけ切り替えます\n\n例:\n  cmux right-sidebar toggle\n  cmux right-sidebar set find\n  cmux right-sidebar set vault --no-focus\n  cmux right-sidebar mode"
+            "value": "使用法: cmux right-sidebar <command> [flags]\n\nCLI から右サイドバーを操作します。\n\nコマンド:\n  toggle                         右サイドバーの表示を切り替えます\n  show                           右サイドバーを表示します\n  hide                           右サイドバーを隠します\n  focus                          現在の右サイドバーモードにフォーカスします\n  set <files|find|vault|sessions|feed|dock|cloud|custom> [sidebar-name]\n                                 表示して、モードを切り替え、フォーカスします。custom は\n                                 ~/.config/cmux/sidebars の JS/Swift サイドバーを右パネルに\n                                 表示します（名前で選択できます）\n  mode                           {\"visible\":bool,\"mode\":string} を出力します\n  files|find|vault|sessions|feed|dock|cloud|custom\n                                 show + set + focus のエイリアス\n\nフラグ:\n  --workspace <id|ref|index>     ワークスペースを含むウィンドウを対象にします\n  --window <id|ref|index>        ウィンドウを対象にします\n  --no-focus                     set で、フォーカスを移さずにモードだけ切り替えます\n\n例:\n  cmux right-sidebar toggle\n  cmux right-sidebar set find\n  cmux right-sidebar set vault --no-focus\n  cmux right-sidebar mode"
           }
         }
       }
@@ -60156,6 +60156,40 @@
           "stringUnit": {
             "state": "translated",
             "value": "ここに新規ターミナル"
+          }
+        }
+      }
+    },
+    "cloudPane.newTerminalFailed.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Couldn’t start a terminal on %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ でターミナルを開始できませんでした"
+          }
+        }
+      }
+    },
+    "cloudPane.newTerminalFailed.ok": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "OK"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "OK"
           }
         }
       }
@@ -127668,6 +127702,108 @@
         }
       }
     },
+    "machines.requiresPro.subtitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This account\u2019s plan doesn\u2019t include Cloud machine access. Upgrade to create and reconnect machines."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このアカウントのプランでは Cloud マシンを利用できません。アップグレードするとマシンの作成と再接続ができます。"
+          }
+        }
+      }
+    },
+    "machines.requiresPro.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud machines need cmux Pro"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud マシンには cmux Pro が必要です"
+          }
+        }
+      }
+    },
+    "machines.requiresPro.upgrade": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Upgrade to Pro"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pro にアップグレード"
+          }
+        }
+      }
+    },
+    "machines.sessionRejected.signInAgain": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sign Out & Sign In Again"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "サインアウトして再サインイン"
+          }
+        }
+      }
+    },
+    "machines.sessionRejected.subtitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The Cloud service no longer accepts this Mac\u2019s saved session. Sign out and sign back in to reconnect."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud サービスがこの Mac に保存されたセッションを受け付けなくなりました。サインアウトして再度サインインすると再接続できます。"
+          }
+        }
+      }
+    },
+    "machines.sessionRejected.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sign-in needs a refresh"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "再サインインが必要です"
+          }
+        }
+      }
+    },
     "machines.unavailable.retry": {
       "extractionState": "manual",
       "localizations": {
@@ -145446,16 +145582,124 @@
     "mobile.pairing.manual.title": {
       "extractionState": "manual",
       "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لا يمكنك المسح؟ أدخل عنوان IP الرقمي لـ Tailscale لهذا الـ Mac والمنفذ:"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ne možete skenirati? Unesite numeričku Tailscale IP adresu i port ovog Maca:"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kan du ikke scanne? Indtast denne Macs numeriske Tailscale-IP-adresse og port:"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Du kannst nicht scannen? Gib die numerische Tailscale-IP-Adresse und den Port dieses Mac ein:"
+          }
+        },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Can't scan? Add this Mac manually:"
+            "value": "Can't scan? Enter this Mac's numeric Tailscale IP and port:"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "¿No puedes escanear? Introduce la dirección IP numérica de Tailscale y el puerto de este Mac:"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Impossible de scanner ? Saisissez l’adresse IP Tailscale numérique et le port de ce Mac :"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Non riesci a scansionare? Inserisci l’indirizzo IP numerico Tailscale e la porta di questo Mac:"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "スキャンできない場合は、この Mac を手動で追加します:"
+            "value": "スキャンできない場合は、この Mac の数値 Tailscale IP アドレスとポートを入力してください："
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ស្កេនមិនបានមែនទេ? បញ្ចូល IP Tailscale ជាលេខ និងច្រករបស់ Mac នេះ៖"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "스캔할 수 없나요? 이 Mac의 숫자 Tailscale IP와 포트를 입력하세요:"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kan du ikke skanne? Skriv inn det numeriske Tailscale-IP-et og porten til denne Mac-en:"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nie możesz zeskanować? Wpisz numeryczny adres IP Tailscale i port tego Maca:"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Não consegue escanear? Digite o IP numérico do Tailscale e a porta deste Mac:"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Не удаётся отсканировать? Введите числовой IP-адрес Tailscale и порт этого Mac:"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "สแกนไม่ได้ใช่ไหม ป้อน IP Tailscale แบบตัวเลขและพอร์ตของ Mac เครื่องนี้:"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tarayamıyor musunuz? Bu Mac'in sayısal Tailscale IP adresini ve bağlantı noktasını girin:"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Не вдається відсканувати? Введіть числову IP-адресу Tailscale і порт цього Mac:"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "无法扫描？请输入这台 Mac 的数字 Tailscale IP 和端口："
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "無法掃描？請輸入這部 Mac 的數字 Tailscale IP 與連接埠："
           }
         }
       }
@@ -155411,6 +155655,40 @@
         }
       }
     },
+    "rightSidebar.customSidebar.empty": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No custom sidebar selected"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "カスタムサイドバーが選択されていません"
+          }
+        }
+      }
+    },
+    "rightSidebar.customSidebar.emptyHint": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pick one with: cmux right-sidebar set custom <name>"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux right-sidebar set custom <name> で選択してください"
+          }
+        }
+      }
+    },
     "rightSidebar.customSidebar.missing": {
       "extractionState": "manual",
       "localizations": {
@@ -155617,6 +155895,57 @@
           "stringUnit": {
             "state": "translated",
             "value": "ERROR: アプリデリゲートを利用できません"
+          }
+        }
+      }
+    },
+    "rightSidebar.remote.error.customSidebarNotFound": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ERROR: No custom sidebar named '%@' in ~/.config/cmux/sidebars"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ERROR: ~/.config/cmux/sidebars に「%@」というカスタムサイドバーはありません"
+          }
+        }
+      }
+    },
+    "rightSidebar.remote.error.customSidebarUnset": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ERROR: No custom sidebar selected; run right_sidebar set custom <name>"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ERROR: カスタムサイドバーが未選択です。right_sidebar set custom <name> を実行してください"
+          }
+        }
+      }
+    },
+    "rightSidebar.remote.error.customSidebarsDisabled": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ERROR: Custom sidebars are disabled (enable them in Settings → Beta Features)"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ERROR: カスタムサイドバーは無効です（設定 → ベータ機能で有効にしてください）"
           }
         }
       }
@@ -155899,13 +156228,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "ERROR: Usage: right_sidebar set <files|find|vault|sessions|feed|dock> [--no-focus] [--workspace=<workspace-id>] [--window=<window-id>]"
+            "value": "ERROR: Usage: right_sidebar set <files|find|vault|sessions|feed|dock|custom> [sidebar-name] [--no-focus] [--workspace=<workspace-id>] [--window=<window-id>]"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "ERROR: 使用法: right_sidebar set <files|find|vault|sessions|feed|dock> [--no-focus] [--workspace=<workspace-id>] [--window=<window-id>]"
+            "value": "ERROR: 使用法: right_sidebar set <files|find|vault|sessions|feed|dock|custom> [sidebar-name] [--no-focus] [--workspace=<workspace-id>] [--window=<window-id>]"
           }
         }
       }
@@ -242442,6 +242771,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "Cloud VMを利用するにはサインインが必要です。`cmux auth login`を実行してから再試行してください。"
+          }
+        }
+      }
+    },
+    "socket.cloudVM.sessionRejected": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The cmux Cloud service rejected this session. Run `cmux auth logout`, then `cmux auth login`, and retry."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux Cloud サービスがこのセッションを拒否しました。`cmux auth logout` を実行してから `cmux auth login` を実行し、再試行してください。"
           }
         }
       }

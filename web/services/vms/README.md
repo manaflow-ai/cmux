@@ -207,8 +207,8 @@ Set these Vercel environment variables per production/staging environment:
 - `CMUX_VM_CREATE_CREDIT_COST_E2B`, optional provider-specific override.
 - `CMUX_VM_CREATE_CREDIT_COST_FREESTYLE`, optional provider-specific override.
 - `CMUX_VM_CREATE_CREDIT_COST_DAYTONA`, optional provider-specific override.
-- `CMUX_VM_FREE_MAX_ACTIVE_VMS`, default `5`.
-- `CMUX_VM_PAID_MAX_ACTIVE_VMS`, default `10`.
+- `CMUX_VM_FREE_MAX_ACTIVE_VMS`, default `0`.
+- `CMUX_VM_PAID_MAX_ACTIVE_VMS`, default `5`.
 - Stack Auth environment variables.
 - Axiom/OpenTelemetry exporter variables.
 
@@ -388,12 +388,12 @@ Keep Freestyle/E2B enabled only when deliberately selecting them as rollback pro
 
 The usage ledger is in Postgres. VM create pricing gates can use Stack Auth payment items, but free-plan create credits are opt-in. Configure `CMUX_VM_PLAN_FREE_CREATE_CREDIT_ITEM_ID` only when the free plan should consume a prepaid create-credit bucket. When enabled, the create workflow records a one-time local grant row, seeds the configured Stack Auth item credits once per billing team, reserves one create credit only for a newly inserted row, calls the provider, and refunds the credit if provisioning fails before a usable VM exists.
 
-Plan limits are team-based. Stack Auth personal teams should stay enabled for both dev/staging and production projects (`createTeamOnSignUp` / `teams.createPersonalTeamOnSignUp`). New VM rows store `billing_team_id` and `billing_plan_id`; the free plan allows three active VMs at a time by default (`CMUX_VM_FREE_MAX_ACTIVE_VMS`). Paused and destroyed VMs do not count against the active limit. Paid plan activation should write a readable plan id such as `pro` into Stack Auth team read-only metadata (`cmuxVmPlan`) or equivalent billing sync metadata, then configure the matching `CMUX_VM_PLAN_<PLAN>_MAX_ACTIVE_VMS` env var. Paid plans only consume Stack Auth create credits when `CMUX_VM_PLAN_<PLAN>_CREATE_CREDIT_ITEM_ID` or the global `CMUX_VM_CREATE_CREDIT_ITEM_ID` is configured.
+Plan limits are team-based. Stack Auth personal teams should stay enabled for both dev/staging and production projects (`createTeamOnSignUp` / `teams.createPersonalTeamOnSignUp`). New VM rows store `billing_team_id` and `billing_plan_id`; the free plan allows zero active VMs by default (`CMUX_VM_FREE_MAX_ACTIVE_VMS`); paid plans default to five (`CMUX_VM_PAID_MAX_ACTIVE_VMS`). Destroyed VMs do not count against the active limit; pausing does not free quota on the production provider. Paid plan activation should write a readable plan id such as `pro` into Stack Auth team read-only metadata (`cmuxVmPlan`) or equivalent billing sync metadata, then configure the matching `CMUX_VM_PLAN_<PLAN>_MAX_ACTIVE_VMS` env var. Paid plans only consume Stack Auth create credits when `CMUX_VM_PLAN_<PLAN>_CREATE_CREDIT_ITEM_ID` or the global `CMUX_VM_CREATE_CREDIT_ITEM_ID` is configured.
 
 ### The free limit is the paywall moment
 
-`vmActiveLimitExceededResponse` (routeHelpers) renders every provisioning verb's over-limit error. On unpaid plans the message sells the upgrade — "The free plan includes 3 Cloud VMs" with `upgradeRequired: true` and `upgradeUrl` pointing at `/pricing` — so clients can show a real upgrade prompt (checkout flow per `skills/cmux-billing`) instead of a dead error. Paid plans keep operational "stop or delete one" guidance; their cap is a safety rail, not a paywall.
+`vmActiveLimitExceededResponse` (routeHelpers) renders every provisioning verb's over-limit error. On unpaid plans the message sells the upgrade — with the default zero allowance it is the subscribe gate ("Cloud VMs require a cmux Pro subscription") with `upgradeRequired: true` and `upgradeUrl` pointing at `/pricing` — so clients can show a real upgrade prompt (checkout flow per `skills/cmux-billing`) instead of a dead error. Paid plans keep operational "delete one" guidance; their cap is a safety rail, not a paywall.
 
-### Usage-based billing after Pro (design, not yet wired)
+### Pricing is flat
 
-Pro subscribers should pay by usage on top of the subscription. The meter is **GB-RAM-awake-seconds**, which matches the provider cost model exactly on Blaxel (standby is free; smart sleep drops idle sandboxes to standby, so users only accrue usage while something is actually running or attached). Pipeline: the `vm-reconcile` cron already polls provider statuses — record `vm.state.running` / `vm.state.standby` transitions as `cloud_vm_usage_events`; a billing cron aggregates the transition intervals × memory into per-team usage and posts Stripe usage records against a metered price on the Pro subscription (provisioned alongside `cmux-pro-monthly`, see `skills/cmux-billing`). Postgres stays the ledger of record; Stripe receives idempotent per-period rollups, never raw events.
+Paid plans include up to 5 active VMs (`CMUX_VM_PAID_MAX_ACTIVE_VMS`) for a flat subscription price. There is no usage metering, no overages, and no per-hour VM size pricing; an earlier GB-RAM-awake-seconds metering design was considered and dropped to keep pricing simple. The active-VM cap is the only quota.
