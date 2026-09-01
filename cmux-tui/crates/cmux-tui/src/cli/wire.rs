@@ -16,6 +16,12 @@ use super::{GlobalArgs, OutputMode, UsageError};
 
 const RESPONSE_LIMIT: usize = 16 * 1024 * 1024;
 const SERVER_PREFLIGHT_TIMEOUT: Duration = Duration::from_secs(2);
+const SUPPORTED_SERVER_APP: &str = "cmux-tui";
+/// The session-journal wire shape is compatible from its introduction through
+/// the current protocol. Future protocol versions need an explicit review.
+const SESSION_JOURNAL_PROTOCOL_MINIMUM: u64 =
+    cmux_tui_core::server::SESSION_JOURNAL_PROTOCOL_VERSION as u64;
+const SESSION_JOURNAL_PROTOCOL_MAXIMUM: u64 = cmux_tui_core::server::PROTOCOL_VERSION as u64;
 
 pub(super) fn run(global: GlobalArgs, mut plan: RequestPlan) -> i32 {
     if plan.stream && global.output == OutputMode::Json {
@@ -57,7 +63,13 @@ pub(super) fn run(global: GlobalArgs, mut plan: RequestPlan) -> i32 {
     let request_id =
         request["id"].as_str().expect("locally built request IDs are strings").to_string();
 
-    let socket = resolve_socket(&global);
+    let socket = match resolve_socket(&global) {
+        Ok(socket) => socket,
+        Err(_) => {
+            eprintln!("cmux: {}", crate::localization::catalog().startup.invalid_session_name);
+            return 2;
+        }
+    };
     let stream = match transport::connect(&socket) {
         Ok(stream) => stream,
         Err(error) => {
@@ -161,13 +173,16 @@ fn require_server_capability(
         eprintln!("protocol error: invalid identify response during capability negotiation");
         return Err(3);
     }
-    let supported = response
-        .get("data")
-        .and_then(|data| data.get("capabilities"))
-        .and_then(Value::as_array)
-        .is_some_and(|capabilities| {
-            capabilities.iter().any(|value| value.as_str() == Some(capability))
-        });
+    let identity = response.get("data").unwrap_or(&Value::Null);
+    if let Err(reason) = validate_capability_identity(identity) {
+        eprintln!(
+            "protocol error: invalid identify response during capability negotiation: {reason}"
+        );
+        return Err(3);
+    }
+    let supported = crate::session::parse_identity_capabilities(identity)
+        .map(|capabilities| capabilities.contains(capability))
+        .unwrap_or(false);
     if supported {
         return Ok(());
     }
@@ -182,6 +197,20 @@ fn require_server_capability(
         "retryable":false
     });
     Err(print_local_error(&error, global.output, 1))
+}
+
+fn validate_capability_identity(identity: &Value) -> Result<(), &'static str> {
+    if identity.get("app").and_then(Value::as_str) != Some(SUPPORTED_SERVER_APP) {
+        return Err("unexpected server app");
+    }
+    let Some(protocol) = identity.get("protocol").and_then(Value::as_u64) else {
+        return Err("unsupported server protocol");
+    };
+    if !(SESSION_JOURNAL_PROTOCOL_MINIMUM..=SESSION_JOURNAL_PROTOCOL_MAXIMUM).contains(&protocol) {
+        return Err("unsupported server protocol");
+    }
+    crate::session::parse_identity_capabilities(identity)?;
+    Ok(())
 }
 
 fn response_read_timeout(plan: &RequestPlan, signal_interrupt_armed: bool) -> Option<Duration> {
@@ -685,27 +714,75 @@ fn human_key_rank(key: &str) -> usize {
     }
 }
 
-pub(super) fn resolve_socket(global: &GlobalArgs) -> PathBuf {
+pub(super) fn resolve_socket(global: &GlobalArgs) -> anyhow::Result<PathBuf> {
     if let Some(path) = &global.socket {
-        return path.clone();
+        return Ok(path.clone());
     }
     if let Some(session) = &global.session {
-        return cmux_tui_core::server::default_socket_path(session);
+        return cmux_tui_core::server::try_default_socket_path(session);
     }
     for name in ["CMUX_TUI_SOCKET", "CMUX_MUX_SOCKET"] {
         if let Some(path) = std::env::var_os(name)
             && !path.is_empty()
         {
-            return PathBuf::from(path);
+            return Ok(PathBuf::from(path));
         }
     }
-    cmux_tui_core::server::default_socket_path("main")
+    cmux_tui_core::server::try_default_socket_path("main")
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use cmux_tui_core::resource::ResourceOperation;
+
+    #[test]
+    fn capability_preflight_rejects_wrong_app_even_when_capability_is_present() {
+        let identity = json!({"app":"other", "protocol":12, "capabilities":[cmux_tui_core::server::SESSION_JOURNAL_CAPABILITY]});
+        assert!(validate_capability_identity(&identity).is_err());
+    }
+
+    #[test]
+    fn capability_preflight_rejects_pre_capability_protocol_even_when_capability_is_present() {
+        let identity = json!({"app":"cmux-tui", "protocol":cmux_tui_core::server::SESSION_JOURNAL_PROTOCOL_VERSION - 1, "capabilities":[cmux_tui_core::server::SESSION_JOURNAL_CAPABILITY]});
+        assert!(validate_capability_identity(&identity).is_err());
+    }
+
+    #[test]
+    fn capability_preflight_accepts_capability_introduction_protocol() {
+        let identity = json!({"app":"cmux-tui", "protocol":cmux_tui_core::server::SESSION_JOURNAL_PROTOCOL_VERSION, "capabilities":[cmux_tui_core::server::SESSION_JOURNAL_CAPABILITY]});
+        assert!(validate_capability_identity(&identity).is_ok());
+    }
+
+    #[test]
+    fn capability_preflight_accepts_current_protocol() {
+        let identity = json!({"app":"cmux-tui", "protocol":cmux_tui_core::server::PROTOCOL_VERSION, "capabilities":[cmux_tui_core::server::SESSION_JOURNAL_CAPABILITY]});
+        assert_eq!(validate_capability_identity(&identity), Ok(()));
+    }
+
+    #[test]
+    fn capability_preflight_rejects_future_protocol() {
+        let identity = json!({"app":"cmux-tui", "protocol":cmux_tui_core::server::PROTOCOL_VERSION + 1, "capabilities":[cmux_tui_core::server::SESSION_JOURNAL_CAPABILITY]});
+        assert_eq!(validate_capability_identity(&identity), Err("unsupported server protocol"));
+    }
+
+    #[test]
+    fn capability_preflight_rejects_max_protocol() {
+        let identity = json!({"app":"cmux-tui", "protocol":u64::MAX, "capabilities":[cmux_tui_core::server::SESSION_JOURNAL_CAPABILITY]});
+        assert_eq!(validate_capability_identity(&identity), Err("unsupported server protocol"));
+    }
+
+    #[test]
+    fn capability_preflight_rejects_malformed_capabilities() {
+        for capabilities in [json!(null), json!("journal-v1"), json!(["journal-v1", false])] {
+            assert!(
+                validate_capability_identity(&json!({
+                    "app": "cmux-tui", "protocol": 12, "capabilities": capabilities,
+                }))
+                .is_err()
+            );
+        }
+    }
 
     #[test]
     fn mutation_request_has_a_key_and_read_does_not() {

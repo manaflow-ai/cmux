@@ -118,6 +118,14 @@ pub(crate) struct SessionMessages {
     pub operation_reconciling: &'static str,
     pub operation_failed: &'static str,
     pub operation_canceled: &'static str,
+    pub mux_subscription_recovered: &'static str,
+    mux_subscription_recovery_failed: &'static str,
+}
+
+impl SessionMessages {
+    pub(crate) fn mux_subscription_recovery_failed(&self, error: &str) -> String {
+        self.mux_subscription_recovery_failed.replace("{error}", error)
+    }
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -200,6 +208,23 @@ impl MachineAgentMessages {
 #[derive(Debug, PartialEq, Eq)]
 pub(crate) struct MenuMessages {
     pub copy_message: &'static str,
+    pub copy_workspace_id: &'static str,
+    pub copy_tab_id: &'static str,
+    pub copy_pane_id: &'static str,
+    pub copy_url: &'static str,
+    pub show_in_chrome: &'static str,
+    pub connected_clients: &'static str,
+    pub this_client: &'static str,
+    pub excluded: &'static str,
+    pub no_grid: &'static str,
+    pub use_client_size: &'static str,
+    pub use_only_client_size: &'static str,
+    pub include_client_size: &'static str,
+    pub restore_all_client_sizing: &'static str,
+    pub disconnect_client: &'static str,
+    pub copied: &'static str,
+    pub copied_url: &'static str,
+    pub rename: &'static str,
     pub maximize_pane: &'static str,
     pub restore_pane_layout: &'static str,
     pub show_sidebar: &'static str,
@@ -228,9 +253,20 @@ pub(crate) struct BrowserMessages {
     new_page_verification_prefix: &'static str,
     updated_page_verification_prefix: &'static str,
     verification_suffix: &'static str,
+    pub starting: &'static str,
+    pub attach_unsupported: &'static str,
+    pub graphics_unsupported: &'static str,
+    pub loading: &'static str,
+    pub busy: &'static str,
+    pub no_active_surface: &'static str,
+    pub not_browser: &'static str,
+    pub unknown_surface: &'static str,
 }
 
 impl BrowserMessages {
+    pub(crate) fn loading(&self, url: &str) -> String {
+        self.loading.replace("{url}", url)
+    }
     pub(crate) fn failure_message(&self, failure: BrowserFailure<'_>) -> String {
         match failure {
             BrowserFailure::NotResponding => self.not_responding.to_string(),
@@ -651,11 +687,23 @@ impl RemoteMessages {
 #[derive(Debug, PartialEq, Eq)]
 pub(crate) struct ConfigMessages {
     invalid_macos_option_as_alt: &'static str,
+    invalid_section: &'static str,
+    unknown_field: &'static str,
+    invalid_root: &'static str,
 }
 
 impl ConfigMessages {
     pub(crate) fn invalid_macos_option_as_alt(&self, value: &str) -> String {
         self.invalid_macos_option_as_alt.replace("{value}", value)
+    }
+    pub(crate) fn invalid_section(&self, value: &str) -> String {
+        self.invalid_section.replace("{section}", value)
+    }
+    pub(crate) fn unknown_field(&self, value: &str) -> String {
+        self.unknown_field.replace("{field}", value)
+    }
+    pub(crate) fn invalid_root(&self) -> &'static str {
+        self.invalid_root
     }
 }
 
@@ -757,6 +805,8 @@ pub(crate) struct SidebarMessages {
     pub managed_workspace_operation_not_allowed: &'static str,
     pub running: &'static str,
     pub connecting: &'static str,
+    pub waking: &'static str,
+    pub sleeping_wake_hint: &'static str,
     pub sleeping: &'static str,
     pub stopped: &'static str,
     pub unavailable: &'static str,
@@ -776,6 +826,7 @@ pub(crate) struct SidebarMessages {
     pub type_to_filter: &'static str,
     pub other_host: &'static str,
     pub personal_scope: &'static str,
+    pub plugin_exited: &'static str,
     pub team_scope: &'static str,
     pub scope: &'static str,
     pub provider_actions: &'static str,
@@ -803,6 +854,19 @@ pub(crate) struct SidebarMessages {
     pub provider_connection_already_running: &'static str,
     pub machine_provider_disconnected: &'static str,
     pub machine_action_failed: &'static str,
+    pub layout_refresh_failed: &'static str,
+    pub layout_stale: &'static str,
+    pub file_no_focused_pane: &'static str,
+    pub file_surface_unavailable: &'static str,
+    pub file_input_not_queued: &'static str,
+    pub file_command_failed: &'static str,
+    pub file_sent_to_focused_pane: &'static str,
+    pub refresh_remote_tree_retrying: &'static str,
+    pub refresh_remote_tree_stopped: &'static str,
+    pub clients_list_failed: &'static str,
+    pub layout_undo_failed: &'static str,
+    pub pairing_response_failed: &'static str,
+    pub workspace_state_failed: &'static str,
     pub provider_action_open_url: &'static str,
     pub machine_provider_update_failed: &'static str,
     pub machine_provider_lifecycle_update_failed: &'static str,
@@ -918,6 +982,8 @@ const fn decimal_width(mut value: u16) -> usize {
 #[derive(Debug, PartialEq, Eq)]
 pub(crate) struct StartupMessages {
     schema_too_new: &'static str,
+    pub invalid_session_name: &'static str,
+    pub duplicate_attach: &'static str,
     pub session_socket: &'static str,
     pub stop_newer_server: &'static str,
     pub no_server_listening: &'static str,
@@ -960,6 +1026,7 @@ pub(crate) struct LocalServerMessages {
     pub force_unsupported: &'static str,
     pub session_conflict: &'static str,
     pub machine_not_supported: &'static str,
+    pub invalid_session: &'static str,
     pub session_name_required: &'static str,
     pub invalid_action_syntax: &'static str,
     pub start_options_after_action: &'static str,
@@ -1032,6 +1099,8 @@ static ENGLISH: Catalog = Catalog {
     japanese: false,
     startup: StartupMessages {
         schema_too_new: "cannot open session \"{session}\" with cmux {version}: its saved state is incompatible with this build",
+        invalid_session_name: "The session name must be one path component without separators or control characters",
+        duplicate_attach: "attach may be supplied only once",
         session_socket: "session socket",
         stop_newer_server: "a newer cmux server owns this saved session; stop it before retrying:",
         no_server_listening: "no server is listening on this socket",
@@ -1072,6 +1141,7 @@ static ENGLISH: Catalog = Catalog {
         force_unsupported: "this local server cannot accept a safely fenced forced stop; use the cmux build that started it",
         session_conflict: "the session name conflicts with --session",
         machine_not_supported: "--machine cannot target a local server; use the machine resource commands",
+        invalid_session: "the session name is invalid; use one path component without separators or control characters",
         session_name_required: "session stop requires an exact session name or current",
         invalid_action_syntax: "unknown or incomplete server action; use --help",
         start_options_after_action: "server start options must appear after `server start`",
@@ -1135,6 +1205,8 @@ static ENGLISH: Catalog = Catalog {
         operation_reconciling: "Session operation may have completed; refreshing the layout",
         operation_failed: "Session operation failed",
         operation_canceled: "Session operation was canceled",
+        mux_subscription_recovered: "Mux event backlog overflowed; subscription recovered",
+        mux_subscription_recovery_failed: "Mux event backlog recovery failed; queued input was discarded while retrying: {error}",
     },
     session_reset: SessionResetMessages {
         help: "  cmux session <name> reset-state [--force --confirm-reset <token>] [--state <path>]\n    Preview or confirm a scoped saved-state reset",
@@ -1201,6 +1273,23 @@ edits shell files. Authenticate with the configured host before retrying.
     },
     menu: MenuMessages {
         copy_message: "Copy message",
+        copy_workspace_id: "Copy workspace id",
+        copy_tab_id: "Copy tab id",
+        copy_pane_id: "Copy pane id",
+        copy_url: "Copy URL",
+        show_in_chrome: "Show in Chrome",
+        connected_clients: "Connected clients",
+        this_client: "this client",
+        excluded: "excluded",
+        no_grid: "no grid",
+        use_client_size: "Use client size",
+        use_only_client_size: "Use only this client size",
+        include_client_size: "Include client size",
+        restore_all_client_sizing: "Restore all client sizing",
+        disconnect_client: "Disconnect client",
+        copied: "Copied",
+        copied_url: "Copied URL",
+        rename: "Rename",
         maximize_pane: "Maximize pane",
         restore_pane_layout: "Restore pane layout",
         show_sidebar: "Show sidebar",
@@ -1225,6 +1314,14 @@ edits shell files. Authenticate with the configured host before retrying.
         new_page_verification_prefix: "browser failed: could not verify new page pixels: ",
         updated_page_verification_prefix: "browser failed: could not verify updated page pixels: ",
         verification_suffix: "; reload to retry",
+        starting: "starting browser...",
+        attach_unsupported: "browser panes are not supported over attach yet",
+        graphics_unsupported: "terminal has no kitty graphics support",
+        loading: "loading {url}...",
+        busy: "browser is busy; command dropped",
+        no_active_surface: "no active surface",
+        not_browser: "active surface is not a browser",
+        unknown_surface: "unknown browser surface",
     },
     layout: LayoutMessages {
         startup_shortcuts: "  g  new 2/3 column right   U    undo layout",
@@ -1362,7 +1459,7 @@ OPTIONS:
         remote_probe_help: "USAGE: cmux-tui remote-probe [--json]\n",
         remote_link_help: "USAGE: cmux-tui remote-link --stdio [--session NAME] [--state-dir PATH]\n",
         install_self_help: "USAGE: cmux-tui install-self --destination PATH\n",
-        command_help: "USAGE: cmux remote connect|ssh|forward|rpc|enroll|known-daemons <OPTIONS>\n\nRun `cmux remote COMMAND --help` for command-specific routes and options. Legacy top-level aliases remain available for one compatibility cycle.\n",
+        command_help: "USAGE: cmux remote <connect|ssh|forward|rpc|enroll|known-daemons|stop> [OPTIONS]\n\nRun `cmux remote COMMAND --help` for command-specific routes and options. Legacy top-level aliases remain available for one compatibility cycle.\n",
         remote_lifecycle_help: "USAGE: cmux remote connect|ssh|forward|rpc [OPTIONS]\n       cmux remote enroll <ACTION> [OPTIONS]\n       cmux remote known-daemons [OPTIONS]\n       cmux remote stop [OPTIONS]\n\nAuthenticated remote operations are explicit under `remote`. Start the owning process with `cmux server start` and explicit remote flags. `cmux remote stop` manages only replaceable SSH sidecars. Stop a listener embedded by `cmux server start` with `cmux server stop`; this also stops its local owner and workspaces.\n",
         option_needs_value: "{option} needs a value",
         invalid_option_value: "{option} has an invalid value; expected {expected}",
@@ -1490,6 +1587,9 @@ OPTIONS:
     },
     config: ConfigMessages {
         invalid_macos_option_as_alt: "cmux-tui: ignoring non-boolean keys.macos_option_as_alt = {value}",
+        invalid_section: "cmux-tui: ignoring invalid config section {section}",
+        unknown_field: "cmux-tui: ignoring unknown config field {field}",
+        invalid_root: "cmux-tui: ignoring config because the root value is not an object",
     },
     attach: AttachMessages {
         filtered_subscription_unavailable: "single-terminal attach requires a newer cmux-tui server; restart the session",
@@ -1514,8 +1614,8 @@ OPTIONS:
         tabs: "tabs",
         agents: "agents",
         projection_path_separator: " › ",
-        new_machine: "new machine",
-        connect_machine: "connect machine",
+        new_machine: "new vm",
+        connect_machine: "ssh host",
         no_machines: "no machines",
         no_workspaces: "no workspaces",
         no_panes: "no panes",
@@ -1544,6 +1644,8 @@ OPTIONS:
         managed_workspace_operation_not_allowed: "The provider does not allow this operation for this workspace; use an action shown in its menu",
         running: "running",
         connecting: "connecting",
+        waking: "waking",
+        sleeping_wake_hint: "sleeping — press any key to wake",
         sleeping: "sleeping",
         stopped: "stopped",
         unavailable: "unavailable",
@@ -1563,6 +1665,7 @@ OPTIONS:
         type_to_filter: "type to filter",
         other_host: "Add SSH host…",
         personal_scope: "personal",
+        plugin_exited: "sidebar plugin exited",
         team_scope: "team",
         scope: "scope",
         provider_actions: "actions",
@@ -1590,6 +1693,19 @@ OPTIONS:
         provider_connection_already_running: "Another connection is already running. Close it and try again.",
         machine_provider_disconnected: "Machine provider disconnected; reconnecting",
         machine_action_failed: "Machine action failed",
+        layout_refresh_failed: "Session changed, but its layout refresh failed: {error}",
+        layout_stale: "Session changed, but its layout is still stale: {error}",
+        file_no_focused_pane: "No focused pane",
+        file_surface_unavailable: "Focused surface is unavailable",
+        file_input_not_queued: "Input was not queued",
+        file_command_failed: "File command failed: {error}",
+        file_sent_to_focused_pane: "Sent to focused pane",
+        refresh_remote_tree_retrying: "Refresh remote tree failed; retrying: {error}",
+        refresh_remote_tree_stopped: "Refresh remote tree failed after {attempts} attempts; automatic retries stopped, reconnect to retry: {error}",
+        clients_list_failed: "Could not list clients: {error}",
+        layout_undo_failed: "Could not undo layout: {error}",
+        pairing_response_failed: "Could not respond to pairing request: {error}",
+        workspace_state_failed: "Could not update workspace state: {error}",
         provider_action_open_url: "Open",
         machine_provider_update_failed: "Machine provider update failed",
         machine_provider_lifecycle_update_failed: "Machine provider lifecycle update failed",
@@ -1622,6 +1738,8 @@ static JAPANESE: Catalog = Catalog {
     japanese: true,
     startup: StartupMessages {
         schema_too_new: "cmux {version} ではセッション \"{session}\" を開けません。保存状態はこのビルドと互換性がありません",
+        invalid_session_name: "セッション名には、区切り文字や制御文字を含まない 1 つのパス要素を指定してください",
+        duplicate_attach: "attach は 1 回だけ指定できます",
         session_socket: "セッションソケット",
         stop_newer_server: "新しい cmux サーバーがこの保存済みセッションを所有しています。再試行する前に停止:",
         no_server_listening: "このソケットを待ち受けているサーバーはありません",
@@ -1662,6 +1780,7 @@ static JAPANESE: Catalog = Catalog {
         force_unsupported: "このローカルサーバーは安全にフェンスされた強制停止に対応していません。起動に使用した cmux ビルドで停止してください",
         session_conflict: "セッション名が --session と競合しています",
         machine_not_supported: "--machine でローカルサーバーを対象にすることはできません。machine リソースコマンドを使用してください",
+        invalid_session: "セッション名が無効です。区切り文字や制御文字を含まない 1 つのパス要素を指定してください",
         session_name_required: "session stop には正確なセッション名または current が必要です",
         invalid_action_syntax: "サーバー操作が不明または不完全です。--help を使用してください",
         start_options_after_action: "server start のオプションは `server start` の後に指定してください",
@@ -1725,6 +1844,8 @@ static JAPANESE: Catalog = Catalog {
         operation_reconciling: "セッション操作が完了している可能性があります。レイアウトを更新しています",
         operation_failed: "セッション操作に失敗しました",
         operation_canceled: "セッション操作はキャンセルされました",
+        mux_subscription_recovered: "Mux イベントの滞留が上限を超えました。購読を復旧しました",
+        mux_subscription_recovery_failed: "Mux イベントの滞留から復旧できませんでした。再試行中のキュー入力を破棄しました: {error}",
     },
     session_reset: SessionResetMessages {
         help: "  cmux session <name> reset-state [--force --confirm-reset <token>] [--state <path>]\n    スコープ付き保存状態のリセットをプレビューまたは確認実行",
@@ -1791,6 +1912,23 @@ cmux machine-agent - ローカルの cmux セッションをリモートサー�
     },
     menu: MenuMessages {
         copy_message: "メッセージをコピー",
+        copy_workspace_id: "ワークスペース ID をコピー",
+        copy_tab_id: "タブ ID をコピー",
+        copy_pane_id: "ペイン ID をコピー",
+        copy_url: "URL をコピー",
+        show_in_chrome: "Chrome で表示",
+        connected_clients: "接続中のクライアント",
+        this_client: "このクライアント",
+        excluded: "除外",
+        no_grid: "グリッドなし",
+        use_client_size: "クライアントサイズを使用",
+        use_only_client_size: "このクライアントサイズのみを使用",
+        include_client_size: "クライアントサイズを含める",
+        restore_all_client_sizing: "すべてのクライアントサイズ設定を復元",
+        disconnect_client: "クライアントを切断",
+        copied: "コピーしました",
+        copied_url: "URL をコピーしました",
+        rename: "名前を変更",
         maximize_pane: "ペインを最大化",
         restore_pane_layout: "ペイン配置を復元",
         show_sidebar: "サイドバーを表示",
@@ -1815,6 +1953,14 @@ cmux machine-agent - ローカルの cmux セッションをリモートサー�
         new_page_verification_prefix: "新しいページの表示を確認できませんでした: ",
         updated_page_verification_prefix: "更新後のページ表示を確認できませんでした: ",
         verification_suffix: "。再読み込みして再試行してください",
+        starting: "ブラウザを起動しています…",
+        attach_unsupported: "アタッチ経由ではブラウザペインにまだ対応していません",
+        graphics_unsupported: "ターミナルが Kitty グラフィックスに対応していません",
+        loading: "{url} を読み込んでいます…",
+        busy: "ブラウザが処理中のため、コマンドを破棄しました",
+        no_active_surface: "アクティブなサーフェスがありません",
+        not_browser: "アクティブなサーフェスはブラウザではありません",
+        unknown_surface: "不明なブラウザサーフェスです",
     },
     layout: LayoutMessages {
         startup_shortcuts: "  g  右に 2/3 幅の列を追加   U    レイアウトを元に戻す",
@@ -1949,7 +2095,7 @@ ID とセッション:
         remote_probe_help: "使用方法: cmux-tui remote-probe [--json]\n",
         remote_link_help: "使用方法: cmux-tui remote-link --stdio [--session 名前] [--state-dir パス]\n",
         install_self_help: "使用方法: cmux-tui install-self --destination パス\n",
-        command_help: "使用方法: cmux remote connect|ssh|forward|rpc|enroll|known-daemons <オプション>\n\nコマンド別のルートとオプションは `cmux remote コマンド --help` で表示します。従来のトップレベル別名は互換期間中も使用できます。\n",
+        command_help: "使用方法: cmux remote <connect|ssh|forward|rpc|enroll|known-daemons|stop> [オプション]\n\nコマンド別のルートとオプションは `cmux remote コマンド --help` で表示します。従来のトップレベル別名は互換期間中も使用できます。\n",
         remote_lifecycle_help: "使用方法: cmux remote connect|ssh|forward|rpc [オプション]\n          cmux remote enroll <操作> [オプション]\n          cmux remote known-daemons [オプション]\n          cmux remote stop [オプション]\n\n認証済みリモート操作は `remote` で明示的に指定します。所有プロセスは明示的なリモートフラグを付けた `cmux server start` で起動します。`cmux remote stop` は置換可能な SSH サイドカーだけを管理します。`cmux server start` に組み込まれたリスナーは `cmux server stop` で停止してください。この操作はローカルの所有者とワークスペースも停止します。\n",
         option_needs_value: "{option} には値が必要です",
         invalid_option_value: "{option} の値が無効です。{expected} を指定してください",
@@ -2077,6 +2223,9 @@ ID とセッション:
     },
     config: ConfigMessages {
         invalid_macos_option_as_alt: "cmux-tui: 真偽値ではない keys.macos_option_as_alt = {value} を無視します",
+        invalid_section: "cmux-tui: 無効な設定セクション {section} を無視します",
+        unknown_field: "cmux-tui: 不明な設定フィールド {field} を無視します",
+        invalid_root: "cmux-tui: ルート値がオブジェクトではないため設定を無視します",
     },
     attach: AttachMessages {
         filtered_subscription_unavailable: "単一ターミナルへの接続には新しい cmux-tui サーバーが必要です。セッションを再起動してください",
@@ -2101,8 +2250,8 @@ ID とセッション:
         tabs: "タブ",
         agents: "エージェント",
         projection_path_separator: " › ",
-        new_machine: "新規マシン",
-        connect_machine: "マシンを接続",
+        new_machine: "新規VM",
+        connect_machine: "SSHホスト",
         no_machines: "マシンがありません",
         no_workspaces: "ワークスペースがありません",
         no_panes: "ペインがありません",
@@ -2131,6 +2280,8 @@ ID とセッション:
         managed_workspace_operation_not_allowed: "プロバイダーはこのワークスペースでこの操作を許可していません。メニューに表示される操作を使用してください",
         running: "実行中",
         connecting: "接続中",
+        waking: "再開中",
+        sleeping_wake_hint: "スリープ中 — 任意のキーで再開",
         sleeping: "スリープ中",
         stopped: "停止",
         unavailable: "利用不可",
@@ -2150,6 +2301,7 @@ ID とセッション:
         type_to_filter: "入力して絞り込み",
         other_host: "SSH ホストを追加…",
         personal_scope: "個人",
+        plugin_exited: "サイドバープラグインが終了しました",
         team_scope: "チーム",
         scope: "スコープ",
         provider_actions: "操作",
@@ -2177,6 +2329,19 @@ ID とセッション:
         provider_connection_already_running: "別の接続がすでに実行中です。終了してから、もう一度お試しください。",
         machine_provider_disconnected: "マシンプロバイダーから切断されました。再接続しています",
         machine_action_failed: "マシン操作に失敗しました",
+        layout_refresh_failed: "セッションが変更されましたが、レイアウトの更新に失敗しました: {error}",
+        layout_stale: "セッションが変更されましたが、レイアウトはまだ古いままです: {error}",
+        file_no_focused_pane: "フォーカスされたペインがありません",
+        file_surface_unavailable: "フォーカスされたサーフェスを利用できません",
+        file_input_not_queued: "入力をキューに追加できませんでした",
+        file_command_failed: "ファイル操作に失敗しました: {error}",
+        file_sent_to_focused_pane: "フォーカスされたペインに送信しました",
+        refresh_remote_tree_retrying: "リモートツリーの更新に失敗しました。再試行しています: {error}",
+        refresh_remote_tree_stopped: "{attempts} 回試行しましたがリモートツリーの更新に失敗しました。自動再試行を停止しました。再接続して再試行してください: {error}",
+        clients_list_failed: "クライアント一覧を取得できませんでした: {error}",
+        layout_undo_failed: "レイアウトを元に戻せませんでした: {error}",
+        pairing_response_failed: "ペアリング要求に応答できませんでした: {error}",
+        workspace_state_failed: "ワークスペースの状態を更新できませんでした: {error}",
         provider_action_open_url: "リンクを開く",
         machine_provider_update_failed: "マシンプロバイダーの更新に失敗しました",
         machine_provider_lifecycle_update_failed: "マシンプロバイダーのライフサイクル更新に失敗しました",
@@ -2286,6 +2451,14 @@ mod tests {
             "ターミナルが終了したため、入力は送信されませんでした"
         );
         assert_eq!(ENGLISH.session.operation_failed, "Session operation failed");
+        assert_eq!(
+            JAPANESE.session.mux_subscription_recovered,
+            "Mux イベントの滞留が上限を超えました。購読を復旧しました"
+        );
+        assert_eq!(
+            JAPANESE.session.mux_subscription_recovery_failed("更新失敗"),
+            "Mux イベントの滞留から復旧できませんでした。再試行中のキュー入力を破棄しました: 更新失敗"
+        );
         assert_eq!(JAPANESE.session.operation_failed, "セッション操作に失敗しました");
         assert_eq!(
             JAPANESE.attach.filtered_subscription_unavailable,
@@ -2403,8 +2576,8 @@ mod tests {
             catalog_for_locale("en_US.UTF-8").sidebar.connect_prompt,
             "Host address or pairing code"
         );
-        assert_eq!(catalog_for_locale("en_US.UTF-8").sidebar.new_machine, "new machine");
-        assert_eq!(catalog_for_locale("ja_JP.UTF-8").sidebar.new_machine, "新規マシン");
+        assert_eq!(catalog_for_locale("en_US.UTF-8").sidebar.new_machine, "new vm");
+        assert_eq!(catalog_for_locale("ja_JP.UTF-8").sidebar.new_machine, "新規VM");
         assert_eq!(
             catalog_for_locale("ja_JP.UTF-8").sidebar.connect_prompt,
             "ホストアドレスまたはペアリングコード"

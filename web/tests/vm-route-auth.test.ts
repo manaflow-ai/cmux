@@ -16,6 +16,7 @@ const openAttachEndpoint = mock(() => ({ workflow: "attach" }));
 const openSshEndpoint = mock(() => ({ workflow: "ssh" }));
 const restoreVm = mock(() => ({ workflow: "restore" }));
 const snapshotVm = mock(() => ({ workflow: "snapshot" }));
+const revokeUserVmAccess = mock(() => ({ workflow: "revoke-access" }));
 const VM_ENV_KEYS = [
   "CMUX_VM_CREATE_ENABLED",
   "CMUX_VM_E2B_ENABLED",
@@ -27,6 +28,10 @@ const VM_ENV_KEYS = [
   "CMUX_VM_FREE_MAX_ACTIVE_VMS",
   "CMUX_VM_PAID_MAX_ACTIVE_VMS",
   "CMUX_VM_PLAN_PRO_MAX_ACTIVE_VMS",
+  "CMUX_VM_FREE_MAX_MEMORY_MB",
+  "CMUX_VM_PAID_MAX_MEMORY_MB",
+  "CMUX_VM_PLAN_PRO_MAX_MEMORY_MB",
+  "CMUX_VM_PLAN_PRO_DEFAULT_MEMORY_MB",
   "CMUX_VM_REQUIRE_PRO",
   "VERCEL",
   "VERCEL_ENV",
@@ -54,6 +59,7 @@ const realResetBaseVm = workflowsModule.resetBaseVm;
 const realRestoreVm = workflowsModule.restoreVm;
 const realRunVmWorkflow = workflowsModule.runVmWorkflow;
 const realSnapshotVm = workflowsModule.snapshotVm;
+const realRevokeUserVmAccess = workflowsModule.revokeUserVmAccess;
 const realVmWorkflowLive = workflowsModule.VmWorkflowLive;
 const dbClientModule = await import("../db/client");
 const realCloudDb = dbClientModule.cloudDb;
@@ -109,6 +115,8 @@ mock.module("../services/vms/workflows", () => ({
     useWorkflowStubs ? callMock(runVmWorkflow, args) : realRunVmWorkflow(...args)) as typeof realRunVmWorkflow,
   snapshotVm: ((...args: Parameters<typeof realSnapshotVm>) =>
     useWorkflowStubs ? callMock(snapshotVm, args) : realSnapshotVm(...args)) as typeof realSnapshotVm,
+  revokeUserVmAccess: ((...args: Parameters<typeof realRevokeUserVmAccess>) =>
+    useWorkflowStubs ? callMock(revokeUserVmAccess, args) : realRevokeUserVmAccess(...args)) as typeof realRevokeUserVmAccess,
 }));
 
 // Self-shield from other suites' process-global db mocks AND from the real
@@ -148,6 +156,7 @@ const _forkRoute = await import("../app/api/vm/[id]/fork/route");
 const _snapshotRoute = await import("../app/api/vm/[id]/snapshot/route");
 const sshRoute = await import("../app/api/vm/[id]/ssh-endpoint/route");
 const restoreRoute = await import("../app/api/vm/restore/route");
+const revokeAccessRoute = await import("../app/api/vm/leases/revoke/route");
 const {
   VmAccountDeletionInProgressError,
   VmCreateCreditsInsufficientError,
@@ -155,7 +164,7 @@ const {
   VmCreateFailedError,
   VmProviderOperationError,
 } = await import("../services/vms/errors");
-const { verifyRequest } = await import("../services/vms/auth");
+const { verifyRequest, clearNativeAuthCacheForTests } = await import("../services/vms/auth");
 const { withAuthedVmApiRoute } = await import("../services/vms/routeHelpers");
 const { accountDeletionUserHash } = await import("../services/account/deletionLock");
 
@@ -171,10 +180,16 @@ afterAll(() => {
 
 beforeEach(() => {
   restoreVmEnv();
+  clearNativeAuthCacheForTests();
   getUser.mockClear();
   getUser.mockResolvedValue(null);
   authTombstoneRows = [];
   runVmWorkflow.mockClear();
+  (runVmWorkflow as unknown as { mockImplementation(next: () => Promise<never>): void }).mockImplementation(
+    async () => {
+      throw new Error("unauthenticated VM routes must not reach the VM workflow");
+    },
+  );
   createVm.mockClear();
   openBaseVm.mockClear();
   resetBaseVm.mockClear();
@@ -187,6 +202,7 @@ beforeEach(() => {
   openSshEndpoint.mockClear();
   restoreVm.mockClear();
   snapshotVm.mockClear();
+  revokeUserVmAccess.mockClear();
 });
 
 afterEach(() => {
@@ -194,6 +210,43 @@ afterEach(() => {
 });
 
 describe("VM REST auth", () => {
+  test("rejects unauthenticated Cloud VM lease revocation before the workflow", async () => {
+    const response = await revokeAccessRoute.POST(
+      new Request("https://cmux.test/api/vm/leases/revoke", { method: "POST" }),
+    );
+
+    expect(response.status).toBe(401);
+    expect(revokeUserVmAccess).not.toHaveBeenCalled();
+  });
+
+  test("revokes only the authenticated account's endpoint leases", async () => {
+    (getUser as unknown as { mockResolvedValue(value: unknown): void }).mockResolvedValue({
+      id: "user-signout",
+      displayName: "Signout User",
+      primaryEmail: "signout@example.com",
+      selectedTeam: null,
+      clientReadOnlyMetadata: {},
+      listTeams: async () => [],
+    });
+    (runVmWorkflow as unknown as { mockImplementation(next: () => Promise<unknown>): void }).mockImplementation(
+      async () => ({ revoked: 2, cleanupFailures: 0 }),
+    );
+
+    const response = await revokeAccessRoute.POST(
+      new Request("https://cmux.test/api/vm/leases/revoke", {
+        method: "POST",
+        headers: {
+          authorization: "Bearer access-signout",
+          "x-stack-refresh-token": "refresh-signout",
+        },
+      }),
+    );
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({ ok: true, revoked: 2 });
+    expect(revokeUserVmAccess).toHaveBeenCalledWith({ userId: "user-signout" });
+  });
+
   test("rejects unauthenticated provisioning before reaching Postgres or providers", async () => {
     const response = await POST(
       new Request("https://cmux.test/api/vm", {
@@ -345,11 +398,12 @@ describe("VM REST auth", () => {
       billingCustomerType: "team",
       billingTeamId: "team-1",
       billingPlanId: "pro",
-      maxActiveVms: 10,
+      maxActiveVms: 15,
       provider: "freestyle",
       image: "snapshot-test",
       imageVersion: null,
       idempotencyKey: "idem-1",
+      memoryMb: 8192,
     }));
     expect(listTeams).not.toHaveBeenCalled();
     expect(runVmWorkflow).toHaveBeenCalled();
@@ -380,6 +434,65 @@ describe("VM REST auth", () => {
       billingPlanId: "pro",
       maxActiveVms: 25,
     }));
+  });
+
+  test("passes an explicit memory size through the create workflow", async () => {
+    getUser.mockResolvedValue(authedStackUser());
+    runVmWorkflow.mockResolvedValue({
+      providerVmId: "provider-vm-memory",
+      provider: "freestyle",
+      image: "snapshot-test",
+      imageVersion: null,
+      createdAt: 1_777_000_000_000,
+    });
+
+    const response = await POST(
+      new Request("https://cmux.test/api/vm", {
+        method: "POST",
+        headers: { origin: "https://cmux.test" },
+        body: JSON.stringify({ provider: "freestyle", image: "snapshot-test", memoryMb: 16384 }),
+      }),
+    );
+
+    expect(response.status).toBe(200);
+    expect(createVm).toHaveBeenCalledWith(expect.objectContaining({ memoryMb: 16384 }));
+  });
+
+  test("rejects a memory size above the plan ceiling before the workflow", async () => {
+    getUser.mockResolvedValue(freePlanStackUser());
+
+    const response = await POST(
+      new Request("https://cmux.test/api/vm", {
+        method: "POST",
+        headers: { origin: "https://cmux.test" },
+        body: JSON.stringify({ provider: "freestyle", image: "snapshot-test", memoryMb: 8192 }),
+      }),
+    );
+
+    expect(response.status).toBe(400);
+    const payload = await response.json();
+    expect(payload).toMatchObject({
+      error: "vm_memory_exceeds_plan",
+      details: { requestedMemoryMb: 8192, maxMemoryMb: 4096, planId: "free" },
+    });
+    expect(runVmWorkflow).not.toHaveBeenCalled();
+  });
+
+  test("rejects malformed memory sizes before billing or provider work", async () => {
+    getUser.mockResolvedValue(authedStackUser());
+
+    const response = await POST(
+      new Request("https://cmux.test/api/vm", {
+        method: "POST",
+        headers: { origin: "https://cmux.test" },
+        body: JSON.stringify({ provider: "freestyle", image: "snapshot-test", memoryMb: "8g" }),
+      }),
+    );
+
+    expect(response.status).toBe(400);
+    const payload = await response.json();
+    expect(payload).toMatchObject({ error: "vm_invalid_request", details: { field: "memoryMb" } });
+    expect(runVmWorkflow).not.toHaveBeenCalled();
   });
 
   test("blocks a free plan from provisioning when CMUX_VM_REQUIRE_PRO is enforced", async () => {
@@ -533,7 +646,7 @@ describe("VM REST auth", () => {
       billingCustomerType: "team",
       billingTeamId: "team-2",
       billingPlanId: "free",
-      maxActiveVms: 5,
+      maxActiveVms: 3,
     }));
     expect(listTeams).toHaveBeenCalledTimes(1);
   });
@@ -590,7 +703,7 @@ describe("VM REST auth", () => {
       billingCustomerType: "team",
       billingTeamId: "team-2",
       billingPlanId: "free",
-      maxActiveVms: 5,
+      maxActiveVms: 3,
     }));
   });
 
@@ -753,7 +866,7 @@ describe("VM REST auth", () => {
       billingCustomerType: "team",
       billingTeamId: "team-2",
       billingPlanId: "team",
-      maxActiveVms: 10,
+      maxActiveVms: 15,
     }));
     expect(runVmWorkflow).toHaveBeenCalled();
   });

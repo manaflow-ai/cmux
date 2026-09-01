@@ -32,11 +32,11 @@ pub fn try_run(args: &[String]) -> Option<i32> {
     Some(match run(args) {
         Ok(()) => 0,
         Err(CommandError::UpgradeRequired(error)) => {
-            eprintln!("cmux: {error}");
+            crate::client_log::stderr_log!("provider", "cmux: {error}");
             UPGRADE_REQUIRED_EXIT
         }
         Err(CommandError::Other(error)) => {
-            eprintln!("cmux: {error}");
+            crate::client_log::stderr_log!("provider", "cmux: {error}");
             1
         }
     })

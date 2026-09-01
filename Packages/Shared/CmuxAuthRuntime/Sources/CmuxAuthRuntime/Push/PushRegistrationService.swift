@@ -820,7 +820,10 @@ public actor PushRegistrationService: PushRegistering {
         guard case let .success(context) = await makeRequest(
             method: "DELETE",
             path: "/api/device-tokens",
-            body: ["deviceToken": tokenHex],
+            body: [
+                "deviceToken": tokenHex,
+                "bundleId": bundleID,
+            ],
             capturedAccessToken: capturedAccessToken,
             capturedRefreshToken: capturedRefreshToken,
             sessionSnapshot: sessionSnapshot,
@@ -872,6 +875,7 @@ public actor PushRegistrationService: PushRegistering {
         request.httpMethod = method
         request.setValue("Bearer \(accessToken)", forHTTPHeaderField: "Authorization")
         request.setValue(refreshToken, forHTTPHeaderField: "X-Stack-Refresh-Token")
+        request.setValue(bundleID, forHTTPHeaderField: "X-Cmux-App-Namespace")
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.httpBody = try? JSONSerialization.data(withJSONObject: body)
         request.timeoutInterval = 15

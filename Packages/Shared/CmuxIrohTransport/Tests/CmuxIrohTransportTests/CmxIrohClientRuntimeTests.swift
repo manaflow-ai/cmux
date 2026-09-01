@@ -3,6 +3,12 @@ import Foundation
 import Testing
 @testable import CmuxIrohTransport
 
+private extension CmxIrohClientRuntime {
+    func installLocalBindingForSignOutTest(_ binding: CmxIrohBrokerBinding) {
+        localBinding = binding
+    }
+}
+
 @Suite
 struct CmxIrohClientRuntimeTests {
     @Test
@@ -19,6 +25,7 @@ struct CmxIrohClientRuntimeTests {
             accountID: fixture.configuration.accountID,
             deviceID: fixture.configuration.deviceID,
             appInstanceID: fixture.configuration.appInstanceID,
+            clientNamespace: fixture.configuration.clientNamespace,
             tag: fixture.configuration.tag,
             displayName: fixture.configuration.displayName,
             identity: fixture.configuration.identity,
@@ -149,6 +156,7 @@ struct CmxIrohClientRuntimeTests {
             accountID: "account-a",
             deviceID: fixture.initiator.deviceID,
             appInstanceID: localBinding.appInstanceID,
+            clientNamespace: localBinding.clientNamespace,
             tag: fixture.initiator.tag,
             displayName: nil,
             identity: identity,
@@ -217,6 +225,49 @@ struct CmxIrohClientRuntimeTests {
     }
 
     @Test
+    func pendingRevocationInvalidatesEmbeddedRegistrationDiscovery() async throws {
+        let fixture = try ClientRuntimeTestFixture()
+        let staleDiscovery = try ClientRuntimeTestFixture.discovery(
+            binding: fixture.binding,
+            revision: 1
+        )
+        let authoritativeDiscovery = try ClientRuntimeTestFixture.discovery(
+            binding: fixture.binding,
+            revision: 2
+        )
+        let pendingRevocations = fixture.pendingRevocations()
+        let pending = try CmxIrohPendingRevocation(
+            accountID: fixture.configuration.accountID,
+            tag: "older-build",
+            bindingID: "123e4567-e89b-42d3-a456-426614174099"
+        )
+        try await pendingRevocations.enqueue(pending)
+        let broker = TestRevisionedClientBroker(
+            binding: fixture.binding,
+            discoveries: [authoritativeDiscovery],
+            relay: fixture.relayResponse(),
+            embeddedRegistrationDiscovery: staleDiscovery,
+            embeddedRegistrationDiscoveryIsComplete: true,
+            registrationRevision: 1
+        )
+        let runtime = try CmxIrohClientRuntime(
+            factory: TestIrohEndpointFactory(endpoints: [
+                TestIrohEndpoint(identity: fixture.endpointID),
+            ]),
+            broker: broker,
+            configuration: fixture.configuration,
+            pendingRevocations: pendingRevocations,
+            now: { fixture.now }
+        )
+
+        try await runtime.start()
+
+        #expect(await broker.syncCount == 1)
+        #expect(await runtime.connectivityEngine.snapshot().routeRevision == 2)
+        await runtime.stop()
+    }
+
+    @Test
     func startupFetchesPaginatedDiscoveryWhenRegistrationAndSyncSnapshotsAreUnproven() async throws {
         let fixture = try ClientRuntimeTestFixture()
         let truncatedRegistrationDiscovery = try ClientRuntimeTestFixture.discovery(
@@ -269,6 +320,7 @@ struct CmxIrohClientRuntimeTests {
             accountID: fixture.configuration.accountID,
             deviceID: fixture.configuration.deviceID,
             appInstanceID: fixture.configuration.appInstanceID,
+            clientNamespace: fixture.configuration.clientNamespace,
             tag: fixture.configuration.tag,
             displayName: fixture.configuration.displayName,
             identity: fixture.configuration.identity,
@@ -591,6 +643,129 @@ struct CmxIrohClientRuntimeTests {
         #expect(await broker.observedRegistrations().count == 1)
         #expect(await broker.observedDiscoveryCount() == 1)
         #expect(await endpoint.observedCloseCallCount() == 0)
+        await runtime.stop()
+    }
+
+    @Test
+    func rateLimitedRegistrationDrainsPendingRevocationsBeforeDiscovery() async throws {
+        let fixture = try ClientRuntimeTestFixture()
+        let pendingRevocations = fixture.pendingRevocations()
+        let pending = try CmxIrohPendingRevocation(
+            accountID: fixture.configuration.accountID,
+            tag: "older-build",
+            bindingID: "123e4567-e89b-42d3-a456-426614174099"
+        )
+        try await pendingRevocations.enqueue(pending)
+        let broker = TestIrohClientBroker(
+            binding: fixture.binding,
+            discovery: fixture.discovery,
+            relay: fixture.relayResponse(),
+            registrationError: CmxIrohTrustBrokerClientError.rateLimited(
+                code: "device_registration_hour_quota",
+                retryAfterSeconds: 600
+            )
+        )
+        let runtime = try CmxIrohClientRuntime(
+            factory: TestIrohEndpointFactory(endpoints: [
+                TestIrohEndpoint(identity: fixture.endpointID),
+            ]),
+            broker: broker,
+            configuration: fixture.configuration,
+            pendingRevocations: pendingRevocations,
+            now: { fixture.now }
+        )
+
+        try await runtime.start()
+
+        #expect(await broker.observedRegistrations().count == 1)
+        #expect(await broker.observedRevokedBindingIDs() == [pending.bindingID])
+        #expect(await broker.observedDiscoveryCount() == 1)
+        #expect(
+            try await pendingRevocations.pending(
+                accountID: fixture.configuration.accountID
+            ).isEmpty
+        )
+        await runtime.stop()
+    }
+
+    @Test
+    func rateLimitedRegistrationWithoutBindingProofDoesNotDrainOrDiscover() async throws {
+        let fixture = try ClientRuntimeTestFixture()
+        let pendingRevocations = fixture.pendingRevocations()
+        let pending = try CmxIrohPendingRevocation(
+            accountID: fixture.configuration.accountID,
+            tag: "older-build",
+            bindingID: "123e4567-e89b-42d3-a456-426614174099"
+        )
+        try await pendingRevocations.enqueue(pending)
+        let broker = TestIrohClientBroker(
+            binding: fixture.binding,
+            discovery: fixture.discovery,
+            relay: fixture.relayResponse(),
+            bindingAuthorizationAvailable: false,
+            registrationError: CmxIrohTrustBrokerClientError.rateLimited(
+                code: "device_registration_hour_quota",
+                retryAfterSeconds: 600
+            )
+        )
+        let runtime = try CmxIrohClientRuntime(
+            factory: TestIrohEndpointFactory(endpoints: [
+                TestIrohEndpoint(identity: fixture.endpointID),
+            ]),
+            broker: broker,
+            configuration: fixture.configuration,
+            pendingRevocations: pendingRevocations,
+            now: { fixture.now }
+        )
+
+        await #expect(throws: CmxIrohTrustBrokerClientError.rateLimited(
+            code: "device_registration_hour_quota",
+            retryAfterSeconds: 600
+        )) {
+            try await runtime.start()
+        }
+        #expect(await broker.observedDiscoveryCount() == 0)
+        #expect(try await pendingRevocations.pending(
+            accountID: fixture.configuration.accountID
+        ) == [pending])
+    }
+
+    @Test
+    func rateLimitedRegistrationDoesNotRevokeRetainedAuthorization() async throws {
+        let fixture = try ClientRuntimeTestFixture()
+        let pendingRevocations = fixture.pendingRevocations()
+        let pending = try CmxIrohPendingRevocation(
+            accountID: fixture.configuration.accountID,
+            tag: fixture.configuration.tag,
+            bindingID: fixture.binding.bindingID
+        )
+        try await pendingRevocations.enqueue(pending)
+        let broker = TestIrohClientBroker(
+            binding: fixture.binding,
+            discovery: fixture.discovery,
+            relay: fixture.relayResponse(),
+            registrationError: CmxIrohTrustBrokerClientError.rateLimited(
+                code: "device_registration_hour_quota",
+                retryAfterSeconds: 600
+            )
+        )
+        let runtime = try CmxIrohClientRuntime(
+            factory: TestIrohEndpointFactory(endpoints: [
+                TestIrohEndpoint(identity: fixture.endpointID),
+            ]),
+            broker: broker,
+            configuration: fixture.configuration,
+            pendingRevocations: pendingRevocations,
+            now: { fixture.now }
+        )
+
+        try await runtime.start()
+
+        #expect(await broker.observedRevokedBindingIDs().isEmpty)
+        #expect(await broker.observedDiscoveryCount() == 1)
+        #expect(try await pendingRevocations.pending(
+            accountID: fixture.configuration.accountID
+        ).isEmpty)
         await runtime.stop()
     }
 
@@ -1005,6 +1180,10 @@ struct CmxIrohClientRuntimeTests {
 
         #expect(preparation.bindingID == fixture.binding.bindingID)
         #expect(preparation.wasPersisted)
+        #expect(
+            preparation.bindingAuthorization?.bindingID
+                == fixture.binding.bindingID
+        )
         #expect(await recorder.observedLocalWipes() == [true])
         #expect(await offlineStore.deleteAllCount() == 1)
         #expect(await runtime.snapshot().state == .inactive)
@@ -1022,6 +1201,38 @@ struct CmxIrohClientRuntimeTests {
         )
         #expect(await recorder.observedLocalWipes() == [true])
         #expect(await runtime.snapshot().state == .inactive)
+    }
+
+    @Test
+    func signOutAuthorizationUsesPersistedLegacyBindingNamespace() async throws {
+        let fixture = try ClientRuntimeTestFixture()
+        let configuration = CmxIrohClientRuntimeConfiguration(
+            accountID: fixture.configuration.accountID,
+            deviceID: fixture.configuration.deviceID,
+            appInstanceID: fixture.configuration.appInstanceID,
+            clientNamespace: "dev.cmux.app.beta",
+            tag: fixture.configuration.tag,
+            displayName: fixture.configuration.displayName,
+            identity: fixture.configuration.identity,
+            capabilities: fixture.configuration.capabilities,
+            managedRelayURLs: fixture.configuration.managedRelayURLs
+        )
+        let runtime = try CmxIrohClientRuntime(
+            factory: TestIrohEndpointFactory(endpoints: []),
+            broker: TestIrohClientBroker(
+                binding: fixture.binding,
+                discovery: fixture.discovery,
+                relay: fixture.relayResponse()
+            ),
+            configuration: configuration,
+            pendingRevocations: fixture.pendingRevocations(),
+            now: { fixture.now }
+        )
+        await runtime.installLocalBindingForSignOutTest(fixture.binding)
+
+        let preparation = await runtime.deactivateForSignOut()
+
+        #expect(preparation.bindingAuthorization?.clientNamespace == "legacy")
     }
 
     @Test
@@ -1112,7 +1323,7 @@ struct CmxIrohClientRuntimeTests {
     }
 
     @Test
-    func pendingRevocationFailureBlocksRegistrationAndOfflineFallback() async throws {
+    func pendingRevocationFailureStopsAfterAuthenticatedRegistration() async throws {
         let fixture = try ClientRuntimeTestFixture()
         let store = TestSecureCredentialStore()
         let pendingRevocations = CmxIrohPendingRevocationOutbox(secureStore: store)
@@ -1145,7 +1356,8 @@ struct CmxIrohClientRuntimeTests {
             try await runtime.start()
         }
 
-        #expect(await broker.observedRegistrations().isEmpty)
+        #expect(await broker.observedRegistrations().count == 1)
+        #expect(await broker.observedDiscoveryCount() == 0)
         #expect(await broker.observedRevokedBindingIDs() == [pending.bindingID])
         #expect(
             try await pendingRevocations.pending(
@@ -1268,6 +1480,10 @@ private actor TestRevisionedClientBroker:
     }
 
     func revoke(bindingID _: String) {}
+
+    func revokeStale(bindingID _: String) {}
+
+    func forgetMac(bindingID _: String) {}
 
     func waitUntilSyncCount(_ minimum: Int) async {
         while syncCount < minimum {

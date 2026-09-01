@@ -35,6 +35,9 @@
          location = "group:CmuxSentryTelemetry">
       </FileRef>
       <FileRef
+         location = "group:CmuxSimulatorStreamKit">
+      </FileRef>
+      <FileRef
          location = "group:CmuxSyncStore">
       </FileRef>
    </Group>
@@ -84,6 +87,9 @@
          location = "group:CmuxMobileShellUI">
       </FileRef>
       <FileRef
+         location = "group:CmuxMobileSimulatorStream">
+      </FileRef>
+      <FileRef
          location = "group:CmuxMobileSupport">
       </FileRef>
       <FileRef
@@ -105,6 +111,9 @@
    <Group
       location = "container:Packages/macOS"
       name = "Packages (macOS)">
+      <FileRef
+         location = "group:CmuxAgentJournal">
+      </FileRef>
       <FileRef
          location = "group:CMUXAgentLaunch">
       </FileRef>
@@ -155,6 +164,9 @@
       </FileRef>
       <FileRef
          location = "group:CmuxPanes">
+      </FileRef>
+      <FileRef
+         location = "group:CmuxPhonePush">
       </FileRef>
       <FileRef
          location = "group:CMUXProjectModel">

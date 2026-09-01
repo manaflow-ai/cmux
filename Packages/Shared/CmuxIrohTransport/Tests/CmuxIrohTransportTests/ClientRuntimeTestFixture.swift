@@ -36,6 +36,7 @@ struct ClientRuntimeTestFixture {
             accountID: "account-a",
             deviceID: binding.deviceID,
             appInstanceID: binding.appInstanceID,
+            clientNamespace: binding.clientNamespace,
             tag: binding.tag,
             displayName: binding.displayName,
             identity: identity,

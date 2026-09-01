@@ -52,21 +52,6 @@ use crate::remote_runtime::{
 };
 use crate::session::{RemoteSession, Session};
 
-const REMOTE_COMMANDS: &[&str] = &[
-    "remote",
-    "connect",
-    "ssh",
-    "forward",
-    "rpc",
-    "enroll",
-    "known-daemons",
-    "remote-probe",
-    "remote-link",
-    "remote-sidecar",
-    "remote-stop",
-    "install-self",
-];
-
 const DEFAULT_STARTUP_TIMEOUT: Duration = Duration::from_secs(90);
 const ENROLLMENT_APPROVAL_TIMEOUT: Duration = Duration::from_secs(5 * 60);
 const MAX_RPC_STDIN_LINE_BYTES: usize = 16 * 1024 * 1024;
@@ -75,14 +60,14 @@ const DETACHED_TERM_GRACE: Duration = Duration::from_millis(500);
 const DETACHED_KILL_GRACE: Duration = Duration::from_secs(1);
 
 pub fn is_remote_invocation(args: &[String]) -> bool {
-    args.first().is_some_and(|argument| REMOTE_COMMANDS.contains(&argument.as_str()))
+    crate::cli::is_remote_invocation(args)
 }
 
 pub fn run(args: &[String], usage: &str) -> i32 {
     match run_inner(args, usage) {
         Ok(()) => 0,
         Err(error) => {
-            eprintln!("cmux-tui: {error:#}");
+            crate::client_log::stderr_log!("remote", "cmux-tui: {error:#}");
             1
         }
     }
@@ -2112,12 +2097,15 @@ fn ensure_daemon(
         return Ok(());
     }
 
-    let executable = std::env::current_exe()?;
+    // Spawn the daemon from this client's own running build (open inode on
+    // Linux) so an in-place binary upgrade cannot leave a long-lived client
+    // exec'ing a "(deleted)" path, and daemon/client builds never skew.
+    let executable = cmux_tui_core::platform::self_exe_for_spawn()?;
     let log_path = session_state.join("daemon.log");
     let mux_socket = mux_socket_override
         .map(Path::to_path_buf)
         .or_else(|| std::env::var_os("CMUX_MUX_SOCKET").map(PathBuf::from))
-        .unwrap_or_else(|| cmux_tui_core::server::default_socket_path(session));
+        .map_or_else(|| cmux_tui_core::server::try_default_socket_path(session), Ok)?;
     if UnixStream::connect(&mux_socket).is_err() {
         let log = OpenOptions::new().create(true).append(true).open(&log_path)?;
         let mut mux_owner = Command::new(&executable);

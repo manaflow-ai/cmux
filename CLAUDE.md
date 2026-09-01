@@ -17,6 +17,10 @@ A tag gives the app its own name, bundle ID, socket, and derived data path, so i
 
 Other variants: `reloadp.sh` (Release), `reloads.sh` (Release as isolated "cmux STAGING"), `reload2.sh --tag <tag>` (both).
 
+## Shared Mac fleet capacity
+
+Every healthy slot in the canonical Mac fleet is general-purpose. Builds, iOS archives, tests, profiling, simulator and UI verification, and any other resource-intensive workload may use any available slot. Do not wait for an AWS-only builder or infer capacity from a workload label. Use the shared lease state and slot-isolated paths supplied by the fleet tooling.
+
 Compile-only check, no launch:
 
 ```bash
@@ -41,6 +45,12 @@ CMUX_TAG=<tag> scripts/cmux-debug-cli.sh send --workspace workspace:1 --surface 
 ```
 
 The helper refuses to run without `CMUX_TAG`, targets `/tmp/cmux-debug-<tag>.sock`, and uses the matching tagged CLI from DerivedData. It scrubs ambient cmux terminal context (`CMUX_SOCKET`, `CMUX_SOCKET_PASSWORD`, workspace/surface/tab/panel IDs, cmuxd socket, debug log), then sets `CMUX_SOCKET_PATH`, `CMUX_BUNDLE_ID`, and `CMUX_BUNDLED_CLI_PATH` for the tag.
+
+## iOS UI follows the Apple HIG
+
+`Packages/iOS/AGENTS.md` requires consulting the Apple Human Interface
+Guidelines for any iOS UI change and citing the page in the PR. It applies to
+`Packages/iOS/` and `ios/`.
 
 ## iOS builds open on the iPhone by default
 
@@ -67,6 +77,27 @@ scripts/verify-remote.sh capacity             # all-purpose slots
 ```
 
 Boot a local simulator only when all-purpose `capacity` reports no free slot, and keep at most 3 local sims booted. Scripted XCUITests go through the hosted `test-e2e.yml` lane when appropriate. The physical-iPhone signing/install leg stays local via the install queue; its archive build may use any healthy fleet slot. Verify leases carry a description and TTL, so a crashed agent frees its slot automatically; see `skills/infra/macfleet/references/verify-remote.md` in cmuxterm-hq for the shared-pool contract and host onboarding.
+
+## Cross-tag Mac access for DEV iPhone builds
+
+A DEV iPhone build pairs only with the Mac DEV build sharing its tag. When a task needs
+the phone to also see other Mac dev builds (multi-Mac verification, dogfooding another
+task's Mac from an existing phone build), grant those tags at runtime through the
+same-tag Mac's debug socket instead of rebuilding or re-pairing the phone:
+
+```bash
+CMUX_TAG=<phone-tag> scripts/cmux-debug-cli.sh mobile compatible-tags add <mac-tag> [more-tags]
+CMUX_TAG=<phone-tag> scripts/cmux-debug-cli.sh mobile compatible-tags list
+CMUX_TAG=<phone-tag> scripts/cmux-debug-cli.sh mobile compatible-tags remove <mac-tag>
+CMUX_TAG=<phone-tag> scripts/cmux-debug-cli.sh mobile compatible-tags clear
+```
+
+The grant set persists on that Mac and on the phone (per phone build tag), pushes live
+to a connected phone, and otherwise applies on the phone's next connect. Removing a tag
+disconnects and hides that Mac on the phone. Release lanes (`default`, `nightly`, `rc`,
+`staging`) are never grantable, and only the phone's exact-tag Mac can change its grant
+set. Use this whenever the user asks to let another Mac dev build connect to their
+iPhone build; do not mint a shared tag or rebuild the phone for that.
 
 ## iOS dev auth
 
@@ -127,4 +158,7 @@ Detailed contributor rules live in `skills/`. Use the task-specific skill before
 - `cmux-shared-behavior`: shared action paths for multi-entrypoint behavior and optimistic updates.
 - `cmux-ghostty`: Ghostty submodule and GhosttyKit workflow.
 - `cmux-release`: release, version bump, changelog, pretag guard, release assets.
-- `blacksmith-testbox`: warm your own Linux Testbox before any cmux-tui Rust or Zig build, and never compile cmux-tui on the Mac.
+- Blacksmith Testbox (remote Linux builds for cmux-tui): warm your own box before any cmux-tui Rust or Zig
+  build, and never compile cmux-tui on the Mac. The skill lives in cmuxterm-hq at
+  `skills/infra/blacksmith-testbox/SKILL.md`; the workflows, `scripts/blacksmith-*.sh`, and the
+  `tests/test_testbox_*` guards stay here. Quickest path: `./scripts/blacksmith-testbox-demo.sh`.

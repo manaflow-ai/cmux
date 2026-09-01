@@ -127,16 +127,27 @@ extension Workspace {
         )
         activeRemoteSessionControllerID = controllerID
         remoteSessionController = controller
+        // Configure/disconnect notifications can fire before this async
+        // handoff installs the controller; wake PTY attach waiters at the
+        // actual availability boundary as well.
+        TerminalController.shared.notifyRemotePTYControllerAvailabilityChanged()
         controller.updateRemotePortScanningEnabled(Self.remotePortScanningEnabledFromSettings())
         syncRemotePortScanTTYs()
         syncRemoteRelayIDAliasesToController()
         controller.start()
+        if remoteControllerConnectionState == .connected {
+            _ = reattachPersistentRemotePTYPanels()
+        }
     }
 
     @discardableResult
     func reconnectRemoteConnection(surfaceId: UUID? = nil) -> Bool {
         guard let configuration = remoteConfiguration else { return false }
         var didRespawnTerminal = false
+        // Persistent SSH wrappers must not be launched while the management
+        // controller is disconnected: their first bridge request would race
+        // the replacement controller and can retire the reconnect transition.
+        let remoteControllerIsReady = remoteControllerConnectionState == .connected
         let reconnectingSurfaceId: UUID?
         if let surfaceId {
             guard panels[surfaceId] is TerminalPanel else { return false }
@@ -145,8 +156,10 @@ extension Workspace {
             reconnectingSurfaceId = remoteReconnectTerminalSurfaceId(requestedSurfaceId: nil)
         }
         if configuration.preserveAfterTerminalExit {
-            let reattached = reattachPersistentRemotePTYPanels(requestedSurfaceId: surfaceId, restartEndedSessions: true)
-            didRespawnTerminal = surfaceId.map(reattached.contains) ?? !reattached.isEmpty
+            if remoteControllerIsReady {
+                let reattached = reattachPersistentRemotePTYPanels(requestedSurfaceId: surfaceId, restartEndedSessions: true)
+                didRespawnTerminal = surfaceId.map(reattached.contains) ?? !reattached.isEmpty
+            }
         } else if let startupCommand = effectiveRemoteTerminalStartupCommand(from: configuration),
                   !startupCommand.isEmpty,
                   let reconnectingSurfaceId {
@@ -172,7 +185,7 @@ extension Workspace {
             }
             if didRespawnTerminal || !shouldRespawnSurface { trackRemoteTerminalSurface(reconnectingSurfaceId) }
         }
-        if reconnectingSurfaceId != nil, remoteConnectionState == .connected { return didRespawnTerminal }
+        if reconnectingSurfaceId != nil, remoteControllerIsReady { return didRespawnTerminal }
         guard remoteConnectionState != .connecting, remoteConnectionState != .reconnecting else { return didRespawnTerminal }
         configureRemoteConnection(configuration, autoConnect: true)
         return didRespawnTerminal

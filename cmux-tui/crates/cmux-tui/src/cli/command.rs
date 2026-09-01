@@ -253,35 +253,42 @@ fn tokenize(args: &[String]) -> Result<Tokens, UsageError> {
     Ok(Tokens { words, flags, argv })
 }
 
+/// Metadata for flags which consume no following token.
+///
+/// Keeping this as data makes the tokenizer's grammar auditable and leaves a
+/// single place to extend when a command adds a boolean option. This is the
+/// same distinction Clap models with `ArgAction::SetTrue`, while retaining
+/// cmux's custom forwarding and error text.
+const BOOLEAN_FLAGS: &[&str] = &[
+    "empty",
+    "left",
+    "right",
+    "up",
+    "down",
+    "force",
+    "confirm-close",
+    "complete",
+    "clear-name",
+    "clear-kind",
+    "clear-foreground",
+    "clear-background",
+    "clear-cursor",
+    "clear-selection-background",
+    "clear-selection-foreground",
+    "clear-cursor-style",
+    "clear-cursor-blink",
+    "clear-palette",
+    "read-only",
+    "relaunch",
+    "styled",
+    "builtin",
+    "mutation",
+    "stream",
+    "ignore-case",
+];
+
 fn is_boolean_flag(name: &str) -> bool {
-    matches!(
-        name,
-        "empty"
-            | "left"
-            | "right"
-            | "up"
-            | "down"
-            | "force"
-            | "confirm-close"
-            | "complete"
-            | "clear-name"
-            | "clear-kind"
-            | "clear-foreground"
-            | "clear-background"
-            | "clear-cursor"
-            | "clear-selection-background"
-            | "clear-selection-foreground"
-            | "clear-cursor-style"
-            | "clear-cursor-blink"
-            | "clear-palette"
-            | "read-only"
-            | "relaunch"
-            | "styled"
-            | "builtin"
-            | "mutation"
-            | "stream"
-            | "ignore-case"
-    )
+    BOOLEAN_FLAGS.contains(&name)
 }
 
 fn parse_machine(
@@ -706,11 +713,7 @@ fn parse_screen_strings(
                 params.insert("confirm_close".into(), Value::Bool(true));
             }
             if let Some(token) = flags.take("confirmation-token") {
-                if token.is_empty() || token.len() > 128 {
-                    return Err(UsageError::new(
-                        "--confirmation-token must contain 1 to 128 UTF-8 bytes",
-                    ));
-                }
+                validate_bounded_text("--confirmation-token", &token)?;
                 params.insert("confirmation_token".into(), Value::String(token));
             }
             request(ResourceOperation::ScreenLayoutUndo, selectors, flags, params)
@@ -1599,9 +1602,7 @@ fn projection_put_fields(flags: &mut Flags) -> Result<Map<String, Value>, UsageE
         [("frontend-id", "frontend_id"), ("window-id", "window_id"), ("generation", "generation")]
     {
         let value = flags.required(flag)?;
-        if value.is_empty() || value.len() > 128 {
-            return Err(UsageError::new(format!("--{flag} must contain 1 to 128 UTF-8 bytes")));
-        }
+        validate_bounded_text(&format!("--{flag}"), &value)?;
         params.insert(field.into(), Value::String(value));
     }
     if let Some(revision) = flags.take("expected-projection-revision") {
@@ -1730,6 +1731,14 @@ fn validate_correlation_key(value: &str) -> Result<(), UsageError> {
         Err(UsageError::new("correlation key cannot be empty"))
     } else if value.len() > 128 {
         Err(UsageError::new("correlation key cannot exceed 128 UTF-8 bytes"))
+    } else {
+        Ok(())
+    }
+}
+
+fn validate_bounded_text(flag: &str, value: &str) -> Result<(), UsageError> {
+    if value.is_empty() || value.len() > 128 {
+        Err(UsageError::new(format!("{flag} must contain 1 to 128 UTF-8 bytes")))
     } else {
         Ok(())
     }
@@ -2885,6 +2894,32 @@ mod tests {
 
     fn strings(values: &[&str]) -> Vec<String> {
         values.iter().map(|value| (*value).to_string()).collect()
+    }
+
+    #[test]
+    fn boolean_flag_metadata_matches_tokenizer_contract() {
+        for name in BOOLEAN_FLAGS {
+            assert!(is_boolean_flag(name));
+            let args = vec!["workspace".into(), "create".into(), format!("--{name}")];
+            let tokens = tokenize(&args).expect("metadata flag must tokenize");
+            assert!(tokens.flags.values.contains_key(*name));
+            assert_eq!(tokens.flags.values[*name], None);
+        }
+    }
+
+    #[test]
+    fn non_boolean_flags_still_consume_the_next_token() {
+        let tokens = tokenize(&strings(&["workspace", "create", "--name", "value"]))
+            .expect("value flag must tokenize");
+        assert_eq!(tokens.flags.values.get("name"), Some(&Some("value".to_string())));
+    }
+
+    #[test]
+    fn bounded_text_validation_has_shared_limits() {
+        assert!(validate_bounded_text("--name", "ok").is_ok());
+        assert!(validate_bounded_text("--name", "").is_err());
+        assert!(validate_bounded_text("--name", &"x".repeat(129)).is_err());
+        assert!(validate_bounded_text("--name", &"x".repeat(128)).is_ok());
     }
 
     fn protocol(values: &[&str]) -> RequestPlan {

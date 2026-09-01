@@ -9,6 +9,15 @@ private let terminalScrollDeliveryLog = Logger(
 )
 
 extension MobileShellComposite {
+    /// The phone owns primary-screen scrolling for this surface: screen-anchored
+    /// render grid with a CONFIRMED primary screen. The same condition suppresses
+    /// the Mac scroll RPC in `scrollTerminal` and routes the local mirror's
+    /// pixel-precise scroll path.
+    public func ownsLocalPrimaryScreenScroll(surfaceID: String) -> Bool {
+        usesScreenAnchoredRenderGrid
+            && terminalActiveScreenBySurfaceID[surfaceID] == .primary
+    }
+
     /// Forward a scroll gesture to the Mac's real surface. libghostty does the
     /// mode-correct thing: normal screen moves the viewport into scrollback;
     /// alt screen + mouse reporting encodes mouse-wheel to the PTY for the
@@ -30,8 +39,7 @@ extension MobileShellComposite {
         // dropping what may be alternate-screen wheel input would eat TUI
         // scrolling, while forwarding a primary-screen scroll merely moves the
         // Mac's own viewport, which screen-anchored frames ignore.
-        if usesScreenAnchoredRenderGrid,
-           terminalActiveScreenBySurfaceID[surfaceID] == .primary {
+        if ownsLocalPrimaryScreenScroll(surfaceID: surfaceID) {
             return
         }
         var prefetchState = terminalScrollbackPrefetchStatesBySurfaceID[surfaceID]

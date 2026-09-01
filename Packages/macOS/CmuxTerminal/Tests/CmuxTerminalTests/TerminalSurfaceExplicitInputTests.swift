@@ -184,6 +184,18 @@ struct TerminalSurfaceExplicitInputTests {
         #expect(fixture.paneHost.explicitInputCount == 1)
     }
 
+    @Test func losingFocusCancelsKeyboardCopyModeOnTheSurface() {
+        let fixture = makeFixture()
+        defer { fixture.surface.releaseSurfaceForTesting() }
+        fixture.nativeView.isKeyboardCopyModeActive = true
+
+        fixture.surface.setFocus(true)
+        fixture.surface.setFocus(false)
+
+        #expect(fixture.nativeView.keyboardCopyModeCancellationCount == 1)
+        #expect(!fixture.nativeView.isKeyboardCopyModeActive)
+    }
+
     @Test func mobileGesturesNotifyPaneHost() {
         let fixture = makeFixture()
         defer { fixture.surface.releaseSurfaceForTesting() }

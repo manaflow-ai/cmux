@@ -26,6 +26,7 @@ extension CmxIrohClientRuntimeTests {
             accountID: fixture.configuration.accountID,
             deviceID: fixture.configuration.deviceID,
             appInstanceID: fixture.configuration.appInstanceID,
+            clientNamespace: fixture.configuration.clientNamespace,
             tag: fixture.configuration.tag,
             displayName: fixture.configuration.displayName,
             identity: fixture.configuration.identity,

@@ -85,6 +85,28 @@ struct SSHPTYReconnectInputByteFilterTests {
         #expect(filter.filter(freshControlCAndEnter) == freshControlCAndEnter)
     }
 
+    @Test("strips XTVERSION DCS replies alongside CSI replies")
+    func stripsXtversionReply() {
+        var filter = SSHPTYReconnectInputByteFilter(enabled: true)
+        let replies = Data((
+            "\u{1B}P>|ghostty 1.3.2-HEAD\u{1B}\\" +
+            "\u{1B}[?62;22;52c" +
+            "\u{1B}[?2026;2$y"
+        ).utf8)
+
+        #expect(filter.filter(replies).isEmpty)
+        #expect(filter.isFilteringActive)
+    }
+
+    @Test("passes through a mismatching DCS prefix without waiting")
+    func passesThroughMismatchingDCSPrefix() {
+        var filter = SSHPTYReconnectInputByteFilter(enabled: true)
+        let input = Data("\u{1B}Px".utf8)
+
+        #expect(filter.filter(input) == input)
+        #expect(!filter.isFilteringActive)
+    }
+
     @Test func stopsFilteringAndForwardsPendingInputWhenNoContinuationArrives() {
         var filter = SSHPTYReconnectInputByteFilter(enabled: true)
         let escape = Data([0x1B])

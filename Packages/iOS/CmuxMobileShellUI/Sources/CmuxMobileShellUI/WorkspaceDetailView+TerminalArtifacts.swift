@@ -59,8 +59,7 @@ extension WorkspaceDetailView {
             selectedTerminalArtifact = TerminalArtifactSelection(
                 workspaceID: workspace.id.rawValue,
                 surfaceID: terminalID,
-                path: path,
-                session: chosenChatSession
+                path: path
             )
         },
         onVisibleArtifactCountChanged: { count in
@@ -119,13 +118,25 @@ extension WorkspaceDetailView {
     .onDisappear {
         visibleArtifactCount = 0
     }
+    .terminalKeyboardGeometryProbe("leaf-inside")
     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
     .background(store.activeTerminalTheme.terminalBackgroundColor)
     // The surface positions its grid + docked toolbar from
     // `keyboardHeight` directly, so opt out of SwiftUI keyboard
     // avoidance; otherwise the view ALSO shrinks for the keyboard
     // and the reservation double-counts (extra gap when open).
-    .ignoresSafeArea(.keyboard, edges: .bottom)
+    //
+    // The CONTAINER bottom region must be ignored here too, in every
+    // orientation: while the keyboard is up, the home-indicator band is
+    // re-attributed from the keyboard region to the container region at
+    // this node, so ignoring only the keyboard still shrank the surface by
+    // that band on every toggle — which resized the terminal grid (a
+    // shared-PTY renegotiation with the Mac) and retargeted the render
+    // after the keyboard had settled. With the keyboard down the ancestors
+    // already extend this view under the home indicator, so the extra
+    // ignore changes nothing in the steady state.
+    .ignoresSafeArea([.container, .keyboard], edges: .bottom)
+    .terminalKeyboardGeometryProbe("leaf-outside")
     // Keep the grid clear of the Dynamic Island and nav bar.
     .padding(.top, terminalTopPadding)
     }

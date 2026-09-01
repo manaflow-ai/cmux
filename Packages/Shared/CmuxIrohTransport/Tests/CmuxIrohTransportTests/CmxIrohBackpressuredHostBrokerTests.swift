@@ -135,6 +135,10 @@ private actor BackpressuredHostBrokerProbe:
         throw BackpressuredHostBrokerProbeError.unexpectedCall
     }
 
+    func revokeStale(bindingID _: String) async throws {
+        throw BackpressuredHostBrokerProbeError.unexpectedCall
+    }
+
     func issueRelayBootstrap(
         endpointID _: CmxIrohPeerIdentity
     ) async throws -> CmxIrohRelayBootstrapResponse {

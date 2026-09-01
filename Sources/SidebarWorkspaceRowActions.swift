@@ -45,10 +45,6 @@ struct SidebarWorkspaceRowActions {
     let openPort: (Int) -> Void
     let checklist: SidebarWorkspaceChecklistActions
     let onDragStart: () -> NSItemProvider
-    let bonsplitSourceWorkspaceId: (UUID) -> UUID?
-    let moveBonsplitTabToWorkspace: (BonsplitTabDragPayload.Transfer, UUID) -> Bool
-    let syncAfterBonsplitDrop: () -> Void
-    let selectAfterBonsplitDrop: () -> Void
     let onToggleChecklistExpansion: () -> Void
     let onConsumeChecklistAddFieldActivation: () -> Void
     let onChecklistPopoverPresentedChange: (Bool) -> Void

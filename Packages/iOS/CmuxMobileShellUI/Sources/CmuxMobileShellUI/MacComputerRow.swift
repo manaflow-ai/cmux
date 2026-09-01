@@ -50,14 +50,14 @@ struct MacComputerRow: View {
             }
         }
         .accessibilityElement(children: .contain)
-        .accessibilityIdentifier("MobileComputerRow-\(computer.id)")
+        .accessibilityIdentifier("MobileComputerRow-\(computer.connectionRef.automationID)")
     }
 
     @ViewBuilder
     private var rowContainer: some View {
         switch style {
         case .computers:
-            NavigationLink(value: computer.id) {
+            NavigationLink(value: computer.connectionRef) {
                 rowLabel
             }
             .accessibilityElement(children: .combine)
@@ -130,7 +130,9 @@ struct MacComputerRow: View {
                 .font(.caption2)
                 .foregroundStyle(dotColor)
                 .accessibilityLabel(primaryStatusPhrase)
-                .accessibilityIdentifier("MobileComputerStatus-\(computer.id)-\(statusIdentifierSuffix)")
+                .accessibilityIdentifier(
+                    "MobileComputerStatus-\(computer.connectionRef.automationID)-\(statusIdentifierSuffix)"
+                )
         }
     }
 
@@ -157,7 +159,8 @@ struct MacComputerRow: View {
     /// connection on the Computers screen, presence on the reconnect list.
     private var statusIdentifierSuffix: String {
         switch style {
-        case .computers: return isConnected ? "connected" : "disconnected"
+        case .computers:
+            return isConnected ? "connected" : "disconnected"
         case .reconnect: return computer.presence == .online ? "online" : "offline"
         }
     }

@@ -156,7 +156,7 @@ extension TerminalSurface {
             into: (keyEvents: 0, pasteTextItems: 0, inputTextItems: 0, processOutputItems: 0)
         ) { counts, item in
             switch item {
-            case .key:
+            case .key, .keyText:
                 counts.keyEvents += 1
             case .pasteText:
                 counts.pasteTextItems += 1
@@ -188,8 +188,10 @@ extension TerminalSurface {
             return
         }
 
+        let retiredRemoteOutputLane = retireRemoteOutputLane()
         registry.unregisterRuntimeSurface(surfaceToFree, ownerId: id)
         surface = nil
+        retiredRemoteOutputLane.drainSynchronouslyForTesting()
         ghostty_surface_free(surfaceToFree)
         callbackContext?.release()
     }
@@ -209,7 +211,9 @@ extension TerminalSurface {
             return
         }
 
+        let retiredRemoteOutputLane = retireRemoteOutputLane()
         registry.unregisterRuntimeSurface(surfaceToFree, ownerId: id)
+        retiredRemoteOutputLane.drainSynchronouslyForTesting()
         ghostty_surface_free(surfaceToFree)
         runtimeSurfaceFreedOutOfBandForTesting = true
         callbackContext?.release()

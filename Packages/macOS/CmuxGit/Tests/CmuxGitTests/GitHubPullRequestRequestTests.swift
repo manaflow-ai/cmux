@@ -29,6 +29,55 @@ struct GitHubPullRequestRequestTests {
         #expect(GitHubPullRequestStubURLProtocol.capturedRequests().isEmpty)
     }
 
+    @Test func userAgentIdentifiesApplicationVersion() async throws {
+        let expectedVersion = (Bundle.main.object(
+            forInfoDictionaryKey: "CFBundleShortVersionString"
+        ) as? String)
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .flatMap { $0.isEmpty ? nil : $0 }
+            ?? "unknown"
+        GitHubPullRequestStubURLProtocol.reset(stubs: [
+            .init(statusCode: 200, data: Data("[]".utf8)),
+        ])
+        let coordinator = GitHubPullRequestRequestCoordinator(session: makeSession())
+
+        _ = await coordinator.response(
+            endpoint: endpoint,
+            authHeader: "Bearer test-token"
+        )
+
+        let request = try #require(GitHubPullRequestStubURLProtocol.capturedRequests().first)
+        #expect(
+            request.value(forHTTPHeaderField: "User-Agent")
+                == "cmux-workspace-pr-poller/\(expectedVersion)"
+        )
+    }
+
+    @Test func userAgentValueAppendsApplicationVersion() {
+        #expect(
+            GitHubPullRequestRequestCoordinator.userAgentValue(appVersion: "1.2.3")
+                == "cmux-workspace-pr-poller/1.2.3"
+        )
+    }
+
+    @Test func userAgentValueTrimsSurroundingWhitespace() {
+        #expect(
+            GitHubPullRequestRequestCoordinator.userAgentValue(appVersion: "  1.2.3  ")
+                == "cmux-workspace-pr-poller/1.2.3"
+        )
+    }
+
+    @Test func userAgentValueFallsBackWhenApplicationVersionIsUnavailable() {
+        #expect(
+            GitHubPullRequestRequestCoordinator.userAgentValue(appVersion: nil)
+                == "cmux-workspace-pr-poller/unknown"
+        )
+        #expect(
+            GitHubPullRequestRequestCoordinator.userAgentValue(appVersion: "  ")
+                == "cmux-workspace-pr-poller/unknown"
+        )
+    }
+
     @Test func cachedETagRevalidatesAndReusesBodyAfterNotModified() async throws {
         let body = Data("[{\"number\":8175}]".utf8)
         GitHubPullRequestStubURLProtocol.reset(stubs: [

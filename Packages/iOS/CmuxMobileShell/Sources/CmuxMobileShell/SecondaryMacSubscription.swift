@@ -90,7 +90,11 @@ final class SecondaryMacSubscription {
         self.supportedHostCapabilities = supportedHostCapabilities
         self.actionCapabilities = actionCapabilities
         self.displayName = displayName
-        self.streamID = "ios-secondary-events-\(macDeviceID)-\(UUID().uuidString)"
+        let identityID = CmxMacAppInstanceIdentity(
+            macDeviceID: macDeviceID,
+            instanceTag: storedInstanceTag
+        ).id
+        self.streamID = "ios-secondary-events-\(identityID)-\(UUID().uuidString)"
     }
 
     func cancel() {

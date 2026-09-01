@@ -72,6 +72,14 @@ import {
   type PairedMacBackupRecord,
 } from "./syncPairedMacs";
 import { sanitizePublishedRoutes } from "./routePrivacy";
+import {
+  ackPhoneReplies,
+  enqueuePhoneReply,
+  listPhoneReplies,
+  PHONE_REPLY_NUDGE_REVISION,
+  type EnqueuePhoneReplyResult,
+  type StoredPhoneReply,
+} from "./replies";
 
 const INSTANCE_PREFIX = "inst:";
 /** `owner:<deviceId>` -> Stack user id pinned on first heartbeat. Durable:
@@ -358,13 +366,24 @@ export class TeamPresence extends DurableObject {
     userId: string,
     ops: readonly PairedMacBackupOp[],
     clientScope?: string | null,
+    expectedRevision?: number,
   ): Promise<
     { ok: true; changed: number; teamId: string } | { ok: false; error: string; status: number }
   > {
     await this.rememberTeamId(teamId);
     let deltas;
     try {
-      deltas = await applyBackupOps(this.syncStorage(), userId, ops, Date.now(), clientScope);
+      deltas = await this.ctx.storage.transaction(async (transaction) => {
+        const storage: SyncStorage = transaction;
+        return await applyBackupOps(
+          storage,
+          userId,
+          ops,
+          Date.now(),
+          clientScope,
+          expectedRevision
+        );
+      });
     } catch (error) {
       if (error instanceof PairedMacBackupApplyError) {
         return { ok: false, error: error.code, status: 409 };
@@ -392,13 +411,29 @@ export class TeamPresence extends DurableObject {
     teamId: string,
     userId: string,
     clientScope?: string | null,
-  ): Promise<{ records: PairedMacBackupRecord[]; deletedMacDeviceIDs: string[]; teamId: string }> {
+  ): Promise<{
+    records: PairedMacBackupRecord[];
+    deletedMacDeviceIDs: string[];
+    revision: number;
+    teamId: string;
+  }> {
     await this.rememberTeamId(teamId);
     // A tagged scope is authoritative from its first read. An unscoped record
     // cannot prove which Mac app tag produced its routes, so falling back across
     // that boundary could reconnect one iOS build to another app instance.
-    const snapshot = await listBackupSnapshot(this.syncStorage(), userId, clientScope);
-    return { records: snapshot.records, deletedMacDeviceIDs: snapshot.deletedMacDeviceIDs, teamId };
+    const snapshot = await this.ctx.storage.transaction(
+      async (transaction) => await listBackupSnapshot(
+        transaction,
+        userId,
+        clientScope
+      )
+    );
+    return {
+      records: snapshot.records,
+      deletedMacDeviceIDs: snapshot.deletedMacDeviceIDs,
+      revision: snapshot.revision,
+      teamId,
+    };
   }
 
   /** Broadcast a route-revision hint to every live client for one account.
@@ -433,6 +468,34 @@ export class TeamPresence extends DurableObject {
       }
     }
     return { ok: true, delivered };
+  }
+
+  // ---- Phone reply inbox (see replies.ts for the design) ----
+
+  /** Park one inline notification reply and nudge the account's live
+   * connectivity subscribers so a reply-aware Mac sweeps the inbox now.
+   * `delivered: 0` on the nudge is fine — the Mac also sweeps on subscriber
+   * (re)start and on foregrounding, and the entry waits out its TTL. */
+  async enqueuePhoneReply(
+    accountId: string,
+    reply: Omit<StoredPhoneReply, "createdAtMs" | "expiresAtMs">,
+  ): Promise<EnqueuePhoneReplyResult> {
+    const result = await enqueuePhoneReply(this.ctx.storage, reply, Date.now());
+    if (result.ok && !result.duplicate) {
+      const nudge = await this.invalidateConnectivity(accountId, PHONE_REPLY_NUDGE_REVISION);
+      return { ...result, nudged: nudge.delivered };
+    }
+    return result;
+  }
+
+  /** Pending replies for one Mac, oldest first. */
+  async listPhoneReplies(macDeviceId: string): Promise<StoredPhoneReply[]> {
+    return listPhoneReplies(this.ctx.storage, macDeviceId, Date.now());
+  }
+
+  /** Remove replies the Mac has finished processing. Idempotent. */
+  async ackPhoneReplies(replyIds: string[]): Promise<{ removed: number }> {
+    return ackPhoneReplies(this.ctx.storage, replyIds, Date.now());
   }
 
   // ---- Subscribe transports (worker forwards the original Request) ----

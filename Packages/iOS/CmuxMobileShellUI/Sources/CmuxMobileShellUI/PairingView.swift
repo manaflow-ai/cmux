@@ -96,7 +96,7 @@ struct PairingView: View {
                         .addDeviceInputBehavior(.number)
                         .accessibilityIdentifier("MobileAddDevicePortField")
                     } header: {
-                        Text(L10n.string("mobile.addDevice.title", defaultValue: "Add Computer"))
+                        Text(L10n.string("mobile.connections.add", defaultValue: "Add Computer"))
                     } footer: {
                         VStack(alignment: .leading, spacing: 4) {
                             Text(MobilePairingScannerSheet.guidanceText)
@@ -112,7 +112,7 @@ struct PairingView: View {
                             Color.clear
                                 .frame(width: 1, height: 1)
                                 .accessibilityElement(children: .ignore)
-                                .accessibilityLabel(L10n.string("mobile.addDevice.formAccessibilityLabel", defaultValue: "Add Computer form"))
+                                .accessibilityLabel(L10n.string("mobile.connections.addFormAccessibilityLabel", defaultValue: "Add Computer form"))
                                 .accessibilityIdentifier("MobileAddDeviceForm")
                         }
                         #endif
@@ -288,8 +288,14 @@ struct PairingView: View {
     }
 
     private var navigationTitle: String {
+        if initialPresentation == .tailscaleSetup {
+            return L10n.string(
+                "mobile.connections.tailscale.add",
+                defaultValue: "Add Tailscale Connection"
+            )
+        }
         if initialPresentation.showsManualPairingControls {
-            return L10n.string("mobile.addDevice.title", defaultValue: "Add Computer")
+            return L10n.string("mobile.connections.add", defaultValue: "Add Computer")
         }
         return L10n.string(
             "mobile.pairing.versionWarningTitle",
@@ -364,7 +370,7 @@ struct PairingView: View {
     private var manualRouteWarningText: String? {
         let trimmedHost = host.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmedHost.isEmpty,
-              !CmxPairingURLScheme.hasPairingScheme(trimmedHost),
+              CmxPairingURLScheme(urlString: trimmedHost) == nil,
               MobileShellRouteAuthPolicy.manualHostNeedsTrustWarning(trimmedHost) else {
             return nil
         }
@@ -402,7 +408,7 @@ struct PairingView: View {
             validationError = L10n.string("mobile.addDevice.invalidHost", defaultValue: "Enter a host or IP address, without spaces or URL paths.")
             return
         }
-        if CmxPairingURLScheme.hasPairingScheme(trimmedHost) {
+        if CmxPairingURLScheme(urlString: trimmedHost) != nil {
             pairingCode = trimmedHost
             startPairingTask {
                 await connectPairingCode()

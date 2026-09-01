@@ -312,6 +312,7 @@ fn terminal_process_get(
         "pid":pid,
         "argv":argv,
         "children":children,
+        "foreground_cwd":crate::platform::foreground_cwd(pid),
     });
     if let Some(executable) = executable {
         value["executable"] = json!(executable);
@@ -2334,6 +2335,8 @@ mod tests {
         assert!(process["pid"].is_u64());
         assert!(process["children"].is_array());
         assert!(process.get("cwd").is_none_or(Value::is_string));
+        let foreground = process.get("foreground_cwd").expect("foreground_cwd is present");
+        assert!(foreground.is_null() || foreground.is_string());
     }
 
     #[test]

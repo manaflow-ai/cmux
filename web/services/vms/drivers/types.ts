@@ -2,9 +2,23 @@
 // per-provider implementations behind an interface. Callers hold a `VMProvider` and never reach
 // into specifics.
 
-export type ProviderId = "e2b" | "freestyle" | "daytona";
+export type ProviderId = "e2b" | "freestyle" | "daytona" | "blaxel";
 
 export type VMStatus = "creating" | "running" | "paused" | "destroyed";
+
+/// A point-in-time reading of one machine. Sleeping machines are never woken for a
+/// reading: they report `asleep` with only their provisioned memory.
+export type VMStats = {
+  readonly state: "awake" | "asleep" | "unknown";
+  readonly sampledAt: number;
+  readonly cpus?: number;
+  readonly cpuPercent?: number;
+  readonly loadAverage1m?: number;
+  readonly memoryTotalMb?: number;
+  readonly memoryUsedMb?: number;
+  readonly diskTotalMb?: number;
+  readonly diskUsedMb?: number;
+};
 
 export type VMHandle = {
   provider: ProviderId;
@@ -19,6 +33,17 @@ export type CreateOptions = {
   image: string; // provider-specific template/snapshot identifier
   providerMetadata?: Record<string, unknown>;
   bakedFreestyleSignedAdmin?: boolean;
+  /**
+   * Name of a persistent volume to mount as the machine's home directory. Providers that
+   * support it create the volume if missing and record it in providerMetadata so attach can
+   * resurrect a dead sandbox around the same home. Providers without volume support ignore it.
+   */
+  homeVolume?: string;
+  /**
+   * Machine size as memory in MB (vCPUs scale with memory on providers that size
+   * this way). Providers without sizing ignore it.
+   */
+  memoryMb?: number;
 };
 
 export type SSHEndpoint = {
@@ -107,11 +132,19 @@ export interface VMProvider {
   destroy(vmId: string): Promise<void>;
 
   getStatus?(vmId: string): Promise<VMStatus>;
+  /// Live CPU/memory/disk for the Cloud panel's activity view. Must not wake a
+  /// sleeping machine.
+  getStats?(vmId: string): Promise<VMStats>;
 
   pause(vmId: string): Promise<void>;
   resume(vmId: string): Promise<VMHandle>;
 
   exec(vmId: string, command: string, opts?: { timeoutMs?: number }): Promise<ExecResult>;
+
+  // Optional: mint a private, token-gated HTTPS preview URL for an arbitrary HTTP port on the
+  // VM (the exe.dev "https://vmname.exe.xyz:3456" equivalent). openUrl embeds the token as a
+  // query parameter for direct browser use.
+  openPort?(vmId: string, port: number): Promise<{ url: string; token: string; openUrl: string; expiresAtMs?: number }>;
 
   snapshot(vmId: string, name?: string): Promise<SnapshotRef>;
   restore(snapshotId: string): Promise<VMHandle>;
@@ -129,6 +162,16 @@ export interface VMProvider {
   // if the driver doesn't mint revocable credentials (e.g. E2B), must not throw on unknown
   // or already-revoked handles. Cleanup paths rely on it being safe to call.
   revokeSSHIdentity(identityHandle: string): Promise<void>;
+
+  /**
+   * Invalidates endpoint credentials and live daemon connections for one VM.
+   *
+   * This is invoked during account sign-out after the local client has closed
+   * its workspaces. Providers that do not expose revocable WebSocket/preview
+   * credentials may omit it; the control plane still marks their lease rows
+   * revoked so no new endpoint can be returned to the signed-out account.
+   */
+  revokeEndpointLeases?(vmId: string): Promise<void>;
 }
 
 export class ProviderError extends Error {

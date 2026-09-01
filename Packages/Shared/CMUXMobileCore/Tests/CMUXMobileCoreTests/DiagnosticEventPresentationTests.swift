@@ -595,6 +595,48 @@ import Testing
         }
     }
 
+    /// A shared report must state the configured connection method and the
+    /// transport actually carrying the foreground connection in words, so a
+    /// support thread never needs a Settings screenshot to interpret dials.
+    @Test func describesConnectionMethodAndForegroundTransport() {
+        let configured = englishPresentation.describe(DiagnosticEvent(
+            code: .appFeatureAction,
+            tNanos: 1,
+            a: DiagnosticAppEventKind.connectionMethodConfigured.rawValue,
+            c: DiagnosticConnectionMethod.tailscale.rawValue
+        ))
+        #expect(configured.fields == [
+            .init(key: "operation", value: "connectionMethodConfigured"),
+            .init(key: "method", value: "Tailscale Only"),
+        ])
+        #expect(englishPresentation.summary(configured)
+            .contains("Method: Tailscale Only"))
+
+        let changed = englishPresentation.describe(DiagnosticEvent(
+            code: .appFeatureAction,
+            tNanos: 1,
+            a: DiagnosticAppEventKind.connectionMethodPreferenceChanged.rawValue,
+            c: DiagnosticConnectionMethod.automatic.rawValue
+        ))
+        #expect(changed.fields == [
+            .init(key: "operation", value: "connectionMethodPreferenceChanged"),
+            .init(key: "method", value: "Auto-Connect (Iroh)"),
+        ])
+
+        let transport = englishPresentation.describe(DiagnosticEvent(
+            code: .appFeatureAction,
+            tNanos: 1,
+            a: DiagnosticAppEventKind.foregroundTransportSelected.rawValue,
+            c: DiagnosticTransportKind.tailscale.rawValue
+        ))
+        #expect(transport.fields == [
+            .init(key: "operation", value: "foregroundTransportSelected"),
+            .init(key: "transport", value: "Tailscale"),
+        ])
+        #expect(englishPresentation.summary(transport)
+            .contains("Transport: Tailscale"))
+    }
+
     @Test func extractsFailureAndTransportKinds() {
         let event = DiagnosticEvent(
             code: .endpointFailed,

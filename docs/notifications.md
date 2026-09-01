@@ -109,6 +109,12 @@ Hook input and output use this shape:
     "appFocused": false,
     "focusedPanel": false
   },
+  "agent": {
+    "kind": "claude",
+    "category": "turn-complete",
+    "pending": false,
+    "isSubagent": true
+  },
   "effects": {
     "record": true,
     "markUnread": true,
@@ -122,6 +128,36 @@ Hook input and output use this shape:
 ```
 
 Global hooks from `~/.config/cmux/cmux.json` run first. Project hooks from parent directories to the current workspace append after that. Project hooks use the same trust prompt as other project `cmux.json` commands before they run. Feed approval banners also pass through these hooks; disabling `desktop` suppresses the native banner while keeping the Feed item available in cmux. Set `"hooksMode": "replace"` in a project `notifications` section to ignore inherited hooks. If any hook fails, times out, or returns invalid JSON, cmux uses the default notification behavior and posts a hook failure alert.
+
+### Agent-event context
+
+Notifications that originate from an agent completion signal (agent hooks installed by `cmux hooks setup`, or cmux's built-in prompt-turn detection) carry an additional read-only `agent` object so hooks can implement their own per-agent notification policy:
+
+| Field | Description |
+|----------|-------------|
+| `kind` | Stable lowercase agent slug (`claude`, `codex`, `grok`, `antigravity`, …) |
+| `category` | `turn-complete`, `needs-permission`, or `idle-reminder` |
+| `pending` | `true` when the turn ended with background work still running |
+| `isSubagent` | `true` when the event came from a nested subagent session |
+
+The `agent` object is omitted entirely for non-agent notifications (plain `cmux notify`, OSC 9/99/777 escape sequences, notifications from older cmux CLIs), and individual fields are omitted when unknown. Hooks cannot modify it — patches to `agent` in hook output are ignored. The same context is exported to the hook process environment as `CMUX_NOTIFICATION_AGENT_KIND`, `CMUX_NOTIFICATION_AGENT_CATEGORY`, `CMUX_NOTIFICATION_AGENT_PENDING` (`0`/`1`), and `CMUX_NOTIFICATION_AGENT_IS_SUBAGENT` (`0`/`1`); each variable is set only when the corresponding field is present.
+
+With no hooks configured, notification behavior is exactly cmux's built-in default — configuring a hook is the explicit opt-in that hands the delivery decision to your script. For example, to keep every built-in behavior except the banner/sound/flash for subagent completions:
+
+```json
+{
+  "notifications": {
+    "hooks": [
+      {
+        "id": "mute-subagent-completions",
+        "command": "if [ \"${CMUX_NOTIFICATION_AGENT_IS_SUBAGENT-0}\" = \"1\" ] && [ \"$CMUX_NOTIFICATION_AGENT_CATEGORY\" = \"turn-complete\" ]; then printf '{\"effects\":{\"desktop\":false,\"sound\":false,\"paneFlash\":false}}'; fi"
+      }
+    ]
+  }
+}
+```
+
+A hook can also route events into an entirely custom notification system: disable every effect (`record`, `desktop`, `sound`, `command`, `paneFlash`, …) and call your own notifier from the hook script using the JSON on stdin. Note that cmux's built-in subagent suppression (`automation.suppressSubagentNotifications`, on by default) drops subagent completion events before they reach hooks; turn it off if your hook should see subagent events and make its own decision.
 
 ## Integration Examples
 

@@ -1,4 +1,5 @@
 import CoreGraphics
+import CmuxPhonePush
 import Foundation
 import Testing
 
@@ -156,12 +157,14 @@ import Testing
         let confinedPayload = PhonePushPayload(
             notification: confined,
             macDeviceId: "mac-1",
+            macInstanceTag: "stable",
             badgeCount: 1,
             hideContent: false
         )
         let trustedPayload = PhonePushPayload(
             notification: trusted,
             macDeviceId: "mac-1",
+            macInstanceTag: "nightly",
             badgeCount: 2,
             hideContent: false
         )
@@ -170,9 +173,11 @@ import Testing
         #expect(confinedPayload.surfaceId == surfaceId.uuidString)
         #expect(!confinedPayload.retargetsToLiveSurfaceOwner)
         #expect(confinedPayload.replyShape == "none")
+        #expect(confinedPayload.macInstanceTag == "stable")
         #expect(trustedPayload.workspaceId == workspaceId.uuidString)
         #expect(trustedPayload.surfaceId == surfaceId.uuidString)
         #expect(trustedPayload.retargetsToLiveSurfaceOwner)
+        #expect(trustedPayload.macInstanceTag == "nightly")
         #expect(trustedPayload.replyShape == "text")
     }
 
@@ -422,6 +427,7 @@ import Testing
             surfaceId: UUID().uuidString,
             retargetsToLiveSurfaceOwner: true,
             macDeviceId: UUID().uuidString,
+            macInstanceTag: "nightly",
             notificationId: UUID().uuidString,
             notificationIds: [],
             badgeCount: 7,
@@ -454,6 +460,7 @@ import Testing
             body["expirationEpochSeconds"] as? Int == 1_750_000_120
         )
         #expect(body["hideContent"] as? Bool == true)
+        #expect(body["macInstanceTag"] as? String == "nightly")
         #expect(!encoded.contains("secret title"))
         #expect(!encoded.contains("secret subtitle"))
         #expect(!encoded.contains("secret terminal output"))
@@ -471,6 +478,7 @@ import Testing
             surfaceId: UUID().uuidString,
             retargetsToLiveSurfaceOwner: true,
             macDeviceId: UUID().uuidString,
+            macInstanceTag: nil,
             notificationId: UUID().uuidString,
             notificationIds: [],
             badgeCount: 1,
@@ -509,6 +517,7 @@ import Testing
             surfaceId: nil,
             retargetsToLiveSurfaceOwner: false,
             macDeviceId: nil,
+            macInstanceTag: nil,
             notificationId: nil,
             notificationIds: [],
             badgeCount: 1,
@@ -535,6 +544,7 @@ import Testing
             surfaceId: nil,
             retargetsToLiveSurfaceOwner: false,
             macDeviceId: nil,
+            macInstanceTag: nil,
             notificationId: nil,
             notificationIds: Array(
                 repeating: maximumEscapedIdentifier,

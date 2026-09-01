@@ -27,9 +27,16 @@ public enum GetUserOr: Sendable {
     case anonymous
 }
 
+/// Whether OAuth browser sessions may reuse Safari cookies.
+public enum OAuthBrowserSessionPrivacy: Equatable, Sendable {
+    case shared
+    case ephemeral
+}
+
 /// The main Stack Auth client
 public actor StackClientApp {
     public let projectId: String
+    public let oauthBrowserSessionPrivacy: OAuthBrowserSessionPrivacy
     
     let client: APIClient
     private let baseUrl: String
@@ -41,10 +48,12 @@ public actor StackClientApp {
         publishableClientKey: String,
         baseUrl: String = "https://api.stack-auth.com",
         tokenStore: TokenStoreInit = .keychain,
-        noAutomaticPrefetch: Bool = false
+        noAutomaticPrefetch: Bool = false,
+        oauthBrowserSessionPrivacy: OAuthBrowserSessionPrivacy = .shared
     ) {
         self.projectId = projectId
         self.baseUrl = baseUrl
+        self.oauthBrowserSessionPrivacy = oauthBrowserSessionPrivacy
         
         let store: any TokenStoreProtocol
         var hasDefault = true
@@ -85,10 +94,12 @@ public actor StackClientApp {
         publishableClientKey: String,
         baseUrl: String = "https://api.stack-auth.com",
         tokenStore: TokenStoreInit = .memory,
-        noAutomaticPrefetch: Bool = false
+        noAutomaticPrefetch: Bool = false,
+        oauthBrowserSessionPrivacy: OAuthBrowserSessionPrivacy = .shared
     ) {
         self.projectId = projectId
         self.baseUrl = baseUrl
+        self.oauthBrowserSessionPrivacy = oauthBrowserSessionPrivacy
         
         let store: any TokenStoreProtocol
         var hasDefault = true
@@ -276,6 +287,9 @@ public actor StackClientApp {
             return
         }
 
+        // Stack authorizes this exact redirect protocol. AuthenticationServices
+        // scopes its callback to the initiating session even when installed apps
+        // share the protocol; the ephemeral browser session isolates cookies.
         let callbackScheme = "stack-auth-mobile-oauth-url"
         let oauth = try await getOAuthUrl(
             provider: provider,
@@ -285,6 +299,8 @@ public actor StackClientApp {
         let providerAuthorizationUrl = try await getOAuthProviderAuthorizationUrl(oauth.url)
         let sessionHolder = WebAuthenticationSessionHolder()
         let gate = AuthFlowCancellationGate<URL>()
+        let prefersEphemeralWebBrowserSession =
+            oauthBrowserSessionPrivacy == .ephemeral
 
         // The continuation resumes with the provider's callback URL only; the
         // token exchange runs AFTER it, structured in this task, so a cancel
@@ -328,7 +344,8 @@ public actor StackClientApp {
                     gate.resume(returning: callbackUrl)
                 }
 
-                session.prefersEphemeralWebBrowserSession = false
+                session.prefersEphemeralWebBrowserSession =
+                    prefersEphemeralWebBrowserSession
 
                 #if os(iOS) || os(macOS)
                 if let provider = presentationContextProvider {

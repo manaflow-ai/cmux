@@ -1098,9 +1098,11 @@ final class TerminalNotificationStore: ObservableObject {
         retargetsToLiveSurfaceOwner: Bool = true,
         cooldownKey: String? = nil,
         cooldownInterval: TimeInterval? = nil,
+        correlationKey: String? = nil,
         clickAction: TerminalNotificationClickAction? = nil, notificationGeneration: UInt64? = nil,
         resolvedHooks: [CmuxResolvedNotificationHook]? = nil,
-        preRegisteredPolicyRequestId: UUID? = nil
+        preRegisteredPolicyRequestId: UUID? = nil,
+        agent: TerminalNotificationPolicyAgentContext? = nil
     ) {
 #if DEBUG
         cmuxDebugLog(
@@ -1143,8 +1145,9 @@ final class TerminalNotificationStore: ObservableObject {
             body: body,
             replyShape: replyShape,
             retargetsToLiveSurfaceOwner: retargetsToLiveSurfaceOwner,
-            correlationKey: cooldownKey,
-            resolvedHooks: resolvedHooks
+            correlationKey: correlationKey ?? cooldownKey,
+            resolvedHooks: resolvedHooks,
+            agent: agent
         )
         if policyContext.hooks.isEmpty, preRegisteredPolicyRequestId == nil {
             inFlightPolicyRequests.discardPending(
@@ -1312,7 +1315,8 @@ final class TerminalNotificationStore: ObservableObject {
         replyShape: TerminalNotificationReplyShape = .none,
         retargetsToLiveSurfaceOwner: Bool,
         correlationKey: String?,
-        resolvedHooks: [CmuxResolvedNotificationHook]?
+        resolvedHooks: [CmuxResolvedNotificationHook]?,
+        agent: TerminalNotificationPolicyAgentContext? = nil
     ) -> NotificationPolicyContext {
         let appDelegate = AppDelegate.shared
         let context = appDelegate?.contextContainingTabId(tabId)
@@ -1354,7 +1358,8 @@ final class TerminalNotificationStore: ObservableObject {
                 replyShape: replyShape,
                 cwd: cwd,
                 isAppFocused: isAppFocused,
-                isFocusedPanel: isFocusedPanel
+                isFocusedPanel: isFocusedPanel,
+                agent: agent
             ),
             scrollPosition: scrollPosition,
             hooks: resolvedHooks ?? cmuxConfigStore?.notificationHooks(
@@ -1385,7 +1390,8 @@ final class TerminalNotificationStore: ObservableObject {
                 replyShape: request.replyShape,
                 cwd: request.cwd,
                 isAppFocused: request.isAppFocused,
-                isFocusedPanel: request.isFocusedPanel
+                isFocusedPanel: request.isFocusedPanel,
+                agent: request.agent
             ),
             effects: envelope.effects,
             now: now,
@@ -1469,6 +1475,13 @@ final class TerminalNotificationStore: ObservableObject {
         var idsToClear: [String] = []
         updated.removeAll { existing in
             guard existing.tabId == notification.tabId, existing.surfaceId == notification.surfaceId else { return false }
+            if let correlationKey = notification.correlationKey {
+                // Correlated producers (Cursor approvals and other
+                // identity-scoped events) replace only their own prior entry.
+                // A refresh must not erase a newer unrelated question, error,
+                // or approval that arrived on the same surface.
+                guard existing.correlationKey == correlationKey else { return false }
+            }
             idsToClear.append(existing.id.uuidString)
             return true
         }
@@ -1941,6 +1954,38 @@ final class TerminalNotificationStore: ObservableObject {
         }
         ids.forEach(remove)
         removePendingNotificationRequests(withIdentifiers: ids.map(\.uuidString))
+    }
+
+    /// Clears one surface notification by its producer correlation key. This
+    /// is intentionally narrower than a surface clear: a completion callback
+    /// may arrive after a newer question, error, or approval was delivered to
+    /// the same pane.
+    func clearNotifications(
+        forTabId tabId: UUID,
+        surfaceId: UUID,
+        correlationKey: String,
+        throughNotificationGeneration: UInt64? = nil
+    ) {
+        inFlightPolicyRequests.discard(
+            forSurfaceId: surfaceId,
+            correlationKey: correlationKey,
+            through: throughNotificationGeneration
+        )
+        let liveTabId = AppDelegate.shared?
+            .agentNotificationDeliveryTarget(claimedTabId: tabId, surfaceId: surfaceId)?.tabId ?? tabId
+        let ids: [UUID] = notifications.compactMap { notification -> UUID? in
+            guard notification.correlationKey == correlationKey,
+                  notification.matchesClear(
+                      tabId: tabId,
+                      liveTabId: liveTabId,
+                      surfaceId: surfaceId
+                  ) else {
+                return nil
+            }
+            return notification.id
+        }
+        ids.forEach(remove)
+        removePendingNotificationRequests(withIdentifiers: ids.map { $0.uuidString })
     }
 
     func restoreSessionNotifications(_ restoredNotifications: [TerminalNotification], forTabId tabId: UUID) {

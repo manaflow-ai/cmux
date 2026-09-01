@@ -322,7 +322,7 @@ export class DaytonaProvider implements VMProvider {
           "Daytona attach is WebSocket-only; cmux does not use Daytona's SSH gateway. " +
             "`cmux vm ssh <id>` and `cmux vm attach <id>` dial the WebSocket PTY instead. " +
             "For provider SSH info, use `cmux vm new` without `--provider daytona` " +
-            "(Freestyle is the default).",
+            "(Blaxel is the default).",
         );
       },
     );

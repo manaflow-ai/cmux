@@ -312,6 +312,10 @@ actor RetryDelayRecorder {
         }
         #expect(request?.httpMethod == "DELETE")
         #expect(request?.value(forHTTPHeaderField: "X-Stack-Refresh-Token") == "captured-refresh")
+        #expect(
+            request?.value(forHTTPHeaderField: "X-Cmux-App-Namespace")
+                == "dev.cmux.ios"
+        )
     }
 
     @Test func signOutUnregisterNeverFallsBackToLiveProvider() async {

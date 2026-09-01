@@ -180,13 +180,32 @@ public struct MobileWorkspacePreview: Identifiable, Equatable, Sendable {
 }
 
 extension MobileWorkspacePreview {
-    /// The picker-selected non-terminal Mac surface, if it still exists.
+    /// The non-terminal surface the owning Mac currently has focused, when it
+    /// reports one. This is separate from the terminal fallback because an
+    /// explicitly selected terminal on iOS must remain authoritative.
+    public var focusedNonTerminalSurface: MobileSurfacePreview? {
+        surfaces.first { !$0.kind.isTerminal && $0.isFocused }
+    }
+
+    /// The non-terminal Mac surface to present, honoring the picker selection.
     ///
     /// Terminal-kinded rows are never a Mac-surface selection (terminals have
     /// their own selection axis), so this is the one lookup every call site
     /// must share rather than re-filtering `surfaces` inline.
+    ///
+    /// With no explicit selection (or a stale one whose surface no longer
+    /// exists) and no terminals to stream (for example a workspace whose only
+    /// pane is a todo panel), this falls back to the first non-terminal
+    /// surface: the detail view would otherwise render an empty terminal
+    /// background.
     public func selectedMacSurface(id: MobileSurfacePreview.ID?) -> MobileSurfacePreview? {
-        guard let id else { return nil }
-        return surfaces.first { $0.id == id && !$0.kind.isTerminal }
+        guard let id else { return defaultMacSurface }
+        return surfaces.first { $0.id == id && !$0.kind.isTerminal } ?? defaultMacSurface
+    }
+
+    private var defaultMacSurface: MobileSurfacePreview? {
+        guard terminals.isEmpty else { return nil }
+        return surfaces.first { !$0.kind.isTerminal && $0.isFocused }
+            ?? surfaces.first { !$0.kind.isTerminal }
     }
 }

@@ -29,6 +29,10 @@ nonisolated struct PendingVerifiedReplayPresentation: @unchecked Sendable {
     var fence: VerifiedReplayPresentationFence
     var observedFrame: MobileTerminalRenderGridFrame?
     var rearmReadyFenceOnPresent: Bool = false
+    /// A resize can invalidate a token after its GPU work completes. Bound
+    /// event-driven replacement attempts so a permanently unusable surface
+    /// resolves the replay waiter instead of spinning forever.
+    var presentationRetryCount: UInt8 = 0
     let continuation: CheckedContinuation<VerifiedReplayPresentedSubmission?, Never>
 }
 #endif

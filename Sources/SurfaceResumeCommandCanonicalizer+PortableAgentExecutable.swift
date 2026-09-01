@@ -35,6 +35,10 @@ extension SurfaceResumeBindingSnapshot {
             )
         let trimmed = command.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return nil }
+        // Stays raw POSIX: remote restores (remoteStartupInput) hand this to
+        // the remote host's shell, and local callers apply the nushell dialect
+        // envelope at their own typed boundary (restoreStartupInput). Wrapping
+        // here would leak `^/bin/sh …` into contexts that parse POSIX.
         guard let environment, !environment.isEmpty else {
             return trimmed + "\n"
         }
@@ -50,11 +54,21 @@ extension SurfaceResumeBindingSnapshot {
         repairPortableAgentExecutable: Bool
     ) -> String? {
         if usesLocalRestoreVerb {
+            // Bare words (` cmux restore <kind> <id>`): parses identically in
+            // POSIX shells and nushell, no dialect handling needed.
             return localRestoreCLIInput
         }
-        return inlineStartupInput(
+        guard let inline = inlineStartupInput(
             repairPortableAgentExecutable: repairPortableAgentExecutable
-        )
+        ) else {
+            return nil
+        }
+        // The compatibility fallback is a POSIX one-liner typed into the local
+        // login shell, so it is the nushell dialect boundary (the trailing
+        // newline stays outside the wrap). Remote hosts keep raw POSIX via
+        // remoteStartupInput().
+        let command = inline.hasSuffix("\n") ? String(inline.dropLast()) : inline
+        return TerminalStartupTypedShellCommand().typedInput(posixCommand: command) + "\n"
     }
 
     func remoteStartupInput() -> String? {

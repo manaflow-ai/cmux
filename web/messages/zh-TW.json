@@ -1021,7 +1021,8 @@
         "browser": {
           "defaultSearchEngine": "瀏覽器位址列輸入不是 URL 時使用的預設搜尋引擎。任意提供者請使用 custom 與 customSearchEngineURLTemplate。",
           "customSearchEngineName": "defaultSearchEngine 為 custom 時使用的顯示名稱。",
-          "customSearchEngineURLTemplate": "defaultSearchEngine 為 custom 時使用的搜尋 URL。使用查詢佔位符或 %s 表示已編碼的查詢。若沒有佔位符，cmux 會將 q= 加到 URL。"
+          "customSearchEngineURLTemplate": "defaultSearchEngine 為 custom 時使用的搜尋 URL。使用查詢佔位符或 %s 表示已編碼的查詢。若沒有佔位符，cmux 會將 q= 加到 URL。",
+          "urlAllowlist": "限制內建瀏覽器導覽的主機或 URL 模式。設定介面會建議本機開發來源；儲存清單後會啟用選用限制。刪除項目即可封鎖這些來源；沒有受管理政策時，將使用者值留白可停用限制。"
         },
         "workspaceGroups": {
           "newWorkspacePlacement": "群組內 Cmd-N、群組標題中的 + 按鈕，以及已設定的群組動作放置新 workspace 的全域預設位置：`afterCurrent`（在目前作用中的群組內 workspace 之後，沒有時回退到 top）、`top`（第二個位置，緊接錨點之後）或 `end`（最後一個成員之後）。",

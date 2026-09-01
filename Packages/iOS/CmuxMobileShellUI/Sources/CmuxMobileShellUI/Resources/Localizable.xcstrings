@@ -1,6 +1,74 @@
 {
   "sourceLanguage" : "en",
   "strings" : {
+    "mobile.terminal.outputRecovery.dismiss" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Dismiss"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "閉じる"
+          }
+        }
+      }
+    },
+    "mobile.terminal.outputRecovery.message" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Terminal output stopped unexpectedly. Retry to reconnect this terminal."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ターミナル出力が予期せず停止しました。再試行してこのターミナルに再接続してください。"
+          }
+        }
+      }
+    },
+    "mobile.terminal.outputRecovery.retry" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Retry"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "再試行"
+          }
+        }
+      }
+    },
+    "mobile.terminal.outputRecovery.title" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Terminal paused"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ターミナルを一時停止しました"
+          }
+        }
+      }
+    },
     "mobile.workspaces.statusLine.notConnected" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -852,6 +920,34 @@
         "ja" : { "stringUnit" : { "state" : "translated", "value" : "削除" } }
       }
     },
+    "mobile.connections.route.remove" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Remove route" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "経路を削除" } }
+      }
+    },
+    "mobile.connections.route.deleteComputer.title" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Delete this computer?" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "このコンピュータを削除しますか？" } }
+      }
+    },
+    "mobile.connections.route.deleteComputer.message" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "This is the last route. Deleting it will delete this computer record. You can reconnect later by pairing this computer again." } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "最後の経路です。削除すると、このコンピュータの登録も削除されます。もう一度ペアリングすれば再接続できます。" } }
+      }
+    },
+    "mobile.connections.route.deleteComputer.confirm" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Delete Computer" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "コンピュータを削除" } }
+      }
+    },
     "mobile.common.save" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -878,6 +974,20 @@
       "localizations" : {
         "en" : { "stringUnit" : { "state" : "translated", "value" : "Send" } },
         "ja" : { "stringUnit" : { "state" : "translated", "value" : "送信" } }
+      }
+    },
+    "mobile.push.reply.failure.title" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Reply not sent" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "返信を送信できませんでした" } }
+      }
+    },
+    "mobile.push.reply.failure.body" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Your reply didn’t reach your Mac. Open cmux to send it again." } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "返信はMacに届きませんでした。cmuxを開いてもう一度送信してください。" } }
       }
     },
     "mobile.push.debugReply.title" : {
@@ -1053,6 +1163,13 @@
       "localizations" : {
         "en" : { "stringUnit" : { "state" : "translated", "value" : "Update cmux on this Mac before using private addresses." } },
         "ja" : { "stringUnit" : { "state" : "translated", "value" : "プライベートアドレスを使用する前に、このMacのcmuxを更新してください。" } }
+      }
+    },
+    "mobile.iroh.private.custom.macUpdateRequiredFormat" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "%@ (Update cmux)" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "%@ (cmux を更新)" } }
       }
     },
     "mobile.iroh.private.lan" : {

@@ -103,6 +103,40 @@
         }
       }
     },
+    "diagnostics.connectionMethod.automatic": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Auto-Connect (Iroh)"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "自動接続 (Iroh)"
+          }
+        }
+      }
+    },
+    "diagnostics.connectionMethod.tailscale": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tailscale Only"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tailscaleのみ"
+          }
+        }
+      }
+    },
     "diagnostics.count.bytes": {
       "extractionState": "manual",
       "localizations": {
@@ -5841,6 +5875,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "マッピング"
+          }
+        }
+      }
+    },
+    "diagnostics.field.method": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Method"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "接続方法"
           }
         }
       }
