@@ -383,10 +383,12 @@ struct FilePreviewReloadTests {
         try after.write(to: fileURL, atomically: false, encoding: .utf8)
         await loader.releaseFirstRead()
 
-        for _ in 0..<100 where panel.content != after {
-            await Task.yield()
+        #expect(await loader.waitForCount(2))
+        let clock = ContinuousClock()
+        let deadline = clock.now.advanced(by: .seconds(2))
+        while panel.content != after, clock.now < deadline {
+            try? await clock.sleep(for: .milliseconds(10))
         }
-
         #expect(await loader.count == 2)
         #expect(panel.content == after)
     }
@@ -594,6 +596,15 @@ private actor ControlledMarkdownTextLoader {
     func releaseFirstRead() {
         firstReleaseContinuation?.resume()
         firstReleaseContinuation = nil
+    }
+
+    func waitForCount(_ expected: Int) async -> Bool {
+        let clock = ContinuousClock()
+        let deadline = clock.now.advanced(by: .seconds(2))
+        while count < expected, clock.now < deadline {
+            try? await clock.sleep(for: .milliseconds(10))
+        }
+        return count >= expected
     }
 }
 

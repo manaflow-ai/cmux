@@ -2441,9 +2441,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             // before entering the generic mobile RPC so a launch-time workspace
             // claim cannot route the reply to a stale manager.
             guard let routedParams = self.phoneReplyTerminalInputParams(params) else {
-                let restorationPending = !self.didAttemptStartupSessionRestore
-                    || self.isApplyingSessionRestore
-                return restorationPending ? .retryable : .permanentlyUndeliverable
+                // A valid surface can be temporarily absent while a window,
+                // Dock, or remote-tmux projection is being rebuilt. The inbox
+                // has a server-side TTL, so keep that bounded retry alive;
+                // malformed payloads are the only immediate permanent case.
+                let hasValidSurfaceID = controller.v2UUID(params, "surface_id") != nil
+                let hasWorkspaceID = controller.v2HasNonNullParam(params, "workspace_id")
+                let hasValidWorkspaceID = controller.v2UUID(params, "workspace_id") != nil
+                guard hasValidSurfaceID,
+                      (!hasWorkspaceID || hasValidWorkspaceID) else {
+                    return .permanentlyUndeliverable
+                }
+                return .retryable
             }
             switch controller.v2MobileTerminalInput(params: routedParams) {
             case .ok:

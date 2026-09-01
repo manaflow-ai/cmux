@@ -108,6 +108,8 @@ final class MarkdownPanel: Panel, ObservableObject, FilePreviewTextEditingPanel 
     private var activeSaveGeneration: Int?
     private var textLoadGeneration: Int = 0
     private var textEditGeneration: Int = 0
+    private var staleReadRetryCount = 0
+    private let maximumStaleReadRetries = 3
     private var pendingSearchNeedle: String?
     private weak var textView: NSTextView?
     var isClosed: Bool = false
@@ -562,7 +564,13 @@ final class MarkdownPanel: Panel, ObservableObject, FilePreviewTextEditingPanel 
     // MARK: - File I/O
 
     @discardableResult
-    private func loadFileContent(replacingDirtyContent: Bool = true) -> Task<Void, Never> {
+    private func loadFileContent(
+        replacingDirtyContent: Bool = true,
+        isStaleReadRetry: Bool = false
+    ) -> Task<Void, Never> {
+        if !isStaleReadRetry {
+            staleReadRetryCount = 0
+        }
         textLoadGeneration &+= 1
         let loadGeneration = textLoadGeneration
         let editGeneration = textEditGeneration
@@ -605,9 +613,20 @@ final class MarkdownPanel: Panel, ObservableObject, FilePreviewTextEditingPanel 
         // newer fingerprint first, preserving the latest on-disk content.
         let postReadFileState = FilePreviewFileState.capture(path: filePath)
         guard postReadFileState == requestedFileState else {
-            _ = loadFileContent(replacingDirtyContent: replacingDirtyContent)
-            return
+            if staleReadRetryCount < maximumStaleReadRetries {
+                staleReadRetryCount += 1
+                _ = loadFileContent(
+                    replacingDirtyContent: replacingDirtyContent,
+                    isStaleReadRetry: true
+                )
+                return
+            }
+            // A continuously written file must not create an unbounded chain
+            // of full-file reads. Accept this bounded best-effort result,
+            // adopt the latest observed fingerprint, and let a subsequent
+            // watcher event start a fresh reconciliation budget.
         }
+        staleReadRetryCount = 0
         lastObservedFileState = postReadFileState
         guard case .loaded(let newContent, let encoding) = result else {
             guard replacingDirtyContent || !isDirty else {
