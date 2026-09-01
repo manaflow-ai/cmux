@@ -845,12 +845,11 @@ impl PtyDeps for RealPtyDeps {
         if let Some(override_path) =
             self.env.get("CHATMUX_RELAY_CMUX_TUI").filter(|value| !value.trim().is_empty())
         {
-            let path = override_path.trim();
-            return if is_executable(Path::new(path)).await {
-                Some(CmuxTui { file: path.to_owned(), prefix: Vec::new() })
-            } else {
-                None
-            };
+            let path = Path::new(override_path.trim());
+            return canonical_executable(path).await.map(|file| CmuxTui {
+                file: file.to_string_lossy().into_owned(),
+                prefix: Vec::new(),
+            });
         }
         // Never a bare `cmux` on PATH — that name is ambiguous; only cmux-tui.
         for dir in self.env.get("PATH").map(String::as_str).unwrap_or("").split(':') {
@@ -858,9 +857,9 @@ impl PtyDeps for RealPtyDeps {
                 continue;
             }
             let candidate = Path::new(dir).join("cmux-tui");
-            if is_executable(&candidate).await {
+            if let Some(file) = canonical_executable(&candidate).await {
                 return Some(CmuxTui {
-                    file: candidate.to_string_lossy().into_owned(),
+                    file: file.to_string_lossy().into_owned(),
                     prefix: Vec::new(),
                 });
             }
@@ -986,6 +985,14 @@ async fn is_executable(path: &Path) -> bool {
         Ok(meta) => meta.is_file() && meta.permissions().mode() & 0o111 != 0,
         Err(_) => false,
     }
+}
+
+/// Resolve and validate a PATH candidate before handing it to `Command`.
+/// Keeping the canonical absolute path in `CmuxTui` avoids a second PATH
+/// lookup after validation, so a changed PATH cannot select another binary.
+async fn canonical_executable(path: &Path) -> Option<PathBuf> {
+    let canonical = tokio::fs::canonicalize(path).await.ok()?;
+    is_executable(&canonical).await.then_some(canonical)
 }
 
 /// Session-name validity is re-exported so the daemon path can reject early.
