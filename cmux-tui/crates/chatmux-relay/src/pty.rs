@@ -409,6 +409,9 @@ struct ViewerSink {
     id: u64,
     on_data: Arc<dyn Fn(Bytes) + Send + Sync>,
     on_exit: Arc<dyn Fn(i64) + Send + Sync>,
+    /// Serializes this viewer's live and replay callbacks without blocking
+    /// other viewers on a session-wide lock.
+    delivery_lock: Arc<Mutex<()>>,
 }
 
 /// A fallback $SHELL session: one PTY, a bounded ring, and a viewer set that
@@ -2453,7 +2456,7 @@ impl Inner {
                 let manager = Arc::clone(&self);
                 let on_session_data: DataSink = Arc::new(move |chunk: Bytes| {
                     let _dispatch = data_session.dispatch_lock.lock().expect("shell dispatch lock");
-                    let viewers_to_notify: Vec<Arc<dyn Fn(Bytes) + Send + Sync>> = {
+                    let viewers_to_notify: Vec<(Arc<Mutex<()>>, Arc<dyn Fn(Bytes) + Send + Sync>)> = {
                         let mut inner = data_session.inner.lock().expect("shell inner lock");
                         inner.ring_size += chunk.len();
                         inner.ring.push_back(chunk.clone());
@@ -2475,12 +2478,17 @@ impl Inner {
                                     }
                                 }
                             } else {
-                                viewers_to_notify.push(Arc::clone(&viewer.on_data));
+                                viewers_to_notify.push((
+                                    Arc::clone(&viewer.delivery_lock),
+                                    Arc::clone(&viewer.on_data),
+                                ));
                             }
                         }
                         viewers_to_notify
                     };
-                    for on_data in viewers_to_notify {
+                    drop(_dispatch);
+                    for (delivery_lock, on_data) in viewers_to_notify {
+                        let _delivery = delivery_lock.lock().expect("viewer delivery lock");
                         on_data(chunk.clone());
                     }
                 });
@@ -2496,6 +2504,7 @@ impl Inner {
                     };
                     manager.shell_sessions.lock().expect("shell lock").remove(&session_name);
                     for viewer in viewers {
+                        let _delivery = viewer.delivery_lock.lock().expect("viewer delivery lock");
                         (viewer.on_exit)(code);
                     }
                 });
@@ -2541,7 +2550,7 @@ impl Inner {
 
         let start_session = Arc::clone(&shell_session);
         let start: Box<dyn FnOnce() + Send> = Box::new(move || {
-            let (banner, replay, alive) = {
+            let (banner, replay, alive, delivery_lock) = {
                 let _dispatch = start_session.dispatch_lock.lock().expect("shell dispatch lock");
                 let _flow = start_session.flow_lock.lock().expect("shell flow lock");
                 let mut inner = start_session.inner.lock().expect("shell inner lock");
@@ -2553,27 +2562,32 @@ impl Inner {
                     inner.ring.iter().flat_map(|c| c.iter().copied()).collect::<Vec<u8>>()
                 });
                 let alive = inner.alive;
-                if alive {
+                let delivery_lock = alive.then(|| Arc::new(Mutex::new(())));
+                if let Some(delivery_lock) = &delivery_lock {
                     inner.viewers.push(ViewerSink {
                         id: viewer_id,
                         on_data: Arc::clone(&on_data),
                         on_exit: Arc::clone(&on_exit),
+                        delivery_lock: Arc::clone(delivery_lock),
                     });
                     inner.draining_viewers.insert(viewer_id);
                 }
-                (banner, replay, alive)
+                (banner, replay, alive, delivery_lock)
             };
+            if !alive {
+                on_exit(0);
+                return;
+            }
+            let Some(delivery_lock) = delivery_lock else { return };
             if let Some(banner) = banner {
+                let _delivery = delivery_lock.lock().expect("viewer delivery lock");
                 on_data(Bytes::from(banner));
             }
             if let Some(replay) = replay {
+                let _delivery = delivery_lock.lock().expect("viewer delivery lock");
                 on_data(Bytes::from(replay));
             }
             if released.load(Ordering::SeqCst) {
-                return;
-            }
-            if !alive {
-                on_exit(0);
                 return;
             }
             loop {
@@ -2598,6 +2612,7 @@ impl Inner {
                     }
                 };
                 let Some(chunk) = chunk else { break };
+                let _delivery = delivery_lock.lock().expect("viewer delivery lock");
                 on_data(chunk);
             }
         });
@@ -2697,14 +2712,19 @@ impl PtyControl for ShellViewerControl {
                         .find(|viewer| viewer.id == self.viewer_id)
                         .map(|viewer| Arc::clone(&viewer.on_data))
                     {
+                        let delivery_lock = inner
+                            .viewers
+                            .iter()
+                            .find(|viewer| viewer.id == self.viewer_id)
+                            .map(|viewer| Arc::clone(&viewer.delivery_lock));
                         let chunk =
                             inner.paused_backlog.get_mut(&self.viewer_id).and_then(|backlog| {
                                 let chunk = backlog.chunks.pop_front()?;
                                 backlog.bytes -= chunk.len();
                                 Some(chunk)
                             });
-                        if let Some(chunk) = chunk {
-                            Some((on_data, chunk))
+                        if let (Some(delivery_lock), Some(chunk)) = (delivery_lock, chunk) {
+                            Some((delivery_lock, on_data, chunk))
                         } else {
                             inner.paused_backlog.remove(&self.viewer_id);
                             inner.draining_viewers.remove(&self.viewer_id);
@@ -2717,7 +2737,8 @@ impl PtyControl for ShellViewerControl {
                     }
                 }
             };
-            let Some((on_data, chunk)) = next else { break };
+            let Some((delivery_lock, on_data, chunk)) = next else { break };
+            let _delivery = delivery_lock.lock().expect("viewer delivery lock");
             on_data(chunk);
         }
     }
