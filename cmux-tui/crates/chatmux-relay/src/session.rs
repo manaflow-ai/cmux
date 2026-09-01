@@ -546,12 +546,14 @@ fn make_context(
     out: &OutboundSink,
     pending: &Arc<AtomicU64>,
     auth: &AuthSnapshot,
+    live_auth: &Arc<std::sync::Mutex<AuthSnapshot>>,
     transport_id: &str,
     cancellation: &CancellationToken,
 ) -> FrameContext {
     let sender = out.clone();
     let pending_send = Arc::clone(pending);
     let pending_probe = Arc::clone(pending);
+    let live_auth = Arc::clone(live_auth);
     FrameContext {
         send: Arc::new(move |frame: Value| {
             let size = serde_json::to_string(&frame).map(|text| text.len() as u64).unwrap_or(0);
@@ -579,6 +581,10 @@ fn make_context(
         trust: auth.trust.clone(),
         local_roots: auth.roots.clone(),
         owner_user_id: auth.owner.clone(),
+        live_auth: Arc::new(move || {
+            let snapshot = live_auth.lock().expect("auth lock");
+            (snapshot.trust.clone(), snapshot.owner.clone())
+        }),
         transport_id: Some(transport_id.to_owned()),
         cancellation: cancellation.clone(),
     }
@@ -673,7 +679,7 @@ async fn relay_session(
                 };
                 let snapshot = auth.lock().expect("auth lock").clone();
                 let context =
-                    make_context(&out, &pending, &snapshot, &transport, &connection_token);
+                    make_context(&out, &pending, &snapshot, &auth, &transport, &connection_token);
                 tokio::select! {
                     biased;
                     _ = connection_token.cancelled() => break,
@@ -1138,6 +1144,7 @@ async fn relay_session(
                                     &out_tx,
                                     &pending,
                                     &snapshot,
+                                    &auth_direct,
                                     &transport_id,
                                     &connection_cancellation,
                                 );
