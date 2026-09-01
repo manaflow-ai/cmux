@@ -88,6 +88,7 @@ public struct SSHRemoteCommand: Equatable, Sendable {
     public func disablesTTY(in options: [String]) -> Bool {
         effectiveTTYRequest(
             in: options,
+            hostRequestTTY: nil,
             resolver: SSHAgentSocketResolver()
         ) == .disabled
     }
