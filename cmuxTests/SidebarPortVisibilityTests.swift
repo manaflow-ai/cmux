@@ -104,10 +104,14 @@ struct SidebarPortVisibilityTests {
                 additionalFallbackPaths: [],
                 startWatching: false
             )
+            let exactPort = try #require(SidebarIgnoredPortRule(port: 24_678))
+            let ephemeralRange = try #require(
+                SidebarIgnoredPortRule(range: 49_152...65_535)
+            )
 
             #expect(UserDefaultsSettingsClient(defaults: .standard).value(for: key) == [
-                .port(24_678),
-                .range(49_152...65_535),
+                exactPort,
+                ephemeralRange,
             ])
         }
     }

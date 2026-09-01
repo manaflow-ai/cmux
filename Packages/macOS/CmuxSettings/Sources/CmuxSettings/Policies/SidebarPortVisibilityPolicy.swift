@@ -1,11 +1,12 @@
 /// Filters raw listening-port observations for publication to sidebar consumers.
 public struct SidebarPortVisibilityPolicy: Sendable, Equatable {
     /// The IANA dynamic/private range used for OS-assigned ephemeral ports.
-    public static let operatingSystemEphemeralRange = 49_152...65_535
+    public static let operatingSystemEphemeralRange =
+        SidebarIgnoredPortRule.operatingSystemEphemeralRange
 
     /// The ignored rules used when the user has not supplied an override.
     public static let defaultIgnoredRules: [SidebarIgnoredPortRule] = [
-        .range(operatingSystemEphemeralRange),
+        .operatingSystemEphemeralRangeRule,
     ]
 
     private let ignoredRules: [SidebarIgnoredPortRule]
