@@ -205,6 +205,47 @@ struct LocalLinuxRuntimeTests {
         #expect(await hangupIterator.next() == nil)
     }
 
+    @Test("natural kernel termination finishes output and closes the session")
+    func naturalTerminationFinishesSession() async throws {
+        let fixture = try RuntimeFixture()
+        defer { fixture.remove() }
+        try fixture.seedValidRootfs()
+
+        let bridge = LocalLinuxTestKernelBridge(
+            boot: { _, _ in },
+            openSessionWithTermination: { _, _, _, _, output, onTermination in
+                output(Data("done\n".utf8))
+                // The bridge contract is one-shot. Calling the callback twice
+                // must finish the stream once, and bytes after termination
+                // must not leak to consumers.
+                onTermination()
+                onTermination()
+                output(Data("late\n".utf8))
+                return LocalLinuxTestKernelSession(processID: 7)
+            }
+        )
+        let runtime = LocalLinuxRuntime(
+            kernel: bridge,
+            fileSystem: LocalLinuxFileSystemClient(),
+            rootURL: fixture.rootURL,
+            rootfsArchiveURL: nil
+        )
+        try await runtime.bootIfNeeded()
+
+        let session = try await runtime.openSession(
+            command: ["/bin/sh"],
+            environment: [],
+            columns: 80,
+            rows: 24
+        )
+        var outputIterator = session.output.makeAsyncIterator()
+        #expect(await outputIterator.next() == Data("done\n".utf8))
+        #expect(await outputIterator.next() == nil)
+        await #expect(throws: LocalLinuxError.closed) {
+            try await session.send(Data("after-exit".utf8))
+        }
+    }
+
     @Test("missing archive fails before invoking the injected bridge")
     func missingArchiveFailsClosed() async throws {
         let fixture = try RuntimeFixture()
