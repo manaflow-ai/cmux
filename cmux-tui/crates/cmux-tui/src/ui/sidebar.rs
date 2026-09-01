@@ -7,6 +7,7 @@ use cmux_tui_core::Rect;
 use ratatui::Frame;
 use ratatui::style::{Color, Modifier, Style};
 use std::borrow::Cow;
+use std::collections::HashMap;
 
 use super::{
     ScrollbarState, ScrollbarStyle, middle_truncate, rail, truncate, viewport_thumb_geometry,
@@ -87,7 +88,15 @@ pub fn draw_machines(app: &mut App, frame: &mut Frame) {
     let active = app.selected_machine();
     let capabilities = machine_ui.snapshot.capabilities;
     let selection = machine_ui.selection;
-    let managed_machines = machine_ui.managed_machines().to_vec();
+    // Machine rows stay in provider order, while lifecycle metadata is keyed
+    // by the same stable key. Building this index once keeps a frame with M
+    // machines linear instead of scanning all managed entries for every row.
+    let mut managed_machines = HashMap::with_capacity(machine_ui.managed_machines().len());
+    for managed in machine_ui.managed_machines() {
+        // Keep the previous first-match behavior if malformed input repeats a
+        // key, while normal snapshots remain one entry per stable key.
+        managed_machines.entry(managed.key).or_insert(managed);
+    }
     let rail_selection = machine_ui.rail_selection;
     let palette = rail::RailPalette::for_app(app, app.machine_sidebar_focused());
     let metrics = rail::RailMetrics::for_app(app);
@@ -155,7 +164,7 @@ pub fn draw_machines(app: &mut App, frame: &mut Frame) {
         let focused = app.machine_sidebar_focused()
             && rail_selection == MachineRailSelection::Machine
             && selection == index;
-        let managed = managed_machines.iter().find(|managed| managed.key == machine.key);
+        let managed = managed_machines.get(&machine.key);
         let recoverable = managed.is_some_and(|managed| {
             managed.status == crate::machine::ManagedMachineStatus::Recoverable
         });
