@@ -187,6 +187,50 @@ final class SurfaceSelectionEventContractTests: XCTestCase {
     }
 
     @MainActor
+    func testPanelScopedCoordinatorsDoNotCrossRegisterSurfaces() async throws {
+        let bus = CmuxEventBus(retainedEventLimit: 8)
+        let subscription = bus.subscribe(afterSequence: nil, names: [topic], categories: [])
+        defer { bus.unsubscribe(subscription.subscription) }
+
+        let first = SurfaceSelectionEventCoordinator(
+            bus: bus,
+            debounceNanoseconds: 5_000_000
+        )
+        let second = SurfaceSelectionEventCoordinator(
+            bus: bus,
+            debounceNanoseconds: 5_000_000
+        )
+        let surfaceId = UUID()
+        let source = Source()
+        first.publisher.registerSnapshotSource(
+            surfaceId: surfaceId,
+            sourceIdentity: ObjectIdentifier(source),
+            owner: source,
+            identity: { self.identity(surfaceId: surfaceId) }
+        )
+
+        // A destination panel's coordinator cannot signal a source owned by
+        // the source panel, even though both publish to the same event bus.
+        second.publisher.signal(
+            surfaceId: surfaceId,
+            snapshot: .selected(kind: "terminal", text: "wrong-owner")
+        )
+        let wrongOwnerEvent = await nextEvent(from: subscription.subscription, timeout: 0.05)
+        XCTAssertNil(wrongOwnerEvent)
+
+        first.publisher.signal(
+            surfaceId: surfaceId,
+            snapshot: .selected(kind: "terminal", text: "right-owner")
+        )
+        let rightOwnerEvent = await nextEvent(from: subscription.subscription, timeout: 1.0)
+        let event = try XCTUnwrap(rightOwnerEvent)
+        XCTAssertEqual(
+            (event["payload"] as? [String: Any])?["text"] as? String,
+            "right-owner"
+        )
+    }
+
+    @MainActor
     func testWebBridgeSuppressesPasswordSelectionAndPreservesShape() throws {
         let password = try XCTUnwrap(
             SurfaceSelectionWebBridge.snapshot(

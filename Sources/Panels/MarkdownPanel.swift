@@ -14,10 +14,11 @@ enum MarkdownPanelDisplayMode: String, CaseIterable, Identifiable {
 /// A panel that renders a markdown file with live file-watching.
 /// When the file changes on disk, the content is automatically reloaded.
 @MainActor
-final class MarkdownPanel: Panel, ObservableObject, FilePreviewTextEditingPanel {
+final class MarkdownPanel: Panel, ObservableObject, FilePreviewTextEditingPanel, SurfaceSelectionEventOwner {
     let id: UUID
     let stableSurfaceIdentity = PanelStableSurfaceIdentity()
     let panelType: PanelType = .markdown
+    let surfaceSelectionEventCoordinator: SurfaceSelectionEventCoordinator
 
     /// Absolute path to the markdown file being displayed.
     let filePath: String
@@ -122,13 +123,19 @@ final class MarkdownPanel: Panel, ObservableObject, FilePreviewTextEditingPanel 
     /// - Parameter fontSize: Initial body font size in points. When `nil`, the
     ///   panel uses the persistent `markdown.fontSize` default. The value is
     ///   clamped to the supported range.
-    init(workspaceId: UUID, filePath: String, fontSize: Double? = nil) {
+    init(
+        workspaceId: UUID,
+        filePath: String,
+        fontSize: Double? = nil,
+        surfaceSelectionEventCoordinator: SurfaceSelectionEventCoordinator? = nil
+    ) {
         let defaultSize = MarkdownFontSizeSettings.resolvedDefault()
         let defaultFamily = MarkdownFontFamily.resolvedDefault()
         let defaultMaxWidth = MarkdownMaxWidthSettings.resolvedDefault()
         self.id = UUID()
         self.workspaceId = workspaceId
         self.filePath = filePath
+        self.surfaceSelectionEventCoordinator = surfaceSelectionEventCoordinator ?? SurfaceSelectionEventCoordinator()
         self.fontSize = MarkdownFontSizeSettings.clamp(fontSize ?? defaultSize)
         self.fontFamily = defaultFamily
         self.maxContentWidth = defaultMaxWidth
@@ -410,7 +417,7 @@ final class MarkdownPanel: Panel, ObservableObject, FilePreviewTextEditingPanel 
     }
 
     func close() {
-        SurfaceSelectionChangeEventPublisher.shared.unregister(surfaceId: id)
+        detachSurfaceSelectionEvents()
         isClosed = true
         pendingPreviewFocus = false
         searchState = nil
@@ -422,6 +429,11 @@ final class MarkdownPanel: Panel, ObservableObject, FilePreviewTextEditingPanel 
             NotificationCenter.default.removeObserver(typographyDefaultsObserver)
             self.typographyDefaultsObserver = nil
         }
+    }
+
+    /// Retargets container-scoped identity after a live panel transfer.
+    func updateWorkspaceId(_ workspaceId: UUID) {
+        self.workspaceId = workspaceId
     }
 
     func triggerFlash(reason: WorkspaceAttentionFlashReason) {
@@ -448,13 +460,28 @@ final class MarkdownPanel: Panel, ObservableObject, FilePreviewTextEditingPanel 
 
     func attachTextView(_ textView: NSTextView) {
         self.textView = textView
-        SurfaceSelectionChangeEventPublisher.shared.registerNativeTextSurface(
+        surfaceSelectionEventCoordinator.publisher.registerNativeTextSurface(
             surfaceId: id,
             workspaceId: { [weak self] in self?.workspaceId },
             kind: panelType.rawValue,
             filePath: filePath,
             textView: textView
         )
+    }
+
+    func reattachSurfaceSelectionEvents() {
+        if let textView {
+            attachTextView(textView)
+        }
+        if let webView = rendererSession.webView {
+            surfaceSelectionEventCoordinator.webBridgeRegistry.attach(
+                webView: webView,
+                surfaceId: id,
+                workspaceIdProvider: { [weak self] in self?.workspaceId },
+                kind: panelType.rawValue,
+                filePath: filePath
+            )
+        }
     }
 
     func retryPendingFocus() {

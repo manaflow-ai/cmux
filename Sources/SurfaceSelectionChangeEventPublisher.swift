@@ -6,8 +6,6 @@ import Foundation
 /// process-wide selection observer.
 @MainActor
 final class SurfaceSelectionChangeEventPublisher {
-    static let shared = SurfaceSelectionChangeEventPublisher()
-
     typealias IdentityProvider = @MainActor () -> SurfaceSelectionEventIdentity?
     typealias SnapshotReader = @MainActor () -> SurfaceSelectionEventSnapshot?
     private final class Entry {
@@ -17,7 +15,7 @@ final class SurfaceSelectionChangeEventPublisher {
         let reader: SnapshotReader?
         let owner: AnyObject?
         var eventsTask: Task<Void, Never>?
-        var debounceTimer: Timer?
+        var debounceTask: Task<Void, Never>?
         var generation: UInt64 = 0
         var pendingSnapshot: SurfaceSelectionEventSnapshot?
         var pendingIdentity: SurfaceSelectionEventIdentity?
@@ -40,9 +38,9 @@ final class SurfaceSelectionChangeEventPublisher {
 
         func cancel() {
             eventsTask?.cancel()
-            debounceTimer?.invalidate()
+            debounceTask?.cancel()
             eventsTask = nil
-            debounceTimer = nil
+            debounceTask = nil
             pendingSnapshot = nil
             pendingIdentity = nil
             if let observer = owner as? SurfaceSelectionNativeObserver {
@@ -52,15 +50,18 @@ final class SurfaceSelectionChangeEventPublisher {
     }
 
     private let bus: CmuxEventBus
-    private let debounceNanoseconds: UInt64
+    private let debounceDuration: Duration
+    private let clock: any Clock<Duration>
     private var entries: [UUID: Entry] = [:]
 
     init(
         bus: CmuxEventBus = .shared,
-        debounceNanoseconds: UInt64 = 100_000_000
+        debounceNanoseconds: UInt64 = 100_000_000,
+        clock: any Clock<Duration> = ContinuousClock()
     ) {
         self.bus = bus
-        self.debounceNanoseconds = debounceNanoseconds
+        self.debounceDuration = .nanoseconds(Int64(clamping: debounceNanoseconds))
+        self.clock = clock
     }
 
     /// Registers a signal whose reader is sampled after the debounce window.
@@ -164,8 +165,8 @@ final class SurfaceSelectionChangeEventPublisher {
     func cancelPending(surfaceId: UUID, resetLastSnapshot: Bool = true) {
         guard let entry = entries[surfaceId] else { return }
         entry.generation &+= 1
-        entry.debounceTimer?.invalidate()
-        entry.debounceTimer = nil
+        entry.debounceTask?.cancel()
+        entry.debounceTask = nil
         entry.pendingSnapshot = nil
         entry.pendingIdentity = nil
         if resetLastSnapshot {
@@ -198,6 +199,8 @@ final class SurfaceSelectionChangeEventPublisher {
         }
     }
 
+    /// Schedules one cancellation-aware debounce task. The clock is injected
+    /// so tests and owners can control timing without a run-loop timer.
     private func signal(surfaceId: UUID, snapshot: SurfaceSelectionEventSnapshot?) {
         guard let entry = entries[surfaceId],
               bus.hasExplicitSubscriber(for: CmuxEventBus.surfaceSelectionChangedEventName) else {
@@ -209,21 +212,22 @@ final class SurfaceSelectionChangeEventPublisher {
         }
         entry.generation &+= 1
         let generation = entry.generation
-        entry.debounceTimer?.invalidate()
-        let timer = Timer(
-            timeInterval: Double(self.debounceNanoseconds) / 1_000_000_000,
-            repeats: false
-        ) { [weak self] timer in
-            MainActor.assumeIsolated {
-                guard let self,
-                      let entry = self.entries[surfaceId],
-                      entry.debounceTimer === timer else { return }
-                entry.debounceTimer = nil
-                self.emit(surfaceId: surfaceId, generation: generation)
+        entry.debounceTask?.cancel()
+        let clock = self.clock
+        let duration = self.debounceDuration
+        entry.debounceTask = Task { @MainActor [weak self, weak entry, clock, duration] in
+            do {
+                try await clock.sleep(for: duration)
+            } catch {
+                return
             }
+            guard !Task.isCancelled, let self, let entry,
+                  let currentEntry = self.entries[surfaceId],
+                  currentEntry === entry,
+                  currentEntry.generation == generation else { return }
+            entry.debounceTask = nil
+            self.emit(surfaceId: surfaceId, generation: generation)
         }
-        entry.debounceTimer = timer
-        RunLoop.main.add(timer, forMode: .common)
     }
 
     private func emit(surfaceId: UUID, generation: UInt64) {

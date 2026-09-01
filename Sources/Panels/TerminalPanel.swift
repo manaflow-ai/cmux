@@ -9,7 +9,7 @@ import CmuxWorkspaces
 /// TerminalPanel wraps an existing TerminalSurface and conforms to the Panel protocol.
 /// This allows TerminalSurface to be used within the bonsplit-based layout system.
 @MainActor
-final class TerminalPanel: Panel, ObservableObject {
+final class TerminalPanel: Panel, ObservableObject, SurfaceSelectionEventOwner {
     private enum TextBoxInputFocusIntent: Equatable {
         case hidden
         case terminal
@@ -27,6 +27,7 @@ final class TerminalPanel: Panel, ObservableObject {
 
     /// The workspace ID this panel belongs to
     private(set) var workspaceId: UUID
+    let surfaceSelectionEventCoordinator: SurfaceSelectionEventCoordinator
 
     var ownedSessionScrollbackReplayFileURL: URL? = nil
     /// The workspace-env key/value pairs this panel inherited from its workspace's
@@ -147,12 +148,18 @@ final class TerminalPanel: Panel, ObservableObject {
         surface.requestedWorkingDirectory
     }
 
-    init(workspaceId: UUID, surface: TerminalSurface) {
+    init(
+        workspaceId: UUID,
+        surface: TerminalSurface,
+        surfaceSelectionEventCoordinator: SurfaceSelectionEventCoordinator? = nil
+    ) {
         self.id = surface.id
         self.workspaceId = workspaceId
         self.surface = surface
+        let resolvedSelectionCoordinator = surfaceSelectionEventCoordinator ?? SurfaceSelectionEventCoordinator()
+        self.surfaceSelectionEventCoordinator = resolvedSelectionCoordinator
         self.title = surface.agentPanelTitle ?? "Terminal"
-        SurfaceSelectionChangeEventPublisher.shared.registerTerminalSurface(self)
+        resolvedSelectionCoordinator.publisher.registerTerminalSurface(self)
         // Subscribe to surface's search state changes
         surface.$searchState
             .sink { [weak self] state in
@@ -177,7 +184,8 @@ final class TerminalPanel: Panel, ObservableObject {
         initialEnvironmentOverrides: [String: String] = [:],
         additionalEnvironment: [String: String] = [:],
         focusPlacement: TerminalSurfaceFocusPlacement = .workspace,
-        runtimeSpawnPolicy: TerminalSurfaceRuntimeSpawnPolicy = .immediate
+        runtimeSpawnPolicy: TerminalSurfaceRuntimeSpawnPolicy = .immediate,
+        surfaceSelectionEventCoordinator: SurfaceSelectionEventCoordinator? = nil
     ) {
         let surface = TerminalSurface(
             id: id,
@@ -194,7 +202,11 @@ final class TerminalPanel: Panel, ObservableObject {
             focusPlacement: focusPlacement, runtimeSpawnPolicy: runtimeSpawnPolicy,
             preparePaneHost: { Self.prepareNotificationScrollReplay(for: $0, environment: additionalEnvironment) }
         )
-        self.init(workspaceId: workspaceId, surface: surface)
+        self.init(
+            workspaceId: workspaceId,
+            surface: surface,
+            surfaceSelectionEventCoordinator: surfaceSelectionEventCoordinator
+        )
         if Self.startsAtOwnedPrompt(
             configTemplate: configTemplate,
             initialCommand: initialCommand,
@@ -655,7 +667,7 @@ final class TerminalPanel: Panel, ObservableObject {
     }
 
     func close() {
-        SurfaceSelectionChangeEventPublisher.shared.unregister(surfaceId: id)
+        detachSurfaceSelectionEvents()
         isClosingPanel = true
         AgentHibernationController.shared.discardTrackingStateForClosedPanel(
             workspaceId: workspaceId,
@@ -688,6 +700,10 @@ final class TerminalPanel: Panel, ObservableObject {
         )
 #endif
         surface.teardownSurface()
+    }
+
+    func reattachSurfaceSelectionEvents() {
+        surfaceSelectionEventCoordinator.publisher.registerTerminalSurface(self)
     }
 
     func requestViewReattach() {

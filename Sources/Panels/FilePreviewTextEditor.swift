@@ -452,7 +452,7 @@ extension FilePreviewPanel {
     func attachTextView(_ textView: NSTextView) {
         self.textView = textView
         focusCoordinator.register(root: textView, primaryResponder: textView, intent: .textEditor)
-        SurfaceSelectionChangeEventPublisher.shared.registerNativeTextSurface(
+        surfaceSelectionEventCoordinator.publisher.registerNativeTextSurface(
             surfaceId: id,
             workspaceId: { [weak self] in self?.workspaceId },
             kind: panelType.rawValue,

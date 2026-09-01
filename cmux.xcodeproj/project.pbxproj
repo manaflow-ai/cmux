@@ -2391,7 +2391,9 @@
 		A5001303 /* SurfaceSearchOverlay.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001301 /* SurfaceSearchOverlay.swift */; };
 		F10027000000000000000017 /* SurfaceSelectionChangeEventPublisher.swift in Sources */ = {isa = PBXBuildFile; fileRef = F10027000000000000000018 /* SurfaceSelectionChangeEventPublisher.swift */; };
 		F10027000000000000000001 /* SurfaceSelectionEventContractTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F10027000000000000000002 /* SurfaceSelectionEventContractTests.swift */; };
+		F10027000000000000000027 /* SurfaceSelectionEventCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = F10027000000000000000028 /* SurfaceSelectionEventCoordinator.swift */; };
 		F10027000000000000000013 /* SurfaceSelectionEventIdentity.swift in Sources */ = {isa = PBXBuildFile; fileRef = F10027000000000000000014 /* SurfaceSelectionEventIdentity.swift */; };
+		F10027000000000000000029 /* SurfaceSelectionEventOwner.swift in Sources */ = {isa = PBXBuildFile; fileRef = F1002700000000000000002A /* SurfaceSelectionEventOwner.swift */; };
 		F10027000000000000000011 /* SurfaceSelectionEventSnapshot.swift in Sources */ = {isa = PBXBuildFile; fileRef = F10027000000000000000012 /* SurfaceSelectionEventSnapshot.swift */; };
 		F10027000000000000000021 /* SurfaceSelectionEventSources.swift in Sources */ = {isa = PBXBuildFile; fileRef = F10027000000000000000022 /* SurfaceSelectionEventSources.swift */; };
 		F10027000000000000000015 /* SurfaceSelectionNativeObserver.swift in Sources */ = {isa = PBXBuildFile; fileRef = F10027000000000000000016 /* SurfaceSelectionNativeObserver.swift */; };
@@ -5365,7 +5367,9 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 		A5001301 /* SurfaceSearchOverlay.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Find/SurfaceSearchOverlay.swift; sourceTree = "<group>"; };
 		F10027000000000000000018 /* SurfaceSelectionChangeEventPublisher.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SurfaceSelectionChangeEventPublisher.swift; sourceTree = "<group>"; };
 		F10027000000000000000002 /* SurfaceSelectionEventContractTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SurfaceSelectionEventContractTests.swift; sourceTree = "<group>"; };
+		F10027000000000000000028 /* SurfaceSelectionEventCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SurfaceSelectionEventCoordinator.swift; sourceTree = "<group>"; };
 		F10027000000000000000014 /* SurfaceSelectionEventIdentity.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SurfaceSelectionEventIdentity.swift; sourceTree = "<group>"; };
+		F1002700000000000000002A /* SurfaceSelectionEventOwner.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SurfaceSelectionEventOwner.swift; sourceTree = "<group>"; };
 		F10027000000000000000012 /* SurfaceSelectionEventSnapshot.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SurfaceSelectionEventSnapshot.swift; sourceTree = "<group>"; };
 		F10027000000000000000022 /* SurfaceSelectionEventSources.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SurfaceSelectionEventSources.swift; sourceTree = "<group>"; };
 		F10027000000000000000016 /* SurfaceSelectionNativeObserver.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SurfaceSelectionNativeObserver.swift; sourceTree = "<group>"; };
@@ -7230,8 +7234,10 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 				E7E00000000000000000000C /* CmuxLifecycleEventPublishing.swift */,
 				E7E000000000000000000008 /* CmuxEventPublishing.swift */,
 				F10027000000000000000018 /* SurfaceSelectionChangeEventPublisher.swift */,
+				F10027000000000000000028 /* SurfaceSelectionEventCoordinator.swift */,
 				F10027000000000000000026 /* CmuxEventPublishing+SurfaceSelection.swift */,
 				F10027000000000000000014 /* SurfaceSelectionEventIdentity.swift */,
+				F1002700000000000000002A /* SurfaceSelectionEventOwner.swift */,
 				F10027000000000000000022 /* SurfaceSelectionEventSources.swift */,
 				F10027000000000000000012 /* SurfaceSelectionEventSnapshot.swift */,
 				F10027000000000000000016 /* SurfaceSelectionNativeObserver.swift */,
@@ -11078,7 +11084,9 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 				F27B00000000000000000001 /* SurfaceResumeRunPromptBatch.swift in Sources */,
 				A5001303 /* SurfaceSearchOverlay.swift in Sources */,
 				F10027000000000000000017 /* SurfaceSelectionChangeEventPublisher.swift in Sources */,
+				F10027000000000000000027 /* SurfaceSelectionEventCoordinator.swift in Sources */,
 				F10027000000000000000013 /* SurfaceSelectionEventIdentity.swift in Sources */,
+				F10027000000000000000029 /* SurfaceSelectionEventOwner.swift in Sources */,
 				F10027000000000000000011 /* SurfaceSelectionEventSnapshot.swift in Sources */,
 				F10027000000000000000021 /* SurfaceSelectionEventSources.swift in Sources */,
 				F10027000000000000000015 /* SurfaceSelectionNativeObserver.swift in Sources */,
@@ -12401,8 +12409,8 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 				842300000000000000000007 /* SurfaceResumeAgentBindingGenerationTests.swift in Sources */,
 				F6572012A1B2C3D4E5F60718 /* SurfaceResumeBindingCodexUpdateCheckTests.swift in Sources */,
 				842300000000000000000001 /* SurfaceResumeExitedAgentLivenessTests.swift in Sources */,
-				F10027000000000000000001 /* SurfaceSelectionEventContractTests.swift in Sources */,
 				F6572022A1B2C3D4E5F60718 /* SurfaceResumeRestoreClaimTests.swift in Sources */,
+				F10027000000000000000001 /* SurfaceSelectionEventContractTests.swift in Sources */,
 				A7206B010000000000000001 /* SystemAppearanceObserverTests.swift in Sources */,
 				FBE660ABA1854983B84368C6 /* SystemWideHotkeyShortcutPolicyTests.swift in Sources */,
 				F8120F5386FBE726864D340B /* TabManagerBackgroundWorkspaceMountBoundTests.swift in Sources */,

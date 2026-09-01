@@ -22,17 +22,58 @@ struct MarkdownWebRenderer: NSViewRepresentable {
     /// Maximum content column width, in CSS pixels.
     let maxContentWidth: Double
     let session: MarkdownRendererSession
+    let selectionEventCoordinator: SurfaceSelectionEventCoordinator
     let onRequestPanelFocus: () -> Void
     /// Called after the renderer view is attached to a window. A panel can
     /// request focus before SwiftUI mounts its WebKit view, so the panel uses
     /// this lifecycle signal to complete that request without polling.
     var onViewAttachedToWindow: () -> Void = {}
 
+    /// Creates a renderer with the panel's selection-event coordinator.
+    ///
+    /// The optional parameter preserves the lightweight construction used by
+    /// renderer-only tests; mounted panels always pass their owned coordinator.
+    @MainActor
+    init(
+        markdown: String,
+        theme: MarkdownWebTheme,
+        backgroundColor: NSColor,
+        isVisibleInUI: Bool,
+        panelId: UUID,
+        workspaceId: UUID,
+        filePath: String,
+        fontSize: Double,
+        fontFamily: String,
+        maxContentWidth: Double,
+        session: MarkdownRendererSession,
+        selectionEventCoordinator: SurfaceSelectionEventCoordinator? = nil,
+        onRequestPanelFocus: @escaping () -> Void,
+        onViewAttachedToWindow: @escaping () -> Void = {}
+    ) {
+        self.markdown = markdown
+        self.theme = theme
+        self.backgroundColor = backgroundColor
+        self.isVisibleInUI = isVisibleInUI
+        self.panelId = panelId
+        self.workspaceId = workspaceId
+        self.filePath = filePath
+        self.fontSize = fontSize
+        self.fontFamily = fontFamily
+        self.maxContentWidth = maxContentWidth
+        self.session = session
+        self.selectionEventCoordinator = selectionEventCoordinator ?? SurfaceSelectionEventCoordinator()
+        self.onRequestPanelFocus = onRequestPanelFocus
+        self.onViewAttachedToWindow = onViewAttachedToWindow
+    }
+
     func makeCoordinator() -> Coordinator {
-        session.coordinator(panelId: panelId, workspaceId: workspaceId, filePath: filePath)
+        let coordinator = session.coordinator(panelId: panelId, workspaceId: workspaceId, filePath: filePath)
+        coordinator.selectionEventCoordinator = selectionEventCoordinator
+        return coordinator
     }
 
     func makeNSView(context: Context) -> WKWebView {
+        context.coordinator.selectionEventCoordinator = selectionEventCoordinator
         if let webView = context.coordinator.webView {
             if webView.superview != nil {
                 webView.removeFromSuperview()
@@ -53,7 +94,7 @@ struct MarkdownWebRenderer: NSViewRepresentable {
             context.coordinator.setFontSize(fontSize)
             context.coordinator.setFontFamily(fontFamily)
             context.coordinator.setMaxContentWidth(maxContentWidth)
-            SurfaceSelectionWebBridgeRegistry.shared.attach(
+            selectionEventCoordinator.webBridgeRegistry.attach(
                 webView: webView,
                 surfaceId: panelId,
                 workspaceIdProvider: { [weak coordinator = context.coordinator] in coordinator?.workspaceId },
@@ -103,7 +144,7 @@ struct MarkdownWebRenderer: NSViewRepresentable {
         applyAppearance(to: webView, isDark: theme.isDark)
 
         context.coordinator.webView = webView
-        SurfaceSelectionWebBridgeRegistry.shared.attach(
+        selectionEventCoordinator.webBridgeRegistry.attach(
             webView: webView,
             surfaceId: panelId,
             workspaceIdProvider: { [weak coordinator = context.coordinator] in coordinator?.workspaceId },
@@ -121,7 +162,8 @@ struct MarkdownWebRenderer: NSViewRepresentable {
         // Re-bind panel metadata in case SwiftUI recreated the wrapper while
         // the panel-owned renderer session kept the same coordinator.
         context.coordinator.bind(panelId: panelId, workspaceId: workspaceId, filePath: filePath)
-        SurfaceSelectionWebBridgeRegistry.shared.attach(
+        context.coordinator.selectionEventCoordinator = selectionEventCoordinator
+        selectionEventCoordinator.webBridgeRegistry.attach(
             webView: nsView,
             surfaceId: panelId,
             workspaceIdProvider: { [weak coordinator = context.coordinator] in coordinator?.workspaceId },
@@ -142,7 +184,7 @@ struct MarkdownWebRenderer: NSViewRepresentable {
         if let retainedWebView = coordinator.webView, retainedWebView === nsView {
             return
         }
-        SurfaceSelectionWebBridgeRegistry.shared.detach(webView: nsView)
+        coordinator.selectionEventCoordinator?.webBridgeRegistry.detach(webView: nsView)
         nsView.configuration.userContentController.removeScriptMessageHandler(forName: "cmuxLib")
         nsView.navigationDelegate = nil
         nsView.uiDelegate = nil
@@ -173,6 +215,7 @@ struct MarkdownWebRenderer: NSViewRepresentable {
     @MainActor
     final class Coordinator: NSObject, WKNavigationDelegate, WKUIDelegate, WKScriptMessageHandler, WKURLSchemeHandler {
         var webView: MarkdownWebView?
+        var selectionEventCoordinator: SurfaceSelectionEventCoordinator?
         /// Fired after each successful markdown render push (initial shell
         /// load included). Re-rendering replaces the content DOM, so an active
         /// find-in-page search must re-run to restore its highlights.

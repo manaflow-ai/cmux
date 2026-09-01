@@ -2,12 +2,13 @@ import Foundation
 import WebKit
 
 /// Installs a document-scoped `selectionchange` bridge and forwards only
-/// same-origin, non-password selections to the shared publisher.
+/// same-origin, non-password selections to its panel-owned publisher.
 @MainActor
 final class SurfaceSelectionWebBridge: NSObject, WKScriptMessageHandler {
     static let messageName = "cmuxSurfaceSelectionChanged"
 
     private weak var webView: WKWebView?
+    private weak var publisher: SurfaceSelectionChangeEventPublisher?
     private var workspaceIdProvider: @MainActor () -> UUID?
     private var kind: String
     private var filePath: String?
@@ -16,12 +17,14 @@ final class SurfaceSelectionWebBridge: NSObject, WKScriptMessageHandler {
     init(
         webView: WKWebView,
         surfaceId: UUID,
+        publisher: SurfaceSelectionChangeEventPublisher,
         workspaceIdProvider: @escaping @MainActor () -> UUID?,
         kind: String,
         filePath: String?
     ) {
         self.webView = webView
         self.surfaceId = surfaceId
+        self.publisher = publisher
         self.workspaceIdProvider = workspaceIdProvider
         self.kind = kind
         self.filePath = filePath
@@ -72,13 +75,14 @@ final class SurfaceSelectionWebBridge: NSObject, WKScriptMessageHandler {
         guard message.name == Self.messageName,
               message.webView === webView,
               Self.accepts(frameInfo: message.frameInfo, webView: webView),
-              SurfaceSelectionChangeEventPublisher.shared.hasOptInSubscriber(),
+              let publisher,
+              publisher.hasOptInSubscriber(),
               let body = message.body as? [String: Any] else {
             return
         }
 
         if body["lifecycle"] as? String == "document" {
-            SurfaceSelectionChangeEventPublisher.shared.cancelPending(surfaceId: surfaceId)
+            publisher.cancelPending(surfaceId: surfaceId)
             return
         }
 
@@ -89,7 +93,7 @@ final class SurfaceSelectionWebBridge: NSObject, WKScriptMessageHandler {
             filePath: filePath,
             url: url
         ) else { return }
-        SurfaceSelectionChangeEventPublisher.shared.signal(
+        publisher.signal(
             surfaceId: surfaceId,
             snapshot: snapshot
         )
@@ -216,9 +220,12 @@ final class SurfaceSelectionWebBridge: NSObject, WKScriptMessageHandler {
 /// Keeps WebKit bridge ownership aligned with the current WKWebView instance.
 @MainActor
 final class SurfaceSelectionWebBridgeRegistry {
-    static let shared = SurfaceSelectionWebBridgeRegistry()
-
+    private let publisher: SurfaceSelectionChangeEventPublisher
     private var bridges: [ObjectIdentifier: SurfaceSelectionWebBridge] = [:]
+
+    init(publisher: SurfaceSelectionChangeEventPublisher) {
+        self.publisher = publisher
+    }
 
     func attach(
         webView: WKWebView,
@@ -246,10 +253,10 @@ final class SurfaceSelectionWebBridgeRegistry {
                 filePath: filePath
             )
             if metadataChanged {
-                SurfaceSelectionChangeEventPublisher.shared.cancelPending(surfaceId: surfaceId)
+                publisher.cancelPending(surfaceId: surfaceId)
             }
-            if !SurfaceSelectionChangeEventPublisher.shared.hasRegistration(for: surfaceId) {
-                SurfaceSelectionChangeEventPublisher.shared.registerSnapshotSource(
+            if !publisher.hasRegistration(for: surfaceId) {
+                publisher.registerSnapshotSource(
                     surfaceId: surfaceId,
                     sourceIdentity: webViewIdentity,
                     owner: existing,
@@ -263,12 +270,13 @@ final class SurfaceSelectionWebBridgeRegistry {
         let bridge = SurfaceSelectionWebBridge(
             webView: webView,
             surfaceId: surfaceId,
+            publisher: publisher,
             workspaceIdProvider: workspaceIdProvider,
             kind: kind,
             filePath: filePath
         )
         bridges[webViewIdentity] = bridge
-        SurfaceSelectionChangeEventPublisher.shared.registerSnapshotSource(
+        publisher.registerSnapshotSource(
             surfaceId: surfaceId,
             sourceIdentity: webViewIdentity,
             owner: bridge,
@@ -281,7 +289,7 @@ final class SurfaceSelectionWebBridgeRegistry {
         let identity = ObjectIdentifier(webView)
         guard let bridge = bridges.removeValue(forKey: identity) else { return }
         bridge.stop()
-        SurfaceSelectionChangeEventPublisher.shared.unregister(surfaceId: bridge.surfaceId)
+        publisher.unregister(surfaceId: bridge.surfaceId)
     }
 
     func detach(surfaceId: UUID) {
@@ -290,6 +298,6 @@ final class SurfaceSelectionWebBridgeRegistry {
             guard let bridge = bridges.removeValue(forKey: identity) else { continue }
             bridge.stop()
         }
-        SurfaceSelectionChangeEventPublisher.shared.unregister(surfaceId: surfaceId)
+        publisher.unregister(surfaceId: surfaceId)
     }
 }
