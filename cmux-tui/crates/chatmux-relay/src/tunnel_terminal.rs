@@ -850,13 +850,14 @@ mod tests {
         Rig { manager, spawned, port, cancel }
     }
 
-    async fn rig_with_blocked_spawn() -> (Rig, Arc<Notify>, Arc<AtomicBool>) {
+    async fn rig_with_blocked_spawn() -> (Rig, Arc<Notify>, Arc<Notify>, Arc<AtomicBool>) {
         let spawned = Arc::new(StdMutex::new(Vec::new()));
         let started = Arc::new(Notify::new());
+        let gate = Arc::new(Notify::new());
         let dropped = Arc::new(AtomicBool::new(false));
         let deps = Arc::new(FakeDeps {
             spawned: Arc::clone(&spawned),
-            spawn_gate: Some(Arc::new(Notify::new())),
+            spawn_gate: Some(Arc::clone(&gate)),
             spawn_started: Some(Arc::clone(&started)),
             spawn_dropped: Some(Arc::clone(&dropped)),
         });
@@ -875,7 +876,7 @@ mod tests {
         )
         .await
         .expect("bind test listener");
-        (Rig { manager, spawned, port, cancel }, started, dropped)
+        (Rig { manager, spawned, port, cancel }, started, gate, dropped)
     }
 
     async fn rig() -> Rig {
@@ -1139,7 +1140,7 @@ mod tests {
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn parent_cancellation_closes_a_pending_open() {
-        let (rig, spawn_started, spawn_dropped) = rig_with_blocked_spawn().await;
+        let (rig, spawn_started, gate, spawn_dropped) = rig_with_blocked_spawn().await;
         let stream = connect(&rig).await;
         let (mut read, mut write) = stream.into_split();
         write
@@ -1151,6 +1152,7 @@ mod tests {
             .await
             .expect("open reached the blocked PTY spawn");
         rig.cancel.cancel();
+        gate.notify_one();
 
         tokio::time::timeout(Duration::from_secs(1), read_eof(&mut read))
             .await
@@ -1161,7 +1163,7 @@ mod tests {
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn peer_eof_closes_a_pending_open() {
-        let (rig, spawn_started, spawn_dropped) = rig_with_blocked_spawn().await;
+        let (rig, spawn_started, gate, spawn_dropped) = rig_with_blocked_spawn().await;
         let stream = connect(&rig).await;
         let (mut read, mut write) = stream.into_split();
         write
@@ -1173,6 +1175,7 @@ mod tests {
             .await
             .expect("open reached the blocked PTY spawn");
         drop(write);
+        gate.notify_one();
 
         tokio::time::timeout(Duration::from_secs(1), read_eof(&mut read))
             .await
