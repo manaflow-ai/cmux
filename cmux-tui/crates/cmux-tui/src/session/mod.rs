@@ -145,15 +145,19 @@ fn request_receipted_creation(
 }
 
 pub(crate) fn is_remote_transport_failure(error: &anyhow::Error) -> bool {
-    error
-        .downcast_ref::<remote::RemoteRequestError>()
-        .is_some_and(remote::RemoteRequestError::is_transport_failure)
+    error.chain().any(|cause| {
+        cause
+            .downcast_ref::<remote::RemoteRequestError>()
+            .is_some_and(remote::RemoteRequestError::is_transport_failure)
+    })
 }
 
 pub(crate) fn is_remote_timeout(error: &anyhow::Error) -> bool {
-    error
-        .downcast_ref::<remote::RemoteRequestError>()
-        .is_some_and(remote::RemoteRequestError::is_timeout)
+    error.chain().any(|cause| {
+        cause
+            .downcast_ref::<remote::RemoteRequestError>()
+            .is_some_and(remote::RemoteRequestError::is_timeout)
+    })
 }
 
 pub(crate) fn is_remote_surface_unavailable(error: &anyhow::Error, surface: SurfaceId) -> bool {

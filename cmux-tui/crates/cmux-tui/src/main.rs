@@ -1671,6 +1671,11 @@ fn exit_pipe_io(reason: pipe_io::PipeIoExitReason) -> ! {
     std::process::exit(reason.exit_code());
 }
 
+fn exit_pipe_io_startup_failure(error: &anyhow::Error) -> ! {
+    crate::client_log::stderr_log!("startup", "cmux-tui pipe-io startup failed: {error}");
+    exit_pipe_io(pipe_io::PipeIoExitReason::StartupFailure)
+}
+
 fn run_attach(args: Args, config: config::StartupConfigSnapshot) -> anyhow::Result<()> {
     let socket_path = match args.socket {
         Some(path) => path,
@@ -1688,10 +1693,17 @@ fn run_attach(args: Args, config: config::StartupConfigSnapshot) -> anyhow::Resu
     let remote = if terminal.is_some() {
         match RemoteSession::connect_for_terminal_attach(&socket_path) {
             Ok(remote) => remote,
-            // A pipe-io embedder retries daemon-lost forever (a daemon
-            // restart window looks exactly like this) but gives up on
-            // unexplained failures; a connect failure is the former.
-            Err(_) if args.pipe_io => exit_pipe_io(pipe_io::PipeIoExitReason::DaemonLost),
+            // Retry only transport/timeouts. Protocol, capability, and
+            // authentication failures are permanent until the client or
+            // daemon is corrected, so report a bounded startup failure.
+            Err(error)
+                if args.pipe_io
+                    && (session::is_remote_transport_failure(&error)
+                        || session::is_remote_timeout(&error)) =>
+            {
+                exit_pipe_io(pipe_io::PipeIoExitReason::DaemonLost)
+            }
+            Err(error) if args.pipe_io => exit_pipe_io_startup_failure(&error),
             Err(error) => return Err(error),
         }
     } else {
@@ -1700,7 +1712,14 @@ fn run_attach(args: Args, config: config::StartupConfigSnapshot) -> anyhow::Resu
     let surface_only = if let Some(terminal) = terminal.as_ref() {
         let tree = match remote.refresh_tree() {
             Ok(tree) => tree,
-            Err(_) if args.pipe_io => exit_pipe_io(pipe_io::PipeIoExitReason::DaemonLost),
+            Err(error)
+                if args.pipe_io
+                    && (session::is_remote_transport_failure(&error)
+                        || session::is_remote_timeout(&error)) =>
+            {
+                exit_pipe_io(pipe_io::PipeIoExitReason::DaemonLost)
+            }
+            Err(error) if args.pipe_io => exit_pipe_io_startup_failure(&error),
             Err(error) => return Err(error),
         };
         let resolved = tree.resolve_terminal(terminal);
@@ -1717,13 +1736,25 @@ fn run_attach(args: Args, config: config::StartupConfigSnapshot) -> anyhow::Resu
         }
         if let Err(error) = remote.scope_events_to_surface(surface) {
             if args.pipe_io {
-                exit_pipe_io(pipe_io::PipeIoExitReason::DaemonLost);
+                if session::is_remote_transport_failure(&error)
+                    || session::is_remote_timeout(&error)
+                {
+                    exit_pipe_io(pipe_io::PipeIoExitReason::DaemonLost);
+                }
+                exit_pipe_io_startup_failure(&error);
             }
             return Err(error);
         }
         let tree = match remote.refresh_tree() {
             Ok(tree) => tree,
-            Err(_) if args.pipe_io => exit_pipe_io(pipe_io::PipeIoExitReason::DaemonLost),
+            Err(error)
+                if args.pipe_io
+                    && (session::is_remote_transport_failure(&error)
+                        || session::is_remote_timeout(&error)) =>
+            {
+                exit_pipe_io(pipe_io::PipeIoExitReason::DaemonLost)
+            }
+            Err(error) if args.pipe_io => exit_pipe_io_startup_failure(&error),
             Err(error) => return Err(error),
         };
         if tree.resolve_terminal(terminal) != Some(surface) {

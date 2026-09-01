@@ -6,11 +6,12 @@ use std::fs;
 use std::io::{self, BufRead, BufReader, Read, Write};
 use std::net::Shutdown;
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 use std::sync::mpsc::{Receiver, RecvTimeoutError, Sender, channel, sync_channel};
 use std::sync::{Arc, Condvar, Mutex, Weak};
 use std::time::{Duration, Instant};
 
+use anyhow::Context;
 use base64::Engine;
 use cmux_tui_core::server::{VIEWPORT_COLUMN_RESIZE_CAPABILITY, VIEWPORT_SPLITS_CAPABILITY};
 use cmux_tui_core::{
@@ -1557,6 +1558,7 @@ struct PipeIoTap {
     surface: SurfaceId,
     sender: EventSender<PipeIoEvent>,
     lifecycle_sender: EventSender<PipeIoEvent>,
+    queued_bytes: Arc<AtomicUsize>,
     token: Arc<u8>,
 }
 
@@ -1849,8 +1851,9 @@ impl RemoteSession {
     }
 
     fn connect_path(path: &Path, subscribe: bool) -> anyhow::Result<Arc<Self>> {
-        let stream = transport::connect(path).map_err(|e| {
-            anyhow::anyhow!("cannot connect to session socket {}: {e}", path.display())
+        let stream = transport::connect(path).map_err(|error| {
+            anyhow::Error::new(RemoteRequestError::Transport(error))
+                .context(format!("cannot connect to session socket {}", path.display()))
         })?;
         Self::connect_stream_with_subscription(stream, subscribe)
     }
@@ -1884,7 +1887,8 @@ impl RemoteSession {
             // local UDS failures used by this probe; Unix uses socket2's
             // bounded poll above.
             let stream = transport::connect(path).map_err(|error| {
-                anyhow::anyhow!("cannot connect to session socket {}: {error}", path.display())
+                anyhow::Error::new(RemoteRequestError::Transport(error))
+                    .context(format!("cannot connect to session socket {}", path.display()))
             })?;
             return Self::connect_stream_with_subscription_until(stream, subscribe, deadline);
         }
@@ -1892,7 +1896,8 @@ impl RemoteSession {
         #[cfg(not(any(unix, windows)))]
         {
             let stream = transport::connect(path).map_err(|error| {
-                anyhow::anyhow!("cannot connect to session socket {}: {error}", path.display())
+                anyhow::Error::new(RemoteRequestError::Transport(error))
+                    .context(format!("cannot connect to session socket {}", path.display()))
             })?;
             Self::connect_stream_with_subscription_until(stream, subscribe, deadline)
         }
@@ -3088,12 +3093,18 @@ impl RemoteSession {
         surface: SurfaceId,
         sender: EventSender<PipeIoEvent>,
         lifecycle_sender: EventSender<PipeIoEvent>,
+        queued_bytes: Arc<AtomicUsize>,
     ) -> Arc<u8> {
         // A non-zero-sized allocation gives each tap a stable identity. A
         // zero-sized Arc token could share the allocator's dangling pointer.
         let token = Arc::new(0u8);
-        *self.pipe_io_tap.lock().unwrap() =
-            Some(PipeIoTap { surface, sender, lifecycle_sender, token: token.clone() });
+        *self.pipe_io_tap.lock().unwrap() = Some(PipeIoTap {
+            surface,
+            sender,
+            lifecycle_sender,
+            queued_bytes,
+            token: token.clone(),
+        });
         token
     }
 
@@ -3150,10 +3161,18 @@ impl RemoteSession {
             if tap.surface != surface {
                 return;
             }
-            match tap.sender.try_send(event) {
-                Ok(()) => None,
-                Err(TrySendError::Full(_) | TrySendError::Disconnected(_)) => {
-                    Some(tap.token.clone())
+            let byte_len = event.byte_len();
+            if byte_len > crate::pipe_io::MAX_PIPE_IO_EVENT_BYTES
+                || !reserve_pipe_io_bytes(&tap.queued_bytes, byte_len)
+            {
+                Some(tap.token.clone())
+            } else {
+                match tap.sender.try_send(event) {
+                    Ok(()) => None,
+                    Err(TrySendError::Full(_) | TrySendError::Disconnected(_)) => {
+                        release_pipe_io_bytes(&tap.queued_bytes, byte_len);
+                        Some(tap.token.clone())
+                    }
                 }
             }
         };
@@ -3757,6 +3776,26 @@ impl RemoteSession {
 
     pub fn tree_is_stale(&self) -> bool {
         self.tree_stale.load(Ordering::Acquire)
+    }
+}
+
+fn reserve_pipe_io_bytes(counter: &AtomicUsize, amount: usize) -> bool {
+    let mut current = counter.load(Ordering::Acquire);
+    loop {
+        let Some(next) = current.checked_add(amount) else { return false };
+        if next > crate::pipe_io::EVENT_QUEUE_MAX_BYTES {
+            return false;
+        }
+        match counter.compare_exchange_weak(current, next, Ordering::AcqRel, Ordering::Acquire) {
+            Ok(_) => return true,
+            Err(observed) => current = observed,
+        }
+    }
+}
+
+fn release_pipe_io_bytes(counter: &AtomicUsize, amount: usize) {
+    if amount != 0 {
+        counter.fetch_sub(amount, Ordering::AcqRel);
     }
 }
 
@@ -6530,7 +6569,8 @@ mod tests {
         }));
         let (sender, receiver) = crossbeam_channel::bounded(1);
         let (lifecycle_sender, lifecycle_receiver) = crossbeam_channel::bounded(1);
-        let _token = session.install_pipe_io_tap(7, sender, lifecycle_sender);
+        let queued_bytes = Arc::new(AtomicUsize::new(0));
+        let _token = session.install_pipe_io_tap(7, sender, lifecycle_sender, queued_bytes);
 
         session.pipe_io_forward(7, || PipeIoEvent::Output(b"first".to_vec()));
         // The byte queue is full. The second event must force a transport
@@ -6554,11 +6594,21 @@ mod tests {
         }));
         let (first_sender, _first_receiver) = crossbeam_channel::bounded(1);
         let (first_lifecycle_sender, _first_lifecycle_receiver) = crossbeam_channel::bounded(1);
-        let first_token = session.install_pipe_io_tap(7, first_sender, first_lifecycle_sender);
+        let first_token = session.install_pipe_io_tap(
+            7,
+            first_sender,
+            first_lifecycle_sender,
+            Arc::new(AtomicUsize::new(0)),
+        );
 
         let (second_sender, second_receiver) = crossbeam_channel::bounded(1);
         let (second_lifecycle_sender, _second_lifecycle_receiver) = crossbeam_channel::bounded(1);
-        let second_token = session.install_pipe_io_tap(7, second_sender, second_lifecycle_sender);
+        let second_token = session.install_pipe_io_tap(
+            7,
+            second_sender,
+            second_lifecycle_sender,
+            Arc::new(AtomicUsize::new(0)),
+        );
 
         session.clear_pipe_io_tap(&first_token);
         session.pipe_io_forward(7, || PipeIoEvent::Output(b"replacement".to_vec()));

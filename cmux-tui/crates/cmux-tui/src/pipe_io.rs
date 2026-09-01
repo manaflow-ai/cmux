@@ -24,6 +24,7 @@
 use std::io::{self, BufRead, Read, Write};
 use std::path::Path;
 use std::sync::Arc;
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::{Duration, Instant};
 
 use base64::Engine as _;
@@ -40,11 +41,19 @@ use crate::session::{
 pub const EXIT_DO_NOT_RESPAWN: i32 = 0;
 /// The daemon connection was lost: the embedder may respawn to resync.
 pub const EXIT_DAEMON_LOST: i32 = 2;
+/// Startup/protocol errors are not retryable daemon outages.
+pub const EXIT_STARTUP_FAILURE: i32 = 1;
 
 /// Bounded event queue between the session reader thread and the stdout
 /// pump. A full queue means the embedder stopped reading; the session
 /// treats that as a lost transport rather than wedging its reader thread.
 const EVENT_QUEUE_CAPACITY: usize = 4096;
+/// Bound queued raw VT bytes as well as event count. A stalled embedder must
+/// not retain unbounded replay/output payloads in the relay process.
+pub(crate) const EVENT_QUEUE_MAX_BYTES: usize = 64 * 1024 * 1024;
+/// Reject one pathological frame before it can consume the entire byte
+/// budget. Normal replay chunks are far below this limit.
+pub(crate) const MAX_PIPE_IO_EVENT_BYTES: usize = 8 * 1024 * 1024;
 
 /// Bound one stdin frame before JSON parsing and base64 decoding. The
 /// embedder sends keyboard and paste chunks, so a one-megabyte decoded limit
@@ -67,6 +76,7 @@ pub enum PipeIoExitReason {
     TerminalEnded,
     DaemonLost,
     ParentClosed,
+    StartupFailure,
 }
 
 impl PipeIoExitReason {
@@ -75,6 +85,7 @@ impl PipeIoExitReason {
             Self::TerminalEnded => "terminal-ended",
             Self::DaemonLost => "daemon-lost",
             Self::ParentClosed => "parent-closed",
+            Self::StartupFailure => "startup-failed",
         }
     }
 
@@ -82,6 +93,7 @@ impl PipeIoExitReason {
         match self {
             Self::TerminalEnded | Self::ParentClosed => EXIT_DO_NOT_RESPAWN,
             Self::DaemonLost => EXIT_DAEMON_LOST,
+            Self::StartupFailure => EXIT_STARTUP_FAILURE,
         }
     }
 }
@@ -165,12 +177,18 @@ pub fn run(
     rows: u16,
 ) -> anyhow::Result<PipeIoExitReason> {
     let (sender, receiver) = crossbeam_channel::bounded(EVENT_QUEUE_CAPACITY);
+    let queued_bytes = Arc::new(AtomicUsize::new(0));
     // Lifecycle events have their own reserved signal path. A stalled
     // embedder can fill the byte queue, but it must never be able to hide the
     // transport-loss event that tells the embedder to respawn.
     let (lifecycle_sender, lifecycle_receiver) = crossbeam_channel::bounded(1);
     // Install before attach so the initial replay cannot be missed.
-    let tap_token = remote.install_pipe_io_tap(surface, sender.clone(), lifecycle_sender);
+    let tap_token = remote.install_pipe_io_tap(
+        surface,
+        sender.clone(),
+        lifecycle_sender.clone(),
+        queued_bytes.clone(),
+    );
     let tap_guard = PipeIoTapGuard { remote: remote.as_ref(), token: tap_token };
     let handle = match session.try_surface_sized(surface, Some((cols.max(1), rows.max(1)))) {
         Ok(SurfaceAttach::Attached(handle)) => handle,
@@ -190,9 +208,13 @@ pub fn run(
             serde_json::json!({"diag": {"claim-terminal-geometry": {"error": error.to_string()}}})
         );
     }
-    spawn_stdin_pump(handle, sender, session.clone(), surface);
-    let reason =
-        pump_events_to_stdout(&receiver, &lifecycle_receiver, &mut std::io::stdout().lock())?;
+    spawn_stdin_pump(handle, lifecycle_sender, session.clone(), surface);
+    let reason = pump_events_to_stdout(
+        &receiver,
+        &lifecycle_receiver,
+        &queued_bytes,
+        &mut std::io::stdout().lock(),
+    )?;
     // Stop forwarding while the daemon probe runs. The probe has its own
     // request path, and events for the finished relay must not fill the data
     // queue or tear down a replacement transport.
@@ -221,8 +243,12 @@ fn attach_failure_exit_reason(error: &anyhow::Error, surface: SurfaceId) -> Pipe
     // final JSON record and exit code.
     if is_remote_surface_unavailable(error, surface) {
         PipeIoExitReason::TerminalEnded
-    } else {
+    } else if crate::session::is_remote_transport_failure(error)
+        || crate::session::is_remote_timeout(error)
+    {
         PipeIoExitReason::DaemonLost
+    } else {
+        PipeIoExitReason::StartupFailure
     }
 }
 
@@ -259,7 +285,7 @@ fn classify_daemon_loss(
 /// parent through the shared event queue.
 fn spawn_stdin_pump(
     handle: SurfaceHandle,
-    sender: Sender<PipeIoEvent>,
+    lifecycle_sender: Sender<PipeIoEvent>,
     session: Session,
     surface: SurfaceId,
 ) {
@@ -326,9 +352,10 @@ fn spawn_stdin_pump(
                     Err(_) => break,
                 }
             }
-            // Blocking send: the queue is drained until the main loop
-            // returns, and a dropped receiver just ends this thread.
-            let _ = sender.send(PipeIoEvent::StdinClosed);
+            // Stdin closure is a lifecycle signal, not terminal output. Keep
+            // it on the reserved channel so queued replay bytes cannot delay
+            // relay shutdown after the embedder goes away.
+            let _ = lifecycle_sender.try_send(PipeIoEvent::StdinClosed);
         })
         .expect("spawn pipe-io stdin pump");
 }
@@ -336,6 +363,7 @@ fn spawn_stdin_pump(
 fn pump_events_to_stdout(
     receiver: &Receiver<PipeIoEvent>,
     lifecycle_receiver: &Receiver<PipeIoEvent>,
+    queued_bytes: &AtomicUsize,
     stdout: &mut impl Write,
 ) -> anyhow::Result<PipeIoExitReason> {
     let mut emitted_output = false;
@@ -364,7 +392,10 @@ fn pump_events_to_stdout(
             }
             recv(receiver) -> event => {
                 match event {
-                    Ok(event) => event,
+                    Ok(event) => {
+                        queued_bytes.fetch_sub(event.byte_len(), Ordering::AcqRel);
+                        event
+                    }
                     Err(_) => return Ok(PipeIoExitReason::DaemonLost),
                 }
             }
@@ -384,6 +415,15 @@ fn pump_events_to_stdout(
             return Ok(PipeIoExitReason::ParentClosed);
         }
         emitted_output = true;
+    }
+}
+
+impl PipeIoEvent {
+    pub(crate) fn byte_len(&self) -> usize {
+        match self {
+            Self::Replay { bytes } | Self::Output(bytes) => bytes.len(),
+            Self::SurfaceExited | Self::TransportLost | Self::StdinClosed => 0,
+        }
     }
 }
 
@@ -452,9 +492,11 @@ mod tests {
         assert_eq!(PipeIoExitReason::TerminalEnded.exit_code(), EXIT_DO_NOT_RESPAWN);
         assert_eq!(PipeIoExitReason::ParentClosed.exit_code(), EXIT_DO_NOT_RESPAWN);
         assert_eq!(PipeIoExitReason::DaemonLost.exit_code(), EXIT_DAEMON_LOST);
+        assert_eq!(PipeIoExitReason::StartupFailure.exit_code(), EXIT_STARTUP_FAILURE);
         assert_eq!(PipeIoExitReason::TerminalEnded.as_str(), "terminal-ended");
         assert_eq!(PipeIoExitReason::DaemonLost.as_str(), "daemon-lost");
         assert_eq!(PipeIoExitReason::ParentClosed.as_str(), "parent-closed");
+        assert_eq!(PipeIoExitReason::StartupFailure.as_str(), "startup-failed");
     }
 
     #[test]
@@ -466,7 +508,10 @@ mod tests {
         sender.send(replay(b"SECOND")).unwrap();
         sender.send(PipeIoEvent::SurfaceExited).unwrap();
         let mut stdout = Vec::new();
-        let reason = pump_events_to_stdout(&receiver, &lifecycle_receiver, &mut stdout).unwrap();
+        let queued_bytes = AtomicUsize::new(0);
+        let reason =
+            pump_events_to_stdout(&receiver, &lifecycle_receiver, &queued_bytes, &mut stdout)
+                .unwrap();
         assert_eq!(reason, PipeIoExitReason::TerminalEnded);
         let mut expected = b"FIRSTlive".to_vec();
         expected.extend_from_slice(REPLAY_RESET);
@@ -484,8 +529,10 @@ mod tests {
             let (_lifecycle_sender, lifecycle_receiver) = crossbeam_channel::bounded(1);
             sender.send(event).unwrap();
             let mut stdout = Vec::new();
+            let queued_bytes = AtomicUsize::new(0);
             assert_eq!(
-                pump_events_to_stdout(&receiver, &lifecycle_receiver, &mut stdout).unwrap(),
+                pump_events_to_stdout(&receiver, &lifecycle_receiver, &queued_bytes, &mut stdout)
+                    .unwrap(),
                 expected
             );
             assert!(stdout.is_empty());
@@ -495,8 +542,10 @@ mod tests {
         let (_lifecycle_sender, lifecycle_receiver) = crossbeam_channel::bounded(1);
         drop(sender);
         let mut stdout = Vec::new();
+        let queued_bytes = AtomicUsize::new(0);
         assert_eq!(
-            pump_events_to_stdout(&receiver, &lifecycle_receiver, &mut stdout).unwrap(),
+            pump_events_to_stdout(&receiver, &lifecycle_receiver, &queued_bytes, &mut stdout)
+                .unwrap(),
             PipeIoExitReason::DaemonLost
         );
     }
@@ -509,15 +558,17 @@ mod tests {
         lifecycle_sender.send(PipeIoEvent::TransportLost).unwrap();
 
         let mut stdout = Vec::new();
+        let queued_bytes = AtomicUsize::new(0);
         assert_eq!(
-            pump_events_to_stdout(&receiver, &lifecycle_receiver, &mut stdout).unwrap(),
+            pump_events_to_stdout(&receiver, &lifecycle_receiver, &queued_bytes, &mut stdout)
+                .unwrap(),
             PipeIoExitReason::DaemonLost
         );
         assert!(stdout.is_empty(), "stale bytes must not be emitted after transport loss");
     }
 
     #[test]
-    fn attach_failures_preserve_terminal_and_daemon_exit_contracts() {
+    fn attach_failures_preserve_terminal_daemon_and_startup_exit_contracts() {
         let terminal_ended =
             crate::session::test_remote_rejected_error_with_message("unknown surface 7");
         assert_eq!(attach_failure_exit_reason(&terminal_ended, 7), PipeIoExitReason::TerminalEnded);
@@ -526,6 +577,6 @@ mod tests {
         assert_eq!(attach_failure_exit_reason(&daemon_lost, 7), PipeIoExitReason::DaemonLost);
 
         let unexpected = anyhow::anyhow!("attach capability negotiation failed");
-        assert_eq!(attach_failure_exit_reason(&unexpected, 7), PipeIoExitReason::DaemonLost);
+        assert_eq!(attach_failure_exit_reason(&unexpected, 7), PipeIoExitReason::StartupFailure);
     }
 }
