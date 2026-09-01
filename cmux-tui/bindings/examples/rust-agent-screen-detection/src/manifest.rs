@@ -806,9 +806,7 @@ impl ManifestSet {
                     "manifest directory contains more than {MAX_MANIFEST_DIRECTORY_ENTRIES} entries"
                 ));
             }
-            paths.push(
-                entry.map(|entry| entry.path()).map_err(|error| error.to_string())?,
-            );
+            paths.push(entry.map(|entry| entry.path()).map_err(|error| error.to_string())?);
         }
         paths.sort();
         for path in paths {
