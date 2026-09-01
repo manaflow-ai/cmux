@@ -43,14 +43,17 @@ final class NotificationDeliverySeamAdapter: NotificationFeedReplying, Notificat
 }
 
 extension AppDelegate {
-    /// Rewrites a parked phone reply to the surface's current workspace.
+    /// Rewrites a parked phone reply to the surface's current workspace when
+    /// its notification explicitly permits live-owner retargeting.
     ///
     /// The reply inbox is already authenticated by ``PhoneReplyInboxClient``;
     /// this helper is deliberately limited to that internal relay path. Direct
     /// mobile RPCs retain their workspace/window authorization and routing
-    /// selectors, and must not use this global surface re-home.
+    /// selectors, and must not use this global surface re-home. A confined
+    /// notification keeps its claimed workspace unchanged.
     func phoneReplyTerminalInputParams(
-        _ params: [String: Any]
+        _ params: [String: Any],
+        retargetsToLiveSurfaceOwner: Bool
     ) -> [String: Any]? {
         let controller = TerminalController.shared
         guard let surfaceID = controller.v2UUID(params, "surface_id") else {
@@ -60,6 +63,11 @@ extension AppDelegate {
         let claimedWorkspaceID = controller.v2UUID(params, "workspace_id")
         guard !hasWorkspaceID || claimedWorkspaceID != nil else {
             return nil
+        }
+        guard retargetsToLiveSurfaceOwner else {
+            // Workspace-confined notifications keep their original claim. The
+            // generic mobile resolver will fail closed if that target moved.
+            return params
         }
         guard let owner = liveSurfaceOwner(
             surfaceID: surfaceID,

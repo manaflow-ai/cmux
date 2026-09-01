@@ -1367,7 +1367,8 @@ public final class MobilePushCoordinator {
             macDeviceId: macDeviceId,
             workspaceId: pending.workspaceId,
             surfaceId: surfaceId,
-            text: pending.text
+            text: pending.text,
+            retargetsToLiveSurfaceOwner: pending.retargetsToLiveSurfaceOwner
         ))
         replySendInFlight = false
         guard accepted else {

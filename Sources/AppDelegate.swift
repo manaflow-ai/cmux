@@ -2434,13 +2434,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         PhoneReplyInboxCoordinator.shared.configure(client: PhoneReplyInboxClient.shared)
         // Relayed phone replies type through the SAME entrypoint as the phone's
         // direct RPC sends, so both lanes share claim resolution and injection.
-        PhoneReplyInboxCoordinator.shared.injectTerminalInput = { [weak self] params in
+        PhoneReplyInboxCoordinator.shared.injectTerminalInput = { [weak self] params, retargetsToLiveSurfaceOwner in
             guard let self else { return .permanentlyUndeliverable }
             let controller = TerminalController.shared
             // The inbox payload always carries a stable surface id. Resolve it
             // before entering the generic mobile RPC so a launch-time workspace
             // claim cannot route the reply to a stale manager.
-            guard let routedParams = self.phoneReplyTerminalInputParams(params) else {
+            guard let routedParams = self.phoneReplyTerminalInputParams(
+                params,
+                retargetsToLiveSurfaceOwner: retargetsToLiveSurfaceOwner
+            ) else {
                 // A valid surface can be temporarily absent while a window,
                 // Dock, or remote-tmux projection is being rebuilt. The inbox
                 // has a server-side TTL, so keep that bounded retry alive;
