@@ -1,7 +1,6 @@
 import { dirname } from "node:path";
 import { randomBytes } from "node:crypto";
 import {
-  NotImplementedError,
   ProviderError,
   type AttachEndpoint,
   type AttachOptions,
@@ -14,10 +13,15 @@ import {
   type VMProvider,
   type VMStats,
   type VMStatus,
+  type VMVolume,
+  type VMVolumePage,
+  type VMVolumeListOptions,
+  type VMVolumeInventory,
   type CmuxRemoteApprovalResult,
   type CmuxRemoteAttachOptions,
   type CmuxRemoteEndpoint,
 } from "./types";
+import { VmOperationUnsupportedError } from "../errors";
 import { withVmSpan } from "../telemetry";
 import { shellQuote } from "./wsLease";
 import {
@@ -298,6 +302,14 @@ type BlaxelPreview = {
   };
 };
 
+type BlaxelVolume = {
+  metadata?: { name?: string; createdAt?: string | number };
+  state?: { attachedTo?: unknown };
+  // Keep the parser tolerant of older control-plane responses that surfaced
+  // attachment state at the resource root.
+  attachedTo?: unknown;
+};
+
 // The preview URL is the only ingress to the cmux-tui daemon, and it must stay token-gated:
 // a preview that is (or has been flipped) public would expose the daemon's `/v1/link`
 // listener to anyone holding the URL, leaving device enrollment as the sole barrier. Only a
@@ -344,23 +356,267 @@ function controlHeaders(): Record<string, string> {
   };
 }
 
-async function blaxelFetch<T>(
+// Bounded retry for the Blaxel control plane. Every control-plane call used to
+// be a single bare fetch, so any transient 429/5xx or network blip failed the
+// whole provisioning workflow (August 2026: 18 of 19 real create attempts).
+// Retries are per-method: 429, 5xx, and network errors are retried only for
+// idempotent requests (GET, DELETE, HEAD, and this driver's PUTs, which write
+// fixed file content). POST is never replayed because a rate-limit response
+// does not prove that the provider did no work. Sandbox create relies on the
+// caller's 409 name-collision loop instead, and process starts are not
+// idempotent.
+export const BLAXEL_FETCH_MAX_ATTEMPTS = 4;
+const BLAXEL_RETRY_BASE_DELAY_MS = 250;
+const BLAXEL_RETRY_MAX_DELAY_MS = 4_000;
+const BLAXEL_RETRY_AFTER_CAP_MS = 15_000;
+
+/**
+ * Retries exhausted on a retriable control-plane failure. Distinct from a
+ * plain ProviderError so logs can tell "Blaxel kept failing for the whole
+ * retry budget" from "Blaxel rejected this request".
+ */
+export class BlaxelRetryExhaustedError extends ProviderError {
+  constructor(method: string, url: string, attempts: number, lastFailure: string, cause?: unknown) {
+    super(
+      "blaxel",
+      `${method} ${url} -> ${lastFailure} (retries exhausted after ${attempts} attempts)`,
+      cause,
+    );
+    this.name = "BlaxelRetryExhaustedError";
+  }
+}
+
+function parseRetryAfterMs(header: string | null): number | null {
+  if (!header) return null;
+  const seconds = Number(header);
+  if (Number.isFinite(seconds) && seconds >= 0) return Math.round(seconds * 1000);
+  const dateMs = Date.parse(header);
+  if (!Number.isNaN(dateMs)) return Math.max(0, dateMs - Date.now());
+  return null;
+}
+
+/** Full-jitter exponential backoff; a server-provided Retry-After wins (capped). */
+export function blaxelRetryDelayMs(
+  attempt: number,
+  retryAfterHeader: string | null,
+  random: () => number = Math.random,
+): number {
+  const retryAfterMs = parseRetryAfterMs(retryAfterHeader);
+  if (retryAfterMs !== null) return Math.min(retryAfterMs, BLAXEL_RETRY_AFTER_CAP_MS);
+  const cap = Math.min(BLAXEL_RETRY_MAX_DELAY_MS, BLAXEL_RETRY_BASE_DELAY_MS * 2 ** attempt);
+  return Math.floor(random() * cap);
+}
+
+const BLAXEL_DEFAULT_TIMEOUT_MS = 60_000;
+
+type BlaxelFetchOptions = {
+  /** Maximum time allowed for one HTTP attempt. */
+  timeoutMs?: number;
+  /** Maximum time allowed for the complete request and all retries. */
+  retryBudgetMs?: number;
+  /** Disable transport/status retries for callers with a narrower retry policy. */
+  retry?: boolean;
+  /** Caller-owned cancellation for the complete request and all retries. */
+  signal?: AbortSignal;
+  /** Test seam; production callers use the cancellation-aware implementation. */
+  sleep?: (ms: number, signal: AbortSignal) => Promise<void>;
+  /** Test seam for deterministic jitter. */
+  random?: () => number;
+};
+
+/** Return the caller's abort reason, with a standards-compatible fallback. */
+function abortReason(signal: AbortSignal): unknown {
+  return signal.reason ?? new DOMException("The operation was aborted", "AbortError");
+}
+
+/** Stop an attempt immediately when its caller has cancelled the operation. */
+function throwIfAborted(signal: AbortSignal | undefined): void {
+  if (signal?.aborted) throw abortReason(signal);
+}
+
+/** Wait for a retry delay, and always remove the abort listener and timer. */
+function defaultRetrySleep(ms: number, signal: AbortSignal): Promise<void> {
+  if (signal.aborted) return Promise.reject(abortReason(signal));
+  return new Promise<void>((resolve, reject) => {
+    let settled = false;
+    const finish = (error?: unknown) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      signal.removeEventListener("abort", onAbort);
+      if (error === undefined) resolve();
+      else reject(error);
+    };
+    const onAbort = () => finish(abortReason(signal));
+    const timer = setTimeout(() => finish(), Math.max(0, ms));
+    signal.addEventListener("abort", onAbort, { once: true });
+    if (signal.aborted) onAbort();
+  });
+}
+
+type TimedAbortSignal = {
+  signal: AbortSignal;
+  cleanup: () => void;
+};
+
+/** Create a parent-aware timeout signal whose timer is always explicitly cleared. */
+function timedAbortSignal(parent: AbortSignal | undefined, timeoutMs: number): TimedAbortSignal {
+  const controller = new AbortController();
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const onParentAbort = () => {
+    if (!controller.signal.aborted && parent) controller.abort(abortReason(parent));
+  };
+  if (parent?.aborted) {
+    onParentAbort();
+  } else if (parent) {
+    parent.addEventListener("abort", onParentAbort, { once: true });
+  }
+  if (!controller.signal.aborted) {
+    timer = setTimeout(() => {
+      if (!controller.signal.aborted) {
+        controller.abort(new DOMException("The operation timed out", "TimeoutError"));
+      }
+    }, Math.max(1, timeoutMs));
+  }
+  return {
+    signal: controller.signal,
+    cleanup: () => {
+      if (timer !== undefined) clearTimeout(timer);
+      parent?.removeEventListener("abort", onParentAbort);
+    },
+  };
+}
+
+/** Convert an unknown transport failure into a bounded diagnostic for operators. */
+function retryFailureMessage(err: unknown): string {
+  return `network failure: ${err instanceof Error ? err.message : String(err)}`;
+}
+
+/** Execute one Blaxel request with bounded, cancellation-aware retries. */
+export async function blaxelFetch<T>(
   method: string,
   url: string,
   body?: unknown,
-  opts?: { timeoutMs?: number },
+  opts?: BlaxelFetchOptions,
 ): Promise<T> {
-  const response = await fetch(url, {
-    method,
-    headers: controlHeaders(),
-    body: body === undefined ? undefined : JSON.stringify(body),
-    signal: AbortSignal.timeout(opts?.timeoutMs ?? 60_000),
-  });
-  const text = await response.text();
-  if (!response.ok) {
-    throw new ProviderError("blaxel", `${method} ${url} -> ${response.status}: ${text.slice(0, 500)}`);
+  const requestMethod = method.toUpperCase();
+  const idempotent =
+    requestMethod === "GET" ||
+    requestMethod === "DELETE" ||
+    requestMethod === "PUT" ||
+    requestMethod === "HEAD";
+  const callerSignal = opts?.signal;
+  throwIfAborted(callerSignal);
+  // Resolve configuration and serialize the body before entering the retry
+  // boundary. Configuration and serialization errors are deterministic and
+  // must never be mislabeled as transport failures.
+  const headers = controlHeaders();
+  const serializedBody = body === undefined ? undefined : JSON.stringify(body);
+  const sleep = opts?.sleep ?? defaultRetrySleep;
+  const random = opts?.random ?? Math.random;
+  const retryEnabled = opts?.retry !== false;
+  const attemptTimeoutMs = Math.max(1, opts?.timeoutMs ?? BLAXEL_DEFAULT_TIMEOUT_MS);
+  // The default operation budget must leave room for every configured attempt
+  // and the waits between them. Retry-After is capped at 15 seconds, so this
+  // covers both server-directed waits and the shorter exponential backoff.
+  // An explicit budget remains authoritative for callers that need a tighter
+  // wall-clock limit.
+  const defaultRetryBudgetMs =
+    attemptTimeoutMs * BLAXEL_FETCH_MAX_ATTEMPTS +
+    BLAXEL_RETRY_AFTER_CAP_MS * (BLAXEL_FETCH_MAX_ATTEMPTS - 1);
+  const retryBudgetMs = Math.max(1, opts?.retryBudgetMs ?? defaultRetryBudgetMs);
+  const deadlineMs = Date.now() + retryBudgetMs;
+  let lastFailure = "";
+  let lastCause: unknown;
+  let attemptsMade = 0;
+  for (let attempt = 0; attempt < BLAXEL_FETCH_MAX_ATTEMPTS; attempt += 1) {
+    throwIfAborted(callerSignal);
+    const remainingMs = deadlineMs - Date.now();
+    if (remainingMs <= 0) break;
+    const lastAttempt = attempt === BLAXEL_FETCH_MAX_ATTEMPTS - 1;
+    attemptsMade += 1;
+    let response: Response;
+    let text: string;
+    const attemptSignal = timedAbortSignal(
+      callerSignal,
+      Math.min(attemptTimeoutMs, remainingMs),
+    );
+    try {
+      response = await fetch(url, {
+        method: requestMethod,
+        headers,
+        body: serializedBody,
+        signal: attemptSignal.signal,
+      });
+      // A response can arrive while its body stream fails. Keep that transport
+      // failure in the same attempt boundary so safe requests can retry it.
+      text = await response.text();
+    } catch (err) {
+      attemptSignal.cleanup();
+      if (callerSignal?.aborted) throw abortReason(callerSignal);
+      // Network failure or timeout: a non-idempotent request may still have
+      // executed on the far side, so only idempotent methods are replayed.
+      if (!idempotent || !retryEnabled) throw err;
+      lastFailure = retryFailureMessage(err);
+      lastCause = err;
+      if (lastAttempt || Date.now() >= deadlineMs) break;
+      const delayMs = blaxelRetryDelayMs(attempt, null, random);
+      const waitRemainingMs = deadlineMs - Date.now();
+      if (waitRemainingMs <= 0) break;
+      const waitSignal = timedAbortSignal(callerSignal, waitRemainingMs);
+      try {
+        await sleep(Math.min(delayMs, waitRemainingMs), waitSignal.signal);
+      } catch (err) {
+        // The operation-level deadline ends the retry loop with the normal
+        // exhausted error. Only caller cancellation or a test/transport
+        // failure escapes this wait.
+        if (callerSignal?.aborted) throw abortReason(callerSignal);
+        if (!waitSignal.signal.aborted) throw err;
+        break;
+      } finally {
+        waitSignal.cleanup();
+      }
+      throwIfAborted(callerSignal);
+      if (Date.now() >= deadlineMs) break;
+      continue;
+    }
+    attemptSignal.cleanup();
+    if (response.ok) return (text ? JSON.parse(text) : undefined) as T;
+    const retriable = retryEnabled && idempotent && (response.status === 429 || response.status >= 500);
+    if (!retriable) {
+      // Preserve the exact historical message shape: the sandbox-create
+      // name-collision loop matches /-> 409/ and not-found checks match /-> 404/.
+      throw new ProviderError(
+        "blaxel",
+        `${requestMethod} ${url} -> ${response.status}: ${text.slice(0, 500)}`,
+      );
+    }
+    lastFailure = `${response.status}: ${text.slice(0, 500)}`;
+    lastCause = undefined;
+    if (lastAttempt || Date.now() >= deadlineMs) break;
+    const delayMs = blaxelRetryDelayMs(attempt, response.headers.get("retry-after"), random);
+    const waitRemainingMs = deadlineMs - Date.now();
+    if (waitRemainingMs <= 0) break;
+    const waitSignal = timedAbortSignal(callerSignal, waitRemainingMs);
+    try {
+      await sleep(Math.min(delayMs, waitRemainingMs), waitSignal.signal);
+    } catch (err) {
+      if (callerSignal?.aborted) throw abortReason(callerSignal);
+      if (!waitSignal.signal.aborted) throw err;
+      break;
+    } finally {
+      waitSignal.cleanup();
+    }
+    throwIfAborted(callerSignal);
+    if (Date.now() >= deadlineMs) break;
   }
-  return (text ? JSON.parse(text) : undefined) as T;
+  throw new BlaxelRetryExhaustedError(
+    requestMethod,
+    url,
+    attemptsMade,
+    lastFailure || "retry budget expired",
+    lastCause,
+  );
 }
 
 // The daemon source resolution, install command, daemon command, and enrollment
@@ -413,7 +669,164 @@ function parseJsonArray(text: string): Array<Record<string, unknown>> {
   }
 }
 
+function volumeListItems(payload: unknown): unknown[] {
+  if (Array.isArray(payload)) return payload;
+  if (!payload || typeof payload !== "object") return [];
+  const candidate = payload as { items?: unknown; data?: unknown };
+  if (Array.isArray(candidate.items)) return candidate.items;
+  if (Array.isArray(candidate.data)) return candidate.data;
+  // Current Blaxel responses wrap the page as `{ data: { items }, meta }`.
+  if (candidate.data && typeof candidate.data === "object") {
+    const data = candidate.data as { items?: unknown; data?: unknown };
+    if (Array.isArray(data.items)) return data.items;
+    if (Array.isArray(data.data)) return data.data;
+  }
+  return [];
+}
+
+/**
+ * Completion must be an explicit provider signal: a continuation-cursor key
+ * present with an empty value, or hasMore === false. A meta object that only
+ * carries counts (e.g. { total: 1000 }) proves nothing about exhaustion and
+ * must leave coverage marked partial.
+ */
+/**
+ * A payload only counts as a volume page when it carries a recognized items
+ * container. Completion claims from shapes we cannot parse must fail closed,
+ * otherwise a malformed response reads as an empty-but-complete inventory.
+ */
+function hasRecognizedVolumeContainer(payload: unknown): boolean {
+  if (Array.isArray(payload)) return true;
+  if (!payload || typeof payload !== "object") return false;
+  const candidate = payload as { items?: unknown; data?: unknown };
+  if (Array.isArray(candidate.items) || Array.isArray(candidate.data)) return true;
+  if (candidate.data && typeof candidate.data === "object") {
+    const data = candidate.data as { items?: unknown; data?: unknown };
+    return Array.isArray(data.items) || Array.isArray(data.data);
+  }
+  return false;
+}
+
+function volumePaginationComplete(payload: unknown): boolean {
+  if (!payload || typeof payload !== "object" || Array.isArray(payload)) return false;
+  const explicitEnd = (source: unknown): boolean => {
+    if (!source || typeof source !== "object" || Array.isArray(source)) return false;
+    const value = source as {
+      nextCursor?: unknown;
+      next_cursor?: unknown;
+      hasMore?: unknown;
+      has_more?: unknown;
+    };
+    if (value.hasMore === false || value.has_more === false) return true;
+    const cursorKeyPresent = "nextCursor" in value || "next_cursor" in value;
+    if (!cursorKeyPresent) return false;
+    const cursor = value.nextCursor ?? value.next_cursor;
+    return cursor === null || cursor === undefined || cursor === "";
+  };
+  const candidate = payload as { meta?: unknown; data?: unknown };
+  if (explicitEnd(payload)) return true;
+  if (explicitEnd(candidate.meta)) return true;
+  if (candidate.data && typeof candidate.data === "object" && !Array.isArray(candidate.data)) {
+    return explicitEnd((candidate.data as { meta?: unknown }).meta);
+  }
+  return false;
+}
+
+function volumeNextCursor(payload: unknown): string | null {
+  if (!payload || typeof payload !== "object") return null;
+  const candidate = payload as {
+    nextCursor?: unknown;
+    next_cursor?: unknown;
+    meta?: unknown;
+    data?: unknown;
+  };
+  const readMeta = (meta: unknown): string | null => {
+    if (!meta || typeof meta !== "object") return null;
+    const value = meta as { nextCursor?: unknown; next_cursor?: unknown };
+    const cursor = value.nextCursor ?? value.next_cursor;
+    return typeof cursor === "string" && cursor.trim().length > 0 ? cursor.trim() : null;
+  };
+  return readMeta(candidate.meta) ??
+    (typeof candidate.nextCursor === "string" && candidate.nextCursor.trim().length > 0
+      ? candidate.nextCursor.trim()
+      : typeof candidate.next_cursor === "string" && candidate.next_cursor.trim().length > 0
+        ? candidate.next_cursor.trim()
+        : candidate.data && typeof candidate.data === "object"
+          ? readMeta((candidate.data as { meta?: unknown }).meta)
+          : null);
+}
+
+function attachmentFields(volume: BlaxelVolume): Pick<VMVolume, "attachedTo" | "attachmentState"> {
+  const hasOwn = (value: object, key: string): boolean => Object.prototype.hasOwnProperty.call(value, key);
+  const state = volume.state && typeof volume.state === "object" ? volume.state : undefined;
+  const stateHasAttachment = !!state && hasOwn(state, "attachedTo");
+  const rootHasAttachment = hasOwn(volume, "attachedTo");
+  const raw = stateHasAttachment
+    ? state?.attachedTo
+      : rootHasAttachment
+      ? volume.attachedTo
+      : undefined;
+
+  if (typeof raw === "string" && raw.trim().length > 0) {
+    return { attachedTo: raw.trim(), attachmentState: "attached" };
+  }
+  if (raw === null) return { attachedTo: null, attachmentState: "unattached" };
+  // An absent, empty, or malformed attachment field is not proof of freedom.
+  return { attachmentState: "unknown" };
+}
+
+function parseBlaxelVolumeItems(items: readonly unknown[]): VMVolume[] {
+  return items.flatMap((item): VMVolume[] => {
+    if (!item || typeof item !== "object") return [];
+    const volume = item as BlaxelVolume;
+    const rawName = volume.metadata && typeof volume.metadata === "object"
+      ? (volume.metadata as { name?: unknown }).name
+      : undefined;
+    const name = typeof rawName === "string" ? rawName.trim() : "";
+    if (!name) return [];
+    const rawCreatedAt = volume.metadata && typeof volume.metadata === "object"
+      ? (volume.metadata as { createdAt?: unknown }).createdAt
+      : undefined;
+    const createdAt = typeof rawCreatedAt === "number" && Number.isFinite(rawCreatedAt)
+      ? rawCreatedAt
+      : typeof rawCreatedAt === "string"
+        ? Date.parse(rawCreatedAt)
+        : Number.NaN;
+    const attachment = attachmentFields(volume);
+    return [{
+      name,
+      createdAt: Number.isFinite(createdAt) ? createdAt : null,
+      ...attachment,
+    }];
+  });
+}
+
+/** Normalize the Blaxel `/volumes` response for provider-agnostic cleanup code. */
+export function parseBlaxelVolumes(payload: unknown): VMVolume[] {
+  return parseBlaxelVolumeItems(volumeListItems(payload));
+}
+
+/** Parse one bounded Blaxel volume page, including its opaque continuation cursor. */
+export function parseBlaxelVolumePage(payload: unknown, limit = 100): VMVolumePage {
+  const boundedLimit = Number.isSafeInteger(limit) && limit > 0 ? Math.min(limit, 100) : 100;
+  const items = volumeListItems(payload);
+  const truncated = items.length > boundedLimit;
+  return {
+    // Slice before normalization so legacy responses do not make the reaper
+    // retain or sort an unbounded provider inventory.
+    volumes: parseBlaxelVolumeItems(items.slice(0, boundedLimit)),
+    nextCursor: volumeNextCursor(payload),
+    complete: hasRecognizedVolumeContainer(payload) &&
+      volumeNextCursor(payload) === null &&
+      volumePaginationComplete(payload) &&
+      !truncated,
+  };
+}
+
 export class BlaxelProvider implements VMProvider {
+  // Snapshot/fork are a workspace-tier feature Blaxel has not enabled (see `snapshot`);
+  // declared so the app hides Checkpoint/Fork instead of offering verbs that 502.
+  readonly capabilities = { snapshot: false, restore: false, fork: false } as const;
   readonly id = "blaxel" as const;
 
   async create(options: CreateOptions): Promise<VMHandle> {
@@ -434,15 +847,20 @@ export class BlaxelProvider implements VMProvider {
           // resolved name (never the template) is what lands in providerMetadata,
           // so resurrection finds the right volume.
           const homeVolumeSpec = options.homeVolume?.trim() || undefined;
+          // A `{machine}` volume is owned by exactly one machine, so failure paths
+          // may delete it; a fixed name is the user's shared volume and is never
+          // deleted by create/destroy paths.
+          const perMachineHomeVolume = !!homeVolumeSpec?.includes("{machine}");
           const resolveHomeVolume = (machineName: string): string | undefined =>
             homeVolumeSpec?.replace("{machine}", machineName);
           let name = friendlyVmName();
           let homeVolume = resolveHomeVolume(name);
           let created: BlaxelSandbox | null = null;
           for (let attempt = 0; attempt < 4 && !created; attempt += 1) {
+            let volumeCreated = false;
             if (homeVolume) {
               const volume = homeVolume;
-              await timedStep("ensure_home_volume", () => this.ensureHomeVolume(volume, homeVolumeMb));
+              volumeCreated = await timedStep("ensure_home_volume", () => this.ensureHomeVolume(volume, homeVolumeMb));
             }
             try {
               created = await timedStep("create_sandbox", () => blaxelFetch<BlaxelSandbox>("POST", `${CONTROL_PLANE_BASE}/sandboxes`, {
@@ -458,6 +876,17 @@ export class BlaxelProvider implements VMProvider {
                 },
               }));
             } catch (err) {
+              // A per-machine volume this call just created for a sandbox that never
+              // came to exist is already orphaned — a retried create picks a fresh
+              // name, so nothing ever reattaches it. Delete it before moving on. A
+              // pre-existing volume (409 on ensure) is left alone: it may belong to
+              // the live sandbox this name conflicted with.
+              if (homeVolume && perMachineHomeVolume && volumeCreated) {
+                const volume = homeVolume;
+                await this.deleteHomeVolume(volume).catch((cleanupErr) => {
+                  console.error(`[blaxel] create cleanup failed; volume ${volume} may be orphaned`, cleanupErr);
+                });
+              }
               const conflict = err instanceof ProviderError && /-> 409/.test(err.message);
               if (!conflict || attempt === 3) throw err;
               name = friendlyVmName(attempt >= 1);
@@ -484,15 +913,24 @@ export class BlaxelProvider implements VMProvider {
             timedStep("ensure_raw_preview", () => this.ensurePreview(name, CMUX_TUI_RAW_PREVIEW_NAME, CMUX_TUI_PORT, { branded: false })),
           ]);
           // A machine that failed to bootstrap must not survive as an orphaned
-          // sandbox (its previews die with it); the durable home volume is kept —
-          // a retried create with the same volume reattaches it.
-          // A rollback failure means the sandbox is now leaked on the provider:
-          // log it loudly (the original create error still propagates) so the
-          // orphan is findable instead of silently accumulating.
-          const rollback = () =>
-            this.destroy(name).catch((cleanupErr) => {
+          // sandbox (its previews die with it). A per-machine home volume dies with
+          // the machine: a retried create picks a fresh name, so nothing would ever
+          // reattach it while its storage keeps billing. A shared user volume is
+          // kept — a retried create reattaches it by name.
+          // A rollback failure means the sandbox or volume is now leaked on the
+          // provider: log it loudly (the original create error still propagates) so
+          // the orphan is findable instead of silently accumulating.
+          const rollback = async () => {
+            await this.destroy(name).catch((cleanupErr) => {
               console.error(`[blaxel] create rollback failed; sandbox ${name} may be orphaned`, cleanupErr);
             });
+            if (homeVolume && perMachineHomeVolume) {
+              const volume = homeVolume;
+              await this.deleteHomeVolume(volume).catch((cleanupErr) => {
+                console.error(`[blaxel] create rollback failed; volume ${volume} may be orphaned`, cleanupErr);
+              });
+            }
+          };
           if (bootstrapResult.status === "rejected") {
             await rollback();
             throw bootstrapResult.reason;
@@ -514,7 +952,17 @@ export class BlaxelProvider implements VMProvider {
             image,
             createdAt: Date.now(),
             providerMetadata: homeVolume
-              ? { sandboxUrl, previewUrl, homeVolume, homeVolumeMb, image, memoryMb }
+              ? {
+                  sandboxUrl,
+                  previewUrl,
+                  homeVolume,
+                  homeVolumeMb,
+                  image,
+                  memoryMb,
+                  // Destroy paths delete only volumes a machine owns exclusively;
+                  // this marker is that ownership record.
+                  ...(perMachineHomeVolume ? { homeVolumePerMachine: true } : {}),
+                }
               : { sandboxUrl, previewUrl, image, memoryMb },
           };
         } catch (err) {
@@ -774,6 +1222,28 @@ export class BlaxelProvider implements VMProvider {
     );
   }
 
+  /** List one bounded page of volumes; the no-argument form keeps legacy callers working. */
+  async listVolumes(): Promise<readonly VMVolume[]>;
+  async listVolumes(options: VMVolumeListOptions): Promise<VMVolumePage>;
+  async listVolumes(options?: VMVolumeListOptions): Promise<VMVolumeInventory> {
+    const query = new URLSearchParams();
+    if (options) {
+      const limit = Number.isSafeInteger(options.limit) && options.limit > 0
+        ? Math.min(options.limit, 100)
+        : 100;
+      query.set("limit", String(limit));
+      if (options.cursor) query.set("cursor", options.cursor);
+      // The provider supports ordered cursor pages. This keeps a run fair for
+      // old volumes without requiring the reaper to sort an unbounded result.
+      query.set("sort", "createdAt:asc");
+    }
+    const suffix = query.size > 0 ? `?${query.toString()}` : "";
+    const payload = await blaxelFetch<unknown>("GET", `${CONTROL_PLANE_BASE}/volumes${suffix}`);
+    return options
+      ? parseBlaxelVolumePage(payload, options.limit)
+      : parseBlaxelVolumes(payload);
+  }
+
   async getStatus(vmId: string): Promise<VMStatus> {
     const sandbox = await this.getSandbox(vmId);
     return mapStatus(sandbox);
@@ -824,12 +1294,12 @@ export class BlaxelProvider implements VMProvider {
     // 403 "Sandbox snapshot/fork feature is not enabled for this workspace" on the current
     // workspace tier (verified 2026-08-20). Wire this up once the feature is enabled; until
     // then durability comes from standby memory snapshots (automatic) and the sandbox TTL.
-    throw new NotImplementedError("blaxel", "snapshot");
+    throw new VmOperationUnsupportedError({ provider: this.id, operation: "snapshot" });
   }
 
   async restore(snapshotId: string): Promise<VMHandle> {
     void snapshotId;
-    throw new NotImplementedError("blaxel", "restore");
+    throw new VmOperationUnsupportedError({ provider: this.id, operation: "restore" });
   }
 
   async openSSH(vmId: string): Promise<SSHEndpoint> {
@@ -933,17 +1403,68 @@ export class BlaxelProvider implements VMProvider {
 
   // A size the volume API rejects surfaces as the provider's own message (non-409
   // responses propagate); there is no silent fallback to a smaller disk.
-  private async ensureHomeVolume(name: string, sizeMb: number): Promise<void> {
+  /** Returns true when this call created the volume, false when it already existed. */
+  private async ensureHomeVolume(name: string, sizeMb: number): Promise<boolean> {
     try {
       await blaxelFetch("POST", `${CONTROL_PLANE_BASE}/volumes`, {
         metadata: { name },
         spec: { size: sizeMb },
       });
+      return true;
     } catch (err) {
       // An existing volume is the expected steady state; anything else is fatal.
       const conflict = err instanceof ProviderError && /-> 409/.test(err.message);
       if (!conflict) throw err;
+      return false;
     }
+  }
+
+  // Blaxel deletes sandboxes asynchronously and keeps a volume's attachment record
+  // alive until that finishes, answering 409 in the window. ~7.5 s of backoff covers it.
+  private static readonly HOME_VOLUME_DELETE_RETRY_DELAYS_MS: readonly number[] = [500, 1000, 2000, 4000];
+
+  /**
+   * Delete a persistent home volume (`DELETE /volumes/{name}`). A 404 is success —
+   * the volume is already gone. A 409 (still attached while the owning sandbox
+   * finishes deleting) is retried with bounded backoff; anything else, or an
+   * exhausted retry budget, throws so the caller can record the leak. Ownership is
+   * the caller's judgment: only a volume owned solely by a destroyed machine may
+   * be passed here.
+   */
+  async deleteHomeVolume(volumeName: string, opts?: { retryDelaysMs?: readonly number[] }): Promise<void> {
+    const name = volumeName.trim();
+    if (!name) throw new ProviderError("blaxel", "deleteHomeVolume requires a volume name");
+    await withVmSpan(
+      "cmux.vm.provider.delete_home_volume",
+      { "cmux.vm.provider": "blaxel", "cmux.vm.operation": "delete_home_volume", "cmux.vm.volume": name },
+      async () => {
+        const delays = opts?.retryDelaysMs ?? BlaxelProvider.HOME_VOLUME_DELETE_RETRY_DELAYS_MS;
+        for (let attempt = 0; ; attempt += 1) {
+          try {
+            // This method owns a narrower policy: only the provider's transient
+            // "still attached" 409 is retried below. Do not add the generic
+            // idempotent 5xx retry on top of that bounded cleanup loop.
+            await blaxelFetch(
+              "DELETE",
+              `${CONTROL_PLANE_BASE}/volumes/${encodeURIComponent(name)}`,
+              undefined,
+              { retry: false },
+            );
+            return;
+          } catch (err) {
+            const gone = err instanceof ProviderError && /-> 404/.test(err.message);
+            if (gone) return;
+            const attached = err instanceof ProviderError && /-> 409/.test(err.message);
+            if (!attached || attempt >= delays.length) {
+              throw err instanceof ProviderError
+                ? err
+                : new ProviderError("blaxel", `deleteHomeVolume(${name}) failed`, err);
+            }
+            await new Promise((resolve) => setTimeout(resolve, delays[attempt]));
+          }
+        }
+      },
+    );
   }
 
   /**

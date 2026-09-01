@@ -414,6 +414,17 @@ struct CMUXMobileRootView: View {
             presentAutoConnectMigrationIfEligible()
             #endif
         }
+        .onChange(of: authManager.currentUser?.demonstrationContentEnabled ?? false) { _, _ in
+            // Session revalidation refreshes the published user — including
+            // its server-written demonstration-content flag — WITHOUT an
+            // isAuthenticated edge, so neither onChange above re-fires. A
+            // launch that mounts already authenticated syncs against the
+            // cached identity card (not-flagged when it predates the flag),
+            // and without this edge the demo computer's workspace and
+            // notification seeds would never land. Re-running the ordinary
+            // auth sync lets the shell's activation re-evaluate.
+            syncShellAuthentication(isAuthenticated)
+        }
         .onChange(of: store.connectionState) { _, connectionState in
             if connectionState == .connected {
                 #if os(iOS)
@@ -482,7 +493,11 @@ struct CMUXMobileRootView: View {
                     insertion: .move(edge: .trailing).combined(with: .opacity),
                     removal: .opacity
                 ))
-        } else if !isAuthenticated {
+        } else if MobileRootAuthGate.shouldShowSignIn(
+            stackAuthenticated: authManager.isAuthenticated,
+            attachTicketAuthenticated: hasActiveAttachTicketAuthentication,
+            isRestoringSession: authManager.isRestoringSession
+        ) {
             SignInView()
                 .transition(reduceMotion ? .opacity : .asymmetric(
                     insertion: .opacity,
@@ -649,6 +664,9 @@ struct CMUXMobileRootView: View {
         MobileSettingsView(
             connectedHostName: store.connectedHostName,
             startPairingScanner: pairingScannerAction,
+            // Swaps the root sheet's content from Settings to Computers in
+            // place; the presentation state machine allows this transition.
+            showComputers: showComputers,
             signOut: signOut,
             store: store,
             initialFocus: initialFocus,
@@ -812,9 +830,11 @@ struct CMUXMobileRootView: View {
         )
     }
 
-    /// Whether first-run onboarding should present: only for a signed-in
-    /// account session, and only while a durable milestone remains unfinished.
-    /// Signed out, `rootContent` falls through to the sign-in screen instead.
+    /// Whether first-run onboarding should present: only for a settled,
+    /// signed-in account session, and only while a durable milestone remains
+    /// unfinished. During launch restore, `rootContent` falls through to the
+    /// sign-in screen instead of briefly presenting onboarding for a cached
+    /// identity that may still be rejected.
     /// Deliberately narrower than the composite `isAuthenticated`: a temporary
     /// attach-ticket authentication must reach the shell so the attach
     /// completes, not detour into the tour (whose discovery keep-alive
@@ -822,7 +842,8 @@ struct CMUXMobileRootView: View {
     private var shouldShowOnboarding: Bool {
         #if os(iOS)
         return onboardingStore.progress.shouldShowOnboarding(
-            isAuthenticated: authManager.isAuthenticated
+            isAuthenticated: authManager.isAuthenticated,
+            isRestoringSession: authManager.isRestoringSession
         )
         #else
         return false
@@ -873,12 +894,16 @@ struct CMUXMobileRootView: View {
             isAuthenticated: isAuthenticated,
             connectionPhase: onboardingConnectionPhase,
             connectionMethod: connectionMethodStore?.method ?? .automatic,
+            keepAwakeOffer: OnboardingKeepAwakeOfferSource.offer(from: store),
             onSelectConnectionMethod: { connectionMethodStore?.method = $0 },
             onEnablePush: { await pushCoordinator.enable(trigger: "onboarding") },
             onReachedConnection: markOnboardingReadyToConnect,
             onSkip: completeOnboarding,
             onRetryConnection: retryAutomaticConnection,
             onStartTailscalePairing: showOnboardingPairingScanner,
+            onSetKeepAwake: { [store] enabled in
+                await OnboardingKeepAwakeOfferSource.set(enabled, on: store)
+            },
             onComplete: completeOnboarding
         )
         #else
@@ -1195,6 +1220,11 @@ struct CMUXMobileRootView: View {
         let token = UUID()
         openURLTaskToken = token
         openURLTask = Task { @MainActor in
+            // An explicit pairing attempt supersedes parked timed-out auth
+            // phases: one launch-time Stack call hung on a dead pooled
+            // connection otherwise fast-fails this attempt (`timedOut` within
+            // milliseconds) for the damper's remaining 30s.
+            await authManager.supersedeTimedOutAuthPhases()
             let result = await store.connectPairingURLResult(rawURL)
             guard !Task.isCancelled, openURLTaskToken == token else { return }
             let failure: DiagnosticFailureKind? = switch result {
@@ -1342,7 +1372,12 @@ struct CMUXMobileRootView: View {
                 await dogfoodAttachPreparation.waitUntilReady()
             },
             connect: { rawURL in
-                await store.connectPairingURLResult(rawURL)
+                // Same supersede as the open-URL pairing path: the injected
+                // attach fires seconds after the forced dev sign-in, exactly
+                // when a hung launch-time Stack call has the phase damper
+                // armed, and must not inherit that fast-fail.
+                await authManager.supersedeTimedOutAuthPhases()
+                return await store.connectPairingURLResult(rawURL)
             },
             onCompletion: { completion in
                 if completion.result == .needsUserApproval {

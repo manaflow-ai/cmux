@@ -105,15 +105,25 @@ final class CmuxMainWindow: NSWindow {
     /// (observed live: the window at 29,000 points wide, growing every
     /// pass). The user sizes this window; layout does not.
     override func setFrame(_ frameRect: NSRect, display flag: Bool) {
-        let frame = styleMask.contains(.fullScreen)
-            ? frameRect
-            : Self.frameByCappingOversizedDimensions(
-                frameRect,
-                displayFrames: NSScreen.screens.map {
-                    (frame: $0.frame, visibleFrame: $0.visibleFrame)
-                }
-            )
-        super.setFrame(frame, display: flag)
+        guard !styleMask.contains(.fullScreen) else {
+            super.setFrame(frameRect, display: flag)
+            return
+        }
+        let capped = Self.frameByCappingOversizedDimensions(
+            frameRect,
+            displayFrames: NSScreen.screens.map {
+                (frame: $0.frame, visibleFrame: $0.visibleFrame)
+            }
+        )
+        super.setFrame(
+            Self.frameByRaisingUndersizedDimensions(
+                capped,
+                minimumSize: Self.minimumContentSize,
+                currentFrame: frame,
+                isLiveResize: inLiveResize
+            ),
+            display: flag
+        )
     }
 
     /// Caps runaway content-derived dimensions to the display union while
@@ -156,6 +166,55 @@ final class CmuxMainWindow: NSWindow {
         )
         capped.origin.y = clampedMaxY - capped.height
         return capped
+    }
+
+    /// Raises undersized dimensions to the policy floor. On macOS 26 the
+    /// edge-drag resize affordance delivers below-`minSize` frames straight
+    /// through `setFrame` (observed live: a 116pt-tall window on a build
+    /// whose `minSize` height was 200), and programmatic paths (session
+    /// restore math, display reconfiguration, automation) were never bounded
+    /// by `minSize` at all — either way the sidebar footer, update pill, and
+    /// tab bar overlap and clip. Frames that already fit are returned
+    /// byte-for-byte.
+    ///
+    /// During a live drag (`isLiveResize`) the raise anchors the edge the
+    /// gesture is holding still, inferred by comparing the proposal against
+    /// `currentFrame`: a proposal that keeps the current bottom (top-edge
+    /// drag) is pinned at that bottom so the top edge stops at the floor, and
+    /// likewise for a kept right edge. Outside live resize the inference is
+    /// meaningless — a programmatic shrink that happens to share the current
+    /// origin is not a drag — so every programmatic raise keeps the
+    /// proposal's top-left corner: the titlebar stays where the caller put it
+    /// and the raise extends downward.
+    nonisolated static func frameByRaisingUndersizedDimensions(
+        _ proposedFrame: NSRect,
+        minimumSize: NSSize,
+        currentFrame: NSRect,
+        isLiveResize: Bool
+    ) -> NSRect {
+        var raised = proposedFrame
+        raised.size.width = max(raised.width, minimumSize.width)
+        raised.size.height = max(raised.height, minimumSize.height)
+        guard raised.size != proposedFrame.size else { return proposedFrame }
+
+        let epsilon: CGFloat = 0.5
+        if raised.height != proposedFrame.height {
+            let keepsBottomEdge = isLiveResize
+                && abs(proposedFrame.minY - currentFrame.minY) <= epsilon
+                && abs(proposedFrame.maxY - currentFrame.maxY) > epsilon
+            if !keepsBottomEdge {
+                raised.origin.y = proposedFrame.maxY - raised.height
+            }
+        }
+        if raised.width != proposedFrame.width {
+            let keepsRightEdge = isLiveResize
+                && abs(proposedFrame.maxX - currentFrame.maxX) <= epsilon
+                && abs(proposedFrame.minX - currentFrame.minX) > epsilon
+            if keepsRightEdge {
+                raised.origin.x = proposedFrame.maxX - raised.width
+            }
+        }
+        return raised
     }
 
     static var minimumContentSize: NSSize {
