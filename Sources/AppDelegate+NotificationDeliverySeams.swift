@@ -67,7 +67,7 @@ extension AppDelegate {
         guard retargetsToLiveSurfaceOwner else {
             // Workspace-confined notifications keep their original claim. The
             // generic mobile resolver will fail closed if that target moved.
-            return params
+            return claimedWorkspaceID == nil ? nil : params
         }
         guard let owner = liveSurfaceOwner(
             surfaceID: surfaceID,

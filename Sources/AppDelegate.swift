@@ -2451,6 +2451,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 let hasValidSurfaceID = controller.v2UUID(params, "surface_id") != nil
                 let hasWorkspaceID = controller.v2HasNonNullParam(params, "workspace_id")
                 let hasValidWorkspaceID = controller.v2UUID(params, "workspace_id") != nil
+                if !retargetsToLiveSurfaceOwner, !hasWorkspaceID {
+                    return .permanentlyUndeliverable
+                }
                 guard hasValidSurfaceID,
                       (!hasWorkspaceID || hasValidWorkspaceID) else {
                     return .permanentlyUndeliverable
