@@ -126,7 +126,7 @@ async function reconcileStripeSubscriptionsLocked(
       // shared reconciliation cursor, so this keeps the bounded Stack work
       // focused on the oldest eligible team rows even when retrievals finish
       // out of order.
-      const teamSeatSyncReserved = isActiveTeamSnapshot(snapshot) &&
+      const teamSeatSyncReserved = isTeamSnapshot(snapshot) &&
         reservedTeamSeatSyncs < TEAM_SEAT_SYNC_LIMIT;
       if (teamSeatSyncReserved) reservedTeamSeatSyncs += 1;
 
@@ -239,11 +239,17 @@ async function listSubscriptionSnapshots(
     .limit(limit);
 }
 
-function isActiveTeamSnapshot(snapshot: SubscriptionSnapshot): boolean {
+/**
+ * Team identity alone reserves a seat-sync slot. The LOCAL status is not
+ * consulted: a drifted row (local canceled, Stripe active) must still true
+ * its seats in the same cycle that repairs the status. The remote status
+ * check at the call site decides whether the sync actually runs; a slot
+ * spent on a remotely-inactive team is a bounded, acceptable waste.
+ */
+function isTeamSnapshot(snapshot: SubscriptionSnapshot): boolean {
   return snapshot.scope === "team" &&
     typeof snapshot.stackTeamId === "string" &&
-    snapshot.stackTeamId.length > 0 &&
-    isActiveStripeSubscriptionStatus(snapshot.status);
+    snapshot.stackTeamId.length > 0;
 }
 
 async function reconcileTeamSeatQuantity(
@@ -282,7 +288,24 @@ async function reconcileTeamSeatQuantity(
   if (typeof team.listUsers !== "function") {
     throw new Error("Stack Auth server SDK cannot list team members");
   }
-  const members = await team.listUsers();
+  // Stack's SDK exposes neither a member count nor pagination, so the
+  // roster read cannot be memory-bounded here; it is time-bounded instead. A
+  // team whose roster cannot load inside the deadline fails fast and is
+  // skipped this run rather than stalling the whole cron.
+  const ROSTER_DEADLINE_MS = 15_000;
+  let rosterTimer: ReturnType<typeof setTimeout> | undefined;
+  const rosterDeadline = new Promise<never>((_, reject) => {
+    rosterTimer = setTimeout(
+      () => reject(new Error("Stack roster listing exceeded the per-team deadline")),
+      ROSTER_DEADLINE_MS,
+    );
+  });
+  let members: readonly unknown[];
+  try {
+    members = await Promise.race([team.listUsers(), rosterDeadline]);
+  } finally {
+    clearTimeout(rosterTimer);
+  }
   if (!Array.isArray(members)) {
     throw new Error("Stack team member listing returned an invalid result");
   }
