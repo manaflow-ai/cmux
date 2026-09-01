@@ -1,9 +1,35 @@
 {
+  "billingRecovery": {
+    "message": "If we found an account, check your email for next steps"
+  },
   "vmDesktop": {
     "invalidTitle": "This desktop link isn't valid",
     "invalidBody": "The link is missing its session or points somewhere cmux won't frame. Reopen the desktop from cmux: right-click {machine} in the Machines panel and choose Open Desktop.",
     "expiredTitle": "This desktop session expired",
     "expiredBody": "{machine} and everything on it are fine — only this link's session ended. Reopen the desktop from cmux (right-click the machine, then Open Desktop) to get a fresh one."
+  },
+  "vmErrors": {
+    "unsupported": {
+      "title": "Cloud VM operation unavailable",
+      "reason": "This machine kind does not provide this operation.",
+      "message": {
+        "snapshot": "This Cloud VM does not support saved VM state.",
+        "restore": "This Cloud VM kind does not support restoring saved VM state.",
+        "fork": "This Cloud VM does not support copying to a new VM.",
+        "default": "This Cloud VM does not support the requested operation."
+      },
+      "action": {
+        "snapshot": "Do not retry. Work on this machine kind is kept on its persistent home volume.",
+        "restore": "Do not retry. Work on this machine kind is kept on its persistent home volume.",
+        "fork": "Do not retry. Create a new VM with `cmux vm new`.",
+        "default": "Do not retry. Run `cmux vm ls` to see your machines, or contact support if you believe this is wrong."
+      }
+    },
+    "requiresPro": {
+      "title": "cmux Pro required",
+      "message": "Cloud VMs require a cmux Pro plan.",
+      "action": "Upgrade to cmux Pro at {upgradeUrl} to create Cloud VMs."
+    }
   },
   "ios": {
     "metaTitle": "cmux iOS — your terminals on iPhone and iPad",
@@ -89,6 +115,13 @@
     "description": "Free and open source native macOS terminal built on Ghostty. Works with Claude Code, Codex, OpenCode, Gemini CLI, Kiro, Aider, and any CLI tool. Vertical tabs, notification rings, split panes, and a socket API.",
     "ogDescription": "Free and open source macOS terminal for AI coding agents. Works with Claude Code, Codex, OpenCode, Gemini CLI, Kiro, Aider, and any CLI tool."
   },
+  "authError": {
+    "emailUnverifiedTitle": "Verify your email to continue",
+    "emailUnverifiedBody": "Sign in with the method you used originally, then verify your email before using this sign-in method.",
+    "genericTitle": "Sign-in could not be completed",
+    "genericBody": "Please try again. If the problem continues, contact support.",
+    "backToSignIn": "Back to sign in"
+  },
   "common": {
     "downloadForMac": "Download for Mac",
     "viewOnGitHub": "View on GitHub",
@@ -151,13 +184,14 @@
         "cancelled": "Your plan will cancel at the end of the current billing period.",
         "resumed": "Your plan has been resumed and will renew normally.",
         "nosub": "No active Stripe subscription was found for this account.",
-        "error": "Billing could not be updated. Try again shortly."
+        "error": "Billing could not be updated. Try again shortly.",
+        "pastDue": "Your latest payment failed. Update your payment method to keep your plan active."
       },
       "free": {
         "name": "Free",
         "body": "You are currently on the Free plan. Upgrade when you need Pro limits and hosted features.",
-        "upsellTitle": "Upgrade when you need cloud agents or shared CodeRouter.",
-        "upsellBody": "Choose Pro for personal cloud features, or Team for shared CodeRouter with anonymous aggregate usage and cost analytics.",
+        "upsellTitle": "Upgrade when you need cloud agents.",
+        "upsellBody": "Choose Pro for personal cloud features, or Team for your whole team with centralized billing.",
         "testflightTitle": "Get the cmux iOS app",
         "testflightBody": "The iOS beta is available through TestFlight for active personal Pro subscribers.",
         "testflightCta": "Join the iOS beta"
@@ -398,6 +432,7 @@
     "blog": "Blog",
     "changelog": "Changelog",
     "community": "Community",
+    "jobs": "Jobs",
     "pricing": "Pricing",
     "github": "GitHub"
   },
@@ -408,6 +443,7 @@
     "social": "Social",
     "blog": "Blog",
     "community": "Community",
+    "jobs": "Jobs",
     "pricing": "Pricing",
     "docs": "Docs",
     "changelog": "Changelog",
@@ -428,12 +464,85 @@
     "guides": "Guides",
     "compare": "Compare"
   },
+  "jobs": {
+    "metaTitle": "Founding Engineer jobs at cmux",
+    "metaDescription": "Join cmux as a founding engineer and help build the future of coding with AI across macOS, Windows, Linux, iOS, and Cloud.",
+    "section": "Jobs",
+    "eyebrow": "We're hiring",
+    "title": "Founding Engineer",
+    "tagline": "Help us build the future of coding with AI.",
+    "intro": "cmux is a native macOS terminal built on Ghostty, designed for running multiple AI coding agents in parallel. Hundreds of thousands of developers use cmux to drive their agentic coding workflows.",
+    "hiring": "We're hiring talented engineers to help us build the future of coding with AI.",
+    "whatYoullDo": "What you'll do",
+    "whatYoullDoItems": [
+      "Build frontier devtools across the stack: cmux macOS (Swift/AppKit), cmux Windows/Linux (C++/Chromium), cmux iOS, cmux Cloud, sub-router (Go), chatmux, and more.",
+      "Help invent the most useful product for developers to do work with AI.",
+      "Own products and features end to end, including user feedback loops.",
+      "Dogfood, test, and verify constantly; use cmux to build cmux."
+    ],
+    "excitedLead": "Things that make us extra excited:",
+    "excitedItems": [
+      "Using 10B+ tokens a day.",
+      "All-rounders and creative problem solvers.",
+      "Great design taste and care for the craft.",
+      "Swift/AppKit, C++, Rust, Go, or Chromium experience.",
+      "Open-source maintainers, former founders, people who ship complete products.",
+      "Sending cmux PRs for us to review or demoing custom cmux plugins / workflows."
+    ],
+    "details": "Details",
+    "roleTitle": "Founding Engineer",
+    "compensationLabel": "Compensation",
+    "compensation": "$130k–$170k + 0.5%–1.5% equity",
+    "benefitsLabel": "Benefits",
+    "benefits": "Health, dental, and vision insurance",
+    "locationLabel": "Location",
+    "location": "San Francisco",
+    "applyAriaLabel": "Apply for a founding engineer role by email",
+    "applyEmailSubject": "Founding Engineer at cmux",
+    "applyCta": "Email",
+    "foundingDesigner": {
+      "metaTitle": "Founding Designer jobs at cmux",
+      "metaDescription": "Join cmux as a founding designer and design the future of coding with AI across macOS, TUI, Windows, Linux, iOS, Cloud, cmux.com, and chatmux.",
+      "section": "Jobs",
+      "eyebrow": "About the role",
+      "title": "Founding Designer",
+      "tagline": "Design the future of coding with AI.",
+      "intro": "cmux is a native macOS terminal built on Ghostty, designed for running multiple AI coding agents in parallel. Hundreds of thousands of developers use cmux to drive their agentic coding workflows.",
+      "hiring": "We're hiring a talented designer to help us design the future of coding with AI.",
+      "whatYoullDo": "What you'll do",
+      "whatYoullDoItems": [
+        "Design frontier devtools across the stack: cmux macOS, cmux TUI, cmux Windows/Linux, cmux iOS, cmux Cloud, cmux.com, chatmux, and more.",
+        "Help design the most useful product for developers to do work with AI.",
+        "Own the look, feel, and interaction model end to end, including user feedback loops.",
+        "Dogfood, prototype, and ship constantly."
+      ],
+      "excitedLead": "Things that make us extra excited:",
+      "excitedItems": [
+        "You are a walking encyclopedia of design components from all sorts of apps.",
+        "People come to you for design references all of the time.",
+        "Obsessive taste for native macOS apps and developer tools.",
+        "You prototype in code and ship real UI.",
+        "Typography, motion, and systems thinking; you care about the 1px details, padding, etc."
+      ],
+      "details": "Details",
+      "roleTitle": "Founding Designer",
+      "compensationLabel": "Compensation",
+      "compensation": "$130k–$170k + 0.5%–1.5% equity",
+      "benefitsLabel": "Benefits",
+      "benefits": "Health, dental, and vision insurance",
+      "locationLabel": "Location",
+      "location": "San Francisco",
+      "applyAriaLabel": "Apply for a founding designer role by email",
+      "applyEmailSubject": "Founding Designer at cmux",
+      "applyCta": "Email"
+    }
+  },
   "pricing": {
     "metaTitle": "Pricing — cmux",
-    "metaDescription": "cmux is a free, open source macOS terminal for AI coding agents. Upgrade to Pro for Cloud VMs, cmux Vault session backup, and CodeRouter. Enterprise adds SSO and self-hosting.",
-    "metaDescriptionShort": "cmux is a free, open source macOS terminal. Pro adds Cloud VMs, Vault session backup, and CodeRouter; Enterprise adds SSO and self-hosting.",
-    "metaDescriptionNoVault": "cmux is a free, open source macOS terminal for AI coding agents. Upgrade to Pro for Cloud VMs and CodeRouter. Enterprise adds SSO and self-hosting.",
-    "metaDescriptionNoVaultShort": "cmux is a free, open source macOS terminal. Pro adds Cloud VMs and CodeRouter; Enterprise adds SSO and self-hosting.",
+    "metaDescription": "cmux is a free, open source macOS terminal for AI coding agents. Upgrade to Pro for isolated Cloud VMs and cmux Vault session backup. Enterprise adds SSO and self-hosting.",
+    "metaDescriptionShort": "cmux is a free, open source macOS terminal. Pro adds Cloud VMs and Vault session backup; Enterprise adds SSO and self-hosting.",
+    "metaDescriptionNoVault": "cmux is a free, open source macOS terminal for AI coding agents. Upgrade to Pro for isolated Cloud VMs. Enterprise adds SSO and self-hosting.",
+    "metaDescriptionNoVaultShort": "cmux is a free, open source macOS terminal. Pro adds isolated Cloud VMs; Enterprise adds SSO and self-hosting.",
     "title": "Pricing",
     "perMonth": "/mo",
     "perMonthBilledYearly": "/mo, billed yearly",
@@ -458,7 +567,7 @@
         "Run Claude Code, Codex, Gemini, and any CLI agent with your own keys",
         "Vertical tabs, workspaces, split panes, and completion notifications",
         "Browser panels, a scriptable socket API, and custom skills",
-        "Local session history and a one-time Cloud VM trial",
+        "Local session history",
         "Community support on Discord and GitHub"
       ]
     },
@@ -469,8 +578,7 @@
       "featuresLead": "Everything in Free, plus:",
       "features": [
         "Cloud agents on Cloud VMs in isolated remote sandboxes",
-        "20 active compute-hours per month on a 4 vCPU / 16 GB VM, then usage-based",
-        "CodeRouter: route across provider accounts with failover, usage, and cost analytics",
+        "Up to 5 active Cloud VMs at a time",
         "The cmux iOS app and email support"
       ],
       "vaultFeatures": [
@@ -487,7 +595,8 @@
       "cta": "Get Teams",
       "featuresLead": "Everything in Pro, plus:",
       "features": [
-        "Team-wide CodeRouter with anonymous aggregate usage and cost analytics"
+        "Centralized billing for your whole team",
+        "Priority support"
       ]
     },
     "enterprise": {
@@ -497,11 +606,10 @@
       "featuresLead": "Everything in Team, plus:",
       "features": [
         "Self-hosted Cloud execution and networking, so nothing leaves your network",
-        "Self-hosted CodeRouter with org-wide usage and cost analytics",
         "SSO and SAML sign-in",
         "Centralized admin and shared team rules",
         "Audit logs for terminal sessions, network requests, and browser activity",
-        "Committed cloud usage and volume pricing",
+        "Custom VM limits and volume pricing",
         "SOC 2 and an SLA, with dedicated support"
       ]
     },
@@ -555,24 +663,17 @@
         },
         {
           "label": "Cloud agents on Cloud VMs",
-          "free": "1 VM trial",
-          "pro": "20 hrs/mo, then usage-based",
-          "team": "20 hrs/mo, then usage-based",
-          "enterprise": "Committed usage"
-        },
-        {
-          "label": "Concurrent Cloud VMs",
-          "free": "1",
-          "pro": "Usage-based",
-          "team": "Usage-based",
-          "enterprise": "Custom"
-        },
-        {
-          "label": "CodeRouter: routing and usage analytics",
           "free": "false",
           "pro": "true",
           "team": "true",
           "enterprise": "true"
+        },
+        {
+          "label": "Concurrent Cloud VMs",
+          "free": "false",
+          "pro": "Up to 5",
+          "team": "Up to 5",
+          "enterprise": "Custom"
         },
         {
           "label": "iOS app",
@@ -611,7 +712,7 @@
           "enterprise": "true"
         },
         {
-          "label": "Committed usage and volume pricing",
+          "label": "Volume pricing",
           "free": "false",
           "pro": "false",
           "team": "false",
@@ -633,41 +734,17 @@
         }
       ]
     },
-    "sizes": {
-      "title": "Cloud VM sizes",
-      "body": "Pick a VM size per agent. You are billed per active compute-hour, and idle VMs suspend automatically. Pro includes 20 hours per month on the 4 vCPU / 16 GB size.",
-      "colSize": "Size",
-      "colUse": "Best for",
-      "colRate": "Per active hour",
-      "rows": [
-        {
-          "size": "2 vCPU / 8 GB",
-          "use": "Light agents and quick tasks",
-          "rate": "$0.20"
-        },
-        {
-          "size": "4 vCPU / 16 GB",
-          "use": "Standard development",
-          "rate": "$0.40"
-        },
-        {
-          "size": "8 vCPU / 32 GB",
-          "use": "Heavy builds and parallel agents",
-          "rate": "$0.80"
-        }
-      ]
-    },
     "help": "Questions? Join our <discord>Discord</discord>, open a <github>GitHub issue</github>, or <email>email us</email>.",
     "faq": {
       "title": "FAQ",
       "items": [
         {
           "q": "Is the terminal really free?",
-          "a": "Yes. The macOS app is open source and free forever. Local agents run with your own API keys at no cost to you. You only pay when you run agents on Cloud VMs."
+          "a": "Yes. The macOS app is open source and free forever. Local agents run with your own API keys at no cost to you. Cloud VMs are part of the paid plans."
         },
         {
           "q": "What are Cloud VMs?",
-          "a": "Remote Linux sandboxes where agents clone repositories, run commands, and open pull requests in the cloud, without touching your machine. They cover parallel work, background jobs, and PR review. Idle VMs suspend automatically, so you are only billed for active compute-hours."
+          "a": "Persistent Linux machines in the cloud: pets, not cattle. Following the Zen of cmux, a machine is a primitive, not a managed solution: it keeps its files, installed tools, and state, and what you build on it is yours. Agents clone repositories, run commands, and open pull requests there without touching your Mac. Pro and Team include up to 5 active machines."
         },
         {
           "q": "What is cmux Vault?",
@@ -675,16 +752,12 @@
           "vault": true
         },
         {
-          "q": "What is CodeRouter?",
-          "a": "CodeRouter routes each request across provider accounts with failover and gives you usage and cost analytics in one place. Bring your own provider accounts. Enterprise can self-host CodeRouter for org-wide control."
-        },
-        {
           "q": "Do I still need Tailscale for the iOS app?",
-          "a": "Yes, for now. Pair your iPhone with your Mac over your own networking, like Tailscale, on any plan; Enterprise can self-host. Hosted networking with zero setup is on the roadmap."
+          "a": "No. The iOS app pairs with your Mac over the built-in cmux iroh network. You can also bring your own networking, like Tailscale. Enterprise can self-host."
         },
         {
           "q": "How does billing work?",
-          "a": "Pro is $30/mo, or $24/mo when billed annually (a 20% savings), and includes 20 active compute-hours per month on the 4 vCPU / 16 GB Cloud VM. Beyond that, cloud usage is billed per active compute-hour by VM size (see Cloud VM sizes above). Idle VMs suspend automatically, and running agents in parallel just uses more hours. The terminal and local agents stay free."
+          "a": "Pro is $30/mo, or $24/mo when billed annually (a 20% savings). Team is $35/user/mo, or $28/user/mo when billed annually. Paid plans include up to 5 active Cloud VMs, with no metering or overages. The terminal and local agents stay free."
         },
         {
           "q": "Can I self-host the cloud?",
@@ -692,7 +765,7 @@
         },
         {
           "q": "Do you have a team plan?",
-          "a": "Yes. Team is $35/user/mo, or $28/user/mo when billed annually, and adds shared CodeRouter with anonymous aggregate usage and cost analytics."
+          "a": "Yes. Team is $35/user/mo, or $28/user/mo when billed annually, with centralized billing for your whole team and priority support."
         }
       ]
     },
@@ -3015,7 +3088,7 @@
       },
       "modelGateway": {
         "title": "Model gateway",
-        "body": "Route across providers with usage and cost analytics, plus 20 compute-hours a month.",
+        "body": "Hosted model routing across your connected provider accounts.",
         "action": "Open model gateway"
       },
       "aiAccounts": {

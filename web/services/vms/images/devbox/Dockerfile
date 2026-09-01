@@ -29,7 +29,7 @@ FROM debian:bookworm-slim
 # Cache-buster: bump the date to force remote builders past stale layer
 # caches (Daytona's cache served stale layers for chatmux on 2026-08-21 and
 # 2026-08-25; E2B skips cache by default).
-ENV CMUX_IMAGE_EPOCH=2026-08-28-r1
+ENV CMUX_IMAGE_EPOCH=2026-08-31-r2
 
 ENV LANG=C.UTF-8 \
     DEBIAN_FRONTEND=noninteractive

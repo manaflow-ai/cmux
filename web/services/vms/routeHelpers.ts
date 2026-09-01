@@ -9,6 +9,7 @@ import {
 import {
   isPaidVmPlan,
   isVmBillingTeamResolutionError,
+  isVmProGateBlocked,
   maxActiveVmsForPlan,
   resolveVmEntitlements,
   type VmEntitlements,
@@ -25,13 +26,17 @@ import {
   isVmFreeAccessExpiredError,
   isVmLimitExceededError,
   isVmNotFoundError,
+  isVmOperationUnsupportedError,
   isVmProviderOperationError,
   isVmSnapshotNotFoundError,
   vmWorkflowErrorCause,
+  type VmOperationUnsupportedError,
 } from "./errors";
 import { recordSpanTiming } from "./timings";
 import { authProviderErrorResponse } from "./authErrors";
 import { reportVmErrorResponse, VM_ERROR_CODE_HEADER } from "./observability";
+import { vmRequestLocale, vmRequiresProCopy, vmUnsupportedCopy } from "./vmErrorMessages";
+import type { Locale } from "../../i18n/routing";
 
 /** Bearer + refresh token pair the mac app stashes in keychain. */
 export type StackBearer = { accessToken: string; refreshToken: string };
@@ -94,7 +99,7 @@ export async function withAuthedVmApiRoute(
       } catch (err) {
         recordSpanError(span, err);
         console.error(failureLog, err);
-        const workflowError = vmWorkflowErrorResponse(err);
+        const workflowError = await vmWorkflowErrorResponse(err, { locale: vmRequestLocale(request) });
         if (workflowError) return finalize(workflowError);
         return finalize(vmErrorResponse({
           error: "vm_internal_error",
@@ -267,19 +272,51 @@ export type VmRouteAccountScope =
     readonly response: Response;
   };
 
+type VmProvisioningScopeOptions = {
+  readonly requestedBillingTeamId?: string | null;
+};
+
+/**
+ * Resolve the account scope for a route that can allocate a new machine.
+ *
+ * Provisioning routes must use this helper instead of resolving entitlements
+ * and checking the Pro gate independently. Keeping the account lookup and
+ * policy decision together makes a newly added provisioning route fail closed
+ * by construction while management routes can continue to use
+ * `resolveVmRouteAccountScope` without a paywall.
+ */
+export async function resolveVmProvisioningAccountScope(
+  user: AuthedUser,
+  request: Request,
+  options: VmProvisioningScopeOptions = {},
+): Promise<VmRouteAccountScope> {
+  const scope = resolveVmAccountScope(user, request, options);
+  if (!scope.ok) return scope;
+  if (isVmProGateBlocked(scope.entitlements)) {
+    return { ok: false, response: await vmRequiresProResponse(vmRequestLocale(request)) };
+  }
+  return scope;
+}
+
 export function resolveVmRouteAccountScope(
   user: AuthedUser,
   request: Request,
-  options: { readonly requireTeam?: boolean } = {},
 ): VmRouteAccountScope {
-  const requestedBillingTeamId = requestedVmTeamIdFromRequest(request);
+  return resolveVmAccountScope(user, request);
+}
+
+function resolveVmAccountScope(
+  user: AuthedUser,
+  request: Request,
+  options: VmProvisioningScopeOptions = {},
+): VmRouteAccountScope {
+  const requestedBillingTeamId = options.requestedBillingTeamId ?? requestedVmTeamIdFromRequest(request);
   try {
     return {
       ok: true,
       requestedBillingTeamId,
       entitlements: resolveVmEntitlements(user, process.env, {
         requestedBillingTeamId,
-        requireTeam: options.requireTeam ?? false,
       }),
     };
   } catch (err) {
@@ -304,20 +341,27 @@ export function vmBillingTeamErrorResponse(err: {
     action: err.code === "vm_billing_team_not_found"
       ? "Switch to a team you belong to, or run `cmux auth login` again and retry with the correct team id."
       : "Select a team in cmux, or pass the team id with `X-Cmux-Team-Id`.",
-    reason: err.message,
-  });
-}
-
-export function vmRequiresProResponse(): Response {
-  return vmErrorResponse({
-    error: "vm_requires_pro",
-    status: 402,
-    message: "Cloud VMs require a cmux Pro plan.",
-    action: "Upgrade to cmux Pro at https://cmux.com/pricing to create Cloud VMs.",
   });
 }
 
 const VM_UPGRADE_URL = "https://cmux.com/pricing";
+
+/**
+ * The paid-plan gate response. Copy comes from the `vmErrors.requiresPro`
+ * catalog so non-English clients get a translated upgrade instruction; the
+ * machine-readable `upgradeUrl`/`upgradeRequired` fields stay locale-free.
+ */
+export async function vmRequiresProResponse(locale: Locale = "en"): Promise<Response> {
+  const copy = await vmRequiresProCopy(locale, { upgradeUrl: VM_UPGRADE_URL });
+  return vmErrorResponse({
+    error: "vm_requires_pro",
+    status: 402,
+    message: copy.message,
+    action: copy.action,
+    displayTitle: copy.title,
+    extra: { upgradeRequired: true, upgradeUrl: VM_UPGRADE_URL },
+  });
+}
 
 /**
  * One response for every provisioning verb that hits the active-VM limit. On a free plan the
@@ -362,7 +406,7 @@ export function vmActiveLimitExceededResponse(input: {
     error: "vm_active_limit_exceeded",
     status: 402,
     message: `The free plan includes ${input.limit} Cloud VM${plural}.`,
-    action: `Upgrade to cmux Pro at ${VM_UPGRADE_URL} for more VMs with usage-based billing, ` +
+    action: `Upgrade to cmux Pro at ${VM_UPGRADE_URL} for more active machines, ` +
       "or free a slot with `cmux vm rm <id>`.",
     extra: { limit: input.limit, upgradeRequired: true, upgradeUrl: VM_UPGRADE_URL },
     details: { limit: input.limit, upgradeRequired: true },
@@ -432,8 +476,21 @@ export function vmCreateLikeErrorResponse(
   return null;
 }
 
-export function vmWorkflowErrorResponse(err: unknown): Response | null {
+/** Translate a normalized workflow failure into the public VM error contract. */
+export async function vmWorkflowErrorResponse(
+  err: unknown,
+  options: { readonly locale?: Locale } = {},
+): Promise<Response | null> {
   const workflowError = vmWorkflowErrorCause(err) ?? err;
+  const operationUnsupported = isVmOperationUnsupportedError(workflowError)
+    ? workflowError
+    : isVmProviderOperationError(workflowError)
+      ? vmWorkflowErrorCause(workflowError.cause)
+      : null;
+  if (isVmOperationUnsupportedError(operationUnsupported)) {
+    return vmUnsupportedOperationResponse(operationUnsupported, options.locale ?? "en");
+  }
+
   if (isVmAccountDeletionInProgressError(workflowError)) {
     return vmErrorResponse({
       error: "account_deletion_in_progress",
@@ -508,18 +565,31 @@ export function vmWorkflowErrorResponse(err: unknown): Response | null {
         },
       });
     }
+    const retryExhausted = providerRetryExhausted(workflowError.cause);
+    if (retryExhausted) {
+      // Keep the provider and operation in operator logs only. The response
+      // below deliberately contains no URL, status, or upstream body.
+      console.error("[vm-provider-retry-exhausted]", {
+        provider: workflowError.provider,
+        operation: workflowError.operation,
+      });
+    }
     const retryAfterSeconds = retryAfterForOperation(workflowError.operation);
-    const providerMessage = providerCause?.message
+    const providerMessage = !retryExhausted && providerCause?.message
       ? sanitizedProviderMessage(providerCause.message)
       : null;
-    const providerCode = providerCause?.code
-      ? sanitizedProviderCode(providerCause.code)
-      : inferredProviderCode(providerMessage);
+    const providerCode = retryExhausted
+      ? "provider_retry_exhausted"
+      : providerCause?.code
+        ? sanitizedProviderCode(providerCause.code)
+        : inferredProviderCode(providerMessage);
     return vmErrorResponse({
       error: "vm_cloud_service_unavailable",
       status: 502,
       message: vmUnavailableMessage(phase),
-      reason: providerMessage
+      reason: retryExhausted
+        ? "The Cloud VM service is temporarily unavailable."
+        : providerMessage
         ? `Cloud VM service is temporarily unavailable: ${providerMessage}`
         : "Cloud VM service is temporarily unavailable.",
       action: cloudServiceAction(workflowError.operation, retryAfterSeconds),
@@ -568,6 +638,46 @@ export function vmWorkflowErrorResponse(err: unknown): Response | null {
   }
 
   return null;
+}
+
+async function vmUnsupportedOperationResponse(
+  error: VmOperationUnsupportedError,
+  locale: Locale,
+): Promise<Response> {
+  const phase = vmPhaseForOperation(error.operation);
+  const copy = await vmUnsupportedCopy(
+    phase === "snapshot" || phase === "restore" || phase === "fork" ? phase : "default",
+    locale,
+  );
+  return vmErrorResponse({
+    error: "vm_operation_unsupported",
+    status: 501,
+    message: copy.message,
+    reason: copy.reason,
+    action: copy.action,
+    phase,
+    retryable: false,
+    displayTitle: copy.title,
+    displayMessage: copy.message,
+    severity: "error",
+    diagnostics: { provider: error.provider },
+    details: {
+      operation: error.operation,
+      retryable: false,
+      providerCode: "provider_operation_unsupported",
+    },
+  });
+}
+
+/** Identify a retry wrapper whose provider details must stay in operator logs. */
+function providerRetryExhausted(cause: unknown): boolean {
+  let current: unknown = cause;
+  for (let depth = 0; depth < 8 && current; depth += 1) {
+    const record = current as { name?: unknown; cause?: unknown };
+    if (record.name === "BlaxelRetryExhaustedError") return true;
+    current = record.cause;
+  }
+  return false;
 }
 
 /** True when the provider reported that the requested image/template does not exist. */
@@ -631,6 +741,12 @@ function cloudServiceAction(operation: string, retryAfterSeconds: number | undef
 }
 
 function defaultVmDisplayTitle(input: VmErrorResponseInput): string {
+  // Billing-team resolution shares the 409/403 statuses with unrelated
+  // failures; title it as the team problem it is instead of the generic
+  // "operation already running" that pure-status mapping would produce.
+  if (input.error === "vm_billing_team_required" || input.error === "vm_billing_team_not_found") {
+    return "Cloud VM team required";
+  }
   if (input.status === 409) return "Cloud VM operation already running";
   if (input.status === 404) return "Cloud VM not found";
   if (input.status === 401 || input.status === 403) return "Cloud VM authentication required";

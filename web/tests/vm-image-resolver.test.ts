@@ -54,6 +54,42 @@ describe("VM image resolver: request by kind", () => {
     ).toMatchObject({ image: "blaxel/base-image:latest", imageVersion: "blaxel-base-bootstrap-20260824a", kind: "base" });
   });
 
+  test("a generic env selector of the other kind falls through to the kind default", () => {
+    // Production reality before kinds existed: BLAXEL_SANDBOX_IMAGE names the
+    // desktop devbox and no desktop-specific selector is set. A kind=base
+    // request must resolve the manifest base default, not 503 on the desktop
+    // image's kind mismatch (seen in prod 2026-08-30 21:58 UTC).
+    expect(
+      resolveVmImage("blaxel", undefined, {
+        ...deployed,
+        BLAXEL_SANDBOX_IMAGE: "sandbox/cmux-devbox:latest",
+      }, { kind: "base" }),
+    ).toMatchObject({
+      image: "blaxel/base-image:latest",
+      imageVersion: "blaxel-base-bootstrap-20260824a",
+      kind: "base",
+    });
+    // The same env still serves desktop and kind-less requests unchanged.
+    expect(
+      resolveVmImage("blaxel", undefined, {
+        ...deployed,
+        BLAXEL_SANDBOX_IMAGE: "sandbox/cmux-devbox:latest",
+      }, { kind: "desktop" }),
+    ).toMatchObject({ image: "sandbox/cmux-devbox:latest", kind: "desktop" });
+    expect(
+      resolveVmImage("blaxel", undefined, {
+        ...deployed,
+        BLAXEL_SANDBOX_IMAGE: "sandbox/cmux-devbox:latest",
+      }),
+    ).toMatchObject({ image: "sandbox/cmux-devbox:latest" });
+  });
+
+  test("an explicitly requested image of the wrong kind still errors", () => {
+    const err = captureImageConfigError(() =>
+      resolveVmImage("blaxel", "sandbox/cmux-devbox:latest", deployed, { kind: "base" }));
+    expect(err.reason).toMatch(/desktop image, not a base image/);
+  });
+
   test("deployed runtimes fall back to the manifest kind default instead of throwing", () => {
     // The nightly app's `vm base open` with no image and nothing configured for
     // desktop used to 503; now the manifest default desktop image serves it.
@@ -100,37 +136,39 @@ describe("VM image resolver: request by kind", () => {
     expect(err.allowedImages).toEqual(["sandbox/cmux-devbox:latest", "blaxel/xfce-vnc:latest", "blaxel/base-image:latest"]);
     expect(reportVmImageConfigError(err, deployed)).toMatchObject({
       message: 'Cloud VM image kind "gpu" is not supported.',
-      details: { imageRequested: false, kind: "gpu", source: "request", allowedKinds: ["desktop"] },
+      details: { imageRequested: false, kind: "gpu", source: "request", allowedKinds: ["desktop", "base"] },
     });
   });
 
   test("a kind with nothing configured names the env var and the allowed images", () => {
+    // freestyle ships no desktop image, so it exercises the unresolvable-kind
+    // error shape (blaxel base resolves from the manifest default now).
     const err = captureImageConfigError(() =>
-      resolveVmImage("blaxel", undefined, deployed, { kind: "base" }),
+      resolveVmImage("freestyle", undefined, deployed, { kind: "desktop" }),
     );
     expect(err).toMatchObject({
-      provider: "blaxel",
-      envVar: "BLAXEL_SANDBOX_IMAGE",
-      kind: "base",
+      provider: "freestyle",
+      envVar: "FREESTYLE_SANDBOX_SNAPSHOT",
+      kind: "desktop",
       source: "default",
-      reason: "no base image is configured for blaxel: set BLAXEL_SANDBOX_IMAGE or record a base manifest default",
+      reason: "no desktop image is configured for freestyle: set FREESTYLE_SANDBOX_SNAPSHOT or record a desktop manifest default",
     });
     const report = reportVmImageConfigError(err, deployed);
-    expect(report.message).toBe("No base Cloud VM image is available in this environment.");
-    expect(report.action).toContain("available: desktop");
+    expect(report.message).toBe("No desktop Cloud VM image is available in this environment.");
+    // Deployed freestyle with no env selector serves no kind at all.
+    expect(report.action).toContain("available: none");
     // Client-safe details name the kind and the source, never the env var or image ids.
     expect(report.details).toEqual({
       imageRequested: false,
-      kind: "base",
+      kind: "desktop",
       source: "default",
-      allowedKinds: ["desktop"],
+      allowedKinds: [],
     });
-    expect(JSON.stringify(report.details)).not.toMatch(/BLAXEL_|manifest\.json|cmux-devbox/);
+    expect(JSON.stringify(report.details)).not.toMatch(/FREESTYLE_|manifest\.json|sh-[a-z0-9]/);
     // The operator log carries what the response may not.
     expect(report.operator).toMatchObject({
-      provider: "blaxel",
-      envVar: "BLAXEL_SANDBOX_IMAGE",
-      allowedImages: ["sandbox/cmux-devbox:latest", "blaxel/xfce-vnc:latest", "blaxel/base-image:latest"],
+      provider: "freestyle",
+      envVar: "FREESTYLE_SANDBOX_SNAPSHOT",
     });
   });
 
@@ -140,9 +178,9 @@ describe("VM image resolver: request by kind", () => {
     );
     expect(err).toMatchObject({ image: "blaxel/unlisted:latest", source: "request" });
     const report = reportVmImageConfigError(err, deployed);
-    expect(report.details).toEqual({ imageRequested: true, kind: undefined, source: "request", allowedKinds: ["desktop"] });
+    expect(report.details).toEqual({ imageRequested: true, kind: undefined, source: "request", allowedKinds: ["desktop", "base"] });
     expect(report.message).toBe("The requested Cloud VM image is not available in this environment.");
-    expect(report.action).toContain("`kind`: desktop");
+    expect(report.action).toContain("`kind`: desktop, base");
     expect(report.operator).toMatchObject({ image: "blaxel/unlisted:latest", allowedImages: ["sandbox/cmux-devbox:latest", "blaxel/xfce-vnc:latest", "blaxel/base-image:latest"] });
   });
 
@@ -166,6 +204,7 @@ describe("VM image resolver: request by kind", () => {
 
     expect(listVmImageKinds("blaxel", deployed)).toEqual([
       { kind: "desktop", image: "sandbox/cmux-devbox:latest" },
+      { kind: "base", image: "blaxel/base-image:latest" },
     ]);
     expect(listVmImageKinds("blaxel", { ...deployed, BLAXEL_SANDBOX_IMAGE: "blaxel/base-image:latest" })).toEqual([
       { kind: "desktop", image: "sandbox/cmux-devbox:latest" },

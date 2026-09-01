@@ -113,6 +113,27 @@ describe("Blaxel baked image template", () => {
     expect(read("seed-history")).toBe("claude --dangerously-skip-permissions\ncodex --yolo\n");
     expect(bashrc).toContain("source /usr/local/share/blesh/ble.sh --noattach");
     expect(bashrc).toContain("ble-attach");
+    // ble.sh tput caches are baked and seeded, so no pane ever opens on
+    // "ble/term.sh: updating tput cache ... done". Both cache homes are
+    // covered: <blesh>/cache.d/<uid> (what a shell uses while ~/.cache does
+    // not exist yet) bakes in the image; the XDG copy seeds per HOME from
+    // /etc/cmux/blesh-cache-seed. The runtime copy must NOT preserve seed
+    // mtimes (ble.sh loads the cache only when it is newer than
+    // lib/init-term.sh), so it is a plain cp -R.
+    expect(dockerfile).toContain("/etc/cmux/blesh-cache-seed");
+    expect(dockerfile).toContain("/usr/local/share/blesh/cache.d/0");
+    expect(dockerfile).toContain("/usr/local/share/blesh/cache.d/1000");
+    // The bake must prove every seeded TERM generated, not just the first two.
+    for (const term of ["xterm-256color", "screen-256color", "tmux-256color", "linux"]) {
+      expect(dockerfile).toContain(`test -s /etc/cmux/blesh-cache-seed/blesh/*/term.${term}`);
+    }
+    // Per-file seeding with the same freshness rule ble.sh applies, so durable
+    // homes from older images (stale or missing entries) reseed too.
+    expect(bashrc).toContain("/etc/cmux/blesh-cache-seed/blesh/*/term.*");
+    expect(bashrc).toContain('[ /usr/local/share/blesh/lib/init-term.sh -nt "$__cmux_dst" ]');
+    expect(bashrc.indexOf("blesh-cache-seed")).toBeLessThan(
+      bashrc.indexOf("source /usr/local/share/blesh/ble.sh"),
+    );
     // half-life prompt with the machine name kept (\h): machines are addressed by name.
     expect(bashrc).toContain("PS1='\\[\\e[38;5;135m\\]\\u@\\h");
     expect(dockerfile).toContain("echo 'set -g default-shell /bin/bash' >> /etc/tmux.conf");
@@ -121,14 +142,14 @@ describe("Blaxel baked image template", () => {
     }
   });
 
-  test("ble.sh highlights stay foreground-only for dark terminal themes", () => {
-    // The stock ble.sh faces paint light backgrounds under ghost text and
-    // transiently-invalid input, flashing the line background per keystroke
-    // on dark themes (Monokai). The bashrc overrides them after sourcing.
-    expect(bashrc).toContain("ble-face auto_complete=fg=");
-    expect(bashrc).toContain("ble-face syntax_error=fg=");
-    expect(bashrc).toContain("ble-face argument_error=fg=");
-    for (const line of bashrc.split("\n").filter((l) => l.trimStart().startsWith("ble-face"))) {
+  test("ble.sh integration stays minimal: no token highlighting, ghost text only", () => {
+    // User feedback 2026-08-31: any token highlighting (colored backgrounds
+    // under mistyped commands included) reads as noise. The bashrc turns the
+    // highlight layers off entirely and keeps only gray history ghost text.
+    expect(bashrc).toContain("bleopt highlight_syntax= highlight_filename= highlight_variable=");
+    const faceLines = bashrc.split("\n").filter((l) => l.trimStart().startsWith("ble-face"));
+    expect(faceLines).toEqual(["  ble-face auto_complete=fg=245"]);
+    for (const line of faceLines) {
       expect(line).not.toContain("bg=");
     }
   });

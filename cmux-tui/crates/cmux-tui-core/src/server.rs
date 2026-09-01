@@ -20260,6 +20260,37 @@ mod tests {
     }
 
     #[test]
+    fn dimensionless_terminal_client_reports_disabled_sizing_participation() {
+        let mux = test_mux();
+        let surface = mux.new_workspace(None, Some((80, 24))).unwrap();
+        let writer = test_writer();
+        let client = mux.control_clients.register(ClientTransport::Unix, writer.clone());
+        let stream = writer.start_stream(&json!({"event": "test"})).unwrap();
+        let stream_id = stream.id;
+        mux.control_clients.attach_surface(client, surface.id, stream).unwrap();
+        mux.control_clients.commit_surface(client, surface.id, stream_id, None).unwrap();
+
+        handle_command(
+            &mux,
+            client,
+            Command::SetClientSizing {
+                surface: surface.id,
+                client: Some(client),
+                enabled: false,
+                exclusive: false,
+            },
+            &writer,
+        )
+        .unwrap();
+
+        let listed = handle_command(&mux, client, Command::ListClients, &writer).unwrap();
+        assert_eq!(listed[0]["attached"], json!([surface.id]));
+        assert_eq!(listed[0]["sizes"][0]["cols"], Value::Null);
+        assert_eq!(listed[0]["sizes"][0]["rows"], Value::Null);
+        assert_eq!(listed[0]["sizes"][0]["size_participating"], false);
+    }
+
+    #[test]
     fn client_sizing_command_applies_exclusive_and_all_modes_atomically() {
         let mux = test_mux();
         let surface = mux.new_workspace(None, Some((120, 40))).unwrap();

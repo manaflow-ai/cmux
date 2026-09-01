@@ -275,6 +275,13 @@ final class NotificationDebugEmitter {
         )
     }
 
+    /// Synthetic debug notifications without caller selectors intentionally
+    /// target the focused pane; production caller resolution never uses this
+    /// debug-only default.
+    func defaultTargetForDebugEmission() -> NotificationDebugTarget? {
+        focusedTarget()
+    }
+
     private func displayName(for kind: String) -> String {
         switch kind {
         case "turn-complete":

@@ -2006,6 +2006,9 @@ struct ContentView: View {
                 cmuxDebugLog("rightSidebar.closeButton")
                 #endif
                 _ = AppDelegate.shared?.closeRightSidebarInActiveMainWindow(preferredWindow: observedWindow)
+            },
+            customSidebarDataContext: { now in
+                rightSidebarCustomSidebarDataContext(now: now)
             }
         )
         .frame(width: rightSidebarWidth)
@@ -10550,12 +10553,21 @@ enum CmuxExtensionSidebarSelection {
             at: customSidebarsDirectory,
             includingPropertiesForKeys: nil
         ) else { return [] }
+        // Priority when several extensions share a base name: js > swift > json.
+        func priority(_ ext: String?) -> Int {
+            switch ext {
+            case "js": return 3
+            case "swift": return 2
+            case "json": return 1
+            default: return 0
+            }
+        }
         var extensionByName: [String: String] = [:]
         for url in entries {
             let ext = url.pathExtension.lowercased()
-            guard ext == "swift" || ext == "json" else { continue }
+            guard priority(ext) > 0 else { continue }
             let name = url.deletingPathExtension().lastPathComponent
-            if extensionByName[name] == "swift" { continue }
+            if priority(extensionByName[name]) >= priority(ext) { continue }
             extensionByName[name] = ext
         }
         return extensionByName.keys.sorted().map { name in
@@ -10582,10 +10594,10 @@ enum CmuxExtensionSidebarSelection {
         guard providerId.hasPrefix(customSidebarProviderPrefix) else { return nil }
         let name = String(providerId.dropFirst(customSidebarProviderPrefix.count))
         guard isValidCustomSidebarFileBaseName(name) else { return nil }
-        let swiftURL = sidebarsDirectory.appendingPathComponent("\(name).swift", isDirectory: false)
-        if FileManager.default.fileExists(atPath: swiftURL.path) { return swiftURL }
-        let jsonURL = sidebarsDirectory.appendingPathComponent("\(name).json", isDirectory: false)
-        if FileManager.default.fileExists(atPath: jsonURL.path) { return jsonURL }
+        for ext in ["js", "swift", "json"] {
+            let url = sidebarsDirectory.appendingPathComponent("\(name).\(ext)", isDirectory: false)
+            if FileManager.default.fileExists(atPath: url.path) { return url }
+        }
         return nil
     }
 
@@ -11043,8 +11055,20 @@ struct VerticalTabsSidebar: View, Equatable {
             )
         }
         let selectedWorkspace = tabManager.tabs.first { $0.id == selectedId }
+        let groups = tabManager.workspaceGroups.map { group in
+            CustomSidebarGroupSnapshot(
+                id: group.id,
+                name: group.name,
+                isCollapsed: group.isCollapsed,
+                isPinned: group.isPinned,
+                anchorWorkspaceId: group.anchorWorkspaceId,
+                customColor: group.customColor,
+                iconSymbol: group.iconSymbol
+            )
+        }
         let snapshot = CustomSidebarContextSnapshot(
             workspaces: workspaces,
+            groups: groups,
             selectedWorkspaceId: selectedId,
             selectedWorkspaceTitle: selectedWorkspace?.customTitle ?? selectedWorkspace?.title ?? "",
             totalUnreadCount: unreadSnapshot.totalUnreadCount,
@@ -11286,7 +11310,22 @@ struct VerticalTabsSidebar: View, Equatable {
                 cmuxDebugLog("sidebar.close workspace=\(workspaceId.uuidString.prefix(5)) method=middleClick")
 #endif
                 tabManager.closeWorkspaceWithConfirmation(workspace)
-            }, onBeginWorkspaceDrag: { workspaceId, sourceView, event, draggingFrame, dragImage in
+            }, onBeginWorkspaceDrag: { dragId, sourceView, event, draggingFrame, dragImage in
+                let workspaceId: UUID
+                if tabManager.tabs.contains(where: { $0.id == dragId }) {
+                    workspaceId = dragId
+                } else if let group = tabManager.workspaceGroups.first(where: { $0.id == dragId }) {
+                    if group.isEmpty {
+                        workspaceId = group.id
+                    } else {
+                        guard let liveAnchorId = tabManager.workspaceGroupAnchor(for: group.id)?.id else {
+                            return false
+                        }
+                        workspaceId = liveAnchorId
+                    }
+                } else {
+                    return false
+                }
 #if DEBUG
                 cmuxDebugLog("sidebar.nativeDrag tab=\(workspaceId.uuidString.prefix(5))")
 #endif
@@ -11974,9 +12013,17 @@ struct VerticalTabsSidebar: View, Equatable {
                 group: group
             )
         }
+        // A group header is keyed by its stable group id, not by the mutable
+        // anchor workspace id. Keep the full live row identity set available
+        // while hidden so anchor promotion cannot prune a retained header.
+        let liveRowIds: [SidebarWorkspaceRenderItemID] = isPresented
+            ? renderContext.workspaceRenderItems.map(\.id)
+            : tabManager.workspaceGroups.map { .group($0.id) }
+                + tabManager.tabs.map { .workspace($0.id) }
         return SidebarWorkspaceTableView(
             contentUpdate: contentUpdate,
             workspaceIds: isPresented ? renderContext.workspaceIds : tabManager.tabs.map(\.id),
+            liveRowIds: liveRowIds,
             selectedWorkspaceId: selectedWorkspaceId,
             selectedScrollTargetWorkspaceId: selectedScrollTargetWorkspaceId,
             isPresented: isPresented,
@@ -12138,10 +12185,10 @@ struct VerticalTabsSidebar: View, Equatable {
         }
     }
 
-        private func workspaceTableActions(
+    private func workspaceTableActions(
         renderContext: WorkspaceListRenderContext
     ) -> SidebarWorkspaceTableActions {
-        SidebarWorkspaceTableActions(
+        var actions = SidebarWorkspaceTableActions(
             attachScrollView: { scrollView in
                 dragAutoScrollController.attach(scrollView: scrollView)
             },
@@ -12286,13 +12333,6 @@ struct VerticalTabsSidebar: View, Equatable {
             setBonsplitDropIndicator: { indicator in
                 dragState.setDropIndicator(indicator)
             },
-            workspaceIdForDrag: { rowId, fallbackId in
-                guard let groupId = rowId.groupId,
-                      let group = tabManager.workspaceGroups.first(where: { $0.id == groupId }) else {
-                    return fallbackId
-                }
-                return group.isEmpty ? group.id : group.anchorWorkspaceId
-            },
             nativeWorkspaceDragLifecycle: SidebarWorkspaceTableActions.NativeWorkspaceDragLifecycle(
                 currentSessionId: { dragState.currentWorkspaceDragSessionId },
                 finish: { sessionId, capabilityValue in
@@ -12301,10 +12341,31 @@ struct VerticalTabsSidebar: View, Equatable {
                         capabilityValue: capabilityValue
                     )
                     dragAutoScrollController.stop()
+                },
+                reclaimSupersededNativeSources: { excludingSessionId in
+                    dragState.reclaimSupersededNativeSources(
+                        excludingSessionId: excludingSessionId
+                    )
                 }
             )
         )
-
+        actions.workspaceGroupAnchorIdsForDrag = { [weak tabManager] in
+            guard let tabManager else { return [:] }
+            let liveWorkspaceIds = Set(tabManager.tabs.map(\.id))
+            return Dictionary(
+                uniqueKeysWithValues: tabManager.workspaceGroups.compactMap { group in
+                    if group.isEmpty {
+                        // Empty pinned groups still have a draggable header. Its
+                        // stable group identity is consumed by the reorder
+                        // resolver as `.reorderGroup`, not as a workspace id.
+                        return (group.id, group.id)
+                    }
+                    guard liveWorkspaceIds.contains(group.anchorWorkspaceId) else { return nil }
+                    return (group.id, group.anchorWorkspaceId)
+                }
+            )
+        }
+        return actions
     }
 
     /// Builds one pure-AppKit workspace row from the container-projected
@@ -15809,57 +15870,6 @@ struct TabItemView: View, Equatable {
         (showsModifierShortcutHints || alwaysShowShortcutHints) && workspaceShortcutLabel != nil
     }
 
-    private func compactWorkspaceStatusMenu(
-        status: WorkspaceTaskStatus,
-        model: SidebarWorkspaceCompactStatusMenuModel
-    ) -> some View {
-        let title = String(localized: "sidebar.status.compactLabel", defaultValue: "Status: \(status.displayName)")
-        return Menu {
-            let lanes = WorkspaceTodoStatusLane.lanes(
-                inferred: model.inferred,
-                activeOverride: model.activeOverride,
-                isHidden: false
-            )
-            ForEach(lanes) { lane in
-                if lane.isNone {
-                    Divider()
-                }
-                Button {
-                    if lane.isNone {
-                        actions.hideTodoStatus([workspaceId])
-                    } else {
-                        actions.applyTodoStatus(lane.status, [workspaceId])
-                    }
-                } label: {
-                    if lane.isSelected {
-                        Label(lane.title, systemImage: "checkmark")
-                    } else {
-                        Text(lane.title)
-                    }
-                }
-                if lane.status == nil, !lane.isNone {
-                    Divider()
-                }
-            }
-        } label: {
-            HStack(spacing: 4) {
-                CmuxSystemSymbolImage(magnified: "flag", pointSize: scaledFontSize(8))
-                    .foregroundColor(activeSecondaryColor(0.65))
-                Text(title)
-                    .font(magnifiedFont(scaledFontSize(10), weight: .semibold))
-                    .foregroundColor(activeSecondaryColor(0.9))
-                    .lineLimit(1)
-                    .truncationMode(.tail)
-                Spacer(minLength: 0)
-            }
-            .contentShape(Rectangle())
-        }
-        .menuStyle(.borderlessButton)
-        .fixedSize(horizontal: false, vertical: true)
-        .safeHelp(String(localized: "sidebar.status.compactTooltip", defaultValue: "Change workspace status"))
-        .accessibilityIdentifier("SidebarWorkspaceCompactStatusMenu")
-    }
-
     @ViewBuilder
     private func remoteWorkspaceSection(
         snapshot workspaceSnapshot: SidebarWorkspaceSnapshotBuilder.Snapshot
@@ -16105,21 +16115,8 @@ struct TabItemView: View, Equatable {
                 itemCount: workspaceSnapshot.checklistItems.count,
                 addFieldActivationToken: checklistAddFieldActivationToken,
                 isPopoverPresented: isChecklistPopoverPresented,
-                canAddItems: todoControlsEnabled,
-                hidesAllDetails: settings.hidesAllDetails,
-                taskStatus: workspaceSnapshot.taskStatus,
-                featureEnabled: todoControlsEnabled
+                canAddItems: todoControlsEnabled
             )
-            if minimalTodoVisibility.showsCompactStatus,
-               let taskStatus = workspaceSnapshot.taskStatus,
-               let compactStatusModel = workspaceSnapshot.todoStatusMenuModel {
-                compactWorkspaceStatusMenu(
-                    status: taskStatus,
-                    model: compactStatusModel
-                )
-                .transition(.opacity)
-            }
-
             remoteWorkspaceSection(snapshot: workspaceSnapshot)
 
             if detailVisibility.showsMetadata {

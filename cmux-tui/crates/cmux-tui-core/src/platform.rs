@@ -398,10 +398,13 @@ fn ghostty_config_paths_from(
         push_unique(&mut candidates, dir.join("config.ghostty"));
     }
     #[cfg(target_os = "macos")]
-    if !has_xdg_config_home && let Some(home) = home {
-        let dir = home.join("Library").join("Application Support").join("com.mitchellh.ghostty");
-        push_unique(&mut candidates, dir.join("config"));
-        push_unique(&mut candidates, dir.join("config.ghostty"));
+    {
+        if !has_xdg_config_home && let Some(home) = home {
+            let dir =
+                home.join("Library").join("Application Support").join("com.mitchellh.ghostty");
+            push_unique(&mut candidates, dir.join("config"));
+            push_unique(&mut candidates, dir.join("config.ghostty"));
+        }
     }
     candidates
 }

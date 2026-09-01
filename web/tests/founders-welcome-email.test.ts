@@ -3,11 +3,16 @@ import { describe, expect, test } from "bun:test";
 import {
   EMAIL_SUBJECT,
   FOUNDER_CC,
+  PRO_EMAIL_SUBJECT,
   REPLY_TO,
   buildFoundersWelcomeEmail,
+  buildProWelcomeEmail,
   foundersThreadRef,
 } from "../app/api/stripe/founders-welcome/welcome-email";
-import { welcomeTriggerForMetadata } from "../app/api/stripe/founders-welcome/welcome-trigger";
+import {
+  welcomeTriggerForCheckout,
+  welcomeTriggerForMetadata,
+} from "../app/api/stripe/founders-welcome/welcome-trigger";
 
 // Regression coverage for the Founder's Edition welcome email collapsing into a
 // single Gmail conversation. Gmail threads messages that share a normalized
@@ -22,12 +27,11 @@ const THREAD_HEADER = "X-Entity-Ref-ID";
 
 const baseParams = {
   from: "Austin Wang <austin@manaflow.ai>",
-  customerName: "Ada Lovelace",
+  customerName: "Sample Buyer",
 } as const;
 
-// The route uses this classification to keep the Pro transactional welcome
-// separate from the personal Founder's Edition email. Explicit founder
-// metadata wins if both shapes are present.
+// The route uses this classification to choose the personal welcome subject;
+// explicit founder metadata wins if both shapes are present.
 describe("welcomeTriggerForMetadata", () => {
   test("founders payment-link metadata classifies as founders_edition", () => {
     expect(welcomeTriggerForMetadata({ founders_edition: "true" })).toBe(
@@ -79,6 +83,50 @@ describe("welcomeTriggerForMetadata", () => {
   });
 });
 
+describe("welcomeTriggerForCheckout", () => {
+  test("falls back to expanded subscription metadata when session metadata is empty", () => {
+    expect(
+      welcomeTriggerForCheckout(
+        {},
+        { app: "cmux", plan: "pro", stackUserId: "user-1" },
+      ),
+    ).toBe("pro_plan");
+  });
+
+  test("does not let subscription metadata override a foreign session marker", () => {
+    expect(
+      welcomeTriggerForCheckout(
+        { app: "other", plan: "pro" },
+        { app: "cmux", plan: "pro" },
+      ),
+    ).toBe("other");
+  });
+
+  test("falls back when the session has only a partial product marker", () => {
+    expect(
+      welcomeTriggerForCheckout(
+        { app: "cmux" },
+        { app: "cmux", plan: "pro" },
+      ),
+    ).toBe("pro_plan");
+    expect(
+      welcomeTriggerForCheckout(
+        { founders_edition: "false" },
+        { app: "cmux", plan: "pro" },
+      ),
+    ).toBe("pro_plan");
+  });
+
+  test("keeps malformed Founder metadata from falling back to another product", () => {
+    expect(
+      welcomeTriggerForCheckout(
+        { founders_edition: "true", app: "cmux", plan: "pro" },
+        { app: "cmux", plan: "pro" },
+      ),
+    ).toBe("other");
+  });
+});
+
 describe("foundersThreadRef", () => {
   test("different sessions produce different thread keys (a new Gmail thread each)", () => {
     expect(foundersThreadRef("cs_test_aaa")).not.toBe(
@@ -121,7 +169,7 @@ describe("buildFoundersWelcomeEmail", () => {
     expect(first.headers[THREAD_HEADER]).toBe(foundersThreadRef("cs_test_aaa"));
   });
 
-  test("subject stays clean and constant across subscriptions (threading is header-only)", () => {
+  test("subject stays clean and constant for Founder's Edition subscriptions", () => {
     const first = buildFoundersWelcomeEmail({
       ...baseParams,
       to: "c1@example.com",
@@ -134,6 +182,66 @@ describe("buildFoundersWelcomeEmail", () => {
     });
     expect(first.subject).toBe(EMAIL_SUBJECT);
     expect(second.subject).toBe(EMAIL_SUBJECT);
+  });
+
+  test("Pro uses the localized personal payload", async () => {
+    const founders = buildFoundersWelcomeEmail({
+      ...baseParams,
+      to: "customer@example.com",
+      sessionRef: "cs_founder",
+    });
+    const pro = await buildProWelcomeEmail({
+      ...baseParams,
+      to: "customer@example.com",
+      sessionRef: "cs_pro",
+      locale: "en",
+    });
+    expect(pro.subject).toBe(PRO_EMAIL_SUBJECT);
+    expect(pro.from).toBe(founders.from);
+    expect(pro.to).toEqual(founders.to);
+    expect(pro.cc).toEqual(founders.cc);
+    expect(pro.replyTo).toBe(founders.replyTo);
+    expect(pro.text).toContain("Thanks for joining cmux Pro!");
+    expect(pro.text).toContain("Sign up for TestFlight: https://cmux.com/dashboard/testflight");
+    expect(pro.headers[THREAD_HEADER]).toBe("founders-welcome/cs_pro");
+  });
+
+  test("loads the selected locale for the Pro subject and body", async () => {
+    const pro = await buildProWelcomeEmail({
+      ...baseParams,
+      to: "customer@example.com",
+      sessionRef: "cs_pro_ja",
+      locale: "ja",
+    });
+
+    expect(pro.subject).toBe("cmux Pro へようこそ！");
+    expect(pro.text).toContain("cmux Pro にご参加いただきありがとうございます！");
+    expect(pro.text).toContain("TestFlight に登録する：https://cmux.com/dashboard/testflight");
+  });
+
+  test("uses the selected locale's fallback name when the customer has no name", async () => {
+    const pro = await buildProWelcomeEmail({
+      ...baseParams,
+      customerName: null,
+      to: "customer@example.com",
+      sessionRef: "cs_pro_ja_fallback",
+      locale: "ja",
+    });
+
+    expect(pro.text.startsWith("お客様 さん、こんにちは！")).toBe(true);
+    expect(pro.text).not.toContain("there");
+  });
+
+  test("falls back to English when a locale catalog is unavailable", async () => {
+    const pro = await buildProWelcomeEmail({
+      ...baseParams,
+      to: "customer@example.com",
+      sessionRef: "cs_pro_fallback",
+      locale: "missing-locale" as never,
+    });
+
+    expect(pro.subject).toBe(PRO_EMAIL_SUBJECT);
+    expect(pro.text).toContain("Thanks for joining cmux Pro!");
   });
 
   test("recipients, sender, and reply-to are preserved unchanged", () => {
@@ -160,7 +268,7 @@ describe("buildFoundersWelcomeEmail", () => {
       customerName: null,
       sessionRef: "cs_test_aaa",
     });
-    expect(named.text.startsWith("Hi Ada!")).toBe(true);
+    expect(named.text.startsWith("Hi Sample!")).toBe(true);
     expect(anonymous.text.startsWith("Hi there!")).toBe(true);
   });
 

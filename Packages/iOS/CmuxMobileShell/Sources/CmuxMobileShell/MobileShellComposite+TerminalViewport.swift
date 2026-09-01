@@ -139,6 +139,27 @@ extension MobileShellComposite {
             )
             return nil
         }
+        // Demonstration surfaces answer the viewport report locally with the
+        // phone's own natural grid: there is no Mac to negotiate with, and a
+        // nil answer would put the mounted view into its bounded
+        // retryViewportReport loop. Placed before the replay-barrier prearm
+        // below so no barrier is ever armed against a demo surface (a
+        // lingering barrier would gate the engine's output).
+        if demonstrationOwnsSurface(surfaceID) {
+            reportedTerminalViewportSizesBySurfaceID[surfaceID] = reportedGrid
+            effectiveViewportSizesBySurfaceID[surfaceID] = reportedGrid
+            recordAppEvent(
+                .terminalViewportReportSucceeded,
+                correlationID: surfaceID,
+                count: columns * rows
+            )
+            return (
+                columns: columns,
+                rows: rows,
+                renderEpoch: nil,
+                renderRevisionFloor: nil
+            )
+        }
         guard let client = remoteClient else {
             recordAppEvent(
                 .terminalViewportReportFailed,

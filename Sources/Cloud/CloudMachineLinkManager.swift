@@ -1,3 +1,4 @@
+import CmuxFoundation
 import Foundation
 
 /// The app's headless cmux-tui links, one per awake cloud machine. Links are created on
@@ -37,13 +38,30 @@ actor CloudMachineLinkManager {
     /// A failed link is not retried for this long, so a polling sidebar does not hammer
     /// a machine whose route is broken.
     private let retryBackoff: TimeInterval = 15
+    /// This Mac's resolved Ghostty default colors ("#rrggbb"), pushed to each machine as
+    /// its cmux-tui session defaults (`set-default-colors`) so remote panes render with
+    /// the local theme. Injected so tests need no Ghostty runtime.
+    private let hostThemeColors: @Sendable () async -> (foreground: String, background: String)?
+    /// Theme-push coalescing: at most ONE in-flight push and ONE queued rerun per
+    /// machine. A reload burst collapses to a single trailing push that reads the
+    /// colors when it runs, so the machine always ends on the latest theme and the
+    /// link never accumulates a backlog of defaults commands.
+    private var themePushInFlight: Set<String> = []
+    private var themePushQueued: Set<String> = []
 
     init(
         paths: CloudTuiClientPaths = CloudTuiClientPaths(),
-        clientURL: URL? = CloudTuiClientPaths.clientURL()
+        clientURL: URL? = CloudTuiClientPaths.clientURL(),
+        hostThemeColors: @escaping @Sendable () async -> (foreground: String, background: String)? = {
+            await MainActor.run {
+                let app = GhosttyApp.shared
+                return (app.defaultForegroundColor.hexString(), app.defaultBackgroundColor.hexString())
+            }
+        }
     ) {
         self.paths = paths
         self.clientURL = clientURL
+        self.hostThemeColors = hostThemeColors
     }
 
     var hasClient: Bool { clientURL != nil }
@@ -95,6 +113,7 @@ actor CloudMachineLinkManager {
             #if DEBUG
             cmuxDebugLog("cloud.link.connected machine=\(machineID) socket=\(connected.socketPath)")
             #endif
+            pushHostTheme(machineID: machineID, socketPath: connected.socketPath)
             return connected
         } catch {
             let text = CloudMachineLink.errorText(error)
@@ -127,6 +146,9 @@ actor CloudMachineLinkManager {
     func disconnect(machineID: String) async {
         connecting[machineID]?.cancel()
         connecting[machineID] = nil
+        // An in-flight drain notices the removed link on its next run; dropping the
+        // queued mark keeps it from issuing one more command to a machine being cut.
+        themePushQueued.remove(machineID)
         if let link = links.removeValue(forKey: machineID) {
             await link.disconnect()
         }
@@ -149,7 +171,57 @@ actor CloudMachineLinkManager {
         }
     }
 
+    /// Re-sends this Mac's theme to every connected machine (a Ghostty config reload
+    /// changed the resolved colors). Live attach panes repaint via `colors-changed`.
+    func pushHostThemeToConnectedLinks() async {
+        for (machineID, link) in links {
+            guard await link.isConnected, let connected = await link.connected else { continue }
+            pushHostTheme(machineID: machineID, socketPath: connected.socketPath)
+        }
+    }
+
     // MARK: - internals
+
+    /// Fire-and-forget: theme parity is cosmetic, so a machine that predates
+    /// the defaults verb (or a link that just dropped) must not fail the operation
+    /// that connected it. While a push is in flight, further requests only mark a
+    /// rerun; the trailing run reads the colors when it starts, so a reload burst
+    /// costs at most one extra command and always lands on the latest theme.
+    private func pushHostTheme(machineID: String, socketPath: String) {
+        guard links[machineID] != nil else { return }
+        guard !themePushInFlight.contains(machineID) else {
+            themePushQueued.insert(machineID)
+            return
+        }
+        themePushInFlight.insert(machineID)
+        Task { await self.drainThemePushes(machineID: machineID, socketPath: socketPath) }
+    }
+
+    private func drainThemePushes(machineID: String, socketPath: String) async {
+        repeat {
+            themePushQueued.remove(machineID)
+            await runThemePush(machineID: machineID, socketPath: socketPath)
+        } while themePushQueued.contains(machineID)
+        themePushInFlight.remove(machineID)
+    }
+
+    private func runThemePush(machineID: String, socketPath: String) async {
+        guard let link = links[machineID] else { return }
+        guard let colors = await hostThemeColors(),
+              let arguments = CloudTuiCommandLine.setDefaultColorsArguments(
+                  socketPath: socketPath, foreground: colors.foreground, background: colors.background
+              ) else { return }
+        do {
+            _ = try await link.run(arguments: arguments)
+            #if DEBUG
+            cmuxDebugLog("cloud.link.theme machine=\(machineID) fg=\(colors.foreground) bg=\(colors.background)")
+            #endif
+        } catch {
+            #if DEBUG
+            cmuxDebugLog("cloud.link.themeFailed machine=\(machineID) error=\(CloudMachineLink.errorText(error))")
+            #endif
+        }
+    }
 
     private func store(link: CloudMachineLink, for machineID: String) {
         links[machineID] = link

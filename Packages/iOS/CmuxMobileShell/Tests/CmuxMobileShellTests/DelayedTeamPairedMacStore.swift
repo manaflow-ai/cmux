@@ -16,7 +16,9 @@ actor DelayedTeamPairedMacStore: MobilePairedMacStoring, PairedMacBackupRefreshi
     private let blockedTeams: Set<String>
     private var startedTeams: Set<String> = []
     private var startWaiters: [String: [CheckedContinuation<Void, Never>]] = [:]
-    private var blockers: [String: [CheckedContinuation<Void, Never>]] = [:]
+    // Keep an id with each parked read so release and cancellation can race
+    // without resuming another load's continuation.
+    private var blockers: [String: [(id: UUID, continuation: CheckedContinuation<Void, Never>)]] = [:]
     private var upsertCount = 0
     private var loadAllCount = 0
     private var recordReplacement: (
@@ -170,9 +172,26 @@ actor DelayedTeamPairedMacStore: MobilePairedMacStoring, PairedMacBackupRefreshi
         let key = teamID ?? ""
         markStarted(key)
         if blockedTeams.contains(key) {
-            await withCheckedContinuation { continuation in
-                blockers[key, default: []].append(continuation)
+            let blockerID = UUID()
+            // Canceled aggregation tasks must release their fake read just as
+            // the real store releases a canceled I/O operation.
+            await withTaskCancellationHandler {
+                await withCheckedContinuation { continuation in
+                    guard !Task.isCancelled else {
+                        continuation.resume()
+                        return
+                    }
+                    blockers[key, default: []].append((
+                        id: blockerID,
+                        continuation: continuation
+                    ))
+                }
+            } onCancel: {
+                Task {
+                    await self.cancelLoadAllBlocker(key: key, id: blockerID)
+                }
             }
+            try Task.checkCancellation()
         }
         let result: [MobilePairedMac]
         if key.isEmpty {
@@ -289,7 +308,21 @@ actor DelayedTeamPairedMacStore: MobilePairedMacStoring, PairedMacBackupRefreshi
         } else {
             blockers[key] = queued
         }
-        blocker.resume()
+        blocker.continuation.resume()
+    }
+
+    private func cancelLoadAllBlocker(key: String, id: UUID) {
+        guard var queued = blockers[key],
+              let index = queued.firstIndex(where: { $0.id == id }) else {
+            return
+        }
+        let blocker = queued.remove(at: index)
+        if queued.isEmpty {
+            blockers.removeValue(forKey: key)
+        } else {
+            blockers[key] = queued
+        }
+        blocker.continuation.resume()
     }
 
     func waitUntilUpsertCount(_ count: Int) async {

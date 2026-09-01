@@ -15,6 +15,7 @@ from __future__ import annotations
 import glob
 import json
 import os
+from pathlib import Path
 import shutil
 import socket
 import subprocess
@@ -48,10 +49,19 @@ def resolve_cmux_cli() -> str:
 
 
 class CapturingSocketServer:
-    def __init__(self, workspace_id: str, surface_id: str) -> None:
+    def __init__(
+        self,
+        workspace_id: str,
+        surface_id: str,
+        *,
+        surfaces: list[dict[str, object]] | None = None,
+        resolver_error: bool = False,
+    ) -> None:
         self.commands: list[str] = []
         self.workspace_id = workspace_id
         self.surface_id = surface_id
+        self.surfaces = surfaces
+        self.resolver_error = resolver_error
         self.ready = threading.Event()
         self.stop = threading.Event()
         self.error: Exception | None = None
@@ -114,6 +124,9 @@ class CapturingSocketServer:
                     if not raw_line:
                         continue
                     line = raw_line.decode("utf-8", errors="replace")
+                    if line.startswith("_cmux_capability_v1 "):
+                        parts = line.split(" ", 2)
+                        line = parts[2] if len(parts) == 3 else line
                     self.commands.append(line)
                     response = self._response_for(line)
                     if response is None:
@@ -130,18 +143,40 @@ class CapturingSocketServer:
                 if "id" not in request:
                     return None
                 if request.get("method") == "surface.list":
+                    surfaces = self.surfaces if self.surfaces is not None else [
+                        {
+                            "id": self.surface_id,
+                            "ref": self.surface_id,
+                            "workspace_id": self.workspace_id,
+                        }
+                    ]
                     return json.dumps(
                         {
                             "id": request.get("id"),
                             "ok": True,
                             "result": {
-                                "surfaces": [
-                                    {
-                                        "id": self.surface_id,
-                                        "ref": self.surface_id,
-                                        "workspace_id": self.workspace_id,
-                                    }
-                                ]
+                                "surfaces": surfaces
+                            },
+                        }
+                    )
+                if request.get("method") == "agent.resolve_delivery_target" and self.resolver_error:
+                    return json.dumps(
+                        {
+                            "id": request.get("id"),
+                            "ok": False,
+                            "error": {"code": "not_found", "message": "No live delivery target"},
+                        }
+                    )
+                if request.get("method") == "agent.resolve_delivery_target":
+                    params = request.get("params") or {}
+                    return json.dumps(
+                        {
+                            "id": request.get("id"),
+                            "ok": True,
+                            "result": {
+                                "source": "surface",
+                                "workspace_id": params.get("workspace_id", self.workspace_id),
+                                "surface_id": params.get("surface_id", self.surface_id),
                             },
                         }
                     )
@@ -159,6 +194,8 @@ def run_push_notification_hook(
     surface_id = str(uuid.uuid4()).upper()
     with CapturingSocketServer(workspace_id=workspace_id, surface_id=surface_id) as server:
         env = os.environ.copy()
+        env["HOME"] = server.root.name
+        env["CFFIXED_USER_HOME"] = server.root.name
         env["CMUX_SOCKET_PATH"] = server.socket_path
         env["CMUX_WORKSPACE_ID"] = workspace_id
         env["CMUX_SURFACE_ID"] = surface_id
@@ -177,6 +214,89 @@ def run_push_notification_hook(
         )
         commands = list(server.commands)
     return proc, commands, workspace_id, surface_id
+
+
+def run_unresolved_push_notification_hook(
+    cli_path: str,
+) -> tuple[subprocess.CompletedProcess, list[str], str, str, str]:
+    """Run PushNotification with a stale recorded pane and a focused sibling.
+
+    The app-side live resolver deliberately rejects the invocation. Before the
+    fail-closed guard this made the legacy chain return the focused sibling,
+    which is the wrong-pane regression from #11189.
+    """
+
+    workspace_id = str(uuid.uuid4()).upper()
+    recorded_surface_id = str(uuid.uuid4()).upper()
+    other_surface_id = str(uuid.uuid4()).upper()
+    focused_surface_id = str(uuid.uuid4()).upper()
+    session_id = f"stale-{uuid.uuid4().hex}"
+    with CapturingSocketServer(
+        workspace_id=workspace_id,
+        surface_id=focused_surface_id,
+        surfaces=[
+            {
+                "id": other_surface_id,
+                "ref": other_surface_id,
+                "workspace_id": workspace_id,
+                "focused": False,
+            },
+            {
+                "id": focused_surface_id,
+                "ref": focused_surface_id,
+                "workspace_id": workspace_id,
+                "focused": True,
+            },
+        ],
+        resolver_error=True,
+    ) as server:
+        state_path = Path(server.root.name) / "state.json"
+        now = time.time()
+        state_path.write_text(
+            json.dumps(
+                {
+                    "version": 1,
+                    "sessions": {
+                        session_id: {
+                            "sessionId": session_id,
+                            "workspaceId": workspace_id,
+                            "surfaceId": recorded_surface_id,
+                            "startedAt": now,
+                            "updatedAt": now,
+                        }
+                    },
+                }
+            ),
+            encoding="utf-8",
+        )
+        env = os.environ.copy()
+        env["HOME"] = server.root.name
+        env["CFFIXED_USER_HOME"] = server.root.name
+        env["CMUX_SOCKET_PATH"] = server.socket_path
+        env["CMUX_WORKSPACE_ID"] = workspace_id
+        env["CMUX_SURFACE_ID"] = recorded_surface_id
+        env["CMUX_CLAUDE_HOOK_STATE_PATH"] = str(state_path)
+        env["CMUX_CLI_SENTRY_DISABLED"] = "1"
+        env["CMUX_CLAUDE_HOOK_SENTRY_DISABLED"] = "1"
+        env.pop("CMUX_CLAUDE_PID", None)
+
+        proc = subprocess.run(
+            [cli_path, "--socket", server.socket_path, "hooks", "claude", "push-notification"],
+            input=json.dumps(
+                push_payload(
+                    "stale target must not ring the focused pane",
+                    {"message": "stale target must not ring the focused pane", "localSent": True},
+                )
+                | {"session_id": session_id}
+            ),
+            text=True,
+            capture_output=True,
+            env=env,
+            timeout=8,
+            check=False,
+        )
+        commands = list(server.commands)
+    return proc, commands, workspace_id, recorded_surface_id, focused_surface_id
 
 
 def push_payload(message: str, tool_response: object) -> dict:
@@ -316,7 +436,22 @@ def main() -> int:
         print(f"commands={commands!r}")
         return 1
 
-    # 7. Oversized message -> normalized and truncated like every other hook
+    # 7. A stale recorded surface with no live identity must fail closed. In
+    # particular, the focused sibling (B) is not an acceptable substitute for
+    # the unlisted recorded pane (A).
+    proc, commands, workspace_id, recorded_surface_id, focused_surface_id = run_unresolved_push_notification_hook(cli_path)
+    if proc.returncode != 0:
+        print("FAIL: unresolved push-notification hook exited nonzero")
+        print(f"stdout={proc.stdout!r} stderr={proc.stderr!r} commands={commands!r}")
+        return 1
+    notify_commands = [line for line in commands if line.startswith("notify_target_async ")]
+    if notify_commands:
+        print("FAIL: unresolved PushNotification must not notify a focused fallback surface")
+        print(f"workspace={workspace_id!r} recorded={recorded_surface_id!r} focused={focused_surface_id!r}")
+        print(f"notify_commands={notify_commands!r} commands={commands!r}")
+        return 1
+
+    # 8. Oversized message -> normalized and truncated like every other hook
     #    notification body (240-char cap with a trailing ellipsis), so a model
     #    cannot grow the notification store/UI with arbitrarily large pushes.
     oversized = "x" * 5000

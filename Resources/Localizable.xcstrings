@@ -52419,13 +52419,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "right-sidebar set requires a mode: files, find, vault, sessions, feed, dock, or cloud"
+            "value": "right-sidebar set requires a mode: files, find, vault, sessions, feed, dock, cloud, or custom [sidebar-name]"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "right-sidebar set にはモードが必要です: files, find, vault, sessions, feed, dock, cloud"
+            "value": "right-sidebar set にはモードが必要です: files, find, vault, sessions, feed, dock, cloud, custom [sidebar-name]"
           }
         }
       }
@@ -52572,13 +52572,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Usage: cmux right-sidebar <command> [flags]\n\nControl the right sidebar from the CLI.\n\nCommands:\n  toggle                         Toggle right sidebar visibility\n  show                           Show the right sidebar\n  hide                           Hide the right sidebar\n  focus                          Focus the current right sidebar mode\n  set <files|find|vault|sessions|feed|dock|cloud>\n                                 Show, switch mode, and focus\n  mode                           Print {\"visible\":bool,\"mode\":string}\n  files|find|vault|sessions|feed|dock|cloud\n                                 Alias for show + set + focus\n\nFlags:\n  --workspace <id|ref|index>     Target the window containing a workspace\n  --window <id|ref|index>        Target a window\n  --no-focus                     With set, switch mode without moving focus\n\nExamples:\n  cmux right-sidebar toggle\n  cmux right-sidebar set find\n  cmux right-sidebar set vault --no-focus\n  cmux right-sidebar mode"
+            "value": "Usage: cmux right-sidebar <command> [flags]\n\nControl the right sidebar from the CLI.\n\nCommands:\n  toggle                         Toggle right sidebar visibility\n  show                           Show the right sidebar\n  hide                           Hide the right sidebar\n  focus                          Focus the current right sidebar mode\n  set <files|find|vault|sessions|feed|dock|cloud|custom> [sidebar-name]\n                                 Show, switch mode, and focus. `custom` renders a\n                                 JS/Swift sidebar from ~/.config/cmux/sidebars as\n                                 a right panel; the optional name picks which one.\n  mode                           Print {\"visible\":bool,\"mode\":string}\n  files|find|vault|sessions|feed|dock|cloud|custom\n                                 Alias for show + set + focus\n\nFlags:\n  --workspace <id|ref|index>     Target the window containing a workspace\n  --window <id|ref|index>        Target a window\n  --no-focus                     With set, switch mode without moving focus\n\nExamples:\n  cmux right-sidebar toggle\n  cmux right-sidebar set find\n  cmux right-sidebar set vault --no-focus\n  cmux right-sidebar mode"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "使用法: cmux right-sidebar <command> [flags]\n\nCLI から右サイドバーを操作します。\n\nコマンド:\n  toggle                         右サイドバーの表示を切り替えます\n  show                           右サイドバーを表示します\n  hide                           右サイドバーを隠します\n  focus                          現在の右サイドバーモードにフォーカスします\n  set <files|find|vault|sessions|feed|dock|cloud>\n                                 表示して、モードを切り替え、フォーカスします\n  mode                           {\"visible\":bool,\"mode\":string} を出力します\n  files|find|vault|sessions|feed|dock|cloud\n                                 show + set + focus のエイリアス\n\nフラグ:\n  --workspace <id|ref|index>     ワークスペースを含むウィンドウを対象にします\n  --window <id|ref|index>        ウィンドウを対象にします\n  --no-focus                     set で、フォーカスを移さずにモードだけ切り替えます\n\n例:\n  cmux right-sidebar toggle\n  cmux right-sidebar set find\n  cmux right-sidebar set vault --no-focus\n  cmux right-sidebar mode"
+            "value": "使用法: cmux right-sidebar <command> [flags]\n\nCLI から右サイドバーを操作します。\n\nコマンド:\n  toggle                         右サイドバーの表示を切り替えます\n  show                           右サイドバーを表示します\n  hide                           右サイドバーを隠します\n  focus                          現在の右サイドバーモードにフォーカスします\n  set <files|find|vault|sessions|feed|dock|cloud|custom> [sidebar-name]\n                                 表示して、モードを切り替え、フォーカスします。custom は\n                                 ~/.config/cmux/sidebars の JS/Swift サイドバーを右パネルに\n                                 表示します（名前で選択できます）\n  mode                           {\"visible\":bool,\"mode\":string} を出力します\n  files|find|vault|sessions|feed|dock|cloud|custom\n                                 show + set + focus のエイリアス\n\nフラグ:\n  --workspace <id|ref|index>     ワークスペースを含むウィンドウを対象にします\n  --window <id|ref|index>        ウィンドウを対象にします\n  --no-focus                     set で、フォーカスを移さずにモードだけ切り替えます\n\n例:\n  cmux right-sidebar toggle\n  cmux right-sidebar set find\n  cmux right-sidebar set vault --no-focus\n  cmux right-sidebar mode"
           }
         }
       }
@@ -60160,6 +60160,40 @@
         }
       }
     },
+    "cloudPane.newTerminalFailed.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Couldn’t start a terminal on %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ でターミナルを開始できませんでした"
+          }
+        }
+      }
+    },
+    "cloudPane.newTerminalFailed.ok": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "OK"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "OK"
+          }
+        }
+      }
+    },
     "cloudTree.confirm.cancel": {
       "extractionState": "manual",
       "localizations": {
@@ -60173,91 +60207,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "キャンセル"
-          }
-        }
-      }
-    },
-    "cloudTree.deleteWorkspace.confirm": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Delete"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "削除"
-          }
-        }
-      }
-    },
-    "cloudTree.deleteWorkspace.message.empty": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "The workspace closes on the machine."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "マシン上のワークスペースが閉じます。"
-          }
-        }
-      }
-    },
-    "cloudTree.deleteWorkspace.message.one": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Its terminal is killed with it. To keep it, use “Close Workspace” instead — it moves to the Terminals pool."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "中のターミナルも一緒に終了します。残す場合は「ワークスペースを閉じる」を使ってください。ターミナルはプールに移動します。"
-          }
-        }
-      }
-    },
-    "cloudTree.deleteWorkspace.message.other": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Its %d terminals are killed with it. To keep them, use “Close Workspace” instead — they move to the Terminals pool."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "中の%d個のターミナルも一緒に終了します。残す場合は「ワークスペースを閉じる」を使ってください。ターミナルはプールに移動します。"
-          }
-        }
-      }
-    },
-    "cloudTree.deleteWorkspace.title": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Delete workspace “%@”?"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ワークスペース「%@」を削除しますか？"
           }
         }
       }
@@ -60319,30 +60268,98 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Close Workspace (Keep Terminals)"
+            "value": "Close Workspace…"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "ワークスペースを閉じる（ターミナルを保持）"
+            "value": "ワークスペースを閉じる…"
           }
         }
       }
     },
-    "cloudTree.menu.deleteWorkspace": {
+    "cloudTree.closeWorkspace.title": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Delete Workspace and Terminals…"
+            "value": "Close workspace “%@”?"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "ワークスペースとターミナルを削除…"
+            "value": "ワークスペース「%@」を閉じますか？"
+          }
+        }
+      }
+    },
+    "cloudTree.closeWorkspace.message.one": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Its terminal is killed with it."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "中のターミナルも一緒に終了します。"
+          }
+        }
+      }
+    },
+    "cloudTree.closeWorkspace.message.other": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Its %d terminals are killed with it."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "中の%d個のターミナルも一緒に終了します。"
+          }
+        }
+      }
+    },
+    "cloudTree.closeWorkspace.confirm": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Close"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "閉じる"
+          }
+        }
+      }
+    },
+    "cloudTree.operation.closeWorkspace": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Closing %@…"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@を閉じています…"
           }
         }
       }
@@ -60394,23 +60411,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "名称変更…"
-          }
-        }
-      }
-    },
-    "cloudTree.operation.deleteWorkspace": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Deleting %@…"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%@ を削除しています…"
           }
         }
       }
@@ -60914,13 +60914,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Close Workspace"
+            "value": "Close Workspace…"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "ワークスペースを閉じる"
+            "value": "ワークスペースを閉じる…"
           }
         }
       }
@@ -61010,23 +61010,6 @@
         }
       }
     },
-    "cloudTree.terminal.badge.detached": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "detached"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "タブなし"
-          }
-        }
-      }
-    },
     "cloudTree.terminal.badge.views": {
       "extractionState": "manual",
       "localizations": {
@@ -61044,23 +61027,6 @@
         }
       }
     },
-    "cloudTree.terminal.views.one": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "1 tab on the machine shows this terminal"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "マシン上の 1 個のタブがこのターミナルを表示しています"
-          }
-        }
-      }
-    },
     "cloudTree.terminal.views.other": {
       "extractionState": "manual",
       "localizations": {
@@ -61074,23 +61040,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "マシン上の %d 個のタブがこのターミナルを表示しています"
-          }
-        }
-      }
-    },
-    "cloudTree.terminal.views.zero": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "No tabs on the machine show this terminal"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "このターミナルを表示しているタブはマシン上にありません"
           }
         }
       }
@@ -126767,6 +126716,23 @@
         }
       }
     },
+    "cloudVM.error.requiresPro.action": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Upgrade to cmux Pro at https://cmux.com/pricing to create Cloud VMs."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud VM を作成するには https://cmux.com/pricing で cmux Pro にアップグレードしてください。"
+          }
+        }
+      }
+    },
     "machines.empty.upgrade": {
       "extractionState": "manual",
       "localizations": {
@@ -127664,6 +127630,108 @@
           "stringUnit": {
             "state": "translated",
             "value": "クラウドツリーのエラー"
+          }
+        }
+      }
+    },
+    "machines.requiresPro.subtitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This account\u2019s plan doesn\u2019t include Cloud machine access. Upgrade to create and reconnect machines."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このアカウントのプランでは Cloud マシンを利用できません。アップグレードするとマシンの作成と再接続ができます。"
+          }
+        }
+      }
+    },
+    "machines.requiresPro.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud machines need cmux Pro"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud マシンには cmux Pro が必要です"
+          }
+        }
+      }
+    },
+    "machines.requiresPro.upgrade": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Upgrade to Pro"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pro にアップグレード"
+          }
+        }
+      }
+    },
+    "machines.sessionRejected.signInAgain": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sign Out & Sign In Again"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "サインアウトして再サインイン"
+          }
+        }
+      }
+    },
+    "machines.sessionRejected.subtitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The Cloud service no longer accepts this Mac\u2019s saved session. Sign out and sign back in to reconnect."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud サービスがこの Mac に保存されたセッションを受け付けなくなりました。サインアウトして再度サインインすると再接続できます。"
+          }
+        }
+      }
+    },
+    "machines.sessionRejected.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sign-in needs a refresh"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "再サインインが必要です"
           }
         }
       }
@@ -145446,16 +145514,124 @@
     "mobile.pairing.manual.title": {
       "extractionState": "manual",
       "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لا يمكنك المسح؟ أدخل عنوان IP الرقمي لـ Tailscale لهذا الـ Mac والمنفذ:"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ne možete skenirati? Unesite numeričku Tailscale IP adresu i port ovog Maca:"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kan du ikke scanne? Indtast denne Macs numeriske Tailscale-IP-adresse og port:"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Du kannst nicht scannen? Gib die numerische Tailscale-IP-Adresse und den Port dieses Mac ein:"
+          }
+        },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Can't scan? Add this Mac manually:"
+            "value": "Can't scan? Enter this Mac's numeric Tailscale IP and port:"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "¿No puedes escanear? Introduce la dirección IP numérica de Tailscale y el puerto de este Mac:"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Impossible de scanner ? Saisissez l’adresse IP Tailscale numérique et le port de ce Mac :"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Non riesci a scansionare? Inserisci l’indirizzo IP numerico Tailscale e la porta di questo Mac:"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "スキャンできない場合は、この Mac を手動で追加します:"
+            "value": "スキャンできない場合は、この Mac の数値 Tailscale IP アドレスとポートを入力してください："
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ស្កេនមិនបានមែនទេ? បញ្ចូល IP Tailscale ជាលេខ និងច្រករបស់ Mac នេះ៖"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "스캔할 수 없나요? 이 Mac의 숫자 Tailscale IP와 포트를 입력하세요:"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kan du ikke skanne? Skriv inn det numeriske Tailscale-IP-et og porten til denne Mac-en:"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nie możesz zeskanować? Wpisz numeryczny adres IP Tailscale i port tego Maca:"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Não consegue escanear? Digite o IP numérico do Tailscale e a porta deste Mac:"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Не удаётся отсканировать? Введите числовой IP-адрес Tailscale и порт этого Mac:"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "สแกนไม่ได้ใช่ไหม ป้อน IP Tailscale แบบตัวเลขและพอร์ตของ Mac เครื่องนี้:"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tarayamıyor musunuz? Bu Mac'in sayısal Tailscale IP adresini ve bağlantı noktasını girin:"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Не вдається відсканувати? Введіть числову IP-адресу Tailscale і порт цього Mac:"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "无法扫描？请输入这台 Mac 的数字 Tailscale IP 和端口："
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "無法掃描？請輸入這部 Mac 的數字 Tailscale IP 與連接埠："
           }
         }
       }
@@ -155411,6 +155587,40 @@
         }
       }
     },
+    "rightSidebar.customSidebar.empty": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No custom sidebar selected"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "カスタムサイドバーが選択されていません"
+          }
+        }
+      }
+    },
+    "rightSidebar.customSidebar.emptyHint": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pick one with: cmux right-sidebar set custom <name>"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux right-sidebar set custom <name> で選択してください"
+          }
+        }
+      }
+    },
     "rightSidebar.customSidebar.missing": {
       "extractionState": "manual",
       "localizations": {
@@ -155617,6 +155827,57 @@
           "stringUnit": {
             "state": "translated",
             "value": "ERROR: アプリデリゲートを利用できません"
+          }
+        }
+      }
+    },
+    "rightSidebar.remote.error.customSidebarNotFound": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ERROR: No custom sidebar named '%@' in ~/.config/cmux/sidebars"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ERROR: ~/.config/cmux/sidebars に「%@」というカスタムサイドバーはありません"
+          }
+        }
+      }
+    },
+    "rightSidebar.remote.error.customSidebarUnset": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ERROR: No custom sidebar selected; run right_sidebar set custom <name>"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ERROR: カスタムサイドバーが未選択です。right_sidebar set custom <name> を実行してください"
+          }
+        }
+      }
+    },
+    "rightSidebar.remote.error.customSidebarsDisabled": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ERROR: Custom sidebars are disabled (enable them in Settings → Beta Features)"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ERROR: カスタムサイドバーは無効です（設定 → ベータ機能で有効にしてください）"
           }
         }
       }
@@ -155899,13 +156160,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "ERROR: Usage: right_sidebar set <files|find|vault|sessions|feed|dock> [--no-focus] [--workspace=<workspace-id>] [--window=<window-id>]"
+            "value": "ERROR: Usage: right_sidebar set <files|find|vault|sessions|feed|dock|custom> [sidebar-name] [--no-focus] [--workspace=<workspace-id>] [--window=<window-id>]"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "ERROR: 使用法: right_sidebar set <files|find|vault|sessions|feed|dock> [--no-focus] [--workspace=<workspace-id>] [--window=<window-id>]"
+            "value": "ERROR: 使用法: right_sidebar set <files|find|vault|sessions|feed|dock|custom> [sidebar-name] [--no-focus] [--workspace=<workspace-id>] [--window=<window-id>]"
           }
         }
       }
@@ -177396,115 +177657,115 @@
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "ينطبق على نقرات الروابط في الطرفية واستدعاءات `open https://...` المعترضة. قاعدة واحدة لكل سطر. النص العادي يطابق أي جزء من URL، أو ابدأ بـ `re:` للتعبيرات النمطية (مثال: openai.com/usage, re:^https?://[^/]*\\\\.example\\\\.com/(billing|usage))."
+            "value": "ينطبق على نقرات الروابط في صفحات المتصفح والطرفية واستدعاءات `open https://...` المعترضة. قاعدة واحدة لكل سطر. النص العادي يطابق أي جزء من URL؛ تدعم القواعد ذات النمط regex والبدلات * و ? (مثال: example.com، *example.com*، .*example\\.com.*). يجب أن تستخدم قواعد regex التي تحتوي على * أو ? البادئة re:؛ وتظل القواعد القديمة .* و .+ مدعومة."
           }
         },
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "Primjenjuje se na klikove linkova u terminalu i presretnute `open https://...` pozive. Jedno pravilo po redu. Običan tekst odgovara bilo kojem dijelu URL-a, ili dodajte prefiks `re:` za regex (na primjer: openai.com/usage, re:^https?://[^/]*\\\\.example\\\\.com/(billing|usage))."
+            "value": "Primjenjuje se na klikove linkova na web-stranicama i u terminalu te presretnute `open https://...` pozive. Jedno pravilo po redu. Običan tekst odgovara bilo kojem dijelu URL-a; podržana su regex-pravila i zamjenski znakovi * i ? (na primjer: example.com, *example.com*, .*example\\.com.*). Regex pravila koja sadrže * ili ? moraju koristiti prefiks re:; naslijeđena pravila .* i .+ i dalje su podržana."
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Gælder for terminallinksklik og opfangede `open https://...`-kald. Én regel pr. linje. Almindelig tekst matcher enhver URL-delstreng, eller brug `re:` som præfiks for regex (f.eks.: openai.com/usage, re:^https?://[^/]*\\.example\\.com/(billing|usage))."
+            "value": "Gælder for linkklik på browsersider og i terminalen samt opfangede `open https://...`-kald. Én regel pr. linje. Almindelig tekst matcher enhver URL-delstreng; regex-lignende regler og jokertegnene * og ? understøttes (f.eks.: example.com, *example.com*, .*example\\.com.*). Regex-regler, der indeholder * eller ?, skal bruge præfikset re:; ældre regler med .* og .+ understøttes stadig."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Gilt für Klicks auf Terminal-Links und abgefangene `open https://...`-Aufrufe. Eine Regel pro Zeile. Klartext stimmt mit jedem URL-Teilstring überein, oder verwenden Sie das Präfix `re:` für Regex (zum Beispiel: openai.com/usage, re:^https?://[^/]*\\\\.example\\\\.com/(billing|usage))."
+            "value": "Gilt für Klicks auf Links in Browserseiten und im Terminal sowie abgefangene `open https://...`-Aufrufe. Eine Regel pro Zeile. Klartext stimmt mit jedem URL-Teilstring überein; regexartige Regeln und die Platzhalter * und ? werden unterstützt (zum Beispiel: example.com, *example.com*, .*example\\.com.*). Regex-Regeln mit * oder ? müssen das Präfix re: verwenden; ältere Regeln mit .* und .+ werden weiterhin unterstützt."
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Applies to terminal link clicks and intercepted `open https://...` calls. One rule per line. Plain text matches any URL substring, or prefix with `re:` for regex (for example: openai.com/usage, re:^https?://[^/]*\\\\.example\\\\.com/(billing|usage))."
+            "value": "Applies to browser-page link clicks, terminal link clicks, and intercepted `open https://...` calls. One rule per line. Plain text matches any URL substring; regex-shaped rules and `*`/`?` wildcards are supported (for example: example.com, *example.com*, .*example\\.com.*). Regex rules containing `*` or `?` must use the `re:` prefix; legacy `.*`/`.+` rules remain supported."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Se aplica a clics en enlaces del terminal y llamadas interceptadas de `open https://...`. Una regla por línea. El texto plano coincide con cualquier subcadena de URL, o usa el prefijo `re:` para regex (por ejemplo: openai.com/usage, re:^https?://[^/]*\\\\.example\\\\.com/(billing|usage))."
+            "value": "Se aplica a clics en enlaces de páginas del navegador y del terminal, y a llamadas interceptadas de `open https://...`. Una regla por línea. El texto plano coincide con cualquier subcadena de URL; se admiten reglas con forma de regex y comodines * y ? (por ejemplo: example.com, *example.com*, .*example\\.com.*). Las reglas regex que contengan * o ? deben usar el prefijo re:; las reglas heredadas .* y .+ siguen siendo compatibles."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "S'applique aux clics sur les liens du terminal et aux appels `open https://...` interceptés. Une règle par ligne. Le texte brut correspond à toute sous-chaîne d'URL, ou préfixez par `re:` pour une expression régulière (par exemple : openai.com/usage, re:^https?://[^/]*\\\\.example\\\\.com/(billing|usage))."
+            "value": "S’applique aux clics sur les liens des pages du navigateur et du terminal, ainsi qu’aux appels `open https://...` interceptés. Une règle par ligne. Le texte brut correspond à toute sous-chaîne d’URL ; les règles de type regex et les jokers * et ? sont pris en charge (par exemple : example.com, *example.com*, .*example\\.com.*). Les règles regex contenant * ou ? doivent utiliser le préfixe re: ; les anciennes règles .* et .+ restent prises en charge."
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Si applica ai clic sui link nel terminale e alle chiamate intercettate `open https://...`. Una regola per riga. Il testo semplice corrisponde a qualsiasi sottostringa dell'URL, oppure usa il prefisso `re:` per le regex (ad esempio: openai.com/usage, re:^https?://[^/]*\\\\.example\\\\.com/(billing|usage))."
+            "value": "Si applica ai clic sui link nelle pagine del browser e nel terminale, e alle chiamate intercettate `open https://...`. Una regola per riga. Il testo semplice corrisponde a qualsiasi sottostringa dell’URL; sono supportate le regole simili a regex e i caratteri jolly * e ? (ad esempio: example.com, *example.com*, .*example\\.com.*). Le regole regex che contengono * o ? devono usare il prefisso re:; le regole legacy .* e .+ restano supportate."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "ターミナルのリンククリックおよびインターセプトされた`open https://...`呼び出しに適用されます。1行に1ルール。プレーンテキストはURL部分文字列に一致し、`re:`プレフィックスで正規表現を使用できます（例: openai.com/usage, re:^https?://[^/]*\\\\.example\\\\.com/(billing|usage)）。"
+            "value": "ブラウザページのリンククリック、ターミナルのリンククリック、およびインターセプトされた`open https://...`呼び出しに適用されます。1行に1ルール。プレーンテキストはURL部分文字列に一致し、正規表現形式のルールと`*`/`?`ワイルドカードも使用できます（例: example.com、*example.com*、.*example\\.com.*）。 * や ? を含む正規表現ルールには re: プレフィックスが必要です。従来の .* および .+ ルールは引き続き使用できます。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "터미널 링크 클릭 및 인터셉트된 `open https://...` 호출에 적용됩니다. 한 줄에 하나의 규칙. 일반 텍스트는 URL의 하위 문자열을 일치시키며, `re:` 접두사로 정규식을 사용할 수 있습니다 (예: openai.com/usage, re:^https?://[^/]*\\\\.example\\\\.com/(billing|usage))."
+            "value": "브라우저 페이지와 터미널의 링크 클릭 및 인터셉트된 `open https://...` 호출에 적용됩니다. 한 줄에 하나의 규칙. 일반 텍스트는 URL의 하위 문자열과 일치하며, 정규식 형태의 규칙과 * 및 ? 와일드카드를 지원합니다 (예: example.com, *example.com*, .*example\\.com.*). * 또는 ?를 포함하는 정규식 규칙은 re: 접두사를 사용해야 하며, 기존 .* 및 .+ 규칙은 계속 지원됩니다."
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "Gjelder for terminallenkeklikk og avlyttede `open https://...`-kall. Én regel per linje. Ren tekst matcher enhver del av URL-en, eller prefiks med `re:` for regulære uttrykk (for eksempel: openai.com/usage, re:^https?://[^/]*\\\\.example\\\\.com/(billing|usage))."
+            "value": "Gjelder for lenkeklikk på nettlesersider og i terminalen samt avlyttede `open https://...`-kall. Én regel per linje. Ren tekst matcher enhver del av URL-en; regex-lignende regler og jokertegnene * og ? støttes (for eksempel: example.com, *example.com*, .*example\\.com.*). Regex-regler som inneholder * eller ?, må bruke prefikset re:; eldre regler med .* og .+ støttes fortsatt."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Dotyczy kliknięć linków w terminalu i przechwyconych wywołań `open https://...`. Jedna reguła na wiersz. Zwykły tekst dopasowuje dowolny fragment URL, lub użyj prefiksu `re:` dla wyrażeń regularnych (na przykład: openai.com/usage, re:^https?://[^/]*\\\\.example\\\\.com/(billing|usage))."
+            "value": "Dotyczy kliknięć linków na stronach przeglądarki i w terminalu oraz przechwyconych wywołań `open https://...`. Jedna reguła na wiersz. Zwykły tekst dopasowuje dowolny fragment URL; obsługiwane są reguły w stylu regex oraz symbole wieloznaczne * i ? (na przykład: example.com, *example.com*, .*example\\.com.*). Reguły regex zawierające * lub ? muszą używać prefiksu re:; starsze reguły .* i .+ są nadal obsługiwane."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Aplica-se a cliques em links do terminal e chamadas interceptadas de `open https://...`. Uma regra por linha. Texto simples corresponde a qualquer substring de URL, ou prefixe com `re:` para regex (por exemplo: openai.com/usage, re:^https?://[^/]*\\\\.example\\\\.com/(billing|usage))."
+            "value": "Aplica-se a cliques em links de páginas do navegador e do terminal e a chamadas interceptadas de `open https://...`. Uma regra por linha. Texto simples corresponde a qualquer substring de URL; regras no formato regex e curingas * e ? são aceitos (por exemplo: example.com, *example.com*, .*example\\.com.*). As regras regex que contêm * ou ? devem usar o prefixo re:; as regras legadas .* e .+ continuam compatíveis."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Применяется к нажатиям на ссылки в терминале и перехваченным вызовам `open https://...`. Одно правило на строку. Обычный текст совпадает с любой подстрокой URL, или используйте префикс `re:` для регулярных выражений (например: openai.com/usage, re:^https?://[^/]*\\\\.example\\\\.com/(billing|usage))."
+            "value": "Применяется к нажатиям на ссылки на страницах браузера и в терминале, а также к перехваченным вызовам `open https://...`. Одно правило на строку. Обычный текст совпадает с любой подстрокой URL; поддерживаются правила в стиле regex и подстановочные символы * и ? (например: example.com, *example.com*, .*example\\.com.*). Правила regex, содержащие * или ?, должны использовать префикс re:; устаревшие правила .* и .+ по-прежнему поддерживаются."
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "ใช้กับการคลิกลิงก์ในเทอร์มินัลและการดักจับคำสั่ง `open https://...` กฎหนึ่งข้อต่อบรรทัด ข้อความธรรมดาจะจับคู่กับส่วนใดก็ได้ของ URL หรือนำหน้าด้วย `re:` สำหรับ regex (ตัวอย่าง: openai.com/usage, re:^https?://[^/]*\\\\.example\\\\.com/(billing|usage))"
+            "value": "ใช้กับการคลิกลิงก์ในหน้าเบราว์เซอร์และเทอร์มินัล รวมถึงการดักจับคำสั่ง `open https://...` กฎหนึ่งข้อต่อบรรทัด ข้อความธรรมดาจะจับคู่กับส่วนใดก็ได้ของ URL และรองรับกฎรูปแบบ regex รวมถึงไวลด์การ์ด * และ ? (ตัวอย่าง: example.com, *example.com*, .*example\\.com.*) กฎ regex ที่มี * หรือ ? ต้องใช้คำนำหน้า re: และยังรองรับกฎเดิม .* และ .+"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Terminal bağlantı tıklamalarına ve yakalanan `open https://...` çağrılarına uygulanır. Satır başına bir kural. Düz metin herhangi bir URL alt dizesiyle eşleşir veya regex için `re:` ön ekini kullanın (örneğin: openai.com/usage, re:^https?://[^/]*\\\\.example\\\\.com/(billing|usage))."
+            "value": "Tarayıcı sayfalarındaki ve terminaldeki bağlantı tıklamalarına ve yakalanan `open https://...` çağrılarına uygulanır. Satır başına bir kural. Düz metin herhangi bir URL alt dizesiyle eşleşir; regex biçimli kurallar ile * ve ? joker karakterleri desteklenir (örneğin: example.com, *example.com*, .*example\\.com.*). * veya ? içeren regex kuralları re: ön ekini kullanmalıdır; eski .* ve .+ kuralları desteklenmeye devam eder."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "Застосовується до кліків на посилання в терміналі та перехоплених викликів `open https://...`. Одне правило на рядок. Звичайний текст збігається з будь-якою частиною URL, або додайте префікс `re:` для регулярного виразу (наприклад: openai.com/usage, re:^https?://[^/]*\\.example\\.com/(billing|usage))."
+            "value": "Застосовується до кліків на посилання на сторінках браузера й у терміналі, а також до перехоплених викликів `open https://...`. Одне правило на рядок. Звичайний текст збігається з будь-якою частиною URL; підтримуються правила у стилі regex і символи підстановки * та ? (наприклад: example.com, *example.com*, .*example\\.com.*). Правила regex, що містять * або ?, мають використовувати префікс re:; застарілі правила .* і .+ і надалі підтримуються."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "适用于终端中的链接点击和拦截的 `open https://...` 调用。每行一条规则。纯文本匹配任意 URL 子串，或使用 `re:` 前缀表示正则表达式（例如：openai.com/usage、re:^https?://[^/]*\\\\.example\\\\.com/(billing|usage)）。"
+            "value": "适用于浏览器页面和终端中的链接点击，以及拦截的 `open https://...` 调用。每行一条规则。纯文本匹配任意 URL 子串；支持正则表达式形式的规则以及 * 和 ? 通配符（例如：example.com、*example.com*、.*example\\.com.*）。 包含 * 或 ? 的正则表达式规则必须使用 re: 前缀；仍支持旧式 .* 和 .+ 规则。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "套用於終端機連結點擊和攔截的 `open https://...` 呼叫。每行一條規則。純文字會比對 URL 的任何子字串，或加上 `re:` 前綴使用正規表示式（例如：openai.com/usage、re:^https?://[^/]*\\\\.example\\\\.com/(billing|usage)）。"
+            "value": "套用於瀏覽器頁面和終端機的連結點擊，以及攔截的 `open https://...` 呼叫。每行一條規則。純文字會比對 URL 的任何子字串；支援正規表示式形式的規則以及 * 和 ? 萬用字元（例如：example.com、*example.com*、.*example\\.com.*）。 包含 * 或 ? 的正規表示式規則必須使用 re: 前綴；仍支援舊式 .* 和 .+ 規則。"
           }
         }
       }
@@ -187864,6 +188125,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "共有…"
+          }
+        }
+      }
+    },
+    "settings.networking.irx.notConfigurable": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This setting is not configurable with the current transport."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "この設定は現在のトランスポートでは変更できません。"
           }
         }
       }
@@ -242808,6 +243086,23 @@
         }
       }
     },
+    "socket.cloudVM.sessionRejected": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The cmux Cloud service rejected this session. Run `cmux auth logout`, then `cmux auth login`, and retry."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux Cloud サービスがこのセッションを拒否しました。`cmux auth logout` を実行してから `cmux auth login` を実行し、再試行してください。"
+          }
+        }
+      }
+    },
     "socket.client.accessDenied": {
       "extractionState": "manual",
       "localizations": {
@@ -260392,6 +260687,131 @@
           "stringUnit": {
             "state": "translated",
             "value": "アップデートを有効にするには、cmux を「アプリケーション」に移動して再起動してください。すでに「アプリケーション」にある場合は、Mac を再起動してからもう一度お試しいただくか、下から最新バージョンをダウンロードしてください。"
+          }
+        }
+      }
+    },
+    "update.error.installerAgent.message": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لم يتمكّن macOS من تشغيل أداة تحديث cmux المساعدة في الوقت المحدد. قد تتسبب برامج الأمان في تأخير تشغيلها. أعد المحاولة مرة واحدة؛ وإذا استمر الفشل، فأعد تشغيل Mac أو نزّل أحدث إصدار أدناه وثبّته."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "macOS nije pokrenuo pomoćni program za ažuriranje cmux-a na vrijeme. Sigurnosni softver može odgoditi njegovo pokretanje. Pokušajte ponovo jednom; ako i dalje ne uspije, ponovo pokrenite Mac ili preuzmite i instalirajte najnoviju verziju ispod."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "macOS startede ikke cmux’ opdateringshjælper i tide. Sikkerhedssoftware kan forsinke den. Prøv igen én gang. Hvis det stadig mislykkes, skal du genstarte din Mac eller hente og installere den nyeste version nedenfor."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "macOS hat den Update-Hilfsprozess von cmux nicht rechtzeitig gestartet. Sicherheitssoftware kann den Start verzögern. Versuche es einmal erneut. Falls es weiterhin fehlschlägt, starte deinen Mac neu oder lade unten die neueste Version herunter und installiere sie."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "macOS didn’t start cmux’s updater helper in time. Security software can delay it. Retry once; if it still fails, restart your Mac or download and install the latest version below."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "macOS no inició a tiempo el proceso auxiliar de actualización de cmux. El software de seguridad puede retrasarlo. Vuelve a intentarlo una vez; si sigue fallando, reinicia el Mac o descarga e instala la versión más reciente a continuación."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "macOS n’a pas lancé à temps l’utilitaire de mise à jour de cmux. Un logiciel de sécurité peut retarder son lancement. Réessayez une fois ; si l’échec persiste, redémarrez votre Mac ou téléchargez et installez la dernière version ci-dessous."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "macOS non ha avviato in tempo l’helper di aggiornamento di cmux. Il software di sicurezza può ritardarne l’avvio. Riprova una volta; se il problema persiste, riavvia il Mac oppure scarica e installa l’ultima versione qui sotto."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "macOS が cmux のアップデーターヘルパーを時間内に起動できませんでした。セキュリティソフトウェアによって起動が遅れることがあります。まず再試行し、それでも失敗する場合は Mac を再起動するか、下から最新バージョンをダウンロードして手動でインストールしてください。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "macOS មិនបានចាប់ផ្តើមកម្មវិធីជំនួយធ្វើបច្ចុប្បន្នភាពរបស់ cmux ទាន់ពេលទេ។ កម្មវិធីសុវត្ថិភាពអាចពន្យារពេលវាបាន។ សូមព្យាយាមម្តងទៀត; ប្រសិនបើនៅតែបរាជ័យ សូមចាប់ផ្តើម Mac របស់អ្នកឡើងវិញ ឬទាញយក និងដំឡើងកំណែចុងក្រោយខាងក្រោម។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "macOS가 cmux 업데이트 도우미를 제시간에 시작하지 못했습니다. 보안 소프트웨어로 인해 시작이 지연될 수 있습니다. 한 번 다시 시도하세요. 그래도 실패하면 Mac을 재시동하거나 아래에서 최신 버전을 다운로드하여 설치하세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "macOS startet ikke oppdateringshjelperen til cmux i tide. Sikkerhetsprogramvare kan forsinke den. Prøv på nytt én gang. Hvis det fortsatt mislykkes, starter du Macen på nytt eller laster ned og installerer den nyeste versjonen nedenfor."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "System macOS nie uruchomił na czas procesu pomocniczego aktualizatora cmux. Oprogramowanie zabezpieczające może opóźnić jego uruchomienie. Spróbuj ponownie raz. Jeśli nadal się nie uda, uruchom ponownie Maca albo pobierz i zainstaluj najnowszą wersję poniżej."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "O macOS não iniciou o auxiliar de atualização do cmux a tempo. O software de segurança pode atrasar a inicialização. Tente novamente uma vez; se ainda falhar, reinicie o Mac ou baixe e instale a versão mais recente abaixo."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "macOS не успела запустить вспомогательный процесс обновления cmux. Защитное ПО может задерживать его запуск. Повторите попытку один раз. Если ошибка повторится, перезагрузите Mac либо скачайте и установите последнюю версию ниже."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "macOS ไม่ได้เริ่มตัวช่วยอัปเดตของ cmux ภายในเวลาที่กำหนด ซอฟต์แวร์รักษาความปลอดภัยอาจทำให้การเริ่มทำงานล่าช้า ลองอีกครั้งหนึ่งครั้ง หากยังไม่สำเร็จ ให้รีสตาร์ท Mac หรือดาวน์โหลดและติดตั้งเวอร์ชันล่าสุดด้านล่าง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "macOS, cmux güncelleme yardımcısını zamanında başlatamadı. Güvenlik yazılımı başlangıcı geciktirebilir. Bir kez yeniden deneyin; yine başarısız olursa Mac’inizi yeniden başlatın veya aşağıdan en son sürümü indirip yükleyin."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "macOS не встигла запустити допоміжний процес оновлення cmux. Захисне програмне забезпечення може затримувати його запуск. Повторіть спробу один раз. Якщо помилка повториться, перезапустіть Mac або завантажте й інсталюйте останню версію нижче."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "macOS 未能及时启动 cmux 的更新助手。安全软件可能会延迟其启动。请重试一次；如果仍然失败，请重新启动 Mac，或在下方下载并安装最新版本。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "macOS 未能及時啟動 cmux 的更新輔助程式。安全軟體可能會延遲其啟動。請重試一次；如果仍然失敗，請重新啟動 Mac，或在下方下載並安裝最新版本。"
           }
         }
       }

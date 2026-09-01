@@ -804,14 +804,40 @@ impl PtyDeps for RealPtyDeps {
         // On PTY allocation failure (ptmx exhaustion et al) degrade to a
         // pipe-mode shell so the terminal still functions, with a banner.
         let output = ThreadOutput::new();
-        tokio::task::spawn_blocking(move || match spawn_real_pty(&spec) {
-            Ok(handle) => handle,
-            Err(error) => spawn_pipe_mode(&spec, &error.to_string()),
+        let task_output = Arc::clone(&output);
+        let fallback_output = Arc::clone(&output);
+        tokio::task::spawn_blocking(move || {
+            if spec.cancellation.is_cancelled() {
+                task_output.push_exit(1);
+                return PtyHandle {
+                    control: Arc::new(DeadControl),
+                    output: task_output,
+                    banner: None,
+                };
+            }
+            let handle = match spawn_real_pty(&spec) {
+                Ok(handle) => handle,
+                Err(error) if !spec.cancellation.is_cancelled() => {
+                    spawn_pipe_mode(&spec, &error.to_string())
+                }
+                Err(_) => {
+                    task_output.push_exit(1);
+                    return PtyHandle {
+                        control: Arc::new(DeadControl),
+                        output: task_output,
+                        banner: None,
+                    };
+                }
+            };
+            if spec.cancellation.is_cancelled() {
+                handle.control.kill();
+            }
+            handle
         })
         .await
         .unwrap_or_else(|_| {
-            output.push_exit(1);
-            PtyHandle { control: Arc::new(DeadControl), output, banner: None }
+            fallback_output.push_exit(1);
+            PtyHandle { control: Arc::new(DeadControl), output: fallback_output, banner: None }
         })
     }
 

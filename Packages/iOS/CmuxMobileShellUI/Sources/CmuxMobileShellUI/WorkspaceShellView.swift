@@ -172,7 +172,17 @@ struct WorkspaceShellView: View {
     /// sheet presents, so remote list changes mid-presentation cannot mutate
     /// an open sheet.
     @Environment(MobileWhatsNewCenter.self) private var whatsNewCenter: MobileWhatsNewCenter?
+    @Environment(\.mobileWebAppSession) private var whatsNewWebAppSession
+    @Environment(\.colorScheme) private var whatsNewColorScheme
     @State private var whatsNewSheetPages: [MobileWhatsNewPage] = []
+    /// Unseen pages staged for presentation, awaiting the web-page preload
+    /// gate; the preload task keys off this so it is view-owned (cancelled on
+    /// disappear) yet triggerable from every presentation call site.
+    @State private var whatsNewCandidatePages: [MobileWhatsNewPage]?
+    /// Finished preloads for the presented sheet's web pages, keyed by
+    /// `listID`. Kept here so the webviews outlive sheet content rebuilds and
+    /// are released when the sheet is dismissed.
+    @State private var whatsNewWebLoads: [String: MobileWhatsNewWebPageLoad] = [:]
     @State private var showsWhatsNewSheet = false
     @State private var notificationNavigationPath: [MobileWorkspacePreview.ID] = []
     @State private var notificationSearchNavigationPath: [MobileWorkspacePreview.ID] = []
@@ -517,10 +527,25 @@ struct WorkspaceShellView: View {
         .onChange(of: store.pairedMacs.isEmpty) { _, _ in
             presentWhatsNewIfNeeded()
         }
-        .sheet(isPresented: $showsWhatsNewSheet) {
+        // The staged candidate's preload gate: web pages load into live
+        // webviews BEFORE the sheet presents, so the sheet never surfaces
+        // with a page still loading behind it. `.task(id:)` (not a Task in
+        // presentWhatsNewIfNeeded) so the preload is view-owned and a
+        // candidate upgraded by a late refresh restarts the gate.
+        .task(id: whatsNewCandidateID) {
+            await preloadAndPresentWhatsNew()
+        }
+        .sheet(isPresented: $showsWhatsNewSheet, onDismiss: {
+            // Release the preloaded webviews only after the dismissal
+            // animation finished; clearing at gate time would blank the
+            // still-visible sheet content mid-animation.
+            whatsNewSheetPages = []
+            whatsNewWebLoads = [:]
+        }) {
             MobileWhatsNewSheet(
                 pages: whatsNewSheetPages,
                 allowedWebHosts: whatsNewCenter?.allowedWebHosts ?? [],
+                webLoads: whatsNewWebLoads,
                 dismiss: { showsWhatsNewSheet = false }
             )
             .presentationDetents([.large])
@@ -539,8 +564,16 @@ struct WorkspaceShellView: View {
     }
 
     #if os(iOS)
-    /// Presents the one-time What's New sheet when there are unseen pages
-    /// and the device already has Computers. Acknowledgement happens in the
+    /// Bound on the whole pre-presentation preload (all pages load
+    /// concurrently). Generous enough for a slow cellular page, short enough
+    /// that a stalled page cannot postpone the notice indefinitely: pages
+    /// that miss it are dropped unacknowledged and try again next launch.
+    private static let whatsNewPreloadDeadline: Duration = .seconds(10)
+
+    /// Stages the one-time What's New sheet when there are unseen pages and
+    /// the device already has Computers. Staging is not presenting: the
+    /// preload gate (`preloadAndPresentWhatsNew`) presents only once every
+    /// page in the sheet renders immediately. Acknowledgement happens in the
     /// sheet content's `onAppear` (first actual presentation, not on
     /// dismiss): early enough that a kill mid-presentation cannot re-show
     /// the sheet forever, late enough that a swallowed presentation (a
@@ -552,7 +585,63 @@ struct WorkspaceShellView: View {
               !showsWhatsNewSheet else { return }
         let pages = whatsNewCenter.unseenPages
         guard !pages.isEmpty else { return }
-        whatsNewSheetPages = pages
+        whatsNewCandidatePages = pages
+    }
+
+    /// The staged candidate's task identity: page identity (not count), so a
+    /// candidate re-staged with the same pages does not restart an in-flight
+    /// preload, while a late refresh that changes the page set does.
+    private var whatsNewCandidateID: String? {
+        whatsNewCandidatePages.map { pages in
+            pages.map(\.listID).joined(separator: "|")
+        }
+    }
+
+    /// Presents the staged candidate once its content is ready. Native
+    /// feature pages are compiled in and always ready; web pages preload
+    /// into live webviews first, and a page that fails or misses the
+    /// deadline is dropped from THIS presentation without acknowledgement
+    /// (same policy as the offline skip in `unseenPages`), so it returns on
+    /// a later launch instead of presenting a sheet that shows loading UI.
+    private func preloadAndPresentWhatsNew() async {
+        guard let pages = whatsNewCandidatePages, !showsWhatsNewSheet else { return }
+        let allowedHosts = whatsNewCenter?.allowedWebHosts ?? []
+        var loads: [String: MobileWhatsNewWebPageLoad] = [:]
+        for page in pages {
+            if case .web(let url) = page.body {
+                loads[page.listID] = MobileWhatsNewWebPageLoad(
+                    url: url,
+                    allowedHosts: allowedHosts,
+                    webAppSession: whatsNewWebAppSession,
+                    deadline: Self.whatsNewPreloadDeadline,
+                    initialInterfaceStyle: whatsNewColorScheme == .dark ? .dark : .light
+                )
+            }
+        }
+        // Loads run concurrently from init; each settles by its own deadline,
+        // so awaiting them in sequence is bounded and cannot hang this task.
+        for load in loads.values {
+            _ = await load.outcome()
+        }
+        guard !Task.isCancelled else { return }
+        whatsNewCandidatePages = nil
+        // The gate conditions can drift during the bounded preload window (a
+        // refresh can withdraw a page, the last Computer can disappear), so
+        // re-check them now instead of trusting the staging-time snapshot.
+        guard let whatsNewCenter, !store.pairedMacs.isEmpty else { return }
+        let stillUnseen = Set(whatsNewCenter.unseenPages.map(\.listID))
+        let readyPages = pages.filter { page in
+            guard stillUnseen.contains(page.listID) else { return false }
+            switch page.body {
+            case .features:
+                return true
+            case .web:
+                return loads[page.listID]?.phase == .loaded
+            }
+        }
+        guard !readyPages.isEmpty, !showsWhatsNewSheet else { return }
+        whatsNewSheetPages = readyPages
+        whatsNewWebLoads = loads.filter { $0.value.phase == .loaded }
         showsWhatsNewSheet = true
     }
     #endif

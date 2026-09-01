@@ -3,6 +3,7 @@ import { readFileSync } from "node:fs";
 import path from "node:path";
 
 import { auditCloudVmProviderCoherence } from "./defaultProviderAudit.mjs";
+import { auditFreeProvisioningOverride } from "./freeProvisioningAudit.mjs";
 import {
   forbiddenRuntimeEnvKeys,
   legacyCloudVmEnvKeys,
@@ -38,11 +39,15 @@ try {
     readFileSync(path.join(webDir, "services", "vms", "images", "manifest.json"), "utf8"),
   );
   const providerCoherence = auditCloudVmProviderCoherence(env, manifest);
+  // The paid-plan gate is fail-closed by default; a permissive override value
+  // in a shared environment is an outage-class misconfiguration, not a note.
+  const freeProvisioning = auditFreeProvisioningOverride(env);
 
   const result = {
     ok: missingRequired.length === 0 &&
       forbiddenPresent.length === 0 &&
-      providerCoherence.problems.length === 0,
+      providerCoherence.problems.length === 0 &&
+      freeProvisioning.problems.length === 0,
     target,
     project: project.projectName,
     envKeyCount: keys.length,
@@ -52,6 +57,7 @@ try {
     forbiddenPresent,
     legacyCloudVmPresent,
     providerCoherence,
+    freeProvisioning,
   };
 
   console.log(JSON.stringify(result, null, 2));

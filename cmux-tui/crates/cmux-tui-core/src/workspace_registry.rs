@@ -60,10 +60,11 @@ pub(crate) use journal_extensions::{
 pub use public_projection_store::RegistryPublicProjections;
 #[cfg(test)]
 pub use public_projection_store::{RegistryAgentProjection, RegistryNotificationProjection};
+#[cfg(test)]
+pub(crate) use resource_store::AGENT_HOOK_MAX_ATTEMPTS;
 pub(crate) use resource_store::validate_registry_screen_projection;
 pub(crate) use resource_store::{
-    AGENT_HOOK_MAX_ATTEMPTS, AGENT_HOOK_MAX_RETRY_PAGES_PER_WAKE, AgentHookProjectionState,
-    AgentHookRetryClass,
+    AGENT_HOOK_MAX_RETRY_PAGES_PER_WAKE, AgentHookProjectionState, AgentHookRetryClass,
 };
 #[allow(unused_imports)]
 pub use resource_store::{

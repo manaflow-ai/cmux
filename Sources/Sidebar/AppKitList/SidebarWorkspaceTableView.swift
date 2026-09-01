@@ -16,6 +16,9 @@ struct SidebarWorkspaceTableView: NSViewRepresentable {
 
     let contentUpdate: ContentUpdate
     let workspaceIds: [UUID]
+    /// Stable row identities currently owned by the sidebar. Group headers
+    /// use their group id here because their anchor workspace can be promoted.
+    let liveRowIds: [SidebarWorkspaceRenderItemID]
     let selectedWorkspaceId: UUID?
     let selectedScrollTargetWorkspaceId: UUID?
     let isPresented: Bool
@@ -52,7 +55,11 @@ struct SidebarWorkspaceTableView: NSViewRepresentable {
         context.coordinator.setUnreadSource(unreadSource)
         context.coordinator.setAgentElapsedClock(agentElapsedClock)
         context.coordinator.onDeferredRowClickAwaitingApply = onDeferredClickAwaitingApply
-        context.coordinator.setPresentationActive(isPresented, workspaceIds: workspaceIds)
+        context.coordinator.setPresentationActive(
+            isPresented,
+            workspaceIds: workspaceIds,
+            rowIds: liveRowIds
+        )
         guard isPresented else { return }
         guard case let .apply(rows, actions) = contentUpdate else { return }
         context.coordinator.apply(

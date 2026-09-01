@@ -10,6 +10,10 @@ import SwiftUI
 struct MobileWhatsNewSheet: View {
     let pages: [MobileWhatsNewPage]
     let allowedWebHosts: Set<String>
+    /// Web pages are preloaded before this sheet presents (keyed by
+    /// `listID`), so a web page renders the instant the sheet appears
+    /// instead of loading behind an already-visible sheet.
+    var webLoads: [String: MobileWhatsNewWebPageLoad] = [:]
     let dismiss: () -> Void
     @State private var pageIndex = 0
 
@@ -53,7 +57,11 @@ struct MobileWhatsNewSheet: View {
                 MobileWhatsNewContent(page: page)
             }
         case .web(let url):
-            MobileWhatsNewWebView(url: url, allowedHosts: allowedWebHosts)
+            MobileWhatsNewWebView(
+                url: url,
+                allowedHosts: allowedWebHosts,
+                preloadedLoad: webLoads[page.listID]
+            )
         }
     }
 

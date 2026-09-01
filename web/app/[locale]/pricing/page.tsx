@@ -27,7 +27,6 @@ import {
   FeatureList,
   PlanCard,
   PricingCompareTable,
-  PricingSizeTable,
   PrimaryLink,
   SecondaryLink,
   visibleCompareRows,
@@ -35,7 +34,6 @@ import {
   visibleProFeatures,
   type CompareRow,
   type FaqItem,
-  type SizeRow,
 } from "../../components/pricing-shared";
 import {
   PricingCheckoutButton,
@@ -100,6 +98,7 @@ export default async function PricingPage({
   const query = searchParams ? await searchParams : {};
   const t = await getTranslations({ locale, namespace: "pricing" });
   const snapshot = await currentPlanSnapshot();
+  const canManageBilling = snapshot.billingManagement === "stripe";
   const interval = proBillingInterval(firstParam(query.interval) ?? "year");
   const proCheckoutHrefs = {
     month: withCheckoutInterval(PRO_CHECKOUT_URL, "month"),
@@ -139,7 +138,6 @@ export default async function PricingPage({
     t.raw("compare.rows") as CompareRow[],
     featureVisibility,
   );
-  const sizeRows = t.raw("sizes.rows") as SizeRow[];
   const faqItems = visibleFaqItems(
     t.raw("faq.items") as FaqItem[],
     featureVisibility,
@@ -214,6 +212,10 @@ export default async function PricingPage({
                     {t("manageBilling")}
                   </SecondaryLink>
                 </div>
+              ) : canManageBilling ? (
+                <SecondaryLink href="/api/billing/portal">
+                  {t("manageBilling")}
+                </SecondaryLink>
               ) : (
                 <ProCtaLink checkoutHrefs={proCheckoutHrefs} size="compact">
                   {t("pro.cta")}
@@ -303,6 +305,10 @@ export default async function PricingPage({
                 pro: (
                   snapshot.isPro ? (
                     <DisabledButton size="compact">{t("currentPlan")}</DisabledButton>
+                  ) : canManageBilling ? (
+                    <SecondaryLink href="/api/billing/portal" size="compact">
+                      {t("manageBilling")}
+                    </SecondaryLink>
                   ) : (
                     <ProCtaLink
                       checkoutHrefs={proCheckoutHrefs}
@@ -332,16 +338,6 @@ export default async function PricingPage({
             />
           </section>
         </PricingIntervalProvider>
-
-        {/* Cloud VM sizes */}
-        <PricingSizeTable
-          rows={sizeRows}
-          title={t("sizes.title")}
-          body={t("sizes.body")}
-          colSize={t("sizes.colSize")}
-          colUse={t("sizes.colUse")}
-          colRate={t("sizes.colRate")}
-        />
 
         {/* FAQ */}
         <section className="mt-16 border-t border-border pt-10">

@@ -455,3 +455,219 @@ describe("background provisioning", () => {
     expect(CMUX_PROVISION_SCRIPT).toContain("/tmp/cmux/provision.log");
   });
 });
+
+describe("BlaxelProvider home volume lifecycle", () => {
+  test("create rollback deletes the per-machine home volume it provisioned", async () => {
+    const prevKey = process.env.BL_API_KEY;
+    const prevWs = process.env.BL_WORKSPACE;
+    const prevDomain = process.env.CMUX_VM_BLAXEL_CUSTOM_DOMAIN;
+    process.env.BL_API_KEY = "test-key";
+    process.env.BL_WORKSPACE = "cmux";
+    delete process.env.CMUX_VM_BLAXEL_CUSTOM_DOMAIN;
+    const originalFetch = globalThis.fetch;
+    const calls: Array<{ method: string; url: string }> = [];
+    let machineName = "";
+    globalThis.fetch = (async (input: string | URL | Request, init?: RequestInit) => {
+      const url = typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
+      const method = init?.method ?? "GET";
+      calls.push({ method, url });
+      const respond = (status: number, body?: unknown) =>
+        new Response(body === undefined ? "" : JSON.stringify(body), {
+          status,
+          headers: { "content-type": "application/json" },
+        });
+      if (method === "POST" && url.endsWith("/volumes")) return respond(200, {});
+      if (method === "POST" && url.endsWith("/sandboxes")) {
+        const parsed = JSON.parse(String(init?.body)) as { metadata?: { name?: string } };
+        machineName = parsed.metadata?.name ?? "";
+        return respond(200, { metadata: { name: machineName, url: "https://sandbox-api.test" } });
+      }
+      // The first bootstrap write fails hard (a non-404/503 status is not retried by
+      // awaitSandboxApi), which forces create's rollback path.
+      if (method === "PUT" && url.startsWith("https://sandbox-api.test/filesystem/")) return respond(500, { error: "boom" });
+      if (method === "GET" && url.includes("/previews/")) return respond(404, {});
+      if (method === "POST" && url.includes("/previews")) {
+        return respond(200, { spec: { url: "https://abc123.us-pdx-1.preview.bl.run", public: false } });
+      }
+      if (method === "DELETE" && url.includes("/sandboxes/")) return respond(200, {});
+      if (method === "DELETE" && url.includes("/volumes/")) return respond(200, {});
+      return respond(500, { error: `unexpected ${method} ${url}` });
+    }) as typeof fetch;
+    try {
+      const provider = new BlaxelProvider();
+      await expect(
+        provider.create({
+          image: "blaxel/base-image:latest",
+          homeVolume: "cmux-home-testuser-{machine}",
+          memoryMb: 4096,
+        }),
+      ).rejects.toThrow();
+      expect(machineName).not.toBe("");
+      const sandboxDelete = calls.findIndex((call) => call.method === "DELETE" && call.url.endsWith(`/sandboxes/${machineName}`));
+      const volumeDelete = calls.findIndex((call) => call.method === "DELETE" && call.url.endsWith(`/volumes/cmux-home-testuser-${machineName}`));
+      expect(sandboxDelete).toBeGreaterThan(-1);
+      // Without volume cleanup the per-machine volume leaks forever: a retried create
+      // generates a fresh machine name, so nothing ever reattaches (or frees) the old
+      // volume, and Blaxel bills per-volume storage monotonically.
+      expect(volumeDelete).toBeGreaterThan(-1);
+      expect(volumeDelete).toBeGreaterThan(sandboxDelete);
+    } finally {
+      globalThis.fetch = originalFetch;
+      if (prevKey === undefined) delete process.env.BL_API_KEY;
+      else process.env.BL_API_KEY = prevKey;
+      if (prevWs === undefined) delete process.env.BL_WORKSPACE;
+      else process.env.BL_WORKSPACE = prevWs;
+      if (prevDomain === undefined) delete process.env.CMUX_VM_BLAXEL_CUSTOM_DOMAIN;
+      else process.env.CMUX_VM_BLAXEL_CUSTOM_DOMAIN = prevDomain;
+    }
+  });
+});
+
+describe("BlaxelProvider deleteHomeVolume", () => {
+  type VolumeCall = { method: string; url: string };
+
+  function withBlaxelFetch(handler: (call: VolumeCall) => { status: number; body?: unknown }) {
+    const prevKey = process.env.BL_API_KEY;
+    const prevWs = process.env.BL_WORKSPACE;
+    process.env.BL_API_KEY = "test-key";
+    process.env.BL_WORKSPACE = "cmux";
+    const originalFetch = globalThis.fetch;
+    const calls: VolumeCall[] = [];
+    globalThis.fetch = (async (input: string | URL | Request, init?: RequestInit) => {
+      const url = typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
+      const call = { method: init?.method ?? "GET", url };
+      calls.push(call);
+      const result = handler(call);
+      return new Response(result.body === undefined ? "" : JSON.stringify(result.body), {
+        status: result.status,
+        headers: { "content-type": "application/json" },
+      });
+    }) as typeof fetch;
+    return {
+      calls,
+      restore: () => {
+        globalThis.fetch = originalFetch;
+        if (prevKey === undefined) delete process.env.BL_API_KEY;
+        else process.env.BL_API_KEY = prevKey;
+        if (prevWs === undefined) delete process.env.BL_WORKSPACE;
+        else process.env.BL_WORKSPACE = prevWs;
+      },
+    };
+  }
+
+  test("deletes the volume by name", async () => {
+    const mock = withBlaxelFetch(() => ({ status: 200, body: {} }));
+    try {
+      await new BlaxelProvider().deleteHomeVolume("cmux-home-x-noble-wren");
+      expect(mock.calls).toEqual([
+        { method: "DELETE", url: "https://api.blaxel.ai/v0/volumes/cmux-home-x-noble-wren" },
+      ]);
+    } finally {
+      mock.restore();
+    }
+  });
+
+  test("an already-missing volume is success", async () => {
+    const mock = withBlaxelFetch(() => ({ status: 404, body: { error: "Volume does not exist" } }));
+    try {
+      await new BlaxelProvider().deleteHomeVolume("cmux-home-x-noble-wren");
+      expect(mock.calls).toHaveLength(1);
+    } finally {
+      mock.restore();
+    }
+  });
+
+  test("retries through the volume-still-attached window", async () => {
+    let attempts = 0;
+    const mock = withBlaxelFetch(() => {
+      attempts += 1;
+      return attempts <= 2
+        ? { status: 409, body: { error: "Volume is currently attached to a sandbox" } }
+        : { status: 200, body: {} };
+    });
+    try {
+      await new BlaxelProvider().deleteHomeVolume("cmux-home-x-noble-wren", { retryDelaysMs: [0, 0, 0] });
+      expect(mock.calls).toHaveLength(3);
+    } finally {
+      mock.restore();
+    }
+  });
+
+  test("gives up after the bounded retry budget", async () => {
+    const mock = withBlaxelFetch(() => ({ status: 409, body: { error: "Volume is currently attached to a sandbox" } }));
+    try {
+      await expect(
+        new BlaxelProvider().deleteHomeVolume("cmux-home-x-noble-wren", { retryDelaysMs: [0] }),
+      ).rejects.toThrow("409");
+      expect(mock.calls).toHaveLength(2);
+    } finally {
+      mock.restore();
+    }
+  });
+
+  test("does not retry non-conflict failures", async () => {
+    const mock = withBlaxelFetch(() => ({ status: 500, body: { error: "boom" } }));
+    try {
+      await expect(
+        new BlaxelProvider().deleteHomeVolume("cmux-home-x-noble-wren", { retryDelaysMs: [0, 0] }),
+      ).rejects.toThrow("500");
+      expect(mock.calls).toHaveLength(1);
+    } finally {
+      mock.restore();
+    }
+  });
+
+  test("create rollback keeps a shared (fixed-name) home volume", async () => {
+    const prevKey = process.env.BL_API_KEY;
+    const prevWs = process.env.BL_WORKSPACE;
+    const prevDomain = process.env.CMUX_VM_BLAXEL_CUSTOM_DOMAIN;
+    process.env.BL_API_KEY = "test-key";
+    process.env.BL_WORKSPACE = "cmux";
+    delete process.env.CMUX_VM_BLAXEL_CUSTOM_DOMAIN;
+    const originalFetch = globalThis.fetch;
+    const calls: VolumeCall[] = [];
+    globalThis.fetch = (async (input: string | URL | Request, init?: RequestInit) => {
+      const url = typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
+      const method = init?.method ?? "GET";
+      calls.push({ method, url });
+      const respond = (status: number, body?: unknown) =>
+        new Response(body === undefined ? "" : JSON.stringify(body), {
+          status,
+          headers: { "content-type": "application/json" },
+        });
+      if (method === "POST" && url.endsWith("/volumes")) return respond(200, {});
+      if (method === "POST" && url.endsWith("/sandboxes")) {
+        const parsed = JSON.parse(String(init?.body)) as { metadata?: { name?: string } };
+        return respond(200, { metadata: { name: parsed.metadata?.name ?? "", url: "https://sandbox-api.test" } });
+      }
+      if (method === "PUT" && url.startsWith("https://sandbox-api.test/filesystem/")) return respond(500, { error: "boom" });
+      if (method === "GET" && url.includes("/previews/")) return respond(404, {});
+      if (method === "POST" && url.includes("/previews")) {
+        return respond(200, { spec: { url: "https://abc123.us-pdx-1.preview.bl.run", public: false } });
+      }
+      if (method === "DELETE" && url.includes("/sandboxes/")) return respond(200, {});
+      return respond(500, { error: `unexpected ${method} ${url}` });
+    }) as typeof fetch;
+    try {
+      await expect(
+        new BlaxelProvider().create({
+          image: "blaxel/base-image:latest",
+          // No {machine} token: this is the user's shared durable home. A retried
+          // create reattaches it by name, so rollback must leave it alone.
+          homeVolume: "cmux-home-shared-user",
+          memoryMb: 4096,
+        }),
+      ).rejects.toThrow();
+      expect(calls.some((call) => call.method === "DELETE" && call.url.includes("/volumes/"))).toBe(false);
+      expect(calls.some((call) => call.method === "DELETE" && call.url.includes("/sandboxes/"))).toBe(true);
+    } finally {
+      globalThis.fetch = originalFetch;
+      if (prevKey === undefined) delete process.env.BL_API_KEY;
+      else process.env.BL_API_KEY = prevKey;
+      if (prevWs === undefined) delete process.env.BL_WORKSPACE;
+      else process.env.BL_WORKSPACE = prevWs;
+      if (prevDomain === undefined) delete process.env.CMUX_VM_BLAXEL_CUSTOM_DOMAIN;
+      else process.env.CMUX_VM_BLAXEL_CUSTOM_DOMAIN = prevDomain;
+    }
+  });
+});

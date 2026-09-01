@@ -24,6 +24,7 @@ use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use tokio::sync::Notify;
+use tokio_util::sync::CancellationToken;
 
 use async_trait::async_trait;
 use base64::Engine as _;
@@ -227,6 +228,7 @@ pub struct SpawnSpec {
     pub rows: u16,
     pub cwd: PathBuf,
     pub env: HashMap<String, String>,
+    pub cancellation: CancellationToken,
 }
 
 /// A resolved cmux-tui binary: file plus an argv prefix.
@@ -277,6 +279,8 @@ pub struct FrameContext {
     /// detaches only its own attachments. `None` preserves the legacy
     /// owns-everything behavior for callers that own the whole manager.
     pub transport_id: Option<String>,
+    /// Raised when the transport that requested this work disconnects.
+    pub cancellation: CancellationToken,
 }
 
 #[derive(Clone)]
@@ -1076,6 +1080,7 @@ impl Inner {
                 rows,
                 cwd: cwd.to_path_buf(),
                 env: env.clone(),
+                cancellation: context.cancellation.clone(),
             })
             .await;
         let control = Arc::clone(&handle.control);
@@ -1159,6 +1164,7 @@ impl Inner {
                         rows,
                         cwd: cwd.to_path_buf(),
                         env: env.clone(),
+                        cancellation: context.cancellation.clone(),
                     })
                     .await;
                 let PtyHandle { control, output, banner } = handle;
@@ -2242,6 +2248,7 @@ mod tests {
                 local_roots: None,
                 owner_user_id: owner,
                 transport_id: None,
+                cancellation: CancellationToken::new(),
             }
         }
 
