@@ -151,6 +151,28 @@ struct SidebarPortVisibilityTests {
         #expect(resetSurface.listeningPorts.isEmpty)
     }
 
+    @Test("Closing a surface reconciles authoritative and sidebar port aggregates")
+    func closingSurfaceReconcilesPortAggregates() throws {
+        let (defaults, suiteName) = try makeDefaults()
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let workspace = Workspace(settings: UserDefaultsSettingsClient(defaults: defaults))
+        let firstPanelID = try #require(workspace.focusedPanelId)
+        let closingPanel = try #require(
+            workspace.newTerminalSplit(from: firstPanelID, orientation: .horizontal)
+        )
+
+        workspace.setSurfaceListeningPorts([3_000], for: firstPanelID)
+        workspace.setSurfaceListeningPorts([49_151, 49_152], for: closingPanel.id)
+        workspace.recomputeListeningPorts()
+
+        #expect(workspace.listeningPorts == [3_000, 49_151, 49_152])
+        #expect(workspace.sidebarVisibleListeningPorts == [3_000, 49_151])
+        #expect(workspace.closePanel(closingPanel.id, force: true))
+        #expect(workspace.surfaceListeningPorts[closingPanel.id] == nil)
+        #expect(workspace.listeningPorts == [3_000])
+        #expect(workspace.sidebarVisibleListeningPorts == [3_000])
+    }
+
     @Test("cmux.json parses exact ports and inclusive ignored ranges")
     func settingsFileParsesExactPortsAndInclusiveRanges() throws {
         let catalog = SettingCatalog()
