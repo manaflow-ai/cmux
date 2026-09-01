@@ -99,6 +99,9 @@ struct TerminalNotificationOpenPanelFallbackTests {
             notification.notificationNavigationSnapshot,
             preferredWindowId: originWindowId
         ))
+        // AppKit key status is not deterministic in headless test hosts; the
+        // delegate's active manager is the authoritative window-routing state.
+        #expect(appDelegate.tabManager === managerA)
         #expect(managerA.selectedTabId == originWorkspace.id)
         #expect(managerB.selectedTabId == destinationWorkspace.id)
     }
