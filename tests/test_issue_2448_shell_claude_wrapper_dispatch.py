@@ -104,6 +104,33 @@ def run_zsh_with_alias(shell_dir: Path, real_bin: Path, log_path: Path) -> tuple
     return result.returncode, combined, read_lines(log_path)
 
 
+def run_zsh_with_global_alias(shell_dir: Path, real_bin: Path, log_path: Path) -> tuple[int, str, list[str]]:
+    env = dict(os.environ)
+    env["CMUX_SHELL_INTEGRATION_DIR"] = str(shell_dir)
+    env["CMUX_TEST_LOG"] = str(log_path)
+    env["CMUX_TEST_REAL_BIN"] = str(real_bin)
+    env["PATH"] = f"{real_bin}:/usr/bin:/bin"
+    env.pop("GHOSTTY_BIN_DIR", None)
+
+    result = subprocess.run(
+        [
+            "zsh",
+            "-fic",
+            f'alias -g claude="$CMUX_TEST_REAL_BIN/user-global-alias"; '
+            f'source "{shell_dir / "cmux-zsh-integration.zsh"}"; '
+            '_cmux_fix_path; '
+            'PATH="$CMUX_TEST_REAL_BIN:$PATH"; eval "claude zsh-global-alias-case"',
+        ],
+        env=env,
+        capture_output=True,
+        text=True,
+        timeout=30,
+        check=False,
+    )
+    combined = ((result.stdout or "") + (result.stderr or "")).strip()
+    return result.returncode, combined, read_lines(log_path)
+
+
 def run_zsh_with_late_user_alias(shell_dir: Path, real_bin: Path, log_path: Path) -> tuple[int, str, list[str]]:
     env = dict(os.environ)
     env["CMUX_SHELL_INTEGRATION_DIR"] = str(shell_dir)
@@ -456,6 +483,15 @@ printf 'current-wrapper:%s\n' "$*" >> "$CMUX_TEST_LOG"
             failures.append(f"zsh alias case exited non-zero rc={rc}: {output}")
         elif lines != ["user-alias:zsh-alias-case"]:
             failures.append(f"zsh alias case should preserve user alias, saw {lines!r}")
+
+        zsh_global_alias_log = tmp / "zsh-global-alias.log"
+        rc, output, lines = run_zsh_with_global_alias(shell_dir, real_bin, zsh_global_alias_log)
+        if rc != 0:
+            failures.append(f"zsh global alias case exited non-zero rc={rc}: {output}")
+        elif lines != ["global-alias:zsh-global-alias-case"]:
+            failures.append(
+                f"zsh global alias case should preserve global alias, saw {lines!r}"
+            )
 
         zsh_late_alias_log = tmp / "zsh-late-alias.log"
         rc, output, lines = run_zsh_with_late_user_alias(shell_dir, real_bin, zsh_late_alias_log)
