@@ -852,6 +852,10 @@ CMUX_NODE_OPTIONS_MODULE_DIR_NAME="node-options"
 # The $TMPDIR directory older builds used; the remote daemon appends a random suffix to it.
 CMUX_NODE_OPTIONS_LEGACY_DIR_NAME="cmux-claude-node-options"
 CMUX_STATE_DIR_NAME="cmux"
+# The full tail below the home directory. Matching the whole tail rather than just
+# cmux/node-options keeps an unrelated preload at e.g. /opt/vendor/cmux/node-options from being
+# claimed as ours.
+CMUX_NODE_OPTIONS_STATE_TAIL=".local/state/$CMUX_STATE_DIR_NAME/$CMUX_NODE_OPTIONS_MODULE_DIR_NAME"
 # The V8 heap cap cmux injects for Claude, in MB. Named because the unwind path has to tell
 # cmux's own value apart from one the caller chose.
 CMUX_NODE_HEAP_CAP_MB="4096"
@@ -875,23 +879,30 @@ cmux_node_options_dir() {
 
 # A --require for a cmux-written restore module, whose path may already be reaped and so must
 # never be carried into NODE_OPTIONS or the saved original. The file name alone is not enough — a
-# caller may preload their own module of the same name — so ownership also needs a directory cmux
-# writes to, matched by name. Only the --require=<path> form is checked; cmux writes no other.
-# Mirrors ClaudeNodeOptionsRestoreModule.isCmuxOwnedPath — keep the two in step.
+# caller may preload their own module of the same name. Path shape alone is not enough either: it
+# is both too generous (an unrelated .../cmux/node-options/) and too mean (a configured directory
+# matching neither known shape). So the authoritative test is the directory we actually write to;
+# the name and tail checks only recognise copies left by another process or an older build. Only
+# the --require=<path> form is checked; cmux writes no other. Mirrors
+# ClaudeNodeOptionsRestoreModule.isCmuxOwnedPath — keep the two in step.
 is_cmux_restore_module_require() {
     local token="$1"
     [[ "$token" == --require=*/"$CMUX_NODE_OPTIONS_MODULE_NAME" ]] || return 1
     local module_path="${token#--require=}"
     local parent_dir="${module_path%/*}"
+    if [[ -n "${CMUX_NODE_OPTIONS_ACTIVE_DIR:-}" && "$parent_dir" == "$CMUX_NODE_OPTIONS_ACTIVE_DIR" ]]; then
+        return 0
+    fi
     local parent_name="${parent_dir##*/}"
     if [[ "$parent_name" == "$CMUX_NODE_OPTIONS_LEGACY_DIR_NAME" \
        || "$parent_name" == "$CMUX_NODE_OPTIONS_LEGACY_DIR_NAME-"* ]]; then
         return 0
     fi
-    local grandparent_dir="${parent_dir%/*}"
-    [[ "$parent_name" == "$CMUX_NODE_OPTIONS_MODULE_DIR_NAME" \
-    && "${grandparent_dir##*/}" == "$CMUX_STATE_DIR_NAME" ]]
+    [[ "$parent_dir" == */"$CMUX_NODE_OPTIONS_STATE_TAIL" ]]
 }
+
+# Resolved once: the predicate above runs per token, and this never changes within a launch.
+CMUX_NODE_OPTIONS_ACTIVE_DIR="$(cmux_node_options_dir)"
 
 ensure_node_options_restore_module() {
     local module_dir

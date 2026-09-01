@@ -2703,6 +2703,36 @@ def test_live_socket_does_not_weaken_an_existing_module_directory(failures: list
         )
 
 
+def test_live_socket_keeps_caller_preload_that_resembles_the_cmux_location(failures: list[str]) -> None:
+    """Ownership is the directory cmux writes to, not a path that merely looks like it.
+
+    A caller preload under an unrelated `.../cmux/node-options/` is theirs, and so is the heap cap
+    that follows it.
+    """
+    with tempfile.TemporaryDirectory(prefix="cmux-claude-wrapper-lookalike-") as td:
+        sandbox = Path(td)
+        lookalike = sandbox / "vendor" / "cmux" / "node-options" / "restore-node-options.cjs"
+        lookalike.parent.mkdir(parents=True, exist_ok=True)
+        lookalike.write_text("// the caller's own preload\n", encoding="utf-8")
+        code, _, _, stderr, _, node_options, _, child_node_options, _, _ = run_wrapper(
+            socket_state="live",
+            argv=["hello"],
+            node_options=f"--require={lookalike} --max-old-space-size=4096 --trace-warnings",
+            node_options_dir=str(sandbox / "state" / "node-options"),
+        )
+        expect(code == 0, f"lookalike preload: wrapper exited {code}: {stderr}", failures)
+        expect(
+            str(lookalike) in node_options,
+            f"lookalike preload: the caller's preload was stripped, got {node_options!r}",
+            failures,
+        )
+    expect(
+        child_node_options == f"--require={lookalike} --max-old-space-size=4096 --trace-warnings",
+        f"lookalike preload: expected the caller's options intact in the child, got {child_node_options!r}",
+        failures,
+    )
+
+
 def test_missing_socket_skips_hook_injection(failures: list[str]) -> None:
     code, real_argv, cmux_log, stderr, claudecode, node_options, runtime_node_options, child_node_options, hook_cmux_bin, _ = run_wrapper(
         socket_state="missing",
@@ -2879,6 +2909,7 @@ def main() -> int:
     test_live_socket_does_not_restore_cmux_own_heap_cap_to_children(failures)
     test_live_socket_creates_restore_module_directory_private(failures)
     test_live_socket_does_not_weaken_an_existing_module_directory(failures)
+    test_live_socket_keeps_caller_preload_that_resembles_the_cmux_location(failures)
     test_missing_socket_skips_hook_injection(failures)
     test_disabled_integration_skips_hook_injection(failures)
     test_stale_socket_skips_hook_injection(failures)

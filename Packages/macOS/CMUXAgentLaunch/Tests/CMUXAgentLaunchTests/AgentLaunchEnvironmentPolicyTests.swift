@@ -30,6 +30,26 @@ struct AgentLaunchEnvironmentPolicyTests {
         #expect(selected == ["NODE_OPTIONS": "--require=/opt/vendor/restore-node-options.cjs --max-old-space-size=4096"])
     }
 
+    @Test(
+        "Keeps a caller preload that only resembles the cmux location, and its following options",
+        arguments: [
+            "/opt/vendor/cmux/node-options/restore-node-options.cjs",
+            "/Users/me/Code/cmux-fork/restore-node-options.cjs",
+            "/srv/cmux/restore-node-options.cjs",
+        ]
+    )
+    func keepsPreloadThatOnlyResemblesTheCmuxLocation(callerPreload: String) {
+        // The trailing 4096 is the caller's here: nothing cmux-owned precedes it, so the
+        // injected-heap-cap unwind must not consume it either.
+        let nodeOptions = "--require=\(callerPreload) --max-old-space-size=4096 --trace-warnings"
+        let selected = AgentLaunchEnvironmentPolicy().selectedEnvironment(
+            from: ["NODE_OPTIONS": nodeOptions],
+            kind: "claude"
+        )
+
+        #expect(selected == ["NODE_OPTIONS": nodeOptions])
+    }
+
     @Test("Keeps a heap cap the caller chose while dropping the one cmux injected")
     func keepsCallerHeapCapAndDropsInjectedOne() {
         let modulePath = "/Users/someone/.local/state/cmux/node-options/restore-node-options.cjs"

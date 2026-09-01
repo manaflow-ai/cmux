@@ -56,24 +56,37 @@ public struct ClaudeNodeOptionsRestoreModule: Sendable {
     /// has no dependencies; it is the leaf of `~/.local/state/cmux`.
     private static let stateDirectoryName = "cmux"
 
+    /// The full directory tail cmux writes the module to, below the user's home. Matching the
+    /// whole tail rather than just `cmux/node-options` keeps an unrelated preload at, say,
+    /// `/opt/vendor/cmux/node-options/` from being claimed as ours.
+    private static let stateDirectoryTail = [".local", "state", stateDirectoryName, directoryName]
+
     /// Whether a `--require` path points at a cmux-written copy of the module.
     ///
     /// The file name alone is not enough: a caller may legitimately preload their own module of
-    /// the same name, and dropping that would silently change their runtime. Ownership is the file
-    /// name plus a directory cmux actually writes to, matched by name — a substring test would
-    /// also claim an unrelated path that merely happens to sit under, say, `~/Code/cmux-foo/`.
-    public static func isCmuxOwnedPath(_ path: String) -> Bool {
+    /// the same name, and dropping that would silently change their runtime. Path shape alone is
+    /// not enough either — it is both too generous (an unrelated `…/cmux/node-options/`) and too
+    /// mean (a configured directory that looks like neither known shape). So the authoritative
+    /// test is `moduleDirectory`, the directory the caller actually writes to; the name and tail
+    /// checks only recognise copies left by another process or an older build.
+    ///
+    /// - Parameter moduleDirectory: Where this process writes the module, when it writes one.
+    ///   Callers that only strip inherited values (they never write) pass `nil`.
+    public static func isCmuxOwnedPath(_ path: String, moduleDirectory: URL? = nil) -> Bool {
         let unquoted = path.trimmingCharacters(in: CharacterSet(charactersIn: "'\""))
-        let moduleURL = URL(fileURLWithPath: unquoted)
+        let moduleURL = URL(fileURLWithPath: unquoted).standardizedFileURL
         guard moduleURL.lastPathComponent == fileName else { return false }
 
         let parent = moduleURL.deletingLastPathComponent()
+        if let moduleDirectory, parent == moduleDirectory.standardizedFileURL {
+            return true
+        }
+
         let parentName = parent.lastPathComponent
         if parentName == legacyDirectoryName || parentName.hasPrefix("\(legacyDirectoryName)-") {
             return true
         }
-        return parentName == directoryName
-            && parent.deletingLastPathComponent().lastPathComponent == stateDirectoryName
+        return parent.pathComponents.suffix(stateDirectoryTail.count).elementsEqual(stateDirectoryTail)
     }
 
     /// Whether the token at `index` is the heap cap cmux injects, rather than one the caller chose.

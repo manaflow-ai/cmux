@@ -23291,7 +23291,10 @@ struct CMUXCLI {
     /// `NODE_OPTIONS` or into the saved original.
     private func isClaudeNodeOptionsRestoreModuleRequire(_ token: String) -> Bool {
         for prefix in ["--require=", "-r="] where token.hasPrefix(prefix) {
-            return ClaudeNodeOptionsRestoreModule.isCmuxOwnedPath(String(token.dropFirst(prefix.count)))
+            return ClaudeNodeOptionsRestoreModule.isCmuxOwnedPath(
+                String(token.dropFirst(prefix.count)),
+                moduleDirectory: claudeNodeOptionsDirectory()
+            )
         }
         return false
     }
