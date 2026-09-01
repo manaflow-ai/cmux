@@ -237,6 +237,37 @@ struct PullRequestProbeServiceFetchTests {
         #expect(await service.authHeaderValue() == nil)
         #expect(await runner.runCount == 0)
     }
+
+    @Test func rateLimitRetryDateUsesCredentialAfterUnauthorizedRefresh() async {
+        let now = Date(timeIntervalSince1970: 1_800_000_000)
+        PullRequestProbeStubURLProtocol.reset(stubs: [
+            .init(statusCode: 401),
+            .init(
+                statusCode: 429,
+                headers: ["Retry-After": "120"]
+            ),
+        ])
+        let runner = SequencedTokenCommandRunner(tokens: ["token-one", "token-two"])
+        let coordinator = GitHubPullRequestRequestCoordinator(
+            session: makeSession(),
+            now: { now }
+        )
+        let service = PullRequestProbeService(
+            commandRunner: runner,
+            requestCoordinator: coordinator,
+            environment: [:]
+        )
+
+        let (_, retryDate) = await service.fetchRepoResults(
+            repoDirectoriesBySlug: [repoSlug: "/tmp/\(repoSlug)"],
+            candidateBranchesByRepo: [repoSlug: ["feat/badge"]],
+            cacheBySlug: [:],
+            now: now,
+            allowCachedResults: false
+        )
+
+        #expect(retryDate == now.addingTimeInterval(120))
+    }
 }
 
 /// Resolves a stable non-empty auth header so the fetch layer proceeds without a

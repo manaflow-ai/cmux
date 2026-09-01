@@ -3,7 +3,7 @@
 /// The generation is intentionally opaque to callers: two equal header values
 /// resolved at different times are still different leases, so delayed network
 /// responses cannot mutate newer authentication state.
-struct GitHubAuthHeaderLease: Sendable, Equatable {
+struct GitHubAuthHeaderLease: Sendable, Hashable {
     let value: String
     let generation: UInt64
 }
