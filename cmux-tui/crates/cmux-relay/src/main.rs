@@ -80,7 +80,10 @@ async fn serve_until_shutdown(
         signal_relay.begin_drain();
         let _ = shutdown_sender.send(true);
     });
-    let server_shutdown = wait_for_shutdown(shutdown_receiver.clone());
+    let server_shutdown_receiver = shutdown_receiver.clone();
+    let server_shutdown = async move {
+        let _ = wait_for_shutdown(server_shutdown_receiver).await;
+    };
     let mut server =
         Box::pin(axum::serve(listener, router).with_graceful_shutdown(server_shutdown));
 

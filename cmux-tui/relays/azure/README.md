@@ -130,7 +130,9 @@ systemd retries the secret fetch every ten seconds.
 Use an immutable binary digest and a rolling VMSS model update. Before a
 planned replacement, systemd sends `SIGTERM` to the relay. The relay marks
 itself not ready, Azure stops sending new traffic, and existing sockets drain.
-Clients retry when a socket closes and resume replayable remote lanes. Tunnel
+Clients retry with unlimited attempts by default, exponential backoff from
+100 ms to 5 seconds, jitter, and heartbeats. The daemon retains replayable
+remote lanes for its resume lease and replays them after reconnect. Tunnel
 streams are not replayed after a disconnect because repeating a TCP write can
 have an external side effect.
 
