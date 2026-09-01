@@ -38,6 +38,18 @@ use crate::relay_wire::RelayPtyErrorCode;
 
 pub const PTY_PROTOCOL_VERSION: u64 = 4;
 
+async fn control_request_until_cancelled(
+    control: &dyn ControlHandle,
+    cmd: &str,
+    params: Value,
+    cancellation: &CancellationToken,
+) -> Option<Value> {
+    tokio::select! {
+        response = control.request(cmd, params) => response,
+        _ = cancellation.cancelled() => None,
+    }
+}
+
 pub type DataSink = Arc<dyn Fn(Bytes) + Send + Sync>;
 pub type ExitSink = Arc<dyn Fn(i64) + Send + Sync>;
 /// Max concurrent attachments per relay process.
@@ -1788,7 +1800,13 @@ impl Inner {
         } else {
             json!({ "surface": surface_id })
         };
-        let attached = control.request("attach-surface", attach_params).await;
+        let attached = control_request_until_cancelled(
+            control.as_ref(),
+            "attach-surface",
+            attach_params,
+            &context.cancellation,
+        )
+        .await;
         if attached.as_ref().and_then(|v| v.get("ok")).and_then(Value::as_bool) != Some(true) {
             control.end();
             let reason = attached
@@ -2000,6 +2018,38 @@ mod tests {
     use std::thread;
 
     static NEXT_TEST_DIRECTORY: AtomicU64 = AtomicU64::new(0);
+
+    struct NeverResolvingControl;
+
+    impl ControlHandle for NeverResolvingControl {
+        fn request(
+            &self,
+            _cmd: &str,
+            _params: Value,
+        ) -> std::pin::Pin<Box<dyn Future<Output = Option<Value>> + Send + '_>> {
+            Box::pin(std::future::pending())
+        }
+        fn send(&self, _cmd: &str, _params: Value) {}
+        fn on_event(&self, _handler: EventHandler) {}
+        fn on_close(&self, _handler: CloseHandler) {}
+        fn pause(&self) {}
+        fn resume(&self) {}
+        fn end(&self) {}
+    }
+
+    #[tokio::test]
+    async fn raw_attach_request_observes_cancellation() {
+        let cancellation = CancellationToken::new();
+        let request = control_request_until_cancelled(
+            &NeverResolvingControl,
+            "attach-surface",
+            json!({ "surface": 7 }),
+            &cancellation,
+        );
+        tokio::pin!(request);
+        cancellation.cancel();
+        assert!(request.await.is_none());
+    }
 
     /// A unique, real directory for tests that exercise cwd canonicalization.
     /// Do not reuse a process-id-only path: tests run in parallel and a stale
