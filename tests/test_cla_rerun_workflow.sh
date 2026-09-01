@@ -321,6 +321,12 @@ gh() {
             {id:$job_id,run_id:$run_id,name:"CLA Assistant v3",workflow_name:"CLA Assistant v3",status:"completed",conclusion:"failure",head_sha:$run_sha,head_branch:"feature",head_repository:null,steps:[{name:$marker,status:"completed",conclusion:"failure"}]},
             {id:506,run_id:$run_id,name:"CLA Assistant",workflow_name:"CLA Assistant v3",status:"completed",conclusion:"failure",head_sha:$run_sha,head_branch:"feature",head_repository:null,steps:[]}
           ]}'
+      elif [[ "${FAKE_MODE}" == writer-only-failed ]]; then
+        jq -nc --argjson run_id "$run_id" --argjson job_id "$job_id" --arg marker "$marker" --arg run_sha "$run_sha" \
+          '{jobs:[
+            {id:505,run_id:$run_id,name:"CLA ledger writer",workflow_name:"CLA Assistant v3",status:"completed",conclusion:"failure",head_sha:$run_sha,head_branch:"feature",head_repository:null,steps:[]},
+            {id:$job_id,run_id:$run_id,name:"CLA Assistant v3",workflow_name:"CLA Assistant v3",status:"completed",conclusion:"failure",head_sha:$run_sha,head_branch:"feature",head_repository:null,steps:[{name:$marker,status:"completed",conclusion:"failure"}]}
+          ]}'
       elif [[ "${FAKE_MODE}" == unexpected-failure ]]; then
         jq -nc --argjson run_id "$run_id" --argjson job_id "$job_id" --arg marker "$marker" --arg run_sha "$run_sha" \
           '{jobs:[
@@ -476,6 +482,8 @@ run_case malformed-ledger 1 "not valid base64" 0
 run_case compatibility-failed 0 "Requested rerun for failed CLA v3 jobs (writer, assistant, and compatibility) in workflow run 400" 1 \
   "repos/manaflow-ai/cmux/actions/runs/400/rerun-failed-jobs"
 run_case writer-failed 0 "Requested rerun for failed CLA v3 jobs (writer, assistant, and compatibility) in workflow run 400" 1 \
+  "repos/manaflow-ai/cmux/actions/runs/400/rerun-failed-jobs"
+run_case writer-only-failed 0 "Requested rerun for failed CLA v3 jobs (writer, assistant, and compatibility) in workflow run 400" 1 \
   "repos/manaflow-ai/cmux/actions/runs/400/rerun-failed-jobs"
 run_case unexpected-failure 1 "unexpected failed job" 0
 run_case cancelled-job 1 "cancelled or non-failure job" 0

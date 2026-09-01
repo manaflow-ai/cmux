@@ -228,7 +228,11 @@ jobs:
     timeout-minutes: 5
     permissions: {}
     steps:
-      - name: "Publish CLA Assistant v3 result"
+      # Keep the generation marker on the required check's only step. The
+      # marker must remain visible when this result fails because the writer
+      # failed in the original pull_request_target run. The immutable rerun
+      # helper uses the rendered step name to reject older workflow runs.
+      - name: "CLA generation v2.2-action-482864f7296623ba4e8ddb7d6bc1836635306eb1"
         env:
           EVENT_NAME: ${{ github.event_name }}
           COMMENT_BODY: ${{ github.event.comment.body || '' }}
@@ -238,6 +242,7 @@ jobs:
           WRITER_RESULT: ${{ needs.CLALedgerWriter.result }}
         run: |
           set -euo pipefail
+          echo "CLA generation ${CLA_GENERATION}"
           if [[ "${GATE_RESULT}" != "success" || "${ADMITTED}" != "true" ]]; then
             echo "::error::CLA trigger admission failed"
             exit 1
