@@ -49,19 +49,17 @@ struct TerminalSurfaceViewFactory: TerminalSurfaceViewProviding {
 /// `SidebarWorkspaceDetailDefaults`, and `TerminalController`'s socket path).
 @MainActor
 final class TerminalSurfaceSpawnPolicyBridge: TerminalSurfaceSpawnPolicyProviding {
-    private let declarativeTerminalConfigurationCache: DeclarativeTerminalConfigurationCache
+    private let declarativeTerminalConfigurationSource: any DeclarativeTerminalConfigurationProviding
 
     init(
-        declarativeTerminalConfigurationCache: DeclarativeTerminalConfigurationCache
+        declarativeTerminalConfigurationSource: any DeclarativeTerminalConfigurationProviding
     ) {
-        self.declarativeTerminalConfigurationCache = declarativeTerminalConfigurationCache
+        self.declarativeTerminalConfigurationSource = declarativeTerminalConfigurationSource
     }
 
     func currentSpawnPolicy() -> TerminalSurfaceSpawnPolicy {
         let integrations = AgentIntegrationSettingsStore(defaults: .standard)
-        let declarativeTerminalSettings = declarativeTerminalConfigurationCache.snapshot(
-            fileURL: declarativeTerminalConfigurationCache.fileURL
-        )
+        let declarativeTerminalSettings = declarativeTerminalConfigurationSource.snapshot
         let shellStartupMode: TerminalShellStartupMode = switch declarativeTerminalSettings.shellStartupMode {
         case .login:
             .login
@@ -211,11 +209,12 @@ extension TerminalSurface {
         manualInputHandler: (@Sendable (TerminalManualInput) -> Void)? = nil,
         manualInputKeyNameResolver: (@MainActor @Sendable (ghostty_input_key_s) -> String?)? = nil,
         runtimeSpawnPolicy: TerminalSurfaceRuntimeSpawnPolicy = .immediate,
-        declarativeTerminalConfigurationCache: DeclarativeTerminalConfigurationCache? = nil,
+        declarativeTerminalConfigurationSource: (any DeclarativeTerminalConfigurationProviding)? = nil,
         preparePaneHost: @Sendable @MainActor (any TerminalSurfacePaneHosting) -> Void = { _ in }
     ) {
-        let declarativeTerminalConfigurationCache =
-            declarativeTerminalConfigurationCache ?? DeclarativeTerminalConfigurationCache()
+        let declarativeTerminalConfigurationSource =
+            declarativeTerminalConfigurationSource
+                ?? DeclarativeTerminalConfigurationSnapshotSource()
         self.init(
             id: id,
             tabId: tabId,
@@ -235,7 +234,7 @@ extension TerminalSurface {
             runtimeSpawnPolicy: runtimeSpawnPolicy,
             preparePaneHost: preparePaneHost,
             dependencies: GhosttyApp.terminalSurfaceRuntimeDependencies(
-                declarativeTerminalConfigurationCache: declarativeTerminalConfigurationCache
+                declarativeTerminalConfigurationSource: declarativeTerminalConfigurationSource
             )
         )
     }

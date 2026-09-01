@@ -3,85 +3,55 @@ import CmuxSettings
 import Foundation
 import Observation
 
-/// Runtime-owned snapshot and mutation surface for declarative terminal
-/// settings. The model keeps JSON presence and the legacy compatibility value
-/// together so Settings cannot render a draft from one source while runtime
-/// resolution uses another.
+/// The single observable owner for declarative terminal configuration.
+///
+/// JSON and legacy UserDefaults values are projected into one complete
+/// ``DeclarativeTerminalConfiguration/Snapshot``. Workspace and terminal
+/// creation paths receive this model as an immutable-snapshot provider, so no
+/// secondary cache can fall back to stale schema defaults.
 @MainActor
 @Observable
-public final class DeclarativeTerminalConfigurationModel {
-    /// The values currently observed from `cmux.json` and legacy defaults.
-    public struct Snapshot: Equatable, Sendable {
-        /// The authored policy, or `nil` when absent or invalid.
-        public var workingDirectoryPolicy: NewSurfaceWorkingDirectoryPolicy?
-        /// The fixed-path setting, defaulting to an empty string.
-        public var workingDirectoryPath: String
-        /// The configured shell mode.
-        public var shellStartupMode: ShellStartupMode
-        /// The configured startup command, trimmed and empty when absent.
-        public var shellStartupCommand: String
-        /// The legacy inheritance value used only when policy is absent.
-        public var legacyInheritanceEnabled: Bool
-
-        /// Creates a safe initial snapshot.
-        public init(
-            workingDirectoryPolicy: NewSurfaceWorkingDirectoryPolicy? = nil,
-            workingDirectoryPath: String = "",
-            shellStartupMode: ShellStartupMode = .login,
-            shellStartupCommand: String = "",
-            legacyInheritanceEnabled: Bool = true
-        ) {
-            self.workingDirectoryPolicy = workingDirectoryPolicy
-            self.workingDirectoryPath = workingDirectoryPath
-            self.shellStartupMode = shellStartupMode
-            self.shellStartupCommand = shellStartupCommand
-            self.legacyInheritanceEnabled = legacyInheritanceEnabled
-        }
-
-        /// The policy runtime uses, including the legacy fallback.
-        public var effectiveWorkingDirectoryPolicy: NewSurfaceWorkingDirectoryPolicy {
-            workingDirectoryPolicy
-                ?? (legacyInheritanceEnabled ? .inheritActivePane : .workspaceRoot)
-        }
-    }
-
+public final class DeclarativeTerminalConfigurationModel:
+    DeclarativeTerminalConfigurationProviding
+{
     private let jsonStore: JSONConfigStore
     private let userDefaultsStore: UserDefaultsSettingsStore
     private let catalog: SettingCatalog
     private let errorLog: SettingsErrorLog
-    private let cache: DeclarativeTerminalConfigurationCache
     private let reader: DeclarativeTerminalConfigurationReader
-    private let fileURL: URL
+    private let initialSnapshotReadyStream: AsyncStream<Void>
+    private let initialSnapshotReadyContinuation: AsyncStream<Void>.Continuation
+    private var hasInitialSnapshot = false
     private var observationTasks = MainActorTaskStore<String>()
     private var saveTasks = MainActorTaskStore<String>()
     private var fixedPathWatcher: FileWatcher?
     private var fixedPathWatcherTask: Task<Void, Never>?
     private var fixedPathWatchPath: String?
-    private var snapshotRevision: UInt64 = 0
 
-    /// The single presence-preserving view of the shared JSON authority.
-    /// JSON values come from the injected cache; only the legacy fallback is
-    /// maintained locally until its UserDefaults stream changes.
-    public var values: Snapshot {
-        _ = snapshotRevision
-        let raw = cache.snapshot(fileURL: fileURL)
-        return Snapshot(
-            workingDirectoryPolicy: raw.workingDirectoryPolicy,
-            workingDirectoryPath: raw.workingDirectoryPath,
-            shellStartupMode: raw.shellStartupMode,
-            shellStartupCommand: raw.shellStartupCommand,
-            legacyInheritanceEnabled: legacyInheritanceEnabled
-        )
-    }
-    private var legacyInheritanceEnabled = true
+    /// The latest complete, presence-preserving terminal configuration.
+    public private(set) var values = DeclarativeTerminalConfiguration.Snapshot()
+
+    /// The configuration URL represented by ``values``.
+    public let fileURL: URL
+
+    /// Protocol projection used by workspace and terminal creation paths.
+    public var snapshot: DeclarativeTerminalConfiguration.Snapshot { values }
 
     /// Creates a model over the stores owned by one ``SettingsRuntime``.
+    ///
+    /// - Parameters:
+    ///   - jsonStore: Actor-backed `cmux.json` store.
+    ///   - userDefaultsStore: Legacy compatibility settings store.
+    ///   - catalog: Shared setting declarations.
+    ///   - errorLog: Destination for save failures.
+    ///   - reader: Actor-backed JSON decoder and path validator.
+    ///   - fileURL: Optional identity override for tests; defaults to the JSON
+    ///     store's URL.
     public init(
         jsonStore: JSONConfigStore,
         userDefaultsStore: UserDefaultsSettingsStore,
         catalog: SettingCatalog,
         errorLog: SettingsErrorLog,
-        cache: DeclarativeTerminalConfigurationCache,
         reader: DeclarativeTerminalConfigurationReader = DeclarativeTerminalConfigurationReader(),
         fileURL: URL? = nil
     ) {
@@ -89,13 +59,22 @@ public final class DeclarativeTerminalConfigurationModel {
         self.userDefaultsStore = userDefaultsStore
         self.catalog = catalog
         self.errorLog = errorLog
-        self.cache = cache
         self.reader = reader
-        self.fileURL = fileURL ?? jsonStore.fileURL
+        self.fileURL = (fileURL ?? jsonStore.fileURL).standardizedFileURL
+        let (stream, continuation) = AsyncStream<Void>.makeStream(
+            bufferingPolicy: .bufferingNewest(1)
+        )
+        self.initialSnapshotReadyStream = stream
+        self.initialSnapshotReadyContinuation = continuation
     }
 
-    deinit {
-        fixedPathWatcherTask?.cancel()
+    /// Waits until the first authoritative JSON/UserDefaults snapshot is
+    /// published. Creation paths use this to avoid starting a terminal from
+    /// schema defaults before the observer has read the user's file.
+    public func waitForInitialSnapshot() async {
+        guard !hasInitialSnapshot else { return }
+        var iterator = initialSnapshotReadyStream.makeAsyncIterator()
+        _ = await iterator.next()
     }
 
     /// Starts one cancellable observation owner. Repeated calls are idempotent.
@@ -113,10 +92,6 @@ public final class DeclarativeTerminalConfigurationModel {
     }
 
     /// Persists a new working-directory policy through the shared JSON store.
-    /// The long-lived coherent snapshot observer is the single publisher of
-    /// ``values`` and the runtime cache. Keeping writes out of that publisher's
-    /// path prevents an observer read and a save-triggered refresh from racing
-    /// and publishing an older file revision after a newer one.
     public func setWorkingDirectoryPolicy(_ value: NewSurfaceWorkingDirectoryPolicy) {
         let key = catalog.terminal.newSurfaceWorkingDirectoryPolicy
         saveTasks.replaceOnMainActor("workingDirectoryPolicy") { [weak self] in
@@ -129,7 +104,7 @@ public final class DeclarativeTerminalConfigurationModel {
         }
     }
 
-    /// Persists and reconciles the fixed working-directory draft.
+    /// Persists a fixed working-directory draft through the shared JSON store.
     public func setWorkingDirectoryPath(_ value: String) {
         let key = catalog.terminal.newSurfaceWorkingDirectoryPath
         saveTasks.replaceOnMainActor("workingDirectoryPath") { [weak self] in
@@ -155,7 +130,7 @@ public final class DeclarativeTerminalConfigurationModel {
         }
     }
 
-    /// Persists and reconciles the shell startup command draft.
+    /// Persists a normalized shell startup command through the shared store.
     public func setShellStartupCommand(_ value: String) {
         let normalized = value.trimmingCharacters(in: .whitespacesAndNewlines)
         let key = catalog.terminal.shellStartupCommand
@@ -170,31 +145,47 @@ public final class DeclarativeTerminalConfigurationModel {
     }
 
     private func refresh() async {
-        await refreshJSON()
-        legacyInheritanceEnabled = await userDefaultsStore.value(
+        async let revision = jsonStore.coherentSnapshot()
+        async let legacyInheritanceEnabled = userDefaultsStore.value(
             for: catalog.app.workspaceInheritWorkingDirectory
         )
-        snapshotRevision &+= 1
-    }
-
-    private func refreshJSON() async {
-        let revision = await jsonStore.coherentSnapshot()
-        let terminal = await reader.decode(revision)
-        publish(terminal)
+        let terminal = await reader.decode(await revision)
+        publish(terminal, legacyInheritanceEnabled: await legacyInheritanceEnabled)
     }
 
     private func observeTerminalConfiguration() async {
         for await revision in jsonStore.snapshots() {
             if Task.isCancelled { return }
             let terminal = await reader.decode(revision)
+            publish(
+                terminal,
+                legacyInheritanceEnabled: values.legacyInheritanceEnabled
+            )
+        }
+    }
+
+    private func observeLegacyInheritance() async {
+        for await value in userDefaultsStore.values(for: catalog.app.workspaceInheritWorkingDirectory) {
+            if Task.isCancelled { return }
+            var terminal = values
+            terminal.legacyInheritanceEnabled = value
             publish(terminal)
         }
     }
 
-    private func publish(_ terminal: DeclarativeTerminalConfiguration.Snapshot) {
-        cache.replace(terminal, fileURL: fileURL)
-        configureFixedPathWatcher(for: terminal)
-        snapshotRevision &+= 1
+    private func publish(
+        _ terminal: DeclarativeTerminalConfiguration.Snapshot,
+        legacyInheritanceEnabled: Bool? = nil
+    ) {
+        var complete = terminal
+        if let legacyInheritanceEnabled {
+            complete.legacyInheritanceEnabled = legacyInheritanceEnabled
+        }
+        values = complete
+        configureFixedPathWatcher(for: complete)
+        guard !hasInitialSnapshot else { return }
+        hasInitialSnapshot = true
+        initialSnapshotReadyContinuation.yield(())
     }
 
     /// Watches the configured fixed path's ancestor and revalidates it off the
@@ -205,7 +196,7 @@ public final class DeclarativeTerminalConfigurationModel {
         for terminal: DeclarativeTerminalConfiguration.Snapshot
     ) {
         let desiredPath = terminal.workingDirectoryPolicy == .fixedPath
-            ? DeclarativeTerminalConfigurationReader.expandedFixedPath(terminal.workingDirectoryPath)
+            ? terminal.expandedWorkingDirectoryPath
             : nil
         guard desiredPath != fixedPathWatchPath else { return }
 
@@ -229,26 +220,14 @@ public final class DeclarativeTerminalConfigurationModel {
     }
 
     private func applyFixedPathValidation(_ isUsable: Bool, for path: String) {
-        guard fixedPathWatchPath == path else { return }
-        var snapshot = cache.snapshot(fileURL: fileURL)
-        guard snapshot.workingDirectoryPolicy == .fixedPath,
-              DeclarativeTerminalConfigurationReader.expandedFixedPath(
-                  snapshot.workingDirectoryPath
-              ) == path,
-              snapshot.fixedPathIsUsable != isUsable else {
+        guard fixedPathWatchPath == path,
+              values.workingDirectoryPolicy == .fixedPath,
+              values.expandedWorkingDirectoryPath == path,
+              values.fixedPathIsUsable != isUsable else {
             return
         }
-        snapshot.fixedPathIsUsable = isUsable
-        cache.replace(snapshot, fileURL: fileURL)
-        snapshotRevision &+= 1
+        var updated = values
+        updated.fixedPathIsUsable = isUsable
+        values = updated
     }
-
-    private func observeLegacyInheritance() async {
-        for await value in userDefaultsStore.values(for: catalog.app.workspaceInheritWorkingDirectory) {
-            if Task.isCancelled { return }
-            legacyInheritanceEnabled = value
-            snapshotRevision &+= 1
-        }
-    }
-
 }

@@ -39,38 +39,8 @@ public actor JSONConfigStore {
     /// The on-disk location this store reads and writes.
     public nonisolated let fileURL: URL
 
-    /// Parses one coherent root for synchronous multi-key snapshots.
-    static func snapshotRoot(
-        fileURL: URL,
-        sanitizer: JSONCSanitizer = JSONCSanitizer()
-    ) -> [String: Any] {
-        guard let data = try? Data(contentsOf: fileURL) else { return [:] }
-        return snapshotRoot(data: data, sanitizer: sanitizer)
-    }
-
-    /// Parses one coherent root from immutable JSON bytes.
-    static func snapshotRoot(
-        data: Data,
-        sanitizer: JSONCSanitizer = JSONCSanitizer()
-    ) -> [String: Any] {
-        guard !data.isEmpty,
-              let sanitized = try? sanitizer.sanitize(data),
-              let object = try? JSONSerialization.jsonObject(with: sanitized),
-              let dictionary = object as? [String: Any] else {
-            return [:]
-        }
-        return dictionary
-    }
-
-    /// Decodes one typed key from an already-parsed snapshot root.
-    static func snapshotValue<Value>(
-        for key: JSONKey<Value>,
-        in root: [String: Any]
-    ) -> Value {
-        key.path.lookup(in: root).flatMap(Value.decodeFromJSON) ?? key.defaultValue
-    }
-
     private let sanitizer: JSONCSanitizer
+    private let pathResolver: JSONConfigFilePathResolver
     private let watcher: FileWatcher
     private var targetWatcher: FileWatcher?
     private var watchedTargetPath: String?
@@ -100,12 +70,13 @@ public actor JSONConfigStore {
     public init(fileURL: URL, sanitizer: JSONCSanitizer = JSONCSanitizer()) {
         self.fileURL = fileURL
         self.sanitizer = sanitizer
+        self.pathResolver = JSONConfigFilePathResolver()
         // The primary watcher observes the configured path, including symlink
         // replacement/retarget events in its parent directory. A secondary
         // target watcher observes edits that land in the resolved target's own
         // directory, which the configured-path watch cannot see.
         self.watcher = FileWatcher(path: fileURL.path)
-        let resolved = Self.resolvedWriteURL(for: fileURL)
+        let resolved = pathResolver.resolvedURL(for: fileURL)
         if resolved.path != fileURL.path {
             self.targetWatcher = FileWatcher(path: resolved.path)
             self.watchedTargetPath = resolved.path
@@ -324,7 +295,7 @@ public actor JSONConfigStore {
     /// old drain task releases the previous watcher; `FileWatcher` tears down
     /// its dispatch sources on deinit.
     private func refreshTargetWatcher() {
-        let resolved = Self.resolvedWriteURL(for: fileURL)
+        let resolved = pathResolver.resolvedURL(for: fileURL)
         let desired: String? = resolved.path == fileURL.path ? nil : resolved.path
         guard desired != watchedTargetPath else { return }
 
@@ -342,7 +313,7 @@ public actor JSONConfigStore {
     }
 
     private func loadedRoot() -> [String: Any] {
-        let resolvedURL = Self.resolvedWriteURL(for: fileURL)
+        let resolvedURL = pathResolver.resolvedURL(for: fileURL)
         if cacheIsCurrent(for: resolvedURL.path) { return cachedRoot }
         cachedRoot = (try? readFromDisk(at: resolvedURL)) ?? [:]
         cacheValid = true
@@ -364,28 +335,7 @@ public actor JSONConfigStore {
     }
 
     private nonisolated func readFromDisk(at url: URL) throws -> [String: Any] {
-        try Self.readRootFromDisk(at: url, sanitizer: sanitizer)
-    }
-
-    /// Shared JSONC parser for actor-backed and synchronous snapshot reads.
-    private static func readRootFromDisk(
-        at url: URL,
-        sanitizer: JSONCSanitizer
-    ) throws -> [String: Any] {
-        let data: Data
-        do {
-            data = try Data(contentsOf: url)
-        } catch let error as NSError where error.domain == NSCocoaErrorDomain
-            && error.code == NSFileReadNoSuchFileError {
-            return [:]
-        }
-        if data.isEmpty { return [:] }
-        let sanitized = try sanitizer.sanitize(data)
-        let object = try JSONSerialization.jsonObject(with: sanitized, options: [])
-        guard let dictionary = object as? [String: Any] else {
-            throw JSONConfigStoreReadError.notADictionary
-        }
-        return dictionary
+        try JSONConfigSnapshotDecoder(sanitizer: sanitizer).readRoot(at: url)
     }
 
     /// Resolves the location a write should target for `url`.
@@ -401,22 +351,6 @@ public actor JSONConfigStore {
     /// Mirrors `ConfigSource.configWriteURL(for:)`, which already does this for
     /// the ghostty-format config surface; the JSON store had not been given the
     /// same treatment.
-    private static func resolvedWriteURL(
-        for url: URL,
-        fileManager: FileManager = .default
-    ) -> URL {
-        guard let destination = try? fileManager.destinationOfSymbolicLink(atPath: url.path) else {
-            return url
-        }
-        let destinationURL: URL
-        if destination.hasPrefix("/") {
-            destinationURL = URL(fileURLWithPath: destination)
-        } else {
-            destinationURL = url.deletingLastPathComponent().appendingPathComponent(destination)
-        }
-        return destinationURL.standardizedFileURL.resolvingSymlinksInPath()
-    }
-
     /// Computes the mutation, writes it to disk, and **only then** commits to
     /// the in-memory cache.
     ///
@@ -440,7 +374,7 @@ public actor JSONConfigStore {
         // Write through a symlink to its target rather than at the link path:
         // an atomic write is a temp-file + `rename()`, which would replace the
         // link itself with a regular file and break a dotfiles-managed config.
-        let writeURL = Self.resolvedWriteURL(for: fileURL)
+        let writeURL = pathResolver.resolvedURL(for: fileURL)
         var root = cacheIsCurrent(for: writeURL.path) ? cachedRoot : try readFromDisk(at: writeURL)
         mutate(&root)
 

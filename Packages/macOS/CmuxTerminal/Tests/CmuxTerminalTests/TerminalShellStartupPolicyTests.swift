@@ -8,7 +8,7 @@ struct TerminalShellStartupPolicyTests {
 
     @Test("declarative startup resolves the configured mode when no owner suppresses it")
     func declarativeStartupIsAllowed() {
-        let resolution = TerminalShellStartupPolicy.resolve(
+        let resolution = policy.resolve(
             configuredMode: .nonLogin,
             hasExplicitCommand: false,
             hasExplicitInput: false,
@@ -36,7 +36,7 @@ struct TerminalShellStartupPolicyTests {
         manual: Bool,
         managedIntegration: Bool
     ) {
-        let resolution = TerminalShellStartupPolicy.resolve(
+        let resolution = policy.resolve(
             configuredMode: .nonLogin,
             hasExplicitCommand: explicitCommand,
             hasExplicitInput: explicitInput,
@@ -125,7 +125,7 @@ struct TerminalShellStartupPolicyTests {
 
         var environment: [String: String] = [:]
         var protectedKeys: Set<String> = []
-        let command = TerminalSurface.applyManagedShellSpecificStartupEnvironment(
+        let command = TerminalShellStartupCoordinator().apply(
             shell: "/opt/fish",
             integrationDir: directory.path,
             userGhosttyShellIntegrationMode: "none",

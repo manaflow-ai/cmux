@@ -33,15 +33,8 @@ extension DockSplitStore {
             return baseDirectory
         }
 
-        let legacyInheritanceEnabled = settings.value(
-            for: settingsCatalog.app.workspaceInheritWorkingDirectory
-        )
-        let declarative = declarativeTerminalConfigurationCache.snapshot(
-            fileURL: declarativeTerminalConfigurationFileURL
-        )
-        let policy = declarative.effectiveWorkingDirectoryPolicy(
-            legacyInheritanceEnabled: legacyInheritanceEnabled
-        )
+        let declarative = declarativeTerminalConfigurationSource.snapshot
+        let policy = declarative.effectiveWorkingDirectoryPolicy()
         let inheritedDirectory = policy == .inheritActivePane && !remoteOwner
             ? sourcePanelId.flatMap { inheritedLocalTerminalWorkingDirectory(for: $0) }
             : nil

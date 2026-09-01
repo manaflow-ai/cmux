@@ -178,10 +178,11 @@ final class TerminalPanel: Panel, ObservableObject {
         additionalEnvironment: [String: String] = [:],
         focusPlacement: TerminalSurfaceFocusPlacement = .workspace,
         runtimeSpawnPolicy: TerminalSurfaceRuntimeSpawnPolicy = .immediate,
-        declarativeTerminalConfigurationCache: DeclarativeTerminalConfigurationCache? = nil
+        declarativeTerminalConfigurationSource: (any DeclarativeTerminalConfigurationProviding)? = nil
     ) {
-        let declarativeTerminalConfigurationCache =
-            declarativeTerminalConfigurationCache ?? DeclarativeTerminalConfigurationCache()
+        let declarativeTerminalConfigurationSource =
+            declarativeTerminalConfigurationSource
+                ?? DeclarativeTerminalConfigurationSnapshotSource()
         let surface = TerminalSurface(
             id: id,
             tabId: workspaceId,
@@ -196,7 +197,7 @@ final class TerminalPanel: Panel, ObservableObject {
             additionalEnvironment: additionalEnvironment,
             focusPlacement: focusPlacement,
             runtimeSpawnPolicy: runtimeSpawnPolicy,
-            declarativeTerminalConfigurationCache: declarativeTerminalConfigurationCache,
+            declarativeTerminalConfigurationSource: declarativeTerminalConfigurationSource,
             preparePaneHost: { Self.prepareNotificationScrollReplay(for: $0, environment: additionalEnvironment) }
         )
         self.init(workspaceId: workspaceId, surface: surface)

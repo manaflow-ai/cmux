@@ -20,9 +20,8 @@ public struct SettingsRuntime: @unchecked Sendable {
     public let userDefaultsStore: UserDefaultsSettingsStore
     /// cmux.json-backed settings store.
     public let jsonStore: JSONConfigStore
-    /// App-scoped owner for synchronous declarative terminal snapshots.
-    public let declarativeTerminalConfigurationCache: DeclarativeTerminalConfigurationCache
-    /// Runtime-owned presence-preserving terminal settings model.
+    /// Runtime-owned, presence-preserving terminal settings model and the
+    /// immutable snapshot source shared by every creation path.
     public let declarativeTerminalConfigurationModel: DeclarativeTerminalConfigurationModel
     /// Secret-file-backed settings store.
     public let secretStore: SecretFileStore
@@ -54,24 +53,19 @@ public struct SettingsRuntime: @unchecked Sendable {
         errorLog: SettingsErrorLog,
         accountFlow: AccountFlow? = nil,
         hostActions: SettingsHostActions = NoopSettingsHostActions(),
-        searchIndex: SettingsSearchIndex? = nil,
-        declarativeTerminalConfigurationCache: DeclarativeTerminalConfigurationCache? = nil
+        searchIndex: SettingsSearchIndex? = nil
     ) {
         self.catalog = catalog
         self.searchIndex = searchIndex ?? SettingsSearchIndex(catalog: catalog)
         self.userDefaultsStore = userDefaultsStore
         self.jsonStore = jsonStore
-        let declarativeTerminalConfigurationCache = declarativeTerminalConfigurationCache
-            ?? DeclarativeTerminalConfigurationCache(fileURL: jsonStore.fileURL)
-        self.declarativeTerminalConfigurationCache = declarativeTerminalConfigurationCache
         self.secretStore = secretStore
         self.errorLog = errorLog
         self.declarativeTerminalConfigurationModel = DeclarativeTerminalConfigurationModel(
             jsonStore: jsonStore,
             userDefaultsStore: userDefaultsStore,
             catalog: catalog,
-            errorLog: errorLog,
-            cache: declarativeTerminalConfigurationCache
+            errorLog: errorLog
         )
         self.accountFlow = accountFlow
         self.hostActions = hostActions

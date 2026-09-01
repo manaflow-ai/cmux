@@ -991,7 +991,7 @@
       "metaTitle": "設定",
       "schemaDescriptions": {
         "vault": {
-          "sessionIdSourceType": "說明：Strategy used to extract the session identifier: from an argv option or a Pi session file."
+          "sessionIdSourceType": "從 argv 選項或 Pi 工作階段檔案擷取工作階段識別碼的策略。"
         },
         "customSidebars": {
           "description": "使用者和代理商創作的自訂側邊欄的呈現策略。",

@@ -20,15 +20,8 @@ extension Workspace {
         let fixedPath: String?
         let fixedPathIsUsable: Bool
         if allowsDeclarativeDefaults {
-            let legacyInheritanceEnabled = settings.value(
-                for: settingsCatalog.app.workspaceInheritWorkingDirectory
-            )
-            let declarative = declarativeTerminalConfigurationCache.snapshot(
-                fileURL: declarativeTerminalConfigurationFileURL
-            )
-            policy = declarative.effectiveWorkingDirectoryPolicy(
-                legacyInheritanceEnabled: legacyInheritanceEnabled
-            )
+            let declarative = declarativeTerminalConfigurationSource.snapshot
+            policy = declarative.effectiveWorkingDirectoryPolicy()
             fixedPath = declarative.workingDirectoryPath
             fixedPathIsUsable = declarative.fixedPathIsUsable
         } else {

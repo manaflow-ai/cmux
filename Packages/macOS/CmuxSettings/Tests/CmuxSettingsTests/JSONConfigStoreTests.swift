@@ -51,7 +51,7 @@ struct JSONConfigStoreTests {
         ).write(to: fileURL)
 
         let revision = await store.coherentSnapshot()
-        let snapshot = DeclarativeTerminalConfiguration.snapshot(data: revision.data)
+        let snapshot = DeclarativeTerminalConfiguration().snapshot(data: revision.data)
         #expect(snapshot.workingDirectoryPolicy == .fixedPath)
         #expect(snapshot.workingDirectoryPath == "/tmp/project")
         #expect(snapshot.shellStartupMode == .nonLogin)
@@ -68,7 +68,7 @@ struct JSONConfigStoreTests {
             guard await iterator.next() != nil else { return nil }
             readyContinuation.yield()
             guard let revision = await iterator.next() else { return nil }
-            return DeclarativeTerminalConfiguration.snapshot(data: revision.data)
+            return DeclarativeTerminalConfiguration().snapshot(data: revision.data)
         }
 
         await withTimeout(seconds: 8) {

@@ -187,7 +187,7 @@ struct ShellStartupMatrixTests {
 
     @Test
     func nushellManagedCommandHonorsNonLoginMode() {
-        let command = TerminalSurface.managedNushellShellCommand(
+        let command = TerminalShellIntegrationCommandBuilder().managedNushellShellCommand(
             shell: "/usr/local/bin/nu",
             startupPayload: "print 1",
             mode: .nonLogin

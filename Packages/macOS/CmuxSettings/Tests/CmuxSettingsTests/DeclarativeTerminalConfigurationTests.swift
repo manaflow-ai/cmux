@@ -146,23 +146,20 @@ struct DeclarativeTerminalConfigurationTests {
         ).write(to: file, options: [.atomic])
 
         let configuration = DeclarativeTerminalConfiguration()
-        let cache = DeclarativeTerminalConfigurationCache(
-            initialSnapshot: configuration.snapshot(fileURL: file),
+        let source = DeclarativeTerminalConfigurationSnapshotSource(
+            snapshot: configuration.snapshot(fileURL: file),
             fileURL: file
         )
-        #expect(cache.snapshot(fileURL: file).shellStartupMode == .login)
-        #expect(cache.snapshot().shellStartupMode == .login)
+        #expect(source.snapshot.shellStartupMode == .login)
+        #expect(source.fileURL == file.standardizedFileURL)
 
         try Data(
             #"{"terminal":{"shellStartup":{"mode":"nonLogin","command":"echo startup"}}}"#.utf8
         ).write(to: file, options: [.atomic])
 
-        // The cache never performs a synchronous filesystem read on a spawn
-        // path; the observer publishes the newly parsed value explicitly.
-        #expect(cache.snapshot(fileURL: file).shellStartupMode == .login)
-        cache.replace(configuration.snapshot(fileURL: file), fileURL: file)
-        let refreshed = cache.snapshot(fileURL: file)
-        #expect(refreshed.shellStartupMode == .nonLogin)
-        #expect(refreshed.shellStartupCommand == "echo startup")
+        // The source is immutable; runtime edits are published by the single
+        // observable model rather than replacing an independent cache entry.
+        #expect(source.snapshot.shellStartupMode == .login)
+        #expect(source.snapshot.shellStartupCommand.isEmpty)
     }
 }

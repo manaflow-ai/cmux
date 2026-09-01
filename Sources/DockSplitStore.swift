@@ -151,7 +151,7 @@ final class DockSplitStore: BonsplitDelegate, FilePreviewTabMetadataHost {
     let settings: any SettingsReading
     let settingsCatalog = SettingCatalog()
     let declarativeTerminalConfigurationFileURL: URL
-    let declarativeTerminalConfigurationCache: DeclarativeTerminalConfigurationCache
+    let declarativeTerminalConfigurationSource: any DeclarativeTerminalConfigurationProviding
     let agentSessionAutoResumeDefaults: UserDefaults
 
     /// Weak registry of every live Dock store. Lets control-surface routing
@@ -311,7 +311,7 @@ final class DockSplitStore: BonsplitDelegate, FilePreviewTabMetadataHost {
         tabDragTransferRegistry: TabDragTransferRegistry? = nil,
         settings: any SettingsReading = UserDefaultsSettingsClient(defaults: .standard),
         declarativeTerminalConfigurationFileURL: URL = CmuxConfigLocation().userConfigFile,
-        declarativeTerminalConfigurationCache: DeclarativeTerminalConfigurationCache? = nil,
+        declarativeTerminalConfigurationSource: (any DeclarativeTerminalConfigurationProviding)? = nil,
         agentSessionAutoResumeDefaults: UserDefaults = .standard,
         agentChatResumeIntentRecorder: any AgentChatResumeIntentRecording = AgentChatTranscriptResumeIntentRecorder(),
         terminalWorkingDirectoryResolver: TerminalWorkingDirectoryResolver = TerminalWorkingDirectoryResolver(),
@@ -327,9 +327,9 @@ final class DockSplitStore: BonsplitDelegate, FilePreviewTabMetadataHost {
             terminalTitleUpdateCoalescer ?? NotificationBurstCoalescer()
         self.settings = settings
         self.declarativeTerminalConfigurationFileURL = declarativeTerminalConfigurationFileURL
-        self.declarativeTerminalConfigurationCache =
-            declarativeTerminalConfigurationCache
-                ?? DeclarativeTerminalConfigurationCache(
+        self.declarativeTerminalConfigurationSource =
+            declarativeTerminalConfigurationSource
+                ?? DeclarativeTerminalConfigurationSnapshotSource(
                     fileURL: declarativeTerminalConfigurationFileURL
                 )
         self.agentSessionAutoResumeDefaults = agentSessionAutoResumeDefaults
@@ -1081,7 +1081,7 @@ final class DockSplitStore: BonsplitDelegate, FilePreviewTabMetadataHost {
             initialEnvironmentOverrides: resolvedEnvironment,
             focusPlacement: .rightSidebarDock,
             runtimeSpawnPolicy: effectiveRuntimeSpawnPolicy,
-            declarativeTerminalConfigurationCache: declarativeTerminalConfigurationCache
+            declarativeTerminalConfigurationSource: declarativeTerminalConfigurationSource
         )
     }
 

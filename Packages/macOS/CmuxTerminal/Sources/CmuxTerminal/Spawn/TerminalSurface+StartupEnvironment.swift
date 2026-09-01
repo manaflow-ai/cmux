@@ -19,6 +19,19 @@ extension TerminalSurface {
     /// The managed `COLORTERM` value exported to spawned shells.
     public static let managedColorTerm = "truecolor"
 
+    /// Spawn-time fallback for the app-managed Computer Use setting.
+    public static let computerUseAppEnabledEnvironmentKey = "CMUX_COMPUTER_USE_APP_ENABLED"
+
+    /// The live computer-use authority read by every generated agent shim.
+    public static func computerUseLiveSettingFileURL(homeDirectory: URL) -> URL {
+        homeDirectory
+            .appendingPathComponent("Library", isDirectory: true)
+            .appendingPathComponent("Application Support", isDirectory: true)
+            .appendingPathComponent("cmux", isDirectory: true)
+            .appendingPathComponent("cmux-cua", isDirectory: true)
+            .appendingPathComponent("enabled", isDirectory: false)
+    }
+
     private static let inheritedClaudeAuthSelectionEnvironmentKeys: Set<String> = [
         "ANTHROPIC_API_KEY",
         "ANTHROPIC_MODEL",
@@ -222,22 +235,10 @@ extension TerminalSurface {
     /// Applies the shell-specific startup redirection (zsh/bash/fish/nushell)
     /// and returns a replacement launch command when one is required
     /// (fish, nushell).
-    ///
-    /// - Parameters:
-    ///   - shell: Resolved shell executable path.
-    ///   - integrationDir: Bundled cmux shell-integration directory.
-    ///   - userGhosttyShellIntegrationMode: User's Ghostty integration mode.
-    ///   - shellStartupMode: Login behavior for an ordinary local shell.
-    ///   - environment: Environment updated with managed integration values.
-    ///   - protectedKeys: Keys that later environment overlays cannot replace.
-    ///   - readFile: Injectable text-file reader for the bash bootstrap.
-    /// - Returns: A managed shell command when integration must own launch, or
-    ///   `nil` when Ghostty can resolve the command normally.
     public static func applyManagedShellSpecificStartupEnvironment(
         shell: String,
         integrationDir: String,
         userGhosttyShellIntegrationMode: String,
-        shellStartupMode: TerminalShellStartupMode = .login,
         to environment: inout [String: String],
         protectedKeys: inout Set<String>,
         readFile: (String) throws -> String = { try String(contentsOfFile: $0, encoding: .utf8) }
@@ -278,16 +279,6 @@ extension TerminalSurface {
                 if candidateZdotdir != ghosttyZdotdir { setManagedEnvironmentValue("CMUX_ZSH_ZDOTDIR", candidateZdotdir) }
             }
             setManagedEnvironmentValue("ZDOTDIR", integrationDir)
-            // Ghostty's Darwin command wrapper always adds a login flag to
-            // the command's argv0. Route through `env` so the requested zsh
-            // receives its ordinary argv0 and remains non-login while the
-            // cmux ZDOTDIR integration stays active.
-            if shellStartupMode == .nonLogin {
-                return TerminalShellStartupPolicy.nonLoginShellCommand(
-                    shell: shell,
-                    arguments: "-i"
-                )
-            }
         case "bash":
             if userGhosttyShellIntegrationMode != "none" { setManagedEnvironmentValue("CMUX_LOAD_GHOSTTY_BASH_INTEGRATION", "1") }
             let bashBootstrapPath = (integrationDir as NSString).appendingPathComponent("cmux-bash-bootstrap.bash")
@@ -304,16 +295,10 @@ extension TerminalSurface {
                 Logger(subsystem: "com.cmuxterm.app", category: "ghostty.initialization")
                     .error("cmux bash bootstrap unreadable at \(bashBootstrapPath, privacy: .private): \(error.localizedDescription, privacy: .public); bash shell integration will not load")
             }
-            if shellStartupMode == .nonLogin {
-                return TerminalShellStartupPolicy.nonLoginShellCommand(
-                    shell: shell,
-                    arguments: "-i"
-                )
-            }
         case "fish":
             guard bundledBootstrapIsReadable("fish/config.fish") else { return nil }
             applyManagedFishStartupEnvironment(integrationDir: integrationDir, to: &environment, protectedKeys: &protectedKeys)
-            return managedFishShellCommand(shell: shell, mode: shellStartupMode)
+            return managedFishShellCommand(shell: shell)
         case "nu":
             guard bundledBootstrapIsReadable("nushell/cmux-nushell-bootstrap.nu") else { return nil }
             let bootstrapPath = (integrationDir as NSString)
@@ -324,11 +309,7 @@ extension TerminalSurface {
                     integrationDir: integrationDir
                 )
                 guard !payload.isEmpty else { return nil }
-                return managedNushellShellCommand(
-                    shell: shell,
-                    startupPayload: payload,
-                    mode: shellStartupMode
-                )
+                return managedNushellShellCommand(shell: shell, startupPayload: payload)
             } catch {
                 Logger(subsystem: "com.cmuxterm.app", category: "ghostty.initialization")
                     .error("cmux nushell bootstrap unreadable at \(bootstrapPath, privacy: .private): \(error.localizedDescription, privacy: .public); nushell shell integration will not load")
@@ -338,28 +319,6 @@ extension TerminalSurface {
             break
         }
         return nil
-    }
-
-    /// Returns the managed fish launch command that sources cmux integration.
-    ///
-    /// - Parameters:
-    ///   - shell: Resolved fish executable path.
-    ///   - mode: Login behavior for the shell invocation.
-    /// - Returns: A safely quoted interactive fish command.
-    public static func managedFishShellCommand(
-        shell: String,
-        mode: TerminalShellStartupMode = .login
-    ) -> String {
-        let initCommand = #"source "$CMUX_FISH_INTEGRATION_FILE""#
-        let flags = mode == .login ? "-il" : "-i"
-        let arguments = "\(flags) --init-command \(shellSingleQuoted(initCommand))"
-        if mode == .nonLogin {
-            return TerminalShellStartupPolicy.nonLoginShellCommand(
-                shell: shell,
-                arguments: arguments
-            )
-        }
-        return "\(shellSingleQuoted(shell)) \(arguments)"
     }
 
     /// Builds the nushell `-e` payload: the bootstrap squashed to one line
@@ -384,16 +343,11 @@ extension TerminalSurface {
         return statements.joined(separator: "; ")
     }
 
-    /// The managed nushell launch command, honoring login versus non-login mode.
-    /// Both variants evaluate the cmux payload and enter the interactive REPL;
-    /// only login mode loads Nushell's `login.nu` startup file.
-    public static func managedNushellShellCommand(
-        shell: String,
-        startupPayload: String,
-        mode: TerminalShellStartupMode = .login
-    ) -> String {
-        let modeFlag = mode == .login ? "-l" : "-i"
-        return "\(shellSingleQuoted(shell)) \(modeFlag) -e \(shellSingleQuoted(startupPayload))"
+    /// The managed nushell launch command: a login shell that evaluates the
+    /// cmux payload after the user's env.nu/config.nu/login.nu, then enters
+    /// the interactive REPL (`--execute` semantics).
+    public static func managedNushellShellCommand(shell: String, startupPayload: String) -> String {
+        "\(shellSingleQuoted(shell)) -l -e \(shellSingleQuoted(startupPayload))"
     }
 
     /// Double-quotes a value for nushell (`\` and `"` escaped). Used for
@@ -405,6 +359,12 @@ extension TerminalSurface {
             .replacingOccurrences(of: "\\", with: "\\\\")
             .replacingOccurrences(of: "\"", with: "\\\"")
             + "\""
+    }
+
+    /// The managed fish launch command sourcing the cmux integration file.
+    public static func managedFishShellCommand(shell: String) -> String {
+        let initCommand = #"source "$CMUX_FISH_INTEGRATION_FILE""#
+        return "\(shellSingleQuoted(shell)) -il --init-command \(shellSingleQuoted(initCommand))"
     }
 
     /// Single-quotes a value for POSIX shells.

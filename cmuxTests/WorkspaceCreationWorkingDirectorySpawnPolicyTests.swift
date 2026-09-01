@@ -43,8 +43,8 @@ struct WorkspaceCreationWorkingDirectorySpawnPolicyTests {
             settings: settings,
             declarativeTerminalConfigurationFileURL: configurationFile,
             defaultWorkspaceWorkingDirectoryProvider: { fallbackDirectory },
-            declarativeTerminalConfigurationCache: DeclarativeTerminalConfigurationCache(
-                initialSnapshot: initialSnapshot,
+            declarativeTerminalConfigurationSource: DeclarativeTerminalConfigurationSnapshotSource(
+                snapshot: initialSnapshot,
                 fileURL: configurationFile
             )
         )
@@ -88,8 +88,8 @@ struct WorkspaceCreationWorkingDirectorySpawnPolicyTests {
             settings: settings,
             declarativeTerminalConfigurationFileURL: configurationFile,
             defaultWorkspaceWorkingDirectoryProvider: { workspaceRoot },
-            declarativeTerminalConfigurationCache: DeclarativeTerminalConfigurationCache(
-                initialSnapshot: DeclarativeTerminalConfiguration().snapshot(fileURL: configurationFile),
+            declarativeTerminalConfigurationSource: DeclarativeTerminalConfigurationSnapshotSource(
+                snapshot: DeclarativeTerminalConfiguration().snapshot(fileURL: configurationFile),
                 fileURL: configurationFile
             )
         )

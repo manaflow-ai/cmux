@@ -10,15 +10,10 @@ import SwiftUI
 /// model's single observation and mutation path.
 @MainActor
 public struct DeclarativeTerminalConfigurationCard: View {
-    private enum FocusedField: Hashable {
-        case workingDirectoryPath
-        case startupCommand
-    }
-
     @State private var workingDirectoryPathDraft = ""
     @State private var shellStartupCommandDraft = ""
-    @State private var fallbackSnapshot = DeclarativeTerminalConfigurationModel.Snapshot()
-    @FocusState private var focusedField: FocusedField?
+    @State private var fallbackSnapshot = DeclarativeTerminalConfiguration.Snapshot()
+    @FocusState private var focusedField: DeclarativeTerminalConfigurationCardFocusedField?
     @Environment(\.settingsRuntime) private var runtime
 
     /// Creates the card using the active ``SettingsRuntime`` environment.
@@ -193,7 +188,7 @@ public struct DeclarativeTerminalConfigurationCard: View {
         }
     }
 
-    private func synchronizeDrafts(_ snapshot: DeclarativeTerminalConfigurationModel.Snapshot) {
+    private func synchronizeDrafts(_ snapshot: DeclarativeTerminalConfiguration.Snapshot) {
         if focusedField != .workingDirectoryPath {
             workingDirectoryPathDraft = snapshot.workingDirectoryPath
         }
@@ -239,11 +234,14 @@ public struct DeclarativeTerminalConfigurationCard: View {
         runtime?.declarativeTerminalConfigurationModel
     }
 
-    private var currentSnapshot: DeclarativeTerminalConfigurationModel.Snapshot {
+    private var currentSnapshot: DeclarativeTerminalConfiguration.Snapshot {
         configurationModel?.values ?? fallbackSnapshot
     }
 
-    private func commitDraft(for oldValue: FocusedField?, whenMovingTo newValue: FocusedField?) {
+    private func commitDraft(
+        for oldValue: DeclarativeTerminalConfigurationCardFocusedField?,
+        whenMovingTo newValue: DeclarativeTerminalConfigurationCardFocusedField?
+    ) {
         guard oldValue != newValue else { return }
         switch oldValue {
         case .workingDirectoryPath:

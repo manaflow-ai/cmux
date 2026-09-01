@@ -409,7 +409,7 @@ class GhosttyApp {
     /// replaces this type).
     @MainActor
     private static func makeTerminalSurfaceRuntimeDependencies(
-        declarativeTerminalConfigurationCache: DeclarativeTerminalConfigurationCache
+        declarativeTerminalConfigurationSource: any DeclarativeTerminalConfigurationProviding
     ) -> TerminalSurfaceRuntimeDependencies {
         TerminalSurfaceRuntimeDependencies(
         registry: GhosttyApp.terminalSurfaceRegistry,
@@ -435,7 +435,7 @@ class GhosttyApp {
             )
         }(),
         spawnPolicy: TerminalSurfaceSpawnPolicyBridge(
-            declarativeTerminalConfigurationCache: declarativeTerminalConfigurationCache
+            declarativeTerminalConfigurationSource: declarativeTerminalConfigurationSource
         ),
         byteTee: TerminalOutputByteTeeBridge(),
         rendererRealization: RendererRealizationController.shared,
@@ -456,14 +456,14 @@ class GhosttyApp {
     /// Stable collaborators shared by app-only callers and surface clones.
     @MainActor
     static let terminalSurfaceRuntimeDependencies = makeTerminalSurfaceRuntimeDependencies(
-        declarativeTerminalConfigurationCache: DeclarativeTerminalConfigurationCache()
+        declarativeTerminalConfigurationSource: DeclarativeTerminalConfigurationSnapshotSource()
     )
 
     /// Returns the stable runtime bundle with the caller's scoped declarative
     /// snapshot owner substituted into the spawn-policy bridge.
     @MainActor
     static func terminalSurfaceRuntimeDependencies(
-        declarativeTerminalConfigurationCache: DeclarativeTerminalConfigurationCache
+        declarativeTerminalConfigurationSource: any DeclarativeTerminalConfigurationProviding
     ) -> TerminalSurfaceRuntimeDependencies {
         let base = terminalSurfaceRuntimeDependencies
         return TerminalSurfaceRuntimeDependencies(
@@ -471,7 +471,7 @@ class GhosttyApp {
             engine: base.engine,
             viewProvider: base.viewProvider,
             spawnPolicy: TerminalSurfaceSpawnPolicyBridge(
-                declarativeTerminalConfigurationCache: declarativeTerminalConfigurationCache
+                declarativeTerminalConfigurationSource: declarativeTerminalConfigurationSource
             ),
             byteTee: base.byteTee,
             rendererRealization: base.rendererRealization,

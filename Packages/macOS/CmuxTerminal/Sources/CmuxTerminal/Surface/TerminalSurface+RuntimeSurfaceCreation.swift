@@ -37,7 +37,7 @@ extension TerminalSurface {
             || !allowsDeclarativeStartupDefaults
             || requiresRestoreSpawnPacing
             || startupRestoreAdmissionPhase != .unrestricted
-        let shellStartupResolution = TerminalShellStartupPolicy.resolve(
+        let shellStartupResolution = TerminalShellStartupPolicy().resolve(
             configuredMode: spawnPolicy.shellStartupMode,
             hasExplicitCommand: hasExplicitSurfaceCommand,
             hasExplicitInput: hasExplicitSurfaceInput,
@@ -239,7 +239,7 @@ extension TerminalSurface {
             )
 
             if let shell = engine.resolvedUserShell {
-                managedShellCommand = Self.applyManagedShellSpecificStartupEnvironment(
+                managedShellCommand = TerminalShellStartupCoordinator().apply(
                     shell: shell,
                     integrationDir: integrationDir,
                     userGhosttyShellIntegrationMode: engine.userGhosttyShellIntegrationMode,

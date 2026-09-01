@@ -79,9 +79,6 @@ struct cmuxApp: App {
         // it owns localized search-index text for the process lifetime.
         let settingsCatalog = SettingCatalog()
         let configFileURL = CmuxConfigLocation().userConfigFile
-        let declarativeTerminalConfigurationCache = DeclarativeTerminalConfigurationCache(
-            fileURL: configFileURL
-        )
         // Relocate a pre-existing socket password out of the legacy
         // Application Support directory before any store reads it. The CLI reads
         // this file on every agent hook, and a cross-identity reach into
@@ -180,8 +177,7 @@ struct cmuxApp: App {
             secretStore: secretStore,
             errorLog: SettingsErrorLog(),
             accountFlow: authComposition.accountFlow,
-            hostActions: HostSettingsActions(configFileURL: configFileURL),
-            declarativeTerminalConfigurationCache: declarativeTerminalConfigurationCache
+            hostActions: HostSettingsActions(configFileURL: configFileURL)
         )
         StartupBreadcrumbLog.append("app.init.settingsRuntime.created")
 
@@ -202,9 +198,9 @@ struct cmuxApp: App {
         let tabManager = TabManager(
             workspaceCustomizationStore: workspaceCustomizationStore,
             nativeSSHConnectionBroker: TerminalController.shared.nativeSSHConnectionBroker,
-            declarativeTerminalConfigurationCache: declarativeTerminalConfigurationCache,
+            declarativeTerminalConfigurationSource: settingsRuntime.declarativeTerminalConfigurationModel,
             initialWorkspaceReadiness: {
-                await declarativeTerminalConfigurationCache.waitForInitialSnapshot()
+                await settingsRuntime.declarativeTerminalConfigurationModel.waitForInitialSnapshot()
             }
         )
         _tabManager = StateObject(wrappedValue: tabManager)
