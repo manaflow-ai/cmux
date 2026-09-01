@@ -1852,9 +1852,11 @@ jobs:
                   bad[name] = result
 
           outputs = needs["changes"].get("outputs", {})
+          ghostty_guard = outputs.get("ghosttykit_guard")
           ghostty_result = needs["ghosttykit-release-check"]["result"]
-          ghostty_required = outputs.get("ghosttykit_guard") == "true"
-          if ghostty_required:
+          if ghostty_guard not in {"true", "false"}:
+              bad["changes"] = f"invalid ghosttykit_guard output: {ghostty_guard!r}"
+          elif ghostty_guard == "true":
               if ghostty_result != "success":
                   bad["ghosttykit-release-check"] = ghostty_result
           elif ghostty_result not in {"success", "skipped"}:
@@ -2450,6 +2452,14 @@ jobs:
               for name, data in sorted(needs.items())
               if data["result"] not in allowed
           }
+
+          outputs = needs["changes"].get("outputs", {})
+          ghostty_guard = outputs.get("ghosttykit_guard")
+          ghostty_result = needs["ghosttykit-release-check"]["result"]
+          if ghostty_guard not in {"true", "false"}:
+              bad["changes"] = f"invalid ghosttykit_guard output: {ghostty_guard!r}"
+          elif ghostty_guard == "true" and ghostty_result != "success":
+              bad["ghosttykit-release-check"] = ghostty_result
 
           if bad:
               for name, result in bad.items():

@@ -779,6 +779,8 @@ def test_ci_status_job_accepts_skipped_routed_jobs() -> None:
 
     assert "if: ${{ always() }}" in block
     assert 'allowed = {"success", "skipped"}' in block
+    assert 'ghostty_guard = outputs.get("ghosttykit_guard")' in block
+    assert 'ghostty_guard not in {"true", "false"}' in block
 
 
 def test_required_tests_status_waits_for_app_host_matrix() -> None:
@@ -836,7 +838,9 @@ def test_linux_preflight_blocks_macos_on_cheap_layer_failure() -> None:
     assert "      - agent-session-web-resources" in block
     assert "if: ${{ always() }}" in block
     assert 'required = ("changes", "workflow-guard-tests")' in block
-    assert 'ghostty_required = outputs.get("ghosttykit_guard") == "true"' in block
+    assert 'ghostty_guard = outputs.get("ghosttykit_guard")' in block
+    assert 'ghostty_guard not in {"true", "false"}' in block
+    assert 'ghostty_guard == "true"' in block
     assert 'ghostty_result not in {"success", "skipped"}' in block
     assert 'allowed_routed = {' in block
     assert 'routed_outputs = {' in block
@@ -886,6 +890,25 @@ def test_linux_preflight_requires_ghostty_guard_when_requested() -> None:
 
     assert result.returncode != 0
     assert "ghosttykit-release-check: skipped" in result.stderr
+
+
+def test_linux_preflight_rejects_missing_ghostty_guard_output() -> None:
+    needs = linux_preflight_needs()
+    del needs["changes"]["outputs"]["ghosttykit_guard"]  # type: ignore[index]
+
+    result = run_linux_preflight(needs)
+
+    assert result.returncode != 0
+    assert "invalid ghosttykit_guard output: None" in result.stderr
+
+
+def test_linux_preflight_rejects_malformed_ghostty_guard_output() -> None:
+    result = run_linux_preflight(
+        linux_preflight_needs(outputs={"ghosttykit_guard": "maybe"})
+    )
+
+    assert result.returncode != 0
+    assert "invalid ghosttykit_guard output: 'maybe'" in result.stderr
 
 
 def test_macos_jobs_use_lane_specific_xcode_pin_vars() -> None:
