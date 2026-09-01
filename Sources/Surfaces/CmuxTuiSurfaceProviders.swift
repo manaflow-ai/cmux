@@ -14,7 +14,7 @@ final class CmuxTuiSurfaceProviderRegistry {
     private var pollTask: Task<Void, Never>?
     private var accessObserver: NSObjectProtocol?
     private var themeObserver: NSObjectProtocol?
-    private var refreshInFlight: Task<Void, Never>?
+    private var refreshInFlight: Task<Bool, Never>?
     /// Same cadence as the Machines panel's list refresh.
     private let pollInterval: Duration = .seconds(45)
 
@@ -58,18 +58,23 @@ final class CmuxTuiSurfaceProviderRegistry {
     }
 
     /// Re-reads the machine list and refreshes every provider (links, snapshots, ports).
-    func refresh(force: Bool) async {
-        if let inFlight = refreshInFlight, !force {
-            await inFlight.value
-            return
+    /// Returns whether the fleet list itself could be read. Refreshes never overlap: a
+    /// forced refresh waits for the one in flight and then runs its own pass, so an
+    /// older response can never publish over a newer one.
+    @discardableResult
+    func refresh(force: Bool) async -> Bool {
+        if let inFlight = refreshInFlight {
+            let listed = await inFlight.value
+            if !force { return listed }
         }
-        let task = Task<Void, Never> { [weak self] in
-            guard let self else { return }
-            await self.performRefresh(force: force)
+        let task = Task<Bool, Never> { [weak self] in
+            guard let self else { return false }
+            return await self.performRefresh(force: force)
         }
         refreshInFlight = task
-        await task.value
-        refreshInFlight = nil
+        let listed = await task.value
+        if refreshInFlight == task { refreshInFlight = nil }
+        return listed
     }
 
     func provider(machineID: String) -> CmuxTuiSurfaceProvider? {
@@ -81,8 +86,10 @@ final class CmuxTuiSurfaceProviderRegistry {
     /// provider now instead of at the next 45 s tick), re-sync every cloud provider, then
     /// every other provider the catalog holds (this Mac).
     func refreshEverything(catalog: SurfaceCatalog) async {
-        await refresh(force: true)
-        let refreshedCloud = Set(providers.keys)
+        let listed = await refresh(force: true)
+        // When the fleet list could not be read, nothing above ran: re-sync every
+        // provider the catalog already holds instead of leaving cloud rows stale.
+        let refreshedCloud = listed ? Set(providers.keys) : []
         await catalog.refreshAll(where: { machine in machine.cloudMachineID.map { !refreshedCloud.contains($0) } ?? true })
     }
 
@@ -110,9 +117,9 @@ final class CmuxTuiSurfaceProviderRegistry {
 
     // MARK: - internals
 
-    private func performRefresh(force: Bool) async {
-        guard let catalog, let client = VMClient.shared else { return }
-        guard let page = try? await client.listPage() else { return }
+    private func performRefresh(force: Bool) async -> Bool {
+        guard let catalog, let client = VMClient.shared else { return false }
+        guard let page = try? await client.listPage() else { return false }
         let seen = Set(page.vms.map(\.id))
         for id in providers.keys where !seen.contains(id) {
             providers[id]?.stop()
@@ -134,6 +141,7 @@ final class CmuxTuiSurfaceProviderRegistry {
                 group.addTask { @MainActor in await provider.refresh(force: force) }
             }
         }
+        return true
     }
 
     private func accessDidEnd() async {
@@ -155,6 +163,7 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
         case noWorkspaceOnMachine(String)
         case terminalNotCreated(String)
         case badURL(String)
+        case snapshotUnreadable(String)
 
         var errorDescription: String? {
             switch self {
@@ -168,6 +177,8 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
                 return "cmux-tui did not report the new terminal: \(detail)"
             case .badURL(let url):
                 return "The control plane returned an unusable URL: \(url)"
+            case .snapshotUnreadable(let id):
+                return "\(id)'s cmux-tui session did not return a readable snapshot; retry in a moment."
             }
         }
     }
@@ -180,9 +191,10 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
     private let links: CloudMachineLinkManager
     private unowned let catalog: SurfaceCatalog
     private var changeWatcher: Task<Void, Never>?
-    /// The re-read loop: one in flight at a time, re-run once when deltas arrived meanwhile.
-    private var refreshLoop: Task<Void, Never>?
-    private var refreshDirty = false
+    /// Daemon deltas coalesce here: one re-read in flight, at most one queued behind it.
+    private lazy var refreshCoalescer = SurfaceRefreshCoalescer { [weak self] in
+        await self?.refresh(force: false)
+    }
     private var portsCache: (ports: [Int], at: Date)?
     private let portsTTL: TimeInterval = 30
     /// Preview endpoints already minted for this machine's ports (``SurfacePortEndpointCache``):
@@ -216,9 +228,7 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
     func stop() {
         changeWatcher?.cancel()
         changeWatcher = nil
-        refreshLoop?.cancel()
-        refreshLoop = nil
-        refreshDirty = false
+        refreshCoalescer.cancel()
         endpointPrefetch?.cancel()
         endpointPrefetch = nil
     }
@@ -525,7 +535,12 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
     /// catalog so the tree reflects it too.
     private func syncRemoteWorkspaces(link: CloudMachineLink, socketPath: String) async throws -> [SurfaceRemoteWorkspace] {
         let data = try await link.run(arguments: CloudTuiCommandLine.snapshotArguments(socketPath: socketPath))
-        guard let object = try JSONSerialization.jsonObject(with: data) as? [String: Any] else { return [] }
+        // A snapshot without a `workspaces` list is unreadable, not "no workspaces":
+        // creating `main` on that evidence would duplicate a workspace that exists.
+        guard let object = try JSONSerialization.jsonObject(with: data) as? [String: Any],
+              object["workspaces"] is [[String: Any]] else {
+            throw ProviderError.snapshotUnreadable(machineID)
+        }
         let workspaces = CmuxTuiSnapshotParser.workspaces(fromSnapshot: object)
         info.remoteWorkspaces = workspaces
         catalog.updateMachine(info)
@@ -682,21 +697,10 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
         }
     }
 
-    /// Daemon deltas arrive in bursts. Instead of a timer, one actor-owned loop: a delta
-    /// marks the provider dirty; if no re-read is in flight one starts now, and a re-read
-    /// that finishes dirty runs exactly one follow-up. A burst costs at most two snapshot
-    /// reads, and a session that never goes quiet is still re-read after every pass —
-    /// never starved, never delayed by a coalescing window.
+    /// Daemon deltas arrive in bursts; `SurfaceRefreshCoalescer` turns any number of them
+    /// into at most one in-flight re-read plus one follow-up — no timers, never starved.
     private func scheduleRefresh() {
-        refreshDirty = true
-        guard refreshLoop == nil else { return }
-        refreshLoop = Task { @MainActor [weak self] in
-            defer { self?.refreshLoop = nil }
-            while let self, self.refreshDirty, !Task.isCancelled {
-                self.refreshDirty = false
-                await self.refresh(force: false)
-            }
-        }
+        refreshCoalescer.request()
     }
 
     /// A restored session brings back the pane (with its UUID) but not the attach process:

@@ -583,12 +583,20 @@ extension TerminalController {
 
     /// An explicit target that names nothing is an error, never a silent fall-through
     /// to the selected workspace: an agent's `--workspace bogus` / `--pane pane:99` must
-    /// not land a pane where the person happens to be working. Nil when every given
-    /// target resolves (or none was given); otherwise the `invalid_params` response.
+    /// not land a pane where the person happens to be working. A target must resolve
+    /// (UUID or handle ref) AND exist right now — a well-formed UUID of a closed pane is
+    /// just as unresolvable. Nil when every given target checks out (or none was given);
+    /// otherwise the `invalid_params` response.
     nonisolated func surfaceUnresolvableTargetError(_ params: [String: Any], id: Any?, method: String) -> String? {
         for key in ["workspace_id", "pane_id", "surface_id"] {
             guard let raw = Self.surfaceString(params[key]) else { continue }
-            if v2UUID(params, key) == nil {
+            let exists: Bool
+            if let uuid = v2UUID(params, key) {
+                exists = v2MainSync { self.surfaceTargetExists(key: key, uuid: uuid) }
+            } else {
+                exists = false
+            }
+            if !exists {
                 return v2Error(
                     id: id,
                     code: "invalid_params",
@@ -597,6 +605,22 @@ extension TerminalController {
             }
         }
         return nil
+    }
+
+    /// Whether a resolved target id names a live local workspace, pane, or surface.
+    @MainActor
+    private func surfaceTargetExists(key: String, uuid: UUID) -> Bool {
+        switch key {
+        case "workspace_id":
+            if let app = AppDelegate.shared, app.tabManagerFor(tabId: uuid)?.tabs.contains(where: { $0.id == uuid }) == true { return true }
+            return tabManager?.tabs.contains { $0.id == uuid } == true
+        case "pane_id":
+            if v2LocatePane(uuid) != nil { return true }
+            return tabManager?.tabs.contains { $0.bonsplitController.allPaneIds.contains { $0.id == uuid } } == true
+        default:
+            if AppDelegate.shared?.workspace(containingSurfaceID: uuid) != nil { return true }
+            return tabManager?.tabs.contains { $0.panels[uuid] != nil } == true
+        }
     }
 
     /// This Mac's workspaces for the catalog payload — the active window first, then

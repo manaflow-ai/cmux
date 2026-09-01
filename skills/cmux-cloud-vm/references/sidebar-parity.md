@@ -2,7 +2,7 @@
 
 Every verb in the Cloud sidebar has a CLI verb that goes through the **same socket method** and the same app code path (`SurfaceCatalog`, the machine's `CmuxTuiSurfaceProvider`). An agent can do anything a person can do from the sidebar, and a sidebar action never does something the CLI cannot. Ids come from `cmux vm tree --json` / `cmux surface ls --json` (`<machine>/<kind>/<key>`, `ws_…`, `term_…`).
 
-The Verified column is the last live loop (issue #11347, 2026-09-01): every live-capable row was executed from the tag-bound CLI against a fresh machine (a staging E2B `base` machine), the effect checked through `vm tree --json` / `surface ls --json` / `cmux tree --all`, not the exit code. The exceptions are marked: "unit" rows are pinned by tests but could not be exercised on that machine (no desktop image on staging); ⏳ rows are not implemented yet; ⚪ rows were deliberately not run.
+The Verified column is the last live loop (issue #11347, 2026-09-01): every live-capable row was executed from the tag-bound CLI against a fresh machine (a staging E2B `base` machine), the effect checked through `vm tree --json` / `surface ls --json` / `cmux tree --all`, not the exit code. The exceptions are marked: "unit" rows are pinned by tests but could not be exercised on that machine (no desktop image on staging); ⏳ rows are not implemented yet.
 
 Sidebar (human) | CLI (agent) | Socket method | Verified
 --- | --- | --- | ---

@@ -862,9 +862,12 @@ extension CMUXCLI {
             let opened = (response["opened"] as? Int) ?? 0
             if (response["empty"] as? Bool) == true {
                 // Same as clicking the row: an empty workspace opens nothing (D9).
+                // The hint names the workspace by id (that is what --remote-workspace takes),
+                // even when the caller opened it by name.
+                let remoteID = (response["remote_workspace_id"] as? String) ?? positional[1]
                 print(String(
-                    format: String(localized: "cli.vm.workspace.open.empty", defaultValue: "OK opened=0 machine=%1$@ (workspace %2$@ is empty — nothing to open; `cmux surface new-terminal --machine %1$@ --remote-workspace %2$@` starts a terminal in it)"),
-                    machine, positional[1]
+                    format: String(localized: "cli.vm.workspace.open.empty", defaultValue: "OK opened=0 machine=%1$@ (workspace %2$@ is empty — nothing to open; `cmux surface new-terminal --machine %1$@ --remote-workspace %3$@` starts a terminal in it)"),
+                    machine, positional[1], remoteID
                 ))
                 return
             }
@@ -1300,7 +1303,11 @@ extension CMUXCLI {
                 if members.isEmpty, let first = terminal["remote_workspace"] as? [String: Any] { members = [first] }
                 return members.contains { remote in
                     let id = remote["id"] as? String
-                    return id == workspace || (remote["name"] as? String) == workspace || (id != nil && id == listedMatch?["id"] as? String)
+                    // The machine's list already picked the workspace (id first, then
+                    // name): membership is that id alone, so a name that equals another
+                    // workspace's id cannot admit both.
+                    if let listedID = listedMatch?["id"] as? String { return id == listedID }
+                    return id == workspace || (remote["name"] as? String) == workspace
                 }
             }
             let remoteWorkspaceId = (listedMatch?["id"] as? String)
@@ -1312,11 +1319,16 @@ extension CMUXCLI {
                 ))
             }
             let live = inWorkspace.filter { ($0["lifecycle"] as? String) != "exited" }
-            let focusedFirst = live.sorted { lhs, rhs in
-                let l = ((lhs["remote_workspace"] as? [String: Any])?["focused"] as? Bool) == true
-                let r = ((rhs["remote_workspace"] as? [String: Any])?["focused"] as? Bool) == true
-                return l && !r
+            // "Focused" is judged in the REQUESTED workspace's view of the terminal, not
+            // its first workspace: a terminal focused elsewhere must not outrank this
+            // workspace's own focused terminal.
+            func focusedHere(_ terminal: [String: Any]) -> Bool {
+                let views = ((terminal["remote_views"] as? [[String: Any]]) ?? []).compactMap { $0["workspace"] as? [String: Any] }
+                let member = views.first { ($0["id"] as? String) == remoteWorkspaceId }
+                    ?? (terminal["remote_workspace"] as? [String: Any])
+                return (member?["focused"] as? Bool) == true
             }
+            let focusedFirst = live.sorted { lhs, rhs in focusedHere(lhs) && !focusedHere(rhs) }
             if let pick = focusedFirst.first, let terminalId = pick["key"] as? String {
                 try openVMTerminal(machine: machine, terminalId: terminalId, workspaceRaw: workspaceRaw, focus: focus, client: client, jsonOutput: jsonOutput)
                 return
