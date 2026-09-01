@@ -2095,6 +2095,22 @@ mod tests {
     }
 
     #[test]
+    fn reducer_state_compatibility_writer_keeps_equal_cursor_latest() {
+        let registry = WorkspaceRegistry::in_memory("reducer-cursor-equal-compatibility").unwrap();
+        registry
+            .put_journal_reducer_state("agent_roster", 3, 10, r#"{"entries":{"first":{}}}"#)
+            .unwrap();
+        registry
+            .put_journal_reducer_state("agent_roster", 3, 10, r#"{"entries":{"latest":{}}}"#)
+            .unwrap();
+
+        let (_, cursor, snapshot) =
+            registry.journal_reducer_state("agent_roster").unwrap().unwrap();
+        assert_eq!(cursor, 10);
+        assert!(snapshot.contains("latest"));
+    }
+
+    #[test]
     fn reducer_state_equal_cursor_uses_a_durable_ordering_token() {
         let registry = WorkspaceRegistry::in_memory("reducer-cursor-ordering-token").unwrap();
         registry
