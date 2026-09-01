@@ -5,7 +5,8 @@ import WebKit
 
 struct ShortcutEventFocusContext {
     let browserPanel: BrowserPanel?
-    /// True when a standalone popup web view owns focus without a ``BrowserPanel`` model.
+    /// True when browser web content owns focus even if its ``BrowserPanel``
+    /// model is temporarily unavailable (or the view is a standalone popup).
     let browserWebViewFocused: Bool
     let markdownPanel: MarkdownPanel?
     let filePreviewTextEditorFocused: Bool
@@ -425,7 +426,8 @@ extension AppDelegate {
               let webView = shortcutOwningWebView(for: responder) as? CmuxWebView,
               isBrowserPanelWebView(webView),
               !shortcutResponderIsInspector(responder, in: webView),
-              cmuxBrowserPageContentRoot(for: webView, owningResponder: responder) == nil else {
+              cmuxBrowserPageContentRoot(for: webView, owningResponder: responder) == nil,
+              cmuxBrowserPageContentStructureIsTransient(for: webView) else {
             return false
         }
         return shortcutResponderBelongs(to: webView, responder: responder)

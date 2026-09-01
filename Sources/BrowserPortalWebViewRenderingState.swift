@@ -29,11 +29,27 @@ func cmuxBrowserPageContentRoot(
     let candidates = webView.subviews.filter {
         !$0.isHidden && $0.alphaValue > 0 && !cmuxIsWebInspectorObject($0)
     }
-    guard !candidates.isEmpty else { return nil }
-    guard candidates.count > 1 else { return candidates[0] }
-
     let webBounds = webView.bounds
     let webArea = max(webBounds.width * webBounds.height, 1)
+    guard !candidates.isEmpty,
+          webBounds.width > 0,
+          webBounds.height > 0 else {
+        return nil
+    }
+    guard candidates.count > 1 else {
+        let candidate = candidates[0]
+        let intersection = candidate.frame.intersection(webBounds)
+        let coverage = max(0, intersection.width) * max(0, intersection.height) / webArea
+        guard coverage >= 0.5 else { return nil }
+        if let owningResponder,
+           let responderView = cmuxBrowserViewOwningResponder(owningResponder) {
+            guard responderView === candidate || responderView.isDescendant(of: candidate) else {
+                return nil
+            }
+        }
+        return candidate
+    }
+
     let scored = candidates.map { view in
         let intersection = view.frame.intersection(webBounds)
         let area = max(0, intersection.width) * max(0, intersection.height)
@@ -58,6 +74,16 @@ func cmuxBrowserPageContentRoot(
     let winners = scored.filter { abs($0.coverage - maximumCoverage) <= 0.01 }
     guard winners.count == 1 else { return nil }
     return winners[0].view
+}
+
+/// Whether WebKit has not yet exposed a stable page-content structure. This
+/// narrow transient signal is used only by the legacy document-editing
+/// fallback; ambiguous but populated hierarchies remain fail-closed.
+func cmuxBrowserPageContentStructureIsTransient(for webView: WKWebView) -> Bool {
+    let hasVisiblePageCandidate = webView.subviews.contains {
+        !$0.isHidden && $0.alphaValue > 0 && !cmuxIsWebInspectorObject($0)
+    }
+    return !hasVisiblePageCandidate || webView.bounds.width <= 0 || webView.bounds.height <= 0
 }
 
 private func cmuxBrowserViewOwningResponder(_ responder: NSResponder) -> NSView? {

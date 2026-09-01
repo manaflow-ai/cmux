@@ -14285,7 +14285,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         // actions whose normal owner is a BrowserPanel would otherwise match
         // here, beep because no panel can execute them, and claim the event
         // before WebKit gets its native equivalent.
-        if shouldYieldStandaloneBrowserShortcut(event) {
+        if shouldYieldPanelLessBrowserShortcut(event) {
 #if DEBUG
             cmuxDebugLog("browser.popup.shortcut.bypass \(debugShortcutRouteSnapshot(event: event))")
 #endif
@@ -17969,7 +17969,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         for event: NSEvent,
         webView expectedWebView: CmuxWebView? = nil
     ) -> Bool {
-        guard KeyboardShortcutSettings.browserKeyboardShortcutCaptureEnabled() else {
+        guard KeyboardShortcutSettingsObserver.shared.browserKeyboardShortcutCaptureEnabled else {
             return false
         }
 
@@ -17988,7 +17988,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         let isBareSpace = event.modifierFlags
             .intersection(.deviceIndependentFlagsMask)
             .subtracting([.numericPad, .function, .capsLock])
-            .isEmpty && event.keyCode == 49
+            .isEmpty && event.characters == " "
         var candidateContext: MainWindowContext?
         if shouldPreflightCandidate && isBareSpace {
             let context = preferredMainWindowContextForShortcutRouting(event: event)
@@ -18132,9 +18132,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     /// Whether the event should consult the bounded candidate index before
-    /// resolving browser ownership. This covers printable Shift/Option input
-    /// and the supported bare-Space binding while leaving uncommon special
-    /// keys on the full matcher path.
+    /// resolving browser ownership. This covers modifier-only printable and
+    /// special-key input plus supported bare-Space bindings, while leaving
+    /// Command/Control chords on the full matcher path.
     private func browserCaptureShouldRunCandidatePreflight(_ event: NSEvent) -> Bool {
         guard event.type == .keyDown,
               activeConfiguredShortcutChordPrefixForCurrentEvent == nil else {
@@ -18144,11 +18144,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             .intersection(.deviceIndependentFlagsMask)
             .subtracting([.numericPad, .function, .capsLock])
         let routingModifierFlags = normalizedFlags.intersection([.command, .control])
-        let isBareSpace = normalizedFlags.isEmpty && event.keyCode == 49
+        let isBareSpace = normalizedFlags.isEmpty && event.characters == " "
+        let isNonCommandSpecialKey = routingModifierFlags.isEmpty
+            && browserCaptureIsNonPrintableShortcutKey(event)
         let isPrintableShiftOrOption = !normalizedFlags.isEmpty
             && routingModifierFlags.isEmpty
-            && !browserCaptureIsNonPrintableShortcutKey(event)
-        return isBareSpace || isPrintableShiftOrOption
+            && !isNonCommandSpecialKey
+        return isBareSpace || isNonCommandSpecialKey || isPrintableShiftOrOption
     }
 
     /// Returns the revision-keyed browser-capture matcher snapshot. It carries
@@ -18186,44 +18188,43 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     private func browserCaptureIsNonPrintableShortcutKey(_ event: NSEvent) -> Bool {
-        if event.specialKey != nil {
+        if event.specialKey != nil || event.characters == " " { // Space
             return true
+        }
+
+        // The common printable path stays entirely in scalar/key-code checks;
+        // avoid canonicalization and Foundation CharacterSet work for every
+        // ordinary terminal/browser character.
+        if let characters = event.characters,
+           !characters.isEmpty,
+           characters.unicodeScalars.allSatisfy({ scalar in
+               scalar.value >= 0x20 && scalar.value < 0x7F
+           }) {
+            return false
         }
 
         if let recordedKey = recordedShortcutKey(
             keyCode: event.keyCode,
             charactersIgnoringModifiers: event.charactersIgnoringModifiers
-        ) {
-            let normalizedKey = recordedKey.lowercased()
-            if normalizedKey == "space" || normalizedKey == "\t" || normalizedKey == "\r" {
-                return true
-            }
-            if ["←", "→", "↑", "↓"].contains(normalizedKey) {
-                return true
-            }
-            if normalizedKey.first == "f",
-               let functionNumber = Int(normalizedKey.dropFirst()),
-               (1...20).contains(functionNumber) {
-                return true
-            }
+        ), cmuxShortcutKeyIsNonPrintable(recordedKey) {
+            return true
         }
 
-        // Escape, Help, and any future AppKit special key may not expose a
+        // Escape, Help, and future AppKit special keys may not expose a
         // recordable token. Their control/private-use characters are still
         // unambiguously non-printable, unlike Shift/Option text input.
         return (event.characters ?? "").unicodeScalars.contains { scalar in
-            CharacterSet.controlCharacters.contains(scalar)
+            scalar.value < 0x20 || scalar.value == 0x7F
                 || (0xF700...0xF8FF).contains(scalar.value)
         }
     }
 
-    /// Returns whether a standalone browser popup has a browser-scoped
-    /// shortcut that should be offered to WebKit instead of the app router.
-    /// Popups intentionally have no ``BrowserPanel`` action owner, so claiming
-    /// one here would either beep or run the action against the opener.
-    func shouldYieldStandaloneBrowserShortcut(_ event: NSEvent) -> Bool {
-        guard event.type == .keyDown,
-              shortcutResolvedEventWindow(event) is BrowserPopupPanel else {
+    /// Returns whether a browser web view without a resolved ``BrowserPanel``
+    /// owner has a browser-scoped shortcut that should be offered to WebKit
+    /// instead of the app router. This covers standalone popups and transient
+    /// panel-rebinding windows without applying the action to another panel.
+    func shouldYieldPanelLessBrowserShortcut(_ event: NSEvent) -> Bool {
+        guard event.type == .keyDown else {
             return false
         }
 

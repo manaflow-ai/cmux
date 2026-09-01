@@ -3,6 +3,24 @@ import CmuxSettings
 import Foundation
 import Observation
 
+/// Whether a persisted shortcut key token represents a non-printable AppKit
+/// key. Shared by the browser-capture candidate index and event fast path so
+/// function/navigation keys cannot drift into an incomplete literal list.
+func cmuxShortcutKeyIsNonPrintable(_ key: String) -> Bool {
+    let normalizedKey = key.lowercased()
+    if normalizedKey == "space" || normalizedKey == "\t" || normalizedKey == "\r" {
+        return true
+    }
+    if ["←", "→", "↑", "↓"].contains(normalizedKey) {
+        return true
+    }
+    guard normalizedKey.first == "f",
+          let functionNumber = Int(normalizedKey.dropFirst()) else {
+        return false
+    }
+    return (1...20).contains(functionNumber)
+}
+
 /// Observes keyboard-shortcut revisions and owns hot-path matcher snapshots.
 @MainActor
 @Observable
@@ -33,6 +51,8 @@ final class KeyboardShortcutSettingsObserver {
 
     private(set) var revision: UInt64 = 0
     private(set) var globalSearchShortcut: StoredShortcut
+    @ObservationIgnored
+    private(set) var browserKeyboardShortcutCaptureEnabled: Bool
     let rightSidebarModeShortcutMatcher: RightSidebarModeShortcutMatcher
     private let notificationCenter: NotificationCenter
     private let distributedNotificationCenter: DistributedNotificationCenter
@@ -44,6 +64,8 @@ final class KeyboardShortcutSettingsObserver {
     private var recorderObserver: NSObjectProtocol?
     @ObservationIgnored
     private var inputSourceObserver: NSObjectProtocol?
+    @ObservationIgnored
+    private var defaultsObserver: NSObjectProtocol?
     @ObservationIgnored
     // A fixed-size ring keeps one snapshot per recently used window/config
     // without retaining an unbounded set of per-window entries.
@@ -62,6 +84,7 @@ final class KeyboardShortcutSettingsObserver {
         self.distributedNotificationCenter = distributedNotificationCenter
         self.shortcutProvider = shortcutProvider
         globalSearchShortcut = shortcutProvider(.globalSearch)
+        browserKeyboardShortcutCaptureEnabled = KeyboardShortcutSettings.browserKeyboardShortcutCaptureEnabled()
         rightSidebarModeShortcutMatcher = RightSidebarModeShortcutMatcher(
             shortcutProvider: shortcutProvider
         )
@@ -95,6 +118,15 @@ final class KeyboardShortcutSettingsObserver {
                 self?.reloadCachedShortcuts()
             }
         }
+        defaultsObserver = notificationCenter.addObserver(
+            forName: UserDefaults.didChangeNotification,
+            object: nil,
+            queue: nil
+        ) { [weak self] _ in
+            Self.deliverOnMainActor { [weak self] in
+                self?.reloadBrowserCaptureSetting()
+            }
+        }
     }
 
     deinit {
@@ -107,13 +139,22 @@ final class KeyboardShortcutSettingsObserver {
         if let inputSourceObserver {
             distributedNotificationCenter.removeObserver(inputSourceObserver)
         }
+        if let defaultsObserver {
+            notificationCenter.removeObserver(defaultsObserver)
+        }
     }
 
     private func reloadCachedShortcuts() {
         globalSearchShortcut = shortcutProvider(.globalSearch)
+        reloadBrowserCaptureSetting()
         revision &+= 1
         rightSidebarModeShortcutMatcher.reload()
         invalidateBrowserCaptureMatcherSnapshots()
+    }
+
+    private func reloadBrowserCaptureSetting() {
+        browserKeyboardShortcutCaptureEnabled =
+            KeyboardShortcutSettings.browserKeyboardShortcutCaptureEnabled()
     }
 
     private func invalidateBrowserCaptureMatcherSnapshots() {
@@ -153,7 +194,9 @@ final class KeyboardShortcutSettingsObserver {
             let isBareSpace = flags.isEmpty && stroke.key.lowercased() == "space"
             let isShiftOrOption = flags.intersection([.command, .control]).isEmpty
                 && !flags.intersection([.shift, .option]).isEmpty
-            guard isBareSpace || isShiftOrOption else { return }
+            let isUnmodifiedSpecialKey = flags.isEmpty
+                && cmuxShortcutKeyIsNonPrintable(stroke.key)
+            guard isBareSpace || isShiftOrOption || isUnmodifiedSpecialKey else { return }
             candidateStrokes.insert(stroke)
         }
 
