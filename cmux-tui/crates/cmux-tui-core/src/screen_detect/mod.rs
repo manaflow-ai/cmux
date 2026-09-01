@@ -31,10 +31,11 @@ pub(crate) const QUIESCENCE_DEBOUNCE_MS: u64 = 300;
 /// phase it exists to report.
 pub(crate) const MAX_EVAL_INTERVAL_MS: u64 = 1_000;
 
-/// Process metadata is sampled less often than terminal output. Output
-/// revision changes still drive screen evaluation, while identity refreshes
-/// are bounded to avoid a process syscall on every 100 ms scan tick.
-pub(crate) const PROCESS_LOOKUP_INTERVAL_MS: u64 = 500;
+/// Process identity controls roster authority, so every scan refreshes it
+/// before screen text can be attributed. This removes a stale identity window
+/// during process swaps; the scanner still avoids viewport work when output is
+/// unchanged.
+pub(crate) const PROCESS_LOOKUP_INTERVAL_MS: u64 = 0;
 /// Re-emit an unchanged screen state so it can claim a terminal after the
 /// hook owner's freshness window expires.
 const SCREEN_REEMIT_INTERVAL_MS: u64 = 30_000;
@@ -153,8 +154,7 @@ impl ScreenDetectTracker {
     }
 
     /// Return true when process metadata should be refreshed for this
-    /// terminal. A revision change does not bypass the interval, so animated
-    /// screens do not turn the scanner into a process-syscall loop.
+    /// terminal. Identity is correctness-critical and refreshes every scan.
     pub(crate) fn should_lookup_foreground_agent(
         &mut self,
         terminal_id: &str,
@@ -455,18 +455,11 @@ mod tests {
     }
 
     #[test]
-    fn screen_detect_tracker_paces_process_lookup() {
+    fn screen_detect_tracker_refreshes_process_lookup_each_scan() {
         let mut tracker = ScreenDetectTracker::default();
         let t0 = Instant::now();
         assert!(tracker.should_lookup_foreground_agent("term_a", t0));
-        assert!(!tracker.should_lookup_foreground_agent(
-            "term_a",
-            t0 + Duration::from_millis(PROCESS_LOOKUP_INTERVAL_MS - 1),
-        ));
-        assert!(tracker.should_lookup_foreground_agent(
-            "term_a",
-            t0 + Duration::from_millis(PROCESS_LOOKUP_INTERVAL_MS),
-        ));
+        assert!(tracker.should_lookup_foreground_agent("term_a", t0 + Duration::from_millis(1),));
     }
 
     #[test]

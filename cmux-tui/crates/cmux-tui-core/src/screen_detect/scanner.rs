@@ -106,14 +106,7 @@ pub(crate) fn scan(
         let Ok(revision) = surface.terminal_stream_revision() else { continue };
         let terminal_id = terminal_public_id.as_str();
         let quiesced = tracker.observe_revision(terminal_id, revision, now);
-        let lookup_due = tracker.should_lookup_foreground_agent(terminal_id, now);
-        if !lookup_due {
-            // Cached process identity is only a hint. Do not make roster or
-            // presence decisions while it can be stale after a process swap.
-            // The next identity refresh owns the decision and also drains any
-            // durable hook rows, including roster-fold side effects.
-            continue;
-        }
+        tracker.should_lookup_foreground_agent(terminal_id, now);
         let mut exited = false;
         let mut unknown = false;
         let mut identity_edge = false;
