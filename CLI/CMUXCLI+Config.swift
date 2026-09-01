@@ -614,7 +614,12 @@ extension CMUXCLI {
                     byteCount: data.count
                 )
             }
-            let validationIssues = CmuxConfigValidator().validate(jsonObject: dictionary)
+            let structuralIssues = CmuxConfigValidator().validate(jsonObject: dictionary)
+            let runtimeIssues = runtimeConfigValidationIssues(data: sanitized)
+            let validationIssues = mergeConfigValidationIssues(
+                structural: structuralIssues,
+                runtime: runtimeIssues
+            )
             let message: String
             let status: String
             if validationIssues.isEmpty {
@@ -653,6 +658,71 @@ extension CMUXCLI {
                 byteCount: nil
             )
         }
+    }
+
+    /// Run the same Codable path used by config loading after the Foundation-only
+    /// shape checks. Tolerated action failures remain findings so doctor never
+    /// reports success for an action the app would discard.
+    private func runtimeConfigValidationIssues(data: Data) -> [CmuxConfigValidationIssue] {
+        do {
+            let decoded = try CmuxConfigFile.decodeToleratingInvalidActions(from: data)
+            return decoded.actionIssues.map {
+                CmuxConfigValidationIssue(path: $0.path, message: $0.message)
+            }
+        } catch {
+            return [runtimeConfigValidationIssue(for: error)]
+        }
+    }
+
+    private func mergeConfigValidationIssues(
+        structural: [CmuxConfigValidationIssue],
+        runtime: [CmuxConfigValidationIssue]
+    ) -> [CmuxConfigValidationIssue] {
+        let structuralPaths = Set(structural.map(\.path))
+        return structural + runtime.filter { !structuralPaths.contains($0.path) }
+    }
+
+    private func runtimeConfigValidationIssue(for error: Error) -> CmuxConfigValidationIssue {
+        switch error {
+        case let DecodingError.dataCorrupted(context):
+            return CmuxConfigValidationIssue(
+                path: runtimeCodingPath(context.codingPath),
+                message: context.debugDescription
+            )
+        case let DecodingError.keyNotFound(key, context):
+            return CmuxConfigValidationIssue(
+                path: runtimeCodingPath(context.codingPath + [key]),
+                message: context.debugDescription
+            )
+        case let DecodingError.typeMismatch(_, context):
+            return CmuxConfigValidationIssue(
+                path: runtimeCodingPath(context.codingPath),
+                message: context.debugDescription
+            )
+        case let DecodingError.valueNotFound(_, context):
+            return CmuxConfigValidationIssue(
+                path: runtimeCodingPath(context.codingPath),
+                message: context.debugDescription
+            )
+        default:
+            return CmuxConfigValidationIssue(
+                path: "$",
+                message: Self.configDoctorErrorMessage(error)
+            )
+        }
+    }
+
+    private func runtimeCodingPath(_ codingPath: [CodingKey]) -> String {
+        guard !codingPath.isEmpty else { return "$" }
+        var path = ""
+        for key in codingPath {
+            if let index = key.intValue {
+                path += "[\(index)]"
+            } else {
+                path += path.isEmpty ? key.stringValue : ".\(key.stringValue)"
+            }
+        }
+        return path.isEmpty ? "$" : path
     }
 
     private func printConfigDoctorReport(_ report: ConfigDoctorReport) {

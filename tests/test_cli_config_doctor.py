@@ -184,6 +184,62 @@ def main() -> int:
                     if finding.get("status") != "error" or "actions.bad-one.workspace.layout" not in message:
                         failures.append(f"invalid layout did not identify the bad action: {invalid_structure_result.stdout}")
 
+        runtime_cases = [
+            (
+                "unknown builtin",
+                '{"actions":{"bad":{"type":"builtin","builtin":"not-a-built-in"}}}\n',
+                "actions.bad.builtin",
+            ),
+            (
+                "invalid workspace color",
+                '{"commands":[{"name":"bad","workspace":{"color":"not-a-color"}}]}\n',
+                "commands[0].workspace.color",
+            ),
+            (
+                "invalid shortcut",
+                '{"actions":{"bad":{"type":"command","command":"echo","shortcut":"bare"}}}\n',
+                "actions.bad.shortcut",
+            ),
+            (
+                "runtime-only surface button",
+                '{"surfaceTabBarButtons":[{"type":"unknown"}]}\n',
+                "surfaceTabBarButtons[0]",
+            ),
+        ]
+        for label, contents, expected_path in runtime_cases:
+            config_path.write_text(contents, encoding="utf-8")
+            result = run_cli(
+                cli_path, ["--json", "config", "doctor", "--path", str(config_path)], home
+            )
+            if result.returncode == 0:
+                failures.append(f"{label} returned success")
+                continue
+            payload = parse_json_output(result.stdout, label, failures)
+            if payload is None:
+                continue
+            finding = first_finding(payload, label, result.stdout, failures)
+            if finding is None:
+                continue
+            message = finding.get("message", "")
+            if finding.get("status") != "error" or expected_path not in message:
+                failures.append(f"{label} did not identify {expected_path}: {result.stdout}")
+
+        config_path.write_text(
+            '{"actions":{"trimmed":{"type":" builtin ","builtin":" cmux.newWorkspace "}}}\n',
+            encoding="utf-8",
+        )
+        trimmed_result = run_cli(
+            cli_path, ["--json", "config", "doctor", "--path", str(config_path)], home
+        )
+        if trimmed_result.returncode != 0:
+            failures.append(f"runtime-trimmed action returned {trimmed_result.returncode}: {trimmed_result.stderr}")
+        else:
+            payload = parse_json_output(trimmed_result.stdout, "runtime-trimmed action", failures)
+            if payload is not None:
+                finding = first_finding(payload, "runtime-trimmed action", trimmed_result.stdout, failures)
+                if finding is not None and (payload.get("ok") is not True or finding.get("status") != "ok"):
+                    failures.append(f"runtime-trimmed action was not accepted: {trimmed_result.stdout}")
+
         config_path.write_text('{"agent": true,,}\n', encoding="utf-8")
         bad_result = run_cli(cli_path, ["--json", "config", "doctor", "--path", str(config_path)], home)
         if bad_result.returncode == 0:

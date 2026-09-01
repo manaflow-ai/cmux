@@ -98,6 +98,7 @@ struct CmuxConfigReviewRegressionTests {
         defaults.set(["Indigo": "#123456"], forKey: "workspaceTabColor.defaultOverrides")
         defaults.set(["#abcdef"], forKey: "workspaceTabColor.customColors")
 
+        #expect(CmuxConfigWorkspaceColorPalette.containsName("red", defaults: defaults))
         #expect(CmuxConfigWorkspaceColorPalette.containsName(" custom 1 ", defaults: defaults))
         #expect(WorkspaceTabColorSettings.resolvedColorHex(" iNdIgO ", defaults: defaults) == "#123456")
         #expect(WorkspaceTabColorSettings.resolvedColorHex("CUSTOM 1", defaults: defaults) == "#ABCDEF")
