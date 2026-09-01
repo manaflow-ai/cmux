@@ -228,6 +228,28 @@ struct VaultResumeLaunchPlannerTests {
         #expect(plan.legacyFallbackReason == .unavailableStructuredArguments)
     }
 
+    @Test("Shell operators stay on the compatibility path")
+    func shellOperatorRegistrationUsesCompatibility() throws {
+        let registration = VaultResumeLaunchRequest.Registration(
+            id: "setup-agent",
+            defaultExecutable: "setup-agent",
+            resumeCommand: "{{executable}} --session {{sessionId}} && echo done",
+            workingDirectoryPolicy: .preserve,
+            sessionDirectory: nil,
+            registeredResumeKind: nil
+        )
+        let plan = try #require(planner.plan(for: VaultResumeLaunchRequest(
+            kind: "setup-agent",
+            sessionID: "setup-session",
+            workingDirectory: nil,
+            profile: .registered(registration),
+            legacyCommand: "setup-agent --session setup-session && echo done"
+        )))
+
+        #expect(plan.strategy == .legacyCommand)
+        #expect(plan.legacyFallbackReason == .unavailableStructuredArguments)
+    }
+
     @Test("Unknown and unterminated placeholders use compatibility")
     func invalidTemplatePlaceholdersUseCompatibility() throws {
         for template in [
