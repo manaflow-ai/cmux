@@ -1,12 +1,11 @@
 //! Synchronous client for the versioned machine-provider protocol.
 //!
-//! This module intentionally has no `App` or CLI integration yet. It owns the
-//! security and framing boundary between a provider daemon and cmux's existing
-//! `RemoteTransport` abstraction, so later runtime wiring does not need to know
-//! how provider requests, events, authentication, or one-use stream tickets are
-//! represented on the wire.
-
-#![allow(dead_code)]
+//! `machine_provider_runtime` uses this client to back the machine controller,
+//! while startup's provider CLI and configuration paths select the transport
+//! connector. This module owns the security and framing boundary between a
+//! provider daemon and cmux's existing `RemoteTransport` abstraction, keeping
+//! provider requests, events, authentication, and one-use stream tickets out
+//! of the runtime and UI layers.
 
 #[cfg(unix)]
 use std::collections::{BTreeMap, HashMap, VecDeque};
@@ -62,7 +61,6 @@ use crate::session::{
 #[path = "machine_provider_transport.rs"]
 mod machine_provider_transport;
 #[cfg(unix)]
-#[allow(unused_imports)] // Consumed by the upcoming runtime/CLI migration.
 pub(crate) use machine_provider_transport::{
     CommandProviderConnector, MachineProviderConnector, SshProviderConnector, UnixProviderConnector,
 };
