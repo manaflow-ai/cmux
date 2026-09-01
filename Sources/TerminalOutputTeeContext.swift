@@ -43,6 +43,7 @@ final class TerminalOutputTeeContext: @unchecked Sendable {
 
     let workspaceID: UUID
     let surfaceID: UUID
+    private let stallOutputBuffer: AgentStallOutputCaptureBuffer?
     private let clock = ContinuousClock()
     private let notificationHandler: PromptTurnNotificationHandler
     private var detectors: [DetectorBinding]
@@ -51,10 +52,12 @@ final class TerminalOutputTeeContext: @unchecked Sendable {
     init(
         workspaceID: UUID,
         surfaceID: UUID,
-        agentDefinitions: [CmuxTaskManagerCodingAgentDefinition]
+        agentDefinitions: [CmuxTaskManagerCodingAgentDefinition],
+        stallOutputBuffer: AgentStallOutputCaptureBuffer? = nil
     ) {
         self.workspaceID = workspaceID
         self.surfaceID = surfaceID
+        self.stallOutputBuffer = stallOutputBuffer
         self.notificationHandler = PromptTurnNotificationHandler(
             workspaceID: workspaceID,
             surfaceID: surfaceID
@@ -71,6 +74,7 @@ final class TerminalOutputTeeContext: @unchecked Sendable {
 
     func consume(_ bytes: UnsafeBufferPointer<UInt8>) {
         let now = clock.now
+        stallOutputBuffer?.append(bytes)
         for index in detectors.indices {
             if let confirmation = detectors[index].detector.pendingConfirmation,
                let deadline = detectors[index].confirmationDeadline,

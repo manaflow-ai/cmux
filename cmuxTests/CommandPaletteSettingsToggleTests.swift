@@ -1,5 +1,6 @@
 import XCTest
 import CmuxSettings
+import Testing
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
@@ -316,5 +317,38 @@ final class CommandPaletteSettingsToggleTests: XCTestCase {
             defaults.removePersistentDomain(forName: suiteName)
         }
         try body(defaults)
+    }
+}
+
+@Suite("Command palette agent recovery toggle")
+struct CommandPaletteAgentRecoveryToggleTests {
+    @Test("toggles auto-retry and posts its change notification")
+    func togglesAutoRetryAndPostsNotification() throws {
+        let suiteName = "cmux.commandPaletteAgentRecovery.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        let descriptor = try #require(
+            CommandPaletteSettingsToggleCommands.descriptor(
+                commandId: "palette.toggleSetting.autoRetryAgentSessions"
+            )
+        )
+        let notificationCenter = NotificationCenter()
+        var didNotify = false
+        let token = notificationCenter.addObserver(
+            forName: AgentSessionAutoRetrySettings.didChangeNotification,
+            object: nil,
+            queue: nil
+        ) { _ in
+            didNotify = true
+        }
+        defer { notificationCenter.removeObserver(token) }
+
+        #expect(!descriptor.isOn(defaults))
+        descriptor.toggle(defaults: defaults, notificationCenter: notificationCenter)
+
+        #expect(defaults.object(forKey: AgentSessionAutoRetrySettings.autoRetryAgentSessionsKey) as? Bool == true)
+        #expect(descriptor.isOn(defaults))
+        #expect(didNotify)
     }
 }

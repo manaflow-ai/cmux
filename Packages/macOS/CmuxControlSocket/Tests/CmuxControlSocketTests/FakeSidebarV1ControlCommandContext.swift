@@ -17,6 +17,17 @@ final class FakeSidebarV1ControlCommandContext: ControlCommandContext {
         clearStatus: Bool,
         requireOwnedKey: Bool
     )?
+    // The command seam records synchronously; every read and reset stays in this suite's MainActor tests.
+    nonisolated(unsafe) var agentLifecycleCall: (
+        target: ControlSidebarTabTarget,
+        key: String,
+        lifecycleRawValue: String,
+        panelID: UUID?,
+        promptBoundary: Bool,
+        normalCompletion: Bool,
+        hookFailureEvidence: Bool,
+        identity: ControlSidebarLifecycleIdentity?
+    )?
     nonisolated(unsafe) var shellStateCall: (
         scope: ControlSidebarPanelScope,
         stateRawValue: String
@@ -48,6 +59,49 @@ final class FakeSidebarV1ControlCommandContext: ControlCommandContext {
         requireOwnedKey: Bool
     ) {
         agentPIDClearCall = (target, key, panelID, clearStatus, requireOwnedKey)
+    }
+
+    nonisolated func controlSidebarParseAgentLifecycle(_ raw: String) -> String? {
+        ["unknown", "running", "idle", "needsInput"].contains(raw) ? raw : nil
+    }
+
+    nonisolated func controlSidebarIsAllowedAgentLifecycleKey(
+        _ key: String,
+        target: ControlSidebarTabTarget,
+        panelID: UUID?
+    ) -> Bool {
+        key == "codex"
+    }
+
+    nonisolated func controlSidebarScheduleAgentLifecycle(
+        target: ControlSidebarTabTarget,
+        key: String,
+        lifecycleRawValue: String,
+        panelID: UUID?,
+        promptBoundary: Bool,
+        normalCompletion: Bool,
+        hookFailureEvidence: Bool,
+        identity: ControlSidebarLifecycleIdentity?
+    ) {
+        agentLifecycleCall = (target, key, lifecycleRawValue, panelID, promptBoundary, normalCompletion, hookFailureEvidence, identity)
+    }
+
+    nonisolated func controlSidebarScheduleAgentLifecycle(
+        target: ControlSidebarTabTarget,
+        key: String,
+        lifecycleRawValue: String,
+        panelID: UUID?
+    ) {
+        controlSidebarScheduleAgentLifecycle(
+            target: target,
+            key: key,
+            lifecycleRawValue: lifecycleRawValue,
+            panelID: panelID,
+            promptBoundary: false,
+            normalCompletion: false,
+            hookFailureEvidence: false,
+            identity: nil
+        )
     }
 
     nonisolated func controlSidebarScheduleScopedShellState(

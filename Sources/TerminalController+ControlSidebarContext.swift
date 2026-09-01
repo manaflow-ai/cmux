@@ -43,6 +43,14 @@ extension TerminalController: ControlSidebarContext {
                 // Still update PID tracking even if the status display hasn't changed.
                 if let pid {
                     owner.recordAgentPID(key: key, pid: pid, panelId: panelID)
+                    if let panelID {
+                        AppDelegate.shared?.agentStallSupervisor?.processDidChange(
+                            owner: owner,
+                            panelID: panelID,
+                            key: key,
+                            pid: pid
+                        )
+                    }
                 }
                 return
             }
@@ -58,6 +66,14 @@ extension TerminalController: ControlSidebarContext {
             ), key: key, panelId: panelID)
             if let pid {
                 owner.recordAgentPID(key: key, pid: pid, panelId: panelID)
+                if let panelID {
+                    AppDelegate.shared?.agentStallSupervisor?.processDidChange(
+                        owner: owner,
+                        panelID: panelID,
+                        key: key,
+                        pid: pid
+                    )
+                }
             }
         }
     }
@@ -92,11 +108,26 @@ extension TerminalController: ControlSidebarContext {
                     discardQueuedNotifications: false
                 )
             }
+            if let panelID {
+                AppDelegate.shared?.agentStallSupervisor?.processDidChange(
+                    owner: owner,
+                    panelID: panelID,
+                    key: key,
+                    pid: pid
+                )
+            }
         }
     }
 
     nonisolated func controlSidebarParseAgentLifecycle(_ raw: String) -> String? {
         AgentHibernationLifecycleState.parseCLIValue(raw)?.rawValue
+    }
+
+    nonisolated func controlSidebarAgentLifecycleUsage() -> String {
+        String(
+            localized: "cli.socket.setAgentLifecycle.usage",
+            defaultValue: "set_agent_lifecycle <key> <unknown|running|idle|needsInput> [--tab=<id>] [--panel=<id>] [--prompt-boundary] [--normal-completion] [--hook-failure] [--terminal-lifecycle-id=<id>] [--session-id=<id>] [--turn-id=<id>]"
+        )
     }
 
     /// `nonisolated` so the vault-registry disk IO runs on the calling
@@ -140,15 +171,122 @@ extension TerminalController: ControlSidebarContext {
         target: ControlSidebarTabTarget,
         key: String,
         lifecycleRawValue: String,
-        panelID: UUID?
+        panelID: UUID?,
+        promptBoundary: Bool = false,
+        normalCompletion: Bool = false,
+        hookFailureEvidence: Bool = false,
+        identity: ControlSidebarLifecycleIdentity? = nil
     ) {
         guard let lifecycle = AgentHibernationLifecycleState(rawValue: lifecycleRawValue) else {
             // Unreachable: the coordinator only forwards a value this app produced.
             return
         }
-        controlSidebarSchedulePanelOwnedMutation(target: target, panelID: panelID) { _, owner in
+        let mutation: @MainActor () -> Void = { [weak self] in
+            guard let self,
+                  let owner = self.controlSidebarResolvePanelOwner(
+                      target: target,
+                      panelID: panelID
+                  ) else {
+                return
+            }
+            guard self.controlSidebarAgentLifecycleIsAdmissible(
+                owner: owner,
+                panelID: panelID,
+                key: key,
+                lifecycle: lifecycle,
+                promptBoundary: promptBoundary,
+                identity: identity
+            ) else {
+                return
+            }
+            let outputCapture: AgentStallOutputCapture?
+            if lifecycle == .running {
+                outputCapture = nil
+            } else if let panelID,
+                      let supervisor = AppDelegate.shared?.agentStallSupervisor,
+                      supervisor.shouldConsumeManagedCapture(
+                          owner: owner,
+                          panelID: panelID,
+                          key: key,
+                          lifecycle: lifecycle,
+                          promptBoundary: promptBoundary,
+                          identity: identity
+                      ) {
+                // Only an authoritative provider Stop event consumes the
+                // bounded turn capture. Generic notification/status updates
+                // can arrive before that event and must not erase its evidence.
+                outputCapture = GhosttyApp.agentStallOutputDemand?.finishCapture(for: panelID)
+            } else {
+                outputCapture = nil
+            }
             owner.setAgentLifecycle(key: key, panelId: panelID, lifecycle: lifecycle)
+            guard let panelID else { return }
+            AppDelegate.shared?.agentStallSupervisor?.lifecycleDidChange(
+                owner: owner,
+                panelID: panelID,
+                key: key,
+                lifecycle: lifecycle,
+                promptBoundary: promptBoundary,
+                normalCompletion: normalCompletion,
+                hookFailureEvidence: hookFailureEvidence,
+                outputCapture: outputCapture,
+                identity: identity
+            )
         }
+        if lifecycle == .running, !promptBoundary, let panelID {
+            // Tool hooks are presentation-only while a turn is open. Keep at
+            // most one pending running hint per surface, without moving it
+            // behind an already queued authoritative boundary.
+            TerminalMutationBus.shared.enqueueCoalescingMainActorMutation(
+                replaceKey: .agentLifecycle(surfaceId: panelID, lifecycleKey: key),
+                mutation
+            )
+        } else {
+            TerminalMutationBus.shared.enqueueMainActorMutation(mutation)
+        }
+    }
+
+    /// Preserves the pre-evidence lifecycle entry point for older callers while
+    /// keeping one concrete scheduling witness on the app conformer.
+    nonisolated func controlSidebarScheduleAgentLifecycle(
+        target: ControlSidebarTabTarget,
+        key: String,
+        lifecycleRawValue: String,
+        panelID: UUID?
+    ) {
+        controlSidebarScheduleAgentLifecycle(
+            target: target,
+            key: key,
+            lifecycleRawValue: lifecycleRawValue,
+            panelID: panelID,
+            promptBoundary: false,
+            normalCompletion: false,
+            hookFailureEvidence: false,
+            identity: nil
+        )
+    }
+
+    @MainActor
+    private func controlSidebarAgentLifecycleIsAdmissible(
+        owner: ControlSidebarPanelOwner,
+        panelID: UUID?,
+        key: String,
+        lifecycle: AgentHibernationLifecycleState,
+        promptBoundary: Bool,
+        identity: ControlSidebarLifecycleIdentity?
+    ) -> Bool {
+        guard let panelID,
+              let supervisor = AppDelegate.shared?.agentStallSupervisor else {
+            return true
+        }
+        return supervisor.lifecycleEventIsCurrent(
+            owner: owner,
+            panelID: panelID,
+            key: key,
+            lifecycle: lifecycle,
+            promptBoundary: promptBoundary,
+            identity: identity
+        )
     }
 
     func controlSidebarSetWorkspaceLoading(

@@ -682,6 +682,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     weak var tabManager: TabManager?
     weak var notificationStore: TerminalNotificationStore?
+    /// App-lifetime owner for managed-agent in-session stall recovery.
+    private(set) var agentStallSupervisor: AgentStallSupervisor?
     weak var sidebarState: SidebarState?
 #if DEBUG
     private(set) var pullRequestProbeService = PullRequestProbeService(debugLog: { cmuxDebugLog($0) })
@@ -2416,6 +2418,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         pullRequestProbeService = tabManager.pullRequestProbeService
         self.settingsRuntime = settingsRuntime
         self.notificationStore = notificationStore
+        if agentStallSupervisor == nil,
+           let outputDemand = GhosttyApp.agentStallOutputDemand {
+            agentStallSupervisor = AgentStallSupervisor(
+                app: self,
+                notificationStore: notificationStore,
+                outputDemand: outputDemand
+            )
+        }
         self.sidebarState = sidebarState
         self.auth = auth
         self.computerUseRuntimeService = computerUseRuntimeService

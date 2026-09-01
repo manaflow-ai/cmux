@@ -17,6 +17,10 @@ struct ClaudeBackgroundWorkNotifyTests {
         snapshot.first { $0.hasPrefix("set_status claude_code \(value) ") }
     }
 
+    private func lifecycleLine(_ snapshot: [String], value: String) -> String? {
+        snapshot.first { $0.hasPrefix("set_agent_lifecycle claude_code \(value) ") }
+    }
+
     private func journalEvent(
         _ snapshot: [String],
         kind: String,
@@ -94,6 +98,10 @@ struct ClaudeBackgroundWorkNotifyTests {
         #expect(journalEvent(snapshot, kind: "agent.turn.completed", pendingWork: true) != nil,
                 "Pending stop must journal a pending turn completion; saw \(snapshot)")
         #expect(journalEvent(snapshot, kind: "agent.turn.completed", pendingWork: false) == nil)
+        let runningLifecycle = lifecycleLine(snapshot, value: "running")
+        #expect(runningLifecycle != nil,
+                "Pending stop must publish a running lifecycle; saw \(snapshot)")
+        #expect(lifecycleLine(snapshot, value: "idle") == nil)
     }
 
     @Test func stopWithEmptyArraysTagsIdleAndCachesFalse() throws {
@@ -110,8 +118,41 @@ struct ClaudeBackgroundWorkNotifyTests {
         // idle lifecycle).
         #expect(statusLine(snapshot, value: "Idle") != nil,
                 "Truly-idle stop must show the Idle pill; saw \(snapshot)")
+        let idleLifecycle = lifecycleLine(snapshot, value: "idle")
+        #expect(idleLifecycle != nil,
+                "Truly-idle stop must publish an idle lifecycle; saw \(snapshot)")
+        #expect(idleLifecycle?.contains("--prompt-boundary") == true)
+        #expect(idleLifecycle?.contains("--normal-completion") == true)
         #expect(journalEvent(snapshot, kind: "agent.turn.completed", pendingWork: false) != nil,
                 "Truly-idle stop must journal a non-pending turn completion; saw \(snapshot)")
+    }
+
+    @Test func stopWithProviderFailureMessageDoesNotClaimNormalCompletion() throws {
+        let session = "provider-failure-message-session"
+        let stdin = #"""
+        {"session_id":"\#(session)","cwd":"/tmp/x","hook_event_name":"Stop","last_assistant_message":"This request requires usage credits. Add credits to continue.","background_tasks":[],"session_crons":[]}
+        """#
+        let (snapshot, _) = try runStopHook(name: "provider-failure-message", sessionId: session, stdin: stdin)
+        let idleLifecycle = lifecycleLine(snapshot, value: "idle")
+        #expect(idleLifecycle != nil,
+                "A provider failure still returns to the idle prompt; saw \(snapshot)")
+        #expect(idleLifecycle?.contains("--prompt-boundary") == true)
+        #expect(idleLifecycle?.contains("--normal-completion") != true,
+                "A quota banner echoed as last_assistant_message must not be marked normal; saw \(snapshot)")
+    }
+
+    @Test func stopWithNestedProviderFailureDoesNotClaimNormalCompletion() throws {
+        let session = "nested-provider-failure-session"
+        let stdin = #"""
+        {"session_id":"\#(session)","cwd":"/tmp/x","hook_event_name":"Stop","last_assistant_message":"The turn ended.","provider_result":{"details":{"error":{"code":"quota_exhausted","message":"requires usage credits"}}},"background_tasks":[],"session_crons":[]}
+        """#
+        let (snapshot, _) = try runStopHook(name: "nested-provider-failure", sessionId: session, stdin: stdin)
+        let idleLifecycle = lifecycleLine(snapshot, value: "idle")
+        #expect(idleLifecycle != nil,
+                "A nested provider failure still returns to the idle prompt; saw \(snapshot)")
+        #expect(idleLifecycle?.contains("--prompt-boundary") == true)
+        #expect(idleLifecycle?.contains("--normal-completion") != true,
+                "Nested structured provider errors must keep completion proof conservative; saw \(snapshot)")
     }
 
     @Test func stopWithPendingCronTagsPending() throws {

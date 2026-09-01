@@ -74,6 +74,10 @@ extension ControlSidebarContext {
         panelID: UUID?
     ) {}
 
+    nonisolated func controlSidebarAgentLifecycleUsage() -> String {
+        "localized set-agent-lifecycle usage"
+    }
+
     nonisolated func controlSidebarParseAgentLifecycle(_ raw: String) -> String? { nil }
 
     nonisolated func controlSidebarIsAllowedAgentLifecycleKey(
@@ -81,6 +85,17 @@ extension ControlSidebarContext {
         target: ControlSidebarTabTarget,
         panelID: UUID?
     ) -> Bool { false }
+
+    nonisolated func controlSidebarScheduleAgentLifecycle(
+        target: ControlSidebarTabTarget,
+        key: String,
+        lifecycleRawValue: String,
+        panelID: UUID?,
+        promptBoundary: Bool,
+        normalCompletion: Bool,
+        hookFailureEvidence: Bool,
+        identity: ControlSidebarLifecycleIdentity?
+    ) {}
 
     nonisolated func controlSidebarScheduleAgentLifecycle(
         target: ControlSidebarTabTarget,

@@ -345,6 +345,51 @@ extension ControlCommandCoordinator {
         return (panelId, nil)
     }
 
+    /// Parses the identity facts attached to an agent lifecycle command.
+    /// Values are bounded before they enter the main-actor mutation queue so a
+    /// malformed hook cannot retain arbitrarily large command payloads.
+    nonisolated func sidebarParseLifecycleIdentity(
+        options: [String: String],
+        usage: String
+    ) -> (identity: ControlSidebarLifecycleIdentity?, error: String?) {
+        let terminalLifecycleID: UUID?
+        if let raw = options["terminal-lifecycle-id"] {
+            let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !trimmed.isEmpty, let parsed = UUID(uuidString: trimmed) else {
+                return (nil, "ERROR: Invalid terminal lifecycle id — usage: \(usage)")
+            }
+            terminalLifecycleID = parsed
+        } else {
+            terminalLifecycleID = nil
+        }
+
+        func bounded(_ name: String) -> (String?, String?) {
+            guard let raw = options[name] else { return (nil, nil) }
+            let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !trimmed.isEmpty else {
+                return (nil, "ERROR: Missing \(name) — usage: \(usage)")
+            }
+            guard !trimmed.hasPrefix("-") else {
+                return (nil, "ERROR: \(name) looks like an option — usage: \(usage)")
+            }
+            guard trimmed.utf8.count <= 512 else {
+                return (nil, "ERROR: \(name) is too long — usage: \(usage)")
+            }
+            return (trimmed, nil)
+        }
+
+        let (sessionID, sessionError) = bounded("session-id")
+        if let sessionError { return (nil, sessionError) }
+        let (turnID, turnError) = bounded("turn-id")
+        if let turnError { return (nil, turnError) }
+        let identity = ControlSidebarLifecycleIdentity(
+            terminalLifecycleID: terminalLifecycleID,
+            sessionID: sessionID,
+            turnID: turnID
+        )
+        return (identity.isEmpty ? nil : identity, nil)
+    }
+
     /// Resolves the explicit shell-integration scope when both `--tab` and
     /// `--panel` are UUIDs. A supplied terminal lifecycle token is parsed as
     /// part of that same scope so telemetry cannot lose process-generation

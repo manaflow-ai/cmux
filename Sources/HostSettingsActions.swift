@@ -101,6 +101,7 @@ final class HostSettingsActions: SettingsHostActions {
     func resetAllSettingsSideEffects() {
         LanguageSettingsStore(defaults: .standard).applyLanguageOverride(.system)
         PaneChromeSettings.notifyDidChange()
+        AgentSessionAutoRetrySettings().notifyDidChange()
         TerminalAdaptiveDefaultThemeSettings.notifyDidChange()
         PhonePushClient.shared.reloadConfigurationFromDefaults()
         AppDelegate.shared?.reconcileSocketListenerConfiguration(source: "settings.reset_all")
@@ -130,6 +131,10 @@ final class HostSettingsActions: SettingsHostActions {
 
     func applyLanguageOverride(_ language: AppLanguage) {
         LanguageSettingsStore(defaults: .standard).applyLanguageOverride(language)
+    }
+
+    func agentSessionAutoRetrySettingDidChange() {
+        AgentSessionAutoRetrySettings().notifyDidChange()
     }
 
     func refreshComputerUsePermissions() async {

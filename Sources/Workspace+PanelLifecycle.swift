@@ -56,11 +56,16 @@ extension Workspace {
         panelId: UUID,
         currentProcessIdentity: (Int) -> AgentPIDProcessIdentity?
     ) -> Set<AgentPIDProcessIdentity> {
-        // Claude's `claude_code` key identifies only a panel, not a session, so it
-        // cannot prove that a live process supersedes this cached session generation.
-        guard kind != .claude else { return [] }
-        let key = "\(kind.rawValue).\(sessionId)"
-        guard agentPIDKeysByPanelId[panelId]?.contains(key) == true,
+        // Claude hooks historically used a workspace-global `claude_code` key;
+        // current writes are normalized to the same session-scoped shape as
+        // every other managed agent, so concurrent panes remain attributable.
+        let keys = kind == .claude
+            ? [
+                "claude_code.\(sessionId)",
+                "claude_code.panel.\(panelId.uuidString.lowercased())",
+            ]
+            : ["\(kind.rawValue).\(sessionId)"]
+        guard let key = keys.first(where: { agentPIDKeysByPanelId[panelId]?.contains($0) == true }),
               let pid = agentPIDs[key],
               pid > 0,
               let recordedIdentity = agentPIDProcessIdentitiesByKey[key],
@@ -179,17 +184,22 @@ extension Workspace {
     }
     @discardableResult
     func recordAgentPID(key: String, pid: pid_t, panelId: UUID?, refreshPorts: Bool = true) -> Bool {
+        // Claude's historical `claude_code` key was workspace-global. Keep
+        // accepting that wire key, but persist a session-scoped key whenever
+        // the panel has a managed binding so two Claude panes cannot evict one
+        // another from `agentPIDPanelIdsByKey`.
+        let storageKey = scopedAgentPIDKey(key: key, panelId: panelId)
         let previous = (
-            panelId: agentPIDPanelIdsByKey[key],
-            pid: agentPIDs[key],
-            identity: agentPIDProcessIdentitiesByKey[key]
+            panelId: agentPIDPanelIdsByKey[storageKey],
+            pid: agentPIDs[storageKey],
+            identity: agentPIDProcessIdentitiesByKey[storageKey]
         )
         var didClearOtherStructuredAgentRuntime = false
-        if let panelId { didClearOtherStructuredAgentRuntime = clearOtherStructuredAgentRuntimes(onPanel: panelId, keeping: key) }
+        if let panelId { didClearOtherStructuredAgentRuntime = clearOtherStructuredAgentRuntimes(onPanel: panelId, keeping: storageKey) }
         let processIdentity = Self.agentPIDProcessIdentity(pid: pid)
-        agentPIDs[key] = pid
-        agentPIDProcessIdentitiesByKey[key] = processIdentity
-        if let panelId { recordAgentPIDOwnership(key: key, panelId: panelId) } else { removeAgentPIDOwnership(key: key) }
+        agentPIDs[storageKey] = pid
+        agentPIDProcessIdentitiesByKey[storageKey] = processIdentity
+        if let panelId { recordAgentPIDOwnership(key: storageKey, panelId: panelId) } else { removeAgentPIDOwnership(key: storageKey) }
         if previous.pid != pid || previous.panelId != panelId || previous.identity != processIdentity {
             for changedPanelId in (previous.panelId == panelId ? [panelId] : [previous.panelId, panelId]).compactMap({ $0 }) {
                 AgentHibernationController.shared.recordAgentProcessChange(workspaceId: id, panelId: changedPanelId)
@@ -197,6 +207,24 @@ extension Workspace {
         }
         if refreshPorts { refreshTrackedAgentPorts() }
         return didClearOtherStructuredAgentRuntime
+    }
+
+    /// Maps the legacy Claude PID key to a panel-scoped storage identity.
+    /// Non-Claude keys retain their original spelling for compatibility.
+    private func scopedAgentPIDKey(key: String, panelId: UUID?) -> String {
+        guard key == "claude_code",
+              let panelId else {
+            return key
+        }
+        if let checkpointID = surfaceResumeBindingsByPanelId[panelId]?.checkpointId?
+            .trimmingCharacters(in: .whitespacesAndNewlines),
+           !checkpointID.isEmpty {
+            return "claude_code.\(checkpointID)"
+        }
+        // Unbound/manual callers still rely on the historical status-key
+        // projection (`agentPIDs["claude_code"]`), so retain that spelling
+        // until a managed binding supplies a session identity.
+        return key
     }
 
     @discardableResult
@@ -307,37 +335,71 @@ extension Workspace {
         requireOwnedKey: Bool = false,
         refreshPorts: Bool = true
     ) -> Bool {
-        let ownedPanelId = agentPIDPanelIdsByKey[key]
-        if requireOwnedKey, ownedPanelId == nil {
+        // A panel-scoped legacy clear has no session identity. Do not derive a
+        // replacement key from the panel's *current* binding: an old hook may
+        // arrive after that binding has changed and would otherwise clear the
+        // replacement session. Callers with a session identity must pass the
+        // already-scoped key explicitly.
+        let scopedKey = key == "claude_code" && panelId != nil
+            ? key
+            : scopedAgentPIDKey(key: key, panelId: panelId)
+        var candidateKeys = [scopedKey]
+        if key == "claude_code", panelId == nil {
+            // Session teardown can clear the binding before issuing the legacy
+            // bare-key command. Workspace-scoped cleanup may therefore clear
+            // every Claude-scoped key, while panel-scoped cleanup stays exact.
+            candidateKeys.append(contentsOf: agentPIDPanelIdsByKey.compactMap { candidate, owner in
+                guard candidate.hasPrefix("claude_code.") else { return nil }
+                return panelId == nil || owner == panelId ? candidate : nil
+            })
+        }
+        var uniqueKeys: [String] = []
+        var seenKeys = Set<String>()
+        for candidate in candidateKeys where seenKeys.insert(candidate).inserted {
+            uniqueKeys.append(candidate)
+        }
+        let ownedKeys = uniqueKeys.filter { candidate in
+            guard let owner = agentPIDPanelIdsByKey[candidate] else { return false }
+            return panelId == nil || owner == panelId
+        }
+        if requireOwnedKey, ownedKeys.isEmpty {
             return false
         }
-        if let panelId, let ownedPanelId, ownedPanelId != panelId {
-            return false
-        }
-        let statusKeyToClear = clearStatus ? agentStatusKey(forAgentPIDKey: key) : nil
-
         var didChange = false
-        if agentPIDs.removeValue(forKey: key) != nil {
-            didChange = true
+        var changedPanelIDs = Set<UUID>()
+        var lifecycleStatusKeysByPanelID: [UUID: Set<String>] = [:]
+        var statusKeysToClear = Set<String>()
+        for candidate in uniqueKeys {
+            let ownedPanelId = agentPIDPanelIdsByKey[candidate]
+            if let panelId, let ownedPanelId, ownedPanelId != panelId { continue }
+            let statusKey = agentStatusKey(forAgentPIDKey: candidate)
+            if clearStatus { statusKeysToClear.insert(statusKey) }
+            if agentPIDs.removeValue(forKey: candidate) != nil { didChange = true }
+            if agentPIDProcessIdentitiesByKey.removeValue(forKey: candidate) != nil { didChange = true }
+            if ownedPanelId != nil {
+                removeAgentPIDOwnership(key: candidate)
+                didChange = true
+            }
+            if let changedPanelId = ownedPanelId ?? panelId {
+                changedPanelIDs.insert(changedPanelId)
+                lifecycleStatusKeysByPanelID[changedPanelId, default: []].insert(statusKey)
+            }
         }
-        if agentPIDProcessIdentitiesByKey.removeValue(forKey: key) != nil {
-            didChange = true
+        for changedPanelID in changedPanelIDs {
+            AgentHibernationController.shared.recordAgentProcessChange(
+                workspaceId: id,
+                panelId: changedPanelID
+            )
         }
-        if ownedPanelId != nil {
-            removeAgentPIDOwnership(key: key)
-            didChange = true
-        }
-        if let changedPanelId = ownedPanelId ?? panelId, didChange { AgentHibernationController.shared.recordAgentProcessChange(workspaceId: id, panelId: changedPanelId) }
-        if let lifecyclePanelId = ownedPanelId ?? panelId {
-            let lifecycleStatusKey = agentStatusKey(forAgentPIDKey: key)
-            if clearAgentLifecycle(key: lifecycleStatusKey, panelId: lifecyclePanelId) {
+        for (lifecyclePanelID, statusKeys) in lifecycleStatusKeysByPanelID {
+            for statusKey in statusKeys where clearAgentLifecycle(key: statusKey, panelId: lifecyclePanelID) {
                 didChange = true
             }
         }
-        if let statusKeyToClear,
-           !hasAgentRuntime(forStatusKey: statusKeyToClear),
-           statusEntries.removeValue(forKey: statusKeyToClear) != nil {
-            didChange = true
+        for statusKey in statusKeysToClear where !hasAgentRuntime(forStatusKey: statusKey) {
+            if statusEntries.removeValue(forKey: statusKey) != nil {
+                didChange = true
+            }
         }
         if didChange, refreshPorts {
             refreshTrackedAgentPorts()
