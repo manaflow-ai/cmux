@@ -19,6 +19,7 @@ nonisolated final class AgentChatActionInFlightGate: @unchecked Sendable {
     }
 
     typealias SessionTerminator = @Sendable (AgentChatOwnedServerSession) -> Bool
+    typealias ProcessTerminator = @Sendable (AgentChatSidecarProcessHandle) -> Bool
     typealias AsyncSessionTerminator = @Sendable (AgentChatOwnedServerSession) async -> Bool
 
     // Synchronous AppKit/shutdown callbacks need one atomic compare-and-set;
@@ -27,12 +28,16 @@ nonisolated final class AgentChatActionInFlightGate: @unchecked Sendable {
     // never runs while it is held. The test target accesses it through
     // @testable import rather than a production reset hook.
     nonisolated let lock: OSAllocatedUnfairLock<State>
+    private let processTerminator: ProcessTerminator
     private let sessionTerminator: SessionTerminator
     private let asyncSessionTerminator: AsyncSessionTerminator
 
     /// Creates an empty gate for one app composition root.
     init(
         sidecarStateFileStore: AgentChatSidecarStateFileStore? = AgentChatSidecarStateFileStore.live(),
+        processTerminator: @escaping ProcessTerminator = { process in
+            process.terminate()
+        },
         sessionTerminator: @escaping SessionTerminator = { session in
             AgentChatSidecarProcessTerminator().terminate(session: session)
         },
@@ -53,6 +58,7 @@ nonisolated final class AgentChatActionInFlightGate: @unchecked Sendable {
         var state = State()
         state.sidecarStateFileStore = sidecarStateFileStore
         self.lock = OSAllocatedUnfairLock(initialState: state)
+        self.processTerminator = processTerminator
         self.sessionTerminator = sessionTerminator
         self.asyncSessionTerminator = asyncSessionTerminator
     }
@@ -99,84 +105,87 @@ nonisolated final class AgentChatActionInFlightGate: @unchecked Sendable {
         }
     }
 
-    private enum OwnershipUpdateResult {
-        case retry(AgentChatSidecarProcessExitCompletion)
-        case applied(AgentChatSidecarProcessHandle?)
-        case rejected
+    private struct OwnedServerSnapshot: @unchecked Sendable {
+        let session: AgentChatOwnedServerSession?
+        let process: AgentChatSidecarProcessHandle?
     }
 
-    /// Records a discovered session without racing an in-flight termination.
-    /// The termination check and ownership replacement share one lock turn;
-    /// waiting before the turn alone would leave a gap for a new claimant.
-    @discardableResult
-    func updateOwnedServerSession(_ session: AgentChatOwnedServerSession) async -> Bool {
-        while true {
-            let result = lock.withLock { state -> OwnershipUpdateResult in
-                if state.terminationInProgress {
-                    guard let completion = state.terminationCompletion else { return .rejected }
-                    return .retry(completion)
-                }
-                guard !state.terminationFailed else { return .rejected }
-                let previous = state.ownedServerProcess
-                if previous?.launchId != session.launchId {
+    private enum OwnershipReplacement {
+        case session(AgentChatOwnedServerSession)
+        case process(AgentChatSidecarProcessHandle)
+        case server(session: AgentChatOwnedServerSession, process: AgentChatSidecarProcessHandle)
+
+        var processHandle: AgentChatSidecarProcessHandle? {
+            switch self {
+            case .session:
+                return nil
+            case .process(let process), .server(_, let process):
+                return process
+            }
+        }
+
+        func needsPreviousProcessTermination(in state: State) -> Bool {
+            guard let previous = state.ownedServerProcess else { return false }
+            switch self {
+            case .session(let session):
+                return previous.launchId != session.launchId
+            case .process(let process), .server(_, let process):
+                return previous !== process
+            }
+        }
+
+        /// Applies a replacement only after the previous process is proven gone.
+        func apply(to state: inout State) {
+            switch self {
+            case .session(let session):
+                if let previous = state.ownedServerProcess,
+                   previous.launchId != session.launchId {
                     state.ownedServerProcess = nil
                 }
                 state.ownedServerSession = session
-                return .applied(previous)
-            }
-            switch result {
-            case .retry(let completion):
-                guard await completion.wait() else { return false }
-            case .rejected:
-                return false
-            case .applied(let previous):
-                if previous?.launchId != session.launchId { previous?.terminate() }
-                return true
-            }
-        }
-    }
-
-    /// Records a newly-launched process without dropping it during cleanup.
-    /// The process parameter remains retained while a concurrent termination
-    /// publishes its completion, so it cannot deinitialize as an unowned child.
-    @discardableResult
-    func updateOwnedServerProcess(_ process: AgentChatSidecarProcessHandle) async -> Bool {
-        while true {
-            let result = lock.withLock { state -> OwnershipUpdateResult in
-                if state.terminationInProgress {
-                    guard let completion = state.terminationCompletion else { return .rejected }
-                    return .retry(completion)
-                }
-                guard !state.terminationFailed else { return .rejected }
-                let previous = state.ownedServerProcess
+            case .process(let process):
                 if let session = state.ownedServerSession,
                    session.launchId != process.launchId {
                     state.ownedServerSession = nil
                 }
                 state.ownedServerProcess = process
-                return .applied(previous)
-            }
-            switch result {
-            case .retry(let completion):
-                guard await completion.wait() else {
-                    _ = process.terminate()
-                    return false
-                }
-            case .rejected:
-                _ = process.terminate()
-                return false
-            case .applied(let previous):
-                if previous !== process { previous?.terminate() }
-                return true
+            case .server(let session, let process):
+                state.ownedServerSession = session
+                state.ownedServerProcess = process
             }
         }
     }
 
+    private enum OwnershipUpdateResult {
+        case retry(AgentChatSidecarProcessExitCompletion)
+        case replace(OwnedServerSnapshot, AgentChatSidecarProcessExitCompletion)
+        case applied
+        case rejected
+    }
+
+    /// Records ownership without publishing a replacement before cleanup.
+    @discardableResult
+    func updateOwnedServerSession(_ session: AgentChatOwnedServerSession) async -> Bool {
+        await updateOwnership(.session(session))
+    }
+
+    /// Records a newly-launched process without dropping it during cleanup.
+    @discardableResult
+    func updateOwnedServerProcess(_ process: AgentChatSidecarProcessHandle) async -> Bool {
+        await updateOwnership(.process(process))
+    }
+
     /// Atomically publishes a verified session after any prior termination.
+    @discardableResult
     func updateOwnedServer(
         session: AgentChatOwnedServerSession,
         process: AgentChatSidecarProcessHandle
     ) async -> Bool {
+        await updateOwnership(.server(session: session, process: process))
+    }
+
+    /// Serializes replacement cleanup and keeps failed ownership retryable.
+    private func updateOwnership(_ replacement: OwnershipReplacement) async -> Bool {
         while true {
             let result = lock.withLock { state -> OwnershipUpdateResult in
                 if state.terminationInProgress {
@@ -184,35 +193,83 @@ nonisolated final class AgentChatActionInFlightGate: @unchecked Sendable {
                     return .retry(completion)
                 }
                 guard !state.terminationFailed else { return .rejected }
-                let previous = state.ownedServerProcess
-                state.ownedServerSession = session
-                state.ownedServerProcess = process
-                return .applied(previous)
+                guard replacement.needsPreviousProcessTermination(in: state) else {
+                    replacement.apply(to: &state)
+                    return .applied
+                }
+                let snapshot = OwnedServerSnapshot(
+                    session: state.ownedServerSession,
+                    process: state.ownedServerProcess
+                )
+                let completion = AgentChatSidecarProcessExitCompletion()
+                state.terminationInProgress = true
+                state.terminationFailed = false
+                state.terminationCompletion = completion
+                return .replace(snapshot, completion)
             }
             switch result {
             case .retry(let completion):
                 guard await completion.wait() else {
-                    _ = process.terminate()
+                    terminateReplacementIfUnowned(replacement)
                     return false
                 }
             case .rejected:
-                _ = process.terminate()
+                terminateReplacementIfUnowned(replacement)
                 return false
-            case .applied(let previous):
-                if previous !== process { previous?.terminate() }
+            case .applied:
                 return true
+            case .replace(let snapshot, let completion):
+                let didTerminate = terminateSnapshot(snapshot)
+                let applied = finishOwnershipReplacement(
+                    snapshot,
+                    replacement: replacement,
+                    completion: completion,
+                    didTerminate: didTerminate
+                )
+                if !applied { terminateReplacementIfUnowned(replacement) }
+                return applied
             }
         }
+    }
+
+    /// Publishes one replacement result while the old snapshot is still locked.
+    private func finishOwnershipReplacement(
+        _ snapshot: OwnedServerSnapshot,
+        replacement: OwnershipReplacement,
+        completion: AgentChatSidecarProcessExitCompletion,
+        didTerminate: Bool
+    ) -> Bool {
+        let result = lock.withLock { state -> Bool in
+            guard state.terminationInProgress else { return false }
+            state.terminationInProgress = false
+            state.terminationCompletion = nil
+            guard didTerminate,
+                  let previous = snapshot.process,
+                  state.ownedServerProcess === previous,
+                  state.ownedServerSession == snapshot.session else {
+                state.terminationFailed = true
+                return false
+            }
+            state.terminationFailed = false
+            replacement.apply(to: &state)
+            return true
+        }
+        Task { await completion.finish(result) }
+        return result
+    }
+
+    /// Prevents a rejected incoming handle from becoming an unowned child.
+    private func terminateReplacementIfUnowned(_ replacement: OwnershipReplacement) {
+        guard let process = replacement.processHandle else { return }
+        let isOwned = lock.withLock { state in
+            state.ownedServerProcess === process
+        }
+        if !isOwned { _ = processTerminator(process) }
     }
 
     /// Retains the legacy clear API while requiring identity-safe termination.
     func clearOwnedServerSession(matching candidate: AgentChatOwnedServerSession? = nil) {
         _ = terminateOwnedServer(matching: candidate)
-    }
-
-    private struct OwnedServerSnapshot: @unchecked Sendable {
-        let session: AgentChatOwnedServerSession?
-        let process: AgentChatSidecarProcessHandle?
     }
 
     /// Marks the current owner as terminating and returns an immutable snapshot.
@@ -283,7 +340,7 @@ nonisolated final class AgentChatActionInFlightGate: @unchecked Sendable {
     /// Runs synchronous cleanup for one claimed owner snapshot.
     private func terminateSnapshot(_ snapshot: OwnedServerSnapshot) -> Bool {
         if let process = snapshot.process {
-            return process.terminate()
+            return processTerminator(process)
         }
         if let session = snapshot.session {
             // Legacy in-memory sessions still require persisted identity and a
