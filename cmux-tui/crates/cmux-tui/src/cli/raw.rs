@@ -156,9 +156,10 @@ mod tests {
     #[test]
     fn explicit_session_precedes_ambient_socket_fallbacks() {
         let global = GlobalArgs { session: Some("session-alpha".into()), ..GlobalArgs::default() };
-        let socket =
-            super::wire::resolve_socket_with_env(&global, |_| Some("/tmp/stale.sock".into()))
-                .expect("session socket path should resolve");
+        let socket = super::super::wire::resolve_socket_with_env(&global, |_| {
+            Some("/tmp/stale.sock".into())
+        })
+        .expect("session socket path should resolve");
 
         assert_eq!(
             socket.0,
