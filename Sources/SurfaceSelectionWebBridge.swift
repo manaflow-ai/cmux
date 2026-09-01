@@ -74,7 +74,7 @@ final class SurfaceSelectionWebBridge: NSObject, WKScriptMessageHandler {
         webView.evaluateJavaScript(Self.teardownScript, completionHandler: nil)
         controller.removeScriptMessageHandler(forName: Self.messageName)
         Self.removeBridgeUserScripts(from: controller)
-        webView = nil
+        self.webView = nil
     }
 
     /// Removes only scripts installed by this bridge. Browser and markdown
