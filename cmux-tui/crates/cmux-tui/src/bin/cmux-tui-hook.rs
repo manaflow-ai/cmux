@@ -568,20 +568,24 @@ mod detach {
     ) -> anyhow::Result<Handoff> {
         use std::os::unix::process::CommandExt;
         let exe = std::env::current_exe().context("locate hook helper")?;
-        let mut child = Command::new(exe)
+        let mut command = Command::new(exe);
+        command
             .arg(DETACHED_MODE_ARG)
             .env("CMUX_TUI_SOCKET", socket)
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
-            .stderr(Stdio::null())
-            .pre_exec(|| {
-                if unsafe { libc::setsid() } < 0 {
+            .stderr(Stdio::null());
+        // `pre_exec` runs in the child after fork and is therefore unsafe to
+        // call unless the closure is limited to async-signal-safe operations.
+        unsafe {
+            command.pre_exec(|| {
+                if libc::setsid() < 0 {
                     return Err(std::io::Error::last_os_error());
                 }
                 Ok(())
-            })
-            .spawn()
-            .context("spawn detached hook child")?;
+            });
+        }
+        let mut child = command.spawn().context("spawn detached hook child")?;
         let mut stdin = child.stdin.take().context("detached hook child has no stdin")?;
         stdin.write_all(request_id.as_bytes())?;
         stdin.write_all(b"\n")?;
