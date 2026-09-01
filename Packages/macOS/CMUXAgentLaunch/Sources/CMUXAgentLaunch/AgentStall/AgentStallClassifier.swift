@@ -33,7 +33,7 @@ public struct AgentStallClassifier: Sendable {
     ) -> AgentStallClassification? {
         let canonicalProvider = Self.canonicalProvider(provider)
         guard !canonicalProvider.isEmpty else { return nil }
-        let normalizedOutput = Self.normalizedOutput(output)
+        let normalizedOutput = normalizedAgentStallOutput(output)
         guard !normalizedOutput.isEmpty else { return nil }
         // Terminal line wrapping can split a provider phrase at any column,
         // including in the middle of a word. Keep a whitespace-elided view
@@ -69,13 +69,13 @@ public struct AgentStallClassifier: Sendable {
             return false
         }
         guard pattern.requiredFragments.allSatisfy({
-            fragmentOutput.contains(Self.normalizedFragment($0))
+            fragmentOutput.contains(normalizedAgentStallFragment($0))
         }) else {
             return false
         }
         if !pattern.anyFragments.isEmpty,
            !pattern.anyFragments.contains(where: {
-               fragmentOutput.contains(Self.normalizedFragment($0))
+               fragmentOutput.contains(normalizedAgentStallFragment($0))
            }) {
             return false
         }
@@ -84,46 +84,48 @@ public struct AgentStallClassifier: Sendable {
         }
     }
 
-    private static func normalizedFragment(_ fragment: String) -> String {
-        fragment
-            .lowercased()
-            .filter { !$0.isWhitespace }
-    }
-
     /// Normalizes a managed provider identifier to its classifier ID.
     ///
     /// - Parameter provider: Provider identifier published by a hook or custom rule.
     /// - Returns: `claude`, `codex`, or the normalized custom provider identifier.
-    public static func canonicalProvider(_ provider: String) -> String {
-        let normalized = provider
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-            .lowercased()
-            .replacingOccurrences(of: "_", with: "-")
-        switch normalized {
-        case "claude", "claude-code", "anthropic": return "claude"
-        case "codex", "codex-cli", "openai", "openai-codex": return "codex"
-        default: return normalized
-        }
-    }
+    public static let canonicalProvider: @Sendable (String) -> String = canonicalizeAgentStallProvider
+}
 
-    private static func normalizedOutput(_ output: String) -> String {
-        var text = output
-        text = text.replacingOccurrences(
-            of: "\u{001B}\\][^\u{0007}\u{001B}]*(?:\u{0007}|\u{001B}\\\\)",
-            with: " ",
-            options: .regularExpression
-        )
-        text = text.replacingOccurrences(
-            of: "\u{001B}\\[[0-?]*[ -/]*[@-~]",
-            with: " ",
-            options: .regularExpression
-        )
-        let normalizedLines = text
-            .replacingOccurrences(of: "\r\n", with: "\n")
-            .replacingOccurrences(of: "\r", with: "\n")
-            .lowercased()
-            .split(separator: "\n", omittingEmptySubsequences: false)
-            .map { $0.split(whereSeparator: { $0.isWhitespace }).joined(separator: " ") }
-        return normalizedLines.joined(separator: "\n")
+private func normalizedAgentStallFragment(_ fragment: String) -> String {
+    fragment
+        .lowercased()
+        .filter { !$0.isWhitespace }
+}
+
+private func canonicalizeAgentStallProvider(_ provider: String) -> String {
+    let normalized = provider
+        .trimmingCharacters(in: .whitespacesAndNewlines)
+        .lowercased()
+        .replacingOccurrences(of: "_", with: "-")
+    switch normalized {
+    case "claude", "claude-code", "anthropic": return "claude"
+    case "codex", "codex-cli", "openai", "openai-codex": return "codex"
+    default: return normalized
     }
+}
+
+private func normalizedAgentStallOutput(_ output: String) -> String {
+    var text = output
+    text = text.replacingOccurrences(
+        of: "\u{001B}\\][^\u{0007}\u{001B}]*(?:\u{0007}|\u{001B}\\\\)",
+        with: " ",
+        options: .regularExpression
+    )
+    text = text.replacingOccurrences(
+        of: "\u{001B}\\[[0-?]*[ -/]*[@-~]",
+        with: " ",
+        options: .regularExpression
+    )
+    let normalizedLines = text
+        .replacingOccurrences(of: "\r\n", with: "\n")
+        .replacingOccurrences(of: "\r", with: "\n")
+        .lowercased()
+        .split(separator: "\n", omittingEmptySubsequences: false)
+        .map { $0.split(whereSeparator: { $0.isWhitespace }).joined(separator: " ") }
+    return normalizedLines.joined(separator: "\n")
 }

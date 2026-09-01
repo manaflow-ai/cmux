@@ -351,6 +351,7 @@ public protocol ControlSidebarContext: AnyObject {
     func controlSidebarSurfaceHealth(tabArg: String) -> [ControlSidebarSurfaceHealthRow]?
 }
 
+/// Compatibility implementations for lifecycle metadata callers.
 public extension ControlSidebarContext {
     /// Resource-less package fallback; the app conformer supplies localized
     /// copy from its own bundle.

@@ -3,7 +3,7 @@ import Foundation
 
 @MainActor
 extension TerminalSection {
-    static func sessionContentWidthSubtitle(enabled: Bool) -> String {
+    func sessionContentWidthSubtitle(enabled: Bool) -> String {
         if enabled {
             return String(
                 localized: "settings.terminal.sessionContentWidth.subtitleOn",
@@ -16,7 +16,7 @@ extension TerminalSection {
         )
     }
 
-    static func sessionContentAlignmentTitle(_ alignment: SessionContentAlignment) -> String {
+    func sessionContentAlignmentTitle(_ alignment: SessionContentAlignment) -> String {
         switch alignment {
         case .left:
             return String(localized: "settings.terminal.sessionContentAlignment.left", defaultValue: "Left")

@@ -1,9 +1,12 @@
 /// Pure policy that gates classification actions on managed-session evidence.
 public struct AgentStallSupervisorPolicy: Equatable, Sendable {
     /// Maximum retries and backoff used by cmux's managed-session supervisor.
-    public static let standard = AgentStallSupervisorPolicy(
-        backoffSeconds: [1, 2, 4]
-    )
+    ///
+    /// This computed value creates a fresh immutable policy for each caller;
+    /// it does not retain shared runtime state in the package.
+    public static var standard: AgentStallSupervisorPolicy {
+        AgentStallSupervisorPolicy(backoffSeconds: [1, 2, 4])
+    }
 
     /// Delay values indexed by the one-based retry attempt.
     public let backoffSeconds: [Int]

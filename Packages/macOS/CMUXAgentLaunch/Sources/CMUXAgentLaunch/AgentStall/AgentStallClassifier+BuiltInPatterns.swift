@@ -1,8 +1,9 @@
 import Foundation
 
-public extension AgentStallClassifier {
+/// The provider rules shipped with cmux's managed-agent stall supervisor.
+extension AgentStallClassifier {
     /// Built-in provider rules ordered from specific human-required states to broader transient failures.
-    static let builtInPatterns: [AgentStallPattern] = [
+    public static let builtInPatterns: [AgentStallPattern] = [
         AgentStallPattern(
             identifier: "openai.trusted-access.cybersecurity-refusal",
             providers: ["codex"],

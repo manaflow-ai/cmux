@@ -273,7 +273,7 @@ public struct TerminalSection: View {
             SettingsCardRow(
                 configurationReview: .json("terminal.sessionContentMaxWidth"),
                 String(localized: "settings.terminal.sessionContentWidth", defaultValue: "Session Content Width"),
-                subtitle: Self.sessionContentWidthSubtitle(enabled: sessionContentWidthEnabled),
+                subtitle: sessionContentWidthSubtitle(enabled: sessionContentWidthEnabled),
                 controlWidth: 250
             ) {
                 HStack(spacing: 8) {
@@ -320,7 +320,7 @@ public struct TerminalSection: View {
                     )
                 ) {
                     ForEach(SessionContentAlignment.allCases, id: \.self) { alignment in
-                        Text(Self.sessionContentAlignmentTitle(alignment)).tag(alignment)
+                        Text(sessionContentAlignmentTitle(alignment)).tag(alignment)
                     }
                 }
                 .labelsHidden()

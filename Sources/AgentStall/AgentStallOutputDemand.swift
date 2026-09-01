@@ -32,6 +32,9 @@ final class AgentStallOutputCaptureBuffer: @unchecked Sendable {
         let count: Int
     }
 
+    /// SAFETY: This state is created and consumed only while `lock` is held;
+    /// the captured tail is bounded and never escapes the synchronized handoff
+    /// except as an immutable `Data` value returned by `finishCapture()`.
     private final class CaptureState: @unchecked Sendable {
         let descriptor: AgentStallOutputDemandDescriptor
         var tail = Data()
