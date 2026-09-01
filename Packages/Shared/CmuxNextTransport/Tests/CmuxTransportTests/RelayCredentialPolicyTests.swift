@@ -13,6 +13,14 @@ struct RelayCredentialPolicyTests {
         #expect(next == now + 300 - 60)
     }
 
+    @Test("An all-known set does not inherit the opaque-token fallback cadence")
+    func allKnownSetUsesItsActualExpiry() {
+        let now: Int64 = 1_000
+        let next = RelayCredentialSchedule.nextRefresh(
+            expiries: [now + 900], now: now)
+        #expect(next == now + 900 - RelayCredentialSchedule.defaultLeadSeconds)
+    }
+
     @Test("Credentials without expiry fall back to the legacy cadence")
     func fallbackCadence() {
         let now: Int64 = 1_000
