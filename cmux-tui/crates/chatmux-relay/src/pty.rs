@@ -1960,6 +1960,7 @@ impl Inner {
         // caller is allowed to retire, so a late close cannot cancel a
         // replacement that reused the same pty id.
         let opening = {
+            let _state = self.tunnel_state.lock().expect("tunnel state lock");
             let state = self.opening_state.lock().expect("opening state lock");
             state.reservations.get(pty_id).cloned().map(|owner| (owner, None)).or_else(|| {
                 state
