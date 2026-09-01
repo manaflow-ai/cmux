@@ -125,8 +125,13 @@ pub fn draw(app: &mut App, frame: &mut Frame) {
             sidebar::draw_tabs(app, frame);
         }
     } else {
-        for placement in app.sidebar_layout.ordered.clone() {
-            match placement.kind {
+        let ordered_len = app.sidebar_layout.ordered.len();
+        for index in 0..ordered_len {
+            // Copy only the discriminator before mutably borrowing `app` for
+            // the renderer. Cloning the full placement list allocates once per
+            // frame and keeps the immutable layout borrow alive unnecessarily.
+            let kind = app.sidebar_layout.ordered[index].kind;
+            match kind {
                 RailKind::Machine => sidebar::draw_machines(app, frame),
                 RailKind::Workspace => sidebar_input_cursor = sidebar::draw(app, frame),
                 RailKind::Tabs => sidebar::draw_tabs(app, frame),
@@ -765,6 +770,28 @@ mod tests {
         ReusableRowBuffer, copy_buffer_row_cropped, middle_truncate, sanitize_render_buffer,
         truncate,
     };
+
+    #[test]
+    fn ordered_sidebar_iteration_preserves_rail_sequence() {
+        use crate::app::{RailKind, RailPlacement, SidebarLayout};
+
+        let layout = SidebarLayout {
+            ordered: vec![
+                RailPlacement { kind: RailKind::Tabs, view_index: 0, rect: Rect::default() },
+                RailPlacement {
+                    kind: RailKind::Projection(3),
+                    view_index: 1,
+                    rect: Rect::default(),
+                },
+                RailPlacement { kind: RailKind::Workspace, view_index: 2, rect: Rect::default() },
+            ],
+            ..SidebarLayout::default()
+        };
+
+        let kinds =
+            (0..layout.ordered.len()).map(|index| layout.ordered[index].kind).collect::<Vec<_>>();
+        assert_eq!(kinds, vec![RailKind::Tabs, RailKind::Projection(3), RailKind::Workspace]);
+    }
 
     #[test]
     fn middle_truncates_for_narrow_columns() {
