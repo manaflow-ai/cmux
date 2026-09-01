@@ -1,5 +1,6 @@
 import Foundation
 import XCTest
+import CmuxSurfaceSelection
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
