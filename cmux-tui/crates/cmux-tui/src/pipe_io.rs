@@ -32,8 +32,8 @@ use cmux_tui_core::resource::TerminalPublicId;
 use crossbeam_channel::{Receiver, Sender};
 
 use crate::session::{
-    is_remote_surface_unavailable, PipeIoByteBudget, PipeIoEvent, PipeIoSurfaceAttach,
-    RemoteSession,
+    PipeIoByteBudget, PipeIoEvent, PipeIoSurfaceAttach, RemoteSession,
+    is_remote_surface_unavailable,
 };
 
 /// The terminal ended, or the embedder walked away: respawning is wrong.
@@ -132,18 +132,13 @@ pub fn run(
     let (lifecycle_sender, lifecycle_receiver) = crossbeam_channel::bounded(1);
     let byte_budget = Arc::new(PipeIoByteBudget::new(EVENT_QUEUE_MAX_BYTES));
     // Install before attach so the initial replay cannot be missed.
-    let tap_token = remote.install_pipe_io_tap(
-        surface,
-        sender.clone(),
-        lifecycle_sender,
-        byte_budget.clone(),
-    );
+    let tap_token =
+        remote.install_pipe_io_tap(surface, sender.clone(), lifecycle_sender, byte_budget.clone());
     let tap_guard = PipeIoTapGuard { remote: remote.as_ref(), token: tap_token };
     let handle = match remote.try_attach_pipe_io(surface, Some((cols.max(1), rows.max(1)))) {
-        Ok(PipeIoSurfaceAttach::Attached) => PipeIoSurfaceHandle {
-            remote: remote.clone(),
-            surface,
-        },
+        Ok(PipeIoSurfaceAttach::Attached) => {
+            PipeIoSurfaceHandle { remote: remote.clone(), surface }
+        }
         Ok(PipeIoSurfaceAttach::Retired) => {
             return Ok(PipeIoExitReason::TerminalEnded);
         }
@@ -161,13 +156,12 @@ pub fn run(
         );
     }
     spawn_stdin_pump(handle, lifecycle_sender);
-    let reason =
-        pump_events_to_stdout(
-            &receiver,
-            &lifecycle_receiver,
-            &byte_budget,
-            &mut std::io::stdout().lock(),
-        )?;
+    let reason = pump_events_to_stdout(
+        &receiver,
+        &lifecycle_receiver,
+        &byte_budget,
+        &mut std::io::stdout().lock(),
+    )?;
     // Stop forwarding while the daemon probe runs. The probe has its own
     // request path, and events for the finished relay must not fill the data
     // queue or tear down a replacement transport.
@@ -420,9 +414,7 @@ fn write_pipe_io_data(
             stdout.write_all(bytes)?;
             stdout.flush()?;
         }
-        PipeIoEvent::SurfaceExited
-        | PipeIoEvent::TransportLost
-        | PipeIoEvent::StdinClosed => {
+        PipeIoEvent::SurfaceExited | PipeIoEvent::TransportLost | PipeIoEvent::StdinClosed => {
             debug_assert!(false, "lifecycle event passed to byte writer");
         }
     }
@@ -478,8 +470,8 @@ mod tests {
         sender.send(PipeIoEvent::SurfaceExited).unwrap();
         let mut stdout = Vec::new();
         let budget = PipeIoByteBudget::new(1024);
-        let reason = pump_events_to_stdout(&receiver, &lifecycle_receiver, &budget, &mut stdout)
-            .unwrap();
+        let reason =
+            pump_events_to_stdout(&receiver, &lifecycle_receiver, &budget, &mut stdout).unwrap();
         assert_eq!(reason, PipeIoExitReason::TerminalEnded);
         let mut expected = b"FIRSTlive".to_vec();
         expected.extend_from_slice(REPLAY_RESET);
