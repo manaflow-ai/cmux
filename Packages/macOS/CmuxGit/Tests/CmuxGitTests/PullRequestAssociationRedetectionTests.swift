@@ -3,6 +3,26 @@ import Testing
 @testable import CmuxGit
 import CmuxFoundation
 
+private nonisolated struct TransientRemoteDiscovery: GitRepositoryDiscovering {
+    let branch: String
+
+    func repositorySlugs(forDirectory _: String) async -> [String] { [] }
+
+    func checkedOutBranch(forDirectory _: String) async -> GitCheckedOutBranch {
+        .branch(branch)
+    }
+
+    func repositoryDiscoverySnapshot(
+        forDirectory _: String
+    ) async -> GitRepositoryDiscoverySnapshot {
+        GitRepositoryDiscoverySnapshot(
+            repositorySlugs: [],
+            checkedOutBranch: .branch(branch),
+            remoteReadFailed: true
+        )
+    }
+}
+
 @Suite struct PullRequestAssociationRedetectionTests {
     private func item(
         number: Int,
@@ -159,6 +179,34 @@ import CmuxFoundation
             repoResults: ["manaflow-ai/cmux": .success(entry, usedCache: false, transientBranches: [])]
         )
         let result = try #require(results.first)
+        guard case .transientFailure = result.resolution else {
+            Issue.record("expected transientFailure, got \(result.resolution)")
+            return
+        }
+    }
+
+    @Test func transientRemoteDiscoveryKeepsPullRequestBadgeEligible() async throws {
+        let workspaceId = UUID()
+        let panelId = UUID()
+        let seed = WorkspacePullRequestCandidateSeed(
+            workspaceId: workspaceId,
+            panelId: panelId,
+            branch: "feature/current",
+            directory: "/tmp/cmux-transient-remote"
+        )
+        let service = PullRequestProbeService(commandRunner: CountingCommandRunner(outputs: []))
+
+        let resolution = await service.resolveCandidateSeeds(
+            [seed],
+            gitMetadata: TransientRemoteDiscovery(branch: "feature/current")
+        )
+        let result = try #require(
+            PullRequestProbeService.resolveRefreshResults(
+                candidates: resolution.candidates,
+                repoResults: [:]
+            ).first
+        )
+
         guard case .transientFailure = result.resolution else {
             Issue.record("expected transientFailure, got \(result.resolution)")
             return

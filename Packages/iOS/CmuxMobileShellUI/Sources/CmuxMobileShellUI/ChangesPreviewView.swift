@@ -9,7 +9,7 @@ public struct ChangesPreviewView: View {
     private let fixture = ChangesPreviewFixture()
     private let mode: String
     private let fontPreference: DiffFontPreference
-    @State private var cachedPresentations: [String: FileDiffPresentation] = [:]
+    @State private var presentationStore = FileDiffPresentationStore()
     @State private var fontSize: Double
     @State private var stateVariant: ChangesPreviewStateVariant = .loading
     @State private var navigationPath: [WorkspaceChangesNavigationRoute] = []
@@ -54,7 +54,7 @@ public struct ChangesPreviewView: View {
                 totals: displayedTotals,
                 files: displayedFiles,
                 listState: displayedState,
-                cachedPresentations: cachedPresentations,
+                presentationStore: presentationStore,
                 fontSize: fontSize,
                 listActions: listActions,
                 pagerActions: pagerActions,
@@ -86,7 +86,7 @@ public struct ChangesPreviewView: View {
             onRefresh: {
                 // An intentional bounded fixture delay keeps refresh/loading visible for pixel review.
                 try? await ContinuousClock().sleep(for: .milliseconds(150))
-                cachedPresentations = [:]
+                presentationStore.removeAll()
             },
             onRetry: { stateVariant = .loading }
         )
@@ -97,7 +97,7 @@ public struct ChangesPreviewView: View {
             path,
             forceRefresh,
             _ in
-            if !forceRefresh, let cached = cachedPresentations[path] { return cached }
+            if !forceRefresh, let cached = presentationStore.presentation(forPath: path) { return cached }
             // An intentional bounded fixture delay makes the real skeleton observable.
             try await ContinuousClock().sleep(for: .milliseconds(150))
             guard let document = fixture.documents[path] else {
@@ -108,7 +108,7 @@ public struct ChangesPreviewView: View {
                 document: document,
                 fileKind: fileKind
             )
-            cachedPresentations[path] = presentation
+            presentationStore.insert(presentation, forPath: path)
             return presentation
         }
         let loadCurrentLines: @MainActor @Sendable (String) async throws -> DiffExpansionCurrentFile = { _ in

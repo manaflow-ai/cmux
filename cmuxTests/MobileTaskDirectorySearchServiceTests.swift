@@ -8,6 +8,14 @@ import Testing
 #endif
 
 @Suite struct MobileTaskDirectorySearchServiceTests {
+    private static let inertWalk: MobileTaskDirectorySearchService.FilesystemWalkOperation = { _, _ in
+        MobileTaskDirectoryFilesystemWalker.Outcome(
+            matches: [],
+            visitedDirectoryCount: 0,
+            complete: false
+        )
+    }
+
     @Test func dispatchRejectsAnEmptyDirectoryQuery() async {
         #expect(MobileHostService.mobileHostCapabilities.contains("workspace.directory_search.v1"))
         #expect(MobileHostService.mobileHostCapabilities.contains("workspace.directory_search.v2"))
@@ -75,7 +83,8 @@ import Testing
                     truncated: false
                 )
             },
-            directoryExists: { _ in true }
+            directoryExists: { _ in true },
+            filesystemWalkOperation: Self.inertWalk
         )
 
         let result = try await service.search(
@@ -110,7 +119,8 @@ import Testing
                     truncated: true
                 )
             },
-            directoryExists: { _ in true }
+            directoryExists: { _ in true },
+            filesystemWalkOperation: Self.inertWalk
         )
 
         let result = try await service.search(query: "project", seedPaths: [])
@@ -129,7 +139,8 @@ import Testing
             metadataSearchOperation: { _, _, _ in
                 throw MobileTaskDirectoryMetadataQueryRunner.QueryError.unavailable
             },
-            directoryExists: { _ in true }
+            directoryExists: { _ in true },
+            filesystemWalkOperation: Self.inertWalk
         )
 
         let result = try await service.search(
@@ -156,7 +167,8 @@ import Testing
                     truncated: false
                 )
             },
-            directoryExists: { _ in true }
+            directoryExists: { _ in true },
+            filesystemWalkOperation: Self.inertWalk
         )
 
         let results = await withTaskGroup(
@@ -177,5 +189,161 @@ import Testing
 
         #expect(results.count == 16)
         #expect(results.allSatisfy { $0?.directories.count == 1 })
+    }
+
+    @Test func mergesLiveWalkMatchesAndReportsWalkCompleteness() async throws {
+        let service = MobileTaskDirectorySearchService(
+            homeDirectory: URL(fileURLWithPath: "/Users/test", isDirectory: true),
+            metadataSearchOperation: { _, _, _ in
+                MobileTaskDirectoryMetadataQueryRunner.Snapshot(
+                    paths: [],
+                    gatheringComplete: true,
+                    totalMatchCount: 0,
+                    truncated: false
+                )
+            },
+            directoryExists: { _ in true },
+            filesystemWalkOperation: { _, roots in
+                #expect(roots.first == "/Users/test")
+                return MobileTaskDirectoryFilesystemWalker.Outcome(
+                    matches: ["/Users/test/Dev/Manaflow/cmuxterm-hq"],
+                    visitedDirectoryCount: 42,
+                    complete: true
+                )
+            }
+        )
+
+        let result = try await service.search(query: "cmux", seedPaths: [])
+
+        #expect(result.directories == ["/Users/test/Dev/Manaflow/cmuxterm-hq"])
+        #expect(result.scope == .allIndexedVolumes)
+        #expect(result.filesystemComplete)
+        #expect(result.indexedMatchCount == 0)
+    }
+
+    @Test func metadataFailureStillReturnsLiveWalkMatches() async throws {
+        let service = MobileTaskDirectorySearchService(
+            homeDirectory: URL(fileURLWithPath: "/Users/test", isDirectory: true),
+            metadataSearchOperation: { _, _, _ in
+                throw MobileTaskDirectoryMetadataQueryRunner.QueryError.unavailable
+            },
+            directoryExists: { _ in true },
+            filesystemWalkOperation: { _, _ in
+                MobileTaskDirectoryFilesystemWalker.Outcome(
+                    matches: ["/Users/test/Dev/cmux-lite"],
+                    visitedDirectoryCount: 7,
+                    complete: true
+                )
+            }
+        )
+
+        let result = try await service.search(query: "cmux", seedPaths: [])
+
+        #expect(result.directories == ["/Users/test/Dev/cmux-lite"])
+        #expect(result.scope == .contextualCandidatesOnly)
+        #expect(result.filesystemComplete)
+    }
+
+    @Test func walkRootsAreTheHomePlusExternalContextualParents() {
+        func searchable(_ path: String) -> MobileTaskDirectorySearchService.SearchablePath {
+            MobileTaskDirectorySearchService.SearchablePath(
+                path: path,
+                pathBytes: Array(path.utf8),
+                foldedPath: path.lowercased(),
+                components: path.split(separator: "/").map(String.init),
+                basename: path.split(separator: "/").last.map(String.init) ?? path
+            )
+        }
+
+        let roots = MobileTaskDirectorySearchService.walkRoots(
+            homeDirectory: URL(fileURLWithPath: "/Users/test", isDirectory: true),
+            contextual: [
+                searchable("/Users/test/Dev/project"),
+                searchable("/Volumes/Work/client-a"),
+                searchable("/Volumes/Work/client-b"),
+                searchable("/root-level"),
+            ]
+        )
+
+        #expect(roots == ["/Users/test", "/Volumes/Work"])
+    }
+}
+
+@Suite struct MobileTaskDirectoryFilesystemWalkerTests {
+    private func makeFixtureTree() throws -> URL {
+        let root = URL(fileURLWithPath: NSTemporaryDirectory(), isDirectory: true)
+            .appendingPathComponent("walker-fixture-\(UUID().uuidString)", isDirectory: true)
+        let directories = [
+            "Dev/Manaflow/cmuxterm-hq",
+            "Dev/cmux-lite",
+            "Dev/unrelated",
+            "Documents/notes",
+            "node_modules/cmux-package",
+            "Library/cmux-library",
+            ".hidden-cmux/cmux-nested",
+        ]
+        for directory in directories {
+            try FileManager.default.createDirectory(
+                at: root.appendingPathComponent(directory, isDirectory: true),
+                withIntermediateDirectories: true
+            )
+        }
+        return root
+    }
+
+    @Test func findsNestedNameMatchesWithoutDescendingIntoPrunedOrHiddenTrees() throws {
+        let root = try makeFixtureTree()
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let outcome = MobileTaskDirectoryFilesystemWalker()
+            .search(query: "cmux", roots: [root.path])
+
+        let matches = Set(outcome.matches)
+        #expect(matches.contains(root.appendingPathComponent("Dev/Manaflow/cmuxterm-hq").path))
+        #expect(matches.contains(root.appendingPathComponent("Dev/cmux-lite").path))
+        // A pruned or hidden directory is reported when its own name matches,
+        // but nothing inside it is reachable.
+        #expect(matches.contains(root.appendingPathComponent(".hidden-cmux").path))
+        #expect(!matches.contains(root.appendingPathComponent("node_modules/cmux-package").path))
+        #expect(!matches.contains(root.appendingPathComponent("Library/cmux-library").path))
+        #expect(!matches.contains(root.appendingPathComponent(".hidden-cmux/cmux-nested").path))
+        #expect(outcome.complete)
+        #expect(outcome.visitedDirectoryCount > 0)
+    }
+
+    @Test func visitBudgetStopsTheWalkAndReportsIncompleteness() throws {
+        let root = try makeFixtureTree()
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        var budget = MobileTaskDirectoryFilesystemWalker.Budget()
+        budget.maximumVisitedDirectories = 1
+        let outcome = MobileTaskDirectoryFilesystemWalker(budget: budget)
+            .search(query: "cmux", roots: [root.path])
+
+        #expect(outcome.visitedDirectoryCount == 1)
+        #expect(!outcome.complete)
+    }
+
+    @Test func matchBudgetStopsTheWalkAndReportsIncompleteness() throws {
+        let root = try makeFixtureTree()
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        var budget = MobileTaskDirectoryFilesystemWalker.Budget()
+        budget.maximumMatches = 1
+        let outcome = MobileTaskDirectoryFilesystemWalker(budget: budget)
+            .search(query: "cmux", roots: [root.path])
+
+        #expect(outcome.matches.count == 1)
+        #expect(!outcome.complete)
+    }
+
+    @Test func matchingIsCaseAndDiacriticInsensitiveOnTheFinalQueryComponent() throws {
+        let root = try makeFixtureTree()
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let outcome = MobileTaskDirectoryFilesystemWalker()
+            .search(query: "Manaflow CMÙX", roots: [root.path])
+
+        #expect(outcome.matches.contains(root.appendingPathComponent("Dev/Manaflow/cmuxterm-hq").path))
     }
 }

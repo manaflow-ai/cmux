@@ -48,6 +48,15 @@ const NETWORK_METHOD_MAX_UNITS: usize = 16;
 /// Most in-flight network requests remembered while their response is
 /// pending (requestWillBeSent -> responseReceived/loadingFailed join).
 const PENDING_REQUEST_CAP: usize = 512;
+/// Bound browser/devtools CDP messages before tungstenite allocates them.
+const PREVIEW_WS_MAX_MESSAGE_BYTES: usize = 16 * 1024 * 1024;
+/// Limit queued frames per peer. A browser/devtools socket that stops
+/// reading must not make the relay retain an unbounded stream of CDP data.
+const PREVIEW_WS_QUEUE_CAPACITY: usize = 64;
+const PREVIEW_WS_QUEUE_BYTES: usize = 64 * 1024 * 1024;
+/// Maximum number of target-port listeners retained by one relay.
+/// Opening another target evicts the least-recently-used listener.
+pub const PREVIEW_PROXY_CAP: usize = 32;
 
 /// CDP command ids the proxy mints for its own enables; responses with
 /// these ids are swallowed instead of piped to the DevTools frontend.
@@ -91,6 +100,11 @@ impl ConsoleRing {
 
     fn remember_request(&self, request_id: String, method: String, url: String) {
         let Ok(mut inner) = self.inner.lock() else { return };
+        // A request id can be reused by CDP redirects/retries. Remove its
+        // previous queue entry before replacing the map value, otherwise the
+        // order deque grows without bound and later eviction can discard the
+        // wrong request.
+        inner.pending_order.retain(|id| id != &request_id);
         if inner.pending.len() >= PENDING_REQUEST_CAP
             && let Some(oldest) = inner.pending_order.pop_front()
         {
@@ -242,7 +256,21 @@ fn tee_cdp_frame(ring: &ConsoleRing, raw: &str) -> Option<i64> {
 
 pub struct PreviewRegistry {
     ring: Arc<ConsoleRing>,
-    proxies: tokio::sync::Mutex<HashMap<i64, u16>>,
+    proxies: tokio::sync::Mutex<HashMap<i64, ProxyRuntime>>,
+    order: tokio::sync::Mutex<VecDeque<i64>>,
+}
+
+struct ProxyRuntime {
+    port: u16,
+    shutdown: tokio::sync::watch::Sender<bool>,
+    task: tokio::task::JoinHandle<()>,
+}
+
+impl Drop for ProxyRuntime {
+    fn drop(&mut self) {
+        let _ = self.shutdown.send(true);
+        self.task.abort();
+    }
 }
 
 impl Default for PreviewRegistry {
@@ -256,6 +284,7 @@ impl PreviewRegistry {
         PreviewRegistry {
             ring: Arc::new(ConsoleRing::new()),
             proxies: tokio::sync::Mutex::new(HashMap::new()),
+            order: tokio::sync::Mutex::new(VecDeque::new()),
         }
     }
 
@@ -267,18 +296,60 @@ impl PreviewRegistry {
         }
         let mut proxies = self.proxies.lock().await;
         let proxy_port = match proxies.get(&target_port) {
-            Some(port) => *port,
+            Some(runtime) if !runtime.task.is_finished() => runtime.port,
+            Some(_) => {
+                // The accept loop can terminate on a listener error. Do not
+                // hand out the stale port from a finished runtime.
+                proxies.remove(&target_port);
+                let target = u16::try_from(target_port).unwrap_or_default();
+                let runtime = spawn_proxy(target, Arc::clone(&self.ring)).await?;
+                let port = runtime.port;
+                proxies.insert(target_port, runtime);
+                port
+            }
             None => {
                 let target = u16::try_from(target_port).unwrap_or_default();
-                let port = spawn_proxy(target, Arc::clone(&self.ring)).await?;
-                proxies.insert(target_port, port);
+                let runtime = spawn_proxy(target, Arc::clone(&self.ring)).await?;
+                let port = runtime.port;
+                proxies.insert(target_port, runtime);
+                let mut order = self.order.lock().await;
+                order.retain(|port| *port != target_port);
+                order.push_back(target_port);
+                if order.len() > PREVIEW_PROXY_CAP
+                    && let Some(evicted_port) = order.pop_front()
+                    && let Some(mut evicted) = proxies.remove(&evicted_port)
+                {
+                    let _ = evicted.shutdown.send(true);
+                    evicted.task.abort();
+                    let _ = (&mut evicted.task).await;
+                }
                 port
             }
         };
+        if proxies.contains_key(&target_port) {
+            let mut order = self.order.lock().await;
+            order.retain(|port| *port != target_port);
+            order.push_back(target_port);
+        }
         Ok(wire::WorkspaceResultBody::PreviewOpen(wire::PreviewOpenResult {
             op: wire::TagPreviewOpen::PreviewOpen,
             proxy_port: i64::from(proxy_port),
         }))
+    }
+
+    /// Stop all preview listeners and owned connection tasks. Safe to call
+    /// repeatedly. This makes registry lifetime explicit for tests and
+    /// graceful relay shutdown.
+    pub async fn shutdown(&self) {
+        let mut proxies = self.proxies.lock().await;
+        let runtimes = proxies.drain().map(|(_, runtime)| runtime).collect::<Vec<_>>();
+        self.order.lock().await.clear();
+        drop(proxies);
+        for mut runtime in runtimes {
+            let _ = runtime.shutdown.send(true);
+            runtime.task.abort();
+            let _ = (&mut runtime.task).await;
+        }
     }
 
     pub fn tail(&self, max_events: Option<i64>) -> Result<wire::WorkspaceResultBody, Refusal> {
@@ -301,7 +372,9 @@ impl PreviewRegistry {
 
 struct Peer {
     id: u64,
-    tx: tokio::sync::mpsc::UnboundedSender<tungstenite::Message>,
+    tx: tokio::sync::mpsc::Sender<tungstenite::Message>,
+    queued_bytes: Arc<std::sync::atomic::AtomicUsize>,
+    cancel: tokio::sync::watch::Sender<bool>,
 }
 
 struct ProxyShared {
@@ -312,6 +385,8 @@ struct ProxyShared {
     target_connected: AtomicBool,
     next_peer_id: AtomicU64,
     next_cdp_id: AtomicI64,
+    shutdown: tokio::sync::watch::Receiver<bool>,
+    upgrades: Mutex<Vec<tokio::task::JoinHandle<()>>>,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -340,7 +415,7 @@ fn text_response(status: u16, message: &str) -> hyper::Response<ProxyBody> {
     response
 }
 
-async fn spawn_proxy(target_port: u16, ring: Arc<ConsoleRing>) -> Result<u16, Refusal> {
+async fn spawn_proxy(target_port: u16, ring: Arc<ConsoleRing>) -> Result<ProxyRuntime, Refusal> {
     let listener = tokio::net::TcpListener::bind(("127.0.0.1", 0)).await.map_err(|error| {
         Refusal::new(
             wire::WorkspaceErrorCode::PortUnavailable,
@@ -356,6 +431,7 @@ async fn spawn_proxy(target_port: u16, ring: Arc<ConsoleRing>) -> Result<u16, Re
             )
         })?
         .port();
+    let (shutdown, mut stopped) = tokio::sync::watch::channel(false);
     let shared = Arc::new(ProxyShared {
         target_port,
         ring,
@@ -364,27 +440,56 @@ async fn spawn_proxy(target_port: u16, ring: Arc<ConsoleRing>) -> Result<u16, Re
         target_connected: AtomicBool::new(false),
         next_peer_id: AtomicU64::new(1),
         next_cdp_id: AtomicI64::new(PROXY_CDP_ID_BASE),
+        shutdown: stopped.clone(),
+        upgrades: Mutex::new(Vec::new()),
     });
-    tokio::spawn(async move {
+    let (ready_tx, ready_rx) = tokio::sync::oneshot::channel();
+    let task = tokio::spawn(async move {
+        let mut connections = tokio::task::JoinSet::new();
+        let _ = ready_tx.send(());
         loop {
-            let Ok((stream, _peer)) = listener.accept().await else { break };
-            let shared = Arc::clone(&shared);
-            tokio::spawn(async move {
-                let io = hyper_util::rt::TokioIo::new(stream);
-                let service = hyper::service::service_fn(move |request| {
+            // Reap every connection that finished since the previous
+            // accept. `try_join_next` is non-blocking, so a busy listener
+            // cannot accumulate completed JoinSet entries indefinitely.
+            // Bound cleanup per turn so a stream of immediately-completing
+            // connections cannot starve the listener or shutdown signal.
+            for _ in 0..32 {
+                if connections.try_join_next().is_none() {
+                    break;
+                }
+            }
+            tokio::select! {
+                _ = stopped.changed() => break,
+                accepted = listener.accept() => {
+                    let Ok((stream, _peer)) = accepted else { break };
                     let shared = Arc::clone(&shared);
-                    async move {
-                        Ok::<_, std::convert::Infallible>(handle_request(shared, request).await)
-                    }
-                });
-                let _ = hyper::server::conn::http1::Builder::new()
-                    .serve_connection(io, service)
-                    .with_upgrades()
-                    .await;
-            });
+                    connections.spawn(async move {
+                        let io = hyper_util::rt::TokioIo::new(stream);
+                        let service = hyper::service::service_fn(move |request| {
+                            let shared = Arc::clone(&shared);
+                            async move { Ok::<_, std::convert::Infallible>(handle_request(shared, request).await) }
+                        });
+                        let _ = hyper::server::conn::http1::Builder::new().serve_connection(io, service).with_upgrades().await;
+                    });
+                }
+            }
+        }
+        connections.abort_all();
+        while connections.join_next().await.is_some() {}
+        let upgrades = shared
+            .upgrades
+            .lock()
+            .map(|mut tasks| tasks.drain(..).collect::<Vec<_>>())
+            .unwrap_or_default();
+        for task in upgrades {
+            task.abort();
+            let _ = task.await;
         }
     });
-    Ok(proxy_port)
+    // Do not publish the port until the accept loop has started. This avoids
+    // clients racing the task scheduler immediately after preview_open.
+    let _ = ready_rx.await;
+    Ok(ProxyRuntime { port: proxy_port, shutdown, task })
 }
 
 fn wants_websocket(request: &hyper::Request<hyper::body::Incoming>) -> bool {
@@ -477,6 +582,8 @@ fn status_response(
 /// Close code sent to a page/devtools connection displaced by a newer one
 /// ("latest connection wins" in the pinned contract).
 const REPLACED_CLOSE_CODE: u16 = 4001;
+/// Bound cleanup when a displaced peer's TCP writer is stuck.
+const REPLACED_WRITER_FLUSH_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(1);
 
 fn accept_websocket(
     shared: Arc<ProxyShared>,
@@ -487,16 +594,26 @@ fn accept_websocket(
         return text_response(400, "missing sec-websocket-key");
     };
     let accept = tungstenite::handshake::derive_accept_key(key.as_bytes());
+    let mut shutdown = shared.shutdown.clone();
     tokio::spawn(async move {
         if let Ok(upgraded) = hyper::upgrade::on(request).await {
             let io = hyper_util::rt::TokioIo::new(upgraded);
             let socket = tokio_tungstenite::WebSocketStream::from_raw_socket(
                 io,
                 tungstenite::protocol::Role::Server,
-                None,
+                Some(
+                    tungstenite::protocol::WebSocketConfig::default()
+                        .max_message_size(Some(PREVIEW_WS_MAX_MESSAGE_BYTES))
+                        .max_frame_size(Some(PREVIEW_WS_MAX_MESSAGE_BYTES))
+                        .max_write_buffer_size(PREVIEW_WS_QUEUE_BYTES),
+                ),
             )
             .await;
-            run_peer(shared, socket, role).await;
+            let peer_shutdown = shutdown.clone();
+            tokio::select! {
+                _ = shutdown.changed() => {}
+                _ = run_peer(shared, socket, role, peer_shutdown) => {}
+            }
         }
     });
     let mut response = hyper::Response::new(full_body(Vec::new()));
@@ -518,10 +635,46 @@ fn peer_slot(shared: &ProxyShared, role: PeerRole) -> &Mutex<Option<Peer>> {
 }
 
 fn send_to_slot(shared: &ProxyShared, role: PeerRole, text: String) {
-    if let Ok(slot) = peer_slot(shared, role).lock()
+    if let Ok(mut slot) = peer_slot(shared, role).lock()
         && let Some(peer) = slot.as_ref()
+        && enqueue_message(&peer.tx, &peer.queued_bytes, tungstenite::Message::text(text)).is_err()
     {
-        let _ = peer.tx.send(tungstenite::Message::text(text));
+        // A saturated peer is no longer coherent. Remove it instead of
+        // silently dropping a CDP frame, then let its writer terminate.
+        let _ = slot.take();
+        if role == PeerRole::Page {
+            shared.target_connected.store(false, Ordering::Relaxed);
+        }
+    }
+}
+
+fn message_len(message: &tungstenite::Message) -> usize {
+    match message {
+        tungstenite::Message::Text(v) => v.len(),
+        tungstenite::Message::Binary(v)
+        | tungstenite::Message::Ping(v)
+        | tungstenite::Message::Pong(v) => v.len(),
+        _ => 64,
+    }
+}
+
+fn enqueue_message(
+    tx: &tokio::sync::mpsc::Sender<tungstenite::Message>,
+    queued: &std::sync::atomic::AtomicUsize,
+    message: tungstenite::Message,
+) -> Result<(), tokio::sync::mpsc::error::TrySendError<tungstenite::Message>> {
+    let bytes = message_len(&message);
+    let prior = queued.fetch_add(bytes, Ordering::AcqRel);
+    if prior.saturating_add(bytes) > PREVIEW_WS_QUEUE_BYTES {
+        queued.fetch_sub(bytes, Ordering::AcqRel);
+        return Err(tokio::sync::mpsc::error::TrySendError::Full(message));
+    }
+    match tx.try_send(message) {
+        Ok(()) => Ok(()),
+        Err(error) => {
+            queued.fetch_sub(bytes, Ordering::AcqRel);
+            Err(error)
+        }
     }
 }
 
@@ -529,21 +682,34 @@ async fn run_peer<S>(
     shared: Arc<ProxyShared>,
     socket: tokio_tungstenite::WebSocketStream<S>,
     role: PeerRole,
+    mut shutdown: tokio::sync::watch::Receiver<bool>,
 ) where
     S: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin + Send + 'static,
 {
     use futures_util::{SinkExt as _, StreamExt as _};
     use tokio_tungstenite::tungstenite::Message;
     let (mut sink, mut stream) = socket.split();
-    let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel::<Message>();
+    let (tx, mut rx) = tokio::sync::mpsc::channel::<Message>(PREVIEW_WS_QUEUE_CAPACITY);
+    let queued_bytes = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    let (cancel, mut cancelled) = tokio::sync::watch::channel(false);
     let peer_id = shared.next_peer_id.fetch_add(1, Ordering::Relaxed);
     if let Ok(mut slot) = peer_slot(&shared, role).lock()
-        && let Some(previous) = slot.replace(Peer { id: peer_id, tx: tx.clone() })
+        && let Some(previous) = slot.replace(Peer {
+            id: peer_id,
+            tx: tx.clone(),
+            queued_bytes: Arc::clone(&queued_bytes),
+            cancel: cancel.clone(),
+        })
     {
-        let _ = previous.tx.send(Message::Close(Some(tungstenite::protocol::CloseFrame {
-            code: REPLACED_CLOSE_CODE.into(),
-            reason: "replaced by a newer connection".into(),
-        })));
+        let _ = enqueue_message(
+            &previous.tx,
+            &previous.queued_bytes,
+            Message::Close(Some(tungstenite::protocol::CloseFrame {
+                code: REPLACED_CLOSE_CODE.into(),
+                reason: "replaced by a newer connection".into(),
+            })),
+        );
+        let _ = previous.cancel.send(true);
     }
     if role == PeerRole::Page {
         shared.target_connected.store(true, Ordering::Relaxed);
@@ -551,11 +717,22 @@ async fn run_peer<S>(
         // frontend connects; responses to these ids are swallowed.
         for method in ["Runtime.enable", "Network.enable", "Page.enable"] {
             let id = shared.next_cdp_id.fetch_add(1, Ordering::Relaxed);
-            let _ = tx.send(Message::text(format!("{{\"id\":{id},\"method\":\"{method}\"}}")));
+            let message = Message::text(format!("{{\"id\":{id},\"method\":\"{method}\"}}"));
+            if enqueue_message(&tx, &queued_bytes, message).is_err() {
+                if let Ok(mut slot) = peer_slot(&shared, role).lock()
+                    && slot.as_ref().is_some_and(|peer| peer.id == peer_id)
+                {
+                    *slot = None;
+                }
+                shared.target_connected.store(false, Ordering::Relaxed);
+                return;
+            }
         }
     }
-    let writer = tokio::spawn(async move {
+    let writer_queued_bytes = Arc::clone(&queued_bytes);
+    let mut writer = tokio::spawn(async move {
         while let Some(message) = rx.recv().await {
+            writer_queued_bytes.fetch_sub(message_len(&message), Ordering::AcqRel);
             let closing = matches!(message, Message::Close(_));
             if sink.send(message).await.is_err() || closing {
                 break;
@@ -563,7 +740,14 @@ async fn run_peer<S>(
         }
         let _ = sink.close().await;
     });
-    while let Some(Ok(message)) = stream.next().await {
+    let mut replaced = false;
+    loop {
+        let message = tokio::select! {
+            _ = shutdown.changed() => break,
+            _ = cancelled.changed() => { replaced = true; break },
+            message = stream.next() => message,
+        };
+        let Some(Ok(message)) = message else { break };
         match message {
             Message::Text(text) => {
                 let text = text.as_str().to_owned();
@@ -578,7 +762,10 @@ async fn run_peer<S>(
                 }
             }
             Message::Ping(payload) => {
-                let _ = tx.send(Message::Pong(payload));
+                match enqueue_message(&tx, &queued_bytes, Message::Pong(payload)) {
+                    Ok(()) => {}
+                    Err(_) => break,
+                }
             }
             Message::Close(_) => break,
             _ => {}
@@ -594,7 +781,18 @@ async fn run_peer<S>(
             shared.target_connected.store(false, Ordering::Relaxed);
         }
     }
-    writer.abort();
+    // Give a displaced peer's queued close frame a bounded chance to flush,
+    // then abort a writer stuck behind a non-reading socket. Other exits
+    // abort immediately because the read side has already ended.
+    if replaced {
+        if tokio::time::timeout(REPLACED_WRITER_FLUSH_TIMEOUT, &mut writer).await.is_err() {
+            writer.abort();
+            let _ = writer.await;
+        }
+    } else {
+        writer.abort();
+        let _ = writer.await;
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -603,6 +801,10 @@ async fn run_peer<S>(
 
 const INJECT_TAG: &[u8] = b"<script src=\"/__chatmux__/target.js\"></script>";
 const NO_INJECT_HEADER: &str = "x-chatmux-no-inject";
+/// HTML responses are buffered only for injection, so bound both memory and
+/// time spent waiting on a target that never finishes its response.
+const PREVIEW_HTML_BODY_MAX_BYTES: usize = 8 * 1024 * 1024;
+const PREVIEW_HTML_BODY_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(30);
 
 async fn connect_target(
     shared: &ProxyShared,
@@ -683,9 +885,19 @@ async fn forward_plain(
     }
     let (mut parts, body) = response.into_parts();
     use http_body_util::BodyExt as _;
-    let collected = match body.collect().await {
-        Ok(collected) => collected.to_bytes(),
-        Err(error) => return text_response(502, &format!("target body failed: {error}")),
+    let limited = http_body_util::Limited::new(body, PREVIEW_HTML_BODY_MAX_BYTES);
+    let collected = match tokio::time::timeout(PREVIEW_HTML_BODY_TIMEOUT, limited.collect()).await {
+        Ok(Ok(collected)) => collected.to_bytes(),
+        Ok(Err(error)) if error.downcast_ref::<http_body_util::LengthLimitError>().is_some() => {
+            return text_response(
+                502,
+                &format!(
+                    "target HTML response exceeds the {PREVIEW_HTML_BODY_MAX_BYTES} byte limit",
+                ),
+            );
+        }
+        Ok(Err(error)) => return text_response(502, &format!("target body failed: {error}")),
+        Err(_) => return text_response(502, "target HTML body timed out"),
     };
     let injected = inject_into_html(&collected);
     parts.headers.remove(hyper::header::CONTENT_LENGTH);
@@ -723,7 +935,7 @@ async fn forward_upgrade(
         return response.map(passthrough_body);
     }
     let client_upgrade = hyper::upgrade::on(&mut response);
-    tokio::spawn(async move {
+    let task = tokio::spawn(async move {
         let (Ok(client), Ok(server)) = tokio::join!(client_upgrade, server_upgrade) else {
             return;
         };
@@ -731,6 +943,14 @@ async fn forward_upgrade(
         let mut server_io = hyper_util::rt::TokioIo::new(server);
         let _ = tokio::io::copy_bidirectional(&mut server_io, &mut client_io).await;
     });
+    if let Ok(mut upgrades) = shared.upgrades.lock() {
+        // Finished handles no longer need to be retained. Tokio guarantees
+        // task destruction has completed once `is_finished` is true.
+        upgrades.retain(|task| !task.is_finished());
+        upgrades.push(task);
+    } else {
+        task.abort();
+    }
     let (parts, _body) = response.into_parts();
     hyper::Response::from_parts(parts, full_body(Vec::new()))
 }
@@ -779,6 +999,22 @@ mod tests {
     use serde_json::Value;
     use tokio_tungstenite::tungstenite::Message;
 
+    #[test]
+    fn duplicate_request_ids_replace_order_entry() {
+        let ring = ConsoleRing::new();
+        ring.remember_request("same".to_owned(), "GET".to_owned(), "https://first".to_owned());
+        ring.remember_request("other".to_owned(), "POST".to_owned(), "https://other".to_owned());
+        ring.remember_request("same".to_owned(), "PUT".to_owned(), "https://latest".to_owned());
+
+        let mut inner = ring.inner.lock().expect("ring lock");
+        assert_eq!(inner.pending_order, VecDeque::from(["other".to_owned(), "same".to_owned()]));
+        assert_eq!(inner.pending.len(), 2);
+        assert_eq!(
+            inner.pending.remove("same"),
+            Some(("PUT".to_owned(), "https://latest".to_owned()))
+        );
+    }
+
     /// Tiny dev-server double: "/" is HTML with a head, "/body-only" has no
     /// head, "/plain" is not HTML, "/opt-out" answers with the no-inject
     /// response header.
@@ -791,6 +1027,18 @@ mod tests {
                 tokio::spawn(async move {
                     let io = hyper_util::rt::TokioIo::new(stream);
                     let service = hyper::service::service_fn(|request| async move {
+                        if request.uri().path() == "/oversized" {
+                            let mut response = hyper::Response::new(full_body(vec![
+                                b'x';
+                                PREVIEW_HTML_BODY_MAX_BYTES
+                                    + 1
+                            ]));
+                            response.headers_mut().insert(
+                                hyper::header::CONTENT_TYPE,
+                                hyper::header::HeaderValue::from_static("text/html"),
+                            );
+                            return Ok::<_, std::convert::Infallible>(response);
+                        }
                         let (body, content_type, opt_out) = match request.uri().path() {
                             "/body-only" => ("<body><p>hi</p></body>", "text/html", false),
                             "/plain" => ("no tags here", "text/plain", false),
@@ -877,11 +1125,17 @@ mod tests {
         let (_, _, body) = http_get(proxy, "/opt-out", &[]).await;
         assert!(!body.contains(tag), "response header opts out");
 
+        let (status, _, body) = http_get(proxy, "/oversized", &[]).await;
+        assert_eq!(status, 502);
+        assert!(body.contains("target HTML response exceeds"));
+
         let (_, _, body) = http_get(proxy, "/", &[(NO_INJECT_HEADER, "1")]).await;
         assert!(!body.contains(tag), "request header opts out");
 
         // Reuse: the same target port keeps its proxy port.
         assert_eq!(open_proxy(&registry, target).await, proxy);
+        registry.shutdown().await;
+        assert!(tokio::net::TcpStream::connect(("127.0.0.1", proxy)).await.is_err());
     }
 
     #[tokio::test]
@@ -1055,5 +1309,19 @@ mod tests {
         let fresh: Value = serde_json::from_str(&next_text(&mut replacement, "enable").await)
             .expect("enable json");
         assert!(fresh["id"].as_i64().expect("id") >= PROXY_CDP_ID_BASE);
+    }
+
+    #[tokio::test]
+    async fn bounds_preview_listeners_and_evicts_oldest_target() {
+        let registry = PreviewRegistry::new();
+        for target_port in 1..=i64::try_from(PREVIEW_PROXY_CAP).unwrap() + 1 {
+            registry.open(target_port).await.expect("preview open");
+        }
+        assert_eq!(registry.proxies.lock().await.len(), PREVIEW_PROXY_CAP);
+        assert!(!registry.proxies.lock().await.contains_key(&1));
+        assert!(registry.proxies.lock().await.contains_key(&(PREVIEW_PROXY_CAP as i64 + 1)));
+        registry.shutdown().await;
+        assert!(registry.proxies.lock().await.is_empty());
+        assert!(registry.order.lock().await.is_empty());
     }
 }
