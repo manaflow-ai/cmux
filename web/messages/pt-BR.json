@@ -48,6 +48,13 @@
     "description": "Terminal nativo macOS gratuito e de código aberto construído sobre o Ghostty. Funciona com Claude Code, Codex, OpenCode, Gemini CLI, Kiro, Aider e qualquer ferramenta CLI. Abas verticais, anéis de notificação, painéis divididos e uma API de socket.",
     "ogDescription": "Terminal macOS gratuito e de código aberto para agentes de código IA. Funciona com Claude Code, Codex, OpenCode, Gemini CLI, Kiro, Aider e qualquer ferramenta CLI."
   },
+  "authError": {
+    "emailUnverifiedTitle": "Verifique seu e-mail para continuar",
+    "emailUnverifiedBody": "Entre usando o método que você usou originalmente e verifique seu e-mail antes de usar este método de login.",
+    "genericTitle": "Não foi possível concluir o login",
+    "genericBody": "Tente novamente. Se o problema continuar, entre em contato com o suporte.",
+    "backToSignIn": "Voltar para o login"
+  },
   "common": {
     "downloadForMac": "Baixar para Mac",
     "viewOnGitHub": "Ver no GitHub",

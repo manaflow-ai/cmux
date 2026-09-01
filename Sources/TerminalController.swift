@@ -132,6 +132,7 @@ class TerminalController {
     /// Actor-isolated ten-minute cache for mobile task model discovery.
     nonisolated let mobileTaskModelDiscovery: MobileTaskModelDiscovery
     var tabManager: TabManager?
+    private let externalNavigationHandler = BrowserExternalNavigationHandler()
     let workspaceCreateIdempotencyCache = WorkspaceCreateIdempotencyCache(capacity: 256)
     /// The shared auth coordinator + account flow, injected once via
     /// `attachAuth` at app startup (AppDelegate `configure`) before the socket
@@ -3891,14 +3892,26 @@ class TerminalController {
                Self.isCloudVMAuthenticationError(vmError) {
                 // Keep the auth boundary explicit for every VM verb. The CLI
                 // can then return a stable non-zero auth-required failure
-                // instead of presenting a generic backend error.
-                return v2Error(
-                    id: id,
-                    code: "auth_required",
-                    message: String(
+                // instead of presenting a generic backend error. A server 401
+                // means the app still holds a session the service rejects, so
+                // `cmux auth login` alone would short-circuit on "already
+                // signed in" — the fix is sign out, then sign in.
+                let message: String
+                if case .httpStatus = vmError {
+                    message = String(
+                        localized: "socket.cloudVM.sessionRejected",
+                        defaultValue: "The cmux Cloud service rejected this session. Run `cmux auth logout`, then `cmux auth login`, and retry."
+                    )
+                } else {
+                    message = String(
                         localized: "socket.cloudVM.authRequired",
                         defaultValue: "Cloud VM access requires sign-in. Run `cmux auth login`, then retry."
                     )
+                }
+                return v2Error(
+                    id: id,
+                    code: "auth_required",
+                    message: message
                 )
             }
             return v2Error(
@@ -7274,38 +7287,41 @@ class TerminalController {
             }
             if let url,
                respectExternalOpenRules,
-               preferredProfileID == nil,
-               BrowserLinkOpenSettings.shouldOpenExternally(url) {
-                guard NSWorkspace.shared.open(url) else {
+               preferredProfileID == nil {
+                switch externalNavigationHandler.openConfiguredExternallyResult(url) {
+                case .notConfigured:
+                    break
+                case .failed:
                     result = .err(
                         code: "external_open_failed",
                         message: "Failed to open URL externally",
                         data: ["url": url.absoluteString]
                     )
                     return
+                case .opened:
+                    let windowId = v2BrowserWindowID(
+                        for: container.host,
+                        tabManager: tabManager
+                    )
+                    result = .ok([
+                        "window_id": v2OrNull(windowId?.uuidString),
+                        "window_ref": v2Ref(kind: .window, uuid: windowId),
+                        "workspace_id": container.ownerID.uuidString,
+                        "workspace_ref": v2Ref(
+                            kind: .workspace,
+                            uuid: container.ownerID
+                        ),
+                        "pane_id": v2OrNull(nil),
+                        "pane_ref": v2Ref(kind: .pane, uuid: nil),
+                        "surface_id": v2OrNull(nil),
+                        "surface_ref": v2Ref(kind: .surface, uuid: nil),
+                        "created_split": false,
+                        "placement_strategy": "external",
+                        "opened_externally": true,
+                        "url": url.absoluteString
+                    ])
+                    return
                 }
-                let windowId = v2BrowserWindowID(
-                    for: container.host,
-                    tabManager: tabManager
-                )
-                result = .ok([
-                    "window_id": v2OrNull(windowId?.uuidString),
-                    "window_ref": v2Ref(kind: .window, uuid: windowId),
-                    "workspace_id": container.ownerID.uuidString,
-                    "workspace_ref": v2Ref(
-                        kind: .workspace,
-                        uuid: container.ownerID
-                    ),
-                    "pane_id": v2OrNull(nil),
-                    "pane_ref": v2Ref(kind: .pane, uuid: nil),
-                    "surface_id": v2OrNull(nil),
-                    "surface_ref": v2Ref(kind: .surface, uuid: nil),
-                    "created_split": false,
-                    "placement_strategy": "external",
-                    "opened_externally": true,
-                    "url": url.absoluteString
-                ])
-                return
             }
             v2MaybeFocusWindow(for: tabManager)
             switch container {

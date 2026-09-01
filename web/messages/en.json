@@ -110,6 +110,13 @@
     "description": "Free and open source native macOS terminal built on Ghostty. Works with Claude Code, Codex, OpenCode, Gemini CLI, Kiro, Aider, and any CLI tool. Vertical tabs, notification rings, split panes, and a socket API.",
     "ogDescription": "Free and open source macOS terminal for AI coding agents. Works with Claude Code, Codex, OpenCode, Gemini CLI, Kiro, Aider, and any CLI tool."
   },
+  "authError": {
+    "emailUnverifiedTitle": "Verify your email to continue",
+    "emailUnverifiedBody": "Sign in with the method you used originally, then verify your email before using this sign-in method.",
+    "genericTitle": "Sign-in could not be completed",
+    "genericBody": "Please try again. If the problem continues, contact support.",
+    "backToSignIn": "Back to sign in"
+  },
   "common": {
     "downloadForMac": "Download for Mac",
     "viewOnGitHub": "View on GitHub",
