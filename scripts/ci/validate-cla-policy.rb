@@ -24,10 +24,10 @@ CLA_ACTION = "manaflow-ai/cla-github-action@fc608ba7106e7029d981d487d7bad28a6432
 # secret reference, action input, or permission while retaining the fragments
 # checked below. Policy changes require a separate, reviewed update to this
 # base-controlled guard, followed by the workflow change.
-EXPECTED_WORKFLOW_DIGEST = "f458101f6f17bc28381f2ee4f063d9b4333fa2cf7c7bec18b0a656a3311d9033"
+EXPECTED_WORKFLOW_DIGEST = "d4db98df5a1b1e6f3b006a82639761a0513eeeaf153a9eb2b98d42d1af782145"
 EXPECTED_RERUN_DIGEST = "f4f1fa51bb05b062ebf3f60cc949d8d5b4b501e7849cb065e9a07d7a34030840"
-EXPECTED_GUARD_WORKFLOW_DIGEST = "6960b5009aa712b599dc412ea332a835207677a7f0840f53a6cf8c31dd6da4d0"
-EXPECTED_GUARD_SCRIPT_DIGEST = "6a1e2f74f590a342125a820c15cf2ace730838c24fbe65676a2c57c84f417c51"
+EXPECTED_GUARD_WORKFLOW_DIGEST = "dfe6acc7a284001034c095fc50abd8bd4c64fc73e36bbe089c4c53169c062fdf"
+EXPECTED_GUARD_SCRIPT_DIGEST = "7e61437e6d623876d1bf7e7c7a06bbd82745e4d4a2a5397604dfd4ead24aef05"
 # Current organization administrators who may approve a trusted control-plane
 # update. IDs are used instead of names, and the review must target the exact
 # PR head. This is the human path for intentional policy maintenance.
@@ -422,14 +422,11 @@ def validate_guard_workflow(raw)
   triggers = document["on"] || document[true]
   fail!("guard workflow has no mapping of triggers") unless triggers.is_a?(Hash)
   target = triggers["pull_request_target"]
-  review = triggers["pull_request_review"]
   fail!("guard workflow has unsafe triggers") unless
     !triggers.key?("pull_request") &&
     target.is_a?(Hash) &&
     target["branches"] == ["main"] &&
-    target["types"] == %w[opened edited reopened synchronize] &&
-    review.is_a?(Hash) &&
-    review["types"] == ["submitted"]
+    target["types"] == %w[opened edited reopened synchronize]
   fail!("guard workflow must have empty top-level permissions") unless document["permissions"] == {}
   guard_job = document.dig("jobs", "validate")
   fail!("guard workflow validate job is missing") unless guard_job.is_a?(Hash)

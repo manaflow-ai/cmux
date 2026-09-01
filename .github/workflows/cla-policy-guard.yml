@@ -7,12 +7,6 @@ on:
   pull_request_target:
     branches: [main]
     types: [opened,edited,reopened,synchronize]
-  # A trusted approval is a new validation event for a guard-only maintenance
-  # pull request. Without this trigger, an approval could not clear the exact
-  # head review gate until another source change occurred.
-  pull_request_review:
-    types: [submitted]
-
 permissions: {}
 
 jobs:
