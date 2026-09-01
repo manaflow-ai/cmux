@@ -4,7 +4,8 @@ import Foundation
 ///
 /// Empty lines and unescaped comment lines are ignored. The first = on an
 /// entry separates its key from its value; escaped line breaks and backslashes
-/// are decoded after that split.
+/// are decoded after that split. Empty values are preserved, so `NAME=` is a
+/// valid assignment.
 public struct WorkspaceEnvironmentParser: Sendable {
     /// Errors reported for one malformed editor line.
     public enum ParseError: Error, Equatable, Sendable {
@@ -12,7 +13,10 @@ public struct WorkspaceEnvironmentParser: Sendable {
         case invalidAssignment(line: Int)
         /// The decoded key was empty.
         case emptyKey(line: Int)
-        /// The decoded value was empty.
+        /// The decoded value was empty under the legacy parser policy.
+        ///
+        /// The current parser preserves empty values and does not emit this case.
+        /// It remains for source compatibility with the original app-local parser.
         case emptyValue(line: Int)
         /// The decoded key contained a NUL or = character.
         case invalidKey(line: Int)
@@ -74,9 +78,6 @@ public struct WorkspaceEnvironmentParser: Sendable {
 
             guard !key.isEmpty else {
                 throw ParseError.emptyKey(line: lineNumber)
-            }
-            guard !value.isEmpty else {
-                throw ParseError.emptyValue(line: lineNumber)
             }
             guard !key.contains("\0"), !key.contains("=") else {
                 throw ParseError.invalidKey(line: lineNumber)

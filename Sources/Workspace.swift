@@ -7102,11 +7102,10 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         maybeDemoteRemoteWorkspaceAfterSSHSessionEnded()
     }
 
-    /// Normalizes a user-supplied workspace environment: trims keys and drops any entry with a
-    /// blank key or blank value. Dropping blank values keeps behavior identical across the
-    /// `additionalEnvironment` channel (which already skips empty values) and the
-    /// `initialEnvironmentOverrides` channel (which would otherwise export a blank value on the
-    /// initial shell only).
+    /// Normalizes a user-supplied workspace environment: trims keys, preserves
+    /// valid empty values, and drops blank or structurally unsafe keys/values.
+    /// Keys that collide after trimming are rejected together so normalization
+    /// is deterministic regardless of dictionary iteration order.
     ///
     /// Reserved `CMUX_*` variables are intentionally *not* stripped by name — they are protected
     /// at spawn time by `mergedStartupEnvironment(protectedKeys:)`, the single authority on which

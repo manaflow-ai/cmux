@@ -33,24 +33,36 @@ public struct WorkspaceEnvironmentDocument: Equatable, Sendable {
 
     /// Applies the workspace environment input policy.
     ///
-    /// Blank keys and values, NUL-containing keys or values, and keys containing
-    /// = are dropped. Keys are trimmed at their boundaries; embedded newlines
-    /// and values containing CR/LF remain valid because the document serializer
-    /// encodes them reversibly.
+    /// Blank keys, NUL-containing keys or values, and keys containing = are
+    /// dropped. Keys are trimmed at their boundaries; embedded newlines and
+    /// values containing CR/LF remain valid because the document serializer
+    /// encodes them reversibly. When multiple accepted input keys normalize to
+    /// the same key, all of those colliding entries are rejected so the result
+    /// never depends on dictionary iteration order. Empty values are retained;
+    /// `NAME=` is a valid environment assignment.
     ///
     /// - Parameter environment: Raw entries from a creation, restore, or UI path.
     /// - Returns: Entries safe to pass to terminal startup and persistence.
     public static func sanitized(_ environment: [String: String]) -> [String: String] {
-        environment.reduce(into: [String: String]()) { result, pair in
+        var counts: [String: Int] = [:]
+        var candidates: [String: String] = [:]
+
+        for pair in environment {
             let key = pair.key.trimmingCharacters(in: .whitespacesAndNewlines)
             guard !key.isEmpty,
-                  !pair.value.isEmpty,
                   !key.contains("\0"),
                   !key.contains("="),
                   !pair.value.contains("\0") else {
-                return
+                continue
             }
-            result[key] = pair.value
+
+            counts[key, default: 0] += 1
+            candidates[key] = pair.value
+        }
+
+        return candidates.reduce(into: [String: String]()) { result, pair in
+            guard counts[pair.key] == 1 else { return }
+            result[pair.key] = pair.value
         }
     }
 

@@ -11,5 +11,6 @@ dependency, so its behavior can be tested independently:
     let text = parser.serialize(values)
 
 WorkspaceEnvironmentDocument escapes backslashes, CR/LF, and a leading # in
-keys. Call WorkspaceEnvironmentDocument.sanitized(_:) at application input
-boundaries before persisting or spawning terminals.
+keys. Empty values are valid (`NAME=`); keys that collide after boundary
+trimming are rejected. Call WorkspaceEnvironmentDocument.sanitized(_:) at
+application input boundaries before persisting or spawning terminals.
