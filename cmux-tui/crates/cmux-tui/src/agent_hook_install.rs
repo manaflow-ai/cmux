@@ -306,6 +306,17 @@ impl Context {
         }
         self.home.join(provider.default_path)
     }
+
+    /// Whether `provider_path` came from the provider's environment override.
+    /// codex canonicalizes an explicit `CODEX_HOME` but not the default
+    /// `~/.codex`, and its hook trust keys embed the resolved path.
+    fn provider_path_from_env_override(&self, provider: Provider) -> bool {
+        provider
+            .override_env
+            .and_then(|name| self.environment.get(name))
+            .filter(|value| !value.is_empty())
+            .is_some()
+    }
 }
 
 fn runtime_data_home(home: &Path) -> PathBuf {
@@ -382,13 +393,14 @@ fn run_with_context(plan: &Plan, context: &Context) -> RunResult {
     if errors.is_empty() || plan.action != Action::Install {
         for provider in selected {
             let path = context.provider_path(provider);
+            let from_env_override = context.provider_path_from_env_override(provider);
             let outcome = if provider.id == "hermes-agent" {
                 run_hermes_provider(plan.action, provider, &path, context)
             } else {
                 match plan.action {
-                    Action::Install => install_provider(provider, &path),
-                    Action::Uninstall => uninstall_provider(provider, &path),
-                    Action::Status => provider_status(provider, &path),
+                    Action::Install => install_provider(provider, &path, from_env_override),
+                    Action::Uninstall => uninstall_provider(provider, &path, from_env_override),
+                    Action::Status => provider_status(provider, &path, from_env_override),
                 }
             };
             match outcome {
@@ -472,7 +484,7 @@ fn run_hermes_provider(
 ) -> anyhow::Result<(&'static str, bool)> {
     match action {
         Action::Install => {
-            let (_, files_changed) = install_provider(provider, path)?;
+            let (_, files_changed) = install_provider(provider, path, false)?;
             let legacy_changed = migrate_hermes_cmux_irc_tee(path)?;
             let enabled = hermes_plugin_enabled(context)?;
             if !enabled {
@@ -485,11 +497,11 @@ fn run_hermes_provider(
             if enabled {
                 set_hermes_plugin_enabled(context, false)?;
             }
-            let (_, files_changed) = uninstall_provider(provider, path)?;
+            let (_, files_changed) = uninstall_provider(provider, path, false)?;
             Ok(("absent", files_changed || enabled))
         }
         Action::Status => {
-            let (files, _) = provider_status(provider, path)?;
+            let (files, _) = provider_status(provider, path, false)?;
             if files == "absent" {
                 return Ok(("absent", false));
             }
@@ -961,25 +973,54 @@ fn install_helper(source: &Path, destination: &Path) -> anyhow::Result<()> {
     atomic_write(destination, &bytes, Some(0o755))
 }
 
-fn install_provider(provider: Provider, path: &Path) -> anyhow::Result<(&'static str, bool)> {
+fn install_provider(
+    provider: Provider,
+    path: &Path,
+    from_env_override: bool,
+) -> anyhow::Result<(&'static str, bool)> {
     match provider.format {
         Format::Nested { timeout, .. } | Format::Flat { timeout } => {
             ensure_replaceable_target(path)?;
             let nested = matches!(provider.format, Format::Nested { .. });
             let mut root = read_json_object(path)?;
+            let previous_root = root.clone();
             let before = serde_json::to_vec(&root)?;
             rewrite_json_hooks(&mut root, provider, nested, timeout, true)?;
             if provider.id == "cursor" && !root.contains_key("version") {
                 root.insert("version".into(), Value::from(1));
             }
             let after = serde_json::to_vec(&root)?;
-            if before == after && path.exists() {
-                return Ok(("installed", false));
+            let files_changed = !(before == after && path.exists());
+            // codex refuses to execute the hooks.json entries until config.toml
+            // trusts each one, so installing means keeping both files in sync.
+            // Preflight that edit completely BEFORE touching hooks.json: a
+            // malformed or unwritable config must fail the install while
+            // hooks.json stays byte-identical to its pre-install state.
+            let trust = if provider.id == "codex" {
+                prepare_codex_trust_state(
+                    path,
+                    from_env_override,
+                    &root,
+                    &previous_root,
+                    /*install*/ true,
+                )?
+            } else {
+                None
+            };
+            let previous_hooks = if files_changed { Some(snapshot_file(path)?) } else { None };
+            if files_changed {
+                let mut encoded = serde_json::to_vec_pretty(&Value::Object(root))?;
+                encoded.push(b'\n');
+                atomic_write(path, &encoded, Some(0o600))?;
             }
-            let mut encoded = serde_json::to_vec_pretty(&Value::Object(root))?;
-            encoded.push(b'\n');
-            atomic_write(path, &encoded, Some(0o600))?;
-            Ok(("installed", true))
+            let trust_changed = match &trust {
+                Some(write) => {
+                    commit_codex_trust_state_or_rollback(write, path, previous_hooks)?;
+                    true
+                }
+                None => false,
+            };
+            Ok(("installed", files_changed || trust_changed))
         }
         Format::Plugin { template } => {
             ensure_replaceable_target(path)?;
@@ -1020,25 +1061,63 @@ fn install_provider(provider: Provider, path: &Path) -> anyhow::Result<(&'static
     }
 }
 
-fn uninstall_provider(provider: Provider, path: &Path) -> anyhow::Result<(&'static str, bool)> {
+fn uninstall_provider(
+    provider: Provider,
+    path: &Path,
+    from_env_override: bool,
+) -> anyhow::Result<(&'static str, bool)> {
     match provider.format {
         Format::Nested { .. } | Format::Flat { .. } => {
             ensure_replaceable_target(path)?;
-            if !path.exists() {
-                return Ok(("absent", false));
+            // Render the cleaned hooks.json without writing it yet, keeping
+            // the pre-rewrite content: the trust entries of exactly the hooks
+            // being removed are deleted by positional key, whatever hash a
+            // codex re-review may have stored for them.
+            let mut previous_root = Map::new();
+            let pending_hooks = if path.exists() {
+                let nested = matches!(provider.format, Format::Nested { .. });
+                let mut root = read_json_object(path)?;
+                previous_root = root.clone();
+                let before = serde_json::to_vec(&root)?;
+                rewrite_json_hooks(&mut root, provider, nested, 0, false)?;
+                let after = serde_json::to_vec(&root)?;
+                if before == after {
+                    None
+                } else {
+                    let mut encoded = serde_json::to_vec_pretty(&Value::Object(root))?;
+                    encoded.push(b'\n');
+                    Some(encoded)
+                }
+            } else {
+                None
+            };
+            // Preflight the trust-state cleanup BEFORE touching hooks.json so a
+            // malformed config fails the uninstall with hooks.json intact
+            // instead of removing hooks while their trust entries linger.
+            let trust = if provider.id == "codex" {
+                prepare_codex_trust_state(
+                    path,
+                    from_env_override,
+                    &Map::new(),
+                    &previous_root,
+                    /*install*/ false,
+                )?
+            } else {
+                None
+            };
+            let files_changed = pending_hooks.is_some();
+            let previous_hooks = if files_changed { Some(snapshot_file(path)?) } else { None };
+            if let Some(encoded) = &pending_hooks {
+                atomic_write(path, encoded, Some(0o600))?;
             }
-            let nested = matches!(provider.format, Format::Nested { .. });
-            let mut root = read_json_object(path)?;
-            let before = serde_json::to_vec(&root)?;
-            rewrite_json_hooks(&mut root, provider, nested, 0, false)?;
-            let after = serde_json::to_vec(&root)?;
-            if before == after {
-                return Ok(("absent", false));
-            }
-            let mut encoded = serde_json::to_vec_pretty(&Value::Object(root))?;
-            encoded.push(b'\n');
-            atomic_write(path, &encoded, Some(0o600))?;
-            Ok(("absent", true))
+            let trust_changed = match &trust {
+                Some(write) => {
+                    commit_codex_trust_state_or_rollback(write, path, previous_hooks)?;
+                    true
+                }
+                None => false,
+            };
+            Ok(("absent", files_changed || trust_changed))
         }
         Format::Plugin { .. } => {
             ensure_replaceable_target(path)?;
@@ -1063,14 +1142,27 @@ fn uninstall_provider(provider: Provider, path: &Path) -> anyhow::Result<(&'stat
     }
 }
 
-fn provider_status(provider: Provider, path: &Path) -> anyhow::Result<(&'static str, bool)> {
+fn provider_status(
+    provider: Provider,
+    path: &Path,
+    from_env_override: bool,
+) -> anyhow::Result<(&'static str, bool)> {
     let state = match provider.format {
         Format::Nested { .. } | Format::Flat { .. } => {
             if !path.exists() {
                 "absent"
             } else {
                 let root = read_json_object(path)?;
-                json_hook_state(&root, provider)
+                let mut state = json_hook_state(&root, provider);
+                // hooks.json alone is inert for codex; report partial until the
+                // sibling config.toml trusts every installed handler.
+                if provider.id == "codex"
+                    && state == "installed"
+                    && !codex_trust_state_verified(path, from_env_override, &root)
+                {
+                    state = "partial";
+                }
+                state
             }
         }
         Format::Plugin { .. } => match fs::read(path) {
@@ -1329,6 +1421,642 @@ fn hook_command(provider: &str, event: &str) -> String {
     )
 }
 
+/// codex 0.150 executes an unmanaged hooks.json handler only when the user
+/// config layer carries `hooks.state."<hooks.json path>:<event>:<group>:<handler>"`
+/// whose `trusted_hash` equals codex's normalized-identity hash; otherwise it
+/// parses the file and silently skips every handler (codex-rs/hooks/src/engine/
+/// discovery.rs). The installer therefore mirrors that hash and writes the
+/// trust state into `$CODEX_HOME/config.toml` alongside hooks.json.
+const CODEX_CONFIG_FILE: &str = "config.toml";
+
+/// Hook-state event label used in codex's persisted trust keys
+/// (codex-rs/hooks/src/lib.rs `hook_event_key_label`).
+fn codex_event_state_label(event: &str) -> anyhow::Result<&'static str> {
+    Ok(match event {
+        "PreToolUse" => "pre_tool_use",
+        "PermissionRequest" => "permission_request",
+        "PostToolUse" => "post_tool_use",
+        "PreCompact" => "pre_compact",
+        "PostCompact" => "post_compact",
+        "SessionStart" => "session_start",
+        "SessionEnd" => "session_end",
+        "UserPromptSubmit" => "user_prompt_submit",
+        "SubagentStart" => "subagent_start",
+        "SubagentStop" => "subagent_stop",
+        "Stop" => "stop",
+        other => anyhow::bail!("codex hook event {other:?} has no trust-state label"),
+    })
+}
+
+/// codex clamps SessionEnd timeouts (default 1s, cap 3s) and floors all other
+/// timeouts (default 600s) before hashing, so the trusted hash must cover the
+/// normalized value, not the configured one
+/// (codex-rs/hooks/src/engine/discovery.rs `normalize_command_hook`).
+fn codex_normalized_timeout(state_label: &str, timeout: Option<u64>) -> u64 {
+    if state_label == "session_end" {
+        timeout.unwrap_or(1).clamp(1, 3)
+    } else {
+        timeout.unwrap_or(600).max(1)
+    }
+}
+
+/// codex forces the matcher to None for events that do not support one
+/// (codex-rs/hooks/src/events/common.rs `matcher_pattern_for_event`).
+fn codex_normalized_matcher<'a>(state_label: &str, matcher: Option<&'a str>) -> Option<&'a str> {
+    match state_label {
+        "user_prompt_submit" | "stop" => None,
+        _ => matcher,
+    }
+}
+
+/// codex keeps `additionalContextLimit` only for events that can emit
+/// additional context, and drops the explicit default before hashing
+/// (codex-rs/hooks/src/engine/discovery.rs, DEFAULT_HOOK_OUTPUT_TOKEN_LIMIT
+/// in codex-rs/hooks/src/output_spill.rs).
+fn codex_normalized_context_limit(state_label: &str, limit: Option<u64>) -> Option<u64> {
+    const DEFAULT_HOOK_OUTPUT_TOKEN_LIMIT: u64 = 2_500;
+    match state_label {
+        "pre_tool_use" | "post_tool_use" | "session_start" | "user_prompt_submit"
+        | "subagent_start" => limit.filter(|limit| *limit != DEFAULT_HOOK_OUTPUT_TOKEN_LIMIT),
+        _ => None,
+    }
+}
+
+/// Reproduces codex's per-hook trust hash: sha256 over sorted-key compact JSON
+/// of the normalized hook identity (codex-rs/hooks/src/engine/discovery.rs
+/// `hook_hash` plus codex-rs/config/src/fingerprint.rs `version_for_toml`).
+/// Absent optional fields (matcher, commandWindows, statusMessage,
+/// additionalContextLimit) are omitted, exactly as codex's TOML round trip
+/// omits them. Keys are inserted in sorted order to match the canonical form.
+fn codex_identity_trust_hash(
+    state_label: &str,
+    matcher: Option<&str>,
+    command: &str,
+    timeout: Option<u64>,
+    asynchronous: bool,
+    status_message: Option<&str>,
+    additional_context_limit: Option<u64>,
+) -> String {
+    use sha2::Digest as _;
+    let mut handler = Map::new();
+    if let Some(limit) = codex_normalized_context_limit(state_label, additional_context_limit) {
+        handler.insert("additionalContextLimit".into(), Value::from(limit));
+    }
+    handler.insert("async".into(), Value::Bool(asynchronous));
+    handler.insert("command".into(), Value::String(command.into()));
+    if let Some(message) = status_message {
+        handler.insert("statusMessage".into(), Value::String(message.into()));
+    }
+    handler.insert("timeout".into(), Value::from(codex_normalized_timeout(state_label, timeout)));
+    handler.insert("type".into(), Value::String("command".into()));
+    let mut identity = Map::new();
+    identity.insert("event_name".into(), Value::String(state_label.into()));
+    identity.insert("hooks".into(), Value::Array(vec![Value::Object(handler)]));
+    if let Some(matcher) = codex_normalized_matcher(state_label, matcher) {
+        identity.insert("matcher".into(), Value::String(matcher.into()));
+    }
+    let encoded = serde_json::to_vec(&Value::Object(identity))
+        .expect("codex hook identity serializes to JSON");
+    format!("sha256:{:x}", sha2::Sha256::digest(encoded))
+}
+
+/// Trust hash of the canonical hook shape the installer writes.
+fn codex_trust_hash(state_label: &str, command: &str, timeout: u64) -> String {
+    codex_identity_trust_hash(state_label, None, command, Some(timeout), false, None, None)
+}
+
+/// codex canonicalizes `CODEX_HOME` when the environment variable is set and
+/// uses `~/.codex` verbatim otherwise (codex-rs/utils/home-dir/src/lib.rs
+/// `find_codex_home`), and its trust keys embed that resolved path. Mirror the
+/// resolution so the keys match what the codex process computes.
+fn codex_state_key_hooks_path(path: &Path, from_env_override: bool) -> PathBuf {
+    if !from_env_override {
+        return path.to_path_buf();
+    }
+    let (Some(parent), Some(name)) = (path.parent(), path.file_name()) else {
+        return path.to_path_buf();
+    };
+    match fs::canonicalize(parent) {
+        Ok(parent) => parent.join(name),
+        Err(_) => path.to_path_buf(),
+    }
+}
+
+/// The cmux-owned handler as (group index, hook index, group, handler). codex
+/// keys trust by BOTH positions, so a foreign entry before ours in the same
+/// group shifts the key just like a preceding group does.
+fn codex_owned_hook_entry<'a>(
+    root: &'a Map<String, Value>,
+    event: &str,
+) -> Option<(usize, usize, &'a Value, &'a Value)> {
+    let groups = root.get("hooks")?.get(event)?.as_array()?;
+    groups.iter().enumerate().find_map(|(group_index, group)| {
+        let hooks = group.get("hooks").and_then(Value::as_array)?;
+        let handler_index = hooks.iter().position(|hook| {
+            hook.get("command").and_then(Value::as_str).is_some_and(is_owned_command)
+        })?;
+        Some((group_index, handler_index, group, &hooks[handler_index]))
+    })
+}
+
+fn codex_owned_hook_position(root: &Map<String, Value>, event: &str) -> Option<(usize, usize)> {
+    codex_owned_hook_entry(root, event)
+        .map(|(group_index, handler_index, _, _)| (group_index, handler_index))
+}
+
+/// The trust entries codex requires for the hooks ACTUALLY present in `root`:
+/// keyed by the owned handler's real position and hashed over that handler's
+/// real fields. For a freshly rewritten install this equals the canonical
+/// shape; for status it reflects any hand edits, so a user-modified command
+/// or timeout (which codex would hash differently and skip) fails to verify.
+fn codex_expected_trust_entries(
+    key_hooks_path: &Path,
+    root: &Map<String, Value>,
+) -> anyhow::Result<BTreeMap<String, String>> {
+    let mut entries = BTreeMap::new();
+    for event in CODEX_EVENTS {
+        let label = codex_event_state_label(event)?;
+        let (group_index, handler_index, group, handler) = codex_owned_hook_entry(root, event)
+            .with_context(|| format!("installed codex hook for {event} is missing"))?;
+        let key = format!("{}:{label}:{group_index}:{handler_index}", key_hooks_path.display());
+        let command = if cfg!(windows) {
+            handler
+                .get("commandWindows")
+                .and_then(Value::as_str)
+                .or_else(|| handler.get("command").and_then(Value::as_str))
+        } else {
+            handler.get("command").and_then(Value::as_str)
+        }
+        .with_context(|| format!("installed codex hook for {event} has no command"))?;
+        let hash = codex_identity_trust_hash(
+            label,
+            group.get("matcher").and_then(Value::as_str),
+            command,
+            handler.get("timeout").and_then(Value::as_u64),
+            handler.get("async").and_then(Value::as_bool).unwrap_or(false),
+            handler.get("statusMessage").and_then(Value::as_str),
+            handler.get("additionalContextLimit").and_then(Value::as_u64),
+        );
+        entries.insert(key, hash);
+    }
+    Ok(entries)
+}
+
+/// Every trust hash the current installer shape can produce. Entries carrying
+/// one of these hashes are cmux-owned regardless of their positional key.
+fn codex_owned_trust_hashes() -> anyhow::Result<BTreeSet<String>> {
+    CODEX_EVENTS
+        .iter()
+        .map(|event| {
+            let label = codex_event_state_label(event)?;
+            Ok(codex_trust_hash(label, &hook_command("codex", event), COMMAND_HOOK_TIMEOUT_SECONDS))
+        })
+        .collect()
+}
+
+/// Dotfile managers commonly symlink `config.toml`; the atomic rename must
+/// land in the link's TARGET so the link survives and codex keeps editing the
+/// same file. A link that cannot be resolved is refused instead of replaced.
+fn resolve_codex_config_path(config_path: PathBuf) -> anyhow::Result<PathBuf> {
+    match fs::symlink_metadata(&config_path) {
+        Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(config_path),
+        Err(error) => Err(error).with_context(|| format!("inspect {}", config_path.display())),
+        Ok(metadata) if !metadata.file_type().is_symlink() => Ok(config_path),
+        Ok(_) => fs::canonicalize(&config_path).with_context(|| {
+            format!(
+                "{} is a symlink that does not resolve; refusing to replace it",
+                config_path.display()
+            )
+        }),
+    }
+}
+
+/// The ONE way every config.toml consumer (status, preflight, commit re-read)
+/// loads the file. A separate stat-then-read would race a concurrent
+/// replacement with a FIFO or huge file, so this opens the file once, fstats
+/// the OPENED descriptor (regular file, size cap), and does a bounded read
+/// from that same descriptor. The open itself is safe: `O_NONBLOCK` is a
+/// no-op for regular files and stops a FIFO open from blocking on a missing
+/// writer, and a FIFO descriptor opened that way is rejected by the fstat
+/// before anything reads it.
+fn read_codex_config_text(config_path: &Path) -> anyhow::Result<Option<String>> {
+    let mut options = fs::File::options();
+    options.read(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt as _;
+        options.custom_flags(libc::O_NONBLOCK);
+    }
+    let file = match options.open(config_path) {
+        Ok(file) => file,
+        Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(None),
+        Err(error) => {
+            return Err(error).with_context(|| format!("open {}", config_path.display()));
+        }
+    };
+    let metadata = file.metadata().with_context(|| format!("inspect {}", config_path.display()))?;
+    anyhow::ensure!(
+        metadata.is_file(),
+        "{} is not a regular file; refusing to read it",
+        config_path.display()
+    );
+    anyhow::ensure!(metadata.len() <= MAX_CONFIG_BYTES, "{} exceeds 16 MiB", config_path.display());
+    let mut bytes = Vec::new();
+    file.take(MAX_CONFIG_BYTES + 1)
+        .read_to_end(&mut bytes)
+        .with_context(|| format!("read {}", config_path.display()))?;
+    anyhow::ensure!(
+        bytes.len() as u64 <= MAX_CONFIG_BYTES,
+        "{} exceeds 16 MiB",
+        config_path.display()
+    );
+    Ok(Some(
+        String::from_utf8(bytes)
+            .with_context(|| format!("{} is not valid UTF-8", config_path.display()))?,
+    ))
+}
+
+fn read_codex_config_document(
+    config_path: &Path,
+) -> anyhow::Result<(Option<String>, toml_edit::DocumentMut)> {
+    let original = read_codex_config_text(config_path)?;
+    let document = original
+        .as_deref()
+        .unwrap_or_default()
+        .parse::<toml_edit::DocumentMut>()
+        .with_context(|| format!("{} is not valid TOML", config_path.display()))?;
+    Ok((original, document))
+}
+
+fn codex_state_table_mut<'a>(
+    document: &'a mut toml_edit::DocumentMut,
+    config_path: &Path,
+    create: bool,
+) -> anyhow::Result<Option<&'a mut dyn toml_edit::TableLike>> {
+    let root = document.as_table_mut();
+    let hooks_is_inline = match root.get("hooks") {
+        Some(hooks) if hooks.as_table_like().is_none() => {
+            // A scalar `hooks` key (for example `hooks = true`) makes
+            // `hooks.state` unreachable for codex itself; installing over it
+            // would corrupt the config, so surface it instead.
+            anyhow::ensure!(
+                !create,
+                "hooks key in {} is not a table, so codex cannot read hook trust state; remove it and reinstall",
+                config_path.display()
+            );
+            return Ok(None);
+        }
+        Some(hooks) => hooks.as_value().is_some(),
+        None if create => {
+            let mut table = toml_edit::Table::new();
+            table.set_implicit(true);
+            root.insert("hooks", toml_edit::Item::Table(table));
+            false
+        }
+        None => return Ok(None),
+    };
+    let hooks = root
+        .get_mut("hooks")
+        .and_then(toml_edit::Item::as_table_like_mut)
+        .with_context(|| format!("hooks table in {} is unusable", config_path.display()))?;
+    match hooks.get("state") {
+        Some(state) if state.as_table_like().is_none() => {
+            anyhow::ensure!(
+                !create,
+                "hooks.state in {} is not a table; remove it and reinstall",
+                config_path.display()
+            );
+            return Ok(None);
+        }
+        Some(_) => {}
+        None if create => {
+            // Match the parent's representation: a subtable dropped into an
+            // inline `hooks = { ... }` must itself be an inline value, or
+            // TableLike::insert silently discards it.
+            let state = if hooks_is_inline {
+                toml_edit::Item::Value(toml_edit::InlineTable::new().into())
+            } else {
+                toml_edit::Item::Table(toml_edit::Table::new())
+            };
+            hooks.insert("state", state);
+        }
+        None => return Ok(None),
+    }
+    hooks
+        .get_mut("state")
+        .and_then(toml_edit::Item::as_table_like_mut)
+        .with_context(|| format!("hooks.state in {} could not be created", config_path.display()))
+        .map(Some)
+}
+
+/// The validated inputs of one trust-state edit, kept alongside the rendered
+/// document so the commit can re-render against fresh file content when
+/// config.toml changed between the preflight and the commit.
+struct CodexTrustEdit {
+    config_path: PathBuf,
+    key_prefix: String,
+    desired: BTreeMap<String, String>,
+    /// Positional keys of the cmux-owned hooks in hooks.json BEFORE this
+    /// operation rewrote it. These entries are deleted regardless of their
+    /// hash value: codex persists a NEW hash when a user reviews and accepts
+    /// a modified cmux hook, so hash matching alone would leave that entry
+    /// behind to pollute a later hook at the same positional key.
+    removal_keys: BTreeSet<String>,
+    owned_hashes: BTreeSet<String>,
+    install: bool,
+}
+
+/// Positional trust keys of every cmux-owned handler occurrence in `root`.
+fn codex_owned_entry_keys(key_hooks_path: &Path, root: &Map<String, Value>) -> BTreeSet<String> {
+    let mut keys = BTreeSet::new();
+    let Some(hooks) = root.get("hooks").and_then(Value::as_object) else {
+        return keys;
+    };
+    for (event, groups) in hooks {
+        let Ok(label) = codex_event_state_label(event) else {
+            continue;
+        };
+        let Some(groups) = groups.as_array() else {
+            continue;
+        };
+        for (group_index, group) in groups.iter().enumerate() {
+            let Some(handlers) = group.get("hooks").and_then(Value::as_array) else {
+                continue;
+            };
+            for (handler_index, handler) in handlers.iter().enumerate() {
+                if handler.get("command").and_then(Value::as_str).is_some_and(is_owned_command) {
+                    keys.insert(format!(
+                        "{}:{label}:{group_index}:{handler_index}",
+                        key_hooks_path.display()
+                    ));
+                }
+            }
+        }
+    }
+    keys
+}
+
+/// A fully validated, pre-rendered config.toml trust-state write. Producing
+/// one performs every step that can fail for content reasons (read, parse,
+/// shape validation, rendering, target-directory writability), so the caller
+/// can sequence it BEFORE mutating hooks.json and commit it afterwards.
+struct PreparedCodexTrustWrite {
+    edit: CodexTrustEdit,
+    original: Option<String>,
+    updated: String,
+    mode: u32,
+}
+
+/// Reads the config and renders the trust edit against its current content,
+/// preserving unrelated keys, comments, and formatting. Returns the file's
+/// current text plus the rendered replacement, or `None` when the current
+/// content already satisfies the edit.
+fn render_codex_trust_document(
+    edit: &CodexTrustEdit,
+) -> anyhow::Result<(Option<String>, Option<String>)> {
+    let (original, mut document) = read_codex_config_document(&edit.config_path)?;
+
+    if let Some(state) = codex_state_table_mut(&mut document, &edit.config_path, edit.install)? {
+        let stale: Vec<String> = state
+            .iter()
+            .filter(|(key, entry)| {
+                // Primary removal follows the hooks this operation removes
+                // from hooks.json: their exact positional keys are deleted
+                // regardless of hash, covering entries codex re-trusted after
+                // a user edit. The canonical-hash sweep stays as secondary
+                // cleanup for orphaned keys from prior layouts.
+                key.starts_with(&edit.key_prefix)
+                    && !edit.desired.contains_key(*key)
+                    && (edit.removal_keys.contains(*key)
+                        || entry
+                            .as_table_like()
+                            .and_then(|entry| entry.get("trusted_hash"))
+                            .and_then(toml_edit::Item::as_str)
+                            .is_some_and(|hash| edit.owned_hashes.contains(hash)))
+            })
+            .map(|(key, _)| key.to_string())
+            .collect();
+        for key in stale {
+            state.remove(&key);
+        }
+        for (key, hash) in &edit.desired {
+            match state.get_mut(key).and_then(toml_edit::Item::as_table_like_mut) {
+                Some(entry) => {
+                    entry.insert("trusted_hash", toml_edit::value(hash.clone()));
+                }
+                None => {
+                    let mut entry = toml_edit::InlineTable::new();
+                    entry.insert("trusted_hash", toml_edit::Value::from(hash.clone()));
+                    state.insert(key, toml_edit::Item::Value(entry.into()));
+                }
+            }
+        }
+        // Uninstall NEVER removes tables, only the trust entries whose hashes
+        // prove cmux ownership. Empty-and-undecorated cannot distinguish an
+        // installer-created table from a user-created placeholder across
+        // processes, so an empty [hooks]/[hooks.state] skeleton is left
+        // behind instead of guessing; it is harmless to codex.
+    }
+
+    let updated = document.to_string();
+    if Some(updated.as_str()) == original.as_deref() || (original.is_none() && updated.is_empty()) {
+        return Ok((original, None));
+    }
+    Ok((original, Some(updated)))
+}
+
+/// Preflights the cmux-owned `hooks.state` trust-entry edit of the codex user
+/// config next to `hooks_path`. Returns `None` when the config already
+/// matches.
+fn prepare_codex_trust_state(
+    hooks_path: &Path,
+    from_env_override: bool,
+    root: &Map<String, Value>,
+    previous_root: &Map<String, Value>,
+    install: bool,
+) -> anyhow::Result<Option<PreparedCodexTrustWrite>> {
+    let parent = hooks_path.parent().context("codex hooks path has no parent")?;
+    // Resolve a symlinked config.toml to its target so the later atomic
+    // rename edits the real file instead of detaching the link.
+    let config_path = resolve_codex_config_path(parent.join(CODEX_CONFIG_FILE))?;
+    let key_hooks_path = codex_state_key_hooks_path(hooks_path, from_env_override);
+    let desired = if install {
+        codex_expected_trust_entries(&key_hooks_path, root)?
+    } else {
+        BTreeMap::new()
+    };
+    if !install && !config_path.exists() {
+        return Ok(None);
+    }
+    let edit = CodexTrustEdit {
+        key_prefix: format!("{}:", key_hooks_path.display()),
+        removal_keys: codex_owned_entry_keys(&key_hooks_path, previous_root),
+        owned_hashes: codex_owned_trust_hashes()?,
+        config_path,
+        desired,
+        install,
+    };
+    let (original, updated) = render_codex_trust_document(&edit)?;
+    let Some(updated) = updated else {
+        return Ok(None);
+    };
+    // Probe where the rename will actually land: the resolved target's
+    // directory, not necessarily the codex home.
+    let target_parent =
+        edit.config_path.parent().context("codex config path has no parent")?.to_path_buf();
+    ensure_writable_directory(&target_parent)?;
+    Ok(Some(PreparedCodexTrustWrite {
+        mode: existing_file_mode(&edit.config_path).unwrap_or(0o600),
+        edit,
+        original,
+        updated,
+    }))
+}
+
+fn commit_codex_trust_state(write: &PreparedCodexTrustWrite) -> anyhow::Result<()> {
+    // Close the preflight-to-commit window: if config.toml changed in between
+    // (codex's own trust review or a user edit), re-render against the fresh
+    // content instead of clobbering the concurrent edit with the stale
+    // preflight document. A re-render failure propagates, so the caller's
+    // rollback restores hooks.json.
+    let current = read_codex_config_text(&write.edit.config_path)?;
+    if current == write.original {
+        return atomic_write(&write.edit.config_path, write.updated.as_bytes(), Some(write.mode));
+    }
+    match render_codex_trust_document(&write.edit)? {
+        (_, Some(updated)) => {
+            let mode = existing_file_mode(&write.edit.config_path).unwrap_or(0o600);
+            atomic_write(&write.edit.config_path, updated.as_bytes(), Some(mode))
+        }
+        // The concurrent edit already satisfies the trust entries.
+        (_, None) => Ok(()),
+    }
+}
+
+/// Captures a file's rollback snapshot (bytes and mode) before mutation.
+/// Only a genuine NotFound maps to None; any other read error fails the whole
+/// operation up front, because rolling back against a false None would delete
+/// a pre-existing file as if it had been absent.
+fn snapshot_file(path: &Path) -> anyhow::Result<Option<(Vec<u8>, u32)>> {
+    match fs::read(path) {
+        Ok(bytes) => {
+            let mode = existing_file_mode(path).unwrap_or(0o600);
+            Ok(Some((bytes, mode)))
+        }
+        Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(None),
+        Err(error) => {
+            Err(error).with_context(|| format!("snapshot {} for rollback", path.display()))
+        }
+    }
+}
+
+/// Restores hooks.json to its pre-operation content (or absence) after a
+/// failed trust-state commit, so a config.toml write failure cannot leave a
+/// half-applied install or uninstall behind.
+fn restore_hooks_file(path: &Path, previous: Option<(Vec<u8>, u32)>) -> anyhow::Result<()> {
+    match previous {
+        Some((bytes, mode)) => atomic_write(path, &bytes, Some(mode)),
+        None => match fs::remove_file(path) {
+            Ok(()) => Ok(()),
+            Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(()),
+            Err(error) => Err(error).with_context(|| format!("remove {}", path.display())),
+        },
+    }
+}
+
+/// Applies a preflighted trust write after hooks.json was already updated,
+/// rolling hooks.json back (best effort) if the commit itself still fails.
+fn commit_codex_trust_state_or_rollback(
+    write: &PreparedCodexTrustWrite,
+    hooks_path: &Path,
+    previous_hooks: Option<Option<(Vec<u8>, u32)>>,
+) -> anyhow::Result<()> {
+    let Err(commit_error) = commit_codex_trust_state(write) else {
+        return Ok(());
+    };
+    if let Some(previous) = previous_hooks
+        && let Err(rollback_error) = restore_hooks_file(hooks_path, previous)
+    {
+        return Err(commit_error.context(format!(
+            "additionally, restoring {} failed: {rollback_error:#}",
+            hooks_path.display()
+        )));
+    }
+    Err(commit_error)
+}
+
+/// Verifies the directory accepts new files before any mutation happens, so
+/// preflight failures surface while both target files are still untouched.
+fn ensure_writable_directory(parent: &Path) -> anyhow::Result<()> {
+    fs::create_dir_all(parent).with_context(|| format!("create {}", parent.display()))?;
+    let mut random = [0_u8; 8];
+    getrandom::fill(&mut random).context("allocate preflight file identity")?;
+    let suffix = random.iter().map(|byte| format!("{byte:02x}")).collect::<String>();
+    let probe = parent.join(format!(".cmux-tui-preflight-{suffix}"));
+    OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(&probe)
+        .with_context(|| format!("preflight write access to {}", parent.display()))?;
+    fs::remove_file(&probe).with_context(|| format!("remove {}", probe.display()))?;
+    Ok(())
+}
+
+fn existing_file_mode(path: &Path) -> Option<u32> {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt as _;
+        fs::metadata(path).ok().map(|metadata| metadata.permissions().mode() & 0o777)
+    }
+    #[cfg(not(unix))]
+    {
+        let _ = path;
+        None
+    }
+}
+
+/// Whether every installed codex hook is trusted by the sibling config.toml.
+/// Read-only; parse failures and absent files report as unverified.
+fn codex_trust_state_verified(
+    hooks_path: &Path,
+    from_env_override: bool,
+    root: &Map<String, Value>,
+) -> bool {
+    let Some(parent) = hooks_path.parent() else {
+        return false;
+    };
+    let key_hooks_path = codex_state_key_hooks_path(hooks_path, from_env_override);
+    let Ok(expected) = codex_expected_trust_entries(&key_hooks_path, root) else {
+        return false;
+    };
+    let config_path = parent.join(CODEX_CONFIG_FILE);
+    // The shared open-once/fstat/bounded-read helper, so status can never be
+    // stalled by a FIFO or oversized file, even one swapped in concurrently.
+    let Ok(Some(text)) = read_codex_config_text(&config_path) else {
+        return false;
+    };
+    let Ok(config) = text.parse::<toml_edit::DocumentMut>() else {
+        return false;
+    };
+    let Some(state) = config
+        .as_table()
+        .get("hooks")
+        .and_then(toml_edit::Item::as_table_like)
+        .and_then(|hooks| hooks.get("state"))
+        .and_then(toml_edit::Item::as_table_like)
+    else {
+        return false;
+    };
+    expected.iter().all(|(key, hash)| {
+        state
+            .get(key)
+            .and_then(toml_edit::Item::as_table_like)
+            .and_then(|entry| entry.get("trusted_hash"))
+            .and_then(toml_edit::Item::as_str)
+            == Some(hash.as_str())
+    })
+}
+
 fn shell_quote(value: &str) -> String {
     format!("'{}'", value.replace('\'', "'\\''"))
 }
@@ -1469,6 +2197,619 @@ mod tests {
         assert!(!text.contains(COMMAND_MARKER));
     }
 
+    /// Trust hashes verified against the real codex 0.150.1 binary: with these
+    /// exact `hooks.state` values in `config.toml`, codex executes the installed
+    /// hooks.json commands; without them it parses hooks.json (it even warns
+    /// about clamping the SessionEnd timeout) and silently skips every handler,
+    /// so codex sessions never reach the cmux-tui agents view
+    /// (https://github.com/manaflow-ai/cmux/issues/11040).
+    const CODEX_TRUSTED_HASHES: &[(&str, &str)] = &[
+        (
+            "session_start",
+            "sha256:397d7ce9e0c6367e34771a4293777ff95415b595bf77e2aa420425adc75d70ae",
+        ),
+        (
+            "user_prompt_submit",
+            "sha256:07ddfc92c131019a0f7099cf68bfbcd34749f112ce56105f544c9a826070db37",
+        ),
+        ("stop", "sha256:8150babcaace7dd374a53671af15022040cb1f48fea365beacdecff744161348"),
+        (
+            "permission_request",
+            "sha256:def8faccd7926451435a173f6b392150e425fd369e221674a6b7741d69158c5c",
+        ),
+        ("pre_tool_use", "sha256:2f90e5824bf1d244ed7fd88f0f545dd3bc896050df56efc12dab3d021efe3d8f"),
+        (
+            "post_tool_use",
+            "sha256:a10109f22d9a6ca69c88a0989d208d1323e2894eea3965a42883d5167457e8b4",
+        ),
+        ("pre_compact", "sha256:a5939da92131e5397df18219e069c0fa59494d832f77ec37d985286aeacca1ec"),
+        ("post_compact", "sha256:609234714e7a0ddf9fbc32c049f2651e732c2f27f12cca21954907df0434e1e8"),
+        (
+            "subagent_start",
+            "sha256:fb16a1107f5a630d93d50e448ad1b20bf677d94d0ade1a5ec3216cb2b8bf53dc",
+        ),
+        (
+            "subagent_stop",
+            "sha256:37436a4778c90ed5ab0e207b2922d3e1151dedfa26c33489c9faef7c990e8866",
+        ),
+        // SessionEnd hashes the clamped 3s timeout, not the configured 5s.
+        ("session_end", "sha256:8366ef19df8ee745ecc7acbd8f72f7109478a583dfd5d06b61537b8e8d19e088"),
+    ];
+
+    fn codex_state_table(context: &Context) -> toml::value::Table {
+        let text = fs::read_to_string(context.home.join(".codex/config.toml"))
+            .expect("codex trust state must be written to $CODEX_HOME/config.toml");
+        let config: toml::Value = toml::from_str(&text).expect("config.toml must stay valid TOML");
+        config
+            .get("hooks")
+            .and_then(|hooks| hooks.get("state"))
+            .and_then(toml::Value::as_table)
+            .cloned()
+            .expect("config.toml must contain a hooks.state table")
+    }
+
+    #[test]
+    fn codex_install_writes_matching_trust_state_into_config_toml() {
+        let root = tempfile::tempdir().unwrap();
+        let context = context(root.path());
+        let plan = Plan { action: Action::Install, providers: vec!["codex".into()] };
+        let result = run_with_context(&plan, &context);
+        assert!(!result.failed, "{}", result.value);
+        let hooks_path = context.home.join(".codex/hooks.json");
+        let state = codex_state_table(&context);
+        for (event, hash) in CODEX_TRUSTED_HASHES {
+            let key = format!("{}:{event}:0:0", hooks_path.display());
+            let entry =
+                state.get(&key).unwrap_or_else(|| panic!("missing hooks.state entry {key}"));
+            assert_eq!(
+                entry.get("trusted_hash").and_then(toml::Value::as_str),
+                Some(*hash),
+                "{key}"
+            );
+        }
+        assert_eq!(state.len(), CODEX_EVENTS.len());
+    }
+
+    #[test]
+    fn codex_trust_keys_use_the_installed_group_position() {
+        let root = tempfile::tempdir().unwrap();
+        let context = context(root.path());
+        let hooks_path = context.home.join(".codex/hooks.json");
+        atomic_write(
+            &hooks_path,
+            br#"{"hooks":{"Stop":[{"hooks":[{"type":"command","command":"custom-hook"}]}]}}"#,
+            Some(0o600),
+        )
+        .unwrap();
+        let plan = Plan { action: Action::Install, providers: vec!["codex".into()] };
+        let result = run_with_context(&plan, &context);
+        assert!(!result.failed, "{}", result.value);
+        let state = codex_state_table(&context);
+        // The custom Stop group keeps position 0, so the cmux-owned handler is
+        // group 1 and its trust key must say so; codex keys trust by position.
+        let stop_key = format!("{}:stop:1:0", hooks_path.display());
+        let stop_hash =
+            CODEX_TRUSTED_HASHES.iter().find(|(event, _)| *event == "stop").map(|(_, hash)| *hash);
+        assert_eq!(
+            state
+                .get(&stop_key)
+                .and_then(|entry| entry.get("trusted_hash"))
+                .and_then(toml::Value::as_str),
+            stop_hash,
+            "{stop_key}"
+        );
+        assert!(!state.contains_key(&format!("{}:stop:0:0", hooks_path.display())));
+    }
+
+    #[test]
+    fn codex_trust_keys_use_the_owned_hook_index_within_a_group() {
+        // Unit: a foreign hook before ours in the same group shifts the
+        // handler index; codex keys trust by group AND handler position.
+        let owned = hook_command("codex", "Stop");
+        let mixed = json!({"hooks": {"Stop": [{"hooks": [
+            {"type": "command", "command": "foreign-first", "timeout": 5},
+            {"type": "command", "command": owned, "timeout": 5},
+        ]}]}});
+        let mixed = mixed.as_object().unwrap().clone();
+        assert_eq!(codex_owned_hook_position(&mixed, "Stop"), Some((0, 1)));
+
+        // End to end: after a hand-edit inserts a foreign hook before ours,
+        // codex would look up key ...:stop:0:1 and skip the untrusted cmux
+        // hook, so status must stop claiming installed; a reinstall re-appends
+        // our handler as its own group and mints the key for that position.
+        let tmp = tempfile::tempdir().unwrap();
+        let context = context(tmp.path());
+        let install = Plan { action: Action::Install, providers: vec!["codex".into()] };
+        assert!(!run_with_context(&install, &context).failed);
+        let hooks_path = context.home.join(".codex/hooks.json");
+        let mut edited: Value = serde_json::from_slice(&fs::read(&hooks_path).unwrap()).unwrap();
+        edited["hooks"]["Stop"][0]["hooks"]
+            .as_array_mut()
+            .unwrap()
+            .insert(0, json!({"type": "command", "command": "foreign-first", "timeout": 5}));
+        atomic_write(&hooks_path, &serde_json::to_vec_pretty(&edited).unwrap(), Some(0o600))
+            .unwrap();
+
+        let status = Plan { action: Action::Status, providers: vec!["codex".into()] };
+        let result = run_with_context(&status, &context);
+        assert_eq!(result.value["providers"][0]["state"], "partial", "{}", result.value);
+
+        assert!(!run_with_context(&install, &context).failed);
+        let state = codex_state_table(&context);
+        assert!(
+            state.contains_key(&format!("{}:stop:1:0", hooks_path.display())),
+            "reinstall must key trust by the hook's new position: {state:?}"
+        );
+        assert!(!state.contains_key(&format!("{}:stop:0:0", hooks_path.display())));
+        let result = run_with_context(&status, &context);
+        assert_eq!(result.value["providers"][0]["state"], "installed", "{}", result.value);
+    }
+
+    #[test]
+    fn codex_status_detects_a_user_edited_hook_entry() {
+        let root = tempfile::tempdir().unwrap();
+        let context = context(root.path());
+        let install = Plan { action: Action::Install, providers: vec!["codex".into()] };
+        assert!(!run_with_context(&install, &context).failed);
+        let status = Plan { action: Action::Status, providers: vec!["codex".into()] };
+        let result = run_with_context(&status, &context);
+        assert_eq!(result.value["providers"][0]["state"], "installed", "{}", result.value);
+
+        // A user edit to the installed entry changes codex's normalized
+        // identity hash, so codex marks the hook Modified and skips it.
+        // Status must hash the entry ACTUALLY on disk, not the canonical
+        // shape, or it would keep claiming installed here.
+        let hooks_path = context.home.join(".codex/hooks.json");
+        let mut edited: Value = serde_json::from_slice(&fs::read(&hooks_path).unwrap()).unwrap();
+        edited["hooks"]["Stop"][0]["hooks"][0]["timeout"] = json!(60);
+        atomic_write(&hooks_path, &serde_json::to_vec_pretty(&edited).unwrap(), Some(0o600))
+            .unwrap();
+        let result = run_with_context(&status, &context);
+        assert_eq!(result.value["providers"][0]["state"], "partial", "{}", result.value);
+
+        // Reinstall rewrites the canonical entry, whose hash matches the
+        // stored trust state again.
+        assert!(!run_with_context(&install, &context).failed);
+        let result = run_with_context(&status, &context);
+        assert_eq!(result.value["providers"][0]["state"], "installed", "{}", result.value);
+    }
+
+    #[test]
+    fn snapshot_file_propagates_non_notfound_read_errors() {
+        let root = tempfile::tempdir().unwrap();
+        // A directory in place of the file is a read error that is NOT
+        // NotFound; mapping it to None would make a later rollback delete a
+        // pre-existing hooks.json as if it had been absent.
+        let dir = root.path().join("hooks.json");
+        fs::create_dir_all(&dir).unwrap();
+        let error = snapshot_file(&dir).unwrap_err();
+        assert!(error.to_string().contains("snapshot"), "{error:#}");
+
+        assert!(snapshot_file(&root.path().join("absent.json")).unwrap().is_none());
+        let file = root.path().join("present.json");
+        atomic_write(&file, b"{}", Some(0o600)).unwrap();
+        assert_eq!(snapshot_file(&file).unwrap().unwrap().0, b"{}");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn codex_operations_fail_closed_on_a_fifo_config_toml() {
+        use std::ffi::CString;
+        use std::os::unix::ffi::OsStrExt as _;
+
+        let root = tempfile::tempdir().unwrap();
+        let worker_context = context(root.path());
+        let context = context(root.path());
+        let install = Plan { action: Action::Install, providers: vec!["codex".into()] };
+        assert!(!run_with_context(&install, &context).failed);
+        let hooks_path = context.home.join(".codex/hooks.json");
+        let installed = fs::read(&hooks_path).unwrap();
+        let config_path = context.home.join(".codex/config.toml");
+        fs::remove_file(&config_path).unwrap();
+        let fifo = CString::new(config_path.as_os_str().as_bytes()).unwrap();
+        assert_eq!(unsafe { libc::mkfifo(fifo.as_ptr(), 0o600) }, 0);
+
+        // The FIFO has no writer, so merely opening it would block forever;
+        // every operation must gate on metadata instead. Run them on a worker
+        // thread with a bounded wait so a regression fails fast as a timeout
+        // panic instead of hanging the suite.
+        let (sender, receiver) = std::sync::mpsc::channel();
+        std::thread::spawn(move || {
+            let status = Plan { action: Action::Status, providers: vec!["codex".into()] };
+            let install = Plan { action: Action::Install, providers: vec!["codex".into()] };
+            let uninstall = Plan { action: Action::Uninstall, providers: vec!["codex".into()] };
+            let _ = sender.send((
+                run_with_context(&status, &worker_context),
+                run_with_context(&install, &worker_context),
+                run_with_context(&uninstall, &worker_context),
+            ));
+        });
+        let (status_result, install_result, uninstall_result) = receiver
+            .recv_timeout(Duration::from_secs(60))
+            .expect("codex operations must fail closed on a FIFO config instead of blocking");
+
+        assert_eq!(
+            status_result.value["providers"][0]["state"], "partial",
+            "{}",
+            status_result.value
+        );
+        assert!(install_result.failed, "{}", install_result.value);
+        assert!(
+            install_result.value["errors"][0].as_str().unwrap().contains("not a regular file"),
+            "{}",
+            install_result.value
+        );
+        assert!(uninstall_result.failed, "{}", uninstall_result.value);
+        // Both mutating operations failed in preflight: hooks.json untouched.
+        assert_eq!(fs::read(&hooks_path).unwrap(), installed);
+    }
+
+    #[test]
+    fn codex_install_supports_an_inline_hooks_table() {
+        let root = tempfile::tempdir().unwrap();
+        let context = context(root.path());
+        let config_path = context.home.join(".codex/config.toml");
+        // `hooks = { enabled = true }` is a valid inline table; inserting the
+        // state subtable into it used to be silently discarded and then panic.
+        atomic_write(&config_path, b"hooks = { enabled = true }\n", Some(0o600)).unwrap();
+        let install = Plan { action: Action::Install, providers: vec!["codex".into()] };
+        let result = run_with_context(&install, &context);
+        assert!(!result.failed, "{}", result.value);
+        let state = codex_state_table(&context);
+        assert_eq!(state.len(), CODEX_EVENTS.len());
+        let text = fs::read_to_string(&config_path).unwrap();
+        assert!(text.contains("enabled = true"), "{text}");
+
+        let uninstall = Plan { action: Action::Uninstall, providers: vec!["codex".into()] };
+        let result = run_with_context(&uninstall, &context);
+        assert!(!result.failed, "{}", result.value);
+        let text = fs::read_to_string(&config_path).unwrap();
+        assert!(text.contains("enabled = true"), "{text}");
+        assert!(!text.contains("trusted_hash"), "{text}");
+    }
+
+    #[test]
+    fn codex_uninstall_keeps_a_commented_user_state_table_byte_identical() {
+        let root = tempfile::tempdir().unwrap();
+        let context = context(root.path());
+        let config_path = context.home.join(".codex/config.toml");
+        let original = "# reserved for my hook overrides\n[hooks.state]\n";
+        atomic_write(&config_path, original.as_bytes(), Some(0o600)).unwrap();
+
+        let install = Plan { action: Action::Install, providers: vec!["codex".into()] };
+        assert!(!run_with_context(&install, &context).failed);
+        assert!(fs::read_to_string(&config_path).unwrap().contains("trusted_hash"));
+        let uninstall = Plan { action: Action::Uninstall, providers: vec!["codex".into()] };
+        assert!(!run_with_context(&uninstall, &context).failed);
+        // The table is empty again but carries the user's comment; deleting
+        // it would destroy their content, so the cycle must round-trip.
+        assert_eq!(fs::read_to_string(&config_path).unwrap(), original);
+    }
+
+    #[test]
+    fn codex_trust_commit_re_renders_after_a_concurrent_config_edit() {
+        let root = tempfile::tempdir().unwrap();
+        let context = context(root.path());
+        let install = Plan { action: Action::Install, providers: vec!["codex".into()] };
+        assert!(!run_with_context(&install, &context).failed);
+        let hooks_path = context.home.join(".codex/hooks.json");
+        let config_path = context.home.join(".codex/config.toml");
+
+        // Reset the trust state so a fresh edit is pending, then preflight it.
+        atomic_write(&config_path, b"model = \"gpt-5.6\"\n", Some(0o600)).unwrap();
+        let hooks_root = read_json_object(&hooks_path).unwrap();
+        let prepared =
+            prepare_codex_trust_state(&hooks_path, false, &hooks_root, &hooks_root, true)
+                .unwrap()
+                .expect("trust entries are missing, so an edit must be pending");
+
+        // A concurrent writer (codex's own trust review or the user) edits
+        // config.toml between the preflight and the commit; the commit must
+        // fold that edit in rather than clobber it with the stale render.
+        atomic_write(&config_path, b"model = \"gpt-5.6\"\nconcurrent = \"edit\"\n", Some(0o600))
+            .unwrap();
+        commit_codex_trust_state(&prepared).unwrap();
+        let text = fs::read_to_string(&config_path).unwrap();
+        assert!(text.contains("concurrent = \"edit\""), "{text}");
+        assert!(text.contains("model = \"gpt-5.6\""), "{text}");
+        assert_eq!(codex_state_table(&context).len(), CODEX_EVENTS.len());
+
+        // If the fresh content no longer validates, the commit must fail and
+        // the rollback path must restore hooks.json.
+        atomic_write(&config_path, b"model = \"gpt-5.6\"\n", Some(0o600)).unwrap();
+        let hooks_root = read_json_object(&hooks_path).unwrap();
+        let prepared =
+            prepare_codex_trust_state(&hooks_path, false, &hooks_root, &hooks_root, true)
+                .unwrap()
+                .unwrap();
+        let installed_hooks = fs::read(&hooks_path).unwrap();
+        atomic_write(&config_path, b"hooks = true\n", Some(0o600)).unwrap();
+        atomic_write(&hooks_path, b"{}\n", Some(0o600)).unwrap();
+        let error = commit_codex_trust_state_or_rollback(
+            &prepared,
+            &hooks_path,
+            Some(Some((installed_hooks.clone(), 0o600))),
+        )
+        .unwrap_err();
+        assert!(format!("{error:#}").contains("hooks key"), "{error:#}");
+        assert_eq!(fs::read(&hooks_path).unwrap(), installed_hooks);
+        assert_eq!(fs::read_to_string(&config_path).unwrap(), "hooks = true\n");
+    }
+
+    #[test]
+    fn codex_trust_sync_preserves_user_config_and_is_idempotent_and_reversible() {
+        let root = tempfile::tempdir().unwrap();
+        let context = context(root.path());
+        let config_path = context.home.join(".codex/config.toml");
+        let user_key = "manual/hooks.json:stop:0:0";
+        atomic_write(
+            &config_path,
+            format!(
+                "# personal codex config\nmodel = \"gpt-5.6\"\n\n[hooks.state.\"{user_key}\"]\nenabled = false\ntrusted_hash = \"sha256:user\"\n"
+            )
+            .as_bytes(),
+            Some(0o600),
+        )
+        .unwrap();
+        let plan = Plan { action: Action::Install, providers: vec!["codex".into()] };
+        let first = run_with_context(&plan, &context);
+        assert!(!first.failed, "{}", first.value);
+        assert_eq!(first.value["providers"][0]["changed"], Value::Bool(true));
+        let text = fs::read_to_string(&config_path).unwrap();
+        assert!(text.contains("# personal codex config"));
+        assert!(text.contains("model = \"gpt-5.6\""));
+        assert!(text.contains("sha256:user"));
+
+        let second = run_with_context(&plan, &context);
+        assert!(!second.failed, "{}", second.value);
+        assert_eq!(second.value["providers"][0]["changed"], Value::Bool(false));
+        assert_eq!(fs::read_to_string(&config_path).unwrap(), text);
+
+        let uninstall = Plan { action: Action::Uninstall, providers: vec!["codex".into()] };
+        let result = run_with_context(&uninstall, &context);
+        assert!(!result.failed, "{}", result.value);
+        let state = codex_state_table(&context);
+        assert_eq!(state.len(), 1, "only the user's own trust entry survives");
+        assert!(state.contains_key(user_key));
+        let text = fs::read_to_string(&config_path).unwrap();
+        assert!(text.contains("# personal codex config"));
+        assert!(!text.contains(&format!("{}", context.home.join(".codex/hooks.json").display())));
+    }
+
+    #[test]
+    fn codex_uninstall_removes_entries_but_never_tables() {
+        let root = tempfile::tempdir().unwrap();
+        let context = context(root.path());
+        let install = Plan { action: Action::Install, providers: vec!["codex".into()] };
+        assert!(!run_with_context(&install, &context).failed);
+        let uninstall = Plan { action: Action::Uninstall, providers: vec!["codex".into()] };
+        assert!(!run_with_context(&uninstall, &context).failed);
+        // Ownership of an empty table cannot be proven across processes, so
+        // uninstall deletes only hash-proven trust entries and leaves the
+        // empty [hooks.state] skeleton behind; codex ignores it.
+        let state = codex_state_table(&context);
+        assert!(state.is_empty(), "only the empty skeleton may remain: {state:?}");
+        let text = fs::read_to_string(context.home.join(".codex/config.toml")).unwrap();
+        assert!(!text.contains("trusted_hash"), "{text}");
+    }
+
+    #[test]
+    fn codex_uninstall_removes_a_re_accepted_trust_entry() {
+        let root = tempfile::tempdir().unwrap();
+        let context = context(root.path());
+        let install = Plan { action: Action::Install, providers: vec!["codex".into()] };
+        assert!(!run_with_context(&install, &context).failed);
+        let hooks_path = context.home.join(".codex/hooks.json");
+        let config_path = context.home.join(".codex/config.toml");
+
+        // Simulate codex re-accepting a user-edited cmux hook: the entry
+        // keeps the cmux hook's positional key but carries a NEW hash that
+        // no canonical command shape produces. Add a user-owned entry at
+        // another key that must survive.
+        let mut doc: toml_edit::DocumentMut =
+            fs::read_to_string(&config_path).unwrap().parse().unwrap();
+        let state = doc["hooks"]["state"].as_table_like_mut().unwrap();
+        let stop_key = format!("{}:stop:0:0", hooks_path.display());
+        state
+            .get_mut(&stop_key)
+            .unwrap()
+            .as_table_like_mut()
+            .unwrap()
+            .insert("trusted_hash", toml_edit::value("sha256:re-accepted-after-user-edit"));
+        let mut user_entry = toml_edit::InlineTable::new();
+        user_entry.insert("trusted_hash", toml_edit::Value::from("sha256:user"));
+        let user_key = "manual/hooks.json:stop:0:0";
+        state.insert(user_key, toml_edit::Item::Value(user_entry.into()));
+        atomic_write(&config_path, doc.to_string().as_bytes(), Some(0o600)).unwrap();
+
+        let uninstall = Plan { action: Action::Uninstall, providers: vec!["codex".into()] };
+        let result = run_with_context(&uninstall, &context);
+        assert!(!result.failed, "{}", result.value);
+        // The hook left hooks.json, so its trust entry must go with it by
+        // positional key, regardless of the re-accepted hash value.
+        assert!(!fs::read_to_string(&hooks_path).unwrap().contains(COMMAND_MARKER));
+        let state = codex_state_table(&context);
+        assert!(!state.contains_key(&stop_key), "{state:?}");
+        assert_eq!(state.len(), 1, "{state:?}");
+        assert!(state.contains_key(user_key));
+    }
+
+    #[test]
+    fn codex_install_refuses_to_clobber_invalid_or_scalar_hooks_config() {
+        for broken in ["not = valid = toml\n", "hooks = true\n"] {
+            let root = tempfile::tempdir().unwrap();
+            let context = context(root.path());
+            let config_path = context.home.join(".codex/config.toml");
+            atomic_write(&config_path, broken.as_bytes(), Some(0o600)).unwrap();
+            let hooks_path = context.home.join(".codex/hooks.json");
+            let custom =
+                br#"{"hooks":{"Stop":[{"hooks":[{"type":"command","command":"custom-hook"}]}]}}"#;
+            atomic_write(&hooks_path, custom, Some(0o600)).unwrap();
+            let plan = Plan { action: Action::Install, providers: vec!["codex".into()] };
+            let result = run_with_context(&plan, &context);
+            assert!(result.failed, "{broken:?}: {}", result.value);
+            assert_eq!(fs::read_to_string(&config_path).unwrap(), broken);
+            // The config preflight runs before hooks.json is touched, so a
+            // failed install must not leave new untrusted hooks behind.
+            assert_eq!(fs::read(&hooks_path).unwrap(), custom, "{broken:?}");
+        }
+    }
+
+    #[test]
+    fn codex_install_preflight_failure_leaves_an_absent_hooks_json_absent() {
+        let root = tempfile::tempdir().unwrap();
+        let context = context(root.path());
+        let config_path = context.home.join(".codex/config.toml");
+        atomic_write(&config_path, b"hooks = true\n", Some(0o600)).unwrap();
+        let plan = Plan { action: Action::Install, providers: vec!["codex".into()] };
+        let result = run_with_context(&plan, &context);
+        assert!(result.failed, "{}", result.value);
+        assert!(!context.home.join(".codex/hooks.json").exists());
+    }
+
+    #[test]
+    fn codex_uninstall_preflight_failure_leaves_hooks_json_untouched() {
+        let root = tempfile::tempdir().unwrap();
+        let context = context(root.path());
+        let install = Plan { action: Action::Install, providers: vec!["codex".into()] };
+        assert!(!run_with_context(&install, &context).failed);
+        let hooks_path = context.home.join(".codex/hooks.json");
+        let installed = fs::read(&hooks_path).unwrap();
+        let config_path = context.home.join(".codex/config.toml");
+        atomic_write(&config_path, b"not = valid = toml\n", Some(0o600)).unwrap();
+
+        let uninstall = Plan { action: Action::Uninstall, providers: vec!["codex".into()] };
+        let result = run_with_context(&uninstall, &context);
+        assert!(result.failed, "{}", result.value);
+        // Removing the hooks while their stale trust entries linger would be a
+        // half-applied uninstall; the config preflight must fail first.
+        assert_eq!(fs::read(&hooks_path).unwrap(), installed);
+        assert_eq!(fs::read_to_string(&config_path).unwrap(), "not = valid = toml\n");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn codex_install_edits_the_target_of_a_symlinked_config_toml() {
+        use std::os::unix::fs::symlink;
+
+        let root = tempfile::tempdir().unwrap();
+        let context = context(root.path());
+        let real = root.path().join("dotfiles/codex-config.toml");
+        atomic_write(&real, b"# managed by dotfiles\nmodel = \"gpt-5.6\"\n", Some(0o600)).unwrap();
+        let config_path = context.home.join(".codex/config.toml");
+        fs::create_dir_all(config_path.parent().unwrap()).unwrap();
+        symlink(&real, &config_path).unwrap();
+
+        let install = Plan { action: Action::Install, providers: vec!["codex".into()] };
+        let first = run_with_context(&install, &context);
+        assert!(!first.failed, "{}", first.value);
+        // The symlink must survive; the trust entries land in its target so
+        // codex and the dotfile manager keep seeing one file.
+        assert!(fs::symlink_metadata(&config_path).unwrap().file_type().is_symlink());
+        let text = fs::read_to_string(&real).unwrap();
+        assert!(text.contains("# managed by dotfiles"));
+        assert!(text.contains("trusted_hash"));
+        let status = Plan { action: Action::Status, providers: vec!["codex".into()] };
+        let result = run_with_context(&status, &context);
+        assert_eq!(result.value["providers"][0]["state"], "installed", "{}", result.value);
+        let second = run_with_context(&install, &context);
+        assert_eq!(second.value["providers"][0]["changed"], Value::Bool(false));
+
+        let uninstall = Plan { action: Action::Uninstall, providers: vec!["codex".into()] };
+        let result = run_with_context(&uninstall, &context);
+        assert!(!result.failed, "{}", result.value);
+        assert!(fs::symlink_metadata(&config_path).unwrap().file_type().is_symlink());
+        let text = fs::read_to_string(&real).unwrap();
+        assert!(text.contains("# managed by dotfiles"));
+        assert!(!text.contains("trusted_hash"));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn codex_install_refuses_a_dangling_config_symlink() {
+        use std::os::unix::fs::symlink;
+
+        let root = tempfile::tempdir().unwrap();
+        let context = context(root.path());
+        let config_path = context.home.join(".codex/config.toml");
+        fs::create_dir_all(config_path.parent().unwrap()).unwrap();
+        symlink(root.path().join("missing-target.toml"), &config_path).unwrap();
+
+        let plan = Plan { action: Action::Install, providers: vec!["codex".into()] };
+        let result = run_with_context(&plan, &context);
+        assert!(result.failed, "{}", result.value);
+        assert!(result.value["errors"][0].as_str().unwrap().contains("does not resolve"));
+        // Preflight runs first: no hooks were installed and the link survives.
+        assert!(!context.home.join(".codex/hooks.json").exists());
+        assert!(fs::symlink_metadata(&config_path).unwrap().file_type().is_symlink());
+    }
+
+    #[test]
+    fn codex_status_reports_partial_for_an_oversized_config_toml() {
+        let root = tempfile::tempdir().unwrap();
+        let context = context(root.path());
+        let install = Plan { action: Action::Install, providers: vec!["codex".into()] };
+        assert!(!run_with_context(&install, &context).failed);
+        let status = Plan { action: Action::Status, providers: vec!["codex".into()] };
+        let result = run_with_context(&status, &context);
+        assert_eq!(result.value["providers"][0]["state"], "installed", "{}", result.value);
+
+        // Grow config.toml past the cap without writing real data; the status
+        // path must reject it from metadata instead of reading it.
+        let config_path = context.home.join(".codex/config.toml");
+        let file = OpenOptions::new().write(true).open(&config_path).unwrap();
+        file.set_len(MAX_CONFIG_BYTES + 1).unwrap();
+        drop(file);
+        let result = run_with_context(&status, &context);
+        assert_eq!(result.value["providers"][0]["state"], "partial", "{}", result.value);
+    }
+
+    #[test]
+    fn codex_status_reports_partial_until_config_toml_trusts_the_hooks() {
+        let root = tempfile::tempdir().unwrap();
+        let context = context(root.path());
+        let install = Plan { action: Action::Install, providers: vec!["codex".into()] };
+        assert!(!run_with_context(&install, &context).failed);
+        let status = Plan { action: Action::Status, providers: vec!["codex".into()] };
+        let result = run_with_context(&status, &context);
+        assert_eq!(result.value["providers"][0]["state"], "installed", "{}", result.value);
+
+        // codex ignores hooks.json without matching trust state, so a wiped
+        // config.toml must demote the report even though hooks.json is intact.
+        fs::remove_file(context.home.join(".codex/config.toml")).unwrap();
+        let result = run_with_context(&status, &context);
+        assert_eq!(result.value["providers"][0]["state"], "partial", "{}", result.value);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn codex_home_override_trust_keys_use_the_canonicalized_path() {
+        use std::os::unix::fs::symlink;
+
+        let root = tempfile::tempdir().unwrap();
+        let mut context = context(root.path());
+        let real = root.path().join("codex-home");
+        fs::create_dir_all(&real).unwrap();
+        let link = root.path().join("codex-home-link");
+        symlink(&real, &link).unwrap();
+        context.environment.insert("CODEX_HOME".into(), link.clone().into());
+        let plan = Plan { action: Action::Install, providers: vec!["codex".into()] };
+        let result = run_with_context(&plan, &context);
+        assert!(!result.failed, "{}", result.value);
+        assert!(link.join("hooks.json").is_file());
+        let text = fs::read_to_string(link.join("config.toml")).unwrap();
+        let config: toml::Value = toml::from_str(&text).unwrap();
+        let state = config["hooks"]["state"].as_table().unwrap();
+        // codex canonicalizes an explicit CODEX_HOME before building trust
+        // keys, so keys minted against the symlink path would never match.
+        let canonical_key = format!(
+            "{}:session_start:0:0",
+            fs::canonicalize(&real).unwrap().join("hooks.json").display()
+        );
+        assert!(state.contains_key(&canonical_key), "{text}");
+        assert!(!state.keys().any(|key| key.starts_with(&format!("{}", link.display()))), "{text}");
+    }
+
     #[test]
     fn claude_commands_are_async_without_weakening_other_provider_receipts() {
         let root = tempfile::tempdir().unwrap();
@@ -1587,7 +2928,7 @@ mod tests {
         )
         .unwrap();
         let cursor = PROVIDERS.iter().copied().find(|provider| provider.id == "cursor").unwrap();
-        assert_eq!(provider_status(cursor, &config).unwrap().0, "partial");
+        assert_eq!(provider_status(cursor, &config, false).unwrap().0, "partial");
         let plan = Plan { action: Action::Install, providers: vec!["cursor".into()] };
         let result = run_with_context(&plan, &context);
         assert!(!result.failed, "{}", result.value);
@@ -1595,7 +2936,7 @@ mod tests {
         assert!(text.contains("custom-hook"));
         assert!(!text.contains("cmux-tui-agent-hook"));
         assert_eq!(text.matches(COMMAND_MARKER).count(), CURSOR_EVENTS.len());
-        assert_eq!(provider_status(cursor, &config).unwrap().0, "installed");
+        assert_eq!(provider_status(cursor, &config, false).unwrap().0, "installed");
     }
 
     #[test]
@@ -1649,7 +2990,7 @@ mod tests {
         let path = context.home.join(".config/amp/plugins/cmux-tui-journal.ts");
         atomic_write(&path, b"const binary = '/tmp/cmux-tui-agent-hook';\n", Some(0o600)).unwrap();
         let amp = PROVIDERS.iter().copied().find(|provider| provider.id == "amp").unwrap();
-        assert_eq!(provider_status(amp, &path).unwrap().0, "partial");
+        assert_eq!(provider_status(amp, &path, false).unwrap().0, "partial");
         let plan = Plan { action: Action::Install, providers: vec!["amp".into()] };
         let result = run_with_context(&plan, &context);
         assert!(!result.failed, "{}", result.value);
@@ -1657,9 +2998,13 @@ mod tests {
         assert!(text.contains(PLUGIN_MARKER));
         assert!(!text.contains("cmux-tui-agent-hook"));
         assert_eq!(
-            provider_status(amp, &context.home.join(".config/amp/plugins/cmux-tui-journal.ts"))
-                .unwrap()
-                .0,
+            provider_status(
+                amp,
+                &context.home.join(".config/amp/plugins/cmux-tui-journal.ts"),
+                false
+            )
+            .unwrap()
+            .0,
             "installed"
         );
     }
@@ -1678,13 +3023,13 @@ mod tests {
             Some(0o600),
         )
         .unwrap();
-        assert_eq!(install_provider(hermes, &path).unwrap(), ("installed", true));
+        assert_eq!(install_provider(hermes, &path, false).unwrap(), ("installed", true));
         assert!(migrate_hermes_cmux_irc_tee(&path).unwrap());
         assert!(!fs::read_to_string(&irc).unwrap().contains("cmux-tui-cmux-irc"));
         assert!(!migrate_hermes_cmux_irc_tee(&path).unwrap());
-        assert_eq!(provider_status(hermes, &path).unwrap().0, "installed");
-        assert_eq!(install_provider(hermes, &path).unwrap(), ("installed", false));
-        assert_eq!(uninstall_provider(hermes, &path).unwrap(), ("absent", true));
+        assert_eq!(provider_status(hermes, &path, false).unwrap().0, "installed");
+        assert_eq!(install_provider(hermes, &path, false).unwrap(), ("installed", false));
+        assert_eq!(uninstall_provider(hermes, &path, false).unwrap(), ("absent", true));
         assert!(!path.exists());
     }
 

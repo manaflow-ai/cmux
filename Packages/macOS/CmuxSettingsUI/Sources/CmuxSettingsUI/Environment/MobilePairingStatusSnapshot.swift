@@ -7,7 +7,10 @@ import Foundation
 /// listener binds an OS-assigned ephemeral port instead, and the iOS app is
 /// handed the actual ``boundPort``. The settings UI uses this snapshot to show
 /// the real bound port and warn when it differs from ``configuredPort`` so a
-/// configured port can never silently fail to take effect.
+/// configured port can never silently fail to take effect. ``boundPort`` and
+/// ``usesEphemeralFallback`` describe the TCP pairing listener; the Iroh
+/// endpoint's actual UDP socket addresses appear as Iroh entries in
+/// ``routes``.
 ///
 /// The host supplies the snapshot through
 /// ``SettingsHostActions/mobilePairingStatus()`` and pushes updates through

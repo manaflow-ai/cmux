@@ -4,12 +4,15 @@ import (
 	"encoding/json"
 	"fmt"
 	"hash/fnv"
+	"io"
 	"math"
 	"os"
 	"path/filepath"
 	"regexp"
 	"strings"
 	"time"
+
+	"golang.org/x/sys/unix"
 )
 
 // runTmuxCompat handles `cmux __tmux-compat <args...>`, translating tmux
@@ -1132,24 +1135,33 @@ type tmuxSplitAnchor struct {
 	direction       string
 }
 
-func tmuxAnchoredSplitTarget(rc *rpcContext, workspaceId string) *tmuxSplitAnchor {
-	store := loadTmuxCompatStore()
+func tmuxAnchoredSplitTarget(rc *rpcContext, workspaceId string) (*tmuxSplitAnchor, error) {
+	store, err := loadTmuxCompatStore()
+	if err != nil {
+		return nil, err
+	}
 	if mvState, ok := store.MainVerticalLayouts[workspaceId]; ok && mvState.LastColumnSurfaceId != "" {
-		lastColumnId, err := tmuxCanonicalSurfaceId(rc, mvState.LastColumnSurfaceId, workspaceId)
+		staleLastColumn := mvState.LastColumnSurfaceId
+		lastColumnId, err := tmuxCanonicalSurfaceId(rc, staleLastColumn, workspaceId)
 		if err == nil {
 			return &tmuxSplitAnchor{
 				targetSurfaceId: lastColumnId,
 				callerSurfaceId: "",
 				direction:       "down",
-			}
+			}, nil
 		}
 
 		// Right-column anchors can outlive the pane they pointed at.
 		// Drop stale state and rebuild from the caller surface instead.
-		mvState.LastColumnSurfaceId = ""
-		store.MainVerticalLayouts[workspaceId] = mvState
-		delete(store.LastSplitSurface, workspaceId)
-		_ = saveTmuxCompatStore(store)
+		_ = withLockedTmuxCompatStore(func(store *tmuxCompatStore) error {
+			if current, ok := store.MainVerticalLayouts[workspaceId]; ok &&
+				current.LastColumnSurfaceId == staleLastColumn {
+				current.LastColumnSurfaceId = ""
+				store.MainVerticalLayouts[workspaceId] = current
+				delete(store.LastSplitSurface, workspaceId)
+			}
+			return nil
+		})
 	}
 
 	candidateAnchors := []string{tmuxCallerSurfaceHandle()}
@@ -1166,16 +1178,23 @@ func tmuxAnchoredSplitTarget(rc *rpcContext, workspaceId string) *tmuxSplitAncho
 				targetSurfaceId: anchorSurfaceId,
 				callerSurfaceId: anchorSurfaceId,
 				direction:       "right",
-			}
+			}, nil
 		}
 	}
 
-	if _, ok := store.MainVerticalLayouts[workspaceId]; ok {
-		delete(store.MainVerticalLayouts, workspaceId)
-		delete(store.LastSplitSurface, workspaceId)
-		_ = saveTmuxCompatStore(store)
+	observedLayout, hasObservedLayout := store.MainVerticalLayouts[workspaceId]
+	if hasObservedLayout {
+		_ = withLockedTmuxCompatStore(func(store *tmuxCompatStore) error {
+			if current, ok := store.MainVerticalLayouts[workspaceId]; ok &&
+				current.MainSurfaceId == observedLayout.MainSurfaceId &&
+				current.LastColumnSurfaceId == observedLayout.LastColumnSurfaceId {
+				delete(store.MainVerticalLayouts, workspaceId)
+				delete(store.LastSplitSurface, workspaceId)
+			}
+			return nil
+		})
 	}
-	return nil
+	return nil, nil
 }
 
 // --- TmuxCompatStore (local JSON state) ---
@@ -1197,24 +1216,104 @@ func tmuxCompatStoreURL() string {
 	return filepath.Join(home, ".cmuxterm", "tmux-compat-store.json")
 }
 
-func loadTmuxCompatStore() tmuxCompatStore {
-	data, err := os.ReadFile(tmuxCompatStoreURL())
-	if err != nil {
-		return tmuxCompatStore{
-			Buffers:             make(map[string]string),
-			Hooks:               make(map[string]string),
-			MainVerticalLayouts: make(map[string]mainVerticalState),
-			LastSplitSurface:    make(map[string]string),
+type tmuxCompatStoreDirectory struct {
+	file      *os.File
+	storeName string
+	lockName  string
+}
+
+func openTmuxCompatStoreDirectory(createIfMissing bool) (*tmuxCompatStoreDirectory, error) {
+	directory := filepath.Dir(tmuxCompatStoreURL())
+	if createIfMissing {
+		if err := os.MkdirAll(directory, 0700); err != nil {
+			return nil, err
 		}
+	}
+	fd, err := unix.Open(
+		directory,
+		unix.O_RDONLY|unix.O_DIRECTORY|unix.O_CLOEXEC|unix.O_NOFOLLOW,
+		0,
+	)
+	if err != nil {
+		return nil, err
+	}
+	directoryFile := os.NewFile(uintptr(fd), directory)
+	if err := unix.Fchmod(fd, 0700); err != nil {
+		_ = directoryFile.Close()
+		return nil, err
+	}
+	return &tmuxCompatStoreDirectory{
+		file:      directoryFile,
+		storeName: filepath.Base(tmuxCompatStoreURL()),
+		lockName:  filepath.Base(tmuxCompatStoreURL()) + ".lock",
+	}, nil
+}
+
+func (directory *tmuxCompatStoreDirectory) open(name string, flags int, mode uint32) (*os.File, error) {
+	fd, err := unix.Openat(int(directory.file.Fd()), name, flags, mode)
+	if err != nil {
+		return nil, err
+	}
+	return os.NewFile(uintptr(fd), name), nil
+}
+
+func (directory *tmuxCompatStoreDirectory) rename(source string, destination string) error {
+	return unix.Renameat(int(directory.file.Fd()), source, int(directory.file.Fd()), destination)
+}
+
+func (directory *tmuxCompatStoreDirectory) unlink(name string) {
+	_ = unix.Unlinkat(int(directory.file.Fd()), name, 0)
+}
+
+func emptyTmuxCompatStore() tmuxCompatStore {
+	return tmuxCompatStore{
+		Buffers:             make(map[string]string),
+		Hooks:               make(map[string]string),
+		MainVerticalLayouts: make(map[string]mainVerticalState),
+		LastSplitSurface:    make(map[string]string),
+	}
+}
+
+func loadTmuxCompatStore() (tmuxCompatStore, error) {
+	directory, err := openTmuxCompatStoreDirectory(false)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return emptyTmuxCompatStore(), nil
+		}
+		return tmuxCompatStore{}, err
+	}
+	defer directory.file.Close()
+	return loadTmuxCompatStoreFromDirectory(directory)
+}
+
+func loadTmuxCompatStoreFromDirectory(directory *tmuxCompatStoreDirectory) (tmuxCompatStore, error) {
+	file, err := directory.open(directory.storeName, unix.O_RDONLY|unix.O_CLOEXEC|unix.O_NOFOLLOW, 0)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return emptyTmuxCompatStore(), nil
+		}
+		return tmuxCompatStore{}, err
+	}
+	defer file.Close()
+	info, err := file.Stat()
+	if err != nil {
+		return tmuxCompatStore{}, err
+	}
+	if !info.Mode().IsRegular() {
+		return tmuxCompatStore{}, fmt.Errorf("tmux compatibility store is not a regular file")
+	}
+	// Heal stores created by older versions even when this is a read-only
+	// command, so buffer contents are never left world-readable.
+	if err := unix.Fchmod(int(file.Fd()), 0600); err != nil {
+		return tmuxCompatStore{}, err
+	}
+	data, err := io.ReadAll(file)
+	if err != nil {
+		return tmuxCompatStore{}, err
 	}
 	var store tmuxCompatStore
 	if err := json.Unmarshal(data, &store); err != nil {
-		return tmuxCompatStore{
-			Buffers:             make(map[string]string),
-			Hooks:               make(map[string]string),
-			MainVerticalLayouts: make(map[string]mainVerticalState),
-			LastSplitSurface:    make(map[string]string),
-		}
+		return tmuxCompatStore{}, err
 	}
 	if store.Buffers == nil {
 		store.Buffers = make(map[string]string)
@@ -1228,60 +1327,141 @@ func loadTmuxCompatStore() tmuxCompatStore {
 	if store.LastSplitSurface == nil {
 		store.LastSplitSurface = make(map[string]string)
 	}
-	return store
+	return store, nil
 }
 
 func saveTmuxCompatStore(store tmuxCompatStore) error {
-	path := tmuxCompatStoreURL()
-	if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
+	return withLockedTmuxCompatStore(func(current *tmuxCompatStore) error {
+		*current = store
+		return nil
+	})
+}
+
+// withLockedTmuxCompatStore serializes a complete store read-modify-write
+// across independent cmuxd processes. The lock file is separate from the JSON
+// path because writers replace the JSON atomically.
+func withLockedTmuxCompatStore(mutate func(*tmuxCompatStore) error) error {
+	return withLockedTmuxCompatStoreIfChanged(func(store *tmuxCompatStore) (bool, error) {
+		if err := mutate(store); err != nil {
+			return false, err
+		}
+		return true, nil
+	})
+}
+
+func withLockedTmuxCompatStoreIfChanged(mutate func(*tmuxCompatStore) (bool, error)) error {
+	directory, err := openTmuxCompatStoreDirectory(true)
+	if err != nil {
 		return err
 	}
+	defer directory.file.Close()
+	lockFile, err := directory.open(
+		directory.lockName,
+		unix.O_CREAT|unix.O_RDWR|unix.O_CLOEXEC|unix.O_NOFOLLOW,
+		0600,
+	)
+	if err != nil {
+		return err
+	}
+	defer lockFile.Close()
+	if err := unix.Fchmod(int(lockFile.Fd()), 0600); err != nil {
+		return err
+	}
+	if err := unix.Flock(int(lockFile.Fd()), unix.LOCK_EX); err != nil {
+		return err
+	}
+	defer unix.Flock(int(lockFile.Fd()), unix.LOCK_UN)
+
+	store, err := loadTmuxCompatStoreFromDirectory(directory)
+	if err != nil {
+		return err
+	}
+	changed, err := mutate(&store)
+	if err != nil {
+		return err
+	}
+	if !changed {
+		return nil
+	}
+	return saveTmuxCompatStoreUnlocked(directory, store)
+}
+
+func saveTmuxCompatStoreUnlocked(directory *tmuxCompatStoreDirectory, store tmuxCompatStore) error {
 	data, err := json.Marshal(store)
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(path, data, 0644)
+	tmpName := fmt.Sprintf(".tmux-compat-store-%d-%d.tmp", os.Getpid(), time.Now().UnixNano())
+	tmp, err := directory.open(
+		tmpName,
+		unix.O_WRONLY|unix.O_CREAT|unix.O_EXCL|unix.O_CLOEXEC|unix.O_NOFOLLOW,
+		0600,
+	)
+	if err != nil {
+		return err
+	}
+	removeTemp := true
+	defer func() {
+		if removeTemp {
+			directory.unlink(tmpName)
+		}
+	}()
+	if err := unix.Fchmod(int(tmp.Fd()), 0600); err != nil {
+		_ = tmp.Close()
+		return err
+	}
+	if _, err := tmp.Write(data); err != nil {
+		_ = tmp.Close()
+		return err
+	}
+	if err := tmp.Sync(); err != nil {
+		_ = tmp.Close()
+		return err
+	}
+	if err := tmp.Close(); err != nil {
+		return err
+	}
+	if err := directory.rename(tmpName, directory.storeName); err != nil {
+		return err
+	}
+	removeTemp = false
+	return nil
 }
 
 func tmuxPruneCompatWorkspaceState(workspaceId string) error {
-	store := loadTmuxCompatStore()
-	changed := false
-	if _, ok := store.MainVerticalLayouts[workspaceId]; ok {
-		delete(store.MainVerticalLayouts, workspaceId)
-		changed = true
-	}
-	if _, ok := store.LastSplitSurface[workspaceId]; ok {
-		delete(store.LastSplitSurface, workspaceId)
-		changed = true
-	}
-	if changed {
-		return saveTmuxCompatStore(store)
-	}
-	return nil
+	return withLockedTmuxCompatStoreIfChanged(func(store *tmuxCompatStore) (bool, error) {
+		_, removedLayout := store.MainVerticalLayouts[workspaceId]
+		_, removedSplit := store.LastSplitSurface[workspaceId]
+		if removedLayout {
+			delete(store.MainVerticalLayouts, workspaceId)
+		}
+		if removedSplit {
+			delete(store.LastSplitSurface, workspaceId)
+		}
+		return removedLayout || removedSplit, nil
+	})
 }
 
 func tmuxPruneCompatSurfaceState(workspaceId string, surfaceId string) error {
-	store := loadTmuxCompatStore()
-	changed := false
-	if lastSplit := store.LastSplitSurface[workspaceId]; lastSplit == surfaceId {
-		delete(store.LastSplitSurface, workspaceId)
-		changed = true
-	}
-	if layout, ok := store.MainVerticalLayouts[workspaceId]; ok {
-		if layout.MainSurfaceId == surfaceId {
-			delete(store.MainVerticalLayouts, workspaceId)
+	return withLockedTmuxCompatStoreIfChanged(func(store *tmuxCompatStore) (bool, error) {
+		changed := false
+		if lastSplit := store.LastSplitSurface[workspaceId]; lastSplit == surfaceId {
 			delete(store.LastSplitSurface, workspaceId)
 			changed = true
-		} else if layout.LastColumnSurfaceId == surfaceId {
-			layout.LastColumnSurfaceId = ""
-			store.MainVerticalLayouts[workspaceId] = layout
-			changed = true
 		}
-	}
-	if changed {
-		return saveTmuxCompatStore(store)
-	}
-	return nil
+		if layout, ok := store.MainVerticalLayouts[workspaceId]; ok {
+			if layout.MainSurfaceId == surfaceId {
+				delete(store.MainVerticalLayouts, workspaceId)
+				delete(store.LastSplitSurface, workspaceId)
+				changed = true
+			} else if layout.LastColumnSurfaceId == surfaceId {
+				layout.LastColumnSurfaceId = ""
+				store.MainVerticalLayouts[workspaceId] = layout
+				changed = true
+			}
+		}
+		return changed, nil
+	})
 }
 
 // --- Special key translation ---
@@ -1526,13 +1706,26 @@ func tmuxSplitWindow(rc *rpcContext, args []string) error {
 	anchoredCallerSurface := ""
 	if callerWorkspace != "" {
 		if wsId, err := tmuxResolveWorkspaceId(rc, callerWorkspace); err == nil {
-			if anchored := tmuxAnchoredSplitTarget(rc, wsId); anchored != nil {
+			anchored, err := tmuxAnchoredSplitTarget(rc, wsId)
+			if err != nil {
+				return err
+			}
+			if anchored != nil {
 				targetWs = wsId
 				targetSurface = anchored.targetSurfaceId
 				direction = anchored.direction
 				anchoredCallerSurface = anchored.callerSurfaceId
 			}
 		}
+	}
+
+	// Validate the store before creating a pane. A malformed or unreadable
+	// store must not turn a successful surface.split into a reported failure
+	// after the pane has already been created.
+	if err := withLockedTmuxCompatStoreIfChanged(func(*tmuxCompatStore) (bool, error) {
+		return false, nil
+	}); err != nil {
+		return fmt.Errorf("validate tmux compatibility store: %w", err)
 	}
 
 	focusNewPane := !p.hasFlag("-d")
@@ -1552,19 +1745,28 @@ func tmuxSplitWindow(rc *rpcContext, args []string) error {
 	newPaneId, _ := created["pane_id"].(string)
 
 	// Track for main-vertical layout
-	store := loadTmuxCompatStore()
-	store.LastSplitSurface[targetWs] = surfaceId
-	if _, ok := store.MainVerticalLayouts[targetWs]; ok {
-		mvs := store.MainVerticalLayouts[targetWs]
-		mvs.LastColumnSurfaceId = surfaceId
-		store.MainVerticalLayouts[targetWs] = mvs
-	} else if direction == "right" && anchoredCallerSurface != "" {
-		store.MainVerticalLayouts[targetWs] = mainVerticalState{
-			MainSurfaceId:       anchoredCallerSurface,
-			LastColumnSurfaceId: surfaceId,
+	if err := withLockedTmuxCompatStore(func(store *tmuxCompatStore) error {
+		store.LastSplitSurface[targetWs] = surfaceId
+		if _, ok := store.MainVerticalLayouts[targetWs]; ok {
+			mvs := store.MainVerticalLayouts[targetWs]
+			mvs.LastColumnSurfaceId = surfaceId
+			store.MainVerticalLayouts[targetWs] = mvs
+		} else if direction == "right" && anchoredCallerSurface != "" {
+			store.MainVerticalLayouts[targetWs] = mainVerticalState{
+				MainSurfaceId:       anchoredCallerSurface,
+				LastColumnSurfaceId: surfaceId,
+			}
 		}
+		return nil
+	}); err != nil {
+		if _, rollbackErr := rc.call("surface.close", map[string]any{
+			"workspace_id": targetWs,
+			"surface_id":   surfaceId,
+		}); rollbackErr != nil {
+			return fmt.Errorf("persist tmux compatibility layout: %w (rollback failed: %v)", err, rollbackErr)
+		}
+		return fmt.Errorf("persist tmux compatibility layout: %w", err)
 	}
-	saveTmuxCompatStore(store)
 
 	// Equalize vertical splits
 	rc.call("workspace.equalize_splits", map[string]any{
@@ -1808,9 +2010,12 @@ func tmuxCapturePane(rc *rpcContext, args []string) error {
 	if p.hasFlag("-p") {
 		fmt.Print(text)
 	} else {
-		store := loadTmuxCompatStore()
-		store.Buffers["default"] = text
-		saveTmuxCompatStore(store)
+		if err := withLockedTmuxCompatStore(func(store *tmuxCompatStore) error {
+			store.Buffers["default"] = text
+			return nil
+		}); err != nil {
+			return err
+		}
 	}
 	return nil
 }
@@ -2192,20 +2397,23 @@ func tmuxSelectLayout(rc *rpcContext, args []string) error {
 
 	if layoutName == "main-vertical" {
 		if callerSurface := tmuxCallerSurfaceHandle(); callerSurface != "" {
-			store := loadTmuxCompatStore()
-			existingColumn := ""
-			if existing, ok := store.MainVerticalLayouts[wsId]; ok {
-				existingColumn = existing.LastColumnSurfaceId
+			if err := withLockedTmuxCompatStore(func(store *tmuxCompatStore) error {
+				existingColumn := ""
+				if existing, ok := store.MainVerticalLayouts[wsId]; ok {
+					existingColumn = existing.LastColumnSurfaceId
+				}
+				seedColumn := existingColumn
+				if seedColumn == "" {
+					seedColumn = store.LastSplitSurface[wsId]
+				}
+				store.MainVerticalLayouts[wsId] = mainVerticalState{
+					MainSurfaceId:       callerSurface,
+					LastColumnSurfaceId: seedColumn,
+				}
+				return nil
+			}); err != nil {
+				return err
 			}
-			seedColumn := existingColumn
-			if seedColumn == "" {
-				seedColumn = store.LastSplitSurface[wsId]
-			}
-			store.MainVerticalLayouts[wsId] = mainVerticalState{
-				MainSurfaceId:       callerSurface,
-				LastColumnSurfaceId: seedColumn,
-			}
-			saveTmuxCompatStore(store)
 		}
 	} else if layoutName != "" {
 		_ = tmuxPruneCompatWorkspaceState(wsId)
@@ -2220,7 +2428,10 @@ func tmuxShowBuffer(args []string) error {
 	if name == "" {
 		name = "default"
 	}
-	store := loadTmuxCompatStore()
+	store, err := loadTmuxCompatStore()
+	if err != nil {
+		return err
+	}
 	if buf, ok := store.Buffers[name]; ok {
 		fmt.Print(buf)
 	}
@@ -2233,7 +2444,10 @@ func tmuxSaveBuffer(args []string) error {
 	if name == "" {
 		name = "default"
 	}
-	store := loadTmuxCompatStore()
+	store, err := loadTmuxCompatStore()
+	if err != nil {
+		return err
+	}
 	buf, ok := store.Buffers[name]
 	if !ok {
 		return fmt.Errorf("buffer not found: %s", name)
