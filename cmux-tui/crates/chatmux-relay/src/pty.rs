@@ -991,10 +991,15 @@ impl Inner {
             }
             return;
         }
-        // Re-check after the backpressure probe. A concurrent replacement may
-        // have invalidated this route while the probe ran.
-        if !self.route_is_current(pty_id, route_id) {
-            return;
+        // Keep route validation and delivery under the attachment-map lock.
+        // Close and replacement use the same lock, so they cannot invalidate
+        // this route between the check and the socket handoff.
+        let attachments = self.attachments.lock().expect("attach lock");
+        match attachments.get(pty_id) {
+            Some(attachment)
+                if attachment.route_id == route_id
+                    && !attachment.closing.load(Ordering::SeqCst) => {}
+            _ => return,
         }
         (auth.send)(json!({
             "version": PTY_PROTOCOL_VERSION,
@@ -1025,14 +1030,13 @@ impl Inner {
                     && !attachment.closing.load(Ordering::SeqCst) => {}
             _ => return,
         }
-        attachments.remove(pty_id);
-        drop(attachments);
         (auth.send)(json!({
             "version": PTY_PROTOCOL_VERSION,
             "type": "pty_exit",
             "ptyId": pty_id,
             "code": code,
         }));
+        attachments.remove(pty_id);
     }
 
     /// Detach, NOT kill: idempotent, unknown ptyId tolerated.
@@ -3024,7 +3028,8 @@ mod tests {
     async fn denied_close_does_not_remove_attachment() {
         let h = harness(None, None);
         h.open_with_transport("p1", "main", "transport-a").await;
-        let denied = h.context_with_transport("observe", Some("other-user".to_owned()), Some("transport-a"));
+        let denied =
+            h.context_with_transport("observe", Some("other-user".to_owned()), Some("transport-a"));
         let close = serde_json::json!({ "version": 4, "type": "pty_close", "ptyId": "p1" });
         h.manager.handle_frame(&close, &denied).await;
         assert!(h.manager.has_attachment("p1"));
