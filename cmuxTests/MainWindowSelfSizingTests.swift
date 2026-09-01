@@ -235,10 +235,59 @@ final class MainWindowSelfSizingTests: XCTestCase {
         XCTAssertEqual(
             CmuxMainWindow.frameByRaisingUndersizedDimensions(
                 fitting,
-                minimumSize: CmuxMainWindow.minimumContentSize
+                minimumSize: CmuxMainWindow.minimumContentSize,
+                currentFrame: NSRect(x: 0, y: 0, width: 1_000, height: 700)
             ),
             fitting,
             "A frame at or above the minimum must be returned unchanged"
         )
+    }
+
+    /// A top-edge drag keeps the window's bottom still and walks maxY down;
+    /// once the proposal dips under the floor the raise must pin the kept
+    /// bottom edge so the top edge stops — anchoring the top instead would
+    /// make the whole window slide down with the cursor (observed live on
+    /// macOS 26, whose edge drags deliver below-minSize frames to setFrame).
+    func testFrameRaisePinsKeptBottomEdgeDuringTopEdgeDrag() {
+        let current = NSRect(x: 100, y: 100, width: 1_000, height: 694)
+        let proposed = NSRect(x: 100, y: 100, width: 1_000, height: 95)
+        let minimum = NSSize(width: 300, height: 400)
+        let raised = CmuxMainWindow.frameByRaisingUndersizedDimensions(
+            proposed,
+            minimumSize: minimum,
+            currentFrame: current
+        )
+        XCTAssertEqual(raised.minY, current.minY, accuracy: 0.01, "Kept bottom edge must stay pinned")
+        XCTAssertEqual(raised.height, minimum.height, accuracy: 0.01)
+    }
+
+    /// A bottom-edge drag keeps the window's top still and walks minY up; the
+    /// raise must pin the kept top edge so the bottom edge stops at the floor.
+    func testFrameRaisePinsKeptTopEdgeDuringBottomEdgeDrag() {
+        let current = NSRect(x: 100, y: 100, width: 1_000, height: 694)
+        let proposed = NSRect(x: 100, y: 699, width: 1_000, height: 95)
+        let minimum = NSSize(width: 300, height: 400)
+        let raised = CmuxMainWindow.frameByRaisingUndersizedDimensions(
+            proposed,
+            minimumSize: minimum,
+            currentFrame: current
+        )
+        XCTAssertEqual(raised.maxY, current.maxY, accuracy: 0.01, "Kept top edge must stay pinned")
+        XCTAssertEqual(raised.height, minimum.height, accuracy: 0.01)
+    }
+
+    /// A left-edge drag keeps the window's right edge still; the raise must
+    /// pin that kept right edge so the left edge stops at the width floor.
+    func testFrameRaisePinsKeptRightEdgeDuringLeftEdgeDrag() {
+        let current = NSRect(x: 100, y: 100, width: 1_000, height: 694)
+        let proposed = NSRect(x: 1_020, y: 100, width: 80, height: 694)
+        let minimum = NSSize(width: 300, height: 400)
+        let raised = CmuxMainWindow.frameByRaisingUndersizedDimensions(
+            proposed,
+            minimumSize: minimum,
+            currentFrame: current
+        )
+        XCTAssertEqual(raised.maxX, current.maxX, accuracy: 0.01, "Kept right edge must stay pinned")
+        XCTAssertEqual(raised.width, minimum.width, accuracy: 0.01)
     }
 }

@@ -116,7 +116,11 @@ final class CmuxMainWindow: NSWindow {
             }
         )
         super.setFrame(
-            Self.frameByRaisingUndersizedDimensions(capped, minimumSize: Self.minimumContentSize),
+            Self.frameByRaisingUndersizedDimensions(
+                capped,
+                minimumSize: Self.minimumContentSize,
+                currentFrame: frame
+            ),
             display: flag
         )
     }
@@ -163,23 +167,47 @@ final class CmuxMainWindow: NSWindow {
         return capped
     }
 
-    /// Raises undersized dimensions to the policy floor. `minSize` and
-    /// `contentMinSize` bound only USER resizes; a programmatic `setFrame`
-    /// (session restore math, display reconfiguration, automation) can still
-    /// deliver a frame below the floor, where the sidebar footer, update
-    /// pill, and tab bar overlap and clip. The raise keeps the top edge put —
-    /// frames are bottom-left anchored, so added height extends the window
-    /// downward, leaving the titlebar where the user can grab it. Frames that
-    /// already fit are returned byte-for-byte.
+    /// Raises undersized dimensions to the policy floor. On macOS 26 the
+    /// edge-drag resize affordance delivers below-`minSize` frames straight
+    /// through `setFrame` (observed live: a 116pt-tall window on a build
+    /// whose `minSize` height was 200), and programmatic paths (session
+    /// restore math, display reconfiguration, automation) were never bounded
+    /// by `minSize` at all — either way the sidebar footer, update pill, and
+    /// tab bar overlap and clip. Frames that already fit are returned
+    /// byte-for-byte.
+    ///
+    /// The raise anchors the edge the gesture is holding still, inferred by
+    /// comparing the proposal against `currentFrame`: a proposal that keeps
+    /// the current bottom (top-edge drag) is pinned at that bottom so the top
+    /// edge stops at the floor, and likewise for a kept right edge. Anything
+    /// else — including every programmatic shrink, which moves both edges —
+    /// keeps the proposal's top-left corner so the titlebar stays where the
+    /// caller put it and the raise extends downward.
     nonisolated static func frameByRaisingUndersizedDimensions(
         _ proposedFrame: NSRect,
-        minimumSize: NSSize
+        minimumSize: NSSize,
+        currentFrame: NSRect
     ) -> NSRect {
         var raised = proposedFrame
         raised.size.width = max(raised.width, minimumSize.width)
         raised.size.height = max(raised.height, minimumSize.height)
         guard raised.size != proposedFrame.size else { return proposedFrame }
-        raised.origin.y = proposedFrame.maxY - raised.height
+
+        let epsilon: CGFloat = 0.5
+        if raised.height != proposedFrame.height {
+            let keepsBottomEdge = abs(proposedFrame.minY - currentFrame.minY) <= epsilon
+                && abs(proposedFrame.maxY - currentFrame.maxY) > epsilon
+            if !keepsBottomEdge {
+                raised.origin.y = proposedFrame.maxY - raised.height
+            }
+        }
+        if raised.width != proposedFrame.width {
+            let keepsRightEdge = abs(proposedFrame.maxX - currentFrame.maxX) <= epsilon
+                && abs(proposedFrame.minX - currentFrame.minX) > epsilon
+            if keepsRightEdge {
+                raised.origin.x = proposedFrame.maxX - raised.width
+            }
+        }
         return raised
     }
 
