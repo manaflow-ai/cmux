@@ -1,3 +1,5 @@
+#[cfg(test)]
+use std::cell::Cell;
 use std::collections::{BTreeMap, BTreeSet};
 use std::ffi::OsString;
 use std::fs::{self, OpenOptions};
@@ -51,6 +53,21 @@ const CODEX_SESSION_END_TIMEOUT_SECONDS: u64 = 3;
 const GEMINI_HOOK_TIMEOUT_MILLISECONDS: u64 = 5_000;
 const HERMES_COMMAND_TIMEOUT: Duration = Duration::from_secs(5);
 const HERMES_COMMAND_OUTPUT_BYTES: u64 = 4 * 1024 * 1024;
+
+#[cfg(test)]
+std::thread_local! {
+    static FORCE_HERMES_REAPER_SPAWN_FAILURE: Cell<bool> = const { Cell::new(false) };
+}
+
+#[cfg(test)]
+fn hermes_reaper_spawn_should_fail() -> bool {
+    FORCE_HERMES_REAPER_SPAWN_FAILURE.with(Cell::get)
+}
+
+#[cfg(not(test))]
+fn hermes_reaper_spawn_should_fail() -> bool {
+    false
+}
 
 const CODEX_EVENTS: &[&str] = &[
     "SessionStart",
@@ -709,6 +726,22 @@ fn run_hermes_command(binary: &Path, args: &[&str]) -> anyhow::Result<Output> {
 
 type HermesOutputReader = std::thread::JoinHandle<io::Result<Vec<u8>>>;
 
+fn spawn_hermes_reaper(
+    child: Child,
+    #[cfg(unix)] child_exit: Option<UnixChildExitSignal>,
+) -> io::Result<()> {
+    let reaper = move || {
+        #[cfg(unix)]
+        child_exit.expect("Unix child exit observer").finish();
+        let _ = child.wait();
+    };
+    if hermes_reaper_spawn_should_fail() {
+        drop(reaper);
+        return Err(io::Error::other("forced Hermes reaper spawn failure"));
+    }
+    std::thread::Builder::new().name("hermes-command-reaper".into()).spawn(reaper).map(|_| ())
+}
+
 #[cfg(unix)]
 fn cleanup_hermes_start_failure(
     child: &mut Child,
@@ -865,11 +898,11 @@ fn run_hermes_command_with_timeout(
         // Reaping must not extend the command's absolute deadline. The
         // process scope or Windows job has already issued exact termination;
         // a detached reaper owns the blocking wait.
-        let _ = std::thread::Builder::new().name("hermes-command-reaper".into()).spawn(move || {
+        let _ = spawn_hermes_reaper(
+            child,
             #[cfg(unix)]
-            child_exit.take().expect("Unix child exit observer").finish();
-            let _ = child.wait();
-        });
+            child_exit.take(),
+        );
     }
     let stdout = stdout.join().map_err(|_| anyhow::anyhow!("Hermes stdout reader panicked"))?;
     let stderr = stderr.join().map_err(|_| anyhow::anyhow!("Hermes stderr reader panicked"))?;
@@ -2165,6 +2198,49 @@ mod tests {
         .unwrap_err();
         assert!(error.to_string().contains("timed out"));
         assert!(started.elapsed() < Duration::from_secs(2));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn hermes_command_reaps_child_when_reaper_spawn_fails() {
+        struct ReaperFailureGuard;
+
+        impl Drop for ReaperFailureGuard {
+            fn drop(&mut self) {
+                FORCE_HERMES_REAPER_SPAWN_FAILURE.with(|failure| failure.set(false));
+            }
+        }
+
+        let root = tempfile::tempdir().unwrap();
+        let pid_path = root.path().join("hermes.pid");
+        let script = format!(
+            "printf '%s' $$ > {}; sleep 30",
+            shell_quote(pid_path.to_string_lossy().as_ref())
+        );
+        FORCE_HERMES_REAPER_SPAWN_FAILURE.with(|failure| failure.set(true));
+        let _failure_guard = ReaperFailureGuard;
+        let started = Instant::now();
+        let error = run_hermes_command_with_timeout(
+            Path::new("/bin/sh"),
+            &["-c", &script],
+            Duration::from_millis(100),
+        )
+        .unwrap_err();
+        assert!(error.to_string().contains("timed out"));
+        assert!(started.elapsed() < Duration::from_secs(2));
+
+        let pid = fs::read_to_string(pid_path).unwrap().trim().parse::<libc::pid_t>().unwrap();
+        let mut status = 0;
+        let waited = unsafe { libc::waitpid(pid, &mut status, libc::WNOHANG) };
+        assert_eq!(
+            waited, -1,
+            "Hermes child was not reaped before timeout returned (waitpid={waited})"
+        );
+        assert_eq!(
+            io::Error::last_os_error().raw_os_error(),
+            Some(libc::ECHILD),
+            "waitpid must report ECHILD after the timeout path reaps the child"
+        );
     }
 
     #[cfg(not(unix))]
