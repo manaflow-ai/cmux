@@ -67,9 +67,20 @@ struct BrowserValueTextFormatter {
         }
         if let dictionary = value as? [String: Any] {
             return dictionary.reduce(into: [String: Any]()) { result, entry in
-                result[sanitizedTerminalString(entry.key)] = sanitizedJSONValue(entry.value)
+                result[sanitizedDictionaryKey(entry.key)] = sanitizedJSONValue(entry.value)
             }
         }
         return value
+    }
+
+    /// Encode unsafe key scalars by code point so sanitization preserves distinct fields.
+    private func sanitizedDictionaryKey(_ value: String) -> String {
+        value.unicodeScalars.reduce(into: "") { result, scalar in
+            if scalar.properties.generalCategory == .control || scalar.properties.generalCategory == .format {
+                result.append(contentsOf: "\\u{\(String(scalar.value, radix: 16, uppercase: true))}")
+            } else {
+                result.append(Character(scalar))
+            }
+        }
     }
 }
