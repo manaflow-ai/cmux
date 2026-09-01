@@ -63,7 +63,7 @@ nonisolated final class AgentChatSidecarProcessHandle: @unchecked Sendable {
             // A synchronous deinit cannot await the process-source event. A
             // fresh direct-child proof lets this last-resort path kill and
             // reap the exact child without trusting a recyclable PID.
-            Self.killAndScheduleDirectChildReap(rootIdentity.pid)
+            Self.scheduleDirectChildTermination(rootIdentity.pid)
         }
     }
 
@@ -232,8 +232,40 @@ nonisolated final class AgentChatSidecarProcessHandle: @unchecked Sendable {
         return reapRootIfExited()
     }
 
-    /// Kills and asynchronously reaps a still-owned direct child during deinit.
-    private static func killAndScheduleDirectChildReap(_ processIdentifier: pid_t) {
+    /// Installs a process-exit watcher for a direct child without blocking a
+    /// cooperative executor thread. Register it before signaling a suspended
+    /// child so an already-queued exit cannot outrun observation.
+    private static func installDirectChildExitWatcher(
+        _ processIdentifier: pid_t,
+        completion: AgentChatSidecarProcessExitCompletion
+    ) -> DispatchSourceProcess {
+        let source = DispatchSource.makeProcessSource(
+            identifier: processIdentifier,
+            eventMask: .exit,
+            queue: .global(qos: .utility)
+        )
+        source.setEventHandler {
+            source.cancel()
+            Task { await completion.finish(true) }
+        }
+        source.resume()
+        return source
+    }
+
+    /// Terminates and reaps a suspended direct child after proving ownership.
+    /// An optional identity is checked before selecting the process-group
+    /// target; the direct-child waitpid proof remains the fallback when that
+    /// token is absent or conflicts.
+    #if compiler(>=6.2)
+    @concurrent
+    #else
+    @Sendable
+    #endif
+    @discardableResult
+    static func terminateDirectChild(
+        _ processIdentifier: pid_t,
+        expectedIdentity: AgentPIDProcessIdentity? = nil
+    ) async -> Bool {
         var status: Int32 = 0
         let waitResult: pid_t
         while true {
@@ -242,27 +274,31 @@ nonisolated final class AgentChatSidecarProcessHandle: @unchecked Sendable {
             waitResult = result
             break
         }
-        guard waitResult == 0 else { return }
-        let source = DispatchSource.makeProcessSource(
-            identifier: processIdentifier,
-            eventMask: .exit,
-            queue: .global(qos: .utility)
-        )
-        source.setEventHandler {
-            var status: Int32 = 0
-            while true {
-                let result = waitpid(processIdentifier, &status, WNOHANG)
-                if result == processIdentifier || (result == -1 && errno == ECHILD) {
-                    source.cancel()
-                    return
-                }
-                if result == -1 && errno == EINTR { continue }
-                return
-            }
+        if waitResult == processIdentifier || (waitResult == -1 && errno == ECHILD) {
+            return true
         }
-        source.resume()
-        let groupID = Darwin.getpgid(processIdentifier)
-        let target = groupID == processIdentifier ? -processIdentifier : processIdentifier
+        guard waitResult == 0 else { return false }
+        let identityMatchesExpected: Bool
+        if let expectedIdentity {
+            identityMatchesExpected = AgentPIDProcessIdentity.includingExitedProcess(
+                pid: processIdentifier
+            ) == expectedIdentity
+        } else {
+            identityMatchesExpected = true
+        }
+        // The direct-child proof means this PID cannot have been recycled
+        // until this parent reaps it. A conflicting token therefore disables
+        // only the group target; the positive PID remains this child.
+        let completion = AgentChatSidecarProcessExitCompletion()
+        let source = installDirectChildExitWatcher(
+            processIdentifier,
+            completion: completion
+        )
+        defer { source.cancel() }
+        let groupID = identityMatchesExpected ? Darwin.getpgid(processIdentifier) : -1
+        let target = identityMatchesExpected && groupID == processIdentifier
+            ? -processIdentifier
+            : processIdentifier
         errno = 0
         let signalResult = Darwin.kill(target, SIGKILL)
         if signalResult != 0 {
@@ -270,20 +306,20 @@ nonisolated final class AgentChatSidecarProcessHandle: @unchecked Sendable {
             if target < 0 {
                 guard groupFailure == ESRCH || groupFailure == EPERM else {
                     source.cancel()
-                    return
+                    return false
                 }
                 // Preserve the direct-child proof if the group vanished or
                 // rejected the signal during the handoff; this avoids leaving a
                 // stopped child behind.
                 errno = 0
                 let directResult = Darwin.kill(processIdentifier, SIGKILL)
-                guard directResult == 0 || errno == ESRCH else {
+                if directResult != 0, errno != ESRCH {
                     source.cancel()
-                    return
+                    return false
                 }
             } else if groupFailure != ESRCH {
                 source.cancel()
-                return
+                return false
             }
         }
         while true {
@@ -291,20 +327,34 @@ nonisolated final class AgentChatSidecarProcessHandle: @unchecked Sendable {
             if result == -1 && errno == EINTR { continue }
             guard result == 0 else {
                 source.cancel()
-                return
+                if result == processIdentifier || (result == -1 && errno == ECHILD) {
+                    return true
+                }
+                return false
             }
             break
         }
-        // If the child crossed the exit boundary before registration, reap it
-        // here; otherwise the process source remains responsible for the wait.
+        // The source reports the real exit event; only then can this helper
+        // perform the final direct-child reap before returning.
+        guard await completion.wait() else { return false }
         while true {
             let result = waitpid(processIdentifier, &status, WNOHANG)
             if result == processIdentifier || (result == -1 && errno == ECHILD) {
-                source.cancel()
-                return
+                return true
             }
             if result == -1 && errno == EINTR { continue }
-            break
+            // NOTE_EXIT means the child is no longer running; if the status
+            // has not become reapable yet, leave ownership failed-closed for
+            // the caller's next identity-safe cleanup attempt rather than
+            // spinning a cooperative executor thread.
+            return false
+        }
+    }
+
+    /// Schedules the shared async cleanup from the synchronous deinit boundary.
+    private static func scheduleDirectChildTermination(_ processIdentifier: pid_t) {
+        Task.detached(priority: .utility) {
+            _ = await AgentChatSidecarProcessHandle.terminateDirectChild(processIdentifier)
         }
     }
 

@@ -231,7 +231,7 @@ final class AgentChatThemeSync {
             var request = URLRequest(
                 url: url,
                 cachePolicy: .reloadIgnoringLocalAndRemoteCacheData,
-                timeoutInterval: requestTimeout
+                timeoutInterval: Self.requestTimeout
             )
             request.httpMethod = "POST"
             request.setValue("application/json", forHTTPHeaderField: "Content-Type")

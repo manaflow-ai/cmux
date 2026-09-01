@@ -1,5 +1,5 @@
 import { existsSync } from "node:fs";
-import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -9,6 +9,7 @@ function assert(condition: unknown, message: string): asserts condition {
 
 const root = await mkdtemp(join(tmpdir(), "cmux-agent-chat-shutdown-"));
 const statePath = join(root, "state.json");
+await writeFile(statePath, "", "utf8");
 const serverPath = join(import.meta.dir, "..", "server.ts");
 const proc = Bun.spawn(["bun", serverPath, "--port=0"], {
   cwd: join(import.meta.dir, ".."),
@@ -23,13 +24,32 @@ const proc = Bun.spawn(["bun", serverPath, "--port=0"], {
 
 let exited = false;
 try {
+  let state: { pid?: number; launchId?: string } | undefined;
   for (let attempt = 0; attempt < 150; attempt++) {
-    if (existsSync(statePath)) break;
+    try {
+      const contents = await readFile(statePath, "utf8");
+      if (contents.trim()) {
+        const candidate: unknown = JSON.parse(contents);
+        if (candidate && typeof candidate === "object") {
+          const record = candidate as Record<string, unknown>;
+          if (
+            typeof record.pid === "number" &&
+            Number.isInteger(record.pid) &&
+            record.pid > 0 &&
+            record.launchId === "launch-test"
+          ) {
+            state = { pid: record.pid, launchId: record.launchId };
+            break;
+          }
+        }
+      }
+    } catch {
+      // The state file may not exist or may still be publishing.
+    }
     if (proc.exitCode !== null) break;
     await Bun.sleep(100);
   }
-  assert(existsSync(statePath), "sidecar did not publish a state file");
-  const state = JSON.parse(await readFile(statePath, "utf8"));
+  assert(state, `sidecar did not publish a parseable state file (exitCode=${proc.exitCode})`);
   assert(state.pid === proc.pid, "state file should identify the launched sidecar");
   assert(state.launchId === "launch-test", "state file should identify the launch generation");
 

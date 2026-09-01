@@ -1,4 +1,5 @@
 import Darwin
+import Foundation
 
 /// Identity-checked, bounded termination shared by app-owned agent-chat
 /// recovery, timeout cleanup, and application shutdown.
@@ -20,6 +21,7 @@ nonisolated struct AgentChatSidecarProcessTerminator {
     private let processGroupExistsProvider: ProcessGroupExistsProvider
     private let signalSender: SignalSender
     private let gracePeriodWaiter: GracePeriodWaiter
+    private static let terminationGracePeriod: Duration = .milliseconds(400)
 
     /// Creates a terminator with injectable kernel-operation and deadline seams.
     init(
@@ -35,12 +37,7 @@ nonisolated struct AgentChatSidecarProcessTerminator {
         },
         signalSender: @escaping SignalSender = { Darwin.kill($0, $1) },
         gracePeriodWaiter: @escaping GracePeriodWaiter = { duration in
-            do {
-                try await ContinuousClock().sleep(for: duration)
-                return true
-            } catch {
-                return false
-            }
+            await AgentChatSidecarProcessTerminator.waitForGracePeriod(duration)
         }
     ) {
         self.identityProvider = identityProvider
@@ -48,25 +45,6 @@ nonisolated struct AgentChatSidecarProcessTerminator {
         self.processGroupExistsProvider = processGroupExistsProvider
         self.signalSender = signalSender
         self.gracePeriodWaiter = gracePeriodWaiter
-    }
-
-    /// Returns the only signal target that is safe for the supplied snapshot.
-    /// Keeping this decision pure makes the PID-reuse boundary directly
-    /// testable without spawning or signaling a real process.
-    func validatedGroupTarget(
-        identity: AgentPIDProcessIdentity?,
-        processGroupID: pid_t?,
-        currentIdentity: AgentPIDProcessIdentity?,
-        currentProcessGroupID: pid_t?
-    ) -> pid_t? {
-        guard let identity,
-              let processGroupID,
-              processGroupID > 1,
-              currentIdentity == identity,
-              currentProcessGroupID == processGroupID else {
-            return nil
-        }
-        return -processGroupID
     }
 
     /// Terminates a validated process group synchronously for shutdown paths.
@@ -174,11 +152,12 @@ nonisolated struct AgentChatSidecarProcessTerminator {
             return false
         }
 
+        let gracePeriodWaiter = self.gracePeriodWaiter
         await withTaskGroup(of: Bool.self) { group in
             group.addTask {
                 await waitForExit()
             }
-            group.addTask { await gracePeriodWaiter(.milliseconds(400)) }
+            group.addTask { await gracePeriodWaiter(Self.terminationGracePeriod) }
             _ = await group.next()
             group.cancelAll()
         }
@@ -222,6 +201,82 @@ nonisolated struct AgentChatSidecarProcessTerminator {
         )
     }
 
+    /// Waits for the captured process generation's real exit event.
+    /// DispatchSource closes the registration race without polling; a missing
+    /// identity means the process is gone, while a different identity remains
+    /// a hard stop so the caller can fail closed before escalation.
+    #if compiler(>=6.2)
+    @concurrent
+    #endif
+    nonisolated static func waitForProcessExit(
+        pid: pid_t,
+        identity: AgentPIDProcessIdentity
+    ) async -> Bool {
+        guard pid == identity.pid else { return false }
+        guard let current = AgentPIDProcessIdentity.includingExitedProcess(pid: pid) else {
+            return true
+        }
+        guard current == identity else { return false }
+
+        let exitEvents = AsyncStream<Void>(bufferingPolicy: .bufferingNewest(1)) { continuation in
+            let source = DispatchSource.makeProcessSource(
+                identifier: pid,
+                eventMask: .exit,
+                queue: .global(qos: .utility)
+            )
+            source.setEventHandler {
+                continuation.yield(())
+                continuation.finish()
+            }
+            continuation.onTermination = { @Sendable _ in
+                source.cancel()
+            }
+            source.resume()
+        }
+        // The process may have exited between the first identity read and
+        // source registration; a changed generation is never accepted.
+        guard let registeredIdentity = AgentPIDProcessIdentity.includingExitedProcess(pid: pid) else {
+            return true
+        }
+        guard registeredIdentity == identity else { return false }
+        for await _ in exitEvents {
+            return true
+        }
+        return AgentPIDProcessIdentity.includingExitedProcess(pid: pid) != identity
+    }
+
+    /// Publishes a cancellable deadline event without blocking a cooperative
+    /// executor. The process-exit signal races this timer; cancellation tears
+    /// down the timer through the stream's termination hook.
+    #if compiler(>=6.2)
+    @concurrent
+    #endif
+    private nonisolated static func waitForGracePeriod(_ duration: Duration) async -> Bool {
+        let components = duration.components
+        let seconds = max(0, Double(components.seconds))
+        let fractionalSeconds = max(0, Double(components.attoseconds) / 1e18)
+        let nanoseconds = min((seconds + fractionalSeconds) * 1e9, Double(Int.max - 1))
+        let events = AsyncStream<Void>(bufferingPolicy: .bufferingNewest(1)) { continuation in
+            let timer = DispatchSource.makeTimerSource(queue: .global(qos: .utility))
+            timer.setEventHandler {
+                continuation.yield(())
+                continuation.finish()
+            }
+            continuation.onTermination = { @Sendable _ in
+                timer.cancel()
+            }
+            timer.schedule(
+                deadline: .now() + .nanoseconds(Int(nanoseconds.rounded(.up))),
+                leeway: .milliseconds(10)
+            )
+            timer.resume()
+        }
+        for await _ in events {
+            return true
+        }
+        return false
+    }
+
     @discardableResult
     #if compiler(>=6.2)
     @concurrent
@@ -231,14 +286,7 @@ nonisolated struct AgentChatSidecarProcessTerminator {
     /// Asynchronously terminates a session using its captured process identity.
     func terminateAsync(
         session: AgentChatOwnedServerSession,
-        waitForExit: @escaping @Sendable () async -> Bool = {
-            do {
-                try await ContinuousClock().sleep(for: .milliseconds(400))
-            } catch {
-                return false
-            }
-            return false
-        }
+        waitForExit: @escaping @Sendable () async -> Bool
     ) async -> Bool {
         guard let identity = session.processIdentity,
               let processGroupID = session.processGroupID,

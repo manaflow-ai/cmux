@@ -310,7 +310,7 @@ extension AppDelegate {
         }
         // Keep the handle even before state discovery: a timeout must clean
         // up the process that was just launched, not merely its empty file.
-        gate.updateOwnedServerProcess(process)
+        await gate.updateOwnedServerProcess(process)
 
         guard let discoveredSession = await stateFileStore.waitForSession(
             token: token,
@@ -335,7 +335,7 @@ extension AppDelegate {
             await stateFileStore.removeStateFile(launchId: launchId)
             return AgentChatServerAvailability(isReachable: false, browserURL: agentChat.url)
         }
-        gate.updateOwnedServer(session: session, process: process)
+        await gate.updateOwnedServer(session: session, process: process)
         let isHealthy = await Self.agentChatServerIsHealthy(healthURL: session.healthURL, timeout: 1.5)
         guard isHealthy else {
             // A launch that reported a port but failed health still owns a
@@ -344,7 +344,7 @@ extension AppDelegate {
                 return AgentChatServerAvailability(isReachable: false, browserURL: nil)
             }
             await stateFileStore.removeStateFile(launchId: launchId)
-            return AgentChatServerAvailability(isReachable: false, browserURL: session.browserURL)
+            return AgentChatServerAvailability(isReachable: false, browserURL: agentChat.url)
         }
         return AgentChatServerAvailability(isReachable: true, browserURL: session.browserURL)
     }

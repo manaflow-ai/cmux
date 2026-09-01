@@ -373,7 +373,14 @@ struct CmuxAgentChatConfigTests {
             token: "theme-token",
             launchId: "theme-launch"
         )
-        gate.updateOwnedServerSession(session)
+        await gate.updateOwnedServerSession(session)
+
+        let replacement = AgentChatOwnedServerSession(
+            port: 43124,
+            pid: 9877,
+            token: "replacement-token",
+            launchId: "replacement-launch"
+        )
 
         let terminationTask = Task { @MainActor in
             await themeSync.handleThemePostFailure(
@@ -387,11 +394,22 @@ struct CmuxAgentChatConfigTests {
         #expect(gate.ownedServerSession() == session)
         #expect(!gate.begin())
 
+        let replacementStarted = AsyncStream<Void>.makeStream()
+        let replacementTask = Task {
+            replacementStarted.continuation.yield(())
+            await gate.updateOwnedServerSession(replacement)
+        }
+        var replacementIterator = replacementStarted.stream.makeAsyncIterator()
+        _ = await replacementIterator.next()
+        await Task.yield()
+        #expect(gate.ownedServerSession() == session)
+
         releaseTermination.continuation.yield(())
         releaseTermination.continuation.finish()
         await terminationTask.value
+        await replacementTask.value
 
-        #expect(gate.ownedServerSession() == nil)
+        #expect(gate.ownedServerSession() == replacement)
         #expect(gate.begin())
         gate.end()
     }
@@ -437,11 +455,11 @@ struct CmuxAgentChatConfigTests {
     }
 
     @MainActor
-    @Test func agentChatThemeURLUsesTokenedOwnedServerWhenAvailable() {
+    @Test func agentChatThemeURLUsesTokenedOwnedServerWhenAvailable() async {
         let gate = AgentChatActionInFlightGate(sidecarStateFileStore: nil)
         let themeSync = AgentChatThemeSync(gate: gate)
         let session = AgentChatOwnedServerSession(port: 43123, pid: 9876, token: "theme-token")
-        gate.updateOwnedServerSession(session)
+        await gate.updateOwnedServerSession(session)
         defer { resetAgentChatActionGateForTest(gate) }
         let agentChat = CmuxAgentChatConfiguration.resolved(
             local: CmuxAgentChatConfigDefinition(startCommand: "cmux-chat"),
@@ -452,11 +470,11 @@ struct CmuxAgentChatConfigTests {
     }
 
     @MainActor
-    @Test func explicitAgentChatThemeURLIgnoresOwnedServer() {
+    @Test func explicitAgentChatThemeURLIgnoresOwnedServer() async {
         let gate = AgentChatActionInFlightGate(sidecarStateFileStore: nil)
         let themeSync = AgentChatThemeSync(gate: gate)
         let session = AgentChatOwnedServerSession(port: 43123, pid: 9876, token: "theme-token")
-        gate.updateOwnedServerSession(session)
+        await gate.updateOwnedServerSession(session)
         defer { resetAgentChatActionGateForTest(gate) }
         let agentChat = CmuxAgentChatConfiguration.resolved(
             local: CmuxAgentChatConfigDefinition(
@@ -474,7 +492,7 @@ struct CmuxAgentChatConfigTests {
         let gate = AgentChatActionInFlightGate(sidecarStateFileStore: nil)
         let themeSync = AgentChatThemeSync(gate: gate)
         let session = AgentChatOwnedServerSession(port: 43123, pid: 9876, token: "theme-token")
-        gate.updateOwnedServerSession(session)
+        await gate.updateOwnedServerSession(session)
         defer { resetAgentChatActionGateForTest(gate) }
 
         await themeSync.handleThemePostFailure(
@@ -492,7 +510,7 @@ struct CmuxAgentChatConfigTests {
         let gate = AgentChatActionInFlightGate(sidecarStateFileStore: nil)
         let themeSync = AgentChatThemeSync(gate: gate)
         let session = AgentChatOwnedServerSession(port: 43123, pid: 9876, token: "theme-token")
-        gate.updateOwnedServerSession(session)
+        await gate.updateOwnedServerSession(session)
         defer { resetAgentChatActionGateForTest(gate) }
 
         await themeSync.handleThemePostFailure(

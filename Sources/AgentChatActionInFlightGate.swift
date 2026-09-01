@@ -20,9 +20,11 @@ nonisolated final class AgentChatActionInFlightGate: @unchecked Sendable {
     typealias SessionTerminator = @Sendable (AgentChatOwnedServerSession) -> Bool
     typealias AsyncSessionTerminator = @Sendable (AgentChatOwnedServerSession) async -> Bool
 
-    // Synchronous callbacks need one atomic compare-and-set. The test target
-    // accesses this lock through @testable import rather than a production
-    // reset hook; process signaling never runs while it is held.
+    // Synchronous AppKit/shutdown callbacks need one atomic compare-and-set;
+    // an actor would introduce an await gap between the claim and ownership
+    // snapshot. This lock is the low-level bridge only: process signaling
+    // never runs while it is held. The test target accesses it through
+    // @testable import rather than a production reset hook.
     nonisolated let lock: OSAllocatedUnfairLock<State>
     private let sessionTerminator: SessionTerminator
     private let asyncSessionTerminator: AsyncSessionTerminator
@@ -34,7 +36,17 @@ nonisolated final class AgentChatActionInFlightGate: @unchecked Sendable {
             AgentChatSidecarProcessTerminator().terminate(session: session)
         },
         asyncSessionTerminator: @escaping AsyncSessionTerminator = { session in
-            await AgentChatSidecarProcessTerminator().terminateAsync(session: session)
+            guard let identity = session.processIdentity else { return false }
+            let processID = identity.pid
+            return await AgentChatSidecarProcessTerminator().terminateAsync(
+                session: session,
+                waitForExit: {
+                    await AgentChatSidecarProcessTerminator.waitForProcessExit(
+                        pid: processID,
+                        identity: identity
+                    )
+                }
+            )
         }
     ) {
         var state = State()
@@ -86,48 +98,99 @@ nonisolated final class AgentChatActionInFlightGate: @unchecked Sendable {
         }
     }
 
-    /// Records a discovered session while retaining its launch handle.
-    func updateOwnedServerSession(_ session: AgentChatOwnedServerSession) {
-        let previous = lock.withLock { state -> AgentChatSidecarProcessHandle? in
-            guard !state.terminationInProgress else { return nil }
-            let previous = state.ownedServerProcess
-            if previous?.launchId != session.launchId {
-                state.ownedServerProcess = nil
-            }
-            state.ownedServerSession = session
-            return previous
-        }
-        if previous?.launchId != session.launchId { previous?.terminate() }
+    private enum OwnershipUpdateResult {
+        case retry(AgentChatSidecarProcessExitCompletion)
+        case applied(AgentChatSidecarProcessHandle?)
+        case rejected
     }
 
-    /// Records a newly-launched process before its state file is discovered.
-    func updateOwnedServerProcess(_ process: AgentChatSidecarProcessHandle) {
-        let previous = lock.withLock { state -> AgentChatSidecarProcessHandle? in
-            guard !state.terminationInProgress else { return nil }
-            let previous = state.ownedServerProcess
-            if let session = state.ownedServerSession,
-               session.launchId != process.launchId {
-                state.ownedServerSession = nil
+    /// Records a discovered session without racing an in-flight termination.
+    /// The termination check and ownership replacement share one lock turn;
+    /// waiting before the turn alone would leave a gap for a new claimant.
+    func updateOwnedServerSession(_ session: AgentChatOwnedServerSession) async {
+        while true {
+            let result = lock.withLock { state -> OwnershipUpdateResult in
+                guard !state.terminationInProgress else {
+                    guard let completion = state.terminationCompletion else { return .rejected }
+                    return .retry(completion)
+                }
+                let previous = state.ownedServerProcess
+                if previous?.launchId != session.launchId {
+                    state.ownedServerProcess = nil
+                }
+                state.ownedServerSession = session
+                return .applied(previous)
             }
-            state.ownedServerProcess = process
-            return previous
+            switch result {
+            case .retry(let completion):
+                _ = await completion.wait()
+            case .rejected:
+                return
+            case .applied(let previous):
+                if previous?.launchId != session.launchId { previous?.terminate() }
+                return
+            }
         }
-        if previous !== process { previous?.terminate() }
     }
 
-    /// Atomically associates the verified session with its launch handle.
+    /// Records a newly-launched process without dropping it during cleanup.
+    /// The process parameter remains retained while a concurrent termination
+    /// publishes its completion, so it cannot deinitialize as an unowned child.
+    func updateOwnedServerProcess(_ process: AgentChatSidecarProcessHandle) async {
+        while true {
+            let result = lock.withLock { state -> OwnershipUpdateResult in
+                guard !state.terminationInProgress else {
+                    guard let completion = state.terminationCompletion else { return .rejected }
+                    return .retry(completion)
+                }
+                let previous = state.ownedServerProcess
+                if let session = state.ownedServerSession,
+                   session.launchId != process.launchId {
+                    state.ownedServerSession = nil
+                }
+                state.ownedServerProcess = process
+                return .applied(previous)
+            }
+            switch result {
+            case .retry(let completion):
+                _ = await completion.wait()
+            case .rejected:
+                process.terminate()
+                return
+            case .applied(let previous):
+                if previous !== process { previous?.terminate() }
+                return
+            }
+        }
+    }
+
+    /// Atomically publishes a verified session after any prior termination.
     func updateOwnedServer(
         session: AgentChatOwnedServerSession,
         process: AgentChatSidecarProcessHandle
-    ) {
-        let previous = lock.withLock { state -> AgentChatSidecarProcessHandle? in
-            guard !state.terminationInProgress else { return nil }
-            let previous = state.ownedServerProcess
-            state.ownedServerSession = session
-            state.ownedServerProcess = process
-            return previous
+    ) async {
+        while true {
+            let result = lock.withLock { state -> OwnershipUpdateResult in
+                guard !state.terminationInProgress else {
+                    guard let completion = state.terminationCompletion else { return .rejected }
+                    return .retry(completion)
+                }
+                let previous = state.ownedServerProcess
+                state.ownedServerSession = session
+                state.ownedServerProcess = process
+                return .applied(previous)
+            }
+            switch result {
+            case .retry(let completion):
+                _ = await completion.wait()
+            case .rejected:
+                process.terminate()
+                return
+            case .applied(let previous):
+                if previous !== process { previous?.terminate() }
+                return
+            }
         }
-        if previous !== process { previous?.terminate() }
     }
 
     /// Retains the legacy clear API while requiring identity-safe termination.

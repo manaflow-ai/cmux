@@ -22,28 +22,6 @@ struct AgentChatSidecarProcessTests {
         startMicroseconds: 20
     )
 
-    @Test func stalePIDGenerationCannotProduceASignalTarget() {
-        #expect(
-            AgentChatSidecarProcessTerminator().validatedGroupTarget(
-                identity: expected,
-                processGroupID: 4127,
-                currentIdentity: replacement,
-                currentProcessGroupID: 4127
-            ) == nil
-        )
-    }
-
-    @Test func matchingGenerationProducesOnlyItsLaunchGroupTarget() {
-        #expect(
-            AgentChatSidecarProcessTerminator().validatedGroupTarget(
-                identity: expected,
-                processGroupID: 4127,
-                currentIdentity: expected,
-                currentProcessGroupID: 4127
-            ) == -4127
-        )
-    }
-
     @Test func processTableRetainsTheGroupDuringIdentityReads() {
         #expect(AgentPIDProcessIdentity.processGroupID(pid: getpid()) == getpgrp())
     }
@@ -202,6 +180,30 @@ struct AgentChatSidecarProcessTests {
 
         #expect(didTerminate)
         #expect(signals.withLock { $0 } == [SIGTERM, SIGKILL])
+    }
+
+    @Test func processExitWaiterUsesTheCapturedGenerationSignal() async throws {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/bin/sleep")
+        process.arguments = ["30"]
+        try process.run()
+        defer {
+            if process.isRunning { process.terminate() }
+            process.waitUntilExit()
+        }
+        let processID = process.processIdentifier
+        let identity = try #require(
+            AgentPIDProcessIdentity.includingExitedProcess(pid: processID)
+        )
+
+        process.terminate()
+
+        #expect(
+            await AgentChatSidecarProcessTerminator.waitForProcessExit(
+                pid: processID,
+                identity: identity
+            )
+        )
     }
 
     @Test func setupCleanupSignalsOnlyTheMatchingGeneration() {
