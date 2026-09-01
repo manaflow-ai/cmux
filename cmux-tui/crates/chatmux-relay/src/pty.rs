@@ -944,9 +944,7 @@ impl Inner {
         // frame exactly at the cap, but must reject one that would push the
         // buffered amount over the cap.
         if buffered.saturating_add(chunk.len() as u64) > self.output_cap {
-            if action != "close" {
-                self.close(pty_id);
-            }
+            self.close(pty_id);
             send_pty_error(
                 context,
                 pty_id,
@@ -1034,7 +1032,9 @@ impl Inner {
         if allowed {
             Some(attachment)
         } else {
-            self.close(pty_id);
+            if action != "close" {
+                self.close(pty_id);
+            }
             send_pty_error(
                 context,
                 pty_id,
