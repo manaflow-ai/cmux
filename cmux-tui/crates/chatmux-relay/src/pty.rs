@@ -1247,7 +1247,7 @@ impl Inner {
                     }
                 });
                 let on_session_exit: ExitSink = Arc::new(move |code: i64| {
-                    let _flow = exit_session.flow_lock.lock().expect("shell flow lock");
+                    let flow = exit_session.flow_lock.lock().expect("shell flow lock");
                     let viewers = {
                         let mut inner = exit_session.inner.lock().expect("shell inner lock");
                         inner.alive = false;
@@ -1255,6 +1255,7 @@ impl Inner {
                         std::mem::take(&mut inner.viewers)
                     };
                     manager.shell_sessions.lock().expect("shell lock").remove(&session_name);
+                    drop(flow);
                     for viewer in viewers {
                         (viewer.on_exit)(code);
                     }
