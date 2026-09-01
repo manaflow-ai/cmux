@@ -8611,6 +8611,20 @@ impl MachineActionWorker {
     }
 
     fn shutdown(&mut self) {
+        self.shutdown_with_reaper(|worker| {
+            let worker_for_reaper = worker.clone();
+            std::thread::Builder::new().name("machine-actions-reaper".into()).spawn(move || {
+                if let Some(worker) = worker_for_reaper.lock().unwrap().take() {
+                    let _ = worker.join();
+                }
+            })
+        });
+    }
+
+    fn shutdown_with_reaper<F>(&mut self, spawn_reaper: F)
+    where
+        F: FnOnce(Arc<std::sync::Mutex<Option<JoinHandle<()>>>>) -> std::io::Result<JoinHandle<()>>,
+    {
         self.stop.store(true, Ordering::Release);
         self.cancellation.cancel();
         self.sender.take();
@@ -8622,14 +8636,7 @@ impl MachineActionWorker {
             // their transport deadline. Reap the owned handle asynchronously
             // so shutdown stays responsive without detaching the worker.
             let worker = Arc::new(std::sync::Mutex::new(Some(worker)));
-            let worker_for_reaper = worker.clone();
-            match std::thread::Builder::new().name("machine-actions-reaper".into()).spawn(
-                move || {
-                    if let Some(worker) = worker_for_reaper.lock().unwrap().take() {
-                        let _ = worker.join();
-                    }
-                },
-            ) {
+            match spawn_reaper(worker.clone()) {
                 Ok(reaper) => self.reaper = Some(reaper),
                 Err(_) => {
                     // Restore ownership when the reaper cannot start. This
@@ -43714,6 +43721,39 @@ mod tests {
         release.send(()).unwrap();
         closes.recv_timeout(Duration::from_secs(1)).unwrap();
         worker.shutdown();
+    }
+
+    #[test]
+    fn machine_action_worker_reaper_spawn_failure_does_not_join_blocked_provider_call() {
+        let (events, _event_receiver) = crossbeam_channel::bounded(4);
+        let (started, starts) = std::sync::mpsc::channel();
+        let (release, releases) = std::sync::mpsc::channel();
+        let (closed, closes) = std::sync::mpsc::channel();
+        let mut worker = MachineActionWorker::spawn(
+            Box::new(OrderedBlockingMachineController {
+                started,
+                release: releases,
+                closed: Some(closed),
+            }),
+            events,
+        )
+        .unwrap();
+        worker
+            .perform(MachineRequest::Switch(MachineKey(1)), unused_machine_preparation())
+            .unwrap();
+        assert_eq!(starts.recv_timeout(Duration::from_secs(1)).unwrap(), MachineKey(1));
+
+        let started_shutdown = Instant::now();
+        worker.shutdown_with_reaper(|_| {
+            Err(std::io::Error::new(std::io::ErrorKind::Other, "test reaper spawn failure"))
+        });
+        assert!(
+            started_shutdown.elapsed() < Duration::from_millis(50),
+            "reaper spawn failure synchronously joined the blocked provider call"
+        );
+
+        release.send(()).unwrap();
+        closes.recv_timeout(Duration::from_secs(1)).unwrap();
     }
 
     #[test]
