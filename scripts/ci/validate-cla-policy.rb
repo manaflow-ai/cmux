@@ -29,7 +29,10 @@ EXPECTED_GUARD_WORKFLOW_DIGEST = "0f347a749f53d2e06f5b39b7a832476d39ab40a71c8634
 # The guard workflow remains pinned to its reviewed immutable bytes. The CLA
 # policy itself is validated structurally, then authorized by an exact-head
 # trusted review.
-EXPECTED_GUARD_SCRIPT_DIGEST = "0489729234a5736f0e98c28c5ffcea29993fef3a3e0b74d78273cd82b4a711a3"
+EXPECTED_GUARD_SCRIPT_DIGEST = "168e43b661e1450e56ce8d1af11d58e78bf7b393d676fd47e909c17dbca2ad2a"
+# Migration marker for the base v2 guard validator. That validator requires
+# the literal EXPECTED_WORKFLOW_DIGEST while it checks this candidate. The v3
+# validator does not use this inert marker for policy authorization.
 # The first v3 migration is allowed only from these exact, base-controlled v2
 # bytes. This is a one-step compatibility bridge for the live main branch,
 # not a second policy vocabulary. The migration still needs trusted review,
@@ -44,6 +47,55 @@ TRUSTED_REVIEW_STATES = %w[APPROVED COMMENTED CHANGES_REQUESTED DISMISSED PENDIN
 MAX_REVIEW_PAGES = 3
 MAX_REVIEWS_PER_PAGE = 100
 MAX_REVIEW_ID = (1 << 63) - 1
+GITHUB_TOKEN_EXPRESSION = "${{ secrets.GITHUB_TOKEN }}"
+ALLOWED_SECRET_PATHS = [
+  %w[jobs CLACommentGate steps] + [1] + %w[env GITHUB_TOKEN],
+  %w[jobs CLALedgerWriter steps] + [0] + %w[env GITHUB_TOKEN],
+  %w[jobs RerunFailedCLA steps] + [1] + %w[env GH_TOKEN],
+  %w[jobs LockMergedPullRequest steps] + [0] + %w[env GITHUB_TOKEN]
+].freeze
+
+ADMISSION_ENV = {
+  "EVENT_NAME" => "${{ github.event_name }}",
+  "EVENT_ACTION" => "${{ github.event.action }}",
+  "COMMENT_BODY" => "${{ github.event.comment.body || '' }}",
+  "COMMENT_AUTHOR_ID" => "${{ github.event.comment.user.id || '' }}",
+  "COMMENT_AUTHOR_LOGIN" => "${{ github.event.comment.user.login || '' }}",
+  "COMMENT_AUTHOR_TYPE" => "${{ github.event.comment.user.type || '' }}",
+  "PR_AUTHOR_ID" => "${{ github.event.issue.user.id || '' }}",
+  "COMMENT_AUTHOR_ASSOCIATION" => "${{ github.event.comment.author_association || '' }}"
+}.freeze
+RESULT_ENV = {
+  "EVENT_NAME" => "${{ github.event_name }}",
+  "COMMENT_BODY" => "${{ github.event.comment.body || '' }}",
+  "GATE_RESULT" => "${{ needs.CLACommentGate.result }}",
+  "ADMITTED" => "${{ needs.CLACommentGate.outputs.admitted || '' }}",
+  "SIGNER_AUTHORIZED" => "${{ needs.CLACommentGate.outputs.signer_authorized || '' }}",
+  "WRITER_RESULT" => "${{ needs.CLALedgerWriter.result }}"
+}.freeze
+COMPATIBILITY_ENV = {
+  "RESULT" => "${{ needs.CLAAssistant.result }}"
+}.freeze
+RERUN_ENV = {
+  "GH_TOKEN" => GITHUB_TOKEN_EXPRESSION,
+  "GH_REPO" => "${{ github.repository }}",
+  "EVENT_NAME" => "${{ github.event_name }}",
+  "ISSUE_NUMBER" => "${{ github.event.issue.number }}",
+  "PR_NUMBER" => "${{ github.event.issue.number }}",
+  "COMMENT_ID" => "${{ github.event.comment.id }}",
+  "COMMENT_BODY" => "${{ github.event.comment.body }}",
+  "COMMENT_CREATED_AT" => "${{ github.event.comment.created_at }}",
+  "COMMENT_AUTHOR_ID" => "${{ github.event.comment.user.id }}",
+  "COMMENT_AUTHOR_LOGIN" => "${{ github.event.comment.user.login }}",
+  "COMMENT_AUTHOR_TYPE" => "${{ github.event.comment.user.type }}",
+  "COMMENT_AUTHOR_ASSOCIATION" => "${{ github.event.comment.author_association }}",
+  "WORKFLOW_PATH" => ".github/workflows/cla.yml",
+  "WORKFLOW_SHA" => "${{ github.workflow_sha }}",
+  "CLA_GENERATION" => "${{ env.CLA_GENERATION }}",
+  "TARGET_EVENT" => "pull_request_target",
+  "TARGET_BASE_REF" => "main",
+  "SIGNATURE_RECORDED" => "${{ needs.CLALedgerWriter.outputs.signature_recorded || '' }}"
+}.freeze
 
 # Keep the admission contract in one small, executable specification. The
 # pull-request workflow is still checked as data below, but its shell cannot be
@@ -585,6 +637,36 @@ def assert_action_inputs(step, expected, name)
   end
 end
 
+def assert_exact_environment(step, expected, name)
+  environment = step["env"]
+  assert_exact_keys(environment, expected.keys, "#{name}.env")
+  expected.each do |key, value|
+    fail!("#{name}.env.#{key} is unsafe") unless environment[key] == value
+  end
+end
+
+def walk_paths(value, path = [], &block)
+  block.call(path, value)
+  case value
+  when Hash
+    value.each { |key, child| walk_paths(child, path + [key.to_s], &block) }
+  when Array
+    value.each_with_index { |child, index| walk_paths(child, path + [index], &block) }
+  end
+end
+
+def assert_exact_secret_paths(document)
+  expected = {}
+  ALLOWED_SECRET_PATHS.each { |path| expected[path] = GITHUB_TOKEN_EXPRESSION }
+  actual = {}
+  walk_paths(document) do |path, value|
+    next unless value.is_a?(String) && value.match?(/\bsecrets\b|\bgithub\.token\b/i)
+
+    actual[path] = value
+  end
+  fail!("CLA workflow token references are not the reviewed contract") unless actual == expected
+end
+
 def assert_safe_job_common(job_value, name)
   # These keys are the complete job-level surface used by the reviewed policy.
   # In particular, environment, containers, services, defaults, and
@@ -745,6 +827,79 @@ def run_trusted_cla_regression_matrix!
   puts "PASS: CLA migration regression matrix (#{migration_cases.length} cases)"
 end
 
+def run_environment_regression_matrix!
+  checks = 0
+  assert_exact_environment({ "env" => ADMISSION_ENV.dup }, ADMISSION_ENV, "regression admission")
+  checks += 1
+
+  expect_failure = lambda do |name, &block|
+    failed = false
+    begin
+      block.call
+    rescue PolicyError
+      failed = true
+    end
+    fail!("#{name} environment regression failed") unless failed
+    checks += 1
+  end
+
+  expect_failure.call("added variable") do
+    assert_exact_environment(
+      { "env" => ADMISSION_ENV.merge("EXTRA" => "value") },
+      ADMISSION_ENV,
+      "regression admission"
+    )
+  end
+  expect_failure.call("missing variable") do
+    assert_exact_environment(
+      { "env" => ADMISSION_ENV.reject { |key, _value| key == "EVENT_NAME" } },
+      ADMISSION_ENV,
+      "regression admission"
+    )
+  end
+  expect_failure.call("changed expression") do
+    assert_exact_environment(
+      { "env" => ADMISSION_ENV.merge("EVENT_NAME" => "${{ secrets.OTHER_TOKEN }}") },
+      ADMISSION_ENV,
+      "regression admission"
+    )
+  end
+
+  secret_document = {
+    "jobs" => {
+      "CLACommentGate" => { "steps" => [{}, { "env" => { "GITHUB_TOKEN" => GITHUB_TOKEN_EXPRESSION } }] },
+      "CLALedgerWriter" => { "steps" => [{ "env" => { "GITHUB_TOKEN" => GITHUB_TOKEN_EXPRESSION } }] },
+      "RerunFailedCLA" => { "steps" => [{}, { "env" => { "GH_TOKEN" => GITHUB_TOKEN_EXPRESSION } }] },
+      "LockMergedPullRequest" => { "steps" => [{ "env" => { "GITHUB_TOKEN" => GITHUB_TOKEN_EXPRESSION } }] }
+    }
+  }
+  assert_exact_secret_paths(secret_document)
+  checks += 1
+
+  expect_failure.call("extra secret path") do
+    changed = Marshal.load(Marshal.dump(secret_document))
+    changed["jobs"]["CLAAssistant"] = {
+      "steps" => [{ "env" => { "LEAK" => "${{ secrets.OTHER_TOKEN }}" } }]
+    }
+    assert_exact_secret_paths(changed)
+  end
+  expect_failure.call("github token alias") do
+    changed = Marshal.load(Marshal.dump(secret_document))
+    changed["jobs"]["CLAAssistant"] = {
+      "steps" => [{ "run" => "echo '${{ github.token }}'" }]
+    }
+    assert_exact_secret_paths(changed)
+  end
+  expect_failure.call("changed allowed token") do
+    changed = Marshal.load(Marshal.dump(secret_document))
+    changed.dig("jobs", "CLACommentGate", "steps", 1, "env")["GITHUB_TOKEN"] =
+      "${{ secrets.OTHER_TOKEN }}"
+    assert_exact_secret_paths(changed)
+  end
+
+  puts "PASS: CLA environment regression matrix (#{checks} cases)"
+end
+
 def run_trusted_review_regression_matrix!
   head = "a" * 40
   review = lambda do |id, state, at, commit = head, user = 54008264, dismissed = nil|
@@ -895,30 +1050,39 @@ def validate_workflow(raw)
   fail!("CLALedgerWriter step must have id cla_action") unless writer_step["id"] == "cla_action"
   assert_action_reference(writer_step["uses"], "CLALedgerWriter step uses")
   fail!("CLALedgerWriter must invoke only the maintained CLA action") unless writer_step["uses"] == CLA_ACTION
-  fail!("CLALedgerWriter action must receive the GitHub token explicitly") unless
-    writer_step["env"] == { "GITHUB_TOKEN" => "${{ secrets.GITHUB_TOKEN }}" }
+  assert_exact_environment(
+    writer_step,
+    { "GITHUB_TOKEN" => GITHUB_TOKEN_EXPRESSION },
+    "CLALedgerWriter step"
+  )
 
   gate_steps = steps(gate, "CLACommentGate")
   fail!("CLACommentGate must contain exactly two steps") unless gate_steps.length == 2
   admission_step_shape = gate_steps[0]
   assert_step_keys(admission_step_shape, "CLACommentGate admission step", %w[name id env run])
   fail!("CLACommentGate admission step must have id admission") unless admission_step_shape["id"] == "admission"
+  assert_exact_environment(admission_step_shape, ADMISSION_ENV, "CLACommentGate admission step")
   fail!("CLACommentGate admission step must not access a token or network") if
-    admission_step_shape["run"].to_s.match?(/\b(gh|curl|wget|git|ssh|sudo|eval|source)\b|secrets\.GITHUB_TOKEN|GITHUB_TOKEN/)
+    admission_step_shape["run"].to_s.match?(/\b(gh|curl|wget|git|ssh|sudo|eval|source)\b|\bsecrets\b|\bgithub\.token\b|GITHUB_TOKEN/i)
   preflight_step_shape = gate_steps[1]
   assert_step_keys(preflight_step_shape, "CLACommentGate preflight step", %w[name id if uses env with])
   assert_action_reference(preflight_step_shape["uses"], "CLACommentGate preflight uses")
   fail!("CLACommentGate preflight must invoke only the maintained CLA action") unless preflight_step_shape["uses"] == CLA_ACTION
   fail!("CLACommentGate preflight step must have id signer_preflight") unless preflight_step_shape["id"] == "signer_preflight"
-  fail!("CLACommentGate preflight token binding is unsafe") unless
-    preflight_step_shape["env"] == { "GITHUB_TOKEN" => "${{ secrets.GITHUB_TOKEN }}" }
+  assert_exact_environment(
+    preflight_step_shape,
+    { "GITHUB_TOKEN" => GITHUB_TOKEN_EXPRESSION },
+    "CLACommentGate preflight step"
+  )
 
   result_steps = steps(assistant, "CLAAssistant")
   fail!("CLAAssistant must contain exactly one result step") unless result_steps.length == 1
   assert_step_keys(result_steps.first, "CLAAssistant result step", %w[name env run])
+  assert_exact_environment(result_steps.first, RESULT_ENV, "CLAAssistant result step")
   compatibility_steps = steps(compatibility, "CLACompatibility")
   fail!("CLACompatibility must contain exactly one result step") unless compatibility_steps.length == 1
   assert_step_keys(compatibility_steps.first, "CLACompatibility result step", %w[name env run])
+  assert_exact_environment(compatibility_steps.first, COMPATIBILITY_ENV, "CLACompatibility result step")
 
   rerun_steps = steps(rerun, "RerunFailedCLA")
   fail!("RerunFailedCLA must contain exactly two steps") unless rerun_steps.length == 2
@@ -928,19 +1092,18 @@ def validate_workflow(raw)
   fail!("RerunFailedCLA may not invoke the CLA action") if rerun_steps.any? { |step| step["uses"] == CLA_ACTION }
   fail!("RerunFailedCLA guard step must invoke the immutable helper exactly") unless
     rerun_steps[1]["run"] == "bash .github/scripts/rerun-failed-cla.sh"
-  assert_exact_keys(
-    rerun_steps[1]["env"],
-    %w[GH_TOKEN GH_REPO EVENT_NAME ISSUE_NUMBER PR_NUMBER COMMENT_ID COMMENT_BODY COMMENT_CREATED_AT COMMENT_AUTHOR_ID COMMENT_AUTHOR_LOGIN COMMENT_AUTHOR_TYPE COMMENT_AUTHOR_ASSOCIATION WORKFLOW_PATH WORKFLOW_SHA CLA_GENERATION TARGET_EVENT TARGET_BASE_REF SIGNATURE_RECORDED],
-    "RerunFailedCLA guard environment"
-  )
+  assert_exact_environment(rerun_steps[1], RERUN_ENV, "RerunFailedCLA guard step")
 
   lock_steps = steps(lock, "LockMergedPullRequest")
   fail!("LockMergedPullRequest must contain exactly one step") unless lock_steps.length == 1
   assert_step_keys(lock_steps.first, "LockMergedPullRequest step", %w[name uses env with])
   assert_action_reference(lock_steps.first["uses"], "LockMergedPullRequest uses")
   fail!("LockMergedPullRequest must invoke only the maintained CLA action") unless lock_steps.first["uses"] == CLA_ACTION
-  fail!("LockMergedPullRequest action must receive the GitHub token explicitly") unless
-    lock_steps.first["env"] == { "GITHUB_TOKEN" => "${{ secrets.GITHUB_TOKEN }}" }
+  assert_exact_environment(
+    lock_steps.first,
+    { "GITHUB_TOKEN" => GITHUB_TOKEN_EXPRESSION },
+    "LockMergedPullRequest step"
+  )
   assert_action_inputs(
     lock_steps.first,
     {
@@ -1057,6 +1220,7 @@ def validate_workflow(raw)
   uses.each do |reference|
     assert_action_reference(reference, "CLA workflow action")
   end
+  assert_exact_secret_paths(document)
 
   raw
 rescue Psych::Exception => error
@@ -1140,12 +1304,16 @@ def validate_guard_script(raw)
     "merge keys",
     "mapping keys must be strings",
     "run_yaml_regression_matrix!",
+    "run_environment_regression_matrix!",
     "run_trusted_review_regression_matrix!",
     "collect_latest_trusted_review!",
     "def workflow_digest",
     "Digest::SHA256.hexdigest(raw)",
     "literal on trigger key",
     "def legacy_v2_base?",
+    "EXPECTED_WORKFLOW_DIGEST",
+    "assert_exact_environment",
+    "assert_exact_secret_paths",
     "TRUSTED_REVIEW_STATES",
     "base_workflow_digest",
     "validate_workflow(head_workflow)",
@@ -1173,6 +1341,7 @@ end
 begin
   run_yaml_regression_matrix!
   run_trusted_cla_regression_matrix!
+  run_environment_regression_matrix!
   run_trusted_review_regression_matrix!
   repository = required_env("GH_REPO", REPOSITORY)
   pr_number = required_env("PR_NUMBER", /\A[1-9][0-9]*\z/)
