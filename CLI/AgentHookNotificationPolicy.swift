@@ -144,6 +144,7 @@ struct CodexApprovalNotificationIdentity: Equatable, Sendable {
     /// Inputs larger than this are not safely correlatable and fail closed.
     private static let maxCanonicalToolInputBytes = 64 * 1024
     private static let maxIdentityComponentBytes = 1024
+    private static let hexadecimalDigits = Array("0123456789abcdef".utf8)
     // Hook envelopes are allowed a few wrapper layers (for example an
     // app-server `notification` containing `params` and `toolCall`). Keep
     // the recursive fallback bounded so hostile JSON cannot turn identity
@@ -329,10 +330,14 @@ struct CodexApprovalNotificationIdentity: Equatable, Sendable {
     }
 
     private static func digestPrefix(_ value: String) -> String {
-        SHA256.hash(data: Data(value.utf8))
-            .prefix(12)
-            .map { String(format: "%02x", $0) }
-            .joined()
+        let digest = SHA256.hash(data: Data(value.utf8))
+        var bytes: [UInt8] = []
+        bytes.reserveCapacity(24)
+        for byte in digest.prefix(12) {
+            bytes.append(hexadecimalDigits[Int(byte >> 4)])
+            bytes.append(hexadecimalDigits[Int(byte & 0x0f)])
+        }
+        return String(decoding: bytes, as: UTF8.self)
     }
 }
 
@@ -858,6 +863,7 @@ enum AgentHookNotificationPolicy {
             hash ^= UInt64(byte)
             hash &*= 0x100000001b3
         }
-        return String(format: "%016llx", hash)
+        let hexadecimal = String(hash, radix: 16)
+        return String(repeating: "0", count: max(0, 16 - hexadecimal.count)) + hexadecimal
     }
 }

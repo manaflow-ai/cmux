@@ -256,13 +256,14 @@ extension CMUXCLI {
     }
 
     /// Removes obsolete regular files only when their names prove cmux ownership.
-    /// This is deliberately filesystem-only and runs only during an explicit
-    /// hook install, never on wrapper launch or automatic reconciliation. A
-    /// generous age window protects a live Codex session that still references
-    /// an older immutable script without consulting the host's process table
-    /// (`ps`/`pgrep`/`lsof`), which can add noticeable launch lag.
+    /// This runs only during an explicit hook install, never on wrapper launch
+    /// or automatic reconciliation. Since an older immutable script may still
+    /// be referenced by a long-lived Codex process, fail closed whenever any
+    /// Codex process is running; the process probe is intentionally outside the
+    /// launch path.
     static func garbageCollectCodexHookScripts(retaining filenames: Set<String>) {
-        guard let directory = codexHookScriptsDirectory(),
+        guard !hasRunningCodexProcess(),
+              let directory = codexHookScriptsDirectory(),
               let contents = try? FileManager.default.contentsOfDirectory(
                   at: directory,
                   includingPropertiesForKeys: [.contentModificationDateKey, .isRegularFileKey],
@@ -293,6 +294,25 @@ extension CMUXCLI {
         guard removableCandidates.count <= 256 else { return }
         for url in removableCandidates {
             try? FileManager.default.removeItem(at: url)
+        }
+    }
+
+    /// A running Codex process may have loaded an immutable hook path that is
+    /// absent from the current config. Cleanup is explicit-install-only, so a
+    /// synchronous fail-closed probe protects that process without adding
+    /// launch latency or a background polling task.
+    private static func hasRunningCodexProcess() -> Bool {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/pgrep")
+        process.arguments = ["-x", "codex"]
+        process.standardOutput = FileHandle.nullDevice
+        process.standardError = FileHandle.nullDevice
+        do {
+            try process.run()
+            process.waitUntilExit()
+            return process.terminationStatus == 0
+        } catch {
+            return true
         }
     }
 

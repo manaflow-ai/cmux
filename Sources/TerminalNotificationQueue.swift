@@ -92,11 +92,16 @@ final class TerminalMutationBus: @unchecked Sendable {
     private var approvalWorkspaceGenerations: [UUID: UInt64] = [:]
     private var approvalSurfaceGenerations: [UUID: UInt64] = [:]
     private var approvalWorkspaceBySurface: [UUID: UUID] = [:]
+    private var pendingApprovalMutationCount = 0
     // Hook traffic can outlive the workspaces/surfaces that produced it. Keep
     // generation fencing bounded even if a long-running process churns through
     // thousands of UUIDs. When the cap is reached, a global epoch bump safely
     // invalidates every outstanding token before the old key tables are reset.
     private let maxApprovalGenerationEntries = 4_096
+    /// Bound approval-only traffic while the main actor is unavailable. Stage
+    /// mutations are explicitly droppable; resolution mutations evict the
+    /// oldest stage first so a stale approval cannot outlive a newer clear.
+    private let maxPendingApprovalMutations = 256
     private let maxMutationsPerDrain = 16
 #if DEBUG
     private var drainsSuspendedForTesting = false
@@ -631,30 +636,54 @@ final class TerminalMutationBus: @unchecked Sendable {
     }
 
     /// Approval stages/resolutions are keyed mutations. Coalesce duplicate
-    /// entries while the main actor is busy so a hook burst cannot turn the
-    /// pending array into an unbounded backlog.
+    /// entries while the main actor is busy. A bounded admission rule then
+    /// drops a new stage (or evicts the oldest stage for a resolution) once
+    /// `maxPendingApprovalMutations` is reached, so a hook burst cannot turn
+    /// the pending array into an unbounded backlog.
     private nonisolated func enqueueApprovalMutation(_ mutation: TerminalSocketMutation) {
         let shouldScheduleDrain: Bool
         lock.lock()
         switch mutation {
         case .stageAgentApproval(let stage, _):
+            let beforeCount = pending.count
             pending.removeAll { entry in
                 guard case .stageAgentApproval(let existing, _) = entry.mutation else { return false }
                 return existing.surfaceID == stage.surfaceID
                     && existing.approvalID == stage.approvalID
             }
+            pendingApprovalMutationCount -= beforeCount - pending.count
         case .resolveAgentApproval(let surfaceID, let approvalID, _):
+            let beforeCount = pending.count
             pending.removeAll { entry in
                 guard case .resolveAgentApproval(let existingSurfaceID, let existingID, _) = entry.mutation else { return false }
                 return existingSurfaceID == surfaceID && existingID == approvalID
             }
+            pendingApprovalMutationCount -= beforeCount - pending.count
         case .resolveAgentApprovalScope(let surfaceID, let scope, _):
+            let beforeCount = pending.count
             pending.removeAll { entry in
                 guard case .resolveAgentApprovalScope(let existingSurfaceID, let existingScope, _) = entry.mutation else { return false }
                 return existingSurfaceID == surfaceID && existingScope == scope
             }
+            pendingApprovalMutationCount -= beforeCount - pending.count
         default:
             break
+        }
+        if pendingApprovalMutationCount >= maxPendingApprovalMutations {
+            if Self.isApprovalResolution(mutation),
+               let evictionIndex = pending.firstIndex(where: { entry in
+                   if case .stageAgentApproval = entry.mutation { return true }
+                   return false
+               }) ?? pending.firstIndex(where: { Self.isApprovalMutation($0.mutation) }) {
+                pending.remove(at: evictionIndex)
+                pendingApprovalMutationCount -= 1
+            } else {
+                // Stage admission is explicitly lossy under pressure. The
+                // coordinator's settle window and later authoritative hook
+                // events still provide the next opportunity to surface it.
+                lock.unlock()
+                return
+            }
         }
         nextSequence &+= 1
         pending.append(TerminalSocketMutationEntry(
@@ -664,10 +693,29 @@ final class TerminalMutationBus: @unchecked Sendable {
             notificationCoalescingKey: nil,
             performReplaceKey: nil
         ))
+        pendingApprovalMutationCount += 1
         shouldScheduleDrain = !drainScheduled
         if shouldScheduleDrain { drainScheduled = true }
         lock.unlock()
         if shouldScheduleDrain { scheduleDrain() }
+    }
+
+    private static func isApprovalMutation(_ mutation: TerminalSocketMutation) -> Bool {
+        switch mutation {
+        case .stageAgentApproval, .resolveAgentApproval, .resolveAgentApprovalScope:
+            return true
+        default:
+            return false
+        }
+    }
+
+    private static func isApprovalResolution(_ mutation: TerminalSocketMutation) -> Bool {
+        switch mutation {
+        case .resolveAgentApproval, .resolveAgentApprovalScope:
+            return true
+        default:
+            return false
+        }
     }
 
     private nonisolated func approvalTokenIsCurrent(
@@ -819,6 +867,11 @@ final class TerminalMutationBus: @unchecked Sendable {
         let batch = Array(pending.prefix(count))
         if !batch.isEmpty {
             pending.removeFirst(count)
+            pendingApprovalMutationCount -= batch.reduce(into: 0) { count, entry in
+                if Self.isApprovalMutation(entry.mutation) {
+                    count += 1
+                }
+            }
         }
         let remaining = pending.count
         lock.unlock()
@@ -866,12 +919,20 @@ final class TerminalMutationBus: @unchecked Sendable {
                     notificationGeneration: entry.notificationGeneration ?? 0,
                     soundContext: notification.soundContext
                 )
-                // Retire an approval only after the replacement was accepted
-                // by the live-owner resolver. A closed/moved pane must not
-                // erase a still-valid approval episode as a side effect of a
-                // notification that was dropped.
-                if delivered,
-                   !AgentApprovalNotificationCoordinator.isApprovalCorrelationKey(notification.correlationKey) {
+                if AgentApprovalNotificationCoordinator.isApprovalCorrelationKey(notification.correlationKey) {
+                    // A missing live target is terminal for this episode: keep
+                    // neither its expiry task nor its candidate strings around
+                    // waiting for a pane that cannot receive the banner.
+                    if !delivered, let correlationKey = notification.correlationKey {
+                        dismissAgentApproval(
+                            correlationKey: correlationKey,
+                            workspaceID: notification.key.tabId,
+                            surfaceID: notification.key.surfaceId
+                        )
+                    }
+                } else if delivered {
+                    // Retire ordinary agent state only after the replacement
+                    // was accepted by the live-owner resolver.
                     if let surfaceID = notification.key.surfaceId {
                         cancelAgentApproval(surfaceID: surfaceID)
                     } else {
