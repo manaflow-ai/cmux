@@ -21,7 +21,8 @@ export default defineConfig({
   },
   webServer: {
     command:
-      `SKIP_ENV_VALIDATION=1 NEXT_INSTANT_TEST=1 bunx next build && ` +
+      `${dashboardTestEnv} SKIP_ENV_VALIDATION=1 NEXT_INSTANT_TEST=1 ` +
+      `bunx next build && ` +
       `${dashboardTestEnv} SKIP_ENV_VALIDATION=1 NEXT_INSTANT_TEST=1 ` +
       `bunx next start -p ${port}`,
     port,
