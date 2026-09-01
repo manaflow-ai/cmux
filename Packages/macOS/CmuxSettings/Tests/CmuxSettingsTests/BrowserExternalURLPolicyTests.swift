@@ -104,6 +104,11 @@ struct BrowserExternalURLPolicyTests {
         let policy = BrowserExternalURLPolicy(patterns: ["re:(a+)+$"])
         #expect(!policy.matches("https://\(String(repeating: "a", count: 8_192))b"))
 
+        let overlappingQuantifiers = BrowserExternalURLPolicy(
+            patterns: ["re:a*aaa.*ab$"]
+        )
+        #expect(!overlappingQuantifiers.matches("aaaab"))
+
         let adjacentQuantifiers = BrowserExternalURLPolicy(
             patterns: ["re:a*a*a*a*a*a*a*a*b"]
         )

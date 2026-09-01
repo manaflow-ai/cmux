@@ -249,8 +249,11 @@ struct ManagedPolicySettingsImportTests {
         preservedKeys.forEach { defaults.removeObject(forKey: $0) }
 
         // Older releases persisted this setting as an array. Keep that shape
-        // here so the managed-settings backup exercises the compatibility path.
-        defaults.set(["legacy.example.com"], forKey: key)
+        // (including a tail beyond the bounded runtime matcher) so the
+        // managed-settings backup exercises the compatibility path without
+        // allowing normalization to discard user data.
+        let legacyRules = (0..<300).map { "legacy-\($0).example.com" }
+        defaults.set(legacyRules, forKey: key)
 
         let directoryURL = FileManager.default.temporaryDirectory
             .appendingPathComponent(
@@ -285,8 +288,8 @@ struct ManagedPolicySettingsImportTests {
             try Data("{\"browser\": {}}".utf8).write(to: settingsFileURL)
             store.reload()
 
-            #expect(defaults.object(forKey: key) != nil)
-            #expect(BrowserExternalURLPolicy(defaults: defaults).patterns == ["legacy.example.com"])
+            #expect(defaults.object(forKey: key) as? [String] == legacyRules)
+            #expect(BrowserExternalURLPolicy(defaults: defaults).patterns == Array(legacyRules.prefix(256)))
         }
     }
 }
