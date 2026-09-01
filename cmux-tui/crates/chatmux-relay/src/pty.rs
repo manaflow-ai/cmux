@@ -1635,6 +1635,7 @@ impl Inner {
             || cancellation.is_cancelled()
             || !self.transport_auth_is_current(context, &auth)
             || !self.attachment_snapshot_is_current(pty_id, &current_attachment)
+            || !Self::try_claim_publication(&current_attachment)
         {
             self.retire_if_current(pty_id, &current_attachment);
             return;
