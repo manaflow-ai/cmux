@@ -122,7 +122,7 @@ extension MobileShellComposite {
             guard frame.sequence <= deliveredSequence else {
                 requestAuthoritativeTerminalResync(
                     surfaceID: surfaceID,
-                    reason: "iroh_terminal_lane_gap"
+                    reason: "terminal_lane_gap"
                 )
                 return .suspendUntilAuthoritativeOutput
             }
@@ -147,7 +147,7 @@ extension MobileShellComposite {
         guard frame.kind == .replay else {
             requestAuthoritativeTerminalResync(
                 surfaceID: surfaceID,
-                reason: "iroh_terminal_lane_missing_baseline"
+                reason: "terminal_lane_missing_baseline"
             )
             return .suspendUntilAuthoritativeOutput
         }

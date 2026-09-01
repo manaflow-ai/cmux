@@ -196,7 +196,7 @@ extension ReconnectRouteSelectionTests {
             runtime: runtime
         )
         store.recordTransientAutomaticReconnectBackoff(accountID: "user-1")
-        #expect(store.automaticIrohReconnectIsBlocked(accountID: "user-1"))
+        #expect(store.automaticReconnectIsBlocked(accountID: "user-1"))
 
         #expect(await store.retryActiveMacReconnect(stackUserID: "user-1"))
 
@@ -254,7 +254,7 @@ extension ReconnectRouteSelectionTests {
 
         // The timed-out attempt must feed the automatic retry loop: transient
         // backoff is recorded for the account the attempt dialed for.
-        #expect(store.automaticIrohReconnectIsBlocked(accountID: "user-1"))
+        #expect(store.automaticReconnectIsBlocked(accountID: "user-1"))
 
         // And the machine is unfrozen: a manual retry (hang lifted, modeling
         // the network recovering) dials fresh and connects. Release the

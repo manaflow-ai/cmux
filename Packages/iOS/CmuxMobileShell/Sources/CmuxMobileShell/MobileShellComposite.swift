@@ -1374,14 +1374,15 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// The in-flight multi-Mac aggregation pass, tracked so sign-out / account
     /// switch can cancel it; its scope guards then bail before any cross-account
     /// write. Repeated presence pushes set a trailing-pass bit instead of
-    /// cancelling an authenticated Iroh handshake mid-flight.
+    /// cancelling an authenticated secondary handshake mid-flight.
     private var secondaryAggregationTask: Task<Void, Never>?
     private var secondaryAggregationTaskGeneration = UUID()
     private var secondaryAggregationPending = false
-    /// A foreground connection or explicit refresh requested one fresh broker
-    /// discovery pass. Kept separate from ordinary store aggregation so
-    /// presence churn never turns same-account discovery into polling.
-    private var secondaryIrohDiscoveryPending = false
+    /// A foreground connection or explicit refresh requested one fresh
+    /// account-backup discovery pass. Kept separate from ordinary store
+    /// aggregation so presence churn never turns same-account discovery into
+    /// polling.
+    private var secondaryPeerDiscoveryPending = false
     /// Incremental presence edges are reconciled only for their affected Macs.
     /// One coalesced task drains the pending id set without widening each edge
     /// into a pool-wide workspace refresh.
@@ -3014,7 +3015,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         }
         let tailscaleOnly = connectionMethodStore?.method == .tailscale
         let irohReconnectIsBlocked = tailscaleOnly
-            || automaticIrohReconnectIsBlocked(accountID: scope.userID)
+            || automaticReconnectIsBlocked(accountID: scope.userID)
         // Capture one coherent post-request view of the registry and paired-Mac
         // store. The store read happens after the registry await, so an
         // authenticated Presence write that lands during the request wins. The
@@ -3055,7 +3056,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             // lanes ride, same admission authority).
             let irohReconnectIsBlocked = (connectionMethod(for: mac) == .tailscale
                 && !mac.routes.contains { $0.kind == .iroh })
-                || automaticIrohReconnectIsBlocked(accountID: scope.userID)
+                || automaticReconnectIsBlocked(accountID: scope.userID)
             let localRoutes = storedReconnectRoutes(mac).filter {
                 !irohReconnectIsBlocked || $0.kind != .iroh
             }
@@ -3095,7 +3096,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 )
             }
             if connectionState != .connected, !tailscaleOnly,
-               !automaticIrohReconnectIsBlocked(accountID: scope.userID) {
+               !automaticReconnectIsBlocked(accountID: scope.userID) {
                 switch await freshReconnectRoutesAfterLocalFailure(
                     for: mac,
                     scope: scope,
@@ -5252,7 +5253,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// is never starved by cancel/restart churn.
     func scheduleSecondaryAggregation(discoverLivePeers: Bool = false) {
         if discoverLivePeers {
-            secondaryIrohDiscoveryPending = true
+            secondaryPeerDiscoveryPending = true
         }
         guard foregroundRefreshIsActive else { return }
         guard secondaryAggregationTask == nil else {
@@ -5265,8 +5266,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             guard let self else { return }
             repeat {
                 self.secondaryAggregationPending = false
-                let discoverLivePeers = self.secondaryIrohDiscoveryPending
-                self.secondaryIrohDiscoveryPending = false
+                let discoverLivePeers = self.secondaryPeerDiscoveryPending
+                self.secondaryPeerDiscoveryPending = false
                 await self.refreshSecondaryMacWorkspaces(
                     allowsNewConnections: self.secondaryAggregationRetryTask == nil,
                     discoverLivePeers: discoverLivePeers
@@ -5278,12 +5279,6 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             self.secondaryAggregationTask = nil
             self.secondaryAggregationPending = false
         }
-    }
-
-    /// Preserve a broker-discovery request when a transient candidate failure
-    /// occurs before that candidate can be persisted as a paired row.
-    func preserveSecondaryIrohDiscoveryIntent() {
-        secondaryIrohDiscoveryPending = true
     }
 
     func scheduleSecondaryPresenceAggregation(
@@ -5343,7 +5338,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             // A transient exit must not consume the one-shot discovery intent:
             // the retry re-enters through scheduleSecondaryAggregation, which
             // only rediscovers when the pending flag survived.
-            if discoverLivePeers { secondaryIrohDiscoveryPending = true }
+            if discoverLivePeers { secondaryPeerDiscoveryPending = true }
             return
         }
         // Full snapshots and explicit refreshes reconcile the account backup.
@@ -5425,7 +5420,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 // intent: the scheduled full-refresh retry re-enters through
                 // scheduleSecondaryAggregation, which only rediscovers when
                 // the pending flag survived.
-                if discoverLivePeers { secondaryIrohDiscoveryPending = true }
+                if discoverLivePeers { secondaryPeerDiscoveryPending = true }
                 return
             }
             authorityValidation = .store
@@ -7005,7 +7000,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         secondaryAggregationPending = false
         // Foreground always performs one authenticated discovery pass. Keep
         // that intent even if backgrounding cancelled the pass that owned it.
-        secondaryIrohDiscoveryPending = true
+        secondaryPeerDiscoveryPending = true
 
         secondaryPresenceAggregationTaskGeneration = UUID()
         secondaryPresenceAggregationTask?.cancel()
@@ -7409,7 +7404,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         secondaryAggregationTask = nil
         secondaryAggregationTaskGeneration = UUID()
         secondaryAggregationPending = false
-        secondaryIrohDiscoveryPending = false
+        secondaryPeerDiscoveryPending = false
         secondaryPresenceAggregationTask?.cancel()
         secondaryPresenceAggregationTask = nil
         secondaryPresenceAggregationTaskGeneration = UUID()
@@ -9180,8 +9175,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             isRawTerminalInputDrainLoopRunning = false
             resumeRawTerminalInputDrainWaiters()
         }
-        // Matches MobileIrohTerminalLane.maximumInputByteCount and the Mac lane
-        // router's maximumInputFrameByteCount.
+        // Matches the Mac lane router's maximumInputFrameByteCount (the
+        // deleted iOS iroh terminal lane used the same 16 KiB input bound).
         while let chunk = rawTerminalInputBuffer.nextBatch(maximumByteCount: 16 * 1_024) {
             #if DEBUG
             rawTerminalInputLatencyBatchNumber &+= 1
@@ -10194,7 +10189,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         // route is synthesized (never advertised by the Mac) because the dial
         // target is a constant and the per-connect authority is the minted
         // ticket, not the route.
-        if ticketMethod == .relay {
+        switch ticketMethod {
+        case .relay:
             // Relay dials the ONE synthesized route. Advertised or persisted
             // websocket routes are ignored on purpose: nothing advertises the
             // kind today, so any that exist are stale earlier-protocol state
@@ -10204,9 +10200,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 from: supportedRoutes,
                 hostDeviceID: pairedMacDeviceID ?? ticket.macDeviceID
             )
-        }
-        if ticketMethod == .tailscale {
-            let authorizedTailscale = supportedRoutes.filter { route in
+        case .tailscale:
+            return supportedRoutes.filter { route in
                 Self.legacyTailscaleAuthorizationEvidence(
                     for: route,
                     macDeviceID: ticket.macDeviceID,
@@ -10217,15 +10212,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                         authorizations: userTailscalePairingAuthorizations
                     ) != nil
             }
-            return authorizedTailscale
         }
-        // The Iroh method is just as strict as Tailscale Only: no raw
-        // host/port fallback, ever. Debug loopback rides alongside Iroh as
-        // the dev-build convenience (compiled out of production route sets):
-        // it is the same-machine lane, not a cross-method fallback, and an
-        // Iroh endpoint advertising no relays and no direct addresses must
-        // not starve it or a dev simulator can never pair.
-        return supportedRoutes.filter { $0.kind == .iroh || $0.kind == .debugLoopback }
     }
 
     /// The Relay method's dial set for one connect attempt.

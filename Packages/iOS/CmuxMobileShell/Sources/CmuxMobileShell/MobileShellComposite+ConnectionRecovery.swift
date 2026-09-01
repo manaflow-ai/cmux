@@ -108,7 +108,7 @@ extension MobileShellComposite {
             case .manual, .networkChange, .foreground, .connectionMethodChanged:
                 clearTransientAutomaticReconnectBackoff(accountID: accountID)
             case .presencePush:
-                guard !automaticIrohReconnectIsBlocked(accountID: accountID) else {
+                guard !automaticReconnectIsBlocked(accountID: accountID) else {
                     return
                 }
             case .liveness, .eventStreamEnded, .subscriptionStartFailed,
@@ -924,7 +924,7 @@ extension MobileShellComposite {
         return connected ? .connected : outcome
     }
 
-    func automaticIrohReconnectIsBlocked(accountID: String) -> Bool {
+    func automaticReconnectIsBlocked(accountID: String) -> Bool {
         automaticReconnectBackoffOwner.isBlocked(
             accountID: accountID,
             now: runtime?.now() ?? Date()
