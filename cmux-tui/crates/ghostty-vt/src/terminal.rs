@@ -282,6 +282,22 @@ pub struct TrackedScreenPoint {
     terminal_instance_id: u64,
 }
 
+/// One absolute coordinate in the active screen, including retained
+/// scrollback rows.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct SelectionPoint {
+    pub column: u16,
+    pub row: u32,
+}
+
+/// A selection range returned by Ghostty's terminal selection rules.
+/// Endpoints preserve the direction supplied by the terminal.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct SelectionRange {
+    pub start: SelectionPoint,
+    pub end: SelectionPoint,
+}
+
 // The C handle is owned by this value and Ghostty permits freeing it after
 // its terminal is gone. All other access requires the originating Terminal,
 // whose callers already serialize mutation.
@@ -2966,6 +2982,143 @@ impl Terminal {
             value: sys::GhosttyPointValue { coordinate: sys::GhosttyPointCoordinate { x, y } },
         };
         check(unsafe { sys::ghostty_tracked_grid_ref_set(tracked.raw, self.raw, point) })
+    }
+
+    /// Select the word containing an absolute screen coordinate using
+    /// Ghostty's configured word-boundary rules.
+    pub fn select_word_screen(&self, point: SelectionPoint) -> Result<Option<SelectionRange>> {
+        let grid_ref = self
+            .grid_ref(sys::GHOSTTY_POINT_TAG_SCREEN, point.column, u64::from(point.row))
+            .ok_or(Error::InvalidValue)?;
+        let options = sys::GhosttyTerminalSelectWordOptions {
+            size: size_of::<sys::GhosttyTerminalSelectWordOptions>(),
+            ref_: grid_ref,
+            boundary_codepoints: ptr::null(),
+            boundary_codepoints_len: 0,
+        };
+        let mut selection = sys::GhosttySelection {
+            size: size_of::<sys::GhosttySelection>(),
+            ..Default::default()
+        };
+        let result =
+            unsafe { sys::ghostty_terminal_select_word(self.raw, &options, &mut selection) };
+        if result == sys::GHOSTTY_NO_VALUE {
+            return Ok(None);
+        }
+        check(result)?;
+        self.selection_range(&selection).map(Some)
+    }
+
+    /// Select the nearest word between two absolute screen coordinates.
+    /// This is useful while dragging because it skips whitespace and other
+    /// empty cells without inventing boundaries in the UI layer.
+    pub fn select_word_between_screen(
+        &self,
+        start: SelectionPoint,
+        end: SelectionPoint,
+    ) -> Result<Option<SelectionRange>> {
+        let start_ref = self
+            .grid_ref(sys::GHOSTTY_POINT_TAG_SCREEN, start.column, u64::from(start.row))
+            .ok_or(Error::InvalidValue)?;
+        let end_ref = self
+            .grid_ref(sys::GHOSTTY_POINT_TAG_SCREEN, end.column, u64::from(end.row))
+            .ok_or(Error::InvalidValue)?;
+        let options = sys::GhosttyTerminalSelectWordBetweenOptions {
+            size: size_of::<sys::GhosttyTerminalSelectWordBetweenOptions>(),
+            start: start_ref,
+            end: end_ref,
+            boundary_codepoints: ptr::null(),
+            boundary_codepoints_len: 0,
+        };
+        let mut selection = sys::GhosttySelection {
+            size: size_of::<sys::GhosttySelection>(),
+            ..Default::default()
+        };
+        let result = unsafe {
+            sys::ghostty_terminal_select_word_between(self.raw, &options, &mut selection)
+        };
+        if result == sys::GHOSTTY_NO_VALUE {
+            return Ok(None);
+        }
+        check(result)?;
+        self.selection_range(&selection).map(Some)
+    }
+
+    /// Select the logical line containing an absolute screen coordinate.
+    pub fn select_line_screen(&self, point: SelectionPoint) -> Result<Option<SelectionRange>> {
+        self.select_line_screen_with_whitespace(point, ptr::null(), 0)
+    }
+
+    /// Select a logical line without trimming its leading or trailing cells.
+    /// This is used only as the blank-line fallback for a triple-click drag.
+    pub fn select_line_screen_untrimmed(
+        &self,
+        point: SelectionPoint,
+    ) -> Result<Option<SelectionRange>> {
+        // A non-null pointer with a zero length tells Ghostty to use an
+        // explicitly empty whitespace set instead of its default trim set.
+        const EMPTY_WHITESPACE: u32 = 0;
+        let selection = self.select_line_screen_with_whitespace(point, &EMPTY_WHITESPACE, 0)?;
+        if selection.is_some() {
+            return Ok(selection);
+        }
+
+        // Ghostty still returns no value when every cell lacks text. The
+        // validated blank row remains a selectable line for a line-wise drag.
+        let Some(last_column) = self.cols().checked_sub(1) else { return Ok(None) };
+        Ok(Some(SelectionRange {
+            start: SelectionPoint { column: 0, row: point.row },
+            end: SelectionPoint { column: last_column, row: point.row },
+        }))
+    }
+
+    fn select_line_screen_with_whitespace(
+        &self,
+        point: SelectionPoint,
+        whitespace: *const u32,
+        whitespace_len: usize,
+    ) -> Result<Option<SelectionRange>> {
+        let grid_ref = self
+            .grid_ref(sys::GHOSTTY_POINT_TAG_SCREEN, point.column, u64::from(point.row))
+            .ok_or(Error::InvalidValue)?;
+        let options = sys::GhosttyTerminalSelectLineOptions {
+            size: size_of::<sys::GhosttyTerminalSelectLineOptions>(),
+            ref_: grid_ref,
+            whitespace,
+            whitespace_len,
+            semantic_prompt_boundary: true,
+        };
+        let mut selection = sys::GhosttySelection {
+            size: size_of::<sys::GhosttySelection>(),
+            ..Default::default()
+        };
+        let result =
+            unsafe { sys::ghostty_terminal_select_line(self.raw, &options, &mut selection) };
+        if result == sys::GHOSTTY_NO_VALUE {
+            return Ok(None);
+        }
+        check(result)?;
+        self.selection_range(&selection).map(Some)
+    }
+
+    fn selection_range(&self, selection: &sys::GhosttySelection) -> Result<SelectionRange> {
+        Ok(SelectionRange {
+            start: self.selection_point(&selection.start)?,
+            end: self.selection_point(&selection.end)?,
+        })
+    }
+
+    fn selection_point(&self, grid_ref: &sys::GhosttyGridRef) -> Result<SelectionPoint> {
+        let mut coordinate = sys::GhosttyPointCoordinate::default();
+        check(unsafe {
+            sys::ghostty_terminal_point_from_grid_ref(
+                self.raw,
+                grid_ref,
+                sys::GHOSTTY_POINT_TAG_SCREEN,
+                &mut coordinate,
+            )
+        })?;
+        Ok(SelectionPoint { column: coordinate.x, row: coordinate.y })
     }
 
     /// Plain text of a selection range given in viewport coordinates
