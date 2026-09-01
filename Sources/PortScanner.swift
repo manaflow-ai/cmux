@@ -176,6 +176,29 @@ final class PortScanner: @unchecked Sendable {
         return publicationState.currentPanelTTYName(for: key, sessionIdentity: sessionIdentity)
     }
 
+    /// Reacts to the sidebar ports-visibility settings changing.
+    ///
+    /// Turning it off only needs the queued work dropped, since the sidebar
+    /// hides the ports either way. Turning it back on has to rescan: everything
+    /// published before the setting went off is stale, and the next kick or
+    /// agent tick can be seconds away.
+    func portScanningEnablementDidChange() {
+        queue.async { [self] in
+            guard portScanningEnabled else {
+                pendingKicks.removeAll()
+                scansRemainingForPendingKicks = 0
+                return
+            }
+            guard !ttyNames.isEmpty || !trackedAgentWorkspaces.isEmpty else { return }
+            pendingKicks.formUnion(ttyNames.keys)
+            scansRemainingForPendingKicks = Self.minimumScansPerKick
+            if !burstActive {
+                startCoalesce()
+            }
+            runTrackedAgentScan()
+        }
+    }
+
     func kick(workspaceId: UUID, panelId: UUID) {
         queue.async { [self] in
             guard portScanningEnabled else { return }
