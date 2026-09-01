@@ -931,7 +931,7 @@ pub fn command_with_process_files(command: &str, files: &[RuntimeFile]) -> Strin
     if files.is_empty() {
         return command.to_owned();
     }
-    let mut setup: Vec<String> = vec!["set +e".to_owned(), "umask 077".to_owned()];
+    let mut setup: Vec<String> = vec!["set -e".to_owned()];
     let mut cleanup: Vec<String> = Vec::new();
     for (index, file) in files.iter().enumerate() {
         let sanitized: String = file
@@ -944,6 +944,7 @@ pub fn command_with_process_files(command: &str, files: &[RuntimeFile]) -> Strin
             .collect();
         let hint = if sanitized.is_empty() { "secret".to_owned() } else { sanitized };
         let shell_path = format!("__chatmux_file_{index}");
+        cleanup.push(format!("if [ -n \"${shell_path-}\" ]; then rm -f -- \"${shell_path}\"; fi"));
         setup.push(format!("{shell_path}=$(mktemp \"${{TMPDIR:-/tmp}}/chatmux-{hint}.XXXXXX\")"));
         setup.push(format!("chmod 600 \"${shell_path}\""));
         setup.push(format!(
@@ -952,16 +953,20 @@ pub fn command_with_process_files(command: &str, files: &[RuntimeFile]) -> Strin
         ));
         setup.push(format!("unset {}", file.content_environment_variable));
         setup.push(format!("export {}=\"${shell_path}\"", file.path_environment_variable,));
-        cleanup.push(format!("rm -f -- \"${shell_path}\""));
     }
     let cleanup_body = cleanup.join("; ");
-    setup.push(format!("__chatmux_cleanup() {{ {cleanup_body}; }}"));
-    setup.push("trap __chatmux_cleanup EXIT".to_owned());
-    setup.push("trap 'exit 143' HUP INT TERM".to_owned());
-    setup.push(format!("( /bin/sh -c {} )", shell_quote(command)));
-    setup.push("__chatmux_status=$?".to_owned());
+    setup.insert(1, format!("__chatmux_cleanup() {{ set +e; {cleanup_body}; }}"));
+    setup.insert(2, "trap __chatmux_cleanup 0".to_owned());
+    setup.insert(3, "trap 'exit 143' HUP INT TERM".to_owned());
+    setup.insert(4, "umask 077".to_owned());
+    setup.push(format!("if ( /bin/sh -c {} ); then", shell_quote(command)));
+    setup.push("  __chatmux_status=$?".to_owned());
+    setup.push("else".to_owned());
+    setup.push("  __chatmux_status=$?".to_owned());
+    setup.push("fi".to_owned());
+    setup.push("trap - 0".to_owned());
     setup.push("__chatmux_cleanup".to_owned());
-    setup.push("trap - EXIT HUP INT TERM".to_owned());
+    setup.push("trap - HUP INT TERM".to_owned());
     setup.push("exit $__chatmux_status".to_owned());
     setup.join("\n")
 }
