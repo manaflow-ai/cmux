@@ -1849,7 +1849,8 @@ line_regex = ["^working$", "^missing line$"]
         let copilot = ManifestSet::bundled().identify("copilot").unwrap();
         assert_eq!(copilot.version().map(ToString::to_string).as_deref(), Some("2026.08.29.1"));
 
-        let working = copilot.detect(input("task output\n◎ Waiting for background agents · 2 running\n"));
+        let working =
+            copilot.detect(input("task output\n◎ Waiting for background agents · 2 running\n"));
         assert_eq!(working.state, ScreenState::Working);
         assert_eq!(working.matched_rule.as_deref(), Some("background_agents_working"));
         assert!(working.visible_working);

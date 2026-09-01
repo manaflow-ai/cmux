@@ -818,9 +818,7 @@ fn validate_git_source(source: &str) -> anyhow::Result<()> {
     } else if let Some(at) = source.find('@') {
         // Also cover scp-like sources such as `user:password@host:path`.
         // A plain `git@host:path` remains valid.
-        let component_start = source[..at]
-            .rfind(['/', '\\'])
-            .map_or(0, |index| index + 1);
+        let component_start = source[..at].rfind(['/', '\\']).map_or(0, |index| index + 1);
         if source[component_start..at].contains(':') {
             anyhow::bail!("plugin git URL must not contain embedded credentials");
         }
@@ -1722,7 +1720,10 @@ mod tests {
             "https://example.com/team/plugin.git?token=secret",
             "http://example.com/team/plugin.git#token",
         ] {
-            assert!(validate_git_source(source).is_err(), "unsafe source must be rejected: {source}");
+            assert!(
+                validate_git_source(source).is_err(),
+                "unsafe source must be rejected: {source}"
+            );
         }
 
         for source in [
@@ -1730,7 +1731,10 @@ mod tests {
             "git@example.com:team/plugin.git",
             "/tmp/plugin.git",
         ] {
-            assert!(validate_git_source(source).is_ok(), "normal source must remain valid: {source}");
+            assert!(
+                validate_git_source(source).is_ok(),
+                "normal source must remain valid: {source}"
+            );
         }
     }
 
