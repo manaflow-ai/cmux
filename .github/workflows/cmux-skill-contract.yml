@@ -30,7 +30,9 @@ concurrency:
 
 jobs:
   browser-skill:
-    runs-on: ubuntu-24.04
+    # Skill pull requests execute repository-provided validation code and must
+    # stay isolated from private self-hosted runner networks.
+    runs-on: ubuntu-24.04 # github-hosted-required: skill PRs run untrusted code
     timeout-minutes: 5
     steps:
       - name: Checkout
