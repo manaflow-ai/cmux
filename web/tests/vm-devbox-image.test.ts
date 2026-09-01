@@ -119,7 +119,7 @@ describe("devbox image template", () => {
     expect(body(agentConfig)).toBe(body(readBlaxel("agent-config.sh")));
   });
 
-  test("agent pins match the Blaxel template ARG for ARG", () => {
+  test("agent and CUA driver pins match the Blaxel template", () => {
     const blaxelDockerfile = readBlaxel("Dockerfile");
     const args = [
       "CMUX_IMAGE_CLAUDE_CODE_VERSION",
@@ -142,18 +142,29 @@ describe("devbox image template", () => {
       "@earendil-works/pi-coding-agent",
       "agent-browser",
     ]);
+
+    const cuaVersion = (source: string): string | undefined =>
+      /CUA_DRIVER_RS_VERSION=(\S+)/.exec(source)?.[1];
+    const devboxCuaVersion = cuaVersion(dockerfile);
+    expect({ tool: "cua-driver", pin: devboxCuaVersion }).toEqual({
+      tool: "cua-driver",
+      pin: cuaVersion(blaxelDockerfile),
+    });
+    expect(readScript("build-devbox-freestyle.ts")).toContain(
+      `CUA_DRIVER_RS_VERSION=${devboxCuaVersion}`,
+    );
   });
 
-  test("ble.sh highlights stay foreground-only for dark terminal themes", () => {
-    expect(bashrc).toContain("ble-face auto_complete=fg=");
-    expect(bashrc).toContain("ble-face syntax_error=fg=");
-    expect(bashrc).toContain("ble-face argument_error=fg=");
-    for (const line of bashrc.split("\n").filter((l) => l.trimStart().startsWith("ble-face"))) {
+  test("ble.sh integration stays minimal: no token highlighting, ghost text only", () => {
+    // User feedback 2026-08-31: any token highlighting (colored backgrounds
+    // under mistyped commands included) reads as noise. The bashrc turns the
+    // highlight layers off entirely and keeps only gray history ghost text.
+    expect(bashrc).toContain("bleopt highlight_syntax= highlight_filename= highlight_variable=");
+    const faceLines = bashrc.split("\n").filter((l) => l.trimStart().startsWith("ble-face"));
+    expect(faceLines).toEqual(["  ble-face auto_complete=fg=245"]);
+    for (const line of faceLines) {
       expect(line).not.toContain("bg=");
     }
-    expect(bashrc).toContain("source /usr/local/share/blesh/ble.sh --noattach");
-    expect(bashrc).toContain("ble-attach");
-    expect(bashrc).toContain('cp /etc/cmux/seed-history "$HOME/.bash_history"');
   });
 
   test("stays within the E2B Dockerfile-parser restrictions", () => {
