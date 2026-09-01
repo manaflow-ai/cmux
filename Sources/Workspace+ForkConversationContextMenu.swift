@@ -187,11 +187,6 @@ extension Workspace {
     ) -> Bool {
         guard let owningTabManager,
               let host = remoteTmuxSessionMirror?.host,
-              let startupInput = snapshot.forkStartupInput(
-                allowLauncherScript: false,
-                // Typed into the remote host's shell after attach: keep POSIX.
-                dialect: .remoteHost
-              ),
               let remoteConfiguration = SessionRemoteWorkspaceSnapshot(
                 transport: .ssh,
                 terminalTransport: .ssh,
@@ -211,10 +206,27 @@ extension Workspace {
             return false
         }
 
+        // ssh-tmux mirrors intentionally have no reverse relay. The newly
+        // created SSH workspace may gain one in a future transport, but only
+        // emit the local selector when this configuration can actually reach
+        // the app's socket; otherwise the remote shell must run the provider
+        // command directly, as the split/new-tab mirror paths do.
+        let canReachLocalForkVerb = remoteConfiguration.relayPort != nil
+            && remoteConfiguration.localSocketPath != nil
+        guard let startupInput = snapshot.forkStartupInput(
+            useLocalForkVerb: canReachLocalForkVerb,
+            allowLauncherScript: false,
+            // Typed into the remote host's shell after attach: keep POSIX.
+            dialect: .remoteHost
+        ) else {
+            return false
+        }
+
         guard let forkWorkspace = owningTabManager.addWorkspaceIfActive(
             workingDirectory: nil,
             initialTerminalCommand: remoteConfiguration.terminalStartupCommand,
             initialTerminalInput: startupInput,
+            initialTerminalStartupRestoreAgent: canReachLocalForkVerb ? snapshot : nil,
             initialTerminalEnvironment: remoteConfiguration.sshTerminalStartupEnvironment ?? [:],
             inheritWorkingDirectory: false,
             autoWelcomeIfNeeded: false
@@ -260,6 +272,9 @@ extension Workspace {
             workingDirectory: launch.terminalWorkingDirectory,
             initialTerminalCommand: launch.initialTerminalCommand,
             initialTerminalInput: launch.initialTerminalInput,
+            initialTerminalStartupRestoreAgent: launch.initialTerminalCommand == nil
+                ? snapshot.retargetingForkWorkingDirectory(launch.workingDirectory)
+                : nil,
             initialTerminalEnvironment: launch.initialTerminalEnvironment,
             inheritWorkingDirectory: launch.terminalWorkingDirectory != nil,
             autoWelcomeIfNeeded: false

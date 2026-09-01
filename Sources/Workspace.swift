@@ -12770,14 +12770,14 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         fileManager: FileManager = .default,
         temporaryDirectory: URL = FileManager.default.temporaryDirectory
     ) -> AgentConversationForkWorkspaceLaunch? {
-        var launchSnapshot = snapshot
         let workingDirectory = forkAgentWorkingDirectory(fromPanelId: panelId, snapshot: snapshot)
-        launchSnapshot.workingDirectory = workingDirectory
+        let launchSnapshot = snapshot.retargetingForkWorkingDirectory(workingDirectory)
         let remoteStartupCommand = forkAgentRemoteStartupCommand(fromPanelId: panelId)
         let remoteConfiguration = forkAgentRemoteConfigurationForNewWorkspace(fromPanelId: panelId)
         let isRemoteFork = remoteConfiguration?.terminalStartupCommand?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
         guard panels[panelId] is TerminalPanel,
               let startupInput = launchSnapshot.forkStartupInput(
+                  useLocalForkVerb: !isRemoteFork,
                   fileManager: fileManager,
                   temporaryDirectory: temporaryDirectory,
                   allowLauncherScript: !isRemoteFork,
@@ -12797,7 +12797,6 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
             autoConnectRemoteConfiguration: remoteConfiguration != nil
         )
     }
-
     @discardableResult
     func forkAgentConversation(
         fromPanelId panelId: UUID,
@@ -12806,13 +12805,13 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         fileManager: FileManager = .default,
         temporaryDirectory: URL = FileManager.default.temporaryDirectory
     ) -> TerminalPanel? {
-        var launchSnapshot = snapshot
         let workingDirectory = forkAgentWorkingDirectory(fromPanelId: panelId, snapshot: snapshot)
-        launchSnapshot.workingDirectory = workingDirectory
+        let launchSnapshot = snapshot.retargetingForkWorkingDirectory(workingDirectory)
         let remoteStartupCommand = forkAgentRemoteStartupCommand(fromPanelId: panelId)
         guard panels[panelId] is TerminalPanel,
               let paneId = paneId(forPanelId: panelId),
               let startupInput = launchSnapshot.forkStartupInput(
+                  useLocalForkVerb: remoteStartupCommand == nil,
                   fileManager: fileManager,
                   temporaryDirectory: temporaryDirectory,
                   allowLauncherScript: remoteStartupCommand == nil,
@@ -12832,6 +12831,7 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
             insertFirst: direction.insertFirst,
             workingDirectory: remoteStartupCommand == nil ? workingDirectory : nil,
             initialInput: startupInput,
+            startupRestoreAgent: remoteStartupCommand == nil ? launchSnapshot : nil,
             remoteStartupCommand: remoteStartupCommand
         )
         if let forkedPanel,
@@ -12864,9 +12864,8 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
     }
 
     /// Fork the panel's agent conversation into a brand-new sibling tab placed immediately
-    /// to the right of `anchorTabId` in `paneId`. Uses the same `claude --resume --fork-session`
-    /// startup input the existing split/new-workspace forks rely on, so divergence is owned by
-    /// the agent itself (Claude / Codex / OpenCode) instead of any cmux-side history copy.
+    /// to the right of `anchorTabId` in `paneId`. Local surfaces use the structured `cmux fork`
+    /// selector; remote shells retain their provider command when the local CLI is unreachable.
     @discardableResult
     func forkAgentConversationToNewTab(
         fromPanelId panelId: UUID,
@@ -12876,12 +12875,12 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         fileManager: FileManager = .default,
         temporaryDirectory: URL = FileManager.default.temporaryDirectory
     ) -> TerminalPanel? {
-        var launchSnapshot = snapshot
         let workingDirectory = forkAgentWorkingDirectory(fromPanelId: panelId, snapshot: snapshot)
-        launchSnapshot.workingDirectory = workingDirectory
+        let launchSnapshot = snapshot.retargetingForkWorkingDirectory(workingDirectory)
         let remoteStartupCommand = forkAgentRemoteStartupCommand(fromPanelId: panelId)
         guard panels[panelId] is TerminalPanel,
               let startupInput = launchSnapshot.forkStartupInput(
+                  useLocalForkVerb: remoteStartupCommand == nil,
                   fileManager: fileManager,
                   temporaryDirectory: temporaryDirectory,
                   allowLauncherScript: remoteStartupCommand == nil,
@@ -12901,7 +12900,8 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
             inPane: paneId,
             focus: true,
             workingDirectory: remoteStartupCommand == nil ? workingDirectory : nil,
-            initialInput: startupInput
+            initialInput: startupInput,
+            startupRestoreAgent: remoteStartupCommand == nil ? launchSnapshot : nil
         )
         if let forkedPanel {
             _ = reorderSurface(panelId: forkedPanel.id, toIndex: targetIndex)

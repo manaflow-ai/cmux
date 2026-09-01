@@ -272847,6 +272847,153 @@
           }
         }
       }
+    },
+    "cli.help.fork": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "fork [--surface <id|ref>] <kind> <checkpoint-id> | fork --surface [id|ref]" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "fork [--surface <id|ref>] <kind> <checkpoint-id> | fork --surface [id|ref]" } }
+      }
+    },
+    "cli.fork.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Usage: cmux fork [--surface <id|ref>] <kind> <checkpoint-id>\n       cmux fork <kind> <checkpoint-id> --surface <id|ref>\n       cmux fork --surface=<id|ref> <kind> <checkpoint-id>\n       cmux fork --surface [id|ref]\n\nReplace this CLI process with the provider's fork launch from the persisted surface record. New records preserve fork arguments and cwd as structured values; command-only records use a compatibility shell.\nWith no id or ref, --surface uses the calling cmux surface." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "使用法: cmux fork [--surface <id|ref>] <kind> <checkpoint-id>\n       cmux fork <kind> <checkpoint-id> --surface <id|ref>\n       cmux fork --surface=<id|ref> <kind> <checkpoint-id>\n       cmux fork --surface [id|ref]\n\n保存されたサーフェスレコードのプロバイダー フォーク起動でこの CLI プロセスを置き換えます。新しいレコードではフォーク引数と cwd が構造化された値として保持され、コマンドのみのレコードでは互換シェルを使用します。\nid または ref を省略すると、--surface は呼び出し元の cmux サーフェスを使用します。" } }
+      }
+    },
+    "cli.fork.usage.surface": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Usage: cmux fork --surface [id|ref]" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "使用法: cmux fork --surface [id|ref]" } }
+      }
+    },
+    "cli.fork.usage.positional": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Usage: cmux fork [--surface <id|ref>] <kind> <checkpoint-id>\n       cmux fork <kind> <checkpoint-id> --surface <id|ref>\n       cmux fork --surface=<id|ref> <kind> <checkpoint-id>" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "使用法: cmux fork [--surface <id|ref>] <kind> <checkpoint-id>\n       cmux fork <kind> <checkpoint-id> --surface <id|ref>\n       cmux fork --surface=<id|ref> <kind> <checkpoint-id>" } }
+      }
+    },
+    "cli.fork.error.noRecord": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "fork: this session has nothing to fork. Start the agent again in this terminal." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "fork: このセッションにはフォークできるものがありません。このターミナルでエージェントをもう一度起動してください。" } }
+      }
+    },
+    "cli.fork.error.surfaceNotFound": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "fork: the requested surface was not found. Check the surface reference, then retry." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "fork: 指定されたサーフェスが見つかりません。サーフェスの参照を確認してから、再試行してください。" } }
+      }
+    },
+    "cli.fork.error.currentSurfaceUnknown": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "fork: the current cmux surface could not be identified. Retry from this terminal or pass --surface <id|ref>." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "fork: 現在の cmux サーフェスを特定できませんでした。このターミナルから再試行するか、--surface <id|ref> を指定してください。" } }
+      }
+    },
+    "cli.fork.error.checkpointMismatch": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "fork: this command no longer matches the session. Run 'cmux fork --surface' to use the current record." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "fork: このコマンドは現在のセッションと一致しません。現在の状態を使用するには 'cmux fork --surface' を実行してください。" } }
+      }
+    },
+    "cli.fork.error.kindMismatch": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "fork: this command no longer matches the session. Run 'cmux fork --surface' to use the current record." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "fork: このコマンドは現在のセッションと一致しません。現在の状態を使用するには 'cmux fork --surface' を実行してください。" } }
+      }
+    },
+    "cli.fork.error.unsupportedMode": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "fork: this session's saved fork data is not compatible. Start the agent again in this terminal." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "fork: このセッションの保存済みフォークデータには互換性がありません。このターミナルでエージェントをもう一度起動してください。" } }
+      }
+    },
+    "cli.fork.error.incompleteData": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "fork: this session's saved fork data is not compatible. Start the agent again in this terminal." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "fork: このセッションの保存済みフォークデータには互換性がありません。このターミナルでエージェントをもう一度起動してください。" } }
+      }
+    },
+    "cli.fork.error.malformedRecord": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "fork: this session's saved restore data is not compatible. Start the agent again in this terminal." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "fork: このセッションの保存済み復元データには互換性がありません。このターミナルでエージェントをもう一度起動してください。" } }
+      }
+    },
+    "cli.fork.error.malformedArguments": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "fork: this session's saved restore data is not compatible. Start the agent again in this terminal." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "fork: このセッションの保存済み復元データには互換性がありません。このターミナルでエージェントをもう一度起動してください。" } }
+      }
+    },
+    "cli.fork.error.unsupported": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "fork: this agent does not support forking. Configure a fork command for this agent, then retry." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "fork: このエージェントはフォークをサポートしていません。このエージェントにフォークコマンドを設定してから、再試行してください。" } }
+      }
+    },
+    "cli.fork.error.providerSetupFailed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "fork: provider setup failed. Check the agent's provider settings, then retry." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "fork: プロバイダー設定に失敗しました。エージェントのプロバイダー設定を確認してから、再試行してください。" } }
+      }
+    },
+    "cli.fork.error.workingDirectoryFailed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "fork: the saved working directory is inaccessible. Restore access to it, then retry." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "fork: 保存された作業ディレクトリにアクセスできません。アクセスを復元してから、再試行してください。" } }
+      }
+    },
+    "cli.fork.error.executableNotFound": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "fork: the saved agent command is unavailable. Make sure the agent is installed, then retry." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "fork: 保存されたエージェントコマンドを利用できません。エージェントがインストールされていることを確認してから、再試行してください。" } }
+      }
+    },
+    "cli.fork.error.execveFailed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "fork: the saved process could not be started. Retry the visible fork command." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "fork: 保存されたプロセスを開始できませんでした。表示されているフォークコマンドを再実行してください。" } }
+      }
+    },
+    "cli.fork.error.compatibilityShellFailed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "fork: the saved process could not be started. Retry the visible fork command." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "fork: 保存されたプロセスを開始できませんでした。表示されているフォークコマンドを再実行してください。" } }
+      }
+    },
+    "cli.fork.codexCheckpointUnavailable": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "fork: the saved agent session is unavailable. The terminal remains in its saved directory; retry later or start a new agent session." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "fork: 保存されたエージェント セッションを利用できません。ターミナルは保存されたディレクトリに残っています。後でもう一度試すか、新しいエージェント セッションを開始してください。" } }
+      }
+    },
+    "cli.fork.error.socketNotReady": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "fork: cmux is still opening. Retry the visible fork command in a moment." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "fork: cmux はまだ起動中です。しばらくしてから、表示されているフォークコマンドを再実行してください。" } }
+      }
     }
   },
   "version": "1.0"

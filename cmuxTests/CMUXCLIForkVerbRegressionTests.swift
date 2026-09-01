@@ -11,12 +11,166 @@ import Testing
 @MainActor
 @Suite(.serialized)
 struct CMUXCLIForkVerbRegressionTests {
+    private final class BundleToken {}
     @Test
-    func contextMenuForkQueuesForkVerbAndStagesParentRecord() throws {
+    func snapshotForkVerbUsesNativeAndRegistrationForkArgv() throws {
+        let sessionID = "fork-session"
+        let nativeCases: [(RestorableAgentKind, String, [String])] = [
+            (.claude, "claude", ["claude", "--resume", sessionID, "--fork-session"]),
+            (.codex, "codex", ["codex", "fork", sessionID]),
+            (.opencode, "opencode", ["opencode", "--session", sessionID, "--fork"]),
+            (.pi, "pi", ["pi", "--fork", sessionID]),
+            (.omp, "omp", ["omp", "--fork", sessionID]),
+        ]
+        for (kind, executable, expectedArguments) in nativeCases {
+            let snapshot = SessionRestorableAgentSnapshot(
+                kind: kind,
+                sessionId: sessionID,
+                workingDirectory: nil,
+                launchCommand: AgentLaunchCommandSnapshot(arguments: [executable])
+            )
+            #expect(snapshot.preparedForkArguments() == expectedArguments)
+            #expect(snapshot.forkStartupInput(useLocalForkVerb: true) == " cmux fork \(kind.rawValue) \(sessionID)\n")
+        }
+
+        let registration = CmuxVaultAgentRegistration(
+            id: "forkable-agent",
+            name: "Forkable Agent",
+            detect: CmuxVaultAgentDetectRule(processNames: ["forkable-agent"]),
+            sessionIdSource: .argvOption("--session"),
+            resumeCommand: "{{executable}} --session {{sessionId}}",
+            forkCommand: "{{executable}} --branch {{sessionId}}"
+        )
+        let custom = SessionRestorableAgentSnapshot(
+            kind: .custom(registration.id),
+            sessionId: sessionID,
+            workingDirectory: nil,
+            launchCommand: AgentLaunchCommandSnapshot(arguments: ["forkable-agent"]),
+            registration: registration
+        )
+        #expect(custom.preparedForkArguments() == ["forkable-agent", "--branch", sessionID])
+        #expect(custom.forkStartupInput(useLocalForkVerb: true) == " cmux fork forkable-agent \(sessionID)\n")
+    }
+
+    @Test
+    func registrationForkTemplatesCoverAgentKinds() {
+        let sessionID = "fork-template-session"
+        let cases: [(RestorableAgentKind, String)] = [
+            (.codex, "codex-template"),
+            (.opencode, "opencode-template"),
+            (.pi, "pi-template"),
+            (.omp, "omp-template"),
+            (.hermesAgent, "hermes-template"),
+            (.custom("custom-template"), "custom-template"),
+        ]
+        for (kind, registrationID) in cases {
+            let executable = "agent-\(registrationID)"
+            let registration = CmuxVaultAgentRegistration(
+                id: registrationID,
+                name: registrationID,
+                detect: CmuxVaultAgentDetectRule(processNames: [executable]),
+                sessionIdSource: .argvOption("--session"),
+                resumeCommand: "{{executable}} --resume {{sessionId}}",
+                forkCommand: "{{executable}} --branch {{sessionId}}"
+            )
+            let snapshot = SessionRestorableAgentSnapshot(
+                kind: kind,
+                sessionId: sessionID,
+                workingDirectory: nil,
+                launchCommand: AgentLaunchCommandSnapshot(arguments: [executable]),
+                registration: registration
+            )
+            #expect(snapshot.preparedForkArguments() == [executable, "--branch", sessionID])
+        }
+    }
+
+    @Test
+    func surfaceResumeCanonicalizerUsesForkSelectorForLocalBindings() throws {
+        let sessionID = "019dad34-d218-7943-b81a-eddac5c87951"
+        let binding = SurfaceResumeBindingSnapshot(
+            kind: "claude",
+            command: "claude --resume \(sessionID)",
+            checkpointId: sessionID,
+            source: "agent-hook",
+            autoResume: true
+        )
+        #expect(binding.usesLocalForkVerb)
+        #expect(binding.forkStartupInput() == " cmux fork claude \(sessionID)\n")
+    }
+
+    @Test
+    func surfaceRestoreRecordCarriesStructuredForkArguments() throws {
+        let tabManager = TabManager(autoWelcomeIfNeeded: false)
+        defer { tabManager.tabs.forEach { $0.teardownAllPanels() } }
+        let workspace = try #require(
+            tabManager.addWorkspaceIfActive(autoWelcomeIfNeeded: false)
+        )
+        let panelID = try #require(workspace.focusedPanelId)
+        let registration = CmuxVaultAgentRegistration(
+            id: "record-fork-agent",
+            name: "Record Fork Agent",
+            detect: CmuxVaultAgentDetectRule(processNames: ["record-fork-agent"]),
+            sessionIdSource: .argvOption("--session"),
+            resumeCommand: "{{executable}} --session {{sessionId}}",
+            forkCommand: "{{executable}} --fork {{sessionId}}"
+        )
+        let snapshot = SessionRestorableAgentSnapshot(
+            kind: .custom(registration.id),
+            sessionId: "record-session",
+            workingDirectory: "/tmp/record-fork",
+            launchCommand: AgentLaunchCommandSnapshot(
+                arguments: ["record-fork-agent"],
+                workingDirectory: "/tmp/record-fork"
+            ),
+            registration: registration
+        )
+        workspace.setRestoredAgentSnapshotForTesting(snapshot, panelId: panelID)
+        let target = ControlSurfaceResumeTarget.workspace(
+            tabManager: tabManager,
+            workspace: workspace,
+            surfaceID: panelID
+        )
+
+        let record = try #require(
+            TerminalController.shared.controlSurfaceRestoreRecord(
+                target: target,
+                binding: nil
+            )
+        )
+        #expect(record.forkArguments == ["record-fork-agent", "--fork", "record-session"])
+        #expect(record.legacyForkCommand?.contains("--fork") == true)
+    }
+
+    @Test
+    func forkAndRestoreRejectTheSameSelectorShapes() throws {
+        let malformedForms = [
+            ["--surface", "surface:4", "claude"],
+            ["--surface=surface:4", "--surface", "surface:5", "claude", "checkpoint"],
+        ]
+        for form in malformedForms {
+            let socketPath = "/tmp/cmux-continuation-selector-\(UUID().uuidString.prefix(8)).sock"
+            let responder = try UnixSocketResponder(path: socketPath, response: "{\"ok\":true,\"result\":{}}")
+            defer { responder.stop() }
+            var environment = ProcessInfo.processInfo.environment
+            for key in Array(environment.keys) where key.hasPrefix("CMUX_") {
+                environment.removeValue(forKey: key)
+            }
+            environment["CMUX_SOCKET_PATH"] = socketPath
+            environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+            let restore = try runCLI(arguments: ["restore"] + form, environment: environment)
+            let fork = try runCLI(arguments: ["fork"] + form, environment: environment)
+            #expect(restore.status != 0)
+            #expect(fork.status != 0)
+            #expect(restore.stderr.contains("Usage: cmux restore"))
+            #expect(fork.stderr.contains("Usage: cmux fork"))
+        }
+    }
+
+    @Test
+    func contextMenuForkQueuesForkVerbAndStagesParentRecord() async throws {
         let workspace = Workspace()
+        defer { workspace.teardownAllPanels() }
         let sourcePanelID = try #require(workspace.focusedPanelId)
-        let sourcePaneID = try #require(workspace.paneId(forPanelId: sourcePanelID))
-        let sourceTabID = try #require(workspace.surfaceIdFromPanelId(sourcePanelID))
         let sessionID = "019dad34-d218-7943-b81a-eddac5c87951"
         let snapshot = SessionRestorableAgentSnapshot(
             kind: .claude,
@@ -29,20 +183,14 @@ struct CMUXCLIForkVerbRegressionTests {
                 workingDirectory: "/tmp/fork verb repo",
                 environment: nil,
                 capturedAt: 123,
-                source: "test"
+                source: "process"
             )
         )
         workspace.setRestoredAgentSnapshotForTesting(snapshot, panelId: sourcePanelID)
-        let sourceTab = try #require(
-            workspace.bonsplitController.tabs(inPane: sourcePaneID).first { $0.id == sourceTabID }
-        )
-
-        workspace.splitTabBar(
-            workspace.bonsplitController,
-            didRequestTabContextAction: .forkConversationNewTab,
-            for: sourceTab,
-            inPane: sourcePaneID
-        )
+        #expect(await workspace.forkAgentConversationFromContextMenu(
+            fromPanelId: sourcePanelID,
+            destination: .newTab
+        ))
 
         let forkPanelID = try #require(workspace.focusedPanelId)
         let forkPanel = try #require(workspace.terminalPanel(for: forkPanelID))
@@ -63,7 +211,7 @@ struct CMUXCLIForkVerbRegressionTests {
         #!/bin/sh
         {
           printf 'pwd=%s\\n' "$PWD"
-          printf 'value=%s\\n' "$FORK_TEST_VALUE"
+          printf 'value=%s\\n' "$CODEX_HOME"
           for argument in "$@"; do printf 'arg=%s\\n' "$argument"; done
         } > "$FORK_TEST_MARKER"
         """.write(to: executable, atomically: true, encoding: .utf8)
@@ -80,12 +228,12 @@ struct CMUXCLIForkVerbRegressionTests {
                     "checkpoint_id": checkpointID,
                     "source": "session-snapshot",
                     "working_directory": root.path,
-                    "environment": ["FORK_TEST_VALUE": "structured value"],
+                    "environment": ["CODEX_HOME": "structured value"],
                     "launch_command": [
                         "arguments": [executable.path],
                         "executable_path": executable.path,
                         "working_directory": root.path,
-                        "environment": ["FORK_TEST_VALUE": "structured value"],
+                        "environment": ["CODEX_HOME": "structured value"],
                     ],
                     "fork_arguments": [executable.path, "--fork", checkpointID],
                 ],
@@ -117,8 +265,48 @@ struct CMUXCLIForkVerbRegressionTests {
         #expect(output.contains("value=structured value"))
         #expect(output.contains("arg=--fork"))
         #expect(output.contains("arg=\(checkpointID)"))
-        #expect(responder.receivedRequests.count == 1)
-        #expect(responder.receivedRequests.first?.contains("surface.resume.get") == true)
+        #expect(responder.receivedRequests.last?.contains("surface.resume.get") == true)
+    }
+
+    @Test
+    func cliForkVerbReportsMissingForkSupport() throws {
+        let surfaceID = UUID().uuidString.lowercased()
+        let checkpointID = "unsupported-fork-checkpoint"
+        let responseData = try JSONSerialization.data(withJSONObject: [
+            "ok": true,
+            "result": [
+                "restore_record": [
+                    "mode": "resumeAgent",
+                    "kind": "custom-agent",
+                    "checkpoint_id": checkpointID,
+                    "source": "session-snapshot",
+                    "launch_command": [
+                        "arguments": ["custom-agent", "--resume", checkpointID],
+                    ],
+                ],
+            ],
+        ])
+        let socketPath = "/tmp/cmux-fork-unsupported-\(UUID().uuidString.prefix(8)).sock"
+        let responder = try UnixSocketResponder(
+            path: socketPath,
+            response: String(decoding: responseData, as: UTF8.self)
+        )
+        defer { responder.stop() }
+
+        var environment = ProcessInfo.processInfo.environment
+        for key in Array(environment.keys) where key.hasPrefix("CMUX_") {
+            environment.removeValue(forKey: key)
+        }
+        environment["CMUX_SOCKET_PATH"] = socketPath
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+        environment["PATH"] = "/usr/bin:/bin"
+
+        let result = try runCLI(
+            arguments: ["fork", "--surface", surfaceID, "custom-agent", checkpointID],
+            environment: environment
+        )
+        #expect(result.status != 0, result.description)
+        #expect(result.stderr.contains("does not support forking"), result.description)
     }
 
     private struct ProcessResult: CustomStringConvertible {
@@ -135,7 +323,7 @@ struct CMUXCLIForkVerbRegressionTests {
         arguments: [String],
         environment: [String: String]
     ) throws -> ProcessResult {
-        let cliPath = try BundledCLITestSupport.bundledCLIPath(for: Self.self)
+        let cliPath = try BundledCLITestSupport.bundledCLIPath(for: BundleToken.self)
         let process = Process()
         process.executableURL = URL(fileURLWithPath: cliPath)
         process.arguments = arguments

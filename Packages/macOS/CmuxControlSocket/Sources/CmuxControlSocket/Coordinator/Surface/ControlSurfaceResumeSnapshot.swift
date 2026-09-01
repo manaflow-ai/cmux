@@ -20,7 +20,7 @@ public struct ControlSurfaceResumeSnapshot: Sendable, Equatable {
     public let cleared: Bool
     /// The resulting resume binding, or `nil`.
     public let binding: ControlSurfaceResumeBinding?
-    /// Structured process data used by `cmux restore`.
+    /// Structured process data used by `cmux restore` or `cmux fork`.
     public let restoreRecord: ControlSurfaceRestoreRecord?
     /// Whether an optional compare-and-claim request succeeded.
     public let resumeClaimed: Bool?

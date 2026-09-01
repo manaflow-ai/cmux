@@ -68,6 +68,7 @@ Environment:
 | `browser-status` | Print whether cmux browser creation and link interception are enabled. |
 | `agent-hibernation` | Enable or disable routine Agent Hibernation. |
 | `restore` | Replace the CLI with a process restored from structured surface state. |
+| `fork` | Replace the CLI with a provider fork process restored from structured surface state. |
 | `restore-session` | Restore the previously saved cmux session. |
 | `open` | Open files, directories, or URLs in cmux. |
 | `feedback` | Open feedback UI or submit feedback with `--email`, `--body`, and repeated `--image`. |
@@ -615,6 +616,7 @@ the expected text without connecting to a cmux socket.
 - `cmux browser-status --help` -> `Usage: cmux browser-status [--json]`
 - `cmux agent-hibernation --help` -> `Usage: cmux agent-hibernation <on|off> [--json]`
 - `cmux restore --help` -> `Usage: cmux restore [--surface <id|ref>] <kind> <checkpoint-id>`
+- `cmux fork --help` -> `Usage: cmux fork [--surface <id|ref>] <kind> <checkpoint-id>`
 - `cmux restore-session --help` -> `Usage: cmux restore-session`
 - `cmux open --help` -> `Usage: cmux open <path-or-url>...`
 - `cmux feedback --help` -> `Usage: cmux feedback`

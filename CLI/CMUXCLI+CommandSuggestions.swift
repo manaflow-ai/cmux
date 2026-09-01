@@ -99,6 +99,7 @@ extension CMUXCLI {
         "feedback",
         "feed",
         "feed-hook",
+        "fork",
         "find-window",
         "focus-pane",
         "focus-panel",

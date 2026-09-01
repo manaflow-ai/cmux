@@ -294,6 +294,7 @@ extension ContentView {
                     workingDirectory: launch.terminalWorkingDirectory,
                     initialTerminalCommand: launch.initialTerminalCommand,
                     initialTerminalInput: launch.initialTerminalInput,
+                    initialTerminalStartupRestoreAgent: launch.initialTerminalCommand == nil ? snapshot.retargetingForkWorkingDirectory(launch.workingDirectory) : nil,
                     initialTerminalEnvironment: launch.initialTerminalEnvironment,
                     inheritWorkingDirectory: launch.terminalWorkingDirectory != nil,
                     autoWelcomeIfNeeded: false
@@ -324,7 +325,6 @@ extension ContentView {
             return
         }
     }
-
     private func clearCommandPaletteForkableAgentCache(panelKey: String) {
         commandPaletteForkableAgentSupportedPanelKeys.remove(panelKey)
         commandPaletteForkableAgentRejectedPanelKeys.remove(panelKey)

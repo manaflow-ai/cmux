@@ -1,0 +1,60 @@
+import CMUXAgentLaunch
+import Testing
+
+@Suite("AgentForkPlanner")
+struct AgentForkPlannerTests {
+    @Test("Uses prepared fork argv with restore environment policy")
+    func preparedForkArgumentsStayStructured() throws {
+        let checkpointID = "fork-session"
+        let planner = AgentRestorePlanner(isExecutableFile: { _ in false })
+        let request = AgentRestoreRequest(
+            mode: .forkAgent,
+            kind: "custom-agent",
+            checkpointID: checkpointID,
+            source: "session-snapshot",
+            workingDirectory: "/tmp/fork repo",
+            environment: ["CODEX_HOME": "/tmp/codex home"],
+            launchCommand: AgentLaunchCommand(
+                arguments: ["custom-agent"],
+                workingDirectory: "/tmp/fork repo",
+                environment: ["CODEX_HOME": "/tmp/codex home"]
+            ),
+            preparedArguments: ["/opt/custom-agent", "--fork", checkpointID],
+            preparedArgumentsWorkingDirectory: "/tmp/fork repo",
+            observedPermissionMode: nil
+        )
+
+        let invocation = try #require(
+            planner.invocation(
+                for: request,
+                ambientEnvironment: ["PATH": "/usr/bin:/bin"]
+            )
+        )
+        #expect(invocation.arguments == ["/opt/custom-agent", "--fork", checkpointID])
+        #expect(invocation.workingDirectory == "/tmp/fork repo")
+        #expect(invocation.environment["CODEX_HOME"] == "/tmp/codex home")
+    }
+
+    @Test("Native Claude fork argv is derived when no prepared argv is present")
+    func nativeClaudeForkArgumentsAreDerived() throws {
+        let planner = AgentRestorePlanner(isExecutableFile: { _ in false })
+        let request = AgentRestoreRequest(
+            mode: .forkAgent,
+            kind: "claude",
+            checkpointID: "SID",
+            source: "session-snapshot",
+            workingDirectory: nil,
+            environment: [:],
+            launchCommand: AgentLaunchCommand(
+                arguments: ["/opt/bin/claude", "--model", "sonnet"]
+            ),
+            preparedArguments: nil,
+            observedPermissionMode: nil
+        )
+
+        let invocation = try #require(
+            planner.invocation(for: request, ambientEnvironment: ["PATH": "/usr/bin:/bin"])
+        )
+        #expect(invocation.arguments == ["claude", "--resume", "SID", "--fork-session", "--model", "sonnet"])
+    }
+}

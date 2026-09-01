@@ -619,8 +619,7 @@ enum AgentResumeCommandBuilder {
             observedPermissionMode: observedPermissionMode
         )
     }
-
-    private static func forkArguments(
+    static func forkArguments(
         kind: RestorableAgentKind,
         sessionId: String,
         launchCommand: AgentLaunchCommandSnapshot?,
@@ -640,9 +639,8 @@ enum AgentResumeCommandBuilder {
         case .passthrough:
             break
         }
-
-        if case .custom = kind {
-            guard let customRegistration else { return nil }
+        if let customRegistration,
+           normalized(customRegistration.forkCommand) != nil {
             let arguments = customForkArguments(
                 registration: customRegistration,
                 sessionId: sessionId,
@@ -651,7 +649,9 @@ enum AgentResumeCommandBuilder {
             )
             return arguments.isEmpty ? nil : arguments
         }
-
+        if case .custom = kind {
+            return nil
+        }
         return forkArgv.builtInKind(
             kind: kind.rawValue,
             sessionId: sessionId,

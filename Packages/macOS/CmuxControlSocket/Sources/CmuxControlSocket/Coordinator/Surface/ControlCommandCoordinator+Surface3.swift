@@ -6,7 +6,6 @@ internal import Foundation
 /// `ControlCommandCoordinator+Surface.swift` to keep each file under the 500-line
 /// budget. See that file's doc comment for the domain overview.
 extension ControlCommandCoordinator {
-
     // MARK: - resume target param validation
 
     /// The byte-faithful twin of `v2SurfaceResumeTargetValidationError`: an
@@ -340,11 +339,13 @@ extension ControlCommandCoordinator {
             "prepared_arguments_working_directory": orNull(
                 record.preparedArgumentsWorkingDirectory
             ),
+            "fork_arguments": record.forkArguments.map { .array($0.map(JSONValue.string)) } ?? .null,
+            "fork_arguments_working_directory": orNull(record.forkArgumentsWorkingDirectory),
             "permission_mode": orNull(record.permissionMode),
             "legacy_command": orNull(record.legacyCommand),
+            "fork_command": orNull(record.legacyForkCommand),
         ])
     }
-
     private func doubleValue(_ value: JSONValue?) -> Double? {
         switch value {
         case .double(let value): value
@@ -353,7 +354,6 @@ extension ControlCommandCoordinator {
         default: nil
         }
     }
-
     // MARK: - report_pwd
 
     /// `surface.report_pwd` — record a surface's current working directory.
