@@ -21,9 +21,25 @@ describe("free plan VM allowance", () => {
     expect(maxActiveVmsForPlan("pro", {})).toBe(5);
   });
 
-  test("the free allowance stays env-overridable, including back to a demo allowance", () => {
-    expect(maxActiveVmsForPlan("free", { CMUX_VM_FREE_MAX_ACTIVE_VMS: "7" })).toBe(7);
-    expect(maxActiveVmsForPlan("free", { CMUX_VM_FREE_MAX_ACTIVE_VMS: "0" })).toBe(0);
+  test("free allowance is env-overridable only with the explicit escape hatch", () => {
+    expect(maxActiveVmsForPlan("free", { CMUX_VM_FREE_MAX_ACTIVE_VMS: "7" })).toBe(0);
+    expect(maxActiveVmsForPlan("free", {
+      CMUX_VM_ALLOW_FREE_PROVISIONING: "1",
+      CMUX_VM_FREE_MAX_ACTIVE_VMS: "7",
+    })).toBe(7);
+    expect(maxActiveVmsForPlan("free", {
+      CMUX_VM_ALLOW_FREE_PROVISIONING: "1",
+      CMUX_VM_FREE_MAX_ACTIVE_VMS: "0",
+    })).toBe(0);
+  });
+
+  test("a plan-specific free override cannot bypass the default gate", () => {
+    expect(maxActiveVmsForPlan("free", {
+      CMUX_VM_PLAN_FREE_MAX_ACTIVE_VMS: "9",
+    })).toBe(0);
+    expect(maxActiveVmsForPlan("unknown", {
+      CMUX_VM_PLAN_UNKNOWN_MAX_ACTIVE_VMS: "9",
+    })).toBe(0);
   });
 });
 
