@@ -183,7 +183,9 @@ final class DeviceRegistryClient {
             return false
         }
 
-        guard var comps = URLComponents(url: AuthEnvironment.vmAPIBaseURL, resolvingAgainstBaseURL: false) else {
+        guard var comps = URLComponents(
+            url: AuthEnvironment.deviceRegistryAPIBaseURL, resolvingAgainstBaseURL: false
+        ) else {
             return false
         }
         comps.path = (comps.path.hasSuffix("/") ? String(comps.path.dropLast()) : comps.path) + "/api/devices"
@@ -231,7 +233,10 @@ final class DeviceRegistryClient {
                 }
             }
         } catch {
-            // best-effort; registry must never disrupt the Mac.
+            // Best-effort; the registry must never disrupt the Mac. Still log:
+            // a silently unreachable registry strands every paired phone on
+            // stale routes with nothing to diagnose from.
+            NSLog("cmux.deviceRegistry register unreachable: %@", String(describing: error))
         }
         return false
     }

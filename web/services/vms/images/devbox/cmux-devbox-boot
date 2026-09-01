@@ -1,0 +1,26 @@
+#!/bin/sh
+# cmux devbox boot supervisor (/usr/local/bin/cmux-devbox-boot).
+#
+# Supervises the cmux-tui session daemon, the machine's only session daemon
+# (docs/cloud-cmux-tui-daemon.md). The binary is NOT baked: the driver
+# installs the pinned files.cmux.com build to /root/.cmux/bin/cmux-tui at
+# create time (sha256-verified; see web/services/vms/drivers/cmuxTuiDaemon.ts),
+# so this loop waits for it and restarts the daemon if it ever exits. The
+# command below must stay identical to cmuxTuiDaemonCommand() in that module;
+# vm-devbox-image.test.ts pins the equality.
+#
+# Daytona registers this script as the snapshot entrypoint (stop kills
+# processes; start re-runs the entrypoint, and the installed binary persists
+# on disk). The Freestyle beta bake runs it from the cmux-tui-daemon systemd
+# unit. E2B does not use it (pause/resume preserves processes; the driver
+# starts the daemon directly), but ships it for uniformity.
+# CMUX_TUI_REMOTE_WS_BIND overrides the listener bind. Default: the IPv4
+# wildcard the container providers' proxies dial. Freestyle beta sets
+# [::]:1337 (its systemd unit / a driver drop-in) because those machines are
+# reached directly at their public IPv6; a dual-stack bind still accepts IPv4.
+while true; do
+  if [ -x /root/.cmux/bin/cmux-tui ]; then
+    (cd /root && env HOME=/root TERM=xterm-256color /root/.cmux/bin/cmux-tui server start --session cloud --remote-ws "${CMUX_TUI_REMOTE_WS_BIND:-0.0.0.0:1337}" --remote-ws-insecure-bind)
+  fi
+  sleep 2
+done

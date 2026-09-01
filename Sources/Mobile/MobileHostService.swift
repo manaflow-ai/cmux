@@ -473,9 +473,16 @@ final class MobileHostService {
     private init() {}
 
     /// Inject the auth dependency. Call once at the composition root.
+    /// Exactly one iroh host runtime owns the app's broker binding slot:
+    /// the irx rebuild when its DEBUG flag is on, the legacy runtime
+    /// otherwise. Running both would reincarnate the binding in a loop.
     func configure(auth: AuthCoordinator) {
         self.auth = auth
-        MobileHostIrohRuntime.shared.configure(auth: auth)
+        if MobileHostIrxRuntime.isEnabled {
+            MobileHostIrxRuntime.shared.configure(auth: auth)
+        } else {
+            MobileHostIrohRuntime.shared.configure(auth: auth)
+        }
     }
 
     func updateIrohRoute(

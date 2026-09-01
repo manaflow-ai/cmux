@@ -52,6 +52,10 @@ enum ManagedAgentSessionIdentity {
 }
 
 extension SurfaceResumeBindingSnapshot {
+    /// Maximum time a CLI restore may hold an in-memory binding claim while
+    /// handing control to the restored process.
+    static let restoreClaimTTL: TimeInterval = 60
+
     var hasCompleteManagedSessionIdentity: Bool {
         managedSessionIdentity != nil
     }
@@ -67,6 +71,18 @@ extension SurfaceResumeBindingSnapshot {
                 lhs: identity.checkpointId,
                 rhs: otherIdentity.checkpointId
             )
+    }
+
+    /// Whether an incoming hook refresh belongs to a claimed restore session.
+    ///
+    /// A same-session refresh consumes the claim; a different checkpoint or
+    /// kind remains blocked until the claim expires or is explicitly cleared.
+    func acceptsRestoreBindingClaim(
+        from incoming: SurfaceResumeBindingSnapshot
+    ) -> Bool {
+        isAgentHookBinding
+            && incoming.isAgentHookBinding
+            && isSameManagedSession(as: incoming)
     }
 
     /// Projects an authoritative agent-hook binding into the structured

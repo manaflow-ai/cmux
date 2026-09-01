@@ -109,12 +109,17 @@ jobs:
         run: |
           set -euo pipefail
           started_at="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
-          wait_for_publisher() {
+          # Discovery only — NEVER wait for the publisher's conclusion here:
+          # each publisher's validate-version step waits for THIS run to
+          # conclude successfully, so a dispatcher that watches the
+          # publisher deadlocks the release (both sides poll each other;
+          # the publisher's shorter timeout loses). Broke 0.13.0; the
+          # publishers self-guard with their own validation + gated
+          # environments, and this run's summary links the runs.
+          record_publisher() {
             local workflow="$1"
             local label="$2"
             local run_id=""
-            local status=""
-            local conclusion=""
             local delay=2
             local discovery_deadline=$((SECONDS + 300))
             while (( SECONDS < discovery_deadline )); do
@@ -135,28 +140,8 @@ jobs:
               echo "$label publisher run was not visible after dispatch" >&2
               return 1
             fi
-
-            delay=5
-            local completion_deadline=$((SECONDS + 3600))
-            while (( SECONDS < completion_deadline )); do
-              IFS=$'\t' read -r status conclusion <<<"$(
-                gh run view "$run_id" --repo "$GITHUB_REPOSITORY" \
-                  --json status,conclusion --jq '[.status, (.conclusion // "")] | @tsv'
-              )"
-              if [[ "$status" == "completed" ]]; then
-                if [[ "$conclusion" != "success" ]]; then
-                  echo "$label publisher run $run_id concluded $conclusion" >&2
-                  return 1
-                fi
-                echo "$label publisher run $run_id completed successfully"
-                echo "- $label publisher run: $run_id (success)" >> "$GITHUB_STEP_SUMMARY"
-                return 0
-              fi
-              sleep "$delay"
-              (( delay = delay < 60 ? delay + 5 : 60 ))
-            done
-            echo "$label publisher run $run_id did not complete within 60 minutes" >&2
-            return 1
+            echo "$label publisher run dispatched: $run_id"
+            echo "- $label publisher run: https://github.com/$GITHUB_REPOSITORY/actions/runs/$run_id" >> "$GITHUB_STEP_SUMMARY"
           }
           export TAG SOURCE_SHA STARTED_AT="$started_at"
 
@@ -183,8 +168,8 @@ jobs:
             fi
           } >> "$GITHUB_STEP_SUMMARY"
           if [[ "$PUBLISH_NPM" == "true" ]]; then
-            wait_for_publisher tui-publish-npm.yml "npm"
+            record_publisher tui-publish-npm.yml "npm"
           fi
           if [[ "$PUBLISH_PYPI" == "true" ]]; then
-            wait_for_publisher tui-publish-pypi.yml "PyPI"
+            record_publisher tui-publish-pypi.yml "PyPI"
           fi

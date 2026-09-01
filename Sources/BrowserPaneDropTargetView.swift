@@ -51,11 +51,14 @@ final class BrowserPaneDropTargetView: NSView {
     @MainActor
     static func shouldCaptureHitTesting(
         pasteboardTypes: [NSPasteboard.PasteboardType]?,
-        eventType: NSEvent.EventType?
+        eventType: NSEvent.EventType?,
+        hasLiveTabTransfer: Bool = false,
+        hasLiveFileDropPayload: Bool = false
     ) -> Bool {
         guard WindowInputRoutingContext.allowsPaneDropHitTesting(eventType: eventType) else { return false }
 
         let hasFileURL = DragOverlayRoutingPolicy.hasFileURL(pasteboardTypes)
+        let hasFilePreviewTransfer = DragOverlayRoutingPolicy.hasFilePreviewTransfer(pasteboardTypes)
         // Dock-hosted status is deliberately not consulted here: it cannot change
         // the capture result (a file-URL payload always yields a disposition, so
         // `shouldCaptureFileDrop` is true either way; without a file URL the
@@ -70,9 +73,12 @@ final class BrowserPaneDropTargetView: NSView {
         )
         let fileDropWantsPreview = disposition == .previewInWorkspace
         let shouldCaptureFileDrop = disposition != nil
-        let hasFilePreviewTransfer = DragOverlayRoutingPolicy.hasFilePreviewTransfer(pasteboardTypes)
+            && (!hasFilePreviewTransfer || hasLiveFileDropPayload)
         let hasBonsplitTransfer = DragOverlayRoutingPolicy.hasBonsplitTabTransfer(pasteboardTypes)
-        let shouldCaptureFilePreviewTransfer = hasFilePreviewTransfer && (!hasFileURL || fileDropWantsPreview)
+            && hasLiveTabTransfer
+            && (!hasFilePreviewTransfer || hasLiveFileDropPayload)
+        let hasLiveFilePreviewDrop = hasFilePreviewTransfer && hasLiveFileDropPayload
+        let shouldCaptureFilePreviewTransfer = hasLiveFilePreviewDrop && (!hasFileURL || fileDropWantsPreview)
         let shouldCaptureBonsplitTransfer = hasBonsplitTransfer && !hasFilePreviewTransfer
         guard shouldCaptureBonsplitTransfer || shouldCaptureFilePreviewTransfer || shouldCaptureFileDrop else { return false }
 
@@ -87,10 +93,23 @@ final class BrowserPaneDropTargetView: NSView {
             return nil
         }
 
-        let pasteboardTypes = NSPasteboard(name: .drag).types
+        let dragPasteboard = NSPasteboard(name: .drag)
+        let pasteboardTypes = dragPasteboard.types
+        let hasLiveTabTransfer = DragOverlayRoutingPolicy.hasLiveTabTransfer(
+            in: dragPasteboard,
+            pasteboardTypes: pasteboardTypes,
+            resolver: AppDelegate.shared?.liveTabDragCapabilityResolver
+        )
+        let hasLiveFileDropPayload = DragOverlayRoutingPolicy.hasLiveFileDropPayload(
+            from: dragPasteboard,
+            pasteboardTypes: pasteboardTypes,
+            resolver: AppDelegate.shared?.liveTabDragCapabilityResolver
+        )
         let capture = Self.shouldCaptureHitTesting(
             pasteboardTypes: pasteboardTypes,
-            eventType: eventType
+            eventType: eventType,
+            hasLiveTabTransfer: hasLiveTabTransfer,
+            hasLiveFileDropPayload: hasLiveFileDropPayload
         )
 #if DEBUG
         logHitTestDecision(capture: capture, pasteboardTypes: pasteboardTypes, eventType: eventType)

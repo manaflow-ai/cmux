@@ -411,14 +411,14 @@ import UIKit
             groups: [group],
             items: [.groupHeader(group.id)],
             workspaceHasUnread: false,
-            groupHasUnreadByID: [group.id: true]
+            groupUnreadByID: [group.id: .init(isUnread: true, count: nil)]
         )
         let unread = configuration(
             workspaceIDs: ["workspace-1", "workspace-2"],
             groups: [group],
             items: [.groupHeader(group.id)],
             workspaceHasUnread: true,
-            groupHasUnreadByID: [group.id: true]
+            groupUnreadByID: [group.id: .init(isUnread: true, count: nil)]
         )
         let coordinator = WorkspaceListTableCoordinator(configuration: read)
 
@@ -474,7 +474,7 @@ import UIKit
             items: [.groupHeader(group.id)],
             actionCapabilities: capabilities,
             workspaceHasUnread: false,
-            groupHasUnreadByID: [group.id: false],
+            groupUnreadByID: [group.id: .read],
             setUnread: { _, _ in }
         )
         let unread = configuration(
@@ -483,7 +483,7 @@ import UIKit
             items: [.groupHeader(group.id)],
             actionCapabilities: capabilities,
             workspaceHasUnread: true,
-            groupHasUnreadByID: [group.id: true],
+            groupUnreadByID: [group.id: .init(isUnread: true, count: nil)],
             setUnread: { _, _ in }
         )
         let coordinator = WorkspaceListTableCoordinator(configuration: read)
@@ -677,7 +677,7 @@ import UIKit
         items: [WorkspaceListTableItem]? = nil,
         actionCapabilities: MobileWorkspaceActionCapabilities = .none,
         workspaceHasUnread: Bool = false,
-        groupHasUnreadByID: [MobileWorkspaceGroupPreview.ID: Bool] = [:],
+        groupUnreadByID: [MobileWorkspaceGroupPreview.ID: MobileWorkspaceUnreadState] = [:],
         closeWorkspace: ((MobileWorkspacePreview.ID) -> Void)? = nil,
         setUnread: ((MobileWorkspacePreview.ID, Bool) -> Void)? = nil,
         setPinned: ((MobileWorkspacePreview.ID, Bool) -> Void)? = nil,
@@ -706,7 +706,7 @@ import UIKit
             workspaces: workspaces,
             groups: groups,
             items: items,
-            groupHasUnreadByID: groupHasUnreadByID,
+            groupUnreadByID: groupUnreadByID,
             closeWorkspace: closeWorkspace,
             setUnread: setUnread,
             setPinned: setPinned,
@@ -727,7 +727,7 @@ import UIKit
         workspaces: [MobileWorkspacePreview],
         groups: [MobileWorkspaceGroupPreview] = [],
         items: [WorkspaceListTableItem]? = nil,
-        groupHasUnreadByID: [MobileWorkspaceGroupPreview.ID: Bool] = [:],
+        groupUnreadByID: [MobileWorkspaceGroupPreview.ID: MobileWorkspaceUnreadState] = [:],
         closeWorkspace: ((MobileWorkspacePreview.ID) -> Void)? = nil,
         setUnread: ((MobileWorkspacePreview.ID, Bool) -> Void)? = nil,
         setPinned: ((MobileWorkspacePreview.ID, Bool) -> Void)? = nil,
@@ -746,13 +746,14 @@ import UIKit
             items: items ?? workspaces.map { .workspace($0.id, indented: false) },
             workspacesByID: Dictionary(uniqueKeysWithValues: workspaces.map { ($0.id, $0) }),
             groupsByID: Dictionary(uniqueKeysWithValues: groups.map { ($0.id, $0) }),
-            groupHasUnreadByID: groupHasUnreadByID,
+            groupUnreadByID: groupUnreadByID,
             filter: .all,
             selectedWorkspaceID: nil,
             navigationStyle: .push,
             wrapWorkspaceTitles: false,
             previewLineLimit: 2,
             unreadIndicatorLeftShift: 0,
+            unreadBadgeDiameter: 16,
             connectionStatus: .connected,
             workspaceChangesCapable: false,
             workspaceChangeChipsByWorkspaceID: [:],

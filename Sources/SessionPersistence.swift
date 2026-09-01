@@ -26,7 +26,11 @@ enum SessionPersistencePolicy {
     static let sidebarMinimumWidthRange: ClosedRange<Double> = 120...260
     static let maximumSidebarWidth: Double = 600
     static let minimumWindowWidth: Double = 300
-    static let minimumWindowHeight: Double = 200
+    // Below ~400pt the chrome cannot lay out without overlap: the sidebar
+    // footer (account/help/update pill) collides with workspace rows and the
+    // update pill clips at the window edge. User resizes stop here via
+    // minSize/contentMinSize; programmatic paths via CmuxMainWindow.setFrame.
+    static let minimumWindowHeight: Double = 400
     static let autosaveInterval: TimeInterval = 8.0
     static let maxWindowsPerSnapshot: Int = 12
     static let maxWorkspacesPerWindow: Int = 128
@@ -1829,6 +1833,15 @@ struct SessionCanvasPaneSnapshot: Codable, Equatable, Sendable {
     var selectedPanelId: UUID? = nil
 }
 
+/// A cloud machine bound to a workspace through the cmux-tui remote daemon, persisted so a
+/// restored `vm:<id>` workspace stays that machine's workspace (`workspace(forCloudVMID:)`,
+/// the sidebar cloud button's Base reuse, `vm.terminal_open` targeting). Only the binding is
+/// persisted: the pane's link is a process and is not replayed on restore.
+struct SessionCloudVMBindingSnapshot: Codable, Sendable, Equatable {
+    var vmID: String
+    var isBase: Bool
+}
+
 struct SessionWorkspaceSnapshot: Codable, Sendable {
     /// Original workspace ID captured when the snapshot comes from a live workspace.
     /// Restore reuses this identity when it is present and non-colliding; legacy,
@@ -1864,6 +1877,12 @@ struct SessionWorkspaceSnapshot: Codable, Sendable {
     var progress: SessionProgressSnapshot?
     var gitBranch: SessionGitBranchSnapshot?
     var remote: SessionRemoteWorkspaceSnapshot?
+    /// cmux-tui cloud machine binding; absent in manifests written before the Cloud tree and for
+    /// workspaces that are not cloud machines.
+    var cloudVM: SessionCloudVMBindingSnapshot? = nil
+    /// Remote surfaces this workspace's panes projected (`SurfaceCatalog`); absent for
+    /// workspaces that only ever showed local panes, so older manifests decode unchanged.
+    var surfaceProjections: [SurfaceProjectionRecord]? = nil
     /// Optional so manifests written before this field decode cleanly.
     var environment: [String: String]? = nil
     /// Manual task-status override raw values and the persisted checklist. Optional-with-nil-default

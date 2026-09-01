@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import {
-  desktopIframeUrl,
+  desktopUpstreamUrl,
   desktopWrapperUrl,
   isAllowedDesktopUpstreamHost,
 } from "../services/vms/desktopWrapper";
@@ -53,9 +53,9 @@ describe("wrapper URL (what people see and keep)", () => {
   });
 });
 
-describe("iframe URL (internal to the wrapper)", () => {
+describe("upstream URL (where the wrapper sends the pane)", () => {
   test("uses the gateway parameter and forwards only display options", () => {
-    const url = desktopIframeUrl({
+    const url = desktopUpstreamUrl({
       host: "tidy-heron-6901.vm.cmux.sh",
       token: "abc123def456",
       params: {
@@ -80,8 +80,8 @@ describe("iframe URL (internal to the wrapper)", () => {
   });
 
   test("rejects bad hosts and malformed tokens", () => {
-    expect(desktopIframeUrl({ host: "evil.example.com", token: "abc123def456", params: {} })).toBeNull();
-    expect(desktopIframeUrl({ host: "a-1.vm.cmux.sh", token: "", params: {} })).toBeNull();
-    expect(desktopIframeUrl({ host: "a-1.vm.cmux.sh", token: "bad token!", params: {} })).toBeNull();
+    expect(desktopUpstreamUrl({ host: "evil.example.com", token: "abc123def456", params: {} })).toBeNull();
+    expect(desktopUpstreamUrl({ host: "a-1.vm.cmux.sh", token: "", params: {} })).toBeNull();
+    expect(desktopUpstreamUrl({ host: "a-1.vm.cmux.sh", token: "bad token!", params: {} })).toBeNull();
   });
 });

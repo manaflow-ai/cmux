@@ -7,6 +7,7 @@ import type {
   ExecResult,
   ProviderId,
   SSHEndpoint,
+  VMHandle,
   VMStatus,
 } from "./drivers";
 import {
@@ -17,12 +18,17 @@ import {
   type VmCreateCreditReservation,
   type VmBillingGatewayShape,
 } from "./billingGateway";
+import { vmCreateDisabledReason } from "./config";
 import {
   VmBillingError,
   VmAccountDeletionIdentityRevocationError,
+  VmAttachTransportUnsupportedError,
+  VmCreateDisabledError,
   VmCreateFailedError,
   VmCreateInProgressError,
+  VmFreeAccessExpiredError,
   VmNotFoundError,
+  VmOperationUnsupportedError,
   VmProviderOperationError,
   VmSnapshotNotFoundError,
   isVmCreateCreditsInsufficientError,
@@ -31,10 +37,11 @@ import {
   type VmDatabaseError,
   type VmWorkflowError,
 } from "./errors";
-import { maxActiveVmsForPlan } from "./entitlements";
+import { isVmFreeAccessExpired, maxActiveVmsForPlan, vmFreeAccessWindowDays } from "./entitlements";
 import { isProviderIdentityNotFoundError, isProviderNotFoundError } from "./providerErrors";
 import { VmProviderGateway, VmProviderGatewayLive, type VmProviderGatewayShape } from "./providerGateway";
 import {
+  PROVIDER_CREATE_UNAVAILABLE_FAILURE_CODE,
   VmRepository,
   VmRepositoryLive,
   type BeginCreateResult,
@@ -49,6 +56,21 @@ import {
   type VmRepositoryShape,
 } from "./repository";
 import { measureVmEffect, type VmTimingSink } from "./timings";
+
+export {
+  homeVolumeNameForUser,
+  homeVolumeTemplateForUser,
+  isMachineOwnedHomeVolumeName,
+} from "./volumeNaming";
+export { reapVmResources } from "./reaper";
+export type {
+  VmReaperOptions,
+  VmReaperSummary,
+} from "./reaper";
+import {
+  homeVolumeNameForUser,
+  homeVolumeTemplateForUser,
+} from "./volumeNaming";
 
 export type VmEntry = {
   readonly providerVmId: string;
@@ -85,6 +107,8 @@ type ExistingVmAccessInput = {
   readonly teamIds?: readonly string[];
   readonly providerVmId: string;
   readonly provider?: ProviderId;
+  /** Caller's CURRENT billing plan; access verbs use it for the free window. */
+  readonly callerPlanId?: string | null;
 };
 
 export type VmProviderStatusReconcileResult = {
@@ -209,19 +233,61 @@ export function reconcileVmProviderStatuses(input: {
   });
 }
 
-/** Stable per-user home volume name; the volume, not the sandbox, is the durable machine. */
-export function homeVolumeNameForUser(userId: string): string {
-  const digest = createHash("sha256").update(userId).digest("hex").slice(0, 12);
-  return `cmux-home-${digest}`;
+/**
+ * The home volume a destroyed machine owns exclusively, or null when there is
+ * nothing safe to delete. Per-machine volumes are marked at create
+ * (`providerMetadata.homeVolumePerMachine`); rows created before that marker
+ * existed are recognized by the per-machine naming scheme
+ * (`<user-home>-<machine>`). The shared per-user volume never matches: other
+ * machines, including future ones, mount it.
+ */
+export function machineOwnedHomeVolume(
+  vm: Pick<CloudVmRow, "userId" | "providerMetadata">,
+  providerVmId: string,
+): string | null {
+  const metadata = vm.providerMetadata ?? {};
+  const homeVolume = metadata["homeVolume"];
+  if (typeof homeVolume !== "string" || homeVolume.length === 0) return null;
+  const sharedName = homeVolumeNameForUser(vm.userId);
+  if (homeVolume === sharedName) return null;
+  if (metadata["homeVolumePerMachine"] === true) return homeVolume;
+  return providerVmId && homeVolume === `${sharedName}-${providerVmId}` ? homeVolume : null;
 }
 
 /**
- * Per-machine home volume template. The driver substitutes the generated
- * machine name for `{machine}` once the name is final, so every fresh machine
- * gets its own durable home instead of contending for the single user volume.
+ * Best-effort provider rollback of a just-created machine the workflow could
+ * not finalize: the sandbox, and any per-machine home volume the create
+ * provisioned (nothing ever reattaches it, but its storage keeps billing). A
+ * shared per-user home is never deleted here — the next create reattaches it
+ * by name.
  */
-export function homeVolumeTemplateForUser(userId: string): string {
-  return `${homeVolumeNameForUser(userId)}-{machine}`;
+function rollbackProviderCreate(
+  providers: VmProviderGatewayShape,
+  provider: ProviderId,
+  handle: VMHandle,
+): Effect.Effect<void> {
+  return Effect.gen(function* () {
+    yield* providers.destroy(provider, handle.providerVmId).pipe(Effect.catchAll(() => Effect.void));
+    const metadata = handle.providerMetadata ?? {};
+    const homeVolume = metadata["homeVolume"];
+    if (
+      metadata["homeVolumePerMachine"] === true &&
+      typeof homeVolume === "string" &&
+      homeVolume.length > 0 &&
+      providers.deleteHomeVolume
+    ) {
+      yield* providers.deleteHomeVolume(provider, homeVolume).pipe(
+        Effect.catchAll((err) =>
+          Effect.sync(() => {
+            console.error(
+              `[vm] create rollback leaked home volume ${homeVolume} for ${handle.providerVmId}`,
+              errorMessage(err.cause),
+            );
+          }),
+        ),
+      );
+    }
+  });
 }
 
 export function createVm(input: {
@@ -249,6 +315,12 @@ export function createVm(input: {
   readonly perMachineHome?: boolean;
   /** Runtime memory requested by the caller, in MB. Providers may ignore it. */
   readonly memoryMb?: number;
+  /**
+   * Machine-level env injected at provider create (e.g. the coderouter
+   * model-plane vars). May hold secrets: passed to the driver only, never
+   * persisted in the VM row or providerMetadata.
+   */
+  readonly envs?: Readonly<Record<string, string>>;
   readonly timing?: VmTimingSink;
 }): Effect.Effect<VmEntry, VmWorkflowError, VmRepository | VmProviderGateway | VmBillingGateway> {
   return Effect.gen(function* () {
@@ -292,6 +364,7 @@ export function createVm(input: {
             ? homeVolumeNameForUser(input.userId)
             : undefined,
         memoryMb: input.memoryMb,
+        envs: input.envs,
       }),
     ).pipe(
       Effect.tapError((err) =>
@@ -299,7 +372,11 @@ export function createVm(input: {
           refundCredit(billing, repo, create.vm, creditReservation),
           repo.markCreateFailed({
             id: create.vm.id,
-            code: err.operation,
+            // providers.create fails only with VmProviderOperationError, and
+            // the caller is told it is retryable (vm_cloud_service_unavailable,
+            // retryAfterSeconds ~5), so store the code that lets a same-key
+            // retry reach the provider again immediately.
+            code: PROVIDER_CREATE_UNAVAILABLE_FAILURE_CODE,
             message: errorMessage(err.cause),
           }),
           repo.recordUsageEvent({
@@ -329,7 +406,7 @@ export function createVm(input: {
     ).pipe(
       Effect.catchAll((err) =>
         Effect.gen(function* () {
-          yield* providers.destroy(input.provider, handle.providerVmId).pipe(Effect.catchAll(() => Effect.void));
+          yield* rollbackProviderCreate(providers, input.provider, handle);
           yield* refundCredit(billing, repo, create.vm, creditReservation);
           yield* repo.markCreateFailed({
             id: create.vm.id,
@@ -517,7 +594,7 @@ function finishBaseCreate(
     ).pipe(
       Effect.catchAll((err) =>
         Effect.gen(function* () {
-          yield* providers.destroy(input.provider, handle.providerVmId).pipe(Effect.catchAll(() => Effect.void));
+          yield* rollbackProviderCreate(providers, input.provider, handle);
           yield* refundCredit(billing, repo, create.vm, creditReservation);
           yield* repo.markBaseCreateFailed({
             baseId: create.base.id,
@@ -631,10 +708,9 @@ export function snapshotVm(input: {
     const vm = yield* requireUserVm(input);
     const snapshot = yield* (providers.snapshot
       ? providers.snapshot(vm.provider, vm.providerVmId ?? input.providerVmId, input.name)
-      : Effect.fail(new VmProviderOperationError({
+      : Effect.fail(new VmOperationUnsupportedError({
         provider: vm.provider,
         operation: "snapshot",
-        cause: new Error("Cloud VM snapshots are not supported by this provider gateway"),
       })));
     yield* repo.recordUsageEvent({
       userId: vm.userId,
@@ -705,6 +781,17 @@ export function forkVm(input: {
     const providers = yield* VmProviderGateway;
     const billing = yield* VmBillingGateway;
     const source = yield* requireUserVm(input);
+    // Kill-switch parity with POST /api/vm: fork provisions a brand-new
+    // machine on the source VM's provider and spends the same provider money.
+    // The check lives here rather than in the route because the provider is
+    // only known once the source VM row is loaded.
+    const createDisabledReason = vmCreateDisabledReason(source.provider);
+    if (createDisabledReason) {
+      return yield* Effect.fail(new VmCreateDisabledError({
+        provider: source.provider,
+        reason: createDisabledReason,
+      }));
+    }
     yield* preflightResumeIfSuspended(repo, providers, source, input.providerVmId, "fork");
 
     if (source.provider === "freestyle" && providers.fork) {
@@ -801,7 +888,7 @@ export function forkVm(input: {
       ).pipe(
         Effect.catchAll((err) =>
           Effect.gen(function* () {
-            yield* providers.destroy(source.provider, handle.providerVmId).pipe(Effect.catchAll(() => Effect.void));
+            yield* rollbackProviderCreate(providers, source.provider, handle);
             yield* refundCredit(billing, repo, create.vm, creditReservation);
             yield* repo.markCreateFailed({
               id: create.vm.id,
@@ -907,6 +994,7 @@ function beginCreateWithLazyProviderRefresh(
   );
 }
 
+/** Refresh live provider state before retrying an active-VM limit conflict. */
 function refreshActiveLimitProviderStatuses(
   repo: VmRepositoryShape,
   providers: VmProviderGatewayShape,
@@ -922,14 +1010,27 @@ function refreshActiveLimitProviderStatuses(
     const candidates = yield* repo.activeLimitCandidates({
       userId: input.userId,
       billingTeamId: input.billingTeamId,
+      // Keep the synchronous retry bounded. If an account has more rows than
+      // this, the database remains conservative until the background reconcile
+      // catches up; we never create above the recorded active limit.
+      limit: VM_STATUS_RECONCILE_BATCH_LIMIT,
     });
-    yield* Effect.forEach(candidates, (vm) => {
+    // The repository applies the limit in SQL. Keep a second boundary here so
+    // alternate repository implementations cannot turn this request path into
+    // an unbounded provider sweep.
+    yield* Effect.forEach(candidates.slice(0, VM_STATUS_RECONCILE_BATCH_LIMIT), (vm) => {
       const providerVmId = vm.providerVmId;
-      if (vm.provider !== "freestyle" || !providerVmId) return Effect.void;
+      if (!providerVmId) return Effect.void;
+      // Provider-agnostic on purpose: the cron reconcile path already refreshes
+      // every provider, and this lazy refresh used to skip everything except
+      // Freestyle, so a stale `running` row blocked Blaxel creates for up to a
+      // full cron interval. Candidates are `running` rows only, so the
+      // gateway's "running" fallback for a driver without getStatus is a
+      // harmless no-op rather than a wrong transition.
       return reconcileObservedProviderStatus(repo, getStatus, vm, "provider_status_refresh").pipe(
         Effect.asVoid,
       );
-    }, { concurrency: "unbounded", discard: true });
+    }, { concurrency: 10, discard: true });
   });
 }
 
@@ -1335,10 +1436,65 @@ export function destroyVm(input: {
         return Effect.fail(err);
       }),
     );
-    yield* Effect.sync(() => {
+    const destroyedProviderVmId = vm.providerVmId ?? input.providerVmId;
+    // This callback is advisory progress reporting. A failure must not skip
+    // the mandatory volume cleanup or DB finalization now that the provider
+    // machine is gone. Keep the failure observable in the usage ledger, but
+    // leave destroy successful because those mandatory operations are the
+    // authoritative outcome.
+    try {
       input.afterProviderDestroy?.();
-    });
-    yield* repo.markDestroyed(vm.id);
+    } catch (err) {
+      const message = errorMessage(err);
+      console.error(
+        `[vm] afterProviderDestroy hook failed for ${destroyedProviderVmId}`,
+        message,
+      );
+      yield* repo.recordUsageEvent({
+        userId: input.userId,
+        billingTeamId: vm.billingTeamId,
+        billingPlanId: vm.billingPlanId,
+        vmId: vm.id,
+        eventType: "vm.destroy.after_provider_destroy_failed",
+        provider: vm.provider,
+        imageId: vm.imageId,
+        metadata: { message },
+      }).pipe(Effect.catchAll(() => Effect.void));
+    }
+    // The sandbox is gone; a per-machine home volume must go with it or its
+    // storage bills forever. The volume delete never fails the destroy — the
+    // machine is already unrecoverable — but a failed delete is recorded as a
+    // usage event so the leaked volume is findable instead of silent.
+    const homeVolume = machineOwnedHomeVolume(vm, destroyedProviderVmId);
+    let homeVolumeDeleted = false;
+    if (homeVolume && providers.deleteHomeVolume) {
+      homeVolumeDeleted = yield* providers.deleteHomeVolume(vm.provider, homeVolume).pipe(
+        Effect.as(true),
+        Effect.catchAll((err) =>
+          Effect.gen(function* () {
+            console.error(
+              `[vm] home volume delete failed for ${destroyedProviderVmId} (${homeVolume})`,
+              errorMessage(err.cause),
+            );
+            yield* repo.recordUsageEvent({
+              userId: input.userId,
+              billingTeamId: vm.billingTeamId,
+              billingPlanId: vm.billingPlanId,
+              vmId: vm.id,
+              eventType: "vm.home_volume.delete_failed",
+              provider: vm.provider,
+              imageId: vm.imageId,
+              metadata: { homeVolume, message: errorMessage(err.cause) },
+            }).pipe(Effect.catchAll(() => Effect.void));
+            return false;
+          }),
+        ),
+      );
+    }
+    // The provider-side machine is gone at this point, so a lost DB write would
+    // leave a ghost row counting against the active-VM limit. Retry the write;
+    // the provider-status reconciler is the backstop if it still fails.
+    yield* repo.markDestroyed(vm.id).pipe(Effect.retry({ times: 2 }));
     yield* repo.recordUsageEvent({
       userId: input.userId,
       billingTeamId: vm.billingTeamId,
@@ -1347,6 +1503,7 @@ export function destroyVm(input: {
       eventType: "vm.destroyed",
       provider: vm.provider,
       imageId: vm.imageId,
+      ...(homeVolume ? { metadata: { homeVolume, homeVolumeDeleted } } : {}),
     }).pipe(Effect.catchAll(() => Effect.void));
   });
 }
@@ -1460,11 +1617,13 @@ export function execVm(input: {
   readonly providerVmId: string;
   readonly command: string;
   readonly timeoutMs: number;
+  /** Caller's CURRENT billing plan; used for the free access window. */
+  readonly callerPlanId?: string | null;
 }) {
   return Effect.gen(function* () {
     const repo = yield* VmRepository;
     const providers = yield* VmProviderGateway;
-    const vm = yield* requireUserVm(input);
+    const vm = yield* requireAccessibleUserVm(input);
     yield* preflightResumeIfSuspended(
       repo,
       providers,
@@ -1518,11 +1677,13 @@ export function openVmPort(input: {
   readonly teamIds?: readonly string[];
   readonly providerVmId: string;
   readonly port: number;
+  /** Caller's CURRENT billing plan; used for the free access window. */
+  readonly callerPlanId?: string | null;
 }) {
   return Effect.gen(function* () {
     const repo = yield* VmRepository;
     const providers = yield* VmProviderGateway;
-    const vm = yield* requireUserVm(input);
+    const vm = yield* requireAccessibleUserVm(input);
     yield* preflightResumeIfSuspended(
       repo,
       providers,
@@ -1570,6 +1731,103 @@ export function openVmPort(input: {
       metadata: { port: input.port },
     }).pipe(Effect.catchAll(() => Effect.void));
     return endpoint;
+  });
+}
+
+/**
+ * Attach through the cmux-tui remote daemon — the only session transport on Blaxel
+ * machines (other providers still serve the legacy websocket/SSH attach). The ingress
+ * token lands in the same lease ledger as previews so sign-out revokes it; session
+ * auth is the daemon's device enrollment, which the client completes with
+ * approveVmCmuxRemoteEnrollment.
+ */
+export function openVmCmuxRemote(input: {
+  readonly userId: string;
+  readonly billingTeamId?: string | null;
+  readonly teamIds?: readonly string[];
+  readonly providerVmId: string;
+  readonly deviceFingerprint?: string;
+  readonly clientCapabilities?: readonly string[];
+  /** Caller's CURRENT billing plan; the free access window applies to cmux-tui attaches too. */
+  readonly callerPlanId?: string | null;
+}) {
+  return Effect.gen(function* () {
+    const repo = yield* VmRepository;
+    const providers = yield* VmProviderGateway;
+    const vm = yield* requireAccessibleUserVm(input);
+    yield* preflightResumeIfSuspended(repo, providers, vm, input.providerVmId, "attach");
+    if (!providers.openCmuxRemote) {
+      return yield* Effect.fail(
+        new VmProviderOperationError({
+          provider: vm.provider,
+          operation: "openCmuxRemote",
+          cause: new Error("the cmux-tui remote daemon is not supported by this deployment"),
+        }),
+      );
+    }
+    const endpoint = yield* withResumeOnSuspendedAfterFailure(
+      repo,
+      providers,
+      vm,
+      input.providerVmId,
+      "attach",
+      providers.openCmuxRemote(vm.provider, input.providerVmId, {
+        deviceFingerprint: input.deviceFingerprint,
+        clientCapabilities: input.clientCapabilities,
+        providerMetadata: vm.providerMetadata,
+      }),
+    );
+    yield* repo.recordLease({
+      vmId: vm.id,
+      userId: input.userId,
+      kind: "preview",
+      tokenHash: hashToken(endpoint.token),
+      expiresAt: new Date(endpoint.expiresAtUnix * 1000),
+      transport: "cmux-remote",
+      metadata: { session: endpoint.session, invited: !!endpoint.invitation },
+    }).pipe(
+      Effect.catchAll((err) => {
+        const cleanup = providers.revokeEndpointLeases
+          ? providers.revokeEndpointLeases(vm.provider, input.providerVmId).pipe(Effect.catchAll(() => Effect.void))
+          : Effect.void;
+        return cleanup.pipe(Effect.andThen(Effect.fail(err)));
+      }),
+    );
+    yield* repo.recordUsageEvent({
+      userId: input.userId,
+      billingTeamId: vm.billingTeamId,
+      billingPlanId: vm.billingPlanId,
+      vmId: vm.id,
+      eventType: "vm.attach",
+      provider: vm.provider,
+      imageId: vm.imageId,
+      metadata: { transport: "cmux-remote", invited: !!endpoint.invitation },
+    }).pipe(Effect.catchAll(() => Effect.void));
+    return endpoint;
+  });
+}
+
+export function approveVmCmuxRemoteEnrollment(input: {
+  readonly userId: string;
+  readonly billingTeamId?: string | null;
+  readonly teamIds?: readonly string[];
+  readonly providerVmId: string;
+  readonly invitationId: string;
+  readonly callerPlanId?: string | null;
+}) {
+  return Effect.gen(function* () {
+    const providers = yield* VmProviderGateway;
+    const vm = yield* requireAccessibleUserVm(input);
+    if (!providers.approveCmuxRemoteEnrollment) {
+      return yield* Effect.fail(
+        new VmProviderOperationError({
+          provider: vm.provider,
+          operation: "approveCmuxRemoteEnrollment",
+          cause: new Error("the cmux-tui remote daemon is not supported by this deployment"),
+        }),
+      );
+    }
+    return yield* providers.approveCmuxRemoteEnrollment(vm.provider, input.providerVmId, input.invitationId);
   });
 }
 
@@ -1632,6 +1890,8 @@ type OpenAttachEndpointInput = {
   readonly providerVmId: string;
   readonly options?: AttachOptions;
   readonly sessionTitle?: string | null;
+  /** Caller's CURRENT billing plan; used for the free access window. */
+  readonly callerPlanId?: string | null;
 };
 
 export function openAttachEndpoint(input: OpenAttachEndpointInput) {
@@ -1649,6 +1909,8 @@ export function openVmSession(input: {
   readonly sessionId?: string;
   readonly attachmentId?: string;
   readonly title?: string | null;
+  /** Caller's CURRENT billing plan; used for the free access window. */
+  readonly callerPlanId?: string | null;
 }) {
   const sessionId = input.sessionId?.trim() || `session-${randomUUID()}`;
   const attachmentId = input.attachmentId?.trim() || `attach-${randomUUID()}`;
@@ -1657,6 +1919,7 @@ export function openVmSession(input: {
     billingTeamId: input.billingTeamId,
     teamIds: input.teamIds,
     providerVmId: input.providerVmId,
+    callerPlanId: input.callerPlanId,
     sessionTitle: input.title,
     options: {
       requireDaemon: true,
@@ -1671,10 +1934,12 @@ export function listVmSessions(input: {
   readonly billingTeamId?: string | null;
   readonly teamIds?: readonly string[];
   readonly providerVmId: string;
+  /** Caller's CURRENT billing plan; used for the free access window. */
+  readonly callerPlanId?: string | null;
 }) {
   return Effect.gen(function* () {
     const repo = yield* VmRepository;
-    const vm = yield* requireUserVm(input);
+    const vm = yield* requireAccessibleUserVm(input);
     return yield* repo.listVmSessions({ userId: input.userId, vmId: vm.id });
   });
 }
@@ -1683,7 +1948,20 @@ function openAttachEndpointResult(input: OpenAttachEndpointInput) {
   return Effect.gen(function* () {
     const repo = yield* VmRepository;
     const providers = yield* VmProviderGateway;
-    const vm = yield* requireUserVm(input);
+    const vm = yield* requireAccessibleUserVm(input);
+    // A provider that only runs the cmux-tui daemon (Blaxel) cannot serve the legacy
+    // websocket/SSH attach at all; say so before waking or mutating anything.
+    const supportedTransports = providers.attachTransports?.(vm.provider);
+    if (supportedTransports && !supportedTransports.some((t) => t === "websocket" || t === "ssh")) {
+      return yield* Effect.fail(
+        new VmAttachTransportUnsupportedError({
+          provider: vm.provider,
+          vmId: input.providerVmId,
+          requested: "websocket",
+          supported: supportedTransports,
+        }),
+      );
+    }
     yield* preflightResumeIfSuspended(repo, providers, vm, input.providerVmId, "attach");
     // Once preflight records the VM as running, that state is externally
     // visible to concurrent attach/SSH requests. Later cleanup failures must
@@ -1746,11 +2024,13 @@ export function openSshEndpoint(input: {
   readonly billingTeamId?: string | null;
   readonly teamIds?: readonly string[];
   readonly providerVmId: string;
+  /** Caller's CURRENT billing plan; used for the free access window. */
+  readonly callerPlanId?: string | null;
 }) {
   return Effect.gen(function* () {
     const repo = yield* VmRepository;
     const providers = yield* VmProviderGateway;
-    const vm = yield* requireUserVm(input);
+    const vm = yield* requireAccessibleUserVm(input);
     yield* preflightResumeIfSuspended(repo, providers, vm, input.providerVmId, "ssh");
     yield* revokeActiveIdentities(vm, { failOnCleanupError: true });
     const endpoint = yield* withResumeOnSuspendedAfterFailure(
@@ -1779,6 +2059,23 @@ export function openSshEndpoint(input: {
       metadata: { credentialKind: endpoint.credential.kind },
     }).pipe(Effect.catchAll(() => Effect.void));
     return endpoint;
+  });
+}
+
+/// Access-verb variant of requireUserVm: a free-plan machine older than the
+/// free access window is preserved but unreachable until the caller upgrades.
+/// List/status/rename/delete deliberately keep using requireUserVm so the
+/// machine stays visible and disposable while locked.
+function requireAccessibleUserVm(input: ExistingVmAccessInput) {
+  return Effect.gen(function* () {
+    const vm = yield* requireUserVm(input);
+    if (isVmFreeAccessExpired(input.callerPlanId, vm.createdAt ?? undefined)) {
+      return yield* Effect.fail(new VmFreeAccessExpiredError({
+        vmId: input.providerVmId,
+        windowDays: vmFreeAccessWindowDays(),
+      }));
+    }
+    return vm;
   });
 }
 

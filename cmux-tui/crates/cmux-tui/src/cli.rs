@@ -50,12 +50,45 @@ const REMOTE_COMMANDS: &[&str] = &[
     "install-self",
 ];
 
+/// Maps the actions accepted after the `remote` noun to their direct command
+/// aliases. Keeping this mapping with the remote command grammar prevents
+/// startup normalization from drifting from the public CLI parser.
+pub(super) fn remote_action_command(action: &str) -> Option<&'static str> {
+    match action {
+        "connect" => Some("connect"),
+        "ssh" => Some("ssh"),
+        "forward" => Some("forward"),
+        "rpc" => Some("rpc"),
+        "enroll" => Some("enroll"),
+        "known-daemons" => Some("known-daemons"),
+        "stop" => Some("remote-stop"),
+        _ => None,
+    }
+}
+
 /// Returns whether argv selects the remote command family.
 ///
 /// Keeping this classifier next to the public CLI grammar prevents startup
 /// routing and the Unix remote implementation from maintaining separate lists.
 pub(super) fn is_remote_invocation(args: &[String]) -> bool {
-    args.first().is_some_and(|argument| REMOTE_COMMANDS.contains(&argument.as_str()))
+    let mut index = 0;
+    while index < args.len() {
+        match args[index].as_str() {
+            "--" => return false,
+            "--socket" | "--session" | "--machine" => index += 2,
+            "--json" | "--jsonl" | "--quiet" => index += 1,
+            value
+                if value.starts_with("--socket=")
+                    || value.starts_with("--session=")
+                    || value.starts_with("--machine=") =>
+            {
+                index += 1
+            }
+            value if value.starts_with('-') => return false,
+            value => return REMOTE_COMMANDS.contains(&value),
+        }
+    }
+    false
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -196,7 +229,7 @@ fn parse_command(
             .collect::<Vec<_>>();
         let topic = match words.as_slice() {
             ["server", action, ..]
-                if matches!(*action, "start" | "status" | "stop" | "reload-config") =>
+                if matches!(*action, "start" | "ensure" | "status" | "stop" | "reload-config") =>
             {
                 Some(format!("server {action}"))
             }
@@ -364,6 +397,7 @@ fn scope_help_for(
     match scope {
         "server" => Cow::Borrowed(catalog.local_server.help),
         "server start" => Cow::Borrowed(catalog.local_server.start_help),
+        "server ensure" => Cow::Borrowed(catalog.local_server.ensure_help),
         "server status" => Cow::Borrowed(catalog.local_server.status_help),
         "server stop" => Cow::Borrowed(catalog.local_server.stop_help),
         "server reload-config" => Cow::Borrowed(catalog.local_server.reload_config_help),
@@ -513,8 +547,8 @@ USAGE
   cmux workspace list
   cmux workspace create [--name <value>] [--empty] [--correlation-key <value>] [--expected-revision <revision>]
   cmux workspace <selector> show|rename|move|focus|close
-  cmux workspace <selector> run [--correlation-key <value>] -- <argv...>
-  cmux workspace <selector> run [--correlation-key <value>] shell <script>
+  cmux workspace <selector> run [--on-exit <close|keep>] [--correlation-key <value>] -- <argv...>
+  cmux workspace <selector> run [--on-exit <close|keep>] [--correlation-key <value>] shell <script>
   cmux workspace <selector> layout apply [OPTIONS]
   cmux workspace <selector> screen ...
   Nested panes support split --right or --down.
@@ -545,7 +579,7 @@ USAGE
   cmux pane <selector> zoom [--enabled <bool>]
   cmux pane <selector> split ratio set --split <id> --ratio <value>
   cmux pane <selector> viewport width set --columns <value>
-  cmux pane <selector> run [--correlation-key <value>] -- <argv...>
+  cmux pane <selector> run [--on-exit <close|keep>] [--correlation-key <value>] -- <argv...>
   cmux pane <selector> tab ...
 ";
 
@@ -570,6 +604,7 @@ USAGE
   cmux terminal <selector> screen wait --pattern <regex> [--timeout-ms <n>]
   cmux terminal <selector> state read
   cmux terminal <selector> history read|clear
+  cmux terminal <selector> output read [--after <offset>] [--max-bytes <n>]
   cmux terminal <selector> copy|process show [OPTIONS]
   cmux terminal <selector> process wait [--timeout-ms <n>]
   cmux terminal <selector> viewport scroll --delta-rows <n>
@@ -766,5 +801,27 @@ mod tests {
             parse(&strings(&["help", "start"])).unwrap(),
             ParsedCommand::Help(Some(scope)) if scope == "start"
         ));
+    }
+
+    #[test]
+    fn remote_invocation_allows_leading_global_options() {
+        assert!(is_remote_invocation(&strings(&["remote", "connect"])));
+        assert!(is_remote_invocation(&strings(&["--json", "remote", "connect"])));
+        assert!(is_remote_invocation(&strings(&[
+            "--session",
+            "dev",
+            "--socket",
+            "/tmp/cmux.sock",
+            "remote",
+            "rpc",
+        ])));
+        assert!(!is_remote_invocation(&strings(&["--session", "remote", "workspace", "list"])));
+    }
+
+    #[test]
+    fn remote_invocation_rejects_missing_global_option_values_and_terminator() {
+        assert!(!is_remote_invocation(&strings(&["--session"])));
+        assert!(!is_remote_invocation(&strings(&["--socket"])));
+        assert!(!is_remote_invocation(&strings(&["--", "remote", "connect"])));
     }
 }

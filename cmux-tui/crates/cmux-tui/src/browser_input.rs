@@ -958,7 +958,7 @@ fn dispatch_surface_event(
         if event.event.kind.is_control()
             && let Err(error) = result
         {
-            on_control_failure(format!("browser command failed: {error}"));
+            on_control_failure(error.to_string());
         }
         return;
     };
@@ -1378,7 +1378,7 @@ mod tests {
 
         assert!(dispatcher.enqueue(reload_event(1)));
         let message = rx.recv_timeout(Duration::from_secs(1)).unwrap();
-        assert!(message.contains("browser command failed"), "unexpected message: {message}");
+        assert_eq!(message, "browser panes are not supported over attach yet");
 
         // Disposable input never reports, so the worker stays quiet for it.
         assert!(dispatcher.enqueue(move_event(1, 1.0)));

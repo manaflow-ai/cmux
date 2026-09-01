@@ -483,7 +483,17 @@ jobs:
           fi
           cargo test --workspace --locked "$TEST_FILTER" -- --list \
             | tee "$RUNNER_TEMP/cmux-tui-focused-tests.txt"
-          if ! grep -Eq ': test$' "$RUNNER_TEMP/cmux-tui-focused-tests.txt"; then
+          normal_names="$RUNNER_TEMP/cmux-tui-focused-normal.txt"
+          grep -E ': test$' "$RUNNER_TEMP/cmux-tui-focused-tests.txt" | sort > "$normal_names" || true
+          ignored_names="$RUNNER_TEMP/cmux-tui-focused-ignored.txt"
+          ignored_listing="$RUNNER_TEMP/cmux-tui-focused-ignored-list.txt"
+          cargo test --workspace --locked "$TEST_FILTER" -- --list --ignored > "$ignored_listing"
+          grep -E ': test$' "$ignored_listing" | sort > "$ignored_names" || [[ "$?" -eq 1 ]]
+          if [[ -s "$normal_names" && -s "$ignored_names" ]] && cmp -s "$normal_names" "$ignored_names"; then
+            echo "::error::test_filter '$TEST_FILTER' matches only ignored tests" >&2
+            exit 1
+          fi
+          if [[ ! -s "$normal_names" ]]; then
             echo "::error::test_filter '$TEST_FILTER' selected no Rust tests" >&2
             exit 1
           fi
@@ -560,7 +570,7 @@ jobs:
 
       - name: Build cmux-tui server
         working-directory: cmux-tui
-        run: cargo build -p cmux-tui
+        run: cargo build -p cmux-tui --locked
 
       - name: Resolve Zig SDK version
         id: zig-sdk-version
@@ -581,10 +591,6 @@ jobs:
           ZIG_REQUIRED: ${{ steps.zig-sdk-version.outputs.version }}
           ZIG_FORCE_LOCAL_INSTALL: "1"
         run: ./scripts/install-zig-ci.sh
-
-      - name: Install TypeScript adapter build tools
-        working-directory: cmux-tui/bindings/typescript
-        run: npm ci --no-audit --no-fund
 
       - name: Python conformance fixtures
         run: |

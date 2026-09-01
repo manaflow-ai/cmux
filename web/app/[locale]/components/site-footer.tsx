@@ -1,6 +1,9 @@
 import { getLocale, getTranslations } from "next-intl/server";
 import { Link } from "../../../i18n/navigation";
-import { fallbackContentLocales } from "../../../i18n/locale-availability";
+import {
+  fallbackContentLocales,
+  jobsContentLocales,
+} from "../../../i18n/locale-availability";
 import type { Locale } from "../../../i18n/routing";
 import { LanguageSwitcher } from "./language-switcher";
 import { ProUpgradeVisibility } from "./pro-upgrade-visibility";
@@ -43,6 +46,11 @@ export async function SiteFooter() {
         { label: t("community"), href: "/community" },
         { label: t("nightly"), href: "/nightly" },
         { label: t("assets"), href: "/assets" },
+        {
+          label: t("jobs"),
+          href: "/jobs",
+          contentLocales: jobsContentLocales,
+        },
       ] satisfies FooterLink[],
     },
     {
@@ -52,6 +60,7 @@ export async function SiteFooter() {
         { label: t("guides"), href: "/guides" },
         { label: t("compare"), href: "/compare" },
         { label: t("changelog"), href: "/docs/changelog" },
+        { label: t("support"), href: "/support" },
       ] satisfies FooterLink[],
     },
     {

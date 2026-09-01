@@ -1,4 +1,5 @@
 import AppKit
+import CmuxBrowser
 import CmuxFoundation
 import Combine
 import Foundation
@@ -73,6 +74,25 @@ final class MarkdownPanel: Panel, ObservableObject, FilePreviewTextEditingPanel 
     /// layout churn does not recreate the WKWebView and flash existing content.
     let rendererSession = MarkdownRendererSession()
 
+    // MARK: - Find in preview
+
+    /// Find-in-page state for the rendered preview. Non-nil when the find bar
+    /// is visible. Uses the browser find machinery (`BrowserFindService` +
+    /// `BrowserSearchOverlay`) against the preview WKWebView.
+    @Published var searchState: BrowserSearchState? {
+        didSet { handleSearchStateChange(oldValue: oldValue) }
+    }
+
+    /// Incremented whenever find focus ownership changes, so stale async
+    /// focus requests posted before a hide/re-show can never steal focus.
+    @Published private(set) var searchFocusRequestGeneration: UInt64 = 0
+
+    private var searchNeedleCancellable: AnyCancellable?
+    private var lastSearchNeedle = ""
+    private lazy var findService = BrowserFindService(
+        evaluator: MarkdownFindWebViewEvaluator(panel: self)
+    )
+
     // MARK: - File watching
 
     // Watches `filePath` (file + ancestor-directory recovery) via CmuxFileWatch.
@@ -83,6 +103,9 @@ final class MarkdownPanel: Panel, ObservableObject, FilePreviewTextEditingPanel 
     private var saveGeneration: Int = 0
     private var activeSaveGeneration: Int?
     private var pendingSearchNeedle: String?
+    /// Set when activation asks a preview panel to focus before SwiftUI has
+    /// mounted its WKWebView. The renderer fulfills this at window attach.
+    private var pendingPreviewFocus = false
     private weak var textView: NSTextView?
     private var isClosed: Bool = false
     // NotificationCenter token; removal is thread-safe so deinit can drop it.
@@ -117,6 +140,125 @@ final class MarkdownPanel: Panel, ObservableObject, FilePreviewTextEditingPanel 
         loadFileContent()
         startWatching()
         observeTypographyDefaults()
+        rendererSession.onMarkdownRendered = { [weak self] in
+            self?.replayPendingPreviewFocusAfterWindowAttach()
+            self?.replayActiveFindAfterRender()
+        }
+    }
+
+    // MARK: - Find in preview (methods)
+
+    /// Shows (or refocuses) the preview find bar. Preview-only: text mode uses
+    /// the NSTextView's native find panel via the responder chain.
+    func startFind() {
+        guard displayMode == .preview else { return }
+        let created = searchState == nil
+        let recoveredNeedle = created ? lastSearchNeedle : ""
+        if created { searchState = BrowserSearchState(needle: recoveredNeedle) }
+        let shouldSelectAll = created && !recoveredNeedle.isEmpty
+        searchFocusRequestGeneration &+= 1
+        let generation = searchFocusRequestGeneration
+        postSearchFocusNotification(generation: generation, selectAll: shouldSelectAll)
+        // Re-post once because the overlay mounts on the same runloop turn and
+        // can miss the first notification.
+        DispatchQueue.main.async { [weak self] in
+            self?.postSearchFocusNotification(generation: generation, selectAll: shouldSelectAll)
+        }
+    }
+
+    func findNext() {
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            self.applyFindMatchCount(await self.findService.next())
+        }
+    }
+
+    func findPrevious() {
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            self.applyFindMatchCount(await self.findService.previous())
+        }
+    }
+
+    func hideFind() {
+        searchState = nil
+    }
+
+    /// Whether an async find-field focus request for `generation` may still
+    /// be applied. Guards against focus theft after hide or a newer request.
+    func canApplySearchFocusRequest(_ generation: UInt64) -> Bool {
+        searchState != nil && generation == searchFocusRequestGeneration
+    }
+
+    private func postSearchFocusNotification(generation: UInt64, selectAll: Bool) {
+        guard canApplySearchFocusRequest(generation) else { return }
+        NotificationCenter.default.post(
+            name: .browserSearchFocus,
+            object: id,
+            userInfo: [FindFocusNotificationKey.selectAll: selectAll]
+        )
+    }
+
+    private func handleSearchStateChange(oldValue: BrowserSearchState?) {
+        if let searchState {
+            searchNeedleCancellable = searchState.$needle
+                .removeDuplicates()
+                .map { needle -> AnyPublisher<String, Never> in
+                    // Search instantly for empty (clear) and 3+ character
+                    // needles; debounce 1-2 character needles, which light up
+                    // far too many matches to be useful while mid-word.
+                    if needle.isEmpty || needle.count >= 3 {
+                        return Just(needle).eraseToAnyPublisher()
+                    }
+                    return Just(needle)
+                        .delay(for: .milliseconds(300), scheduler: DispatchQueue.main)
+                        .eraseToAnyPublisher()
+                }
+                .switchToLatest()
+                .sink { [weak self] needle in
+                    self?.executeFindSearch(needle)
+                }
+        } else if let oldValue {
+            lastSearchNeedle = oldValue.needle
+            searchNeedleCancellable = nil
+            searchFocusRequestGeneration &+= 1
+            executeFindClear()
+        }
+    }
+
+    private func executeFindSearch(_ needle: String) {
+        guard !needle.isEmpty else {
+            executeFindClear()
+            searchState?.selected = nil
+            searchState?.total = nil
+            return
+        }
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            self.applyFindMatchCount(await self.findService.search(needle: needle))
+        }
+    }
+
+    private func executeFindClear() {
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            await self.findService.clear()
+        }
+    }
+
+    private func applyFindMatchCount(_ count: BrowserFindMatchCount?) {
+        guard let count else { return }
+        searchState?.total = count.total
+        searchState?.selected = count.selected
+    }
+
+    /// A content re-render replaces the preview DOM, wiping `<mark>` find
+    /// highlights. Re-run the active search so counts and highlights recover.
+    private func replayActiveFindAfterRender() {
+        guard let state = searchState, !state.needle.isEmpty else { return }
+        state.selected = nil
+        state.total = nil
+        executeFindSearch(state.needle)
     }
 
     /// Adopt a changed typography default (from another viewer's "Set as Default"
@@ -233,17 +375,44 @@ final class MarkdownPanel: Panel, ObservableObject, FilePreviewTextEditingPanel 
     // MARK: - Panel protocol
 
     func focus() {
-        guard displayMode == .text else { return }
-        _ = textView?.window?.makeFirstResponder(textView)
-        applyPendingSearchNeedleIfPossible()
+        if displayMode == .text {
+            pendingPreviewFocus = false
+            _ = textView?.window?.makeFirstResponder(textView)
+            applyPendingSearchNeedleIfPossible()
+            return
+        }
+        // Preview mode: the rendered web view is the panel's keyboard
+        // surface. Taking first responder on activation is what moves the
+        // keyboard out of wherever it was (for example the right-sidebar
+        // file list after a click- or drag-open), so the find/shortcut
+        // router targets this panel — the same behavior terminal and
+        // browser panels have. No-op while the web view is not mounted;
+        // the drop/open paths also hand off focus at the coordinator level.
+        guard let webView = rendererSession.webView, let window = webView.window else {
+            pendingPreviewFocus = true
+            return
+        }
+        let didBecomeFirstResponder = window.makeFirstResponder(webView)
+            && window.firstResponder === webView
+        pendingPreviewFocus = !didBecomeFirstResponder
+    }
+
+    /// Completes a preview focus request recorded before the renderer view was
+    /// attached to its window. The callback is event-driven, so it cannot
+    /// steal focus after this panel has been unfocused in the meantime.
+    func replayPendingPreviewFocusAfterWindowAttach() {
+        guard pendingPreviewFocus, displayMode == .preview else { return }
+        focus()
     }
 
     func unfocus() {
-        // No-op for read-only panel.
+        pendingPreviewFocus = false
     }
 
     func close() {
         isClosed = true
+        pendingPreviewFocus = false
+        searchState = nil
         rendererSession.close()
         GlobalSearchCoordinator.shared.purgePanel(id: id)
         textView = nil
@@ -264,6 +433,9 @@ final class MarkdownPanel: Panel, ObservableObject, FilePreviewTextEditingPanel 
         guard displayMode != mode else { return }
         displayMode = mode
         if mode == .text {
+            // The find bar and its highlights belong to the preview surface;
+            // text mode has the NSTextView's native find panel instead.
+            hideFind()
             focus()
         }
     }

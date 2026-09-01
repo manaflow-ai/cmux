@@ -15,8 +15,7 @@ final class SessionDragRegistry {
 
     private var state: State = .idle
 
-    func register(_ entry: SessionEntry) -> UUID {
-        let id = UUID()
+    func register(_ entry: SessionEntry, id: UUID = UUID()) -> UUID {
         // AppKit permits only one process-local drag at a time. Replacing an
         // abandoned test registration also invalidates its residual payload.
         state = .active(id: id, entry: entry)

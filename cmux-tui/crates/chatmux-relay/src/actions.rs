@@ -1133,10 +1133,18 @@ async fn run_spec(
                         std::time::Duration::from_millis(250),
                     )));
                 }
-                exited = Some(match status {
-                    Ok(status) => status.code().map(i64::from).unwrap_or(1),
-                    Err(_) => 1,
-                });
+                match status {
+                    Ok(status) => {
+                        exited = Some(status.code().map(i64::from).unwrap_or(1));
+                        // `wait` has reaped the leader. Disarm before any
+                        // subsequent cancellation can target a reused PID.
+                        #[cfg(unix)]
+                        {
+                            process_group_guard.armed = false;
+                        }
+                    }
+                    Err(_) => exited = Some(1),
+                }
             }
             () = &mut deadline, if !timed_out => {
                 timed_out = true;

@@ -22,7 +22,14 @@ export async function openCodeClientConfig(
   if (!resolved)
     return Response.json({ error: "no_usable_account" }, { status: 503 });
   const remote = await remoteConfig(resolved.credential.accessToken);
-  const provider = rewriteProviders(remote, auth.token);
+  // The proxy origin comes from the serving request, not a hardcoded host,
+  // so the config works on every deployment of this app (coderouter.dev,
+  // the cmux origin Cloud VMs are minted against, previews, self-hosted).
+  const provider = rewriteProviders(
+    remote,
+    auth.token,
+    new URL(request.url).origin,
+  );
   return Response.json(
     { provider },
     {
@@ -261,6 +268,7 @@ async function remoteConfig(
 function rewriteProviders(
   providers: Record<string, unknown>,
   routeToken: string,
+  origin: string,
 ): Record<string, unknown> {
   return Object.fromEntries(
     Object.entries(providers).flatMap(([id, value]) => {
@@ -287,7 +295,7 @@ function rewriteProviders(
             ? {
               provider: {
                 ...publicNestedProvider(nestedProvider),
-                api: `https://coderouter.dev/api/coderouter/opencode/proxy/${encodeURIComponent(id)}`,
+                api: `${origin}/api/coderouter/opencode/proxy/${encodeURIComponent(id)}`,
               },
                       }
                     : {}),
@@ -306,7 +314,7 @@ function rewriteProviders(
             models,
             options: {
               ...(isRecord(value.options) ? withoutSecrets(value.options) : {}),
-              baseURL: `https://coderouter.dev/api/coderouter/opencode/proxy/${encodeURIComponent(id)}`,
+              baseURL: `${origin}/api/coderouter/opencode/proxy/${encodeURIComponent(id)}`,
               apiKey: routeToken,
             },
           },

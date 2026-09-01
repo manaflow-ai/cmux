@@ -24,9 +24,14 @@ type AfterSignInMessages = {
   switchAccountButton: string;
 };
 
+type BillingRecoveryMessages = {
+  message?: unknown;
+};
+
 type LocalizedAfterSignInMessages = {
   locale: Locale;
   messages: AfterSignInMessages;
+  recoveryMessage: string;
 };
 
 type CookieStore = {
@@ -42,6 +47,10 @@ type StackAuthSessionLike = {
 };
 
 type StackAuthUserLike = {
+  id?: string;
+  primaryEmail?: string | null;
+  primaryEmailVerified?: boolean;
+  isAnonymous?: boolean;
   createSession: (options: { expiresInMillis: number }) => Promise<StackAuthSessionLike>;
 };
 
@@ -55,6 +64,10 @@ type AfterSignInHandlerDependencies = {
   projectId: string | undefined;
   stackServerApp: StackServerAppLike;
   getCookieStore: () => Promise<CookieStore>;
+  /** Promote an anonymous account only after Stack reports a verified email. */
+  promoteVerifiedAnonymousUser?: (userId: string, email: string) => Promise<void>;
+  /** Resolve paid claims after Stack has verified the mailbox. */
+  claimVerifiedBilling?: (userId: string, email: string) => Promise<void>;
 };
 
 function findStackCookie(
@@ -174,6 +187,7 @@ async function afterSignInMessages(request: NextRequest): Promise<LocalizedAfter
   const locale = preferredLocale(request);
   const messages = (await import(`../../../messages/${locale}.json`)).default as {
     afterSignIn?: AfterSignInMessages;
+    billingRecovery?: BillingRecoveryMessages;
   };
   if (!messages.afterSignIn) {
     throw new Error(`Missing afterSignIn messages for locale ${locale}`);
@@ -181,6 +195,10 @@ async function afterSignInMessages(request: NextRequest): Promise<LocalizedAfter
   return {
     locale,
     messages: messages.afterSignIn,
+    recoveryMessage:
+      typeof messages.billingRecovery?.message === "string"
+        ? messages.billingRecovery.message
+        : messages.afterSignIn.body,
   };
 }
 
@@ -280,6 +298,36 @@ function nativeRedirectResponse(request: NextRequest, href: string): NextRespons
   return response;
 }
 
+function anonymousPromotionFailureResponse(
+  request: NextRequest,
+  localized: LocalizedAfterSignInMessages,
+  retryHref: string | null,
+): NextResponse {
+  const href = retryHref ?? new URL("/handler/sign-in", request.url).toString();
+  const response = new NextResponse(
+    `<!doctype html>
+<html lang="${escapeHtml(localized.locale)}">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>${escapeHtml(localized.messages.title)}</title></head>
+<body>
+  <main>
+    <h1>${escapeHtml(localized.messages.title)}</h1>
+    <p>${escapeHtml(localized.recoveryMessage)}</p>
+    <a href="${escapeHtml(href)}">${escapeHtml(localized.messages.switchAccountButton)}</a>
+  </main>
+</body>
+</html>`,
+    {
+      status: 503,
+      headers: {
+        "Content-Type": "text/html; charset=utf-8",
+        "Cache-Control": "no-store",
+        "Retry-After": "0",
+      },
+    },
+  );
+  return response;
+}
+
 function currentAfterSignInPath(request: NextRequest): string {
   const afterSignIn = new URL(request.nextUrl.pathname, request.nextUrl.origin);
   const nativeReturnTo = request.nextUrl.searchParams.get("native_app_return_to");
@@ -326,6 +374,56 @@ export function makeAfterSignInHandler(dependencies: AfterSignInHandlerDependenc
         (await authApp.getUser({ or: "return-null" })) ??
         (await authApp.getUser({ or: ANONYMOUS_IF_EXISTS }));
       if (user) {
+        let promotedAnonymousUser = false;
+        if (
+          user.isAnonymous === true &&
+          user.primaryEmailVerified === true &&
+          user.primaryEmail &&
+          user.id &&
+          dependencies.promoteVerifiedAnonymousUser
+        ) {
+          try {
+            // The callback is reached after Stack has accepted the one-time
+            // email link. Only then may the anonymous restriction be removed.
+            await dependencies.promoteVerifiedAnonymousUser(
+              user.id,
+              user.primaryEmail,
+            );
+            promotedAnonymousUser = true;
+          } catch {
+            console.error("auth.after_sign_in.anonymous_promotion_failed", {
+              failure: "provider_unavailable",
+            });
+            // Stack has consumed the one-time link, so do not mint a session
+            // that still carries the anonymous restriction. Return a
+            // retryable recovery state instead.
+            return anonymousPromotionFailureResponse(
+              request,
+              localizedMessages,
+              switchAccountHref(request),
+            );
+          }
+        }
+        if (
+          dependencies.claimVerifiedBilling &&
+          user.id &&
+          user.primaryEmail &&
+          (promotedAnonymousUser ||
+            (user.isAnonymous !== true && user.primaryEmailVerified === true))
+        ) {
+          try {
+            // The callback re-reads the user after any anonymous promotion, so
+            // claim resolution sees Stack's committed verification state.
+            await dependencies.claimVerifiedBilling(user.id, user.primaryEmail);
+          } catch {
+            // Authentication must remain available if billing storage or
+            // Stripe is temporarily unavailable. Billing reads and the next
+            // sign-in retry the idempotent claim transfer.
+            console.error("billing.after_sign_in.claim_failed", {
+              failure: "provider_unavailable",
+            });
+          }
+        }
         const session = await user.createSession({ expiresInMillis: 30 * 24 * 60 * 60 * 1000 });
         const tokens = await session.getTokens();
         if (tokens.refreshToken) refreshToken = tokens.refreshToken;

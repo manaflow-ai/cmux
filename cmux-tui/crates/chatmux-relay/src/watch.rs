@@ -8,11 +8,15 @@
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::mpsc::{SyncSender, sync_channel};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use tokio::sync::Notify;
 use tokio::sync::mpsc::{Receiver, Sender, channel};
+use tokio::sync::{Semaphore, oneshot};
+use tokio::task::AbortHandle;
+use tokio_util::sync::CancellationToken;
 
 use crate::actions::{RootLists, ensure_scoped_file_roots_available};
 use crate::relay_wire as wire;
@@ -30,92 +34,297 @@ pub const WATCH_MAX_CHANGES: usize = 256;
 const DEBOUNCE_QUIET: Duration = Duration::from_millis(150);
 const DEBOUNCE_MAX_LATENCY: Duration = Duration::from_millis(500);
 const MAX_PENDING_NOTIFY_EVENTS: usize = 1024;
+/// Recursive watcher startup and ignore-file discovery are synchronous
+/// filesystem operations. Keep them off the relay executor and bound the
+/// number of concurrent setup walks per connection.
+pub const WATCH_SETUP_CONCURRENCY: usize = 2;
+/// A replacement can keep one retired watcher in synchronous teardown while
+/// all sessions and setup slots are occupied. This hard cap bounds detached
+/// owner threads even if a platform backend blocks in its destructor.
+pub const WATCH_TEARDOWN_CONCURRENCY: usize = WATCH_MAX_SESSIONS + WATCH_SETUP_CONCURRENCY + 1;
 
-type Sessions = Arc<Mutex<HashMap<String, (u64, Option<tokio::task::JoinHandle<()>>)>>>;
-
-pub struct WatchRegistry {
-    outbound: OutboundSink,
-    sessions: Sessions,
-    next_generation: Arc<AtomicU64>,
+/// All fallible watcher setup happens before a watch is published in the
+/// registry. A failed replacement therefore leaves the existing watch intact.
+struct PreparedWatch {
+    watcher: WatcherOwner,
+    event_rx: Receiver<Result<notify::Event, notify::Error>>,
+    overflowed: Arc<AtomicBool>,
+    overflow_notify: Arc<Notify>,
+    latched_error: Arc<Mutex<Option<String>>>,
+    matcher: ignore::gitignore::Gitignore,
 }
 
-impl Drop for WatchRegistry {
+/// Owns a notify watcher on a dedicated thread because some backends perform
+/// synchronous thread joins from `Drop`. The relay task only sends the bounded
+/// shutdown signal and never drops the backend itself. One owner thread exists
+/// per prepared or active watch, bounded by the 16-session registry cap plus
+/// the two setup slots.
+struct WatcherOwner {
+    shutdown: Option<SyncSender<()>>,
+}
+
+impl WatcherOwner {
+    fn new(watcher: notify::RecommendedWatcher, slots: Arc<Semaphore>) -> Result<Self, String> {
+        Self::new_with_slots(watcher, slots)
+    }
+
+    fn new_with_slots(
+        watcher: notify::RecommendedWatcher,
+        slots: Arc<Semaphore>,
+    ) -> Result<Self, String> {
+        let teardown_permit = slots
+            .try_acquire_owned()
+            .map_err(|_| "watch teardown capacity exhausted".to_owned())?;
+        let (shutdown, wait) = sync_channel(1);
+        std::thread::Builder::new()
+            .name("cmux-watch-teardown".to_owned())
+            .spawn(move || {
+                let _teardown_permit = teardown_permit;
+                let watcher = watcher;
+                let _ = wait.recv();
+                drop(watcher);
+            })
+            .map_err(|error| format!("could not start watcher teardown: {error}"))?;
+        Ok(Self { shutdown: Some(shutdown) })
+    }
+}
+
+impl Drop for WatcherOwner {
     fn drop(&mut self) {
-        // The socket died with this registry; the Worker re-opens watches
-        // on the next connection.
-        if let Ok(mut sessions) = self.sessions.lock() {
-            for (_, (_, task)) in sessions.drain() {
-                if let Some(task) = task {
-                    task.abort();
+        if let Some(shutdown) = self.shutdown.take() {
+            // The channel has one slot and only this owner sends, so this
+            // cannot block the relay task even if teardown is still running.
+            let _ = shutdown.try_send(());
+        }
+    }
+}
+
+struct ActiveWatch {
+    generation: u64,
+    live: Arc<AtomicBool>,
+    cancellation: CancellationToken,
+    abort: AbortHandle,
+}
+
+struct Opening {
+    generation: u64,
+    live: Arc<AtomicBool>,
+    cancellation: CancellationToken,
+    /// The coordinator is detached, so the registry retains only its abort
+    /// handle. It may be absent briefly while `open` installs the handle.
+    abort: Option<AbortHandle>,
+}
+
+struct WatchSlot {
+    active: Option<ActiveWatch>,
+    opening: Option<Opening>,
+}
+
+type Sessions = Arc<Mutex<HashMap<String, WatchSlot>>>;
+
+enum RetiredWatch {
+    Active(ActiveWatch),
+    Opening(Opening),
+}
+
+enum Reservation {
+    Accepted { previous: Option<Opening> },
+    Limit,
+}
+
+impl RetiredWatch {
+    fn stop(self) {
+        match self {
+            RetiredWatch::Active(active) => {
+                active.live.store(false, Ordering::Release);
+                active.cancellation.cancel();
+                active.abort.abort();
+            }
+            RetiredWatch::Opening(opening) => {
+                opening.live.store(false, Ordering::Release);
+                opening.cancellation.cancel();
+                if let Some(abort) = opening.abort {
+                    abort.abort();
                 }
             }
         }
     }
 }
 
-fn watch_error_frame(watch_id: &str, code: wire::WorkspaceErrorCode, message: &str) -> String {
+impl WatchSlot {
+    fn retire(self) -> impl Iterator<Item = RetiredWatch> {
+        self.active
+            .into_iter()
+            .map(RetiredWatch::Active)
+            .chain(self.opening.into_iter().map(RetiredWatch::Opening))
+    }
+}
+
+pub struct WatchRegistry {
+    outbound: OutboundSink,
+    sessions: Sessions,
+    next_generation: Arc<AtomicU64>,
+    setup_slots: Arc<Semaphore>,
+    teardown_slots: Arc<Semaphore>,
+    cancellation: CancellationToken,
+}
+
+impl Drop for WatchRegistry {
+    fn drop(&mut self) {
+        // The socket died with this registry; the Worker re-opens watches
+        // on the next connection.
+        self.cancellation.cancel();
+        let retired = self
+            .sessions
+            .lock()
+            .map(|mut sessions| sessions.drain().flat_map(|(_, slot)| slot.retire()).collect())
+            .unwrap_or_else(|_| Vec::new());
+        for watch in retired {
+            watch.stop();
+        }
+    }
+}
+
+fn watch_error_frame(
+    watch_id: &str,
+    code: wire::WorkspaceErrorCode,
+    message: Option<&str>,
+) -> String {
     serde_json::to_string(&wire::RelayFsWatchError {
         version: WORKSPACE_FRAME_VERSION,
         r#type: wire::TagFsWatchError::FsWatchError,
         watch_id: watch_id.to_owned(),
         code,
-        message: Some(message.to_owned()),
+        message: message.map(str::to_owned),
     })
     .unwrap_or_else(|_| String::new())
 }
 
+/// Terminal response for a watch that cannot enqueue another lossy event. The
+/// critical lane lets the client re-open the stream instead of retaining a
+/// permanently silent watch ID.
+async fn report_watch_failure(
+    watch_id: &str,
+    outbound: &OutboundSink,
+    cancellation: &CancellationToken,
+    live: &Arc<AtomicBool>,
+) {
+    let text = watch_error_frame(watch_id, wire::WorkspaceErrorCode::Failed, None);
+    tokio::select! {
+        biased;
+        _ = cancellation.cancelled() => {}
+        _ = outbound.critical_text_with_token(text, Some(Arc::clone(live))) => {}
+    }
+}
+
 impl WatchRegistry {
     pub(crate) fn new(outbound: OutboundSink) -> WatchRegistry {
+        Self::new_with_teardown_slots(
+            outbound,
+            Arc::new(Semaphore::new(WATCH_TEARDOWN_CONCURRENCY)),
+        )
+    }
+
+    pub(crate) fn new_with_teardown_slots(
+        outbound: OutboundSink,
+        teardown_slots: Arc<Semaphore>,
+    ) -> WatchRegistry {
+        Self::new_with_resource_slots(
+            outbound,
+            Arc::new(Semaphore::new(WATCH_SETUP_CONCURRENCY)),
+            teardown_slots,
+        )
+    }
+
+    pub(crate) fn new_with_resource_slots(
+        outbound: OutboundSink,
+        setup_slots: Arc<Semaphore>,
+        teardown_slots: Arc<Semaphore>,
+    ) -> WatchRegistry {
         WatchRegistry {
             outbound,
             sessions: Arc::new(Mutex::new(HashMap::new())),
             next_generation: Arc::new(AtomicU64::new(0)),
+            setup_slots,
+            teardown_slots,
+            cancellation: CancellationToken::new(),
         }
     }
 
     pub fn refuse(&self, watch_id: &str, code: wire::WorkspaceErrorCode, message: &str) {
-        let text = watch_error_frame(watch_id, code, message);
+        let text = watch_error_frame(watch_id, code, Some(message));
         let _ = self.outbound.try_critical_text(text);
     }
 
     pub fn close(&self, watch_id: &str) {
-        if let Ok(mut sessions) = self.sessions.lock()
-            && let Some((_, Some(task))) = sessions.remove(watch_id)
-        {
-            task.abort();
+        let retired = self
+            .sessions
+            .lock()
+            .ok()
+            .and_then(|mut sessions| sessions.remove(watch_id))
+            .map(|slot| slot.retire().collect::<Vec<_>>())
+            .unwrap_or_default();
+        for watch in retired {
+            watch.stop();
         }
     }
 
-    /// Resolve + scope the root, answer `fs_watch_opened`, then stream.
+    /// Reserve an ID and start asynchronous setup. The active watch, if any,
+    /// remains live until setup succeeds and `fs_watch_opened` is queued.
     /// Watching is read-only: observe trust is admitted.
     pub fn open(&self, frame: wire::RelayFsWatchOpen, local_roots: Option<&[String]>) {
         let watch_id = frame.watch_id.clone();
-        let root = match watch_root(&frame, local_roots) {
-            Ok(root) => root,
-            Err(refusal) => {
-                self.refuse(&watch_id, refusal.code, &refusal.message);
-                return;
-            }
-        };
-        let opened = serde_json::to_string(&wire::RelayFsWatchOpened {
-            version: WORKSPACE_FRAME_VERSION,
-            r#type: wire::TagFsWatchOpened::FsWatchOpened,
-            watch_id: watch_id.clone(),
-            root: root.to_string_lossy().into_owned(),
-        })
-        .unwrap_or_else(|_| String::new());
         let generation = self.next_generation.fetch_add(1, Ordering::Relaxed);
-        let previous = match self.sessions.lock() {
-            Ok(mut sessions)
-                if sessions.contains_key(&watch_id) || sessions.len() < WATCH_MAX_SESSIONS =>
-            {
-                Ok(sessions.insert(watch_id.clone(), (generation, None)))
+        let opening_cancellation = self.cancellation.child_token();
+        let opening_live = Arc::new(AtomicBool::new(true));
+        let sessions = Arc::clone(&self.sessions);
+        let outbound = self.outbound.clone();
+        let setup_slots = Arc::clone(&self.setup_slots);
+        let teardown_slots = Arc::clone(&self.teardown_slots);
+        let local_roots_for_task = local_roots.map(<[String]>::to_vec);
+        let reservation = match self.sessions.lock() {
+            Ok(mut state) => {
+                let existing = state.contains_key(&watch_id);
+                if !existing && state.len() >= WATCH_MAX_SESSIONS {
+                    Reservation::Limit
+                } else {
+                    let slot = state
+                        .entry(watch_id.clone())
+                        .or_insert_with(|| WatchSlot { active: None, opening: None });
+                    let previous = slot.opening.replace(Opening {
+                        generation,
+                        live: Arc::clone(&opening_live),
+                        cancellation: opening_cancellation.clone(),
+                        abort: None,
+                    });
+                    // Spawn while the state lock is held, then install the
+                    // abort handle before another caller can close/replace
+                    // this slot. Tokio guarantees `spawn` does not poll the
+                    // future synchronously as part of this call.
+                    let task_id = watch_id.clone();
+                    let task_cancellation = opening_cancellation.clone();
+                    let task = tokio::spawn(coordinate_open(
+                        task_id,
+                        frame,
+                        local_roots_for_task,
+                        generation,
+                        Arc::clone(&opening_live),
+                        task_cancellation,
+                        Arc::clone(&sessions),
+                        outbound,
+                        setup_slots,
+                        teardown_slots,
+                    ));
+                    slot.opening.as_mut().expect("opening was just reserved").abort =
+                        Some(task.abort_handle());
+                    Reservation::Accepted { previous }
+                }
             }
-            Ok(_) | Err(_) => Err(()),
+            Err(_) => Reservation::Limit,
         };
-        let previous = match previous {
-            Ok(previous) => previous,
-            Err(()) => {
+        let previous = match reservation {
+            Reservation::Accepted { previous } => previous,
+            Reservation::Limit => {
                 self.refuse(
                     &watch_id,
                     wire::WorkspaceErrorCode::WatchLimit,
@@ -124,45 +333,354 @@ impl WatchRegistry {
                 return;
             }
         };
-        let _ = self.outbound.try_critical_text(opened);
-        let outbound = self.outbound.clone();
-        let sessions = Arc::clone(&self.sessions);
-        let task_id = watch_id.clone();
-        let mut task = Some(tokio::spawn(async move {
-            run_watch(&task_id, &root, &outbound).await;
-            if let Ok(mut sessions) = sessions.lock() {
-                // `tokio::spawn` starts the task immediately, so a watcher
-                // that fails during startup can finish before its handle is
-                // installed in the registry. Remove our generation's
-                // placeholder regardless of whether the handle is present;
-                // a replacement watch has a different generation and is
-                // therefore preserved.
-                if sessions.get(&task_id).is_some_and(|entry| entry.0 == generation) {
-                    sessions.remove(&task_id);
+        if let Some(previous) = previous {
+            RetiredWatch::Opening(previous).stop();
+        }
+    }
+}
+
+enum SetupFailure {
+    Cancelled,
+    Refused { code: wire::WorkspaceErrorCode, message: String },
+    Failed(String),
+}
+
+/// Resolve the scoped root, install notify, and discover ignore files on a
+/// blocking worker. The semaphore permit is moved into that worker so a
+/// started walk continues to count against the setup bound until it exits.
+async fn setup_watch(
+    frame: wire::RelayFsWatchOpen,
+    local_roots: Option<Vec<String>>,
+    cancellation: CancellationToken,
+    setup_slots: Arc<Semaphore>,
+    teardown_slots: Arc<Semaphore>,
+) -> Result<(PathBuf, PreparedWatch), SetupFailure> {
+    let permit = tokio::select! {
+        biased;
+        _ = cancellation.cancelled() => return Err(SetupFailure::Cancelled),
+        result = setup_slots.acquire_owned() => result
+            .map_err(|error| SetupFailure::Failed(format!("watch setup lane closed: {error}")))?,
+    };
+    let blocking_cancellation = cancellation.clone();
+    let setup = tokio::task::spawn_blocking(move || {
+        let _permit = permit;
+        if blocking_cancellation.is_cancelled() {
+            return Err(SetupFailure::Cancelled);
+        }
+        let root = watch_root(&frame, local_roots.as_deref()).map_err(|refusal| {
+            SetupFailure::Refused { code: refusal.code, message: refusal.message }
+        })?;
+        if blocking_cancellation.is_cancelled() {
+            return Err(SetupFailure::Cancelled);
+        }
+        let mut prepared = prepare_watch(&root, teardown_slots).map_err(SetupFailure::Failed)?;
+        if blocking_cancellation.is_cancelled() {
+            drop(prepared);
+            return Err(SetupFailure::Cancelled);
+        }
+        prepared.matcher = build_ignore_matcher(&root);
+        if blocking_cancellation.is_cancelled() {
+            drop(prepared);
+            return Err(SetupFailure::Cancelled);
+        }
+        Ok((root, prepared))
+    });
+    let setup_abort = setup.abort_handle();
+    tokio::select! {
+        biased;
+        _ = cancellation.cancelled() => {
+            // Aborting the join future does not stop an already-running
+            // blocking closure. Its permit and watcher are released when it
+            // returns, and the bounded lane prevents unbounded accumulation.
+            setup_abort.abort();
+            Err(SetupFailure::Cancelled)
+        }
+        result = setup => match result {
+            Ok(result) => result,
+            Err(error) => Err(SetupFailure::Failed(format!("watch setup crashed: {error}"))),
+        },
+    }
+}
+
+async fn coordinate_open(
+    watch_id: String,
+    frame: wire::RelayFsWatchOpen,
+    local_roots: Option<Vec<String>>,
+    generation: u64,
+    live: Arc<AtomicBool>,
+    cancellation: CancellationToken,
+    sessions: Sessions,
+    outbound: OutboundSink,
+    setup_slots: Arc<Semaphore>,
+    teardown_slots: Arc<Semaphore>,
+) {
+    let setup =
+        setup_watch(frame, local_roots, cancellation.clone(), setup_slots.clone(), teardown_slots)
+            .await;
+    match setup {
+        Ok((root, prepared)) => {
+            commit_open(
+                watch_id,
+                root,
+                prepared,
+                generation,
+                live,
+                cancellation,
+                sessions,
+                outbound,
+                setup_slots,
+            );
+        }
+        Err(SetupFailure::Cancelled) => {}
+        Err(SetupFailure::Refused { code, message }) => {
+            finish_open_failure(
+                &watch_id,
+                generation,
+                live,
+                cancellation,
+                sessions,
+                outbound,
+                code,
+                Some(message),
+            )
+            .await;
+        }
+        Err(SetupFailure::Failed(_message)) => {
+            finish_open_failure(
+                &watch_id,
+                generation,
+                live,
+                cancellation,
+                sessions,
+                outbound,
+                wire::WorkspaceErrorCode::Failed,
+                None,
+            )
+            .await;
+        }
+    }
+}
+
+/// Publish the acknowledgement and active task as one state transition.
+/// `prepared` stays outside the mutex on every rejection path so dropping a
+/// notify watcher cannot run while registry state is locked.
+fn commit_open(
+    watch_id: String,
+    root: PathBuf,
+    prepared: PreparedWatch,
+    generation: u64,
+    live: Arc<AtomicBool>,
+    cancellation: CancellationToken,
+    sessions: Sessions,
+    outbound: OutboundSink,
+    setup_slots: Arc<Semaphore>,
+) {
+    let opened = serde_json::to_string(&wire::RelayFsWatchOpened {
+        version: WORKSPACE_FRAME_VERSION,
+        r#type: wire::TagFsWatchOpened::FsWatchOpened,
+        watch_id: watch_id.clone(),
+        root: root.to_string_lossy().into_owned(),
+    })
+    .unwrap_or_else(|_| String::new());
+    let mut prepared = Some(prepared);
+    let mut retired = Vec::new();
+    let mut start = None;
+    let mut committed = false;
+    if let Ok(mut state) = sessions.lock() {
+        let mut remove_slot = false;
+        if let Some(slot) = state.get_mut(&watch_id)
+            && slot.opening.as_ref().is_some_and(|opening| {
+                opening.generation == generation && !opening.cancellation.is_cancelled()
+            })
+            && outbound.try_critical_text_with_token(opened, Some(Arc::clone(&live))).is_ok()
+        {
+            let (start_tx, start_rx) = oneshot::channel();
+            let run_id = watch_id.clone();
+            let run_root = root.clone();
+            let run_outbound = outbound.clone();
+            let run_sessions = Arc::clone(&sessions);
+            let run_setup_slots = Arc::clone(&setup_slots);
+            let run_cancellation = cancellation.clone();
+            let run_live = Arc::clone(&live);
+            let run_prepared = prepared.take().expect("prepared watch present");
+            let task = tokio::spawn(async move {
+                // Install the active slot before allowing the runner to poll.
+                // This closes the fast-exit race where cleanup could otherwise
+                // run before the registry stores the task generation.
+                if start_rx.await.is_err() {
+                    return;
                 }
+                run_watch(
+                    &run_id,
+                    &run_root,
+                    &run_outbound,
+                    run_prepared,
+                    run_cancellation.clone(),
+                    run_live,
+                    run_setup_slots,
+                )
+                .await;
+                finish_active(&run_id, generation, run_sessions);
+            });
+            let previous = slot.active.replace(ActiveWatch {
+                generation,
+                live: Arc::clone(&live),
+                cancellation: cancellation.clone(),
+                abort: task.abort_handle(),
+            });
+            slot.opening.take();
+            if let Some(previous) = previous {
+                retired.push(RetiredWatch::Active(previous));
             }
-        }));
-        let installed = if let Ok(mut sessions) = self.sessions.lock() {
-            if let Some(entry) = sessions.get_mut(&watch_id) {
-                if entry.0 == generation {
-                    entry.1 = task.take();
-                    true
-                } else {
-                    false
-                }
-            } else {
-                false
+            start = Some(start_tx);
+            committed = true;
+        } else if state.get(&watch_id).is_some_and(|slot| {
+            slot.opening.as_ref().is_some_and(|opening| opening.generation == generation)
+        }) {
+            // A full/closed queue rejects the replacement while preserving
+            // the currently active watch. Clear only this generation.
+            if let Some(slot) = state.get_mut(&watch_id) {
+                slot.opening.take();
+                remove_slot = slot.active.is_none();
             }
+        }
+        if remove_slot {
+            state.remove(&watch_id);
+        }
+    }
+    if !committed {
+        live.store(false, Ordering::Release);
+        cancellation.cancel();
+    }
+    for watch in retired {
+        watch.stop();
+    }
+    if let Some(start) = start {
+        let _ = start.send(());
+    }
+    // Explicitly drop after the lock has been released. See the helper's
+    // comment above; notify watcher teardown can perform synchronous work.
+    drop(prepared);
+}
+
+async fn finish_open_failure(
+    watch_id: &str,
+    generation: u64,
+    live: Arc<AtomicBool>,
+    cancellation: CancellationToken,
+    sessions: Sessions,
+    outbound: OutboundSink,
+    code: wire::WorkspaceErrorCode,
+    message: Option<String>,
+) {
+    let text = watch_error_frame(watch_id, code, message.as_deref());
+    let should_report = sessions.lock().ok().is_some_and(|state| {
+        state.get(watch_id).is_some_and(|slot| {
+            slot.opening.as_ref().is_some_and(|opening| {
+                opening.generation == generation && !opening.cancellation.is_cancelled()
+            })
+        })
+    });
+    if !should_report {
+        cancellation.cancel();
+        return;
+    }
+
+    // Keep the opening reservation until the terminal frame is admitted. The
+    // liveness token lets a newer replacement cancel this send without
+    // delivering a stale error after its own opened frame.
+    tokio::select! {
+        biased;
+        _ = cancellation.cancelled() => return,
+        _ = outbound.critical_text_with_token(text, Some(Arc::clone(&live))) => {}
+    }
+
+    let remove_slot = if let Ok(mut state) = sessions.lock() {
+        let remove_slot = if let Some(slot) = state.get_mut(watch_id)
+            && slot.opening.as_ref().is_some_and(|opening| {
+                opening.generation == generation && !opening.cancellation.is_cancelled()
+            }) {
+            slot.opening.take();
+            live.store(false, Ordering::Release);
+            slot.active.is_none()
         } else {
             false
         };
-        if !installed && let Some(task) = task {
-            task.abort();
+        if remove_slot {
+            state.remove(watch_id);
         }
-        if let Some((_, Some(previous))) = previous {
-            previous.abort();
+        remove_slot
+    } else {
+        false
+    };
+    if remove_slot {
+        cancellation.cancel();
+    }
+}
+
+fn finish_active(watch_id: &str, generation: u64, sessions: Sessions) {
+    // Every runner exit retires its liveness token. Replacement, close, and
+    // watcher failure must discard queued events from a dead generation; a
+    // terminal critical frame is awaited before those paths return, so it is
+    // delivered before this token is retired.
+    let mut live = None;
+    if let Ok(mut state) = sessions.lock() {
+        let mut remove_slot = false;
+        if let Some(slot) = state.get_mut(watch_id)
+            && slot.active.as_ref().is_some_and(|active| active.generation == generation)
+        {
+            live = slot.active.take().map(|active| active.live);
+            remove_slot = slot.opening.is_none();
+        }
+        if remove_slot {
+            state.remove(watch_id);
         }
     }
+    if let Some(live) = live {
+        live.store(false, Ordering::Release);
+    }
+}
+
+fn prepare_watch(root: &Path, teardown_slots: Arc<Semaphore>) -> Result<PreparedWatch, String> {
+    use notify::Watcher as _;
+
+    let (event_tx, event_rx) =
+        channel::<Result<notify::Event, notify::Error>>(MAX_PENDING_NOTIFY_EVENTS);
+    let overflowed = Arc::new(AtomicBool::new(false));
+    let overflow_notify = Arc::new(Notify::new());
+    let latched_error = Arc::new(Mutex::new(None::<String>));
+    let callback_overflowed = Arc::clone(&overflowed);
+    let callback_notify = Arc::clone(&overflow_notify);
+    let callback_error = Arc::clone(&latched_error);
+    let mut watcher = notify::recommended_watcher(
+        move |event: Result<notify::Event, notify::Error>| match event {
+            Ok(event) => try_enqueue_notify_event(
+                &event_tx,
+                &callback_overflowed,
+                &callback_notify,
+                Ok(event),
+            ),
+            Err(error) => {
+                if let Ok(mut latched) = callback_error.lock() {
+                    *latched = Some(error.to_string());
+                }
+                callback_notify.notify_one();
+            }
+        },
+    )
+    .map_err(|error| format!("could not start the watcher: {error}"))?;
+    watcher
+        .watch(root, notify::RecursiveMode::Recursive)
+        .map_err(|error| format!("could not watch {}: {error}", root.display()))?;
+    let watcher = WatcherOwner::new(watcher, teardown_slots)?;
+    Ok(PreparedWatch {
+        watcher,
+        event_rx,
+        overflowed,
+        overflow_notify,
+        latched_error,
+        matcher: ignore::gitignore::Gitignore::empty(),
+    })
 }
 
 fn watch_root(
@@ -199,59 +717,28 @@ fn watch_root_with_capabilities(
 // The watch task: notify events -> debounce -> gitignore filter -> frames
 // ---------------------------------------------------------------------------
 
-async fn run_watch(watch_id: &str, root: &Path, outbound: &OutboundSink) {
-    use notify::Watcher as _;
-    let (event_tx, mut event_rx) =
-        channel::<Result<notify::Event, notify::Error>>(MAX_PENDING_NOTIFY_EVENTS);
-    let overflowed = Arc::new(AtomicBool::new(false));
-    let overflow_notify = Arc::new(Notify::new());
-    let latched_error = Arc::new(Mutex::new(None::<String>));
-    let callback_overflowed = Arc::clone(&overflowed);
-    let callback_notify = Arc::clone(&overflow_notify);
-    let callback_error = Arc::clone(&latched_error);
-    let mut watcher =
-        match notify::recommended_watcher(move |event: Result<notify::Event, notify::Error>| {
-            match event {
-                Ok(event) => try_enqueue_notify_event(
-                    &event_tx,
-                    &callback_overflowed,
-                    &callback_notify,
-                    Ok(event),
-                ),
-                Err(error) => {
-                    if let Ok(mut latched) = callback_error.lock() {
-                        *latched = Some(error.to_string());
-                    }
-                    callback_notify.notify_one();
-                }
-            }
-        }) {
-            Ok(watcher) => watcher,
-            Err(error) => {
-                let _ = outbound
-                    .critical_text(watch_error_frame(
-                        watch_id,
-                        wire::WorkspaceErrorCode::Failed,
-                        &format!("could not start the watcher: {error}"),
-                    ))
-                    .await;
-                return;
-            }
-        };
-    if let Err(error) = watcher.watch(root, notify::RecursiveMode::Recursive) {
-        let _ = outbound
-            .critical_text(watch_error_frame(
-                watch_id,
-                wire::WorkspaceErrorCode::Failed,
-                &format!("could not watch {}: {error}", root.display()),
-            ))
-            .await;
-        return;
-    }
-    let mut matcher = build_ignore_matcher(root);
+async fn run_watch(
+    watch_id: &str,
+    root: &Path,
+    outbound: &OutboundSink,
+    prepared: PreparedWatch,
+    cancellation: CancellationToken,
+    live: Arc<AtomicBool>,
+    setup_slots: Arc<Semaphore>,
+) {
+    let PreparedWatch {
+        watcher,
+        mut event_rx,
+        overflowed,
+        overflow_notify,
+        latched_error,
+        mut matcher,
+    } = prepared;
     'watch: loop {
         let notified = overflow_notify.notified();
         let first = tokio::select! {
+            biased;
+            _ = cancellation.cancelled() => break 'watch,
             event = event_rx.recv() => event,
             _ = notified => None,
         };
@@ -260,7 +747,10 @@ async fn run_watch(watch_id: &str, root: &Path, outbound: &OutboundSink) {
         if burst.is_empty() && !overflowed.load(Ordering::Acquire) && !has_latched_error {
             break;
         }
-        drain_burst(&mut event_rx, &mut burst).await;
+        drain_burst(&mut event_rx, &mut burst, &cancellation).await;
+        if cancellation.is_cancelled() {
+            break 'watch;
+        }
         let mut fatal: Option<notify::Error> = None;
         let mut overflow = overflowed.swap(false, Ordering::AcqRel);
         // Include drops that happened while the quiet-window drain was
@@ -292,13 +782,16 @@ async fn run_watch(watch_id: &str, root: &Path, outbound: &OutboundSink) {
             overflow = true;
         }
         if overflow {
-            let _ = outbound
-                .critical_text(watch_error_frame(
-                    watch_id,
-                    wire::WorkspaceErrorCode::Failed,
-                    "watch event burst overflowed; refresh the tree",
-                ))
-                .await;
+            let text = watch_error_frame(
+                watch_id,
+                wire::WorkspaceErrorCode::Failed,
+                Some("watch event burst overflowed; refresh the tree"),
+            );
+            tokio::select! {
+                biased;
+                _ = cancellation.cancelled() => break 'watch,
+                _ = outbound.critical_text_with_token(text, Some(Arc::clone(&live))) => {}
+            }
         }
         let latched_error = latched_error.lock().ok().and_then(|mut error| error.take());
         if !changes.is_empty() || overflow {
@@ -310,44 +803,83 @@ async fn run_watch(watch_id: &str, root: &Path, outbound: &OutboundSink) {
                 overflow: overflow.then_some(true),
             })
             .unwrap_or_else(|_| String::new());
-            if outbound.try_watch_text(frame).is_err() {
+            if outbound.try_watch_text_with_token(frame, Some(Arc::clone(&live))).is_err() {
                 // The outbound sink is saturated or closed. Retrying by
                 // latching overflow would wake this loop immediately and
                 // spin forever while producing no observable frame. The
                 // event is explicitly lost, so terminate this watch task.
+                // Tell the client why its stream ended. Watch frames cannot
+                // consume the critical byte reserve, so this response remains
+                // available when event delivery is saturated.
+                report_watch_failure(watch_id, outbound, &cancellation, &live).await;
                 break 'watch;
             }
         }
         if saw_ignore_file {
-            matcher = build_ignore_matcher(root);
+            if let Some(updated) =
+                rebuild_ignore_matcher(root, Arc::clone(&setup_slots), &cancellation).await
+            {
+                matcher = updated;
+            } else if cancellation.is_cancelled() {
+                break 'watch;
+            }
         }
-        if let Some(error) = fatal {
-            let _ = outbound
-                .critical_text(watch_error_frame(
-                    watch_id,
-                    wire::WorkspaceErrorCode::Failed,
-                    &format!("the watcher died: {error}"),
-                ))
-                .await;
+        if let Some(_error) = fatal {
+            let text = watch_error_frame(watch_id, wire::WorkspaceErrorCode::Failed, None);
+            tokio::select! {
+                biased;
+                _ = cancellation.cancelled() => break 'watch,
+                _ = outbound.critical_text_with_token(text, Some(Arc::clone(&live))) => {}
+            }
             break;
         }
-        if let Some(error) = latched_error {
-            let _ = outbound
-                .critical_text(watch_error_frame(
-                    watch_id,
-                    wire::WorkspaceErrorCode::Failed,
-                    &format!("the watcher reported an error: {error}"),
-                ))
-                .await;
+        if let Some(_error) = latched_error {
+            let text = watch_error_frame(watch_id, wire::WorkspaceErrorCode::Failed, None);
+            tokio::select! {
+                biased;
+                _ = cancellation.cancelled() => break 'watch,
+                _ = outbound.critical_text_with_token(text, Some(Arc::clone(&live))) => {}
+            }
             break;
         }
     }
     drop(watcher);
 }
 
+/// Rebuild an ignore matcher without pausing the async relay worker. The same
+/// setup semaphore as initial admission keeps repeated `.gitignore` edits from
+/// creating an unbounded blocking-worker queue.
+async fn rebuild_ignore_matcher(
+    root: &Path,
+    setup_slots: Arc<Semaphore>,
+    cancellation: &CancellationToken,
+) -> Option<ignore::gitignore::Gitignore> {
+    let permit = tokio::select! {
+        biased;
+        _ = cancellation.cancelled() => return None,
+        result = setup_slots.acquire_owned() => result.ok()?,
+    };
+    let root = root.to_owned();
+    let blocking_cancellation = cancellation.clone();
+    let task = tokio::task::spawn_blocking(move || {
+        let _permit = permit;
+        if blocking_cancellation.is_cancelled() { None } else { Some(build_ignore_matcher(&root)) }
+    });
+    let task_abort = task.abort_handle();
+    tokio::select! {
+        biased;
+        _ = cancellation.cancelled() => {
+            task_abort.abort();
+            None
+        }
+        result = task => result.ok().flatten(),
+    }
+}
+
 async fn drain_burst(
     event_rx: &mut Receiver<Result<notify::Event, notify::Error>>,
     burst: &mut Vec<Result<notify::Event, notify::Error>>,
+    cancellation: &CancellationToken,
 ) {
     let flush_at = tokio::time::Instant::now() + DEBOUNCE_MAX_LATENCY;
     loop {
@@ -356,9 +888,13 @@ async fn drain_burst(
             return;
         }
         let quiet = DEBOUNCE_QUIET.min(flush_at - now);
-        match tokio::time::timeout(quiet, event_rx.recv()).await {
-            Ok(Some(event)) => burst.push(event),
-            Ok(None) | Err(_) => return,
+        tokio::select! {
+            biased;
+            _ = cancellation.cancelled() => return,
+            result = tokio::time::timeout(quiet, event_rx.recv()) => match result {
+                Ok(Some(event)) => burst.push(event),
+                Ok(None) | Err(_) => return,
+            },
         }
     }
 }
@@ -518,9 +1054,31 @@ fn collect_changes(
 
 #[cfg(test)]
 mod tests {
+    const CRITICAL_QUEUE_CAPACITY: usize = 256;
+
     use super::*;
     use crate::session::{OutboundFrame, OutboundSink};
+    use notify::Watcher as _;
     use serde_json::Value;
+
+    #[cfg(unix)]
+    #[test]
+    fn repeated_teardown_attempts_hit_the_hard_worker_cap() {
+        let slots = Arc::new(Semaphore::new(WATCH_TEARDOWN_CONCURRENCY));
+        let mut owners = Vec::new();
+        let mut rejected = 0;
+        for _ in 0..(WATCH_TEARDOWN_CONCURRENCY * 3) {
+            let watcher = notify::RecommendedWatcher::new(|_| {}, notify::Config::default())
+                .expect("create test watcher");
+            match WatcherOwner::new_with_slots(watcher, Arc::clone(&slots)) {
+                Ok(owner) => owners.push(owner),
+                Err(_) => rejected += 1,
+            }
+        }
+        assert_eq!(owners.len(), WATCH_TEARDOWN_CONCURRENCY);
+        assert_eq!(rejected, WATCH_TEARDOWN_CONCURRENCY * 2);
+        drop(owners);
+    }
 
     fn scratch(name: &str) -> PathBuf {
         let mut path = std::env::temp_dir();
@@ -556,6 +1114,26 @@ mod tests {
         serde_json::from_str(&frame.text).expect("valid frame json")
     }
 
+    async fn wait_for_opening_to_finish(registry: &WatchRegistry, watch_id: &str) {
+        tokio::time::timeout(Duration::from_secs(10), async {
+            loop {
+                let finished = registry
+                    .sessions
+                    .lock()
+                    .map(|state| {
+                        state.get(watch_id).map(|slot| slot.opening.is_none()).unwrap_or(true)
+                    })
+                    .unwrap_or(true);
+                if finished {
+                    return;
+                }
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .expect("watch setup did not finish");
+    }
+
     #[cfg(unix)]
     #[tokio::test]
     async fn watch_streams_debounced_changes_for_a_write() {
@@ -581,6 +1159,259 @@ mod tests {
         };
         assert_eq!(event["watchId"], "w1");
         registry.close("w1");
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn invalid_replacement_preserves_the_existing_watch() {
+        let root = scratch("invalid-replacement");
+        let (sink, mut critical, mut watch) = OutboundSink::channels();
+        let registry = WatchRegistry::new(sink);
+
+        registry.open(open_frame("same", &root), None);
+        let opened = next_frame(&mut critical, &mut watch, "first opened").await;
+        assert_eq!(opened["type"], "fs_watch_opened");
+
+        let mut invalid = open_frame("same", &root);
+        invalid.root = Some(root.join("missing").to_string_lossy().into_owned());
+        registry.open(invalid, None);
+        let refusal = next_frame(&mut critical, &mut watch, "replacement refusal").await;
+        assert_eq!(refusal["type"], "fs_watch_error");
+        assert_eq!(refusal["code"], "not_found");
+
+        // Validation happens before registry mutation. A change in the
+        // original root proves that the refused replacement kept it active.
+        tokio::time::sleep(Duration::from_millis(400)).await;
+        std::fs::write(root.join("still-watched.txt"), "kept\n").expect("write");
+        loop {
+            let event = next_frame(&mut critical, &mut watch, "existing watch event").await;
+            if event["type"] == "fs_watch_event"
+                && event["changes"].as_array().is_some_and(|changes| {
+                    changes.iter().any(|change| change["path"] == "still-watched.txt")
+                })
+            {
+                break;
+            }
+        }
+        registry.close("same");
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn pending_openings_count_toward_the_session_cap() {
+        let root = scratch("pending-cap");
+        let (sink, mut critical, mut watch) = OutboundSink::channels();
+        let registry = WatchRegistry::new(sink);
+
+        // `open` reserves synchronously and only then yields to its setup
+        // coordinator. Filling all slots back-to-back therefore exercises the
+        // cap while every setup is still pending.
+        for index in 0..WATCH_MAX_SESSIONS {
+            registry.open(open_frame(&format!("pending-{index}"), &root), None);
+        }
+        let mut over_cap = open_frame("pending-over-cap", &root);
+        over_cap.root = Some(root.to_string_lossy().into_owned());
+        registry.open(over_cap, None);
+
+        let mut saw_limit = false;
+        for _ in 0..=WATCH_MAX_SESSIONS {
+            let frame = next_frame(&mut critical, &mut watch, "pending cap response").await;
+            if frame["type"] == "fs_watch_error" && frame["code"] == "watch_limit" {
+                saw_limit = true;
+                break;
+            }
+        }
+        assert!(saw_limit, "a pending opening must consume a watch slot");
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn failed_opened_enqueue_preserves_the_existing_watch() {
+        let root = scratch("opened-queue-full");
+        let (sink, mut critical, mut watch) = OutboundSink::channels();
+        let registry = WatchRegistry::new(sink);
+
+        registry.open(open_frame("same", &root), None);
+        let opened = next_frame(&mut critical, &mut watch, "first opened").await;
+        assert_eq!(opened["type"], "fs_watch_opened");
+        let old_generation = registry
+            .sessions
+            .lock()
+            .expect("state")
+            .get("same")
+            .and_then(|slot| slot.active.as_ref())
+            .map(|active| active.generation)
+            .expect("active watch");
+
+        // Keep the critical queue full while the replacement prepares. The
+        // replacement must not retire the old watch when its acknowledgement
+        // cannot be admitted.
+        for _ in 0..256 {
+            assert!(registry.outbound.try_critical_text("{}".to_owned()).is_ok());
+        }
+        registry.open(open_frame("same", &root), None);
+        wait_for_opening_to_finish(&registry, "same").await;
+        let current_generation = registry
+            .sessions
+            .lock()
+            .expect("state")
+            .get("same")
+            .and_then(|slot| slot.active.as_ref())
+            .map(|active| active.generation);
+        assert_eq!(current_generation, Some(old_generation));
+
+        tokio::time::sleep(Duration::from_millis(400)).await;
+        std::fs::write(root.join("still-watched.txt"), "kept\n").expect("write");
+        let frame = tokio::time::timeout(Duration::from_secs(10), async {
+            loop {
+                let frame = watch.recv().await.expect("watch channel open");
+                let value: Value = serde_json::from_str(&frame.text).expect("watch json");
+                if value["type"] == "fs_watch_event"
+                    && value["changes"].as_array().is_some_and(|changes| {
+                        changes.iter().any(|change| change["path"] == "still-watched.txt")
+                    })
+                {
+                    return value;
+                }
+            }
+        })
+        .await
+        .expect("old watch did not survive queue failure");
+        assert_eq!(frame["watchId"], "same");
+        registry.close("same");
+    }
+
+    #[tokio::test]
+    async fn completed_watch_invalidates_queued_frames() {
+        let sessions = Arc::new(Mutex::new(HashMap::new()));
+        let live = Arc::new(AtomicBool::new(true));
+        let cancellation = CancellationToken::new();
+        let task = tokio::spawn(async {});
+        sessions.lock().unwrap().insert(
+            "finished".to_owned(),
+            WatchSlot {
+                active: Some(ActiveWatch {
+                    generation: 1,
+                    live: Arc::clone(&live),
+                    cancellation,
+                    abort: task.abort_handle(),
+                }),
+                opening: None,
+            },
+        );
+        finish_active("finished", 1, Arc::clone(&sessions));
+        assert!(!live.load(Ordering::Acquire));
+        assert!(sessions.lock().unwrap().is_empty());
+    }
+
+    #[tokio::test]
+    async fn failed_open_keeps_its_error_frame_live_until_delivery() {
+        let (sink, mut critical, _) = OutboundSink::channels();
+        let sessions = Arc::new(Mutex::new(HashMap::new()));
+        let live = Arc::new(AtomicBool::new(true));
+        let cancellation = CancellationToken::new();
+        sessions.lock().unwrap().insert(
+            "failed".to_owned(),
+            WatchSlot {
+                active: None,
+                opening: Some(Opening {
+                    generation: 1,
+                    live: Arc::clone(&live),
+                    cancellation: cancellation.clone(),
+                    abort: None,
+                }),
+            },
+        );
+        let task = tokio::spawn(finish_open_failure(
+            "failed",
+            1,
+            live,
+            cancellation,
+            Arc::clone(&sessions),
+            sink,
+            wire::WorkspaceErrorCode::Failed,
+            None,
+        ));
+        let mut frame = critical.recv().await.expect("failure frame");
+        assert!(frame.live.is_some(), "failure keeps its opening liveness token until delivery");
+        let value: Value = serde_json::from_str(&frame.text).expect("failure json");
+        assert_eq!(value["code"], "failed");
+        assert!(value["message"].is_null(), "internal failure copy stays out of the wire frame");
+        frame.ack.take().expect("failure delivery ack").send(()).expect("ack receiver");
+        task.await.expect("failure task");
+    }
+
+    #[tokio::test]
+    async fn failed_open_waits_for_critical_capacity() {
+        let (sink, mut critical, _) = OutboundSink::channels();
+        for _ in 0..CRITICAL_QUEUE_CAPACITY {
+            sink.try_critical_text("{}".to_owned()).expect("fill critical queue");
+        }
+        let sessions = Arc::new(Mutex::new(HashMap::new()));
+        let live = Arc::new(AtomicBool::new(true));
+        let cancellation = CancellationToken::new();
+        sessions.lock().unwrap().insert(
+            "saturated".to_owned(),
+            WatchSlot {
+                active: None,
+                opening: Some(Opening {
+                    generation: 1,
+                    live: Arc::clone(&live),
+                    cancellation: cancellation.clone(),
+                    abort: None,
+                }),
+            },
+        );
+        let task = tokio::spawn(finish_open_failure(
+            "saturated",
+            1,
+            live,
+            cancellation,
+            Arc::clone(&sessions),
+            sink,
+            wire::WorkspaceErrorCode::Failed,
+            None,
+        ));
+        tokio::task::yield_now().await;
+        assert!(!task.is_finished(), "failure waits instead of dropping under queue pressure");
+
+        let _ = critical.recv().await.expect("filler frame");
+        let mut terminal = loop {
+            let frame = critical.recv().await.expect("terminal failure frame");
+            let value: Value = serde_json::from_str(&frame.text).expect("frame json");
+            if value["type"] == "fs_watch_error" {
+                break frame;
+            }
+        };
+        terminal.ack.take().expect("terminal delivery ack").send(()).expect("ack receiver");
+        task.await.expect("failure task");
+        assert!(sessions.lock().unwrap().is_empty(), "opening is cleared after delivery");
+    }
+
+    #[tokio::test]
+    async fn saturated_watch_bytes_reports_a_terminal_error() {
+        let (sink, mut critical, _watch) = OutboundSink::channels();
+        let payload = "x".repeat(2 << 20);
+        let mut filled = 0;
+        while filled < 8 && sink.try_watch_text(payload.clone()).is_ok() {
+            filled += 1;
+        }
+        assert!(filled >= 3, "watch bytes must admit multiple frames");
+        assert!(filled < 8, "watch bytes must stop before global bytes are exhausted");
+        let cancellation = CancellationToken::new();
+        let live = Arc::new(AtomicBool::new(true));
+        let mut report = Box::pin(report_watch_failure("saturated", &sink, &cancellation, &live));
+        let frame = tokio::select! {
+            frame = critical.recv() => frame.expect("terminal error frame"),
+            _ = &mut report => panic!("terminal report returned before delivery ack"),
+        };
+        let value: Value = serde_json::from_str(&frame.text).expect("error json");
+        assert_eq!(value["type"], "fs_watch_error");
+        assert_eq!(value["watchId"], "saturated");
+        assert_eq!(value["code"], "failed");
+        assert!(value["message"].is_null(), "terminal copy is localized by the client");
+        frame.ack.expect("terminal delivery ack").send(()).expect("ack receiver");
+        report.await;
     }
 
     #[cfg(unix)]

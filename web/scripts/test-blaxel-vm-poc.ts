@@ -1,12 +1,13 @@
 #!/usr/bin/env bun
 // Live E2E proof for the Blaxel Cloud VM driver, run directly against the driver (no HTTP
-// route, no Postgres): create a sandbox, bootstrap cmuxd-remote, attach the WebSocket PTY
-// with a single-use lease, run a shell round trip, verify the lease is consumed on replay,
-// then destroy the sandbox.
+// route, no Postgres): create a sandbox, let the driver install and start the cmux-tui
+// remote daemon, mint the cmux-remote attach endpoint (route + enrollment invitation),
+// verify the daemon answers on that route, check the smart-sleep watcher, then destroy
+// the sandbox. The Noise handshake itself needs a cmux-tui client and is covered by
+// `cmux vm tui <id>` from the Mac.
 //
 // Usage:
-//   set -a; source ~/.secrets/blaxel.env; set +a   # BL_API_KEY, BL_WORKSPACE
-//   export CMUX_VM_BLAXEL_DAEMON_PATH=/path/to/cmuxd-remote-linux-amd64
+//   set -a; source ~/.secrets/cmux.env; set +a   # BL_API_KEY, BL_WORKSPACE
 //   bun scripts/test-blaxel-vm-poc.ts [--keep]
 import { BlaxelProvider } from "../services/vms/drivers/blaxel";
 import { resolveVmImage } from "../services/vms/images/resolver";
@@ -17,56 +18,25 @@ function log(step: string, detail?: unknown) {
   console.log(`[blaxel-poc] ${step}${detail === undefined ? "" : ` ${JSON.stringify(detail)}`}`);
 }
 
-async function attachOnce(
-  url: string,
-  headers: Record<string, string>,
-  token: string,
-  sessionId: string,
-  command: string,
-  expect: string,
-): Promise<{ ready: boolean; output: string }> {
-  // Browser-style WebSocket can't set headers, so pass the preview token the query-param way
-  // Blaxel also supports. The Mac client uses the returned headers instead.
-  const previewToken = headers["X-Blaxel-Preview-Token"] ?? "";
-  const ws = new WebSocket(`${url}?bl_preview_token=${encodeURIComponent(previewToken)}`);
-  let ready = false;
-  let output = "";
-  await new Promise<void>((resolve, reject) => {
+// The daemon route is a tokenized WebSocket URL. Dialing it without a Noise handshake
+// proves the ingress + daemon are up (the upgrade completes) without enrolling a device.
+async function probeRoute(route: string): Promise<{ opened: boolean; detail: string }> {
+  return new Promise((resolve) => {
+    const ws = new WebSocket(route);
     const timer = setTimeout(() => {
       ws.close();
-      resolve();
+      resolve({ opened: false, detail: "timeout" });
     }, 15_000);
     ws.onopen = () => {
-      ws.send(JSON.stringify({ type: "auth", token, session_id: sessionId, cols: 100, rows: 30 }));
-    };
-    ws.onmessage = (event) => {
-      const data = event.data;
-      if (typeof data === "string") {
-        const frame = JSON.parse(data) as { type?: string };
-        if (frame.type === "ready") {
-          ready = true;
-          ws.send(new TextEncoder().encode(`${command}\n`));
-        }
-        return;
-      }
-      output += new TextDecoder().decode(data as ArrayBuffer | Uint8Array);
-      if (output.includes(expect)) {
-        clearTimeout(timer);
-        ws.close();
-        resolve();
-      }
-    };
-    ws.onerror = () => {
       clearTimeout(timer);
-      resolve();
+      ws.close();
+      resolve({ opened: true, detail: "upgrade completed" });
     };
-    ws.onclose = () => {
+    ws.onerror = (event) => {
       clearTimeout(timer);
-      resolve();
+      resolve({ opened: false, detail: String((event as { message?: string }).message ?? "error") });
     };
-    void reject;
   });
-  return { ready, output };
 }
 
 const provider = new BlaxelProvider();
@@ -75,44 +45,46 @@ const image = resolveVmImage("blaxel", process.env.BLAXEL_SANDBOX_IMAGE, process
 log("create", { image });
 const t0 = Date.now();
 const handle = await provider.create({ image });
-log("created", { vmId: handle.providerVmId, ms: Date.now() - t0 });
+log("created", { vmId: handle.providerVmId, ms: Date.now() - t0, previewUrl: handle.providerMetadata?.previewUrl });
 
 let failed = false;
 try {
-  const execResult = await provider.exec(handle.providerVmId, "uname -sm && whoami");
+  const execResult = await provider.exec(handle.providerVmId, "uname -sm && whoami && cmux-tui --version");
   log("exec", execResult);
-  if (execResult.exitCode !== 0) throw new Error("exec failed");
+  if (execResult.exitCode !== 0) throw new Error("exec failed (cmux-tui missing?)");
+
+  // The legacy attach must be refused: the driver serves cmux-remote only.
+  let legacyRefused = false;
+  try {
+    await provider.openAttach(handle.providerVmId, { requireDaemon: true });
+  } catch (err) {
+    legacyRefused = /cmux-remote/.test(err instanceof Error ? err.message : String(err));
+  }
+  log("legacy-attach-refused", { pass: legacyRefused });
+  if (!legacyRefused) throw new Error("openAttach must be refused on Blaxel (cmux-tui only)");
 
   const t1 = Date.now();
-  const endpoint = await provider.openAttach(handle.providerVmId, { requireDaemon: true });
-  if (endpoint.transport !== "websocket") throw new Error("expected websocket endpoint");
-  log("attach-endpoint", { url: endpoint.url, ms: Date.now() - t1, daemon: !!endpoint.daemon });
+  const endpoint = await provider.openCmuxRemote(handle.providerVmId, {
+    deviceFingerprint: "poc-device",
+    providerMetadata: handle.providerMetadata,
+  });
+  log("cmux-remote-endpoint", {
+    route: endpoint.route.replace(/bl_preview_token=[^&]+/, "bl_preview_token=<redacted>"),
+    session: endpoint.session,
+    invited: !!endpoint.invitation,
+    daemonBuild: endpoint.daemonBuild ?? null,
+    ms: Date.now() - t1,
+  });
+  if (endpoint.transport !== "cmux-remote") throw new Error("expected a cmux-remote endpoint");
+  if (!endpoint.invitation) throw new Error("a never-enrolled device must receive an enrollment invitation");
 
-  const marker = `cmux-blaxel-poc-${Math.floor(Math.random() * 1e6)}`;
-  const attach = await attachOnce(
-    endpoint.url,
-    endpoint.headers,
-    endpoint.token,
-    endpoint.sessionId,
-    `echo ${marker} $((6*7))`,
-    `${marker} 42`,
-  );
-  log("pty-round-trip", { ready: attach.ready, pass: attach.output.includes(`${marker} 42`) });
-  if (!attach.ready || !attach.output.includes(`${marker} 42`)) {
-    throw new Error(`PTY round trip failed; output tail: ${attach.output.slice(-300)}`);
-  }
+  const probe = await probeRoute(endpoint.route);
+  log("route-probe", probe);
+  if (!probe.opened) throw new Error(`daemon route did not accept a WebSocket upgrade: ${probe.detail}`);
 
-  // Single-use lease: a replay with the same token must be rejected before a PTY starts.
-  const replay = await attachOnce(
-    endpoint.url,
-    endpoint.headers,
-    endpoint.token,
-    endpoint.sessionId,
-    "echo should-not-run",
-    "should-not-run",
-  );
-  log("single-use-replay-rejected", { pass: !replay.ready });
-  if (replay.ready) throw new Error("replayed single-use lease was accepted");
+  const pending = await provider.approveCmuxRemoteEnrollment(handle.providerVmId, endpoint.invitation.invitationId);
+  log("approve-unclaimed-invitation", pending);
+  if (pending.state !== "pending") throw new Error("an unclaimed invitation must report pending, not approve");
 
   const status = await provider.getStatus(handle.providerVmId);
   log("status", { status });
@@ -121,11 +93,14 @@ try {
   // idle sandbox can freeze to $0 while a busy one keeps running with the laptop closed.
   const watcherCheck = await provider.exec(
     handle.providerVmId,
-    "pgrep -f cmux-smart-sleep >/dev/null && echo watcher-running",
+    "pgrep -f cmux-smart-sleep >/dev/null && echo watcher-running; pgrep -x cmuxd-remote >/dev/null && echo cmuxd-present",
   );
   log("smart-sleep-watcher", { pass: watcherCheck.stdout.includes("watcher-running") });
   if (!watcherCheck.stdout.includes("watcher-running")) {
     throw new Error("smart-sleep watcher is not running after create");
+  }
+  if (watcherCheck.stdout.includes("cmuxd-present")) {
+    throw new Error("cmuxd-remote must not run on a cmux-tui-only machine");
   }
 } catch (err) {
   failed = true;

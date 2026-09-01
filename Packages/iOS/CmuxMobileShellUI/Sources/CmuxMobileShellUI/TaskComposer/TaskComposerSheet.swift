@@ -173,7 +173,7 @@ struct TaskComposerSheet: View {
         let foregroundMacID = store.connectedMacDeviceID
         let foregroundMacInstanceTag = store.connectedMacInstanceTag
         // Restore persisted Mac IDs only while they remain paired.
-        let availablePairedMacs = availableMachines ?? store.displayPairedMacs
+        let availablePairedMacs = availableMachines ?? store.taskComposerPairedMacs
         let restoredMac = store.taskTemplateStore?.lastMacDeviceID()
             .flatMap { id in availablePairedMacs.first { $0.id == id } }
         // Restore a draft only when its complete pairing identity still exists.
@@ -672,7 +672,7 @@ struct TaskComposerSheet: View {
     }
 
     private var machines: [MobilePairedMac] {
-        availableMachines ?? store.displayPairedMacs
+        availableMachines ?? store.taskComposerPairedMacs
     }
 
     /// The "No Mac is connected" notice. The entrypoint no longer hides while

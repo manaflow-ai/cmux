@@ -118,8 +118,9 @@ versioned schema, ownership, validation, patch, and change-event contract in
 
 The native TUI may:
 
-- query OSC 10 and OSC 11 briefly at startup and use the replies as color
-  defaults;
+- query OSC 10 and OSC 11 briefly at startup and use the replies as
+  client-local compatibility input for chrome selection; the replies do not
+  mutate shared mux or application terminal defaults;
 - write OSC 52 to copy a local selection;
 - write OSC 22 pointer-shape updates over clickable UI;
 - use Kitty graphics and keyboard capabilities;

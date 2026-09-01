@@ -84,7 +84,8 @@ where
 
         if is_value_flag(argument) {
             let value = args.get(index + 1).map(String::as_str);
-            let usable = value.is_some_and(|value| value != "--" && !value.starts_with('-'));
+            let usable = value
+                .is_some_and(|value| !value.is_empty() && value != "--" && !value.starts_with('-'));
             if !usable {
                 return Err(missing_value(argument));
             }
@@ -234,6 +235,7 @@ mod tests {
             &["--backend", "--code"][..],
             &["--backend", "--"][..],
             &["--allow-root", "--status"][..],
+            &["--config", ""][..],
         ] {
             let error = parse(args).expect_err("missing value refused");
             assert!(error.message.contains("requires a value"), "{args:?}: {}", error.message);

@@ -18,6 +18,9 @@ private let hostSettingsLogger = Logger(subsystem: "com.cmuxterm.app", category:
 @MainActor
 final class HostSettingsActions: SettingsHostActions {
     private let configFileURL: URL
+    private let computerUseRuntimeService: ComputerUseRuntimeService
+    private var runComputerUseOnboardingAction:
+        @MainActor (ComputerUseOnboardingWindowController.StartingPoint) -> Void = { _ in }
 
     /// Serializes font-size config writes so rapid slider saves persist in order.
     private let fontConfigWriter = FontConfigWriter()
@@ -44,8 +47,12 @@ final class HostSettingsActions: SettingsHostActions {
     private var configWindow: NSWindow?
     private var configWindowCloseObserver: WindowCloseObserver?
 
-    init(configFileURL: URL) {
+    init(
+        configFileURL: URL,
+        computerUseRuntimeService: ComputerUseRuntimeService
+    ) {
         self.configFileURL = configFileURL
+        self.computerUseRuntimeService = computerUseRuntimeService
         startObservingAppIconMode()
     }
 
@@ -118,6 +125,44 @@ final class HostSettingsActions: SettingsHostActions {
 
     func applyLanguageOverride(_ language: AppLanguage) {
         LanguageSettingsStore(defaults: .standard).applyLanguageOverride(language)
+    }
+
+    func refreshComputerUsePermissions() async {
+        _ = await computerUseRuntimeService.refreshHelperStatus()
+    }
+
+    func computerUseAccessibilityGranted() -> Bool {
+        computerUseRuntimeService.status().accessibility
+    }
+
+    func computerUseScreenRecordingGranted() -> Bool {
+        computerUseRuntimeService.status().screenRecording
+    }
+
+    func computerUsePermissionStatusIsKnown() -> Bool {
+        computerUseRuntimeService.permissionStatusIsKnown
+    }
+
+    func requestComputerUseAccessibility() {
+        runComputerUseOnboardingAction(.accessibility)
+    }
+
+    func requestComputerUseScreenRecording() {
+        runComputerUseOnboardingAction(.screenRecording)
+    }
+
+    func openComputerUseAccessibilitySettings() {
+        runComputerUseOnboardingAction(.accessibility)
+    }
+
+    func openComputerUseScreenRecordingSettings() {
+        runComputerUseOnboardingAction(.screenRecording)
+    }
+
+    func setRunComputerUseOnboardingAction(
+        _ action: @escaping @MainActor (ComputerUseOnboardingWindowController.StartingPoint) -> Void
+    ) {
+        runComputerUseOnboardingAction = action
     }
 
     func openConfigInExternalEditor() {
@@ -272,7 +317,9 @@ final class HostSettingsActions: SettingsHostActions {
     func cloudMachinesPlanSummary() async -> CloudMachinesPlanSummary? {
         guard let client = VMClient.shared else { return nil }
         guard let page = try? await client.listPage(), let limits = page.limits else { return nil }
-        let isPaid = limits.planId != "free"
+        // Same classifier as the Machines panel so Settings and the panel never
+        // disagree about an unknown plan id (both fail closed to "not paid").
+        let isPaid = MachinePlanSnapshot.isPaidPlanID(limits.planId)
         let planLabel = isPaid
             ? limits.planId.capitalized
             : String(localized: "settings.cloudMachines.plan.free", defaultValue: "Free")
@@ -471,7 +518,13 @@ final class HostSettingsActions: SettingsHostActions {
     }
 
     func irohSettingsController() -> (any CmxIrohSettingsControlling)? {
-        MobileHostIrohRuntime.shared
+        // Exactly one runtime owns the transport slot (gated in
+        // MobileHostService.configure); Settings must read the same one, or
+        // the Networking section reports the dormant stack's stale state.
+        if MobileHostIrxRuntime.isEnabled {
+            return MobileHostIrxRuntime.shared
+        }
+        return MobileHostIrohRuntime.shared
     }
 
     /// Maps the host's ``MobileHostServiceStatus`` into the settings package's

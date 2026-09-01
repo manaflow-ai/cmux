@@ -1,11 +1,6 @@
 import type { AuthedUser } from "../../../../services/vms/auth";
 import { assertVmCreateEnabled } from "../../../../services/vms/config";
-import { defaultProviderId, type ProviderId } from "../../../../services/vms/drivers";
-import {
-  isVmBillingTeamResolutionError,
-  isVmProGateBlocked,
-  resolveVmEntitlements,
-} from "../../../../services/vms/entitlements";
+import { defaultProviderId, isProviderId, type ProviderId } from "../../../../services/vms/drivers";
 import {
   isVmCreateCreditsInsufficientError,
   isVmCreateDisabledError,
@@ -16,18 +11,26 @@ import {
 } from "../../../../services/vms/errors";
 import {
   imageUsesBakedFreestyleSignedAdmin,
+  inferVmProviderForImage,
   resolveVmImage,
+} from "../../../../services/vms/images/resolver";
+import {
+  reportVmImageConfigError,
+  isVmImageKind,
+  VM_IMAGE_KINDS,
+  type VmImageKind,
 } from "../../../../services/vms/images/resolver";
 import {
   jsonResponse,
   requestedVmTeamIdFromRequest,
-  vmBillingTeamErrorResponse,
   vmActiveLimitExceededResponse,
   vmErrorResponse,
   vmWorkflowErrorResponse,
-  vmRequiresProResponse,
+  resolveVmProvisioningAccountScope,
 } from "../../../../services/vms/routeHelpers";
-import { VmTimingRecorder } from "../../../../services/vms/timings";
+import { vmRequestLocale } from "../../../../services/vms/vmErrorMessages";
+import type { VmTimingRecorder } from "../../../../services/vms/timings";
+import type { Locale } from "../../../../i18n/routing";
 import {
   openBaseVm,
   resetBaseVm,
@@ -47,26 +50,17 @@ export async function runBaseRoute(input: {
   if (!parsed.ok) return parsed.response;
 
   const requestedBillingTeamId = parsed.body.billingTeamId || requestedVmTeamIdFromRequest(input.request);
-  let entitlements;
-  try {
-    entitlements = resolveVmEntitlements(input.user, process.env, {
-      requestedBillingTeamId,
-      requireTeam: false,
-    });
-  } catch (err) {
-    if (isVmBillingTeamResolutionError(err)) return vmBillingTeamErrorResponse(err);
-    throw err;
-  }
+  const account = await resolveVmProvisioningAccountScope(input.user, input.request, { requestedBillingTeamId });
+  if (!account.ok) return account.response;
+  const entitlements = account.entitlements;
 
-  if (isVmProGateBlocked(entitlements)) {
-    return vmRequiresProResponse();
-  }
-
-  const provider = parsed.body.provider ?? defaultProviderId();
+  // Same provider inference as POST /api/vm: an explicit manifest image
+  // names its own provider even when the deployment default disagrees.
+  const provider = parsed.body.provider ?? inferVmProviderForImage(parsed.body.image) ?? defaultProviderId();
   let imageSelection;
   try {
     assertVmCreateEnabled(provider);
-    imageSelection = resolveVmImage(provider, parsed.body.image);
+    imageSelection = resolveVmImage(provider, parsed.body.image, process.env, { kind: parsed.body.kind });
   } catch (err) {
     if (isVmCreateDisabledError(err)) {
       return vmErrorResponse({
@@ -80,13 +74,20 @@ export async function runBaseRoute(input: {
       });
     }
     if (isVmImageConfigError(err)) {
+      const described = reportVmImageConfigError(err);
       return vmErrorResponse({
         error: "vm_image_config_error",
         status: 503,
-        message: "The Cloud VM image is not available in this environment.",
-        action: "Retry in a moment. If it keeps failing, contact support so we can check the Cloud VM image configuration.",
+        message: described.message,
+        action: described.action,
         reason: "Cloud VM image configuration is unavailable.",
-        details: { imageRequested: err.image !== undefined },
+        details: described.details,
+        diagnostics: {
+          provider,
+          image: err.image,
+          envVar: err.envVar,
+          configReason: err.reason,
+        },
         phase: "create",
         retryable: true,
       });
@@ -115,7 +116,12 @@ export async function runBaseRoute(input: {
         : openBaseVm(programInput),
     );
   } catch (err) {
-    const response = baseWorkflowErrorResponse(err, input.operation, entitlements.planId);
+    const response = await baseWorkflowErrorResponse(
+      err,
+      input.operation,
+      entitlements.planId,
+      vmRequestLocale(input.request),
+    );
     if (response) return response;
     throw err;
   }
@@ -125,6 +131,7 @@ export async function runBaseRoute(input: {
     provider: entry.provider,
     image: entry.image,
     imageVersion: entry.imageVersion,
+    kind: imageSelection.kind,
     status: entry.status,
     createdAt: entry.createdAt,
     base: {
@@ -136,7 +143,12 @@ export async function runBaseRoute(input: {
   });
 }
 
-function baseWorkflowErrorResponse(err: unknown, operation: BaseOperation, planId: string): Response | null {
+async function baseWorkflowErrorResponse(
+  err: unknown,
+  operation: BaseOperation,
+  planId: string,
+  locale: Locale,
+): Promise<Response | null> {
   if (isVmCreateInProgressError(err)) {
     return vmErrorResponse({
       error: "vm_base_create_in_progress",
@@ -165,8 +177,8 @@ function baseWorkflowErrorResponse(err: unknown, operation: BaseOperation, planI
       limit: err.limit,
       planId,
       retryAction: operation === "reset"
-        ? "Stop or delete another active Cloud VM, then retry Base reset. The current Base is still retained."
-        : "Stop or delete another active Cloud VM, then retry opening Base.",
+        ? "Delete another active Cloud VM, then retry Base reset. The current Base is still retained."
+        : "Delete another active Cloud VM, then retry opening Base.",
       phase: "create",
     });
   }
@@ -183,14 +195,14 @@ function baseWorkflowErrorResponse(err: unknown, operation: BaseOperation, planI
       phase: "billing",
     });
   }
-  return vmWorkflowErrorResponse(err);
+  return vmWorkflowErrorResponse(err, { locale });
 }
 
 async function parseBaseRequest(
   request: Request,
   operation: BaseOperation,
 ): Promise<
-  | { readonly ok: true; readonly body: { readonly name?: string; readonly image?: string; readonly provider?: ProviderId; readonly billingTeamId?: string; readonly reason?: string | null } }
+  | { readonly ok: true; readonly body: { readonly name?: string; readonly image?: string; readonly kind?: VmImageKind; readonly provider?: ProviderId; readonly billingTeamId?: string; readonly reason?: string | null } }
   | { readonly ok: false; readonly response: Response }
 > {
   let raw: unknown = {};
@@ -245,8 +257,20 @@ async function parseBaseRequest(
       };
     }
   }
+  if (candidate.kind !== undefined && candidate.kind !== null && !isVmImageKind(candidate.kind)) {
+    return {
+      ok: false,
+      response: vmErrorResponse({
+        error: "vm_invalid_request",
+        status: 400,
+        message: `\`kind\` must be one of ${VM_IMAGE_KINDS.join(", ")} when provided.`,
+        action: "Remove `kind` to use the default Cloud VM image, or pass `desktop` or `base`.",
+        details: { field: "kind", allowedKinds: VM_IMAGE_KINDS },
+      }),
+    };
+  }
   const provider = typeof candidate.provider === "string" ? candidate.provider.trim() : undefined;
-  if (provider && provider !== "e2b" && provider !== "freestyle" && provider !== "daytona" && provider !== "blaxel") {
+  if (provider && !isProviderId(provider)) {
     return {
       ok: false,
       response: vmErrorResponse({
@@ -263,6 +287,7 @@ async function parseBaseRequest(
     body: {
       name: stringValue(candidate.name),
       image: stringValue(candidate.image),
+      kind: isVmImageKind(candidate.kind) ? candidate.kind : undefined,
       provider: provider as ProviderId | undefined,
       billingTeamId: stringValue(bodyBillingTeamId),
       reason: stringValue(candidate.reason) ?? null,

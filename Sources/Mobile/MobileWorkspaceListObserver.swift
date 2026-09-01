@@ -259,12 +259,14 @@ final class MobileWorkspaceListObserver {
 
     /// A per-workspace signature of the notification-store state the mobile
     /// payload serializes: the latest-notification preview (its id + timestamp)
-    /// and the workspace's unread flag. The hash changes when a new notification
-    /// arrives, the latest one is cleared, or the workspace flips between read
-    /// and unread (mark-read, manual mark-unread, panel-derived or restored
-    /// indicators). A workspace with no notification and no unread state is
-    /// absent from the map. Empty when no store is attached (tests, or a build
-    /// with notifications unavailable).
+    /// and the workspace's unread count and flag. The hash changes when a new
+    /// notification arrives, the latest one is cleared, the workspace flips
+    /// between read and unread (mark-read, manual mark-unread, panel-derived
+    /// or restored indicators), or the unread count moves while staying
+    /// nonzero (dismissing one of several notifications must refresh the
+    /// phone's badge number). A workspace with no notification and no unread
+    /// state is absent from the map. Empty when no store is attached (tests,
+    /// or a build with notifications unavailable).
     static func previewSignatures(
         for tabs: [Workspace],
         unreadSnapshot: SidebarUnreadSnapshot?
@@ -280,6 +282,7 @@ final class MobileWorkspaceListObserver {
             hasher.combine(summary.latestNotificationId)
             hasher.combine(summary.latestNotificationCreatedAt)
             hasher.combine(isUnread)
+            hasher.combine(summary.unreadCount)
             signatures[workspace.id] = hasher.finalize()
         }
         return signatures

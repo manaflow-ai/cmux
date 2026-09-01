@@ -1,4 +1,5 @@
 #if os(iOS)
+import CmuxMobileShellModel
 import CmuxMobileSupport
 import Foundation
 
@@ -32,6 +33,17 @@ struct MobileWhatsNewPage: Identifiable {
     /// Remote announcements are visually marked to distinguish service news
     /// from binary release notes.
     let isAnnouncement: Bool
+/// Build channels this catalog entry may render on
+    /// (``MobileBuildType/token`` values). `nil` (the norm) means the
+    /// ``MobileWhatsNewChannelPolicy`` default: team lanes only, never the
+    /// official App Store app. The remote list can override per entry
+    /// (`entryChannels`), so an entry can be opted into official without a
+    /// binary change. Only meaningful for binary catalog entries; resolved
+    /// announcements are channel-filtered before page construction.
+    var channels: [String]? = nil
+    /// One quiet line under the feature rows (compatibility notes and other
+    /// fine print that must not compete with the features). `nil` hides it.
+    var footnote: String? = nil
 
     /// SwiftUI list identity, namespaced by kind so an announcement id can
     /// never collide with a binary entry id in a mixed list (the server
@@ -49,6 +61,13 @@ struct MobileWhatsNewPage: Identifiable {
 /// (`/api/whats-new` `visibleEntryIds`) both reference it, and the
 /// unseen computation orders pages by catalog index.
 enum MobileWhatsNewCatalog {
+    /// Filled in precisely at the accompanying Mac release cut; the What's
+    /// New compat notice interpolates it. ONE value to edit at cut time.
+    static let requiredMacVersionLabel = L10n.string(
+        "mobile.connectionsUpdate.macUpdate.requiredVersion",
+        defaultValue: "the latest cmux NIGHTLY or cmux RELEASE"
+    )
+
     /// Newest first. The one-time sheet shows every visible entry newer than
     /// the acknowledgement marker.
     static var entries: [MobileWhatsNewPage] {
@@ -57,6 +76,22 @@ enum MobileWhatsNewCatalog {
 
     static func entry(withID id: String) -> MobileWhatsNewPage? {
         entries.first { $0.id == id }
+    }
+
+    /// The catalog restricted to entries this build's channel may show, per
+    /// their compiled-in channel declarations. This is the no-remote-list
+    /// baseline: never-fetched devices and centerless fallbacks (previews)
+    /// use it, so an official App Store build renders NO What's New surface
+    /// before its first fetch, while team builds keep the full catalog.
+    static func channelVisibleEntries(
+        buildType: MobileBuildType = .current()
+    ) -> [MobileWhatsNewPage] {
+        entries.filter { page in
+            MobileWhatsNewChannelPolicy.isVisible(
+                channelTokens: page.channels,
+                buildType: buildType
+            )
+        }
     }
 
     /// Catalog position (0 = newest). The unseen computation compares
@@ -123,8 +158,38 @@ enum MobileWhatsNewCatalog {
                     )
                 ),
             ]),
-            isAnnouncement: false
+            isAnnouncement: false,
+            // The compat requirement is one compact notice under the feature
+            // rows (owner feedback: the old full-width warning row read as
+            // clutter, and BETA users need the revert path).
+            footnote: macUpdateFootnote()
         )
+    }
+
+    /// The compat-notice footnote, gated per distribution channel.
+    ///
+    /// Team builds include the BETA TestFlight rollback recipe. The public
+    /// App Store app has no older protocol version to revert to, so it gets
+    /// the update requirement only; App Review's Guideline 2.2 rejection also
+    /// bars beta-lane vocabulary from its UI.
+    static func macUpdateFootnote(buildType: MobileBuildType = .current()) -> String {
+        let requirement = String(
+            format: L10n.string(
+                "mobile.macUpdate.requiredOnMacFormat",
+                defaultValue: "Requires %@ on your Mac."
+            ),
+            requiredMacVersionLabel
+        )
+        guard buildType.usesInternalBuildVocabulary else {
+            return requirement
+        }
+        return [
+            requirement,
+            L10n.string(
+                "mobile.macUpdate.revertShort",
+                defaultValue: "Not ready? Stay on (or revert to) cmux BETA 1.0.4 (20260817224846)."
+            ),
+        ].joined(separator: " ")
     }
 }
 #endif

@@ -352,3 +352,48 @@ import Testing
         #expect(!transport.removeSocketPathLockIfAvailable(for: path))
     }
 }
+
+@Suite struct SocketParentDirectoryCreationErrnoTests {
+    let transport = SocketTransport()
+
+    // FileManager wraps mkdir failures in Cocoa-domain errors; the transport
+    // must surface the underlying POSIX errno (EACCES for a read-only parent)
+    // instead of collapsing every non-POSIX-domain error to EIO, which made
+    // Sentry events show a misleading "Input/output error" for permission
+    // problems (CMUXTERM-MACOS-2MHE).
+    @Test func readOnlyParentReportsUnderlyingPosixErrno() throws {
+        let base = URL(
+            fileURLWithPath: "/tmp/cmux-ctlsock-mkdir-\(UUID().uuidString.lowercased().prefix(8))",
+            isDirectory: true
+        )
+        try FileManager.default.createDirectory(at: base, withIntermediateDirectories: true)
+        defer {
+            chmod(base.path, 0o700)
+            try? FileManager.default.removeItem(at: base)
+        }
+        #expect(chmod(base.path, 0o500) == 0)
+
+        let socketPath = base
+            .appendingPathComponent("state", isDirectory: true)
+            .appendingPathComponent("cmux.sock", isDirectory: false)
+            .path
+        let errnoCode = transport.ensureSocketParentDirectoryExists(path: socketPath)
+        #expect(errnoCode == EACCES)
+    }
+
+    @Test func creatableParentReportsNoError() throws {
+        let base = URL(
+            fileURLWithPath: "/tmp/cmux-ctlsock-mkdir-\(UUID().uuidString.lowercased().prefix(8))",
+            isDirectory: true
+        )
+        defer { try? FileManager.default.removeItem(at: base) }
+
+        let socketPath = base
+            .appendingPathComponent("state", isDirectory: true)
+            .appendingPathComponent("cmux.sock", isDirectory: false)
+            .path
+        #expect(transport.ensureSocketParentDirectoryExists(path: socketPath) == nil)
+        var st = stat()
+        #expect(stat((socketPath as NSString).deletingLastPathComponent, &st) == 0)
+    }
+}

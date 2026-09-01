@@ -6,6 +6,7 @@
 use cmux_tui_core::Rect;
 use ratatui::Frame;
 use ratatui::style::{Color, Modifier, Style};
+use std::borrow::Cow;
 
 use super::{
     ScrollbarState, ScrollbarStyle, middle_truncate, rail, truncate, viewport_thumb_geometry,
@@ -26,8 +27,8 @@ fn projection_empty_label(resource: SidebarResourceKind) -> &'static str {
     }
 }
 
-fn projection_detail(row: &crate::sidebar_projection::ProjectionRow) -> String {
-    let Some(state) = row.agent_state.as_deref() else { return row.subtitle.clone() };
+fn projection_detail<'a>(row: &'a crate::sidebar_projection::ProjectionRow) -> Cow<'a, str> {
+    let Some(state) = row.agent_state.as_deref() else { return Cow::Borrowed(&row.subtitle) };
     let messages = &localization::catalog().sidebar;
     let state = match state {
         "working" => messages.working,
@@ -36,7 +37,11 @@ fn projection_detail(row: &crate::sidebar_projection::ProjectionRow) -> String {
         "done" => messages.done,
         _ => messages.unknown,
     };
-    if row.subtitle.is_empty() { state.to_string() } else { format!("{state} · {}", row.subtitle) }
+    if row.subtitle.is_empty() {
+        Cow::Borrowed(state)
+    } else {
+        Cow::Owned(format!("{state} · {}", row.subtitle))
+    }
 }
 
 /// The color of a workspace's unread indicator, or `None` when nothing is
@@ -316,7 +321,15 @@ pub fn draw_tabs(app: &mut App, frame: &mut Frame) {
 /// Render one configurable resource path as a dense native tree column.
 pub fn draw_projection(app: &mut App, frame: &mut Frame, view_index: usize) {
     let Some(area) = app.projection_sidebar_area(view_index) else { return };
-    let Some(spec) = app.config.sidebar.views.get(view_index).cloned() else { return };
+    let Some(empty_resource) = app
+        .config
+        .sidebar
+        .views
+        .get(view_index)
+        .map(|spec| spec.levels.last().copied().unwrap_or(SidebarResourceKind::Workspaces))
+    else {
+        return;
+    };
     let rows = app.projection_rows(view_index);
     let actions = app.sidebar_action_rows(view_index);
     let focused = app.projection_sidebar_focused(view_index);
@@ -358,8 +371,7 @@ pub fn draw_projection(app: &mut App, frame: &mut Frame, view_index: usize) {
     if rows.is_empty()
         && let Some(y) = viewport.body_y(rail::RowSpan::new(0, 1))
     {
-        let resource = spec.levels.last().copied().unwrap_or(SidebarResourceKind::Workspaces);
-        rail::button(frame, area, y, projection_empty_label(resource), false, palette);
+        rail::button(frame, area, y, projection_empty_label(empty_resource), false, palette);
     }
     for (row_index, row) in rows.iter().enumerate() {
         let Some(y) = viewport.body_y(rail::RowSpan::new(row_index, 1)) else { continue };

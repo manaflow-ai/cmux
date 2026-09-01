@@ -3,7 +3,10 @@ export type IconName =
   | "background"
   | "bars"
   | "check"
+  | "chevronDown"
+  | "chevronUp"
   | "classic"
+  | "close"
   | "collapse"
   | "clipboard"
   | "document"
@@ -39,12 +42,18 @@ function IconPaths({ name }: { name: IconName }) {
     return <><path d="M5 4v12" /><path d="M9 6v8" /><path d="M13 8v4" /></>;
   case "check":
     return <path d="M4 10.5 8 14l8-9" />;
+  case "chevronDown":
+    return <path d="M5.5 7.5 10 12l4.5-4.5" />;
+  case "chevronUp":
+    return <path d="M5.5 12.5 10 8l4.5 4.5" />;
   case "classic":
     return <><path d="M4 5h12" /><path d="M4 10h12" /><path d="M4 15h12" /><path d="M7 3v4" /><path d="M13 8v4" /></>;
   case "collapse":
     return <><path d="M13.5 11.5 10 15 6.5 11.5" /><path d="M6.5 8.5 10 5l3.5 3.5" /></>;
   case "clipboard":
     return <><rect x="5" y="4" width="10" height="13" rx="2" /><path d="M8 4a2 2 0 0 1 4 0" /><path d="M8 7h4" /></>;
+  case "close":
+    return <><path d="m6 6 8 8" /><path d="m14 6-8 8" /></>;
   case "document":
     return <><path d="M6 3h6l4 4v10H6z" /><path d="M12 3v5h5" /></>;
   case "dots":

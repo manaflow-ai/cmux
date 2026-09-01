@@ -9,7 +9,7 @@ import Testing
 #endif
 
 @MainActor
-@Suite struct BrowserOmnibarSuggestionClickRoutingTests {
+@Suite(.serialized) struct BrowserOmnibarSuggestionClickRoutingTests {
     @Test func clickInsideVisiblePopupRoutesToSuggestionsOverlay() throws {
         let setup = try makeSlotWithSuggestions()
         let hit = setup.slot.hitTest(NSPoint(x: 300, y: 540))

@@ -715,20 +715,26 @@ fn human_key_rank(key: &str) -> usize {
 }
 
 pub(super) fn resolve_socket(global: &GlobalArgs) -> anyhow::Result<PathBuf> {
+    Ok(resolve_socket_with_origin(global)?.0)
+}
+
+/// Resolve a socket and report whether it belongs to cmux's private runtime
+/// directory. Environment-selected and explicit paths remain caller-managed.
+pub(super) fn resolve_socket_with_origin(global: &GlobalArgs) -> anyhow::Result<(PathBuf, bool)> {
     if let Some(path) = &global.socket {
-        return Ok(path.clone());
+        return Ok((path.clone(), false));
     }
     if let Some(session) = &global.session {
-        return cmux_tui_core::server::try_default_socket_path(session);
+        return Ok((cmux_tui_core::server::try_default_socket_path(session)?, true));
     }
     for name in ["CMUX_TUI_SOCKET", "CMUX_MUX_SOCKET"] {
         if let Some(path) = std::env::var_os(name)
             && !path.is_empty()
         {
-            return Ok(PathBuf::from(path));
+            return Ok((PathBuf::from(path), false));
         }
     }
-    cmux_tui_core::server::try_default_socket_path("main")
+    Ok((cmux_tui_core::server::try_default_socket_path("main")?, true))
 }
 
 #[cfg(test)]
