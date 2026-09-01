@@ -136,8 +136,8 @@ final class MobileHostIrohRuntime {
     var relayPolicyApplicationTaskID: UUID?
     var relayPolicyApplicationGeneration: UInt64 = 0
     /// Last platform path state. `nil` means the path observer has not emitted
-    /// its first sample yet; an initial activation may proceed, while relay
-    /// policy probes remain parked until an authoritative usable-path sample.
+    /// its first sample yet; activation and relay-policy probes remain parked
+    /// until an authoritative usable-path sample.
     var relayPolicyNetworkReachable: Bool?
     var relayPolicyRefreshClock: any CmxIrohRelayClock = CmxIrohSystemRelayClock()
     var selectedPathObservationTask: Task<Void, Never>?
