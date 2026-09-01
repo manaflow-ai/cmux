@@ -40,7 +40,6 @@ public actor MobileIrxRuntimeComposition {
         case notSignedIn
         case unsupportedRoute
         case peerNotDiscovered
-        case simulatorStreamingUnsupported
     }
 
     /// One journal for every irx component on the phone; the JSONL file lives
@@ -585,10 +584,26 @@ public actor MobileIrxRuntimeComposition {
         return IrxArtifactLane(lane: lane)
     }
 
-    public func simulatorStreamLaneUnavailable() throws -> Never {
-        // Simulator streaming is not served by irx v1; the viewer surfaces
-        // its ordinary unavailable state.
-        throw CompositionError.simulatorStreamingUnsupported
+    public func openSimulatorStreamLane(
+        for request: CmxByteTransportRequest,
+        panelID: UUID
+    ) async throws -> MobileIrohSimulatorStreamLane {
+        let peerHex = try peerTarget(for: request)
+        let session = try await engine(forPeer: peerHex)
+            .ensureSession(trigger: "simulator-stream-lane")
+        // Same legacy resource dialect the terminal lane uses; the Mac's
+        // dialect server routes it to MobileHostIrohSimulatorStreamLaneHandler.
+        let lane = try await session.connection.openLane(
+            IrxLaneDescriptor(
+                lane: .simulatorStream,
+                resource: "simstream:\(panelID.uuidString.lowercased())"
+            )
+        )
+        Self.journal.record(
+            "client-simstream", "lane-opened",
+            ["panel": panelID.uuidString.lowercased()]
+        )
+        return MobileIrohSimulatorStreamLane(stream: lane.bidirectional())
     }
 
     /// The deferred transport the RPC layer connects through. Each RPC client

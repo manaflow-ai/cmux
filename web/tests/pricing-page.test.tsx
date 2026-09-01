@@ -73,51 +73,51 @@ describe("localized pricing page", () => {
     expect(fallbackContentLocales).toEqual(["en", "ja"]);
   });
 
-  test("limits the Team-only benefit to aggregate CodeRouter for now", () => {
+  test("keeps paid-plan copy flat: no metering, trials, or CodeRouter", () => {
     expect(enMessages.pricing.team.features).toEqual([
-      "Team-wide CodeRouter with anonymous aggregate usage and cost analytics",
+      "Centralized billing for your whole team",
+      "Priority support",
     ]);
     expect(jaMessages.pricing.team.features).toEqual([
-      "匿名の集計使用量・コスト分析付きチーム全体 CodeRouter",
+      "チーム全体の一元請求",
+      "優先サポート",
     ]);
-    expect(
-      enMessages.pricing.compare.rows.map((row) => row.label),
-    ).not.toContain("Unified billing and seat management");
-    expect(
-      enMessages.pricing.compare.rows.map((row) => row.label),
-    ).not.toContain("Centralized admin and shared team rules");
-    expect(
-      jaMessages.pricing.compare.rows.map((row) => row.label),
-    ).not.toContain("一元請求とシート管理");
-    expect(
-      jaMessages.pricing.compare.rows.map((row) => row.label),
-    ).not.toContain("一元管理と共有チームルール");
-    expect(
-      enMessages.pricing.faq.items.at(-1)?.a,
-    ).toBe(
-      "Yes. Team is $35/user/mo, or $28/user/mo when billed annually, and adds shared CodeRouter with anonymous aggregate usage and cost analytics.",
-    );
-    expect(
-      jaMessages.pricing.faq.items.at(-1)?.a,
-    ).toBe(
-      "はい。Team は月払いで $35/ユーザー/月、年払いでは $28/ユーザー/月で、匿名の集計使用量・コスト分析付き共有 CodeRouter が追加されます。",
-    );
     expect(
       enMessages.pricing.compare.rows.find(
         (row) => row.label === "Cloud agents on Cloud VMs",
-      )?.team,
-    ).toBe("20 hrs/mo, then usage-based");
+      ),
+    ).toEqual({
+      label: "Cloud agents on Cloud VMs",
+      free: "false",
+      pro: "true",
+      team: "true",
+      enterprise: "true",
+    });
     expect(
-      jaMessages.pricing.compare.rows.find(
-        (row) => row.label === "Cloud VM 上のクラウドエージェント",
-      )?.team,
-    ).toBe("20時間/月、以降は従量課金");
-    expect(enMessages.dashboard.billing.free.upsellBody).toContain(
-      "shared CodeRouter with anonymous aggregate usage and cost analytics",
+      enMessages.pricing.compare.rows.find(
+        (row) => row.label === "Concurrent Cloud VMs",
+      ),
+    ).toEqual({
+      label: "Concurrent Cloud VMs",
+      free: "false",
+      pro: "Up to 5",
+      team: "Up to 5",
+      enterprise: "Custom",
+    });
+    expect(enMessages.dashboard.billing.free.upsellTitle).toBe(
+      "Upgrade when you need cloud agents.",
     );
-    expect(jaMessages.dashboard.billing.free.upsellBody).toContain(
-      "匿名の集計使用量・コスト分析付き共有 CodeRouter",
-    );
+    for (const catalog of [enMessages.pricing, jaMessages.pricing]) {
+      const flat = JSON.stringify(catalog);
+      expect(flat).not.toContain("CodeRouter");
+      expect(flat).not.toContain("compute-hour");
+      expect(flat).not.toContain("usage-based");
+      expect(flat).not.toContain("trial");
+      expect(flat).not.toContain("トライアル");
+      expect(flat).not.toContain("アクティブ計算時間");
+      expect(flat).not.toContain("コンピュート時間");
+      expect("sizes" in catalog).toBe(false);
+    }
   });
 
   beforeEach(() => {
@@ -161,7 +161,7 @@ describe("localized pricing page", () => {
     expect(html).toContain('<p class="mt-5 text-sm font-medium">Includes:</p>');
     expect(html).not.toContain('style="min-height:4rem"');
     expect(html).toContain("text-3xl font-medium tabular-nums tracking-tight");
-    expect(html).toContain("CodeRouter");
+    expect(html).not.toContain("CodeRouter");
     expect(html).not.toContain("Subrouter");
     expect(html).not.toContain("cmux Vault");
   });

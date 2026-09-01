@@ -379,7 +379,7 @@ struct AgentHibernationTerminationFailureTests {
                 lifecycle: .idle,
                 updatedAt: 0,
                 processLiveness: processLiveness,
-                hasRecordedProcessID: processLiveness != .unknown || !processIDs.isEmpty,
+                hasRecordedProcessID: !processIDs.isEmpty,
                 processIDs: processIDs,
                 processIdentities: terminationProcessIdentities,
                 agentProcessIDs: processIDs,

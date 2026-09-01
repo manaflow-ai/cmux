@@ -1,4 +1,7 @@
 {
+  "billingRecovery": {
+    "message": "إذا عثرنا على حساب، فتحقق من بريدك الإلكتروني لمعرفة الخطوات التالية"
+  },
   "cloudBillingReturn": {
     "eyebrow": "cmux Cloud",
     "returnTitle": "تابع في الطرفية",

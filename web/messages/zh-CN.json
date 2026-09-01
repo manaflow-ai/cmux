@@ -1,4 +1,7 @@
 {
+  "billingRecovery": {
+    "message": "如果我们找到了账户，请查看你的邮箱了解下一步"
+  },
   "cloudBillingReturn": {
     "eyebrow": "cmux Cloud",
     "returnTitle": "在终端中继续",
