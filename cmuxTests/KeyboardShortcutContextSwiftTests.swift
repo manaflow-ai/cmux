@@ -119,9 +119,11 @@ struct KeyboardShortcutContextSwiftTests {
         #expect(withinResponders.count == 63)
         #expect(withinLimit.cmuxBrowserOwningView() === withinOwner)
 
-        let (beyondLimit, beyondResponders, _) = fieldEditorChain(nonViewHops: 64)
+        let (beyondLimit, beyondResponders, beyondOwner) = fieldEditorChain(nonViewHops: 64)
         #expect(beyondResponders.count == 64)
-        #expect(beyondLimit.cmuxBrowserOwningView() == nil)
+        withExtendedLifetime(beyondOwner) {
+            #expect(beyondLimit.cmuxBrowserOwningView() == nil)
+        }
     }
 
     @Test("Bulk notification shortcuts are shared, visible, and unbound by default")

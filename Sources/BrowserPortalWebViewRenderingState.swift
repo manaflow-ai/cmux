@@ -45,8 +45,10 @@ extension WKWebView {
             // responder ownership check still prevents an unknown sibling from
             // being treated as page content.
             if !structuralCandidates.isEmpty {
-                if let owningResponder,
-                   let responderView = owningResponder.cmuxBrowserOwningView() {
+                if let owningResponder {
+                    guard let responderView = owningResponder.cmuxBrowserOwningView() else {
+                        return nil
+                    }
                     guard responderView === self
                             || responderView === candidate
                             || responderView.isDescendant(of: candidate) else {
@@ -59,8 +61,10 @@ extension WKWebView {
             let intersection = candidate.frame.intersection(webBounds)
             let coverage = max(0, intersection.width) * max(0, intersection.height) / webArea
             guard coverage >= 0.5 else { return nil }
-            if let owningResponder,
-               let responderView = owningResponder.cmuxBrowserOwningView() {
+            if let owningResponder {
+                guard let responderView = owningResponder.cmuxBrowserOwningView() else {
+                    return nil
+                }
                 guard responderView === candidate || responderView.isDescendant(of: candidate) else {
                     return nil
                 }
@@ -85,8 +89,10 @@ extension WKWebView {
             // before they can be treated as the page root.
             guard maximumCoverage >= 0.5 else { return nil }
         }
-        if let owningResponder,
-           let responderView = owningResponder.cmuxBrowserOwningView() {
+        if let owningResponder {
+            guard let responderView = owningResponder.cmuxBrowserOwningView() else {
+                return nil
+            }
             // A responder in a clearly smaller sibling is browser chrome. Do
             // not use responder ownership to break a near-tie: an unknown
             // full-size WebKit companion/overlay must remain fail-closed.
