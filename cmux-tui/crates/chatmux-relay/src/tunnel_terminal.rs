@@ -1119,7 +1119,11 @@ mod tests {
         ) -> Result<Arc<dyn crate::control::ControlHandle>, String> {
             Err("no control in tunnel tests".to_owned())
         }
-        async fn read_dir(&self, _path: &Path) -> Result<Vec<String>, ()> {
+        async fn read_dir(
+            &self,
+            _path: &Path,
+            _cancellation: CancellationToken,
+        ) -> Result<Vec<String>, ()> {
             Err(())
         }
         fn socket_dir(&self) -> PathBuf {

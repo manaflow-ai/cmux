@@ -304,7 +304,11 @@ pub trait PtyDeps: Send + Sync {
         socket_path: &Path,
         cancellation: CancellationToken,
     ) -> Result<Arc<dyn ControlHandle>, String>;
-    async fn read_dir(&self, path: &Path) -> Result<Vec<String>, ()>;
+    async fn read_dir(
+        &self,
+        path: &Path,
+        cancellation: CancellationToken,
+    ) -> Result<Vec<String>, ()>;
     fn socket_dir(&self) -> PathBuf;
     fn shell(&self) -> String;
 }
@@ -3596,7 +3600,7 @@ impl Inner {
         // reverse a digest socket name back to its original session. Callers
         // must open a session explicitly when the core resolver selected a
         // fallback directory or hashed leaf.
-        if let Ok(entries) = self.deps.read_dir(&socket_dir).await {
+        if let Ok(entries) = self.deps.read_dir(&socket_dir, context.cancellation.clone()).await {
             for name in entries {
                 let Some(id) = name.strip_suffix(".sock") else { continue };
                 if !session_name_ok(id) || seen.contains(id) {
@@ -3984,7 +3988,11 @@ mod tests {
                 None => Err("no control socket in tests unless injected".to_owned()),
             }
         }
-        async fn read_dir(&self, _path: &Path) -> Result<Vec<String>, ()> {
+        async fn read_dir(
+            &self,
+            _path: &Path,
+            _cancellation: CancellationToken,
+        ) -> Result<Vec<String>, ()> {
             self.read_dir.clone().ok_or(())
         }
         fn socket_dir(&self) -> PathBuf {

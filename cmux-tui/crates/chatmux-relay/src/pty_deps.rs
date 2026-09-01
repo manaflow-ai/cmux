@@ -1401,10 +1401,20 @@ impl PtyDeps for RealPtyDeps {
         }
     }
 
-    async fn read_dir(&self, path: &Path) -> Result<Vec<String>, ()> {
-        let mut entries = tokio::fs::read_dir(path).await.map_err(|_| ())?;
+    async fn read_dir(
+        &self,
+        path: &Path,
+        cancellation: CancellationToken,
+    ) -> Result<Vec<String>, ()> {
+        let mut entries = tokio::select! {
+            _ = cancellation.cancelled() => return Err(()),
+            result = tokio::fs::read_dir(path) => result.map_err(|_| ())?,
+        };
         let mut names = Vec::new();
-        while let Ok(Some(entry)) = entries.next_entry().await {
+        while let Ok(Some(entry)) = tokio::select! {
+            _ = cancellation.cancelled() => return Err(()),
+            result = entries.next_entry() => result,
+        } {
             names.push(entry.file_name().to_string_lossy().into_owned());
         }
         Ok(names)
