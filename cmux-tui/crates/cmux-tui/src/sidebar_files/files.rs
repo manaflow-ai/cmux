@@ -67,12 +67,27 @@ fn compare_entries(left: &FileEntry, right: &FileEntry) -> Ordering {
 }
 
 pub fn filtered_indices(entries: &[FileEntry], query: &str) -> Vec<usize> {
-    let query = query.to_lowercase();
+    let normalized_query = query.to_lowercase();
     entries
         .iter()
         .enumerate()
-        .filter_map(|(index, entry)| entry.name.to_lowercase().contains(&query).then_some(index))
+        .filter_map(|(index, entry)| {
+            contains_case_insensitive(&entry.name, query, &normalized_query).then_some(index)
+        })
         .collect()
+}
+
+fn contains_case_insensitive(name: &str, query: &str, normalized_query: &str) -> bool {
+    if query.is_empty() {
+        return true;
+    }
+    if name.is_ascii() && query.is_ascii() {
+        return name
+            .as_bytes()
+            .windows(query.len())
+            .any(|window| window.eq_ignore_ascii_case(query.as_bytes()));
+    }
+    name.to_lowercase().contains(normalized_query)
 }
 
 #[cfg(test)]
@@ -136,8 +151,8 @@ mod tests {
     #[test]
     fn filters_case_insensitively() {
         let entries = vec![
-            FileEntry::new("ReadMe.md".into(), "ReadMe.md".into(), EntryKind::File),
-            FileEntry::new("src".into(), "src".into(), EntryKind::Directory),
+            FileEntry { name: "ReadMe.md".into(), path: "ReadMe.md".into(), kind: EntryKind::File },
+            FileEntry { name: "src".into(), path: "src".into(), kind: EntryKind::Directory },
         ];
         assert_eq!(filtered_indices(&entries, "README"), vec![0]);
         assert_eq!(filtered_indices(&entries, "r"), vec![0, 1]);
@@ -145,7 +160,11 @@ mod tests {
 
     #[test]
     fn filtering_matches_unicode_names_without_changing_visible_entries() {
-        let entries = vec![FileEntry::new("Résumé.txt".into(), "Résumé.txt".into(), EntryKind::File)];
+        let entries = vec![FileEntry {
+            name: "Résumé.txt".into(),
+            path: "Résumé.txt".into(),
+            kind: EntryKind::File,
+        }];
         assert_eq!(filtered_indices(&entries, "RÉSUMÉ"), vec![0]);
         assert_eq!(entries[0].name, "Résumé.txt");
     }
