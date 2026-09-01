@@ -100,7 +100,9 @@ enum TuiManualIOPumpPolicy {
 
     /// One stdin line driving the daemon-side viewer size.
     static func resizeLine(cols: Int, rows: Int) -> Data {
-        Data(#"{"resize":{"cols":\#(max(1, cols)),"rows":\#(max(1, rows))}}"#.utf8 + [0x0A])
+        var line = Data(#"{"resize":{"cols":\#(max(1, cols)),"rows":\#(max(1, rows))}}"#.utf8)
+        line.append(0x0A)
+        return line
     }
 
     /// One stdin line re-asserting this relay's geometry authority.
@@ -109,7 +111,11 @@ enum TuiManualIOPumpPolicy {
     /// viewed the terminal) claim at attach in arbitrary order — so the
     /// pane the user actually TYPES in re-claims, and the daemon's PTY size
     /// follows user intent instead of restore order.
-    static let claimGeometryLine = Data(#"{"claim":{"geometry":true}}"#.utf8 + [0x0A])
+    static let claimGeometryLine: Data = {
+        var line = Data(#"{"claim":{"geometry":true}}"#.utf8)
+        line.append(0x0A)
+        return line
+    }()
 
     /// Re-claim at most this often: a claim is one daemon round trip, so
     /// claiming per keystroke would double interactive traffic. Within one
@@ -273,10 +279,14 @@ struct TuiManualIOResizeScheduler: Equatable {
 /// the surface's encoded input bytes) and the pump's relay stdin writer.
 /// Lock-guarded because `manualInputHandler` must not touch the main actor.
 final class TuiManualIOInputChannel: @unchecked Sendable {
+    private static let maxQueuedWrites = 64
+
     private let lock = NSLock()
     private var handle: FileHandle?
     private var lastGeometryClaim: TimeInterval = 0
     private let queue = DispatchQueue(label: "cmux.tuiManualIO.stdin", qos: .userInitiated)
+    private var generation: UInt64 = 0
+    private var queuedWrites = 0
 
     /// Swaps the live relay stdin. `nil` pauses input (dropped, never
     /// queued: replaying stale input into a shell after a reconnect is
@@ -284,6 +294,7 @@ final class TuiManualIOInputChannel: @unchecked Sendable {
     /// counts as a claim: the relay claims geometry itself at attach.
     func setHandle(_ newHandle: FileHandle?, now: TimeInterval = ProcessInfo.processInfo.systemUptime) {
         lock.lock()
+        generation &+= 1
         handle = newHandle
         if newHandle != nil {
             lastGeometryClaim = now
@@ -294,12 +305,19 @@ final class TuiManualIOInputChannel: @unchecked Sendable {
     func send(_ line: Data) {
         lock.lock()
         let target = handle
+        guard let target, queuedWrites < Self.maxQueuedWrites else {
+            lock.unlock()
+            return
+        }
+        let writeGeneration = generation
+        queuedWrites += 1
         lock.unlock()
-        guard let target else { return }
         queue.async {
-            // A failed write means the relay just died; the pump's
-            // termination handler owns that transition.
-            try? target.write(contentsOf: line)
+            self.writeIfCurrent(target, generation: writeGeneration) {
+                // A failed write means the relay just died; the pump's
+                // termination handler owns that transition.
+                try? target.write(contentsOf: line)
+            }
         }
     }
 
@@ -314,20 +332,46 @@ final class TuiManualIOInputChannel: @unchecked Sendable {
     ) {
         lock.lock()
         let target = handle
+        guard let target, queuedWrites < Self.maxQueuedWrites else {
+            lock.unlock()
+            return
+        }
+        let writeGeneration = generation
         var claim = false
-        if target != nil, now - lastGeometryClaim >= claimInterval {
+        if now - lastGeometryClaim >= claimInterval {
             lastGeometryClaim = now
             claim = true
         }
+        queuedWrites += 1
         lock.unlock()
-        guard let target else { return }
         let sendClaim = claim
         queue.async {
-            if sendClaim {
-                try? target.write(contentsOf: TuiManualIOPumpPolicy.claimGeometryLine)
+            self.writeIfCurrent(target, generation: writeGeneration) {
+                if sendClaim {
+                    try? target.write(contentsOf: TuiManualIOPumpPolicy.claimGeometryLine)
+                }
+                try? target.write(contentsOf: line)
             }
-            try? target.write(contentsOf: line)
         }
+    }
+
+    /// Executes a queued write only for the handle generation that reserved
+    /// it. Writes waiting behind a stalled relay are therefore discarded when
+    /// the handle is replaced, instead of replaying into a new shell.
+    private func writeIfCurrent(
+        _ target: FileHandle,
+        generation writeGeneration: UInt64,
+        _ write: () -> Void
+    ) {
+        lock.lock()
+        let current = handle != nil && generation == writeGeneration
+        lock.unlock()
+        if current {
+            write()
+        }
+        lock.lock()
+        queuedWrites = max(0, queuedWrites - 1)
+        lock.unlock()
     }
 
     /// Closes and detaches the current handle (relay stdin EOF = clean
