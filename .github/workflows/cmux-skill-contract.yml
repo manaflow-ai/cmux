@@ -30,10 +30,7 @@ concurrency:
 
 jobs:
   browser-skill:
-    # The validator executes pull-request-provided documentation/test bytes;
-    # keep it on an ephemeral GitHub-hosted runner rather than a persistent
-    # fleet machine. The runner guard recognizes this explicit exception.
-    runs-on: ubuntu-24.04 # github-hosted-required: skill PRs run untrusted code
+    runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 5
     steps:
       - name: Checkout
