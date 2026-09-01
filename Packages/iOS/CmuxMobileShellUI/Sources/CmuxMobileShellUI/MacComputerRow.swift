@@ -36,6 +36,8 @@ struct MacComputerRow: View {
     /// button, so the row does not flash a dimmed state.
     var isConnecting: Bool = false
 
+    @State private var showListAuthInfo = false
+
     var body: some View {
         HStack(spacing: 8) {
             rowContainer
@@ -97,6 +99,9 @@ struct MacComputerRow: View {
                     if let buildLabel = computer.buildLabel {
                         ComputerBuildBadge(label: buildLabel)
                     }
+                    if showsListAuthWarning {
+                        listAuthWarningButton
+                    }
                 }
                 Text(connectionLine)
                     .font(.caption)
@@ -154,6 +159,86 @@ struct MacComputerRow: View {
                     "MobileComputerStatus-\(computer.connectionRef.automationID)-\(statusIdentifierSuffix)"
                 )
         }
+    }
+
+    /// Whether the account device list has a compatibility warning for this
+    /// Mac, either because it has not confirmed list-auth yet or because its
+    /// reported version is below the server's current minimum.
+    private var showsListAuthWarning: Bool {
+        guard let entry = MobileMacListAuthState.shared.entry(deviceID: computer.deviceId)
+        else { return false }
+        return entry.status == "seeded" || entry.isOutdated
+    }
+
+    /// Seeded rows carry a compact warning triangle beside the name; the
+    /// explanation lives in a popover so the row itself stays one avatar tall.
+    /// Borderless keeps the tap target separate from the row's navigation.
+    private var listAuthWarningButton: some View {
+        Button {
+            showListAuthInfo = true
+        } label: {
+            Image(systemName: "exclamationmark.triangle.fill")
+                .font(.caption)
+                .foregroundStyle(.orange)
+        }
+        .buttonStyle(.borderless)
+        .accessibilityLabel(listAuthWarningTitle)
+        .accessibilityIdentifier(
+            "MobileComputerListAuthWarning-\(computer.connectionRef.automationID)"
+        )
+        .popover(isPresented: $showListAuthInfo, arrowEdge: .top) {
+            VStack(alignment: .leading, spacing: 8) {
+                Label {
+                    Text(listAuthWarningTitle)
+                        .font(.subheadline.weight(.semibold))
+                } icon: {
+                    Image(systemName: "exclamationmark.triangle.fill")
+                        .foregroundStyle(.orange)
+                }
+                Text(listAuthWarningMessage)
+                .font(.footnote)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+            }
+            .padding()
+            .frame(idealWidth: 300, maxWidth: 340)
+            .presentationCompactAdaptation(.popover)
+        }
+    }
+
+    private var listAuthWarningTitle: String {
+        if MobileMacListAuthState.shared.entry(deviceID: computer.deviceId)?.isOutdated == true {
+            return L10n.string(
+                "computers.version.outdated.title",
+                defaultValue: "Mac update required"
+            )
+        }
+        return L10n.string(
+            "computers.listauth.unverified.title",
+            defaultValue: "Not verified on the new connection system yet"
+        )
+    }
+
+    private var listAuthWarningMessage: String {
+        guard let entry = MobileMacListAuthState.shared.entry(deviceID: computer.deviceId),
+              entry.isOutdated,
+              let installed = entry.appVersion,
+              let required = entry.minimumSupportedVersion
+        else {
+            return L10n.string(
+                "computers.listauth.unverified.detail",
+                defaultValue:
+                    "It may be running an older cmux version. Update the Mac, or if it's already updated, open cmux on it once to verify."
+            )
+        }
+        return String(
+            format: L10n.string(
+                "computers.version.outdated.detail",
+                defaultValue: "This Mac is running %@. Update it to %@ or later."
+            ),
+            installed,
+            required
+        )
     }
 
     private var dotColor: Color {
