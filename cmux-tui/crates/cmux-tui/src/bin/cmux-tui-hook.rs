@@ -1,3 +1,13 @@
+//! Agent hook helper: forwards one provider hook event to the cmux-tui
+//! session journal.
+//!
+//! Providers (codex, cursor, gemini, grok) run hook commands synchronously
+//! and block the agent until the command exits, so this helper never waits
+//! on the journal server in the provider's process: it reads the payload,
+//! hands the request to a detached child, and exits once the child has
+//! written the request (bounded by `HANDOFF_WAIT`) so events reach the
+//! server in provider order. The child waits for the receipt and retries.
+
 use std::env;
 use std::io::{self, BufRead, BufReader, Read};
 use std::path::{Path, PathBuf};
@@ -14,9 +24,13 @@ const MAX_NATIVE_PAYLOAD_BYTES: u64 = 1024 * 1024;
 const MAX_MESSAGE_BYTES: usize = 4 * 1024 * 1024;
 const MAX_RESPONSE_BYTES: usize = 16 * 1024 * 1024;
 const SOCKET_TIMEOUT: Duration = Duration::from_secs(4);
-/// codex kills SessionEnd hooks at 3s (its hard cap), so the helper must give
-/// up first and report its own error instead of dying mid-append.
-const CODEX_SESSION_END_SOCKET_TIMEOUT: Duration = Duration::from_secs(2);
+/// Longest the provider-facing process waits for the detached child to write
+/// the request. Normally the write lands in a few milliseconds; this bound only
+/// matters when the server is not accepting connections.
+const HANDOFF_WAIT: Duration = Duration::from_millis(500);
+/// Hidden mode: the detached child on platforms without `fork`. The request id
+/// arrives as the first stdin line and the encoded request follows.
+const DETACHED_MODE_ARG: &str = "__detached-append";
 
 #[derive(Debug, PartialEq, Eq)]
 struct Args {
@@ -26,6 +40,15 @@ struct Args {
 
 fn main() -> ExitCode {
     let arguments = env::args().skip(1).collect::<Vec<_>>();
+    if arguments.len() == 1 && arguments[0] == DETACHED_MODE_ARG {
+        return match detached_child_from_stdin() {
+            Ok(()) => ExitCode::SUCCESS,
+            Err(error) => {
+                eprintln!("cmux-tui-hook: {error:#}");
+                ExitCode::FAILURE
+            }
+        };
+    }
     if arguments.iter().any(|argument| matches!(argument.as_str(), "-h" | "--help")) {
         println!("Usage: cmux-tui-hook <agent> <native-event>");
         return ExitCode::SUCCESS;
@@ -60,7 +83,28 @@ fn run(args: Args) -> anyhow::Result<()> {
         native,
     )?;
     let event = serde_json::to_value(ingress)?;
-    append(&socket, event, socket_timeout(&args.source, &args.native_event))
+    let (request_id, encoded) = encode_request(event)?;
+    detach::append_detached(&socket, &request_id, &encoded)
+}
+
+/// Entry point of the detached child spawned by `DETACHED_MODE_ARG`.
+fn detached_child_from_stdin() -> anyhow::Result<()> {
+    let socket = env::var_os("CMUX_TUI_SOCKET")
+        .filter(|value| !value.is_empty())
+        .map(PathBuf::from)
+        .context("CMUX_TUI_SOCKET is required in detached mode")?;
+    let mut reader = BufReader::new(io::stdin().lock());
+    let mut request_id = String::new();
+    reader.read_line(&mut request_id).context("read detached request id")?;
+    let request_id = request_id.trim_end_matches(['\r', '\n']).to_owned();
+    anyhow::ensure!(!request_id.is_empty(), "detached request id is empty");
+    let mut encoded = Vec::new();
+    reader
+        .take(MAX_MESSAGE_BYTES as u64 + 1)
+        .read_to_end(&mut encoded)
+        .context("read detached request")?;
+    anyhow::ensure!(encoded.len() <= MAX_MESSAGE_BYTES, "detached request exceeds 4 MiB");
+    append_with_receipt(&socket, &request_id, &encoded, &|| {})
 }
 
 fn shadowed_by_grok(source: &str, grok_hook_event: Option<&std::ffi::OsStr>) -> bool {
@@ -101,15 +145,7 @@ fn read_native_payload(reader: impl Read) -> anyhow::Result<Value> {
     Ok(json!({"encoding":"base64","data":BASE64.encode(bytes)}))
 }
 
-fn socket_timeout(source: &str, native_event: &str) -> Duration {
-    if source == "codex" && native_event == "SessionEnd" {
-        CODEX_SESSION_END_SOCKET_TIMEOUT
-    } else {
-        SOCKET_TIMEOUT
-    }
-}
-
-fn append(socket: &Path, event: Value, timeout: Duration) -> anyhow::Result<()> {
+fn encode_request(event: Value) -> anyhow::Result<(String, Vec<u8>)> {
     let (request_id, idempotency_key) = random_identifiers()?;
     let request = json!({
         "protocol":"cmux.protocol/2",
@@ -124,8 +160,21 @@ fn append(socket: &Path, event: Value, timeout: Duration) -> anyhow::Result<()> 
     if encoded.len() > MAX_MESSAGE_BYTES {
         bail!("agent hook request exceeds the 4 MiB protocol limit");
     }
+    Ok((request_id, encoded))
+}
 
-    retry_until(timeout, |deadline| append_once(socket, &encoded, &request_id, deadline))
+/// Sends the request and waits for the journal receipt, retrying until
+/// `SOCKET_TIMEOUT`. `on_sent` runs each time the full request has been
+/// written to the server, so the parent can stop waiting for ordering.
+fn append_with_receipt(
+    socket: &Path,
+    request_id: &str,
+    encoded: &[u8],
+    on_sent: &dyn Fn(),
+) -> anyhow::Result<()> {
+    retry_until(SOCKET_TIMEOUT, |deadline| {
+        append_once(socket, encoded, request_id, deadline, on_sent)
+    })
 }
 
 #[derive(Debug)]
@@ -167,9 +216,11 @@ fn append_once(
     encoded: &[u8],
     request_id: &str,
     deadline: Instant,
+    on_sent: &dyn Fn(),
 ) -> Result<(), AppendAttemptError> {
     let mut stream = connect_before(socket, deadline)?;
     write_before(&mut *stream, encoded, deadline)?;
+    on_sent();
     let response = read_before(stream, deadline)?;
     let response: Value = serde_json::from_slice(&response)
         .map_err(|error| AppendAttemptError::Fatal(error.into()))?;
@@ -335,6 +386,141 @@ fn read_before(
     }
 }
 
+#[cfg(unix)]
+mod detach {
+    use std::io;
+    use std::os::fd::{AsRawFd, FromRawFd, IntoRawFd, OwnedFd};
+    use std::path::Path;
+
+    use anyhow::Context;
+
+    use super::{HANDOFF_WAIT, append_with_receipt};
+
+    /// Forks a detached child that performs the append, then returns once the
+    /// child has written the request or `HANDOFF_WAIT` elapsed.
+    pub(super) fn append_detached(
+        socket: &Path,
+        request_id: &str,
+        encoded: &[u8],
+    ) -> anyhow::Result<()> {
+        let mut fds = [0_i32; 2];
+        // SAFETY: `fds` is a valid two-element array for pipe(2) to fill.
+        if unsafe { libc::pipe(fds.as_mut_ptr()) } != 0 {
+            return Err(io::Error::last_os_error()).context("create hook handoff pipe");
+        }
+        // SAFETY: pipe(2) returned two fresh descriptors this process owns.
+        let (read_end, write_end) =
+            unsafe { (OwnedFd::from_raw_fd(fds[0]), OwnedFd::from_raw_fd(fds[1])) };
+        // SAFETY: the process is single-threaded here. The payload was read on
+        // the main thread and the connector thread is only spawned by the
+        // child after the fork, so no lock can be held by a vanished thread.
+        let pid = unsafe { libc::fork() };
+        if pid < 0 {
+            return Err(io::Error::last_os_error()).context("fork hook child");
+        }
+        if pid == 0 {
+            drop(read_end);
+            let code = child_main(socket, request_id, encoded, write_end);
+            // SAFETY: _exit only terminates the child without running
+            // destructors that could touch parent-owned state.
+            unsafe { libc::_exit(code) };
+        }
+        drop(write_end);
+        wait_for_handoff(&read_end);
+        Ok(())
+    }
+
+    fn child_main(socket: &Path, request_id: &str, encoded: &[u8], handoff: OwnedFd) -> i32 {
+        // SAFETY: setsid has no memory-safety preconditions; failure only
+        // means this process already leads a session, which is harmless.
+        unsafe { libc::setsid() };
+        if redirect_stdio_to_null().is_err() {
+            return 1;
+        }
+        let handoff = handoff.into_raw_fd();
+        let signal_sent = move || {
+            let byte = [1_u8];
+            // SAFETY: `handoff` stays open for the child's lifetime and the
+            // buffer is one valid byte. A failed write only delays the parent.
+            let _ = unsafe { libc::write(handoff, byte.as_ptr().cast(), 1) };
+        };
+        match append_with_receipt(socket, request_id, encoded, &signal_sent) {
+            Ok(()) => 0,
+            Err(_) => 1,
+        }
+    }
+
+    /// The provider waits for EOF on the hook's stdout, so the child must
+    /// drop the inherited pipes before the parent exits.
+    fn redirect_stdio_to_null() -> io::Result<()> {
+        let null = std::fs::OpenOptions::new().read(true).write(true).open("/dev/null")?;
+        for fd in [libc::STDIN_FILENO, libc::STDOUT_FILENO, libc::STDERR_FILENO] {
+            // SAFETY: both descriptors are open; dup2 replaces `fd` atomically.
+            if unsafe { libc::dup2(null.as_raw_fd(), fd) } < 0 {
+                return Err(io::Error::last_os_error());
+            }
+        }
+        Ok(())
+    }
+
+    /// Returns when the child reports the request was written (one byte), the
+    /// child exits (EOF), or `HANDOFF_WAIT` elapses.
+    fn wait_for_handoff(read_end: &OwnedFd) {
+        let mut descriptor =
+            libc::pollfd { fd: read_end.as_raw_fd(), events: libc::POLLIN, revents: 0 };
+        let timeout_ms = i32::try_from(HANDOFF_WAIT.as_millis()).unwrap_or(i32::MAX);
+        loop {
+            // SAFETY: `descriptor` is one valid pollfd for the poll duration.
+            let ready = unsafe { libc::poll(&mut descriptor, 1, timeout_ms) };
+            if ready >= 0 || io::Error::last_os_error().kind() != io::ErrorKind::Interrupted {
+                return;
+            }
+        }
+    }
+}
+
+#[cfg(not(unix))]
+mod detach {
+    use std::io::Write;
+    use std::path::Path;
+    use std::process::{Command, Stdio};
+
+    use anyhow::Context;
+
+    use super::DETACHED_MODE_ARG;
+
+    /// Respawns this helper detached from the provider's console and process
+    /// group with the request on its stdin. The request is written to the
+    /// child's pipe before returning, so consecutive hooks still start in
+    /// provider order; the receipt wait happens in the child.
+    pub(super) fn append_detached(
+        socket: &Path,
+        request_id: &str,
+        encoded: &[u8],
+    ) -> anyhow::Result<()> {
+        use std::os::windows::process::CommandExt;
+        const DETACHED_PROCESS: u32 = 0x0000_0008;
+        const CREATE_NEW_PROCESS_GROUP: u32 = 0x0000_0200;
+        let exe = std::env::current_exe().context("locate hook helper")?;
+        let mut child = Command::new(exe)
+            .arg(DETACHED_MODE_ARG)
+            .env("CMUX_TUI_SOCKET", socket)
+            .stdin(Stdio::piped())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .creation_flags(DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP)
+            .spawn()
+            .context("spawn detached hook child")?;
+        let mut stdin = child.stdin.take().context("detached hook child has no stdin")?;
+        stdin.write_all(request_id.as_bytes())?;
+        stdin.write_all(b"\n")?;
+        stdin.write_all(encoded)?;
+        stdin.flush()?;
+        drop(stdin);
+        Ok(())
+    }
+}
+
 fn random_identifiers() -> anyhow::Result<(String, String)> {
     let mut bytes = [0_u8; 16];
     getrandom::fill(&mut bytes).map_err(|error| anyhow!("allocate hook identity: {error}"))?;
@@ -350,13 +536,6 @@ fn random_identifiers() -> anyhow::Result<(String, String)> {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn codex_session_end_gives_up_before_the_codex_hook_cap() {
-        assert!(socket_timeout("codex", "SessionEnd") < Duration::from_secs(3));
-        assert_eq!(socket_timeout("codex", "Stop"), SOCKET_TIMEOUT);
-        assert_eq!(socket_timeout("claude", "SessionEnd"), SOCKET_TIMEOUT);
-    }
 
     #[test]
     fn parses_short_positional_source_and_event() {
