@@ -112,8 +112,25 @@ fn report_agent(mux: &Arc<Mux>, request: ParsedResourceRequest) -> Result<Value,
             expected_revision(&request.fields)?,
             &mutation,
         )
-        .map_err(resource_operation_error)?;
+        .map_err(agent_report_operation_error)?;
     mutation_result(mux, commit.result, commit.revision, commit.replayed)
+}
+
+/// Keep registry and projection implementation details out of the public
+/// agent-report response while retaining typed client errors.
+fn agent_report_operation_error(error: anyhow::Error) -> ResourceError {
+    if let Some(resource) = error.downcast_ref::<ResourceError>() {
+        return resource.clone();
+    }
+
+    let detail = format!("{error:#}");
+    let public = resource_operation_error(error);
+    if public.code != "operation.failed" {
+        return public;
+    }
+
+    eprintln!("cmux-tui: agent.report internal failure: {detail}");
+    ResourceError::operation_failed("agent.report", "could not read agent state", json!({}))
 }
 
 fn parse_agent_state(value: &Value) -> Result<AgentState, ResourceError> {
