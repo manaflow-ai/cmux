@@ -140,6 +140,13 @@ export const CMUX_CLOUD_USER_SETUP_COMMAND = [
     ` || adduser -D -u 1001 -s /bin/bash ${CMUX_CLOUD_USER} 2>/dev/null` +
     ` || useradd -m -s /bin/bash ${CMUX_CLOUD_USER} 2>/dev/null` +
     ` || adduser -D -s /bin/bash ${CMUX_CLOUD_USER} 2>/dev/null || true`,
+  // The non-root branches need runuser to drop privileges. Debian ships it in core
+  // util-linux; stock Alpine (busybox) does not, and without it the daemon would
+  // silently fall back to root sessions. This runs sequentially before the detached
+  // provision starts, so it cannot race the provision script's own apk run.
+  `command -v runuser >/dev/null 2>&1` +
+    ` || apk add --no-cache runuser 2>/dev/null` +
+    ` || apk add --no-cache util-linux 2>/dev/null || true`,
   `mkdir -p ${CMUX_CLOUD_HOME} /etc/sudoers.d`,
   `printf '${CMUX_CLOUD_USER} ALL=(ALL) NOPASSWD:ALL\\n' > /etc/sudoers.d/90-cmux-nopasswd`,
   `chmod 0440 /etc/sudoers.d/90-cmux-nopasswd`,
@@ -176,7 +183,7 @@ export const CMUX_SUDO_INSTALL_COMMAND =
   "{ apt-get update -qq && apt-get install -y -qq --no-install-recommends sudo; } 2>/dev/null" +
   " || apk add --no-cache sudo 2>/dev/null || true; " +
   "command -v sudo >/dev/null 2>&1" +
-  " || { mkdir -p /etc/cmux 2>/dev/null; printf '%s sudo-install-failed\n' \"$(date -u +%FT%TZ)\" >> /etc/cmux/root-session-fallback; exit 1; }";
+  " || { mkdir -p /etc/cmux 2>/dev/null; printf '%s sudo-install-failed\n' \"$(date -u +%FT%TZ)\" > /etc/cmux/root-session-fallback; exit 1; }";
 const CMUX_SUDO_INSTALL_TIMEOUT_MS = 3 * 60 * 1000;
 
 // "The volume is mounted but its identity view is not": the fail-over state where

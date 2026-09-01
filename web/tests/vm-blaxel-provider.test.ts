@@ -482,6 +482,8 @@ describe("cloud work user setup", () => {
     expect(CMUX_CLOUD_USER_SETUP_COMMAND).toContain("adduser -D -s /bin/bash cmux");
     expect(CMUX_CLOUD_USER_SETUP_COMMAND).toContain("printf 'cmux ALL=(ALL) NOPASSWD:ALL\\n' > /etc/sudoers.d/90-cmux-nopasswd");
     expect(CMUX_CLOUD_USER_SETUP_COMMAND).toContain("chmod 0440 /etc/sudoers.d/90-cmux-nopasswd");
+    // Alpine has no runuser in busybox; without it the daemon would silently run root.
+    expect(CMUX_CLOUD_USER_SETUP_COMMAND).toContain("apk add --no-cache runuser");
   });
 
   test("presents the root-squashing volume as cmux-owned through the bindfs view", () => {
