@@ -124,6 +124,7 @@ extension CmuxSettingsFileStore {
                     "paneFlashColor": NSNull(),
                     "sound": NotificationSoundSettings.defaultValue,
                     "customSoundFilePath": NotificationSoundSettings.defaultCustomFilePath,
+                    "soundOverrides": [:],
                     "command": NotificationSoundSettings.defaultCustomCommand,
                     "hooksMode": "append",
                     "hooks": [],
