@@ -1,0 +1,240 @@
+name: Fork PR artifact
+
+# Maintainer-approved artifact path for external fork PRs.
+#
+# Why: cmux is a macOS app, so validating a fork contribution needs a full
+# Xcode build that most outside contributors cannot run locally (Command Line
+# Tools are not enough). The normal `CI` / `Activation performance` checks on a
+# fork PR wait for maintainer approval before they run, and they do not publish
+# a downloadable .app artifact, so a contributor has no self-serve way to get a
+# trusted build of their change. See https://github.com/manaflow-ai/cmux/issues/5976
+# (observed on PR #5491).
+#
+# Security model: this workflow is `workflow_dispatch` only. GitHub restricts
+# manual dispatch to users with write access to manaflow-ai/cmux, so only a
+# maintainer can run it — the same gate as "Require approval for outside
+# collaborators". The maintainer reviews the fork diff, then dispatches the
+# EXACT head commit SHA they reviewed. We build only that pinned SHA (fetched as
+# a bare object, never a mutable ref), so a contributor cannot swap in different
+# code after approval. The build runs unsigned (CODE_SIGNING_ALLOWED=NO) with no
+# release secrets, and checkout uses `persist-credentials: false` so the
+# fork-authored build scripts never see the git credential.
+#
+# Cache isolation: this workflow uses NO Actions cache (not even restore-only).
+# ACTIONS_RUNTIME_TOKEN is present in any job that uploads artifacts, and a job
+# step can read it, so fork-authored build code could otherwise call the cache
+# API directly to write attacker-controlled entries into a cache scope that
+# trusted CI/release builds restore (spm-*, zig-packages-*, ghosttykit-*). By
+# never touching the shared cache namespace, this workflow's runs cannot seed
+# those caches; the build just runs cold. The residual exposure — that fork code
+# runs at all with a runtime token in the trusted repo context — is inherent to
+# building any code in Actions and is controlled by the mandatory maintainer
+# review of the exact approved SHA (including build scripts and Package.swift)
+# before dispatch.
+
+on:
+  workflow_dispatch:
+    inputs:
+      head_sha:
+        description: "Exact reviewed PR head commit SHA to build (only this SHA is built; full 40-char SHA)"
+        required: true
+        type: string
+      pr_number:
+        description: "PR number (used for artifact naming and a head-SHA drift check)"
+        required: false
+        type: string
+
+permissions:
+  contents: read
+  pull-requests: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ inputs.head_sha }}
+  cancel-in-progress: false
+
+jobs:
+  verify-sha:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      sha: ${{ steps.pin.outputs.sha }}
+    steps:
+      - name: Validate and pin the approved head SHA
+        id: pin
+        env:
+          GH_TOKEN: ${{ github.token }}
+          HEAD_SHA: ${{ inputs.head_sha }}
+          PR_NUMBER: ${{ inputs.pr_number }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+
+          # Require a full 40-character commit SHA so the build target is exact
+          # and unambiguous, never a branch name or short SHA that could move.
+          if [[ ! "$HEAD_SHA" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "::error::head_sha must be a full 40-character commit SHA (got: '$HEAD_SHA')"
+            exit 1
+          fi
+
+          # If a PR number was supplied, warn (do not fail) when the PR's current
+          # head no longer matches the approved SHA — the contributor pushed new
+          # commits after the maintainer reviewed. We still build only the
+          # reviewed SHA below.
+          if [[ -n "$PR_NUMBER" ]]; then
+            CURRENT_HEAD="$(gh api "repos/${REPO}/pulls/${PR_NUMBER}" --jq '.head.sha' || echo '')"
+            echo "PR #${PR_NUMBER} current head: ${CURRENT_HEAD:-<unknown>}"
+            echo "Approved head_sha:       ${HEAD_SHA}"
+            if [[ -n "$CURRENT_HEAD" && "$CURRENT_HEAD" != "$HEAD_SHA" ]]; then
+              echo "::warning::PR #${PR_NUMBER} head ($CURRENT_HEAD) differs from the approved SHA ($HEAD_SHA); building the approved SHA only."
+            fi
+          fi
+
+          echo "sha=$HEAD_SHA" >> "$GITHUB_OUTPUT"
+
+  ghostty-cli-helper:
+    needs: verify-sha
+    runs-on: ${{ vars.MACOS_RUNNER_15 || 'warp-macos-15-arm64-6x' }}
+    timeout-minutes: 20
+    steps:
+      - name: Checkout approved SHA
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ needs.verify-sha.outputs.sha }}
+          submodules: recursive
+          persist-credentials: false
+
+      - name: Install zig
+        run: ./scripts/install-zig-ci.sh
+
+      # No Actions cache: this job runs fork-authored build scripts. Even a
+      # restore-only cache action is not enough, because ACTIONS_RUNTIME_TOKEN is
+      # present in the job (artifact upload needs it) and fork code could call
+      # the cache API directly to write attacker-controlled entries into a cache
+      # scope that trusted CI/release builds restore (e.g. spm-*, zig-packages-*,
+      # ghosttykit-*). So this workflow never touches the shared cache namespace
+      # at all and rebuilds cold. See SECURITY note at the top of this file.
+      - name: Build universal Ghostty CLI helper
+        run: |
+          set -euo pipefail
+          mkdir -p ghostty-cli-helper
+          ./scripts/build-ghostty-cli-helper.sh --universal --output ghostty-cli-helper/ghostty
+          lipo ghostty-cli-helper/ghostty -verify_arch arm64 x86_64
+
+      - name: Upload universal Ghostty CLI helper
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: fork-pr-ghostty-cli-helper-${{ needs.verify-sha.outputs.sha }}
+          path: ghostty-cli-helper/ghostty
+          if-no-files-found: error
+
+  build-app:
+    needs: [verify-sha, ghostty-cli-helper]
+    # Match release-build: macOS 26 so SDK-gated SwiftUI Liquid Glass code
+    # compiles into the same artifact shape as nightly and stable releases.
+    runs-on: ${{ vars.MACOS_RUNNER_26 || 'warp-macos-26-arm64-6x' }}
+    timeout-minutes: 45
+    steps:
+      - name: Checkout approved SHA
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ needs.verify-sha.outputs.sha }}
+          submodules: recursive
+          persist-credentials: false
+
+      - name: Select Xcode
+        run: |
+          set -euo pipefail
+          if [ -d "/Applications/Xcode.app/Contents/Developer" ]; then
+            XCODE_DIR="/Applications/Xcode.app/Contents/Developer"
+          else
+            XCODE_APP="$(
+              find /Applications -maxdepth 1 -name 'Xcode*.app' -print 2>/dev/null \
+                | sort \
+                | tail -n 1 \
+                || true
+            )"
+            if [ -n "$XCODE_APP" ]; then
+              XCODE_DIR="$XCODE_APP/Contents/Developer"
+            else
+              echo "No Xcode.app found under /Applications" >&2
+              exit 1
+            fi
+          fi
+          echo "DEVELOPER_DIR=$XCODE_DIR" >> "$GITHUB_ENV"
+          export DEVELOPER_DIR="$XCODE_DIR"
+          xcodebuild -version
+          xcrun --sdk macosx --show-sdk-path
+
+      - name: Capture Ghostty revision
+        id: ghostty-revision
+        run: |
+          echo "sha=$(git -C ghostty rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+
+      # No Actions cache here either (see the cache note in the helper job and
+      # the SECURITY note at the top): always download the pre-built framework
+      # fresh rather than restoring it from the shared cache namespace.
+      - name: Download pre-built GhosttyKit.xcframework
+        run: |
+          ./scripts/download-prebuilt-ghosttykit.sh
+
+      - name: Install Rust
+        run: |
+          ./scripts/install-rust-ci.sh
+
+      - name: Build universal app (Release)
+        run: |
+          set -euo pipefail
+          CMUX_SKIP_ZIG_BUILD=1 xcodebuild -project cmux.xcodeproj -scheme cmux -configuration Release -derivedDataPath build-universal \
+            -destination 'generic/platform=macOS' \
+            -clonedSourcePackagesDirPath .spm-cache \
+            ARCHS="arm64 x86_64" \
+            ONLY_ACTIVE_ARCH=NO \
+            CODE_SIGNING_ALLOWED=NO ASSETCATALOG_COMPILER_APPICON_NAME=AppIcon-Nightly build
+
+      - name: Download universal Ghostty CLI helper
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          name: fork-pr-ghostty-cli-helper-${{ needs.verify-sha.outputs.sha }}
+          path: ghostty-cli-helper
+
+      - name: Install universal Ghostty CLI helper
+        run: |
+          set -euo pipefail
+          ./scripts/install-prebuilt-ghostty-cli-helper.sh \
+            ghostty-cli-helper/ghostty \
+            build-universal/Build/Products/Release/cmux.app
+
+      - name: Validate Release artifact slices
+        run: |
+          set -euo pipefail
+          APP_BINARY="build-universal/Build/Products/Release/cmux.app/Contents/MacOS/cmux"
+          CLI_BINARY="build-universal/Build/Products/Release/cmux.app/Contents/Resources/bin/cmux"
+          HELPER_BINARY="build-universal/Build/Products/Release/cmux.app/Contents/Resources/bin/ghostty"
+          test -x "$APP_BINARY"
+          test -x "$CLI_BINARY"
+          test -x "$HELPER_BINARY"
+          file "$APP_BINARY" "$CLI_BINARY" "$HELPER_BINARY"
+          # Match release-build: assert the app was compiled against the macOS 26
+          # SDK so a misrouted MACOS_RUNNER_26 or Xcode-selection drift cannot
+          # publish a fork artifact that is not release-equivalent.
+          SDK_VERSION="$(otool -l "$APP_BINARY" | awk '/LC_BUILD_VERSION/ { in_version=1; next } in_version && /sdk / { print $2; exit }')"
+          echo "App SDK version: $SDK_VERSION"
+          lipo "$APP_BINARY" -verify_arch arm64 x86_64
+          lipo "$CLI_BINARY" -verify_arch arm64 x86_64
+          lipo "$HELPER_BINARY" -verify_arch arm64 x86_64
+          [[ "$SDK_VERSION" == 26.* ]]
+
+      - name: Package unsigned app
+        run: |
+          set -euo pipefail
+          mkdir -p fork-pr-artifact
+          ditto -c -k --sequesterRsrc --keepParent \
+            build-universal/Build/Products/Release/cmux.app \
+            fork-pr-artifact/cmux-unsigned.zip
+
+      - name: Upload unsigned app artifact
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: cmux-unsigned-${{ inputs.pr_number || needs.verify-sha.outputs.sha }}
+          path: fork-pr-artifact/cmux-unsigned.zip
+          if-no-files-found: error

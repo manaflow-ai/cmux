@@ -99,6 +99,41 @@ ssh cmux-vm 'cd /Users/cmux/cmux && xcodebuild -project cmux.xcodeproj -scheme c
 ssh cmux-vm 'cd /Users/cmux/cmux && xcodebuild -project cmux.xcodeproj -scheme cmux -configuration Debug -destination "platform=macOS" -only-testing:cmuxUITests test'
 ```
 
+## Validating a fork PR without full Xcode
+
+cmux is a macOS app, so building it locally requires the full Xcode.app, not
+just the Command Line Tools. Outside contributors who only have Command Line
+Tools cannot produce a runnable `.app` locally, and the `CI` / `Activation
+performance` checks on a fork PR stay pending until a maintainer approves them
+and do not publish a downloadable build.
+
+To get a trusted build of a fork PR, a maintainer can dispatch the **Fork PR
+artifact** workflow (`.github/workflows/fork-pr-artifact.yml`):
+
+1. A maintainer reviews the fork diff and copies the exact PR **head commit
+   SHA** (the full 40-character SHA, e.g. from the PR's Commits tab or
+   `gh pr view <N> --json headRefOid -q .headRefOid`).
+2. They run the workflow against that SHA:
+
+   ```bash
+   gh workflow run "Fork PR artifact" --repo manaflow-ai/cmux \
+     -f head_sha=<full-40-char-head-sha> \
+     -f pr_number=<PR number>
+   ```
+
+   or via the Actions tab → **Fork PR artifact** → **Run workflow**.
+3. The workflow builds the same unsigned universal Release app that CI's
+   `release-build` job compiles and uploads it as the `cmux-unsigned-<PR>`
+   artifact (a `cmux-unsigned.zip`), downloadable from the run summary.
+
+Security: the workflow is `workflow_dispatch` only, so only users with write
+access to the repo can trigger it. It builds **only the exact SHA the
+maintainer entered** (fetched as a pinned commit object, never a mutable
+branch ref), so a contributor cannot substitute different code after review.
+The build is unsigned, uses no release secrets, and checks out with
+`persist-credentials: false` so the fork's build scripts never see the workflow
+token.
+
 ## Ghostty Submodule
 
 The `ghostty` submodule points to [manaflow-ai/ghostty](https://github.com/manaflow-ai/ghostty), a fork of the upstream Ghostty project.

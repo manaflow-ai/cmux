@@ -423,6 +423,9 @@ jobs:
           GHOSTTYKIT_DOWNLOAD_RETRY_DELAY: "1"
         run: ./scripts/download-prebuilt-ghosttykit.sh --verify-only
 
+      - name: Validate fork PR artifact workflow guards
+        run: ./tests/test_ci_fork_pr_artifact.sh
+
   remote-daemon-tests:
     needs: changes
     if: ${{ needs.changes.outputs.go == 'true' }}
