@@ -65,10 +65,19 @@ public final class ControlClientAsyncLineReader: @unchecked Sendable {
         }
         _ = Self.makeNonBlocking(socket)
 
-        // A command connection is FIFO and bounded. If a client pipelines
-        // more than this many chunks while a prior command is executing, fail
-        // closed instead of allowing an unbounded AsyncStream buffer to grow.
-        let stream = AsyncStream<Data>.makeStream(bufferingPolicy: .bufferingOldest(128))
+        // A command connection is FIFO and bounded. Size the chunk buffer to
+        // the same byte cap as `maximumBufferedBytes` so one large request (a
+        // `cmux ssh` workspace create carries several hundred KB of inline
+        // startup script) is never truncated by a fixed chunk count, while a
+        // client that pipelines past the byte cap still fails closed instead
+        // of growing an unbounded AsyncStream buffer.
+        let bufferedChunkCapacity = max(
+            128,
+            (self.maximumBufferedBytes + Self.readChunkSize - 1) / Self.readChunkSize + 2
+        )
+        let stream = AsyncStream<Data>.makeStream(
+            bufferingPolicy: .bufferingOldest(bufferedChunkCapacity)
+        )
         let streamContinuation = stream.continuation
         continuation = streamContinuation
         iterator = stream.stream.makeAsyncIterator()
@@ -309,12 +318,15 @@ public final class ControlClientAsyncLineReader: @unchecked Sendable {
         return secondsOverflowed || microsOverflowed || additionOverflowed ? .max : total
     }
 
+    /// Bytes read per `read(2)` call while draining the descriptor.
+    static let readChunkSize = 64 * 1024
+
     private static func drain(
         socket: Int32,
         continuation: AsyncStream<Data>.Continuation,
         sourceBox: SourceBox
     ) {
-        var buffer = [UInt8](repeating: 0, count: 4096)
+        var buffer = [UInt8](repeating: 0, count: readChunkSize)
         while true {
             let count = read(socket, &buffer, buffer.count)
             if count > 0 {
