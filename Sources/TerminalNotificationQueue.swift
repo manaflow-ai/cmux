@@ -66,6 +66,10 @@ final class TerminalMutationBus: @unchecked Sendable {
 
     private let lock = NSLock()
     private var pending: [TerminalSocketMutationEntry] = []
+    /// Direct lookup for the stable replacement keys used by hot lifecycle
+    /// hints. Structural queue removals rebuild this small index; replacement
+    /// itself stays O(1) while the main actor is backlogged.
+    private var pendingPerformReplaceIndices: [TerminalMutationReplaceKey: Int] = [:]
     private var drainScheduled = false
     private var nextSequence: UInt64 = 0
     private var currentNotificationGeneration: UInt64 = 0
@@ -230,6 +234,7 @@ final class TerminalMutationBus: @unchecked Sendable {
             guard case .deliverNotification = entry.mutation else { return false }
             return sequences.contains(entry.sequence)
         }
+        rebuildPendingPerformReplaceIndices()
         lock.unlock()
     }
 
@@ -252,6 +257,7 @@ final class TerminalMutationBus: @unchecked Sendable {
             pending.removeAll { entry in
                 entry.notificationCoalescingKey == coalescingKey
             }
+            rebuildPendingPerformReplaceIndices()
         }
         removedCount = beforeCount - pending.count
         nextSequence &+= 1
@@ -294,6 +300,7 @@ final class TerminalMutationBus: @unchecked Sendable {
             }
             return false
         }
+        rebuildPendingPerformReplaceIndices()
         nextSequence &+= 1
         pending.append(TerminalSocketMutationEntry(
             sequence: nextSequence,
@@ -353,6 +360,7 @@ final class TerminalMutationBus: @unchecked Sendable {
             return false
         }
         pending.removeAll { $0.performReplaceKey == replaceKey }
+        rebuildPendingPerformReplaceIndices()
         nextSequence &+= 1
         pending.append(TerminalSocketMutationEntry(
             sequence: nextSequence,
@@ -361,6 +369,7 @@ final class TerminalMutationBus: @unchecked Sendable {
             notificationCoalescingKey: nil,
             performReplaceKey: replaceKey
         ))
+        pendingPerformReplaceIndices[replaceKey] = pending.count - 1
         shouldScheduleDrain = !drainScheduled
         if shouldScheduleDrain {
             drainScheduled = true
@@ -391,7 +400,7 @@ final class TerminalMutationBus: @unchecked Sendable {
             lock.unlock()
             return false
         }
-        if let index = pending.firstIndex(where: { $0.performReplaceKey == replaceKey }) {
+        if let index = pendingPerformReplaceIndices[replaceKey], index < pending.count {
             let existing = pending[index]
             pending[index] = TerminalSocketMutationEntry(
                 sequence: existing.sequence,
@@ -411,6 +420,7 @@ final class TerminalMutationBus: @unchecked Sendable {
             notificationCoalescingKey: nil,
             performReplaceKey: replaceKey
         ))
+        pendingPerformReplaceIndices[replaceKey] = pending.count - 1
         shouldScheduleDrain = !drainScheduled
         if shouldScheduleDrain { drainScheduled = true }
         lock.unlock()
@@ -431,6 +441,7 @@ final class TerminalMutationBus: @unchecked Sendable {
             }
             return shouldDiscard(notification, generation)
         }
+        rebuildPendingPerformReplaceIndices()
         if advanceGeneration {
             currentNotificationGeneration &+= 1
         }
@@ -503,6 +514,7 @@ final class TerminalMutationBus: @unchecked Sendable {
         let batch = Array(pending.prefix(count))
         if !batch.isEmpty {
             pending.removeFirst(count)
+            rebuildPendingPerformReplaceIndices()
         }
         let remaining = pending.count
         lock.unlock()
@@ -573,6 +585,15 @@ final class TerminalMutationBus: @unchecked Sendable {
                 )
             case .perform(let mutation):
                 mutation()
+            }
+        }
+    }
+
+    private func rebuildPendingPerformReplaceIndices() {
+        pendingPerformReplaceIndices.removeAll(keepingCapacity: true)
+        for (index, entry) in pending.enumerated() {
+            if let replaceKey = entry.performReplaceKey {
+                pendingPerformReplaceIndices[replaceKey] = index
             }
         }
     }
