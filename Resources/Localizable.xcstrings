@@ -260329,6 +260329,131 @@
         }
       }
     },
+    "update.error.installerAgent.message": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لم يتمكّن macOS من تشغيل أداة تحديث cmux المساعدة في الوقت المحدد. قد تتسبب برامج الأمان في تأخير تشغيلها. أعد المحاولة مرة واحدة؛ وإذا استمر الفشل، فأعد تشغيل Mac أو نزّل أحدث إصدار أدناه وثبّته."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "macOS nije pokrenuo pomoćni program za ažuriranje cmux-a na vrijeme. Sigurnosni softver može odgoditi njegovo pokretanje. Pokušajte ponovo jednom; ako i dalje ne uspije, ponovo pokrenite Mac ili preuzmite i instalirajte najnoviju verziju ispod."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "macOS startede ikke cmux’ opdateringshjælper i tide. Sikkerhedssoftware kan forsinke den. Prøv igen én gang. Hvis det stadig mislykkes, skal du genstarte din Mac eller hente og installere den nyeste version nedenfor."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "macOS hat den Update-Hilfsprozess von cmux nicht rechtzeitig gestartet. Sicherheitssoftware kann den Start verzögern. Versuche es einmal erneut. Falls es weiterhin fehlschlägt, starte deinen Mac neu oder lade unten die neueste Version herunter und installiere sie."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "macOS didn’t start cmux’s updater helper in time. Security software can delay it. Retry once; if it still fails, restart your Mac or download and install the latest version below."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "macOS no inició a tiempo el proceso auxiliar de actualización de cmux. El software de seguridad puede retrasarlo. Vuelve a intentarlo una vez; si sigue fallando, reinicia el Mac o descarga e instala la versión más reciente a continuación."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "macOS n’a pas lancé à temps l’utilitaire de mise à jour de cmux. Un logiciel de sécurité peut retarder son lancement. Réessayez une fois ; si l’échec persiste, redémarrez votre Mac ou téléchargez et installez la dernière version ci-dessous."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "macOS non ha avviato in tempo l’helper di aggiornamento di cmux. Il software di sicurezza può ritardarne l’avvio. Riprova una volta; se il problema persiste, riavvia il Mac oppure scarica e installa l’ultima versione qui sotto."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "macOS が cmux のアップデーターヘルパーを時間内に起動できませんでした。セキュリティソフトウェアによって起動が遅れることがあります。まず再試行し、それでも失敗する場合は Mac を再起動するか、下から最新バージョンをダウンロードして手動でインストールしてください。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "macOS មិនបានចាប់ផ្តើមកម្មវិធីជំនួយធ្វើបច្ចុប្បន្នភាពរបស់ cmux ទាន់ពេលទេ។ កម្មវិធីសុវត្ថិភាពអាចពន្យារពេលវាបាន។ សូមព្យាយាមម្តងទៀត; ប្រសិនបើនៅតែបរាជ័យ សូមចាប់ផ្តើម Mac របស់អ្នកឡើងវិញ ឬទាញយក និងដំឡើងកំណែចុងក្រោយខាងក្រោម។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "macOS가 cmux 업데이트 도우미를 제시간에 시작하지 못했습니다. 보안 소프트웨어로 인해 시작이 지연될 수 있습니다. 한 번 다시 시도하세요. 그래도 실패하면 Mac을 재시동하거나 아래에서 최신 버전을 다운로드하여 설치하세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "macOS startet ikke oppdateringshjelperen til cmux i tide. Sikkerhetsprogramvare kan forsinke den. Prøv på nytt én gang. Hvis det fortsatt mislykkes, starter du Macen på nytt eller laster ned og installerer den nyeste versjonen nedenfor."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "System macOS nie uruchomił na czas procesu pomocniczego aktualizatora cmux. Oprogramowanie zabezpieczające może opóźnić jego uruchomienie. Spróbuj ponownie raz. Jeśli nadal się nie uda, uruchom ponownie Maca albo pobierz i zainstaluj najnowszą wersję poniżej."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "O macOS não iniciou o auxiliar de atualização do cmux a tempo. O software de segurança pode atrasar a inicialização. Tente novamente uma vez; se ainda falhar, reinicie o Mac ou baixe e instale a versão mais recente abaixo."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "macOS не успела запустить вспомогательный процесс обновления cmux. Защитное ПО может задерживать его запуск. Повторите попытку один раз. Если ошибка повторится, перезагрузите Mac либо скачайте и установите последнюю версию ниже."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "macOS ไม่ได้เริ่มตัวช่วยอัปเดตของ cmux ภายในเวลาที่กำหนด ซอฟต์แวร์รักษาความปลอดภัยอาจทำให้การเริ่มทำงานล่าช้า ลองอีกครั้งหนึ่งครั้ง หากยังไม่สำเร็จ ให้รีสตาร์ท Mac หรือดาวน์โหลดและติดตั้งเวอร์ชันล่าสุดด้านล่าง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "macOS, cmux güncelleme yardımcısını zamanında başlatamadı. Güvenlik yazılımı başlangıcı geciktirebilir. Bir kez yeniden deneyin; yine başarısız olursa Mac’inizi yeniden başlatın veya aşağıdan en son sürümü indirip yükleyin."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "macOS не встигла запустити допоміжний процес оновлення cmux. Захисне програмне забезпечення може затримувати його запуск. Повторіть спробу один раз. Якщо помилка повториться, перезапустіть Mac або завантажте й інсталюйте останню версію нижче."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "macOS 未能及时启动 cmux 的更新助手。安全软件可能会延迟其启动。请重试一次；如果仍然失败，请重新启动 Mac，或在下方下载并安装最新版本。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "macOS 未能及時啟動 cmux 的更新輔助程式。安全軟體可能會延遲其啟動。請重試一次；如果仍然失敗，請重新啟動 Mac，或在下方下載並安裝最新版本。"
+          }
+        }
+      }
+    },
     "update.error.installerAgent.title": {
       "extractionState": "manual",
       "localizations": {
