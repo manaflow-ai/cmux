@@ -239,11 +239,16 @@ struct TerminalColorSchemeProtocolTests {
         finally:
             termios.tcsetattr(fd, termios.TCSADRAIN, old)
         """
+        var surfaceForCleanup: TerminalSurface?
+        var windowForCleanup: NSWindow?
         var hostedTerminal: HostedTerminal?
         defer {
             if let hostedTerminal {
                 tearDown(hostedTerminal)
             } else {
+                windowForCleanup?.contentView = nil
+                windowForCleanup?.close()
+                surfaceForCleanup?.releaseSurfaceForTesting()
                 try? FileManager.default.removeItem(at: outputURL)
                 try? FileManager.default.removeItem(at: scriptURL)
                 try? FileManager.default.removeItem(at: commandURL)
@@ -264,6 +269,7 @@ struct TerminalColorSchemeProtocolTests {
             ioMode: ioMode,
             manualInputHandler: manualInputHandler
         )
+        surfaceForCleanup = surface
         let hostedView = surface.hostedView
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 360, height: 240),
@@ -271,6 +277,7 @@ struct TerminalColorSchemeProtocolTests {
             backing: .buffered,
             defer: false
         )
+        windowForCleanup = window
         let contentView = try #require(window.contentView)
         hostedView.frame = contentView.bounds
         hostedView.autoresizingMask = [.width, .height]
@@ -300,6 +307,8 @@ struct TerminalColorSchemeProtocolTests {
             }
         }
         hostedTerminal = nil
+        surfaceForCleanup = nil
+        windowForCleanup = nil
         return terminal
     }
 
