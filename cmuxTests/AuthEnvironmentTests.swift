@@ -84,6 +84,17 @@ struct AuthEnvironmentTests {
         ) == nil)
     }
 
+    @Test("device registry publishes to shared staging in debug so dev phones read fresh routes")
+    func deviceRegistryPublishesToSharedStagingInDebug() {
+        let localVMAPI = URL(string: "http://localhost:9450")!
+        #expect(AuthEnvironment.resolvedDeviceRegistryAPIBaseURL(
+            isDebugBuild: true, vmAPIBaseURL: localVMAPI
+        ).absoluteString == "https://cmux-staging.vercel.app")
+        #expect(AuthEnvironment.resolvedDeviceRegistryAPIBaseURL(
+            isDebugBuild: false, vmAPIBaseURL: localVMAPI
+        ) == localVMAPI)
+    }
+
     @Test("debug callback scheme uses sanitized tag")
     func debugCallbackSchemeUsesSanitizedTag() {
         #expect(

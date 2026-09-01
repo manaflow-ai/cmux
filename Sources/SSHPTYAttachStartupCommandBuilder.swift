@@ -8,6 +8,23 @@ enum SSHPTYAttachStartupCommandBuilder {
         let identityFile: String?
         let sshOptions: [String]
         let token: String
+        let postAuthenticationCommand: String?
+
+        init(
+            destination: String,
+            port: Int?,
+            identityFile: String?,
+            sshOptions: [String],
+            token: String,
+            postAuthenticationCommand: String? = nil
+        ) {
+            self.destination = destination
+            self.port = port
+            self.identityFile = identityFile
+            self.sshOptions = sshOptions
+            self.token = token
+            self.postAuthenticationCommand = postAuthenticationCommand
+        }
     }
 
     static func command(
@@ -28,8 +45,8 @@ enum SSHPTYAttachStartupCommandBuilder {
             lines.append("cmux_ssh_attach_session_id=\(shellQuote(sessionID))")
         } else {
             lines += [
-                "if [ -z \"${CMUX_SURFACE_ID:-}\" ]; then printf '%s\\n' '[cmux] required terminal context missing for SSH PTY attach.' >&2; exit 1; fi",
-                "cmux_ssh_attach_session_id=\"ssh-$CMUX_WORKSPACE_ID-$CMUX_SURFACE_ID\"",
+                "cmux_ssh_attach_session_id=\"${CMUX_SSH_PTY_SESSION_ID:-}\"",
+                "if [ -z \"$cmux_ssh_attach_session_id\" ]; then if [ -z \"${CMUX_SURFACE_ID:-}\" ]; then printf '%s\\n' '[cmux] required terminal context missing for SSH PTY attach.' >&2; exit 1; fi; cmux_ssh_attach_session_id=\"ssh-$CMUX_WORKSPACE_ID-$CMUX_SURFACE_ID\"; fi",
             ]
         }
         if let foregroundAuth {
@@ -38,7 +55,8 @@ enum SSHPTYAttachStartupCommandBuilder {
                 SSHForegroundAuthenticationRetryPolicy().processTreeTerminationShellFunction()
             )
         }
-        lines.append("cmux_ssh_attach_lifecycle_id=$(/usr/bin/uuidgen | /usr/bin/tr '[:upper:]' '[:lower:]') || exit 1")
+        lines.append("cmux_ssh_attach_lifecycle_id=\"${CMUX_SSH_PTY_LIFECYCLE_ID:-}\"")
+        lines.append("if [ -z \"$cmux_ssh_attach_lifecycle_id\" ]; then cmux_ssh_attach_lifecycle_id=$(/usr/bin/uuidgen | /usr/bin/tr '[:upper:]' '[:lower:]') || exit 1; fi")
         lines += [
             "cmux_ssh_attach_lifecycle_ended=0",
             "cmux_ssh_attach_auth_pid=",
@@ -108,6 +126,14 @@ enum SSHPTYAttachStartupCommandBuilder {
                 requireSuccess: false,
                 cliVariable: "cmux_ssh_attach_cli"
             )
+        }
+        if let postAuthenticationCommand = normalized(auth.postAuthenticationCommand) {
+            lines += [
+                "  \(postAuthenticationCommand)",
+                "  cmux_ssh_post_auth_status=$?",
+                "  if [ \"$cmux_ssh_post_auth_status\" -ne 0 ]; then return \"$cmux_ssh_post_auth_status\"; fi",
+                "  unset cmux_ssh_post_auth_status",
+            ]
         }
         lines += [
             "unset cmux_ssh_auth_status",
