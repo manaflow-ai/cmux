@@ -8,7 +8,7 @@ import Testing
 #endif
 
 @MainActor
-@Suite("File explorer native drag ownership")
+@Suite("File explorer native drag ownership", .serialized)
 struct FileExplorerNativeDragOwnershipTests {
     @Test("Search results retain their container through dismantle and endedAt")
     func searchResultsContainerSurvivesDismantleUntilNativeEndedAt() throws {
@@ -326,11 +326,20 @@ struct FileExplorerNativeDragOwnershipTests {
             FileExplorerPanelView.dismantleNSView(activeContainer, coordinator: coordinator)
 
             // A subsequent pointer gesture is the first safe boundary after a
-            // missing endedAt. It must retire only this session's native
-            // ownership record and revoke its preview capability.
-            activeContainer.prepareForNativeDragBoundary()
+            // missing endedAt. Rebuild the representable first: the new
+            // container must retire the old search-table source through the
+            // coordinator's tracked ownership record.
+            let rebuiltContainer = FileExplorerContainerView(
+                coordinator: coordinator,
+                presentation: .find,
+                searchController: searchController
+            )
+            rebuiltContainer.prepareForNativeDragBoundary()
             #expect(activeContainer.searchResultsView.activeNativeDragDelegateMarker == nil)
             #expect(activeContainer.searchResultsView.activeNativeDragSession == nil)
+            #expect(rebuiltContainer.searchResultsView.activeNativeDragDelegateMarker == nil)
+            #expect(rebuiltContainer.searchResultsView.activeNativeDragSession == nil)
+            _ = rebuiltContainer
         }
         container = nil
         writer = nil
@@ -377,10 +386,21 @@ struct FileExplorerNativeDragOwnershipTests {
         #expect(outline.activeNativeDragDelegateMarker === coordinator)
         #expect(writer.nativeDragOwnership() != nil)
 
-        coordinator.prepareForNativeDragBoundary(on: outline)
+        // A rebuilt representable installs a new outline on the same
+        // coordinator while the writer retains the original source.
+        let rebuiltContainer = FileExplorerContainerView(
+            coordinator: coordinator,
+            presentation: .files
+        )
+        let rebuiltOutline = try #require(coordinator.outlineView as? FileExplorerNSOutlineView)
+        #expect(rebuiltOutline !== outline)
+        coordinator.prepareForNativeDragBoundary(on: rebuiltOutline)
         #expect(outline.activeNativeDragDelegateMarker == nil)
         #expect(outline.activeNativeDragSession == nil)
         #expect(outline.activeNativeDragOwnership == nil)
+        #expect(rebuiltOutline.activeNativeDragDelegateMarker == nil)
+        #expect(rebuiltOutline.activeNativeDragSession == nil)
+        _ = rebuiltContainer
         _ = container
     }
 

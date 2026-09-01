@@ -143,13 +143,19 @@ struct CloudTreeNativeDragOwnershipTests {
         #expect(coordinator.isDragging)
         #expect(SurfaceResourceDragRegistry.shared.group(id: writer.dragID) != nil)
 
-        // The next pointer gesture is an authoritative native boundary even if
-        // AppKit omitted endedAt during an outline reconstruction.
-        coordinator.prepareForNativeDragBoundary(on: outline)
+        // Rebuilding the representable installs a new current outline while
+        // AppKit still retains the original source through the writer. The
+        // pointer boundary on that rebuilt source must retire the old owner.
+        let rebuiltContainer = CloudTreeContainerView(coordinator: coordinator)
+        let rebuiltOutline = try #require(coordinator.outlineView)
+        #expect(rebuiltOutline !== outline)
+        coordinator.prepareForNativeDragBoundary(on: rebuiltOutline)
         #expect(!coordinator.isDragging)
         #expect(SurfaceResourceDragRegistry.shared.group(id: writer.dragID) == nil)
         #expect(outline.activeNativeDragCoordinator == nil)
         #expect(outline.activeNativeDragSession == nil)
+        #expect(rebuiltOutline.activeNativeDragCoordinator == nil)
+        #expect(rebuiltOutline.activeNativeDragSession == nil)
 
         // A replacement writer may be requested before the retired source's
         // delayed endedAt callback arrives. The superseded-session fence must
@@ -165,6 +171,7 @@ struct CloudTreeNativeDragOwnershipTests {
             operation: []
         )
         #expect(SurfaceResourceDragRegistry.shared.group(id: replacementWriter.dragID) != nil)
+        _ = rebuiltContainer
         _ = container
     }
 

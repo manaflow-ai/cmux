@@ -649,6 +649,10 @@ final class FilePreviewDragPasteboardWriter: NSPasteboardItem {
                 )
             )
         }
+        // Keep the concrete item in sync with the lease. AppKit may retain and
+        // read an NSPasteboardItem directly after this promotion, bypassing
+        // the explicit session-pasteboard materialization below.
+        materializeBonsplitCapability()
         let ownership = FilePreviewNativeDragOwnership(
             dragID: resolvedDragID,
             filePreviewData: data,
@@ -848,11 +852,16 @@ final class FilePreviewDragPasteboardWriter: NSPasteboardItem {
     override func writableTypes(for pasteboard: NSPasteboard) -> [NSPasteboard.PasteboardType] {
         _ = pasteboard
         // This is a read-only capability query. Registration happens only
-        // when the owner promotes a writer at willBeginAt.
-        return [
+        // when the owner promotes a writer at willBeginAt; after promotion the
+        // leased Bonsplit representation is exposed on this same item too.
+        var types = [
             DragOverlayRoutingPolicy.filePreviewTransferType,
             .fileURL
         ]
+        if bonsplitRegistration?.pasteboardItem.string(forType: Self.bonsplitTransferType) != nil {
+            types.append(Self.bonsplitTransferType)
+        }
+        return types
     }
 
     override func pasteboardPropertyList(forType type: NSPasteboard.PasteboardType) -> Any? {
@@ -862,6 +871,9 @@ final class FilePreviewDragPasteboardWriter: NSPasteboardItem {
         if type == .fileURL {
             let fileURL = URL(fileURLWithPath: filePath).standardizedFileURL
             return fileURL.absoluteString
+        }
+        if type == Self.bonsplitTransferType {
+            return bonsplitRegistration?.pasteboardItem.string(forType: type)
         }
         return nil
     }
@@ -892,6 +904,14 @@ final class FilePreviewDragPasteboardWriter: NSPasteboardItem {
             URL(fileURLWithPath: filePath).standardizedFileURL.absoluteString,
             forType: .fileURL
         )
+    }
+
+    /// Mirrors a promoted Bonsplit lease onto this concrete pasteboard item.
+    private func materializeBonsplitCapability() {
+        guard let capability = bonsplitRegistration?.pasteboardItem.string(
+            forType: Self.bonsplitTransferType
+        ) else { return }
+        _ = setString(capability, forType: Self.bonsplitTransferType)
     }
 }
 

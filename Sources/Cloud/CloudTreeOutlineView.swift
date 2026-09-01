@@ -169,9 +169,11 @@ struct CloudTreeOutlineView: NSViewRepresentable {
         /// The boundary is safe because AppKit does not dispatch a new
         /// `mouseDown` while the older native drag loop is still running.
         func prepareForNativeDragBoundary(on sourceView: CloudTreeNSOutlineView) {
-            if let activeDragSourceView, activeDragSourceView !== sourceView {
-                // A rebuilt older outline cannot retire a newer outline's
-                // active session; its boundary belongs to a different source.
+            if let activeDragSourceView, activeDragSourceView !== sourceView,
+               outlineView !== sourceView {
+                // A stale callback from an older outline must not retire the
+                // current source. A rebuilt current outline, however, is the
+                // authoritative pointer boundary for the retained old source.
                 return
             }
             if let activeDragSession = activeDragSession ?? sourceView.activeNativeDragSession {
