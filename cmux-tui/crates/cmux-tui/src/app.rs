@@ -16755,6 +16755,19 @@ impl App {
         self.selection_mode_surface = None;
     }
 
+    /// Clear a press that has no semantic range while retaining the surface
+    /// needed to turn a later drag into a cell selection.
+    fn clear_selection_for_cell_gesture(&mut self, surface: SurfaceId) {
+        self.replace_selection(None);
+        self.selection_mode = SelectionMode::Cell;
+        self.selection_mode_surface = Some(surface);
+        if let Some(sequence) = self.selection_click_sequence.as_mut()
+            && sequence.surface == surface
+        {
+            sequence.mode = SelectionMode::Cell;
+        }
+    }
+
     fn selection_point(cell: (u16, u64)) -> Option<SelectionPoint> {
         Some(SelectionPoint { column: cell.0, row: u32::try_from(cell.1).ok()? })
     }
@@ -17113,9 +17126,15 @@ impl App {
             && self.selection_mode_surface == Some(surface_id)
         {
             self.update_semantic_selection(surface_id, self.selection_mode, edge_cell);
-        } else if let Some(mut selection) = self.selection {
-            selection.head = edge_cell;
-            self.replace_selection(Some(selection));
+        } else {
+            let selection = self.selection.or_else(|| {
+                let anchor = self.selection_anchor_cell(surface_id)?;
+                Some(Selection { surface: surface_id, anchor, head: edge_cell })
+            });
+            if let Some(mut selection) = selection {
+                selection.head = edge_cell;
+                self.replace_selection(Some(selection));
+            }
         }
         moved
     }
@@ -22181,10 +22200,22 @@ impl App {
                         (x.saturating_sub(content.x), y.saturating_sub(content.y)),
                         modifiers,
                     );
-                    self.selection_mode = mode;
-                    self.selection_mode_surface = Some(area.surface);
-                    if let Some(selection) = self.selection_for_click(area.surface, cell, mode) {
-                        self.replace_selection(Some(selection));
+                    if mode == SelectionMode::Cell && modifiers == KeyModifiers::NONE {
+                        // Ghostty's cell behavior returns no range on press.
+                        // Keep only the tracked anchor until a drag moves it.
+                        self.clear_selection_for_cell_gesture(area.surface);
+                    } else {
+                        self.selection_mode = mode;
+                        self.selection_mode_surface = Some(area.surface);
+                        if let Some(selection) = self.selection_for_click(area.surface, cell, mode)
+                        {
+                            self.replace_selection(Some(selection));
+                        } else {
+                            // A semantic lookup can legitimately return no
+                            // value for an empty cell. Do not leave an older
+                            // selection or semantic drag mode active.
+                            self.clear_selection_for_cell_gesture(area.surface);
+                        }
                     }
                     self.drag = Some(Drag::Select { content, source_x, auto_scroll: None, col });
                 }
@@ -22261,8 +22292,13 @@ impl App {
                     })
                     .unwrap_or(SelectionMode::Cell);
                 if mode == SelectionMode::Cell {
-                    if let Some(mut selection) = self.selection {
-                        selection.head = (col, offset + (cy - content.y) as u64);
+                    let selection = self.selection.or_else(|| {
+                        let surface = selection_surface?;
+                        let anchor = self.selection_anchor_cell(surface)?;
+                        Some(Selection { surface, anchor, head: current })
+                    });
+                    if let Some(mut selection) = selection {
+                        selection.head = current;
                         self.replace_selection(Some(selection));
                     }
                 } else if let Some(surface) = selection_surface {
