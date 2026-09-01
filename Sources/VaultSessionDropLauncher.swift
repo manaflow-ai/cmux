@@ -54,7 +54,7 @@ struct VaultSessionDropLauncher {
                     focus: true
                 )
             }
-            if let remoteStartupCommand,
+            if remoteStartupCommand != nil,
                let launchWorkingDirectory = launch.workingDirectory {
                 workspace.updateRemotePanelDirectory(
                     panelId: panel.id,
@@ -74,7 +74,7 @@ struct VaultSessionDropLauncher {
             ) else {
                 return false
             }
-            if let remoteStartupCommand,
+            if remoteStartupCommand != nil,
                let launchWorkingDirectory = launch.workingDirectory {
                 workspace.updateRemotePanelDirectory(
                     panelId: panel.id,
