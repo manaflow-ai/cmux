@@ -9246,10 +9246,11 @@ mod unix {
             assert_eq!(snapshot_cwd(&term, Some("/spawn")), Some("/spawn".into()));
 
             term.vt_write(b"\x1b]7;file:///live\x1b\\");
-            assert_eq!(snapshot_cwd(&term, Some("/spawn")), Some("file:///live".into()));
+            assert_eq!(snapshot_cwd(&term, Some("/spawn")), Some("/spawn".into()));
 
             term.vt_write(b"\x1b]7;\x1b\\");
             assert_eq!(snapshot_cwd(&term, Some("/spawn")), Some("/spawn".into()));
+            assert_eq!(snapshot_cwd(&term, Some("file:///spawn")), None);
         }
 
         #[test]
