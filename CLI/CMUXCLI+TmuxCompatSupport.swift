@@ -2,10 +2,8 @@ import CMUXAgentLaunch
 import Foundation
 
 extension CMUXCLI {
-    /// A cmux pane can intentionally remain empty (for example, the persisted
-    /// global Dock root), but tmux panes must always have a targetable surface.
-    /// Keep the compatibility projection fail-closed when older payloads omit
-    /// one of the additive surface fields.
+    /// Empty persisted Dock panes are valid in cmux, but tmux panes need a targetable surface.
+    /// Keep the compatibility projection fail-closed when additive fields are omitted.
     func tmuxPaneHasTargetableSurface(_ pane: [String: Any]) -> Bool {
         if let surfaceCount = intFromAny(pane["surface_count"]) {
             return surfaceCount > 0
@@ -22,8 +20,7 @@ extension CMUXCLI {
         return false
     }
 
-    /// Returns `nil` only when a successful lookup contains no surfaces;
-    /// transport, decoding, and protocol failures remain thrown.
+    /// Returns `nil` only for an empty successful surfaces array; malformed entries throw.
     func tmuxSelectedSurfaceIdIfPresent(
         workspaceId: String,
         paneId: String,
@@ -33,17 +30,20 @@ extension CMUXCLI {
             method: "pane.surfaces",
             params: ["workspace_id": workspaceId, "pane_id": paneId]
         )
-        guard let surfaces = payload["surfaces"] as? [[String: Any]] else {
-            throw CLIError(message: String(
-                localized: "cli.tmux-compat.error.invalidPaneSurfacesResponse",
-                defaultValue: "cmux tmux shim: pane.surfaces response must contain a surfaces array"
-            ))
-        }
+        let invalidResponse = CLIError(message: String(
+            localized: "cli.tmux-compat.error.invalidPaneSurfacesResponse",
+            defaultValue: "cmux couldn't resolve the selected pane. Select a different pane and try again."
+        ))
+        guard let surfaces = payload["surfaces"] as? [[String: Any]] else { throw invalidResponse }
+        guard !surfaces.isEmpty else { return nil }
         if let selected = surfaces.first(where: { boolFromAny($0["selected"]) == true }),
-           let id = selected["id"] as? String {
+           let id = selected["id"] as? String, !id.isEmpty {
             return id
         }
-        return surfaces.first?["id"] as? String
+        if let id = surfaces.lazy.compactMap({ $0["id"] as? String }).first(where: { !$0.isEmpty }) {
+            return id
+        }
+        throw invalidResponse
     }
 
     func tmuxSelectedSurfaceId(

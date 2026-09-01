@@ -7,6 +7,7 @@ extension CLITmuxCompatRemoteSplitTests {
         case valid
         case missing
         case nonArray
+        case invalidIDs
     }
 
     /// Regression for #9917: an intentionally empty global Dock pane is a valid
@@ -52,6 +53,15 @@ extension CLITmuxCompatRemoteSplitTests {
         #expect(result.status != 0)
         #expect(result.stdout.isEmpty, Comment(rawValue: result.stdout))
         #expect(result.stderr.contains("pane.surfaces"), Comment(rawValue: result.stderr))
+    }
+
+    /// A non-empty response without a usable surface ID is malformed, not an empty pane.
+    @Test func listPanesRejectsNonEmptySurfaceArrayWithoutUsableIDs() throws {
+        let result = try runListPanesWithEmptyDock(paneSurfacesResponse: .invalidIDs)
+
+        #expect(result.status != 0)
+        #expect(result.stdout.isEmpty, Comment(rawValue: result.stdout))
+        #expect(result.stderr.contains("couldn't resolve the selected pane"), Comment(rawValue: result.stderr))
     }
 
     private func runListPanesWithEmptyDock(
@@ -128,6 +138,10 @@ extension CLITmuxCompatRemoteSplitTests {
                     return Self.v2Response(id: id, ok: true, result: [:])
                 case .nonArray:
                     return Self.v2Response(id: id, ok: true, result: ["surfaces": "not-an-array"])
+                case .invalidIDs:
+                    return Self.v2Response(id: id, ok: true, result: [
+                        "surfaces": [["selected": true], ["id": ""]],
+                    ])
                 case .valid:
                     break
                 }
