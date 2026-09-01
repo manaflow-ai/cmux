@@ -18078,7 +18078,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
         for entry in snapshot.actions {
             guard entry.whenClause.evaluate(focusContext.shortcutContext),
-                  browserCaptureMatchesShortcut(event: event, shortcut: entry.shortcut) else {
+                  browserCaptureMatchesShortcut(
+                      event: event,
+                      shortcut: entry.shortcut,
+                      usesNumberedDigitMatching: entry.usesNumberedDigitMatching
+                  ) else {
                 continue
             }
             return true
@@ -18096,7 +18100,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         for entry in snapshot.staleDefaults {
             guard isMenuBackedShortcutAction(entry.action),
                   entry.whenClause.evaluate(focusContext.shortcutContext),
-                  browserCaptureMatchesShortcut(event: event, shortcut: entry.shortcut) else {
+                  browserCaptureMatchesShortcut(
+                      event: event,
+                      shortcut: entry.shortcut,
+                      usesNumberedDigitMatching: entry.usesNumberedDigitMatching
+                  ) else {
                 continue
             }
             return true
@@ -18106,8 +18114,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     private func browserCaptureMatchesShortcut(
         event: NSEvent,
-        shortcut: StoredShortcut
+        shortcut: StoredShortcut,
+        usesNumberedDigitMatching: Bool = false
     ) -> Bool {
+        if usesNumberedDigitMatching {
+            return numberedShortcutDigit(event: event, shortcut: shortcut) != nil
+        }
         if let prefix = activeConfiguredShortcutChordPrefixForCurrentEvent {
             guard shortcut.firstStroke == prefix,
                   let secondStroke = shortcut.secondStroke else {
@@ -18188,6 +18200,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         context: MainWindowContext?
     ) -> Bool {
         let snapshot = browserCaptureShortcutMatcherSnapshot(for: context)
+        let normalizedFlags = event.modifierFlags
+            .intersection(.deviceIndependentFlagsMask)
+            .subtracting([.numericPad, .function, .capsLock])
+        if snapshot.numberedDigitModifierRawValues.contains(normalizedFlags.rawValue),
+           eventCouldMatchNumberedShortcutDigit(event) {
+            return true
+        }
         return snapshot.candidateStrokes.contains {
             matchShortcutStroke(event: event, stroke: $0)
         }
@@ -18247,7 +18266,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             guard entry.action.shortcutContext == .browserPanel
                     || entry.action.shortcutContext == .browserOrFilePreviewTextEditor,
                   entry.whenClause.evaluate(focusContext.shortcutContext),
-                  browserCaptureMatchesShortcut(event: event, shortcut: entry.shortcut) else {
+                  browserCaptureMatchesShortcut(
+                      event: event,
+                      shortcut: entry.shortcut,
+                      usesNumberedDigitMatching: entry.usesNumberedDigitMatching
+                  ) else {
                 continue
             }
             return true
@@ -18260,7 +18283,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                   entry.action.shortcutContext == .browserPanel
                   || entry.action.shortcutContext == .browserOrFilePreviewTextEditor,
                   entry.whenClause.evaluate(focusContext.shortcutContext),
-                  browserCaptureMatchesShortcut(event: event, shortcut: entry.shortcut) else {
+                  browserCaptureMatchesShortcut(
+                      event: event,
+                      shortcut: entry.shortcut,
+                      usesNumberedDigitMatching: entry.usesNumberedDigitMatching
+                  ) else {
                 continue
             }
             return true

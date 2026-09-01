@@ -33,7 +33,8 @@ final class KeyboardShortcutSettingsObserver {
     typealias BrowserCaptureMatcherEntry = (
         action: KeyboardShortcutSettings.Action,
         shortcut: StoredShortcut,
-        whenClause: ShortcutWhenClause
+        whenClause: ShortcutWhenClause,
+        usesNumberedDigitMatching: Bool
     )
     typealias BrowserCaptureMatcherSnapshot = (
         settingsRevision: UInt64,
@@ -44,7 +45,8 @@ final class KeyboardShortcutSettingsObserver {
         actions: [BrowserCaptureMatcherEntry],
         configuredShortcuts: [StoredShortcut],
         staleDefaults: [BrowserCaptureMatcherEntry],
-        candidateStrokes: Set<ShortcutStroke>
+        candidateStrokes: Set<ShortcutStroke>,
+        numberedDigitModifierRawValues: Set<UInt>
     )
 
     static let shared = KeyboardShortcutSettingsObserver()
@@ -163,11 +165,22 @@ final class KeyboardShortcutSettingsObserver {
         var actions: [BrowserCaptureMatcherEntry] = []
         var staleDefaults: [BrowserCaptureMatcherEntry] = []
         var candidateStrokes = Set<ShortcutStroke>()
+        var numberedDigitModifierRawValues = Set<UInt>()
 
-        func appendCandidate(_ shortcut: StoredShortcut?) {
+        func appendCandidate(
+            _ shortcut: StoredShortcut?,
+            usesNumberedDigitMatching: Bool = false
+        ) {
             guard let shortcut, !shortcut.isUnbound else { return }
             let stroke = shortcut.firstStroke
             let flags = stroke.modifierFlags
+            if usesNumberedDigitMatching, !shortcut.hasChord {
+                // Numbered actions use the first configured digit as a family
+                // selector (1...9). Keep the modifier set in the compact
+                // candidate index so every member reaches the full matcher.
+                numberedDigitModifierRawValues.insert(flags.rawValue)
+                return
+            }
             let isBareSpace = flags.isEmpty && stroke.key.lowercased() == "space"
             let isShiftOrOption = flags.intersection([.command, .control]).isEmpty
                 && !flags.intersection([.shift, .option]).isEmpty
@@ -189,10 +202,14 @@ final class KeyboardShortcutSettingsObserver {
                     BrowserCaptureMatcherEntry(
                         action: action,
                         shortcut: currentShortcut,
-                        whenClause: whenClause
+                        whenClause: whenClause,
+                        usesNumberedDigitMatching: action.usesNumberedDigitMatching
                     )
                 )
-                appendCandidate(currentShortcut)
+                appendCandidate(
+                    currentShortcut,
+                    usesNumberedDigitMatching: action.usesNumberedDigitMatching
+                )
             }
 
             let defaultShortcut = action.defaultShortcut
@@ -202,10 +219,14 @@ final class KeyboardShortcutSettingsObserver {
                     BrowserCaptureMatcherEntry(
                         action: action,
                         shortcut: defaultShortcut,
-                        whenClause: whenClause
+                        whenClause: whenClause,
+                        usesNumberedDigitMatching: action.usesNumberedDigitMatching
                     )
                 )
-                appendCandidate(defaultShortcut)
+                appendCandidate(
+                    defaultShortcut,
+                    usesNumberedDigitMatching: action.usesNumberedDigitMatching
+                )
             }
         }
 
@@ -223,7 +244,8 @@ final class KeyboardShortcutSettingsObserver {
             actions: actions,
             configuredShortcuts: configured,
             staleDefaults: staleDefaults,
-            candidateStrokes: candidateStrokes
+            candidateStrokes: candidateStrokes,
+            numberedDigitModifierRawValues: numberedDigitModifierRawValues
         )
         if browserCaptureMatcherSnapshotCache.count < Self.browserCaptureMatcherCacheCapacity {
             browserCaptureMatcherSnapshotCache.append(snapshot)
