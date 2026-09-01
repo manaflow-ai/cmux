@@ -141,6 +141,30 @@ struct CmuxConfigWorkspaceActionTests {
         }
     }
 
+    @Test func configDoctorAcceptsRuntimeTrimmedActionValues() throws {
+        let object = try JSONSerialization.jsonObject(with: Data("""
+        {
+          "actions": {
+            "trimmed-builtin": {
+              "type": " builtin ",
+              "builtin": " cmux.newWorkspace "
+            },
+            "trimmed-agent": {
+              "type": " agent ",
+              "agent": " codex "
+            },
+            "trimmed-icon": {
+              "type": " command ",
+              "command": "echo ok",
+              "icon": { "type": " symbol ", "name": "bolt" }
+            }
+          }
+        }
+        """.utf8))
+
+        #expect(CmuxConfigValidator().validate(jsonObject: object).isEmpty)
+    }
+
     @MainActor
     @Test func configStoreKeepsValidActionWhenSiblingHasInvalidLayout() throws {
         let root = FileManager.default.temporaryDirectory
