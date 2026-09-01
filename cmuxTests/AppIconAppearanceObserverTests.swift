@@ -224,6 +224,60 @@ struct AppIconAppearanceObserverTests {
     }
 
     @Test
+    func testCustomImagePathValidationRejectsNamespacedAndEscapedSVGContent() throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-app-icon-svg-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        let unsafeSVGs = [
+            (
+                "prefixed-script.svg",
+                "<svg xmlns=\"http://www.w3.org/2000/svg\" xmlns:svg=\"http://www.w3.org/2000/svg\"><svg:script>alert(1)</svg:script></svg>"
+            ),
+            (
+                "escaped-import.svg",
+                "<svg xmlns=\"http://www.w3.org/2000/svg\"><style>@\\69mport '//example.com/theme.css';</style></svg>"
+            ),
+            (
+                "escaped-url.svg",
+                "<svg xmlns=\"http://www.w3.org/2000/svg\"><rect style=\"fill:u\\72l(//example.com/icon.svg#mark)\"/></svg>"
+            ),
+        ]
+
+        for (fileName, source) in unsafeSVGs {
+            let imageURL = directory.appendingPathComponent(fileName)
+            try source.write(to: imageURL, atomically: true, encoding: .utf8)
+            let result = CmuxValidatedImageAsset.prepare(
+                imageURL.path,
+                relativeToConfig: nil,
+                globalConfigPath: AppIconImageResolver.defaultConfigPath
+            )
+            #expect(
+                result == .failure(.unsafeSVG),
+                "Expected \(fileName) to be rejected, got \(result)"
+            )
+        }
+    }
+
+    @Test
+    func testCustomImageRejectionLogDoesNotExposePath() {
+        let privatePath = FileManager.default.temporaryDirectory
+            .appendingPathComponent("Private Project \(UUID().uuidString)")
+            .appendingPathComponent("missing-icon.png")
+            .path
+        var messages: [String] = []
+
+        #expect(AppIconImageResolver.image(
+            for: privatePath,
+            relativeToConfig: nil,
+            log: { messages.append($0) }
+        ) == nil)
+        #expect(messages.count == 1)
+        #expect(!messages.joined().contains(privatePath))
+    }
+
+    @Test
     @MainActor
     func testCustomImageSelectionOverridesBuiltInMode() throws {
         let suiteName = "AppIconAppearanceObserverTests.\(UUID().uuidString)"

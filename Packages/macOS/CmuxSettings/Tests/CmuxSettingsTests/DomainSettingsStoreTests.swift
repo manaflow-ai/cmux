@@ -352,6 +352,9 @@ struct AppIconSettingsStoreTests {
         let store = AppIconSettingsStore(defaults: defaults)
         #expect(store.resolvedImagePath == nil)
 
+        defaults.set("  \n\t ", forKey: "appIconImagePath")
+        #expect(store.resolvedImagePath == nil)
+
         defaults.set("  /tmp/icon.png  ", forKey: "appIconImagePath")
         #expect(store.resolvedImagePath == "/tmp/icon.png")
     }
