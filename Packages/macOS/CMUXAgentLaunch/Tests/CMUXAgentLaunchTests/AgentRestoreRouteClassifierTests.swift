@@ -13,6 +13,10 @@ struct AgentRestoreRouteClassifierTests {
         )) == .direct)
         #expect(classifier.route(for: request(
             kind: "codex",
+            arguments: ["codex", "Explain openai_base_url=https://api.example.test"]
+        )) == .direct)
+        #expect(classifier.route(for: request(
+            kind: "codex",
             arguments: ["codex", "-c", "model_provider=\"subrouter\""]
         )) == .pooled)
         #expect(classifier.route(for: request(
@@ -35,6 +39,11 @@ struct AgentRestoreRouteClassifierTests {
         #expect(classifier.route(for: request(
             kind: "claude",
             arguments: ["claude"]
+        )) == .direct)
+        #expect(classifier.route(for: request(
+            kind: "claude",
+            arguments: ["claude"],
+            environment: ["ANTHROPIC_BASE_URL": "https://api.example.test"]
         )) == .direct)
         #expect(classifier.route(for: request(
             kind: "claude",
