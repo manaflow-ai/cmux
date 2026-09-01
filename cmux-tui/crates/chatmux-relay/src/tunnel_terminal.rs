@@ -658,17 +658,25 @@ pub async fn start_tunnel_terminal_listener(
     let listener = TcpListener::bind((host, port)).await?;
     let bound = listener.local_addr()?.port();
     tokio::spawn(async move {
+        let mut connections = tokio::task::JoinSet::new();
         loop {
             let accepted = tokio::select! {
                 biased;
-                _ = cancellation.cancelled() => break,
+                _ = cancellation.cancelled() => {
+                    // Each connection owns its dispatcher, writer, and flow
+                    // tasks. Wait for their cancellation barriers instead of
+                    // dropping detached JoinHandles during listener shutdown.
+                    while connections.join_next().await.is_some() {}
+                    break;
+                }
+                Some(_) = connections.join_next(), if !connections.is_empty() => continue,
                 accepted = listener.accept() => accepted,
             };
             match accepted {
                 Ok((stream, _)) => {
                     let manager = Arc::clone(&manager);
                     let child = cancellation.child_token();
-                    tokio::spawn(serve_connection(stream, manager, child));
+                    connections.spawn(serve_connection(stream, manager, child));
                 }
                 Err(_) => {
                     // Transient accept errors (EMFILE and friends) must not
