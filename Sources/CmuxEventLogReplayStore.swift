@@ -5,7 +5,9 @@ import os
 // Sendable safety: the file configuration is immutable and the cached snapshot
 // is replaced only through `cachedSnapshot`.
 final class CmuxEventLogReplayStore: @unchecked Sendable {
-    struct Snapshot {
+    // Sendable safety: snapshots contain immutable JSON values produced by
+    // JSONSerialization and are replaced atomically under `cachedSnapshot`.
+    struct Snapshot: @unchecked Sendable {
         let events: [[String: Any]]
         let latestSequence: Int64?
     }
