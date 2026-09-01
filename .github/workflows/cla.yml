@@ -56,9 +56,12 @@ jobs:
           lock-pullrequest-aftermerge: 'false'
           # signatures live on the unprotected cla-signatures branch so required checks on main don't block the bot's signature commits
           branch: 'cla-signatures'
-          # Keep this list explicit. A username prefix is not proof that an
-          # account is a GitHub bot and would let a human bypass the CLA.
-          allowlist: lawrencecchen,github-actions[bot],chatmux-connections[bot]
+          # The HQ cloud reload transport creates temporary snapshot commits
+          # with this exact stable name while copying a PR tree to a builder.
+          # It is a repository-controlled transport identity, not an
+          # additional contributor; keep the value exact rather than using a
+          # broad prefix that could match a human-authored name.
+          allowlist: lawrencecchen,github-actions[bot],chatmux-connections[bot],cmux reload-cloud
 
       - name: "Lock merged pull request"
         if: >-
