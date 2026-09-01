@@ -202,7 +202,7 @@ final class KeyboardShortcutContextTests: XCTestCase {
         )
         XCTAssertTrue(
             KeyboardShortcutSettings.Action.renameTab
-                .defaultWhenClause
+                .shortcutContext.defaultWhenClause
                 .evaluate(shortcutContext)
         )
     }
