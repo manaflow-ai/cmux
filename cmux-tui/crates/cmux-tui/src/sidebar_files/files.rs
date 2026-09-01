@@ -136,10 +136,17 @@ mod tests {
     #[test]
     fn filters_case_insensitively() {
         let entries = vec![
-            FileEntry { name: "ReadMe.md".into(), path: "ReadMe.md".into(), kind: EntryKind::File },
-            FileEntry { name: "src".into(), path: "src".into(), kind: EntryKind::Directory },
+            FileEntry::new("ReadMe.md".into(), "ReadMe.md".into(), EntryKind::File),
+            FileEntry::new("src".into(), "src".into(), EntryKind::Directory),
         ];
         assert_eq!(filtered_indices(&entries, "README"), vec![0]);
         assert_eq!(filtered_indices(&entries, "r"), vec![0, 1]);
+    }
+
+    #[test]
+    fn filtering_matches_unicode_names_without_changing_visible_entries() {
+        let entries = vec![FileEntry::new("Résumé.txt".into(), "Résumé.txt".into(), EntryKind::File)];
+        assert_eq!(filtered_indices(&entries, "RÉSUMÉ"), vec![0]);
+        assert_eq!(entries[0].name, "Résumé.txt");
     }
 }
