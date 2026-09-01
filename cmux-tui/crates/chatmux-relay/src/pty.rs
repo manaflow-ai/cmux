@@ -2919,6 +2919,9 @@ impl PtyControl for ShellViewerControl {
     fn pause(&self) {
         let should_pause = {
             let _flow = self.session.flow_lock.lock().expect("shell flow lock");
+            if self.released.load(Ordering::Acquire) {
+                return;
+            }
             let mut inner = self.session.inner.lock().expect("shell inner lock");
             inner.paused_viewers.insert(self.viewer_id) && inner.paused_viewers.len() == 1
         };
