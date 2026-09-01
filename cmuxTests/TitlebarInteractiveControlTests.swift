@@ -1,6 +1,7 @@
 import AppKit
 import SwiftUI
 import Testing
+@_implementationOnly import XCTest
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
@@ -244,5 +245,74 @@ struct TitlebarInteractiveControlTests {
             !hitView.mouseDownCanMoveWindow,
             "Registered SwiftUI titlebar controls must not degrade into hosting-view drag hits."
         )
+    }
+}
+
+@MainActor
+final class NewWorkspaceButtonHitAreaTests: XCTestCase {
+    /// A click in the transparent portion of the primary segment must invoke
+    /// the same action as a click on the painted plus glyph.
+    func testPrimarySegmentUsesWholeFrameAsHitTarget() {
+        _ = NSApplication.shared
+
+        let config = TitlebarControlsStyle.classic.config
+        let primaryWidth = TitlebarNewWorkspaceCloudSplitButtonMetrics.primaryWidth(config: config)
+        let totalWidth = TitlebarNewWorkspaceCloudSplitButtonMetrics.totalWidth(config: config)
+        var actionCount = 0
+        let root = TitlebarNewWorkspaceCloudSplitButton(
+            config: config,
+            foregroundColor: .primary,
+            onNewTab: { actionCount += 1 }
+        )
+        let hostingView = NSHostingView(rootView: root)
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: totalWidth, height: config.buttonSize),
+            styleMask: [.borderless],
+            backing: .buffered,
+            defer: false
+        )
+        defer {
+            window.orderOut(nil)
+            window.contentView = nil
+        }
+        window.contentView = hostingView
+        window.makeKeyAndOrderFront(nil)
+        hostingView.frame = NSRect(x: 0, y: 0, width: totalWidth, height: config.buttonSize)
+        hostingView.layoutSubtreeIfNeeded()
+        window.displayIfNeeded()
+
+        let transparentPoint = NSPoint(x: primaryWidth - 2, y: config.buttonSize / 2)
+        XCTAssertNotNil(
+            hostingView.hitTest(transparentPoint),
+            "The transparent portion of the new-workspace segment must be hittable."
+        )
+
+        guard let down = NSEvent.mouseEvent(
+            with: .leftMouseDown,
+            location: transparentPoint,
+            modifierFlags: [],
+            timestamp: ProcessInfo.processInfo.systemUptime,
+            windowNumber: window.windowNumber,
+            context: nil,
+            eventNumber: 1,
+            clickCount: 1,
+            pressure: 1.0
+        ), let up = NSEvent.mouseEvent(
+            with: .leftMouseUp,
+            location: transparentPoint,
+            modifierFlags: [],
+            timestamp: ProcessInfo.processInfo.systemUptime,
+            windowNumber: window.windowNumber,
+            context: nil,
+            eventNumber: 2,
+            clickCount: 1,
+            pressure: 1.0
+        ) else {
+            XCTFail("Expected to create transparent-segment mouse events")
+            return
+        }
+        window.sendEvent(down)
+        window.sendEvent(up)
+        XCTAssertEqual(actionCount, 1, "A click in the framed transparent area must create a workspace.")
     }
 }
