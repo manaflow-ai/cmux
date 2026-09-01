@@ -2157,7 +2157,9 @@ func TestWebSocketPTYInputSeqGapNotificationEmitsPTYError(t *testing.T) {
 		t.Fatalf("events = %d, want 1", len(writer.events))
 	}
 	event := writer.events[0]
-	if event.Event != "pty.error" || !strings.Contains(event.Message, "got 2, want 1") {
+	if event.Event != "pty.error" ||
+		event.Code != ptyInputSeqGapCode ||
+		!strings.Contains(event.Message, "got 2, want 1") {
 		t.Fatalf("event = %+v, want visible seq gap pty.error", event)
 	}
 	hub.mu.Lock()

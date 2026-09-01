@@ -309,7 +309,7 @@ extension RemotePTYBridgeServer {
                 pendingPTYEventsBeforeReady.append(event)
             case .inputAck:
                 return
-            case .exit, .error:
+            case .exit, .error, .codedError:
                 guard pendingPTYEventsBeforeReady.count < Self.maxPendingOutputSends else {
                     close(detach: true)
                     return
@@ -329,6 +329,12 @@ extension RemotePTYBridgeServer {
             case .inputAck(let seq):
                 handleInputAck(seq: seq)
             case .exit, .error:
+                closeAfterOutputFlush(detach: false, gracefulOutputClose: true)
+            case .codedError:
+                // `pty.error` is an established post-ready stream event. The
+                // bridge status envelope is only valid before the ready frame;
+                // writing another JSON line here would become PTY output for
+                // clients that have already switched to raw stream mode.
                 closeAfterOutputFlush(detach: false, gracefulOutputClose: true)
             }
         }

@@ -378,6 +378,32 @@ struct RemotePTYBridgeServerTests {
         })
     }
 
+    @Test("a coded post-ready pty.error closes without writing a status envelope")
+    func codedPTYErrorMidStreamPreservesRawStreamProtocol() throws {
+        let rpc = RecordingPTYBridgeRPCClient()
+        let server = makeServer(client: rpc)
+        defer { server.stop() }
+        let endpoint = try server.start()
+
+        let client = BridgeTestClient(endpoint: endpoint)
+        defer { client.cancel() }
+        client.send(Data("{\"token\":\"\(endpoint.token)\",\"cols\":120,\"rows\":40}\n".utf8))
+        #expect(client.waitForReceived { data, _ in
+            String(decoding: data, as: UTF8.self).contains("\"attachment_token\":\"attach-token-1\"")
+        })
+
+        rpc.emit(.codedError(
+            message: "PTY input queue is full",
+            code: "pty_input_queue_full"
+        ))
+        var receivedAfterClose = ""
+        #expect(client.waitForReceived { data, closed in
+            receivedAfterClose = String(decoding: data, as: UTF8.self)
+            return closed
+        })
+        #expect(!receivedAfterClose.contains("\"type\":\"error\""))
+    }
+
     @Test("a wrong handshake token closes the connection without attaching")
     func wrongTokenCloses() throws {
         let rpc = RecordingPTYBridgeRPCClient()

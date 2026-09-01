@@ -1,5 +1,6 @@
 public import Foundation
 public import CmuxCore
+internal import CmuxFoundation
 
 /// Synchronous JSON-RPC client for a cmuxd-remote daemon over one of three
 /// transports: `ssh ... <remotePath> serve --stdio` (newline-delimited JSON on
@@ -70,7 +71,7 @@ public final class RemoteDaemonRPCClient: @unchecked Sendable {
     /// `pty.write` whose seq is not exactly last+1.
     public static let ptyInputSeqGapErrorCode = "pty_input_seq_gap"
     /// Package-owned NSError metadata key for the daemon's structured RPC error code.
-    static let rpcErrorCodeUserInfoKey = "cmux.remote.daemon.rpc.error_code"
+    static let rpcErrorCodeUserInfoKey = RemotePTYErrorCode.rpcErrorCodeUserInfoKey
     static let maxCloudCLIRequestsInFlight = 4
 
     /// Returns the daemon's structured RPC error code preserved on `error`.
@@ -268,7 +269,10 @@ public final class RemoteDaemonRPCClient: @unchecked Sendable {
         ptySubscriptions.removeAll(keepingCapacity: false)
         for subscription in subscriptions {
             subscription.queue.async {
-                subscription.handler(.error(detail))
+                subscription.handler(.codedError(
+                    message: detail,
+                    code: RemotePTYErrorCode.connectionInactive.rawValue
+                ))
             }
         }
     }

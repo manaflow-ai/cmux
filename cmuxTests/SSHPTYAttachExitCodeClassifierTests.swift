@@ -59,6 +59,15 @@ import Testing
         )
     }
 
+    @Test func rpcErrorCodeRetainsLegacyMessageFallback() {
+        #expect(
+            SSHPTYAttachExitCode.classifyBridgeEstablishmentFailure(
+                code: "rpc_error",
+                message: "remote connection is not active"
+            ) == SSHPTYAttachExitCode.retryableTransient
+        )
+    }
+
     @Test(arguments: [
         "missing required capability: pty.session",
         "method_not_found",
@@ -126,6 +135,33 @@ import Testing
         #expect(
             SSHPTYAttachExitCode.fatal.managedRetryStatus(
                 for: "ssh: connect to host x port 22: Operation timed out"
+            ) == SSHPTYAttachExitCode.fatal
+        )
+    }
+
+    @Test(arguments: [
+        ("remote_pty_timeout", SSHPTYAttachExitCode.retryableTransient),
+        ("remote_connection_inactive", SSHPTYAttachExitCode.retryableTransient),
+        ("pty_input_queue_full", SSHPTYAttachExitCode.retryableTransient),
+        ("remote_pty_attach_failed", SSHPTYAttachExitCode.fatal),
+    ])
+    func stableBridgeCodesTakePrecedence(
+        code: String,
+        expected: SSHPTYAttachExitCode
+    ) {
+        #expect(
+            SSHPTYAttachExitCode.classifyBridgeEstablishmentFailure(
+                code: code,
+                message: "timed out while attaching"
+            ) == expected
+        )
+    }
+
+    @Test func unknownStableCodeFailsClosedEvenWhenMessageLooksTransient() {
+        #expect(
+            SSHPTYAttachExitCode.classifyBridgeEstablishmentFailure(
+                code: "remote_pty_future_transient",
+                message: "remote connection is not active"
             ) == SSHPTYAttachExitCode.fatal
         )
     }

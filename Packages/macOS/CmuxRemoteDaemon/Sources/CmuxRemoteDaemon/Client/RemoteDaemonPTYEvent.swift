@@ -17,4 +17,8 @@ public enum RemoteDaemonPTYEvent: Sendable {
     /// The attachment failed; payload is the daemon's error text
     /// (`pty.error`).
     case error(String)
+    /// The attachment failed with a daemon-provided machine code. The plain
+    /// ``error`` case remains available for older/test clients that only have
+    /// text.
+    case codedError(message: String, code: String?)
 }
