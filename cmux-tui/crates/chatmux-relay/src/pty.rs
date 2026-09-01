@@ -2552,6 +2552,9 @@ impl Inner {
                 if cancellation.is_cancelled() {
                     remove_cached_shell_if_same(&self, session, &shell_session);
                     shell_session.control.kill();
+                    self.shell_starting.lock().expect("shell starting lock").remove(session);
+                    reservation.active = false;
+                    reservation.notify.notify_waiters();
                     return Err("terminal open cancelled".to_owned());
                 }
                 self.shell_starting.lock().expect("shell starting lock").remove(session);
