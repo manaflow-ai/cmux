@@ -97,14 +97,10 @@ extension CMUXCLI {
         guard let codexDef = Self.agentDef(named: "codex") else {
             throw CLIError(message: "Codex hook integration is unavailable.")
         }
-        let persistentEvents = codexPersistentHookEventNamesForWrapper()
-        let eventsToInject = CodexHookInjectionSchema.current.events.filter {
-            !persistentEvents.contains($0.agentEvent)
-        }
-        // A complete persistent channel is already the user's selected Codex
-        // configuration. Do not even pass an activation override in that case;
-        // this preserves an intentional `features.hooks = false` choice. A
-        // partial or legacy channel still gets only its missing events below.
+        let usesPersistentChannel = reconcileCodexPersistentHooksForWrapper()
+        let eventsToInject = usesPersistentChannel ? [] : CodexHookInjectionSchema.current.events
+        // A persistent channel needs no one-shot wrapper scripts. Avoid the
+        // per-event generated-script read/write path after reconciliation.
         guard !eventsToInject.isEmpty else { return }
         // Prefer a #!/bin/sh SCRIPT FILE as the hook command over an inline shell
         // snippet. Some codex-compatible runtimes (subrouters, proxies) exec the
@@ -116,7 +112,7 @@ extension CMUXCLI {
         // invocations, so they are written once into a cmux-owned dir (~/.cmux/
         // hooks), not the user's ~/.codex. Any write failure falls back to the
         // inline snippet so the working path can never regress.
-        let hooksDir = eventsToInject.isEmpty ? nil : Self.codexHookScriptsDirectory()
+        let hooksDir = Self.codexHookScriptsDirectory()
         var args: [String] = ["--enable", "hooks", "--dangerously-bypass-hook-trust"]
         for event in eventsToInject {
             let hookBody = Self.codexWrapperHookBody(event: event, for: codexDef)
@@ -260,11 +256,11 @@ extension CMUXCLI {
     }
 
     /// Removes obsolete regular files only when their names prove cmux ownership.
-    /// This is deliberately filesystem-only: it runs during persistent-hook
-    /// reconciliation or an explicit install, never on the common one-shot
-    /// wrapper path. A generous age window protects a live Codex session that
-    /// still references an older immutable script without consulting the host's
-    /// process table (`ps`/`pgrep`/`lsof`), which can add noticeable launch lag.
+    /// This is deliberately filesystem-only and runs only during an explicit
+    /// hook install, never on wrapper launch or automatic reconciliation. A
+    /// generous age window protects a live Codex session that still references
+    /// an older immutable script without consulting the host's process table
+    /// (`ps`/`pgrep`/`lsof`), which can add noticeable launch lag.
     static func garbageCollectCodexHookScripts(retaining filenames: Set<String>) {
         guard let directory = codexHookScriptsDirectory(),
               let contents = try? FileManager.default.contentsOfDirectory(
