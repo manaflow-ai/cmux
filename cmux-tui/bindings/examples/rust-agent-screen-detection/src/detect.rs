@@ -1356,6 +1356,41 @@ mod tests {
     }
 
     #[test]
+    fn screen_detect_exit_does_not_use_local_scheduler_revision_as_osc_fence() {
+        let mut tracker = ScreenDetectTracker::default();
+        let t0 = Instant::now();
+
+        // A daemon without stream revisions still uses a local screen key to
+        // schedule reads. That key is not evidence about PTY generations.
+        assert!(tracker.observe_revision("term_a", 7, t0));
+        assert!(tracker.note_foreground_job_at_with_revision(
+            "term_a",
+            Some("codex"),
+            None,
+            None,
+            t0,
+        ));
+        let started = tracker
+            .record_detection_at(
+                "term_a",
+                Some(("codex", detection(ScreenState::Working))),
+                t0,
+                true,
+                false,
+            )
+            .expect("agent state edge");
+        tracker.commit_emission(&started);
+
+        // The exit has no host revision. The compatibility path must remain
+        // open; the local scheduler key must not become a durable fence.
+        let ended = tracker
+            .record_detection_at_with_revision("term_a", None, t0, true, true, None)
+            .expect("exit edge");
+        tracker.commit_emission(&ended);
+        assert!(tracker.metadata_is_fresh("term_a", Some(1)));
+    }
+
+    #[test]
     fn screen_detect_tracker_emits_idle_presence_when_the_first_screen_asserts_nothing() {
         let mut tracker = ScreenDetectTracker::default();
         // First evaluation right after spawn hits a viewer/unknown screen:
