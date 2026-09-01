@@ -939,6 +939,42 @@ mod tests {
     }
 
     #[test]
+    fn retired_terminal_reopens_for_a_newer_session_start_but_suppresses_old_session_events() {
+        let subjects = terminal_subject("term_a");
+        let old_payload = json!({
+            "adapter": {"id": "claude", "version": 1},
+            "normalized": {"agent_session_id": "old-session"}
+        });
+        let new_payload = json!({
+            "adapter": {"id": "claude", "version": 1},
+            "normalized": {"agent_session_id": "new-session"}
+        });
+        let mut roster = AgentRoster::default();
+
+        roster.apply(&hook_event(1, "agent.session.started", &subjects, &old_payload));
+        assert!(roster.retire_terminal("term_a", 2));
+
+        // A delayed row from the retired lifecycle remains fenced.
+        assert!(
+            roster.apply(&hook_event(2, "agent.turn.started", &subjects, &old_payload)).is_empty()
+        );
+
+        // A strictly newer session start is a new lifecycle on the same
+        // terminal, so it must clear the retirement fence and reappear.
+        let deltas = roster.apply(&hook_event(3, "agent.session.started", &subjects, &new_payload));
+        assert_eq!(deltas.len(), 1);
+        assert!(!roster.is_retired("term_a"));
+        assert_eq!(roster.entries["term_a"].session.as_deref(), Some("new-session"));
+
+        // Events from the old provider session cannot cross into the reopened
+        // lifecycle even after the terminal is live again.
+        assert!(
+            roster.apply(&hook_event(4, "agent.turn.started", &subjects, &old_payload)).is_empty()
+        );
+        assert_eq!(roster.entries["term_a"].state, "idle");
+    }
+
+    #[test]
     fn retirement_cursor_only_moves_forward() {
         let subjects = terminal_subject("term_a");
         let payload = json!({});
