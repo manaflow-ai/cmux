@@ -60,22 +60,16 @@ final class BrowserPopupPanel: NSPanel {
                 return true
             }
 
-            // A non-Command captured key equivalent (for example bare Space,
-            // Shift+S, or Option+P) can legitimately decline at the WebKit
-            // equivalent boundary while still needing one keyDown delivery.
-            // Handle popup-close/stale-close guards first, then dispatch that
-            // keyDown once so the panel does not walk back into the WebView a
-            // second time through `super.performKeyEquivalent`.
+            // CmuxWebView owns every captured Command equivalent and consumes
+            // it after one WebKit/keyDown attempt. Only a non-Command capture
+            // (for example bare Space, Shift+S, or Option+P) can decline at
+            // that boundary and reach this fallback. Keep the popup's custom
+            // close handling for that case, then dispatch one guarded keyDown
+            // without walking back through `super.performKeyEquivalent`.
             if AppDelegate.shared?.handleBrowserPopupCloseShortcutKeyEquivalent(
                 event: event,
                 popupWindow: self
             ) == true {
-                return true
-            }
-            if browserPopupPanelShouldSuppressStaleCloseTabShortcut(event) {
-#if DEBUG
-                cmuxDebugLog("popup.panel.closeShortcut suppressStaleDefault")
-#endif
                 return true
             }
             guard !cmuxBrowserWebKitKeyDownDispatchIsActive() else { return true }

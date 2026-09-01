@@ -17976,6 +17976,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return false
         }
 
+        // UserDefaults.bool(forKey:) is a cheap live read. Keep it ahead of
+        // responder-chain ownership resolution so the default-off feature does
+        // not make disabled capture pay browser routing costs on every modified
+        // terminal keystroke. A NotificationCenter observer is intentionally
+        // not used here: UserDefaults posts its change notification on the
+        // process-wide standard center, not an injected test center.
+        guard KeyboardShortcutSettings.browserKeyboardShortcutCaptureEnabled() else {
+            return false
+        }
+
         // Bare Space is the only common unmodified candidate. Preflight it
         // before ownership resolution so ordinary spaces do not allocate an
         // event cache; modified printable keys resolve the responder first so
@@ -18010,16 +18020,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         if let cache = event.cmuxBrowserWebViewCache,
            let captureDecision = cache.captureDecision {
             return captureDecision
-        }
-
-        // Read this setting only after the event has proven itself shortcut-
-        // shaped and a browser web view owns the responder chain. UserDefaults
-        // posts a process-wide firehose notification, so caching this value via
-        // an injected NotificationCenter would both wake the hot path for
-        // unrelated writes and risk missing the standard center's updates.
-        guard KeyboardShortcutSettings.browserKeyboardShortcutCaptureEnabled() else {
-            event.cmuxBrowserWebViewCache?.captureDecision = false
-            return false
         }
 
         guard let window = webView.window,
@@ -18237,11 +18237,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
         // Escape, Help, and future AppKit special keys may not expose a
         // recordable token. Their control/private-use characters are still
-        // unambiguously non-printable, unlike Shift/Option text input.
-        return (event.characters ?? "").unicodeScalars.contains { scalar in
-            scalar.value < 0x20 || scalar.value == 0x7F
-                || (0xF700...0xF8FF).contains(scalar.value)
-        }
+        // unambiguously non-printable, unlike Shift/Option text input. Keep
+        // this scalar classification shared with the persisted-key index.
+        return cmuxShortcutKeyIsNonPrintable(event.characters ?? "")
     }
 
     /// Returns whether a standalone popup web view has a browser-scoped
@@ -18250,6 +18248,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     /// yield here: they must continue through normal ownership resolution.
     func shouldYieldPanelLessBrowserShortcut(_ event: NSEvent) -> Bool {
         guard event.type == .keyDown else {
+            return false
+        }
+        // Do not materialize the full focus snapshot for ordinary text input.
+        // Bare Space and non-printable keys remain eligible for popup-native
+        // browser handling through the shared classifier.
+        guard browserCaptureEventCanHaveShortcut(event) else {
             return false
         }
 

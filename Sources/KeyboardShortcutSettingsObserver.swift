@@ -11,14 +11,24 @@ func cmuxShortcutKeyIsNonPrintable(_ key: String) -> Bool {
     if normalizedKey == "space" || normalizedKey == "\t" || normalizedKey == "\r" {
         return true
     }
-    if ["←", "→", "↑", "↓"].contains(normalizedKey) {
+    switch normalizedKey {
+    case "←", "→", "↑", "↓",
+         "escape", "esc", "delete", "forwarddelete", "forward-delete",
+         "home", "end", "pageup", "page-up", "pagedown", "page-down",
+         "help", "insert", "clear":
+        return true
+    default:
+        break
+    }
+    if normalizedKey.first == "f",
+       let functionNumber = Int(normalizedKey.dropFirst()),
+       (1...20).contains(functionNumber) {
         return true
     }
-    guard normalizedKey.first == "f",
-          let functionNumber = Int(normalizedKey.dropFirst()) else {
-        return false
+    return normalizedKey.unicodeScalars.contains { scalar in
+        scalar.value < 0x20 || scalar.value == 0x7F
+            || (0xF700...0xF8FF).contains(scalar.value)
     }
-    return (1...20).contains(functionNumber)
 }
 
 /// Observes keyboard-shortcut revisions and owns hot-path matcher snapshots.
