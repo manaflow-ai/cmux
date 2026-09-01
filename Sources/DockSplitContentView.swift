@@ -266,7 +266,21 @@ final class DockPointerInteractionHostView: NSView {
             // A SwiftUI remount can briefly leave no AppKit hit view at the
             // pointer location. The host's own bounds remain the authoritative
             // Dock region, so only reject a known non-Dock/control hit.
-            let hitView = window.contentView?.hitTest(event.locationInWindow)
+            // `locationInWindow` is expressed in the window's base-coordinate
+            // system, while `NSView.hitTest(_:)` expects the receiver's local
+            // coordinates. Convert before asking AppKit for the hit view; the
+            // Dock is normally inset from the window origin, so passing the
+            // raw point misclassified pane clicks as empty background hits.
+            let hitView: NSView?
+            if let contentView = window.contentView {
+                let contentPoint = contentView.convert(
+                    event.locationInWindow,
+                    from: nil
+                )
+                hitView = contentView.hitTest(contentPoint)
+            } else {
+                hitView = nil
+            }
             guard let target = dockPointerHitTarget(
                 hitView,
                 at: event.locationInWindow,

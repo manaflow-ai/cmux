@@ -55,10 +55,19 @@ struct BrowserActionDispatcher {
             }
             return true
         case .zoomIn:
+            if let dock = appDelegate.dock(resolving: target) {
+                return dock.performDockPanelZoom(.increase, panelId: target.panelId)
+            }
             return panel.zoomIn()
         case .zoomOut:
+            if let dock = appDelegate.dock(resolving: target) {
+                return dock.performDockPanelZoom(.decrease, panelId: target.panelId)
+            }
             return panel.zoomOut()
         case .resetZoom:
+            if let dock = appDelegate.dock(resolving: target) {
+                return dock.performDockPanelZoom(.reset, panelId: target.panelId)
+            }
             return panel.resetZoom()
         case .split(let direction):
             return splitBrowser(
