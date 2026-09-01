@@ -30,7 +30,9 @@ concurrency:
 
 jobs:
   browser-skill:
-    runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    # Browser skill PRs execute untrusted checkout code and must not run on a
+    # configurable self-hosted runner with private network access.
+    runs-on: ubuntu-24.04 # github-hosted-required: browser skill PRs run untrusted code
     timeout-minutes: 5
     steps:
       - name: Checkout
