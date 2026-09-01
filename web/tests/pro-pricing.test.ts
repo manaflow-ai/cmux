@@ -1,21 +1,25 @@
 import { describe, expect, test } from "bun:test";
 
 import {
+  LEGACY_PRO_MONTHLY_LOOKUP_KEY,
+  LEGACY_PRO_YEARLY_288_LOOKUP_KEY,
   LEGACY_PRO_YEARLY_LOOKUP_KEY,
+  LEGACY_TEAM_MONTHLY_LOOKUP_KEY,
+  LEGACY_TEAM_YEARLY_336_LOOKUP_KEY,
   PRO_PRICING_USD,
   TEAM_PRICING_USD,
   proBillingInterval,
 } from "../services/billing/plans";
 
 describe("pricing plans", () => {
-  test("prices annual Pro at $288 with a 20% discount", () => {
+  test("prices annual Pro at $432 with a 20% discount", () => {
     expect(PRO_PRICING_USD.year).toEqual({
-      billedAmount: 288,
-      monthlyEquivalent: 24,
+      billedAmount: 432,
+      monthlyEquivalent: 36,
       discountPercent: 20,
-      lookupKey: "cmux-pro-yearly-288",
+      lookupKey: "cmux-pro-yearly-432",
     });
-    expect(PRO_PRICING_USD.month.billedAmount * 12).toBe(360);
+    expect(PRO_PRICING_USD.month.billedAmount * 12).toBe(540);
     expect(PRO_PRICING_USD.year.billedAmount).toBe(
       PRO_PRICING_USD.month.billedAmount *
         12 *
@@ -23,25 +27,41 @@ describe("pricing plans", () => {
     );
   });
 
-  test("keeps the original annual lookup key reserved for grandfathered subscriptions", () => {
+  test("keeps grandfathered lookup keys distinct from the live catalog", () => {
     expect(LEGACY_PRO_YEARLY_LOOKUP_KEY).toBe("cmux-pro-yearly");
-    expect(PRO_PRICING_USD.year.lookupKey).not.toBe(
+    expect(LEGACY_PRO_MONTHLY_LOOKUP_KEY).toBe("cmux-pro-monthly");
+    expect(LEGACY_PRO_YEARLY_288_LOOKUP_KEY).toBe("cmux-pro-yearly-288");
+    expect(LEGACY_TEAM_MONTHLY_LOOKUP_KEY).toBe("cmux-team-monthly");
+    expect(LEGACY_TEAM_YEARLY_336_LOOKUP_KEY).toBe("cmux-team-yearly-336");
+    const live = [
+      PRO_PRICING_USD.month.lookupKey,
+      PRO_PRICING_USD.year.lookupKey,
+      TEAM_PRICING_USD.month.lookupKey,
+      TEAM_PRICING_USD.year.lookupKey,
+    ];
+    for (const legacy of [
       LEGACY_PRO_YEARLY_LOOKUP_KEY,
-    );
+      LEGACY_PRO_MONTHLY_LOOKUP_KEY,
+      LEGACY_PRO_YEARLY_288_LOOKUP_KEY,
+      LEGACY_TEAM_MONTHLY_LOOKUP_KEY,
+      LEGACY_TEAM_YEARLY_336_LOOKUP_KEY,
+    ]) {
+      expect(live).not.toContain(legacy);
+    }
   });
 
-  test("prices annual Team at $336 per user with a 20% discount", () => {
+  test("prices annual Team at $480 per user with a 20% discount", () => {
     expect(TEAM_PRICING_USD.month).toEqual({
-      billedAmount: 35,
-      monthlyEquivalent: 35,
+      billedAmount: 50,
+      monthlyEquivalent: 50,
       discountPercent: 0,
-      lookupKey: "cmux-team-monthly",
+      lookupKey: "cmux-team-monthly-50",
     });
     expect(TEAM_PRICING_USD.year).toEqual({
-      billedAmount: 336,
-      monthlyEquivalent: 28,
+      billedAmount: 480,
+      monthlyEquivalent: 40,
       discountPercent: 20,
-      lookupKey: "cmux-team-yearly-336",
+      lookupKey: "cmux-team-yearly-480",
     });
     expect(TEAM_PRICING_USD.year.billedAmount).toBe(
       TEAM_PRICING_USD.month.billedAmount *

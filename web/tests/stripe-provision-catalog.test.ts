@@ -84,6 +84,42 @@ describe("Stripe catalog provisioning", () => {
           call.args.includes("unit_amount=33600"),
       ),
     ).toBe(true);
+    expect(
+      result.calls.some(
+        (call) =>
+          call.args.includes("https://api.stripe.com/v1/prices") &&
+          call.args.includes("POST") &&
+          call.args.includes("lookup_key=cmux-pro-yearly-432") &&
+          call.args.includes("unit_amount=43200"),
+      ),
+    ).toBe(true);
+    expect(
+      result.calls.some(
+        (call) =>
+          call.args.includes("https://api.stripe.com/v1/prices") &&
+          call.args.includes("POST") &&
+          call.args.includes("lookup_key=cmux-pro-monthly-45") &&
+          call.args.includes("unit_amount=4500"),
+      ),
+    ).toBe(true);
+    expect(
+      result.calls.some(
+        (call) =>
+          call.args.includes("https://api.stripe.com/v1/prices") &&
+          call.args.includes("POST") &&
+          call.args.includes("lookup_key=cmux-team-monthly-50") &&
+          call.args.includes("unit_amount=5000"),
+      ),
+    ).toBe(true);
+    expect(
+      result.calls.some(
+        (call) =>
+          call.args.includes("https://api.stripe.com/v1/prices") &&
+          call.args.includes("POST") &&
+          call.args.includes("lookup_key=cmux-team-yearly-480") &&
+          call.args.includes("unit_amount=48000"),
+      ),
+    ).toBe(true);
   });
 
   test("finds a canonical product on a later product-search page", async () => {

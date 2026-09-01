@@ -254,13 +254,17 @@ echo "Resolved Pro product." >&2
 team_product_id="$(canonical_product "cmux-team-monthly" "cmux Team" "team")"
 echo "Resolved Team product." >&2
 
-ensure_price "$pro_product_id" "cmux-pro-monthly" "3000" "month" "cmux Pro Monthly"
+ensure_price "$pro_product_id" "cmux-pro-monthly-45" "4500" "month" "cmux Pro Monthly"
+ensure_price "$pro_product_id" "cmux-pro-monthly" "3000" "month" "cmux Pro Monthly (Legacy)"
 # Keep the original $240 annual Price active for existing subscribers. Stripe
 # Price amounts are immutable, so new annual checkouts use a new lookup key.
 ensure_price "$pro_product_id" "cmux-pro-yearly" "24000" "year" "cmux Pro Yearly (Legacy)"
-ensure_price "$pro_product_id" "cmux-pro-yearly-288" "28800" "year" "cmux Pro Yearly"
-ensure_price "$team_product_id" "cmux-team-monthly" "3500" "month" "cmux Team Monthly"
-ensure_price "$team_product_id" "cmux-team-yearly-336" "33600" "year" "cmux Team Yearly"
+ensure_price "$pro_product_id" "cmux-pro-yearly-288" "28800" "year" "cmux Pro Yearly (Legacy 288)"
+ensure_price "$pro_product_id" "cmux-pro-yearly-432" "43200" "year" "cmux Pro Yearly"
+ensure_price "$team_product_id" "cmux-team-monthly-50" "5000" "month" "cmux Team Monthly"
+ensure_price "$team_product_id" "cmux-team-monthly" "3500" "month" "cmux Team Monthly (Legacy)"
+ensure_price "$team_product_id" "cmux-team-yearly-336" "33600" "year" "cmux Team Yearly (Legacy)"
+ensure_price "$team_product_id" "cmux-team-yearly-480" "48000" "year" "cmux Team Yearly"
 
 if [[ "$MODE" == "live" ]]; then
   webhook_ids=""

@@ -195,8 +195,8 @@
         "name": "cmux Pro",
         "activeBody": "Your plan renews on {date}.",
         "pendingBody": "Your plan is scheduled to end on {date}.",
-        "monthlyPrice": "$30/mo",
-        "annualPrice": "$24/mo, billed annually",
+        "monthlyPrice": "$45/mo",
+        "annualPrice": "$36/mo, billed annually",
         "legacyAnnualPrice": "$20/mo, billed annually"
       },
       "team": {
@@ -204,8 +204,8 @@
         "fallbackName": "your team",
         "activeBody": "{team} renews on {date}.",
         "pendingBody": "{team} is scheduled to end on {date}.",
-        "price": "$35/seat/mo",
-        "annualPrice": "$28/seat/mo, billed annually"
+        "price": "$50/seat/mo",
+        "annualPrice": "$40/seat/mo, billed annually"
       },
       "details": {
         "renewsOn": "Renews on",
@@ -568,7 +568,7 @@
     },
     "pro": {
       "name": "Pro",
-      "price": "$30",
+      "price": "$45",
       "cta": "Get Pro",
       "featuresLead": "Everything in Free, plus:",
       "features": [
@@ -586,7 +586,7 @@
     },
     "team": {
       "name": "Team",
-      "price": "$35",
+      "price": "$50",
       "cta": "Get Teams",
       "featuresLead": "Everything in Pro, plus:",
       "features": [
@@ -752,7 +752,7 @@
         },
         {
           "q": "How does billing work?",
-          "a": "Pro is $30/mo, or $24/mo when billed annually (a 20% savings). Team is $35/user/mo, or $28/user/mo when billed annually. Paid plans include up to 5 active Cloud VMs, with no metering or overages. The terminal and local agents stay free."
+          "a": "Pro is $45/mo, or $36/mo when billed annually (a 20% savings). Team is $50/user/mo, or $40/user/mo when billed annually. Paid plans include up to 5 active Cloud VMs, with no metering or overages. The terminal and local agents stay free."
         },
         {
           "q": "Can I self-host the cloud?",
@@ -760,7 +760,7 @@
         },
         {
           "q": "Do you have a team plan?",
-          "a": "Yes. Team is $35/user/mo, or $28/user/mo when billed annually, with centralized billing for your whole team and priority support."
+          "a": "Yes. Team is $50/user/mo, or $40/user/mo when billed annually, with centralized billing for your whole team and priority support."
         }
       ]
     },
