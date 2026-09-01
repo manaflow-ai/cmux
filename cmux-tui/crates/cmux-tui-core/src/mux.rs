@@ -9943,6 +9943,10 @@ impl Mux {
                 updated_at_ms: now,
             },
         };
+        // The cache guard is only needed to choose the effective record.
+        // Release it before continuing with registry commits and the direct
+        // echo path, which can re-enter hook projection code.
+        drop(records);
         // A socket report that is intentionally ignored by the hook-owned
         // record must persist that effective record, not the discarded socket
         // identity. Otherwise durable and in-memory projections diverge.
