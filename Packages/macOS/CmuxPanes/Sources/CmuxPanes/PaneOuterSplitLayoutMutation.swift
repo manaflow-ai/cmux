@@ -119,7 +119,8 @@ public struct PaneOuterSplitLayoutMutation: PaneOuterSplitLayoutMutating {
         // Every normal cmux pane owns at least one live surface. Refuse a
         // transient empty tree rather than risk collapsing a pane while the
         // live tabs are being redistributed.
-        guard leaves(of: layout).allSatisfy({ !$0.tabIds.isEmpty }) else {
+        let capturedLeaves = leaves(of: layout)
+        guard capturedLeaves.allSatisfy({ !$0.tabIds.isEmpty }) else {
             return false
         }
 
@@ -147,12 +148,19 @@ public struct PaneOuterSplitLayoutMutation: PaneOuterSplitLayoutMutating {
         // no panel close callbacks are emitted because the tabs are moved,
         // not closed.
         let existingPaneIds = controller.allPaneIds
-        var sourceInsertionIndex = controller.tabs(inPane: paneId).count
+        let capturedTabIdsByPane = Dictionary(
+            uniqueKeysWithValues: capturedLeaves.map { ($0.id, $0.tabIds) }
+        )
+        // Use the captured ownership/index snapshot to form one linear
+        // transfer plan; live tab collections are not rescanned per item.
+        var sourceInsertionIndex = sourcePane.tabIds.count
         for existingPaneId in existingPaneIds where existingPaneId != paneId {
-            let tabs = controller.tabs(inPane: existingPaneId)
-            for tab in tabs {
+            guard let tabIds = capturedTabIdsByPane[existingPaneId] else {
+                return false
+            }
+            for tabId in tabIds {
                 guard controller.moveTab(
-                    tab.id,
+                    tabId,
                     toPane: paneId,
                     atIndex: sourceInsertionIndex
                 ) else {
@@ -226,7 +234,10 @@ public struct PaneOuterSplitLayoutMutation: PaneOuterSplitLayoutMutating {
             guard let targetPane = generatedPaneByOriginalPane[layoutPane.id] else {
                 return false
             }
-            var insertionIndex = controller.tabs(inPane: targetPane).count
+            guard placeholderByGeneratedPane[targetPane] != nil else {
+                return false
+            }
+            var insertionIndex = 1
             for tabId in layoutPane.tabIds {
                 guard controller.moveTab(
                     tabId,
