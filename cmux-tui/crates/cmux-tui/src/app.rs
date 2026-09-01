@@ -23867,6 +23867,9 @@ impl App {
         modifiers: KeyModifiers,
         terminal_admission: Option<TerminalPointerAdmission>,
     ) -> anyhow::Result<RenderAction> {
+        // Scrolling is a distinct gesture and ends click-repeat state. Plain
+        // pointer motion is routed to handle_hover_with_admission and keeps
+        // the sequence alive until the next press.
         self.reset_selection_click_sequence();
         if self.menu.is_some() || self.prompt.is_some() {
             return Ok(RenderAction::None);
