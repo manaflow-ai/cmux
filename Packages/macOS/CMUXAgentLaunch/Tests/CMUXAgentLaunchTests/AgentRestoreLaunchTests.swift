@@ -128,6 +128,94 @@ import Testing
         #expect(invocation.arguments.contains("-lc") == false)
     }
 
+    @Test(arguments: [false, true])
+    func subrouterCodexRestorePreservesPooledVersusPinnedAccountContract(
+        pinsAccount: Bool
+    ) throws {
+        let accountHeader = pinsAccount ? #",\"X-Subrouter-Account-ID\"=\"team-codex-1\""# : ""
+        let request = AgentRestoreRequest(
+            mode: .resumeAgent,
+            kind: "codex",
+            checkpointID: sessionID,
+            source: "agent-hook",
+            workingDirectory: "/tmp/project",
+            environment: pinsAccount ? ["CODEX_HOME": "/tmp/captured-codex-home"] : [:],
+            launchCommand: AgentLaunchCommand(
+                launcher: "codex",
+                arguments: [
+                    "codex",
+                    "-c", #"model_provider=\"subrouter\""#,
+                    "-c", #"model_providers.subrouter.http_headers={\"X-Subrouter-Agent\"=\"codex\""#
+                        + accountHeader + "}",
+                ]
+            ),
+            preparedArguments: nil,
+            observedPermissionMode: nil
+        )
+        let invocation = try #require(
+            AgentRestorePlanner(isExecutableFile: { _ in false }).invocation(
+                for: request,
+                ambientEnvironment: [
+                    "CODEX_HOME": "/tmp/stale-ambient-codex-home",
+                    "PATH": "/usr/bin:/bin",
+                ]
+            )
+        )
+
+        #expect(
+            invocation.arguments.joined(separator: " ").contains("X-Subrouter-Account-ID")
+                == pinsAccount
+        )
+        #expect(
+            invocation.environment["CODEX_HOME"]
+                == (pinsAccount ? "/tmp/captured-codex-home" : nil)
+        )
+    }
+
+    @Test(arguments: [false, true])
+    func subrouterClaudeRestorePreservesPooledVersusPinnedProfileContract(
+        pinsProfile: Bool
+    ) throws {
+        var capturedEnvironment = [
+            "ANTHROPIC_BASE_URL": "http://subrouter.invalid",
+        ]
+        if pinsProfile {
+            capturedEnvironment["CLAUDE_CONFIG_DIR"] = "/tmp/captured-claude-profile"
+        }
+        let request = AgentRestoreRequest(
+            mode: .resumeAgent,
+            kind: "claude",
+            checkpointID: sessionID,
+            source: "agent-hook",
+            workingDirectory: "/tmp/project",
+            environment: capturedEnvironment,
+            launchCommand: AgentLaunchCommand(
+                launcher: "claude",
+                arguments: ["claude"],
+                environment: capturedEnvironment
+            ),
+            preparedArguments: nil,
+            observedPermissionMode: nil
+        )
+        let invocation = try #require(
+            AgentRestorePlanner(isExecutableFile: { _ in false }).invocation(
+                for: request,
+                ambientEnvironment: [
+                    "ANTHROPIC_AUTH_TOKEN": "stale-ambient-token",
+                    "CLAUDE_CONFIG_DIR": "/tmp/stale-ambient-claude-profile",
+                    "PATH": "/usr/bin:/bin",
+                ]
+            )
+        )
+
+        #expect(invocation.environment["ANTHROPIC_AUTH_TOKEN"] == nil)
+        #expect(
+            invocation.environment["CLAUDE_CONFIG_DIR"]
+                == (pinsProfile ? "/tmp/captured-claude-profile" : nil)
+        )
+        #expect(invocation.environment["ANTHROPIC_BASE_URL"] == "http://subrouter.invalid")
+    }
+
     @Test func structuredCodexRestoreCanonicalizesRelativeHomeFromLaunchDirectory() throws {
         let launchDirectory = "/tmp/codex-launch-root/repository"
         let restoredDirectory = "/tmp/codex-launch-root/repository/worktree"
