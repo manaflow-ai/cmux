@@ -1953,7 +1953,7 @@ extension FileExplorerContainerView: NSSearchFieldDelegate, NSTableViewDataSourc
         operation: NSDragOperation
     ) {
         guard tableView === searchResultsView else { return }
-        defer {
+        do {
             if searchResultsView.activeNativeDragSession === session {
                 if !searchResultsView.activeNativeDragOwnerships.isEmpty {
                     for ownership in searchResultsView.activeNativeDragOwnerships {
