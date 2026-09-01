@@ -246,6 +246,71 @@ struct LocalLinuxRuntimeTests {
         }
     }
 
+    @Test("output overflow bounds chunks and hangs up the kernel")
+    func outputOverflowFinishesAndRequestsHangup() async throws {
+        let fixture = try RuntimeFixture()
+        defer { fixture.remove() }
+        try fixture.seedValidRootfs()
+
+        let chunkByteLimit = 64 * 1024
+        let bufferedChunkCapacity = 64
+        let hangupCount = LocalLinuxHangupCounter()
+        let bridge = LocalLinuxTestKernelBridge(
+            boot: { _, _ in },
+            openSessionWithTermination: { _, _, _, _, output, _ in
+                // Do not create a consumer until openSession returns. This
+                // fills the bounded ingress before any output is drained.
+                let payload = Data(
+                    repeating: 0x61,
+                    count: chunkByteLimit * (bufferedChunkCapacity + 1)
+                )
+                output(payload)
+                // The overflow transition must stop later callback bytes.
+                output(Data("post-overflow\n".utf8))
+                return LocalLinuxTestKernelSession(
+                    processID: 8,
+                    hangup: {
+                        hangupCount.increment()
+                    }
+                )
+            }
+        )
+        let runtime = LocalLinuxRuntime(
+            kernel: bridge,
+            fileSystem: LocalLinuxFileSystemClient(),
+            rootURL: fixture.rootURL,
+            rootfsArchiveURL: nil
+        )
+        try await runtime.bootIfNeeded()
+
+        // The bridge emitted the whole payload synchronously before this call
+        // returned, so all stream values below were queued before draining.
+        let session = try await runtime.openSession(
+            command: ["/bin/sh"],
+            environment: [],
+            columns: 80,
+            rows: 24
+        )
+        #expect(await session.isEnded)
+        // Overflow requests teardown while the bridge is still opening. The
+        // hangup must be observed before this test starts draining the stream.
+        #expect(await Self.waitUntil { hangupCount.value == 1 })
+
+        var iterator = session.output.makeAsyncIterator()
+        var chunks: [Data] = []
+        while let chunk = await iterator.next() {
+            chunks.append(chunk)
+        }
+
+        #expect(chunks.count == bufferedChunkCapacity)
+        #expect(chunks.allSatisfy { $0.count <= chunkByteLimit })
+        #expect(chunks.allSatisfy { $0.allSatisfy { $0 == 0x61 } })
+        #expect(chunks.reduce(0) { $0 + $1.count } == chunkByteLimit * bufferedChunkCapacity)
+        #expect(await Self.waitUntil { hangupCount.value == 1 })
+        await session.close()
+        #expect(hangupCount.value == 1)
+    }
+
     @Test("missing archive fails before invoking the injected bridge")
     func missingArchiveFailsClosed() async throws {
         let fixture = try RuntimeFixture()
@@ -300,6 +365,17 @@ struct LocalLinuxRuntimeTests {
         return value
     }
 
+    private static func waitUntil(
+        attempts: Int = 1_000,
+        condition: @escaping @Sendable () -> Bool
+    ) async -> Bool {
+        for _ in 0..<attempts {
+            if condition() { return true }
+            await Task.yield()
+        }
+        return condition()
+    }
+
     private struct RuntimeFixture {
         let baseURL: URL
         let rootURL: URL
@@ -340,5 +416,20 @@ struct LocalLinuxRuntimeTests {
     private struct ResizeEvent: Equatable, Sendable {
         let columns: Int32
         let rows: Int32
+    }
+}
+
+private final class LocalLinuxHangupCounter: @unchecked Sendable {
+    private let lock = NSLock()
+    private var count = 0
+
+    func increment() {
+        lock.withLock {
+            count += 1
+        }
+    }
+
+    var value: Int {
+        lock.withLock { count }
     }
 }
