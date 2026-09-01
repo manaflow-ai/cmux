@@ -21,14 +21,24 @@ struct WorkspaceEnvironmentTests {
     // MARK: - Sanitization
 
     @Test
-    func sanitizedWorkspaceEnvironmentTrimsKeysAndDropsBlanks() {
+    func sanitizedWorkspaceEnvironmentTrimsKeysAndPreservesEmptyValues() {
         let result = Workspace.sanitizedWorkspaceEnvironment([
             "  FOO  ": "bar",   // key is trimmed
             "": "ignored",      // blank key is dropped
-            "EMPTY": "",        // blank value is dropped (matches additionalEnvironment)
+            "EMPTY": "",        // empty values are valid environment assignments
             "OK": "value",
         ])
-        #expect(result == ["FOO": "bar", "OK": "value"])
+        #expect(result == ["FOO": "bar", "EMPTY": "", "OK": "value"])
+    }
+
+    @Test
+    func sanitizedWorkspaceEnvironmentRejectsNormalizedKeyCollisions() {
+        let result = Workspace.sanitizedWorkspaceEnvironment([
+            " FOO ": "spaced",
+            "FOO": "canonical",
+            "OK": "value",
+        ])
+        #expect(result == ["OK": "value"])
     }
 
     /// Regression for the Swift→C truncation bypass: a NUL in a key collapses it
@@ -58,12 +68,21 @@ struct WorkspaceEnvironmentTests {
 
     @Test
     func workspaceEnvironmentEditorParsesEscapedCommentLikeKeysAndMultilineValues() throws {
-        let serialized = "\\#COMMENT=first\\nsecond\\rthird\\\\tail\nURL=https://example.test?a=b"
+        let serialized = "\\#COMMENT=first\\nsecond\\rthird\\\\tail\nEMPTY=\nURL=https://example.test?a=b"
         let parsed = try WorkspaceEnvironmentParser.parse(serialized)
         #expect(parsed == [
             "#COMMENT": "first\nsecond\rthird\\tail",
+            "EMPTY": "",
             "URL": "https://example.test?a=b",
         ])
+    }
+
+    @Test
+    func setWorkspaceEnvironmentPreservesEmptyValues() throws {
+        let workspace = try #require(TabManager().selectedWorkspace)
+        #expect(workspace.setWorkspaceEnvironment(["EMPTY": ""]))
+        #expect(workspace.workspaceEnvironment == ["EMPTY": ""])
+        #expect(workspace.sessionSnapshot(includeScrollback: false).environment == ["EMPTY": ""])
     }
 
     @Test

@@ -7,6 +7,7 @@ struct WorkspaceEnvironmentParserTests {
     func roundTripsAllStructuralCharacters() throws {
         let environment = [
             "#COMMENT": "first\nsecond\rthird\\tail",
+            "EMPTY": "",
             "URL": "https://example.test?a=b",
             "PATH": "/tmp/one:/tmp/two",
         ]
@@ -29,7 +30,7 @@ struct WorkspaceEnvironmentParserTests {
         ])
     }
 
-    @Test("sanitization preserves reversible entries and drops unsafe ones")
+    @Test("sanitization preserves empty values and drops unsafe ones")
     func sanitizesAtTheInputBoundary() {
         #expect(WorkspaceEnvironmentDocument.sanitized([
             "#COMMENT": "line\none",
@@ -38,6 +39,18 @@ struct WorkspaceEnvironmentParserTests {
             "GOOD": "value",
         ]) == [
             "#COMMENT": "line\none",
+            "EMPTY": "",
+            "GOOD": "value",
+        ])
+    }
+
+    @Test("rejects keys that collide after boundary trimming")
+    func rejectsNormalizedKeyCollisions() {
+        #expect(WorkspaceEnvironmentDocument.sanitized([
+            " FOO ": "spaced",
+            "FOO": "canonical",
+            "GOOD": "value",
+        ]) == [
             "GOOD": "value",
         ])
     }
