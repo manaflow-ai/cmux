@@ -273,7 +273,7 @@ impl RestoreReducer {
 
     pub(crate) fn apply(&mut self, record: &SessionJournalRecord) -> anyhow::Result<()> {
         anyhow::ensure!(
-            record.sequence == self.last_sequence.saturating_add(1),
+            self.last_sequence.checked_add(1) == Some(record.sequence),
             "journal records are not contiguous after checkpoint"
         );
         self.last_sequence = record.sequence;
