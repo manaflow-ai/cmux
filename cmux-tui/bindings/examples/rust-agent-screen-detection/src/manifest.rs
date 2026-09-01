@@ -1860,6 +1860,20 @@ line_regex = ["^working$", "^missing line$"]
     }
 
     #[test]
+    fn screen_detect_grok_spinner_title_overrides_idle_progress() {
+        let grok = ManifestSet::bundled().identify("grok").unwrap();
+
+        let working = grok.detect(DetectionInput {
+            screen: "",
+            osc_title: "⠋ custom session title",
+            osc_progress: "4;0;0",
+        });
+
+        assert_eq!(working.state, ScreenState::Working);
+        assert_eq!(working.matched_rule.as_deref(), Some("osc_title_spinner_working"));
+    }
+
+    #[test]
     fn screen_detect_manifest_validation_rejects_malformed_sources() {
         for (source, why) in [
             ("id = \"x\"\n", "no rules"),
