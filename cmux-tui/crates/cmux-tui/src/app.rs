@@ -15776,6 +15776,7 @@ impl App {
                     mouse,
                     input_sequence,
                     terminal_pointer_admission,
+                    Instant::now(),
                 )?;
                 Ok(if dismissed { action.merge(RenderAction::Draw) } else { action })
             }
@@ -17010,12 +17011,14 @@ impl App {
         modifiers: KeyModifiers,
         now: Instant,
     ) -> bool {
+        let host_selection_modifier =
+            |modifiers| modifiers == KeyModifiers::NONE || modifiers == KeyModifiers::SHIFT;
         if !previous.repeatable
             || screen.is_none()
             || previous.surface != surface
             || previous.screen != screen
-            || previous.modifiers != KeyModifiers::NONE
-            || modifiers != KeyModifiers::NONE
+            || previous.modifiers != modifiers
+            || !host_selection_modifier(modifiers)
         {
             return false;
         }
@@ -17035,9 +17038,9 @@ impl App {
         cell: (u16, u64),
         position: (u16, u16),
         modifiers: KeyModifiers,
+        now: Instant,
     ) -> SelectionMode {
         self.semantic_selection_cache = None;
-        let now = Instant::now();
         let previous = self.selection_click_sequence.take();
         let screen = self.terminal_active_screen(surface);
         let repeated = previous.as_ref().is_some_and(|previous| {
@@ -17186,6 +17189,9 @@ impl App {
         let range = handle
             .with_terminal(|terminal| match mode {
                 SelectionMode::Word => {
+                    // Ghostty's nearest-word lookup is directional. Keep both
+                    // queries paired so reverse drags through whitespace or
+                    // punctuation preserve the outer bounds.
                     let first = terminal
                         .select_word_between_screen(anchor_point, current_point)
                         .ok()
@@ -20771,7 +20777,12 @@ impl App {
 
     #[cfg(test)]
     fn handle_mouse(&mut self, mouse: MouseEvent) -> anyhow::Result<RenderAction> {
-        self.handle_mouse_with_sequence(mouse, None, None)
+        self.handle_mouse_with_sequence(mouse, None, None, Instant::now())
+    }
+
+    #[cfg(test)]
+    fn handle_mouse_at(&mut self, mouse: MouseEvent, now: Instant) -> anyhow::Result<RenderAction> {
+        self.handle_mouse_with_sequence(mouse, None, None, now)
     }
 
     fn handle_mouse_with_sequence(
@@ -20779,6 +20790,7 @@ impl App {
         mouse: MouseEvent,
         replay_sequence: Option<u64>,
         terminal_admission: Option<TerminalPointerAdmission>,
+        now: Instant,
     ) -> anyhow::Result<RenderAction> {
         // A live physical sample supersedes retained motion. Replayed input
         // only supersedes motion that was retained earlier in the same
@@ -20839,6 +20851,7 @@ impl App {
                 mouse.row,
                 mouse.modifiers,
                 terminal_admission,
+                now,
             ),
             MouseEventKind::Drag(MouseButton::Left) => {
                 if self.forward_pty_mouse_drag(
@@ -20961,14 +20974,17 @@ impl App {
                     terminal_admission,
                 )
             }
-            MouseEventKind::ScrollLeft | MouseEventKind::ScrollRight => self
-                .handle_horizontal_scroll_with_admission(
+            MouseEventKind::ScrollLeft | MouseEventKind::ScrollRight => {
+                // Scrolling is a distinct gesture and ends click-repeat state.
+                self.reset_selection_click_sequence();
+                self.handle_horizontal_scroll_with_admission(
                     mouse.column,
                     mouse.row,
                     matches!(mouse.kind, MouseEventKind::ScrollRight),
                     mouse.modifiers,
                     terminal_admission,
-                ),
+                )
+            }
         }
     }
 
@@ -22094,7 +22110,7 @@ impl App {
         y: u16,
         modifiers: KeyModifiers,
     ) -> anyhow::Result<RenderAction> {
-        self.handle_left_down_with_admission(x, y, modifiers, None)
+        self.handle_left_down_with_admission(x, y, modifiers, None, Instant::now())
     }
 
     fn handle_left_down_with_admission(
@@ -22103,15 +22119,16 @@ impl App {
         y: u16,
         modifiers: KeyModifiers,
         terminal_admission: Option<TerminalPointerAdmission>,
+        now: Instant,
     ) -> anyhow::Result<RenderAction> {
         self.replace_selection(None);
         self.status_selection = None;
         self.finish_active_drag();
 
         // A repeat is valid only for presses that land directly in a PTY
-        // content cell. Any chrome, overlay, browser, or modified click ends
-        // the pending terminal click sequence.
-        let repeat_target = modifiers == KeyModifiers::NONE
+        // content cell. Shift is the host-selection override when an inner
+        // PTY application owns mouse input, so preserve it for repeats.
+        let repeat_target = (modifiers == KeyModifiers::NONE || modifiers == KeyModifiers::SHIFT)
             && self.hit_at(x, y).is_none()
             && self.pane_area_at(x, y).is_some_and(|area| {
                 self.surface_kind(area.surface) == Some(SurfaceKind::Pty)
@@ -22431,6 +22448,7 @@ impl App {
                     terminal_admission,
                 ) != PtyMousePressResult::NotOwned
                 {
+                    self.reset_selection_click_sequence();
                     return Ok(RenderAction::Draw);
                 } else {
                     if self.active_pane() != Some(area.pane) {
@@ -22455,6 +22473,7 @@ impl App {
                         cell,
                         (x.saturating_sub(content.x), y.saturating_sub(content.y)),
                         modifiers,
+                        now,
                     );
                     if mode == SelectionMode::Cell && modifiers == KeyModifiers::NONE {
                         // Ghostty's cell behavior returns no range on press.
@@ -23954,7 +23973,6 @@ impl App {
         modifiers: KeyModifiers,
         terminal_admission: Option<TerminalPointerAdmission>,
     ) -> anyhow::Result<RenderAction> {
-        self.reset_selection_click_sequence();
         if self.menu.is_some() || self.prompt.is_some() {
             return Ok(RenderAction::None);
         }
@@ -27595,12 +27613,19 @@ mod tests {
             row: content.y,
             modifiers: KeyModifiers::SHIFT,
         };
-        app.handle_mouse(click).unwrap();
-        app.handle_mouse(MouseEvent { kind: MouseEventKind::Up(MouseButton::Left), ..click })
-            .unwrap();
-        app.handle_mouse(click).unwrap();
-        app.handle_mouse(MouseEvent { kind: MouseEventKind::Up(MouseButton::Left), ..click })
-            .unwrap();
+        let now = Instant::now();
+        app.handle_mouse_at(click, now).unwrap();
+        app.handle_mouse_at(
+            MouseEvent { kind: MouseEventKind::Up(MouseButton::Left), ..click },
+            now,
+        )
+        .unwrap();
+        app.handle_mouse_at(click, now).unwrap();
+        app.handle_mouse_at(
+            MouseEvent { kind: MouseEventKind::Up(MouseButton::Left), ..click },
+            now,
+        )
+        .unwrap();
 
         assert_eq!(
             app.selection.map(|selection| selection.range()),
@@ -27622,10 +27647,14 @@ mod tests {
             row: content.y,
             modifiers: KeyModifiers::SHIFT,
         };
+        let now = Instant::now();
         for _ in 0..3 {
-            app.handle_mouse(click).unwrap();
-            app.handle_mouse(MouseEvent { kind: MouseEventKind::Up(MouseButton::Left), ..click })
-                .unwrap();
+            app.handle_mouse_at(click, now).unwrap();
+            app.handle_mouse_at(
+                MouseEvent { kind: MouseEventKind::Up(MouseButton::Left), ..click },
+                now,
+            )
+            .unwrap();
         }
 
         assert_eq!(
