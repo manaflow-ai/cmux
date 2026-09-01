@@ -17,6 +17,9 @@ internal import os
 public final class ControlClientAsyncLineReader: @unchecked Sendable {
     private final class SourceBox: @unchecked Sendable {
         var source: (any DispatchSourceRead)?
+        /// Reused by `drain`, which runs serially on the read source's queue,
+        /// so each readable event does not reallocate a 64 KiB buffer.
+        var readBuffer = [UInt8](repeating: 0, count: ControlClientAsyncLineReader.readChunkSize)
     }
 
     private let socket: Int32
@@ -234,6 +237,14 @@ public final class ControlClientAsyncLineReader: @unchecked Sendable {
         return nil
     }
 
+    #if DEBUG
+    /// Test-only visibility into the drain's byte accounting, so tests can
+    /// deadline-poll for a write to be drained instead of sleeping blindly.
+    public var queuedUnconsumedBytesForTesting: Int {
+        queuedUnconsumedBytes.withLock { $0 }
+    }
+    #endif
+
     /// Explicitly terminates the reader's event sources.
     public func cancel() {
         source.cancel()
@@ -334,9 +345,8 @@ public final class ControlClientAsyncLineReader: @unchecked Sendable {
         queuedBytes: OSAllocatedUnfairLock<Int>,
         maximumBufferedBytes: Int
     ) {
-        var buffer = [UInt8](repeating: 0, count: readChunkSize)
         while true {
-            let count = read(socket, &buffer, buffer.count)
+            let count = read(socket, &sourceBox.readBuffer, sourceBox.readBuffer.count)
             if count > 0 {
                 let (total, overflowed) = queuedBytes.withLock { state -> (Int, Bool) in
                     let (sum, didOverflow) = state.addingReportingOverflow(count)
@@ -348,7 +358,7 @@ public final class ControlClientAsyncLineReader: @unchecked Sendable {
                     sourceBox.source?.cancel()
                     return
                 }
-                if case .dropped = continuation.yield(Data(buffer[0..<count])) {
+                if case .dropped = continuation.yield(Data(sourceBox.readBuffer[0..<count])) {
                     continuation.finish()
                     sourceBox.source?.cancel()
                     return

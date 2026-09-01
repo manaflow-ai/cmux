@@ -65,6 +65,24 @@ struct ControlClientAsyncTransportTests {
         #expect(await reader.nextLine(shouldContinueReading: { true }) == nil)
     }
 
+    /// Writes every byte, retrying interruptible failures, so a short or
+    /// interrupted write cannot silently leave a reader waiting forever.
+    private func writeFully(_ bytes: [UInt8], to descriptor: Int32) -> Bool {
+        bytes.withUnsafeBufferPointer { buffer in
+            guard let baseAddress = buffer.baseAddress else { return bytes.isEmpty }
+            var offset = 0
+            while offset < buffer.count {
+                let written = Darwin.write(descriptor, baseAddress.advanced(by: offset), buffer.count - offset)
+                if written < 0 {
+                    if errno == EINTR || errno == EAGAIN { continue }
+                    return false
+                }
+                offset += written
+            }
+            return true
+        }
+    }
+
     /// Buffering is bounded by bytes, not by a fixed chunk count: many tiny
     /// writes queued ahead of a slow consumer must not kill the connection.
     /// (Each write lands as its own short `read(2)` chunk while nothing is
@@ -84,15 +102,17 @@ struct ControlClientAsyncTransportTests {
         for index in 0..<200 {
             let byte: [UInt8] = [UInt8(65 + (index % 26))]
             expected.append(Character(UnicodeScalar(byte[0])))
-            byte.withUnsafeBufferPointer { buffer in
-                _ = Darwin.write(pair.writer, buffer.baseAddress, 1)
+            #expect(writeFully(byte, to: pair.writer))
+            // Deadline-poll the drain's byte accounting so every write is
+            // drained (one queued chunk each) before the next one, keeping
+            // the many-short-chunks shape deterministic under load.
+            let deadline = Date().addingTimeInterval(5)
+            while reader.queuedUnconsumedBytesForTesting < index + 1, Date() < deadline {
+                try await Task.sleep(nanoseconds: 1_000_000)
             }
-            try await Task.sleep(nanoseconds: 2_000_000)
+            #expect(reader.queuedUnconsumedBytesForTesting == index + 1)
         }
-        let newline: [UInt8] = [0x0A]
-        newline.withUnsafeBufferPointer { buffer in
-            _ = Darwin.write(pair.writer, buffer.baseAddress, 1)
-        }
+        #expect(writeFully([0x0A], to: pair.writer))
         #expect(await reader.nextLine(shouldContinueReading: { true }) == expected)
     }
 
@@ -109,10 +129,7 @@ struct ControlClientAsyncTransportTests {
             socket: pair.reader,
             maximumBufferedBytes: .max
         )
-        let payload = Array("capped\n".utf8)
-        payload.withUnsafeBufferPointer { buffer in
-            _ = Darwin.write(pair.writer, buffer.baseAddress, buffer.count)
-        }
+        #expect(writeFully(Array("capped\n".utf8), to: pair.writer))
         #expect(await reader.nextLine(shouldContinueReading: { true }) == "capped")
     }
 
