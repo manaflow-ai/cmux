@@ -110,6 +110,12 @@ describe("cmux-tui install and daemon commands", () => {
     expect(command).toContain("if mountpoint -q /root 2>/dev/null; then cd /root && ");
     expect(command).toContain("exec env HOME=/root TERM=xterm-256color /home/cmux/.cmux/bin/cmux-tui server start");
     expect(command).toContain("exec env HOME=/root TERM=xterm-256color /root/.cmux/bin/cmux-tui server start");
+    // Volume mounted but the identity view missing (bindfs failed): home on the
+    // persistent backing path as root, never the writable-but-disposable rootfs dir.
+    expect(command).toContain(
+      "elif mountpoint -q /cmux/home 2>/dev/null && ! mountpoint -q /home/cmux 2>/dev/null; then " +
+        "cd /cmux/home && exec env HOME=/cmux/home TERM=xterm-256color /home/cmux/.cmux/bin/cmux-tui server start",
+    );
     // No user, no runuser, or an unusable home (bindfs view missing over the
     // root-squashing volume): fall back to root instead of crash-looping.
     expect(command).toContain(

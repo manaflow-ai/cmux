@@ -29,9 +29,29 @@ export const CMUX_TUI_INSTALL_TIMEOUT_MS = 5 * 60 * 1000;
 export const CMUX_CLOUD_USER = "cmux";
 export const CMUX_CLOUD_HOME = "/home/cmux";
 
-/** Home layout the daemon runs under: which Unix user owns sessions and where its home is. */
-export type CmuxTuiHomeLayout = { readonly user: string; readonly home: string };
-export const CMUX_CLOUD_LAYOUT: CmuxTuiHomeLayout = { user: CMUX_CLOUD_USER, home: CMUX_CLOUD_HOME };
+// Where the driver mounts the persistent home volume; a bindfs identity view
+// presents it at CMUX_CLOUD_HOME (the volume's virtiofs squashes guest identity
+// to root, so a plain mount cannot be a non-root home).
+export const CMUX_CLOUD_HOME_VOLUME_BACKING_PATH = "/cmux/home";
+
+/**
+ * Home layout the daemon runs under: which Unix user owns sessions, where its
+ * home is, and (when the machine has a persistent volume) the backing mount the
+ * home view maps. The backing path is the fail-over home: if the view is absent
+ * while the backing is mounted, sessions must run as root on the backing path —
+ * never on the writable-but-disposable rootfs dir at `home`, where user data
+ * would die with the sandbox and be swept by the next bootstrap's junk clean.
+ */
+export type CmuxTuiHomeLayout = {
+  readonly user: string;
+  readonly home: string;
+  readonly volumeBackingPath: string;
+};
+export const CMUX_CLOUD_LAYOUT: CmuxTuiHomeLayout = {
+  user: CMUX_CLOUD_USER,
+  home: CMUX_CLOUD_HOME,
+  volumeBackingPath: CMUX_CLOUD_HOME_VOLUME_BACKING_PATH,
+};
 
 export function cmuxTuiBinaryPath(home: string): string {
   return `${home}/.cmux/bin/cmux-tui`;
@@ -186,13 +206,18 @@ export function cmuxTuiDaemonCommand(
   if (!layout) {
     return `cd /root && env HOME=/root TERM=xterm-256color ${CMUX_TUI_BINARY_PATH} ${args}`;
   }
-  const { user, home } = layout;
+  const { user, home, volumeBackingPath: backing } = layout;
   const bin = cmuxTuiBinaryPath(home);
   const legacyBin = cmuxTuiBinaryPath("/root");
   return (
     `if mountpoint -q /root 2>/dev/null; then ` +
     `cd /root && if [ -x ${bin} ]; then exec env HOME=/root TERM=xterm-256color ${bin} ${args}; ` +
     `else exec env HOME=/root TERM=xterm-256color ${legacyBin} ${args}; fi; ` +
+    // The volume is mounted but the identity view over it is not: home on the
+    // backing path as root, so sessions and daemon state stay on persistent
+    // storage. The rootfs dir at ${home} is writable yet disposable — never it.
+    `elif mountpoint -q ${backing} 2>/dev/null && ! mountpoint -q ${home} 2>/dev/null; then ` +
+    `cd ${backing} && exec env HOME=${backing} TERM=xterm-256color ${bin} ${args}; ` +
     `elif id -u ${user} >/dev/null 2>&1 && command -v runuser >/dev/null 2>&1 && runuser -u ${user} -- test -w ${home} 2>/dev/null; then ` +
     `cd ${home} && exec runuser -u ${user} -- env HOME=${home} USER=${user} LOGNAME=${user} SHELL=/bin/bash TERM=xterm-256color ${bin} ${args}; ` +
     `else cd ${home} && exec env HOME=${home} TERM=xterm-256color ${bin} ${args}; fi`

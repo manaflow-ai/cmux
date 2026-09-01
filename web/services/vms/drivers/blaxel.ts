@@ -23,6 +23,7 @@ import { shellQuote } from "./wsLease";
 import {
   approveCmuxTuiEnrollment,
   CMUX_CLOUD_HOME,
+  CMUX_CLOUD_HOME_VOLUME_BACKING_PATH,
   CMUX_CLOUD_LAYOUT,
   CMUX_CLOUD_USER,
   cmuxTuiBinaryPath,
@@ -117,7 +118,7 @@ done
 // backing path and bindfs presents it at /home/cmux with every file owned by cmux,
 // performing the real I/O as root. Legacy root-owned volume data becomes cmux-owned
 // through the view instantly, with no chown walk.
-export const CMUX_HOME_VOLUME_BACKING_PATH = "/cmux/home";
+export const CMUX_HOME_VOLUME_BACKING_PATH = CMUX_CLOUD_HOME_VOLUME_BACKING_PATH;
 export const CMUX_HOME_BINDFS_COMMAND =
   `bindfs -o allow_other --multithreaded --force-user=${CMUX_CLOUD_USER} --force-group=${CMUX_CLOUD_USER} ` +
   `--create-for-user=root --create-for-group=root --chown-ignore --chgrp-ignore ` +
@@ -159,19 +160,31 @@ export const CMUX_CLOUD_USER_SETUP_COMMAND = [
 // Installing bindfs on an old image does an apt round-trip; give it minutes, not the
 // default exec timeout. Everything else in the setup returns instantly.
 const CMUX_USER_SETUP_TIMEOUT_MS = 5 * 60 * 1000;
-// Baked images before 2026-08-28-r10 (and stock Blaxel images) ship no sudo binary.
-// Installed detached so an apt run never delays attach; the sudoers policy above is
-// already in place when it lands.
+// Baked images before 2026-08-31-r12 ship no sudo binary. Installed detached so an
+// apt run never delays attach; the sudoers policy above is already in place when it
+// lands. Gated on the image stamp so exactly one process owns package installs per
+// machine: stamped images never run the provision script (it exits on the stamp), so
+// this heal is free to apt; unstamped stock images get sudo from the provision
+// script's own package list instead, and running a second apt here would race it for
+// the dpkg lock and silently lose.
 export const CMUX_SUDO_INSTALL_COMMAND =
+  "[ -f /etc/cmux/image-stamp ] || exit 0; " +
   "command -v sudo >/dev/null 2>&1" +
   " || { export DEBIAN_FRONTEND=noninteractive; apt-get update -qq && apt-get install -y -qq --no-install-recommends sudo; }" +
   " || apk add --no-cache sudo 2>/dev/null || true";
 const CMUX_SUDO_INSTALL_PROCESS_NAME = "cmux-sudo-install";
 
+// "The volume is mounted but its identity view is not": the fail-over state where
+// sessions must run as root homed on the backing path, because the rootfs dir at
+// /home/cmux is writable (useradd -m) yet disposable — data written there dies with
+// the sandbox and is swept by the next bootstrap's junk clean.
+const CMUX_HOME_VIEW_MISSING_CONDITION =
+  `mountpoint -q ${CMUX_HOME_VOLUME_BACKING_PATH} 2>/dev/null && ! mountpoint -q ${CMUX_CLOUD_HOME} 2>/dev/null`;
 // "The work user is actually usable": it exists, runuser can drop to it, and it can
-// write its home (false when the bindfs view over a root-squashing volume is missing).
-// Shared by the daemon command (via cmuxTuiDaemon), CLI invocations, and user exec so
-// they always agree on which user owns the machine's sessions.
+// write its home. Callers check CMUX_HOME_VIEW_MISSING_CONDITION first, so reaching
+// this means the home is the mounted view or the (volume-less) rootfs home. Shared by
+// the daemon command (via cmuxTuiDaemon), CLI invocations, and user exec so they
+// always agree on which user owns the machine's sessions.
 const CMUX_CLOUD_USER_USABLE_CONDITION =
   `id -u ${CMUX_CLOUD_USER} >/dev/null 2>&1 && command -v runuser >/dev/null 2>&1 && ` +
   `runuser -u ${CMUX_CLOUD_USER} -- test -w ${CMUX_CLOUD_HOME} 2>/dev/null`;
@@ -185,6 +198,8 @@ export function userExecCommand(command: string): string {
   const quoted = shellQuote(command);
   return (
     `if mountpoint -q /root 2>/dev/null; then exec env HOME=/root sh -c ${quoted}; ` +
+    `elif ${CMUX_HOME_VIEW_MISSING_CONDITION}; then ` +
+    `exec env HOME=${CMUX_HOME_VOLUME_BACKING_PATH} sh -c ${quoted}; ` +
     `elif ${CMUX_CLOUD_USER_USABLE_CONDITION}; then ` +
     `exec runuser -u ${CMUX_CLOUD_USER} -- env HOME=${CMUX_CLOUD_HOME} USER=${CMUX_CLOUD_USER} LOGNAME=${CMUX_CLOUD_USER} sh -c ${quoted}; ` +
     `else exec env HOME=${CMUX_CLOUD_HOME} sh -c ${quoted}; fi`
@@ -768,6 +783,8 @@ export class BlaxelProvider implements VMProvider {
       `else exec env HOME=/root ${CMUX_TUI_LEGACY_BINARY_PATH} ${args}; fi`;
     const command =
       `if mountpoint -q /root 2>/dev/null; then ${legacy}; ` +
+      `elif ${CMUX_HOME_VIEW_MISSING_CONDITION}; then ` +
+      `exec env HOME=${CMUX_HOME_VOLUME_BACKING_PATH} ${CMUX_TUI_BINARY_PATH} ${args}; ` +
       `elif ${CMUX_CLOUD_USER_USABLE_CONDITION}; then ` +
       `exec runuser -u ${CMUX_CLOUD_USER} -- env HOME=${CMUX_CLOUD_HOME} USER=${CMUX_CLOUD_USER} LOGNAME=${CMUX_CLOUD_USER} ${CMUX_TUI_BINARY_PATH} ${args}; ` +
       `else exec env HOME=${CMUX_CLOUD_HOME} ${CMUX_TUI_BINARY_PATH} ${args}; fi`;

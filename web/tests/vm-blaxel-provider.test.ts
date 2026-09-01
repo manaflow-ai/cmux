@@ -494,17 +494,26 @@ describe("cloud work user setup", () => {
     expect(CMUX_CLOUD_USER_SETUP_COMMAND).toContain("apt-get install -y -qq --no-install-recommends bindfs");
   });
 
-  test("sudo heal covers images baked before the sudo package (and stock Alpine)", () => {
+  test("sudo heal covers stamped images baked before the sudo package, and only those", () => {
+    // Exactly one process owns package installs per machine: unstamped images get
+    // sudo from the provision script's own apt/apk list; a second concurrent apt
+    // here would race it for the dpkg lock and silently lose.
+    expect(CMUX_SUDO_INSTALL_COMMAND.startsWith("[ -f /etc/cmux/image-stamp ] || exit 0; ")).toBe(true);
     expect(CMUX_SUDO_INSTALL_COMMAND).toContain("command -v sudo >/dev/null 2>&1");
     expect(CMUX_SUDO_INSTALL_COMMAND).toContain("apt-get install -y -qq --no-install-recommends sudo");
     expect(CMUX_SUDO_INSTALL_COMMAND).toContain("apk add --no-cache sudo");
   });
 
-  test("user-facing exec runs as the work user, root only via legacy volume or sudo", () => {
+  test("user-facing exec runs as the work user, root only via legacy volume, missing view, or sudo", () => {
     const wrapped = userExecCommand("echo 'hi there'");
     expect(wrapped).toContain("runuser -u cmux -- env HOME=/home/cmux USER=cmux LOGNAME=cmux sh -c 'echo '\\''hi there'\\'''");
     // Legacy sandboxes (volume at /root) keep the historical root exec.
     expect(wrapped).toContain("if mountpoint -q /root 2>/dev/null; then exec env HOME=/root sh -c");
+    // Volume mounted but the view missing: root exec homed on the persistent
+    // backing path, matching where the daemon fail-over puts sessions.
+    expect(wrapped).toContain(
+      "elif mountpoint -q /cmux/home 2>/dev/null && ! mountpoint -q /home/cmux 2>/dev/null; then exec env HOME=/cmux/home sh -c",
+    );
     // No user/runuser: fall back to root rather than failing the exec.
     expect(wrapped).toContain("else exec env HOME=/home/cmux sh -c");
   });
