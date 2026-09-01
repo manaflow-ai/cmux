@@ -22674,6 +22674,47 @@ mod tests {
     }
 
     #[test]
+    fn replay_of_an_old_plugin_receipt_survives_manifest_upgrade() {
+        let mux = test_mux();
+        let manifest = |manifest_version| crate::JournalProducerManifest {
+            producer_id: "screen_test".into(),
+            namespace: "plugin.screen_test".into(),
+            manifest_version,
+            max_sensitivity: crate::JournalSensitivity::Metadata,
+            permissions: vec!["journal.append.plugin.screen_test".into()],
+            events: vec![crate::JournalEventSchema {
+                kind: "plugin.screen_test.observation".into(),
+                schema_version: 1,
+                class: crate::JournalClass::Observation,
+                replay: crate::JournalReplayPolicy::Advisory,
+                sensitivity: crate::JournalSensitivity::Metadata,
+                payload_schema: serde_json::json!({"type":"object"}),
+            }],
+        };
+        mux.put_journal_producer(&manifest(1), "test", "producer-v1").unwrap();
+        let ingress = crate::JournalIngress {
+            producer_id: "screen_test".into(),
+            manifest_version: 1,
+            kind: "plugin.screen_test.observation".into(),
+            schema_version: 1,
+            occurred_at_ms: None,
+            subjects: Vec::new(),
+            sensitivity: None,
+            payload: serde_json::json!({"state":"idle"}),
+            causation_id: None,
+            correlation_id: None,
+        };
+        let first = mux.append_journal_ingress(&ingress, "screen", "observation-1").unwrap();
+        assert!(!first.replayed);
+
+        mux.put_journal_producer(&manifest(2), "test", "producer-v2").unwrap();
+
+        let replay = mux.append_journal_ingress(&ingress, "screen", "observation-1");
+        assert!(replay.is_ok(), "an old receipt must remain replayable: {replay:?}");
+        assert!(replay.unwrap().replayed);
+    }
+
+    #[test]
     fn failed_agent_hook_projection_does_not_consume_sequence() {
         let mux = test_mux();
         let surface = mux.new_workspace(None, None).unwrap();
