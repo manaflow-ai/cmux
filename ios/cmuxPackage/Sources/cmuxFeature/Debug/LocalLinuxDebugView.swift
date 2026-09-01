@@ -31,7 +31,7 @@ private nonisolated final class LocalLinuxDebugLifecycleFence: @unchecked Sendab
         var bootDrainID: UUID?
     }
 
-    // lint:allow lock — sanctioned carve-out for this synchronous C-lifecycle fence.
+    // lint:allow lock: sanctioned carve-out for this synchronous C-lifecycle fence.
     private let state = OSAllocatedUnfairLock(initialState: State())
 
     /// Starts and retains a close for `session`, chaining it after an earlier
