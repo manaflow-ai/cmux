@@ -46,9 +46,9 @@ final class CmuxFeatureFlags {
     private static let sidebarAccountButtonDefault = true
 
     #if DEBUG
-    private static let cloudVMUIDefault = true
+    private nonisolated static let cloudVMUIDefault = true
     #else
-    private static let cloudVMUIDefault = false
+    private nonisolated static let cloudVMUIDefault = false
     #endif
     private static let agentChatUIDefault = false
     #if DEBUG
@@ -57,6 +57,7 @@ final class CmuxFeatureFlags {
     private nonisolated static let mobileWorkspaceChangesDefault = false
     #endif
     private static let sidebarWorkspaceAgentSpinnerDefault = false
+    private static let computerUseUXDefault = true
     private nonisolated static let simulatorDefault = true
     private static let workspaceTodoControlsDefault = false
     private static let appKitSidebarListDefault = true
@@ -136,6 +137,25 @@ final class CmuxFeatureFlags {
     // remote value provides a release kill switch. Declared nonisolated so
     // the mobile host's off-main capability list can gate the advertised
     // simulator capabilities on the same flag as RPC dispatch.
+    // FLAG(key: cloud-vm-ui-enabled-release, owner: lawrencecchen,
+    //      reviewBy: 2026-10-01, defaultWhenUnavailable: false)
+    // Shows the Cloud VM entrypoints: the new-workspace dropdown section
+    // (Open/Fork/Checkpoint/Restore/Advanced), the caret's direct Cloud
+    // VM menu, the command-palette Cloud VM commands, and the right-sidebar
+    // Machines tab. Release builds hide them until the PostHog flag is
+    // enabled; DEBUG keeps them visible for dogfood. Declared nonisolated so
+    // off-main readers (right-sidebar mode availability) can consult the
+    // published snapshot.
+    nonisolated static let cloudVMUIFlag = CmuxFeatureFlagDefinition(
+        key: "cloud-vm-ui-enabled-release",
+        title: String(localized: "featureFlags.cloudVM.title", defaultValue: "Cloud VM UI"),
+        flagDescription: String(
+            localized: "featureFlags.cloudVM.description",
+            defaultValue: "Shows Cloud VM entrypoints in the new-workspace dropdown and command palette."
+        ),
+        defaultWhenUnavailable: CmuxFeatureFlags.cloudVMUIDefault
+    )
+
     nonisolated static let simulatorFlag = CmuxFeatureFlagDefinition(
         key: "simulator-enabled-release",
         title: String(
@@ -217,22 +237,7 @@ final class CmuxFeatureFlags {
                 defaultWhenUnavailable: CmuxFeatureFlags.sidebarAccountButtonDefault
             ),
 
-            // FLAG(key: cloud-vm-ui-enabled-release, owner: lawrencecchen,
-            //      reviewBy: 2026-10-01, defaultWhenUnavailable: false)
-            // Shows the Cloud VM entrypoints: the new-workspace dropdown section
-            // (Open/Fork/Checkpoint/Restore/Advanced), the caret's direct Cloud
-            // VM menu, and the command-palette Cloud VM commands. Release builds
-            // hide them until the PostHog flag is enabled; DEBUG keeps them
-            // visible for dogfood.
-            CmuxFeatureFlagDefinition(
-                key: "cloud-vm-ui-enabled-release",
-                title: String(localized: "featureFlags.cloudVM.title", defaultValue: "Cloud VM UI"),
-                flagDescription: String(
-                    localized: "featureFlags.cloudVM.description",
-                    defaultValue: "Shows Cloud VM entrypoints in the new-workspace dropdown and command palette."
-                ),
-                defaultWhenUnavailable: CmuxFeatureFlags.cloudVMUIDefault
-            ),
+            CmuxFeatureFlags.cloudVMUIFlag,
 
             // FLAG(key: agent-chat-ui-enabled-release, owner: lawrencecchen,
             //      reviewBy: 2026-10-01, defaultWhenUnavailable: false)
@@ -264,6 +269,21 @@ final class CmuxFeatureFlags {
                     defaultValue: "Shows a spinner in workspace rows while coding agents are running."
                 ),
                 defaultWhenUnavailable: CmuxFeatureFlags.sidebarWorkspaceAgentSpinnerDefault
+            ),
+
+            // FLAG(key: computer-use-ux-enabled-release, owner: austinwang,
+            //      reviewBy: 2026-10-01, defaultWhenUnavailable: true)
+            // Shows the computer-use status item and allows automatic onboarding.
+            // The settings and terminal kill switch remain available if this UI
+            // flag is remotely disabled.
+            CmuxFeatureFlagDefinition(
+                key: "computer-use-ux-enabled-release",
+                title: String(localized: "featureFlags.computerUseUX.title", defaultValue: "Computer Use UX"),
+                flagDescription: String(
+                    localized: "featureFlags.computerUseUX.description",
+                    defaultValue: "Shows the Computer Use menu-bar item and automatic onboarding."
+                ),
+                defaultWhenUnavailable: CmuxFeatureFlags.computerUseUXDefault
             ),
 
             CmuxFeatureFlags.simulatorFlag,
@@ -304,7 +324,14 @@ final class CmuxFeatureFlags {
     }
 
     var isCloudVMUIEnabled: Bool {
-        effectiveValue(for: Self.allFlags[3])
+        effectiveValue(for: Self.cloudVMUIFlag)
+    }
+
+    /// Mirror of ``isCloudVMUIEnabled`` for nonisolated readers (right-sidebar
+    /// mode availability). Reads the published off-main snapshot; before the
+    /// shared instance publishes, it falls back to the compile-time default.
+    nonisolated static var offMainIsCloudVMUIEnabled: Bool {
+        offMainEffectiveValue(for: cloudVMUIFlag)
     }
 
     var isAgentChatUIEnabled: Bool {
@@ -319,12 +346,16 @@ final class CmuxFeatureFlags {
         effectiveValue(for: Self.allFlags[5])
     }
 
+    var isComputerUseUXEnabled: Bool {
+        effectiveValue(for: Self.allFlags[6])
+    }
+
     var isSimulatorEnabled: Bool {
         effectiveValue(for: Self.simulatorFlag)
     }
 
     var isWorkspaceTodoControlsEnabled: Bool {
-        effectiveValue(for: Self.allFlags[7])
+        effectiveValue(for: Self.allFlags[8])
     }
 
     var isAppKitSidebarListEnabled: Bool {
@@ -423,7 +454,7 @@ final class CmuxFeatureFlags {
     func start() {
         guard refreshTimer == nil else { return }
         refreshRemoteFlags()
-        refreshTimer = Timer.scheduledTimer(withTimeInterval: 5 * 60, repeats: true) { [weak self] _ in
+        refreshTimer = Timer.scheduledTimer(withTimeInterval: 30 * 60, repeats: true) { [weak self] _ in
             Task { @MainActor in self?.refreshRemoteFlags() }
         }
     }

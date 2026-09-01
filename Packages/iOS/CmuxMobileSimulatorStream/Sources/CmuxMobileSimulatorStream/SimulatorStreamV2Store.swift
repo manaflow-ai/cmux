@@ -26,6 +26,11 @@ public enum SimStreamViewerPhase: Equatable, Sendable {
 public final class SimulatorStreamV2Store {
     public private(set) var phase: SimStreamViewerPhase = .idle
     public private(set) var hostDetail: String = ""
+    /// The host's last reported stream status. `workerCrashed`/`failed`
+    /// mean the Mac-side worker needs recovery: retrying the lane cannot
+    /// fix it, so the pane surfaces a Recover affordance instead of
+    /// pretending the frozen frame is live.
+    public private(set) var hostStatus: SimStreamHostStatus?
     public private(set) var lastPresentedFrameAt: Date?
     /// Bumps on every presented frame; cheap SwiftUI invalidation hook.
     public private(set) var presentedFrameCount: UInt64 = 0
@@ -95,6 +100,21 @@ public final class SimulatorStreamV2Store {
 
     public func appForegrounded() {
         apply(lifecycle.handle(.appForegrounded))
+        if transportReady() {
+            apply(lifecycle.handle(.transportReady))
+        }
+        refreshPhase()
+    }
+
+    /// User-requested refresh: tears the session down and reattaches through
+    /// the single lifecycle path, immediately when the transport is ready.
+    /// Clears the last host status so the UI reports the reconnect in
+    /// progress instead of a stale terminal state; a still-broken host
+    /// re-reports through the fresh session's state flow.
+    public func refresh() {
+        hostStatus = nil
+        hostDetail = ""
+        apply(lifecycle.handle(.refreshRequested))
         if transportReady() {
             apply(lifecycle.handle(.transportReady))
         }
@@ -277,9 +297,12 @@ public final class SimulatorStreamV2Store {
         case .framePresented:
             lastPresentedFrameAt = Date()
             presentedFrameCount &+= 1
+            // A presented frame is proof the worker is alive again.
+            hostStatus = .streaming
             apply(lifecycle.handle(.framePresented))
         case .hostState(let update):
             hostDetail = update.detail
+            hostStatus = update.status
             switch update.status {
             case .closed:
                 apply(lifecycle.handle(.hostEnded(status: .closed, detail: update.detail)))
