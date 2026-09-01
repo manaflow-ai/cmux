@@ -3,6 +3,7 @@
 use cmux_tui_core::Rect;
 use ratatui::Frame;
 use ratatui::style::{Color, Modifier, Style};
+use unicode_width::UnicodeWidthStr;
 
 use super::truncate;
 use crate::app::App;
@@ -431,6 +432,21 @@ pub fn view_header(
     mode: &str,
     palette: RailPalette,
 ) {
+    view_header_with_filter(frame, area, y, title, mode, None, palette);
+}
+
+/// One-line view header with an optional filter disclosure. The full marker
+/// text is preferred, but a compact bullet remains visible when a narrow rail
+/// cannot fit both the title and the localized marker.
+pub fn view_header_with_filter(
+    frame: &mut Frame,
+    area: Rect,
+    y: u16,
+    title: &str,
+    mode: &str,
+    filter_marker: Option<&str>,
+    palette: RailPalette,
+) {
     if y >= area.y.saturating_add(area.height) || area.width < 3 {
         return;
     }
@@ -441,12 +457,70 @@ pub fn view_header(
     if available == 0 {
         return;
     }
-    buf.set_stringn(area.x + 1, y, truncate(title, available), available, title_style);
-    let mode = truncate(mode, available.saturating_sub(title.chars().count() + 2));
-    let mode_width = mode.chars().count() as u16;
-    if mode_width > 0 {
-        let mode_x = area.x.saturating_add(content_width).saturating_sub(mode_width);
-        buf.set_stringn(mode_x, y, &mode, mode_width as usize, palette.dim);
+
+    let left_x = area.x.saturating_add(1);
+    let right_x = area.x.saturating_add(content_width);
+    let title_width = title.width();
+    let full_mode = filter_marker.map(|marker| format!("{marker} · {mode}"));
+    let full_mode = full_mode.as_deref().unwrap_or(mode);
+    let full_mode_width = full_mode.width();
+    let title_mode_gap = 2usize;
+
+    // Keep the complete localized marker whenever the title and label fit.
+    if title_width.saturating_add(title_mode_gap).saturating_add(full_mode_width) <= available {
+        buf.set_stringn(left_x, y, title, title_width, title_style);
+        let mode_x = right_x.saturating_sub(full_mode_width as u16);
+        buf.set_stringn(mode_x, y, full_mode, full_mode_width, palette.dim);
+        return;
+    }
+
+    // Preserve the old title/mode layout for an unfiltered header. A long
+    // title may force the mode to disappear, but there is no disclosure cell
+    // to reserve in that case.
+    let Some(_filter_marker) = filter_marker else {
+        let title_rendered = truncate(title, available);
+        let title_rendered_width = title_rendered.width();
+        buf.set_stringn(left_x, y, &title_rendered, title_rendered_width, title_style);
+        let mode_budget = available.saturating_sub(title_rendered_width.saturating_add(2));
+        let mode = truncate(mode, mode_budget);
+        let mode_width = mode.width() as u16;
+        if mode_width > 0 {
+            let mode_x = right_x.saturating_sub(mode_width);
+            buf.set_stringn(mode_x, y, &mode, mode_width as usize, palette.dim);
+        }
+        return;
+    };
+
+    // A filter must remain discoverable even at the minimum rail width. Keep
+    // one cell for a compact marker and use any space between it and the title
+    // for the current sort mode.
+    let compact_marker = "•";
+    let marker_width = compact_marker.width();
+    let title_budget = available.saturating_sub(marker_width.saturating_add(1));
+    let title_rendered = truncate(title, title_budget);
+    let title_rendered_width = title_rendered.width();
+    buf.set_stringn(
+        left_x,
+        y,
+        &title_rendered,
+        title_rendered_width,
+        title_style,
+    );
+
+    let marker_x = right_x.saturating_sub(marker_width as u16);
+    buf.set_stringn(marker_x, y, compact_marker, marker_width, palette.dim);
+
+    let title_gap = usize::from(title_rendered_width > 0);
+    let mode_budget = usize::from(marker_x.saturating_sub(left_x))
+        .saturating_sub(title_rendered_width)
+        .saturating_sub(title_gap);
+    if mode_budget > 0 {
+        let mode = truncate(mode, mode_budget);
+        let mode_width = mode.width() as u16;
+        if mode_width > 0 {
+            let mode_x = marker_x.saturating_sub(mode_width);
+            buf.set_stringn(mode_x, y, &mode, mode_width as usize, palette.dim);
+        }
     }
 }
 
@@ -502,6 +576,39 @@ mod tests {
         assert_eq!(buffer[(1, 0)].symbol(), "•");
         assert_eq!(buffer[(3, 0)].symbol(), "m");
         assert_eq!(buffer[(1, 1)].symbol(), "r");
+    }
+
+    #[test]
+    fn filtered_view_header_keeps_a_marker_at_minimum_width() {
+        let mut terminal = Terminal::new(TestBackend::new(10, 1)).unwrap();
+        let palette = RailPalette {
+            base: Style::default(),
+            dim: Style::default(),
+            active: Style::default(),
+            border: Style::default(),
+            border_symbol: "│",
+            rail: Color::Cyan,
+            rail_glyph: None,
+        };
+        terminal
+            .draw(|frame| {
+                view_header_with_filter(
+                    frame,
+                    Rect { x: 0, y: 0, width: 10, height: 1 },
+                    0,
+                    "agents",
+                    "priority",
+                    Some("filtered"),
+                    palette,
+                );
+            })
+            .unwrap();
+
+        let buffer = terminal.backend().buffer();
+        assert_eq!(buffer[(1, 0)].symbol(), "a");
+        assert_eq!(buffer[(6, 0)].symbol(), "s");
+        assert_eq!(buffer[(8, 0)].symbol(), "•");
+        assert_eq!(buffer[(9, 0)].symbol(), "│");
     }
 
     #[test]

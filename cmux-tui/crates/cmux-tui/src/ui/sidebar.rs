@@ -348,13 +348,18 @@ pub fn draw_projection(app: &mut App, frame: &mut Frame, view_index: usize) {
             crate::config::AgentSortMode::State => messages.sort_state,
         };
         // An active filter is always disclosed: rows silently missing from
-        // an agents board would read as lost agents.
-        let label = if spec.filter.is_active() {
-            format!("{} · {mode}", messages.sort_filtered)
-        } else {
-            mode.to_string()
-        };
-        rail::view_header(frame, area, area.y, messages.agents, &label, palette);
+        // an agents board would read as lost agents. The rail primitive keeps
+        // a compact marker visible when the full localized label is too wide.
+        let filter_marker = spec.filter.is_active().then_some(messages.sort_filtered);
+        rail::view_header_with_filter(
+            frame,
+            area,
+            area.y,
+            messages.agents,
+            mode,
+            filter_marker,
+            palette,
+        );
         area = Rect { y: area.y + 1, height: area.height - 1, ..area };
     }
 
