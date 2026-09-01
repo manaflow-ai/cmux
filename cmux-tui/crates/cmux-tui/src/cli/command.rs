@@ -192,7 +192,10 @@ fn parse_server(words: &[String], flags: &mut Flags) -> Result<CommandPlan, Usag
             let messages = &crate::localization::catalog().local_server;
             return Err(UsageError::new(messages.unknown_server_action(
                 action,
-                super::suggestion(action, &["start", "ensure", "status", "stop", "reload-config"]),
+                super::suggestion(
+                    action,
+                    &super::names(super::SERVER_ACTION_METADATA).collect::<Vec<_>>(),
+                ),
             )));
         }
         _ => {

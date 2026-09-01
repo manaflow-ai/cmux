@@ -15,40 +15,57 @@ use std::path::PathBuf;
 
 use command::{CommandPlan, ParsedCommand};
 
-const PUBLIC_SCOPES: &[&str] = &[
-    "machine",
-    "server",
-    "session",
-    "client",
-    "workspace",
-    "screen",
-    "pane",
-    "tab",
-    "terminal",
-    "browser",
-    "notification",
-    "agent",
-    "sidebar",
-    "pairing",
-    "projection",
-    "provider",
-    "raw",
+#[derive(Clone, Copy, Debug)]
+struct CommandMetadata {
+    name: &'static str,
+}
+
+const PUBLIC_SCOPE_METADATA: &[CommandMetadata] = &[
+    CommandMetadata { name: "machine" },
+    CommandMetadata { name: "server" },
+    CommandMetadata { name: "session" },
+    CommandMetadata { name: "client" },
+    CommandMetadata { name: "workspace" },
+    CommandMetadata { name: "screen" },
+    CommandMetadata { name: "pane" },
+    CommandMetadata { name: "tab" },
+    CommandMetadata { name: "terminal" },
+    CommandMetadata { name: "browser" },
+    CommandMetadata { name: "notification" },
+    CommandMetadata { name: "agent" },
+    CommandMetadata { name: "sidebar" },
+    CommandMetadata { name: "pairing" },
+    CommandMetadata { name: "projection" },
+    CommandMetadata { name: "provider" },
+    CommandMetadata { name: "raw" },
 ];
 
-const REMOTE_COMMANDS: &[&str] = &[
-    "remote",
-    "connect",
-    "ssh",
-    "forward",
-    "rpc",
-    "enroll",
-    "known-daemons",
-    "remote-probe",
-    "remote-link",
-    "remote-sidecar",
-    "remote-stop",
-    "install-self",
+const REMOTE_COMMAND_METADATA: &[CommandMetadata] = &[
+    CommandMetadata { name: "remote" },
+    CommandMetadata { name: "connect" },
+    CommandMetadata { name: "ssh" },
+    CommandMetadata { name: "forward" },
+    CommandMetadata { name: "rpc" },
+    CommandMetadata { name: "enroll" },
+    CommandMetadata { name: "known-daemons" },
+    CommandMetadata { name: "remote-probe" },
+    CommandMetadata { name: "remote-link" },
+    CommandMetadata { name: "remote-sidecar" },
+    CommandMetadata { name: "remote-stop" },
+    CommandMetadata { name: "install-self" },
 ];
+
+const SERVER_ACTION_METADATA: &[CommandMetadata] = &[
+    CommandMetadata { name: "start" },
+    CommandMetadata { name: "ensure" },
+    CommandMetadata { name: "status" },
+    CommandMetadata { name: "stop" },
+    CommandMetadata { name: "reload-config" },
+];
+
+fn names(metadata: &[CommandMetadata]) -> impl Iterator<Item = &'static str> + '_ {
+    metadata.iter().map(|entry| entry.name)
+}
 
 /// Maps the actions accepted after the `remote` noun to their direct command
 /// aliases. Keeping this mapping with the remote command grammar prevents
@@ -85,7 +102,7 @@ pub(super) fn is_remote_invocation(args: &[String]) -> bool {
                 index += 1
             }
             value if value.starts_with('-') => return false,
-            value => return REMOTE_COMMANDS.contains(&value),
+            value => return names(REMOTE_COMMAND_METADATA).any(|name| name == value),
         }
     }
     false
@@ -132,7 +149,7 @@ impl std::fmt::Display for UsageError {
 impl std::error::Error for UsageError {}
 
 pub fn is_public_scope(value: &str) -> bool {
-    PUBLIC_SCOPES.contains(&value)
+    names(PUBLIC_SCOPE_METADATA).any(|name| name == value)
 }
 
 pub fn run(args: &[String], startup_usage: &str) -> i32 {
@@ -210,9 +227,7 @@ fn parse_command(
         return match command_args.get(1) {
             None => Ok(ParsedCommand::Help(None)),
             Some(scope) if scope == "start" => Ok(ParsedCommand::Help(Some(scope.clone()))),
-            Some(scope) if PUBLIC_SCOPES.contains(&scope.as_str()) => {
-                Ok(ParsedCommand::Help(Some(scope.clone())))
-            }
+            Some(scope) if is_public_scope(scope) => Ok(ParsedCommand::Help(Some(scope.clone()))),
             Some(scope) => Err(unknown_scope(scope)),
         };
     }
@@ -228,12 +243,10 @@ fn parse_command(
             .map(String::as_str)
             .collect::<Vec<_>>();
         let topic = match words.as_slice() {
-            ["server", action, ..]
-                if matches!(*action, "start" | "ensure" | "status" | "stop" | "reload-config") =>
-            {
+            ["server", action, ..] if names(SERVER_ACTION_METADATA).any(|name| name == *action) => {
                 Some(format!("server {action}"))
             }
-            [scope, ..] if PUBLIC_SCOPES.contains(scope) => Some((*scope).to_string()),
+            [scope, ..] if is_public_scope(scope) => Some((*scope).to_string()),
             _ => None,
         };
         return Ok(ParsedCommand::Help(topic));
@@ -252,9 +265,10 @@ fn parse_command(
 
 fn unknown_scope(scope: &str) -> UsageError {
     UsageError::new(
-        crate::localization::catalog()
-            .local_server
-            .unknown_scope(scope, suggestion(scope, PUBLIC_SCOPES)),
+        crate::localization::catalog().local_server.unknown_scope(
+            scope,
+            suggestion(scope, &names(PUBLIC_SCOPE_METADATA).collect::<Vec<_>>()),
+        ),
     )
 }
 
@@ -773,7 +787,7 @@ mod tests {
     #[test]
     fn every_scope_has_dedicated_help() {
         let english_catalog = crate::localization::catalog_for_locale("en_US.UTF-8");
-        for scope in PUBLIC_SCOPES {
+        for scope in names(PUBLIC_SCOPE_METADATA) {
             let help = scope_help_for(scope, english_catalog);
             assert!(help.contains("USAGE"));
             assert!(help.contains(scope));
