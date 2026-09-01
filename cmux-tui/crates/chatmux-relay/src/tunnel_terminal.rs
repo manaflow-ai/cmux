@@ -1305,6 +1305,40 @@ mod tests {
         rig.cancel.cancel();
     }
 
+    #[tokio::test]
+    async fn saturated_writer_queue_reports_overflow_before_end() {
+        let rig = rig().await;
+        let (connection, mut writer_rx) = queue_connection(Arc::clone(&rig.manager)).await;
+        let accepted_data = TUNNEL_WRITER_QUEUE_ITEMS - TUNNEL_CONTROL_QUEUE_RESERVE_ITEMS - 1;
+        for _ in 0..accepted_data {
+            assert!(connection.enqueue_frame(vec![b'x'], false));
+        }
+        assert!(!connection.enqueue_frame(vec![b'x'], false));
+        drop(connection);
+
+        let mut saw_overflow = false;
+        let mut saw_end = false;
+        while let Some(message) = writer_rx.recv().await {
+            match message {
+                WriterMessage::Frame(frame)
+                    if frame.len() > HEADER_BYTES && frame[4] == FRAME_KIND_CONTROL =>
+                {
+                    let payload = &frame[5..];
+                    let value: Value = serde_json::from_slice(payload).expect("overflow frame");
+                    saw_overflow = value["t"] == "error" && value["code"] == "overflow";
+                }
+                WriterMessage::End => {
+                    saw_end = true;
+                    break;
+                }
+                WriterMessage::Frame(_) => {}
+            }
+        }
+        assert!(saw_overflow, "overflow error must survive data saturation");
+        assert!(saw_end, "reserved End item must be delivered");
+        rig.cancel.cancel();
+    }
+
     // -- pure codec/parse ---------------------------------------------------
 
     #[test]
