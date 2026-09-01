@@ -22888,26 +22888,6 @@ struct CMUXCLI {
         return (workspaceId, paneId)
     }
 
-    func tmuxSelectedSurfaceId(
-        workspaceId: String,
-        paneId: String,
-        client: SocketClient
-    ) throws -> String {
-        let payload = try client.sendV2(
-            method: "pane.surfaces",
-            params: ["workspace_id": workspaceId, "pane_id": paneId]
-        )
-        let surfaces = payload["surfaces"] as? [[String: Any]] ?? []
-        if let selected = surfaces.first(where: { boolFromAny($0["selected"]) == true }),
-           let id = selected["id"] as? String {
-            return id
-        }
-        if let first = surfaces.first?["id"] as? String {
-            return first
-        }
-        throw CLIError(message: "Pane has no surface to target")
-    }
-
     private func tmuxStoredStartCommand(
         workspaceId: String,
         surfaceId: String,
@@ -23122,12 +23102,12 @@ struct CMUXCLI {
             }
             return nil
         }()
-        let resolvedSurfaceId: String? = {
+        let resolvedSurfaceId: String? = try {
             if let surfaceId {
                 return (try? tmuxCanonicalSurfaceId(surfaceId, workspaceId: canonicalWorkspaceId, client: client)) ?? surfaceId
             }
             if let resolvedPaneId {
-                return try? tmuxSelectedSurfaceId(
+                return try tmuxSelectedSurfaceIdIfPresent(
                     workspaceId: canonicalWorkspaceId,
                     paneId: resolvedPaneId,
                     client: client

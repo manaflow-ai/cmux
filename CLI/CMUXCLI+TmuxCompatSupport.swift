@@ -22,6 +22,40 @@ extension CMUXCLI {
         return false
     }
 
+    /// Returns `nil` only when a successful lookup contains no surfaces;
+    /// transport, decoding, and protocol failures remain thrown.
+    func tmuxSelectedSurfaceIdIfPresent(
+        workspaceId: String,
+        paneId: String,
+        client: SocketClient
+    ) throws -> String? {
+        let payload = try client.sendV2(
+            method: "pane.surfaces",
+            params: ["workspace_id": workspaceId, "pane_id": paneId]
+        )
+        let surfaces = payload["surfaces"] as? [[String: Any]] ?? []
+        if let selected = surfaces.first(where: { boolFromAny($0["selected"]) == true }),
+           let id = selected["id"] as? String {
+            return id
+        }
+        return surfaces.first?["id"] as? String
+    }
+
+    func tmuxSelectedSurfaceId(
+        workspaceId: String,
+        paneId: String,
+        client: SocketClient
+    ) throws -> String {
+        guard let surfaceID = try tmuxSelectedSurfaceIdIfPresent(
+            workspaceId: workspaceId,
+            paneId: paneId,
+            client: client
+        ) else {
+            throw CLIError(message: "Pane has no surface to target")
+        }
+        return surfaceID
+    }
+
     func tmuxEnrichContextWithGeometry(
         _ context: inout [String: String],
         pane: [String: Any],
