@@ -1189,6 +1189,7 @@ fn public_pty_error_message(code: &str) -> &'static str {
         "terminal_gone" => "terminal is no longer available",
         "overflow" => "terminal output overflowed; reattach to continue",
         "busy" => "terminal is busy",
+        "failed" => "terminal open failed",
         _ => "terminal operation failed",
     }
 }
