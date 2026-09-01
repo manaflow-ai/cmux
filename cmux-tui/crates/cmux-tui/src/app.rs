@@ -586,6 +586,7 @@ impl FrontendJournalQueue {
 struct FrontendJournalWorker {
     queue: Option<Arc<FrontendJournalQueue>>,
     worker: Option<JoinHandle<()>>,
+    reaper: Option<JoinHandle<()>>,
 }
 
 impl FrontendJournalWorker {
@@ -8461,7 +8462,7 @@ impl MachineActionWorker {
                 }
                 controller.close();
             })?;
-        Ok(Self { sender: Some(sender), stop, worker: Some(worker) })
+        Ok(Self { sender: Some(sender), stop, worker: Some(worker), reaper: None })
     }
 
     fn perform(
@@ -8559,11 +8560,17 @@ impl MachineActionWorker {
             // Provider calls are synchronous and may remain blocked until
             // their transport deadline. Reap the owned handle asynchronously
             // so shutdown stays responsive without detaching the worker.
-            let _ = std::thread::Builder::new()
+            self.reaper = std::thread::Builder::new()
                 .name("machine-actions-reaper".into())
                 .spawn(move || {
                     let _ = worker.join();
-                });
+                })
+                .ok();
+        }
+        if self.reaper.as_ref().is_some_and(JoinHandle::is_finished)
+            && let Some(reaper) = self.reaper.take()
+        {
+            let _ = reaper.join();
         }
     }
 }
@@ -42726,6 +42733,7 @@ mod tests {
         assert!(started_shutdown.elapsed() < Duration::from_millis(50));
         release.send(()).unwrap();
         closes.recv_timeout(Duration::from_secs(1)).unwrap();
+        worker.shutdown();
     }
 
     #[test]
