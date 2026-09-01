@@ -157590,6 +157590,23 @@
         }
       }
     },
+    "sessionIndex.row.resume.compatibility": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Resume (compatibility command)"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "（互換コマンドで）再開"
+          }
+        }
+      }
+    },
     "sessionIndex.row.reveal": {
       "extractionState": "manual",
       "localizations": {

@@ -92,13 +92,18 @@ extension DockSplitStore {
         destination: BonsplitController.ExternalTabDropRequest.Destination
     ) -> Bool {
         guard let launch = entry.resumeLaunch else { return false }
+        // Dock terminals use the same local login-shell dialect as the main
+        // workspace. Ask the immutable launch plan to render it here instead
+        // of reusing a caller-specific cached string, so every Vault drop
+        // admits the identical `cmux restore` selector and snapshot.
+        let initialInput = launch.startupInput(for: .loginShell)
         switch destination {
         case .insert(let paneId, _):
             return newSurface(
                 kind: .terminal,
                 inPane: paneId,
                 workingDirectory: launch.workingDirectory,
-                initialInput: launch.initialInput,
+                initialInput: initialInput,
                 startupRestoreAgent: launch.startupRestoreAgent,
                 focus: true
             ) != nil
@@ -110,7 +115,7 @@ extension DockSplitStore {
                 insertFirst: insertFirst,
                 sourcePanelId: sourcePanelId,
                 workingDirectory: launch.workingDirectory,
-                initialInput: launch.initialInput,
+                initialInput: initialInput,
                 startupRestoreAgent: launch.startupRestoreAgent,
                 focus: true
             ) != nil

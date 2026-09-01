@@ -26,17 +26,28 @@ struct VaultRestorePathGuaranteeTests {
     }
 
     @Test
+    func rovodevRestoreRecordKeepsTheProviderRestoreSelector() throws {
+        let entry = Self.entry(for: "rovodev")
+        let launch = try #require(entry.resumeLaunch)
+        let snapshot = try #require(launch.startupRestoreAgent)
+        let arguments = try #require(snapshot.preparedResumeArguments(
+            launchCommand: snapshot.launchCommand,
+            workingDirectory: snapshot.workingDirectory,
+            observedPermissionMode: snapshot.permissionMode
+        ))
+
+        #expect(arguments == ["acli", "rovodev", "run", "--restore", entry.sessionId])
+        #expect(launch.initialInput == " cmux restore rovodev \(entry.sessionId)\n")
+        #expect(launch.startupInput(for: .remoteHost) == launch.initialInput)
+    }
+
+    @Test
     func registeredGrokProfileKeepsGrokHomeInRestoreRecord() throws {
-        let registration = CmuxVaultAgentRegistration(
-            id: "grok-profile",
-            name: "Grok profile",
-            detect: CmuxVaultAgentDetectRule(processName: "grok"),
-            sessionIdSource: .grokSessionDirectory,
-            resumeCommand: "env GROK_HOME='/tmp/grok profile' {{executable}} -r {{sessionId}}",
-            cwd: .preserve
-        )
+        let grokHome = "/tmp/グロク profile"
+        var registration = CmuxVaultAgentRegistration.builtInGrok
+        registration.resumeCommand = "env GROK_HOME=\(SessionEntry.shellQuote(grokHome)) \(registration.resumeCommand)"
         let entry = SessionEntry(
-            id: "grok-profile:grok-session",
+            id: "grok:grok-session",
             agent: .registered(RegisteredSessionAgent(registration: registration)),
             sessionId: "grok-session",
             title: "Grok profile session",
@@ -69,9 +80,9 @@ struct VaultRestorePathGuaranteeTests {
         ))
 
         #expect(launch.strategy == .restoreVerb)
-        #expect(record.kind == "grok-profile")
+        #expect(record.kind == "grok")
         #expect(record.workingDirectory == "/tmp/grok-project")
-        #expect(record.launchCommand?.environment?["GROK_HOME"] == "/tmp/grok profile")
+        #expect(record.launchCommand?.environment?["GROK_HOME"] == grokHome)
         #expect(record.preparedArguments == ["grok", "-r", "grok-session"])
         #expect(record.legacyCommand == nil)
     }
@@ -101,6 +112,64 @@ struct VaultRestorePathGuaranteeTests {
         )
 
         #expect(entry.copyResumeCommand?.utf8.count ?? 0 > 900)
+        #expect(entry.resumeLaunch == nil)
+    }
+
+    @Test
+    func unsafeEnvironmentPrefixUsesTheBoundedCompatibilityClassification() throws {
+        let registration = CmuxVaultAgentRegistration(
+            id: "dynamic-env-agent",
+            name: "Dynamic env agent",
+            detect: CmuxVaultAgentDetectRule(processName: "dynamic-env-agent"),
+            sessionIdSource: .argvOption("--session"),
+            // Command substitutions are intentionally not copied into a
+            // structured environment record. They must remain an explicit
+            // compatibility case (or be rejected by the byte bound).
+            resumeCommand: "env GROK_HOME=$(runtime-home) dynamic-env-agent --session {{sessionId}}",
+            cwd: .preserve
+        )
+        let entry = SessionEntry(
+            id: "dynamic-env-agent:dynamic-session",
+            agent: .registered(RegisteredSessionAgent(registration: registration)),
+            sessionId: "dynamic-session",
+            title: "Dynamic env session",
+            cwd: "/tmp/dynamic-env-project",
+            gitBranch: nil,
+            pullRequest: nil,
+            modified: Date(timeIntervalSince1970: 1_800_000_104),
+            fileURL: nil,
+            specifics: .registered(registration)
+        )
+        let launch = try #require(entry.resumeLaunch)
+
+        #expect(launch.strategy == .legacyCommand)
+        #expect(launch.legacyFallbackReason == .missingStructuredSnapshot)
+        #expect(launch.startupRestoreAgent == nil)
+    }
+
+    @Test
+    func legacyFallbackRejectsControlCharactersBeforeTyping() throws {
+        let registration = CmuxVaultAgentRegistration(
+            id: "control agent",
+            name: "Control agent",
+            detect: CmuxVaultAgentDetectRule(processName: "control-agent"),
+            sessionIdSource: .argvOption("--session"),
+            resumeCommand: "control-agent --session {{sessionId}}\u{1B}[31m",
+            cwd: .preserve
+        )
+        let entry = SessionEntry(
+            id: "control agent:control-session",
+            agent: .registered(RegisteredSessionAgent(registration: registration)),
+            sessionId: "control-session",
+            title: "Control session",
+            cwd: "/tmp/control-project",
+            gitBranch: nil,
+            pullRequest: nil,
+            modified: Date(timeIntervalSince1970: 1_800_000_105),
+            fileURL: nil,
+            specifics: .registered(registration)
+        )
+
         #expect(entry.resumeLaunch == nil)
     }
 

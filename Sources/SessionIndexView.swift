@@ -579,6 +579,12 @@ private struct SessionRow: View, Equatable {
         if let cwd = entry.cwdLabel {
             lines.append(cwd)
         }
+        if entry.resumeLaunch?.legacyFallbackReason != nil {
+            lines.append(String(
+                localized: "sessionIndex.row.resume.compatibility",
+                defaultValue: "Compatibility resume command"
+            ))
+        }
         lines.append(absoluteTime(entry.modified))
         return lines.joined(separator: "\n")
     }
@@ -600,10 +606,16 @@ private struct SessionRow: View, Equatable {
 @ViewBuilder
 private func sessionRowMenuItems(entry: SessionEntry, onResume: ((SessionEntry) -> Void)?) -> some View {
     if let onResume {
+        let resumeTitle = entry.resumeLaunch?.legacyFallbackReason == nil
+            ? String(localized: "sessionIndex.row.resume", defaultValue: "Resume in New Tab")
+            : String(
+                localized: "sessionIndex.row.resume.compatibility",
+                defaultValue: "Resume (compatibility command)"
+            )
         Button {
             onResume(entry)
         } label: {
-            Text(String(localized: "sessionIndex.row.resume", defaultValue: "Resume in New Tab"))
+            Text(resumeTitle)
         }
         Divider()
     }

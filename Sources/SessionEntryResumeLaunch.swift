@@ -223,6 +223,9 @@ extension SessionEntry {
             )
         case .registered(let registration):
             let structured = Self.structuredRegistration(registration)
+            guard structured.isSupported else {
+                return nil
+            }
             components = SessionEntryResumeSnapshotComponents(
                 arguments: [structured.registration.defaultExecutable],
                 environment: structured.environment,
@@ -302,10 +305,11 @@ extension SessionEntry {
     /// when it rebuilds the canonical `grok -r` argv.
     private static func structuredRegistration(
         _ registration: CmuxVaultAgentRegistration
-    ) -> (registration: CmuxVaultAgentRegistration, environment: [String: String]) {
+    ) -> (registration: CmuxVaultAgentRegistration, environment: [String: String], isSupported: Bool) {
         let words = TerminalStartupWorkingDirectoryPrefix.shellWordRanges(registration.resumeCommand)
-        guard words.first?.value == "env" else {
-            return (registration, [:])
+        guard let executable = words.first?.value,
+              (executable as NSString).lastPathComponent == "env" else {
+            return (registration, [:], true)
         }
 
         let policy = AgentLaunchEnvironmentPolicy()
@@ -315,16 +319,22 @@ extension SessionEntry {
             let token = words[index].value
             guard let equals = token.firstIndex(of: "=") else { break }
             let key = String(token[..<equals])
-            let value = String(token[token.index(after: equals)...])
+            let renderedValue = String(token[token.index(after: equals)...])
             guard key.range(of: "^[A-Za-z_][A-Za-z0-9_]*$", options: .regularExpression) != nil,
+                  let value = decodedEnvironmentAssignmentValue(renderedValue),
+                  value.unicodeScalars.allSatisfy({ scalar in
+                      scalar.value >= 0x20 && scalar.value != 0x7F
+                  }),
                   let safeValue = policy.sanitizedValue(key: key, value: value) else {
-                break
+                return (registration, [:], false)
             }
             environment[key] = safeValue
             index += 1
         }
-        guard !environment.isEmpty, index < words.count else {
-            return (registration, [:])
+        guard !environment.isEmpty,
+              index < words.count,
+              !words[index].value.hasPrefix("-") else {
+            return (registration, [:], false)
         }
 
         var normalized = registration
@@ -332,8 +342,30 @@ extension SessionEntry {
             registration.resumeCommand[words[index].range.lowerBound...]
         ).trimmingCharacters(in: .whitespacesAndNewlines)
         guard !normalized.resumeCommand.isEmpty else {
-            return (registration, [:])
+            return (registration, [:], false)
         }
-        return (normalized, environment)
+        return (normalized, environment, true)
+    }
+
+    /// Decodes the ASCII-only `"$(printf '\ooo…')"` form produced by
+    /// ``TerminalStartupShellQuoting`` for non-ASCII shell tokens.
+    private static func decodedEnvironmentAssignmentValue(_ value: String) -> String? {
+        let prefix = "$(printf '"
+        let suffix = "')"
+        guard value.contains("$") || value.contains("`") else { return value }
+        guard value.hasPrefix(prefix), value.hasSuffix(suffix) else { return nil }
+        let encoded = value.dropFirst(prefix.count).dropLast(suffix.count)
+        let octets = encoded.split(separator: "\\", omittingEmptySubsequences: true)
+        guard !octets.isEmpty else { return nil }
+        var bytes: [UInt8] = []
+        bytes.reserveCapacity(octets.count)
+        for octet in octets {
+            guard octet.count == 3,
+                  let byte = UInt8(String(octet), radix: 8) else {
+                return nil
+            }
+            bytes.append(byte)
+        }
+        return String(data: Data(bytes), encoding: .utf8)
     }
 }
