@@ -969,11 +969,19 @@ impl WorkspaceRegistry {
         snapshot: &str,
     ) -> anyhow::Result<()> {
         // A reset is an explicit state transition, so it must bypass the
-        // monotonic guard even when the previous cursor is nonzero.
+        // cursor guard even when the previous cursor is nonzero. Advance the
+        // ordering token so in-flight writes from the old state stay stale.
+        let ordering_token = self
+            .journal_reducer_state_with_order(reducer_id)?
+            .map(|(_, _, token, _)| {
+                token.checked_add(1).context("journal reducer ordering token exhausted")
+            })
+            .transpose()?
+            .unwrap_or(0);
         let value = serde_json::json!({
             "version": version,
             "cursor": "0",
-            "ordering_token": "0",
+            "ordering_token": ordering_token.to_string(),
             "snapshot": snapshot,
         });
         self.connection.execute(
