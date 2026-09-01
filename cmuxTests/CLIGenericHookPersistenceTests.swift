@@ -158,18 +158,18 @@ extension CLINotifyProcessIntegrationRegressionTests {
                     "GEMINI_CLI_HOME": "/tmp/gemini rejected home",
                     "CMUX_GEMINI_PID": "999999999",
                 ],
-                existingLaunchArguments: [
-                    "/Users/example/.bun/bin/gemini",
-                    "--model",
-                    "stable-model",
-                ],
                 expectedArguments: [
                     "/Users/example/.bun/bin/gemini",
                     "--model",
                     "stable-model",
                 ],
                 expectedEnvironment: nil,
-                expectedSource: "environment"
+                expectedSource: "environment",
+                existingLaunchArguments: [
+                    "/Users/example/.bun/bin/gemini",
+                    "--model",
+                    "stable-model",
+                ]
             ),
             GenericHookPersistenceScenario(
                 agent: "kiro",
