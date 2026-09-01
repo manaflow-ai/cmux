@@ -30,9 +30,7 @@ concurrency:
 
 jobs:
   browser-skill:
-    # This job executes untrusted PR skill/docs code; keep it on an ephemeral
-    # GitHub-hosted runner instead of a shared worker.
-    runs-on: ubuntu-24.04 # github-hosted-required: untrusted PR code
+    runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 5
     steps:
       - name: Checkout
