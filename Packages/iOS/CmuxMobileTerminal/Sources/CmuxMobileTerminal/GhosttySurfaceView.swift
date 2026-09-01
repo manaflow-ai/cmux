@@ -1526,8 +1526,14 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         let hostLayer = host.layer.presentation() ?? host.layer
         if let renderer = (layer.sublayers ?? []).first(where: isGhosttyRendererLayer) {
             let source = renderer.presentation() ?? renderer
+            // The layer extends past the grid by the bottom scroll-edge
+            // band; the presentation contract is about the GRID's bottom
+            // edge (the content that must ride the dock).
             return source.convert(
-                CGPoint(x: source.bounds.midX, y: source.bounds.maxY),
+                CGPoint(
+                    x: source.bounds.midX,
+                    y: source.bounds.maxY - appliedRenderBottomInsetPts
+                ),
                 to: hostLayer
             ).y
         }
@@ -1686,8 +1692,76 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
             reservedToolbarHeight: reservedToolbarHeight,
             toolbarFrameHeight: Self.persistentToolbarHeight,
             bottomSafeAreaInset: safeAreaInsetsBottom,
-            chromeHidden: chromeHidden
+            chromeHidden: chromeHidden,
+            topContentInset: topContentInset
         ))
+    }
+
+    /// The top safe-area band this surface underlaps for the scroll-edge
+    /// band (0 when the surface does not extend under the top bar). Pushed
+    /// by the hosting representable from SwiftUI-captured geometry: the
+    /// UIKit `safeAreaInsets.top` reads 0 once the SwiftUI hierarchy ignores
+    /// the top container edge, so the value must be captured outside that
+    /// expansion and forwarded here.
+    private(set) var topContentInset: CGFloat = 0
+
+    /// The band heights actually applied to the libghostty surface by the
+    /// last geometry pass, pixel-aligned. The render layer is sized with
+    /// THESE values (not the live inputs) so the layer always matches the
+    /// exact pixel extent the renderer drew; changed insets converge
+    /// through the next geometry pass.
+    private var appliedRenderTopInsetPts: CGFloat = 0
+    private var appliedRenderBottomInsetPts: CGFloat = 0
+
+    public func setTopContentInset(_ inset: CGFloat) {
+        let clamped = max(0, inset)
+        guard abs(clamped - topContentInset) > 0.25 else { return }
+        MobileDebugLog.anchormux(
+            "scrolledge.topInset \(Int(topContentInset))->\(Int(clamped))"
+        )
+        topContentInset = clamped
+        let snapshot = viewportSnapshot()
+        layoutBottomDock(using: snapshot)
+        layoutRenderedTerminalForCurrentViewport(using: snapshot)
+        setNeedsGeometrySync()
+        setNeedsLayout()
+        // The host owns the screen-anchored scroll-edge fade sized by this
+        // inset; its layout does not follow from this view's.
+        bottomDockHostView?.setNeedsLayout()
+    }
+
+    /// The render layer rect: the grid render rect grown upward and
+    /// downward by the applied scroll-edge bands, matching the surface's
+    /// inflated drawable.
+    private func rendererLayerRect(forGridRenderRect renderRect: CGRect) -> CGRect {
+        let top = appliedRenderTopInsetPts
+        let bottom = appliedRenderBottomInsetPts
+        guard top > 0 || bottom > 0 else { return renderRect }
+        return CGRect(
+            x: renderRect.minX,
+            y: renderRect.minY - top,
+            width: renderRect.width,
+            height: renderRect.height + top + bottom
+        )
+    }
+
+    /// Screen-anchored scroll-edge fade: rows dissolve into the terminal
+    /// background as they pass under the (glass) navigation bar. Owned by
+    /// the HOST's keyboard-invariant chrome space (like the dock): the
+    /// render wrapper slides for the keyboard, the under-bar fade must not.
+    /// The host reads the live band height through this hook.
+    var hostedScrollEdgeFadeHeight: CGFloat {
+        topContentInset
+    }
+
+    /// Whether the dock-anchored bottom scroll-edge fade should show: the
+    /// band feature is on (a nonzero top inset is its enablement signal)
+    /// and the bottom chrome is visible to fade under. The bottom band
+    /// itself rides the grid bottom, which the constraint system glues to
+    /// the dock, so the fade's geometry lives entirely in dock-anchored
+    /// constraints.
+    var hostedBottomScrollEdgeFadeActive: Bool {
+        topContentInset > 0 && !chromeHidden
     }
 
     private func layoutRenderedTerminalForCurrentViewport() {
@@ -1704,7 +1778,10 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
             "kb.renderRect \(Int(lastRenderRect.minY))->\(Int(renderRect.minY)) h=\(Int(renderRect.height))"
         )
         lastRenderRect = renderRect
-        syncRendererLayerFrame(scale: preferredScreenScale, renderRect: renderRect)
+        syncRendererLayerFrame(
+            scale: preferredScreenScale,
+            renderRect: rendererLayerRect(forGridRenderRect: renderRect)
+        )
         updateLetterboxBorder(
             renderRect: renderRect,
             isLetterboxed: snapshot.isLetterboxed(renderSize: renderRect.size)
@@ -4845,6 +4922,11 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         /// the daemon grants a bogus shared PTY size (the
         /// keyboard-transition font-oscillation bug).
         let measuredFontSize: Float32
+        /// The pixel-aligned scroll-edge bands applied to the surface by
+        /// this pass, in points. The render layer must grow by exactly
+        /// these: the drawable is this much taller than the grid box.
+        let appliedTopInsetPts: CGFloat
+        let appliedBottomInsetPts: CGFloat
     }
 
     private func syncSurfaceGeometryAndWait(shouldReassertNaturalSize: Bool = true) async -> Bool {
@@ -4901,6 +4983,20 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         let containerH = snapshot.containerSize.height
         let containerPxW = UInt32(max(1, Int((containerW * scale).rounded(.down))))
         let containerPxH = UInt32(max(1, Int((containerH * scale).rounded(.down))))
+        // The scroll-edge bands above and below the grid, pixel-aligned at
+        // the captured scale. Applied to the surface before set_size so the
+        // drawable grows while the app-facing size (and therefore the grid)
+        // stays container-sized. The bottom band spans the bottom chrome
+        // reservation (dock seam + toolbar + composer + safe area), whose
+        // rows only exist when scrolled into scrollback; it is gated on the
+        // same feature signal as the top band (a nonzero top inset).
+        let topInsetPx = UInt32(max(0, Int((topContentInset * scale).rounded(.down))))
+        let appliedTopInsetPts = CGFloat(topInsetPx) / scale
+        let bottomInsetPts = topContentInset > 0
+            ? max(0, snapshot.bounds.height - snapshot.layoutViewportRect.maxY)
+            : 0
+        let bottomInsetPx = UInt32(max(0, Int((bottomInsetPts * scale).rounded(.down))))
+        let appliedBottomInsetPts = CGFloat(bottomInsetPx) / scale
         let eff = effectiveGrid
         let requiresExactEffectiveGrid = verifiedReplayRenderSuppressed
         let pushContentScale = abs(lastAppliedContentScale - scale) > 0.001
@@ -4912,6 +5008,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
             if pushContentScale {
                 ghostty_surface_set_content_scale(surface, scale, scale)
             }
+            ghostty_surface_set_render_insets(surface, topInsetPx, bottomInsetPx)
             ghostty_surface_set_size(surface, containerPxW, containerPxH)
             let measured = ghostty_surface_size(surface)
 
@@ -4963,7 +5060,9 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
                 cellPixelSize: cell,
                 naturalSize: natural,
                 pinnedSize: pinnedSize,
-                measuredFontSize: measuredFontSize
+                measuredFontSize: measuredFontSize,
+                appliedTopInsetPts: appliedTopInsetPts,
+                appliedBottomInsetPts: appliedBottomInsetPts
             )
             Task { @MainActor in
                 guard let self else {
@@ -5018,15 +5117,24 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         layoutBottomDock(using: snapshot)
         let renderRect = snapshot.renderRect(forRenderSize: measuredRenderRect.size)
         lastRenderRect = renderRect
+        // The drawable this pass produced includes the scroll-edge bands;
+        // the layer must grow by exactly that much or every present is
+        // discarded on the size check.
+        appliedRenderTopInsetPts = result.appliedTopInsetPts
+        appliedRenderBottomInsetPts = result.appliedBottomInsetPts
         MobileDebugLog.anchormux(
             "geom container=\(Int(containerW))x\(Int(containerH)) scale=\(scale) "
             + "cellPx=\(Int(result.cellPixelSize.width))x\(Int(result.cellPixelSize.height)) "
             + "natural=\(result.naturalSize.columns)x\(result.naturalSize.rows) "
             + "eff=\(effectiveGrid.map { "\($0.cols)x\($0.rows)" } ?? "nil") "
             + "pinned=\(result.pinnedSize.map { "\(Int($0.width))x\(Int($0.height))" } ?? "nil") "
-            + "renderRect=\(Int(renderRect.width))x\(Int(renderRect.height))@\(Int(renderRect.minY))"
+            + "renderRect=\(Int(renderRect.width))x\(Int(renderRect.height))@\(Int(renderRect.minY)) "
+            + "topInset=\(Int(result.appliedTopInsetPts))"
         )
-        syncRendererLayerFrame(scale: scale, renderRect: renderRect)
+        syncRendererLayerFrame(
+            scale: scale,
+            renderRect: rendererLayerRect(forGridRenderRect: renderRect)
+        )
         updateLetterboxBorder(
             renderRect: renderRect,
             isLetterboxed: snapshot.isLetterboxed(renderSize: renderRect.size)
