@@ -142,6 +142,9 @@ describe("BlaxelProvider SSH surface", () => {
       if (url.endsWith("/sandboxes/machine-a")) {
         return new Response(JSON.stringify({ metadata: { url: "https://sandbox-api.test" } }), { status: 200 });
       }
+      if (url === "https://sandbox-api.test/process/cmux-tui-daemon") {
+        return new Response(JSON.stringify({ message: "stopped" }), { status: 200 });
+      }
       if (url === "https://sandbox-api.test/process") {
         return new Response(JSON.stringify({ exitCode: 0, status: "completed" }), { status: 200 });
       }
@@ -164,7 +167,8 @@ describe("BlaxelProvider SSH surface", () => {
       expect(processCall?.body).toContain("server start");
       expect(processCall?.body).not.toContain("cmuxd");
       expect(processCall?.body).not.toContain("attach-pty-lease.json");
-      expect(calls.filter((call) => call.method === "DELETE")).toHaveLength(3);
+      expect(calls.filter((call) => call.method === "DELETE")).toHaveLength(4);
+      expect(calls.some((call) => call.url === "https://sandbox-api.test/process/cmux-tui-daemon")).toBe(true);
     } finally {
       globalThis.fetch = originalFetch;
       if (previousKey === undefined) delete process.env.BL_API_KEY;
@@ -476,7 +480,8 @@ describe("background provisioning", () => {
     expect(CMUX_PROVISION_SCRIPT).toContain("mountpoint -q /cmux/home 2>/dev/null && return 0");
     expect(CMUX_PROVISION_SCRIPT).toContain('chown -R cmux:cmux "$HOME/.bun" "$HOME/.npm-global" "$HOME/.local"');
     expect(CMUX_PROVISION_SCRIPT).toContain("distro_packages_unlocked()");
-    expect(CMUX_PROVISION_SCRIPT).toContain("( flock 9; distro_packages_unlocked ) 9>/etc/cmux/package-install.lock");
+    expect(CMUX_PROVISION_SCRIPT).toContain("mkdir /etc/cmux/package-install.lock.d");
+    expect(CMUX_PROVISION_SCRIPT).toContain("distro_packages_unlocked ) 9>/etc/cmux/package-install.lock");
     expect(CMUX_PROVISION_SCRIPT).toContain("/tmp/cmux/provision.log");
   });
 });
@@ -511,8 +516,9 @@ describe("cloud work user setup", () => {
     expect(CMUX_CLOUD_USER_SETUP_COMMAND).toContain(CMUX_HOME_BINDFS_COMMAND);
     expect(CMUX_CLOUD_USER_SETUP_COMMAND).toContain("if mountpoint -q /cmux/home 2>/dev/null && ! mountpoint -q /home/cmux 2>/dev/null");
     // The whole view setup (mount check, junk clean, mount) shares the package
-    // flock, so it cannot race sudo/provision installs or junk-clean a mounted home.
-    expect(CMUX_CLOUD_USER_SETUP_COMMAND).toContain("( flock 9; ");
+    // gate and flock, so it cannot race sudo/provision installs or junk-clean a mounted home.
+    expect(CMUX_CLOUD_USER_SETUP_COMMAND).toContain("/etc/cmux/package-install.lock.d/owner");
+    expect(CMUX_CLOUD_USER_SETUP_COMMAND).toContain("flock 9 || exit 1");
     expect(CMUX_CLOUD_USER_SETUP_COMMAND).toContain(") 9>/etc/cmux/package-install.lock");
     expect(CMUX_CLOUD_USER_SETUP_COMMAND).toContain("apt-get install -y -qq --no-install-recommends bindfs");
   });

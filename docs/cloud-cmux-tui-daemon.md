@@ -112,6 +112,14 @@ state (`--state`) lives there too, so workspace layout restores from the
 journal checkpoint after a daemon restart; running processes do not survive a
 restart, and clients see the generation change instead of a silent new shell.
 
+On a Blaxel layout machine, the daemon watches the bindfs home view for mount
+events. If the view disappears, the supervisor stops the user daemon and exits
+with a restartable failure code. Blaxel starts the command again, which reruns
+the idempotent user setup and repairs the view before selecting the non-root
+daemon. If repair fails, it detects the still-mounted `/cmux/home` backing path
+and runs the daemon there as root. Active terminals therefore do not continue
+writing into the disposable rootfs directory.
+
 ## Lease/auth integration with the attach-endpoint flow
 
 `POST /api/vm/[id]/attach-endpoint` today returns

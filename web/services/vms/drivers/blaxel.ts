@@ -131,14 +131,95 @@ export const CMUX_HOME_BINDFS_COMMAND =
   `bindfs -o allow_other --multithreaded --force-user=${CMUX_CLOUD_USER} --force-group=${CMUX_CLOUD_USER} ` +
   `--create-for-user=root --create-for-group=root --chown-ignore --chgrp-ignore ` +
   `${CMUX_HOME_VOLUME_BACKING_PATH} ${CMUX_CLOUD_HOME}`;
+
+const CMUX_PACKAGE_INSTALL_LOCK_PATH = "/etc/cmux/package-install.lock";
+const CMUX_PACKAGE_INSTALL_FALLBACK_LOCK_PATH = "/etc/cmux/package-install.lock.d";
+const CMUX_PACKAGE_INSTALL_LOCK_OWNER_PATH = `${CMUX_PACKAGE_INSTALL_FALLBACK_LOCK_PATH}/owner`;
+const CMUX_PACKAGE_INSTALL_BUSY_PATH = "/etc/cmux/package-install.lock.busy";
+const CMUX_PACKAGE_INSTALL_LOCK_STALE_MINUTES = 5;
+
+/**
+ * Serializes every apt/apk mutation with one transition-safe protocol. The
+ * directory gate is acquired before checking flock, so a caller that installs
+ * util-linux cannot race a caller that already sees flock. Once flock exists,
+ * the gate is released after the file lock is held and later callers block on
+ * that same file. A dead owner pid permits recovery from a killed old-image
+ * setup; a live owner fails closed instead of touching its lock. An ownerless
+ * directory is reclaimed only after a grace period, which covers a process
+ * killed between mkdir and writing its owner pid without interrupting a fresh
+ * acquisition.
+ */
+function withPackageInstallLock(body: string): string {
+  const packageDir = CMUX_PACKAGE_INSTALL_LOCK_PATH.replace(/\/[^/]+$/, "");
+  return (
+    `mkdir -p ${packageDir} 2>/dev/null; ` +
+    `if [ -d ${CMUX_PACKAGE_INSTALL_FALLBACK_LOCK_PATH} ]; then ` +
+    `cmux_package_lock_pid=""; ` +
+    `if [ -r ${CMUX_PACKAGE_INSTALL_LOCK_OWNER_PATH} ]; then ` +
+    `cmux_package_lock_pid="$(cat ${CMUX_PACKAGE_INSTALL_LOCK_OWNER_PATH} 2>/dev/null || true)"; fi; ` +
+    `if [ -n "$cmux_package_lock_pid" ]; then ` +
+    `if ! kill -0 "$cmux_package_lock_pid" 2>/dev/null; then ` +
+    `rm -f ${CMUX_PACKAGE_INSTALL_LOCK_OWNER_PATH} 2>/dev/null || true; ` +
+    `rmdir ${CMUX_PACKAGE_INSTALL_FALLBACK_LOCK_PATH} 2>/dev/null || true; fi; ` +
+    `elif [ -n "$(find ${CMUX_PACKAGE_INSTALL_FALLBACK_LOCK_PATH} -prune -mmin +${CMUX_PACKAGE_INSTALL_LOCK_STALE_MINUTES} -print 2>/dev/null)" ]; then ` +
+    `rm -f ${CMUX_PACKAGE_INSTALL_LOCK_OWNER_PATH} 2>/dev/null || true; ` +
+    `rmdir ${CMUX_PACKAGE_INSTALL_FALLBACK_LOCK_PATH} 2>/dev/null || true; fi; fi; ` +
+    `if mkdir ${CMUX_PACKAGE_INSTALL_FALLBACK_LOCK_PATH} 2>/dev/null; then ` +
+    // Create the owner file before writing the pid. If the shell is killed in
+    // this tiny window, stale recovery can observe the empty file and reclaim
+    // the directory after the grace period instead of wedging all future setup.
+    `if ! : > ${CMUX_PACKAGE_INSTALL_LOCK_OWNER_PATH} || ! printf '%s\\n' "$$" > ${CMUX_PACKAGE_INSTALL_LOCK_OWNER_PATH}; then ` +
+    `rmdir ${CMUX_PACKAGE_INSTALL_FALLBACK_LOCK_PATH} 2>/dev/null || true; false; ` +
+    `else ( ` +
+    `trap 'rm -f ${CMUX_PACKAGE_INSTALL_LOCK_OWNER_PATH} 2>/dev/null || true; rmdir ${CMUX_PACKAGE_INSTALL_FALLBACK_LOCK_PATH} 2>/dev/null || true; exit 143' TERM INT HUP; ` +
+    `trap 'rm -f ${CMUX_PACKAGE_INSTALL_LOCK_OWNER_PATH} 2>/dev/null || true; rmdir ${CMUX_PACKAGE_INSTALL_FALLBACK_LOCK_PATH} 2>/dev/null || true' EXIT; ` +
+    `if command -v flock >/dev/null 2>&1; then flock 9 || exit 1; ` +
+    `rm -f ${CMUX_PACKAGE_INSTALL_LOCK_OWNER_PATH} 2>/dev/null || true; ` +
+    `rmdir ${CMUX_PACKAGE_INSTALL_FALLBACK_LOCK_PATH} 2>/dev/null || true; fi; ` +
+    `${body} ) 9>${CMUX_PACKAGE_INSTALL_LOCK_PATH}; fi; ` +
+    `else printf '%s package-install-busy\\n' "$(date -u +%FT%TZ)" > ${CMUX_PACKAGE_INSTALL_BUSY_PATH} 2>/dev/null || true; false; fi`
+  );
+}
+
+// The non-root branches need runuser and mountpoint. findmnt is also required:
+// the layout daemon uses its kernel mount-event poll to leave a failed bindfs
+// view before any terminal can write to a disposable rootfs directory.
+const CMUX_CLOUD_PREREQUISITE_INSTALL =
+  `if ! (command -v runuser >/dev/null 2>&1 && command -v mountpoint >/dev/null 2>&1 && command -v findmnt >/dev/null 2>&1 && command -v flock >/dev/null 2>&1); then ` +
+  `if command -v apk >/dev/null 2>&1; then ` +
+  `apk add --no-cache runuser 2>/dev/null || true; ` +
+  `apk add --no-cache util-linux 2>/dev/null || true; ` +
+  `elif command -v apt-get >/dev/null 2>&1; then ` +
+  `export DEBIAN_FRONTEND=noninteractive; ` +
+  `apt-get update -qq && apt-get install -y -qq --no-install-recommends util-linux 2>/dev/null || true; ` +
+  `fi; fi; ` +
+  // Re-check after installation. The caller's usability predicate decides the
+  // safe root fallback when an old image cannot provide these tools.
+  `command -v runuser >/dev/null 2>&1 && command -v mountpoint >/dev/null 2>&1 && command -v findmnt >/dev/null 2>&1 && command -v flock >/dev/null 2>&1 || true`;
+
+const CMUX_CLOUD_HOME_VIEW_SETUP =
+  `if mountpoint -q ${CMUX_HOME_VOLUME_BACKING_PATH} 2>/dev/null && ! mountpoint -q ${CMUX_CLOUD_HOME} 2>/dev/null; then ` +
+  // bindfs ships in baked images; this install path repairs older images while
+  // still holding the package lock shared with sudo and provisioning.
+  `command -v bindfs >/dev/null 2>&1` +
+  ` || { export DEBIAN_FRONTEND=noninteractive; apt-get update -qq && apt-get install -y -qq --no-install-recommends bindfs; }` +
+  ` || apk add --no-cache bindfs 2>/dev/null || true; ` +
+  `if command -v bindfs >/dev/null 2>&1; then ` +
+  // On a volume machine the real home is the volume. The rootfs directory at
+  // the mountpoint is disposable skel and must be empty before FUSE mounts.
+  `find ${CMUX_CLOUD_HOME} -mindepth 1 -maxdepth 1 -exec rm -rf {} + 2>/dev/null; ` +
+  `${CMUX_HOME_BINDFS_COMMAND}; fi; fi`;
+
 // Runtime user setup, run at every bootstrap (create and resurrect) before the daemon
 // starts. Idempotent, and the safety net for images that predate the baked cmux user:
 // creates the user at uid 1001 so uids are stable across image versions (with
 // Alpine's busybox adduser as a fallback), writes the passwordless-sudo policy
 // (inert until the sudo binary exists — see CMUX_SUDO_INSTALL_COMMAND), and puts the
 // bindfs view over /home/cmux when this machine has a home volume. Machines without a
-// volume keep /home/cmux on the (chown-capable) rootfs and need no view. Skipped work
-// on pre-layout sandboxes (volume still at /root): no backing mount exists there.
+// volume keep /home/cmux on the (chown-capable) rootfs and need no view. All package
+// mutations, including the util-linux prerequisite and bindfs repair, run inside the
+// shared lock with detached provisioning and the sudo heal. Skipped work on pre-layout
+// sandboxes (volume still at /root): no backing mount exists there.
 export const CMUX_CLOUD_USER_SETUP_COMMAND = [
   // Every creation form pins uid 1001. If that uid is already occupied, the
   // command fails closed below instead of silently creating a different identity.
@@ -148,37 +229,12 @@ export const CMUX_CLOUD_USER_SETUP_COMMAND = [
     ` || useradd -m -u 1001 -s /bin/bash ${CMUX_CLOUD_USER} 2>/dev/null` +
     ` || adduser -D -u 1001 -s /bin/bash ${CMUX_CLOUD_USER} 2>/dev/null || true`,
   `[ "$(id -u ${CMUX_CLOUD_USER} 2>/dev/null || echo -1)" = "1001" ] || exit 1`,
-  // The non-root branches need runuser to drop privileges. Debian ships it in core
-  // util-linux; stock Alpine (busybox) does not, and without it the daemon would
-  // silently fall back to root sessions. This runs sequentially before the detached
-  // provision starts, so it cannot race the provision script's own apk run.
-  `command -v runuser >/dev/null 2>&1 && command -v mountpoint >/dev/null 2>&1 && command -v flock >/dev/null 2>&1` +
-    ` || { if command -v apk >/dev/null 2>&1; then ` +
-    `apk add --no-cache runuser 2>/dev/null || true; ` +
-    `apk add --no-cache util-linux 2>/dev/null || true; ` +
-    `elif command -v apt-get >/dev/null 2>&1; then ` +
-    `export DEBIAN_FRONTEND=noninteractive; ` +
-    `apt-get update -qq && apt-get install -y -qq --no-install-recommends util-linux 2>/dev/null || true; ` +
-    `fi; }`,
   `mkdir -p ${CMUX_CLOUD_HOME} /etc/sudoers.d`,
   `printf '${CMUX_CLOUD_USER} ALL=(ALL) NOPASSWD:ALL\\n' > /etc/sudoers.d/90-cmux-nopasswd`,
   `chmod 0440 /etc/sudoers.d/90-cmux-nopasswd`,
-  // Serialized under the shared package lock: concurrent setups (attach racing
-  // create, two attaches from different server instances, or the detached
-  // provisioner) must not mutate apt/apk state or both see "view unmounted".
-  // The mount state is re-evaluated inside the lock.
-  `mkdir -p /etc/cmux 2>/dev/null; ( flock 9; ` +
-    `if mountpoint -q ${CMUX_HOME_VOLUME_BACKING_PATH} 2>/dev/null && ! mountpoint -q ${CMUX_CLOUD_HOME} 2>/dev/null; then ` +
-    // bindfs ships in baked images from 2026-08-28-r10; older ones install it here,
-    // synchronously, because the daemon must not start before the view exists.
-    `command -v bindfs >/dev/null 2>&1` +
-    ` || { export DEBIAN_FRONTEND=noninteractive; apt-get update -qq && apt-get install -y -qq --no-install-recommends bindfs; }` +
-    ` || apk add --no-cache bindfs 2>/dev/null || true; ` +
-    // On a volume machine the real home is the volume; whatever sits under the
-    // mountpoint is disposable rootfs skel, and FUSE refuses non-empty mountpoints.
-    `find ${CMUX_CLOUD_HOME} -mindepth 1 -maxdepth 1 -exec rm -rf {} + 2>/dev/null; ` +
-    `${CMUX_HOME_BINDFS_COMMAND}; fi ` +
-    `) 9>/etc/cmux/package-install.lock`,
+  // All prerequisite and bindfs installs share one lock. This prevents an attach
+  // from racing the detached provisioner while an older image is being repaired.
+  `${withPackageInstallLock(`${CMUX_CLOUD_PREREQUISITE_INSTALL}; ${CMUX_CLOUD_HOME_VIEW_SETUP}`)} || true`,
   // A failed view is not a failed machine: the daemon command's usable-user probe
   // falls back to a root daemon, which still attaches (the pre-layout behavior).
   `true`,
@@ -197,10 +253,9 @@ const CMUX_SUDO_INSTALL_BODY =
   " || apk add --no-cache sudo 2>/dev/null || true; }";
 export const CMUX_SUDO_INSTALL_COMMAND =
   "if command -v sudo >/dev/null 2>&1; then :; else " +
-  "mkdir -p /etc/cmux 2>/dev/null; " +
-  "if command -v flock >/dev/null 2>&1; then " +
-  `( flock 9; ${CMUX_SUDO_INSTALL_BODY} ) 9>/etc/cmux/package-install.lock; ` +
-  `else ${CMUX_SUDO_INSTALL_BODY}; fi; fi; ` +
+  // The sudo heal uses the same lock as user setup and detached provisioning,
+  // including the old-image directory-lock path while flock is being installed.
+  `${withPackageInstallLock(CMUX_SUDO_INSTALL_BODY)}; fi; ` +
   "command -v sudo >/dev/null 2>&1" +
   " || { mkdir -p /etc/cmux 2>/dev/null; printf '%s sudo-install-failed\\n' \"$(date -u +%FT%TZ)\" > /etc/cmux/root-session-fallback; exit 1; }";
 const CMUX_SUDO_INSTALL_TIMEOUT_MS = 3 * 60 * 1000;
@@ -304,12 +359,7 @@ distro_packages_unlocked() {
 # overlap a still-running first boot. Share the same lock as the synchronous sudo
 # heal so apt and apk never mutate their databases at the same time.
 distro_packages() {
-  mkdir -p /etc/cmux 2>/dev/null
-  if command -v flock >/dev/null 2>&1; then
-    ( flock 9; distro_packages_unlocked ) 9>/etc/cmux/package-install.lock
-  else
-    distro_packages_unlocked
-  fi
+  ${withPackageInstallLock("distro_packages_unlocked")}
 }
 
 bun_runtime() {
@@ -1227,9 +1277,16 @@ export class BlaxelProvider implements VMProvider {
   }
 
   private async startCmuxTuiProcess(sandboxUrl: string): Promise<void> {
+    // Blaxel restarts this named process after the mount watcher returns 75.
+    // Re-run the idempotent setup in that same command so a lost bindfs view
+    // is repaired before the daemon chooses its root backing fallback.
+    // The timeout keeps a broken package mirror from holding the supervisor forever.
+    const setup = shellQuote(CMUX_CLOUD_USER_SETUP_COMMAND);
+    const daemon = sharedCmuxTuiDaemonCommand(undefined, CMUX_CLOUD_LAYOUT);
+    const command = `( if command -v timeout >/dev/null 2>&1; then timeout 300 sh -c ${setup}; else sh -c ${setup}; fi ) || true; ${daemon}`;
     await blaxelFetch<BlaxelProcess>("POST", `${sandboxUrl}/process`, {
       name: CMUX_TUI_PROCESS_NAME,
-      command: sharedCmuxTuiDaemonCommand(undefined, CMUX_CLOUD_LAYOUT),
+      command,
       waitForCompletion: false,
       // Not keepAlive: the smart-sleep watcher counts connections on the daemon's port,
       // so an idle machine still drops to standby.
@@ -1571,6 +1628,21 @@ export class BlaxelProvider implements VMProvider {
 
     const sandboxUrl = sandbox?.metadata?.url;
     if (sandboxUrl) {
+      // Stop the named supervisor through the sandbox API first. The layout
+      // daemon owns a mount-health watcher and a child process; killing only
+      // the child would make restartOnFailure launch it again. The shell
+      // fallback below still cleans up legacy daemons on older API versions.
+      try {
+        await blaxelFetch(
+          "DELETE",
+          `${sandboxUrl}/process/${encodeURIComponent(CMUX_TUI_PROCESS_NAME)}`,
+        );
+      } catch (err) {
+        const alreadyGone = err instanceof ProviderError && /-> 404/.test(err.message);
+        if (!alreadyGone) {
+          console.warn(`[blaxel] revokeEndpointLeases(${vmId}) could not stop the named cmux-tui process`, err);
+        }
+      }
       const result = await this.sandboxExec(
         sandboxUrl,
         [

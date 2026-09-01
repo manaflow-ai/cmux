@@ -1,3 +1,7 @@
+import { spawn } from "node:child_process";
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { describe, expect, test } from "bun:test";
 import {
   CMUX_CLOUD_LAYOUT,
@@ -107,7 +111,15 @@ describe("cmux-tui install and daemon commands", () => {
     expect(command).toContain(
       "runuser -u cmux -- env HOME=/home/cmux USER=cmux LOGNAME=cmux SHELL=/bin/bash TERM=xterm-256color /home/cmux/.cmux/bin/cmux-tui server start",
     );
-    expect(command).toContain("cd /home/cmux && exec runuser");
+    expect(command).toContain("cd /home/cmux; cmux_tui_view_lost=0;");
+    expect(command).toContain("runuser -u cmux -- env HOME=/home/cmux");
+    expect(command).toContain("cmux_tui_backing_expected=0");
+    expect(command).toContain("if mountpoint -q /cmux/home 2>/dev/null; then cmux_tui_backing_expected=1; fi");
+    expect(command).toContain("findmnt --poll=umount,move,remount --first-only");
+    expect(command).toContain("--mountpoint /home/cmux");
+    expect(command).toContain("--mountpoint /cmux/home");
+    expect(command).toContain("kill -USR1");
+    expect(command).toContain("exit 75");
     // A sandbox born before the layout change still has its persistent volume (data
     // AND daemon state) at /root; it must keep the root daemon until resurrection.
     expect(command).toContain("if mountpoint -q /root 2>/dev/null; then cd /root && ");
@@ -143,6 +155,104 @@ describe("cmux-tui install and daemon commands", () => {
     expect(command).toContain("CMUX_TUI_HOME='/cmux/home'");
     expect(command).toContain('CMUX_TUI_BIN=\"$CMUX_TUI_HOME/.cmux/bin/cmux-tui\"');
     expect(command).toContain('CMUX_TUI_TMP=\"$CMUX_TUI_BIN.tmp\"');
+  });
+
+  test("restarts away from a lost bindfs view instead of keeping the disposable home", async () => {
+    const root = mkdtempSync(join(tmpdir(), "cmux-tui-view-"));
+    const fakeBin = join(root, "fake-bin");
+    const home = join(root, "home");
+    const backing = join(root, "backing");
+    const state = join(root, "state");
+    mkdirSync(fakeBin, { recursive: true });
+    mkdirSync(join(home, ".cmux", "bin"), { recursive: true });
+    mkdirSync(backing, { recursive: true });
+    mkdirSync(state, { recursive: true });
+    const writeExecutable = (name: string, contents: string) => {
+      const file = join(fakeBin, name);
+      writeFileSync(file, contents);
+      chmodSync(file, 0o755);
+    };
+    writeExecutable("mountpoint", [
+      "#!/bin/sh",
+      "path=\"$2\"",
+      "if [ \"$path\" = \"$CMUX_TEST_BACKING\" ]; then exit 0; fi",
+      "if [ \"$path\" = \"$CMUX_TEST_HOME\" ]; then [ ! -e \"$CMUX_TEST_STATE/view-unmounted\" ]; exit $?; fi",
+      "exit 1",
+      "",
+    ].join("\n"));
+    writeExecutable("findmnt", [
+      "#!/bin/sh",
+      "case \"$1\" in",
+      "  --help) printf '%s\\n' '--poll'; exit 0 ;;",
+      "  --poll=*) while [ ! -e \"$CMUX_TEST_STATE/daemon-ready\" ]; do sleep 0.01; done; : > \"$CMUX_TEST_STATE/view-unmounted\"; exit 0 ;;",
+      "esac",
+      "exit 1",
+      "",
+    ].join("\n"));
+    writeExecutable("id", [
+      "#!/bin/sh",
+      "if [ \"$1\" = \"-u\" ] && [ \"$2\" = \"cmux\" ]; then printf '1001\\n'; exit 0; fi",
+      "exit 1",
+      "",
+    ].join("\n"));
+    writeExecutable("sudo", "#!/bin/sh\nexit 0\n");
+    writeExecutable("runuser", [
+      "#!/bin/sh",
+      "while [ \"$#\" -gt 0 ] && [ \"$1\" != \"--\" ]; do shift; done",
+      "[ \"$#\" -gt 0 ] && shift",
+      "[ \"$1\" = \"env\" ] && shift",
+      "while [ \"$#\" -gt 0 ]; do",
+      "  case \"$1\" in *=*) export \"$1\"; shift ;; *) break ;; esac",
+      "done",
+      "exec \"$@\"",
+      "",
+    ].join("\n"));
+    const daemonBinary = join(home, ".cmux", "bin", "cmux-tui");
+    writeFileSync(daemonBinary, [
+      "#!/bin/sh",
+      "trap ': > \"$CMUX_TEST_STATE/daemon-term\"; exit 0' TERM INT HUP",
+      ": > \"$CMUX_TEST_STATE/daemon-ready\"",
+      // Keep the fake daemon in shell code so its TERM trap runs reliably when
+      // the supervisor switches away from the lost view.
+      "while :; do :; done",
+      "",
+    ].join("\n"));
+    chmodSync(daemonBinary, 0o755);
+    const layout = { user: "cmux", home, volumeBackingPath: backing } as const;
+    const command = cmuxTuiDaemonCommand(undefined, layout);
+    let child: ReturnType<typeof spawn> | undefined;
+    try {
+      child = spawn("/bin/sh", ["-c", command], {
+        env: {
+          ...process.env,
+          PATH: [fakeBin, process.env.PATH || ""].join(":"),
+          CMUX_TEST_HOME: home,
+          CMUX_TEST_BACKING: backing,
+          CMUX_TEST_STATE: state,
+        },
+        stdio: "ignore",
+      });
+      const exitCode = await new Promise<number>((resolve, reject) => {
+        const timer = setTimeout(() => {
+          child?.kill("SIGKILL");
+          reject(new Error("mount-loss supervisor test timed out"));
+        }, 5_000);
+        child?.once("error", (error) => {
+          clearTimeout(timer);
+          reject(error);
+        });
+        child?.once("exit", (code) => {
+          clearTimeout(timer);
+          resolve(code ?? -1);
+        });
+      });
+      expect(exitCode).toBe(75);
+      expect(existsSync(join(state, "daemon-ready"))).toBe(true);
+      expect(existsSync(join(state, "daemon-term"))).toBe(true);
+    } finally {
+      child?.kill("SIGKILL");
+      rmSync(root, { recursive: true, force: true });
+    }
   });
 
   test("pins the binary in the same persistent location used by layout installs", () => {
