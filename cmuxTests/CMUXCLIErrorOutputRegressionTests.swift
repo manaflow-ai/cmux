@@ -705,16 +705,18 @@ import Testing
         XCTAssertFalse(result.combinedOutput.contains("unexpected agent launch"), result.diagnostics)
     }
 
-    @Test func testRestoreRetargetsPreparedCwdWhenPersistedDirectoryIsMissing() throws {
+    @Test func testRestoreDoesNotSilentlyRunFromCallerCwdWhenPersistedDirectoryIsMissing() throws {
         let cliPath = try bundledCLIPath()
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux missing cwd \(UUID().uuidString)", isDirectory: true)
         let executable = root.appendingPathComponent("fake cwd agent", isDirectory: false)
+        let executionMarker = root.appendingPathComponent("agent-executed", isDirectory: false)
         let missingDirectory = root.appendingPathComponent("deleted", isDirectory: true)
         let capturedDirectory = root.appendingPathComponent("captured", isDirectory: true)
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
         try """
         #!/bin/sh
+        touch \(shellSingleQuote(executionMarker.path))
         printf 'pwd=%s\\n' "$PWD"
         for argument in "$@"; do
           printf 'arg=%s\\n' "$argument"
@@ -770,25 +772,18 @@ import Testing
         )
 
         XCTAssertFalse(result.timedOut, result.diagnostics)
-        XCTAssertEqual(result.status, 0, result.diagnostics)
-        let outputLines = result.stdout.components(separatedBy: .newlines)
-        let observedPWD = try XCTUnwrap(outputLines.first(where: { $0.hasPrefix("pwd=") }))
-            .dropFirst("pwd=".count)
-        let observedArguments = outputLines.compactMap { line -> String? in
-            guard line.hasPrefix("arg=") else { return nil }
-            return String(line.dropFirst("arg=".count))
-        }
-        let cwdFlagIndex = try XCTUnwrap(observedArguments.firstIndex(of: "--cwd"))
-        let sessionFlagIndex = try XCTUnwrap(observedArguments.firstIndex(of: "--session"))
-        let observedCwdArgument = try XCTUnwrap(observedArguments.dropFirst(cwdFlagIndex + 1).first)
-        let observedSessionID = try XCTUnwrap(observedArguments.dropFirst(sessionFlagIndex + 1).first)
-        let canonicalRoot = try XCTUnwrap(canonicalExistingPath(root.path))
-
-        XCTAssertEqual(cwdFlagIndex, 0, result.diagnostics)
-        XCTAssertEqual(sessionFlagIndex, 2, result.diagnostics)
-        XCTAssertEqual(try XCTUnwrap(canonicalExistingPath(String(observedPWD))), canonicalRoot, result.diagnostics)
-        XCTAssertEqual(try XCTUnwrap(canonicalExistingPath(observedCwdArgument)), canonicalRoot, result.diagnostics)
-        XCTAssertEqual(observedSessionID, checkpointID, result.diagnostics)
+        XCTAssertEqual(result.status, 1, result.diagnostics)
+        XCTAssertTrue(
+            result.stderr.contains(
+                "restore: the saved working directory is missing. "
+                    + "Choose a recovery directory explicitly before retrying."
+            ),
+            result.diagnostics
+        )
+        XCTAssertFalse(
+            FileManager.default.fileExists(atPath: executionMarker.path),
+            "a missing saved cwd must never run the agent in the caller's cwd"
+        )
     }
 
     @Test func testRestoreRunsCommandOnlyLegacyRecordThroughCompatibilityShell() throws {
