@@ -536,8 +536,11 @@ impl SpawnedChildCleanup {
     }
 
     fn finish_wait(&mut self, wait_result: anyhow::Result<cmux_pty::ExitStatus>) -> i64 {
+        let reaped = wait_result.is_ok();
         let code = wait_result.map(|status| i64::from(status.exit_code() as i32)).unwrap_or(0);
-        self.disarm();
+        if reaped {
+            self.disarm();
+        }
         code
     }
 
