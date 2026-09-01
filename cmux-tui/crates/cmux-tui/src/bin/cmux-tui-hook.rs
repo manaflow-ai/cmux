@@ -40,6 +40,8 @@ fn main() -> ExitCode {
 }
 
 fn run(args: Args) -> anyhow::Result<()> {
+    let started = Instant::now();
+    let timeout = socket_timeout(&args.source, &args.native_event);
     if shadowed_by_grok(&args.source, env::var_os("GROK_HOOK_EVENT").as_deref()) {
         drain_native_payload()?;
         return Ok(());
@@ -60,7 +62,7 @@ fn run(args: Args) -> anyhow::Result<()> {
         native,
     )?;
     let event = serde_json::to_value(ingress)?;
-    append(&socket, event, socket_timeout(&args.source, &args.native_event))
+    append(&socket, event, started, timeout)
 }
 
 fn shadowed_by_grok(source: &str, grok_hook_event: Option<&std::ffi::OsStr>) -> bool {
@@ -109,7 +111,7 @@ fn socket_timeout(source: &str, native_event: &str) -> Duration {
     }
 }
 
-fn append(socket: &Path, event: Value, timeout: Duration) -> anyhow::Result<()> {
+fn append(socket: &Path, event: Value, started: Instant, timeout: Duration) -> anyhow::Result<()> {
     let (request_id, idempotency_key) = random_identifiers()?;
     let request = json!({
         "protocol":"cmux.protocol/2",
@@ -125,7 +127,9 @@ fn append(socket: &Path, event: Value, timeout: Duration) -> anyhow::Result<()> 
         bail!("agent hook request exceeds the 4 MiB protocol limit");
     }
 
-    retry_until(timeout, |deadline| append_once(socket, &encoded, &request_id, deadline))
+    retry_until_deadline(started + timeout, timeout, |deadline| {
+        append_once(socket, &encoded, &request_id, deadline)
+    })
 }
 
 #[derive(Debug)]
@@ -138,7 +142,14 @@ fn retry_until<T>(
     timeout: Duration,
     mut attempt: impl FnMut(Instant) -> Result<T, AppendAttemptError>,
 ) -> anyhow::Result<T> {
-    let deadline = Instant::now() + timeout;
+    retry_until_deadline(Instant::now() + timeout, timeout, attempt)
+}
+
+fn retry_until_deadline<T>(
+    deadline: Instant,
+    timeout: Duration,
+    mut attempt: impl FnMut(Instant) -> Result<T, AppendAttemptError>,
+) -> anyhow::Result<T> {
     let mut last_error = None;
     loop {
         let remaining = deadline.saturating_duration_since(Instant::now());
@@ -363,12 +374,14 @@ mod tests {
     #[test]
     fn codex_session_end_allows_append_before_the_hook_cap() {
         let started = Instant::now();
-        let result = retry_until(socket_timeout("codex", "SessionEnd"), |_deadline| {
+        let timeout = socket_timeout("codex", "SessionEnd");
+        std::thread::sleep(Duration::from_millis(100));
+        let result = retry_until_deadline(started + timeout, timeout, |_deadline| {
             std::thread::sleep(Duration::from_millis(2_100));
             Ok::<_, AppendAttemptError>(())
         });
         assert!(result.is_ok());
-        assert!(started.elapsed() >= Duration::from_secs(2));
+        assert!(started.elapsed() >= Duration::from_millis(2_200));
     }
 
     #[test]
