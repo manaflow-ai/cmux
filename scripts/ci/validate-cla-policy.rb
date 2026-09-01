@@ -21,7 +21,9 @@ REPOSITORY = /\A[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+\z/
 MAX_FILE_BYTES = 300_000
 MAX_YAML_NODES = 10_000
 MAX_YAML_DEPTH = 64
-CLA_ACTION = "manaflow-ai/cla-github-action@482864f7296623ba4e8ddb7d6bc1836635306eb1"
+CLA_ACTION = "manaflow-ai/cla-github-action@537cbad33cd5e55bd3ef9bcf33d26a965da4fe4a"
+CLA_RUNNER = "${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}".freeze
+CLA_RUNNER_PATH = /\Ajobs\.(?:CLACommentGate|CLAAssistant|CLALedgerWriter|CLACompatibility|RerunFailedCLA|LockMergedPullRequest)\.runs-on\z/
 # The privileged workflow is an explicit reviewed policy, not an extensible
 # script. Its candidate structure is checked as data, and every policy change
 # requires trusted review without a fragile follow-up hash bump.
@@ -29,7 +31,7 @@ EXPECTED_GUARD_WORKFLOW_DIGEST = "01b3eed13d54db27ed195781dc0f6926a04cb9557de81f
 # The guard workflow remains pinned to its reviewed immutable bytes. The CLA
 # policy itself is validated structurally, then authorized by an exact-head
 # trusted review.
-EXPECTED_GUARD_SCRIPT_DIGEST = "0b11a4abcf4b91b0ed3d862475dae345dcfa46569c2d75caedaa49f3ac8f7ccb"
+EXPECTED_GUARD_SCRIPT_DIGEST = "1a928da913f61d6a203fdd38f6795b424c188df3f30c3a75be7417ba69b2eea8"
 # Migration marker for the base v2 guard validator. That validator requires
 # the literal EXPECTED_WORKFLOW_DIGEST while it checks this candidate. The v3
 # validator does not use this inert marker for policy authorization.
@@ -111,6 +113,7 @@ GITHUB_TOKEN_EXPRESSION_PATTERN = /\bgithub\b.*\btoken\b|\btoJSON\s*\(\s*github\
 ALLOWED_EXPRESSION_PATHS = [
   /\Aenv\.[^.]+\z/,
   /\Ajobs\.[^.]+\.if\z/,
+  CLA_RUNNER_PATH,
   /\Ajobs\.[^.]+\.concurrency\.group\z/,
   /\Ajobs\.[^.]+\.outputs\.[^.]+\z/,
   /\Ajobs\.[^.]+\.steps\.\d+\.env\.[^.]+\z/,
@@ -710,6 +713,10 @@ def assert_string(value, name)
   value
 end
 
+def assert_cla_runner(value, name)
+  fail!("#{name} must use the reviewed CLA runner") unless value == CLA_RUNNER
+end
+
 def assert_action_reference(reference, name)
   fail!("#{name} must be a pinned action reference") unless reference.is_a?(String)
   fail!("#{name} uses an unapproved action") unless ALLOWED_ACTIONS.include?(reference)
@@ -770,6 +777,9 @@ def assert_safe_expression_fields(document, name, allowed_secret_paths: ALLOWED_
     joined_path = path.map(&:to_s).join(".")
     fail!("#{name} has an expression in an unreviewed field") unless
       ALLOWED_EXPRESSION_PATHS.any? { |pattern| joined_path.match?(pattern) }
+    if joined_path.match?(CLA_RUNNER_PATH) && value != CLA_RUNNER
+      fail!("#{name} has an unapproved CLA runner expression")
+    end
     if value.match?(GITHUB_CONTEXT_EXPRESSION) && value.match?(GITHUB_TOKEN_EXPRESSION_PATTERN)
       fail!("#{name} may not reference the GitHub token or serialized context")
     end
@@ -1305,7 +1315,7 @@ def validate_workflow(raw)
     fail!("#{names[index]} has no runner") unless value.key?("runs-on")
     assert_exact_keys(value, job_keys.fetch(names[index]), names[index])
     assert_safe_job_common(value, names[index])
-    fail!("#{names[index]} must use the reviewed ephemeral runner") unless value["runs-on"] == "ubuntu-24.04"
+    assert_cla_runner(value["runs-on"], names[index])
   end
 
   fail!("CLACommentGate must use read-only permissions") unless
@@ -1621,6 +1631,7 @@ def validate_guard_script(raw)
     "mapping keys must be strings",
     "run_yaml_regression_matrix!",
     "run_environment_regression_matrix!",
+    "run_runner_regression_matrix!",
     "run_trusted_review_regression_matrix!",
     "collect_latest_trusted_review!",
     "def workflow_digest",
@@ -1632,6 +1643,9 @@ def validate_guard_script(raw)
     "assert_exact_typed_inputs",
     "assert_exact_secret_paths",
     "assert_safe_expression_fields",
+    "assert_cla_runner",
+    "CLA_RUNNER",
+    "CLA_RUNNER_PATH",
     "assert_safe_run_text",
     "assert_exact_normalized_run",
     "run_guard_contract_regression_matrix!",
