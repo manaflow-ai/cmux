@@ -874,6 +874,61 @@ for (const rawPid of hungPidLines.slice(-2)) {
             print(f"stdout={config_uninstall.stdout.strip()}")
             print(f"stderr={config_uninstall.stderr.strip()}")
             return 1
+    with tempfile.TemporaryDirectory(prefix="cmux-omp-agent-dir-") as td:
+        # Pi and OMP both read PI_CODING_AGENT_DIR, so someone who runs the two
+        # side by side and points Pi at a directory sends OMP there too.
+        # OMP_AGENT_DIR is OMP's own override and has to win.
+        # https://github.com/manaflow-ai/cmux/issues/4955
+        root = Path(td)
+        home = root / "home"
+        home.mkdir()
+        omp_agent_dir = root / "omp-agent-dir"
+        pi_agent_dir = root / "pi-agent-dir"
+
+        env = os.environ.copy()
+        env["HOME"] = str(home)
+        env["OMP_AGENT_DIR"] = str(omp_agent_dir)
+        env["PI_CODING_AGENT_DIR"] = str(pi_agent_dir)
+        env.pop("PI_CONFIG_DIR", None)
+
+        install = subprocess.run(
+            [cli_path, "hooks", "omp", "install", "--yes"],
+            capture_output=True,
+            text=True,
+            check=False,
+            env=env,
+            timeout=20,
+        )
+        if install.returncode != 0:
+            print("FAIL: omp extension install failed under OMP_AGENT_DIR")
+            print(f"exit={install.returncode}")
+            print(f"stdout={install.stdout.strip()}")
+            print(f"stderr={install.stderr.strip()}")
+            return 1
+
+        omp_extension = omp_agent_dir / "extensions" / "cmux-omp-session.ts"
+        if not omp_extension.exists():
+            print(f"FAIL: OMP_AGENT_DIR ignored, expected extension at {omp_extension}")
+            return 1
+        if (pi_agent_dir / "extensions" / "cmux-omp-session.ts").exists():
+            print("FAIL: OMP install wrote into PI_CODING_AGENT_DIR while OMP_AGENT_DIR was set")
+            return 1
+
+        uninstall = subprocess.run(
+            [cli_path, "hooks", "omp", "uninstall", "--yes"],
+            capture_output=True,
+            text=True,
+            check=False,
+            env=env,
+            timeout=20,
+        )
+        if uninstall.returncode != 0 or omp_extension.exists():
+            print("FAIL: omp extension uninstall did not respect OMP_AGENT_DIR")
+            print(f"exit={uninstall.returncode}")
+            print(f"stdout={uninstall.stdout.strip()}")
+            print(f"stderr={uninstall.stderr.strip()}")
+            return 1
+
     print("PASS: generated OMP extension installs, emits complete cmux hook payloads, and persists hook sessions")
     return 0
 
