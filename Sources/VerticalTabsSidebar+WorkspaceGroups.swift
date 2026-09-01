@@ -363,6 +363,7 @@ extension VerticalTabsSidebar {
                     .value(for: SettingCatalog().workspaceGroups.newWorkspacePlacement)
         }
         let resolveNotificationState: () -> SidebarGroupHeaderRowActions.NotificationState = {
+            [resolveLiveAnchor, weak notificationStore] in
             guard let (tabManager, anchorId) = resolveLiveAnchor(),
                   let notificationStore else {
                 return .unavailable
