@@ -23880,9 +23880,10 @@ mod tests {
         let session = "roster-invalid-snapshot";
         let registry = WorkspaceRegistry::open(&root, session).unwrap();
         registry
-            .put_journal_reducer_state(
+            .put_journal_reducer_state_ordered(
                 crate::journal_reducers::AGENT_ROSTER_REDUCER_ID,
                 crate::journal_reducers::AGENT_ROSTER_REDUCER_VERSION,
+                42,
                 42,
                 r#"{"entries":{"term_a":{"state":"working","source":"detected","session":null,"agent":null,"updated_at_ms":1}}}"#,
             )
@@ -23910,9 +23911,10 @@ mod tests {
         // The snapshot is valid, but its cursor points past the retained
         // journal head. This is the same fail-closed path as a retention gap.
         registry
-            .put_journal_reducer_state(
+            .put_journal_reducer_state_ordered(
                 crate::journal_reducers::AGENT_ROSTER_REDUCER_ID,
                 crate::journal_reducers::AGENT_ROSTER_REDUCER_VERSION,
+                42,
                 42,
                 r#"{"entries":{"term_a":{"state":"working","source":"hook","session":null,"agent":"claude","updated_at_ms":1}}}"#,
             )

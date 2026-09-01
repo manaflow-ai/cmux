@@ -941,7 +941,24 @@ impl WorkspaceRegistry {
         cursor: u64,
         snapshot: &str,
     ) -> anyhow::Result<()> {
-        self.put_journal_reducer_state_ordered(reducer_id, version, cursor, cursor, snapshot)
+        // Keep this crate-private compatibility entry point's historical
+        // equal-cursor behavior by allocating the next durable token. A
+        // lower cursor remains a no-op, as it was under the old guard.
+        let ordering_token = match self.journal_reducer_state_with_order(reducer_id)? {
+            Some((_, current_cursor, current_token, _)) if cursor < current_cursor => return Ok(()),
+            Some((_, _, current_token, _)) => current_token
+                .checked_add(1)
+                .context("journal reducer ordering token exhausted")?
+                .max(cursor),
+            None => cursor,
+        };
+        self.put_journal_reducer_state_ordered(
+            reducer_id,
+            version,
+            cursor,
+            ordering_token,
+            snapshot,
+        )
     }
 
     pub(crate) fn put_journal_reducer_state_ordered(
