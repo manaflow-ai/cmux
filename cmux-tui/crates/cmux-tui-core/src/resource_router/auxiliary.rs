@@ -606,7 +606,7 @@ fn stored_intent_error(operation: &str, message: &str) -> ResourceError {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::resource::{EnvelopeType, RequestEnvelope, RequestId, PROTOCOL};
+    use crate::resource::{EnvelopeType, RequestEnvelope, RequestId, TerminalPublicId, PROTOCOL};
     use crate::{SidebarPluginOptions, SurfaceOptions};
     use std::time::{Duration, Instant};
 
