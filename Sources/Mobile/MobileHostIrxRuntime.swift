@@ -357,15 +357,14 @@ final class MobileHostIrxRuntime {
             }
             // Relay hints are server-capped at 1h; refresh the registration on
             // every credential rotation so the advertised hint never expires.
-            await pilot.setOnRotation { [weak self, weak broker, weak supervisor] in
+            await pilot.setOnCredentialRotation { [weak self] in
+                await self?.handleAutopilotSuccess(
+                    accountID: accountID, token: token)
+            }
+            await pilot.setOnRotation { [weak broker, weak supervisor] in
                 guard let broker, let supervisor else {
                     throw CancellationError()
                 }
-                // Credential rotation establishes a healthy endpoint before
-                // the optional relay hint write. Report that success first so
-                // a hint-only outage cannot strand the host in "Retrying".
-                await self?.handleAutopilotSuccess(
-                    accountID: accountID, token: token)
                 let relay = await supervisor.homeRelayURL()
                 try await broker.registerHintIfNeeded(
                     pairingEnabled: true, relayURLHint: relay)

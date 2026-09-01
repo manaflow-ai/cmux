@@ -127,7 +127,7 @@ extension MobileHostIrohRuntime {
             policyExpiresAt: diagnostics?.policyExpiresAt,
             staleRelayIDs: Set(diagnostics?.staleRelayIDs ?? []),
             failureDescription: requiresReauthentication
-                ? irohAuthenticationFailure?.errorCode
+                ? irohAuthenticationFailure?.diagnosticErrorCode
                 : diagnostics?.failure?.rawValue,
             requiresReauthentication: requiresReauthentication,
             debugTransportVerificationMode: debugTransportVerificationMode

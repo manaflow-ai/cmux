@@ -264,7 +264,11 @@ public actor MobileIrxRuntimeComposition {
     private func provisionedBroker(
         for session: AuthenticatedSessionSnapshot
     ) async throws -> IrxBrokerService {
-        if let broker, !reauthenticationRequired { return broker }
+        if let broker,
+           !reauthenticationRequired,
+           provisionedAccountID == session.accountID {
+            return broker
+        }
         if reauthenticationRequired {
             guard let expectedGeneration = provisionedSessionGeneration,
                   session.generation != expectedGeneration else {

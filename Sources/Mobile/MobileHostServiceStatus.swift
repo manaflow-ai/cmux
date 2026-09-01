@@ -56,7 +56,7 @@ struct MobileHostServiceStatus {
         if let irohBrokerFailure {
             payload["iroh_broker_operation"] = irohBrokerFailure.operation.rawValue
             payload["iroh_broker_error_code"] =
-                irohBrokerFailure.errorCode ?? "unknown"
+                irohBrokerFailure.diagnosticErrorCode
             if let statusCode = irohBrokerFailure.statusCode {
                 payload["iroh_broker_status_code"] = statusCode
             }

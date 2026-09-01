@@ -53,7 +53,7 @@ extension MobileHostIrxRuntime: CmxIrohSettingsControlling {
             failureDescription: activationState == .failed
                 || activationState == .retrying
                 || activationState == .reauthenticationRequired
-                ? lastBrokerFailure?.errorCode
+                ? lastBrokerFailure?.diagnosticErrorCode
                 : nil,
             requiresReauthentication: activationState == .reauthenticationRequired,
             supportsRelayConfiguration: false,

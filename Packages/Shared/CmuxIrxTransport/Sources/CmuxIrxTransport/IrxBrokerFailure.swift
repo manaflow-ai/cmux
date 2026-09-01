@@ -155,6 +155,13 @@ public struct IrxBrokerFailure: Error, Codable, Equatable, Sendable {
         kind == .authenticationRequired
     }
 
+    /// A bounded identifier safe to publish in Settings, status payloads, and
+    /// diagnostics. Broker responses may contain free-form error text; retain
+    /// only identifier-shaped values and fall back to the HTTP status.
+    public var diagnosticErrorCode: String {
+        irxSanitizedBrokerErrorCode(errorCode, statusCode: statusCode)
+    }
+
     /// Whether the caller should retry with bounded backoff.
     public var isRetryable: Bool {
         kind == .transient
@@ -176,7 +183,7 @@ public struct IrxBrokerFailure: Error, Codable, Equatable, Sendable {
         var values: [String: String] = [
             "operation": operation.rawValue,
             "failure_kind": kind.rawValue,
-            "error_code": errorCode ?? "unknown",
+            "error_code": diagnosticErrorCode,
         ]
         if let statusCode {
             values["status_code"] = String(statusCode)
@@ -231,6 +238,23 @@ private func irxBrokerFailureKind(
     }
 }
 
+private func irxSanitizedBrokerErrorCode(
+    _ code: String?,
+    statusCode: Int?
+) -> String {
+    guard let code,
+          (1 ... 128).contains(code.utf8.count),
+          code.unicodeScalars.allSatisfy({ scalar in
+              (48 ... 57).contains(scalar.value)
+                  || (65 ... 90).contains(scalar.value)
+                  || (97 ... 122).contains(scalar.value)
+                  || [45, 46, 58, 95].contains(scalar.value)
+          }) else {
+        return statusCode.map { "http_\($0)" } ?? "unknown"
+    }
+    return code.lowercased()
+}
+
 extension IrxBrokerFailure: DiagnosticFailureProviding {
     /// Maps this broker failure to the shared diagnostic taxonomy.
     public var diagnosticFailureKind: DiagnosticFailureKind {
@@ -239,8 +263,12 @@ extension IrxBrokerFailure: DiagnosticFailureProviding {
             .authorizationFailed
         case .transient:
             switch statusCode {
-            case 408, 425:
+            case 408:
                 .timedOut
+            case 425:
+                .policyUnavailable
+            case 401:
+                .credentialUnavailable
             case 429:
                 // The broker was reachable and explicitly asked us to slow
                 // down; reporting this as offline sends operators in the wrong
@@ -249,7 +277,7 @@ extension IrxBrokerFailure: DiagnosticFailureProviding {
             case let status? where (500 ... 599).contains(status):
                 .endpointUnavailable
             default:
-                switch errorCode {
+                switch diagnosticErrorCode {
                 case "auth_refresh_transient", "missing_authentication":
                     .credentialUnavailable
                 case "connectivity":

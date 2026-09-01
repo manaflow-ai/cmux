@@ -12,7 +12,7 @@ public actor IrxRelayCredentialAutopilot {
     private static let hintRetrySchedule = CmxIrohRetrySchedule(
         initialDelay: 5,
         maximumDelay: 60,
-        jitterFraction: 0
+        jitterFraction: 0.25
     )
 
     private typealias HintRefreshOutcome = IrxRelayCredentialAutopilotHintRefreshOutcome
@@ -38,6 +38,10 @@ public actor IrxRelayCredentialAutopilot {
     /// Runs after every successful rotation. Hosts re-register here so their
     /// advertised relay hint (server-capped at a 1h lifetime) never expires.
     public var onRotation: (@Sendable () async throws -> Void)?
+    /// Reports a completed credential mint and endpoint rotation. This is
+    /// deliberately separate from ``onRotation``: hint-only refreshes must not
+    /// clear a lifecycle failure or mark an endpoint healthy.
+    public var onCredentialRotation: (@Sendable () async -> Void)?
     /// Reports a classified broker failure and the disposition selected by this
     /// autopilot to the lifecycle owner. The disposition is authoritative so
     /// platform owners do not re-derive retry state with a second counter.
@@ -61,6 +65,11 @@ public actor IrxRelayCredentialAutopilot {
     /// Installs the callback used to publish a fresh relay hint after rotation.
     public func setOnRotation(_ handler: @escaping @Sendable () async throws -> Void) {
         onRotation = handler
+    }
+
+    /// Installs the callback invoked after credentials are rotated successfully.
+    public func setOnCredentialRotation(_ handler: @escaping @Sendable () async -> Void) {
+        onCredentialRotation = handler
     }
 
     /// Installs the lifecycle failure sink for mint and hint-refresh errors.
@@ -114,13 +123,19 @@ public actor IrxRelayCredentialAutopilot {
     /// Retries a known pending hint registration without minting a new relay
     /// credential. Used by a host immediately after deferred activation.
     public func kickHintRefresh() {
+        // A foreground/deferred kick supersedes any scheduled hint retry. Reset
+        // its generation and ladder before starting so an old task cannot
+        // publish after this probe or bias its backoff.
+        cancelHintRetry()
         loopGeneration &+= 1
         let generation = loopGeneration
         loop?.cancel()
         loop = Task {
             defer { self.clearLoopIfCurrent(generation: generation) }
             let outcome = await self.refreshHint()
-            if outcome == .exhausted {
+            if outcome == .succeeded {
+                self.cancelHintRetry()
+            } else if outcome == .exhausted {
                 self.scheduleHintRetry()
             }
             guard outcome != .stopped else { return }
@@ -167,6 +182,7 @@ public actor IrxRelayCredentialAutopilot {
                 guard !Task.isCancelled else { return }
                 await endpoint.rotateCredentials(minted)
                 guard !Task.isCancelled else { return }
+                await onCredentialRotation?()
                 let hintOutcome = await refreshHint()
                 if hintOutcome == .exhausted {
                     scheduleHintRetry()
@@ -216,7 +232,7 @@ public actor IrxRelayCredentialAutopilot {
         let delay = Self.hintRetrySchedule.delay(
             failureCount: hintRetryFailureCount,
             retryAfterSeconds: nil,
-            jitterUnitInterval: 0
+            jitterUnitInterval: Double.random(in: 0 ... 1)
         )
         hintRetryFailureCount = min(hintRetryFailureCount + 1, 20)
         let deadline = clock.now().addingTimeInterval(delay)

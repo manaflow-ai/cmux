@@ -107,14 +107,14 @@ extension MobileIrxRuntimeComposition {
                 // refresh is being reported or while the normal sign-out hook
                 // is still unwinding. Preserve the owner fence until the
                 // corresponding handler/sign-out hook makes the final choice.
-                await resetForSignOut(preserveReauthentication: true)
+                await resetForSignOut(
+                    preserveReauthentication: reauthenticationRequired
+                )
             }
             return
         }
         if reauthenticationRequired {
             guard let expectedGeneration = provisionedSessionGeneration,
-                  let expectedAccountID = provisionedAccountID,
-                  expectedAccountID == identity.accountID,
                   expectedGeneration != identity.generation else { return }
             await resetForSignOut()
             _ = await provisionIfPossible()
@@ -147,6 +147,13 @@ extension MobileIrxRuntimeComposition {
                 postRecoveryUnauthorizedFailureLimit: 4
             )
         )
+        await pilot.setOnCredentialRotation { [weak self, broker, endpoint] in
+            await self?.handleAutopilotRotation(
+                session: session,
+                broker: broker,
+                endpoint: endpoint
+            )
+        }
         await pilot.setOnFailure { [weak self] failure, disposition in
             await self?.handleAutopilotFailure(
                 failure,
@@ -156,8 +163,8 @@ extension MobileIrxRuntimeComposition {
                 endpoint: endpoint
             )
         }
-        await pilot.setOnRotation { [weak self, broker, endpoint] in
-            guard let self else { throw CancellationError() }
+        await pilot.setOnRotation { [weak broker, weak endpoint] in
+            guard let broker, let endpoint else { throw CancellationError() }
             // Registration initially carries no relay hint on iOS. Re-publish
             // the endpoint's actual home relay after every credential rotation
             // so paired Macs do not disappear when the broker hint expires.
@@ -165,11 +172,6 @@ extension MobileIrxRuntimeComposition {
             try await broker.registerHintIfNeeded(
                 pairingEnabled: false,
                 relayURLHint: relay
-            )
-            await self.handleAutopilotRotation(
-                session: session,
-                broker: broker,
-                endpoint: endpoint
             )
         }
         return pilot
@@ -196,13 +198,11 @@ extension MobileIrxRuntimeComposition {
     func hasNewAuthenticatedSession() async -> Bool {
         guard reauthenticationRequired,
               let expectedGeneration = provisionedSessionGeneration,
-              let accountID = provisionedAccountID,
               let auth,
               let current = try? await auth.authenticatedSessionSnapshot() else {
             return false
         }
-        return current.accountID == accountID
-            && current.generation != expectedGeneration
+        return current.generation != expectedGeneration
     }
 
     /// Handles a terminal credential-refresh failure without leaving a
