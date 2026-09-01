@@ -8639,12 +8639,11 @@ impl MachineActionWorker {
             match spawn_reaper(worker.clone()) {
                 Ok(reaper) => self.reaper = Some(reaper),
                 Err(_) => {
-                    // Restore ownership when the reaper cannot start. This
-                    // is exceptional, so synchronously finish cleanup rather
-                    // than dropping the worker handle.
-                    if let Some(worker) = worker.lock().unwrap().take() {
-                        let _ = worker.join();
-                    }
+                    // A JoinHandle detaches its thread when dropped. If the
+                    // reaper cannot start, detach the worker so owner
+                    // shutdown remains responsive. The worker still closes
+                    // the controller after the provider call returns.
+                    drop(worker.lock().unwrap().take());
                 }
             }
         }
@@ -43744,9 +43743,7 @@ mod tests {
         assert_eq!(starts.recv_timeout(Duration::from_secs(1)).unwrap(), MachineKey(1));
 
         let started_shutdown = Instant::now();
-        worker.shutdown_with_reaper(|_| {
-            Err(std::io::Error::new(std::io::ErrorKind::Other, "test reaper spawn failure"))
-        });
+        worker.shutdown_with_reaper(|_| Err(std::io::Error::other("test reaper spawn failure")));
         assert!(
             started_shutdown.elapsed() < Duration::from_millis(50),
             "reaper spawn failure synchronously joined the blocked provider call"
