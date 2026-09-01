@@ -105,7 +105,7 @@ nonisolated final class AgentChatActionInFlightGate: @unchecked Sendable {
         }
     }
 
-    private struct OwnedServerSnapshot: @unchecked Sendable {
+    private struct OwnedServerSnapshot: Sendable {
         let session: AgentChatOwnedServerSession?
         let process: AgentChatSidecarProcessHandle?
     }
@@ -115,26 +115,54 @@ nonisolated final class AgentChatActionInFlightGate: @unchecked Sendable {
         case process(AgentChatSidecarProcessHandle)
         case server(session: AgentChatOwnedServerSession, process: AgentChatSidecarProcessHandle)
 
-        var processHandle: AgentChatSidecarProcessHandle? {
-            switch self {
-            case .session:
-                return nil
-            case .process(let process), .server(_, let process):
-                return process
+        private static func sameSessionIdentity(
+            _ lhs: AgentChatOwnedServerSession,
+            _ rhs: AgentChatOwnedServerSession
+        ) -> Bool {
+            // Launch IDs are canonical; legacy sessions without one only match
+            // when their complete snapshots are identical.
+            guard let lhsLaunchId = lhs.launchId,
+                  let rhsLaunchId = rhs.launchId else {
+                return lhs == rhs
             }
+            return lhsLaunchId == rhsLaunchId
         }
 
-        func needsPreviousProcessTermination(in state: State) -> Bool {
-            guard let previous = state.ownedServerProcess else { return false }
+        func needsPreviousTermination(in state: State) -> Bool {
+            let previousSessionNeedsTermination: Bool
+            if let previousSession = state.ownedServerSession {
+                switch self {
+                case .session(let session):
+                    previousSessionNeedsTermination = !Self.sameSessionIdentity(
+                        previousSession,
+                        session
+                    )
+                case .server(let session, let process):
+                    previousSessionNeedsTermination =
+                        !Self.sameSessionIdentity(previousSession, session)
+                        || previousSession.launchId != process.launchId
+                case .process(let process):
+                    previousSessionNeedsTermination = previousSession.launchId != process.launchId
+                }
+            } else {
+                previousSessionNeedsTermination = false
+            }
+
+            let previousProcessNeedsTermination: Bool
             switch self {
             case .session(let session):
-                return previous.launchId != session.launchId
+                previousProcessNeedsTermination = state.ownedServerProcess.map {
+                    $0.launchId != session.launchId
+                } ?? false
             case .process(let process), .server(_, let process):
-                return previous !== process
+                previousProcessNeedsTermination = state.ownedServerProcess.map {
+                    $0 !== process
+                } ?? false
             }
+            return previousSessionNeedsTermination || previousProcessNeedsTermination
         }
 
-        /// Applies a replacement only after the previous process is proven gone.
+        /// Applies a replacement only after the previous owner is proven gone.
         func apply(to state: inout State) {
             switch self {
             case .session(let session):
@@ -193,7 +221,7 @@ nonisolated final class AgentChatActionInFlightGate: @unchecked Sendable {
                     return .retry(completion)
                 }
                 guard !state.terminationFailed else { return .rejected }
-                guard replacement.needsPreviousProcessTermination(in: state) else {
+                guard replacement.needsPreviousTermination(in: state) else {
                     replacement.apply(to: &state)
                     return .applied
                 }
@@ -244,8 +272,7 @@ nonisolated final class AgentChatActionInFlightGate: @unchecked Sendable {
             state.terminationInProgress = false
             state.terminationCompletion = nil
             guard didTerminate,
-                  let previous = snapshot.process,
-                  state.ownedServerProcess === previous,
+                  state.ownedServerProcess === snapshot.process,
                   state.ownedServerSession == snapshot.session else {
                 state.terminationFailed = true
                 return false
@@ -260,11 +287,22 @@ nonisolated final class AgentChatActionInFlightGate: @unchecked Sendable {
 
     /// Prevents a rejected incoming handle from becoming an unowned child.
     private func terminateReplacementIfUnowned(_ replacement: OwnershipReplacement) {
-        guard let process = replacement.processHandle else { return }
-        let isOwned = lock.withLock { state in
-            state.ownedServerProcess === process
+        switch replacement {
+        case .session(let session):
+            let isOwned = lock.withLock { state in
+                if let ownedSession = state.ownedServerSession,
+                   OwnershipReplacement.sameSessionIdentity(ownedSession, session) {
+                    return true
+                }
+                return state.ownedServerProcess?.launchId == session.launchId
+            }
+            if !isOwned { _ = sessionTerminator(session) }
+        case .process(let process), .server(_, let process):
+            let isOwned = lock.withLock { state in
+                state.ownedServerProcess === process
+            }
+            if !isOwned { _ = processTerminator(process) }
         }
-        if !isOwned { _ = processTerminator(process) }
     }
 
     /// Retains the legacy clear API while requiring identity-safe termination.
