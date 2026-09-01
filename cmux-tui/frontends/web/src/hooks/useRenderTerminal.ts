@@ -16,7 +16,7 @@ import { t } from "../i18n";
 import { syncCanvasBackground } from "../lib/canvasTheme";
 import { nextFitSize, type TerminalSize } from "../lib/fit";
 import { createFrameBatch } from "../lib/frameBatch";
-import { encodeTerminalKey } from "../lib/keyEncoding";
+import { browserIsMacPlatform, encodeTerminalKey } from "../lib/keyEncoding";
 import { beginTerminalSelection, clampTerminalSelection, releaseTerminalSelection } from "../lib/terminalSelection";
 import {
   applyDelta,
@@ -173,6 +173,7 @@ export function useRenderTerminal({
     const scroller = host.querySelector<HTMLElement>("[data-render-scroll]");
     const textarea = host.querySelector<HTMLTextAreaElement>("[data-render-input]");
     const probe = host.querySelector<HTMLElement>("[data-render-probe]");
+    const keyEncodingOptions = { macEditing: browserIsMacPlatform() };
     const metrics = { width: 0, height: 0 };
     const applySurfaceBackground = (background: string) => {
       stage?.style.setProperty("--surface-background", background);
@@ -423,7 +424,7 @@ export function useRenderTerminal({
       const lowerKey = event.key.toLowerCase();
       if (hasSelection && lowerKey === "c" && (event.metaKey || (event.ctrlKey && event.shiftKey))) return;
       if (lowerKey === "v" && (event.metaKey || (event.ctrlKey && event.shiftKey))) return;
-      const action = encodeTerminalKey(event);
+      const action = encodeTerminalKey(event, keyEncodingOptions);
       if (action === null) return;
       event.preventDefault();
       if (action.kind === "text") sendText(action.text);

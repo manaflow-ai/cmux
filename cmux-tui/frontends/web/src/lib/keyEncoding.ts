@@ -7,6 +7,11 @@ export interface TerminalKeyEvent {
   isComposing?: boolean;
 }
 
+export interface TerminalKeyEncodingOptions {
+  /** Enable macOS Command/Option editing chords for this browser surface. */
+  macEditing?: boolean;
+}
+
 export type TerminalKeyAction =
   | { kind: "text"; text: string }
   | { kind: "key"; key: string };
@@ -67,6 +72,23 @@ function isSingleCodePoint(value: string): boolean {
   return Array.from(value).length === 1;
 }
 
+interface BrowserPlatformSource {
+  userAgentData?: { platform?: string };
+  platform?: string;
+  userAgent?: string;
+}
+
+/** Returns true when a browser platform identifies itself as macOS. */
+export function browserIsMacPlatform(source?: BrowserPlatformSource): boolean {
+  const browser = source ?? (
+    typeof globalThis.navigator === "undefined"
+      ? undefined
+      : (globalThis.navigator as unknown as BrowserPlatformSource)
+  );
+  const platform = browser?.userAgentData?.platform ?? browser?.platform ?? browser?.userAgent;
+  return /mac/i.test(platform ?? "");
+}
+
 /**
  * Keep the browser's Command shortcuts intact, but mirror the small set of
  * macOS editing chords that Ghostty sends to a terminal. These are raw
@@ -115,14 +137,20 @@ function macEditingAction(event: TerminalKeyEvent): TerminalKeyAction | null {
  * xterm receives them. Option+letter input is intentionally excluded: it is
  * ordinary terminal text and must keep the generic ESC-prefixed encoding.
  */
-export function isMacEditingChord(event: TerminalKeyEvent): boolean {
-  return !event.isComposing && macEditingAction(event) !== null;
+export function isMacEditingChord(
+  event: TerminalKeyEvent,
+  options: TerminalKeyEncodingOptions = {},
+): boolean {
+  return options.macEditing === true && !event.isComposing && macEditingAction(event) !== null;
 }
 
-export function encodeTerminalKey(event: TerminalKeyEvent): TerminalKeyAction | null {
+export function encodeTerminalKey(
+  event: TerminalKeyEvent,
+  options: TerminalKeyEncodingOptions = {},
+): TerminalKeyAction | null {
   if (event.isComposing || ignoredKeys.has(event.key)) return null;
   if (event.metaKey || event.altKey) {
-    const editing = macEditingAction(event);
+    const editing = options.macEditing === true ? macEditingAction(event) : null;
     if (editing !== null) return editing;
     // Preserve browser Command shortcuts and generic Option text. Command
     // events must not fall through to text encoding, while Option events do.

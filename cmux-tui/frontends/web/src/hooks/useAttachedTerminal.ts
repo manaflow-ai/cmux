@@ -15,7 +15,11 @@ import { ATTACH_RECOVERY_STABLE_MS, attachRecoveryDelay } from "../lib/attachRec
 import { debounce } from "../lib/debounce";
 import { t } from "../i18n";
 import { nextFitSize, type TerminalSize } from "../lib/fit";
-import { encodeTerminalKey, isMacEditingChord } from "../lib/keyEncoding";
+import {
+  browserIsMacPlatform,
+  encodeTerminalKey,
+  isMacEditingChord,
+} from "../lib/keyEncoding";
 import {
   colorsToCursorOptionsPatch,
   colorsToDynamicColorSequence,
@@ -59,6 +63,7 @@ export function useAttachedTerminal({
     const fit = new FitAddon();
     terminal.loadAddon(fit);
     terminal.open(host);
+    const keyEncodingOptions = { macEditing: browserIsMacPlatform() };
     const sendInput = (text: string) => {
       // xterm can still deliver a queued data event after a detach or while
       // the authoritative replay is being installed. Keep the transport gate
@@ -71,8 +76,8 @@ export function useAttachedTerminal({
     // render-mode terminal handles, keeping Cmd-C/V/W and ordinary Option
     // text untouched.
     terminal.attachCustomKeyEventHandler((event) => {
-      if (!isMacEditingChord(event)) return true;
-      const action = encodeTerminalKey(event);
+      if (!isMacEditingChord(event, keyEncodingOptions)) return true;
+      const action = encodeTerminalKey(event, keyEncodingOptions);
       if (action?.kind !== "text") return true;
       // xterm invokes custom handlers even while stdin is disabled. Do not
       // transmit editing bytes until the attach has published an authoritative
