@@ -25,8 +25,8 @@ formatter cursor restoration, VT stream-boundary visibility, and Hangul
 canonical font resolution.
 
 The corresponding universal ReleaseFast GhosttyKit archive is published at
-https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-04a10e6727e15b0f698644e00803e3f75c38b98f-crashsubdir-cmux-crash-sentry-off-v1
-with SHA-256 `a4c7678490bf3667463b40e318ee383ce1e765e16554268e867336529d1e4a52`
+https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-04a10e6727e15b0f698644e00803e3f75c38b98f-crashsubdir-cmux-crash-sentry-off-noi18n-v2
+with SHA-256 `05de152edee389ae47ee5fe379473d598cd439791e32c908a2af68f79024dff1`
 pinned in `scripts/ghosttykit-checksums.txt`.
 
 ### Kitty color-scheme Mode 2031 reporting
@@ -59,8 +59,8 @@ pinned in `scripts/ghosttykit-checksums.txt`.
     conditional-state assignment with `Surface.updateConfig` when that method
     is reconciled again.
 - Artifact:
-  - https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-04a10e6727e15b0f698644e00803e3f75c38b98f-crashsubdir-cmux-crash-sentry-off-v1
-  - SHA-256 `a4c7678490bf3667463b40e318ee383ce1e765e16554268e867336529d1e4a52`
+  - https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-04a10e6727e15b0f698644e00803e3f75c38b98f-crashsubdir-cmux-crash-sentry-off-noi18n-v2
+  - SHA-256 `05de152edee389ae47ee5fe379473d598cd439791e32c908a2af68f79024dff1`
     is pinned in `scripts/ghosttykit-checksums.txt`.
 
 ### iOS tokened render disposition and nonblocking prompt reveal
