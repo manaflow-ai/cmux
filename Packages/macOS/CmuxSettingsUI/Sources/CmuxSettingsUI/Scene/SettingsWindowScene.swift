@@ -457,6 +457,9 @@ public struct SettingsWindowRoot: View {
         )
         .id(anchorID(for: .terminal))
 
+        MarkdownSection(defaultsStore: defaultsStore, catalog: catalog)
+            .id(anchorID(for: .markdown))
+
         TextBoxSection(defaultsStore: defaultsStore, catalog: catalog)
             .id(anchorID(for: .textBox))
 

@@ -158,7 +158,7 @@ body {
   color: var(--fgColor-accent);
   border-bottom-color: var(--fgColor-accent);
 }
-.markdown-body a[data-cmux-file-exists="1"]::after,
+.markdown-body a[data-cmux-file-exists="1"]:not(.cmux-wikilink)::after,
 .markdown-body code[data-cmux-file][data-cmux-file-exists="1"]::after {
   content: " ↗";
   font-size: 0.82em;
@@ -997,12 +997,18 @@ html { scroll-behavior: smooth; }
   // exception below: processAllTokens replaces marked's pre-escaped
   // text with normalized raw source before the renderer escapes it once.
   var headingSlugCounts = Object.create(null);
-  function uniqueHeadingSlug(raw) {
+  // Slugify a heading's raw text the GitHub way (lowercase, drop non-word
+  // characters, spaces to dashes). Shared by heading id generation and
+  // wiki-link `#heading` fragment resolution so anchors line up.
+  function headingSlugBase(raw) {
     var base = String(raw || '').toLowerCase()
       .replace(/[^\w\- ]+/g, '')
       .replace(/\s+/g, '-')
       .replace(/^-+|-+$/g, '');
-    if (!base) { base = 'heading'; }
+    return base || 'heading';
+  }
+  function uniqueHeadingSlug(raw) {
+    var base = headingSlugBase(raw);
     var count = headingSlugCounts[base] || 0;
     headingSlugCounts[base] = count + 1;
     return count === 0 ? base : base + '-' + count;
@@ -1079,10 +1085,84 @@ html { scroll-behavior: smooth; }
     return tokens;
   }
 
+  // Wiki-style links (`[[Target]]`, `[[Target|Label]]`). Opt-in: off unless the
+  // `markdown.wikiLinks` setting turns it on, so a plain markdown document that
+  // happens to contain `[[...]]` renders it as literal text (marked's default).
+  // Enabling makes cmux feel at home inside an Obsidian-style vault.
+  var wikiLinksEnabled = false;
+
+  // Turn a wiki-link target into an href the existing local-markdown-file
+  // machinery understands. A bare name (no extension) resolves to `<name>.md`;
+  // `#heading` fragments become GitHub-style slugs so same-document anchors line
+  // up. Cross-file heading links keep the `.md#slug` shape; the file resolver
+  // strips the fragment when opening the target note.
+  function wikiLinkHref(target) {
+    var t = String(target == null ? '' : target).trim();
+    if (!t) { return ''; }
+    var hashIdx = t.indexOf('#');
+    var pathPart = (hashIdx >= 0 ? t.slice(0, hashIdx) : t).trim();
+    var frag = hashIdx >= 0 ? t.slice(hashIdx + 1).trim() : '';
+    var fragSuffix = frag ? '#' + headingSlugBase(frag) : '';
+    if (!pathPart) {
+      // `[[#Heading]]` — a link within the current document.
+      return fragSuffix || '#';
+    }
+    var slash = Math.max(pathPart.lastIndexOf('/'), pathPart.lastIndexOf('\\'));
+    var leaf = slash >= 0 ? pathPart.slice(slash + 1) : pathPart;
+    var href = leaf.indexOf('.') >= 0 ? pathPart : pathPart + '.md';
+    return href + fragSuffix;
+  }
+
+  // Default visible text for a wiki link with no explicit `|Label`, matching
+  // Obsidian: `[[Note#Heading]]` reads as `Note › Heading`, `[[#Heading]]` as
+  // just `Heading`, and a plain `[[Note]]` (or `[[folder/Note]]`) unchanged.
+  function wikiLinkDefaultLabel(target) {
+    var t = String(target == null ? '' : target).trim();
+    var hashIdx = t.indexOf('#');
+    if (hashIdx < 0) { return t; }
+    var notePart = t.slice(0, hashIdx).trim();
+    var headingPart = t.slice(hashIdx + 1).trim();
+    if (!notePart) { return headingPart; }
+    if (!headingPart) { return notePart; }
+    return notePart + ' › ' + headingPart;
+  }
+
+  var wikiLinkExtension = {
+    name: 'wikiLink',
+    level: 'inline',
+    start: function(src) {
+      var i = src.indexOf('[[');
+      return i < 0 ? undefined : i;
+    },
+    tokenizer: function(src) {
+      if (!wikiLinksEnabled) { return undefined; }
+      var match = /^\[\[([^\[\]\n]+)\]\]/.exec(src);
+      if (!match) { return undefined; }
+      var inner = match[1];
+      var pipe = inner.indexOf('|');
+      var target = (pipe >= 0 ? inner.slice(0, pipe) : inner).trim();
+      var explicitLabel = pipe >= 0 ? inner.slice(pipe + 1).trim() : '';
+      var label = explicitLabel || wikiLinkDefaultLabel(target);
+      if (!target && !label) { return undefined; }
+      return {
+        type: 'wikiLink',
+        raw: match[0],
+        href: wikiLinkHref(target),
+        label: label || target
+      };
+    },
+    renderer: function(token) {
+      if (!token.href) { return escapeHtml(token.label); }
+      return '<a href="' + escapeAttribute(token.href) + '" class="cmux-wikilink">'
+        + escapeHtml(token.label) + '</a>';
+    }
+  };
+
   marked.use({
     gfm: true,
     breaks: false,
     pedantic: false,
+    extensions: [wikiLinkExtension],
     hooks: {
       processAllTokens: function(tokens) {
         return normalizeCodespanTokens(tokens);
@@ -1677,8 +1757,14 @@ html { scroll-behavior: smooth; }
     return null;
   }
 
-  function applyResolvedMarkdownFile(rawPath, result, elements) {
-    mdFileResolveCache[rawPath] = result;
+  // Wiki links (`[[Note]]`) carry a marker class; Swift resolves them against
+  // the enclosing Obsidian vault by note name, not just as sibling paths.
+  function isWikiLinkElement(el) {
+    return !!(el && el.classList && el.classList.contains('cmux-wikilink'));
+  }
+
+  function applyResolvedMarkdownFile(cacheKey, result, elements) {
+    mdFileResolveCache[cacheKey] = result;
     (elements || []).forEach(function(el) {
       if (!el) { return; }
       el.setAttribute('data-cmux-file-checked', '1');
@@ -1690,22 +1776,36 @@ html { scroll-behavior: smooth; }
     });
   }
 
-  function resolveMarkdownCandidate(el, openAfterResolve) {
+  function resolveMarkdownCandidate(el, openAfterResolve, newTab) {
     var rawPath = markdownCandidateForElement(el);
     if (!rawPath) { return false; }
-    var cached = mdFileResolveCache[rawPath];
+    var wiki = isWikiLinkElement(el);
+    // Wiki and plain links can share an href string but resolve differently,
+    // so key the cache on both.
+    var cacheKey = (wiki ? 'w:' : 'p:') + rawPath;
+    var cached = mdFileResolveCache[cacheKey];
     if (cached) {
-      applyResolvedMarkdownFile(rawPath, cached, [el]);
-      if (openAfterResolve && cached.exists) { openMarkdownCandidate(rawPath); }
+      applyResolvedMarkdownFile(cacheKey, cached, [el]);
+      if (openAfterResolve && cached.exists) {
+        openMarkdownCandidate(rawPath, { wikiLink: wiki, newTab: newTab });
+      }
       return cached.exists;
     }
     var requestId = 'mdfile-' + (++mdFileRequestSeq);
-    mdFileResolvePending[requestId] = { rawPath: rawPath, elements: [el], openAfterResolve: !!openAfterResolve };
+    mdFileResolvePending[requestId] = {
+      cacheKey: cacheKey,
+      rawPath: rawPath,
+      wikiLink: wiki,
+      newTab: !!newTab,
+      elements: [el],
+      openAfterResolve: !!openAfterResolve
+    };
     try {
       window.webkit.messageHandlers.cmuxLib.postMessage({
         action: 'resolveMarkdownFile',
         requestId: requestId,
-        path: rawPath
+        path: rawPath,
+        wikiLink: wiki
       });
     } catch (e) { /* no bridge */ }
     return false;
@@ -1715,15 +1815,21 @@ html { scroll-behavior: smooth; }
     var pending = result && mdFileResolvePending[result.requestId];
     if (!pending) { return; }
     delete mdFileResolvePending[result.requestId];
-    applyResolvedMarkdownFile(pending.rawPath, result, pending.elements);
+    applyResolvedMarkdownFile(pending.cacheKey, result, pending.elements);
     if (pending.openAfterResolve && result.exists) {
-      openMarkdownCandidate(pending.rawPath);
+      openMarkdownCandidate(pending.rawPath, { wikiLink: pending.wikiLink, newTab: pending.newTab });
     }
   };
 
-  function openMarkdownCandidate(rawPath) {
+  function openMarkdownCandidate(rawPath, opts) {
+    opts = opts || {};
     try {
-      window.webkit.messageHandlers.cmuxLib.postMessage({ action: 'openMarkdownFile', path: rawPath });
+      window.webkit.messageHandlers.cmuxLib.postMessage({
+        action: 'openMarkdownFile',
+        path: rawPath,
+        wikiLink: !!opts.wikiLink,
+        newTab: !!opts.newTab
+      });
     } catch (e) { /* no bridge */ }
   }
 
@@ -1739,20 +1845,26 @@ html { scroll-behavior: smooth; }
       var href = a.getAttribute('href') || '';
       if (isMarkdownPathLike(href)) {
         a.setAttribute('data-cmux-file-candidate', href);
-        // Eagerly resolve visible markdown links so the user gets
-        // immediate affordance; inline code spans remain lazy-on-hover.
-        resolveMarkdownCandidate(a, false);
+        // Eagerly resolve visible plain markdown links so the user gets
+        // immediate affordance. Wiki links resolve against the whole vault, so
+        // resolve them lazily on hover/click instead of scanning on every
+        // render; inline code spans also remain lazy-on-hover.
+        if (!isWikiLinkElement(a)) {
+          resolveMarkdownCandidate(a, false);
+        }
       }
     });
   }
 
+  // Wiki links carry no openable-file affordance (no ↗) and resolve against
+  // the whole vault, so don't scan on hover/focus — they open on click.
   contentEl.addEventListener('mouseover', function(ev) {
     var el = ev.target && ev.target.closest && ev.target.closest('code[data-cmux-file], a[href]');
-    if (el) { resolveMarkdownCandidate(el, false); }
+    if (el && !isWikiLinkElement(el)) { resolveMarkdownCandidate(el, false); }
   });
   contentEl.addEventListener('focusin', function(ev) {
     var el = ev.target && ev.target.closest && ev.target.closest('code[data-cmux-file], a[href]');
-    if (el) { resolveMarkdownCandidate(el, false); }
+    if (el && !isWikiLinkElement(el)) { resolveMarkdownCandidate(el, false); }
   });
   contentEl.addEventListener('click', function(ev) {
     if (ev.target && ev.target.closest && ev.target.closest('.cmux-remote-image-placeholder')) {
@@ -1771,12 +1883,33 @@ html { scroll-behavior: smooth; }
     ev.stopPropagation();
     // Do not require the hover/resolve cache to be warm. Swift's
     // openMarkdownFile action resolves and no-ops for missing files,
-    // so click can be deterministic and immediate.
-    openMarkdownCandidate(rawPath);
+    // so click can be deterministic and immediate. A plain click replaces the
+    // current viewer in place; Cmd-click opens the target as a new tab.
+    openMarkdownCandidate(rawPath, {
+      wikiLink: isWikiLinkElement(el),
+      newTab: !!ev.metaKey
+    });
   }, true);
+
+  // Last markdown source pushed from Swift, retained so a live settings toggle
+  // (e.g. `markdown.wikiLinks`) can re-render without another push.
+  var lastRenderedMarkdownSource = '';
+
+  // Toggle wiki-link parsing and re-render the current document in place.
+  window.__cmuxSetWikiLinks = function(enabled) {
+    var next = !!enabled;
+    if (next === wikiLinksEnabled) { return; }
+    wikiLinksEnabled = next;
+    // Nothing rendered yet (shell just loaded): the pending markdown push will
+    // pick up the new flag. Only re-render when a document is already showing.
+    if (lastRenderedMarkdownSource) {
+      window.__cmuxRenderMarkdown(lastRenderedMarkdownSource);
+    }
+  };
 
   window.__cmuxRenderMarkdown = function(md) {
     try {
+      lastRenderedMarkdownSource = md || '';
       headingSlugCounts = Object.create(null);
       var documentParts = extractFrontmatter(md || '');
       var html = renderFrontmatter(documentParts.frontmatter)
