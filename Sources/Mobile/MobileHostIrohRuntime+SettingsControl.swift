@@ -362,6 +362,16 @@ extension MobileHostIrohRuntime: CmxIrohSettingsControlling {
                 let snapshot = await service.diagnosticsSnapshot()
                 let clock = self.relayPolicyRefreshClock
                 let current = clock.now()
+                if let retryPolicy = deactivationRetryAppliedPolicy,
+                   self.relayPolicyAppliedEffective != retryPolicy {
+                    // A failed application can be superseded by a settings
+                    // mutation while its retry deadline is pending. Do not
+                    // let that old deadline drive expiry work for a different
+                    // endpoint policy generation.
+                    deactivationRetryAt = nil
+                    deactivationRetryAppliedPolicy = nil
+                    deactivationFailureCount = 0
+                }
                 let refreshPolicyExpiresAt = snapshot.policyExpiresAt
                 let deactivationPolicyExpiresAt = self.usesManagedRelayAuthority
                     ? Self.earliestRelayPolicyExpiry(
@@ -389,13 +399,23 @@ extension MobileHostIrohRuntime: CmxIrohSettingsControlling {
                     let nextRetryAt = [retryAt, deactivationRetryAt]
                         .compactMap { $0 }
                         .min()
-                    attemptAt = Self.relayPolicyRefreshAttemptDate(
+                    let refreshAttemptAt = Self.relayPolicyRefreshAttemptDate(
                         policyExpiresAt: relayAuthorityExpired
                             ? nil
                             : refreshPolicyExpiresAt,
                         retryAt: nextRetryAt,
                         now: current
                     )
+                    // Keep the endpoint's applied authority on its own wake
+                    // path. A newer service catalog may expire later while an
+                    // older managed profile is still installed and must be
+                    // revoked at its earlier expiry.
+                    let deactivationAttemptAt = relayAuthorityExpired
+                        ? nil
+                        : (deactivationRetryAt ?? deactivationPolicyExpiresAt)
+                    attemptAt = [refreshAttemptAt, deactivationAttemptAt]
+                        .compactMap { $0 }
+                        .min() ?? refreshAttemptAt
                 }
                 let delay = attemptAt.timeIntervalSince(current)
                 if delay > 0 {
