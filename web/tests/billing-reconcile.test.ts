@@ -366,7 +366,7 @@ describe("Stripe subscription reconciliation", () => {
 
     expect(result).toMatchObject({ checked: 1, drifted: 0, repaired: 0, failed: 1 });
     expect(errors).toHaveLength(1);
-    expect(String(errors[0])).toContain("Stack roster listing exceeded the per-team deadline");
+    expect(String(errors[0])).toContain("Stack team interaction exceeded the per-team deadline");
   }, 20_000);
 
   test("checks remote subscriptions concurrently and repairs only drift", async () => {

@@ -108,6 +108,7 @@ async function reconcileStripeSubscriptionsLocked(
   let drifted = 0;
   let repaired = 0;
   let failed = 0;
+  let stackDeadlineTrips = 0;
   await mapConcurrent(
     snapshots,
     dependencies.concurrency ?? DEFAULT_CONCURRENCY,
@@ -127,7 +128,14 @@ async function reconcileStripeSubscriptionsLocked(
           }
         }
 
-        if (isTeamSnapshot(snapshot) && isActiveStripeSubscriptionStatus(remote.status)) {
+        // After repeated Stack deadline trips, stop starting new drift checks
+        // for this run: an outage must not strand one un-cancellable request
+        // per remaining team row.
+        if (
+          isTeamSnapshot(snapshot) &&
+          isActiveStripeSubscriptionStatus(remote.status) &&
+          stackDeadlineTrips < STACK_DEADLINE_TRIP_LIMIT
+        ) {
           const seatDrift = await detectTeamSeatDrift(
             snapshot,
             remote,
@@ -137,6 +145,7 @@ async function reconcileStripeSubscriptionsLocked(
           rowDrifted ||= seatDrift.drifted;
         }
       } catch (error) {
+        if (error instanceof StackDeadlineError) stackDeadlineTrips += 1;
         failed += 1;
         captureError(error, {
           operation: "stripe_subscription_reconcile",
@@ -230,6 +239,17 @@ function isTeamSnapshot(snapshot: SubscriptionSnapshot): boolean {
  * Reads the current Stack roster and reports disagreement with both remote
  * Stripe quantity and stored seats. This path is intentionally report-only.
  */
+/** The Stack interaction (team lookup + roster read) exceeded its budget. */
+class StackDeadlineError extends Error {
+  constructor(teamId: string) {
+    super(`Stack team interaction exceeded the per-team deadline: ${teamId}`);
+    this.name = "StackDeadlineError";
+  }
+}
+
+const STACK_TEAM_DEADLINE_MS = 15_000;
+const STACK_DEADLINE_TRIP_LIMIT = 3;
+
 async function detectTeamSeatDrift(
   snapshot: SubscriptionSnapshot,
   remote: Stripe.Subscription,
@@ -255,27 +275,33 @@ async function detectTeamSeatDrift(
     throw new Error(`Stripe subscription plan metadata is not a team plan: ${remotePlan}`);
   }
 
-  const team = await getTeam(teamId);
-  if (!team) throw new Error(`Stack team not found for seat drift detection: ${teamId}`);
-  if (typeof team.listUsers !== "function") {
-    throw new Error("Stack Auth server SDK cannot list team members");
-  }
-  // Stack's listUsers() takes no AbortSignal, so the request cannot be
-  // cancelled. On Vercel, the resulting leak is bounded by the invocation
-  // lifetime because the instance freezes when the cron returns.
-  const ROSTER_DEADLINE_MS = 15_000;
-  let rosterTimer: ReturnType<typeof setTimeout> | undefined;
-  const rosterDeadline = new Promise<never>((_, reject) => {
-    rosterTimer = setTimeout(
-      () => reject(new Error("Stack roster listing exceeded the per-team deadline")),
-      ROSTER_DEADLINE_MS,
+  // One deadline covers the ENTIRE Stack interaction: the team lookup can
+  // hang exactly like the roster read. Stack's SDK takes no AbortSignal, so
+  // a timed-out request cannot be cancelled; the run-level breaker in the
+  // caller caps how many such requests one invocation can strand, and the
+  // frozen Vercel instance discards them when the cron returns.
+  let stackTimer: ReturnType<typeof setTimeout> | undefined;
+  const stackDeadline = new Promise<never>((_, reject) => {
+    stackTimer = setTimeout(
+      () => reject(new StackDeadlineError(teamId)),
+      STACK_TEAM_DEADLINE_MS,
     );
   });
   let members: readonly unknown[];
   try {
-    members = await Promise.race([team.listUsers(), rosterDeadline]);
+    members = await Promise.race([
+      (async () => {
+        const team = await getTeam(teamId);
+        if (!team) throw new Error(`Stack team not found for seat drift detection: ${teamId}`);
+        if (typeof team.listUsers !== "function") {
+          throw new Error("Stack Auth server SDK cannot list team members");
+        }
+        return await team.listUsers();
+      })(),
+      stackDeadline,
+    ]);
   } finally {
-    clearTimeout(rosterTimer);
+    clearTimeout(stackTimer);
   }
   if (!Array.isArray(members)) {
     throw new Error("Stack team member listing returned an invalid result");
