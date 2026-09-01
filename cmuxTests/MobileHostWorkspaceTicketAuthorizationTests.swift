@@ -332,6 +332,20 @@ struct MobileHostWorkspaceTicketAuthorizationTests {
         #expect(payload["ticket"] is [String: Any])
     }
 
+    @Test func ticketOnlyLANOnlyPayloadReportsRouteUnavailable() throws {
+        let store = MobileAttachTicketStore()
+        let ticket = try store.createTicket(
+            workspaceID: "",
+            terminalID: nil,
+            routes: [try lanRoute()],
+            ttl: 3600
+        )
+
+        #expect(throws: MobileAttachTicketStoreError.routeUnavailable) {
+            try store.payload(for: ticket, target: .ticketOnly)
+        }
+    }
+
     @Test func omittedTargetPreservesLegacyAttachURL() throws {
         let store = MobileAttachTicketStore()
         let ticket = try store.createTicket(

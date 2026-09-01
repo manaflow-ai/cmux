@@ -686,6 +686,68 @@ struct CmxConnectivityPeerSessionTests {
     }
 
     @Test
+    func policyConflictCannotRetireAnOwnedPendingDial() async throws {
+        let automatic = try Self.request()
+        let pinned = CmxByteTransportRequest(
+            route: automatic.route,
+            expectedPeerDeviceID: automatic.expectedPeerDeviceID,
+            authorizationMode: automatic.authorizationMode,
+            transportMode: .lan
+        )
+        let peerID = try CmxConnectivityPeerID(request: automatic)
+        let foregroundSession = TestConnectivitySession(continuityID: 47)
+        let conflictingSession = TestConnectivitySession(continuityID: 48)
+        let builder = OrderedGatedConnectivitySessionBuilder(
+            sessions: [foregroundSession, conflictingSession]
+        )
+        let peer = CmxConnectivityPeerSession(
+            peerID: peerID,
+            buildSession: { request in
+                try await builder.build(request)
+            }
+        )
+        let ownerID = UUID()
+
+        let foreground = Task {
+            try await peer.acquireControl(for: automatic, ownerID: ownerID)
+        }
+        try await Self.waitUntil { await builder.callCount() == 1 }
+
+        let conflictingLane = Task {
+            try await peer.connectedSession(for: pinned)
+        }
+
+        // The unfixed implementation starts a second gated dial; the fixed
+        // implementation rejects the conflicting lane before opening one.
+        for _ in 0 ..< 1_000 {
+            if await builder.callCount() == 2 { break }
+            await Task.yield()
+        }
+        let callCount = await builder.callCount()
+        await builder.release(call: 0)
+        if callCount == 2 {
+            await builder.release(call: 1)
+        }
+
+        let foregroundResult = await foreground.result
+        let conflictingResult = await conflictingLane.result
+        guard case .success(let admitted) = foregroundResult else {
+            Issue.record("The owned foreground dial was superseded")
+            return
+        }
+        guard case .failure(let error) = conflictingResult else {
+            Issue.record("The conflicting lane unexpectedly replaced the owner")
+            return
+        }
+        #expect((error as? CmxConnectivityEngineError) == .superseded)
+        #expect(callCount == 1)
+        #expect(await admitted.connectionContinuityID() == 47)
+        #expect(await peer.connectionContinuityID() == 47)
+        await peer.releaseControl(ownerID: ownerID)
+        await peer.invalidate()
+    }
+
+    @Test
     func wedgedRetiredDialCannotBlockPastTheSettleBound() async throws {
         let request = try Self.request()
         let peerID = try CmxConnectivityPeerID(request: request)
