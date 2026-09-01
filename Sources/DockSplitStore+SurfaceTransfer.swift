@@ -142,6 +142,8 @@ extension DockSplitStore {
                 )
         }
         let preservedTransfer = removeDetachedSurfaceTransfer(forPanelID: panelId)
+        let deferredAgentResumeRestore = deferredAgentResumeRestoresByPanelId[panelId]
+            ?? preservedTransfer?.deferredAgentResumeRestore
         let notificationStore = resolvedNotificationStore()
         let wasManuallyUnread = scope == .global
             ? notificationStore?.hasManualUnread(
@@ -373,6 +375,7 @@ extension DockSplitStore {
             restoredPanelTitleBoundary: transferredRestoredPanelTitleBoundary,
             restoredResumeSessionWorkingDirectory: restoredResumeSessionWorkingDirectory,
             resumeBinding: resumeBinding,
+            deferredAgentResumeRestore: deferredAgentResumeRestore,
             managedAgentResumeBinding: managedResumeBinding,
             agentRuntime: agentProvenExited ? nil : cachedRuntime,
             isRemoteTerminal: preservedTransfer?.isRemoteTerminal ?? false,
@@ -397,6 +400,8 @@ extension DockSplitStore {
             terminal.updateWorkspaceId(workspaceId)
         } else if let browser = panel as? BrowserPanel {
             browser.updateWorkspaceId(workspaceId)
+        } else if let deferredBrowser = panel as? DeferredBrowserPanel {
+            deferredBrowser.updateWorkspaceId(workspaceId)
         } else if let filePreview = panel as? FilePreviewPanel {
             filePreview.updateWorkspaceId(workspaceId)
         }
@@ -413,6 +418,7 @@ extension DockSplitStore {
         atIndex index: Int? = nil,
         focus: Bool = true
     ) -> UUID? {
+        guard !isRetired else { return nil }
         guard containsPane(paneId.id), panels[detached.panelId] == nil else { return nil }
         let panel = detached.panel
         prepareDetachedPanelForDockAttachment(panel)
@@ -437,7 +443,7 @@ extension DockSplitStore {
             isDirty: panel.isDirty,
             showsNotificationBadge: detached.manuallyUnread,
             isLoading: detached.isLoading,
-            isAudioMuted: (panel as? BrowserPanel)?.isMuted ?? false,
+            isAudioMuted: resolvedAudioMuted(for: panel),
             isPinned: detached.isPinned,
             inPane: paneId
         ) else {
@@ -503,6 +509,7 @@ extension DockSplitStore {
         insertFirst: Bool,
         focus: Bool = true
     ) -> UUID? {
+        guard !isRetired else { return nil }
         guard containsPane(paneId.id), panels[detached.panelId] == nil else {
             return nil
         }
@@ -519,7 +526,7 @@ extension DockSplitStore {
             isDirty: panel.isDirty,
             showsNotificationBadge: detached.manuallyUnread,
             isLoading: detached.isLoading,
-            isAudioMuted: (panel as? BrowserPanel)?.isMuted ?? false,
+            isAudioMuted: resolvedAudioMuted(for: panel),
             isPinned: detached.isPinned
         )
 

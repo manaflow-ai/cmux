@@ -106,6 +106,21 @@ func dslVAlignment(_ token: String?) -> VerticalAlignment {
     }
 }
 
+/// Resolves a full 2D alignment token for ZStack (default `.center`).
+func dslAlignment(_ token: String?) -> Alignment {
+    switch token?.lowercased() {
+    case "leading": return .leading
+    case "trailing": return .trailing
+    case "top": return .top
+    case "bottom": return .bottom
+    case "topleading": return .topLeading
+    case "toptrailing": return .topTrailing
+    case "bottomleading": return .bottomLeading
+    case "bottomtrailing": return .bottomTrailing
+    default: return .center
+    }
+}
+
 /// Resolves a `Font.Design` token (`.monospaced`/`.rounded`/`.serif`/`.default`).
 /// Returns `nil` for unknown tokens so the system design is kept.
 func dslFontDesign(_ token: String?) -> Font.Design? {

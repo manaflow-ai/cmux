@@ -287,12 +287,14 @@ extension TerminalSurface {
 #endif
     }
 
-    /// Explicitly free the Ghostty runtime surface. Idempotent — safe to call
-    /// before deinit; deinit will skip the free if already torn down.
+    /// Explicitly retire this model and free its Ghostty runtime surface.
+    /// Idempotent — safe to call before deinit; deinit will skip the work if
+    /// already torn down.
     @MainActor
     public func teardownSurface() {
         recordTeardownRequest(reason: "surface.teardown")
         markPortalLifecycleClosed(reason: "teardown")
+        retireSurfaceRegistryRegistrationIfNeeded()
         backgroundSurfaceStartSource = .normal
         cancelAgentCommandShimInstallLifecycle()
         closeHeadlessStartupWindowIfNeeded()
@@ -519,6 +521,19 @@ extension TerminalSurface {
         runtimeSurfaceSuspendedForAgentHibernation = false
         prepareNextRuntimeInitialInput(initialInput)
         return true
+    }
+
+    /// Sets the transport-only command used when a deferred restore is cancelled.
+    ///
+    /// Persistent SSH restores keep their PTY attached after cancellation, but
+    /// must omit the embedded agent-resume payload. The value is captured when
+    /// admission is cancelled and remains in force for later runtime retries.
+    ///
+    /// - Parameter command: The transport-only command to run after cancellation.
+    @MainActor
+    public func setStartupRestoreAdmissionFallbackCommand(_ command: String?) {
+        guard startupRestoreAdmissionPhase == .awaitingAdmission else { return }
+        startupRestoreAdmissionFallbackCommand = command?.isEmpty == false ? command : nil
     }
 
     /// Primes the initial input for the next runtime spawn only.
@@ -796,7 +811,6 @@ extension TerminalSurface {
         if runtimeInitialInput != nil {
             nextRuntimeInitialInput = nil
         }
-
         // Session scrollback replay must be one-shot. Reusing it on a later runtime
         // surface recreation would inject stale restored output into a live shell.
         additionalEnvironment.removeValue(forKey: scrollbackReplayEnvironmentKey)

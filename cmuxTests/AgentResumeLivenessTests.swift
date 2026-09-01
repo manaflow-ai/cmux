@@ -27,6 +27,7 @@ struct AgentResumeLivenessTests {
             // liveness consistent with the PIDs each case asks for instead of pinning
             // one value that would contradict the empty-PID case.
             processLiveness: processIDs.isEmpty ? .exited : .running,
+            hasRecordedProcessID: true,
             processIDs: processIDs,
             processIdentities: [:],
             agentProcessIDs: processIDs,
