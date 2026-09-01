@@ -44,11 +44,11 @@ struct CloudTuiManualIOAttach: Sendable {
             binaryPath: clientPath,
             target: initialTarget,
             terminalID: terminalID,
-            targetProvider: targetProvider,
             // The relay only dials a local unix socket; the ambient
             // environment (PATH, HOME, TMPDIR) is all it needs, same as the
             // link client itself.
-            environment: ProcessInfo.processInfo.environment
+            environment: ProcessInfo.processInfo.environment,
+            targetProvider: targetProvider
         )
     }
 }
