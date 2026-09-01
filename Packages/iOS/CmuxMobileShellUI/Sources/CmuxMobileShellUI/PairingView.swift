@@ -20,11 +20,15 @@ struct PairingView: View {
     /// when the headline is already the full instruction.
     let connectionErrorGuidance: String?
     let versionWarning: String?
-    let connectPairingCode: () async -> Void
-    let acceptVersionWarning: () async -> Void
-    let connectManualHost: (String, String, Int) async -> Void
+    let connectPairingCode: () async -> MobilePairingURLConnectionResult
+    let acceptVersionWarning: () async -> MobilePairingURLConnectionResult
+    let connectManualHost: (String, String, Int) async -> MobilePairingURLConnectionResult
     let cancelPairing: () -> Void
     let cancel: () -> Void
+    /// Called exactly once after a pairing operation reports semantic success.
+    /// Presentation owners use this signal instead of observing a connection
+    /// state edge, which can remain `.connected` when adding another Mac.
+    let onPairingSucceeded: () -> Void
 
     @State private var isShowingScanner: Bool
     @State private var deviceName = UITestConfig.addDeviceName
@@ -45,11 +49,12 @@ struct PairingView: View {
         connectionError: String?,
         connectionErrorGuidance: String?,
         versionWarning: String?,
-        connectPairingCode: @escaping () async -> Void,
-        acceptVersionWarning: @escaping () async -> Void,
-        connectManualHost: @escaping (String, String, Int) async -> Void,
+        connectPairingCode: @escaping () async -> MobilePairingURLConnectionResult,
+        acceptVersionWarning: @escaping () async -> MobilePairingURLConnectionResult,
+        connectManualHost: @escaping (String, String, Int) async -> MobilePairingURLConnectionResult,
         cancelPairing: @escaping () -> Void,
-        cancel: @escaping () -> Void
+        cancel: @escaping () -> Void,
+        onPairingSucceeded: @escaping () -> Void = {}
     ) {
         _pairingCode = pairingCode
         self.initialPresentation = initialPresentation
@@ -61,6 +66,7 @@ struct PairingView: View {
         self.connectManualHost = connectManualHost
         self.cancelPairing = cancelPairing
         self.cancel = cancel
+        self.onPairingSucceeded = onPairingSucceeded
         _isShowingScanner = State(initialValue: initialPresentation.showsScanner)
     }
 
@@ -79,7 +85,10 @@ struct PairingView: View {
                         .accessibilityIdentifier("MobileAddDeviceNameField")
 
                         TextField(
-                            L10n.string("mobile.addDevice.hostPlaceholder", defaultValue: "100.x.x.x (Tailscale IP; 127.0.0.1 in Simulator)"),
+                            L10n.string(
+                                "mobile.addDevice.hostPlaceholder",
+                                defaultValue: "Tailscale IP, MagicDNS name, or LAN host"
+                            ),
                             text: $host
                         )
                         .focused($focusedField, equals: .host)
@@ -102,7 +111,7 @@ struct PairingView: View {
                             Text(MobilePairingScannerSheet.guidanceText)
                             Text(L10n.string(
                                 "mobile.addDevice.help",
-                                defaultValue: "Scan the Mac's pairing QR, or enter its numeric Tailscale IP and port. In the Simulator, 127.0.0.1 can connect to a local Mac. MagicDNS names and local or LAN hosts aren't supported for account-authenticated pairing."
+                                defaultValue: "Scan the Mac's pairing QR, or enter a Tailscale IP, MagicDNS name, or local-network host and port. The entered destination is authorized only for this pairing. In the Simulator, 127.0.0.1 can connect to a local Mac."
                             ))
                         }
                     }
@@ -136,7 +145,7 @@ struct PairingView: View {
                                     .textSelection(.enabled)
                                     .accessibilityIdentifier("MobileAddDeviceSignedInAccount")
 
-                                Text(L10n.string("mobile.addDevice.accountHelp", defaultValue: "Pairing uses this account. If it does not match the Mac, sign in to the same account, then scan the Mac QR or enter its numeric Tailscale IP."))
+                                Text(L10n.string("mobile.addDevice.accountHelp", defaultValue: "Pairing uses this account. If it does not match the Mac, sign in to the same account, then scan the Mac QR or enter its Tailscale, MagicDNS, or local-network address."))
                                     .font(.footnote)
                                     .foregroundStyle(.secondary)
                             }
@@ -376,7 +385,7 @@ struct PairingView: View {
         }
         return L10n.string(
             "mobile.addDevice.manualRouteWarning",
-            defaultValue: "For account-authenticated pairing, enter the Mac's numeric Tailscale IP or scan its QR. MagicDNS names and local or LAN hosts aren't supported."
+            defaultValue: "This address is authorized only for this pairing and uses an unencrypted connection. Verify it belongs to your Mac and that you trust the network before continuing; local-network hosts are not protected by Tailscale."
         )
     }
 
@@ -430,7 +439,9 @@ struct PairingView: View {
         }
     }
 
-    private func startPairingTask(_ operation: @escaping @MainActor () async -> Void) {
+    private func startPairingTask(
+        _ operation: @escaping @MainActor () async -> MobilePairingURLConnectionResult
+    ) {
         pairingTask?.cancel()
         let taskID = UUID()
         pairingTaskID = taskID
@@ -443,7 +454,10 @@ struct PairingView: View {
                     pairingTask = nil
                 }
             }
-            await operation()
+            let result = await operation()
+            if !Task.isCancelled, pairingTaskID == taskID, result == .connected {
+                onPairingSucceeded()
+            }
         }
         pairingTask = task
     }

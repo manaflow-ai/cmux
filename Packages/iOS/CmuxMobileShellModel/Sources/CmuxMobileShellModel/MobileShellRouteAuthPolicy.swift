@@ -8,16 +8,16 @@ import Foundation
 /// vs Tailscale vs LAN vs arbitrary host) can be exhaustively tested without a live
 /// connection.
 ///
-/// The Stack-bearer-token gate (``routeAllowsStackAuth(_:)``) is intentionally
-/// restricted to **loopback**, which never leaves the machine. iOS cannot prove
-/// that a generic packet-tunnel interface belongs to Tailscale's authenticated
-/// control plane, so a Tailscale-address heuristic is insufficient for sending
-/// an account credential over plaintext TCP. Iroh sessions authenticate RPC out
-/// of band and never carry a Stack bearer token. Plain
-/// private-LAN and `.local`/Bonjour hosts are dialed
-/// over unencrypted TCP (``CmxNetworkByteTransport`` uses `NWParameters(tls: nil)`),
-/// so they are excluded from the Stack-auth-allowed set even though they may still
-/// be reachable as attach routes.
+/// The generic Stack-bearer-token gate (``routeAllowsStackAuth(_:)``) is
+/// intentionally restricted to **loopback**, which never leaves the machine.
+/// iOS cannot prove that a generic packet-tunnel interface belongs to
+/// Tailscale's authenticated control plane, so a Tailscale-address heuristic is
+/// insufficient for sending an account credential over plaintext TCP. Iroh
+/// sessions authenticate RPC out of band and never carry a Stack bearer token.
+/// Plain private-LAN and `.local`/Bonjour hosts are dialed over unencrypted TCP
+/// (``CmxNetworkByteTransport`` uses `NWParameters(tls: nil)`), so they are
+/// excluded from the generic Stack-auth-allowed set even though an explicit,
+/// user-confirmed destination grant may authorize one exact pairing attempt.
 public struct MobileShellRouteAuthPolicy {
     private init() {}
 
@@ -26,31 +26,7 @@ public struct MobileShellRouteAuthPolicy {
     /// - Parameter rawHost: The raw host string typed by the user.
     /// - Returns: The normalized bare host, or `nil` when it is not a valid host.
     public static func normalizedManualHost(_ rawHost: String) -> String? {
-        let trimmed = rawHost.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else {
-            return nil
-        }
-
-        let host: String
-        if trimmed.hasPrefix("[") || trimmed.hasSuffix("]") {
-            guard trimmed.hasPrefix("["),
-                  trimmed.hasSuffix("]"),
-                  trimmed.count > 2 else {
-                return nil
-            }
-            host = String(trimmed.dropFirst().dropLast())
-        } else {
-            host = trimmed
-        }
-
-        guard !host.isEmpty,
-              host.rangeOfCharacter(from: .whitespacesAndNewlines) == nil,
-              host.rangeOfCharacter(from: .controlCharacters) == nil,
-              host.rangeOfCharacter(from: CharacterSet(charactersIn: "/?#@")) == nil,
-              host.range(of: "://") == nil else {
-            return nil
-        }
-        return host
+        CmxManualHost(rawHost)?.rawValue
     }
 
     /// Maps a manually typed host to the transport kind used for route checks.
@@ -58,9 +34,10 @@ public struct MobileShellRouteAuthPolicy {
     /// - Returns: `.debugLoopback` for loopback hosts, otherwise `.tailscale`.
     ///
     /// Non-loopback classification is not authorization: callers must still
-    /// attach an exact numeric Tailscale pairing capability before dialing.
+    /// attach an exact user-entered destination capability before dialing.
     public static func manualRouteKind(for host: String) -> CmxAttachTransportKind {
-        let normalizedHost = host.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        let normalizedHost = normalizedManualHost(host)?.lowercased()
+            ?? host.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
         if isLoopbackHost(normalizedHost) {
             return .debugLoopback
         }
@@ -145,9 +122,9 @@ public struct MobileShellRouteAuthPolicy {
 
     /// Whether a manual host should show the explicit non-loopback trust guidance.
     /// - Parameter host: The manually typed host.
-    /// - Returns: `true` for every valid host outside loopback, where a
-    ///   numeric Tailscale capability (or another supported secure path) is
-    ///   required before account credentials may be sent.
+    /// - Returns: `true` for every valid host outside loopback, where an
+    ///   exact explicit pairing capability is required before account
+    ///   credentials may be sent.
     public static func manualHostNeedsTrustWarning(_ host: String) -> Bool {
         guard let normalizedHost = normalizedManualNetworkHost(host) else {
             return false
@@ -160,37 +137,7 @@ public struct MobileShellRouteAuthPolicy {
     }
 
     private static func isLoopbackHost(_ host: String) -> Bool {
-        let normalizedHost = host.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-        return normalizedHost == "localhost" ||
-            normalizedHost == "::1" ||
-            isIPv4LoopbackHost(normalizedHost)
-    }
-
-    private static func isIPv4LoopbackHost(_ host: String) -> Bool {
-        guard let octets = ipv4Octets(host) else {
-            return false
-        }
-        return octets[0] == 127
-    }
-
-    private static func ipv4Octets(_ host: String) -> [Int]? {
-        let parts = host.split(separator: ".", omittingEmptySubsequences: false)
-        guard parts.count == 4 else {
-            return nil
-        }
-        let octets = parts.compactMap { part -> Int? in
-            guard !part.isEmpty,
-                  part.utf8.allSatisfy({ (48...57).contains($0) }),
-                  let value = Int(part),
-                  (0...255).contains(value) else {
-                return nil
-            }
-            return value
-        }
-        guard octets.count == 4 else {
-            return nil
-        }
-        return octets
+        CmxLoopbackHost().matches(host)
     }
 
 }

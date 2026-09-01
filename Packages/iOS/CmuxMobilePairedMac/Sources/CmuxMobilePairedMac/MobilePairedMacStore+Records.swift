@@ -149,11 +149,13 @@ extension MobilePairedMacStore {
         try exec("""
             INSERT INTO paired_macs (
                 mac_device_id, owner_key, display_name, stack_user_id, team_id,
-                created_at, last_seen_at, is_active, custom_name, custom_color, custom_icon, instance_tag
+                created_at, last_seen_at, is_active, custom_name, custom_color,
+                custom_icon, instance_tag, connection_method, direct_addresses
             )
             SELECT
                 mac_device_id, ?, display_name, stack_user_id, ?, created_at,
-                last_seen_at, is_active, custom_name, custom_color, custom_icon, instance_tag
+                last_seen_at, is_active, custom_name, custom_color, custom_icon,
+                instance_tag, connection_method, direct_addresses
             FROM paired_macs
             WHERE mac_device_id = ? AND owner_key = ?;
         """, binding: [
@@ -254,10 +256,16 @@ extension MobilePairedMacStore {
 
         return try rows.map { row in
             let routes = try fetchRoutes(macDeviceID: row.macDeviceID, ownerKey: row.ownerKey)
-            let legacyTailscaleRoutes = try fetchLegacyTailscaleRoutes(
+            let tailscaleGrants = try fetchTailscaleRouteGrants(
                 macDeviceID: row.macDeviceID,
                 ownerKey: row.ownerKey
             )
+            let legacyTailscaleRoutes = tailscaleGrants
+                .filter { $0.origin == .migration }
+                .map(\.route)
+            let userAuthorizedTailscaleRoutes = tailscaleGrants
+                .filter { $0.origin == .user }
+                .map(\.route)
             return MobilePairedMac(
                 macDeviceID: row.macDeviceID,
                 displayName: row.displayName,
@@ -275,21 +283,24 @@ extension MobilePairedMacStore {
                     ? nil
                     : legacyTailscaleRoutes,
                 connectionMethodRawValue: row.connectionMethodRawValue,
-                directAddressesRawJSON: row.directAddressesRawJSON
+                directAddressesRawJSON: row.directAddressesRawJSON,
+                userAuthorizedTailscaleRoutes: userAuthorizedTailscaleRoutes.isEmpty
+                    ? nil
+                    : userAuthorizedTailscaleRoutes
             )
         }
     }
 
-    func fetchLegacyTailscaleRoutes(
+    private func fetchTailscaleRouteGrants(
         macDeviceID: String,
         ownerKey: String
-    ) throws -> [CmxAttachRoute] {
+    ) throws -> [MobilePairedMacTailscaleRouteGrant] {
         var statement: OpaquePointer?
         defer { sqlite3_finalize(statement) }
         let result = sqlite3_prepare_v2(
             db,
             """
-            SELECT endpoint_json
+            SELECT endpoint_json, origin
             FROM legacy_tailscale_route_grants
             WHERE mac_device_id = ? AND owner_key = ?
             ORDER BY id ASC;
@@ -303,7 +314,7 @@ extension MobilePairedMacStore {
         }
         try bind(statement: statement, parameters: [.text(macDeviceID), .text(ownerKey)])
         let decoder = JSONDecoder()
-        var routes: [CmxAttachRoute] = []
+        var grants: [MobilePairedMacTailscaleRouteGrant] = []
         while sqlite3_step(statement) == SQLITE_ROW {
             guard let json = Self.readNullableText(statement, column: 0),
                   let data = json.data(using: .utf8),
@@ -311,9 +322,12 @@ extension MobilePairedMacStore {
                   route.kind == .tailscale else {
                 continue
             }
-            routes.append(route)
+            let origin = MobilePairedMacTailscaleGrantOrigin(
+                rawValue: Self.readNullableText(statement, column: 1) ?? "migration"
+            ) ?? .migration
+            grants.append(MobilePairedMacTailscaleRouteGrant(route: route, origin: origin))
         }
-        return routes
+        return grants
     }
 
     func fetchRoutes(macDeviceID: String, ownerKey: String) throws -> [CmxAttachRoute] {

@@ -15,7 +15,7 @@ public enum CmxLegacyTailscaleAuthorizationEvidenceError: Error, Equatable, Send
 ///
 /// This value is transport evidence, not route discovery. It authorizes only
 /// one canonical Mac device ID, numeric Tailscale peer address, and TCP port.
-public struct CmxLegacyTailscaleAuthorizationEvidence: Equatable, Sendable {
+public struct CmxLegacyTailscaleAuthorizationEvidence: Equatable, Hashable, Sendable {
     /// The canonical paired Mac device identifier.
     public let macDeviceID: String
     /// The canonical numeric Tailscale peer address.

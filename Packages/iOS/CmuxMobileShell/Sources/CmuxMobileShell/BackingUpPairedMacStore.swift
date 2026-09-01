@@ -17,7 +17,7 @@ public import Foundation
 /// - `removeAll` (the sign-out wipe) is NOT mirrored (signing out must not delete
 ///   the account's server backup) and resets the restore memo so a same-launch
 ///   re-sign-in restores again.
-public actor BackingUpPairedMacStore: MobilePairedMacStoring, PairedMacBackupRefreshing {
+public actor BackingUpPairedMacStore: MobilePairedMacStoring, MobilePairedMacAtomicPairingStoring, PairedMacBackupRefreshing {
     let inner: any MobilePairedMacStoring
     let backup: any PairedMacBackingUp
     /// The current team id, read live so the restore is scoped per (account,

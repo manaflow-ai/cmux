@@ -634,30 +634,33 @@ final class TerminalOutputCollector {
 }
 
 @MainActor
-@Test func manualHostPairingRejectsTailscaleMagicDNSWithNumericGuidance() async throws {
-    let responses = ScriptedTransportResponses([])
+@Test func manualHostPairingAcceptsTailscaleMagicDNS() async throws {
+    let responses = ScriptedTransportResponses([
+        try rpcWorkspaceListFrame(workspaceID: "manual-workspace", title: "Work Workspace"),
+        try rpcHostStatusFrame(renderGrid: false),
+    ])
     let runtime = testRuntime(
         supportedRouteKinds: [.tailscale],
-        transportFactory: ScriptedTransportFactory(responses: responses)
+        transportFactory: ScriptedTransportFactory(responses: responses),
+        stackAccessToken: "test-stack-token"
     )
     let store = CMUXMobileShellStore.preview(runtime: runtime)
 
     store.signIn()
     await store.connectManualHost(name: "Work Mac", host: "work-mac.tailnet.ts.net", port: CmxMobileDefaults.defaultHostPort)
 
-    #expect(store.phase == .pairing)
-    #expect(store.connectionState == .disconnected)
-    #expect(store.activeRoute == nil)
-    #expect(store.connectionError == "For Tailscale pairing, enter the Mac's numeric Tailscale IP or scan its QR. MagicDNS names and local or LAN hosts aren't supported.")
-    #expect(try await responses.sentRequests().isEmpty)
+    #expect(store.phase == .workspaces)
+    #expect(store.connectionState == .connected)
+    #expect(store.activeRoute?.endpoint == .hostPort(host: "work-mac.tailnet.ts.net", port: CmxMobileDefaults.defaultHostPort))
+    #expect(try await responses.sentRequests().first?.stackAccessToken == "test-stack-token")
 }
 
 @MainActor
-@Test func manualHostPairingRejectsPrivateLANIPWithoutSendingStackToken() async throws {
-    // Plain private-LAN routes are dialed over unencrypted TCP, so
-    // routeAllowsStackAuth excludes them: pairing must fail before any RPC
-    // (and the Stack bearer token) leaves the device.
-    let responses = ScriptedTransportResponses([])
+@Test func manualHostPairingAcceptsPrivateLANIPWithExplicitAuthorization() async throws {
+    let responses = ScriptedTransportResponses([
+        try rpcWorkspaceListFrame(workspaceID: "manual-workspace", title: "Studio Workspace"),
+        try rpcHostStatusFrame(renderGrid: false),
+    ])
     let runtime = testRuntime(
         supportedRouteKinds: [.tailscale],
         transportFactory: ScriptedTransportFactory(responses: responses),
@@ -668,20 +671,18 @@ final class TerminalOutputCollector {
     store.signIn()
     await store.connectManualHost(name: "Studio LAN", host: " 192.168.1.77 ", port: 15432)
 
-    #expect(store.phase == .pairing)
-    #expect(store.connectionState == .disconnected)
-    #expect(store.activeTicket == nil)
-    #expect(store.activeRoute == nil)
-    #expect(store.connectionError == "For Tailscale pairing, enter the Mac's numeric Tailscale IP or scan its QR. MagicDNS names and local or LAN hosts aren't supported.")
-    #expect(try await responses.sentRequests().isEmpty)
+    #expect(store.phase == .workspaces)
+    #expect(store.connectionState == .connected)
+    #expect(store.activeRoute?.endpoint == .hostPort(host: "192.168.1.77", port: 15432))
+    #expect(try await responses.sentRequests().first?.stackAccessToken == "stack-token-for-lan")
 }
 
 @MainActor
-@Test func manualHostPairingRejectsLocalDNSNameWithoutSendingStackToken() async throws {
-    // `.local`/Bonjour hosts are dialed over unencrypted TCP, so
-    // routeAllowsStackAuth excludes them: pairing must fail before any RPC
-    // (and the Stack bearer token) leaves the device.
-    let responses = ScriptedTransportResponses([])
+@Test func manualHostPairingAcceptsLocalDNSNameWithExplicitAuthorization() async throws {
+    let responses = ScriptedTransportResponses([
+        try rpcWorkspaceListFrame(workspaceID: "manual-workspace", title: "Local Workspace"),
+        try rpcHostStatusFrame(renderGrid: false),
+    ])
     let runtime = testRuntime(
         supportedRouteKinds: [.tailscale],
         transportFactory: ScriptedTransportFactory(responses: responses),
@@ -692,12 +693,10 @@ final class TerminalOutputCollector {
     store.signIn()
     await store.connectManualHost(name: "", host: "devbox.local", port: 61234)
 
-    #expect(store.phase == .pairing)
-    #expect(store.connectionState == .disconnected)
-    #expect(store.activeTicket == nil)
-    #expect(store.activeRoute == nil)
-    #expect(store.connectionError == "For Tailscale pairing, enter the Mac's numeric Tailscale IP or scan its QR. MagicDNS names and local or LAN hosts aren't supported.")
-    #expect(try await responses.sentRequests().isEmpty)
+    #expect(store.phase == .workspaces)
+    #expect(store.connectionState == .connected)
+    #expect(store.activeRoute?.endpoint == .hostPort(host: "devbox.local", port: 61234))
+    #expect(try await responses.sentRequests().first?.stackAccessToken == "stack-token-for-local-dns")
 }
 
 @MainActor
@@ -722,25 +721,6 @@ final class TerminalOutputCollector {
     let requests = try await responses.sentRequests()
     #expect(requests.first?.method == "workspace.list")
     #expect(requests.first?.stackAccessToken == "test-stack-token")
-}
-
-@MainActor
-@Test func manualHostPairingRejectsMagicDNSBeforeDialing() async throws {
-    let responses = ScriptedTransportResponses([])
-    let runtime = testRuntime(
-        supportedRouteKinds: [.tailscale],
-        transportFactory: ScriptedTransportFactory(responses: responses)
-    )
-    let store = CMUXMobileShellStore.preview(runtime: runtime)
-
-    store.signIn()
-    await store.connectManualHost(name: "Slow Mac", host: "work-mac.tailnet.ts.net", port: CmxMobileDefaults.defaultHostPort)
-
-    #expect(store.phase == .pairing)
-    #expect(store.connectionState == .disconnected)
-    #expect(store.connectionError == "For Tailscale pairing, enter the Mac's numeric Tailscale IP or scan its QR. MagicDNS names and local or LAN hosts aren't supported.")
-    #expect(store.connectionErrorGuidance == nil)
-    #expect(try await responses.sentRequests().isEmpty)
 }
 
 @MainActor
@@ -1005,7 +985,7 @@ final class TerminalOutputCollector {
     #expect(store.connectionState == .disconnected)
     #expect(store.activeTicket == nil)
     #expect(store.activeRoute == nil)
-    #expect(store.connectionError == "This pairing route is not trusted. Enter the Mac's numeric Tailscale IP and port, or scan its pairing QR.")
+    #expect(store.connectionError == "This pairing route is not trusted. Verify the Mac's Tailscale IP, MagicDNS name, or local-network address, then scan its pairing QR or enter that address again.")
     #expect(try await responses.sentRequests().isEmpty)
 }
 
@@ -1834,53 +1814,6 @@ final class TerminalOutputCollector {
     #expect(requests.isEmpty)
     #expect(store.connectionState == .disconnected)
     #expect(store.connectionError != nil)
-}
-
-@MainActor
-@Test func manualHostPairingNumericTailscaleSendsBearerOnlyAfterExactAuthorization() async throws {
-    let responses = ScriptedTransportResponses([
-        try rpcWorkspaceListFrame(workspaceID: "manual-workspace", title: "Work Workspace"),
-        try rpcHostStatusFrame(renderGrid: false),
-    ])
-    let runtime = testRuntime(
-        supportedRouteKinds: [.tailscale],
-        transportFactory: ScriptedTransportFactory(responses: responses),
-        stackAccessToken: "stack-token-for-tailscale-ip"
-    )
-    let store = CMUXMobileShellStore.preview(runtime: runtime)
-
-    store.signIn()
-    await store.connectManualHost(name: "Work Mac", host: "100.71.210.41", port: CmxMobileDefaults.defaultHostPort)
-
-    #expect(store.phase == .workspaces)
-    #expect(store.connectionState == .connected)
-    #expect(store.activeRoute?.kind == .tailscale)
-    let requests = try await responses.sentRequests()
-    #expect(requests.first?.stackAccessToken == "stack-token-for-tailscale-ip")
-}
-
-@MainActor
-@Test func manualHostPairingRejectsDefaultPortLANHostWithoutSendingStackToken() async throws {
-    // Same encrypted-routes-only contract as the explicit-port LAN test, on
-    // the default host port: no RPC (and no Stack bearer token) may leave the
-    // device for a plain-TCP private-LAN route.
-    let responses = ScriptedTransportResponses([])
-    let runtime = testRuntime(
-        supportedRouteKinds: [.tailscale],
-        transportFactory: ScriptedTransportFactory(responses: responses),
-        stackAccessToken: "stack-token-for-default-lan"
-    )
-    let store = CMUXMobileShellStore.preview(runtime: runtime)
-
-    store.signIn()
-    await store.connectManualHost(name: "Work Mac", host: "192.168.1.77", port: CmxMobileDefaults.defaultHostPort)
-
-    #expect(store.phase == .pairing)
-    #expect(store.connectionState == .disconnected)
-    #expect(store.activeTicket == nil)
-    #expect(store.activeRoute == nil)
-    #expect(store.connectionError == "For Tailscale pairing, enter the Mac's numeric Tailscale IP or scan its QR. MagicDNS names and local or LAN hosts aren't supported.")
-    #expect(try await responses.sentRequests().isEmpty)
 }
 
 @MainActor

@@ -288,12 +288,13 @@ struct MacComputerDetailView: View {
                 connectionErrorGuidance: store.connectionErrorGuidance,
                 versionWarning: store.pairingVersionWarning,
                 connectPairingCode: { await store.connectPairingInput() },
-                acceptVersionWarning: { _ = await store.acceptPairingVersionWarning() },
+                acceptVersionWarning: { await store.acceptPairingVersionWarning() },
                 connectManualHost: { name, host, port in
                     await store.connectManualHost(name: name, host: host, port: port)
                 },
                 cancelPairing: { store.cancelPairing() },
-                cancel: { showsAddTailscaleConnection = false }
+                cancel: { showsAddTailscaleConnection = false },
+                onPairingSucceeded: { showsAddTailscaleConnection = false }
             )
         }
         .onChange(of: computerHasUsableTailscaleAuthorization) { _, authorized in

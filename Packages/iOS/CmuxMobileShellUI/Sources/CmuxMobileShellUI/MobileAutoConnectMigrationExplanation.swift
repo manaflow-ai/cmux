@@ -59,7 +59,7 @@ struct MobileAutoConnectMigrationExplanation: View {
     private var guidance: some View {
         Text(L10n.string(
             "mobile.autoConnectMigration.guidance",
-            defaultValue: "Older cmux versions still work over Tailscale. Open Tailscale Pairing on the Mac and scan its QR, or enter its numeric Tailscale IP and port once."
+            defaultValue: "Older cmux versions still work over Tailscale. Open Tailscale Pairing on the Mac and scan its QR, or enter a Tailscale IP, MagicDNS name, or local-network address once."
         ))
         .font(.body)
         .foregroundStyle(.secondary)

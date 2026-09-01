@@ -101,7 +101,7 @@ public struct MobileSection: View {
                 phonePushHideContentRow
                 SettingsCardDivider()
                 Group {
-                    pairDeviceRow
+                    mobileConnectionRow
                     SettingsCardDivider()
                     iOSPairingHostRow
                     SettingsCardDivider()
@@ -247,20 +247,17 @@ public struct MobileSection: View {
     }
 
     @ViewBuilder
-    private var pairDeviceRow: some View {
+    private var mobileConnectionRow: some View {
         SettingsCardRow(
             configurationReview: .action,
             searchAnchorID: "setting:mobile:pairDevice",
-            String(localized: "settings.mobile.pairDevice", defaultValue: "Tailscale Pairing"),
+            String(localized: "settings.mobile.connection", defaultValue: "Mobile Connection"),
             subtitle: String(
-                localized: "settings.mobile.pairDevice.subtitle",
-                defaultValue: """
-                Devices signed in to the same account connect automatically. \
-                Use this QR only to pair through Tailscale.
-                """
+                localized: "settings.mobile.connection.subtitle",
+                defaultValue: "Sign in to the same cmux account on your iPhone to find this Mac automatically over Iroh. Open Tailscale Pairing from the next page when you need a manual connection."
             )
         ) {
-            Button(String(localized: "settings.mobile.pairDevice.button", defaultValue: "Show Tailscale QR…")) {
+            Button(String(localized: "settings.mobile.connection.button", defaultValue: "Open Mobile Connection…")) {
                 hostActions.openMobilePairingWindow()
             }
             .buttonStyle(.bordered)

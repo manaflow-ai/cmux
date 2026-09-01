@@ -28,6 +28,36 @@ struct MarkdownWebRenderer: NSViewRepresentable {
     /// this lifecycle signal to complete that request without polling.
     var onViewAttachedToWindow: () -> Void = {}
 
+    init(
+        markdown: String,
+        theme: MarkdownWebTheme,
+        backgroundColor: NSColor,
+        isVisibleInUI: Bool,
+        panelId: UUID,
+        workspaceId: UUID,
+        filePath: String,
+        fontSize: Double,
+        fontFamily: String,
+        maxContentWidth: Double,
+        session: MarkdownRendererSession,
+        onRequestPanelFocus: @escaping () -> Void,
+        onViewAttachedToWindow: @escaping () -> Void = {}
+    ) {
+        self.markdown = markdown
+        self.theme = theme
+        self.backgroundColor = backgroundColor
+        self.isVisibleInUI = isVisibleInUI
+        self.panelId = panelId
+        self.workspaceId = workspaceId
+        self.filePath = filePath
+        self.fontSize = fontSize
+        self.fontFamily = fontFamily
+        self.maxContentWidth = maxContentWidth
+        self.session = session
+        self.onRequestPanelFocus = onRequestPanelFocus
+        self.onViewAttachedToWindow = onViewAttachedToWindow
+    }
+
     func makeCoordinator() -> Coordinator {
         session.coordinator(panelId: panelId, workspaceId: workspaceId, filePath: filePath)
     }

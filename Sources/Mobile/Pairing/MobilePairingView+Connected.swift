@@ -19,26 +19,6 @@ extension MobilePairingView {
         .frame(maxWidth: .infinity, minHeight: 200)
     }
 
-    func copyButton(label: String, value: String) -> some View {
-        Button {
-            guard GhosttyApp.terminalPasteboard.writeString(
-                value,
-                to: .general
-            ) else { return }
-            flashCopied(value)
-        } label: {
-            HStack(spacing: 4) {
-                Image(systemName: copiedValue == value ? "checkmark" : "doc.on.doc")
-                Text(copiedValue == value
-                    ? String(localized: "mobile.pairing.manual.copied", defaultValue: "Copied")
-                    : label)
-            }
-            .cmuxFont(.caption)
-        }
-        .buttonStyle(.bordered)
-        .controlSize(.small)
-    }
-
     func flashCopied(_ value: String) {
         copiedValueGeneration &+= 1
         let generation = copiedValueGeneration

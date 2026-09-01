@@ -453,7 +453,7 @@ import Testing
             routes: [route]
         )
 
-        let aliases = physicalMacAliasCanonicalIDsByCanonicalID(
+        let aliases = MobileShellComposite.physicalMacAliasCanonicalIDsByCanonicalID(
             in: [oldAlias, representative],
             supportedKinds: [.iroh],
             preferNonLoopback: true

@@ -7,9 +7,9 @@ public enum MobileConnectionMethod: String, CaseIterable, Sendable {
     /// Dial the built-in encrypted peer-to-peer transport (direct paths with
     /// managed relays as fallback). The default; no setup required.
     case automatic
-    /// Require the user's Tailscale network. Requires entering the Tailscale
-    /// pairing code shown on the Mac once, which authorizes that exact peer;
-    /// Iroh is never used as a fallback while this method is selected.
+    /// Require the user's explicitly authorized Tailscale route. A pairing code
+    /// or manually entered host authorizes one exact destination; Iroh is never
+    /// used as a fallback while this method is selected.
     case tailscale
     /// Dial only the user-enabled direct addresses configured on the
     /// Computer (LAN, WireGuard, or any other reachable network). No other

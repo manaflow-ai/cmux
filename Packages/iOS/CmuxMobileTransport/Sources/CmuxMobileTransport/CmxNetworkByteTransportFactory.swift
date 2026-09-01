@@ -64,6 +64,7 @@ public struct CmxNetworkByteTransportFactory: CmxRouteAwareByteTransportFactory 
         }
         switch route.kind {
         case .tailscale:
+            let userAuthorizedPairing: CmxUserTailscalePairingAuthorization?
             switch request.authorizationMode {
             case let .legacyTailscaleBearer(evidence):
                 guard evidence.authorizes(
@@ -73,15 +74,34 @@ public struct CmxNetworkByteTransportFactory: CmxRouteAwareByteTransportFactory 
                 ) else {
                     throw CmxNetworkByteTransportError.tailscaleAuthorizationUnavailable
                 }
+                userAuthorizedPairing = nil
             case let .userAuthorizedTailscalePairing(authorization):
                 // Anchored on the exact user-entered destination; any claimed
                 // device identity is self-reported and grants nothing extra.
                 guard authorization.authorizes(host: host, port: port) else {
                     throw CmxNetworkByteTransportError.tailscaleAuthorizationUnavailable
                 }
+                userAuthorizedPairing = authorization
             case .stackBearer, .transportAdmission:
                 // A generic Stack bearer never opts into the legacy risk.
                 throw CmxNetworkByteTransportError.tailscaleAuthorizationUnavailable
+            }
+            if let userAuthorizedPairing,
+               CmxTailscalePeerAddress(userAuthorizedPairing.host) == nil {
+                // This is the deliberate manual-host trust boundary: the UI
+                // showed the user an unencrypted-network warning and required
+                // an explicit Pair action. Generic `.stackBearer` requests
+                // cannot reach this branch, and reconnect selection requires
+                // this exact grant plus the per-Computer `.tailscale` method.
+                // Use ordinary host transport because DNS/LAN names have no
+                // numeric Tailscale interface proof; the RPC client still
+                // gates every bearer on this exact authorization.
+                return try CmxNetworkByteTransport(
+                    host: userAuthorizedPairing.host,
+                    port: port,
+                    maximumReceiveLength: maximumReceiveLength,
+                    connectTimeoutNanoseconds: connectTimeoutNanoseconds
+                )
             }
             return CmxPreparingTailscaleByteTransport(
                 request: request,

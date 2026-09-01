@@ -117,51 +117,73 @@ import Testing
         ])
         #expect((await router.authorization(for: "workspace.list")).first?.stackAccessToken == "test-stack-token")
         let saved = try await pairedMacStore.activeMac(stackUserID: "phone-user")
-        #expect(saved?.legacyTailscaleRoutes?.first?.endpoint == .hostPort(host: host, port: port))
+        #expect(saved?.userAuthorizedTailscaleRoutes?.first?.endpoint == .hostPort(host: host, port: port))
+        #expect(saved?.connectionMethodRawValue == MobileConnectionMethod.tailscale.rawValue)
     }
 
-    @Test func manualMagicDNSHasDeterministicSafeFallbackWithoutDialing() async throws {
+    @Test(arguments: [
+        "work-mac.tailnet.ts.net",
+        "work-mac",
+        "192.168.1.77",
+    ])
+    func manualNamedAndLanHostsPairAndPersistTailscaleMethod(_ manualHost: String) async throws {
         let router = LivenessHostRouter()
         let box = TransportBox()
         let factory = KindRecordingTransportFactory(router: router, box: box)
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(
+            at: directory,
+            withIntermediateDirectories: true
+        )
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let pairedMacStore = try MobilePairedMacStore(
+            databaseURL: directory.appendingPathComponent("paired-macs.sqlite3")
+        )
         let runtime = LivenessTestRuntime(
             transportFactory: factory,
             now: { Self.fixedNow },
-            supportedRouteKinds: [.tailscale]
+            supportedRouteKinds: [.tailscale],
+            supportsServerPushEvents: false
         )
-        let store = makeStore(runtime: runtime)
+        let store = makeStore(runtime: runtime, pairedMacStore: pairedMacStore)
 
         await store.connectManualHost(
             name: "Work Mac",
-            host: "work-mac.tailnet.ts.net",
+            host: manualHost,
             port: port
         )
 
-        #expect(store.connectionState == MobileConnectionState.disconnected)
-        #expect(store.activeRoute == nil)
-        #expect(factory.attemptedAuthorizationModes().isEmpty)
-        #expect(store.connectionError?.localizedCaseInsensitiveContains("numeric") == true)
-        #expect(await router.count(of: "workspace.list") == 0)
-    }
+        #expect(store.connectionState == MobileConnectionState.connected)
+        #expect(store.activeRoute?.endpoint == .hostPort(host: manualHost, port: port))
+        #expect(factory.attemptedAuthorizationModes().count == 1)
+        let saved = try #require(await pairedMacStore.activeMac(stackUserID: "phone-user"))
+        #expect(saved.connectionMethodRawValue == MobileConnectionMethod.tailscale.rawValue)
+        #expect(saved.userAuthorizedTailscaleRoutes?.first?.endpoint == .hostPort(host: manualHost, port: port))
 
-    @Test func arbitraryAndLanManualHostsNeverReceiveAStackBearer() async throws {
-        for host in ["192.168.1.77", "10.0.0.5", "example.com"] {
-            let router = LivenessHostRouter()
-            let box = TransportBox()
-            let factory = KindRecordingTransportFactory(router: router, box: box)
-            let runtime = LivenessTestRuntime(
-                transportFactory: factory,
+        // Reload from the SQLite row and prove the exact user grant, rather
+        // than the app default, selects the same route on the next launch.
+        await store.remoteClient?.disconnect()
+        let reconnectFactory = KindRecordingTransportFactory(
+            router: router,
+            box: TransportBox()
+        )
+        let reloaded = makeStore(
+            runtime: LivenessTestRuntime(
+                transportFactory: reconnectFactory,
                 now: { Self.fixedNow },
-                supportedRouteKinds: [.tailscale]
-            )
-            let store = makeStore(runtime: runtime)
-
-            await store.connectManualHost(name: "Untrusted", host: host, port: port)
-
-            #expect(store.connectionState == MobileConnectionState.disconnected)
-            #expect(factory.attemptedAuthorizationModes().isEmpty)
-            #expect(await router.authorization(for: "workspace.list").isEmpty)
-        }
+                supportedRouteKinds: [.tailscale],
+                supportsServerPushEvents: false
+            ),
+            pairedMacStore: pairedMacStore
+        )
+        #expect(await reloaded.reconnectActiveMacIfAvailable(stackUserID: "phone-user"))
+        #expect(reloaded.activeRoute?.endpoint == .hostPort(host: manualHost, port: port))
+        #expect(reconnectFactory.attemptedAuthorizationModes() == [
+            .userAuthorizedTailscalePairing(
+                try CmxUserTailscalePairingAuthorization(host: manualHost, port: port)
+            ),
+        ])
     }
 
     @Test func externallyOpenedQRCodeDoesNotMintInAppTailscaleAuthorization() async throws {
@@ -180,6 +202,59 @@ import Testing
         #expect(result == .failed)
         #expect(factory.attemptedAuthorizationModes().isEmpty)
         #expect(await router.authorization(for: "workspace.list").isEmpty)
+    }
+
+    @Test func secondQRCodePairingSucceedsWhileFirstConnectionRemainsLive() async throws {
+        let router = LivenessHostRouter()
+        let factory = KindRecordingTransportFactory(router: router, box: TransportBox())
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let pairedMacStore = try MobilePairedMacStore(
+            databaseURL: directory.appendingPathComponent("paired-macs.sqlite3")
+        )
+        let runtime = LivenessTestRuntime(
+            transportFactory: factory,
+            now: { Self.fixedNow },
+            supportedRouteKinds: [.tailscale],
+            // Keep the first session eligible for the warm control pool while
+            // the second add takes focus. This models the live multi-Mac path
+            // rather than a legacy host that cannot retain subscriptions.
+            supportsServerPushEvents: true
+        )
+        let store = makeStore(runtime: runtime, pairedMacStore: pairedMacStore)
+
+        await router.setHostIdentity(deviceID: "first-mac", instanceTag: "default")
+        store.pairingCode = qrCode(host: "100.71.210.41")
+        #expect(await store.connectPairingInput() == .connected)
+        #expect(store.connectionState == .connected)
+
+        // The second add starts with the same `.connected` state. Its result,
+        // not a state edge, is what the sheet uses to dismiss.
+        await router.setHostIdentity(deviceID: "second-mac", instanceTag: "default")
+        store.pairingCode = qrCode(host: "100.71.210.42")
+        #expect(await store.connectPairingInput() == .connected)
+        #expect(store.connectionState == .connected)
+        #expect(
+            store.liveMacConnections.contains {
+                // A legacy host may not support subscription handoff, so the
+                // old session can remain focused in the registry. Either role
+                // still proves the existing connection stayed live while the
+                // second device became the active foreground target.
+                $0.macDeviceID == "first-mac"
+            }
+        )
+        #expect(
+            store.liveMacConnections.contains {
+                $0.macDeviceID == "second-mac" && $0.role == .focused
+            }
+        )
+
+        let saved = try await pairedMacStore.loadAll(stackUserID: "phone-user")
+        #expect(Set(saved.map(\.macDeviceID)) == ["first-mac", "second-mac"])
+        #expect(Set(saved.map(\.instanceTag)) == ["default"])
+        #expect(saved.allSatisfy { $0.connectionMethodRawValue == MobileConnectionMethod.tailscale.rawValue })
     }
 
     private func makeStore(
@@ -209,6 +284,10 @@ import Testing
     }
 
     private func currentQRCode() -> String {
+        qrCode(host: host)
+    }
+
+    private func qrCode(host: String) -> String {
         "cmux-ios://attach?v=2&pc=1&r=\(host):\(port)"
     }
 

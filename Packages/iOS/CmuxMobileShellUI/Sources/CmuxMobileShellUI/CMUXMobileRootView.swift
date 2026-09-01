@@ -415,15 +415,7 @@ struct CMUXMobileRootView: View {
             #endif
         }
         .onChange(of: store.connectionState) { _, connectionState in
-            if connectionState == .connected {
-                #if os(iOS)
-                handleRootPresentation(.dismissPairing)
-                #else
-                isShowingAddDeviceSheet = false
-                #endif
-            } else {
-                clearAttachTicketAuthenticationIfNeeded()
-            }
+            if connectionState != .connected { clearAttachTicketAuthenticationIfNeeded() }
             #if os(iOS)
             updateOnboardingMacDiscoveryKeepAlive()
             #endif
@@ -579,15 +571,14 @@ struct CMUXMobileRootView: View {
             acceptVersionWarning: {
                 let result = await store.acceptPairingVersionWarning()
                 clearAttachTicketAuthentication(after: result)
-                if result == .connected {
-                    dismissAddDeviceSheet()
-                }
+                return result
             },
             connectManualHost: { name, host, port in
                 await store.connectManualHost(name: name, host: host, port: port)
             },
             cancelPairing: cancelPairing,
-            cancel: dismissAddDeviceSheet
+            cancel: dismissAddDeviceSheet,
+            onPairingSucceeded: pairingSucceeded
         )
         #if os(iOS)
         .presentationDetents([.medium, .large], selection: $addDeviceSheetDetent)
@@ -632,7 +623,8 @@ struct CMUXMobileRootView: View {
                 showAddDevice: addComputerAction,
                 dismissAction: dismissComputers
             )
-        case let .pairing(pairingPresentation):
+        case let .pairing(pairingPresentation),
+             let .pairingFromComputers(pairingPresentation):
             pairingSheet(initialPresentation: pairingPresentation)
         case .child, .dismissingChild, nil:
             EmptyView()
@@ -1230,6 +1222,7 @@ struct CMUXMobileRootView: View {
                 result.didConnect ? .appOpenURLHandled : .appOpenURLRejected,
                 failure: failure
             )
+            if result == .connected { pairingSucceeded() }
             switch followUp {
             case .none:
                 break
@@ -1251,7 +1244,6 @@ struct CMUXMobileRootView: View {
             openURLTaskToken = nil
         }
     }
-
     /// Follow-up owned by the stored open-URL task after its connection result.
     private enum OpenURLConnectionFollowUp {
         case none
@@ -1280,6 +1272,14 @@ struct CMUXMobileRootView: View {
         isShowingAddDeviceSheet = false
         pairingPresentation = .manual
         finishPairingPresentation()
+        #endif
+    }
+
+    private func pairingSucceeded() {
+        #if os(iOS)
+        handleRootPresentation(.pairingSucceeded)
+        #else
+        dismissAddDeviceSheet()
         #endif
     }
 

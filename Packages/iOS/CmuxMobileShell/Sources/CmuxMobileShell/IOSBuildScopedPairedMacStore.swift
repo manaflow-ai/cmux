@@ -7,12 +7,12 @@ public import Foundation
 /// Mac app-instance compatibility is a separate authority boundary owned by
 /// ``MobileMacBuildCompatibilityPolicy``. The composition root wraps this store
 /// with that policy so one resolved policy governs discovery and persistence.
-public struct IOSBuildScopedPairedMacStore: MobilePairedMacStoring {
+public struct IOSBuildScopedPairedMacStore: MobilePairedMacStoring, MobilePairedMacAtomicPairingStoring {
     private static let separator = "\u{1F}"
 
-    private let inner: any MobilePairedMacStoring
-    private let scope: MobileIOSBuildScope
-    private let mutationGate: PairedMacMutationGate
+    let inner: any MobilePairedMacStoring
+    let scope: MobileIOSBuildScope
+    let mutationGate: PairedMacMutationGate
 
     public init(inner: any MobilePairedMacStoring, scope: MobileIOSBuildScope) {
         self.inner = inner
@@ -610,17 +610,17 @@ public struct IOSBuildScopedPairedMacStore: MobilePairedMacStoring {
         }
     }
 
-    private func scopedTeamID(_ teamID: String?) -> String {
+    func scopedTeamID(_ teamID: String?) -> String {
         let team = normalizedTeamID(teamID) ?? ""
         return "\(team)\(Self.separator)\(scope.serializedScope)"
     }
 
-    private func normalizedTeamID(_ teamID: String?) -> String? {
+    func normalizedTeamID(_ teamID: String?) -> String? {
         let team = teamID?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         return team.isEmpty ? nil : team
     }
 
-    private func scopedRows(stackUserID: String?, teamID: String?) async throws -> [MobilePairedMac] {
+    func scopedRows(stackUserID: String?, teamID: String?) async throws -> [MobilePairedMac] {
         try await inner.loadAll(stackUserID: stackUserID, teamID: scopedTeamID(teamID)).compactMap(unscoped)
     }
 
@@ -642,7 +642,7 @@ public struct IOSBuildScopedPairedMacStore: MobilePairedMacStoring {
         "\(Self.separator)\(scope.serializedScope)"
     }
 
-    private func matches(
+    func matches(
         _ mac: MobilePairedMac,
         macDeviceID: String,
         instanceTag: String?

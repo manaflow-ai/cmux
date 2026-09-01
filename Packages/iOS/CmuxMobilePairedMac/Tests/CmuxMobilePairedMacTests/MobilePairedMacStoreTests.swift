@@ -272,10 +272,9 @@ import Testing
             routes: [tailscale]
         )
 
-        #expect(
-            try await store.activeMac(stackUserID: "user-1")?.legacyTailscaleRoutes
-                == [tailscale]
-        )
+        let active = try await store.activeMac(stackUserID: "user-1")
+        #expect(active?.legacyTailscaleRoutes == nil)
+        #expect(active?.userAuthorizedTailscaleRoutes == [tailscale])
     }
 
     @Test func userGrantSurvivesAuthenticatedIrohPublication() async throws {
@@ -311,7 +310,10 @@ import Testing
         )
 
         #expect(
-            try await store.activeMac(stackUserID: "user-1")?.legacyTailscaleRoutes
+            try await store.activeMac(stackUserID: "user-1")?.legacyTailscaleRoutes == nil
+        )
+        #expect(
+            try await store.activeMac(stackUserID: "user-1")?.userAuthorizedTailscaleRoutes
                 == [tailscale]
         )
     }
@@ -365,7 +367,10 @@ import Testing
         )
 
         #expect(
-            try await store.activeMac(stackUserID: "user-1")?.legacyTailscaleRoutes
+            try await store.activeMac(stackUserID: "user-1")?.legacyTailscaleRoutes == nil
+        )
+        #expect(
+            try await store.activeMac(stackUserID: "user-1")?.userAuthorizedTailscaleRoutes
                 == [tailscale]
         )
     }
@@ -409,17 +414,18 @@ import Testing
             lastSeenAt: Date(timeIntervalSince1970: 2),
             isActive: true,
             stackUserID: "user-1",
-            legacyTailscaleRoutes: [route]
+            legacyTailscaleRoutes: [route],
+            userAuthorizedTailscaleRoutes: [route]
         )
 
         let encoded = try JSONEncoder().encode(mac)
-        let object = try #require(
-            JSONSerialization.jsonObject(with: encoded) as? [String: Any]
-        )
+        let object = try #require(JSONSerialization.jsonObject(with: encoded) as? [String: Any])
         let decoded = try JSONDecoder().decode(MobilePairedMac.self, from: encoded)
 
         #expect(object["legacyTailscaleRoutes"] == nil)
         #expect(decoded.legacyTailscaleRoutes == nil)
+        #expect(object["userAuthorizedTailscaleRoutes"] == nil)
+        #expect(decoded.userAuthorizedTailscaleRoutes == nil)
     }
 
     @Test func markingActiveDeactivatesPreviousWithinScope() async throws {

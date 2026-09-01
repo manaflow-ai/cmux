@@ -1,5 +1,6 @@
 import CMUXMobileCore
 import CmuxMobilePairedMac
+import CmuxMobileShellModel
 import Foundation
 import os
 
@@ -174,27 +175,35 @@ extension MobileShellComposite {
                 }
                 if !userAuthorizedTailscaleRoutes.isEmpty {
                     // The user just proved control of this Mac by entering its
-                    // pairing code; record the device-local grant so later
-                    // preference-ordered dials use the evidence path.
+                    // pairing code. Persist the exact grant and Tailscale-only
+                    // method as one store operation so a failed method write
+                    // can never leave a bearer-capable grant behind.
                     do {
-                        try await pairedMacStore.authorizeUserTailscaleRoutes(
+                        guard let atomicStore = pairedMacStore
+                            as? any MobilePairedMacAtomicPairingStoring else {
+                            throw MobilePairedMacAtomicPairingError.unavailable
+                        }
+                        try await atomicStore.authorizeUserTailscaleRoutesAndSetConnectionMethod(
                             macDeviceID: ticket.macDeviceID,
                             instanceTag: instanceTag,
                             stackUserID: stackUserID,
                             teamID: scope?.teamID,
-                            routes: userAuthorizedTailscaleRoutes
+                            routes: userAuthorizedTailscaleRoutes,
+                            rawValue: MobileConnectionMethod.tailscale.rawValue
                         )
                     } catch {
+                        accepted = false
                         pairedMacPersistenceLog.error(
-                            "user tailscale grant persist failed: \(String(describing: error), privacy: .private)"
+                            "user tailscale grant/method persist failed: \(String(describing: error), privacy: .private)"
                         )
                         self.recordAppEvent(
-                            .computerRoutesUpdated,
+                            .pairedMacStoreWriteFailed,
                             correlationID: ticket.macDeviceID,
                             startedAt: startedAt,
                             failure: DiagnosticFailureKind.classify(error),
                             count: userAuthorizedTailscaleRoutes.count
                         )
+                        return
                     }
                 }
                 await self.clearHiddenMacDeviceID(

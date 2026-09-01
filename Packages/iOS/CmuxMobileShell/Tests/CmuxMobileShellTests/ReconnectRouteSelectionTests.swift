@@ -548,7 +548,7 @@ import Testing
             [tailscale, try iroh()],
             supportedKinds: [.iroh, .tailscale],
             preferNonLoopback: true,
-            tailscaleRequirement: MobileShellComposite.TailscaleRouteRequirement(
+            tailscaleRequirement: MobileTailscaleRouteAuthorizer.Requirement(
                 macDeviceID: "test-mac",
                 grantRoutes: [tailscale]
             )
@@ -562,7 +562,7 @@ import Testing
             [try tailscale(), try iroh()],
             supportedKinds: [.iroh, .tailscale],
             preferNonLoopback: true,
-            tailscaleRequirement: MobileShellComposite.TailscaleRouteRequirement(
+            tailscaleRequirement: MobileTailscaleRouteAuthorizer.Requirement(
                 macDeviceID: "test-mac",
                 grantRoutes: []
             )
@@ -577,7 +577,7 @@ import Testing
             [try tailscale(), try iroh()],
             supportedKinds: [.iroh, .tailscale],
             preferNonLoopback: true,
-            tailscaleRequirement: MobileShellComposite.TailscaleRouteRequirement(
+            tailscaleRequirement: MobileTailscaleRouteAuthorizer.Requirement(
                 macDeviceID: "test-mac",
                 grantRoutes: [otherDestination]
             )

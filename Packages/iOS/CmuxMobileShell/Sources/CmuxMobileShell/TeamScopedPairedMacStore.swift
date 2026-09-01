@@ -11,7 +11,7 @@ public import Foundation
 /// decorator makes that boundary independent from backup mirroring: Release
 /// builds still stamp and read rows by selected team even when the cloud backup
 /// feature flag is off.
-public struct TeamScopedPairedMacStore: MobilePairedMacStoring {
+public struct TeamScopedPairedMacStore: MobilePairedMacStoring, MobilePairedMacAtomicPairingStoring {
     private let inner: any MobilePairedMacStoring
     private let teamIDProvider: @Sendable () async -> String?
 
@@ -390,6 +390,34 @@ public struct TeamScopedPairedMacStore: MobilePairedMacStoring {
             stackUserID: scope.stackUserID,
             teamID: scope.teamID,
             routes: routes
+        )
+    }
+
+    /// Atomically forwards a user Tailscale grant plus method selection after
+    /// resolving the row's actual visible team scope.
+    public func authorizeUserTailscaleRoutesAndSetConnectionMethod(
+        macDeviceID: String,
+        instanceTag: String?,
+        stackUserID: String?,
+        teamID: String?,
+        routes: [CmxAttachRoute],
+        rawValue: String
+    ) async throws {
+        let team = await resolvedTeam(teamID)
+        let scope = try await visibleScope(
+            macDeviceID: macDeviceID,
+            instanceTag: instanceTag,
+            stackUserID: stackUserID,
+            teamID: team
+        )
+        try await authorizeUserTailscaleRoutesAndSetConnectionMethod(
+            forwardingTo: inner,
+            macDeviceID: macDeviceID,
+            instanceTag: instanceTag,
+            stackUserID: scope.stackUserID,
+            teamID: scope.teamID,
+            routes: routes,
+            rawValue: rawValue
         )
     }
 

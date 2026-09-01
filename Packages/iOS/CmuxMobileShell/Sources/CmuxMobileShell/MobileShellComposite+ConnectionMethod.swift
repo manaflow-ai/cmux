@@ -96,10 +96,11 @@ extension MobileShellComposite {
     ///
     /// Direct pins the dial to the user-enabled addresses. Tailscale Only on an
     /// Iroh-identified pairing pins the dial to the pairing's numeric Tailscale
-    /// addresses: the method constrains PATHS while transport admission stays
-    /// the single auth authority, so control, background control, and terminal
-    /// lanes all live and die by the same dial policy. Legacy pairings without
-    /// an Iroh identity return `nil` and keep the grant-gated raw host lane.
+    /// addresses when one exists: the method constrains PATHS while transport
+    /// admission stays the single auth authority. A pairing with only a
+    /// MagicDNS/LAN user grant has no numeric Iroh pin, so it returns `nil` and
+    /// keeps the exact grant-gated host lane. Legacy pairings without an Iroh
+    /// identity likewise return `nil` and keep that lane.
     ///
     /// An empty array means the method is pinned with nothing dialable:
     /// callers must fail closed and never substitute another path. Entries
@@ -130,7 +131,24 @@ extension MobileShellComposite {
             guard pairing.routes.contains(where: { $0.kind == .iroh }) else {
                 return nil
             }
-            return Self.irohTailscaleDialCandidates(for: pairing)
+            let candidates = Self.irohTailscaleDialCandidates(for: pairing)
+            if !candidates.isEmpty {
+                return candidates
+            }
+            // A manual MagicDNS/LAN grant can coexist with an older Iroh row.
+            // Without a numeric Tailscale address there is no safe Iroh path to
+            // pin, so let the exact user grant use its authorized host route.
+            // Keep the empty result for rows with no grant: those remain
+            // fail-closed instead of silently falling back to a raw host.
+            let hasUserAuthorizedHost = pairing.userAuthorizedTailscaleRoutes?
+                .contains { route in
+                    guard route.kind == .tailscale,
+                          case .hostPort = route.endpoint else {
+                        return false
+                    }
+                    return true
+                } == true
+            return hasUserAuthorizedHost ? nil : []
         case .automatic:
             return nil
         }
