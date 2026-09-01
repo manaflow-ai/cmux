@@ -194,6 +194,58 @@ describe("VM Effect workflows", () => {
     });
   });
 
+  test("a free-plan paused VM inside its access window resumes despite the zero create ceiling", async () => {
+    const vm = testCloudVmRow({
+      id: "00000000-0000-4000-8000-000000000109",
+      userId: "user-workflow-free-resume",
+      billingTeamId: "team-workflow-free-resume",
+      billingPlanId: "free",
+      providerVmId: "provider-vm-free-resume",
+      status: "running",
+    });
+    const usageEvents: RecordedUsageEvent[] = [];
+    const reservationCeilings: number[] = [];
+    const base = testWorkflowRepo({ vm, usageEvents });
+    const repo: VmRepositoryShape = {
+      ...base,
+      reservePausedResume: (input) =>
+        Effect.suspend(() => {
+          reservationCeilings.push(input.maxActiveVms);
+          // Mirror the real repository: zero VMs are active, so the
+          // reservation succeeds exactly when the ceiling is above zero.
+          if (input.maxActiveVms <= 0) {
+            return Effect.fail(
+              new VmLimitExceededError({
+                kind: "active_vms",
+                billingTeamId: input.billingTeamId ?? input.userId,
+                limit: input.maxActiveVms,
+              }),
+            );
+          }
+          return Effect.succeed({ ...vm, status: "running" as const });
+        }),
+    };
+    const provider: VmProviderGatewayShape = {
+      ...unusedProviderGateway(),
+      exec: () => Effect.succeed({ exitCode: 0, stdout: "ok", stderr: "" }),
+      getStatus: () => Effect.succeed("paused" as const),
+      resume: () => Effect.succeed(testVmHandle({ providerVmId: "provider-vm-free-resume" })),
+    };
+
+    const result = await Effect.runPromise(
+      execVm({
+        userId: "user-workflow-free-resume",
+        teamIds: ["team-workflow-free-resume"],
+        providerVmId: "provider-vm-free-resume",
+        command: "true",
+        timeoutMs: 1000,
+      }).pipe(Effect.provide(workflowLayer(repo, provider))),
+    );
+
+    expect(result.exitCode).toBe(0);
+    expect(reservationCeilings).toEqual([1]);
+  });
+
   test("exec failure with running provider status propagates the original error without retry", async () => {
     const vm = testCloudVmRow({
       id: "00000000-0000-4000-8000-000000000102",
