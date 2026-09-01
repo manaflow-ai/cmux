@@ -6,6 +6,7 @@ import json
 import os
 import socketserver
 import subprocess
+import tempfile
 import threading
 from pathlib import Path
 
