@@ -172,4 +172,81 @@ final class TerminalNotificationStaleFocusDismissalTests: XCTestCase {
             Set(allNotifications.map(\.id))
         )
     }
+
+    func testAgentResumePreservesOlderReadNotificationWhenLatestIsUnread() throws {
+        let store = TerminalNotificationStore.shared
+        let appDelegate = AppDelegate.shared ?? AppDelegate()
+        let manager = appDelegate.tabManager ?? TabManager()
+
+        let originalTabManager = appDelegate.tabManager
+        let originalNotificationStore = appDelegate.notificationStore
+        let originalAppFocusOverride = AppFocusState.overrideIsFocused
+        let tombstoneKey = TerminalNotificationStore.dismissedTombstoneDefaultsKey
+        let previousTombstones = UserDefaults.standard.stringArray(forKey: tombstoneKey)
+
+        store.replaceNotificationsForTesting([])
+        store.configureNotificationDeliveryHandlerForTesting { _, _ in }
+        appDelegate.tabManager = manager
+        appDelegate.notificationStore = store
+        AppFocusState.overrideIsFocused = false
+
+        let workspace = manager.addWorkspace(select: true)
+        defer {
+            if manager.tabs.contains(where: { $0.id == workspace.id }) {
+                manager.closeWorkspace(workspace)
+            }
+            store.replaceNotificationsForTesting([])
+            if let previousTombstones {
+                UserDefaults.standard.set(previousTombstones, forKey: tombstoneKey)
+            } else {
+                UserDefaults.standard.removeObject(forKey: tombstoneKey)
+            }
+            store.reloadDismissedTombstonesForTesting()
+            store.resetNotificationDeliveryHandlerForTesting()
+            appDelegate.tabManager = originalTabManager
+            appDelegate.notificationStore = originalNotificationStore
+            AppFocusState.overrideIsFocused = originalAppFocusOverride
+        }
+
+        let panelId = try XCTUnwrap(workspace.focusedPanelId)
+        let olderRead = TerminalNotification(
+            id: UUID(),
+            tabId: workspace.id,
+            surfaceId: panelId,
+            title: "Older read",
+            subtitle: "",
+            body: "Retain this history",
+            createdAt: Date(timeIntervalSince1970: 1),
+            isRead: true
+        )
+        let latestUnread = TerminalNotification(
+            id: UUID(),
+            tabId: workspace.id,
+            surfaceId: panelId,
+            title: "Latest unread",
+            subtitle: "",
+            body: "Keep this alert",
+            createdAt: Date(timeIntervalSince1970: 2),
+            isRead: false
+        )
+        store.replaceNotificationsForTesting([latestUnread, olderRead])
+
+        ControlSidebarPanelOwner.workspace(workspace).setAgentLifecycle(
+            key: "codex",
+            panelId: panelId,
+            lifecycle: .running
+        )
+
+        XCTAssertEqual(
+            store.notifications.map(\.id),
+            [latestUnread.id, olderRead.id],
+            "A resume must not scan away older read entries while the latest preview is unread"
+        )
+        XCTAssertFalse(store.hasSidebarNotificationPreview(forTabId: workspace.id))
+        XCTAssertEqual(
+            UserDefaults.standard.stringArray(forKey: tombstoneKey),
+            previousTombstones,
+            "Skipping an unread latest preview must not create dismissal tombstones"
+        )
+    }
 }

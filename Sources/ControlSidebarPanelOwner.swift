@@ -107,7 +107,14 @@ enum ControlSidebarPanelOwner {
         case .dock(let dock):
             notificationStore = dock.resolvedNotificationStore()
         }
-        notificationStore?.clearSidebarNotificationPreviews(forTabId: id)
+        // The latest-notification index is an O(1) no-op gate for the common
+        // resume-without-a-read-preview path; only scan active notifications
+        // when the current sidebar preview is actually retireable.
+        guard let notificationStore,
+              notificationStore.hasSidebarNotificationPreview(forTabId: id) else {
+            return
+        }
+        notificationStore.clearSidebarNotificationPreviews(forTabId: id)
     }
 
     @discardableResult
