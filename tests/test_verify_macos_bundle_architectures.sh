@@ -218,8 +218,8 @@ if printf '%s\n' "$partial_allowlist_output" |
   fail "an allowlisted path should not be reported as a failure"
 fi
 
-# Exercise the fail-closed \`file -E\` path with a deterministic shim. macOS's
-# default \`file\` behavior returns success for an inaccessible path, so a
+# Exercise the fail-closed file -E path with a deterministic shim. macOS's
+# default file behavior returns success for an inaccessible path, so a
 # status-only check would incorrectly skip this inventory entry.
 FILE_ERROR_APP="$TMP_DIR/file-error.app"
 mkdir -p "$FILE_ERROR_APP/Contents/Resources"

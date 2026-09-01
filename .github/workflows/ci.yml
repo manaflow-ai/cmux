@@ -1,58 +1,25 @@
 name: CI
 
 on:
-  # Keep the full suite available for explicit validation, while always
-  # running the lightweight provenance and bundle-architecture guards when
-  # their inputs or packaging workflow wiring changes in a PR.
+  # Start on every change that could affect the macOS app. Keep the exclusions
+  # limited to paths that are independently validated and cannot contribute
+  # files to the packaged bundle; a positive app-input list would silently
+  # miss newly added resource trees.
   pull_request:
-    paths:
-      - ghostty
-      - scripts/download-prebuilt-ghosttykit.sh
-      - scripts/validate-xcframework-archive.py
-      - scripts/ghosttykit-checksums.txt
-      - tests/test_ci_ghosttykit_release_check.sh
-      - scripts/verify-macos-bundle-architectures.sh
-      - scripts/macos-universal-bundle-allowlist.txt
-      - tests/test_verify_macos_bundle_architectures.sh
-      - .github/workflows/nightly.yml
-      - .github/workflows/release.yml
-      - tests/test_ci_change_areas.py
-      - .github/workflows/ci.yml
-      # Keep the release-build architecture gate connected to every macOS app
-      # producer and bundle mutator. A path-scoped workflow that omits one of
-      # these inputs can silently skip the only job that scans the resulting
-      # packaged Mach-O files.
-      - "Sources/**"
-      - "CLI/**"
-      - "Packages/Shared/**"
-      - "Packages/macOS/**"
-      - "Resources/**"
-      - "Native/**"
-      - "cmux.xcodeproj/**"
-      - "cmux.xcworkspace/**"
-      - "vendor/**"
-      - "scripts/**"
-      - "webviews/**"
-      - "package.json"
-      - "bun.lock"
-      - ".xcode-version"
-      - "*.h"
-      - "*.m"
-      - "*.mm"
-      - "*.c"
-      - "*.cc"
-      - "*.cpp"
-      - "*.swift"
-      - "*.metal"
-      - "*.zig"
-      - "Package.swift"
-      - "Package.resolved"
-      - "*.entitlements"
-      - "**/*.entitlements"
-      - "**/*.xcconfig"
-      - "**/*.plist"
-      - ".github/actions/**"
-      - ".github/workflows/**"
+    paths-ignore:
+      - "docs/**"
+      - "design/**"
+      - "plans/**"
+      - "ios/**"
+      - "web/**"
+      - "daemon/remote/**"
+      - "homebrew-cmux/**"
+      - "README*.md"
+      - "CONTRIBUTING.md"
+      - "PROJECTS.md"
+      - "TODO.md"
+      - "reports.md"
+      - "CHANGELOG.md"
   workflow_dispatch:
 
 permissions:
@@ -411,7 +378,7 @@ jobs:
     name: GhosttyKit release check
     permissions:
       contents: read
-    # The pull_request trigger is path-scoped to GhosttyKit provenance inputs;
+    # The pull_request trigger excludes only independent non-app areas;
     # workflow_dispatch keeps the same guard available for explicit CI runs.
     if: ${{ github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch' }}
     runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}

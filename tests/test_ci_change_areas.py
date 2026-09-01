@@ -9,7 +9,10 @@ import os
 import subprocess
 import sys
 import tempfile
+from fnmatch import fnmatch
 from pathlib import Path
+
+import yaml
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -37,6 +40,34 @@ def assert_areas(
     assert actual.web is web, (paths, actual)
     assert actual.go is go, (paths, actual)
     assert actual.agent_session_web is agent_session_web, (paths, actual)
+
+
+def test_ci_trigger_uses_negative_filter_for_future_app_inputs() -> None:
+    workflow = yaml.safe_load(CI_WORKFLOW.read_text(encoding="utf-8"))
+    trigger = workflow.get("on", workflow.get(True))
+    assert isinstance(trigger, dict)
+    pull_request = trigger["pull_request"]
+    assert "paths" not in pull_request
+    ignored = pull_request["paths-ignore"]
+
+    # These are representative files from every app-producing boundary. None
+    # may be covered by the exclusion list, including source-root resources
+    # that are copied recursively by the Xcode target.
+    app_inputs = [
+        "skills/cmux-cua/agent.py",
+        "cmux-Bridging-Header.h",
+        ".xcode-version",
+        "Sources/AppDelegate.swift",
+        "cmux.xcodeproj/project.pbxproj",
+        "scripts/strip-release-bundle.sh",
+        "Resources/agent-session-react/index.js",
+    ]
+    for path in app_inputs:
+        assert not any(fnmatch(path, pattern) for pattern in ignored), path
+
+    # Clearly non-app paths retain the cheap skip behavior.
+    for path in ["docs/ci.md", "ios/cmux/ContentView.swift", "web/app/page.tsx"]:
+        assert any(fnmatch(path, pattern) for pattern in ignored), path
 
 
 def test_docs_only_skips_expensive_areas() -> None:
