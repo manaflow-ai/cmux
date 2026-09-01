@@ -9137,7 +9137,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         XCTAssertEqual(request["surface_id"] as? String, surfaceId)
     }
 
-    private struct ClaudeHookContext {
+    struct ClaudeHookContext {
         let cliPath: String
         let socketPath: String
         let listenerFD: Int32
@@ -9205,7 +9205,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         )
     }
 
-    private func runAgentHook(
+    func runAgentHook(
         context: ClaudeHookContext,
         agent: String,
         subcommand: String,
@@ -9250,7 +9250,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         }, onListenerClosed: {})
     }
 
-    private func agentHookMockResponse(line: String, context: ClaudeHookContext) -> String {
+    func agentHookMockResponse(line: String, context: ClaudeHookContext) -> String {
         guard let payload = jsonObject(line) else {
             return "OK"
         }
@@ -9271,7 +9271,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         }
     }
 
-    private func makeClaudeHookContext(name: String) throws -> ClaudeHookContext {
+    func makeClaudeHookContext(name: String) throws -> ClaudeHookContext {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-\(name)-\(UUID().uuidString)", isDirectory: true)
         let socketPath = makeSocketPath(String(name.prefix(6)))
