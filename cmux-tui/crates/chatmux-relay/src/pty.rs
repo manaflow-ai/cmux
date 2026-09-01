@@ -451,6 +451,7 @@ struct Attachment {
     /// Transport that opened this attachment (see FrameContext::transport_id).
     transport_id: Option<String>,
     generation: u64,
+    publication_gate: Arc<Mutex<()>>,
 }
 
 struct Inner {
@@ -913,6 +914,9 @@ impl Inner {
             opened.control.kill();
             return;
         }
+        let previous_gate = attachments.get(&pty_id).map(|a| Arc::clone(&a.publication_gate));
+        let _previous_publication =
+            previous_gate.as_ref().map(|gate| gate.lock().expect("attachment publication lock"));
         let previous = attachments.insert(
             pty_id.clone(),
             Attachment {
@@ -921,6 +925,7 @@ impl Inner {
                 actor_id: actor.to_owned(),
                 transport_id: context.transport_id.clone(),
                 generation: opened.generation,
+                publication_gate: Arc::clone(&opened.publication_gate),
             },
         );
         if let Some(previous) = previous {
@@ -955,13 +960,20 @@ impl Inner {
         pty_id: &str,
         context: &FrameContext,
         generation: u64,
+        publication_gate: Arc<Mutex<()>>,
     ) -> (DataSink, ExitSink) {
         let on_data = {
             let inner = Arc::clone(self);
             let context = context.clone();
             let pty_id = pty_id.to_owned();
             Arc::new(move |chunk: Bytes| {
-                inner.emit_output_for_generation(&pty_id, &chunk, &context, generation)
+                inner.emit_output_for_generation(
+                    &pty_id,
+                    &chunk,
+                    &context,
+                    generation,
+                    &publication_gate,
+                )
             }) as Arc<dyn Fn(Bytes) + Send + Sync>
         };
         let on_exit = {
@@ -969,7 +981,13 @@ impl Inner {
             let context = context.clone();
             let pty_id = pty_id.to_owned();
             Arc::new(move |code: i64| {
-                inner.emit_exit_for_generation(&pty_id, code, &context, generation)
+                inner.emit_exit_for_generation(
+                    &pty_id,
+                    code,
+                    &context,
+                    generation,
+                    &publication_gate,
+                )
             }) as Arc<dyn Fn(i64) + Send + Sync>
         };
         (on_data, on_exit)
@@ -981,16 +999,17 @@ impl Inner {
         chunk: &Bytes,
         context: &FrameContext,
         generation: u64,
+        publication_gate: &Arc<Mutex<()>>,
     ) {
-        if !self
-            .attachments
-            .lock()
-            .expect("attach lock")
-            .get(pty_id)
-            .is_some_and(|a| a.generation == generation)
+        let attachments = self.attachments.lock().expect("attach lock");
+        let Some(current) = attachments.get(pty_id) else { return };
+        if current.generation != generation
+            || !Arc::ptr_eq(&current.publication_gate, publication_gate)
         {
             return;
         }
+        let _publication = publication_gate.lock().expect("attachment publication lock");
+        drop(attachments);
         let auth = Self::auth_snapshot(context);
         if self
             .authorize_snapshot_for_generation(pty_id, &auth, context, "output", generation)
@@ -1034,7 +1053,17 @@ impl Inner {
         code: i64,
         context: &FrameContext,
         generation: u64,
+        publication_gate: &Arc<Mutex<()>>,
     ) {
+        let attachments = self.attachments.lock().expect("attach lock");
+        let Some(current) = attachments.get(pty_id) else { return };
+        if current.generation != generation
+            || !Arc::ptr_eq(&current.publication_gate, publication_gate)
+        {
+            return;
+        }
+        let _publication = publication_gate.lock().expect("attachment publication lock");
+        drop(attachments);
         let auth = Self::auth_snapshot(context);
         if self
             .authorize_snapshot_for_generation(pty_id, &auth, context, "exit", generation)
@@ -1046,6 +1075,7 @@ impl Inner {
         match attachments.get(pty_id) {
             Some(attachment)
                 if attachment.generation == generation
+                    && Arc::ptr_eq(&attachment.publication_gate, publication_gate)
                     && !attachment.closing.load(Ordering::SeqCst) => {}
             _ => return,
         }
@@ -1196,6 +1226,7 @@ struct Opened {
     control: Arc<dyn PtyControl>,
     closing: Arc<AtomicBool>,
     generation: u64,
+    publication_gate: Arc<Mutex<()>>,
     start: Box<dyn FnOnce() + Send>,
 }
 
@@ -1375,13 +1406,16 @@ impl Inner {
         let output = Arc::clone(&handle.output);
         let banner = handle.banner.clone();
         let generation = self.next_generation.fetch_add(1, Ordering::Relaxed);
-        let (on_data, on_exit) = self.sinks(pty_id, context, generation);
+        let publication_gate = Arc::new(Mutex::new(()));
+        let (on_data, on_exit) =
+            self.sinks(pty_id, context, generation, Arc::clone(&publication_gate));
         Ok(Opened {
             created: ensured.created,
             surface: None,
             control,
             closing: Arc::new(AtomicBool::new(false)),
             generation,
+            publication_gate,
             start: Box::new(move || drive_handle(output, banner, on_data, on_exit)),
         })
     }
@@ -1522,7 +1556,9 @@ impl Inner {
         let released = Arc::new(AtomicBool::new(false));
         let closing = Arc::new(AtomicBool::new(false));
         let generation = self.next_generation.fetch_add(1, Ordering::Relaxed);
-        let (on_data, on_exit) = self.sinks(pty_id, context, generation);
+        let publication_gate = Arc::new(Mutex::new(()));
+        let (on_data, on_exit) =
+            self.sinks(pty_id, context, generation, Arc::clone(&publication_gate));
 
         // The per-attachment control proxies onto the session pty but its
         // kill() only unhooks this viewer (release), never the session.
@@ -1561,7 +1597,15 @@ impl Inner {
             }
         });
 
-        Ok(Opened { created, surface: None, control: proxy, closing, generation, start })
+        Ok(Opened {
+            created,
+            surface: None,
+            control: proxy,
+            closing,
+            generation,
+            publication_gate,
+            start,
+        })
     }
 }
 
@@ -2103,7 +2147,8 @@ impl Inner {
         let proxy =
             Arc::new(ControlTerminalControl { control: control_guard.disarm(), surface_id });
         let generation = self.next_generation.fetch_add(1, Ordering::Relaxed);
-        let (on_data, _) = self.sinks(pty_id, context, generation);
+        let publication_gate = Arc::new(Mutex::new(()));
+        let (on_data, _) = self.sinks(pty_id, context, generation, Arc::clone(&publication_gate));
         let relay = Arc::clone(&self);
         let context_for_exit = context.clone();
         let pty_id_for_exit = pty_id.to_owned();
@@ -2123,6 +2168,7 @@ impl Inner {
                     code,
                     &context_for_exit,
                     generation,
+                    &publication_gate,
                 );
             }
         });
@@ -2133,6 +2179,7 @@ impl Inner {
             control: proxy,
             closing: Arc::new(AtomicBool::new(false)),
             generation,
+            publication_gate,
             start: Box::new(move || start_stream.go_live(on_data, on_exit)),
         }))
     }
