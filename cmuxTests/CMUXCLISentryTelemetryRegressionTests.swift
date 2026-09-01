@@ -131,6 +131,29 @@ private final class CMUXCLISentryTelemetryBundleToken {}
         #expect(FileManager.default.fileExists(atPath: actionableProbe))
     }
 
+    @Test func routineProtocolOutcomesDoNotCaptureSentryTelemetry() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-cli-sentry-routine-outcomes-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        for code in ["invalid_params", "not_found", "protected"] {
+            let probePath = root.appendingPathComponent("\(code)-probe.txt").path
+            let result = try runStructuredErrorProbe(
+                code: code,
+                probePath: probePath,
+                root: root
+            )
+            #expect(!result.timedOut, Comment(rawValue: result.stdout))
+            #expect(result.status != 0, Comment(rawValue: result.stdout))
+            #expect(result.stdout.lowercased().contains(code), Comment(rawValue: result.stdout))
+            #expect(
+                !FileManager.default.fileExists(atPath: probePath),
+                Comment(rawValue: "Routine protocol outcome \(code) must not create Sentry telemetry. Output: \(result.stdout)")
+            )
+        }
+    }
+
     @Test func localPiSurfaceUnavailableSentinelDoesNotCaptureSentryTelemetry() throws {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-cli-sentry-pi-unavailable-\(UUID().uuidString)", isDirectory: true)
@@ -151,6 +174,37 @@ private final class CMUXCLISentryTelemetryBundleToken {}
         #expect(
             !FileManager.default.fileExists(atPath: probePath),
             Comment(rawValue: "Pi's local surface-unavailable sentinel must not create Sentry telemetry. Output: \(result.stdout)")
+        )
+    }
+
+    @Test func expectedAgentHookFailureDoesNotConsumeActionableThrottleSlot() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-cli-sentry-agent-hook-throttle-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let sessionID = "sentry-hook-shared-\(UUID().uuidString)"
+        let expectedProbe = root.appendingPathComponent("expected.txt").path
+        let expectedResult = try runAgentHookErrorProbe(
+            message: "TabManager not available",
+            probePath: expectedProbe,
+            root: root,
+            sessionID: sessionID
+        )
+        #expect(!expectedResult.timedOut, Comment(rawValue: expectedResult.stdout))
+        #expect(!FileManager.default.fileExists(atPath: expectedProbe))
+
+        let actionableProbe = root.appendingPathComponent("actionable.txt").path
+        let actionableResult = try runAgentHookErrorProbe(
+            message: "remote proxy failed: TabManager not available",
+            probePath: actionableProbe,
+            root: root,
+            sessionID: sessionID
+        )
+        #expect(!actionableResult.timedOut, Comment(rawValue: actionableResult.stdout))
+        #expect(
+            FileManager.default.fileExists(atPath: actionableProbe),
+            Comment(rawValue: "An actionable failure after expected noise must remain reportable. Output: \(actionableResult.stdout)")
         )
     }
 
@@ -372,13 +426,14 @@ private final class CMUXCLISentryTelemetryBundleToken {}
     private func runAgentHookErrorProbe(
         message: String,
         probePath: String,
-        root: URL
+        root: URL,
+        sessionID: String? = nil
     ) throws -> ProcessRunResult {
         let workspaceID = "11111111-1111-1111-1111-111111111111"
         let surfaceID = "22222222-2222-2222-2222-222222222222"
-        let sessionID = "sentry-hook-\(UUID().uuidString)"
+        let resolvedSessionID = sessionID ?? "sentry-hook-\(UUID().uuidString)"
         let inputData = try JSONSerialization.data(withJSONObject: [
-            "session_id": sessionID,
+            "session_id": resolvedSessionID,
             "hook_event_name": "Stop",
             "cwd": root.path,
             "last_assistant_message": "done"
