@@ -16,7 +16,7 @@ extension DockSplitStore {
         let selectedTabId = bonsplitController.selectedTab(inPane: sourcePaneId)?.id
         let selectedPanelId = selectedTabId.flatMap { surfaceIdToPanelId[$0] }
 
-        let didMove = PaneOuterSplitLayoutMutation.movePane(
+        let didMove = paneOuterSplitLayoutMutation.movePane(
             sourcePaneId,
             in: bonsplitController,
             movement: movement

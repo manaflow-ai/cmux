@@ -16,6 +16,7 @@ struct PaneOuterSplitMovementTests {
         movement: PaneOuterSplitMovement
     ) throws {
         let fixture = try makeNestedFixture()
+        let mutation = PaneOuterSplitLayoutMutation()
         let beforeTabIds = Set(fixture.controller.allTabIds)
         let beforeSourceTabs = fixture.controller
             .tabs(inPane: fixture.sourcePane)
@@ -25,7 +26,7 @@ struct PaneOuterSplitMovementTests {
         )
 
         #expect(
-            PaneOuterSplitLayoutMutation.movePane(
+            mutation.movePane(
                 fixture.sourcePane,
                 in: fixture.controller,
                 movement: movement
@@ -82,8 +83,9 @@ struct PaneOuterSplitMovementTests {
 
     @Test func directRootEdgeIsANoOp() throws {
         let fixture = try makeNestedFixture()
+        let mutation = PaneOuterSplitLayoutMutation()
         #expect(
-            PaneOuterSplitLayoutMutation.movePane(
+            mutation.movePane(
                 fixture.sourcePane,
                 in: fixture.controller,
                 movement: .right
@@ -98,7 +100,7 @@ struct PaneOuterSplitMovementTests {
         )
         let afterFirstMove = fixture.controller.treeSnapshot()
         #expect(
-            !PaneOuterSplitLayoutMutation.movePane(
+            !mutation.movePane(
                 fixture.sourcePane,
                 in: fixture.controller,
                 movement: .right
@@ -116,11 +118,12 @@ struct PaneOuterSplitMovementTests {
 
     @Test func rejectsControllersThatCannotMoveTabsAcrossPanes() throws {
         let fixture = try makeNestedFixture()
+        let mutation = PaneOuterSplitLayoutMutation()
         fixture.controller.configuration.allowCrossPaneTabMove = false
         let before = fixture.controller.treeSnapshot()
 
         #expect(
-            !PaneOuterSplitLayoutMutation.movePane(
+            !mutation.movePane(
                 fixture.sourcePane,
                 in: fixture.controller,
                 movement: .right

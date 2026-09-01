@@ -16,7 +16,7 @@ extension Workspace {
         guard !sourceTabs.isEmpty else { return false }
         let selectedTabId = bonsplitController.selectedTab(inPane: sourcePaneId)?.id
 
-        let didMove = PaneOuterSplitLayoutMutation.movePane(
+        let didMove = paneOuterSplitLayoutMutation.movePane(
             sourcePaneId,
             in: bonsplitController,
             movement: movement

@@ -1,19 +1,35 @@
 import Bonsplit
 import Foundation
 
-/// Shared structural mutation used by the main workspace and the right-side
-/// Dock. Bonsplit intentionally exposes leaf-level split operations, while an
-/// outer-pane move needs to preserve an existing tree around the workspace
-/// root. This implementation rebuilds the tree from live tab metadata, so the
-/// tab and panel objects themselves are transferred rather than recreated.
+/// Performs the root-edge promotion used by workspace and Dock hosts.
 @MainActor
-enum PaneOuterSplitLayoutMutation {
+protocol PaneOuterSplitLayoutMutating {
     typealias Splitter = @MainActor (
         _ pane: PaneID,
         _ orientation: SplitOrientation,
         _ tab: Bonsplit.Tab,
         _ insertFirst: Bool
     ) -> PaneID?
+
+    /// Promotes `paneId` to the requested edge while preserving its live tabs.
+    @discardableResult
+    func movePane(
+        _ paneId: PaneID,
+        in controller: BonsplitController,
+        movement: PaneOuterSplitMovement,
+        split: @escaping Splitter
+    ) -> Bool
+}
+
+/// Shared structural mutation used by the main workspace and the right-side
+/// Dock. Bonsplit intentionally exposes leaf-level split operations, while an
+/// outer-pane move needs to preserve an existing tree around the workspace
+/// root. This implementation rebuilds the tree from live tab metadata, so the
+/// tab and panel objects themselves are transferred rather than recreated.
+@MainActor
+struct PaneOuterSplitLayoutMutation: PaneOuterSplitLayoutMutating {
+    /// Creates the stateless outer-pane layout service.
+    init() {}
 
     private struct LayoutPane {
         let id: PaneID
@@ -71,7 +87,7 @@ enum PaneOuterSplitLayoutMutation {
     /// each host mark its own programmatic-split transaction, preventing its
     /// delegate from creating an extra terminal in each scaffold pane.
     @discardableResult
-    static func movePane(
+    func movePane(
         _ paneId: PaneID,
         in controller: BonsplitController,
         movement: PaneOuterSplitMovement,
@@ -250,7 +266,7 @@ enum PaneOuterSplitLayoutMutation {
         return true
     }
 
-    private static func captureLayout(
+    private func captureLayout(
         from node: ExternalTreeNode,
         controller: BonsplitController
     ) -> LayoutNode? {
@@ -291,7 +307,7 @@ enum PaneOuterSplitLayoutMutation {
         }
     }
 
-    private static func isAlreadyAtRequestedRootEdge(
+    private func isAlreadyAtRequestedRootEdge(
         _ layout: LayoutNode,
         paneId: PaneID,
         movement: PaneOuterSplitMovement
@@ -305,7 +321,7 @@ enum PaneOuterSplitLayoutMutation {
         return pane.id == paneId
     }
 
-    private static func removing(
+    private func removing(
         paneId: PaneID,
         from node: LayoutNode,
         removed: inout LayoutNode?
@@ -352,7 +368,7 @@ enum PaneOuterSplitLayoutMutation {
         }
     }
 
-    private static func applyDividerPositions(
+    private func applyDividerPositions(
         desired: LayoutNode,
         live: ExternalTreeNode,
         controller: BonsplitController
@@ -379,7 +395,7 @@ enum PaneOuterSplitLayoutMutation {
         )
     }
 
-    private static func restoreTabOrder(
+    private func restoreTabOrder(
         _ desiredTabIds: [TabID],
         in pane: PaneID,
         controller: BonsplitController
