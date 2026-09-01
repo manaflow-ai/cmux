@@ -1092,8 +1092,7 @@ mod tests {
         let mut all_spec = spec(vec![SidebarResourceKind::Agents]);
         all_spec.scope = SidebarViewScope::All;
         let seen: SeenIdleSurfaces = [22].into_iter().collect();
-        let rows =
-            rows(&all_spec, all_spec.sort, &tree, &agents, &seen, 0, &HashSet::new());
+        let rows = rows(&all_spec, all_spec.sort, &tree, &agents, &seen, 0, &HashSet::new());
 
         let order: Vec<u64> = rows
             .iter()

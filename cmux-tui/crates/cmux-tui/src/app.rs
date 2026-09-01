@@ -27546,10 +27546,7 @@ mod tests {
 
         app.activate_sidebar_profile(1);
 
-        assert_eq!(
-            app.effective_agent_sort(&second_view),
-            crate::config::AgentSortMode::Recency
-        );
+        assert_eq!(app.effective_agent_sort(&second_view), crate::config::AgentSortMode::Recency);
     }
 
     #[test]
@@ -43835,9 +43832,11 @@ mod tests {
 
         let mut terminal = Terminal::new(TestBackend::new(100, 12)).unwrap();
         terminal.draw(|frame| crate::ui::draw(&mut app, frame)).unwrap();
-        assert!(buffer_text(terminal.backend().buffer()).lines().any(|line| {
-            line.contains("agents") && line.contains("priority")
-        }));
+        assert!(
+            buffer_text(terminal.backend().buffer())
+                .lines()
+                .any(|line| { line.contains("agents") && line.contains("priority") })
+        );
 
         app.handle_key(KeyEvent::new(KeyCode::Char('s'), KeyModifiers::NONE)).unwrap();
         assert_eq!(
@@ -43850,9 +43849,11 @@ mod tests {
             crate::config::AgentSortMode::Recency
         );
         terminal.draw(|frame| crate::ui::draw(&mut app, frame)).unwrap();
-        assert!(buffer_text(terminal.backend().buffer()).lines().any(|line| {
-            line.contains("agents") && line.contains("recency")
-        }));
+        assert!(
+            buffer_text(terminal.backend().buffer())
+                .lines()
+                .any(|line| { line.contains("agents") && line.contains("recency") })
+        );
 
         mux.close_surface(surface.id).unwrap();
     }

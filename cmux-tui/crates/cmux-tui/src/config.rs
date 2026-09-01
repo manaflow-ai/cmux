@@ -2038,10 +2038,7 @@ fn resolve_agent_row_filter(
         return AgentRowFilter::default();
     };
     let mut filter = AgentRowFilter::default();
-    for (name, output) in [
-        ("agent", &mut filter.agents),
-        ("state", &mut filter.states),
-    ] {
+    for (name, output) in [("agent", &mut filter.agents), ("state", &mut filter.states)] {
         let Some(value) = object.get(name) else { continue };
         let Some(values) = value.as_array() else {
             if !value.is_null() {
