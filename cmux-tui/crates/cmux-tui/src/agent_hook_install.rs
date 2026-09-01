@@ -743,15 +743,15 @@ impl HermesReapState {
     }
 
     fn reap(&self) {
-        let child = self.child.lock().expect("Hermes reaper mutex poisoned").take();
-        if let Some(mut child) = child {
-            let _ = child.wait();
-        }
         #[cfg(unix)]
         if let Some(child_exit) =
             self.child_exit.lock().expect("Hermes exit observer mutex poisoned").take()
         {
             child_exit.finish();
+        }
+        let child = self.child.lock().expect("Hermes reaper mutex poisoned").take();
+        if let Some(mut child) = child {
+            let _ = child.wait();
         }
     }
 }
