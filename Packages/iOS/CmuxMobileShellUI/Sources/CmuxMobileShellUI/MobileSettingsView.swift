@@ -543,6 +543,7 @@ struct MobileSettingsView: View {
                         didFinishSearch: store?.didFinishStoredMacReconnectAttempt == true
                     ),
                     connectionMethod: connectionMethodStore?.method ?? .automatic,
+                    keepAwakeOffer: OnboardingKeepAwakeOfferSource.offer(from: store),
                     onSelectConnectionMethod: { connectionMethodStore?.method = $0 },
                     onEnablePush: {
                         await pushCoordinator.enable(trigger: "onboarding_replay")
@@ -553,6 +554,9 @@ struct MobileSettingsView: View {
                     onStartTailscalePairing: {
                         showingOnboarding = false
                         startPairingScanner?()
+                    },
+                    onSetKeepAwake: { [store] enabled in
+                        await OnboardingKeepAwakeOfferSource.set(enabled, on: store)
                     },
                     onComplete: { showingOnboarding = false }
                 )
