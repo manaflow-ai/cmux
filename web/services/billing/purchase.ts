@@ -339,6 +339,12 @@ export async function recordCheckoutCompletion(
           customerId,
           requestedStackUserId,
           mappedCustomerBeforeLookup.stackUserId,
+        )) &&
+        (await hasMappedStripeSubscriptionOwnership(
+          db,
+          customerId,
+          subscription.id,
+          mappedCustomerBeforeLookup.stackUserId,
         )),
     );
     // Direct canonical-owner resolution (for a verified Gmail alias) does not
@@ -795,14 +801,20 @@ export async function recordFoundersCheckoutCompletion(
       // Re-read after attaching or promoting the channel, then grant the
       // Founder entitlement only when Stack reports a verified ordinary owner.
       const entitlementUser = await stackApp.getUser(user.id);
-      if (entitlementUser && isVerifiedCanonicalBillingOwner(entitlementUser, email)) {
-        await syncProPlanMetadata(entitlementUser, true, mutationLease);
+      const verifiedCanonicalOwner = Boolean(
+        entitlementUser && isVerifiedCanonicalBillingOwner(entitlementUser, email),
+      );
+      if (
+        verifiedCanonicalOwner &&
+        hasEffectiveFounderEntitlement(entitlementUser?.clientReadOnlyMetadata, true)
+      ) {
+        await syncProPlanMetadata(entitlementUser!, true, mutationLease);
         await enrollFounderTester(
           input.enrollmentEmail?.trim() || email,
           checkoutCustomerName(input.session, input.customer),
           dependencies,
         );
-      } else {
+      } else if (!verifiedCanonicalOwner) {
         await mutationLease.refresh();
         await recordBillingEmailClaim(db, {
           email,

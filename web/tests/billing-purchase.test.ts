@@ -971,6 +971,72 @@ describe("recordFoundersCheckoutCompletion", () => {
     expect(subscriptionInsert?.values.status).toBe("active");
   });
 
+  test("does not enroll or grant Founder access when a non-Founder VM override wins", async () => {
+    const update = mock(async () => undefined);
+    const user = {
+      id: "founder_override_free",
+      primaryEmail: "override@example.com",
+      primaryEmailVerified: true,
+      isAnonymous: false,
+      isRestricted: false,
+      clientReadOnlyMetadata: { cmuxVmPlan: "free" },
+      update,
+    };
+    const enroll = mock(async () => undefined);
+    selectResults = Array.from({ length: 30 }, () => []);
+
+    const result = await recordFoundersCheckoutCompletion(
+      {
+        session: {
+          id: "cs_founder_override_free",
+          customer: "cus_founder_override_free",
+          customer_details: { email: "override@example.com" },
+          metadata: { founders_edition: "true" },
+          subscription: "sub_founder_override_free",
+        } as never,
+        subscription: {
+          id: "sub_founder_override_free",
+          customer: "cus_founder_override_free",
+          status: "active",
+          metadata: { founders_edition: "true" },
+          cancel_at_period_end: false,
+          items: { data: [] },
+        } as never,
+        customer: {
+          id: "cus_founder_override_free",
+          deleted: false,
+          email: "override@example.com",
+        } as never,
+      },
+      {
+        db: fakeDb() as never,
+        stackApp: {
+          getUser: async () => user,
+          listUsers: async () => [
+            {
+              id: user.id,
+              primaryEmail: user.primaryEmail,
+              primaryEmailVerified: true,
+              isAnonymous: false,
+              isRestricted: false,
+            },
+          ],
+        } as never,
+        testflight: { enrollTester: enroll },
+      },
+    );
+
+    expect(result).toEqual({
+      scope: "user",
+      stackUserId: user.id,
+      subscriptionId: "sub_founder_override_free",
+    });
+    expect(enroll).not.toHaveBeenCalled();
+    expect(update).not.toHaveBeenCalledWith({
+      clientReadOnlyMetadata: { cmuxVmPlan: "free", cmuxPlan: "pro" },
+    });
+  });
+
   test("preserves a locally marked Founder entitlement on an unmarked event", async () => {
     const update = mock(async () => undefined);
     const user = {
@@ -1151,6 +1217,7 @@ describe("recordFoundersCheckoutCompletion", () => {
     selectResults = [
       [{ stackUserId: real.id, stackTeamId: null }],
       [{ id: "sub_123" }],
+      [{ id: "sub_123" }],
     ];
     const replay = await recordCheckoutCompletion(input as never, {
       db: db as never,
@@ -1166,6 +1233,42 @@ describe("recordFoundersCheckoutCompletion", () => {
     expect(inserts).toHaveLength(0);
     expect(updates).toHaveLength(0);
     expect(listUsers).toHaveBeenCalledTimes(1);
+  });
+
+  test("does not acknowledge a claimed replay for a different subscription", async () => {
+    const source = {
+      id: "anonymous_stale_replay",
+      isAnonymous: true,
+      primaryEmail: null,
+      clientReadOnlyMetadata: {},
+      update: mock(async () => undefined),
+    };
+    const target = {
+      id: "canonical_stale_replay_owner",
+      isAnonymous: false,
+      isRestricted: false,
+      primaryEmail: "buyer@example.com",
+      primaryEmailVerified: true,
+      clientReadOnlyMetadata: {},
+      update: mock(async () => undefined),
+    };
+    const getUser = mock(async (...args: unknown[]) =>
+      args[0] === source.id ? source : target,
+    );
+    // mapped customer, consumed claim, and no row for the replayed
+    // subscription id, respectively.
+    selectResults = [
+      [{ stackUserId: target.id, stackTeamId: null }],
+      [{ id: "claim_stale" }],
+      [],
+    ];
+
+    await expect(
+      recordCheckoutCompletion(checkoutInput("cus_stale_replay") as never, {
+        db: fakeDb() as never,
+        stackApp: { getUser } as never,
+      }),
+    ).rejects.toThrow("ownership conflict");
   });
 
   test("moves an already-parked alias customer without leaving a claim", async () => {
@@ -2271,6 +2374,7 @@ describe("recordCheckoutCompletion", () => {
     selectResults = [
       [{ stackUserId: target.id }],
       [{ id: "claim_1" }],
+      [{ id: "sub_123" }],
     ];
 
     const result = await recordCheckoutCompletion(checkoutInput() as never, {
