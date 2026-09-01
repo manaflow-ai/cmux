@@ -1,4 +1,27 @@
 {
+  "vmErrors": {
+    "unsupported": {
+      "title": "Operación de Cloud VM no disponible",
+      "reason": "Este tipo de máquina no ofrece esta operación.",
+      "message": {
+        "snapshot": "Esta Cloud VM no admite el estado guardado de la VM.",
+        "restore": "Este tipo de Cloud VM no admite restaurar el estado guardado de la VM.",
+        "fork": "Esta Cloud VM no admite copiar a una nueva VM.",
+        "default": "Esta Cloud VM no admite la operación solicitada."
+      },
+      "action": {
+        "snapshot": "No vuelvas a intentarlo. El trabajo de este tipo de máquina se conserva en su volumen de inicio persistente.",
+        "restore": "No vuelvas a intentarlo. El trabajo de este tipo de máquina se conserva en su volumen de inicio persistente.",
+        "fork": "No vuelvas a intentarlo. Crea una nueva VM con `cmux vm new`.",
+        "default": "No vuelvas a intentarlo. Ejecuta `cmux vm ls` o contacta con soporte si crees que esto es un error."
+      }
+    },
+    "requiresPro": {
+      "title": "Se requiere cmux Pro",
+      "message": "Las Cloud VM requieren un plan cmux Pro.",
+      "action": "Actualiza a cmux Pro en {upgradeUrl} para crear Cloud VM."
+    }
+  },
   "billingRecovery": {
     "message": "Si encontramos una cuenta, revisa tu correo para conocer los siguientes pasos"
   },
@@ -29,6 +52,13 @@
     "title": "cmux — La terminal diseñada para multitarea",
     "description": "Terminal nativa de macOS open source y gratuita basada en Ghostty. Funciona con Claude Code, Codex, OpenCode, Gemini CLI, Kiro, Aider y cualquier herramienta CLI. Pestañas verticales, anillos de notificación, paneles divididos y una socket API.",
     "ogDescription": "Terminal de macOS open source y gratuita para agentes de programación con IA. Funciona con Claude Code, Codex, OpenCode, Gemini CLI, Kiro, Aider y cualquier herramienta CLI."
+  },
+  "authError": {
+    "emailUnverifiedTitle": "Verifica tu correo electrónico para continuar",
+    "emailUnverifiedBody": "Inicia sesión con el método que usaste originalmente y verifica tu correo antes de usar este método de inicio de sesión.",
+    "genericTitle": "No se pudo completar el inicio de sesión",
+    "genericBody": "Inténtalo de nuevo. Si el problema continúa, contacta con soporte.",
+    "backToSignIn": "Volver a iniciar sesión"
   },
   "common": {
     "downloadForMac": "Descargar para Mac",

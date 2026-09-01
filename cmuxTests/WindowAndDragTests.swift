@@ -2897,6 +2897,10 @@ final class FilePreviewDragPasteboardWriterTests: XCTestCase {
 
         XCTAssertNil(FilePreviewDragPasteboardWriter.dragID(from: dragPasteboard))
         let writableTypes = writer.writableTypes(for: dragPasteboard)
+        XCTAssertNil(FilePreviewDragPasteboardWriter.dragID(from: dragPasteboard))
+        let ownership = try XCTUnwrap(writer.nativeDragOwnership())
+        writer.materializeRegisteredPayload(to: dragPasteboard)
+        XCTAssertTrue(dragPasteboard.writeObjects([writer]))
         XCTAssertTrue(writableTypes.contains(.fileURL))
         let preparedDragID = try XCTUnwrap(
             FilePreviewDragPasteboardWriter.dragID(
@@ -2915,6 +2919,7 @@ final class FilePreviewDragPasteboardWriterTests: XCTestCase {
         )
         let dragID = try XCTUnwrap(FilePreviewDragPasteboardWriter.dragID(from: filePreviewData))
         XCTAssertEqual(dragID, preparedDragID)
+        XCTAssertEqual(dragID, ownership.dragID)
         XCTAssertTrue(FilePreviewDragRegistry.shared.contains(id: dragID))
 
         let bonsplitCapability = try XCTUnwrap(
