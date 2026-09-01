@@ -18,10 +18,12 @@ import {
   type VmCreateCreditReservation,
   type VmBillingGatewayShape,
 } from "./billingGateway";
+import { vmCreateDisabledReason } from "./config";
 import {
   VmBillingError,
   VmAccountDeletionIdentityRevocationError,
   VmAttachTransportUnsupportedError,
+  VmCreateDisabledError,
   VmCreateFailedError,
   VmCreateInProgressError,
   VmFreeAccessExpiredError,
@@ -779,6 +781,17 @@ export function forkVm(input: {
     const providers = yield* VmProviderGateway;
     const billing = yield* VmBillingGateway;
     const source = yield* requireUserVm(input);
+    // Kill-switch parity with POST /api/vm: fork provisions a brand-new
+    // machine on the source VM's provider and spends the same provider money.
+    // The check lives here rather than in the route because the provider is
+    // only known once the source VM row is loaded.
+    const createDisabledReason = vmCreateDisabledReason(source.provider);
+    if (createDisabledReason) {
+      return yield* Effect.fail(new VmCreateDisabledError({
+        provider: source.provider,
+        reason: createDisabledReason,
+      }));
+    }
     yield* preflightResumeIfSuspended(repo, providers, source, input.providerVmId, "fork");
 
     if (source.provider === "freestyle" && providers.fork) {

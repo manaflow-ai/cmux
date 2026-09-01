@@ -14225,6 +14225,18 @@ struct GhosttyTerminalView: NSViewRepresentable {
         coordinator.lastBoundHostId = nil
         coordinator.portalReconciliationScheduler.cancel()
         let hostedView = coordinator.hostedView
+        let host = nsView as? HostContainerView
+        let wasBoundToDismantledHost: Bool = {
+            guard let host, let hostedView else { return false }
+            guard TerminalWindowPortalRegistry.hasEntry(for: hostedView, boundTo: host),
+                  let terminalSurface = hostedView.terminalSurface else {
+                return false
+            }
+            return terminalSurface.ownsPortalHost(
+                hostId: ObjectIdentifier(host),
+                instanceSerial: host.instanceSerial
+            )
+        }()
 #if DEBUG
         if let hostedView {
             if let snapshot = AppDelegate.shared?.tabManager?.debugCurrentWorkspaceSwitchSnapshot() {
@@ -14243,7 +14255,14 @@ struct GhosttyTerminalView: NSViewRepresentable {
         }
 #endif
 
-        if let host = nsView as? HostContainerView {
+        // Only the host that is still bound to this surface may clear the
+        // shared ring. Do this before preparing a replacement so a synchronous
+        // hand-off cannot let the old teardown hide the new owner's ring.
+        if wasBoundToDismantledHost {
+            hostedView?.setNotificationRing(visible: false)
+        }
+
+        if let host {
             host.onDidMoveToWindow = nil
             host.onGeometryChanged = nil
             // The owner's vacate path drops its own wake-up; a candidate that
@@ -14259,9 +14278,8 @@ struct GhosttyTerminalView: NSViewRepresentable {
             )
         }
 
-        // SwiftUI can transiently dismantle/rebuild NSViewRepresentable instances during split
-        // tree updates. Do not drop the portal lease or force visible/active false here; that
-        // causes avoidable blackouts when the same hosted view is rebound moments later.
+        // Preserve the portal lease across transient rebuilds, but reset the
+        // surface-local ring; the next reconciliation reapplies current state.
         hostedView?.setFocusHandler(nil)
         hostedView?.setTriggerFlashHandler(nil)
         hostedView?.setDropZoneOverlay(zone: nil)

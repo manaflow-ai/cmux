@@ -160,17 +160,7 @@ struct CloudTreeNodeActions {
                 guard confirmDestructive(title: title, message: message, verb: String(localized: "cloudTree.deleteWorkspace.confirm", defaultValue: "Delete")) else { return }
                 run(String(format: String(localized: "cloudTree.operation.deleteWorkspace", defaultValue: "Deleting %@\u{2026}"), workspace.name)) { catalog in
                     guard let provider = catalog.provider(for: machine) else { throw SurfaceCatalogError.noProvider(machine) }
-                    // Re-sync and re-enumerate AT operation time: the pre-confirm list
-                    // above only words the dialog. A terminal created while the dialog
-                    // was up must die with the workspace too, not detach into the pool.
-                    await provider.refresh()
-                    let doomed = catalog.snapshot.resources(on: machine).filter { resource in
-                        resource.kind == .terminal && resource.remoteWorkspaces.contains { $0.id == workspace.id }
-                    }
-                    for terminal in doomed {
-                        try await provider.closeTerminal(terminal.id)
-                    }
-                    try await provider.closeRemoteWorkspace(id: workspace.id)
+                    _ = try await Self.deleteWorkspaceAndTerminals(machine: machine, provider: provider, catalog: catalog, workspaceID: workspace.id)
                 }
             },
             renameWorkspace: { machine, workspace in
@@ -236,6 +226,32 @@ struct CloudTreeNodeActions {
             host: .app
         )
         return (workspace, terminal, opened)
+    }
+
+    /// The full delete, shared by the sidebar's "Delete Workspace and Terminals…" and the
+    /// socket's `vm.workspace_delete`: kill every terminal viewed in the workspace, then
+    /// close the workspace. Re-syncs and re-enumerates AT operation time — the sidebar's
+    /// pre-confirm list only words its dialog; a terminal created while the dialog was up
+    /// must die with the workspace too, not detach into the pool. Returns how many
+    /// terminals were closed. (Plain `closeRemoteWorkspace` keeps terminals: they detach
+    /// into the Terminals pool.)
+    @MainActor
+    @discardableResult
+    static func deleteWorkspaceAndTerminals(
+        machine: SurfaceMachineID,
+        provider: any SurfaceProvider,
+        catalog: SurfaceCatalog,
+        workspaceID: String
+    ) async throws -> Int {
+        await provider.refresh()
+        let doomed = catalog.snapshot.resources(on: machine).filter { resource in
+            resource.kind == .terminal && resource.remoteWorkspaces.contains { $0.id == workspaceID }
+        }
+        for terminal in doomed {
+            try await provider.closeTerminal(terminal.id)
+        }
+        try await provider.closeRemoteWorkspace(id: workspaceID)
+        return doomed.count
     }
 
     /// The house destructive-confirm shape (`NSAlert`, warning style, verb first).
