@@ -36471,7 +36471,8 @@ export default CMUXSessionRestore;
                 if let approvalIdentity {
                     notificationMeta = summary.notifyCategory.metaSegment(
                         pending: notificationPending,
-                        approvalID: approvalIdentity.approvalID
+                        approvalID: approvalIdentity.approvalID,
+                        approvalIDIsDerived: !approvalIdentity.isAuthoritative
                     )
                 } else if def.name == "codex", summary.notifyCategory == .needsPermission {
                     // Preserve the pre-correlation Codex wire form when the

@@ -415,7 +415,7 @@ struct FeedEventClassificationTests {
                 tool: "shell",
                 approvalIdentity: requestIdentity
             )
-                == "notify_target_async \(Self.workspaceUUID) \(Self.surfaceUUID) Codex|Permission|shell needs approval|c=needs-permission;p=0;a=\(requestIdentity.approvalID)"
+                == "notify_target_async \(Self.workspaceUUID) \(Self.surfaceUUID) Codex|Permission|shell needs approval|c=needs-permission;p=0;a=\(requestIdentity.approvalID);d=1"
         )
         #expect(
             attentionCommand(

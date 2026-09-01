@@ -32,23 +32,32 @@ enum AgentHookNotifyCategory: String {
 
     /// Meta segment carrying an opaque Codex approval correlation id.
     /// `.other` is the explicit ungated category and never rides the wire.
-    func metaSegment(pending: Bool, approvalID: String? = nil) -> String? {
+    func metaSegment(
+        pending: Bool,
+        approvalID: String? = nil,
+        approvalIDIsDerived: Bool = false
+    ) -> String? {
         metaSegment(
             pending: pending,
             approvalID: approvalID,
+            approvalIDIsDerived: approvalIDIsDerived,
             agentKind: nil,
             isSubagent: nil
         )
     }
 
     /// Extended meta segment carrying optional agent-event context for the
-    /// app's notification-policy hooks. Correlated approval ids retain the
-    /// historical `a=` spelling; ordinary agent context uses the same field
-    /// for a validated registry slug.
-    /// `c=<category>;p=<0|1>[;a=<agent-kind-or-approval-id>][;n=<0|1>][;k=<uuid>]`
-    /// is emitted in this canonical field order. Invalid optional fields are
-    /// dropped rather than risking the app-side parser folding the whole meta
-    /// back into the body.
+    /// app's notification-policy hooks. Correlated Codex approvals retain the
+    /// historical `a=<approval-id>` spelling for compatibility. Other
+    /// producers may attach a validated agent slug and opaque UUID key using
+    /// the canonical `a=`, `d=`, `n=`, and `k=` fields.
+    /// `c=<category>;p=<0|1>[;a=<agent-kind-or-approval-id>][;d=1][;n=<0|1>][;k=<uuid>]`
+    /// (canonical field order; `d=1` marks a derived approval identity, `a=` is
+    /// the stable lowercase agent slug otherwise, `n=` marks a nested subagent
+    /// session, and `k=` is an opaque notification identity).
+    /// An agent kind or correlation key that fails validation is dropped rather
+    /// than risking the app-side parser folding the whole meta back into the
+    /// body.
     func metaSegment(
         pending: Bool,
         agentKind: String?,
@@ -67,6 +76,7 @@ enum AgentHookNotifyCategory: String {
     private func metaSegment(
         pending: Bool,
         approvalID: String?,
+        approvalIDIsDerived: Bool = false,
         agentKind: String?,
         isSubagent: Bool?,
         correlationKey: String? = nil
@@ -75,6 +85,9 @@ enum AgentHookNotifyCategory: String {
         var segment = "c=\(rawValue);p=\(pending ? 1 : 0)"
         if self == .needsPermission, let approvalID {
             segment += ";a=\(approvalID)"
+            if approvalIDIsDerived {
+                segment += ";d=1"
+            }
         } else if let agentKind, Self.isValidAgentKindTag(agentKind) {
             segment += ";a=\(agentKind)"
         }
@@ -153,6 +166,16 @@ struct CodexApprovalNotificationIdentity: Equatable, Sendable {
 
     let scope: String
     let approvalID: String
+    /// Whether the provider supplied a stable per-request discriminator. When
+    /// false, repeated identical tuples are treated as ambiguous by the app
+    /// coordinator and require a scope-level resolution.
+    let isAuthoritative: Bool
+
+    init(scope: String, approvalID: String, isAuthoritative: Bool = true) {
+        self.scope = scope
+        self.approvalID = approvalID
+        self.isAuthoritative = isAuthoritative
+    }
 
     /// Derives the session/turn scope even when a lifecycle payload has no
     /// tool input (for example Codex's `Stop` hook). Scope clears are safe for
@@ -225,7 +248,11 @@ struct CodexApprovalNotificationIdentity: Equatable, Sendable {
             requestSeed = "\(scopeSeed)\ntool=\(toolName)\ninput=\(canonicalToolInput!)"
         }
         let request = digestPrefix(requestSeed)
-        return Self(scope: scope, approvalID: "\(scope).\(request)")
+        return Self(
+            scope: scope,
+            approvalID: "\(scope).\(request)",
+            isAuthoritative: explicitCallID != nil
+        )
     }
 
     private static func scopeSeed(

@@ -35,6 +35,7 @@ final class AgentApprovalNotificationCoordinator {
         let subtitle: String
         let body: String
         let approvalID: AgentApprovalCorrelationID
+        let isDerived: Bool
         let readyAt: TimeInterval
         let sequence: UInt64
     }
@@ -115,7 +116,8 @@ final class AgentApprovalNotificationCoordinator {
         title: String,
         subtitle: String,
         body: String,
-        approvalID: AgentApprovalCorrelationID
+        approvalID: AgentApprovalCorrelationID,
+        isDerived: Bool = false
     ) {
         let timestamp = now()
         pruneTombstones(at: timestamp)
@@ -132,6 +134,7 @@ final class AgentApprovalNotificationCoordinator {
             subtitle: subtitle,
             body: body,
             approvalID: approvalID,
+            isDerived: isDerived,
             readyAt: timestamp + settleDelay,
             sequence: nextSequence
         )
@@ -148,13 +151,16 @@ final class AgentApprovalNotificationCoordinator {
             // only the latest display text may have changed. If no provider
             // discriminator exists, an exact completion is intentionally
             // treated as ambiguous and waits for a scope-level resolution.
-            state.ambiguousApprovalIDs.insert(approvalID.rawValue)
+            if isDerived || existing.isDerived {
+                state.ambiguousApprovalIDs.insert(approvalID.rawValue)
+            }
             state.candidates[approvalID.rawValue] = Candidate(
                 workspaceID: candidate.workspaceID,
                 title: candidate.title,
                 subtitle: candidate.subtitle,
                 body: candidate.body,
                 approvalID: candidate.approvalID,
+                isDerived: candidate.isDerived,
                 readyAt: min(existing.readyAt, candidate.readyAt),
                 sequence: existing.sequence
             )
@@ -271,6 +277,7 @@ final class AgentApprovalNotificationCoordinator {
                 subtitle: candidate.subtitle,
                 body: candidate.body,
                 approvalID: candidate.approvalID,
+                isDerived: candidate.isDerived,
                 readyAt: candidate.readyAt,
                 sequence: candidate.sequence
             )

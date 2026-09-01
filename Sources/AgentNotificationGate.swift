@@ -26,7 +26,7 @@ enum AgentTurnCompleteMode: String {
     case never
 }
 
-/// Parsed `c=<category>;p=<0|1>[;a=<agent-kind-or-approval-id>][;n=<0|1>][;s=<alert>][;k=<uuid>]` meta segment.
+/// Parsed `c=<category>;p=<0|1>[;a=<agent-kind-or-approval-id>][;d=1][;n=<0|1>][;s=<alert>][;k=<uuid>]` meta segment.
 /// Returns `nil` unless BOTH a KNOWN category literal and a valid `p=0|1`
 /// pending flag are present, so the reserved suffix grammar stays exactly the
 /// three known categories — any other `c=...` tail stays part of the legacy
@@ -35,12 +35,14 @@ enum AgentTurnCompleteMode: String {
 ///
 /// The optional trailing fields carry agent-event context for the user's
 /// notification-policy hooks: `a=` is either the case-preserving registry
-/// identifier or a correlated approval id, and `n=` marks a nested subagent
-/// session. Pre-extension senders emit only `c=;p=` and parse exactly as before.
+/// identifier or a correlated approval id, `d=1` marks a derived approval id,
+/// and `n=` marks a nested subagent session. Pre-extension senders emit only
+/// `c=;p=` and parse exactly as before.
 struct AgentNotificationMeta {
     let category: AgentNotifyCategory
     let pending: Bool
     let approvalID: AgentApprovalCorrelationID?
+    let approvalIDIsDerived: Bool
     let agentKind: String?
     let isSubagent: Bool?
     let soundContext: NotificationSoundOverrideContext?
@@ -50,12 +52,12 @@ struct AgentNotificationMeta {
 
     init?(meta: String) {
         // Accept ONLY the canonical serialization the CLI emits (`c=` then
-        // `p=`, optionally followed by `a=`, `n=`, `s=`, then `k=`, this order,
-        // no duplicates or extras). Anything else — reordered, duplicated, or
-        // unknown trailing fields — is not metadata and stays part of the
-        // legacy notification body.
+        // `p=`, optionally followed by `a=`, `d=`, `n=`, `s=`, then `k=`, this
+        // order, no duplicates or extras). Anything else — reordered,
+        // duplicated, or unknown trailing fields — is not metadata and stays
+        // part of the legacy notification body.
         let fields = meta.split(separator: ";", omittingEmptySubsequences: false)
-        guard (2...6).contains(fields.count),
+        guard (2...7).contains(fields.count),
               fields[0].hasPrefix("c="),
               fields[1].hasPrefix("p=") else { return nil }
         guard let known = AgentNotifyCategory(rawValue: String(fields[0].dropFirst(2))) else {
@@ -70,7 +72,8 @@ struct AgentNotificationMeta {
         var isSubagent: Bool? = nil
         var soundContext: NotificationSoundOverrideContext? = nil
         var correlationKey: String? = nil
-        var approvalID: AgentApprovalCorrelationID?
+        var approvalID: AgentApprovalCorrelationID? = nil
+        var approvalIDIsDerived = false
         var index = 2
         if index < fields.count, fields[index].hasPrefix("a=") {
             let value = String(fields[index].dropFirst(2))
@@ -81,6 +84,11 @@ struct AgentNotificationMeta {
                 guard Self.isValidAgentKindTag(value) else { return nil }
                 agentKind = value
             }
+            index += 1
+        }
+        if index < fields.count, fields[index].hasPrefix("d=") {
+            guard approvalID != nil, fields[index].dropFirst(2) == "1" else { return nil }
+            approvalIDIsDerived = true
             index += 1
         }
         if index < fields.count, fields[index].hasPrefix("n=") {
@@ -117,6 +125,7 @@ struct AgentNotificationMeta {
         self.category = known
         self.pending = pending
         self.approvalID = approvalID
+        self.approvalIDIsDerived = approvalIDIsDerived
         self.agentKind = agentKind
         self.isSubagent = isSubagent
         self.soundContext = soundContext

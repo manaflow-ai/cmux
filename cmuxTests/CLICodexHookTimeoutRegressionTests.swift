@@ -224,7 +224,7 @@ struct CLICodexHookTimeoutRegressionTests {
         })
         #expect(commands.snapshot().contains {
             $0.hasPrefix("notify_target_async \(workspaceId) \(surfaceId) ")
-                && $0.hasSuffix("|c=needs-permission;p=0;a=\(approvalIdentity.approvalID)")
+                && $0.hasSuffix("|c=needs-permission;p=0;a=\(approvalIdentity.approvalID);d=1")
         })
 
         let completionObject: [String: Any] = [

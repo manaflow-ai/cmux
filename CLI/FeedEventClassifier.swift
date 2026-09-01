@@ -509,7 +509,8 @@ struct FeedEventClassifier {
             guard let approvalIdentity else { return nil }
             meta = AgentHookNotifyCategory.needsPermission.metaSegment(
                 pending: false,
-                approvalID: approvalIdentity.approvalID
+                approvalID: approvalIdentity.approvalID,
+                approvalIDIsDerived: !approvalIdentity.isAuthoritative
             )
         } else if includeAgentContext {
             meta = AgentHookNotifyCategory.needsPermission.metaSegment(

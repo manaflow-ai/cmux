@@ -13228,6 +13228,7 @@ class TerminalController {
             pending: meta?.pending ?? false,
             soundContext: meta?.soundContext,
             approvalID: meta?.approvalID,
+            approvalIDIsDerived: meta?.approvalIDIsDerived ?? false,
             agentKind: meta?.agentKind,
             isSubagent: meta?.isSubagent,
             correlationKey: meta?.correlationKey

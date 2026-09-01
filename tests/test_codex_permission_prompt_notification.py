@@ -65,7 +65,7 @@ EXPECTED_APPROVAL_ID = approval_id(codex_payload("PermissionRequest"))
 EXPECTED_NOTIFY_COMMAND = (
     f"notify_target_async {FAKE_WORKSPACE_ID} {FAKE_SURFACE_ID} "
     "Codex|Permission|shell needs approval|c=needs-permission;p=0"
-    f";a={EXPECTED_APPROVAL_ID}"
+    f";a={EXPECTED_APPROVAL_ID};d=1"
 )
 EXPECTED_CLEAR_COMMAND = (
     f"clear_notifications --tab={FAKE_WORKSPACE_ID} --panel={FAKE_SURFACE_ID} "
