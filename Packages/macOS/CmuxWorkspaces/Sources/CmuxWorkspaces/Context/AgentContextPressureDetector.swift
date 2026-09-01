@@ -18,6 +18,9 @@ public struct AgentContextPressureDetector: Sendable {
     /// are at most a few occurrences, so additional matches cannot affect the
     /// decision and are deliberately clipped to keep the hot path bounded.
     private static let maximumMarkerMatchesPerMarker = 128
+    /// Bounds percentage-location deduplication for one provider pattern.
+    /// Thresholds never need an unbounded number of footer observations.
+    private static let maximumPercentageMatchesPerPattern = 128
 
     /// Creates a detector for one provider.
     ///
@@ -73,7 +76,8 @@ public struct AgentContextPressureDetector: Sendable {
                 in: percentageCarry + normalized,
                 threshold: threshold,
                 phrases: pattern.lowContextPercentagePhrases,
-                carryLength: percentageCarry.utf16.count
+                carryLength: percentageCarry.utf16.count,
+                maximumMatches: Self.maximumPercentageMatchesPerPattern
             )
             if percentageMatches > 0 {
                 newlyMatched[pattern.signal, default: 0] += percentageMatches
@@ -163,13 +167,16 @@ public struct AgentContextPressureDetector: Sendable {
         in value: String,
         threshold: Int,
         phrases: [String],
-        carryLength: Int
+        carryLength: Int,
+        maximumMatches: Int
     ) -> Int {
-        guard !value.isEmpty, !phrases.isEmpty else { return 0 }
+        guard !value.isEmpty, !phrases.isEmpty, maximumMatches > 0 else { return 0 }
         var matchedPercentageLocations = Set<Int>()
         for phrase in phrases {
+            guard matchedPercentageLocations.count < maximumMatches else { break }
             var searchStart = value.startIndex
             while searchStart < value.endIndex,
+                  matchedPercentageLocations.count < maximumMatches,
                   let phraseRange = value.range(of: phrase, range: searchStart..<value.endIndex) {
                 let phraseEndOffset = phraseRange.upperBound.utf16Offset(in: value)
                 searchStart = phraseRange.upperBound
@@ -196,9 +203,15 @@ public struct AgentContextPressureDetector: Sendable {
                 } == true
                 if leadingMatch, let leadingNumber {
                     matchedPercentageLocations.insert(leadingNumber.endOffset)
+                    if matchedPercentageLocations.count >= maximumMatches {
+                        return maximumMatches
+                    }
                 }
                 if trailingMatch, let trailingNumber {
                     matchedPercentageLocations.insert(trailingNumber.endOffset)
+                    if matchedPercentageLocations.count >= maximumMatches {
+                        return maximumMatches
+                    }
                 }
             }
         }
@@ -237,6 +250,13 @@ public struct AgentContextPressureDetector: Sendable {
             digitStart = previous
             digitCount += 1
         }
+        // Do not silently truncate a longer token to its last three digits.
+        // `1005% context left` is not a valid bounded percentage and must not
+        // become a false 5% pressure signal.
+        if digitStart > value.startIndex,
+           value[value.index(before: digitStart)].isNumber {
+            return nil
+        }
         guard digitCount > 0,
               let number = Int(value[digitStart..<digitEnd]) else {
             return nil
@@ -265,6 +285,11 @@ public struct AgentContextPressureDetector: Sendable {
         while cursor < value.endIndex, digitCount < 3, value[cursor].isNumber {
             digitCount += 1
             cursor = value.index(after: cursor)
+        }
+        // Reject, rather than truncate, a token such as `1005%`. This keeps
+        // the bounded percentage contract symmetric with `percentageBefore`.
+        if cursor < value.endIndex, value[cursor].isNumber {
+            return nil
         }
         guard digitCount > 0,
               cursor < value.endIndex,

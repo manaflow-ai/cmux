@@ -3,12 +3,6 @@ import Foundation
 
 @MainActor
 extension AgentContextManagementCoordinator {
-    func provider(for panelId: UUID, preferredWorkspaceID: UUID? = nil) -> AgentContextProvider? {
-        owner(for: panelId, preferredWorkspaceID: preferredWorkspaceID)
-            .flatMap { $0.binding(panelId: panelId) }
-            .flatMap { AgentContextProvider(managedAgentKind: $0.kind) }
-    }
-
     func owner(for panelId: UUID, preferredWorkspaceID: UUID?) -> PanelOwner? {
         if let cached = ownerReferencesByPanelID[panelId]?.resolved,
            cached.contains(panelId: panelId),

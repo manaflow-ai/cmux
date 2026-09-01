@@ -408,7 +408,13 @@ extension DockSplitStore {
             remoteCleanupConfiguration: preservedTransfer?.remoteCleanupConfiguration
         )
         adoptManualUnreadState(false, panelId: panelId)
-        clearSessionRestoreState(panelId: panelId)
+        // The detached transfer still owns the session and may be rolled back;
+        // defer context-management cleanup until the caller decides whether it
+        // was actually discarded.
+        clearSessionRestoreState(
+            panelId: panelId,
+            notifyContextManagement: false
+        )
         return detached
     }
 
@@ -466,13 +472,16 @@ extension DockSplitStore {
             isPinned: detached.isPinned,
             inPane: paneId
         ) else {
-            AppDelegate.shared?.agentContextManagementCoordinator.remove(
-                panelId: detached.panelId,
-                workspace: nil
-            )
+            // The caller still owns the detached transfer and may be able to
+            // roll it back into its source container. Do not discard the
+            // coordinator's preserved state until that rollback is known to
+            // have failed.
             panels.removeValue(forKey: detached.panelId)
             removeDetachedSurfaceTransfer(forPanelID: detached.panelId)
-            clearSessionRestoreState(panelId: detached.panelId)
+            clearSessionRestoreState(
+                panelId: detached.panelId,
+                notifyContextManagement: false
+            )
             return nil
         }
         bindSurface(newTabId, toPanelId: detached.panelId)
@@ -569,12 +578,13 @@ extension DockSplitStore {
         guard let newPane else {
             removeSurfaceMapping(forSurfaceId: tab.id)
             removeDetachedSurfaceTransfer(forPanelID: detached.panelId)
-            AppDelegate.shared?.agentContextManagementCoordinator.remove(
-                panelId: detached.panelId,
-                workspace: nil
-            )
+            // As above, let the transfer owner decide whether the panel was
+            // truly discarded or can still be reattached to its source.
             panels.removeValue(forKey: detached.panelId)
-            clearSessionRestoreState(panelId: detached.panelId)
+            clearSessionRestoreState(
+                panelId: detached.panelId,
+                notifyContextManagement: false
+            )
             return nil
         }
         adoptManualUnreadState(

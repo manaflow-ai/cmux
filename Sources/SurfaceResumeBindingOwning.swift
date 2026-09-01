@@ -32,7 +32,14 @@ extension SurfaceResumeBindingOwning {
     }
 
     func contextManagementBindingDidChange(panelId: UUID) {
-        AppDelegate.shared?.agentContextManagementCoordinator.bindingDidChange(panelId: panelId)
+        guard let coordinator = AppDelegate.shared?.agentContextManagementCoordinator else { return }
+        // The conformer already is the authoritative owner. Reusing it avoids
+        // a global Dock/workspace scan while transfers temporarily remove the
+        // panel from the owner's registries.
+        coordinator.bindingDidChange(
+            panelIds: [panelId],
+            owner: contextManagementOwner
+        )
     }
 
     func contextManagementBindingsDidChange(panelIds: [UUID]) {

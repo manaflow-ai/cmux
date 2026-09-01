@@ -163,6 +163,14 @@ extension DockSplitStore {
                     to: terminalStartupRestoreCoordinator
                 )
             } else {
+                // `detachSurface` preserves managed-agent coordinator state
+                // for a possible move rollback. Session restore has no source
+                // rollback path once attachment fails, so this caller owns
+                // the final discard boundary.
+                AppDelegate.shared?.agentContextManagementCoordinator.remove(
+                    panelId: detached.panelId,
+                    workspace: sourceWorkspace
+                )
                 let cancelledRestore = sourceWorkspace
                     .terminalStartupRestoreCoordinator
                     .cancelPendingRestore(panelID: detached.panelId)

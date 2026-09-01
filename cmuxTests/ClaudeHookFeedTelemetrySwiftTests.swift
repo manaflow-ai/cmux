@@ -51,6 +51,54 @@ struct ClaudeHookFeedTelemetrySwiftTests {
         )
     }
 
+    @Test func fastFeedTelemetryValidatesSocketPathTarget() throws {
+        let context = try FeedTelemetryTestContext(name: "feed-fast-validation")
+        defer { _ = context }
+
+        let workspaceID = "11111111-1111-1111-1111-111111111111"
+        let ambientSurfaceID = "22222222-2222-2222-2222-222222222222"
+        let resolvedSurfaceID = "33333333-3333-3333-3333-333333333333"
+        let feedSeen = DispatchSemaphore(value: 0)
+        startServer(
+            listenerFD: context.listenerFD,
+            state: context.state,
+            workspaceID: workspaceID,
+            focusedSurfaceID: ambientSurfaceID,
+            ttyName: "ttys-fast-validation",
+            resolvedSurfaceID: resolvedSurfaceID,
+            feedSeen: feedSeen
+        )
+
+        let cliPath = try BundledCLITestSupport.bundledCLIPath(for: BundledCLILinkageTests.self)
+        let result = runProcess(
+            executablePath: cliPath,
+            arguments: ["hooks", "feed", "--source", "claude"],
+            environment: context.environment(
+                workspaceID: workspaceID,
+                surfaceID: ambientSurfaceID,
+                ttyName: "ttys-fast-validation"
+            ),
+            standardInput: #"{"session_id":"claude-feed-session","hook_event_name":"SessionStart"}"#,
+            timeout: 5
+        )
+
+        #expect(!result.timedOut, Comment(rawValue: result.stderr))
+        #expect(result.status == 0, Comment(rawValue: result.stderr))
+        #expect(result.stdout == "{}\n")
+        #expect(feedSeen.wait(timeout: .now() + 5) == .success)
+        let event = try #require(
+            context.state.feedEventsSnapshot().last,
+            "Expected fast feed telemetry"
+        )
+        #expect(event["surface_id"] as? String == resolvedSurfaceID)
+        #expect(
+            context.state.commandsSnapshot().contains {
+                jsonObject($0)?["method"] as? String == "surface.resume.get"
+            },
+            "Fast telemetry should perform one bounded live-target validation"
+        )
+    }
+
     // Regression for https://github.com/manaflow-ai/cmux/issues/7962: Claude Code
     // renders any plain-text hook stdout as a visible "hook success" block in the
     // conversation transcript — for prompt-submit hooks, a bare "OK" on every
@@ -300,6 +348,16 @@ private func response(
         ])
     case "surface.resume.set":
         return v2Response(id: id, ok: true, result: ["resume_binding": [:]])
+    case "surface.resume.get":
+        return v2Response(id: id, ok: true, result: [
+            "workspace_id": workspaceID,
+            "surface_id": resolvedSurfaceID,
+            "resume_binding": [
+                "kind": "claude",
+                "source": "agent-hook",
+                "checkpoint_id": "claude-feed-session",
+            ],
+        ])
     default:
         return v2Response(id: id, ok: false, error: ["code": "unrecognized_method", "message": method])
     }

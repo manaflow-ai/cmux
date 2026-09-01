@@ -202,6 +202,8 @@ extension AgentContextManagementCoordinator {
                     state.preservationCompleted = false
                     state.preservationHandoffPath = nil
                     state.preservationRequestedAt = nil
+                    state.preservationBaseline = nil
+                    state.preservationPreparationInFlight = false
                     state.preservationVerificationInFlight = false
                 }
                 state.unsafeClearNotificationSent = true
@@ -245,6 +247,8 @@ extension AgentContextManagementCoordinator {
                 state.preservationAwaitingAcknowledgement = true
                 state.preservationHandoffPath = nil
                 state.preservationRequestedAt = nil
+                state.preservationBaseline = nil
+                state.preservationPreparationInFlight = false
                 state.preservationVerificationInFlight = false
                 states[surfaceID] = state
                 notifyUnsafeClear(
@@ -257,6 +261,61 @@ extension AgentContextManagementCoordinator {
                     workspaceID: owner.workspaceID,
                     surfaceID: surfaceID,
                     detail: "step=\(step.rawValue) reason=handoff-path-unavailable"
+                )
+                return
+            }
+
+            // Capture the existing handoff identity off the main actor before
+            // asking the provider to write. This is required on filesystems
+            // whose mtime resolution is coarser than the request clock.
+            if state.preservationHandoffPath != handoffPath {
+                state.preservationHandoffPath = handoffPath
+                state.preservationBaseline = nil
+                state.preservationPreparationInFlight = false
+                state.preservationRequestedAt = nil
+            }
+            guard !state.preservationPreparationInFlight else {
+                states[surfaceID] = state
+                return
+            }
+            guard let baseline = state.preservationBaseline else {
+                state.preservationHandoffPath = handoffPath
+                state.preservationPreparationInFlight = true
+                state.injectionInFlight = true
+                state.preservationCompleted = false
+                state.preservationVerificationInFlight = false
+                states[surfaceID] = state
+                beginPreservationPreparation(
+                    panelId: surfaceID,
+                    path: handoffPath
+                )
+                return
+            }
+            if case .unavailable = baseline {
+                let shouldNotify = !state.unsafeClearNotificationSent
+                state.injectionInFlight = false
+                state.preservationPreparationInFlight = false
+                // No preservation command was sent, so there is no lifecycle
+                // boundary to await. The manual-recovery latch below prevents
+                // repeated asynchronous baseline probes/notifications.
+                state.preservationAwaitingAcknowledgement = false
+                state.preservationCompleted = false
+                state.preservationRequestedAt = nil
+                state.manualRecoveryRequired = true
+                state.unsafeClearNotificationSent = true
+                states[surfaceID] = state
+                if shouldNotify {
+                    notifyUnsafeClear(
+                        owner: owner,
+                        surfaceID: surfaceID,
+                        reason: .preservationUnavailable
+                    )
+                }
+                structuredLog(
+                    "injection.rejected",
+                    workspaceID: owner.workspaceID,
+                    surfaceID: surfaceID,
+                    detail: "step=\(step.rawValue) reason=handoff-baseline-unavailable"
                 )
                 return
             }
@@ -336,6 +395,8 @@ extension AgentContextManagementCoordinator {
         state.providerEvidenceReceivedAt = nil
         state.preservationHandoffPath = nil
         state.preservationRequestedAt = nil
+        state.preservationBaseline = nil
+        state.preservationPreparationInFlight = false
         state.preservationVerificationInFlight = false
         state.pressure = AgentContextPressureSnapshot()
         state.pressureConfirmation.reset()
@@ -345,22 +406,69 @@ extension AgentContextManagementCoordinator {
         owner.clearPressureStatus(key: Self.statusKey(for: surfaceID), panelId: surfaceID)
     }
 
+    /// Captures pre-request handoff evidence off the main actor.
+    func beginPreservationPreparation(
+        panelId: UUID,
+        path: URL
+    ) {
+        let verifier = handoffVerifier
+        preservationPreparationTasks[panelId]?.cancel()
+        preservationPreparationTasks[panelId] = Task { @MainActor [weak self, verifier] in
+            let baseline = await verifier.capture(path: path)
+            guard !Task.isCancelled else { return }
+            self?.finishPreservationPreparation(
+                panelId: panelId,
+                path: path,
+                baseline: baseline
+            )
+        }
+    }
+
+    private func finishPreservationPreparation(
+        panelId: UUID,
+        path: URL,
+        baseline: AgentContextHandoffVerificationBaseline
+    ) {
+        preservationPreparationTasks.removeValue(forKey: panelId)
+        guard var state = states[panelId],
+              state.preservationPreparationInFlight,
+              state.preservationHandoffPath == path else {
+            return
+        }
+        state.preservationPreparationInFlight = false
+        state.injectionInFlight = false
+        state.preservationBaseline = baseline
+        states[panelId] = state
+        guard let owner = owner(for: panelId, preferredWorkspaceID: nil),
+              let binding = owner.binding(panelId: panelId),
+              sameSession(state.binding, binding) else {
+            return
+        }
+        evaluate(surfaceID: panelId, owner: owner)
+    }
+
     /// Verifies a preservation request after the provider's real idle boundary.
     ///
     /// The lifecycle transition is necessary but not sufficient: the provider
-    /// must also have created a fresh, non-empty handoff file after cmux asked
-    /// for it. The actor performs filesystem work off the main actor and
+    /// must also have created a changed, non-empty handoff file after cmux asked
+    /// for it. The pre-request fingerprint handles coarse mtimes. The actor
+    /// performs filesystem work off the main actor and
     /// returns one value back through this coordinator's event-driven lane.
     func beginPreservationVerification(
         panelId: UUID,
         path: URL,
-        requestedAt: Date
+        requestedAt: Date,
+        baseline: AgentContextHandoffVerificationBaseline
     ) {
         let verifier = handoffVerifier
         preservationVerificationTasks[panelId]?.cancel()
         preservationVerificationRequestedAtByPanel[panelId] = requestedAt
         preservationVerificationTasks[panelId] = Task { @MainActor [weak self, verifier] in
-            let result = await verifier.verify(path: path, requestedAt: requestedAt)
+            let result = await verifier.verify(
+                path: path,
+                requestedAt: requestedAt,
+                baseline: baseline
+            )
             guard !Task.isCancelled else { return }
             self?.finishPreservationVerification(
                 panelId: panelId,
@@ -389,6 +497,8 @@ extension AgentContextManagementCoordinator {
             return
         }
         state.preservationVerificationInFlight = false
+        state.preservationPreparationInFlight = false
+        state.preservationBaseline = nil
         let expectedBinding = state.binding
         let currentOwner = owner(for: panelId, preferredWorkspaceID: nil).flatMap { owner in
             owner.binding(panelId: panelId).flatMap { binding in
@@ -443,6 +553,7 @@ extension AgentContextManagementCoordinator {
 
     /// Cancels a pending handoff verification without touching panel state.
     func cancelPreservationVerification(panelId: UUID) {
+        preservationPreparationTasks.removeValue(forKey: panelId)?.cancel()
         preservationVerificationTasks.removeValue(forKey: panelId)?.cancel()
         preservationVerificationRequestedAtByPanel.removeValue(forKey: panelId)
     }

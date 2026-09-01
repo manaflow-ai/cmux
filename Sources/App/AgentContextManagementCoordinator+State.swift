@@ -287,6 +287,11 @@ extension AgentContextManagementCoordinator {
         var preservationObservedRunning = false
         var preservationHandoffPath: URL?
         var preservationRequestedAt: Date?
+        /// A descriptor-bound snapshot captured before the preservation input.
+        /// Keeping this compact baseline avoids relying on coarse filesystem
+        /// mtimes when the provider writes its handoff note.
+        var preservationBaseline: AgentContextHandoffVerificationBaseline?
+        var preservationPreparationInFlight = false
         var preservationVerificationInFlight = false
         /// Prevents a recovery command's own compaction output from starting
         /// another recovery cycle until the provider reports a real

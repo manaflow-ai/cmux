@@ -37,8 +37,9 @@ final class AgentContextManagementCoordinator {
     private let notificationCenter: NotificationCenter
     let settings: AgentContextManagementSettings
     var states: [UUID: PanelState] = [:]
-    /// One cancellable verification task per panel; user input and teardown
-    /// cancel the task before its result can mutate a new session.
+    /// One cancellable baseline/verification task per panel; user input and
+    /// teardown cancel both before either result can mutate a new session.
+    var preservationPreparationTasks: [UUID: Task<Void, Never>] = [:]
     var preservationVerificationTasks: [UUID: Task<Void, Never>] = [:]
     var preservationVerificationRequestedAtByPanel: [UUID: Date] = [:]
     /// Input can arrive on the main actor before an output event's delivery
@@ -105,6 +106,7 @@ final class AgentContextManagementCoordinator {
     }
 
     deinit {
+        preservationPreparationTasks.values.forEach { $0.cancel() }
         preservationVerificationTasks.values.forEach { $0.cancel() }
         pendingReevaluationTask?.cancel()
         if let settingsObserver {
@@ -349,6 +351,9 @@ final class AgentContextManagementCoordinator {
             enabled: false
         )
         currentOwner?.setContextPressureProvider(panelId: panelId, provider: nil)
+        // A transfer invalidates any in-flight preflight or verification task;
+        // the destination must publish its binding before recovery can resume.
+        cancelPreservationVerification(panelId: panelId)
         if preserveState {
             // Transfer keeps the pressure snapshot, but destination shell
             // callbacks must not reuse source-owner lifecycle confirmation
@@ -357,11 +362,17 @@ final class AgentContextManagementCoordinator {
                 state.pressureConfirmation.reset()
                 state.providerEvidenceConfirmed = false
                 state.providerEvidenceReceivedAt = nil
+                state.preservationPreparationInFlight = false
+                state.preservationBaseline = nil
+                state.preservationHandoffPath = nil
+                state.preservationRequestedAt = nil
+                state.preservationAwaitingAcknowledgement = false
+                state.preservationObservedRunning = false
+                state.preservationVerificationInFlight = false
                 states[panelId] = state
             }
         } else {
             ownerReferencesByPanelID.removeValue(forKey: panelId)
-            cancelPreservationVerification(panelId: panelId)
             states.removeValue(forKey: panelId)
             userInputObservedBeforePressure.remove(panelId)
         }

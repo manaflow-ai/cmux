@@ -92,6 +92,8 @@ extension AgentContextManagementCoordinator {
         state.preservationObservedRunning = false
         state.preservationHandoffPath = nil
         state.preservationRequestedAt = nil
+        state.preservationBaseline = nil
+        state.preservationPreparationInFlight = false
         state.preservationVerificationInFlight = false
         state.recoveryAwaitingLifecycleBoundary = false
         state.recoveryObservedRunning = false

@@ -5,7 +5,10 @@ import Darwin
 import Foundation
 
 extension DockSplitStore {
-    func clearSessionRestoreState(panelId: UUID) {
+    func clearSessionRestoreState(
+        panelId: UUID,
+        notifyContextManagement: Bool = true
+    ) {
         discardPendingTerminalTitleUpdate(panelId: panelId)
         removeDeferredAgentResumeRestore(panelId: panelId)
         restoredTerminalScrollbackByPanelId.removeValue(forKey: panelId)
@@ -17,8 +20,15 @@ extension DockSplitStore {
         // later lifecycle callback happened to arrive.
         surfaceResumeRestoreClaimsByPanelId.removeValue(forKey: panelId)
         managedAgentResumeBindingsByPanelId.removeValue(forKey: panelId)
-        updateSurfaceResumeBinding(panelId: panelId, to: nil, notifyWhenUnchanged: true)
-        contextManagementLifecycleDidClear(panelId: panelId)
+        updateSurfaceResumeBinding(
+            panelId: panelId,
+            to: nil,
+            notifyWhenUnchanged: true,
+            notifyContextManagement: notifyContextManagement
+        )
+        if notifyContextManagement {
+            contextManagementLifecycleDidClear(panelId: panelId)
+        }
         invalidatedCachedTransferAgentSessionPanelIds.remove(panelId)
         replacedCachedTransferAgentSessionPanelIds.remove(panelId)
         agentRuntimeByPanelId.removeValue(forKey: panelId)

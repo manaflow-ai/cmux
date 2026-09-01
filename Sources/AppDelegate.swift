@@ -10713,35 +10713,46 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     @objc private func handleFeedRequestSendText(_ notification: Notification) {
-        guard let surfaceId = notification.userInfo?["surfaceId"] as? String,
+        guard let workspaceId = notification.userInfo?["workspaceId"] as? String,
+              let claimedWorkspaceID = UUID(uuidString: workspaceId),
+              let surfaceId = notification.userInfo?["surfaceId"] as? String,
+              let claimedSurfaceID = UUID(uuidString: surfaceId),
               let text = notification.userInfo?["text"] as? String,
               !text.isEmpty
         else { return }
 
-        if let surfaceUUID = UUID(uuidString: surfaceId) {
-            // Feed replies are user-authored input even though they travel
-            // through the socket bridge instead of the focused terminal view.
-            agentContextManagementCoordinator.userDidType(panelId: surfaceUUID)
-        }
+        // Validate the notification's claimed address at the same live-owner
+        // boundary used by banner replies. A Feed card can outlive a panel
+        // move, so route the send through the current workspace rather than
+        // allowing a stale workspace id to select another terminal.
+        guard let target = liveSurfaceOwner(
+            surfaceID: claimedSurfaceID,
+            preferredTabID: claimedWorkspaceID
+        ) else { return }
+        let targetSurfaceID = target.surfaceID
 
-        let controller = TerminalController.shared
-        let invoke: (String, [String: Any]) -> Void = { method, params in
-            let payload: [String: Any] = [
-                "id": UUID().uuidString,
-                "method": method,
-                "params": params,
-            ]
-            guard let data = try? JSONSerialization.data(withJSONObject: payload),
-                  let line = String(data: data, encoding: .utf8)
-            else { return }
-            _ = controller.handleSocketLine(line)
+        let payload: [String: Any] = [
+            "id": UUID().uuidString,
+            "method": "surface.send_text",
+            "params": [
+                "workspace_id": target.tabId.uuidString,
+                "surface_id": targetSurfaceID.uuidString,
+                "text": text + "\r",
+            ],
+        ]
+        guard let data = try? JSONSerialization.data(withJSONObject: payload),
+              let line = String(data: data, encoding: .utf8),
+              let responseData = TerminalController.shared.handleSocketLine(line).data(using: .utf8),
+              let response = try? JSONSerialization.jsonObject(with: responseData) as? [String: Any],
+              response["ok"] as? Bool == true else {
+            return
         }
         // Terminal-mode Return is CR. sendNamedKey "Return" also works
         // but one send_text is atomic, so append CR directly.
-        invoke("surface.send_text", [
-            "surface_id": surfaceId,
-            "text": text + "\r",
-        ])
+        // Feed replies are user-authored input even though they travel
+        // through the socket bridge instead of the focused terminal view.
+        // Record cancellation only after the command accepted/queued input.
+        agentContextManagementCoordinator.userDidType(panelId: targetSurfaceID)
     }
 
     @objc private func handleReactGrabDidCopySelection(_ notification: Notification) {

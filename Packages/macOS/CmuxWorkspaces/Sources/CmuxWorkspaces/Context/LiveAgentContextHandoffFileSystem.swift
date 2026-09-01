@@ -40,7 +40,9 @@ actor LiveAgentContextHandoffFileSystem: AgentContextHandoffFileSystem {
         let metadata = AgentContextHandoffFileMetadata(
             isRegularFile: (fileInfo.st_mode & mode_t(S_IFMT)) == mode_t(S_IFREG),
             modificationDate: Self.modificationDate(from: fileInfo),
-            size: Int(exactly: fileInfo.st_size) ?? -1
+            size: Int(exactly: fileInfo.st_size) ?? -1,
+            deviceID: UInt64(fileInfo.st_dev),
+            fileID: UInt64(fileInfo.st_ino)
         )
         guard metadata.isRegularFile else {
             Darwin.close(descriptor)

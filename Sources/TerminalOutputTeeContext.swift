@@ -222,6 +222,14 @@ final class TerminalOutputTeeContext: @unchecked Sendable {
         guard control.monitoringEnabled,
               let provider = AgentContextProvider(managedAgentKind: control.provider),
               contextPressureHandler != nil else { return }
+        // The pressure detector owns a stateful Unicode/control-sequence
+        // normalizer and receives arbitrary PTY chunk boundaries. Keep the
+        // conversion's replacement-character semantics deterministic rather
+        // than introducing a second byte-level parser on this serialized
+        // callback. Monitoring is enabled only for explicitly managed-agent
+        // surfaces (never ordinary terminals), and the downstream carries and
+        // match buffers are bounded; a streaming decoder would broaden the
+        // hot-path contract without an observed allocation regression.
         let output = String(decoding: bytes, as: UTF8.self)
         guard !output.isEmpty else { return }
         guard var detector = contextPressureDetectors[provider] else { return }

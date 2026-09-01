@@ -189,20 +189,11 @@ extension AppDelegate {
             focus: focus
         ) != nil else {
             // Roll the panel back into the Dock unchanged.
-            (detached.panel as? TerminalPanel)?.surface.setFocusPlacement(.rightSidebarDock)
-            guard let rollbackPane = sourcePane ?? sourceDock.bonsplitController.allPaneIds.first else {
-                agentContextManagementCoordinator.remove(
-                    panelId: detached.panelId,
-                    workspace: nil
-                )
-                return false
-            }
-            if sourceDock.attachDetachedSurface(detached, inPane: rollbackPane, focus: false) == nil {
-                agentContextManagementCoordinator.remove(
-                    panelId: detached.panelId,
-                    workspace: nil
-                )
-            }
+            _ = rollbackDetachedSurfaceToDock(
+                detached,
+                sourceDock: sourceDock,
+                sourcePane: sourcePane
+            )
             return false
         }
 
@@ -249,20 +240,11 @@ extension AppDelegate {
 
         guard let destinationWorkspace = manager.addWorkspace(fromDetachedSurface: detached, select: focus) else {
             // Creation failed — roll the panel back into the Dock unchanged.
-            (detached.panel as? TerminalPanel)?.surface.setFocusPlacement(.rightSidebarDock)
-            guard let rollbackPane = sourcePane ?? sourceDock.bonsplitController.allPaneIds.first else {
-                agentContextManagementCoordinator.remove(
-                    panelId: detached.panelId,
-                    workspace: nil
-                )
-                return false
-            }
-            if sourceDock.attachDetachedSurface(detached, inPane: rollbackPane, focus: false) == nil {
-                agentContextManagementCoordinator.remove(
-                    panelId: detached.panelId,
-                    workspace: nil
-                )
-            }
+            _ = rollbackDetachedSurfaceToDock(
+                detached,
+                sourceDock: sourceDock,
+                sourcePane: sourcePane
+            )
             return false
         }
         destinationWorkspace.scheduleTerminalGeometryReconcile()
@@ -352,22 +334,39 @@ extension AppDelegate {
                 focus: true
             )
         case .dock(let dock, _):
-            (detached.panel as? TerminalPanel)?.surface.setFocusPlacement(.rightSidebarDock)
-            guard let pane = dock.bonsplitController.focusedPaneId
-                ?? dock.bonsplitController.allPaneIds.first else {
-                agentContextManagementCoordinator.remove(
-                    panelId: detached.panelId,
-                    workspace: nil
-                )
-                return
-            }
-            if dock.attachDetachedSurface(detached, inPane: pane, focus: false) == nil {
-                agentContextManagementCoordinator.remove(
-                    panelId: detached.panelId,
-                    workspace: nil
-                )
-            }
+            _ = rollbackDetachedSurfaceToDock(
+                detached,
+                sourceDock: dock,
+                sourcePane: nil
+            )
         }
+    }
+
+    /// Restores a detached panel to its source Dock, clearing preserved
+    /// context state only when the transfer can no longer be reattached.
+    @discardableResult
+    private func rollbackDetachedSurfaceToDock(
+        _ detached: Workspace.DetachedSurfaceTransfer,
+        sourceDock: DockSplitStore,
+        sourcePane: PaneID?
+    ) -> Bool {
+        (detached.panel as? TerminalPanel)?.surface.setFocusPlacement(.rightSidebarDock)
+        let rollbackPane = sourcePane.flatMap { requestedPane in
+            sourceDock.bonsplitController.allPaneIds.first(where: { $0 == requestedPane })
+        } ?? sourceDock.bonsplitController.focusedPaneId
+            ?? sourceDock.bonsplitController.allPaneIds.first
+        guard let rollbackPane,
+              sourceDock.attachDetachedSurface(detached, inPane: rollbackPane, focus: false) != nil else {
+            // This is the terminal failure boundary: no source Dock can own
+            // the panel, so dropping the preserved coordinator state is safe.
+            agentContextManagementCoordinator.remove(
+                panelId: detached.panelId,
+                workspace: nil,
+                ownerOverride: .dock(sourceDock)
+            )
+            return false
+        }
+        return true
     }
 
     private func cleanupEmptyContainerAfterMove(

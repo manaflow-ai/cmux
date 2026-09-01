@@ -87,7 +87,11 @@ extension AgentContextManagementCoordinator {
         if state.pressure.isUnderPressure {
             state.pressureConfirmation.observeLifecycle(state.lifecycle)
         }
-        var preservationVerificationRequest: (URL, Date)?
+        var preservationVerificationRequest: (
+            path: URL,
+            requestedAt: Date,
+            baseline: AgentContextHandoffVerificationBaseline
+        )?
         var preservationVerificationUnavailable = false
         if state.preservationAwaitingAcknowledgement, state.lifecycle == .running {
             state.preservationObservedRunning = true
@@ -99,10 +103,13 @@ extension AgentContextManagementCoordinator {
             if !state.preservationVerificationInFlight,
                !state.unsafeClearNotificationSent,
                let path = state.preservationHandoffPath,
-               let requestedAt = state.preservationRequestedAt {
+               let requestedAt = state.preservationRequestedAt,
+               let baseline = state.preservationBaseline {
                 state.preservationVerificationInFlight = true
-                preservationVerificationRequest = (path, requestedAt)
-            } else if state.preservationHandoffPath == nil || state.preservationRequestedAt == nil {
+                preservationVerificationRequest = (path, requestedAt, baseline)
+            } else if state.preservationHandoffPath == nil
+                || state.preservationRequestedAt == nil
+                || state.preservationBaseline == nil {
                 state.unsafeClearNotificationSent = true
                 state.manualRecoveryRequired = true
                 preservationVerificationUnavailable = true
@@ -154,11 +161,12 @@ extension AgentContextManagementCoordinator {
             )
         }
         states[panelId] = state
-        if let (path, requestedAt) = preservationVerificationRequest {
+        if let preservationVerificationRequest {
             beginPreservationVerification(
                 panelId: panelId,
-                path: path,
-                requestedAt: requestedAt
+                path: preservationVerificationRequest.path,
+                requestedAt: preservationVerificationRequest.requestedAt,
+                baseline: preservationVerificationRequest.baseline
             )
         }
         if preservationVerificationUnavailable {
@@ -228,6 +236,8 @@ extension AgentContextManagementCoordinator {
             state.preservationCompleted = false
             state.preservationHandoffPath = nil
             state.preservationRequestedAt = nil
+            state.preservationBaseline = nil
+            state.preservationPreparationInFlight = false
             state.preservationVerificationInFlight = false
             // Keep the recovery recursion fence until a fresh running-to-idle
             // boundary (or explicit user-input reset) proves the command's

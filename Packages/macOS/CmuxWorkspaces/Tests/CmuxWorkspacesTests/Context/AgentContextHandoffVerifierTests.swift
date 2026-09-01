@@ -19,6 +19,70 @@ struct AgentContextHandoffVerifierTests {
         #expect(result == .written)
     }
 
+    @Test("A changed handoff is accepted when filesystem mtime is coarse")
+    func acceptsChangedSnapshotWithCoarseModificationTime() async {
+        let timestamp = Date(timeIntervalSince1970: 1_700_000_000)
+        let oldData = Data("old state\n".utf8)
+        let newData = Data("new state\n".utf8)
+        let metadata = AgentContextHandoffFileMetadata(
+            isRegularFile: true,
+            modificationDate: timestamp,
+            size: oldData.count,
+            deviceID: 7,
+            fileID: 11
+        )
+        let updatedMetadata = AgentContextHandoffFileMetadata(
+            isRegularFile: true,
+            modificationDate: timestamp,
+            size: newData.count,
+            deviceID: 7,
+            fileID: 11
+        )
+        let fileSystem = SequencedHandoffFileSystem(snapshots: [
+            AgentContextHandoffFileSnapshot(metadata: metadata, data: oldData),
+            AgentContextHandoffFileSnapshot(metadata: updatedMetadata, data: newData),
+        ])
+        let verifier = AgentContextHandoffVerifier(fileSystem: fileSystem)
+        let path = URL(fileURLWithPath: "/injected/handoff.md")
+
+        let baseline = await verifier.capture(path: path)
+        let result = await verifier.verify(
+            path: path,
+            requestedAt: timestamp.addingTimeInterval(1),
+            baseline: baseline
+        )
+
+        #expect(result == .written)
+    }
+
+    @Test("An unchanged pre-request handoff remains stale")
+    func unchangedSnapshotRemainsStaleWithBaseline() async {
+        let timestamp = Date(timeIntervalSince1970: 1_700_000_000)
+        let data = Data("same state\n".utf8)
+        let snapshot = AgentContextHandoffFileSnapshot(
+            metadata: AgentContextHandoffFileMetadata(
+                isRegularFile: true,
+                modificationDate: timestamp,
+                size: data.count,
+                deviceID: 7,
+                fileID: 11
+            ),
+            data: data
+        )
+        let fileSystem = SequencedHandoffFileSystem(snapshots: [snapshot, snapshot])
+        let verifier = AgentContextHandoffVerifier(fileSystem: fileSystem)
+        let path = URL(fileURLWithPath: "/injected/handoff.md")
+
+        let baseline = await verifier.capture(path: path)
+        let result = await verifier.verify(
+            path: path,
+            requestedAt: timestamp.addingTimeInterval(1),
+            baseline: baseline
+        )
+
+        #expect(result == .stale)
+    }
+
     @Test("Missing and stale handoffs fail closed")
     func missingAndStaleHandoffsFailClosed() async throws {
         let directory = try makeTemporaryDirectory()
@@ -163,5 +227,21 @@ struct AgentContextHandoffVerifierTests {
             withIntermediateDirectories: false
         )
         return directory
+    }
+
+    private actor SequencedHandoffFileSystem: AgentContextHandoffFileSystem {
+        var snapshots: [AgentContextHandoffFileSnapshot?]
+
+        init(snapshots: [AgentContextHandoffFileSnapshot]) {
+            self.snapshots = snapshots.map(Optional.some)
+        }
+
+        func readSnapshot(
+            at _: URL,
+            maximumBytes _: Int
+        ) async throws -> AgentContextHandoffFileSnapshot? {
+            guard !snapshots.isEmpty else { return nil }
+            return snapshots.removeFirst()
+        }
     }
 }

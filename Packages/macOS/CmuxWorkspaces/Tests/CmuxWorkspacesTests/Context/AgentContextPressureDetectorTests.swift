@@ -73,6 +73,48 @@ struct AgentContextPressureDetectorTests {
         )
     }
 
+    @Test("Opaque DCS, PM, and APC strings never expose payload markers")
+    func opaqueStringControlsAreIgnored() {
+        let controls: [(String, String)] = [
+            ("\u{1b}P0;Context window is almost full\u{1b}\\", "ESC DCS"),
+            ("\u{1b}^0;Context window is almost full\u{1b}\\", "ESC PM"),
+            ("\u{1b}_0;Context window is almost full\u{1b}\\", "ESC APC"),
+            ("\u{0090}0;Context window is almost full\u{009c}", "C1 DCS"),
+            ("\u{009e}0;Context window is almost full\u{009c}", "C1 PM"),
+            ("\u{009f}0;Context window is almost full\u{009c}", "C1 APC"),
+        ]
+
+        for (control, label) in controls {
+            var detector = AgentContextPressureDetector(provider: .claudeCode)
+            #expect(detector.consume(control).isEmpty, Comment(rawValue: label))
+            #expect(
+                detector.consume("Context window is almost full\n").count == 1,
+                Comment(rawValue: label)
+            )
+        }
+    }
+
+    @Test("An oversized leading percentage token is rejected")
+    func oversizedLeadingPercentageIsIgnored() {
+        var detector = AgentContextPressureDetector(provider: .codex)
+
+        let events = detector.consume("1005% context left\n")
+
+        #expect(events.isEmpty)
+        #expect(detector.snapshot.occurrences[.contextLow] == nil)
+    }
+
+    @Test("Percentage footer matches are bounded per output chunk")
+    func percentageMatchesAreBounded() {
+        var detector = AgentContextPressureDetector(provider: .codex)
+        let output = String(repeating: "5% context left\n", count: 256)
+
+        _ = detector.consume(output)
+
+        let occurrences = detector.snapshot.occurrences[.contextLow] ?? 0
+        #expect(occurrences <= 128)
+    }
+
     @Test("Whitespace split across PTY chunks does not break a marker")
     func whitespaceBoundaryIsPreserved() {
         var detector = AgentContextPressureDetector(provider: .claudeCode)

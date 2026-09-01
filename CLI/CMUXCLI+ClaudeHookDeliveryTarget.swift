@@ -303,7 +303,8 @@ extension CMUXCLI {
         sessionId: String?,
         surfaceId: String?,
         workspaceId: String?,
-        client: SocketClient
+        client: SocketClient,
+        responseTimeout: TimeInterval = 1.0
     ) -> (workspaceId: String, surfaceId: String)? {
         let normalizedSource = source.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
         guard normalizedSource == "claude" || normalizedSource == "codex",
@@ -319,10 +320,13 @@ extension CMUXCLI {
         }
         let payload: [String: Any]
         do {
+            let boundedTimeout = responseTimeout.isFinite
+                ? min(max(responseTimeout, 0.05), 1.0)
+                : 0.05
             payload = try client.sendV2(
                 method: "surface.resume.get",
                 params: params,
-                responseTimeout: 1.0
+                responseTimeout: boundedTimeout
             )
         } catch {
             return nil
