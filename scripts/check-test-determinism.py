@@ -4903,6 +4903,13 @@ def _self_test() -> int:
             "try await Task.sleep(nanoseconds: 300_000_000)\nXCTAssertTrue(view.exists)\n",
             {RULE_SLEEP_THEN_ASSERT},
         ),
+        # Raw Swift strings still execute expressions introduced by the
+        # matching-hash interpolation marker.
+        (
+            "cmuxTests/raw-string-interpolation.swift",
+            'let rendered = ##"\\##(fetch("https://api.openai.com/v1/items"))"##\n',
+            {RULE_LIVE_NETWORK_HOST},
+        ),
         (
             "tests/sh.sh",
             "sleep 1\ntest -f /tmp/out || exit 1\n",
