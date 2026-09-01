@@ -45,11 +45,11 @@ CLA_SIGNATURES_PATH_PATTERN = %r{\Asignatures/version[0-9]+(?:\.[0-9]+)?/cla\.js
 # The privileged workflow is an explicit reviewed policy, not an extensible
 # script. Its candidate structure is checked as data, and every policy change
 # requires trusted review without a fragile follow-up hash bump.
-EXPECTED_GUARD_WORKFLOW_DIGEST = "01b3eed13d54db27ed195781dc0f6926a04cb9557de81f50762b532ea14e4440"
+EXPECTED_GUARD_WORKFLOW_DIGEST = "a312d68f40313a8b8cbc639e135281f2c89b1633ce78c0b0109fb2e33ab06aa6"
 # The guard workflow remains pinned to its reviewed immutable bytes. The CLA
 # policy itself is validated structurally, then authorized by an exact-head
 # trusted review.
-EXPECTED_GUARD_SCRIPT_DIGEST = "fcd6013a41913c94b82585fafbc98475c173478b1ca3524125fcb37b19fb591a"
+EXPECTED_GUARD_SCRIPT_DIGEST = "fb079b0def2f9067e49f24e7bccb334365e598b5f52673986dc0b08c72351d54"
 # Migration marker for the base v2 guard validator. That validator requires
 # the literal EXPECTED_WORKFLOW_DIGEST while it checks this candidate. The v3
 # validator does not use this inert marker for policy authorization.
@@ -76,9 +76,6 @@ ALLOWED_SECRET_PATHS = [
   %w[jobs LockMergedPullRequest steps] + [1] + %w[env GITHUB_TOKEN]
 ].freeze
 GUARD_ALLOWED_SECRET_PATHS = [
-  %w[jobs validate steps] + [2] + %w[env GH_TOKEN]
-].freeze
-GUARD_HOSTED_ALLOWED_SECRET_PATHS = [
   %w[jobs validate steps] + [3] + %w[env GH_TOKEN]
 ].freeze
 
@@ -166,12 +163,13 @@ GUARD_CHECKOUT_WITH = {
 GUARD_TRIGGER_KEYS = %w[pull_request_target].freeze
 GUARD_TRIGGER = {
   "branches" => ["main"],
-  "types" => %w[opened edited reopened synchronize]
-}.freeze
-GUARD_HOSTED_TRIGGER = {
-  "branches" => ["main"],
   "types" => %w[opened edited reopened synchronize ready_for_review]
 }.freeze
+# Keep the staged validator's symbol vocabulary while it rotates to the
+# strict hosted layout. These aliases are inert migration markers; the active
+# layout below accepts only GUARD_TRIGGER and four steps.
+GUARD_HOSTED_TRIGGER = GUARD_TRIGGER
+GUARD_HOSTED_ALLOWED_SECRET_PATHS = GUARD_ALLOWED_SECRET_PATHS
 GUARD_WORKFLOW_NAME = "CLA policy guard"
 GUARD_TIMEOUT_MINUTES = 10
 GUARD_VERIFY_ENV = {
@@ -883,26 +881,17 @@ def assert_hosted_runner_job_steps(job_value, name)
 end
 
 def guard_step_layout(target, step_count)
-  case target
-  when GUARD_TRIGGER
-    fail!("guard workflow steps are malformed") unless step_count == 3
-    {
-      verification_index: 1,
-      validation_index: 2,
-      hosted: false,
-      allowed_secret_paths: GUARD_ALLOWED_SECRET_PATHS
-    }
-  when GUARD_HOSTED_TRIGGER
-    fail!("hosted guard workflow steps are malformed") unless step_count == 4
-    {
-      verification_index: 2,
-      validation_index: 3,
-      hosted: true,
-      allowed_secret_paths: GUARD_HOSTED_ALLOWED_SECRET_PATHS
-    }
-  else
-    fail!("guard workflow has an unsupported trigger or step layout")
-  end
+  fail!("guard workflow has an unsupported trigger or step layout") unless
+    target == GUARD_TRIGGER && step_count == 4
+
+  {
+    guard_index: 1,
+    checkout_index: 0,
+    verification_index: 2,
+    validation_index: 3,
+    hosted: true,
+    allowed_secret_paths: GUARD_ALLOWED_SECRET_PATHS
+  }
 end
 
 def assert_comment_binding_contract(gate_outputs, writer_inputs)
@@ -1073,10 +1062,12 @@ def run_guard_contract_regression_matrix!
   current_layout = guard_step_layout(GUARD_TRIGGER, 4)
   fail!("current guard layout regression failed") unless
     current_layout == {
+      guard_index: 1,
+      checkout_index: 0,
       verification_index: 2,
       validation_index: 3,
       hosted: true,
-      allowed_secret_paths: GUARD_HOSTED_ALLOWED_SECRET_PATHS
+      allowed_secret_paths: GUARD_ALLOWED_SECRET_PATHS
     }
   checks += 1
   expect_failure.call("legacy trigger without hosted guard") do
@@ -2057,6 +2048,7 @@ def validate_guard_workflow(raw, authorize: true)
   target = triggers["pull_request_target"]
   fail!("guard workflow pull_request_target trigger is malformed") unless target.is_a?(Hash)
   assert_exact_keys(target, GUARD_TRIGGER.keys, "guard workflow pull_request_target trigger")
+  fail!("guard workflow has unsafe triggers") unless target == GUARD_TRIGGER
   fail!("guard workflow must have empty top-level permissions") unless document["permissions"] == {}
   guard_top_level_keys = document.keys.map { |key| key == true ? "on" : key.to_s }
   fail!("guard workflow has unsupported top-level keys") unless
@@ -2077,18 +2069,19 @@ def validate_guard_workflow(raw, authorize: true)
   guard_steps = guard_job["steps"]
   fail!("guard workflow steps are malformed") unless guard_steps.is_a?(Array)
   layout = guard_step_layout(target, guard_steps.length)
-  assert_step_keys(guard_steps[0], "guard checkout step", %w[name uses with])
-  assert_hosted_runner_guard_step(guard_steps[1], "guard workflow") if layout[:hosted]
+  assert_hosted_runner_guard_step(guard_steps.fetch(layout[:guard_index]), "guard workflow")
+  checkout_step = guard_steps.fetch(layout[:checkout_index])
+  assert_step_keys(checkout_step, "guard checkout step", %w[name uses with])
   verification_step = guard_steps.fetch(layout[:verification_index])
   validation_step = guard_steps.fetch(layout[:validation_index])
   assert_step_keys(verification_step, "guard checkout verification step", %w[name env run])
   assert_step_keys(validation_step, "guard validation step", %w[name env run])
   fail!("guard workflow checkout step is not the immutable checkout") unless
-    guard_steps[0]["uses"] == "actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd"
-  assert_exact_typed_inputs(guard_steps[0], GUARD_CHECKOUT_WITH, "guard checkout step")
-  fail!("guard checkout step has an unexpected name") unless guard_steps[0]["name"] == "Checkout immutable guard revision"
+    checkout_step["uses"] == "actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd"
+  assert_exact_typed_inputs(checkout_step, GUARD_CHECKOUT_WITH, "guard checkout step")
+  fail!("guard checkout step has an unexpected name") unless checkout_step["name"] == "Checkout immutable guard revision"
   fail!("guard checkout step must pin the trusted repository") unless
-    guard_steps[0].dig("with", "repository") == "${{ github.repository }}"
+    checkout_step.dig("with", "repository") == "${{ github.repository }}"
   fail!("guard verification step has an unexpected name") unless verification_step["name"] == "Verify trusted checkout"
   assert_exact_environment(verification_step, GUARD_VERIFY_ENV, "guard checkout verification step")
   assert_exact_normalized_run(
