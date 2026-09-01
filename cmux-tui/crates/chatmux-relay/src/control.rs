@@ -420,7 +420,7 @@ mod tests {
     use tokio::sync::{Notify, oneshot};
 
     #[tokio::test]
-    async fn end_wakes_paused_reader_and_closes_socket() {
+    async fn drop_wakes_paused_reader_and_closes_socket() {
         let socket_path = std::env::temp_dir()
             .join(format!("chatmux-relay-control-close-{}.sock", std::process::id()));
         let _ = std::fs::remove_file(&socket_path);
@@ -451,7 +451,7 @@ mod tests {
         let waiter_control = Arc::clone(&control);
         let reader_done = tokio::spawn(async move { waiter_control.wait_reader_done().await });
         tokio::task::yield_now().await;
-        control.end();
+        drop(control);
 
         tokio::time::timeout(Duration::from_secs(1), reader_done)
             .await
