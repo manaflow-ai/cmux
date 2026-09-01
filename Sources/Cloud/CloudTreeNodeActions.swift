@@ -8,6 +8,10 @@ import Foundation
 struct CloudTreeNodeActions {
     /// Project a resource into the selected local workspace.
     let project: @MainActor (_ resource: SurfaceResourceID, _ placement: SurfacePlacement, _ reuseExisting: Bool) -> Void
+    /// Project a resource into ONE local workspace, reusing only a pane already in it
+    /// (a workspace's own Desktop row: a VNC pane in another workspace neither
+    /// satisfies the open nor steals focus).
+    let projectInLocalWorkspace: @MainActor (_ resource: SurfaceResourceID, _ workspaceID: UUID) -> Void
     /// Start a plain terminal on a machine (in a cmux-tui workspace when given) and show it.
     let newTerminal: @MainActor (_ machine: SurfaceMachineID, _ remoteWorkspaceID: String?) -> Void
     /// Open a whole group (a workspace's terminals and browsers): the first at the
@@ -23,11 +27,11 @@ struct CloudTreeNodeActions {
     let newWorkspace: @MainActor (_ machine: SurfaceMachineID) -> Void
     /// End a terminal on its machine (the process and its remote tab).
     let closeTerminal: @MainActor (_ resource: SurfaceResourceID) -> Void
-    /// Close a workspace on its machine; its terminals detach into the pool
-    /// (only `terminal close` kills content).
-    let closeWorkspace: @MainActor (_ machine: SurfaceMachineID, _ remoteWorkspaceID: String) -> Void
-    /// Delete a workspace AND kill every terminal in it. Confirms first.
-    let deleteWorkspace: @MainActor (_ machine: SurfaceMachineID, _ workspace: SurfaceRemoteWorkspace) -> Void
+    /// Close a workspace on its machine AND kill every terminal in it (austin,
+    /// 2026-08-31: a closed workspace never leaves stray terminals behind in the
+    /// pool). Confirms first when there is something to kill. The protocol's
+    /// keep-terminals close stays CLI-only (`cmux vm workspace close`).
+    let closeWorkspace: @MainActor (_ machine: SurfaceMachineID, _ workspace: SurfaceRemoteWorkspace) -> Void
     /// Rename a remote workspace via a text prompt.
     let renameWorkspace: @MainActor (_ machine: SurfaceMachineID, _ workspace: SurfaceRemoteWorkspace) -> Void
     /// Select a local workspace.
@@ -81,6 +85,17 @@ struct CloudTreeNodeActions {
             project: { resource, placement, reuseExisting in
                 run(openingLabel(resource.machine)) { catalog in
                     _ = try await catalog.project(resource, into: try destination(placement), focus: true, reuseExisting: reuseExisting)
+                }
+            },
+            projectInLocalWorkspace: { resource, workspaceID in
+                run(openingLabel(resource.machine)) { catalog in
+                    _ = try await catalog.project(
+                        resource,
+                        into: .workspace(id: workspaceID, placement: .split),
+                        focus: true,
+                        reuseExisting: true,
+                        reuseInWorkspace: workspaceID
+                    )
                 }
             },
             newTerminal: { machine, remoteWorkspaceID in
@@ -137,28 +152,21 @@ struct CloudTreeNodeActions {
                     try await provider.closeTerminal(resource)
                 }
             },
-            closeWorkspace: { machine, remoteWorkspaceID in
-                run(String(format: String(localized: "cloudTree.operation.close", defaultValue: "Closing on %@\u{2026}"), machineName(machine))) { catalog in
-                    guard let provider = catalog.provider(for: machine) else { throw SurfaceCatalogError.noProvider(machine) }
-                    try await provider.closeRemoteWorkspace(id: remoteWorkspaceID)
-                }
-            },
-            deleteWorkspace: { machine, workspace in
+            closeWorkspace: { machine, workspace in
+                // Closing a workspace takes its terminals with it — nothing "detaches"
+                // into the pool. Killing processes is the destructive part, so an
+                // empty workspace closes without a prompt.
                 let terminals = catalog().snapshot.resources(on: machine).filter { resource in
                     resource.kind == .terminal && resource.remoteWorkspaces.contains { $0.id == workspace.id }
                 }
-                let title = String(format: String(localized: "cloudTree.deleteWorkspace.title", defaultValue: "Delete workspace \u{201C}%@\u{201D}?"), workspace.name)
-                let message: String
-                switch terminals.count {
-                case 0:
-                    message = String(localized: "cloudTree.deleteWorkspace.message.empty", defaultValue: "The workspace closes on the machine.")
-                case 1:
-                    message = String(localized: "cloudTree.deleteWorkspace.message.one", defaultValue: "Its terminal is killed with it. To keep it, use \u{201C}Close Workspace\u{201D} instead — it moves to the Terminals pool.")
-                default:
-                    message = String(format: String(localized: "cloudTree.deleteWorkspace.message.other", defaultValue: "Its %d terminals are killed with it. To keep them, use \u{201C}Close Workspace\u{201D} instead — they move to the Terminals pool."), terminals.count)
+                if !terminals.isEmpty {
+                    let title = String(format: String(localized: "cloudTree.closeWorkspace.title", defaultValue: "Close workspace \u{201C}%@\u{201D}?"), workspace.name)
+                    let message = terminals.count == 1
+                        ? String(localized: "cloudTree.closeWorkspace.message.one", defaultValue: "Its terminal is killed with it.")
+                        : String(format: String(localized: "cloudTree.closeWorkspace.message.other", defaultValue: "Its %d terminals are killed with it."), terminals.count)
+                    guard confirmDestructive(title: title, message: message, verb: String(localized: "cloudTree.closeWorkspace.confirm", defaultValue: "Close")) else { return }
                 }
-                guard confirmDestructive(title: title, message: message, verb: String(localized: "cloudTree.deleteWorkspace.confirm", defaultValue: "Delete")) else { return }
-                run(String(format: String(localized: "cloudTree.operation.deleteWorkspace", defaultValue: "Deleting %@\u{2026}"), workspace.name)) { catalog in
+                run(String(format: String(localized: "cloudTree.operation.closeWorkspace", defaultValue: "Closing %@\u{2026}"), workspace.name)) { catalog in
                     guard let provider = catalog.provider(for: machine) else { throw SurfaceCatalogError.noProvider(machine) }
                     _ = try await Self.deleteWorkspaceAndTerminals(machine: machine, provider: provider, catalog: catalog, workspaceID: workspace.id)
                 }
@@ -228,13 +236,13 @@ struct CloudTreeNodeActions {
         return (workspace, terminal, opened)
     }
 
-    /// The full delete, shared by the sidebar's "Delete Workspace and Terminals…" and the
-    /// socket's `vm.workspace_delete`: kill every terminal viewed in the workspace, then
-    /// close the workspace. Re-syncs and re-enumerates AT operation time — the sidebar's
-    /// pre-confirm list only words its dialog; a terminal created while the dialog was up
-    /// must die with the workspace too, not detach into the pool. Returns how many
-    /// terminals were closed. (Plain `closeRemoteWorkspace` keeps terminals: they detach
-    /// into the Terminals pool.)
+    /// The full close, shared by the sidebar's "Close Workspace…" (menu and hover ×) and
+    /// the socket's `vm.workspace_delete`: kill every terminal viewed in the workspace,
+    /// then close the workspace. Re-syncs and re-enumerates AT operation time — the
+    /// sidebar's pre-confirm list only words its dialog; a terminal created while the
+    /// dialog was up must die with the workspace too, never linger in the pool. Returns
+    /// how many terminals were closed. (Plain `closeRemoteWorkspace` is the protocol's
+    /// keep-terminals close, reachable only from the CLI / `vm.workspace_close`.)
     @MainActor
     @discardableResult
     static func deleteWorkspaceAndTerminals(
