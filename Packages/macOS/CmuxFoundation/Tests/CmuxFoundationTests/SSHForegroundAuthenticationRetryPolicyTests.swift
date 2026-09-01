@@ -407,7 +407,10 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
         else
           ulimit -u 100 2>/dev/null || true
         fi
-        cmux_ssh_terminate_auth_process_tree "$cmux_test_auth_root" "$$"
+        # Exercise the event-enabled path without publishing an event. The
+        # helper must reserve a force pass instead of rolling back after the
+        # bounded FIFO wait.
+        cmux_ssh_terminate_auth_process_tree "$cmux_test_auth_root" "$$" 1
         wait "$cmux_test_auth_root" 2>/dev/null || true
         """
 
