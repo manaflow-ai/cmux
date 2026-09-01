@@ -1939,7 +1939,7 @@ impl Inner {
                     .map(|(owner, cancellation)| (owner.clone(), Some(cancellation.clone())))
             })
         };
-        if let Some((owner, active_cancellation)) = opening {
+        if let Some((owner, _active_cancellation)) = opening {
             let owner_matches = match context.transport_kind {
                 TransportKind::Legacy => context.transport_id.is_none(),
                 TransportKind::Relay | TransportKind::Tunnel => {
@@ -1975,10 +1975,15 @@ impl Inner {
                     None
                 }
             };
-            if let Some(cancellation) = cancellation.or(active_cancellation) {
+            if let Some(cancellation) = cancellation {
                 cancellation.cancel();
+                return;
             }
-            return;
+            // The opening may have published an attachment between the
+            // snapshot above and the cancellation mutation. Fall through to
+            // the attachment path so this close frame still retires that
+            // exact generation. Do not cancel the stale token: it may belong
+            // to a completed open or to a replacement that won the race.
         }
 
         let Some(attachment) = self.attachment(pty_id) else { return };
