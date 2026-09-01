@@ -274,6 +274,7 @@ struct TerminalPointerStyleStateTests {
         ))
 
         state.apply(.runtimeReset(runtimeLifetimeId))
+        #expect(state.effectiveCursor == NSCursor.iBeam)
         state.apply(.ghosttyShape(
             GHOSTTY_MOUSE_SHAPE_CROSSHAIR,
             runtimeLifetimeId: runtimeLifetimeId
@@ -305,6 +306,7 @@ struct TerminalPointerStyleStateTests {
             GHOSTTY_MOUSE_SHAPE_HELP,
             runtimeLifetimeId: runtimeLifetimeId
         ))
+        #expect(state.effectiveCursor == NSCursor.pointingHand)
         state.apply(.ghosttyLinkHoverChanged(
             false,
             runtimeLifetimeId: runtimeLifetimeId
@@ -383,6 +385,32 @@ struct TerminalPointerStyleStateTests {
         ))
 
         #expect(state.effectiveCursor == NSCursor.pointingHand)
+    }
+
+    @Test("link preview disabled restores an unsupported base shape")
+    func linkPreviewDisabledRestoresUnsupportedBaseShape() {
+        var state = TerminalPointerStyleState()
+        let runtimeLifetimeId = activate(&state)
+        state.apply(.focusChanged(true))
+        state.apply(.ghosttyShape(
+            GHOSTTY_MOUSE_SHAPE_CROSSHAIR,
+            runtimeLifetimeId: runtimeLifetimeId
+        ))
+        state.apply(.ghosttyShape(
+            GHOSTTY_MOUSE_SHAPE_POINTER,
+            runtimeLifetimeId: runtimeLifetimeId
+        ))
+        state.apply(.ghosttyShape(
+            GHOSTTY_MOUSE_SHAPE_HELP,
+            runtimeLifetimeId: runtimeLifetimeId
+        ))
+        #expect(state.effectiveCursor == NSCursor.pointingHand)
+        state.apply(.ghosttyLinkHoverChanged(
+            false,
+            runtimeLifetimeId: runtimeLifetimeId
+        ))
+
+        #expect(state.effectiveCursor == NSCursor.crosshair)
     }
 
     @Test("delayed hyperlink activation cannot survive focus loss")

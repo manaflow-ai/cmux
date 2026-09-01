@@ -101,7 +101,6 @@ public final class GhosttySurfaceCallbackContext {
     ///     native runtime surface.
     ///   - titleOverride: An immutable title derived from the runtime's launch
     ///     metadata, or `nil` to use Ghostty's OSC title updates.
-
     ///   - runtimeLifetimeId: A unique identity for this native runtime.
     ///   - rendererMailboxDidDrain: Called with only the stable surface id after
     ///     an armed repair observes renderer activity following a mailbox drain.
@@ -110,7 +109,7 @@ public final class GhosttySurfaceCallbackContext {
     public init(
         surfaceHost: any TerminalSurfaceHosting,
         surfaceController: any TerminalSurfaceControlling,
-        terminalLifecycleID: UUID = UUID(),
+        terminalLifecycleID: UUID,
         titleOverride: String? = nil,
         runtimeLifetimeId: UUID = UUID(),
         rendererMailboxDidDrain: @escaping @Sendable (UUID) -> Void = { _ in },
