@@ -331,7 +331,8 @@ private struct BrowserPanelReplacementHarness: View {
             onRequestPanelFocus: {},
             onResumeAgentHibernation: {},
             onAutoResumeAgentHibernation: {},
-            onTriggerFlash: {}
+            onTriggerFlash: {},
+            onRequestDeferredBrowserMaterialization: {}
         )
     }
 }
