@@ -121,8 +121,13 @@ struct CLICallerWorkspaceDefaultTests {
     /// `--no-caller` and an explicit caller selector are contradictory. The CLI must
     /// reject the invocation before opening a socket instead of silently discarding
     /// the selector and returning an indistinguishable identity response.
-    @Test(arguments: ["--workspace", "--surface"])
-    func identifyNoCallerRejectsCallerSelector(_ selector: String) throws {
+    @Test(arguments: [
+        ("--workspace", false),
+        ("--surface", false),
+        ("--workspace", true),
+        ("--surface", true),
+    ])
+    func identifyNoCallerRejectsCallerSelector(selector: String, noCallerAfterTerminator: Bool) throws {
         let socketPath = Self.makeSocketPath("identify-conflict")
         let listenerFD = try Self.bindUnixSocket(at: socketPath)
         defer {
@@ -149,11 +154,10 @@ struct CLICallerWorkspaceDefaultTests {
         )
         environment["CMUX_CLI_TTY_NAME"] = "/dev/ttys9999999"
         let selectorValue = selector == "--workspace" ? Self.otherWorkspaceId : Self.callerSurfaceId
+        let noCallerArguments = noCallerAfterTerminator ? ["--", "--no-caller"] : ["--no-caller"]
         let result = Self.runProcess(
             executablePath: try Self.bundledCLIPath(),
-            arguments: [
-                "identify", "--json", selector, selectorValue, "--no-caller",
-            ],
+            arguments: ["identify", "--json", selector, selectorValue] + noCallerArguments,
             environment: environment,
             timeout: 5
         )
@@ -446,12 +450,20 @@ struct CLICallerWorkspaceDefaultTests {
         environment: [String: String],
         timeout: TimeInterval
     ) -> ProcessRunResult {
+        let home = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-caller-cli-\(UUID().uuidString)", isDirectory: true)
+        try? FileManager.default.createDirectory(at: home, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: home) }
+        var isolatedEnvironment = environment
+        isolatedEnvironment["HOME"] = home.path
+        isolatedEnvironment["CFFIXED_USER_HOME"] = home.path
+        isolatedEnvironment["XDG_CONFIG_HOME"] = home.appendingPathComponent(".config", isDirectory: true).path
         let process = Process()
         let stdoutPipe = Pipe()
         let stderrPipe = Pipe()
         process.executableURL = URL(fileURLWithPath: executablePath)
         process.arguments = arguments
-        process.environment = environment
+        process.environment = isolatedEnvironment
         process.standardInput = FileHandle.nullDevice
         process.standardOutput = stdoutPipe
         process.standardError = stderrPipe
