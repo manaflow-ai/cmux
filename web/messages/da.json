@@ -1145,6 +1145,7 @@
           "maxWidth": "Default maximum reading column width, in CSS pixels, for newly opened markdown viewers."
         },
         "sidebar": {
+          "ignoredPorts": "Porte, der udelades fra sidepanelets badges. Elementer kan være præcise portnumre eller inklusive \"start-end\"-intervaller; brug et tomt array for at vise alle registrerede porte.",
           "notificationMessageLineLimit": "Det maksimale antal linjer, der vises for den seneste notifikation under hver arbejdsområdetitel.",
           "rightMaxWidth": "Maksimal bredde i punkter for højre sidepanel. Hvis den udelades, bruges den indbyggede dynamiske grænse."
         },

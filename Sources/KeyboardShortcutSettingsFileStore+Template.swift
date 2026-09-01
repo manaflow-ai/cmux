@@ -155,6 +155,7 @@ extension CmuxSettingsFileStore {
                     "openPortLinksInCmuxBrowser": BrowserLinkOpenSettings.defaultOpenSidebarPortLinksInCmuxBrowser,
                     "showSSH": SidebarWorkspaceDetailDefaults.showSSH,
                     "showPorts": SidebarWorkspaceDetailDefaults.showPorts,
+                    "ignoredPorts": SettingCatalog().sidebar.ignoredPorts.defaultValue.map(\.canonicalText),
                     "showLog": SidebarWorkspaceDetailDefaults.showLog,
                     "showProgress": SidebarWorkspaceDetailDefaults.showProgress,
                     "showAgentActivity": SidebarWorkspaceDetailDefaults.showAgentActivity,

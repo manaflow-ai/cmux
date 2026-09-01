@@ -1145,6 +1145,7 @@
           "maxWidth": "Default maximum reading column width, in CSS pixels, for newly opened markdown viewers."
         },
         "sidebar": {
+          "ignoredPorts": "Portovi izostavljeni iz oznaka bočne trake. Stavke mogu biti tačni brojevi portova ili uključivi rasponi \"start-end\"; koristite prazan niz za prikaz svih otkrivenih portova.",
           "notificationMessageLineLimit": "Maksimalan broj redova prikazanih za najnoviju obavijest ispod naslova svakog radnog prostora.",
           "rightMaxWidth": "Maksimalna širina desne bočne trake u tačkama. Ako se izostavi, primjenjuje se ugrađeno dinamičko ograničenje."
         },
