@@ -787,6 +787,7 @@ extension CMUXCLI {
                                                               Type text into the terminal (as-is, no newline), then press
                                                               named keys: enter, tab, escape, up, down, ctrl+c (chords join with +)… Nothing is
                                                               attached or focused. `--keys enter` alone presses Enter.
+                                                              Put `--` before text that contains this command's own flags.
           cmux vm terminal read <machine> <terminal-id>       Print the terminal's visible screen (--json adds cursor/size).
           cmux vm terminal wait <machine> <terminal-id> --pattern <regex> [--timeout <seconds>]
                                                               Block until the screen matches (default 30 s); exit 1 on timeout.
@@ -797,13 +798,14 @@ extension CMUXCLI {
         """
 
     /// `--timeout` for `vm terminal wait`, in seconds: finite, at least one millisecond,
-    /// at most an hour (the daemon/link cap). nil is the 30 s default.
+    /// at most an hour (the daemon/link cap) — out of range is an error, not a silent
+    /// clamp, so the contract reads the same at every entrypoint. nil is the 30 s default.
     static func vmTerminalWaitSeconds(_ raw: String?) throws -> Double {
         guard let raw else { return 30 }
-        guard let seconds = Double(raw), seconds.isFinite, seconds >= 0.001 else {
+        guard let seconds = Double(raw), seconds.isFinite, seconds >= 0.001, seconds <= 3600 else {
             throw CLIError(message: "vm terminal wait: --timeout must be a number of seconds between 0.001 and 3600 (got '\(raw)')")
         }
-        return min(seconds, 3600)
+        return seconds
     }
 
     /// `cmux vm workspace new|open|rename|close|rm`: the sidebar's workspace verbs over the
@@ -891,14 +893,24 @@ extension CMUXCLI {
             return
         }
         let verb = rest[0]
-        let (keysOpt, r1) = parseOption(Array(rest.dropFirst()), name: "--keys")
-        let (patternOpt, r2) = parseOption(r1, name: "--pattern")
-        let (timeoutOpt, r3) = parseOption(r2, name: "--timeout")
-        let args = r3.filter { $0 != "--json" }
-        // `send` types whatever follows the two ids verbatim (`ls -la`, `git log --oneline`),
-        // so only the other verbs reject unknown dash tokens.
         let isSend = verb == "send" || verb == "write"
-        if !isSend, let unknown = args.first(where: { $0.hasPrefix("-") }) {
+        var tail = Array(rest.dropFirst())
+        // `--` ends option parsing: for `send`, everything after it is text, verbatim —
+        // including tokens that look like this command's own flags.
+        var literal: [String] = []
+        if let terminator = tail.firstIndex(of: "--") {
+            literal = Array(tail[(terminator + 1)...])
+            tail = Array(tail[..<terminator])
+        }
+        let (keysOpt, r1) = parseOption(tail, name: "--keys")
+        // `--pattern` / `--timeout` belong to `wait`; for `send` they are just text.
+        let (patternOpt, r2): (String?, [String]) = isSend ? (nil, r1) : parseOption(r1, name: "--pattern")
+        let (timeoutOpt, r3): (String?, [String]) = isSend ? (nil, r2) : parseOption(r2, name: "--timeout")
+        let args = r3.filter { $0 != "--json" }
+        // The two ids are never flags. After them, `send` types dash tokens verbatim
+        // (`ls -la`, `git log --oneline`); the other verbs reject unknown flags anywhere.
+        let misplaced = args.prefix(2).first(where: { $0.hasPrefix("-") })
+        if let unknown = misplaced ?? (isSend ? nil : args.first(where: { $0.hasPrefix("-") })) {
             throw CLIError(message: "vm terminal: unknown flag '\(unknown)'\n\n\(Self.vmTerminalUsage)")
         }
         guard args.count >= 2 else { throw CLIError(message: Self.vmTerminalUsage) }
@@ -910,7 +922,7 @@ extension CMUXCLI {
             if jsonOutput { print(jsonString(response)); return }
             print("OK closed terminal \(terminalID) on \(machine)")
         case "send", "write":
-            let text = args.dropFirst(2).joined(separator: " ")
+            let text = (Array(args.dropFirst(2)) + literal).joined(separator: " ")
             let keys = (keysOpt ?? "").split(separator: ",").map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty }
             guard !text.isEmpty || !keys.isEmpty else {
                 throw CLIError(message: "vm terminal send: give text and/or --keys (e.g. --keys enter)\n\n\(Self.vmTerminalUsage)")
