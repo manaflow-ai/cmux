@@ -1670,14 +1670,14 @@ struct RestorableAgentSessionIndex: Sendable {
         detectedSnapshots: [PanelKey: ProcessDetectedSnapshotEntry],
         hibernationProcessScopes: [PanelKey: HibernationProcessScope] = [:],
         environment: [String: String] = ProcessInfo.processInfo.environment,
-        processArgumentsProvider: (Int) -> CmuxTopProcessArguments? = {
+        processArgumentsProvider: @escaping (Int) -> CmuxTopProcessArguments? = {
             CmuxTopProcessSnapshot.processArgumentsAndEnvironment(for: $0)
         },
-        processPresenceProvider: (Int) -> PIDPresence = {
+        processPresenceProvider: @escaping (Int) -> PIDPresence = {
             guard $0 > 0, $0 <= Int(Int32.max) else { return .absent }
             return PIDPresence.current(pid: pid_t($0))
         },
-        processIdentityProvider: (Int) -> AgentPIDProcessIdentity? = {
+        processIdentityProvider: @escaping (Int) -> AgentPIDProcessIdentity? = {
             guard $0 > 0, $0 <= Int(Int32.max) else { return nil }
             return AgentPIDProcessIdentity(pid: pid_t($0))
         }
