@@ -21,7 +21,7 @@ use std::time::{Duration, Instant};
 
 use async_trait::async_trait;
 use bytes::Bytes;
-use cmux_pty::{ChildKiller, MasterPty, PtySize};
+use cmux_pty::{MasterPty, PtySize};
 use sha2::{Digest, Sha256};
 use tokio_util::sync::CancellationToken;
 
@@ -790,6 +790,17 @@ fn wait_for_child_exit_without_reaping(pid: libc::pid_t) -> std::io::Result<()> 
     }
 }
 
+fn fallback_child_reap<T, E, K, W>(lifecycle: &ChildLifecycleHandle, kill: K, wait: W) -> Result<T, E>
+where
+    K: FnOnce() -> Result<(), E>,
+    W: FnOnce() -> Result<T, E>,
+{
+    if ChildLifecycle::begin_reaping(lifecycle) {
+        let _ = kill();
+    }
+    wait()
+}
+
 fn spawn_real_pty(spec: &SpawnSpec, handoff: &SpawnHandoff) -> anyhow::Result<PtyHandle> {
     if handoff.is_cancelled() {
         return Err(anyhow::anyhow!("PTY spawn cancelled"));
@@ -869,10 +880,7 @@ fn spawn_real_pty(spec: &SpawnSpec, handoff: &SpawnHandoff) -> anyhow::Result<Pt
                     // fallback wait can reap it. Claim termination before
                     // reaping so MasterControl::drop cannot signal this PID
                     // after the kernel makes it available for reuse.
-                    if ChildLifecycle::begin_reaping(&wait_lifecycle) {
-                        let _ = child_cleanup.child_mut().kill();
-                    }
-                    child_cleanup.wait()
+                    fallback_child_reap(&wait_lifecycle, || child_cleanup.child_mut().kill(), || child_cleanup.wait())
                 }
             };
             let wait_result = wait_result.or_else(|_| {
@@ -880,10 +888,7 @@ fn spawn_real_pty(spec: &SpawnSpec, handoff: &SpawnHandoff) -> anyhow::Result<Pt
                 // Claim the reaping fence before asking the child to die so
                 // a kill error cannot reopen the lifecycle while `wait`
                 // releases the PID for reuse.
-                if ChildLifecycle::begin_reaping(&wait_lifecycle) {
-                    let _ = child_cleanup.child_mut().kill();
-                }
-                child_cleanup.wait()
+                fallback_child_reap(&wait_lifecycle, || child_cleanup.child_mut().kill(), || child_cleanup.wait())
             });
             let code = wait_result.map(|status| i64::from(status.exit_code() as i32)).unwrap_or(0);
             wait_lifecycle.lock().expect("child lifecycle lock").exited = true;
@@ -1442,6 +1447,7 @@ pub fn valid_session(name: &str) -> bool {
 
 #[cfg(test)]
 mod tests {
+    use cmux_pty::ChildKiller as _;
     use super::*;
     use std::os::unix::net::UnixStream;
     use std::sync::atomic::{AtomicUsize, Ordering as AtomicOrdering};
@@ -1590,19 +1596,24 @@ mod tests {
         let wait_lifecycle = TestArc::clone(&lifecycle);
         let wait_kills = TestArc::clone(&kills);
         let wait_thread = thread::spawn(move || {
-            let claimed = ChildLifecycle::begin_reaping(&wait_lifecycle);
-            let kill_failed = {
-                let mut killer = FailingTestChildKiller { kills: wait_kills };
-                killer.kill().is_err()
-            };
-            ready_tx.send((claimed, kill_failed)).expect("fallback result");
-            release_rx.recv().expect("fallback wait release");
-            wait_lifecycle.lock().expect("lifecycle lock").exited = true;
+            let result = fallback_child_reap(
+                &wait_lifecycle,
+                || {
+                    let mut killer = FailingTestChildKiller { kills: wait_kills };
+                    killer.kill()
+                },
+                || {
+                    ready_tx.send(()).expect("fallback result");
+                    release_rx.recv().expect("fallback wait release");
+                    wait_lifecycle.lock().expect("lifecycle lock").exited = true;
+                    Ok::<(), std::io::Error>(())
+                },
+            );
+            result.expect("fallback reap");
         });
 
-        let (claimed, kill_failed) = ready_rx.recv().expect("fallback result");
-        assert!(claimed, "fallback wait must claim the lifecycle");
-        assert!(kill_failed, "test child kill must exercise the error path");
+        ready_rx.recv().expect("fallback result");
+        assert!(lifecycle.lock().expect("lifecycle lock").reaping);
 
         let control = MasterControl {
             master: Mutex::new(Box::new(TestMaster)),
