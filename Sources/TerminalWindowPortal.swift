@@ -2230,7 +2230,14 @@ final class WindowTerminalPortal: NSObject {
             // normal frame-change refresh path won't run. Nudge geometry + redraw so newly
             // revealed terminals don't sit on a stale/blank IOSurface until later focus churn.
             hostedView.reconcileGeometryNow()
-            if syncLayout {
+            // Mid window live-resize the pass runs synchronously inside the
+            // resize tick's still-open transaction (see the didResize
+            // observer), where refreshSurfaceNow's displayIfNeeded reaches
+            // ghostty's Metal drawFrame and wedges on a present only that
+            // transaction can commit. Unlike the frame-change branch above,
+            // a reveal cannot skip its redraw outright — the surface would
+            // sit blank until later churn — so defer it one main-queue turn.
+            if syncLayout, !isWindowLiveResizeActive {
                 hostedView.refreshSurfaceNow(reason: "portal.reveal")
             } else {
                 deferSurfaceRefresh(forHostedId: hostedId, reason: "portal.reveal.deferred")
