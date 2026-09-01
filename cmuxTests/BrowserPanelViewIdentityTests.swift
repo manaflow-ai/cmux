@@ -45,14 +45,16 @@ import WebKit
         let expectedFrameInWindow = anchor.convert(anchor.bounds, to: nil)
 
         NotificationCenter.default.post(name: NSWindow.didResizeNotification, object: window)
-        await waitForNextMainActorTurn()
-        await waitForNextMainActorTurn()
-
+        // Assert before AppKit can service the intentionally dirty host on a later run-loop turn.
         #expect(
             referenceView.layoutPassCount == 0,
             "The browser portal must consume settled geometry without synchronously laying out SwiftUI's hosting view."
         )
         #expect(referenceView.needsLayout)
+
+        await waitForNextMainActorTurn()
+        await waitForNextMainActorTurn()
+
         let snapshot = try #require(
             portal.debugSnapshot(forWebViewId: ObjectIdentifier(webView))
         )
