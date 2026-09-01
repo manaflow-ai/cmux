@@ -291,6 +291,10 @@ final class TuiManualIOInputChannel: @unchecked Sendable {
     private static let maxQueuedWrites = 64
 
     private let lock = NSLock()
+    /// Serializes handle replacement with the check and actual write. The
+    /// generation check alone cannot fence a writer after it unlocks and
+    /// before FileHandle.write starts.
+    private let writeLock = NSLock()
     private var handle: FileHandle?
     private var lastGeometryClaim: TimeInterval = 0
     private let queue = DispatchQueue(label: "cmux.tuiManualIO.stdin", qos: .userInitiated)
@@ -302,6 +306,7 @@ final class TuiManualIOInputChannel: @unchecked Sendable {
     /// worse than losing keystrokes typed into a dead pane). A fresh handle
     /// counts as a claim: the relay claims geometry itself at attach.
     func setHandle(_ newHandle: FileHandle?, now: TimeInterval = ProcessInfo.processInfo.systemUptime) {
+        writeLock.lock()
         lock.lock()
         generation &+= 1
         handle = newHandle
@@ -309,6 +314,7 @@ final class TuiManualIOInputChannel: @unchecked Sendable {
             lastGeometryClaim = now
         }
         lock.unlock()
+        writeLock.unlock()
     }
 
     func send(_ line: Data) {
@@ -372,12 +378,14 @@ final class TuiManualIOInputChannel: @unchecked Sendable {
         generation writeGeneration: UInt64,
         _ write: () -> Void
     ) {
+        writeLock.lock()
         lock.lock()
         let current = handle != nil && generation == writeGeneration
         lock.unlock()
         if current {
             write()
         }
+        writeLock.unlock()
         lock.lock()
         queuedWrites = max(0, queuedWrites - 1)
         lock.unlock()
@@ -386,10 +394,12 @@ final class TuiManualIOInputChannel: @unchecked Sendable {
     /// Closes and detaches the current handle (relay stdin EOF = clean
     /// detach on the relay side).
     func closeHandle() {
+        writeLock.lock()
         lock.lock()
         let target = handle
         handle = nil
         lock.unlock()
+        writeLock.unlock()
         guard let target else { return }
         queue.async {
             try? target.close()
