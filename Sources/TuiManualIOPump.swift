@@ -752,13 +752,22 @@ final class TuiManualIOPump {
         forcedExit: TuiManualIOPumpPolicy.RelayExit? = nil
     ) {
         guard exitedGeneration == generation, !stopped else { return }
+        let exit = forcedExit
+            ?? TuiManualIOPumpPolicy.relayExit(status: status ?? -1, stderrText: stderrBox.text())
+        // Retire the generation before changing state. This fences stdout
+        // chunks already buffered by the reader from moving an ended pane
+        // back to `.live` after its relay has exited.
+        generation += 1
+        stdoutTask?.cancel()
+        stdoutTask = nil
+        stdoutReader?.close()
+        stdoutReader = nil
         if forcedExit != nil {
             // Overflow means the surface cannot keep up. Stop the relay
             // before scheduling a replacement, and fence late callbacks
             // from the terminated process.
             process?.terminationHandler = nil
             process?.terminate()
-            generation += 1
         }
         inputChannel.setHandle(nil)
         process = nil
@@ -767,8 +776,6 @@ final class TuiManualIOPump {
         resizeAckTimeoutTask?.cancel()
         resizeAckTimeoutTask = nil
         resizeScheduler.reset()
-        let exit = forcedExit
-            ?? TuiManualIOPumpPolicy.relayExit(status: status ?? -1, stderrText: stderrBox.text())
 #if DEBUG
         let stderrTail = (stderrBox.text() ?? "").suffix(300).replacingOccurrences(of: "\n", with: " | ")
         log("relay exit \(exit) terminal=\(terminalID.prefix(12)) status=\(status.map(String.init) ?? "nil") stderr=\(stderrTail)")
