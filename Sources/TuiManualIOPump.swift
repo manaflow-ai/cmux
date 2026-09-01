@@ -95,6 +95,9 @@ enum TuiManualIOPumpPolicy {
         return schedule[attempt - 1]
     }
 
+    /// Keep each forwarded frame well below the relay's decoded input limit.
+    static let maxInputChunkBytes = 256 * 1024
+
     /// One stdin line forwarding raw input bytes to the relay.
     static func inputLine(bytes: Data) -> Data {
         var line = Data(#"{"input":""#.utf8)
@@ -352,8 +355,14 @@ final class TuiManualIOInputChannel: @unchecked Sendable {
     func send(_ line: Data) {
         lock.lock()
         let target = handle
-        guard let target, queuedWrites < Self.maxQueuedWrites else {
+        guard let target else {
             lock.unlock()
+            return
+        }
+        guard queuedWrites < Self.maxQueuedWrites else {
+            let failureHandler = writeFailureHandler
+            lock.unlock()
+            failureHandler?()
             return
         }
         let writeGeneration = generation
@@ -379,8 +388,14 @@ final class TuiManualIOInputChannel: @unchecked Sendable {
     ) {
         lock.lock()
         let target = handle
-        guard let target, queuedWrites < Self.maxQueuedWrites else {
+        guard let target else {
             lock.unlock()
+            return
+        }
+        guard queuedWrites < Self.maxQueuedWrites else {
+            let failureHandler = writeFailureHandler
+            lock.unlock()
+            failureHandler?()
             return
         }
         let writeGeneration = generation
@@ -555,7 +570,16 @@ final class TuiManualIOPump {
         return { input in
             switch input {
             case .bytes(let bytes):
-                channel.sendUserInput(TuiManualIOPumpPolicy.inputLine(bytes: bytes))
+                let chunkSize = TuiManualIOPumpPolicy.maxInputChunkBytes
+                var start = bytes.startIndex
+                while start < bytes.endIndex {
+                    let distance = bytes.distance(from: start, to: bytes.endIndex)
+                    let end = bytes.index(start, offsetBy: min(chunkSize, distance))
+                    channel.sendUserInput(
+                        TuiManualIOPumpPolicy.inputLine(bytes: Data(bytes[start..<end]))
+                    )
+                    start = end
+                }
             case .namedKey:
                 // No key-name resolver is installed on this surface, so
                 // Ghostty encodes every key itself; a named key here is a
