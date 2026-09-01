@@ -774,16 +774,17 @@ mod tests {
     #[test]
     fn ordered_sidebar_iteration_preserves_rail_sequence() {
         use crate::app::{RailKind, RailPlacement, SidebarLayout};
+        use cmux_tui_core::Rect as CoreRect;
 
         let layout = SidebarLayout {
             ordered: vec![
-                RailPlacement { kind: RailKind::Tabs, view_index: 0, rect: Rect::default() },
+                RailPlacement { kind: RailKind::Tabs, view_index: 0, rect: CoreRect::default() },
                 RailPlacement {
                     kind: RailKind::Projection(3),
                     view_index: 1,
-                    rect: Rect::default(),
+                    rect: CoreRect::default(),
                 },
-                RailPlacement { kind: RailKind::Workspace, view_index: 2, rect: Rect::default() },
+                RailPlacement { kind: RailKind::Workspace, view_index: 2, rect: CoreRect::default() },
             ],
             ..SidebarLayout::default()
         };
