@@ -107,6 +107,17 @@ final class PhonePushSerialDeliveryQueue {
         beginDrainIfNeeded()
     }
 
+    /// Pauses delivery without discarding pending envelopes. Used while the
+    /// authenticated phone target is unknown; ``start()`` resumes the same
+    /// queue after the handshake rebinds every envelope.
+    func stop() {
+        isStarted = false
+        drainGeneration = UUID()
+        drainTask?.cancel()
+        // Leave the in-flight marker until the cancelled drain exits so a
+        // rebind cannot rewrite the request whose sender is still awaiting.
+    }
+
     func cancelAll() {
         drainGeneration = UUID()
         drainTask?.cancel()
@@ -182,6 +193,7 @@ final class PhonePushSerialDeliveryQueue {
             inFlightCorrelationID = nil
             drainTask = nil
         } else if drainTask?.isCancelled == true {
+            inFlightCorrelationID = nil
             drainTask = nil
         }
         beginDrainIfNeeded()

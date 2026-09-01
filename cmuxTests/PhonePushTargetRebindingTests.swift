@@ -92,6 +92,42 @@ import Testing
         await queue.waitUntilIdle()
     }
 
+    @MainActor
+    @Test func unresolvedTargetQueueHoldsEventsUntilPairingCompletes() async {
+        var delivered: [PhonePushRequestEnvelope] = []
+        let queue = PhonePushSerialDeliveryQueue(
+            startsImmediately: true,
+            sender: { envelope in
+                delivered.append(envelope)
+                return .accepted(sent: 1, devices: 1, pruned: 0)
+            }
+        )
+        queue.stop()
+        let unresolved = PhonePushRequestEnvelope(
+            correlationID: "waiting-for-pairing",
+            expirationEpochSeconds: 1_750_000_120,
+            body: Data(),
+            targetBundleIdentifier: nil
+        )
+        #expect(queue.enqueue(unresolved))
+        #expect(delivered.isEmpty)
+
+        queue.rebindPending { envelope in
+            PhonePushRequestEnvelope(
+                correlationID: envelope.correlationID,
+                expirationEpochSeconds: envelope.expirationEpochSeconds,
+                body: envelope.body,
+                coalescingID: envelope.coalescingID,
+                expectedAccountID: envelope.expectedAccountID,
+                expectedSessionGeneration: envelope.expectedSessionGeneration,
+                targetBundleIdentifier: "dev.cmux.app.beta"
+            )
+        }
+        queue.start()
+        await queue.waitUntilIdle()
+        #expect(delivered.map(\.targetBundleIdentifier) == ["dev.cmux.app.beta"])
+    }
+
     private static func envelope(
         _ correlationID: String,
         body: Data = Data()

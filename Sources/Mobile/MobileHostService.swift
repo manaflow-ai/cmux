@@ -1765,10 +1765,16 @@ final class MobileHostService {
         if devStackTokenAuthorized(request) {
             return await authenticatedSessionIdentity()
         }
-        if let cachedRemoteUserID = await MobileHostStackAuthVerifier.shared
-            .cachedRemoteUserID(auth: request.auth),
-           let identity = await authenticatedSessionIdentity(),
-           cachedRemoteUserID == identity.accountID {
+        if let cached = await MobileHostStackAuthVerifier.shared
+            .cachedRemoteUserID(auth: request.auth) {
+            guard let cachedRemoteUserID = cached.userID,
+                  let identity = await authenticatedSessionIdentity(),
+                  cachedRemoteUserID == identity.accountID else {
+                // A fresh cached mismatch (or cached invalid subject) is a
+                // definitive denial. Do not let an attacker spend the bounded
+                // network-verification slot repeatedly with that token.
+                return nil
+            }
             return identity
         }
         guard await MobileHostStatusVerificationLimiter.shared.acquire() else {

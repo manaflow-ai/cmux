@@ -90,9 +90,10 @@ final class PhonePushClient {
     private var presenceCache = MacPresenceDecisionCache()
     private var authLifecycleTask: Task<Void, Never>?
     private var activeIdentity: AuthenticatedSessionIdentity?
-    /// Restored events held outside the delivery queue until an authenticated
-    /// phone target is known. Keeping them here avoids sending a nil/stale APNs
-    /// namespace and preserves the durable snapshot across the handshake.
+    /// Restored or newly produced events held outside the delivery queue until
+    /// an authenticated phone target is known. Keeping restored work here
+    /// avoids sending a nil/stale APNs namespace; newly produced work enters
+    /// the stopped queue directly and is persisted through the same snapshot.
     private var unresolvedRestoredEnvelopes: [PhonePushRequestEnvelope] = []
     private var pendingPersistenceSnapshot: [PhonePushRequestEnvelope]?
     private var persistenceTask: Task<Void, Never>?
@@ -105,7 +106,10 @@ final class PhonePushClient {
         startsImmediately: false,
         pendingChanged: { [weak self] snapshot in
             guard self?.suppressQueuePersistence == false else { return }
-            self?.schedulePersistence(snapshot)
+            guard let self else { return }
+            self.schedulePersistence(
+                self.persistenceSnapshot(withQueue: snapshot)
+            )
         },
         sender: { [weak self] envelope in
             guard let self else { return .cancelled }
@@ -314,15 +318,15 @@ final class PhonePushClient {
         guard let identity = auth?.authenticatedSessionIdentity else {
             return .authenticationUnavailable
         }
-        guard let targetBundleIdentifier = MobileHostService.shared
-            .pairedPhoneBundleIdentifier(accountID: identity.accountID) else {
-            return .encodingFailed
+        let targetBundleIdentifier = MobileHostService.shared
+            .pairedPhoneBundleIdentifier(accountID: identity.accountID)
+        if targetBundleIdentifier == nil {
+            deliveryQueue.stop()
         }
         deliveryQueue.retainOnly(
             accountID: identity.accountID,
             generation: identity.generation
         )
-        deliveryQueue.start()
         let correlationID = UUID()
         let envelope: PhonePushRequestEnvelope
         do {
@@ -346,6 +350,12 @@ final class PhonePushClient {
             logQueueStage("queue_overflow", correlationID: envelope.correlationID)
             return .queueFull
         }
+        // A phone target is learned only after its authenticated status
+        // handshake. Keep the queue stopped until that fact arrives; the
+        // pending snapshot remains durable and is rebound in one mutation path.
+        if targetBundleIdentifier != nil {
+            deliveryQueue.start()
+        }
         return .queued
     }
 
@@ -353,14 +363,16 @@ final class PhonePushClient {
         pairedPhoneTargetDidChange()
         guard PhonePushConfiguration.forwardingEnabled(in: defaults),
               !ids.isEmpty,
-              let identity = auth?.authenticatedSessionIdentity,
-              let targetBundleIdentifier = MobileHostService.shared
-                  .pairedPhoneBundleIdentifier(accountID: identity.accountID) else { return }
+              let identity = auth?.authenticatedSessionIdentity else { return }
+        let targetBundleIdentifier = MobileHostService.shared
+            .pairedPhoneBundleIdentifier(accountID: identity.accountID)
+        if targetBundleIdentifier == nil {
+            deliveryQueue.stop()
+        }
         deliveryQueue.retainOnly(
             accountID: identity.accountID,
             generation: identity.generation
         )
-        deliveryQueue.start()
         for start in stride(
             from: 0,
             to: ids.count,
@@ -408,6 +420,9 @@ final class PhonePushClient {
                     correlationID: envelope.correlationID
                 )
             }
+        }
+        if targetBundleIdentifier != nil {
+            deliveryQueue.start()
         }
     }
 
@@ -601,6 +616,17 @@ final class PhonePushClient {
         persistenceTask = Task { [weak self] in
             await self?.drainPersistence()
         }
+    }
+
+    /// Combines the startup hold buffer with queue contents before writing the
+    /// durable snapshot, so a new notification cannot overwrite restored work
+    /// that is still waiting for the first phone handshake.
+    private func persistenceSnapshot(
+        withQueue queueSnapshot: [PhonePushRequestEnvelope]
+    ) -> [PhonePushRequestEnvelope] {
+        PhonePushSerialDeliveryQueue.normalized(
+            unresolvedRestoredEnvelopes + queueSnapshot
+        )
     }
 
     private func cancelInMemoryQueue() {

@@ -59,21 +59,30 @@ actor MobileHostStackAuthVerifier {
         let expiresAt: Date
     }
 
+    /// A fresh cache lookup, including a cached negative. `nil` means the
+    /// token has no fresh entry and is the only case that may spend a network
+    /// verification-limiter slot.
+    struct CachedLookup: Sendable {
+        let userID: String?
+    }
+
     private var cache: [String: CacheEntry] = [:]
     private var refreshingKeys: Set<String> = []
     private static let cacheTTLSeconds: TimeInterval = 60
     private static let refreshAheadWindowSeconds: TimeInterval = 15
 
-    /// Returns the cached Stack account subject without consulting the current
-    /// Mac account. The caller compares both values in one final snapshot so a
-    /// sign-out/account switch cannot rebind a verified status response.
-    func cachedRemoteUserID(auth: MobileHostRPCAuth?) -> String? {
-        guard let accessToken = auth?.stackAccessToken,
-              let cached = cache[Self.cacheKey(for: accessToken)],
+    /// Returns a fresh cached Stack account subject without consulting the
+    /// current Mac account. A non-nil result with a nil subject is a cached
+    /// negative and must not consume the verification limiter.
+    func cachedRemoteUserID(auth: MobileHostRPCAuth?) -> CachedLookup? {
+        guard let accessToken = auth?.stackAccessToken else {
+            return CachedLookup(userID: nil)
+        }
+        guard let cached = cache[Self.cacheKey(for: accessToken)],
               cached.expiresAt > Date() else {
             return nil
         }
-        return cached.userID
+        return CachedLookup(userID: cached.userID)
     }
 
     /// Verifies the bearer and returns the account subject proven by Stack.
