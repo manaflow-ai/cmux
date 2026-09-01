@@ -295,10 +295,3 @@ export class ProviderError extends Error {
     this.name = "ProviderError";
   }
 }
-
-export class NotImplementedError extends ProviderError {
-  constructor(provider: ProviderId, operation: string) {
-    super(provider, `${operation}: not implemented yet`);
-    this.name = "NotImplementedError";
-  }
-}

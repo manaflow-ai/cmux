@@ -28,6 +28,7 @@ import {
   VmCreateInProgressError,
   VmFreeAccessExpiredError,
   VmNotFoundError,
+  VmOperationUnsupportedError,
   VmProviderOperationError,
   VmSnapshotNotFoundError,
   isVmCreateCreditsInsufficientError,
@@ -707,10 +708,9 @@ export function snapshotVm(input: {
     const vm = yield* requireUserVm(input);
     const snapshot = yield* (providers.snapshot
       ? providers.snapshot(vm.provider, vm.providerVmId ?? input.providerVmId, input.name)
-      : Effect.fail(new VmProviderOperationError({
+      : Effect.fail(new VmOperationUnsupportedError({
         provider: vm.provider,
         operation: "snapshot",
-        cause: new Error("Cloud VM snapshots are not supported by this provider gateway"),
       })));
     yield* repo.recordUsageEvent({
       userId: vm.userId,
@@ -994,6 +994,7 @@ function beginCreateWithLazyProviderRefresh(
   );
 }
 
+/** Refresh live provider state before retrying an active-VM limit conflict. */
 function refreshActiveLimitProviderStatuses(
   repo: VmRepositoryShape,
   providers: VmProviderGatewayShape,
@@ -1009,14 +1010,27 @@ function refreshActiveLimitProviderStatuses(
     const candidates = yield* repo.activeLimitCandidates({
       userId: input.userId,
       billingTeamId: input.billingTeamId,
+      // Keep the synchronous retry bounded. If an account has more rows than
+      // this, the database remains conservative until the background reconcile
+      // catches up; we never create above the recorded active limit.
+      limit: VM_STATUS_RECONCILE_BATCH_LIMIT,
     });
-    yield* Effect.forEach(candidates, (vm) => {
+    // The repository applies the limit in SQL. Keep a second boundary here so
+    // alternate repository implementations cannot turn this request path into
+    // an unbounded provider sweep.
+    yield* Effect.forEach(candidates.slice(0, VM_STATUS_RECONCILE_BATCH_LIMIT), (vm) => {
       const providerVmId = vm.providerVmId;
-      if (vm.provider !== "freestyle" || !providerVmId) return Effect.void;
+      if (!providerVmId) return Effect.void;
+      // Provider-agnostic on purpose: the cron reconcile path already refreshes
+      // every provider, and this lazy refresh used to skip everything except
+      // Freestyle, so a stale `running` row blocked Blaxel creates for up to a
+      // full cron interval. Candidates are `running` rows only, so the
+      // gateway's "running" fallback for a driver without getStatus is a
+      // harmless no-op rather than a wrong transition.
       return reconcileObservedProviderStatus(repo, getStatus, vm, "provider_status_refresh").pipe(
         Effect.asVoid,
       );
-    }, { concurrency: "unbounded", discard: true });
+    }, { concurrency: 10, discard: true });
   });
 }
 
