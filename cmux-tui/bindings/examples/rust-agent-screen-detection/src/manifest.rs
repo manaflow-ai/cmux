@@ -9,6 +9,8 @@
 use std::cmp::Ordering;
 use std::collections::{HashMap, hash_map::Entry};
 use std::fmt;
+use std::fs::File;
+use std::io::{self, Read};
 use std::path::{Path, PathBuf};
 use std::sync::OnceLock;
 
@@ -19,6 +21,24 @@ use serde::Deserialize;
 pub const SCREEN_DETECT_ENGINE_VERSION: u32 = 3;
 
 pub const MAX_MANIFEST_BYTES: usize = 256 * 1024;
+
+pub(crate) fn read_bounded_utf8_file(path: &Path, max_bytes: usize) -> io::Result<String> {
+    read_bounded_utf8(File::open(path)?, max_bytes)
+}
+
+fn read_bounded_utf8(mut reader: impl Read, max_bytes: usize) -> io::Result<String> {
+    let mut bytes = Vec::with_capacity(max_bytes.min(8 * 1024));
+    reader
+        .take(u64::try_from(max_bytes).unwrap_or(u64::MAX).saturating_add(1))
+        .read_to_end(&mut bytes)?;
+    if bytes.len() > max_bytes {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidData,
+            format!("file exceeds {max_bytes} bytes"),
+        ));
+    }
+    String::from_utf8(bytes).map_err(|error| io::Error::new(io::ErrorKind::InvalidData, error))
+}
 
 /// Dotted numeric manifest version. Numeric comparison avoids lexical
 /// surprises such as `2026.10` sorting before `2026.9`.
@@ -367,12 +387,8 @@ impl CompiledManifest {
         for (rule, compiled) in self.manifest.rules.iter().zip(&self.compiled_rules) {
             let (text, lower_text) = cached_region(&mut regions, input, &rule.region);
             let matched = compiled_gate_matches(compiled, text, lower_text);
-            let evidence = gate_evidence(
-                &manifest_gate_from_rule(rule),
-                compiled,
-                text,
-                lower_text,
-            );
+            let evidence =
+                gate_evidence(&manifest_gate_from_rule(rule), compiled, text, lower_text);
             evaluated_rules.push(RuleExplanation {
                 id: rule.id.clone(),
                 priority: rule.priority,
@@ -785,14 +801,8 @@ impl ManifestSet {
                 continue;
             }
             let result = (|| -> Result<CompiledManifest, String> {
-                let content = std::fs::read_to_string(&path)
+                let content = read_bounded_utf8_file(&path, MAX_MANIFEST_BYTES)
                     .map_err(|error| format!("read manifest {}: {error}", path.display()))?;
-                if content.len() > MAX_MANIFEST_BYTES {
-                    return Err(format!(
-                        "manifest {} exceeds {MAX_MANIFEST_BYTES} bytes",
-                        path.display()
-                    ));
-                }
                 let parsed = parse_manifest(&content)
                     .map_err(|error| format!("manifest {} is invalid: {error}", path.display()))?;
                 let manifest_source = source(path.clone(), &parsed)?;
@@ -850,6 +860,23 @@ impl ManifestSet {
                     });
                 compiled.diagnostics.local_override_shadowing_remote =
                     compiled.diagnostics.cached_remote_version.is_some();
+            }
+
+            // Replacing an existing id can change its aliases. Check the new
+            // identity set against every other manifest before mutating the
+            // collection. Otherwise an override could silently make an alias
+            // resolve to two adapters and leave the result dependent on file
+            // ordering.
+            for (candidate_index, candidate) in self.manifests.iter().enumerate() {
+                if candidate_index != index {
+                    if let Some(identity) = conflicting_identity(candidate, &compiled) {
+                        return Err(format!(
+                            "manifest {} conflicts with {} on process identity {identity:?}",
+                            compiled.id(),
+                            candidate.id()
+                        ));
+                    }
+                }
             }
             self.manifests[index] = compiled;
             return Ok(());
@@ -1495,6 +1522,13 @@ mod tests {
     }
 
     #[test]
+    fn bounded_utf8_reader_rejects_oversized_and_invalid_input() {
+        assert_eq!(read_bounded_utf8(&b"hello"[..], 5).unwrap(), "hello");
+        assert!(read_bounded_utf8(&b"hello!"[..], 5).is_err());
+        assert!(read_bounded_utf8(&[0xff][..], 5).is_err());
+    }
+
+    #[test]
     fn screen_detect_bundled_manifests_all_parse_and_identify() {
         let set = ManifestSet::bundled();
         let ids: Vec<&str> = set.manifests().map(CompiledManifest::id).collect();
@@ -1716,6 +1750,41 @@ line_regex = ["^working$", "^missing line$"]
     }
 
     #[test]
+    fn screen_detect_bundled_osc_rules_remain_active() {
+        let set = ManifestSet::bundled();
+
+        let claude = set.identify("claude").unwrap();
+        let claude_working =
+            claude
+                .detect(DetectionInput { screen: "", osc_title: "⠋ project", osc_progress: "" });
+        assert_eq!(claude_working.state, ScreenState::Working);
+
+        let claude_idle = claude.detect(DetectionInput {
+            screen: "",
+            osc_title: "✳ project",
+            osc_progress: "4;0;0",
+        });
+        assert_eq!(claude_idle.state, ScreenState::Idle);
+
+        let codex = set.identify("codex").unwrap();
+        let codex_blocked = codex.detect(DetectionInput {
+            screen: "",
+            osc_title: "⚠ Action Required",
+            osc_progress: "",
+        });
+        assert_eq!(codex_blocked.state, ScreenState::Blocked);
+
+        let grok = set.identify("grok").unwrap();
+        let grok_working =
+            grok.detect(DetectionInput { screen: "", osc_title: "", osc_progress: "4;1;-1" });
+        assert_eq!(grok_working.state, ScreenState::Working);
+
+        let grok_idle =
+            grok.detect(DetectionInput { screen: "", osc_title: "grok", osc_progress: "4;0;0" });
+        assert_eq!(grok_idle.state, ScreenState::Idle);
+    }
+
+    #[test]
     fn screen_detect_manifest_validation_rejects_malformed_sources() {
         for (source, why) in [
             ("id = \"x\"\n", "no rules"),
@@ -1762,5 +1831,46 @@ line_regex = ["^working$", "^missing line$"]
         ] {
             assert!(compile_manifest_source(source).is_err(), "{why}");
         }
+    }
+
+    #[test]
+    fn screen_detect_rejects_alias_conflicts_when_replacing_a_manifest() {
+        let first = r#"
+id = "first"
+aliases = ["shared"]
+
+[[rules]]
+id = "idle"
+state = "idle"
+contains = ["ready"]
+"#;
+        let second = r#"
+id = "second"
+
+[[rules]]
+id = "idle"
+state = "idle"
+contains = ["ready"]
+"#;
+        let replacement = r#"
+id = "first"
+aliases = ["second"]
+
+[[rules]]
+id = "idle"
+state = "idle"
+contains = ["ready"]
+"#;
+
+        let mut set = ManifestSet::from_sources(&[("first", first), ("second", second)]).unwrap();
+        let compiled = compile_manifest_source_with_source(
+            replacement,
+            ManifestSource::Override(PathBuf::from("/tmp/first.toml")),
+        )
+        .unwrap();
+        let error = set.insert_compiled(compiled).unwrap_err();
+        assert!(error.contains("conflicts with second"));
+        assert_eq!(set.identify("shared").map(CompiledManifest::id), Some("first"));
+        assert_eq!(set.identify("second").map(CompiledManifest::id), Some("second"));
     }
 }

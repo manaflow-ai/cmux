@@ -5,7 +5,8 @@ The files under `manifests/` are derived from the herdr project:
 * Project: https://github.com/herdrdev/herdr
 * Source revision: `7b675f42af35508eab66ac42fe1598628597a893`
 * License: Apache-2.0, reproduced in `manifests/LICENSE`
-* Derived material: `manifests/*.toml`, based on `src/detect/manifests/`
+* Unchanged vendored material: `manifests/*.toml`, copied from
+  `src/detect/manifests/`
 * Changes: cmux pins the files locally and validates them with its own
   bounded manifest engine. It does not use herdr's network update path.
 
@@ -20,10 +21,10 @@ derived herdr material.
 
 `src/process.rs` adapts herdr's `src/platform/{linux,macos}.rs` and
 `src/detect/mod.rs` foreground process-group and wrapper discovery. It adds
-bounded traversal, safer path candidates, an explicit Linux child-group
-fallback, and a fallback to the public cmux process response. The current
-package has native deep inspection on Linux and macOS; Windows uses the public
-one-process fallback until a Windows backend is added.
+bounded traversal, safer path candidates, and an explicit Linux child-group
+fallback. The reference package targets macOS and Linux because its Rust SDK
+transport is Unix-only. A Windows publication needs a Windows-capable SDK
+transport and process backend; it must not claim a public-process fallback.
 
 `src/detect.rs` adapts herdr's `src/detect/mod.rs` and
 `src/pane/agent_detection.rs` debounce, identity-edge, miss-confirmation, and

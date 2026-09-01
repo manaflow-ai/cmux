@@ -3,6 +3,7 @@ name = "agent-screen-detection"
 kind = "agent"
 version = "0.1.0"
 description = "Screen-based lifecycle detection for terminal coding agents"
+platforms = ["macos", "linux"]
 
 [run]
 command = ["target/release/cmux-agent-screen-detection"]

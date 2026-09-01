@@ -37,6 +37,8 @@ use windows_sys::Win32::System::Threading::{
 
 const SUPERVISOR_WAIT: Duration = Duration::from_millis(500);
 const MAX_RESTART_DELAY: Duration = Duration::from_secs(30);
+const MAX_PLUGIN_COMMAND_ARGS: usize = 256;
+const MAX_PLUGIN_COMMAND_ARG_BYTES: usize = 4096;
 /// A child must stay healthy for this long before a later crash earns a fresh
 /// backoff budget. Without a stability window, a crash loop can reset the
 /// counter on every short-lived spawn and retry forever at one second.
@@ -220,6 +222,10 @@ impl JournalPluginOptions {
                 }),
             "journal plugin id must match [a-z0-9][a-z0-9_-]*"
         );
+        anyhow::ensure!(
+            self.id != crate::AGENT_HOOK_PRODUCER_ID,
+            "journal plugin id is reserved for the built-in agent hook producer"
+        );
         let Some(executable) = self.command.first() else {
             anyhow::bail!("journal plugin command must not be empty");
         };
@@ -229,12 +235,18 @@ impl JournalPluginOptions {
             "journal plugin command[0] must be an absolute executable path"
         );
         anyhow::ensure!(
-            self.command.iter().all(|argument| argument.len() <= 4096 && !argument.contains('\0')),
-            "journal plugin command arguments must be at most 4096 bytes and contain no NUL"
+            self.command.len() <= MAX_PLUGIN_COMMAND_ARGS,
+            "journal plugin command must contain at most {MAX_PLUGIN_COMMAND_ARGS} arguments"
+        );
+        anyhow::ensure!(
+            self.command.iter().all(|argument| {
+                argument.len() <= MAX_PLUGIN_COMMAND_ARG_BYTES && !argument.contains('\0')
+            }),
+            "journal plugin command arguments must be at most {MAX_PLUGIN_COMMAND_ARG_BYTES} bytes and contain no NUL"
         );
         if let Some(cwd) = &self.cwd {
             anyhow::ensure!(
-                !cwd.is_empty() && Path::new(cwd).is_absolute(),
+                !cwd.is_empty() && Path::new(cwd).is_absolute() && !cwd.contains('\0'),
                 "journal plugin cwd must be an absolute path"
             );
         }
@@ -617,6 +629,29 @@ mod tests {
             revision: None,
         };
         assert!(invalid.validate().is_err());
+        let too_many = JournalPluginOptions {
+            id: "valid_id".into(),
+            command: (0..=MAX_PLUGIN_COMMAND_ARGS)
+                .map(|index| format!("/tmp/plugin-{index}"))
+                .collect(),
+            cwd: None,
+            revision: None,
+        };
+        assert!(too_many.validate().is_err());
+        let invalid_cwd = JournalPluginOptions {
+            id: "valid_id".into(),
+            command: vec!["/tmp/detector".into()],
+            cwd: Some("/tmp/with\0nul".into()),
+            revision: None,
+        };
+        assert!(invalid_cwd.validate().is_err());
+        let reserved = JournalPluginOptions {
+            id: crate::AGENT_HOOK_PRODUCER_ID.into(),
+            command: vec!["/tmp/detector".into()],
+            cwd: None,
+            revision: None,
+        };
+        assert!(reserved.validate().is_err());
         let valid = JournalPluginOptions {
             id: "screen_detector".into(),
             command: vec!["/tmp/detector".into()],

@@ -5462,6 +5462,12 @@ impl Mux {
         self.workspace_registry.lock().unwrap().journal_producer_manifests()
     }
 
+    pub(crate) fn userland_journal_producer_manifests(
+        &self,
+    ) -> anyhow::Result<Vec<crate::JournalProducerManifest>> {
+        self.workspace_registry.lock().unwrap().userland_journal_producer_manifests()
+    }
+
     pub(crate) fn put_journal_producer(
         &self,
         manifest: &crate::JournalProducerManifest,

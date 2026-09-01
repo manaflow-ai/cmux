@@ -1,5 +1,6 @@
+use std::collections::HashSet;
 use std::fs;
-use std::io::Write;
+use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -9,6 +10,14 @@ use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
 
 use crate::config::{self, AgentPluginConfig, SidebarPluginConfig};
+
+// A manifest is supplied by a repository that the user asks cmux to install.
+// Bound its parser input and argv shape before any build or plugin process is
+// started, so a malformed package cannot consume unbounded host resources.
+const MAX_PLUGIN_MANIFEST_BYTES: usize = 256 * 1024;
+const MAX_PLUGIN_NAME_BYTES: usize = 64;
+const MAX_PLUGIN_COMMAND_ARGS: usize = 256;
+const MAX_PLUGIN_COMMAND_ARG_BYTES: usize = 4096;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum PluginKind {
@@ -116,6 +125,7 @@ impl From<serde_json::Error> for ManagerError {
 }
 
 #[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
 struct PluginManifest {
     plugin: ManifestPlugin,
     run: ManifestRun,
@@ -123,19 +133,23 @@ struct PluginManifest {
 }
 
 #[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
 struct ManifestPlugin {
     name: String,
     kind: String,
     version: Option<String>,
     description: Option<String>,
+    platforms: Option<Vec<String>>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
 struct ManifestRun {
     command: Vec<String>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
 struct ManifestBuild {
     command: Vec<String>,
 }
@@ -204,6 +218,8 @@ fn install_command(
     let result = (|| -> Result<Value, ManagerError> {
         let manifest = read_manifest(&temp_dir, kind)
             .map_err(|error| ManagerError::validation(None, error.to_string()))?;
+        ensure_manifest_platform_supported(&manifest)
+            .map_err(|error| ManagerError::validation(Some("platforms"), error.to_string()))?;
         let name = installed_name(&manifest, options.name.as_deref())
             .map_err(|error| ManagerError::validation(Some("name"), error.to_string()))?;
         let target = root.join(&name);
@@ -221,7 +237,17 @@ fn install_command(
         verify_executable(&command[0])?;
         let metadata = PluginRegistryMetadata { id: random_plugin_id_for(kind)? };
         let id = metadata.id.clone();
-        let selected = selected_plugin_cwd(kind)?.is_some_and(|cwd| same_path(&cwd, &target));
+        let selection = selected_plugin_config(kind)?;
+        let previous_id = path_exists(&target)?
+            .then(|| read_registry_metadata(&root, &name, kind).ok())
+            .flatten()
+            .map(|metadata| metadata.id);
+        let selected = plugin_is_selected(
+            selection.as_ref(),
+            previous_id.as_deref().unwrap_or(&id),
+            &manifest,
+            &target,
+        );
         let transaction =
             replace_plugin_install(&root, &name, &temp_dir, &target, &metadata, kind)?;
         if selected {
@@ -288,6 +314,8 @@ fn use_command(
         }
     }
     let mut plugin = resolve_installed_plugin(&positionals[1], kind)?;
+    ensure_manifest_platform_supported(&plugin.manifest)
+        .map_err(|error| ManagerError::validation(Some("platforms"), error.to_string()))?;
     let command = resolved_run_command(&plugin.manifest, &plugin.dir)?;
     verify_executable(&command[0])?;
     let cwd = canonical_path(&plugin.dir)?;
@@ -335,6 +363,8 @@ fn update_command(
     let result = (|| -> Result<Value, ManagerError> {
         let manifest = read_manifest(&temp_dir, kind)
             .map_err(|error| ManagerError::validation(None, error.to_string()))?;
+        ensure_manifest_platform_supported(&manifest)
+            .map_err(|error| ManagerError::validation(Some("platforms"), error.to_string()))?;
         let name = installed_name(&manifest, None)
             .map_err(|error| ManagerError::validation(Some("name"), error.to_string()))?;
         if name != plugin.name {
@@ -512,7 +542,7 @@ fn reject_plugin_flags(
 
 fn installed_plugins(kind: PluginKind) -> anyhow::Result<Vec<InstalledPlugin>> {
     let root = install_root(kind)?;
-    let selected = selected_plugin_cwd(kind)?;
+    let selection = selected_plugin_config(kind)?;
     let mut plugins = Vec::new();
     let entries = match fs::read_dir(&root) {
         Ok(entries) => entries,
@@ -542,7 +572,7 @@ fn installed_plugins(kind: PluginKind) -> anyhow::Result<Vec<InstalledPlugin>> {
             .to_string();
         validate_plugin_name(&name)?;
         let metadata = read_registry_metadata(&root, &name, kind)?;
-        let selected = selected.as_ref().is_some_and(|cwd| same_path(cwd, &dir));
+        let selected = plugin_is_selected(selection.as_ref(), &metadata.id, &manifest, &dir);
         plugins.push(InstalledPlugin { id: metadata.id, name, manifest, dir, selected });
     }
     plugins.sort_by(|a, b| a.name.cmp(&b.name));
@@ -576,8 +606,19 @@ fn resolve_installed_plugin(
 
 fn read_manifest(dir: &Path, kind: PluginKind) -> anyhow::Result<PluginManifest> {
     let path = dir.join("cmux-plugin.toml");
-    let text = fs::read_to_string(&path)
+    let mut file = fs::File::open(&path)
         .map_err(|err| anyhow::anyhow!("failed to read {}: {err}", path.display()))?;
+    let mut text = String::new();
+    file.by_ref()
+        .take(u64::try_from(MAX_PLUGIN_MANIFEST_BYTES).unwrap_or(u64::MAX).saturating_add(1))
+        .read_to_string(&mut text)
+        .map_err(|err| anyhow::anyhow!("failed to read {}: {err}", path.display()))?;
+    if text.len() > MAX_PLUGIN_MANIFEST_BYTES {
+        anyhow::bail!(
+            "{} exceeds the {MAX_PLUGIN_MANIFEST_BYTES}-byte manifest limit",
+            path.display()
+        );
+    }
     parse_manifest_for_kind(&text, kind)
 }
 
@@ -597,19 +638,100 @@ fn validate_manifest(manifest: &PluginManifest, kind: PluginKind) -> anyhow::Res
     if manifest.plugin.kind != kind.manifest_kind() {
         anyhow::bail!("plugin.kind must be \"{}\"", kind.manifest_kind());
     }
-    if manifest.run.command.first().is_none_or(|command| command.trim().is_empty()) {
-        anyhow::bail!("run.command must not be empty");
+    validate_manifest_command(&manifest.run.command, "run.command")?;
+    if let Some(build) = &manifest.build {
+        validate_manifest_command(&build.command, "build.command")?;
     }
-    if let Some(build) = &manifest.build
-        && build.command.first().is_none_or(|command| command.trim().is_empty())
+    if let Some(version) = &manifest.plugin.version {
+        validate_manifest_text(version, "plugin.version", 128)?;
+    }
+    if let Some(description) = &manifest.plugin.description {
+        validate_manifest_text(description, "plugin.description", 4096)?;
+    }
+    validate_manifest_platforms(manifest.plugin.platforms.as_deref())?;
+    Ok(())
+}
+
+fn validate_manifest_command(command: &[String], field: &str) -> anyhow::Result<()> {
+    if command.is_empty() || command[0].trim().is_empty() {
+        anyhow::bail!("{field} must not be empty");
+    }
+    if command.len() > MAX_PLUGIN_COMMAND_ARGS {
+        anyhow::bail!(
+            "{field} contains {} arguments, max is {MAX_PLUGIN_COMMAND_ARGS}",
+            command.len()
+        );
+    }
+    for (index, argument) in command.iter().enumerate() {
+        if argument.len() > MAX_PLUGIN_COMMAND_ARG_BYTES {
+            anyhow::bail!("{field}[{index}] exceeds the {MAX_PLUGIN_COMMAND_ARG_BYTES}-byte limit");
+        }
+        if argument.contains('\0') {
+            anyhow::bail!("{field}[{index}] must not contain NUL");
+        }
+    }
+    Ok(())
+}
+
+fn validate_manifest_text(value: &str, field: &str, max_bytes: usize) -> anyhow::Result<()> {
+    if value.trim().is_empty() {
+        anyhow::bail!("{field} must not be empty");
+    }
+    if value.len() > max_bytes {
+        anyhow::bail!("{field} exceeds the {max_bytes}-byte limit");
+    }
+    if value.bytes().any(|byte| byte == 0) {
+        anyhow::bail!("{field} must not contain NUL");
+    }
+    Ok(())
+}
+
+fn current_plugin_platform() -> &'static str {
+    if cfg!(target_os = "macos") {
+        "macos"
+    } else if cfg!(target_os = "linux") {
+        "linux"
+    } else if cfg!(windows) {
+        "windows"
+    } else {
+        "other"
+    }
+}
+
+fn validate_manifest_platforms(platforms: Option<&[String]>) -> anyhow::Result<()> {
+    let Some(platforms) = platforms else { return Ok(()) };
+    if platforms.is_empty() {
+        anyhow::bail!("plugin.platforms must contain at least one platform");
+    }
+    let mut seen = HashSet::new();
+    for platform in platforms {
+        if !matches!(platform.as_str(), "macos" | "linux" | "windows") {
+            anyhow::bail!(
+                "plugin.platforms contains unsupported platform {platform:?}; use macos, linux, or windows"
+            );
+        }
+        if !seen.insert(platform) {
+            anyhow::bail!("plugin.platforms contains duplicate platform {platform:?}");
+        }
+    }
+    Ok(())
+}
+
+fn ensure_manifest_platform_supported(manifest: &PluginManifest) -> anyhow::Result<()> {
+    if let Some(platforms) = manifest.plugin.platforms.as_deref()
+        && !platforms.iter().any(|platform| platform == current_plugin_platform())
     {
-        anyhow::bail!("build.command must not be empty when present");
+        anyhow::bail!(
+            "plugin does not support the current platform ({})",
+            current_plugin_platform()
+        );
     }
     Ok(())
 }
 
 fn validate_plugin_name(name: &str) -> anyhow::Result<()> {
     if name.is_empty()
+        || name.len() > MAX_PLUGIN_NAME_BYTES
         || !name.bytes().all(|byte| {
             byte.is_ascii_lowercase() || byte.is_ascii_digit() || byte == b'-' || byte == b'_'
         })
@@ -718,7 +840,14 @@ fn install_root(kind: PluginKind) -> anyhow::Result<PathBuf> {
     })
 }
 
-fn selected_plugin_cwd(kind: PluginKind) -> anyhow::Result<Option<PathBuf>> {
+#[derive(Debug, Default)]
+struct SelectedPluginConfig {
+    id: Option<String>,
+    command: Option<Vec<String>>,
+    cwd: Option<PathBuf>,
+}
+
+fn selected_plugin_config(kind: PluginKind) -> anyhow::Result<Option<SelectedPluginConfig>> {
     let path = config::config_path()?;
     let text = match fs::read_to_string(&path) {
         Ok(text) => text,
@@ -731,12 +860,54 @@ fn selected_plugin_cwd(kind: PluginKind) -> anyhow::Result<Option<PathBuf>> {
         PluginKind::Sidebar => "sidebar",
         PluginKind::Agent => "agents",
     };
-    Ok(value
-        .get(section)
-        .and_then(|sidebar| sidebar.get("plugin"))
-        .and_then(|plugin| plugin.get("cwd"))
-        .and_then(Value::as_str)
-        .map(PathBuf::from))
+    let Some(plugin) = value.get(section).and_then(|section| section.get("plugin")) else {
+        return Ok(None);
+    };
+    Ok(Some(SelectedPluginConfig {
+        id: plugin.get("id").and_then(Value::as_str).map(str::to_owned),
+        command: plugin.get("command").and_then(|value| {
+            let arguments = value.as_array()?;
+            arguments
+                .iter()
+                .map(Value::as_str)
+                .collect::<Option<Vec<_>>>()
+                .map(|arguments| arguments.into_iter().map(str::to_owned).collect())
+        }),
+        cwd: plugin.get("cwd").and_then(Value::as_str).map(PathBuf::from),
+    }))
+}
+
+fn plugin_is_selected(
+    selection: Option<&SelectedPluginConfig>,
+    plugin_id: &str,
+    manifest: &PluginManifest,
+    dir: &Path,
+) -> bool {
+    let Some(selection) = selection else {
+        return false;
+    };
+    // The opaque registry id is the strongest identity. Path and command
+    // checks remain as migration fallbacks for hand-written or pre-id config.
+    if selection.id.as_deref() == Some(plugin_id) {
+        return true;
+    }
+    // A command is a stronger migration key than `cwd`: two installations
+    // can intentionally share a working directory. Do not mark both active
+    // when only their common cwd matches.
+    if let Some(selected_command) = selection.command.as_deref() {
+        return resolved_run_command(manifest, dir)
+            .ok()
+            .is_some_and(|expected_command| commands_match(selected_command, &expected_command));
+    }
+    selection.cwd.as_deref().is_some_and(|cwd| same_path(cwd, dir))
+}
+
+fn commands_match(left: &[String], right: &[String]) -> bool {
+    left.len() == right.len()
+        && left.iter().zip(right).enumerate().all(|(index, (left, right))| {
+            index != 0 || same_path(Path::new(left), Path::new(right)) || left == right
+        })
+        && left.iter().skip(1).eq(right.iter().skip(1))
 }
 
 fn plugin_json(plugin: &InstalledPlugin) -> Value {
@@ -755,6 +926,13 @@ fn plugin_json(plugin: &InstalledPlugin) -> Value {
     }
     if let Some(description) = &plugin.manifest.plugin.description {
         extra.insert("description".into(), Value::String(description.clone()));
+    }
+    if let Some(platforms) = &plugin.manifest.plugin.platforms {
+        extra.insert("platforms".into(), json!(platforms));
+        extra.insert(
+            "platform_supported".into(),
+            Value::Bool(platforms.iter().any(|platform| platform == current_plugin_platform())),
+        );
     }
     let enabled = resolved_run_command(&plugin.manifest, &plugin.dir)
         .and_then(|command| verify_executable(&command[0]))
@@ -819,17 +997,23 @@ fn replace_registry_metadata(
     fs::create_dir_all(&registry)?;
     let path = registry_metadata_path(install_root, name);
     let temp = registry.join(format!(".{name}.{}-{}.tmp", std::process::id(), now_nanos()));
-    let encoded = serde_json::to_vec(metadata)?;
-    let mut file = fs::OpenOptions::new().create_new(true).write(true).open(&temp)?;
-    file.write_all(&encoded)?;
-    file.write_all(b"\n")?;
-    file.sync_all()?;
-    drop(file);
-    if let Err(error) = fs::rename(&temp, &path) {
+    let result = (|| -> anyhow::Result<()> {
+        let encoded = serde_json::to_vec(metadata)?;
+        let mut file = fs::OpenOptions::new().create_new(true).write(true).open(&temp)?;
+        file.write_all(&encoded)?;
+        file.write_all(b"\n")?;
+        file.sync_all()?;
+        drop(file);
+        fs::rename(&temp, &path)
+            .map_err(|error| anyhow::anyhow!("failed to persist {}: {error}", path.display()))
+    })();
+    if result.is_err() {
+        // A failed write or sync can leave a partial temporary file. Remove
+        // it before returning so a later install cannot inherit stale
+        // metadata and the registry does not accumulate unbounded debris.
         let _ = fs::remove_file(&temp);
-        return Err(anyhow::anyhow!("failed to persist {}: {error}", path.display()));
     }
-    Ok(())
+    result
 }
 
 /// A completed artifact replacement whose old files remain available until
@@ -1142,6 +1326,13 @@ mod tests {
     }
 
     #[test]
+    fn manifest_rejects_overlong_name() {
+        let name = "a".repeat(MAX_PLUGIN_NAME_BYTES + 1);
+        let error = parse_manifest(&manifest_text(&name)).unwrap_err().to_string();
+        assert!(error.contains("[a-z0-9-_]+"));
+    }
+
+    #[test]
     fn manifest_rejects_missing_run_command() {
         let text = r#"
             [plugin]
@@ -1150,6 +1341,85 @@ mod tests {
         "#;
         let error = parse_manifest(text).unwrap_err().to_string();
         assert!(error.contains("missing field `run`") || error.contains("run.command"));
+    }
+
+    #[test]
+    fn manifest_platforms_are_validated_and_current_platform_is_admitted() {
+        let current = current_plugin_platform();
+        if current == "other" {
+            return;
+        }
+        let text = manifest_text("fzf").replace(
+            "description = \"test plugin\"",
+            &format!("description = \"test plugin\"\n            platforms = [\"{current}\"]"),
+        );
+        let manifest = parse_manifest(&text).unwrap();
+        ensure_manifest_platform_supported(&manifest).unwrap();
+
+        let unsupported = if current == "macos" { "linux" } else { "macos" };
+        let text = manifest_text("fzf").replace(
+            "description = \"test plugin\"",
+            &format!("description = \"test plugin\"\n            platforms = [\"{unsupported}\"]"),
+        );
+        let manifest = parse_manifest(&text).unwrap();
+        assert!(ensure_manifest_platform_supported(&manifest).is_err());
+    }
+
+    #[test]
+    fn manifest_rejects_unknown_and_duplicate_platforms() {
+        for platforms in
+            ["platforms = [\"plan9\"]", "platforms = [\"linux\", \"linux\"]", "platforms = []"]
+        {
+            let text = manifest_text("fzf").replace(
+                "description = \"test plugin\"",
+                &format!("description = \"test plugin\"\n            {platforms}"),
+            );
+            assert!(parse_manifest(&text).is_err(), "{platforms}");
+        }
+    }
+
+    #[test]
+    fn manifest_rejects_unknown_fields_and_unsafe_argv() {
+        let unknown = manifest_text("fzf").replace(
+            "description = \"test plugin\"",
+            "description = \"test plugin\"\n            unexpected = true",
+        );
+        assert!(parse_manifest(&unknown).is_err(), "unknown manifest fields must fail closed");
+
+        let empty_executable = manifest_text("fzf")
+            .replace("command = [\"bin/sidebar\"]", "command = [\"\", \"kept\"]");
+        assert!(parse_manifest(&empty_executable).is_err());
+
+        let nul_argument = manifest_text("fzf").replace(
+            "command = [\"bin/sidebar\"]",
+            "command = [\"bin/sidebar\", \"bad\\u0000arg\"]",
+        );
+        assert!(parse_manifest(&nul_argument).is_err());
+
+        let too_many = (0..=MAX_PLUGIN_COMMAND_ARGS)
+            .map(|index| format!("\"arg-{index}\""))
+            .collect::<Vec<_>>()
+            .join(", ");
+        let too_many = manifest_text("fzf").replace(
+            "command = [\"bin/sidebar\"]",
+            &format!("command = [\"bin/sidebar\", {too_many}]"),
+        );
+        assert!(parse_manifest(&too_many).is_err());
+    }
+
+    #[test]
+    fn bounded_manifest_reader_rejects_oversized_files() {
+        let root = std::env::temp_dir().join(format!(
+            "cmux-plugin-manifest-limit-{}-{}",
+            std::process::id(),
+            now_nanos()
+        ));
+        fs::create_dir_all(&root).unwrap();
+        let path = root.join("cmux-plugin.toml");
+        fs::write(&path, vec![b'x'; MAX_PLUGIN_MANIFEST_BYTES + 1]).unwrap();
+        let error = read_manifest(&root, PluginKind::Sidebar).unwrap_err().to_string();
+        assert!(error.contains("manifest limit"), "{error}");
+        fs::remove_dir_all(root).unwrap();
     }
 
     #[test]
@@ -1293,5 +1563,60 @@ mod tests {
             sanitized_git_source("git@example.com:team/plugin.git"),
             "git@example.com:team/plugin.git"
         );
+    }
+
+    #[test]
+    fn selection_matching_uses_id_then_path_or_command_migrations() {
+        let root = std::env::temp_dir().join(format!(
+            "cmux-plugin-selection-test-{}-{}",
+            std::process::id(),
+            now_nanos()
+        ));
+        let dir = root.join("agent-view");
+        let executable = dir.join("bin/sidebar");
+        fs::create_dir_all(executable.parent().unwrap()).unwrap();
+        fs::write(&executable, "#!/bin/sh\n").unwrap();
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            fs::set_permissions(&executable, fs::Permissions::from_mode(0o755)).unwrap();
+        }
+        let manifest = parse_manifest(&manifest_text("agent-view")).unwrap();
+        let id = "sidebar_plugin_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+
+        let by_id = SelectedPluginConfig { id: Some(id.into()), ..Default::default() };
+        assert!(plugin_is_selected(Some(&by_id), id, &manifest, &dir));
+
+        let by_path = SelectedPluginConfig { cwd: Some(dir.clone()), ..Default::default() };
+        assert!(plugin_is_selected(Some(&by_path), "other", &manifest, &dir));
+
+        let shared_cwd_with_other_command = SelectedPluginConfig {
+            cwd: Some(dir.clone()),
+            command: Some(vec!["/tmp/other-plugin".into()]),
+            ..Default::default()
+        };
+        assert!(!plugin_is_selected(
+            Some(&shared_cwd_with_other_command),
+            "other",
+            &manifest,
+            &dir
+        ));
+
+        let command = resolved_run_command(&manifest, &dir).unwrap();
+        let by_command = SelectedPluginConfig { command: Some(command), ..Default::default() };
+        assert!(plugin_is_selected(Some(&by_command), "other", &manifest, &dir));
+
+        let sibling_command = SelectedPluginConfig {
+            command: Some(vec![dir.join("bin/other").display().to_string()]),
+            ..Default::default()
+        };
+        assert!(!plugin_is_selected(Some(&sibling_command), "other", &manifest, &dir));
+
+        let unrelated_command = SelectedPluginConfig {
+            command: Some(vec!["/tmp/plugin".into(), "different".into()]),
+            ..Default::default()
+        };
+        assert!(!plugin_is_selected(Some(&unrelated_command), id, &manifest, &dir));
+        fs::remove_dir_all(root).unwrap();
     }
 }

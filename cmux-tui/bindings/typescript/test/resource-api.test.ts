@@ -941,6 +941,21 @@ test("optional fields and expected revisions reach the wire", async () => {
 
 test("userland agent plugins expose generic journal data and terminal metadata", async () => {
   const manifest = {
+    producerId: "screen-detector",
+    namespace: "plugin.screen-detector",
+    manifestVersion: 1,
+    maxSensitivity: "metadata",
+    permissions: ["journal.append.plugin.screen-detector"],
+    events: [{
+      kind: "plugin.screen-detector.agent.state.changed",
+      schemaVersion: 1,
+      class: "state",
+      replay: "required",
+      sensitivity: "metadata",
+      payloadSchema: { type: "object" },
+    }],
+  } as const;
+  const manifestWire = {
     producer_id: "screen-detector",
     namespace: "plugin.screen-detector",
     manifest_version: 1,
@@ -981,7 +996,7 @@ test("userland agent plugins expose generic journal data and terminal metadata",
         });
         return;
       case "session.journal.producer.list":
-        current.ok(request, { producers: [manifest] });
+        current.ok(request, { producers: [manifestWire] });
         return;
       case "session.journal.producer.put":
         current.ok(request, {
@@ -1018,7 +1033,7 @@ test("userland agent plugins expose generic journal data and terminal metadata",
   const terminal = session.terminal(TERMINAL);
 
   const agents = await session.listAgents();
-  assert.equal(agents[0]?.source, "plugin");
+  assert.equal(agents[0]?.snapshot?.source, "plugin");
   const screen = await terminal.readScreen();
   assert.equal(screen.revision, "42");
   assert.equal(screen.oscProgress, "4;1;50");
@@ -1041,7 +1056,7 @@ test("userland agent plugins expose generic journal data and terminal metadata",
   const put = transport.requests.find(
     (request) => request.operation === "session.journal.producer.put",
   );
-  assert.deepEqual((put?.params as Envelope).manifest, manifest);
+  assert.deepEqual((put?.params as Envelope).manifest, manifestWire);
   const append = transport.requests.find(
     (request) => request.operation === "session.journal.append",
   );
@@ -1052,6 +1067,161 @@ test("userland agent plugins expose generic journal data and terminal metadata",
     schema_version: 1,
     payload: { state: "working" },
   });
+  client.close();
+});
+
+test("journal ingress rejects kinds outside the producer namespace before transport", () => {
+  const transport = new FakeTransport(() => {
+    throw new Error("invalid ingress reached the transport");
+  });
+  const client = new Client({ transport });
+  const session = client.session(SESSION);
+  assert.throws(
+    () => session.appendJournal({
+      producerId: "screen-detector",
+      manifestVersion: 1,
+      kind: "agent.state.changed",
+      schemaVersion: 1,
+      payload: { state: "working" },
+    }),
+    TypeError,
+  );
+  assert.equal(transport.requests.length, 0);
+  client.close();
+});
+
+test("terminal screen metadata accepts omitted and nullable legacy forms", async () => {
+  let reads = 0;
+  const transport = new FakeTransport((request, current) => {
+    if (request.operation !== "terminal.screen.read") {
+      throw new Error(`unexpected operation ${request.operation}`);
+    }
+    reads += 1;
+    current.ok(request, reads === 1
+      ? {
+          text: "legacy",
+          cols: 80,
+          rows: 24,
+          cursor_row: 0,
+          cursor_col: 0,
+          cursor_visible: true,
+        }
+      : {
+          text: "nullable",
+          revision: null,
+          osc_progress: null,
+          cols: 80,
+          rows: 24,
+          cursor_row: 0,
+          cursor_col: 0,
+          cursor_visible: true,
+        });
+  });
+  const client = new Client({ transport });
+  const terminal = client.session(SESSION).terminal(TERMINAL);
+  const omitted = await terminal.readScreen();
+  assert.equal(omitted.revision, undefined);
+  assert.equal(omitted.oscProgress, undefined);
+  const nullable = await terminal.readScreen();
+  assert.equal(nullable.revision, null);
+  assert.equal(nullable.oscProgress, null);
+  client.close();
+});
+
+test("journal producer responses reject malformed manifests at the SDK boundary", async () => {
+  const transport = new FakeTransport((request, current) => {
+    if (request.operation !== "session.journal.producer.list") {
+      throw new Error(`unexpected operation ${request.operation}`);
+    }
+    current.ok(request, {
+      producers: [{
+        producer_id: "screen!detector",
+        namespace: "plugin.screen!detector",
+        manifest_version: 1,
+        max_sensitivity: "metadata",
+        permissions: ["journal.append.plugin.screen!detector"],
+        events: [{
+          kind: "plugin.screen!detector.state.changed",
+          schema_version: 1,
+          class: "state",
+          replay: "required",
+          sensitivity: "metadata",
+          payload_schema: { type: "object" },
+        }],
+      }],
+    });
+  });
+  const client = new Client({ transport });
+  await assert.rejects(
+    () => client.session(SESSION).listJournalProducers(),
+    CmuxProtocolError,
+  );
+  client.close();
+});
+
+test("journal mutation responses reject invalid producer identity", async () => {
+  const manifest = {
+    producerId: "screen-detector",
+    namespace: "plugin.screen-detector",
+    manifestVersion: 1,
+    maxSensitivity: "metadata",
+    permissions: ["journal.append.plugin.screen-detector"],
+    events: [{
+      kind: "plugin.screen-detector.state.changed",
+      schemaVersion: 1,
+      class: "state",
+      replay: "required",
+      sensitivity: "metadata",
+      payloadSchema: { type: "object" },
+    }],
+  } as const;
+  const transport = new FakeTransport((request, current) => {
+    if (request.operation === "session.journal.producer.put") {
+      current.ok(request, {
+        value: {
+          producer_id: "screen!detector",
+          manifest_version: 1,
+          namespace: "plugin.screen!detector",
+          sequence: "1",
+          event_id: "event-1",
+        },
+        generation: "generation-a",
+        revision: "1",
+        replayed: false,
+      });
+      return;
+    }
+    if (request.operation === "session.journal.append") {
+      current.ok(request, {
+        value: {
+          producer_id: "screen!detector",
+          sequence: "1",
+          event_id: "event-1",
+        },
+        generation: "generation-a",
+        revision: "1",
+        replayed: false,
+      });
+      return;
+    }
+    throw new Error(`unexpected operation ${request.operation}`);
+  });
+  const client = new Client({ transport });
+  const session = client.session(SESSION);
+  await assert.rejects(
+    () => session.putJournalProducer(manifest),
+    CmuxProtocolError,
+  );
+  await assert.rejects(
+    () => session.appendJournal({
+      producerId: "screen-detector",
+      manifestVersion: 1,
+      kind: "plugin.screen-detector.state.changed",
+      schemaVersion: 1,
+      payload: { state: "working" },
+    }),
+    CmuxProtocolError,
+  );
   client.close();
 });
 

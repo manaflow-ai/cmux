@@ -1283,6 +1283,21 @@ impl WorkspaceRegistry {
             .collect()
     }
 
+    /// Return only manifests that a userland producer can register and use.
+    /// The reserved cmux hook manifest remains in the internal table because
+    /// the journal kernel and checkpoint code need it, but it uses the legacy
+    /// `agent` namespace and is not a userland `plugin.<id>` manifest.
+    pub(crate) fn userland_journal_producer_manifests(
+        &self,
+    ) -> anyhow::Result<Vec<JournalProducerManifest>> {
+        self.journal_producer_manifests().map(|manifests| {
+            manifests
+                .into_iter()
+                .filter(|manifest| manifest.producer_id != crate::AGENT_HOOK_PRODUCER_ID)
+                .collect()
+        })
+    }
+
     pub(crate) fn put_journal_producer(
         &mut self,
         manifest: &JournalProducerManifest,
@@ -3130,6 +3145,35 @@ mod tests {
         assert_eq!(states.len(), 1);
         assert_eq!(states[0].manifest.manifest_version, 2);
         assert!(states[0].enabled);
+    }
+
+    #[test]
+    fn userland_producer_list_excludes_reserved_hook_manifest() {
+        let mut registry = WorkspaceRegistry::in_memory("userland-producers").unwrap();
+        let manifest = JournalProducerManifest {
+            producer_id: "screen_detector".into(),
+            namespace: "plugin.screen_detector".into(),
+            manifest_version: 1,
+            max_sensitivity: JournalSensitivity::Metadata,
+            permissions: vec!["journal.append.plugin.screen_detector".into()],
+            events: vec![JournalEventSchema {
+                kind: "plugin.screen_detector.agent.state.changed".into(),
+                schema_version: 1,
+                class: JournalClass::Observation,
+                replay: JournalReplayPolicy::Advisory,
+                sensitivity: JournalSensitivity::Metadata,
+                payload_schema: json!({"type":"object"}),
+            }],
+        };
+        registry.put_journal_producer(&manifest, "client_test", "producer_1").unwrap();
+
+        let all = registry.journal_producer_manifests().unwrap();
+        assert!(all.iter().any(|item| item.producer_id == crate::AGENT_HOOK_PRODUCER_ID));
+        assert!(all.iter().any(|item| item.producer_id == "screen_detector"));
+
+        let userland = registry.userland_journal_producer_manifests().unwrap();
+        assert_eq!(userland.len(), 1);
+        assert_eq!(userland[0], manifest);
     }
 
     #[test]

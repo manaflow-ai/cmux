@@ -1,10 +1,10 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 340aad727f14ce1426d53cc29cdba21cb336df37660b2424488d8b0cb1f8dc3f. */
+/* cmux-tui mux protocol 12, IR 52ff17e1501a351a5d3d7104c6af9a052313e8412b45efff43cab7b6ca120875. */
 
 
 export const SDK_SCHEMA_VERSION = 2 as const;
 export const MUX_PROTOCOL_VERSION = 12 as const;
-export const SDK_IR_SHA256 = "340aad727f14ce1426d53cc29cdba21cb336df37660b2424488d8b0cb1f8dc3f" as const;
+export const SDK_IR_SHA256 = "52ff17e1501a351a5d3d7104c6af9a052313e8412b45efff43cab7b6ca120875" as const;
 export const PROTOCOL = {
   "id_type": "uint64",
   "javascript_id_policy": "All protocol identifiers are uint64 JSON numbers. JavaScript and TypeScript SDKs must decode them losslessly as bigint (or validated decimal strings at their public boundary), and must not expose IEEE-754 number ids. Pairing request ids, revisions, timestamps, frame sequences, and reservation ids follow the same rule.",
@@ -3836,6 +3836,16 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
       },
       "foreground_cwd": {
         "description": "Working directory of the process group that owns the PTY, read at request time. Null when the lookup fails; absent from daemons that predate the field. Clients treat absence as null.",
+        "nullable": true,
+        "presence": "optional",
+        "since": 12,
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "foreground_executable": {
+        "description": "Executable path or name of the PTY foreground process-group leader, read at request time. Null when the lookup fails; absent from daemons that predate the field. Clients treat absence as null.",
         "nullable": true,
         "presence": "optional",
         "since": 12,

@@ -82,6 +82,24 @@ SOFTWARE.
 
 ---
 
+## herdr agent-detection plugin
+
+cmux includes a userland agent-detection plugin derived from herdr. Its
+manifests and adapted detector sources live under
+`cmux-tui/bindings/examples/rust-agent-screen-detection/`.
+
+- **License:** Apache License 2.0
+- **Source:** https://github.com/herdrdev/herdr
+- **Pinned source:** commit `7b675f42af35508eab66ac42fe1598628597a893`
+- **License text:** `cmux-tui/bindings/examples/rust-agent-screen-detection/manifests/LICENSE`
+
+The 21 manifests are vendored unchanged. The manifest engine, process
+discovery, state detector, and update logic are adapted for the cmux userland
+plugin contract. The source paths, pinned commit, license, and adaptations are recorded in
+`cmux-tui/bindings/examples/rust-agent-screen-detection/ATTRIBUTIONS.md`.
+
+---
+
 ## Sparkle
 
 - **License:** MIT License

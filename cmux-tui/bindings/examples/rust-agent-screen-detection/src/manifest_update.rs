@@ -18,12 +18,15 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use serde::{Deserialize, Serialize};
 
-use crate::manifest::compile_manifest_source;
+use crate::manifest::{MAX_MANIFEST_BYTES, compile_manifest_source, read_bounded_utf8_file};
 
 pub const DEFAULT_CATALOG_URL: &str = "https://herdr.dev/agent-detection/index.toml";
 pub const CATALOG_URL_ENV: &str = "CMUX_AGENT_MANIFEST_CATALOG_URL";
 pub const CACHE_DIR_ENV: &str = "CMUX_AGENT_MANIFEST_CACHE_DIR";
 const MAX_FETCH_BYTES: usize = 256 * 1024;
+const MAX_CATALOG_AGENTS: usize = 256;
+const MAX_CATALOG_PATH_BYTES: usize = 512;
+const MAX_CATALOG_URL_BYTES: usize = 2 * 1024;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ManifestUpdateSummary {
@@ -89,10 +92,10 @@ struct ValidatedCatalogAgent {
 pub fn update_catalog(url: &str, cache_dir: &Path) -> Result<ManifestUpdateSummary, String> {
     let check_time = now_unix();
     let mut status = load_status(cache_dir);
+    status.last_check_unix = Some(check_time);
     let catalog = match fetch_text(url).and_then(|content| parse_catalog(&content)) {
         Ok(catalog) => catalog,
         Err(error) => {
-            status.last_check_unix = Some(check_time);
             status.last_result = Some(format!("failed: {error}"));
             let _ = save_status(cache_dir, &status);
             return Err(error);
@@ -120,7 +123,6 @@ pub fn update_catalog(url: &str, cache_dir: &Path) -> Result<ManifestUpdateSumma
     let mut updated = Vec::new();
     let mut current = Vec::new();
     let mut failed = Vec::new();
-    status.last_check_unix = Some(check_time);
     status.last_result = Some("checked".into());
     for validated in entries {
         let entry = validated.entry;
@@ -162,7 +164,7 @@ pub fn update_catalog(url: &str, cache_dir: &Path) -> Result<ManifestUpdateSumma
         let version = compiled.version().cloned().expect("validated manifest version");
         let version_text = version.to_string();
         let path = cache_dir.join(format!("{}.toml", entry.id));
-        match fs::read_to_string(&path) {
+        match read_bounded_utf8_file(&path, MAX_MANIFEST_BYTES) {
             Ok(existing) => {
                 let existing_manifest = match compile_manifest_source(&existing) {
                     Ok(manifest) => manifest,
@@ -338,8 +340,18 @@ pub fn status_path(cache_dir: &Path) -> PathBuf {
 
 pub fn load_status(cache_dir: &Path) -> ManifestUpdateStatus {
     let path = status_path(cache_dir);
-    let Ok(content) = fs::read_to_string(&path) else {
-        return ManifestUpdateStatus::default();
+    let content = match read_bounded_utf8_file(&path, MAX_FETCH_BYTES) {
+        Ok(content) => content,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+            return ManifestUpdateStatus::default();
+        }
+        Err(error) => {
+            eprintln!(
+                "cmux-agent-screen-detection: ignoring unreadable status {}: {error}",
+                path.display()
+            );
+            return ManifestUpdateStatus::default();
+        }
     };
     toml::from_str(&content).unwrap_or_else(|error| {
         eprintln!(
@@ -357,7 +369,8 @@ fn save_status(cache_dir: &Path, status: &ManifestUpdateStatus) -> Result<(), St
 }
 
 fn cached_version(cache_dir: &Path, id: &str) -> Option<String> {
-    let content = fs::read_to_string(cache_dir.join(format!("{id}.toml"))).ok()?;
+    let content =
+        read_bounded_utf8_file(&cache_dir.join(format!("{id}.toml")), MAX_MANIFEST_BYTES).ok()?;
     compile_manifest_source(&content)
         .ok()
         .and_then(|manifest| manifest.version().map(ToString::to_string))
@@ -394,10 +407,22 @@ fn validate_catalog_entries(
     catalog: Vec<ManifestCatalogAgent>,
     base: &str,
 ) -> Result<Vec<ValidatedCatalogAgent>, String> {
+    if catalog.len() > MAX_CATALOG_AGENTS {
+        return Err(format!(
+            "catalog contains {} agents, max is {MAX_CATALOG_AGENTS}",
+            catalog.len()
+        ));
+    }
     let mut seen = BTreeSet::new();
     let mut entries = Vec::with_capacity(catalog.len());
     for entry in catalog {
         validate_agent_id(&entry.id)?;
+        if entry.path.len() > MAX_CATALOG_PATH_BYTES {
+            return Err(format!(
+                "manifest path for {} exceeds the {MAX_CATALOG_PATH_BYTES}-byte limit",
+                entry.id
+            ));
+        }
         if !seen.insert(entry.id.clone()) {
             return Err(format!("catalog contains duplicate agent {:?}", entry.id));
         }
@@ -422,17 +447,25 @@ fn validate_agent_id(id: &str) -> Result<(), String> {
 
 fn base_url(url: &str) -> Result<String, String> {
     validate_catalog_url(url)?;
-    let Some((base, _)) = url.rsplit_once('/') else {
-        return Err(format!("catalog URL {url:?} has no base path"));
+    let prefix_len = "https://".len();
+    let rest = &url[prefix_len..];
+    let Some(_) = rest.find('/') else {
+        return Ok(url.to_string());
     };
-    Ok(base.to_string())
+    let Some(last_slash) = url.rfind('/') else {
+        return Ok(url.to_string());
+    };
+    Ok(url[..last_slash].to_string())
 }
 
 fn join_url(base: &str, path: &str) -> Result<String, String> {
     if path.trim().is_empty()
+        || path.len() > MAX_CATALOG_PATH_BYTES
         || path.contains("://")
         || path.starts_with('/')
         || path.contains('\\')
+        || path.contains('?')
+        || path.contains('#')
         || path.bytes().any(|byte| byte == 0 || byte.is_ascii_control())
         || path.split('/').any(|part| part == "..")
     {
@@ -465,16 +498,22 @@ fn fetch_text(url: &str) -> Result<String, String> {
         .stderr(Stdio::null())
         .spawn()
         .map_err(|error| format!("curl failed: {error}"))?;
-    let Some(stdout) = child.stdout.as_mut() else {
+    let mut bytes = Vec::new();
+    let read_result = {
+        let Some(stdout) = child.stdout.as_mut() else {
+            let _ = child.kill();
+            let _ = child.wait();
+            return Err("curl stdout was not captured".into());
+        };
+        stdout.take((MAX_FETCH_BYTES + 1) as u64).read_to_end(&mut bytes)
+    };
+    if let Err(error) = read_result {
+        // Reap curl on every read failure. Returning while it still owns the
+        // pipe can leak a child and leave a network process behind the plugin.
         let _ = child.kill();
         let _ = child.wait();
-        return Err("curl stdout was not captured".into());
-    };
-    let mut bytes = Vec::new();
-    stdout
-        .take((MAX_FETCH_BYTES + 1) as u64)
-        .read_to_end(&mut bytes)
-        .map_err(|error| format!("read curl response: {error}"))?;
+        return Err(format!("read curl response: {error}"));
+    }
     if bytes.len() > MAX_FETCH_BYTES {
         // Stop curl before waiting. Without this, a server that omits
         // Content-Length can keep writing into a full pipe while the parent
@@ -493,11 +532,59 @@ fn fetch_text(url: &str) -> Result<String, String> {
 
 fn validate_catalog_url(url: &str) -> Result<(), String> {
     let trimmed = url.trim();
-    if !trimmed.starts_with("https://")
-        || trimmed.contains('@')
-        || trimmed.bytes().any(|byte| byte == 0 || byte.is_ascii_control())
+    if url != trimmed
+        || url.len() > MAX_CATALOG_URL_BYTES
+        || !trimmed.starts_with("https://")
+        || trimmed.contains('?')
+        || trimmed.contains('#')
+        || trimmed
+            .bytes()
+            .any(|byte| byte == 0 || byte.is_ascii_control() || byte.is_ascii_whitespace())
     {
         return Err("manifest catalog URL must be an HTTPS URL without credentials".into());
+    }
+    let rest = &trimmed["https://".len()..];
+    let authority_end = rest.find('/').unwrap_or(rest.len());
+    let authority = &rest[..authority_end];
+    validate_https_authority(authority)?;
+    Ok(())
+}
+
+/// Validate the small HTTPS URL surface accepted by the updater. A strict
+/// authority parser avoids handing credentials, malformed ports, or shell
+/// metacharacters to curl. IPv6 literals are intentionally not accepted until
+/// the updater has a URL parser with equivalent bounds and tests.
+fn validate_https_authority(authority: &str) -> Result<(), String> {
+    if authority.is_empty() || authority.len() > 255 || authority.contains('@') {
+        return Err("manifest catalog URL must include a valid host".into());
+    }
+    if authority.bytes().filter(|byte| *byte == b':').count() > 1 {
+        return Err("manifest catalog URL must include a valid host".into());
+    }
+    let (host, _port) = if let Some((host, port)) = authority.rsplit_once(':') {
+        if port.is_empty() || !port.bytes().all(|byte| byte.is_ascii_digit()) {
+            return Err("manifest catalog URL must include a valid host".into());
+        }
+        let port = port
+            .parse::<u16>()
+            .ok()
+            .filter(|port| *port != 0)
+            .ok_or_else(|| "manifest catalog URL must include a valid host".to_string())?;
+        (host, Some(port))
+    } else {
+        (authority, None)
+    };
+    if host.is_empty() {
+        return Err("manifest catalog URL must include a valid host".into());
+    }
+    for label in host.split('.') {
+        if label.is_empty()
+            || label.starts_with('-')
+            || label.ends_with('-')
+            || !label.bytes().all(|byte| byte.is_ascii_alphanumeric() || byte == b'-')
+        {
+            return Err("manifest catalog URL must include a valid host".into());
+        }
     }
     Ok(())
 }
@@ -576,6 +663,31 @@ mod tests {
     }
 
     #[test]
+    fn catalog_urls_require_a_bounded_https_authority() {
+        assert!(validate_catalog_url("https://example.test/catalog/index.toml").is_ok());
+        assert!(validate_catalog_url("https://example.test:443/catalog/index.toml").is_ok());
+        assert!(validate_catalog_url("https://127.0.0.1/catalog/index.toml").is_ok());
+        for invalid in [
+            "http://example.test/catalog/index.toml",
+            "https://",
+            "https:///catalog/index.toml",
+            "https://user@example.test/catalog/index.toml",
+            "https://example..test/catalog/index.toml",
+            "https://-example.test/catalog/index.toml",
+            "https://example-.test/catalog/index.toml",
+            "https://example.test:0/catalog/index.toml",
+            "https://example.test:65536/catalog/index.toml",
+            "https://[::1]/catalog/index.toml",
+            " https://example.test/catalog/index.toml",
+            "https://example.test/catalog/index.toml?token=1",
+            "https://example.test/catalog/index.toml#fragment",
+            "https://example.test\\catalog\\index.toml",
+        ] {
+            assert!(validate_catalog_url(invalid).is_err(), "{invalid:?}");
+        }
+    }
+
+    #[test]
     fn catalog_ids_are_bounded_and_normalized() {
         assert!(validate_agent_id("codex").is_ok());
         assert!(validate_agent_id("screen_detector").is_ok());
@@ -600,5 +712,19 @@ mod tests {
         let valid = vec![ManifestCatalogAgent { id: "codex".into(), path: "codex.toml".into() }];
         let entries = validate_catalog_entries(valid, "https://example.test/catalog").unwrap();
         assert_eq!(entries[0].manifest_url, "https://example.test/catalog/codex.toml");
+
+        let too_long_path = vec![ManifestCatalogAgent {
+            id: "codex".into(),
+            path: "x".repeat(MAX_CATALOG_PATH_BYTES + 1),
+        }];
+        assert!(validate_catalog_entries(too_long_path, "https://example.test/catalog").is_err());
+
+        let too_many = (0..=MAX_CATALOG_AGENTS)
+            .map(|index| ManifestCatalogAgent {
+                id: format!("agent-{index}"),
+                path: format!("agent-{index}.toml"),
+            })
+            .collect();
+        assert!(validate_catalog_entries(too_many, "https://example.test/catalog").is_err());
     }
 }

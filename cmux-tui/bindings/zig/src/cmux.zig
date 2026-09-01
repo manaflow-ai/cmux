@@ -21,6 +21,22 @@ pub const UndoLayoutOptions = resource.UndoLayoutOptions;
 pub const ClientMetadataUpdate = resource.ClientMetadataUpdate;
 pub const OptionalStringUpdate = resource.OptionalStringUpdate;
 pub const Cursor = resource.Cursor;
+pub const JournalClass = resource.JournalClass;
+pub const JournalReplayPolicy = resource.JournalReplayPolicy;
+pub const JournalSensitivity = resource.JournalSensitivity;
+pub const JournalSubject = resource.JournalSubject;
+pub const JournalEventSchema = resource.JournalEventSchema;
+pub const JournalProducerManifest = resource.JournalProducerManifest;
+pub const JournalIngress = resource.JournalIngress;
+pub const JournalProducerPutResult = resource.JournalProducerPutResult;
+pub const JournalProducerListResult = resource.JournalProducerListResult;
+pub const JournalAppendResult = resource.JournalAppendResult;
+pub const AgentPluginEventSchema = resource.AgentPluginEventSchema;
+pub const AgentPluginManifest = resource.AgentPluginManifest;
+pub const AgentPluginSubject = resource.AgentPluginSubject;
+pub const AgentPluginIngress = resource.AgentPluginIngress;
+pub const AgentPluginListResult = resource.AgentPluginListResult;
+pub const JournalEventSubject = resource.JournalEventSubject;
 pub const CreatedPath = resource.CreatedPath;
 pub const CreatedWorkspaceOnly = resource.CreatedWorkspaceOnly;
 pub const CreatedTerminalPath = resource.CreatedTerminalPath;
@@ -141,6 +157,8 @@ pub const OwnedPingResult = resource.OwnedPingResult;
 pub const OwnedEmptyResult = resource.OwnedEmptyResult;
 pub const OwnedTerminalScreenResult =
     resource.OwnedTerminalScreenResult;
+pub const OwnedJournalProducerListResult =
+    resource.OwnedJournalProducerListResult;
 pub const OwnedTerminalStateResult =
     resource.OwnedTerminalStateResult;
 pub const OwnedTerminalHistoryResult =
@@ -289,6 +307,10 @@ pub const TerminalMutationResult = resource.TerminalMutationResult;
 pub const NotificationMutationResult =
     resource.NotificationMutationResult;
 pub const AgentMutationResult = resource.AgentMutationResult;
+pub const JournalProducerPutMutationResult =
+    resource.JournalProducerPutMutationResult;
+pub const JournalAppendMutationResult =
+    resource.JournalAppendMutationResult;
 pub const PairingResolutionMutationResult =
     resource.PairingResolutionMutationResult;
 pub const FrontendProjectionMutationResult =

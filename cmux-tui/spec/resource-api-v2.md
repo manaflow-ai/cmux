@@ -348,12 +348,12 @@ Terminal and browser attachments have independent decimal-string sequences.
 Their initial snapshot is delivered after the open response. Overflow
 requires a fresh attachment snapshot.
 
-`terminal.screen.read` may include two optional terminal metadata fields:
-`revision` is a coalesced PTY output counter, and `osc_progress` is bounded
-OSC 9 progress text. These fields are generic protocol data. The daemon does
-not identify agents or apply vendor rules. A userland plugin can combine the
-metadata with process information and screen text before appending its own
-journal event.
+`terminal.screen.read` may include two optional terminal metadata fields. They
+may be absent or null when the server cannot provide them. `revision` is a
+coalesced PTY output counter, and `osc_progress` is bounded OSC 9 progress text.
+These fields are generic protocol data. The daemon does not identify agents or
+apply vendor rules. A userland plugin can combine the metadata with process
+information and screen text before appending its own journal event.
 
 Every `browser.attach` frame also carries a required nullable
 `pointer_frame_seq`. A null token permits rendering but forbids pointer input.
@@ -410,8 +410,8 @@ Userland agent plugins use the normal journal operations. They register a
 `journal.append.<namespace>`. Core validates the manifest and event schema but
 does not know the plugin's agent catalog or screen grammar. The Rust SDK names
 these types generically. `Session::journal_producers` reads the installed
-manifests for diagnostics. Older `AgentPlugin*` aliases remain
-source-compatible.
+manifests for diagnostics. Bindings that exposed the preview `AgentPlugin*`
+names retain source-compatible aliases.
 
 | Class | Operations |
 | --- | --- |

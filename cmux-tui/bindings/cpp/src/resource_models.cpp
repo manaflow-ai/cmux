@@ -4,10 +4,12 @@
 #include <cmath>
 #include <initializer_list>
 #include <limits>
+#include <set>
 #include <string_view>
 #include <utility>
 
 #include "cmux/base64.hpp"
+#include "journal_validation_internal.hpp"
 
 namespace cmux {
 namespace {
@@ -206,6 +208,17 @@ std::optional<std::string> optional_nullable_string(
         return std::nullopt;
     }
     return string_value(found->second, context);
+}
+
+std::optional<std::uint64_t> optional_nullable_decimal(
+    const Json::Object& object,
+    std::string_view name,
+    std::string_view context) {
+    const auto found = object.find(name);
+    if (found == object.end() || found->second.is_null()) {
+        return std::nullopt;
+    }
+    return decimal_value(found->second, context);
 }
 
 template <typename Id>
@@ -1320,6 +1333,7 @@ AgentSnapshot parse_agent(const Json& value) {
                 {"hook", AgentSource::hook},
                 {"socket", AgentSource::socket},
                 {"detected", AgentSource::detected},
+                {"plugin", AgentSource::plugin},
             },
             "agent source"),
         decimal_value(
@@ -1327,6 +1341,227 @@ AgentSnapshot parse_agent(const Json& value) {
         required_nullable_string(
             object, "source_session", "agent source_session"),
         extra_value(object, "agent snapshot"),
+    };
+}
+
+JournalSubject parse_journal_subject(const Json& value) {
+    const auto& object = exact_object(
+        value,
+        {"kind", "id"},
+        {"kind", "id"},
+        "journal subject");
+    return {
+        bounded_string(field(object, "kind", "journal subject"), "journal subject kind", 1, 128),
+        bounded_string(field(object, "id", "journal subject"), "journal subject id", 1, 512),
+    };
+}
+
+JournalEventSchema parse_journal_event_schema(const Json& value) {
+    const auto& object = exact_object(
+        value,
+        {"kind", "schema_version", "class", "replay", "sensitivity", "payload_schema"},
+        {"kind", "schema_version", "class", "replay", "sensitivity", "payload_schema"},
+        "journal event schema");
+    auto kind = bounded_string(
+        field(object, "kind", "journal event schema"),
+        "journal event kind",
+        1,
+        128);
+    if (!journal_detail::valid_kind(kind)) {
+        fail("journal event kind must be a dotted lowercase name");
+    }
+    return {
+        std::move(kind),
+        static_cast<std::uint32_t>(uint_value(
+            field(object, "schema_version", "journal event schema"),
+            std::numeric_limits<std::uint32_t>::max(),
+            "journal event schema_version",
+            true)),
+        enum_value<JournalClass>(
+            field(object, "class", "journal event schema"),
+            {
+                {"state", JournalClass::state},
+                {"observation", JournalClass::observation},
+                {"effect", JournalClass::effect},
+                {"checkpoint", JournalClass::checkpoint},
+            },
+            "journal event class"),
+        enum_value<JournalReplayPolicy>(
+            field(object, "replay", "journal event schema"),
+            {
+                {"required", JournalReplayPolicy::required},
+                {"advisory", JournalReplayPolicy::advisory},
+                {"never", JournalReplayPolicy::never},
+            },
+            "journal event replay"),
+        enum_value<JournalSensitivity>(
+            field(object, "sensitivity", "journal event schema"),
+            {
+                {"public", JournalSensitivity::public_},
+                {"metadata", JournalSensitivity::metadata},
+                {"sensitive", JournalSensitivity::sensitive},
+                {"secret", JournalSensitivity::secret},
+            },
+            "journal event sensitivity"),
+        field(object, "payload_schema", "journal event schema"),
+    };
+}
+
+JournalProducerManifest parse_journal_producer_manifest(const Json& value) {
+    const auto& object = exact_object(
+        value,
+        {"producer_id", "namespace", "manifest_version", "max_sensitivity", "permissions", "events"},
+        {"producer_id", "namespace", "manifest_version", "max_sensitivity", "permissions", "events"},
+        "journal producer manifest");
+    auto permissions = array_value<std::string>(
+        field(object, "permissions", "journal producer manifest"),
+        "journal producer permissions",
+        [](const Json& item) {
+            return bounded_string(item, "journal producer permission", 1, 128);
+        });
+    auto events = array_value<JournalEventSchema>(
+        field(object, "events", "journal producer manifest"),
+        "journal producer events",
+        parse_journal_event_schema);
+    auto producer_id = bounded_string(
+        field(object, "producer_id", "journal producer manifest"),
+        "journal producer id",
+        1,
+        64);
+    if (!journal_detail::valid_component(producer_id)) {
+        fail("journal producer id must match the lowercase component grammar");
+    }
+    auto namespace_ = bounded_string(
+        field(object, "namespace", "journal producer manifest"),
+        "journal producer namespace",
+        1,
+        128);
+    JournalProducerManifest manifest{
+        std::move(producer_id),
+        std::move(namespace_),
+        static_cast<std::uint32_t>(uint_value(
+            field(object, "manifest_version", "journal producer manifest"),
+            std::numeric_limits<std::uint32_t>::max(),
+            "journal producer manifest_version",
+            true)),
+        enum_value<JournalSensitivity>(
+            field(object, "max_sensitivity", "journal producer manifest"),
+            {
+                {"public", JournalSensitivity::public_},
+                {"metadata", JournalSensitivity::metadata},
+                {"sensitive", JournalSensitivity::sensitive},
+                {"secret", JournalSensitivity::secret},
+            },
+            "journal producer max_sensitivity"),
+        std::move(permissions),
+        std::move(events),
+    };
+    if (manifest.permissions.empty() || manifest.permissions.size() > 32 ||
+        manifest.events.empty() || manifest.events.size() > 64) {
+        fail("journal producer manifest has too many or too few entries");
+    }
+    const auto required_permission = "journal.append." + manifest.namespace_;
+    if (std::find(
+            manifest.permissions.begin(),
+            manifest.permissions.end(),
+            required_permission) == manifest.permissions.end()) {
+        fail("journal producer manifest is missing its append permission");
+    }
+    if (manifest.namespace_ != "plugin." + manifest.producer_id ||
+        manifest.max_sensitivity == JournalSensitivity::secret) {
+        fail("journal producer manifest has an invalid namespace or sensitivity");
+    }
+    const auto prefix = manifest.namespace_ + ".";
+    std::set<std::pair<std::string, std::uint32_t>> identities;
+    for (const auto& event : manifest.events) {
+        if (!journal_detail::valid_kind(event.kind) ||
+            !event.kind.starts_with(prefix) ||
+            !identities.emplace(event.kind, event.schema_version).second ||
+            event.sensitivity == JournalSensitivity::secret ||
+            journal_detail::sensitivity_rank(event.sensitivity) >
+                journal_detail::sensitivity_rank(manifest.max_sensitivity)) {
+            fail("journal producer manifest contains an invalid event schema");
+        }
+    }
+    auto encoded = value.encode();
+    if (!encoded) {
+        fail("journal producer manifest cannot be encoded");
+    }
+    if (encoded.value().size() > 1024U * 1024U) {
+        fail("journal producer manifest exceeds 1048576 bytes");
+    }
+    return manifest;
+}
+
+JournalProducerListResult parse_journal_producer_list(const Json& value) {
+    const auto& object = exact_object(
+        value,
+        {"producers"},
+        {"producers"},
+        "journal producer list result");
+    auto producers = array_value<JournalProducerManifest>(
+        field(object, "producers", "journal producer list result"),
+        "journal producer list",
+        parse_journal_producer_manifest);
+    if (producers.size() > 1024) {
+        fail("journal producer list contains too many entries");
+    }
+    return {std::move(producers)};
+}
+
+JournalProducerPutResult parse_journal_producer_put(const Json& value) {
+    const auto& object = exact_object(
+        value,
+        {"producer_id", "manifest_version", "namespace", "sequence", "event_id"},
+        {"producer_id", "manifest_version", "namespace", "sequence", "event_id"},
+        "journal producer put result");
+    auto producer_id = bounded_string(
+        field(object, "producer_id", "journal producer put"),
+        "journal producer id",
+        1,
+        64);
+    if (!journal_detail::valid_component(producer_id)) {
+        fail("journal producer id must match the lowercase component grammar");
+    }
+    auto namespace_ = bounded_string(
+        field(object, "namespace", "journal producer put"),
+        "journal producer namespace",
+        1,
+        128);
+    if (namespace_ != "plugin." + producer_id) {
+        fail("journal producer namespace must equal plugin.<producer_id>");
+    }
+    return {
+        std::move(producer_id),
+        static_cast<std::uint32_t>(uint_value(
+            field(object, "manifest_version", "journal producer put"),
+            std::numeric_limits<std::uint32_t>::max(),
+            "journal producer manifest_version",
+            true)),
+        std::move(namespace_),
+        decimal_value(field(object, "sequence", "journal producer put"), "journal producer sequence"),
+        bounded_string(field(object, "event_id", "journal producer put"), "journal producer event_id", 1, 128),
+    };
+}
+
+JournalAppendResult parse_journal_append(const Json& value) {
+    const auto& object = exact_object(
+        value,
+        {"producer_id", "sequence", "event_id"},
+        {"producer_id", "sequence", "event_id"},
+        "journal append result");
+    auto producer_id = bounded_string(
+        field(object, "producer_id", "journal append"),
+        "journal producer id",
+        1,
+        64);
+    if (!journal_detail::valid_component(producer_id)) {
+        fail("journal producer id must match the lowercase component grammar");
+    }
+    return {
+        std::move(producer_id),
+        decimal_value(field(object, "sequence", "journal append"), "journal sequence"),
+        bounded_string(field(object, "event_id", "journal append"), "journal event_id", 1, 128),
     };
 }
 
@@ -1848,6 +2083,8 @@ TerminalScreenResult parse_terminal_screen(const Json& value) {
         value,
         {
             "text",
+            "revision",
+            "osc_progress",
             "cols",
             "rows",
             "cursor_row",
@@ -1864,7 +2101,11 @@ TerminalScreenResult parse_terminal_screen(const Json& value) {
             "cursor_visible",
         },
         "terminal screen result");
-    return {
+    const auto revision = optional_nullable_decimal(
+        object,
+        "revision",
+        "terminal screen revision");
+    return TerminalScreenResult{
         string_value(field(object, "text", "terminal screen"), "screen text"),
         static_cast<std::uint16_t>(uint_value(
             field(object, "cols", "terminal screen"),
@@ -1888,6 +2129,54 @@ TerminalScreenResult parse_terminal_screen(const Json& value) {
             field(object, "cursor_visible", "terminal screen"),
             "screen cursor_visible"),
         extra_value(object, "terminal screen"),
+        revision,
+        optional_nullable_string(object, "osc_progress", "terminal screen osc_progress"),
+    };
+}
+
+ProcessInfoResult parse_process_info(const Json& value) {
+    const auto& object = exact_object(
+        value,
+        {
+            "pid",
+            "executable",
+            "argv",
+            "cwd",
+            "foreground_cwd",
+            "foreground_executable",
+            "children",
+        },
+        {"pid", "argv", "children"},
+        "process info result");
+    auto argv = array_value<std::string>(
+        field(object, "argv", "process info result"),
+        "process argv",
+        [](const Json& item) { return string_value(item, "process argv item"); });
+    auto children = array_value<std::uint32_t>(
+        field(object, "children", "process info result"),
+        "process children",
+        [](const Json& item) {
+            return static_cast<std::uint32_t>(uint_value(
+                item,
+                std::numeric_limits<std::uint32_t>::max(),
+                "process child",
+                true));
+        });
+    return {
+        static_cast<std::uint32_t>(uint_value(
+            field(object, "pid", "process info result"),
+            std::numeric_limits<std::uint32_t>::max(),
+            "process pid",
+            true)),
+        optional_string(object, "executable", "process executable"),
+        std::move(argv),
+        optional_string(object, "cwd", "process cwd"),
+        optional_nullable_string(object, "foreground_cwd", "process foreground cwd"),
+        std::move(children),
+        optional_nullable_string(
+            object,
+            "foreground_executable",
+            "process foreground executable"),
     };
 }
 
@@ -1970,39 +2259,6 @@ TerminalCopyResult parse_terminal_copy(const Json& value) {
             "terminal copy mode"),
         string_value(
             field(object, "text", "terminal copy"), "terminal copy text"),
-    };
-}
-
-ProcessInfoResult parse_process_info(const Json& value) {
-    const auto& object = exact_object(
-        value,
-        {"pid", "executable", "argv", "cwd", "foreground_cwd", "children"},
-        {"pid", "argv", "children"},
-        "process info result");
-    return {
-        static_cast<std::uint32_t>(uint_value(
-            field(object, "pid", "process info"),
-            std::numeric_limits<std::uint32_t>::max(),
-            "process pid")),
-        optional_string(object, "executable", "process executable"),
-        array_value<std::string>(
-            field(object, "argv", "process info"),
-            "process argv",
-            [](const Json& item) {
-                return string_value(item, "process argv item");
-            }),
-        optional_string(object, "cwd", "process cwd"),
-        optional_nullable_string(
-            object, "foreground_cwd", "process foreground_cwd"),
-        array_value<std::uint32_t>(
-            field(object, "children", "process info"),
-            "process children",
-            [](const Json& item) {
-                return static_cast<std::uint32_t>(uint_value(
-                    item,
-                    std::numeric_limits<std::uint32_t>::max(),
-                    "process child pid"));
-            }),
     };
 }
 
@@ -2456,6 +2712,10 @@ CMUX_DEFINE_DECODER(TerminalDefaultsSnapshot, parse_terminal_defaults)
 CMUX_DEFINE_DECODER(PairingResolutionResult, parse_pairing_resolution)
 CMUX_DEFINE_DECODER(PaneNeighborResult, parse_pane_neighbor)
 CMUX_DEFINE_DECODER(TerminalScreenResult, parse_terminal_screen)
+CMUX_DEFINE_DECODER(JournalProducerManifest, parse_journal_producer_manifest)
+CMUX_DEFINE_DECODER(JournalProducerListResult, parse_journal_producer_list)
+CMUX_DEFINE_DECODER(JournalProducerPutResult, parse_journal_producer_put)
+CMUX_DEFINE_DECODER(JournalAppendResult, parse_journal_append)
 CMUX_DEFINE_DECODER(TerminalStateResult, parse_terminal_state)
 CMUX_DEFINE_DECODER(TerminalHistoryResult, parse_terminal_history)
 CMUX_DEFINE_DECODER(TerminalWaitResult, parse_terminal_wait)
@@ -2694,18 +2954,7 @@ Result<SessionJournalRecord> decode_session_journal_record(
             array_value<JournalSubject>(
                 field(object, "subjects", "session journal record"),
                 "journal subjects",
-                [](const Json& item) {
-                    const auto& subject = exact_object(
-                        item, {"kind", "id"}, {"kind", "id"}, "journal subject");
-                    return JournalSubject{
-                        bounded_string(
-                            field(subject, "kind", "journal subject"),
-                            "journal subject kind", 1, 128),
-                        bounded_string(
-                            field(subject, "id", "journal subject"),
-                            "journal subject id", 1, 512),
-                    };
-                }),
+                parse_journal_subject),
             enum_value<JournalSensitivity>(
                 field(object, "sensitivity", "session journal record"),
                 {

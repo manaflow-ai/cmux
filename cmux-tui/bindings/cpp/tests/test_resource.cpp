@@ -548,6 +548,139 @@ TEST("session auxiliary APIs emit typed notification and agent routes") {
     CHECK(!report_params->contains("agent"));
 }
 
+TEST("generic journal producer contracts stay userland and wire-compatible") {
+    auto manifest_wire = cmux::Json::parse(R"({
+        "producer_id":"screen-detector",
+        "namespace":"plugin.screen-detector",
+        "manifest_version":1,
+        "max_sensitivity":"sensitive",
+        "permissions":["journal.append.plugin.screen-detector"],
+        "events":[{
+            "kind":"plugin.screen-detector.state.changed",
+            "schema_version":1,
+            "class":"state",
+            "replay":"required",
+            "sensitivity":"sensitive",
+            "payload_schema":{"type":"object"}
+        }]
+    })");
+    CHECK(manifest_wire);
+    auto manifest = cmux::detail::decode_value<cmux::JournalProducerManifest>(
+        manifest_wire.value());
+    CHECK(manifest);
+    CHECK_EQ(manifest.value().namespace_, "plugin.screen-detector");
+    CHECK_EQ(manifest.value().events.front().class_, cmux::JournalClass::state);
+
+    auto encoded = manifest.value().to_json();
+    CHECK(encoded);
+    CHECK(encoded.value().find("namespace") != nullptr);
+    CHECK(encoded.value().find("namespace_") == nullptr);
+    const auto* encoded_events =
+        encoded.value().find("events")->as_array().value();
+    CHECK_EQ(
+        encoded_events->front().find("class")->as_string().value(),
+        std::string_view("state"));
+
+    auto list_wire = cmux::Json::parse(
+        R"({"producers":[{"producer_id":"screen-detector","namespace":"plugin.screen-detector","manifest_version":1,"max_sensitivity":"sensitive","permissions":["journal.append.plugin.screen-detector"],"events":[{"kind":"plugin.screen-detector.state.changed","schema_version":1,"class":"state","replay":"required","sensitivity":"sensitive","payload_schema":{"type":"object"}}]}]})");
+    CHECK(list_wire);
+    auto list = cmux::detail::decode_value<cmux::JournalProducerListResult>(
+        list_wire.value());
+    CHECK(list);
+    CHECK_EQ(list.value().producers.size(), 1U);
+
+    auto put_wire = cmux::Json::parse(
+        R"({"producer_id":"screen-detector","manifest_version":1,"namespace":"plugin.screen-detector","sequence":"7","event_id":"evt-7"})");
+    CHECK(put_wire);
+    auto put = cmux::detail::decode_value<cmux::JournalProducerPutResult>(
+        put_wire.value());
+    CHECK(put);
+    CHECK_EQ(put.value().sequence, 7U);
+
+    auto append_wire = cmux::Json::parse(
+        R"({"producer_id":"screen-detector","sequence":"8","event_id":"evt-8"})");
+    CHECK(append_wire);
+    auto appended = cmux::detail::decode_value<cmux::JournalAppendResult>(
+        append_wire.value());
+    CHECK(appended);
+    CHECK_EQ(appended.value().sequence, 8U);
+
+    auto agent_wire = cmux::Json::parse(
+        R"({"id":"agent_11111111111111111111111111111111","session_id":"session_22222222222222222222222222222222","terminal_id":"term_33333333333333333333333333333333","state":"working","source":"plugin","updated_at_ms":"9","source_session":null})");
+    CHECK(agent_wire);
+    auto agent = cmux::detail::decode_value<cmux::AgentSnapshot>(
+        agent_wire.value());
+    CHECK(agent);
+    CHECK_EQ(agent.value().source, cmux::AgentSource::plugin);
+
+    auto screen_wire = cmux::Json::parse(
+        R"({"text":"ready","revision":"12","osc_progress":"4;1;50","cols":80,"rows":24,"cursor_row":1,"cursor_col":2,"cursor_visible":true})");
+    CHECK(screen_wire);
+    auto screen = cmux::detail::decode_value<cmux::TerminalScreenResult>(
+        screen_wire.value());
+    CHECK(screen);
+    CHECK_EQ(screen.value().revision, std::optional<std::uint64_t>(12));
+    CHECK_EQ(screen.value().osc_progress, std::optional<std::string>("4;1;50"));
+
+    auto unavailable_screen_wire = cmux::Json::parse(
+        R"({"text":"unavailable","revision":null,"osc_progress":null,"cols":80,"rows":24,"cursor_row":0,"cursor_col":0,"cursor_visible":true})");
+    CHECK(unavailable_screen_wire);
+    auto unavailable_screen = cmux::detail::decode_value<cmux::TerminalScreenResult>(
+        unavailable_screen_wire.value());
+    CHECK(unavailable_screen);
+    CHECK(!unavailable_screen.value().revision);
+    CHECK(!unavailable_screen.value().osc_progress);
+
+    cmux::JournalIngress invalid_ingress{
+        "screen-detector",
+        1,
+        "agent.state.changed",
+        1,
+        std::nullopt,
+        {},
+        std::nullopt,
+        cmux::Json(cmux::Json::Object{}),
+        std::nullopt,
+        std::nullopt};
+    auto invalid_ingress_json = invalid_ingress.to_json();
+    CHECK(!invalid_ingress_json);
+    CHECK_EQ(
+        invalid_ingress_json.error().code,
+        cmux::ErrorCode::invalid_argument);
+
+    // The decoder applies the same grammar and size limits as the outgoing
+    // producer contract. A malformed server response must not enter the SDK.
+    auto malformed_manifest_wire = cmux::Json::parse(
+        R"({"producer_id":"screen!detector","namespace":"plugin.screen!detector","manifest_version":1,"max_sensitivity":"sensitive","permissions":["journal.append.plugin.screen!detector"],"events":[{"kind":"plugin.screen!detector.state.changed","schema_version":1,"class":"state","replay":"required","sensitivity":"sensitive","payload_schema":{}}]})");
+    CHECK(malformed_manifest_wire);
+    auto malformed_manifest =
+        cmux::detail::decode_value<cmux::JournalProducerManifest>(
+            malformed_manifest_wire.value());
+    CHECK(!malformed_manifest);
+    CHECK_EQ(malformed_manifest.error().code, cmux::ErrorCode::decode);
+
+    auto malformed_put_wire = cmux::Json::parse(
+        R"({"producer_id":"screen!detector","manifest_version":1,"namespace":"plugin.screen!detector","sequence":"1","event_id":"event-1"})");
+    CHECK(malformed_put_wire);
+    auto malformed_put = cmux::detail::decode_value<cmux::JournalProducerPutResult>(
+        malformed_put_wire.value());
+    CHECK(!malformed_put);
+    CHECK_EQ(malformed_put.error().code, cmux::ErrorCode::decode);
+
+    auto malformed_append_wire = cmux::Json::parse(
+        R"({"producer_id":"screen!detector","sequence":"1","event_id":"event-1"})");
+    CHECK(malformed_append_wire);
+    auto malformed_append = cmux::detail::decode_value<cmux::JournalAppendResult>(
+        malformed_append_wire.value());
+    CHECK(!malformed_append);
+    CHECK_EQ(malformed_append.error().code, cmux::ErrorCode::decode);
+
+    cmux::TerminalScreenResult legacy_screen{
+        "legacy", 80, 24, 0, 0, true, {}};
+    CHECK_EQ(legacy_screen.cols, 80);
+    CHECK(!legacy_screen.revision);
+}
+
 TEST("session auxiliary options reject invalid values before I/O") {
     auto state = std::make_shared<FakeState>();
     auto client = client_for(state);

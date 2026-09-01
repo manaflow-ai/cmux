@@ -461,7 +461,7 @@
       },
       "extra": false,
       "constraints": [
-        "namespace must equal plugin.<producer_id>.",
+        "namespace must equal plugin.<producer_id>",
         "Manifest versions increase monotonically.",
         "Storage v1 rejects secret producer authority until encrypted retention is implemented."
       ]
@@ -557,6 +557,8 @@
       },
       "extra": false,
       "constraints": [
+        "producer_id must be a valid plugin component and kind must start with plugin.<producer_id>.",
+        "The event kind must be declared by the installed producer manifest.",
         "The installed producer manifest determines class, replay policy, and default sensitivity.",
         "The payload must validate against the declared JSON Schema."
       ]
@@ -3640,18 +3642,24 @@
         "revision": {
           "required": false,
           "type": {
-            "kind": "primitive",
-            "name": "decimal"
+            "kind": "nullable",
+            "value": {
+              "kind": "primitive",
+              "name": "decimal"
+            }
           },
-          "description": "Coalesced PTY output revision. Older servers may omit this field."
+          "description": "Coalesced PTY output revision. Older servers may omit this field or send null when unavailable."
         },
         "osc_progress": {
           "required": false,
           "type": {
-            "kind": "primitive",
-            "name": "string"
+            "kind": "nullable",
+            "value": {
+              "kind": "primitive",
+              "name": "string"
+            }
           },
-          "description": "Latest bounded OSC 9 progress payload. The daemon exposes terminal metadata only; plugins decide how to interpret it. Older servers may omit this field."
+          "description": "Latest bounded OSC 9 progress payload. The daemon exposes terminal metadata only; plugins decide how to interpret it. Older servers may omit this field or send null when unavailable."
         },
         "cols": {
           "required": true,
@@ -4011,7 +4019,7 @@
               "name": "string"
             }
           },
-          "description": "Executable name of the PTY foreground process-group leader. Null when the lookup fails. Older servers may omit this field."
+          "description": "Executable path or name of the PTY foreground process-group leader. Null when the lookup fails. Older servers may omit this field."
         },
         "children": {
           "required": true,

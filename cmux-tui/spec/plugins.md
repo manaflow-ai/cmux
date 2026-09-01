@@ -66,6 +66,7 @@ name = "fzf"
 kind = "sidebar"
 version = "0.1.0"
 description = "Fuzzy-find workspaces, screens, and panes"
+platforms = ["macos", "linux", "windows"]
 
 [run]
 command = ["target/release/cmux-sidebar-fzf"]
@@ -77,6 +78,12 @@ command = ["cargo", "build", "--release"]
 The host reads the already-installed command from the cmux-tui config. The plugin
 manager installs sidebar plugins from git repositories and writes the resolved
 command into that config file.
+
+`plugin.platforms` is optional. When present, it is a non-empty list from
+`macos`, `linux`, and `windows`, with no duplicates. The manager rejects an
+install, use, or update when the current platform is not listed. `list` still
+shows an incompatible installed plugin and reports `platform_supported=false`,
+so a user can remove it or move the installation to a supported host.
 
 ## Install Layout
 
@@ -94,7 +101,7 @@ $XDG_DATA_HOME/cmux/mux-plugins/<name>
 
 `<name>` is either `[plugin].name` from `cmux-plugin.toml` or the
 `cmux sidebar plugin install --name <override>` value. Names must match
-`[a-z0-9-_]+`; path traversal and mixed-case names are rejected. Install clones
+`[a-z0-9-_]+` and be at most 64 bytes; path traversal and mixed-case names are rejected. Install clones
 to a temporary directory first, validates the manifest, runs `[build].command`
 when present, verifies the resolved `[run].command[0]` exists and is
 executable, then moves the directory into place. Existing installs are refused
@@ -130,6 +137,8 @@ The selected plugin is stored in `~/.config/cmux/cmux-tui.json`:
 
 `id` is the stable producer identity and must match
 `[a-z0-9][a-z0-9_-]*` (maximum 64 bytes). `command[0]` and `cwd` must be absolute.
+The built-in `cmux_agent` hook producer ID is reserved and cannot be used by a
+userland plugin.
 `revision` is optional for hand-written configuration, but the plugin manager
 writes a content-derived value. A changed revision restarts the child even
 when the command path is unchanged. Invalid replacement configuration disables
@@ -195,10 +204,16 @@ hook blocks a plugin observation for 30 seconds. The plugin remains a normal
 journal producer, so replay, remote clients, and durable projections use the
 same event stream.
 
+`session.journal.producer.list` returns userland producer manifests only. The
+reserved cmux hook manifest is kept in the daemon's internal producer table,
+but is omitted from this operation because its legacy `agent` namespace is not
+a userland `plugin.<id>` namespace.
+
 ### Terminal metadata
 
 The generic `terminal.screen.read` result may include `revision` and
-`osc_progress`. `revision` is a coalesced PTY output counter. `osc_progress` is
+`osc_progress`. Either field may be absent or null when the server cannot
+provide it. `revision` is a coalesced PTY output counter. `osc_progress` is
 bounded OSC 9 payload text captured by the terminal protocol layer. Core does
 not interpret either field as an agent signal. A plugin may combine them with
 the screen text, OSC title, and process metadata.
@@ -217,6 +232,7 @@ An agent plugin package declares `kind = "agent"` in `cmux-plugin.toml`:
 name = "agent-screen-detection"
 kind = "agent"
 version = "0.1.0"
+platforms = ["macos", "linux"]
 
 [run]
 command = ["target/release/cmux-agent-screen-detection"]
@@ -244,8 +260,9 @@ so startup does not depend on a catalog, DNS, or a remote service. Update
 failures are recorded per agent and never replace a valid cached manifest.
 
 The herdr source and Apache-2.0 license attribution are listed in
-`cmux-tui/ATTRIBUTIONS.md` and the plugin package `ATTRIBUTIONS.md`. Files
-derived from herdr carry the upstream path and pinned commit in their header.
+`cmux-tui/ATTRIBUTIONS.md` and the plugin package `ATTRIBUTIONS.md`. The
+vendored manifests are unchanged at the pinned commit. Files adapted from
+herdr carry the upstream path and pinned commit in their header.
 
 ### Herdr capability coverage
 
@@ -261,16 +278,26 @@ shared without importing herdr's application into cmux:
 | Stable polling | Quiescence debounce, a one-second maximum evaluation pacer, startup grace, six-miss identity hysteresis, same-name process-group replacement edges, activity expiry, pending idle, blocker refresh, and process-exit edges are supported. Process hints and adaptive process-info cache intervals reduce process-tree work without delaying unknown-agent discovery. |
 | Explain and update diagnostics | `explain`, `list`, `status`, and explicit HTTPS `update` commands expose matcher evidence, source precedence, versions, and per-agent failures. |
 
-The package does not copy herdr's multiplexer UI, sound assets, API server, or
-closed agent enum. cmux already owns the native agents view and its journal
-projection. Hook authority and session identity remain in cmux's existing hook
-adapter because moving those contracts into a detector would make hook and
-screen producers compete outside one reducer. Windows deep process-group
-inspection is not yet implemented; the public process response remains the
-fallback there. Linux child-group inference is available only as an explicit
-fallback because it cannot distinguish foreground from background children
-without a controlling terminal. Generic OSC metadata has no agent-specific reset operation, so
-the scanner's startup grace prevents stale screen classification while the
-daemon retains its generic terminal metadata. Network updates are explicit;
-the scanner never fetches data during startup. A different userland plugin can
-replace the reference package and emit the same generic journal envelope.
+The following inventory records the agent-facing herdr capabilities that are
+outside this package. This prevents a future change from silently moving
+application policy into cmux core.
+
+| Herdr capability | Status in cmux | Boundary decision |
+| --- | --- | --- |
+| Agent panel with filter and sort grammar | Native cmux agents view; the filter and sort contract is a separate host feature | Keep presentation in cmux. The detector emits facts only. |
+| State-change sounds and desktop notifications | Native cmux notification path; no herdr sound asset is copied | Do not duplicate audio policy in a detector. |
+| Agent launch, prompt, and resume | Native terminal and agent CLI paths | A detector observes a terminal. It must not gain input or process-launch authority. |
+| Hook integrations and session identity | Existing cmux hook adapter | Keep hook authority in one reducer. A detector cannot safely replace a hook contract. |
+| Agent socket API and wait operations | Generic cmux resource API and journal stream | Expose generic resources, not a herdr-specific API server. |
+| Remote persistence and session restore | cmux journal and session persistence | The plugin has no private durable state to merge with host snapshots. |
+| Plugin panes, actions, and link handlers | Sidebar and resource plugin contracts | These are separate plugin kinds. Do not couple them to agent detection. |
+| Windows foreground process-group inspection | Not supported by this reference package | The Rust SDK transport and native process backend are Unix-only. A Windows package must add both before publication. |
+| OMP and Mastracode screen manifests | Not present at the pinned herdr revision | Herdr lists these process kinds but ships no screen manifests. Hooks can still cover them. We do not invent state rules. |
+
+Linux child-group inference remains an explicit fallback because it cannot
+distinguish foreground from background children without a controlling
+terminal. Generic OSC metadata has no agent-specific reset operation, so the
+scanner's startup grace prevents stale screen classification while the daemon
+retains generic terminal metadata. Network updates are explicit; the scanner
+never fetches data during startup. A different userland plugin can replace the
+reference package and emit the same generic journal envelope.

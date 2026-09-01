@@ -46,9 +46,10 @@ host treats process identity as authoritative only when the platform reports a
 current foreground group. A userland plugin must use its own generation and
 idempotency keys for every event.
 
-The package performs native foreground process-group inspection on Linux and
-macOS. On other platforms it uses the public one-process response from cmux,
-so runtime wrappers and child-process matching have reduced coverage there.
+The reference package currently targets macOS and Linux. Its Rust SDK
+transport is Unix-only, and its native process backends cover macOS and Linux.
+A Windows publication needs a Windows-capable SDK transport and process
+backend. Do not list Windows in `cmux-plugin.toml` until those pieces exist.
 
 The plugin manager stages the artifact and selected configuration with a local
 rollback guard. They are separate filesystem transactions, so a power loss

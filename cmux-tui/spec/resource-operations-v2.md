@@ -60,6 +60,12 @@ never use a protocol envelope:
 High-level transported SDKs expose sidebar views, not plugin resource handles.
 The noun-first CLI exposes the local operations under `sidebar plugin`.
 
+The noun-first CLI also exposes `agent plugin install|list|use|update|remove`.
+Those commands clone, build, replace, and configure an executable on the
+caller filesystem, so they stay outside this transport catalog by design.
+The agent-plugin lifecycle and its generic journal contract are specified in
+[`plugins.md`](plugins.md).
+
 Browser attachment frames carry a required nullable `pointer_frame_seq`.
 Mouse and wheel mutations require the exact non-null decimal token from the
 rendered frame used to choose their coordinates. A null or stale token cannot

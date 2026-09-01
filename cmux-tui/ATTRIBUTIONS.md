@@ -8,13 +8,12 @@
   `bindings/examples/rust-agent-screen-detection/manifests/LICENSE`)
 - Pinned commit: `7b675f42af35508eab66ac42fe1598628597a893`
 
-Derived material, in each case modified by manaflow:
+Derived material and unchanged vendored material:
 
 - `bindings/examples/rust-agent-screen-detection/manifests/*.toml`: the 21
-  agent-detection manifests, vendored verbatim from
-  `src/detect/manifests/` (per-file modifications, if any, are noted in that
-  directory's README). Never refresh them from herdr's update endpoint;
-  re-vendor and bump the pin instead.
+  agent-detection manifests, vendored unchanged from `src/detect/manifests/`.
+  Never refresh them from herdr's update endpoint; re-vendor and bump the pin
+  instead.
 - `bindings/examples/rust-agent-screen-detection/src/manifest.rs`: the
   manifest engine (rule grammar, region extraction, gate evaluation,
   validation limits), ported from `src/detect/manifest.rs`.

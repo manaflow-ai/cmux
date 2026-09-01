@@ -1197,7 +1197,7 @@
       "id": "plugins",
       "wire_status": "partial",
       "programmability": "partial",
-      "route": "sidebar-plugin-v0; proposed manifest, permissions, contributions, and transactional management"
+      "route": "sidebar-plugin-v0 plus userland journal agent plugins; proposed contribution points, permissions, and typed management"
     },
     {
       "id": "file-sidebar",

@@ -471,6 +471,56 @@ func TestCatalogResultsDecodeStrictly(t *testing.T) {
 	}
 }
 
+func TestJournalResultDecodingEnforcesProducerBoundsAndIdentity(t *testing.T) {
+	manifest := JournalProducerManifest{
+		ProducerID:      "screen-detector",
+		Namespace:       "plugin.screen-detector",
+		ManifestVersion: 1,
+		MaxSensitivity:  JournalSensitivityMetadata,
+		Permissions:     []string{"journal.append.plugin.screen-detector"},
+		Events: []JournalEventSchema{{
+			Kind:          "plugin.screen-detector.agent.state.changed",
+			SchemaVersion: 1,
+			Class:         JournalClassState,
+			Replay:        JournalReplayRequired,
+			Sensitivity:   JournalSensitivityMetadata,
+			PayloadSchema: map[string]any{"type": "object"},
+		}},
+	}
+	tooMany := make([]JournalProducerManifest, maxJournalProducerCount+1)
+	for index := range tooMany {
+		tooMany[index] = manifest
+	}
+	raw, err := json.Marshal(JournalProducerListResult{Producers: tooMany})
+	if err != nil {
+		t.Fatalf("marshal oversized producer list: %v", err)
+	}
+	if _, err := decodeValue[JournalProducerListResult](raw, "journal producer list"); !errors.Is(err, ErrProtocol) {
+		t.Fatalf("oversized producer list error = %T %v", err, err)
+	}
+
+	if _, err := decodeValue[JournalProducerPutResult](json.RawMessage(
+		`{"producer_id":"screen-detector","manifest_version":1,"namespace":"plugin.other","sequence":"1","event_id":"event-1"}`,
+	), "journal producer result"); !errors.Is(err, ErrProtocol) {
+		t.Fatalf("malformed put result error = %T %v", err, err)
+	}
+	if _, err := decodeValue[JournalAppendResult](json.RawMessage(
+		`{"producer_id":"screen!detector","sequence":"1","event_id":"event-1"}`,
+	), "journal append result"); !errors.Is(err, ErrProtocol) {
+		t.Fatalf("malformed append result error = %T %v", err, err)
+	}
+	invalidIngress := JournalIngress{
+		ProducerID:      "screen-detector",
+		ManifestVersion: 1,
+		Kind:            "agent.state.changed",
+		SchemaVersion:   1,
+		Payload:         map[string]any{},
+	}
+	if err := invalidIngress.Validate(); !errors.Is(err, ErrInvalidArgument) {
+		t.Fatalf("out-of-namespace ingress validation = %T %v", err, err)
+	}
+}
+
 func TestTerminalSnapshotsRejectMalformedTabIdentities(t *testing.T) {
 	const tabID = "tab_00000000000000000000000000000006"
 	tests := []struct {
@@ -1101,6 +1151,86 @@ func TestSessionReportAgentUsesOnlySessionRoute(t *testing.T) {
 	requireParam(t, request, "expected_revision", "12")
 	if _, exists := requestParams(t, request)["agent"]; exists {
 		t.Fatalf("session agent report included an agent selector: %#v", request)
+	}
+}
+
+func TestUserlandAgentPluginUsesGenericJournalContract(t *testing.T) {
+	manifest := JournalProducerManifest{
+		ProducerID:      "screen-detector",
+		Namespace:       "plugin.screen-detector",
+		ManifestVersion: 1,
+		MaxSensitivity:  JournalSensitivityMetadata,
+		Permissions:     []string{"journal.append.plugin.screen-detector"},
+		Events: []JournalEventSchema{{
+			Kind:          "plugin.screen-detector.agent.state.changed",
+			SchemaVersion: 1,
+			Class:         JournalClassState,
+			Replay:        JournalReplayRequired,
+			Sensitivity:   JournalSensitivityMetadata,
+			PayloadSchema: map[string]any{"type": "object"},
+		}},
+	}
+	if err := manifest.Validate(); err != nil {
+		t.Fatalf("manifest validation: %v", err)
+	}
+
+	agent, err := decodeValue[AgentSnapshot](json.RawMessage(
+		`{"id":"agent_00000000000000000000000000000008",`+
+			`"session_id":"session_00000000000000000000000000000002",`+
+			`"terminal_id":"term_00000000000000000000000000000007",`+
+			`"state":"working","source":"plugin","updated_at_ms":"10",`+
+			`"source_session":"pid:42"}`,
+	), "agent snapshot")
+	if err != nil || agent.Source != AgentSourcePlugin {
+		t.Fatalf("plugin agent snapshot = %#v, %v", agent, err)
+	}
+	screen, err := decodeValue[TerminalScreenResult](json.RawMessage(
+		`{"text":"working","revision":"42","osc_progress":"4;1;50",`+
+			`"cols":80,"rows":24,"cursor_row":0,"cursor_col":7,"cursor_visible":true}`,
+	), "terminal screen")
+	if err != nil || screen.Revision == nil || screen.Revision.String() != "42" ||
+		screen.OSCProgress == nil || *screen.OSCProgress != "4;1;50" {
+		t.Fatalf("plugin terminal metadata = %#v, %v", screen, err)
+	}
+
+	client, requests := pipeClient(t, nil, 3)
+	defer client.Close(context.Background()) //nolint:errcheck
+	session := client.Machine(SelectID(testMachineID)).Session(SelectID(testSessionID))
+	producers, err := session.ListJournalProducers(
+		context.Background(), SessionJournalProducerListOptions{},
+	)
+	if err != nil || len(producers) != 1 || producers[0].ProducerID != manifest.ProducerID {
+		t.Fatalf("producer list = %#v, %v", producers, err)
+	}
+	put, err := session.PutJournalProducer(
+		context.Background(), manifest,
+		MutationOptions{IdempotencyKey: "producer-put"},
+	)
+	if err != nil || put.Value.EventID != "event-11" {
+		t.Fatalf("producer put = %#v, %v", put, err)
+	}
+	appendResult, err := session.AppendJournal(
+		context.Background(),
+		JournalIngress{
+			ProducerID:      manifest.ProducerID,
+			ManifestVersion: 1,
+			Kind:            manifest.Events[0].Kind,
+			SchemaVersion:   1,
+			OccurredAtMS:    func() *Decimal { value := Decimal(10); return &value }(),
+			Subjects:        []JournalSubject{{Kind: "agent", ID: string(testAgentID)}},
+			Payload:         map[string]any{"state": "working"},
+		},
+		MutationOptions{IdempotencyKey: "event-append"},
+	)
+	if err != nil || appendResult.Value.EventID != "event-13" {
+		t.Fatalf("journal append = %#v, %v", appendResult, err)
+	}
+
+	for index := 0; index < 3; index++ {
+		request := <-requests
+		if request["operation"] == nil {
+			t.Fatalf("request %d omitted operation: %#v", index, request)
+		}
 	}
 }
 
@@ -4450,6 +4580,63 @@ func pipeClient(
 						"updated_at_ms":  "14",
 						"source_session": "codex-task-42",
 					},
+				}
+			case "session.journal.producer.list":
+				result = map[string]any{
+					"producers": []any{
+						map[string]any{
+							"producer_id":      "screen-detector",
+							"namespace":        "plugin.screen-detector",
+							"manifest_version": 1,
+							"max_sensitivity":  "metadata",
+							"permissions":      []string{"journal.append.plugin.screen-detector"},
+							"events": []any{
+								map[string]any{
+									"kind":           "plugin.screen-detector.agent.state.changed",
+									"schema_version": 1,
+									"class":          "state",
+									"replay":         "required",
+									"sensitivity":    "metadata",
+									"payload_schema": map[string]any{"type": "object"},
+								},
+							},
+						},
+					},
+				}
+			case "session.journal.producer.put":
+				result = map[string]any{
+					"generation": "g",
+					"revision":   "12",
+					"replayed":   false,
+					"value": map[string]any{
+						"producer_id":      "screen-detector",
+						"manifest_version": 1,
+						"namespace":        "plugin.screen-detector",
+						"sequence":         "11",
+						"event_id":         "event-11",
+					},
+				}
+			case "session.journal.append":
+				result = map[string]any{
+					"generation": "g",
+					"revision":   "14",
+					"replayed":   false,
+					"value": map[string]any{
+						"producer_id": "screen-detector",
+						"sequence":    "13",
+						"event_id":    "event-13",
+					},
+				}
+			case "terminal.screen.read":
+				result = map[string]any{
+					"text":           "working",
+					"revision":       "42",
+					"osc_progress":   "4;1;50",
+					"cols":           80,
+					"rows":           24,
+					"cursor_row":     0,
+					"cursor_col":     7,
+					"cursor_visible": true,
 				}
 			case "terminal.project":
 				result = map[string]any{

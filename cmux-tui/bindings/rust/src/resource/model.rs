@@ -1139,14 +1139,14 @@ pub struct TerminalDefaultsSnapshot {
 #[serde(deny_unknown_fields)]
 pub struct TerminalScreenResult {
     pub text: String,
-    /// Monotonic terminal output revision. Plugins can use this to avoid
-    /// parsing an unchanged viewport.
-    #[serde(default, deserialize_with = "deserialize_optional_decimal")]
+    /// Monotonic terminal output revision. Null means that the server cannot
+    /// provide it. Plugins can use it to avoid parsing an unchanged viewport.
+    #[serde(default, deserialize_with = "deserialize_nullable_decimal")]
     pub revision: Option<u64>,
-    /// Latest bounded OSC 9 progress payload from the terminal output
-    /// stream. Plugins may interpret this value; the daemon does not attach
-    /// agent meaning to it.
-    #[serde(default, deserialize_with = "deserialize_optional_non_null")]
+    /// Latest bounded OSC 9 progress payload from the terminal output stream.
+    /// Null means that the server cannot provide it. Plugins may interpret
+    /// this value; the daemon does not attach agent meaning to it.
+    #[serde(default, deserialize_with = "deserialize_nullable")]
     pub osc_progress: Option<String>,
     #[serde(deserialize_with = "deserialize_positive_u16")]
     pub cols: u16,
@@ -1252,7 +1252,7 @@ pub struct ProcessInfoResult {
     /// omits the field.
     #[serde(default)]
     pub foreground_cwd: Option<String>,
-    /// Executable basename of the PTY foreground process group leader.
+    /// Executable path or name of the PTY foreground process group leader.
     /// This lets userland plugins identify nested agents without putting
     /// vendor logic in the daemon.
     #[serde(default)]
@@ -1535,6 +1535,24 @@ where
     deserialize_decimal(deserializer).map(Some)
 }
 
+fn deserialize_nullable_decimal<'de, D>(deserializer: D) -> Result<Option<u64>, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    Option::<String>::deserialize(deserializer)?
+        .map(|value| {
+            if value.is_empty()
+                || value.starts_with('+')
+                || (value.starts_with('0') && value.len() > 1)
+                || !value.bytes().all(|byte| byte.is_ascii_digit())
+            {
+                return Err(serde::de::Error::custom("decimal must be a canonical uint64 string"));
+            }
+            value.parse::<u64>().map_err(serde::de::Error::custom)
+        })
+        .transpose()
+}
+
 fn deserialize_positive_i32<'de, D>(deserializer: D) -> Result<i32, D::Error>
 where
     D: Deserializer<'de>,
@@ -1634,4 +1652,54 @@ where
 {
     let value = String::deserialize(deserializer)?;
     base64::engine::general_purpose::STANDARD.decode(value).map_err(serde::de::Error::custom)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::TerminalScreenResult;
+
+    #[test]
+    fn terminal_screen_metadata_accepts_omitted_and_explicit_null() {
+        let base = r#"{
+            "text":"ready",
+            "cols":80,
+            "rows":24,
+            "cursor_row":0,
+            "cursor_col":0,
+            "cursor_visible":true
+        }"#;
+        let omitted: TerminalScreenResult = serde_json::from_str(base).unwrap();
+        assert_eq!(omitted.revision, None);
+        assert_eq!(omitted.osc_progress, None);
+
+        let explicit: TerminalScreenResult = serde_json::from_str(
+            r#"{
+                "text":"ready",
+                "revision":null,
+                "osc_progress":null,
+                "cols":80,
+                "rows":24,
+                "cursor_row":0,
+                "cursor_col":0,
+                "cursor_visible":true
+            }"#,
+        )
+        .unwrap();
+        assert_eq!(explicit.revision, None);
+        assert_eq!(explicit.osc_progress, None);
+    }
+
+    #[test]
+    fn terminal_screen_revision_stays_canonical_decimal() {
+        let json = r#"{
+            "text":"ready",
+            "revision":"01",
+            "cols":80,
+            "rows":24,
+            "cursor_row":0,
+            "cursor_col":0,
+            "cursor_visible":true
+        }"#;
+        assert!(serde_json::from_str::<TerminalScreenResult>(json).is_err());
+    }
 }

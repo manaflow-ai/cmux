@@ -14,7 +14,7 @@
 namespace cmux::raw {
 
 inline constexpr std::uint32_t kMuxProtocolVersion = 12U;
-inline constexpr std::string_view kProtocolIrSha256 = "340aad727f14ce1426d53cc29cdba21cb336df37660b2424488d8b0cb1f8dc3f";
+inline constexpr std::string_view kProtocolIrSha256 = "52ff17e1501a351a5d3d7104c6af9a052313e8412b45efff43cab7b6ca120875";
 
 struct AgentRecord;
 enum class AgentReportSource;
@@ -1731,6 +1731,7 @@ struct ProcessInfoResult {
     std::optional<std::string> command{};
     std::optional<std::string> cwd{};
     Field<std::string> foreground_cwd{};
+    Field<std::string> foreground_executable{};
     std::optional<std::uint32_t> pid{};
     friend bool operator==(const ProcessInfoResult&, const ProcessInfoResult&) = default;
 };

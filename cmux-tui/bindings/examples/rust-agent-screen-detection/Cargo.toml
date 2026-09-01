@@ -3,7 +3,9 @@ name = "cmux-agent-screen-detection"
 version = "0.1.0"
 edition = "2024"
 rust-version = "1.91"
-license = "MIT"
+# The package contains manaflow code under MIT and detector material adapted
+# from herdr under Apache-2.0. Keep both obligations visible to packagers.
+license = "MIT AND Apache-2.0"
 publish = false
 
 [dependencies]

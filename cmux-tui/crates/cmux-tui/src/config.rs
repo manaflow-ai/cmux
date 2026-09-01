@@ -45,6 +45,14 @@
 //!       "cwd": "/optional"
 //!     }
 //!   },
+//!   "agents": {
+//!     "plugin": {
+//!       "id": "agent_screen_detection",
+//!       "command": ["/path/to/agent-plugin"],
+//!       "cwd": "/optional",
+//!       "revision": "sha256-..."
+//!     }
+//!   },
 //!   "machine_sidebar": {
 //!     "enabled": false,
 //!     "width": 22,
@@ -3432,13 +3440,11 @@ pub fn load() -> Config {
         }
     }
     if let Some(plugin) = raw.sidebar.plugin {
-        let command = plugin
-            .command
-            .unwrap_or_default()
-            .into_iter()
-            .filter(|arg| !arg.is_empty())
-            .collect::<Vec<_>>();
-        if command.is_empty() {
+        // Preserve every argument after argv[0]. Empty arguments are valid
+        // process arguments, and filtering them would silently change the
+        // command a user configured. Only the executable slot is required.
+        let command = plugin.command.unwrap_or_default();
+        if command.first().is_none_or(|arg| arg.trim().is_empty()) {
             crate::client_log::stderr_log!(
                 "config",
                 "cmux-tui: ignoring sidebar.plugin with empty command"
@@ -3452,13 +3458,10 @@ pub fn load() -> Config {
     }
     if let Some(plugin) = raw.agents.plugin {
         let id = plugin.id.unwrap_or_else(|| "agent_screen_detection".to_string());
-        let command = plugin
-            .command
-            .unwrap_or_default()
-            .into_iter()
-            .filter(|arg| !arg.is_empty())
-            .collect::<Vec<_>>();
-        if command.is_empty() {
+        // Do not filter later argv entries. An empty value can be meaningful
+        // to a plugin, while an empty executable must still disable config.
+        let command = plugin.command.unwrap_or_default();
+        if command.first().is_none_or(|arg| arg.trim().is_empty()) {
             crate::client_log::stderr_log!(
                 "config",
                 "cmux-tui: ignoring agents.plugin with empty command"
@@ -8342,6 +8345,14 @@ mod tests {
                         "cwd": "/tmp"
                     }
                 },
+                "agents": {
+                    "plugin": {
+                        "id": "screen-detector",
+                        "command": ["/tmp/agent-plugin", "", "--mode", "test"],
+                        "cwd": "/tmp",
+                        "revision": "sha256-test"
+                    }
+                },
                 "machine_sidebar": {
                     "enabled": true,
                     "width": 26,
@@ -8468,6 +8479,15 @@ mod tests {
         let plugin = config.sidebar.plugin.as_ref().expect("sidebar plugin config");
         assert_eq!(plugin.command, vec!["/tmp/sidebar-plugin", "--mode", "test"]);
         assert_eq!(plugin.cwd.as_deref(), Some("/tmp"));
+        let agent_plugin = config.agents.plugin.as_ref().expect("agent plugin config");
+        assert_eq!(agent_plugin.id, "screen-detector");
+        assert_eq!(
+            agent_plugin.command,
+            vec!["/tmp/agent-plugin", "", "--mode", "test"],
+            "empty arguments after argv[0] must remain part of the command"
+        );
+        assert_eq!(agent_plugin.cwd.as_deref(), Some("/tmp"));
+        assert_eq!(agent_plugin.revision.as_deref(), Some("sha256-test"));
         assert_eq!(config.scrollbar.position, ScrollbarPosition::Border);
         assert_eq!(config.theme.border_style, BorderStyle::Rounded);
         assert_eq!(config.pane.padding, MAX_PANE_PADDING, "padding clamps to the maximum");

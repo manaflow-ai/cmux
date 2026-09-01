@@ -326,7 +326,12 @@ type PaneNeighborResult struct {
 }
 
 type TerminalScreenResult struct {
-	Text          string               `json:"text"`
+	Text string `json:"text"`
+	// Revision is the coalesced PTY output counter. Older servers may omit it or send null.
+	Revision *Decimal `json:"revision,omitempty"`
+	// OSCProgress is bounded terminal metadata. The daemon does not assign
+	// agent meaning to this value.
+	OSCProgress   *string              `json:"osc_progress,omitempty"`
 	Cols          uint16               `json:"cols"`
 	Rows          uint16               `json:"rows"`
 	CursorRow     uint16               `json:"cursor_row"`
@@ -623,6 +628,9 @@ type ProcessInfoResult struct {
 	// when an older server omits the field.
 	ForegroundCWD *string  `json:"foreground_cwd,omitempty"`
 	Children      []uint32 `json:"children"`
+	// ForegroundExecutable is the path or name of the PTY foreground process-group
+	// leader. It is nil when the lookup fails or an older server omits it.
+	ForegroundExecutable *string `json:"foreground_executable,omitempty"`
 }
 
 type CellPixelsResult struct {
@@ -841,6 +849,59 @@ type SessionJournalRecord struct {
 	Payload                  JSONValue
 	ResourceRevision         *Decimal
 	PreviousResourceRevision *Decimal
+}
+
+// JournalEventSchema declares one event kind owned by a userland producer.
+type JournalEventSchema struct {
+	Kind          string              `json:"kind"`
+	SchemaVersion uint32              `json:"schema_version"`
+	Class         JournalClass        `json:"class"`
+	Replay        JournalReplayPolicy `json:"replay"`
+	Sensitivity   JournalSensitivity  `json:"sensitivity"`
+	PayloadSchema JSONValue           `json:"payload_schema"`
+}
+
+// JournalProducerManifest is the generic registration contract for a
+// userland journal producer. It is intentionally independent of agent names.
+type JournalProducerManifest struct {
+	ProducerID      string               `json:"producer_id"`
+	Namespace       string               `json:"namespace"`
+	ManifestVersion uint32               `json:"manifest_version"`
+	MaxSensitivity  JournalSensitivity   `json:"max_sensitivity"`
+	Permissions     []string             `json:"permissions"`
+	Events          []JournalEventSchema `json:"events"`
+}
+
+// JournalIngress is one event submitted by a registered producer.
+type JournalIngress struct {
+	ProducerID      string              `json:"producer_id"`
+	ManifestVersion uint32              `json:"manifest_version"`
+	Kind            string              `json:"kind"`
+	SchemaVersion   uint32              `json:"schema_version"`
+	OccurredAtMS    *Decimal            `json:"occurred_at_ms,omitempty"`
+	Subjects        []JournalSubject    `json:"subjects,omitempty"`
+	Sensitivity     *JournalSensitivity `json:"sensitivity,omitempty"`
+	Payload         JSONValue           `json:"payload"`
+	CausationID     *string             `json:"causation_id,omitempty"`
+	CorrelationID   *string             `json:"correlation_id,omitempty"`
+}
+
+type JournalProducerPutResult struct {
+	ProducerID      string  `json:"producer_id"`
+	ManifestVersion uint32  `json:"manifest_version"`
+	Namespace       string  `json:"namespace"`
+	Sequence        Decimal `json:"sequence"`
+	EventID         string  `json:"event_id"`
+}
+
+type JournalProducerListResult struct {
+	Producers []JournalProducerManifest `json:"producers"`
+}
+
+type JournalAppendResult struct {
+	ProducerID string  `json:"producer_id"`
+	Sequence   Decimal `json:"sequence"`
+	EventID    string  `json:"event_id"`
 }
 
 type TerminalAttachmentItem struct {

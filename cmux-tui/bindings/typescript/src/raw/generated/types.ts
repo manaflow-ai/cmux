@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 340aad727f14ce1426d53cc29cdba21cb336df37660b2424488d8b0cb1f8dc3f. */
+/* cmux-tui mux protocol 12, IR 52ff17e1501a351a5d3d7104c6af9a052313e8412b45efff43cab7b6ca120875. */
 
 
 /** JSON accepted by the wire codec. bigint is serialized as an exact JSON integer. */
@@ -374,6 +374,8 @@ export type ProcessInfoResult = {
   "cwd": (string) | null;
   /** Working directory of the process group that owns the PTY, read at request time. Null when the lookup fails; absent from daemons that predate the field. Clients treat absence as null. */
   "foreground_cwd"?: (string) | null;
+  /** Executable path or name of the PTY foreground process-group leader, read at request time. Null when the lookup fails; absent from daemons that predate the field. Clients treat absence as null. */
+  "foreground_executable"?: (string) | null;
   "pid": (number) | null;
 };
 

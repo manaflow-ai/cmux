@@ -431,16 +431,18 @@ impl Session {
     /// Plugins can use this read to diagnose a rejected or superseded
     /// registration without knowing any daemon-internal storage details.
     pub fn journal_producers(&self) -> Result<super::journal_plugin::JournalProducerListResult> {
-        wire::decode_exact(
+        let result = wire::decode_exact::<super::journal_plugin::JournalProducerListResult>(
             &self.client.read(ops::SESSION_JOURNAL_PRODUCER_LIST, self.params())?,
             "journal producer list",
-        )
+        )?;
+        result.validate()?;
+        Ok(result)
     }
 
     /// Installs or updates a userland journal producer manifest for this
     /// session. The manifest is validated by the daemon before any event is
     /// accepted.
-    pub fn put_journal_producer_manifest(
+    pub fn put_journal_producer(
         &self,
         manifest: &super::journal_plugin::JournalProducerManifest,
         mutation: MutationOptions,
@@ -458,7 +460,20 @@ impl Session {
             ),
             mutation,
         )?;
-        mutation_result(value, |value| wire::decode_exact(value, "journal producer result"))
+        mutation_result(value, |value| {
+            let result = wire::decode_exact(value, "journal producer result")?;
+            result.validate()?;
+            Ok(result)
+        })
+    }
+
+    /// Compatibility alias for the first generic journal SDK spelling.
+    pub fn put_journal_producer_manifest(
+        &self,
+        manifest: &super::journal_plugin::JournalProducerManifest,
+        mutation: MutationOptions,
+    ) -> Result<MutationResult<super::journal_plugin::JournalProducerPutResult>> {
+        self.put_journal_producer(manifest, mutation)
     }
 
     /// Compatibility alias for the first agent-plugin SDK preview.
@@ -467,11 +482,11 @@ impl Session {
         manifest: &super::journal_plugin::AgentPluginManifest,
         mutation: MutationOptions,
     ) -> Result<MutationResult<super::journal_plugin::JournalProducerPutResult>> {
-        self.put_journal_producer_manifest(manifest, mutation)
+        self.put_journal_producer(manifest, mutation)
     }
 
     /// Appends one event to the session journal from a userland producer.
-    pub fn append_journal_event(
+    pub fn append_journal(
         &self,
         event: &super::journal_plugin::JournalIngress,
         mutation: MutationOptions,
@@ -487,7 +502,20 @@ impl Session {
             ),
             mutation,
         )?;
-        mutation_result(value, |value| wire::decode_exact(value, "journal append result"))
+        mutation_result(value, |value| {
+            let result = wire::decode_exact(value, "journal append result")?;
+            result.validate()?;
+            Ok(result)
+        })
+    }
+
+    /// Compatibility alias for the first generic journal SDK spelling.
+    pub fn append_journal_event(
+        &self,
+        event: &super::journal_plugin::JournalIngress,
+        mutation: MutationOptions,
+    ) -> Result<MutationResult<super::journal_plugin::JournalAppendResult>> {
+        self.append_journal(event, mutation)
     }
 
     /// Compatibility alias for the first agent-plugin SDK preview.
@@ -496,7 +524,7 @@ impl Session {
         event: &super::journal_plugin::AgentPluginIngress,
         mutation: MutationOptions,
     ) -> Result<MutationResult<super::journal_plugin::JournalAppendResult>> {
-        self.append_journal_event(event, mutation)
+        self.append_journal(event, mutation)
     }
 
     pub fn ping(&self) -> Result<PingResult> {
