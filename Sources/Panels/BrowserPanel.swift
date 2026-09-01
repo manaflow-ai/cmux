@@ -480,8 +480,7 @@ enum BrowserLinkOpenSettings {
 
     static let browserHostWhitelistKey = "browserHostWhitelist"
     static let defaultBrowserHostWhitelist: String = ""
-    static let browserExternalOpenPatternsKey = "browserExternalOpenPatterns"
-    static let defaultBrowserExternalOpenPatterns: String = ""
+    static let browserExternalOpenPatternsKey = BrowserExternalURLPolicy.userDefaultsKey
 
     static func openTerminalLinksInCmuxBrowser(defaults: UserDefaults = .standard) -> Bool {
         guard BrowserAvailabilitySettings.isEnabled(defaults: defaults) else { return false }
@@ -533,39 +532,6 @@ enum BrowserLinkOpenSettings {
             .filter { !$0.isEmpty }
     }
 
-    static func externalOpenPatterns(defaults: UserDefaults = .standard) -> [String] {
-        let raw = defaults.string(forKey: browserExternalOpenPatternsKey) ?? defaultBrowserExternalOpenPatterns
-        return raw
-            .components(separatedBy: .newlines)
-            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
-            .filter { !$0.isEmpty && !$0.hasPrefix("#") }
-    }
-
-    static func shouldOpenExternally(_ url: URL, defaults: UserDefaults = .standard) -> Bool {
-        shouldOpenExternally(url.absoluteString, defaults: defaults)
-    }
-
-    static func shouldOpenExternally(_ rawURL: String, defaults: UserDefaults = .standard) -> Bool {
-        let target = rawURL.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !target.isEmpty else { return false }
-        guard BrowserAvailabilitySettings.isEnabled(defaults: defaults) else { return true }
-
-        for rawPattern in externalOpenPatterns(defaults: defaults) {
-            guard let (isRegex, value) = parseExternalPattern(rawPattern) else { continue }
-            if isRegex {
-                guard let regex = try? NSRegularExpression(pattern: value, options: [.caseInsensitive]) else { continue }
-                let range = NSRange(target.startIndex..<target.endIndex, in: target)
-                if regex.firstMatch(in: target, options: [], range: range) != nil {
-                    return true
-                }
-            } else if target.range(of: value, options: [.caseInsensitive]) != nil {
-                return true
-            }
-        }
-
-        return false
-    }
-
     /// Check whether a hostname matches the configured whitelist.
     /// Empty whitelist means "allow all" (no filtering).
     /// Supports exact match and wildcard prefix (`*.example.com`).
@@ -605,18 +571,6 @@ enum BrowserLinkOpenSettings {
         return host == pattern
     }
 
-    private static func parseExternalPattern(_ rawPattern: String) -> (isRegex: Bool, value: String)? {
-        let trimmed = rawPattern.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return nil }
-
-        if trimmed.lowercased().hasPrefix("re:") {
-            let regexPattern = String(trimmed.dropFirst(3)).trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !regexPattern.isEmpty else { return nil }
-            return (isRegex: true, value: regexPattern)
-        }
-
-        return (isRegex: false, value: trimmed)
-    }
 }
 
 enum BrowserAvailabilitySettings {
@@ -1155,7 +1109,7 @@ private func browserPresentExternalNavigationPrompt(
     }
 }
 
-private func browserPresentExternalNavigationFailure(
+func browserPresentExternalNavigationFailure(
     for url: URL,
     in webView: WKWebView,
     presentAlert: BrowserAlertPresenter = browserPresentAlert
@@ -1994,6 +1948,7 @@ final class BrowserPanel: Panel, ObservableObject {
 
     /// The workspace ID this panel belongs to
     private(set) var workspaceId: UUID
+    private let externalNavigationHandler: BrowserExternalNavigationHandler
 
     @Published private(set) var profileID: UUID
     @Published private(set) var historyStore: BrowserHistoryStore
@@ -3065,7 +3020,7 @@ final class BrowserPanel: Panel, ObservableObject {
             self?.screenshotCopiedToken &+= 1
         }
         webView.onContextMenuOpenLinkInNewTab = { [weak self] url in
-            self?.openLinkInNewTab(url: url)
+            self?.openContextMenuLinkInNewTab(url: url)
         }
         configureMoveTabToNewWorkspaceContextMenu(for: webView)
         navigationDelegate?.resetTrustedInternalNavigationState()
@@ -3445,6 +3400,7 @@ final class BrowserPanel: Panel, ObservableObject {
         self.id = id
         self.mobileBrowserDialogBroker = MobileBrowserDialogBroker(panelID: self.id.uuidString)
         self.workspaceId = workspaceId
+        self.externalNavigationHandler = BrowserExternalNavigationHandler()
         let resolvedProfileID = Self.resolvedProfileID(requested: profileID)
         self.profileID = resolvedProfileID
         self.insecureHTTPBypassHostOnce = BrowserInsecureHTTPSettings.normalizeHost(bypassInsecureHTTPHostOnce ?? "")
@@ -3510,7 +3466,9 @@ final class BrowserPanel: Panel, ObservableObject {
         BrowserProfileStore.shared.noteUsed(resolvedProfileID)
 
         // Set up navigation delegate
-        let navDelegate = BrowserNavigationDelegate()
+        let navDelegate = BrowserNavigationDelegate(
+            externalNavigationHandler: externalNavigationHandler
+        )
         navDelegate.owner = self
         navDelegate.openInNewTab = { [weak self] url in
             self?.openLinkInNewTab(url: url)
@@ -3694,11 +3652,16 @@ final class BrowserPanel: Panel, ObservableObject {
         self.navigationDelegate = navDelegate
 
         // Set up UI delegate (handles cmd+click, target=_blank, and context menu)
-        let browserUIDelegate = BrowserUIDelegate()
+        let browserUIDelegate = BrowserUIDelegate(
+            externalNavigationHandler: externalNavigationHandler
+        )
         browserUIDelegate.owner = self
         browserUIDelegate.openInNewTab = { [weak self] url in
             guard let self else { return }
             self.openLinkInNewTab(url: url)
+        }
+        browserUIDelegate.openAppLinkInBrowserSplit = { [weak self] url in
+            self?.openAppLinkInBrowserSplit?(url) ?? false
         }
         browserUIDelegate.requestNavigation = { [weak self] in self?.requestNavigation($0, intent: $1) }
         browserUIDelegate.recordPDFPrintIntent = { [weak navDelegate] in navDelegate?.recordPDFPrintIntentIfNeeded($0, sourceFrame: $1) }
@@ -6231,6 +6194,23 @@ extension BrowserPanel {
         )
     }
 
+    /// Routes the context-menu tab action through configured external rules.
+    func openContextMenuLinkInNewTab(url: URL) {
+        switch externalNavigationHandler.openConfiguredExternallyResult(
+            url,
+            navigationType: .linkActivated,
+            targetFrameIsMain: true
+        ) {
+        case .opened:
+            return
+        case .failed:
+            browserPresentExternalNavigationFailure(for: url, in: webView)
+            return
+        case .notConfigured:
+            openLinkInNewTab(url: url)
+        }
+    }
+
     /// Opens a request in a sibling browser tab without dropping request metadata.
     func openLinkInNewTab(request: URLRequest, bypassInsecureHTTPHostOnce: String? = nil) {
         guard let seed = browserNewTabNavigationSeed(
@@ -6239,6 +6219,7 @@ extension BrowserPanel {
         ) else {
             return
         }
+
 #if DEBUG
         cmuxDebugLog(
             "browser.newTab.open.begin panel=\(id.uuidString.prefix(5)) " +
@@ -8406,13 +8387,25 @@ class BrowserDownloadDelegate: NSObject, WKDownloadDelegate {
 
 // MARK: - UI Delegate
 
-private class BrowserUIDelegate: BrowserPDFPreviewActionUIDelegate {
+@MainActor
+private final class BrowserUIDelegate: BrowserPDFPreviewActionUIDelegate {
+    private let externalNavigationHandler: BrowserExternalNavigationHandler
     weak var owner: BrowserPanel?
     var openInNewTab: ((URL) -> Void)?
+    var openAppLinkInBrowserSplit: ((URL) -> Bool)?
     var requestNavigation: ((URLRequest, BrowserInsecureHTTPNavigationIntent) -> Void)?; var recordPDFPrintIntent: ((URLRequest, WKFrameInfo?) -> Void)?
     var presentAlert: BrowserAlertPresenter = browserPresentAlert
     var openPopup: ((WKWebViewConfiguration, WKWindowFeatures) -> WKWebView?)?
     var closeRequested: ((WKWebView) -> Void)?
+
+    init(
+        externalNavigationHandler: BrowserExternalNavigationHandler
+    ) {
+        self.externalNavigationHandler = externalNavigationHandler
+        super.init()
+    }
+
+    deinit {}
 
     func webViewDidClose(_ webView: WKWebView) {
         closeRequested?(webView)
@@ -8470,6 +8463,35 @@ private class BrowserUIDelegate: BrowserPDFPreviewActionUIDelegate {
             "windowFeatures={\(windowFeaturesSummary)}"
         )
 #endif
+        if let url = navigationAction.request.url {
+            if navigationAction.navigationType == .linkActivated,
+               navigationAction.targetFrame?.isMainFrame != false,
+               let appLink = BrowserAppLinkOpenRequest(
+                   url: url,
+                   webOrigin: AuthEnvironment.appSessionHandoffOrigin
+               ),
+               openAppLinkInBrowserSplit?(appLink.destinationURL) == true {
+                return nil
+            }
+            switch externalNavigationHandler.openConfiguredExternallyResult(
+                url,
+                navigationType: navigationAction.navigationType,
+                targetFrameIsMain: navigationAction.targetFrame?.isMainFrame
+            ) {
+            case .opened:
+                return nil
+            case .failed:
+                browserPresentExternalNavigationFailure(
+                    for: url,
+                    in: webView,
+                    presentAlert: presentAlert
+                )
+                return nil
+            case .notConfigured:
+                break
+            }
+        }
+
         if let url = navigationAction.request.url,
            navigationAction.targetFrame?.isMainFrame != false,
            url.scheme?.lowercased() != AuthEnvironment.callbackScheme.lowercased(),
