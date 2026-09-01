@@ -186,9 +186,11 @@ impl PairingBroker {
         } else {
             PairingDecision::Denied
         };
-        // The requesting connection may already be gone. Resolution remains
-        // authoritative and the credential, when approved, is still valid.
-        let _ = request.response.send(decision);
+        // The requesting connection may already be gone. A nonblocking send
+        // keeps the pairing mutex available even if its receiver stopped
+        // polling; the decision is advisory because resolution is already
+        // authoritative and the credential remains valid.
+        let _ = request.response.try_send(decision);
         Ok(Some(committed))
     }
 
