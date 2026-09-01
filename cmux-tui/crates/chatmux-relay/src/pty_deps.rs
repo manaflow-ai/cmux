@@ -535,6 +535,12 @@ impl SpawnedChildCleanup {
         Ok(self.child_mut().wait()?)
     }
 
+    fn finish_wait(&mut self, wait_result: anyhow::Result<cmux_pty::ExitStatus>) -> i64 {
+        let code = wait_result.map(|status| i64::from(status.exit_code() as i32)).unwrap_or(0);
+        self.disarm();
+        code
+    }
+
     fn disarm(&mut self) {
         let _ = self.child.take();
     }
@@ -884,9 +890,8 @@ fn spawn_real_pty(spec: &SpawnSpec, handoff: &SpawnHandoff) -> anyhow::Result<Pt
                 });
                 child_cleanup.wait()
             });
-            let code = wait_result.map(|status| i64::from(status.exit_code() as i32)).unwrap_or(0);
+            let code = child_cleanup.finish_wait(wait_result);
             wait_lifecycle.lock().expect("child lifecycle lock").exited = true;
-            child_cleanup.disarm();
             exit_completion.child_exited(code);
         })
         .is_err()
@@ -1479,6 +1484,46 @@ mod tests {
     }
 
     #[derive(Debug)]
+    struct FailingChild {
+        kills: TestArc<AtomicUsize>,
+        waits: TestArc<AtomicUsize>,
+    }
+
+    impl Drop for FailingChild {
+        fn drop(&mut self) {
+            self.waits.fetch_add(1, AtomicOrdering::Relaxed);
+        }
+    }
+
+    impl cmux_pty::ChildKiller for FailingChild {
+        fn kill(&mut self) -> std::io::Result<()> {
+            self.kills.fetch_add(1, AtomicOrdering::Relaxed);
+            Ok(())
+        }
+
+        fn clone_killer(&self) -> Box<dyn cmux_pty::ChildKiller + Send + Sync> {
+            Box::new(Self {
+                kills: TestArc::clone(&self.kills),
+                waits: TestArc::clone(&self.waits),
+            })
+        }
+    }
+
+    impl cmux_pty::Child for FailingChild {
+        fn try_wait(&mut self) -> std::io::Result<Option<cmux_pty::ExitStatus>> {
+            Err(std::io::Error::other("wait failed"))
+        }
+
+        fn wait(&mut self) -> std::io::Result<cmux_pty::ExitStatus> {
+            Err(std::io::Error::other("wait failed"))
+        }
+
+        fn process_id(&self) -> Option<u32> {
+            Some(42)
+        }
+    }
+
+    #[derive(Debug)]
     struct TestChildKiller {
         kills: TestArc<AtomicUsize>,
     }
@@ -1706,6 +1751,21 @@ mod tests {
 
         assert!(matches!(command_rx.recv(), Ok(PipeChildCommand::Kill)));
         assert!(command_rx.try_recv().is_err());
+    }
+
+    #[test]
+    fn failed_wait_keeps_child_cleanup_armed() {
+        let kills = TestArc::new(AtomicUsize::new(0));
+        let waits = TestArc::new(AtomicUsize::new(0));
+        let child = FailingChild { kills: TestArc::clone(&kills), waits: TestArc::clone(&waits) };
+        let mut cleanup = SpawnedChildCleanup::new(Box::new(child));
+        let failed_wait: anyhow::Result<cmux_pty::ExitStatus> = Err(anyhow::anyhow!("wait failed"));
+
+        let _ = cleanup.finish_wait(failed_wait);
+        drop(cleanup);
+
+        assert_eq!(kills.load(AtomicOrdering::Relaxed), 1);
+        assert_eq!(waits.load(AtomicOrdering::Relaxed), 1);
     }
 
     #[test]
