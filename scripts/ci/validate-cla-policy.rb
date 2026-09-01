@@ -230,6 +230,54 @@ def validate_script(raw)
   end
 end
 
+def validate_guard_workflow(raw)
+  document = YAML.safe_load(raw, aliases: false)
+  fail!("guard workflow is not a YAML mapping") unless document.is_a?(Hash)
+  triggers = document["on"] || document[true]
+  fail!("guard workflow has unsafe triggers") unless
+    triggers.is_a?(Hash) &&
+    !triggers.key?("pull_request") &&
+    triggers["pull_request_target"].is_a?(Hash) &&
+    triggers["pull_request_target"]["branches"] == ["main"]
+  fail!("guard workflow must have empty top-level permissions") unless document["permissions"] == {}
+  guard_job = document.dig("jobs", "validate")
+  fail!("guard workflow validate job is missing") unless guard_job.is_a?(Hash)
+  fail!("guard workflow must use read-only permissions") unless
+    guard_job["permissions"] == { "contents" => "read", "pull-requests" => "read" }
+  fail!("guard workflow must verify the immutable checkout") unless
+    raw.include?("ref: ${{ github.workflow_sha }}") &&
+    raw.include?("persist-credentials: false") &&
+    raw.include?("scripts/ci/validate-cla-policy.rb")
+  uses = []
+  walk(document) { |key, value| uses << value if key == "uses" && value.is_a?(String) }
+  uses.each do |reference|
+    next if reference.start_with?("./")
+    fail!("guard action reference is not pinned") unless reference.match?(/\A[^@]+@[0-9a-f]{40}\z/)
+  end
+rescue Psych::Exception
+  fail!("guard workflow YAML is invalid")
+end
+
+def validate_guard_script(raw)
+  fail!("guard script is missing a Ruby shebang") unless raw.start_with?("#!/usr/bin/env ruby")
+  [
+    "EXPECTED_WORKFLOW_DIGEST",
+    "def validate_workflow",
+    "base_workflow != head_workflow",
+    "guard_changed && policy_changed",
+    "pull-request revision deletes the rerun helper",
+    "CLA policy validation rejected the proposed policy"
+  ].each do |fragment|
+    fail!("guard script is missing a required safety check") unless raw.include?(fragment)
+  end
+  Tempfile.create(["cla-policy-guard", ".rb"]) do |file|
+    file.write(raw)
+    file.close
+    _stdout, _stderr, status = Open3.capture3("ruby", "-c", file.path)
+    fail!("guard script has invalid Ruby syntax") unless status.success?
+  end
+end
+
 begin
   repository = required_env("GH_REPO", REPOSITORY)
   pr_number = required_env("PR_NUMBER", /\A[1-9][0-9]*\z/)
@@ -253,11 +301,22 @@ begin
   head_guard_workflow = fetch_file(repository, head_sha, ".github/workflows/cla-policy-guard.yml", allow_missing: true)
   base_guard_script = fetch_file(repository, base_sha, "scripts/ci/validate-cla-policy.rb", allow_missing: true)
   head_guard_script = fetch_file(repository, head_sha, "scripts/ci/validate-cla-policy.rb", allow_missing: true)
-  fail!("the base-controlled guard cannot be changed in the same pull request") if
-    base_guard_workflow != head_guard_workflow || base_guard_script != head_guard_script
+  guard_changed = base_guard_workflow != head_guard_workflow || base_guard_script != head_guard_script
 
   base_script = fetch_file(repository, base_sha, ".github/scripts/rerun-failed-cla.sh", allow_missing: true)
   head_script = fetch_file(repository, head_sha, ".github/scripts/rerun-failed-cla.sh", allow_missing: true)
+  policy_changed = base_workflow != head_workflow || base_script != head_script
+  # A policy PR cannot also weaken the validator that reviews it. A guard-only
+  # PR remains possible for normal maintenance, with CODEOWNERS providing the
+  # human review gate for this trusted control plane.
+  fail!("guard and CLA policy files must change in separate pull requests") if guard_changed && policy_changed
+
+  if guard_changed
+    fail!("guard workflow cannot be deleted") if head_guard_workflow.nil?
+    fail!("guard validator cannot be deleted") if head_guard_script.nil?
+    validate_guard_workflow(head_guard_workflow)
+    validate_guard_script(head_guard_script)
+  end
 
   if base_workflow == head_workflow && base_script == head_script
     puts "PASS: CLA policy files are unchanged"
