@@ -131,7 +131,7 @@ final class AutomationEngine {
         }
         eventTask = Task.detached(priority: .utility) { [weak self] in
             while !Task.isCancelled {
-                guard let event = subscription.next(timeout: CmuxEventBus.defaultHeartbeatIntervalSeconds),
+                guard let event = await subscription.nextAsync(),
                       let eventData = try? JSONSerialization.data(withJSONObject: event, options: [.sortedKeys]) else {
                     if subscription.isClosed { break }
                     continue

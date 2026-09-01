@@ -6,7 +6,7 @@ import Foundation
 /// still allowing an RPC action to pass any JSON object accepted by the v2
 /// socket. The value is deliberately independent of ``JSONSerialization`` so
 /// it can be used by both the app target and the bundled CLI target.
-nonisolated enum AutomationJSONValue: Codable, Equatable, Sendable {
+nonisolated enum AutomationJSONValue: Codable, Equatable, Hashable, Sendable {
     case null
     case bool(Bool)
     case integer(Int64)
@@ -474,6 +474,11 @@ nonisolated struct AutomationRule: Codable, Equatable, Sendable, Identifiable {
 
     private static func matchesValue(_ actual: AutomationJSONValue, expected: AutomationJSONValue) -> Bool {
         if let expectedArray = expected.arrayValue {
+            if let actualArray = actual.arrayValue,
+               actualArray.allSatisfy(Self.isScalar),
+               expectedArray.allSatisfy(Self.isScalar) {
+                return matchesAnyArrayElement(actualArray, expectedValues: expectedArray)
+            }
             return expectedArray.contains { matchesValue(actual, expected: $0) }
         }
         if let operators = expected.objectValue, !operators.isEmpty,
@@ -494,6 +499,11 @@ nonisolated struct AutomationRule: Codable, Equatable, Sendable, Identifiable {
                 return actualString.hasSuffix(expectedString)
             }
             if let values = operators["in"]?.arrayValue {
+                if let actualArray = actual.arrayValue,
+                   actualArray.allSatisfy(Self.isScalar),
+                   values.allSatisfy(Self.isScalar) {
+                    return matchesAnyArrayElement(actualArray, expectedValues: values)
+                }
                 return values.contains { matchesValue(actual, expected: $0) }
             }
             if let value = operators["not"] {
@@ -525,6 +535,32 @@ nonisolated struct AutomationRule: Codable, Equatable, Sendable, Identifiable {
             return true
         default:
             return false
+        }
+    }
+
+    private static func isScalar(_ value: AutomationJSONValue) -> Bool {
+        switch value {
+        case .null, .bool, .integer, .double, .string:
+            return true
+        case .array, .object:
+            return false
+        }
+    }
+
+    /// Tests scalar array membership in one indexed pass, with a numeric
+    /// fallback for the existing integer/double equivalence rule.
+    private static func matchesAnyArrayElement(
+        _ actualValues: [AutomationJSONValue],
+        expectedValues: [AutomationJSONValue]
+    ) -> Bool {
+        let actualSet = Set(actualValues)
+        if expectedValues.contains(where: actualSet.contains) {
+            return true
+        }
+        let actualNumbers = Set(actualValues.compactMap(\.doubleValue))
+        return expectedValues.contains { value in
+            guard let number = value.doubleValue else { return false }
+            return actualNumbers.contains(number)
         }
     }
 }

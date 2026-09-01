@@ -193,6 +193,11 @@ extension TerminalController {
     /// The task-local focus allowance is false by default, so even inherently
     /// focus-oriented methods preserve the user's selection unless the action
     /// explicitly opts in with `allow_focus`/`focus`.
+#if compiler(>=6.2)
+    @concurrent
+#else
+    @Sendable
+#endif
     nonisolated func performAutomationRPC(
         method: String,
         params: [String: Any],
