@@ -2175,14 +2175,11 @@ struct RemoteAgentRestoreWorkingDirectoryTests {
         let latestRemoteDirectory = "/repo-b"
         let remoteCommand = "ssh cmux-remote"
         let sessionId = "codex-remote-latest-cwd-\(UUID().uuidString)"
-        var resumeClaimReleased = false
         defer {
-            if !resumeClaimReleased {
-                AgentResumeLaunchGuard.shared.releaseResumeLaunch(
-                    kind: "codex",
-                    sessionId: sessionId
-                )
-            }
+            AgentResumeLaunchGuard.shared.releaseResumeLaunch(
+                kind: "codex",
+                sessionId: sessionId
+            )
         }
         let source = Workspace(
             workingDirectory: localDirectory,
@@ -2255,7 +2252,6 @@ struct RemoteAgentRestoreWorkingDirectoryTests {
             kind: "codex",
             sessionId: sessionId
         )
-        resumeClaimReleased = true
         let secondRestore = Workspace(agentSessionAutoResumeDefaults: defaults)
         defer { secondRestore.teardownAllPanels() }
         let secondPanelIds = secondRestore.restoreSessionSnapshot(secondSnapshot)
@@ -2491,14 +2487,11 @@ struct RemoteAgentRestoreWorkingDirectoryTests {
         let untrustedRecordedDirectory = "/Users/alice/recorded-agent-cwd"
         let remoteCommand = "ssh cmux-remote"
         let sessionId = "codex-remote-untrusted-cwd-\(UUID().uuidString)"
-        var resumeClaimReleased = false
         defer {
-            if !resumeClaimReleased {
-                AgentResumeLaunchGuard.shared.releaseResumeLaunch(
-                    kind: "codex",
-                    sessionId: sessionId
-                )
-            }
+            AgentResumeLaunchGuard.shared.releaseResumeLaunch(
+                kind: "codex",
+                sessionId: sessionId
+            )
         }
         let source = Workspace(
             workingDirectory: localDirectory,
@@ -2552,7 +2545,6 @@ struct RemoteAgentRestoreWorkingDirectoryTests {
             kind: "codex",
             sessionId: sessionId
         )
-        resumeClaimReleased = true
         let secondRestore = Workspace(agentSessionAutoResumeDefaults: defaults)
         defer { secondRestore.teardownAllPanels() }
         let secondPanelIds = secondRestore.restoreSessionSnapshot(secondSnapshot)

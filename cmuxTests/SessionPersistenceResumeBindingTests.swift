@@ -169,7 +169,7 @@ import Testing
         )
 
         let retargeted = binding.retargetingWorkingDirectory("/remote/new-project")
-        #expect(retargeted.restoreWorkingDirectorySelection == .unavailable)
+        #expect(retargeted == binding)
     }
 
     @Test func persistentSSHOwnerRetargetKeepsSamePTYSessionState() throws {

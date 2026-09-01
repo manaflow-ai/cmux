@@ -417,6 +417,9 @@ struct SurfaceResumeBindingSnapshot: Codable, Equatable, Sendable {
 
     func retargetingWorkingDirectory(_ workingDirectory: String?) -> SurfaceResumeBindingSnapshot {
         guard isAgentHookBinding else { return self }
+        if case .unavailable = restoreWorkingDirectorySelection {
+            return self
+        }
         let normalizedCwd = Self.normalized(workingDirectory)
         var retargeted = self
         let normalizedKind = Self.normalized(kind)
@@ -433,9 +436,6 @@ struct SurfaceResumeBindingSnapshot: Codable, Equatable, Sendable {
         }
         // An id-keyed agent's live cwd is authoritative for the refreshed
         // binding. Directory-keyed agents must retain their launch namespace.
-        if case .unavailable = retargeted.restoreWorkingDirectorySelection {
-            return retargeted
-        }
         if AgentResumeWorkingDirectory().cwdNamespacing(forKind: normalizedKind ?? "") == .cwdInFile {
             retargeted.restoreWorkingDirectorySelection = .exact(normalizedCwd)
         }
