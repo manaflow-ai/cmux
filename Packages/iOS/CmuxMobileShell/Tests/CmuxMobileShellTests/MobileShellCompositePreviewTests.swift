@@ -520,6 +520,48 @@ import Testing
         #expect(store.selectedTerminalID?.rawValue == "workspace-main-terminal-4")
     }
 
+    @Test func createTerminalRemainsSelectedWhileItStarts() throws {
+        let store = MobileShellComposite.preview()
+        store.signIn()
+        store.pairingCode = "debug"
+        store.connectPreviewHost()
+
+        store.createTerminal()
+        let created = try #require(store.selectedTerminalID)
+        let refreshedWorkspace = MobileWorkspacePreview(
+            id: "workspace-main",
+            name: "cmux",
+            terminals: [
+                MobileTerminalPreview(id: "terminal-build", name: "Build", isReady: true),
+                MobileTerminalPreview(id: created, name: "Terminal 4", isReady: false),
+            ]
+        )
+
+        store.replaceForegroundWorkspaceState([refreshedWorkspace])
+
+        #expect(store.selectedTerminalID == created)
+    }
+
+    @Test func createTerminalFallsBackWhenCreatedTerminalDisappears() throws {
+        let store = MobileShellComposite.preview()
+        store.signIn()
+        store.pairingCode = "debug"
+        store.connectPreviewHost()
+
+        store.createTerminal()
+        let created = try #require(store.selectedTerminalID)
+        store.replaceForegroundWorkspaceState([
+            MobileWorkspacePreview(
+                id: "workspace-main",
+                name: "cmux",
+                terminals: [MobileTerminalPreview(id: "terminal-build", name: "Build", isReady: true)]
+            )
+        ])
+
+        #expect(store.selectedTerminalID == "terminal-build")
+        #expect(store.selectedTerminalID != created)
+    }
+
     @Test func createTerminalUsesExplicitWorkspaceContextOverStaleSelection() {
         let store = MobileShellComposite.preview()
         store.signIn()

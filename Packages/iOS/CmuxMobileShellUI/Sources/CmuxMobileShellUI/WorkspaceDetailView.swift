@@ -178,7 +178,16 @@ struct WorkspaceDetailView: View {
     }
     #endif
     var body: some View {
-        let content = Group { detailSurfaceContent }
+        let content = Group {
+            VStack(spacing: 0) {
+                if let message = store.terminalCreationError,
+                   store.selectedWorkspaceID == workspace.id,
+                   store.terminalCreationErrorWorkspaceID == workspace.rpcWorkspaceID {
+                    terminalCreationRecovery(message: message)
+                }
+                detailSurfaceContent
+            }
+        }
 
         #if os(iOS)
         content
@@ -286,6 +295,31 @@ struct WorkspaceDetailView: View {
             )
             .mobileConnectionRecoveryOverlay(store: store, signOut: signOut)
         #endif
+    }
+
+    private func terminalCreationRecovery(message: String) -> some View {
+        HStack(alignment: .top, spacing: 10) {
+            Image(systemName: "exclamationmark.triangle.fill")
+                .foregroundStyle(.orange)
+            VStack(alignment: .leading, spacing: 6) {
+                Text(message)
+                    .font(.subheadline)
+                    .fixedSize(horizontal: false, vertical: true)
+                Button {
+                    createTerminal()
+                } label: {
+                    Text(L10n.string("mobile.terminal.creationRetry", defaultValue: "Retry"))
+                }
+                .buttonStyle(.borderedProminent)
+                .controlSize(.small)
+                .accessibilityIdentifier("MobileTerminalCreationRetry")
+            }
+            Spacer(minLength: 0)
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 10)
+        .background(.orange.opacity(0.14))
+        .accessibilityIdentifier("MobileTerminalCreationRecovery")
     }
 
     #if os(iOS)
