@@ -128,6 +128,14 @@ struct SurfaceSocketCommandTests {
             self.workspaceID = manager.selectedWorkspace!.id
         }
 
+        /// The Bonsplit pane id (UUID string) of the workspace's focused panel — a live pane
+        /// an explicit `pane_id` may name.
+        @MainActor
+        var livePaneID: String? {
+            guard let workspace = manager.selectedWorkspace, let panel = workspace.focusedPanelId else { return nil }
+            return SurfacePaneFactory.paneID(ofPanel: panel, in: workspace.id)
+        }
+
         @MainActor
         func tearDown() {
             TerminalController.shared.setActiveTabManager(nil)
@@ -224,19 +232,20 @@ struct SurfaceSocketCommandTests {
         #expect(again["surface_id"] as? String == first["surface_id"] as? String)
         #expect(fixture.provider.materialized.count == 1)
 
-        // …unless `reuse: false` (`--new`): a second pane, at the pane edge the caller named.
-        let pane = UUID()
+        // …unless `reuse: false` (`--new`): a second pane, at the pane edge the caller named
+        // (a LIVE pane: the workspace's own focused pane).
+        let pane = try #require(fixture.livePaneID)
         let split = try Self.ok(try await Self.call("surface.project", [
-            "resource": resource, "reuse": false, "pane_id": pane.uuidString, "direction": "left", "focus": false,
+            "resource": resource, "reuse": false, "pane_id": pane, "direction": "left", "focus": false,
         ]))
         #expect(split["reused"] as? Bool == false)
         #expect(fixture.provider.materialized.count == 2)
-        #expect(fixture.provider.materialized[1].destination == .split(workspaceID: fixture.workspaceID, paneID: pane.uuidString, direction: .left))
+        #expect(fixture.provider.materialized[1].destination == .split(workspaceID: fixture.workspaceID, paneID: pane, direction: .left))
         #expect(fixture.provider.materialized[1].focus == false)
 
         // `placement: tab` on a pane becomes a tab destination.
-        _ = try Self.ok(try await Self.call("surface.project", ["resource": resource, "reuse": false, "pane_id": pane.uuidString, "placement": "tab"]))
-        #expect(fixture.provider.materialized.last?.destination == .tab(workspaceID: fixture.workspaceID, paneID: pane.uuidString, index: nil))
+        _ = try Self.ok(try await Self.call("surface.project", ["resource": resource, "reuse": false, "pane_id": pane, "placement": "tab"]))
+        #expect(fixture.provider.materialized.last?.destination == .tab(workspaceID: fixture.workspaceID, paneID: pane, index: nil))
 
         let projections = try Self.ok(try await Self.call("surface.catalog", ["machine": fixture.machineID]))["projections"] as? [[String: Any]]
         #expect(projections?.filter { ($0["resource"] as? String) == resource }.count == 3)
@@ -256,6 +265,12 @@ struct SurfaceSocketCommandTests {
         #expect((bogus["message"] as? String)?.contains("workspace:999999") == true)
         let bogusPane = try Self.error(try await Self.call("surface.project", ["resource": fixture.termA1.rawValue, "pane_id": "pane:999999"]))
         #expect(bogusPane["code"] as? String == "invalid_params")
+        // Well-formed but dead ids are just as unresolvable: a closed pane's UUID, a
+        // workspace UUID nobody has, a surface UUID that is not a panel.
+        for (key, value) in [("pane_id", UUID().uuidString), ("workspace_id", UUID().uuidString), ("surface_id", UUID().uuidString)] {
+            let dead = try Self.error(try await Self.call("surface.project", ["resource": fixture.termA1.rawValue, key: value]))
+            #expect(dead["code"] as? String == "invalid_params", "\(key) \(value) must not fall back to the selected workspace")
+        }
         #expect(fixture.provider.materialized.isEmpty, "nothing opened anywhere")
 
         let malformed = try Self.error(try await Self.call("surface.project", ["resource": "not-a-resource"]))
@@ -328,13 +343,22 @@ struct SurfaceSocketCommandTests {
         #expect(fixture.provider.materialized[1].focus == false)
         #expect(Set(fixture.provider.materialized.map(\.resource)) == [fixture.termA1, fixture.termA2, fixture.browserA])
 
-        // `--tabs`: every pane, including the first, is a tab of the named pane.
-        let pane = UUID()
+        // `--tabs`: every pane, including the first, is a tab of the named (live) pane.
+        let pane = try #require(fixture.livePaneID)
         _ = try Self.ok(try await Self.call("vm.workspace_open", [
             "id": fixture.machineID, "workspace_id": "ws_b", "here": true, "target_workspace_id": fixture.workspaceID.uuidString,
-            "pane_id": pane.uuidString, "placement": "tab",
+            "pane_id": pane, "placement": "tab",
         ]))
-        #expect(fixture.provider.materialized.last?.destination == .tab(workspaceID: fixture.workspaceID, paneID: pane.uuidString, index: nil))
+        #expect(fixture.provider.materialized.last?.destination == .tab(workspaceID: fixture.workspaceID, paneID: pane, index: nil))
+
+        // An EMPTY workspace opens nothing and says so (D9), instead of "not found".
+        let empty = try Self.ok(try await Self.call("vm.workspace_open", ["id": fixture.machineID, "workspace_id": "ws_empty"]))
+        #expect(empty["opened"] as? Int == 0)
+        #expect(empty["empty"] as? Bool == true)
+        #expect(empty["remote_workspace_name"] as? String == "empty")
+        // …and a workspace resolves by name too.
+        let byName = try Self.ok(try await Self.call("vm.workspace_open", ["id": fixture.machineID, "workspace_id": "empty"]))
+        #expect(byName["remote_workspace_id"] as? String == "ws_empty")
 
         let unknown = try Self.error(try await Self.call("vm.workspace_open", ["id": fixture.machineID, "workspace_id": "ws_nope", "here": true]))
         #expect((unknown["message"] as? String)?.contains("ws_nope") == true)

@@ -180,6 +180,46 @@ import Testing
         #expect(CmuxTuiSurfaceProvider.firstWorkspaceName == "main")
     }
 
+    @Test @MainActor func snapshotRereadsCoalesceWithoutTimersAndAreNeverStarved() async {
+        // One pass in flight, at most one queued behind it, no delay anywhere: a burst
+        // of deltas costs two passes, and a burst that arrives DURING a pass still gets
+        // exactly one follow-up (the tree is never starved by a restarted window).
+        final class Gate: @unchecked Sendable {
+            let lock = NSLock()
+            var waiters: [CheckedContinuation<Void, Never>] = []
+            var entered = 0
+            func enter() async { await withCheckedContinuation { c in lock.withLock { entered += 1; waiters.append(c) } } }
+            func release() { let w = lock.withLock { let w = waiters; waiters.removeAll(); return w }; w.forEach { $0.resume() } }
+            func enteredCount() -> Int { lock.withLock { entered } }
+        }
+        let gate = Gate()
+        let coalescer = SurfaceRefreshCoalescer { await gate.enter() }
+        coalescer.request()
+        coalescer.request()
+        coalescer.request()
+        // Let the loop start its first pass.
+        while gate.enteredCount() < 1 { await Task.yield() }
+        #expect(coalescer.passes == 1, "a burst before the first pass starts is one pass")
+        #expect(coalescer.isRunning)
+        // Deltas during the pass queue exactly one follow-up.
+        coalescer.request()
+        coalescer.request()
+        gate.release()
+        while gate.enteredCount() < 2 { await Task.yield() }
+        #expect(coalescer.passes == 2)
+        gate.release()
+        while coalescer.isRunning { await Task.yield() }
+        #expect(coalescer.passes == 2, "a quiet coalescer stops; nothing runs on a timer")
+        // A cancelled coalescer drops its queued follow-up.
+        coalescer.request()
+        while gate.enteredCount() < 3 { await Task.yield() }
+        coalescer.request()
+        coalescer.cancel()
+        gate.release()
+        while coalescer.isRunning { await Task.yield() }
+        #expect(coalescer.passes == 3)
+    }
+
     @Test func headlessTerminalIOArgvFollowsTheCLIGrammar() {
         // Verified live against a machine: `write --text` types as-is (no newline),
         // `keys` takes bare key names, `screen read` / `screen wait --pattern` read back.
