@@ -1164,7 +1164,7 @@
       "shortcutsWhenBooleanKeys": "boolske nøkler. En ukjent eller fraværende nøkkel leses som false; literalene true og false godtas også.",
       "shortcutsWhenTypedKeys": "typede nøkler for sammenligninger: høyre sidelinjes aktive modus (streng) samt antall paneler og arbeidsområder (heltall).",
       "shortcutsWhenOperators": "boolske operatorer, typede sammenligninger, regex-treff og listemedlemskap. Sammenligninger binder tettere enn && og ||.",
-      "shortcutsWhenExample": "Dette gjør for eksempel at Ctrl+1–9 velger arbeidsområder overalt unntatt når høyre sidelinje har fokus (slik at Ctrl+1–5 (Ctrl+6 when Source Control is enabled) er ledig for sidelinjens modusvelger), og begrenser overflatevalg til Finn-sidelinjen når arbeidsområdet har flere paneler:"
+      "shortcutsWhenExample": "Dette gjør for eksempel at Ctrl+1–9 velger arbeidsområder overalt unntatt når høyre sidelinje har fokus (slik at Ctrl+1–5 (og Ctrl+6 når Source Control er aktivert) er ledig for sidelinjens modusvelger), og begrenser overflatevalg til Finn-sidelinjen når arbeidsområdet har flere paneler:"
     },
     "customCommands": {
       "title": "Egendefinerte kommandoer",

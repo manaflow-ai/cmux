@@ -1164,7 +1164,7 @@
       "shortcutsWhenBooleanKeys": "Booleovi ključevi. Nepoznat ili odsutan ključ čita se kao false; prihvataju se i literali true i false.",
       "shortcutsWhenTypedKeys": "tipizirani ključevi za poređenja: aktivni način desne bočne trake (string) te broj okana i radnih prostora (cijeli brojevi).",
       "shortcutsWhenOperators": "Booleovi operatori, tipizirana poređenja, regex podudaranje i pripadnost listi. Poređenja se vezuju jače od && i ||.",
-      "shortcutsWhenExample": "Na primjer, ovo čini da Ctrl+1–9 bira radne prostore svuda osim kada desna bočna traka ima fokus (ostavljajući Ctrl+1–5 (Ctrl+6 when Source Control is enabled) prebacivaču načina bočne trake), i ograničava izbor površine na bočnu traku za pretragu kada radni prostor ima više okana:"
+      "shortcutsWhenExample": "Na primjer, ovo čini da Ctrl+1–9 bira radne prostore svuda osim kada desna bočna traka ima fokus (ostavljajući Ctrl+1–5 (i Ctrl+6 kada je Source Control omogućen) prebacivaču načina bočne trake), i ograničava izbor površine na bočnu traku za pretragu kada radni prostor ima više okana:"
     },
     "customCommands": {
       "title": "Prilagođene komande",

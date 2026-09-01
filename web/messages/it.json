@@ -1164,7 +1164,7 @@
       "shortcutsWhenBooleanKeys": "chiavi booleane. Una chiave sconosciuta o assente vale false; sono accettati anche i letterali true e false.",
       "shortcutsWhenTypedKeys": "chiavi tipizzate per i confronti: la modalità attiva della barra laterale destra (stringa) e i conteggi di riquadri e spazi di lavoro (interi).",
       "shortcutsWhenOperators": "operatori booleani, confronti tipizzati, corrispondenza regex e appartenenza a liste. I confronti legano più strettamente di && e ||.",
-      "shortcutsWhenExample": "Ad esempio, questo fa sì che Ctrl+1–9 selezioni gli spazi di lavoro ovunque tranne quando la barra laterale destra ha il focus (lasciando Ctrl+1–5 (Ctrl+6 when Source Control is enabled) al selettore di modalità della barra laterale), e limita la selezione della superficie alla barra laterale Trova quando lo spazio di lavoro ha più riquadri:"
+      "shortcutsWhenExample": "Ad esempio, questo fa sì che Ctrl+1–9 selezioni gli spazi di lavoro ovunque tranne quando la barra laterale destra ha il focus (lasciando Ctrl+1–5 (e Ctrl+6 quando Source Control è abilitato) al selettore di modalità della barra laterale), e limita la selezione della superficie alla barra laterale Trova quando lo spazio di lavoro ha più riquadri:"
     },
     "customCommands": {
       "title": "Comandi personalizzati",
