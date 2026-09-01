@@ -409,7 +409,26 @@ extension AppDelegate {
     /// focus and the default Cmd+I (Show Notifications) keeps working otherwise
     /// (issue #6776).
     func shortcutEventFirstResponderOwnsBrowserWebView(_ event: NSEvent) -> Bool {
-        shortcutEventBrowserWebView(event) != nil
+        if shortcutEventBrowserWebView(event) != nil {
+            return true
+        }
+
+        // Document-editing routing predates the strict capture ownership check.
+        // During a portal reattach WebKit can briefly expose no stable page
+        // child; preserve the legacy responder-chain answer for this path only
+        // so Cmd+I/C/X/A does not regress, while capture itself remains strict
+        // and fail-closed for unknown siblings.
+        let shortcutWindow = shortcutResolvedEventWindow(event) ?? NSApp.keyWindow ?? NSApp.mainWindow
+        guard let shortcutWindow,
+              let responder = shortcutWindow.firstResponder,
+              browserOmnibarPanelId(for: responder) == nil,
+              let webView = shortcutOwningWebView(for: responder) as? CmuxWebView,
+              isBrowserPanelWebView(webView),
+              !shortcutResponderIsInspector(responder, in: webView),
+              cmuxBrowserPageContentRoot(for: webView, owningResponder: responder) == nil else {
+            return false
+        }
+        return shortcutResponderBelongs(to: webView, responder: responder)
     }
 
     /// Returns the focused browser web view that owns an event's responder

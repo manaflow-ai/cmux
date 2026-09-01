@@ -18117,7 +18117,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             .subtracting([.numericPad, .function, .capsLock])
         return !normalizedFlags.isEmpty
             || activeConfiguredShortcutChordPrefixForCurrentEvent != nil
-            || browserCaptureIsNonPrintableShortcutKey(event.keyCode)
+            || browserCaptureIsNonPrintableShortcutKey(event)
     }
 
     /// Whether the event should consult the bounded candidate index before
@@ -18136,7 +18136,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         let isBareSpace = normalizedFlags.isEmpty && event.keyCode == 49
         let isPrintableShiftOrOption = !normalizedFlags.isEmpty
             && routingModifierFlags.isEmpty
-            && !browserCaptureIsNonPrintableShortcutKey(event.keyCode)
+            && !browserCaptureIsNonPrintableShortcutKey(event)
         return isBareSpace || isPrintableShiftOrOption
     }
 
@@ -18174,14 +18174,35 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
     }
 
-    private func browserCaptureIsNonPrintableShortcutKey(_ keyCode: UInt16) -> Bool {
-        switch keyCode {
-        case 36, 48, 49, 51, 53, 115, 116, 117, 119, 120, 121, 122,
-             96, 97, 98, 99, 100, 101, 103, 105, 107, 109, 111, 113,
-             123, 124, 125, 126:
+    private func browserCaptureIsNonPrintableShortcutKey(_ event: NSEvent) -> Bool {
+        if event.specialKey != nil {
             return true
-        default:
-            return false
+        }
+
+        if let recordedKey = recordedShortcutKey(
+            keyCode: event.keyCode,
+            charactersIgnoringModifiers: event.charactersIgnoringModifiers
+        ) {
+            let normalizedKey = recordedKey.lowercased()
+            if normalizedKey == "space" || normalizedKey == "\t" || normalizedKey == "\r" {
+                return true
+            }
+            if ["←", "→", "↑", "↓"].contains(normalizedKey) {
+                return true
+            }
+            if normalizedKey.first == "f",
+               let functionNumber = Int(normalizedKey.dropFirst()),
+               (1...20).contains(functionNumber) {
+                return true
+            }
+        }
+
+        // Escape, Help, and any future AppKit special key may not expose a
+        // recordable token. Their control/private-use characters are still
+        // unambiguously non-printable, unlike Shift/Option text input.
+        return (event.characters ?? "").unicodeScalars.contains { scalar in
+            CharacterSet.controlCharacters.contains(scalar)
+                || (0xF700...0xF8FF).contains(scalar.value)
         }
     }
 
