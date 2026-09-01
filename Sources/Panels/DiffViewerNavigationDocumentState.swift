@@ -11,6 +11,21 @@ final class DiffViewerNavigationDocumentState {
         documentConfirmed && focusConfirmed && !editableFocused && rendererReady
     }
 
+    /// Whether the document is a ready diff viewer that owns find-in-page.
+    /// Unlike `canHandleNavigation`, focus does not matter: Cmd+F must open
+    /// the viewer's find bar even while an in-page editor has focus.
+    var canHandleFindCommands: Bool {
+        documentConfirmed && rendererReady
+    }
+
+#if DEBUG
+    var debugStateDescription: String {
+        "document=\(documentConfirmed ? 1 : 0) focus=\(focusConfirmed ? 1 : 0) " +
+            "editable=\(editableFocused ? 1 : 0) ready=\(rendererReady ? 1 : 0) " +
+            "provisional=\(provisionalNavigation == nil ? 0 : 1)"
+    }
+#endif
+
     func update(viewer: Bool, editable: Bool, rendererReady: Bool) {
         documentConfirmed = viewer
         focusConfirmed = true

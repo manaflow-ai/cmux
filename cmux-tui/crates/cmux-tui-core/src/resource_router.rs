@@ -969,6 +969,7 @@ const fn operation_owner(operation: ResourceOperation) -> OperationOwner {
         | ResourceOperation::TerminalStateRead
         | ResourceOperation::TerminalHistoryRead
         | ResourceOperation::TerminalHistoryClear
+        | ResourceOperation::TerminalOutputRead
         | ResourceOperation::TerminalWait
         | ResourceOperation::TerminalWaitExit
         | ResourceOperation::TerminalCopy
@@ -1510,11 +1511,7 @@ pub(super) fn resource_operation_error(error: anyhow::Error) -> ResourceError {
 }
 
 pub(super) fn operation_name(operation: ResourceOperation) -> String {
-    serde_json::to_value(operation)
-        .expect("resource operations serialize")
-        .as_str()
-        .expect("resource operations serialize as strings")
-        .to_string()
+    operation.wire_name().to_owned()
 }
 
 pub(super) fn validation_error(message: &str, details: Value) -> ResourceError {
@@ -1633,7 +1630,7 @@ mod tests {
     #[test]
     fn every_catalog_operation_has_one_concrete_owner() {
         let operations = operation_catalog()["operations"].as_object().unwrap();
-        assert_eq!(operations.len(), 124);
+        assert_eq!(operations.len(), 125);
         for name in operations.keys() {
             let operation: ResourceOperation =
                 serde_json::from_value(Value::String(name.clone())).unwrap();
@@ -1652,7 +1649,7 @@ mod tests {
     #[test]
     fn every_catalog_operation_accepts_its_result_and_declared_error_fixtures() {
         let operations = operation_catalog()["operations"].as_object().unwrap();
-        assert_eq!(operations.len(), 124);
+        assert_eq!(operations.len(), 125);
         for (name, descriptor) in operations {
             let operation: ResourceOperation =
                 serde_json::from_value(Value::String(name.clone())).unwrap();
