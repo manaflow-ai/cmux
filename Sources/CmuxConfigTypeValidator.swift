@@ -6,6 +6,29 @@ import Foundation
 /// and the standalone CLI can share the same command-entry contract without
 /// importing the AppKit-backed config store into the CLI target.
 struct CmuxConfigTypeValidator: Sendable {
+    private let workspaceColorNames: Set<String>
+
+    init(workspaceColorNames: Set<String>? = nil) {
+        let names = workspaceColorNames ?? Self.workspaceColorNames(from: .standard)
+        self.workspaceColorNames = Set(names.map { $0.lowercased() })
+    }
+
+    static let builtInWorkspaceColorNames = [
+        "Red", "Crimson", "Orange", "Amber", "Olive", "Green", "Teal", "Aqua",
+        "Blue", "Navy", "Indigo", "Purple", "Magenta", "Rose", "Brown", "Charcoal",
+    ]
+
+    static func workspaceColorNames(from defaults: UserDefaults) -> Set<String> {
+        var names = Set(builtInWorkspaceColorNames)
+        if let configured = defaults.dictionary(forKey: "workspaceTabColor.colors") {
+            names.formUnion(configured.keys)
+        }
+        if let overrides = defaults.dictionary(forKey: "workspaceTabColor.defaultOverrides") {
+            names.formUnion(overrides.keys)
+        }
+        return names
+    }
+
     func issues(in object: Any) -> [CmuxConfigTypeIssue] {
         guard let root = object as? [String: Any] else {
             return [issue(path: "root", key: "invalidField", arguments: ["an object"])]
@@ -119,7 +142,7 @@ struct CmuxConfigTypeValidator: Sendable {
                 issues.append(issue(path: "\(path).color", key: "invalidField", arguments: ["a non-blank string"]))
                 return
             }
-            if color.hasPrefix("#"), !isSixDigitHexColor(color) {
+            if !isSixDigitHexColor(color), !workspaceColorNames.contains(color.lowercased()) {
                 issues.append(issue(path: "\(path).color", key: "invalidValue", arguments: []))
             }
         }
@@ -167,7 +190,7 @@ struct CmuxConfigTypeValidator: Sendable {
             issues.append(issue(path: "\(path).direction", key: "invalidValue", arguments: []))
             return
         }
-        if let value = node["split"], !isNull(value), !(value is NSNumber) {
+        if let value = node["split"], !isNull(value), !isJSONNumber(value) {
             issues.append(issue(path: "\(path).split", key: "invalidField", arguments: ["a number"]))
         }
         guard let rawChildren = node["children"] as? [Any] else {
@@ -235,7 +258,8 @@ struct CmuxConfigTypeValidator: Sendable {
     }
 
     private func isSixDigitHexColor(_ value: String) -> Bool {
-        let scalars = Array(value.dropFirst().unicodeScalars)
+        let body = value.hasPrefix("#") ? value.dropFirst() : value[...]
+        let scalars = Array(body.unicodeScalars)
         guard scalars.count == 6 else { return false }
         return scalars.allSatisfy { scalar in
             (scalar.value >= 48 && scalar.value <= 57)
@@ -246,6 +270,12 @@ struct CmuxConfigTypeValidator: Sendable {
 
     private func isNull(_ value: Any?) -> Bool {
         value == nil || value is NSNull
+    }
+
+    private func isJSONNumber(_ value: Any) -> Bool {
+        guard let number = value as? NSNumber else { return false }
+        let type = String(cString: number.objCType)
+        return type != "c" && type != "B"
     }
 
     private func issue(path: String, key: String, arguments: [String]) -> CmuxConfigTypeIssue {

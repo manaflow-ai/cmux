@@ -97,7 +97,8 @@ struct CmuxConfigFile: Codable, Sendable {
         }
         var decodedCommands: [CmuxCommandDefinition] = []
         var commandIssues: [CmuxConfigTypeIssue] = []
-        if container.contains(.commands) {
+        if container.contains(.commands),
+           !((try? container.decodeNil(forKey: .commands)) ?? false) {
             var commandContainer = try container.nestedUnkeyedContainer(forKey: .commands)
             while !commandContainer.isAtEnd {
                 let index = commandContainer.currentIndex
@@ -2970,10 +2971,10 @@ final class CmuxConfigStore: ObservableObject {
         do {
             let config = try JSONDecoder().decode(CmuxConfigFile.self, from: sanitized)
             var typeIssues = config.commandDecodingIssues
-            if let validatorIssues = try? CmuxConfigTypeValidator().issues(in: sanitized) {
-                for validatorIssue in validatorIssues where !typeIssues.contains(validatorIssue) {
-                    typeIssues.append(validatorIssue)
-                }
+            if let validatorIssues = try? CmuxConfigTypeValidator(
+                workspaceColorNames: Set(WorkspaceTabColorSettings.resolvedPaletteMap().keys)
+            ).issues(in: sanitized) {
+                typeIssues = CmuxConfigTypeIssue.merged(typeIssues, with: validatorIssues)
             }
             let issue = typeIssues.isEmpty
                 ? nil

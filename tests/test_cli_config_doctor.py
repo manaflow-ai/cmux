@@ -186,6 +186,20 @@ def main() -> int:
                     if finding.get("status") != "error" or "commands[0]" not in message:
                         failures.append(f"type-invalid config did not report commands entry: {type_result.stdout}")
 
+        config_path.write_text(
+            '{"commands": [{"name": "bad-color", "workspace": {"color": "Definitely Not A Palette Color"}}]}\n',
+            encoding="utf-8",
+        )
+        color_result = run_cli(cli_path, ["--json", "config", "doctor", "--path", str(config_path)], home)
+        if color_result.returncode == 0:
+            failures.append("unknown named workspace color returned success")
+        else:
+            payload = parse_json_output(color_result.stdout, "unknown named workspace color", failures)
+            if payload is not None:
+                finding = first_finding(payload, "unknown named workspace color", color_result.stdout, failures)
+                if finding is not None and finding.get("status") != "error":
+                    failures.append(f"unknown named workspace color did not report an error: {color_result.stdout}")
+
         directory_path = home / "config-directory"
         directory_path.mkdir()
         directory_result = run_cli(cli_path, ["--json", "config", "doctor", "--path", str(directory_path)], home)

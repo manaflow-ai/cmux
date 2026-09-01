@@ -5,12 +5,6 @@ enum CmuxCommandDefinition: Codable, Hashable, Identifiable, Sendable {
     case command(CmuxShellCommandDefinition)
     case layout(CmuxWorkspaceLayoutCommandDefinition)
 
-    /// The discriminator used by config tooling and diagnostics.
-    enum Kind: String, Codable, Hashable, Sendable {
-        case command
-        case layout
-    }
-
     private enum CodingKeys: String, CodingKey {
         case command
         case workspace
@@ -100,17 +94,6 @@ enum CmuxCommandDefinition: Codable, Hashable, Identifiable, Sendable {
 
         self = .layout(try CmuxWorkspaceLayoutCommandDefinition(from: decoder))
     }
-
-    var kind: Kind {
-        switch self {
-        case .command:
-            return .command
-        case .layout:
-            return .layout
-        }
-    }
-
-    var entryKind: Kind { kind }
 
     var name: String {
         switch self {

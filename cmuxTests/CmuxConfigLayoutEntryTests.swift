@@ -1,4 +1,5 @@
-import XCTest
+import Foundation
+import Testing
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
@@ -6,12 +7,12 @@ import XCTest
 @testable import cmux
 #endif
 
-final class CmuxConfigLayoutEntryTests: XCTestCase {
+struct CmuxConfigLayoutEntryTests {
     private func decode(_ json: String) throws -> CmuxConfigFile {
         try JSONDecoder().decode(CmuxConfigFile.self, from: Data(json.utf8))
     }
 
-    func testDecodeCommandsWithLayoutOnlyCommandAndMixedEntries() throws {
+    @Test func decodeCommandsWithLayoutOnlyCommandAndMixedEntries() throws {
         let json = """
         {
           "commands": [
@@ -39,30 +40,30 @@ final class CmuxConfigLayoutEntryTests: XCTestCase {
         """
 
         let config = try decode(json)
-        XCTAssertEqual(config.commands.count, 3)
-        XCTAssertEqual(config.commands[0].name, "Saved layout")
-        XCTAssertNil(config.commands[0].command)
-        XCTAssertEqual(config.commands[0].workspace?.cwd, "/tmp/layout")
-        XCTAssertEqual(config.commands[0].workspace?.color, "#336699")
-        XCTAssertNotNil(config.commands[0].workspace?.layout)
-        XCTAssertEqual(config.commands[1].name, "Run tests")
-        XCTAssertEqual(config.commands[1].command, "npm test")
-        XCTAssertNil(config.commands[1].workspace)
-        XCTAssertEqual(config.commands[2].name, "Command with layout metadata")
-        XCTAssertEqual(config.commands[2].command, "echo mixed")
-        XCTAssertNil(config.commands[2].workspace)
+        #expect(config.commands.count == 3)
+        #expect(config.commands[0].name == "Saved layout")
+        #expect(config.commands[0].command == nil)
+        #expect(config.commands[0].workspace?.cwd == "/tmp/layout")
+        #expect(config.commands[0].workspace?.color == "#336699")
+        #expect(config.commands[0].workspace?.layout != nil)
+        #expect(config.commands[1].name == "Run tests")
+        #expect(config.commands[1].command == "npm test")
+        #expect(config.commands[1].workspace == nil)
+        #expect(config.commands[2].name == "Command with layout metadata")
+        #expect(config.commands[2].command == "echo mixed")
+        #expect(config.commands[2].workspace == nil)
     }
 
-    func testDecodeCommandsKeepsValidEntriesWhenOneEntryIsMalformed() throws {
+    @Test func decodeCommandsKeepsValidEntriesWhenOneEntryIsMalformed() throws {
         let config = try decode("""
         { "commands": [{ "name": "broken" }, { "name": "survives", "command": "echo survives" }] }
         """)
-        XCTAssertEqual(config.commands.map(\.name), ["survives"])
-        XCTAssertEqual(config.commandDecodingIssues.count, 1)
-        XCTAssertEqual(config.commandDecodingIssues[0].path, "commands[0]")
+        #expect(config.commands.map(\.name) == ["survives"])
+        #expect(config.commandDecodingIssues.count == 1)
+        #expect(config.commandDecodingIssues[0].path == "commands[0]")
     }
 
-    func testCommandDefinitionUsesExplicitSumTypeCases() throws {
+    @Test func commandDefinitionUsesExplicitSumTypeCases() throws {
         let layout = try JSONDecoder().decode(
             CmuxCommandDefinition.self,
             from: Data(#"{ "name": "layout", "cwd": "/tmp", "layout": { "pane": { "surfaces": [{ "type": "terminal" }] } } }"#.utf8)
@@ -73,15 +74,15 @@ final class CmuxConfigLayoutEntryTests: XCTestCase {
         )
         if case .layout = layout {
         } else {
-            XCTFail("Expected layout command variant")
+            Issue.record("Expected layout command variant")
         }
         if case .command = command {
         } else {
-            XCTFail("Expected shell command variant")
+            Issue.record("Expected shell command variant")
         }
     }
 
-    func testDecodeFlattenedLayoutNormalizesLegacySingleChildSplit() throws {
+    @Test func decodeFlattenedLayoutNormalizesLegacySingleChildSplit() throws {
         let config = try decode("""
         {
           "commands": [{
@@ -94,23 +95,23 @@ final class CmuxConfigLayoutEntryTests: XCTestCase {
           }]
         }
         """)
-        let layout = try XCTUnwrap(config.commands.first?.workspace?.layout)
+        let layout = try #require(config.commands.first?.workspace?.layout)
         if case .pane = layout {
         } else {
-            XCTFail("Expected the legacy single-child split to normalize to a pane")
+            Issue.record("Expected the legacy single-child split to normalize to a pane")
         }
     }
 
-    func testDecodeMalformedCommandEntryIsSkippedAndReported() throws {
+    @Test func decodeMalformedCommandEntryIsSkippedAndReported() throws {
         let config = try decode("""
         { "commands": [{ "name": "bad", "command": "   " }, { "name": "ok", "command": "echo ok" }] }
         """)
-        XCTAssertEqual(config.commands.map(\.name), ["ok"])
-        XCTAssertEqual(config.commandDecodingIssues.count, 1)
-        XCTAssertTrue(config.commandDecodingIssues[0].description.contains("command"))
+        #expect(config.commands.map(\.name) == ["ok"])
+        #expect(config.commandDecodingIssues.count == 1)
+        #expect(config.commandDecodingIssues[0].description.contains("command"))
     }
 
-    func testDecodeMalformedEntriesAreSkippedWithoutBlockingTheFile() throws {
+    @Test func decodeMalformedEntriesAreSkippedWithoutBlockingTheFile() throws {
         let fixtures = [
             #"{"commands":[{"name":"bad","workspace":{"layout":{"invalid":true}}}]}"#,
             #"{"commands":[{"name":"bad","workspace":{"layout":{"pane":{"surfaces":[{"type":"invalid"}]}}}}]}"#,
@@ -127,15 +128,41 @@ final class CmuxConfigLayoutEntryTests: XCTestCase {
 
         for fixture in fixtures {
             let config = try decode(fixture)
-            XCTAssertTrue(config.commands.isEmpty, fixture)
-            XCTAssertEqual(config.commandDecodingIssues.count, 1, fixture)
+            #expect(config.commands.isEmpty)
+            #expect(config.commandDecodingIssues.count == 1)
         }
     }
 
-    func testDecodeHybridEntryUsesCommandVariant() throws {
+    @Test func decodeHybridEntryUsesCommandVariant() throws {
         let config = try decode(#"{"commands":[{"name":"hybrid","command":"echo hi","workspace":{"name":"ws"}}]}"#)
-        XCTAssertEqual(config.commands.count, 1)
-        XCTAssertEqual(config.commands[0].command, "echo hi")
-        XCTAssertNil(config.commands[0].workspace)
+        #expect(config.commands.count == 1)
+        #expect(config.commands[0].command == "echo hi")
+        #expect(config.commands[0].workspace == nil)
+    }
+
+    @Test func decodeNullCommandsAsEmptyList() throws {
+        let config = try decode(#"{"commands":null}"#)
+        #expect(config.commands.isEmpty)
+        #expect(config.commandDecodingIssues.isEmpty)
+    }
+
+    @Test func typeValidatorRejectsBooleanSplitValue() throws {
+        let object = try JSONSerialization.jsonObject(
+            with: Data(#"{"commands":[{"name":"bad","layout":{"direction":"horizontal","split":true,"children":[{"pane":{"surfaces":[{"type":"terminal"}]}},{"pane":{"surfaces":[{"type":"terminal"}]}}]}}]}"#.utf8)
+        )
+        let issues = CmuxConfigTypeValidator().issues(in: object)
+        #expect(issues.contains { $0.path == "commands[0].layout.split" })
+    }
+
+    @Test func failureLogGateClaimsEachRevisionOnce() async {
+        let gate = CmuxConfigDecodeFailureLogGate()
+        #expect(await gate.claim(key: "same-revision"))
+        #expect(!(await gate.claim(key: "same-revision")))
+        #expect(await gate.claim(key: "new-revision"))
+    }
+
+    @Test func typeIssueDiagnosticsRemoveNewlinesAndBidiControls() {
+        let issue = CmuxConfigTypeIssue(path: "commands[0]", message: "bad\nvalue\u{202E}tail")
+        #expect(issue.description == "commands[0]: bad valuetail")
     }
 }

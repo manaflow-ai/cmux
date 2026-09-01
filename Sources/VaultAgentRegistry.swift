@@ -454,12 +454,14 @@ struct CmuxVaultAgentRegistry: Sendable {
 
     func mergingProjectConfig(
         workingDirectory: String?,
-        fileManager: FileManager = .default
+        fileManager: FileManager = .default,
+        decodeCache: CmuxConfigDecodeCache? = nil
     ) -> CmuxVaultAgentRegistry {
+        let resolvedDecodeCache = decodeCache ?? Self.defaultConfigDecodeCache
         guard let workingDirectory = workingDirectory?.trimmingCharacters(in: .whitespacesAndNewlines),
               !workingDirectory.isEmpty,
               let path = Self.findLocalConfig(startingAt: workingDirectory, fileManager: fileManager),
-              let config = Self.decodeConfig(at: path, fileManager: fileManager),
+              let config = Self.decodeConfig(at: path, fileManager: fileManager, cache: resolvedDecodeCache),
               let agents = config.vault?.agents,
               !agents.isEmpty else {
             return self
@@ -471,8 +473,10 @@ struct CmuxVaultAgentRegistry: Sendable {
         homeDirectory: String = NSHomeDirectory(),
         workingDirectory: String? = nil,
         environment: [String: String] = ProcessInfo.processInfo.environment,
-        fileManager: FileManager = .default
+        fileManager: FileManager = .default,
+        decodeCache: CmuxConfigDecodeCache? = nil
     ) -> CmuxVaultAgentRegistry {
+        let resolvedDecodeCache = decodeCache ?? Self.defaultConfigDecodeCache
         var registrations = [
             CmuxVaultAgentRegistration.builtInPi,
             CmuxVaultAgentRegistration.builtInOmp,
@@ -483,7 +487,7 @@ struct CmuxVaultAgentRegistry: Sendable {
             CmuxVaultAgentRegistration.builtInHermes,
         ]
         for path in configPaths(homeDirectory: homeDirectory, workingDirectory: workingDirectory, environment: environment, fileManager: fileManager) {
-            guard let config = decodeConfig(at: path, fileManager: fileManager) else { continue }
+            guard let config = decodeConfig(at: path, fileManager: fileManager, cache: resolvedDecodeCache) else { continue }
             registrations.append(contentsOf: config.vault?.agents ?? [])
         }
         return CmuxVaultAgentRegistry(registrations: registrations)

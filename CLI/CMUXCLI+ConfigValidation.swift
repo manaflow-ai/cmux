@@ -6,7 +6,9 @@ extension CMUXCLI {
         dictionary: [String: Any],
         byteCount: Int
     ) -> ConfigDoctorFinding {
-        let issues = CmuxConfigTypeValidator().issues(in: dictionary)
+        let issues = CmuxConfigTypeValidator(
+            workspaceColorNames: CmuxConfigTypeValidator.workspaceColorNames(from: .standard)
+        ).issues(in: dictionary)
         return ConfigDoctorFinding(
             label: target.label,
             displayPath: target.displayPath,

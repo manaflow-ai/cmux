@@ -9,11 +9,9 @@ import Foundation
 final class CmuxConfigDecodeCache: @unchecked Sendable {
     final class Entry: NSObject {
         let config: CmuxConfigFile?
-        let failureMessage: String?
 
-        init(config: CmuxConfigFile?, failureMessage: String?) {
+        init(config: CmuxConfigFile?) {
             self.config = config
-            self.failureMessage = failureMessage
         }
     }
 
@@ -37,9 +35,9 @@ final class CmuxConfigDecodeCache: @unchecked Sendable {
         entries.object(forKey: key as NSString)
     }
 
-    func insert(config: CmuxConfigFile?, failureMessage: String?, for key: String) {
+    func insert(config: CmuxConfigFile?, for key: String) {
         entries.setObject(
-            Entry(config: config, failureMessage: failureMessage),
+            Entry(config: config),
             forKey: key as NSString
         )
     }

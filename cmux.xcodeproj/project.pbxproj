@@ -794,6 +794,7 @@
 		A5FB1305 /* CmuxConfigActionSaverTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5FB1306 /* CmuxConfigActionSaverTests.swift */; };
 		C0DEF0A40000000000000001 /* CmuxConfigContextMenuTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DEF0A40000000000000002 /* CmuxConfigContextMenuTests.swift */; };
 		112080B00000000000000006 /* CmuxConfigDecodeCache.swift in Sources */ = {isa = PBXBuildFile; fileRef = 112080A00000000000000006 /* CmuxConfigDecodeCache.swift */; };
+		112080B0000000000000000A /* CmuxConfigDecodeFailureLogGate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 112080A0000000000000000A /* CmuxConfigDecodeFailureLogGate.swift */; };
 		A5FB120B /* CmuxConfigExecutor+WorkspaceLaunch.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5FB120C /* CmuxConfigExecutor+WorkspaceLaunch.swift */; };
 		A5001652 /* CmuxConfigExecutor.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001653 /* CmuxConfigExecutor.swift */; };
 		112080D00000000000000009 /* CmuxConfigLayoutEntryTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 112080A00000000000000009 /* CmuxConfigLayoutEntryTests.swift */; };
@@ -3871,6 +3872,7 @@
 		A5FB1306 /* CmuxConfigActionSaverTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CmuxConfigActionSaverTests.swift; sourceTree = "<group>"; };
 		C0DEF0A40000000000000002 /* CmuxConfigContextMenuTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CmuxConfigContextMenuTests.swift; sourceTree = "<group>"; };
 		112080A00000000000000006 /* CmuxConfigDecodeCache.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CmuxConfigDecodeCache.swift; sourceTree = "<group>"; };
+		112080A0000000000000000A /* CmuxConfigDecodeFailureLogGate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CmuxConfigDecodeFailureLogGate.swift; sourceTree = "<group>"; };
 		A5FB120C /* CmuxConfigExecutor+WorkspaceLaunch.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CmuxConfigExecutor+WorkspaceLaunch.swift"; sourceTree = "<group>"; };
 		A5001653 /* CmuxConfigExecutor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CmuxConfigExecutor.swift; sourceTree = "<group>"; };
 		112080A00000000000000009 /* CmuxConfigLayoutEntryTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CmuxConfigLayoutEntryTests.swift; sourceTree = "<group>"; };
@@ -9122,6 +9124,7 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 				C0DE4300000000000000000A /* CmuxAgentChatConfigTests.swift */,
 				C1A2B3C4D5E6F70800000002 /* CmuxConfigTests.swift */,
 				112080A00000000000000009 /* CmuxConfigLayoutEntryTests.swift */,
+				112080A0000000000000000A /* CmuxConfigDecodeFailureLogGate.swift */,
 				468100000000000000000002 /* CmuxNotificationHookCacheTests.swift */,
 				468160000000000000000002 /* KeyboardShortcutSettingsObserverTests.swift */,
 				468130000000000000000002 /* GhosttyDesktopNotificationIngressTests.swift */,
@@ -10107,6 +10110,7 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 				A5FB1209 /* CmuxConfigActionDefinition.swift in Sources */,
 				A5FB1201 /* CmuxConfigActionSaver.swift in Sources */,
 				112080B00000000000000006 /* CmuxConfigDecodeCache.swift in Sources */,
+				112080B0000000000000000A /* CmuxConfigDecodeFailureLogGate.swift in Sources */,
 				A5FB120B /* CmuxConfigExecutor+WorkspaceLaunch.swift in Sources */,
 				A5001652 /* CmuxConfigExecutor.swift in Sources */,
 				C5D0DEC0CF00000000000A1 /* CmuxConfigStore+ConfigStoreReloading.swift in Sources */,
