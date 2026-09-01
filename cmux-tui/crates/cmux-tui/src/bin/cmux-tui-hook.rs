@@ -429,7 +429,7 @@ fn read_before(
     }
 }
 
-#[cfg(unix)]
+#[cfg(any())]
 mod detach {
     use std::io;
     use std::os::fd::{AsRawFd, FromRawFd, OwnedFd};
@@ -545,6 +545,60 @@ mod detach {
             let read = unsafe { libc::read(read_end.as_raw_fd(), byte.as_mut_ptr().cast(), 1) };
             return if read == 1 { Handoff::Sent } else { Handoff::ChildExited };
         }
+    }
+}
+
+#[cfg(unix)]
+mod detach {
+    use super::{DETACHED_MODE_ARG, Handoff};
+    use anyhow::Context;
+    use std::io::{Read, Write};
+    use std::path::Path;
+    use std::process::{Command, Stdio};
+    use std::sync::mpsc;
+    use std::time::Duration;
+
+    /// Spawn performs the platform fork+exec transition. The child does not
+    /// run Rust code before exec, avoiding the POSIX post-fork restrictions.
+    pub(super) fn append_detached(
+        socket: &Path,
+        request_id: &str,
+        encoded: &[u8],
+        handoff_wait: Duration,
+    ) -> anyhow::Result<Handoff> {
+        use std::os::unix::process::CommandExt;
+        let exe = std::env::current_exe().context("locate hook helper")?;
+        let mut child = Command::new(exe)
+            .arg(DETACHED_MODE_ARG)
+            .env("CMUX_TUI_SOCKET", socket)
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::null())
+            .pre_exec(|| {
+                if unsafe { libc::setsid() } < 0 {
+                    return Err(std::io::Error::last_os_error());
+                }
+                Ok(())
+            })
+            .spawn()
+            .context("spawn detached hook child")?;
+        let mut stdin = child.stdin.take().context("detached hook child has no stdin")?;
+        stdin.write_all(request_id.as_bytes())?;
+        stdin.write_all(b"\n")?;
+        stdin.write_all(encoded)?;
+        stdin.flush()?;
+        drop(stdin);
+        let mut stdout = child.stdout.take().context("detached hook child has no stdout")?;
+        let (sender, receiver) = mpsc::channel();
+        std::thread::spawn(move || {
+            let mut byte = [0_u8; 1];
+            let outcome = match stdout.read(&mut byte) {
+                Ok(1) => Handoff::Sent,
+                _ => Handoff::ChildExited,
+            };
+            let _ = sender.send(outcome);
+        });
+        Ok(receiver.recv_timeout(handoff_wait).unwrap_or(Handoff::TimedOut))
     }
 }
 
