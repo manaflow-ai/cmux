@@ -31,9 +31,12 @@ use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 
 fn retry_accept_error(kind: std::io::ErrorKind) -> bool {
+    // A queued client can terminate before accept completes. Keep serving
+    // after the resulting connection reset instead of abandoning the listener.
     matches!(
         kind,
         std::io::ErrorKind::ConnectionAborted
+            | std::io::ErrorKind::ConnectionReset
             | std::io::ErrorKind::Interrupted
             | std::io::ErrorKind::WouldBlock
             | std::io::ErrorKind::ResourceBusy
