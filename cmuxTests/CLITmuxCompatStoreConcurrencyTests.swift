@@ -29,7 +29,7 @@ struct CLITmuxCompatStoreConcurrencyTests {
         try initialData.write(to: storeURL, options: .atomic)
 
         // Keep the socket name short: macOS limits sockaddr_un.sun_path to
-        // 104 bytes, while XCTest temporary-directory paths can be long.
+        // 104 bytes, while FileManager.default.temporaryDirectory paths can be long.
         let socketPath = "/tmp/cmux-11262-\(UUID().uuidString.prefix(8)).sock"
         let listenerFD = try Self.bindUnixSocket(at: socketPath)
         defer {
@@ -90,6 +90,7 @@ struct CLITmuxCompatStoreConcurrencyTests {
     private final class BundleToken {}
 
     private static func bindUnixSocket(at path: String) throws -> Int32 {
+        unlink(path)
         let fd = Darwin.socket(AF_UNIX, SOCK_STREAM, 0)
         guard fd >= 0 else {
             throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO)
