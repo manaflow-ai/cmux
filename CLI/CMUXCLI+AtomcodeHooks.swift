@@ -1,6 +1,49 @@
 import Foundation
 
 extension CMUXCLI {
+    private enum AtomcodeStopReason {
+        case stopped
+        case providerError
+        case timeout
+        case cancelled
+
+        /// Returns a safe, known outcome for AtomCode's terminal hook payload.
+        /// Unknown values deliberately fall back to the generic error summary.
+        init?(rawValue: String?) {
+            guard let rawValue else { return nil }
+            let normalized = rawValue
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+                .replacingOccurrences(of: "[^A-Za-z0-9]+", with: "", options: .regularExpression)
+                .lowercased()
+            switch normalized {
+            case "stopped":
+                self = .stopped
+            case "providererror":
+                self = .providerError
+            case "timeout":
+                self = .timeout
+            case "cancelled":
+                self = .cancelled
+            default:
+                return nil
+            }
+        }
+
+        /// Localized notification text that never includes provider payload data.
+        var localizedBody: String {
+            switch self {
+            case .stopped:
+                return String(localized: "agent.atomcode.notification.body.stopped", defaultValue: "AtomCode stopped")
+            case .providerError:
+                return String(localized: "agent.atomcode.notification.body.providerError", defaultValue: "AtomCode provider error")
+            case .timeout:
+                return String(localized: "agent.atomcode.notification.body.timeout", defaultValue: "AtomCode request timed out")
+            case .cancelled:
+                return String(localized: "agent.atomcode.notification.body.cancelled", defaultValue: "AtomCode request was cancelled")
+            }
+        }
+    }
+
     /// AtomCode stores hooks as a named object map rather than the array-based
     /// Claude/Codex formats. Keep names stable so reinstalling cmux replaces
     /// its own entries without touching user hooks.
@@ -43,23 +86,15 @@ extension CMUXCLI {
         guard normalizedEvent == "stopfailure" else { return nil }
 
         let object = input.rawObject ?? input.object ?? [:]
-        let reason = firstString(
-            in: object,
-            keys: ["stop_reason", "stopReason", "reason", "type", "kind"]
-        ) ?? ""
-        let message = firstString(
-            in: object,
-            keys: ["error", "message", "description"]
-        ) ?? reason
-        let body = message.isEmpty
-            ? String.localizedStringWithFormat(
+        let reason = firstString(in: object, keys: ["stop_reason", "stopReason"])
+        let body = AtomcodeStopReason(rawValue: reason)?.localizedBody
+            ?? String.localizedStringWithFormat(
                 String(
                     localized: "agent.generic.notification.body.reportedError",
                     defaultValue: "%@ reported an error"
                 ),
                 def.displayName
             )
-            : truncate(normalizedSingleLine(message), maxLength: 180)
         return AgentHookNotificationSummary(
             subtitle: String(
                 localized: "agent.generic.notification.subtitle.error",

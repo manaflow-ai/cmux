@@ -1909,7 +1909,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
         XCTAssertEqual(userEntry["command"] as? String, "echo user-owned")
 
         let expectedEvents: Set<String> = [
-            "SessionStart", "UserPromptSubmit", "Stop", "StopFailure", "SessionEnd",
+            "SessionStart", "UserPromptSubmit", "Stop", "StopFailure", "Notification", "SessionEnd",
             "PreToolUse", "PostToolUse", "PostToolUseFailure",
         ]
         let cmuxEntries = hooks.compactMap { key, value -> (String, [String: Any])? in
@@ -2052,22 +2052,50 @@ extension CLINotifyProcessIntegrationRegressionTests {
         )
 
         let stopCommandStart = state.commands.count
+        let upstreamError = "provider response leaked sk-test-atomcode-secret"
         let stopFailure = runAtomcodeHook(
             "stop",
-            input: #"{"session_id":"\#(sessionId)","transcript_path":null,"hook_event_name":"StopFailure","stop_hook_active":false,"stop_reason":"ProviderError","cwd":"\#(root.path)"}"#
+            input: #"{"session_id":"\#(sessionId)","transcript_path":null,"hook_event_name":"StopFailure","stop_hook_active":false,"stop_reason":"ProviderError","error":"\#(upstreamError)","cwd":"\#(root.path)"}"#
         )
         XCTAssertFalse(stopFailure.timedOut, stopFailure.stderr)
         XCTAssertEqual(stopFailure.status, 0, stopFailure.stderr)
         XCTAssertEqual(stopFailure.stdout, "{}\n")
 
         let stopCommands = Array(state.commands.dropFirst(stopCommandStart))
+        let stopNotifications = stopCommands.filter { $0.hasPrefix("notify_target_async ") }
         XCTAssertTrue(
-            stopCommands.contains { $0.contains("notify_target_async \(workspaceId) \(surfaceId) AtomCode|Error|ProviderError") },
-            "AtomCode StopFailure must publish an error summary, saw \(stopCommands)"
+            stopNotifications.contains { $0.contains("\(workspaceId) \(surfaceId) AtomCode|Error|AtomCode provider error") },
+            "AtomCode StopFailure must map ProviderError to a safe summary, saw \(stopNotifications)"
+        )
+        XCTAssertFalse(
+            stopNotifications.contains { $0.contains(upstreamError) },
+            "AtomCode StopFailure must not expose the upstream error in a notification, saw \(stopNotifications)"
         )
         XCTAssertTrue(
             stopCommands.contains { $0.contains("set_status atomcode AtomCode error") },
             "AtomCode StopFailure must leave an error status, saw \(stopCommands)"
+        )
+
+        let unknownError = "unrecognized provider payload secret"
+        let unknownCommandStart = state.commands.count
+        let unknownFailure = runAtomcodeHook(
+            "stop",
+            input: #"{"session_id":"\#(sessionId)","transcript_path":null,"hook_event_name":"StopFailure","stop_hook_active":false,"stop_reason":"FutureProviderReason","message":"\#(unknownError)","cwd":"\#(root.path)"}"#
+        )
+        XCTAssertFalse(unknownFailure.timedOut, unknownFailure.stderr)
+        XCTAssertEqual(unknownFailure.status, 0, unknownFailure.stderr)
+        XCTAssertEqual(unknownFailure.stdout, "{}\n")
+
+        let unknownNotifications = state.commands
+            .dropFirst(unknownCommandStart)
+            .filter { $0.hasPrefix("notify_target_async ") }
+        XCTAssertTrue(
+            unknownNotifications.contains { $0.contains("\(workspaceId) \(surfaceId) AtomCode|Error|AtomCode reported an error") },
+            "Unknown AtomCode StopFailure reasons must use the generic safe summary, saw \(unknownNotifications)"
+        )
+        XCTAssertFalse(
+            unknownNotifications.contains { $0.contains(unknownError) },
+            "Unknown AtomCode StopFailure reasons must not expose the upstream message, saw \(unknownNotifications)"
         )
     }
 

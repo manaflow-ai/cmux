@@ -586,6 +586,17 @@ final class TaskManagerResourcesTests: XCTestCase {
         }
     }
 
+    func testAtomCodeDisplayNameRemainsStableBrand() {
+        let definition = CmuxTaskManagerCodingAgentDefinition.matchingDefinition(
+            processName: "atomcode",
+            processPath: nil,
+            arguments: [],
+            environment: [:]
+        )
+
+        XCTAssertEqual(definition?.displayName, "AtomCode")
+    }
+
     private func resourceSummary() -> CmuxTopResourceSummary {
         var summary = CmuxTopResourceSummary()
         summary.cpuPercent = 42

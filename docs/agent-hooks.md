@@ -38,7 +38,7 @@ Supported agent names are `codex`, `atomcode`, `grok`, `opencode`, `pi`, `omp`, 
 
 AtomCode's hook engine uses the Claude Code JSON-on-stdin contract. cmux installs
 named entries in `hooks.json` for `SessionStart`, `UserPromptSubmit`, `Stop`,
-`StopFailure`, and `SessionEnd`, plus non-blocking tool telemetry. AtomCode
+`StopFailure`, `Notification`, and `SessionEnd`, plus non-blocking tool telemetry. AtomCode
 5.0.8 and newer emit the per-turn `Stop`/`StopFailure` events; older releases
 can still report session and tool lifecycle events but cannot produce a
 per-turn completion summary until upgraded. `Stop` drives the normal Done

@@ -27,7 +27,7 @@ extension CMUXCLI {
             postInstallAction: .codexConfigToml
         ),
         AgentHookDef(
-            name: "atomcode", displayName: String(localized: "agent.atomcode.displayName", defaultValue: "AtomCode"), statusKey: "atomcode",
+            name: "atomcode", displayName: "AtomCode", statusKey: "atomcode",
             configDir: ".atomcode", configFile: "hooks.json", configDirEnvOverride: "ATOMCODE_HOME",
             createConfigDirIfMissing: true,
             sessionStoreSuffix: "atomcode", disableEnvVar: "CMUX_ATOMCODE_HOOKS_DISABLED",
@@ -41,6 +41,7 @@ extension CMUXCLI {
                 // reducer can record an error turn without fabricating a
                 // completion event.
                 .init(agentEvent: "StopFailure", cmuxSubcommand: "stop"),
+                .init(agentEvent: "Notification", cmuxSubcommand: "notification"),
                 .init(agentEvent: "SessionEnd", cmuxSubcommand: "session-end"),
             ],
             feedHookEvents: ["PreToolUse", "PostToolUse", "PostToolUseFailure"]
