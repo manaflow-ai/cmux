@@ -11,6 +11,7 @@ export function localizedShortcutText(text: LocalizedText, locale: string) {
 
 export type Shortcut = {
   id: string;
+  // Modifier glyphs describe platform key symbols, not translatable prose.
   combos: string[][];
   description: LocalizedText;
   note?: LocalizedText;

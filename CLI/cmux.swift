@@ -40254,6 +40254,9 @@ export default CMUXSessionRestore;
         \(c7)  ::\(reset)
         """
 
+        // Modifier glyphs are locale-independent protocol symbols. The welcome
+        // block intentionally remains a fixed English CLI reference, so this
+        // value must not be routed through the app's localization catalog.
         let shortcuts = """
           \(bold)Shortcuts\(reset)
 
