@@ -4,6 +4,8 @@ import Darwin
 enum RemoteShellTransport: Sendable {
     case ssh
     case eternalTerminal
+    case mosh
+    case moshClient
 
     init?(executableName: String) {
         switch RemoteShellSessionParsing.normalizedExecutableName(executableName) {
@@ -11,6 +13,10 @@ enum RemoteShellTransport: Sendable {
             self = .ssh
         case "et":
             self = .eternalTerminal
+        case "mosh":
+            self = .mosh
+        case "mosh-client":
+            self = .moshClient
         default:
             return nil
         }
@@ -22,11 +28,25 @@ enum RemoteShellTransport: Sendable {
             return "ssh"
         case .eternalTerminal:
             return "et"
+        case .mosh:
+            return "mosh"
+        case .moshClient:
+            return "mosh-client"
         }
     }
 }
 
 enum RemoteShellSessionParsing {
+    private static let moshValueOptions: Set<String> = [
+        "bind-server",
+        "client",
+        "experimental-remote-ip",
+        "family",
+        "port",
+        "predict",
+        "server",
+        "ssh",
+    ]
     private static let eternalTerminalNoArgumentFlags = Set("efhNx")
     private static let eternalTerminalValueArgumentFlags = Set("cklprtu")
     private static let eternalTerminalLongValueOptions: Set<String> = [
@@ -75,6 +95,127 @@ enum RemoteShellSessionParsing {
         let trimmed = executableName.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return "" }
         return trimmed.split(separator: "/").last.map(String.init)?.lowercased() ?? trimmed.lowercased()
+    }
+
+    /// Parses the original mosh command preserved in the running process arguments.
+    static func parseMoshCommandLine(
+        _ arguments: [String],
+        transport: RemoteShellTransport
+    ) -> DetectedSSHSession? {
+        let tokens: [String]
+        switch transport {
+        case .mosh:
+            guard !arguments.isEmpty else { return nil }
+            let startIndex = normalizedExecutableName(arguments[0]) == transport.executableName ? 1 : 0
+            tokens = Array(arguments.dropFirst(startIndex))
+        case .moshClient:
+            guard let marker = arguments.first(where: { $0.hasPrefix("-# ") }) else { return nil }
+            var commandLine = marker.dropFirst(3)
+            if commandLine.hasSuffix("|") {
+                commandLine = commandLine.dropLast()
+            }
+            tokens = commandLine.split(whereSeparator: \.isWhitespace).map(String.init)
+        case .ssh, .eternalTerminal:
+            return nil
+        }
+
+        return parseMoshArguments(tokens)
+    }
+
+    private static func parseMoshArguments(_ arguments: [String]) -> DetectedSSHSession? {
+        var destination: String?
+        var useIPv4 = false
+        var useIPv6 = false
+        var index = 0
+
+        while index < arguments.count {
+            let argument = arguments[index]
+            if argument == "--" {
+                let destinationIndex = index + 1
+                if destinationIndex < arguments.count {
+                    destination = arguments[destinationIndex]
+                }
+                break
+            }
+            if !argument.hasPrefix("-") || argument == "-" {
+                destination = argument
+                break
+            }
+
+            switch argument {
+            case "-4":
+                useIPv4 = true
+                useIPv6 = false
+                index += 1
+                continue
+            case "-6":
+                useIPv6 = true
+                useIPv4 = false
+                index += 1
+                continue
+            case "-p":
+                index += 2
+                continue
+            default:
+                break
+            }
+
+            if argument.hasPrefix("-p"), argument.count > 2 {
+                index += 1
+                continue
+            }
+
+            if argument.hasPrefix("--") {
+                let option = String(argument.dropFirst(2))
+                let parts = option.split(separator: "=", maxSplits: 1, omittingEmptySubsequences: false)
+                let optionName = String(parts[0])
+                if optionName == "family" {
+                    let value: String?
+                    if parts.count == 2 {
+                        value = String(parts[1])
+                        index += 1
+                    } else if index + 1 < arguments.count {
+                        value = arguments[index + 1]
+                        index += 2
+                    } else {
+                        return nil
+                    }
+                    switch value?.lowercased() {
+                    case "inet":
+                        useIPv4 = true
+                        useIPv6 = false
+                    case "inet6":
+                        useIPv6 = true
+                        useIPv4 = false
+                    default:
+                        break
+                    }
+                    continue
+                }
+                if moshValueOptions.contains(optionName), parts.count == 1 {
+                    guard index + 1 < arguments.count else { return nil }
+                    index += 2
+                    continue
+                }
+            }
+
+            index += 1
+        }
+
+        guard let destination, !destination.isEmpty else { return nil }
+        return DetectedSSHSession(
+            destination: destination,
+            port: nil,
+            identityFile: nil,
+            configFile: nil,
+            jumpHost: nil,
+            controlPath: nil,
+            useIPv4: useIPv4,
+            useIPv6: useIPv6,
+            forwardAgent: false,
+            compressionEnabled: false,
+            sshOptions: []
+        )
     }
 
     static func parseEternalTerminalCommandLine(_ arguments: [String]) -> DetectedSSHSession? {
