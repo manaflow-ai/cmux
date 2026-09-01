@@ -201,7 +201,7 @@ export async function captureVmReaperSummary(
   try {
     // Keep the capture alive after a Vercel response. In tests and scripts there
     // is no Next request scope, so the task is still awaited below.
-    after(task);
+    after(() => task);
   } catch {
     // No request scope. The caller still awaits the bounded task.
   }
