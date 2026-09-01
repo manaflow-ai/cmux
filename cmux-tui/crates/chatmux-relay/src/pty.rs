@@ -376,6 +376,7 @@ impl Drop for OpeningReservation {
     fn drop(&mut self) {
         if self.active {
             self.inner.opening_ids.lock().expect("opening lock").remove(&self.id);
+            self.inner.cancelled_openings.lock().expect("cancelled openings lock").remove(&self.id);
         }
     }
 }
@@ -955,6 +956,29 @@ struct Opened {
     start: Box<dyn FnOnce() + Send>,
 }
 
+/// Own a control connection while an OPEN operation performs cancellable
+/// discovery and attach requests. Dropping the request must close the socket
+/// even when no `Opened` value has been returned yet.
+struct ControlGuard(Option<Arc<dyn ControlHandle>>);
+
+impl ControlGuard {
+    fn new(control: Arc<dyn ControlHandle>) -> Self {
+        Self(Some(control))
+    }
+
+    fn disarm(&mut self) -> Arc<dyn ControlHandle> {
+        self.0.take().expect("control guard owns a connection")
+    }
+}
+
+impl Drop for ControlGuard {
+    fn drop(&mut self) {
+        if let Some(control) = self.0.take() {
+            control.end();
+        }
+    }
+}
+
 // ---------------------------------------------------------------------------
 // A viewer PTY control that pumps its events into the framing sinks
 // ---------------------------------------------------------------------------
@@ -998,6 +1022,7 @@ impl Inner {
                 .connect_control(&ensured.socket_path)
                 .await
                 .map_err(|_| "cannot inspect existing daemon cwd".to_owned())?;
+            let _control_guard = ControlGuard::new(Arc::clone(&control));
             let Some(listed) = control.request("list-workspaces", json!({})).await else {
                 control.end();
                 return Err("cannot inspect existing daemon surfaces".to_owned());
@@ -1676,6 +1701,7 @@ impl Inner {
             Ok(control) => control,
             Err(_) => return Ok(None), // degrade to the whole-session attach
         };
+        let mut control_guard = ControlGuard::new(Arc::clone(&control));
 
         let identify = control.request("identify", json!({})).await;
         let info = identify.as_ref().filter(|v| v.get("ok").and_then(Value::as_bool) == Some(true));
@@ -1807,7 +1833,8 @@ impl Inner {
             ));
         }
 
-        let proxy = Arc::new(ControlTerminalControl { control, surface_id });
+        let proxy =
+            Arc::new(ControlTerminalControl { control: control_guard.disarm(), surface_id });
         let (on_data, _) = self.sinks(pty_id, context);
         let relay = Arc::clone(&self);
         let context_for_exit = context.clone();
