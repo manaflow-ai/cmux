@@ -26171,7 +26171,7 @@ struct CMUXCLI {
 
             // Track the newly created pane for main-vertical layout.
             if !isOMXHud {
-                try withLockedTmuxCompatStore { store in
+                _ = try withLockedTmuxCompatStore { store in
                     store.lastSplitSurface[target.workspaceId] = surfaceId
                     if store.mainVerticalLayouts[target.workspaceId] != nil {
                         store.mainVerticalLayouts[target.workspaceId]?.lastColumnSurfaceId = surfaceId
