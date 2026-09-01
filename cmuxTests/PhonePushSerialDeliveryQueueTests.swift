@@ -240,41 +240,6 @@ import Testing
     }
 
     @MainActor
-    @Test func rebindPendingUpdatesFuturePushTargets() {
-        var latestSnapshot: [PhonePushRequestEnvelope] = []
-        let queue = PhonePushSerialDeliveryQueue(
-            startsImmediately: false,
-            pendingChanged: { latestSnapshot = $0 },
-            sender: { _ in .accepted(sent: 1, devices: 1, pruned: 0) }
-        )
-        let first = requestEnvelope(
-            correlationID: "00000000-0000-4000-8000-000000000001"
-        )
-        let second = requestEnvelope(
-            correlationID: "00000000-0000-4000-8000-000000000002"
-        )
-        #expect(queue.enqueue(first))
-        #expect(queue.enqueue(second))
-
-        queue.rebindPending { envelope in
-            PhonePushRequestEnvelope(
-                correlationID: envelope.correlationID,
-                expirationEpochSeconds: envelope.expirationEpochSeconds,
-                body: envelope.body,
-                coalescingID: envelope.coalescingID,
-                expectedAccountID: envelope.expectedAccountID,
-                expectedSessionGeneration: envelope.expectedSessionGeneration,
-                targetBundleIdentifier: "dev.cmux.app.beta"
-            )
-        }
-
-        #expect(latestSnapshot.map(\.targetBundleIdentifier) == [
-            "dev.cmux.app.beta",
-            "dev.cmux.app.beta",
-        ])
-    }
-
-    @MainActor
     @Test func restoredQueueKeepsDistinctIDsAndOnlyTheLatestSameIDValue() async throws {
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent(
             "phone-push-queue-\(UUID().uuidString)",

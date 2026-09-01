@@ -1726,6 +1726,7 @@
 		D1F0A003000000000000000F /* PhonePushSerialDeliveryQueue.swift in Sources */ = {isa = PBXBuildFile; fileRef = D1F0A0030000000000000010 /* PhonePushSerialDeliveryQueue.swift */; };
 		D1F0A00400000000000000C1 /* PhonePushSerialDeliveryQueueTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D1F0A00400000000000000C2 /* PhonePushSerialDeliveryQueueTests.swift */; };
 		D1F0A0030000000000000011 /* PhonePushServerSummary.swift in Sources */ = {isa = PBXBuildFile; fileRef = D1F0A0030000000000000012 /* PhonePushServerSummary.swift */; };
+		D9E800000000000000000011 /* PhonePushTargetRebindingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D9E800000000000000000012 /* PhonePushTargetRebindingTests.swift */; };
 		D1F0A0990000000000000001 /* PhoneReplyInboxClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = D1F0A0990000000000000002 /* PhoneReplyInboxClient.swift */; };
 		D1F0A0990000000000000003 /* PhoneReplyInboxCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = D1F0A0990000000000000004 /* PhoneReplyInboxCoordinator.swift */; };
 		C08672010000000000000007 /* PiCompactedFeedEventExpander.swift in Sources */ = {isa = PBXBuildFile; fileRef = C08672010000000000000008 /* PiCompactedFeedEventExpander.swift */; };
@@ -4684,6 +4685,7 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 		D1F0A0030000000000000010 /* PhonePushSerialDeliveryQueue.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = PhonePushSerialDeliveryQueue.swift; sourceTree = "<group>"; };
 		D1F0A00400000000000000C2 /* PhonePushSerialDeliveryQueueTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PhonePushSerialDeliveryQueueTests.swift; sourceTree = "<group>"; };
 		D1F0A0030000000000000012 /* PhonePushServerSummary.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = PhonePushServerSummary.swift; sourceTree = "<group>"; };
+		D9E800000000000000000012 /* PhonePushTargetRebindingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PhonePushTargetRebindingTests.swift; sourceTree = "<group>"; };
 		D1F0A0990000000000000002 /* PhoneReplyInboxClient.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = PhoneReplyInboxClient.swift; sourceTree = "<group>"; };
 		D1F0A0990000000000000004 /* PhoneReplyInboxCoordinator.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = PhoneReplyInboxCoordinator.swift; sourceTree = "<group>"; };
 		C08672010000000000000008 /* PiCompactedFeedEventExpander.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PiCompactedFeedEventExpander.swift; sourceTree = "<group>"; };
@@ -8833,6 +8835,7 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 				D7C0DE00000000000000A104 /* CmuxWebViewContextMenuLinkCaptureTests.swift */,
 				D1F0A00300000000000000C2 /* PhonePushPresenceGateTests.swift */,
 				D1F0A00400000000000000C2 /* PhonePushSerialDeliveryQueueTests.swift */,
+				D9E800000000000000000012 /* PhonePushTargetRebindingTests.swift */,
 				B79482F1ECA54E98BE5C8953 /* WindowKeyDownReplayGuardTests.swift */,
 				604500100000000000000004 /* WindowTitleTemplateTests.swift */,
 				D1FFC0DE000000000000C001 /* DiffCommentStoreTests.swift */,
@@ -12100,6 +12103,7 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 				B8835700000000000000000B /* PastePreparationFailureProbe.swift in Sources */,
 					D1F0A00300000000000000C1 /* PhonePushPresenceGateTests.swift in Sources */,
 					D1F0A00400000000000000C1 /* PhonePushSerialDeliveryQueueTests.swift in Sources */,
+					D9E800000000000000000011 /* PhonePushTargetRebindingTests.swift in Sources */,
 				8672F0038672F0038672F003 /* PiFeedDecodeErrorPrivacyTests.swift in Sources */,
 				8672D0058672D0058672D005 /* PiFeedDockOwnershipTests.swift in Sources */,
 				8672F0088672F0088672F008 /* PiFeedEventRecorder.swift in Sources */,
