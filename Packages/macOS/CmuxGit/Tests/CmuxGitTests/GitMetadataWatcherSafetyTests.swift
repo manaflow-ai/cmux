@@ -239,6 +239,35 @@ private final class RecordingGitDirtyStatusReader: GitDirtyStatusReading, @unche
         #expect(descriptor.containsGitMetadataChange(paths: [missingPath]))
     }
 
+    @Test func descriptorUsesProvidedBranchAwareConfigPaths() throws {
+        let fixture = try GitRepositoryFixture()
+        try fixture.writeBranch("feature/branch-aware")
+        let branchAwareConfig = fixture.root.appendingPathComponent("branch-aware.inc")
+        try "[remote \"origin\"]\n\turl = https://github.com/example/branch-aware.git\n"
+            .write(to: branchAwareConfig, atomically: true, encoding: .utf8)
+        let repository = try #require(
+            GitMetadataService.resolveGitRepository(containing: fixture.root.path)
+        )
+
+        let descriptor = try #require(
+            GitMetadataService.workspaceGitMetadataWatchDescriptor(
+                for: fixture.root.path,
+                resolvedRepository: repository,
+                configPathsByRepository: [repository.workTreeRoot: [branchAwareConfig.path]],
+                watchOnlyPathsByRepository: [:],
+                metadataSentinelPathsByRepository: [:],
+                indexSnapshotsByRepository: [:],
+                environment: [
+                    "GIT_CONFIG_GLOBAL": "/dev/null",
+                    "GIT_CONFIG_NOSYSTEM": "1",
+                    "HOME": fixture.root.path,
+                ]
+            )
+        )
+
+        #expect(descriptor.gitMetadataPaths.contains(branchAwareConfig.path))
+    }
+
     @Test func missingExternalConfigIncludeNeverWatchesFilesystemRoot() async throws {
         let fixture = try GitRepositoryFixture()
         try fixture.writeBranch("main")
