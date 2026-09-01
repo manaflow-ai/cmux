@@ -27,6 +27,13 @@ CLA_ACTION = "manaflow-ai/cla-github-action@5749bd2e5867b7545e66b55ac44acf616595
 # privileged work to an untrusted self-hosted machine, so the label is an
 # immutable contract.
 CLA_RUNNER = "ubuntu-24.04".freeze
+CLA_DOCUMENT_PATH = "CLA.md".freeze
+CLA_DOCUMENT_VERSION = "v2.2".freeze
+CLA_SIGNATURES_PATH = "signatures/version2/cla.json".freeze
+CLA_SIGNATURES_PATH_PATTERN = %r{\Asignatures/version[0-9]+(?:\.[0-9]+)?/cla\.json\z}
+# The maintained action does not accept a document digest. The workflow URL
+# therefore binds every action read to github.workflow_sha, while a document
+# change must rotate the visible version, generation marker, and ledger path.
 # The privileged workflow is an explicit reviewed policy, not an extensible
 # script. Its candidate structure is checked as data, and every policy change
 # requires trusted review without a fragile follow-up hash bump.
@@ -34,7 +41,7 @@ EXPECTED_GUARD_WORKFLOW_DIGEST = "01b3eed13d54db27ed195781dc0f6926a04cb9557de81f
 # The guard workflow remains pinned to its reviewed immutable bytes. The CLA
 # policy itself is validated structurally, then authorized by an exact-head
 # trusted review.
-EXPECTED_GUARD_SCRIPT_DIGEST = "b3d70d468aa9ed59cbc8eca3eadceebe7031b8237afc5700e4c4b9222e02e23c"
+EXPECTED_GUARD_SCRIPT_DIGEST = "21de7d7ed2e0d331bc1c58d003902bfa151a171d325290fdcadb47868f332bf8"
 # Migration marker for the base v2 guard validator. That validator requires
 # the literal EXPECTED_WORKFLOW_DIGEST while it checks this candidate. The v3
 # validator does not use this inert marker for policy authorization.
@@ -184,13 +191,13 @@ GUARD_VALIDATE_RUN_HASH = "759f3978ae0a2e0620eb2630cd4c1ec2cbff8f9bcc9a37f76b330
 # Keep the admission contract in one small, executable specification. The
 # pull-request workflow is still checked as data below, but its shell cannot be
 # run by this privileged workflow because it comes from an untrusted revision.
-CLA_SIGN_PHRASE = "I have read the CLA Document v2.2 and I hereby sign the CLA"
+CLA_SIGN_PHRASE = "I have read the CLA Document #{CLA_DOCUMENT_VERSION} and I hereby sign the CLA"
 CLA_RECHECK_PHRASE = "recheck"
-CLA_DOCUMENT_INPUT = "https://github.com/${{ github.repository }}/blob/${{ github.workflow_sha }}/CLA.md"
+CLA_DOCUMENT_INPUT = "https://github.com/${{ github.repository }}/blob/${{ github.workflow_sha }}/#{CLA_DOCUMENT_PATH}"
 CLA_LIFECYCLE_ACTIONS = %w[opened edited reopened synchronize ready_for_review].freeze
 CLA_TRUSTED_ASSOCIATIONS = %w[OWNER MEMBER COLLABORATOR].freeze
 POSITIVE_ID = /\A[1-9][0-9]*\z/
-CLA_WRITER_CONDITION = <<~'EXPRESSION'.gsub(/\s+/, " ").strip.freeze
+CLA_WRITER_CONDITION = <<~EXPRESSION.gsub(/\s+/, " ").strip.freeze
   needs.CLACommentGate.result == 'success' &&
   needs.CLACommentGate.outputs.admitted == 'true' &&
   (
@@ -220,7 +227,7 @@ CLA_WRITER_CONDITION = <<~'EXPRESSION'.gsub(/\s+/, " ").strip.freeze
           )
         ) ||
         (
-          github.event.comment.body == 'I have read the CLA Document v2.2 and I hereby sign the CLA' &&
+          github.event.comment.body == '#{CLA_SIGN_PHRASE}' &&
           needs.CLACommentGate.outputs.signer_authorized == 'true' &&
           needs.CLACommentGate.outputs.head_sha != '' &&
           needs.CLACommentGate.outputs.base_sha != ''
@@ -642,6 +649,75 @@ def guard_script_digest(raw)
   Digest::SHA256.hexdigest(normalized)
 end
 
+def cla_document_version(raw, name)
+  first_line = raw.to_s.lines.first.to_s.strip
+  match = first_line.match(/\A# Individual Contributor License Agreement \("Agreement"\) (v[0-9]+\.[0-9]+)\z/)
+  fail!("#{name} must declare a version in its heading") unless match
+
+  match[1]
+end
+
+def workflow_document_contract(raw, name)
+  document = parse_workflow(raw)
+  contract = {
+    generation: document.dig("env", "CLA_GENERATION"),
+    signature_paths: [],
+    sign_phrases: [],
+    document_inputs: []
+  }
+  walk_paths(document) do |path, value|
+    next unless value.is_a?(String)
+
+    case path.last.to_s
+    when "path-to-signatures"
+      contract[:signature_paths] << value
+    when "custom-pr-sign-comment"
+      contract[:sign_phrases] << value
+    when "path-to-document"
+      contract[:document_inputs] << value
+    end
+  end
+  contract[:signature_paths] = contract[:signature_paths].uniq.sort
+  contract[:sign_phrases] = contract[:sign_phrases].uniq.sort
+  contract[:document_inputs] = contract[:document_inputs].uniq.sort
+  fail!("#{name} is missing its signature ledger path") if contract[:signature_paths].empty?
+  fail!("#{name} is missing its signing phrase") if contract[:sign_phrases].empty?
+  fail!("#{name} is missing its document URL") if contract[:document_inputs].empty?
+  contract
+end
+
+def assert_cla_document_change_contract(base_cla:, head_cla:, base_workflow:, head_workflow:)
+  # A workflow SHA URL is the action's immutable document binding. Keep the
+  # ledger namespace and human-readable version in lockstep so old signatures
+  # cannot authorize a changed legal document.
+  base_digest = Digest::SHA256.hexdigest(base_cla)
+  head_digest = Digest::SHA256.hexdigest(head_cla)
+  return false if base_digest == head_digest
+
+  fail!("CLA.md changes require a CLA policy workflow change") if base_workflow == head_workflow
+  base_version = cla_document_version(base_cla, "base CLA.md")
+  head_version = cla_document_version(head_cla, "proposed CLA.md")
+  base_contract = workflow_document_contract(base_workflow, "base CLA workflow")
+  head_contract = workflow_document_contract(head_workflow, "proposed CLA workflow")
+
+  fail!("CLA.md changes must rotate the document version") if base_version == head_version
+  fail!("CLA.md changes must rotate CLA_GENERATION") if base_contract[:generation] == head_contract[:generation]
+  fail!("CLA.md changes must rotate the signature ledger path") if
+    base_contract[:signature_paths] == head_contract[:signature_paths]
+
+  expected_phrase = "I have read the CLA Document #{head_version} and I hereby sign the CLA"
+  fail!("proposed CLA workflow uses the wrong document version phrase") unless
+    head_contract[:sign_phrases] == [expected_phrase]
+  fail!("proposed CLA workflow uses an unsupported signature ledger path") unless
+    head_contract[:signature_paths].all? { |path| path.match?(CLA_SIGNATURES_PATH_PATTERN) }
+  fail!("proposed CLA workflow must bind the document URL to github.workflow_sha") unless
+    head_contract[:document_inputs] == [CLA_DOCUMENT_INPUT]
+  fail!("proposed CLA generation is not bound to the document version") unless
+    head_contract[:generation].to_s.start_with?("#{head_version}-action-")
+
+  true
+end
+
 def job(document, name)
   jobs = document["jobs"]
   fail!("jobs is not a mapping") unless jobs.is_a?(Hash)
@@ -718,6 +794,21 @@ end
 
 def assert_cla_runner(value, name)
   fail!("#{name} must use the reviewed CLA runner") unless value == CLA_RUNNER
+end
+
+def assert_lifecycle_admission_contract(expressions, admission_run)
+  CLA_LIFECYCLE_ACTIONS.each do |action|
+    fragment = "github.event.action == '#{action}'"
+    expressions.each_with_index do |expression, index|
+      fail!("CLA lifecycle job #{index + 1} is missing #{action}") unless
+        expression.is_a?(String) && expression.include?(fragment)
+    end
+  end
+
+  normalized_run = admission_run.to_s.gsub(/\s+/, " ").strip
+  expected_case = "case \"${EVENT_ACTION}\" in #{CLA_LIFECYCLE_ACTIONS.join("|")}) emit true ;;"
+  fail!("CLA admission shell is missing the complete pull-request lifecycle case") unless
+    normalized_run.include?(expected_case)
 end
 
 def assert_action_reference(reference, name)
@@ -1197,6 +1288,121 @@ def run_runner_regression_matrix!
   puts "PASS: CLA runner contract regression matrix (#{cla_jobs.length + rejected_runners.length} cases)"
 end
 
+def run_lifecycle_regression_matrix!
+  fragments = CLA_LIFECYCLE_ACTIONS.map { |action| "github.event.action == '#{action}'" }
+  expressions = Array.new(4) { fragments.join(" || ") }
+  admission_run = <<~'SH'
+    case "${EVENT_ACTION}" in
+      opened|edited|reopened|synchronize|ready_for_review) emit true ;;
+      *) fail "Pull-request event action is unsupported" ;;
+    esac
+  SH
+  assert_lifecycle_admission_contract(expressions, admission_run)
+  checks = 1
+
+  CLA_LIFECYCLE_ACTIONS.each do |action|
+    expect_policy_error("missing #{action} lifecycle expression") do
+      changed = expressions.dup
+      changed[0] = changed[0].sub("github.event.action == '#{action}'", "")
+      assert_lifecycle_admission_contract(changed, admission_run)
+    end
+    checks += 1
+  end
+  expect_policy_error("missing lifecycle admission shell case") do
+    assert_lifecycle_admission_contract(expressions, admission_run.sub("ready_for_review", ""))
+  end
+  checks += 1
+  puts "PASS: CLA lifecycle path regression matrix (#{checks} cases)"
+end
+
+def run_document_contract_regression_matrix!
+  workflow = lambda do |version, generation, ledger_path, phrase = nil, document_url = CLA_DOCUMENT_INPUT|
+    phrase ||= "I have read the CLA Document #{version} and I hereby sign the CLA"
+    <<~YAML
+      name: test
+      on: {}
+      permissions: {}
+      env:
+        CLA_GENERATION: #{generation}
+      jobs:
+        writer:
+          steps:
+            - with:
+                path-to-document: '#{document_url}'
+                path-to-signatures: '#{ledger_path}'
+                custom-pr-sign-comment: '#{phrase}'
+    YAML
+  end
+  document = lambda do |version, body = "terms"|
+    "# Individual Contributor License Agreement (\"Agreement\") #{version}\n#{body}\n"
+  end
+  base_cla = document.call("v2.2")
+  changed_cla = document.call("v3.0", "revised terms")
+  base_workflow = workflow.call(
+    "v2.2", "v2.2-action-#{'a' * 40}", "signatures/version2/cla.json"
+  )
+  unchanged = assert_cla_document_change_contract(
+    base_cla: base_cla,
+    head_cla: base_cla,
+    base_workflow: base_workflow,
+    head_workflow: base_workflow
+  )
+  fail!("unchanged CLA document contract was reported as changed") unless unchanged == false
+  checks = 1
+
+  expect_policy_error("document-only change") do
+    assert_cla_document_change_contract(
+      base_cla: base_cla,
+      head_cla: changed_cla,
+      base_workflow: base_workflow,
+      head_workflow: base_workflow
+    )
+  end
+  checks += 1
+
+  rotated_workflow = workflow.call(
+    "v3.0", "v3.0-action-#{'b' * 40}", "signatures/version3/cla.json"
+  )
+  assert_cla_document_change_contract(
+    base_cla: base_cla,
+    head_cla: changed_cla,
+    base_workflow: base_workflow,
+    head_workflow: rotated_workflow
+  )
+  checks += 1
+
+  {
+    "same document version" => workflow.call(
+      "v2.2", "v3.0-action-#{'b' * 40}", "signatures/version3/cla.json"
+    ),
+    "same generation" => workflow.call(
+      "v3.0", "v2.2-action-#{'a' * 40}", "signatures/version3/cla.json"
+    ),
+    "same ledger path" => workflow.call(
+      "v3.0", "v3.0-action-#{'b' * 40}", "signatures/version2/cla.json"
+    ),
+    "mutable document URL" => workflow.call(
+      "v3.0", "v3.0-action-#{'b' * 40}", "signatures/version3/cla.json", nil,
+      "https://github.com/${{ github.repository }}/blob/main/CLA.md"
+    ),
+    "wrong document phrase" => workflow.call(
+      "v3.0", "v3.0-action-#{'b' * 40}", "signatures/version3/cla.json",
+      "I have read the CLA Document v2.2 and I hereby sign the CLA"
+    )
+  }.each do |name, candidate|
+    expect_policy_error(name) do
+      assert_cla_document_change_contract(
+        base_cla: base_cla,
+        head_cla: changed_cla,
+        base_workflow: base_workflow,
+        head_workflow: candidate
+      )
+    end
+    checks += 1
+  end
+  puts "PASS: CLA document contract regression matrix (#{checks} cases)"
+end
+
 def run_trusted_review_regression_matrix!
   head = "a" * 40
   review = lambda do |id, state, at, commit = head, user = 54008264, dismissed = nil|
@@ -1415,7 +1621,7 @@ def validate_workflow(raw)
     lock_steps.first,
     {
       "mode" => "sign",
-      "path-to-signatures" => "signatures/version2/cla.json",
+      "path-to-signatures" => CLA_SIGNATURES_PATH,
       "path-to-document" => CLA_DOCUMENT_INPUT,
       "branch" => "cla-signatures",
       "required-base-ref" => "main",
@@ -1436,6 +1642,10 @@ def validate_workflow(raw)
   admission_step = steps(gate, "CLACommentGate").find { |step| step.is_a?(Hash) && step["id"] == "admission" }
   admission_run = admission_step && admission_step["run"]
   fail!("CLACommentGate admission implementation is missing") unless admission_run.is_a?(String)
+  assert_lifecycle_admission_contract(
+    [gate["if"], assistant["if"], compatibility["if"], writer_condition],
+    admission_run
+  )
   sign_branch = admission_run[/if \[\[ "\$\{COMMENT_BODY\}" == "#{Regexp.escape(CLA_SIGN_PHRASE)}" \]\]; then(.*?)(?:\n\s*fi)/m]
   fail!("CLA signing admission implementation is missing") unless sign_branch&.include?("printf 'admitted=true\\n'")
   fail!("CLA signing admission must not duplicate commit identity mapping") if sign_branch.match?(/COMMENT_AUTHOR_ID|PR_AUTHOR_ID/)
@@ -1444,7 +1654,7 @@ def validate_workflow(raw)
   fail!("CLA signer preflight inputs are missing") unless preflight_with.is_a?(Hash)
   {
     "mode" => "signer-preflight",
-    "path-to-signatures" => "signatures/version2/cla.json",
+    "path-to-signatures" => CLA_SIGNATURES_PATH,
     "path-to-document" => CLA_DOCUMENT_INPUT,
     "required-base-ref" => "main",
     "custom-pr-sign-comment" => CLA_SIGN_PHRASE,
@@ -1466,7 +1676,7 @@ def validate_workflow(raw)
   fail!("CLA action inputs are missing") unless with_values.is_a?(Hash)
   writer_inputs = {
     "path-to-document" => CLA_DOCUMENT_INPUT,
-    "path-to-signatures" => "signatures/version2/cla.json",
+    "path-to-signatures" => CLA_SIGNATURES_PATH,
     "branch" => "cla-signatures",
     "required-base-ref" => "main",
     "custom-pr-sign-comment" => CLA_SIGN_PHRASE,
@@ -1635,6 +1845,8 @@ def validate_guard_script(raw)
     "run_yaml_regression_matrix!",
     "run_environment_regression_matrix!",
     "run_runner_regression_matrix!",
+    "run_lifecycle_regression_matrix!",
+    "run_document_contract_regression_matrix!",
     "run_trusted_review_regression_matrix!",
     "CLA_LIFECYCLE_ACTIONS",
     "ready_for_review",
@@ -1650,6 +1862,19 @@ def validate_guard_script(raw)
     "assert_safe_expression_fields",
     "assert_cla_runner",
     "CLA_RUNNER",
+    "assert_lifecycle_admission_contract",
+    "CLA_DOCUMENT_PATH",
+    "CLA_DOCUMENT_VERSION",
+    "CLA_SIGNATURES_PATH",
+    "CLA_SIGNATURES_PATH_PATTERN",
+    "assert_cla_document_change_contract",
+    "workflow_document_contract",
+    "cla_document_version",
+    "CLA_DOCUMENT_INPUT",
+    "CLA.md changes require a CLA policy workflow change",
+    "CLA.md changes must rotate the document version",
+    "CLA.md changes must rotate CLA_GENERATION",
+    "CLA.md changes must rotate the signature ledger path",
     "assert_safe_run_text",
     "assert_exact_normalized_run",
     "run_guard_contract_regression_matrix!",
@@ -1695,6 +1920,8 @@ begin
   run_trusted_cla_regression_matrix!
   run_environment_regression_matrix!
   run_runner_regression_matrix!
+  run_lifecycle_regression_matrix!
+  run_document_contract_regression_matrix!
   run_trusted_review_regression_matrix!
   repository = required_env("GH_REPO", REPOSITORY)
   pr_number = required_env("PR_NUMBER", /\A[1-9][0-9]*\z/)
@@ -1739,9 +1966,25 @@ begin
   head_guard_script = fetch_file(repository, head_sha, "scripts/ci/validate-cla-policy.rb", allow_missing: true)
   guard_changed = base_guard_workflow != head_guard_workflow || base_guard_script != head_guard_script
 
+  base_cla = fetch_file(repository, base_sha, CLA_DOCUMENT_PATH)
+  head_cla = fetch_file(repository, head_sha, CLA_DOCUMENT_PATH)
   base_script = fetch_file(repository, base_sha, ".github/scripts/rerun-failed-cla.sh", allow_missing: true)
   head_script = fetch_file(repository, head_sha, ".github/scripts/rerun-failed-cla.sh", allow_missing: true)
   policy_changed = base_workflow != head_workflow || base_script != head_script
+  document_changed = Digest::SHA256.hexdigest(base_cla) != Digest::SHA256.hexdigest(head_cla)
+  if policy_changed
+    fail!("CLA workflow must use the reviewed document version") unless
+      cla_document_version(head_cla, "proposed CLA.md") == CLA_DOCUMENT_VERSION
+  end
+  if document_changed
+    fail!("CLA.md changes are not allowed in a guard-only pull request") if guard_changed
+    assert_cla_document_change_contract(
+      base_cla: base_cla,
+      head_cla: head_cla,
+      base_workflow: base_workflow,
+      head_workflow: head_workflow
+    )
+  end
   # A policy PR cannot also weaken the validator that reviews it. A guard-only
   # PR remains possible for normal maintenance, with CODEOWNERS providing the
   # human review gate for this trusted control plane.
