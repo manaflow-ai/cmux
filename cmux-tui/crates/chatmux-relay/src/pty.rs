@@ -3227,16 +3227,33 @@ impl Inner {
         open_permit: &OpenPermit,
     ) -> Result<Option<Opened>, (RelayPtyErrorCode, String)> {
         let socket_dir = self.deps.socket_dir();
-        let ensured = self
-            .deps
-            .ensure_daemon(cmux_tui, session, &socket_dir, cwd, env, cancellation.token())
-            .await
-            .map_err(|message| (RelayPtyErrorCode::Failed, message))?;
-        let control =
-            match self.deps.connect_control(&ensured.socket_path, cancellation.token()).await {
-                Ok(control) => control,
-                Err(_) => return Ok(None), // degrade to the whole-session attach
-            };
+        let cancellation_token = cancellation.token();
+        let ensured = tokio::select! {
+            biased;
+            _ = cancellation_token.cancelled() => {
+                return Err((RelayPtyErrorCode::Failed, "terminal open cancelled".to_owned()));
+            }
+            result = self.deps.ensure_daemon(
+                cmux_tui,
+                session,
+                &socket_dir,
+                cwd,
+                env,
+                cancellation_token.clone(),
+            ) => result.map_err(|message| (RelayPtyErrorCode::Failed, message))?,
+        };
+        let control = tokio::select! {
+            biased;
+            _ = cancellation_token.cancelled() => {
+                return Err((RelayPtyErrorCode::Failed, "terminal open cancelled".to_owned()));
+            }
+            result = self.deps.connect_control(&ensured.socket_path, cancellation_token.clone()) => {
+                match result {
+                    Ok(control) => control,
+                    Err(_) => return Ok(None), // degrade to the whole-session attach
+                }
+            }
+        };
         let mut control_guard = ControlEndOnDrop::new(Arc::clone(&control));
 
         if cancellation.is_cancelled() {
