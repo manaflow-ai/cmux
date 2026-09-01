@@ -193,8 +193,9 @@ function withPackageInstallLock(body: string): string {
 // the layout daemon uses its kernel mount-event poll to leave a failed bindfs
 // view before any terminal can write to a disposable rootfs directory.
 const CMUX_CLOUD_PREREQUISITE_INSTALL =
-  `if ! (command -v runuser >/dev/null 2>&1 && command -v mountpoint >/dev/null 2>&1 && command -v findmnt >/dev/null 2>&1 && command -v flock >/dev/null 2>&1 && (command -v curl >/dev/null 2>&1 || command -v wget >/dev/null 2>&1)); then ` +
+  `if ! (command -v bash >/dev/null 2>&1 && command -v runuser >/dev/null 2>&1 && command -v mountpoint >/dev/null 2>&1 && command -v findmnt >/dev/null 2>&1 && command -v flock >/dev/null 2>&1 && (command -v curl >/dev/null 2>&1 || command -v wget >/dev/null 2>&1)); then ` +
   `if command -v apk >/dev/null 2>&1; then ` +
+  `apk add --no-cache bash 2>/dev/null || true; ` +
   `apk add --no-cache runuser 2>/dev/null || true; ` +
   `apk add --no-cache util-linux 2>/dev/null || true; ` +
   `if ! (command -v curl >/dev/null 2>&1 || command -v wget >/dev/null 2>&1); then apk add --no-cache curl 2>/dev/null || true; fi; ` +
@@ -204,7 +205,7 @@ const CMUX_CLOUD_PREREQUISITE_INSTALL =
   `fi; fi; ` +
   // Re-check after installation. The caller's usability predicate decides the
   // safe root fallback when an old image cannot provide these tools.
-  `command -v runuser >/dev/null 2>&1 && command -v mountpoint >/dev/null 2>&1 && command -v findmnt >/dev/null 2>&1 && command -v flock >/dev/null 2>&1 || true`;
+  `command -v bash >/dev/null 2>&1 && command -v runuser >/dev/null 2>&1 && command -v mountpoint >/dev/null 2>&1 && command -v findmnt >/dev/null 2>&1 && command -v flock >/dev/null 2>&1 || true`;
 
 const CMUX_CLOUD_HOME_VIEW_SETUP =
   `if mountpoint -q ${CMUX_HOME_VOLUME_BACKING_PATH} 2>/dev/null && ! mountpoint -q ${CMUX_CLOUD_HOME} 2>/dev/null; then ` +
@@ -1374,6 +1375,29 @@ export class BlaxelProvider implements VMProvider {
     }
   }
 
+  // Attach requests can arrive in parallel while a degraded daemon is being
+  // replaced. Coalesce the stop/setup/start sequence per sandbox so one attach
+  // cannot terminate the replacement started by another.
+  private readonly inflightRootFallbackReconciliations = new Map<string, Promise<void>>();
+
+  private reconcileCmuxTuiRootFallbackOnce(
+    vmId: string,
+    sandboxUrl: string,
+    proc: BlaxelProcess,
+    source: CmuxTuiSource,
+  ): Promise<void> {
+    const key = `${vmId}:${sandboxUrl}`;
+    const inflight = this.inflightRootFallbackReconciliations.get(key);
+    if (inflight) return inflight;
+    const task = this.reconcileCmuxTuiRootFallback(vmId, sandboxUrl, proc, source).finally(() => {
+      if (this.inflightRootFallbackReconciliations.get(key) === task) {
+        this.inflightRootFallbackReconciliations.delete(key);
+      }
+    });
+    this.inflightRootFallbackReconciliations.set(key, task);
+    return task;
+  }
+
   private waitForCmuxTuiReady(name: string, sandboxUrl: string): Promise<void> {
     return sharedWaitForCmuxTuiReady(this.cmuxTuiInvoke(sandboxUrl), "blaxel", name);
   }
@@ -1412,7 +1436,7 @@ export class BlaxelProvider implements VMProvider {
     const source = await sharedResolveCmuxTuiSource("blaxel");
     const proc = await blaxelFetch<BlaxelProcess>("GET", `${sandboxUrl}/process/${CMUX_TUI_PROCESS_NAME}`).catch(() => null);
     if (proc?.status === "running") {
-      await this.reconcileCmuxTuiRootFallback(vmId, sandboxUrl, proc, source);
+      await this.reconcileCmuxTuiRootFallbackOnce(vmId, sandboxUrl, proc, source);
     } else {
       // The daemon is about to (re)start with the layout command; make sure the work
       // user it drops to exists even on a sandbox whose create predates the layout

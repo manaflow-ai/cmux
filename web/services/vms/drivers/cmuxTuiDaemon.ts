@@ -79,7 +79,7 @@ export function cmuxTuiUserUsableCondition(layout: CmuxTuiHomeLayout): string {
     // util-linux's event monitor here; without it the safe root fallback is used.
     `command -v findmnt >/dev/null 2>&1 && findmnt --help 2>&1 | grep -q -- '--poll' && ` +
     `(! mountpoint -q ${backing} 2>/dev/null || mountpoint -q ${home} 2>/dev/null) && ` +
-    `[ "$(id -u ${user} 2>/dev/null || echo -1)" = "1001" ] && command -v runuser >/dev/null 2>&1 && ` +
+    `[ "$(id -u ${user} 2>/dev/null || echo -1)" = "1001" ] && command -v bash >/dev/null 2>&1 && command -v runuser >/dev/null 2>&1 && ` +
     `command -v sudo >/dev/null 2>&1 && ` +
     `runuser -u ${user} -- test -w ${home} 2>/dev/null`
   );
