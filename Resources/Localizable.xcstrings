@@ -126716,6 +126716,23 @@
         }
       }
     },
+    "cloudVM.error.requiresPro.action": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Upgrade to cmux Pro at https://cmux.com/pricing to create Cloud VMs."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud VM を作成するには https://cmux.com/pricing で cmux Pro にアップグレードしてください。"
+          }
+        }
+      }
+    },
     "machines.empty.upgrade": {
       "extractionState": "manual",
       "localizations": {

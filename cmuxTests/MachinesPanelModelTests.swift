@@ -966,3 +966,35 @@ struct MachinesPanelListProblemTests {
         XCTAssertEqual(CloudTreeTerminalRowContent.multiplierBadge(5), 5)
     }
 }
+
+@Suite("Cloud machines paid-plan classification")
+struct MachinesPanelPaidPlanTests {
+    @Test("Only plans the backend accepts for provisioning are paid", arguments: [
+        ("pro", true), ("TEAM", true), ("founders", true), (" Pro\n", true),
+        ("free", false), ("", false), ("unknown", false), ("enterprise-unknown", false),
+    ])
+    func onlyProvisioningPlansArePaid(planId: String, expected: Bool) {
+        #expect(MachinePlanSnapshot.isPaidPlanID(planId) == expected)
+    }
+
+    @Test("A plan snapshot and the shared classifier agree")
+    func planSnapshotUsesSharedClassifier() {
+        let paid = MachineSnapshotBuilder.planSnapshot(
+            activeCount: 0,
+            limits: VMPlanLimits(maxActiveVms: 5, planId: "founders", freeAccessWindowDays: 0)
+        )
+        #expect(paid?.isPaidPlan == true)
+        let unknown = MachineSnapshotBuilder.planSnapshot(
+            activeCount: 0,
+            limits: VMPlanLimits(maxActiveVms: 5, planId: "mystery", freeAccessWindowDays: 0)
+        )
+        #expect(unknown?.isPaidPlan == false)
+    }
+
+    @Test("vm_requires_pro without a server action still names the upgrade path")
+    func requiresProErrorIncludesUpgradePathWhenServerOmitsAction() {
+        let error = VMClientError.httpStatus(402, #"{"error":"vm_requires_pro"}"#)
+        #expect(error.description.contains("https://cmux.com/pricing"))
+        #expect(error.description.contains("Upgrade to cmux Pro"))
+    }
+}
