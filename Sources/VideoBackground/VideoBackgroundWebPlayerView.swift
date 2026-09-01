@@ -13,18 +13,11 @@ import CmuxBrowser
 @MainActor
 final class VideoBackgroundWebPlayerView: NSView, VideoBackgroundPlayerView {
     private let webView: VideoBackgroundWebView
-    /// Internal so tests can drive page events without a live WebKit page.
-    let bridge: VideoBackgroundWebViewBridge
-    private var desiredPaused = false
-    private var desiredMuted: Bool
-    private var desiredPosition: TimeInterval = 0
-    private var desiredVolume: Double
+    private let bridge: VideoBackgroundWebViewBridge
+    private var commandModel: VideoBackgroundPlaybackCommandModel
+    private let evaluateScript: (String) -> Void
     private let onEnded: @MainActor () -> Void
     private let onReady: @MainActor () -> Void
-
-    /// Runs a script in the embed page. Replaceable so tests can observe
-    /// which pause/resume scripts the view issues without a live page.
-    var evaluateScript: (String) -> Void
 
     init(
         source: VideoBackgroundSource,
@@ -39,9 +32,11 @@ final class VideoBackgroundWebPlayerView: NSView, VideoBackgroundPlayerView {
     ) {
         let bridge = VideoBackgroundWebViewBridge(onPlayerError: onFailure)
         self.bridge = bridge
-        self.desiredMuted = muted
-        self.desiredPosition = max(0, initialPosition.isFinite ? initialPosition : 0)
-        self.desiredVolume = volume.isFinite ? min(max(volume, 0), 1) : 1
+        self.commandModel = VideoBackgroundPlaybackCommandModel(
+            muted: muted,
+            initialPosition: initialPosition,
+            volume: volume
+        )
         self.onEnded = onEnded
         self.onReady = onReady
 
@@ -93,7 +88,7 @@ final class VideoBackgroundWebPlayerView: NSView, VideoBackgroundPlayerView {
             muted: muted,
             queueManaged: queueManaged,
             quality: quality,
-            volume: self.desiredVolume
+            volume: self.commandModel.volume
         )
         webView.loadHTMLString(page.html, baseURL: VideoBackgroundEmbedPage.baseURL)
     }
@@ -106,29 +101,19 @@ final class VideoBackgroundWebPlayerView: NSView, VideoBackgroundPlayerView {
     override func hitTest(_ point: NSPoint) -> NSView? { nil }
 
     func setPaused(_ paused: Bool) {
-        guard desiredPaused != paused else { return }
-        desiredPaused = paused
-        applyDesiredPausedState()
+        if let command = commandModel.setPaused(paused) { evaluateScript(command) }
     }
 
     func setMuted(_ muted: Bool) {
-        guard desiredMuted != muted else { return }
-        desiredMuted = muted
-        applyDesiredMutedState()
+        if let command = commandModel.setMuted(muted) { evaluateScript(command) }
     }
 
     func setPlaybackPosition(_ seconds: TimeInterval) {
-        let normalized = max(0, seconds.isFinite ? seconds : 0)
-        guard abs(desiredPosition - normalized) > 0.05 else { return }
-        desiredPosition = normalized
-        evaluateScript(VideoBackgroundEmbedPage.positionScript(normalized))
+        if let command = commandModel.setPosition(seconds) { evaluateScript(command) }
     }
 
     func setVolume(_ volume: Double) {
-        let normalized = volume.isFinite ? min(max(volume, 0), 1) : 1
-        guard abs(desiredVolume - normalized) > 0.005 else { return }
-        desiredVolume = normalized
-        evaluateScript(VideoBackgroundEmbedPage.volumeScript(normalized))
+        if let command = commandModel.setVolume(volume) { evaluateScript(command) }
     }
 
     /// Replays both pause and mute state. Called when the page loads and when
@@ -136,19 +121,8 @@ final class VideoBackgroundWebPlayerView: NSView, VideoBackgroundPlayerView {
     /// (a window created while occluded, for example) is silently dropped, and
     /// the page would otherwise autoplay with stale `pendingPaused`/`pendingMuted`.
     private func applyDesiredState() {
-        applyDesiredPausedState()
-        applyDesiredMutedState()
-        evaluateScript(VideoBackgroundEmbedPage.volumeScript(desiredVolume))
-        if desiredPosition > 0 {
-            evaluateScript(VideoBackgroundEmbedPage.positionScript(desiredPosition))
+        for command in commandModel.replayCommands() {
+            evaluateScript(command)
         }
-    }
-
-    private func applyDesiredPausedState() {
-        evaluateScript(desiredPaused ? VideoBackgroundEmbedPage.pauseScript : VideoBackgroundEmbedPage.resumeScript)
-    }
-
-    private func applyDesiredMutedState() {
-        evaluateScript(VideoBackgroundEmbedPage.mutedScript(desiredMuted))
     }
 }

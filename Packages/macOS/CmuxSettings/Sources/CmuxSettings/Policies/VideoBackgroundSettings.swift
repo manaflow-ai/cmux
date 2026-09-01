@@ -63,6 +63,14 @@ public struct VideoBackgroundSettings: Sendable {
     /// Quality values accepted by the settings UI, cmux.json, and CLI.
     public static let qualityOptions = ["720p", "1080p", "1440p", "2160p"]
 
+    /// Canonical quality values plus the aliases accepted at configuration
+    /// boundaries. Keeping this set beside the normalizer prevents parsers
+    /// from maintaining a second, drifting allowlist.
+    public static let acceptedQualityInputs: Set<String> = [
+        "", "720", "720p", "1080", "1080p", "auto",
+        "1440", "1440p", "2k", "2160", "2160p", "4k", "uhd",
+    ]
+
     /// Maximum number of queued entries accepted from configuration files.
     /// Bounding this list keeps a malformed or generated config from creating
     /// an unbounded number of WebKit/AVFoundation replacements.
@@ -89,8 +97,7 @@ public struct VideoBackgroundSettings: Sendable {
 
     /// Reads whether the video background is enabled from a UserDefaults suite.
     public func isEnabled(defaults: UserDefaults) -> Bool {
-        guard defaults.object(forKey: Self.enabledKey) != nil else { return Self.defaultEnabled }
-        return defaults.bool(forKey: Self.enabledKey)
+        Bool.decodeFromUserDefaults(defaults.object(forKey: Self.enabledKey)) ?? Self.defaultEnabled
     }
 
     /// Reads whether the video background must stay silent from a UserDefaults suite.
@@ -98,8 +105,7 @@ public struct VideoBackgroundSettings: Sendable {
     /// Even when `false`, only one window (the most recently active one) plays
     /// audio, and audio always stops with the video.
     public func isMuted(defaults: UserDefaults) -> Bool {
-        guard defaults.object(forKey: Self.mutedKey) != nil else { return Self.defaultMuted }
-        return defaults.bool(forKey: Self.mutedKey)
+        Bool.decodeFromUserDefaults(defaults.object(forKey: Self.mutedKey)) ?? Self.defaultMuted
     }
 
     /// Reads the ordered queue from a UserDefaults suite, trimming whitespace
@@ -155,6 +161,14 @@ public struct VideoBackgroundSettings: Sendable {
         case "2160", "2160p", "4k", "uhd": return "2160p"
         default: return Self.defaultQuality
         }
+    }
+
+    /// Returns whether a user-provided quality string is one of the accepted
+    /// canonical values or aliases. The empty string intentionally maps to the
+    /// default 1080p value, matching ``normalizedQuality(_:)``.
+    public func isValidQuality(_ rawValue: String) -> Bool {
+        let normalized = rawValue.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        return Self.acceptedQualityInputs.contains(normalized)
     }
 
     /// Reads the raw configured source text (URL or ID) from a UserDefaults suite.

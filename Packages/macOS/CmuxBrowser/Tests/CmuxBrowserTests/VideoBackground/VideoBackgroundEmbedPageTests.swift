@@ -6,8 +6,8 @@ import Testing
 struct VideoBackgroundEmbedPageTests {
     @Test func videoPageLoopsTheSingleVideoMuted() {
         let html = VideoBackgroundEmbedPage(source: .youTubeVideo(id: "dQw4w9WgXcQ")).html
-        #expect(html.contains("videoId: 'dQw4w9WgXcQ'"))
-        #expect(html.contains("playlist: 'dQw4w9WgXcQ'"))
+        #expect(html.contains("videoId: \"dQw4w9WgXcQ\""))
+        #expect(html.contains("playlist: \"dQw4w9WgXcQ\""))
         #expect(html.contains("mute: 1"))
         #expect(html.contains("loop: 1"))
         #expect(html.contains("controls: 0"))
@@ -21,7 +21,7 @@ struct VideoBackgroundEmbedPageTests {
             source: .youTubePlaylist(id: "PLBsP89CPrMeMJk4CM2TS7KAfQ57hGXbNe")
         ).html
         #expect(html.contains("listType: 'playlist'"))
-        #expect(html.contains("list: 'PLBsP89CPrMeMJk4CM2TS7KAfQ57hGXbNe'"))
+        #expect(html.contains("list: \"PLBsP89CPrMeMJk4CM2TS7KAfQ57hGXbNe\""))
         #expect(!html.contains("videoId:"))
         #expect(html.contains("var isPlaylist = true;"))
         #expect(html.contains("getPlaylistIndex"))
@@ -79,5 +79,22 @@ struct VideoBackgroundEmbedPageTests {
         #expect(html.contains("pendingVolume = 35.0"))
         #expect(html.contains("event: 'ended'"))
         #expect(VideoBackgroundEmbedPage.volumeScript(0.35) == "window.cmuxVideoBackgroundSetVolume(35.0);")
+    }
+
+    @Test func directIdentifiersAreEscapedAsJavaScriptLiterals() {
+        let html = VideoBackgroundEmbedPage(
+            source: .youTubeVideo(id: "bad\";window.pwned=true;//")
+        ).html
+        #expect(html.contains("videoId: \"bad\\\";window.pwned=true;//\""))
+        #expect(!html.contains("videoId: 'bad\";window.pwned=true;//'"))
+    }
+
+    @Test func localSourcesProduceAnExplicitUnsupportedPageWithoutYouTubePlayer() {
+        let html = VideoBackgroundEmbedPage(
+            source: .localFile(url: URL(fileURLWithPath: "/tmp/movie.mp4"))
+        ).html
+        #expect(html.contains("local-source-unsupported"))
+        #expect(!html.contains("new YT.Player"))
+        #expect(!html.contains("iframe_api"))
     }
 }

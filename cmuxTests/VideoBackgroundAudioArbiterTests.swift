@@ -51,7 +51,7 @@ struct VideoBackgroundAudioArbiterTests {
         arbiter.windowWillClose(first, fallback: nil)
         #expect(arbiter.mayPlayAudio(in: second))
         arbiter.windowWillClose(second, fallback: first)
-        #expect(arbiter.mayPlayAudio(in: first))
+        #expect(!arbiter.mayPlayAudio(in: first), "an unregistered auxiliary window cannot receive audio")
         arbiter.windowWillClose(first, fallback: first)
         #expect(arbiter.ownerWindow == nil)
     }

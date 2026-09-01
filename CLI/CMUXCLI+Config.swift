@@ -799,6 +799,11 @@ extension CMUXCLI {
         case "add", "enqueue":
             let additions = try videoBackgroundSources(from: Array(args.dropFirst()))
             var queue = effectiveVideoBackgroundQueue(from: current)
+            guard queue.count + additions.count <= VideoBackgroundSettings.maximumQueueLength else {
+                throw CLIError(
+                    message: "video-background queue accepts at most \(VideoBackgroundSettings.maximumQueueLength) entries"
+                )
+            }
             queue.append(contentsOf: additions)
             let normalized = VideoBackgroundSettings().normalizedQueue(queue)
             guard !normalized.isEmpty else {
@@ -886,9 +891,8 @@ extension CMUXCLI {
             guard args.count == 2 else {
                 throw CLIError(message: "Usage: cmux video-background quality <720p|1080p|1440p|4k>")
             }
-            let raw = args[1].lowercased()
-            let accepted = Set(VideoBackgroundSettings.qualityOptions).union(["720", "1080", "1440", "2160", "2k", "4k", "uhd", "auto"])
-            guard accepted.contains(raw) else {
+            let raw = args[1]
+            guard VideoBackgroundSettings().isValidQuality(raw) else {
                 throw CLIError(message: "Unknown video background quality '\(args[1])'")
             }
             let updated = try editor.update(.init(quality: raw))

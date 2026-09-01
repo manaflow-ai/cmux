@@ -141,9 +141,7 @@ extension CmuxSettingsFileStore {
             // Unknown values are not silently accepted in a file-managed
             // setting: this keeps a typo from changing the effective quality
             // while still allowing the documented aliases (4k/2k/etc.).
-            let accepted = Set(VideoBackgroundSettings.qualityOptions)
-                .union(["720", "1080", "1440", "2160", "2k", "4k", "uhd", "auto"])
-            if accepted.contains(rawQuality.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()) {
+            if policy.isValidQuality(rawQuality) {
                 snapshot.managedUserDefaults[VideoBackgroundSettings.qualityKey] = .string(normalized)
             } else {
                 logInvalid("terminal.videoBackground.quality", sourcePath: sourcePath)

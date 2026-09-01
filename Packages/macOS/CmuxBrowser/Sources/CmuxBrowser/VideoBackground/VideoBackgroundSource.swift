@@ -42,8 +42,8 @@ public enum VideoBackgroundSource: Equatable, Sendable {
 
         if let local = parseLocalFile(trimmed) { return local }
         if let url = URL(string: trimmed), let fromURL = parse(url: url) { return fromURL }
-        if isValidPlaylistID(trimmed), hasKnownPlaylistPrefix(trimmed) { return .youTubePlaylist(id: trimmed) }
         if isValidVideoID(trimmed) { return .youTubeVideo(id: trimmed) }
+        if isValidPlaylistID(trimmed), hasKnownPlaylistPrefix(trimmed) { return .youTubePlaylist(id: trimmed) }
         return nil
     }
 
@@ -62,7 +62,7 @@ public enum VideoBackgroundSource: Equatable, Sendable {
     }
 
     private static func hasKnownPlaylistPrefix(_ id: String) -> Bool {
-        ["PL", "UU", "FL", "OLAK5uy_", "RDCLAK"].contains { id.hasPrefix($0) }
+        ["PL", "UU", "FL", "OLAK5uy_", "RD"].contains { id.hasPrefix($0) }
     }
 
     private static func parseLocalFile(_ text: String) -> VideoBackgroundSource? {

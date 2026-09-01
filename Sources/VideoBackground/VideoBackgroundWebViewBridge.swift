@@ -12,6 +12,7 @@ import CmuxBrowser
 /// while YouTube's own iframe keeps full subframe freedom.
 final class VideoBackgroundWebViewBridge: NSObject, WKNavigationDelegate, WKScriptMessageHandler {
     private let onPlayerError: @MainActor (String) -> Void
+    private var hasSeenMainFrameNavigation = false
 
     /// Invoked when the YouTube player reports that it can render.
     @MainActor var onPlayerReady: (@MainActor () -> Void)?
@@ -37,9 +38,10 @@ final class VideoBackgroundWebViewBridge: NSObject, WKNavigationDelegate, WKScri
             return
         }
         let url = navigationAction.request.url
-        let isEmbedPageLoad = url?.host == VideoBackgroundEmbedPage.baseURL.host
-            || url?.scheme == "about"
-        decisionHandler(isEmbedPageLoad ? .allow : .cancel)
+        let isEmbedPageLoad = url == VideoBackgroundEmbedPage.baseURL
+        let isInitialAboutBlank = url?.absoluteString == "about:blank" && !hasSeenMainFrameNavigation
+        hasSeenMainFrameNavigation = true
+        decisionHandler(isEmbedPageLoad || isInitialAboutBlank ? .allow : .cancel)
     }
 
     func webView(
@@ -73,6 +75,7 @@ final class VideoBackgroundWebViewBridge: NSObject, WKNavigationDelegate, WKScri
         _ userContentController: WKUserContentController,
         didReceive message: WKScriptMessage
     ) {
+        guard message.frameInfo.isMainFrame else { return }
         // WebKit delivers script messages on the main thread; apply synchronously
         // to preserve delivery order relative to navigation callbacks.
         MainActor.assumeIsolated {

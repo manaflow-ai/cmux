@@ -53,6 +53,10 @@ struct VideoBackgroundSourceTests {
                 == .youTubePlaylist(id: "PLBsP89CPrMeMJk4CM2TS7KAfQ57hGXbNe")
         )
         #expect(VideoBackgroundSource.parse("  dQw4w9WgXcQ  ") == .youTubeVideo(id: "dQw4w9WgXcQ"))
+        #expect(VideoBackgroundSource.parse("RDABCD1234567890") == .youTubePlaylist(id: "RDABCD1234567890"))
+        // A video-shaped identifier wins even when it happens to start with a
+        // playlist prefix.
+        #expect(VideoBackgroundSource.parse("PL123456789") == .youTubeVideo(id: "PL123456789"))
     }
 
     @Test func parsesLocalVideoFiles() {

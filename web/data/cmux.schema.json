@@ -711,7 +711,7 @@
             },
             "quality": {
               "type": "string",
-              "enum": ["720p", "1080p", "1440p", "2160p"],
+              "enum": ["720p", "1080p", "1440p", "2160p", "720", "1080", "1440", "2160", "2k", "4k", "uhd", "auto"],
               "default": "1080p",
               "descriptionKey": "schemaDescriptions.terminal.videoBackgroundQuality",
               "description": "Maximum YouTube stream quality. Local files use their native stream."

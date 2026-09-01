@@ -257,8 +257,9 @@ public protocol SettingsHostActions: AnyObject {
 
     /// Returns the current cmux-managed Ghostty `background-opacity` status.
     /// Video backgrounds require a translucent value; Settings uses this to
-    /// explain the requirement before enabling the feature.
-    func videoBackgroundGhosttyOpacityStatus() -> VideoBackgroundGhosttyOpacityStatus
+    /// explain the requirement before enabling the feature. The host performs
+    /// the file read off the main actor so opening Settings stays responsive.
+    func videoBackgroundGhosttyOpacityStatus() async -> VideoBackgroundGhosttyOpacityStatus
 
     /// Writes the recommended `background-opacity = 0.8` to cmux's Ghostty
     /// config and reloads open terminals. The UI calls this only after a clear
@@ -276,9 +277,6 @@ public struct VideoBackgroundGhosttyOpacityStatus: Equatable, Sendable {
     public let configPath: String
     /// Whether the current value allows the video layer to show through.
     public let isUsable: Bool
-    /// The recommended value shown by Settings and CLI guidance.
-    public static let recommendedOpacity = 0.8
-
     /// Creates a transparency status snapshot.
     public init(
         isAvailable: Bool,
@@ -319,7 +317,7 @@ public extension SettingsHostActions {
     func openCloudMachinesPanel() {}
     func openCloudMachinesBilling() {}
 
-    func videoBackgroundGhosttyOpacityStatus() -> VideoBackgroundGhosttyOpacityStatus {
+    func videoBackgroundGhosttyOpacityStatus() async -> VideoBackgroundGhosttyOpacityStatus {
         VideoBackgroundGhosttyOpacityStatus(
             isAvailable: false,
             opacity: nil,
@@ -470,7 +468,7 @@ public final class NoopSettingsHostActions: SettingsHostActions {
     public func previewNotificationSound(value: String, customFilePath: String) {}
     public func browserHistoryEntryCount() -> Int? { nil }
 
-    public func videoBackgroundGhosttyOpacityStatus() -> VideoBackgroundGhosttyOpacityStatus {
+    public func videoBackgroundGhosttyOpacityStatus() async -> VideoBackgroundGhosttyOpacityStatus {
         VideoBackgroundGhosttyOpacityStatus(
             isAvailable: false,
             opacity: nil,

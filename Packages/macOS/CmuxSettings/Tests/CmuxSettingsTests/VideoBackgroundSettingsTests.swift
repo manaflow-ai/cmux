@@ -65,4 +65,25 @@ struct VideoBackgroundSettingsTests {
         #expect(policy.normalizedVolume(-0.5) == 0.0)
         #expect(policy.normalizedQueue([" a ", "", "b"]) == ["a", "b"])
     }
+
+    @Test func malformedBooleanDefaultsDoNotCoerceNumbers() throws {
+        let suiteName = "VideoBackgroundSettingsTests.boolTypes.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defaults.removePersistentDomain(forName: suiteName)
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        defaults.set(NSNumber(value: 1), forKey: VideoBackgroundSettings.enabledKey)
+        defaults.set(NSNumber(value: 0), forKey: VideoBackgroundSettings.mutedKey)
+
+        let policy = VideoBackgroundSettings()
+        #expect(policy.isEnabled(defaults: defaults) == VideoBackgroundSettings.defaultEnabled)
+        #expect(policy.isMuted(defaults: defaults) == VideoBackgroundSettings.defaultMuted)
+    }
+
+    @Test func qualityAliasesShareOneValidationPolicy() {
+        let policy = VideoBackgroundSettings()
+        #expect(policy.isValidQuality(" 4K "))
+        #expect(policy.isValidQuality(""))
+        #expect(!policy.isValidQuality("8k"))
+    }
 }

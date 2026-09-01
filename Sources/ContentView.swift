@@ -3496,7 +3496,12 @@ struct ContentView: View {
             playbackCoordinator: videoBackgroundRuntime.playbackCoordinator
         ).presentation
         if videoBackgroundPresentation !== videoPresentation {
-            videoBackgroundPresentation = videoPresentation
+            // WindowAccessor invokes this during SwiftUI's update pass. Hop
+            // to the next main-actor turn before mutating @State so the
+            // backdrop presentation change is not published re-entrantly.
+            Task { @MainActor in
+                videoBackgroundPresentation = videoPresentation
+            }
         }
     }
 

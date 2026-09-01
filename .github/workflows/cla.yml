@@ -29,6 +29,9 @@ jobs:
     steps:
       - name: "Authorize repository-owned reload snapshots"
         id: cla-provenance
+        # A transient GitHub API failure must fall back to the base allowlist;
+        # it must not prevent the CLA Assistant action from running.
+        continue-on-error: true
         # The transport identity below is accepted only after GitHub confirms
         # that the PR is owned by the repository and the authenticated owner
         # triggered this run. A commit display name alone is forgeable.
@@ -73,6 +76,9 @@ jobs:
         # The action handles signing and status updates. Merged pull requests
         # use the explicit lock step below because the archived action sends
         # an invalid lock request.
+        # Keep this trigger expression in lockstep with cla-provenance above:
+        # both steps intentionally accept the same pull_request_target and
+        # explicit issue-comment events.
         if: >-
           (
             github.event_name == 'pull_request_target' &&

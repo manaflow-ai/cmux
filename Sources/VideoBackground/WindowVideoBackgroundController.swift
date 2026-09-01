@@ -232,7 +232,6 @@ final class WindowVideoBackgroundController {
     private var observers: [any NSObjectProtocol] = []
     private var playerGeneration: UInt64 = 0
     private var playerQuality = VideoBackgroundSettings.defaultQuality
-    private var playerVolume = VideoBackgroundSettings.defaultVolume
     private var lastPlayerPaused: Bool?
     private var playerIsReady = false
 
@@ -410,7 +409,9 @@ final class WindowVideoBackgroundController {
     /// arbiter whenever audio ownership moves between windows.
     func applyAudioState() {
         playerView?.setMuted(effectiveMuted)
-        playerView?.setVolume(playerVolume)
+        // Volume is a live setting; the replacement-time value can be stale
+        // when the player remains installed while the slider changes.
+        playerView?.setVolume(lastObservedVolume ?? VideoBackgroundSettings.defaultVolume)
     }
 
     /// Applies the coordinator's authoritative source/playhead to this window.
@@ -508,7 +509,6 @@ final class WindowVideoBackgroundController {
         activeSource = source
         playerGeneration = generation
         playerQuality = quality
-        playerVolume = volume
         guard let host = hostView else { return }
 
         let player: any VideoBackgroundPlayerView

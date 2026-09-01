@@ -41,18 +41,17 @@ struct VideoBackgroundWebViewBridgeTests {
 
     @Test
     func replaysDesiredPauseStateWhenThePlayerBecomesReady() {
-        let view = VideoBackgroundWebPlayerView(source: .youTubeVideo(id: "dQw4w9WgXcQ")) { _ in }
+        var model = VideoBackgroundPlaybackCommandModel(muted: true, volume: 1)
         var scripts: [String] = []
-        view.evaluateScript = { scripts.append($0) }
 
         // A window created while occluded pauses before the page exists.
-        view.setPaused(true)
-        view.setPaused(true)
+        if let command = model.setPaused(true) { scripts.append(command) }
+        if let command = model.setPaused(true) { scripts.append(command) }
         #expect(scripts == [VideoBackgroundEmbedPage.pauseScript])
 
-        // The early script was dropped by WebKit; readiness must re-assert
-        // both pause and mute state.
-        view.bridge.handleScriptEvent(["event": "ready"])
+        // The early script was dropped by WebKit; readiness replays the full
+        // desired state through the pure model.
+        scripts.append(contentsOf: model.replayCommands())
         #expect(scripts == [
             VideoBackgroundEmbedPage.pauseScript,
             VideoBackgroundEmbedPage.pauseScript,
@@ -60,16 +59,28 @@ struct VideoBackgroundWebViewBridgeTests {
             VideoBackgroundEmbedPage.volumeScript(1),
         ])
 
-        view.setPaused(false)
+        if let command = model.setPaused(false) { scripts.append(command) }
         #expect(scripts.last == VideoBackgroundEmbedPage.resumeScript)
-        view.setMuted(false)
-        view.setMuted(false)
+        if let command = model.setMuted(false) { scripts.append(command) }
+        if let command = model.setMuted(false) { scripts.append(command) }
         #expect(scripts.last == VideoBackgroundEmbedPage.mutedScript(false))
-        view.bridge.handleScriptEvent(["event": "ready"])
+        scripts.append(contentsOf: model.replayCommands())
         #expect(scripts.suffix(3) == [
             VideoBackgroundEmbedPage.resumeScript,
             VideoBackgroundEmbedPage.mutedScript(false),
             VideoBackgroundEmbedPage.volumeScript(1),
         ])
+    }
+
+    @Test
+    func commandModelDeduplicatesAndClampsChanges() {
+        var model = VideoBackgroundPlaybackCommandModel(muted: true, initialPosition: -1, volume: 2)
+        #expect(model.position == 0)
+        #expect(model.volume == 1)
+        #expect(model.setPaused(false) == nil)
+        #expect(model.setMuted(true) == nil)
+        #expect(model.setPosition(0.01) == nil)
+        #expect(model.setVolume(1.001) == nil)
+        #expect(model.setVolume(0.5) == VideoBackgroundEmbedPage.volumeScript(0.5))
     }
 }

@@ -1,3 +1,4 @@
+import Darwin
 import Foundation
 
 /// Synchronously edits the `terminal.videoBackground` object in `cmux.json`.
@@ -96,8 +97,11 @@ public struct VideoBackgroundConfigEditor: Sendable {
     /// JSONC comments and trailing commas are accepted. A missing file is
     /// treated as an empty config; malformed existing JSON is reported.
     public func read() throws -> Snapshot {
-        let root = try readRoot()
-        return snapshot(from: root)
+        try withExclusiveFileLock {
+            let targetURL = Self.resolvedURL(for: fileURL)
+            let root = try readRoot(from: targetURL)
+            return snapshot(from: root)
+        }
     }
 
     /// Applies `mutation`, writes atomically, and returns the resulting values.
@@ -107,44 +111,50 @@ public struct VideoBackgroundConfigEditor: Sendable {
     /// user's intent is visible in `cmux.json`.
     @discardableResult
     public func update(_ mutation: Mutation) throws -> Snapshot {
-        var root = try readRoot()
-        if let existingTerminal = root["terminal"], !(existingTerminal is [String: Any]) {
-            throw JSONConfigStoreReadError.notADictionary
-        }
-        var terminal = root["terminal"] as? [String: Any] ?? [:]
-        if let existingVideo = terminal["videoBackground"], !(existingVideo is [String: Any]) {
-            throw JSONConfigStoreReadError.notADictionary
-        }
-        var video = terminal["videoBackground"] as? [String: Any] ?? [:]
+        try withExclusiveFileLock {
+            // Resolve the symlink once, inside the transaction. A retargeted
+            // cmux.json therefore cannot split this read/modify/write across
+            // two destinations, and the sidecar lock serializes editor
+            // instances (including separate CLI processes).
+            let targetURL = Self.resolvedURL(for: fileURL)
+            var root = try readRoot(from: targetURL)
+            if let existingTerminal = root["terminal"], !(existingTerminal is [String: Any]) {
+                throw JSONConfigStoreReadError.notADictionary
+            }
+            var terminal = root["terminal"] as? [String: Any] ?? [:]
+            if let existingVideo = terminal["videoBackground"], !(existingVideo is [String: Any]) {
+                throw JSONConfigStoreReadError.notADictionary
+            }
+            var video = terminal["videoBackground"] as? [String: Any] ?? [:]
 
-        if let enabled = mutation.enabled { video["enabled"] = enabled }
-        if let source = mutation.source {
-            video["source"] = source.trimmingCharacters(in: .whitespacesAndNewlines)
-        }
-        if let queue = mutation.queue {
-            video["queue"] = VideoBackgroundSettings().normalizedQueue(queue)
-        }
-        if let muted = mutation.muted { video["muted"] = muted }
-        if let quality = mutation.quality {
-            video["quality"] = VideoBackgroundSettings().normalizedQuality(quality)
-        }
-        if let volume = mutation.volume,
-           volume.isFinite {
-            video["volume"] = VideoBackgroundSettings().normalizedVolume(volume)
-        }
-        if let dimOpacity = mutation.dimOpacity,
-           dimOpacity.isFinite {
-            video["dimOpacity"] = VideoBackgroundSettings().normalizedDimOpacity(dimOpacity)
-        }
+            if let enabled = mutation.enabled { video["enabled"] = enabled }
+            if let source = mutation.source {
+                video["source"] = source.trimmingCharacters(in: .whitespacesAndNewlines)
+            }
+            if let queue = mutation.queue {
+                video["queue"] = VideoBackgroundSettings().normalizedQueue(queue)
+            }
+            if let muted = mutation.muted { video["muted"] = muted }
+            if let quality = mutation.quality {
+                video["quality"] = VideoBackgroundSettings().normalizedQuality(quality)
+            }
+            if let volume = mutation.volume,
+               volume.isFinite {
+                video["volume"] = VideoBackgroundSettings().normalizedVolume(volume)
+            }
+            if let dimOpacity = mutation.dimOpacity,
+               dimOpacity.isFinite {
+                video["dimOpacity"] = VideoBackgroundSettings().normalizedDimOpacity(dimOpacity)
+            }
 
-        terminal["videoBackground"] = video
-        root["terminal"] = terminal
-        try writeRoot(root)
-        return snapshot(from: root)
+            terminal["videoBackground"] = video
+            root["terminal"] = terminal
+            try writeRoot(root, to: targetURL)
+            return snapshot(from: root)
+        }
     }
 
-    private func readRoot() throws -> [String: Any] {
-        let readURL = Self.resolvedURL(for: fileURL)
+    private func readRoot(from readURL: URL) throws -> [String: Any] {
         let data: Data
         do {
             data = try Data(contentsOf: readURL)
@@ -163,8 +173,7 @@ public struct VideoBackgroundConfigEditor: Sendable {
         return root
     }
 
-    private func writeRoot(_ root: [String: Any]) throws {
-        let writeURL = Self.resolvedURL(for: fileURL)
+    private func writeRoot(_ root: [String: Any], to writeURL: URL) throws {
         let parent = writeURL.deletingLastPathComponent()
         try FileManager.default.createDirectory(at: parent, withIntermediateDirectories: true)
         let data = try JSONSerialization.data(
@@ -178,14 +187,16 @@ public struct VideoBackgroundConfigEditor: Sendable {
         let video = (root["terminal"] as? [String: Any])?["videoBackground"] as? [String: Any]
         let enabled = video?["enabled"] as? Bool
         let source = video?["source"] as? String
-        let queue = (video?["queue"] as? [Any])?.compactMap { $0 as? String }
+        let queue = video?["queue"] as? [String]
         let muted = video?["muted"] as? Bool
         let quality = (video?["quality"] as? String).map { VideoBackgroundSettings().normalizedQuality($0) }
         let volume = (video?["volume"] as? NSNumber).flatMap { value in
+            guard CFGetTypeID(value) != CFBooleanGetTypeID() else { return nil }
             let number = value.doubleValue
             return number.isFinite ? VideoBackgroundSettings().normalizedVolume(number) : nil
         }
         let dimOpacity = (video?["dimOpacity"] as? NSNumber).flatMap { value in
+            guard CFGetTypeID(value) != CFBooleanGetTypeID() else { return nil }
             let number = value.doubleValue
             return number.isFinite ? VideoBackgroundSettings().normalizedDimOpacity(number) : nil
         }
@@ -212,5 +223,32 @@ public struct VideoBackgroundConfigEditor: Sendable {
             destinationURL = url.deletingLastPathComponent().appendingPathComponent(destination)
         }
         return destinationURL.standardizedFileURL.resolvingSymlinksInPath()
+    }
+
+    /// Serializes synchronous config transactions across editor instances and
+    /// processes. BSD `flock` is used at this file-I/O seam because an actor
+    /// cannot protect independent synchronous CLI processes; the critical
+    /// section never suspends and the kernel releases the lock on a crash.
+    private func withExclusiveFileLock<T>(_ operation: () throws -> T) throws -> T {
+        let directory = fileURL.standardizedFileURL.deletingLastPathComponent()
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let lockURL = directory.appendingPathComponent(
+            ".\(fileURL.lastPathComponent).video-background.lock",
+            isDirectory: false
+        )
+        let descriptor = lockURL.path.withCString {
+            Darwin.open($0, O_CREAT | O_RDWR | O_CLOEXEC | O_NOFOLLOW, S_IRUSR | S_IWUSR)
+        }
+        guard descriptor >= 0 else {
+            throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO)
+        }
+        defer { _ = Darwin.close(descriptor) }
+        while flock(descriptor, LOCK_EX) != 0 {
+            guard errno == EINTR else {
+                throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO)
+            }
+        }
+        defer { _ = flock(descriptor, LOCK_UN) }
+        return try operation()
     }
 }

@@ -123,20 +123,26 @@ public struct VideoBackgroundEmbedPage: Sendable {
 
     /// The full HTML document for the player page.
     public var html: String {
+        if case .localFile = source {
+            return Self.unsupportedLocalSourceHTML
+        }
+
         let dimensions = Self.dimensions(for: quality)
         let playerConfiguration: String
         switch source {
         case let .youTubeVideo(id):
             // `loop` only takes effect when `playlist` repeats the video ID.
             playerConfiguration = """
-            videoId: '\(id)',
-            playerVars: { ...sharedPlayerVars, playlist: '\(id)' }
+            videoId: \(Self.javaScriptStringLiteral(id)),
+            playerVars: { ...sharedPlayerVars, playlist: \(Self.javaScriptStringLiteral(id)) }
             """
         case let .youTubePlaylist(id):
             playerConfiguration = """
-            playerVars: { ...sharedPlayerVars, listType: 'playlist', list: '\(id)' }
+            playerVars: { ...sharedPlayerVars, listType: 'playlist', list: \(Self.javaScriptStringLiteral(id)) }
             """
         case .localFile:
+            // Handled above; keep this branch exhaustive if a new source case
+            // is added without an accompanying player implementation.
             playerConfiguration = "playerVars: { ...sharedPlayerVars }"
         }
 
@@ -327,4 +333,30 @@ public struct VideoBackgroundEmbedPage: Sendable {
         if case .youTubePlaylist = source { return "true" }
         return "false"
     }
+
+    /// Encodes an arbitrary caller-supplied identifier as a JavaScript string
+    /// literal. Parsed sources already enforce YouTube's identifier alphabet,
+    /// but this public page can also be initialized directly by callers.
+    private static func javaScriptStringLiteral(_ value: String) -> String {
+        // JSON string syntax is also valid JavaScript and handles quotes,
+        // backslashes, control characters, and line separators correctly.
+        let data = try! JSONSerialization.data(
+            withJSONObject: value,
+            options: [.fragmentsAllowed, .withoutEscapingSlashes]
+        )
+        return String(decoding: data, as: UTF8.self)
+    }
+
+    /// Error-only document used when a local source is accidentally handed to
+    /// the YouTube page type. It never creates a `YT.Player` instance.
+    private static let unsupportedLocalSourceHTML = """
+    <!DOCTYPE html>
+    <html><head><meta charset="utf-8"></head><body>
+    <script>
+      try {
+        window.webkit.messageHandlers.\(Self.messageHandlerName).postMessage({ event: 'error', code: 'local-source-unsupported' });
+      } catch (error) {}
+    </script>
+    </body></html>
+    """
 }

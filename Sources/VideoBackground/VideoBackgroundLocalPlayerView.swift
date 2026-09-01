@@ -6,6 +6,7 @@ import AVFoundation
 /// unless the controller unmutes it.
 @MainActor
 final class VideoBackgroundLocalPlayerView: NSView, VideoBackgroundPlayerView {
+    private let item: AVPlayerItem
     private let player: AVQueuePlayer
     private let playerLayer: AVPlayerLayer
     private var looper: AVPlayerLooper?
@@ -14,8 +15,11 @@ final class VideoBackgroundLocalPlayerView: NSView, VideoBackgroundPlayerView {
     private let onEnded: @MainActor () -> Void
     private let onReady: @MainActor () -> Void
     private let onFailure: @MainActor (String) -> Void
+    private let loops: Bool
     private var desiredPaused = false
     private var didReportReadiness = false
+    private var didReportFailure = false
+    private var pendingPlaybackPosition: TimeInterval
 
     init(
         fileURL: URL,
@@ -32,11 +36,14 @@ final class VideoBackgroundLocalPlayerView: NSView, VideoBackgroundPlayerView {
         player.isMuted = muted
         player.volume = Float(volume.isFinite ? min(max(volume, 0), 1) : 1)
         player.preventsDisplaySleepDuringVideoPlayback = false
+        self.item = item
         self.player = player
         self.playerLayer = AVPlayerLayer(player: player)
         self.onEnded = onEnded
         self.onReady = onReady
         self.onFailure = onFailure
+        self.loops = loops
+        self.pendingPlaybackPosition = initialPosition.isFinite ? max(0, initialPosition) : 0
 
         super.init(frame: .zero)
         wantsLayer = true
@@ -62,13 +69,6 @@ final class VideoBackgroundLocalPlayerView: NSView, VideoBackgroundPlayerView {
                 self?.handleItemStatus(status)
             }
         }
-        if initialPosition > 0, initialPosition.isFinite {
-            player.seek(
-                to: CMTime(seconds: initialPosition, preferredTimescale: 600),
-                toleranceBefore: .zero,
-                toleranceAfter: .zero
-            )
-        }
         player.play()
     }
 
@@ -83,13 +83,15 @@ final class VideoBackgroundLocalPlayerView: NSView, VideoBackgroundPlayerView {
     }
 
     private func handleItemStatus(_ status: AVPlayerItem.Status) {
-        guard !didReportReadiness else { return }
         switch status {
         case .readyToPlay:
+            guard !didReportReadiness else { return }
             didReportReadiness = true
+            applyPendingPlaybackPosition()
             onReady()
         case .failed:
-            didReportReadiness = true
+            guard !didReportFailure else { return }
+            didReportFailure = true
             // Keep the failure category stable and path-free; the controller's
             // DEBUG event log must never expose a user-selected file URL.
             onFailure("local-file-failed")
@@ -126,15 +128,36 @@ final class VideoBackgroundLocalPlayerView: NSView, VideoBackgroundPlayerView {
 
     func setPlaybackPosition(_ seconds: TimeInterval) {
         guard seconds.isFinite, seconds >= 0 else { return }
-        player.seek(
-            to: CMTime(seconds: seconds, preferredTimescale: 600),
-            toleranceBefore: .zero,
-            toleranceAfter: .zero
-        )
+        pendingPlaybackPosition = seconds
+        guard didReportReadiness else { return }
+        seek(to: seconds)
     }
 
     func setVolume(_ volume: Double) {
         let normalized = volume.isFinite ? min(max(volume, 0), 1) : 1
         player.volume = Float(normalized)
+    }
+
+    private func applyPendingPlaybackPosition() {
+        guard pendingPlaybackPosition > 0 else { return }
+        seek(to: pendingPlaybackPosition)
+    }
+
+    private func seek(to seconds: TimeInterval) {
+        let duration = item.duration.seconds
+        let position: TimeInterval
+        if loops, duration.isFinite, duration > 0 {
+            position = seconds.truncatingRemainder(dividingBy: duration)
+        } else if duration.isFinite, duration > 0 {
+            position = min(seconds, duration)
+        } else {
+            position = seconds
+        }
+        pendingPlaybackPosition = position
+        player.seek(
+            to: CMTime(seconds: position, preferredTimescale: 600),
+            toleranceBefore: .zero,
+            toleranceAfter: .zero
+        )
     }
 }

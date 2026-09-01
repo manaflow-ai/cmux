@@ -26,6 +26,7 @@ struct TerminalVideoBackgroundCard: View {
     @State private var showGhosttySetupFailure = false
     @State private var pendingEnableAfterSetup = false
     @State private var isSettingUpGhostty = false
+    @State private var enableRequestGeneration = 0
 
     init(
         defaultsStore: UserDefaultsSettingsStore,
@@ -40,7 +41,7 @@ struct TerminalVideoBackgroundCard: View {
         _muted = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.terminal.videoBackgroundMuted))
         _volume = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.terminal.videoBackgroundVolume))
         _dimOpacity = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.terminal.videoBackgroundDimOpacity))
-        _opacityStatus = State(initialValue: hostActions.videoBackgroundGhosttyOpacityStatus())
+        _opacityStatus = State(initialValue: Self.unavailableOpacityStatus)
     }
 
     var body: some View {
@@ -74,7 +75,7 @@ struct TerminalVideoBackgroundCard: View {
         }
         .task {
             startObservingSettings()
-            refreshOpacityStatus()
+            await refreshOpacityStatus()
             if !sourceDraftLoaded {
                 sourceDraft = queue.current.first ?? source.current
                 sourceDraftLoaded = true
@@ -292,12 +293,23 @@ struct TerminalVideoBackgroundCard: View {
     }
 
     private func requestEnabled(_ requested: Bool) {
-        guard requested else { enabled.set(false); return }
-        let status = hostActions.videoBackgroundGhosttyOpacityStatus()
-        opacityStatus = status
-        guard status.isAvailable, !status.isUsable else { enabled.set(true); return }
-        pendingEnableAfterSetup = true
-        showGhosttySetupConfirmation = true
+        enableRequestGeneration += 1
+        let generation = enableRequestGeneration
+        guard requested else {
+            enabled.set(false)
+            return
+        }
+        Task { @MainActor in
+            let status = await hostActions.videoBackgroundGhosttyOpacityStatus()
+            guard generation == enableRequestGeneration else { return }
+            opacityStatus = status
+            guard status.isAvailable, !status.isUsable else {
+                enabled.set(true)
+                return
+            }
+            pendingEnableAfterSetup = true
+            showGhosttySetupConfirmation = true
+        }
     }
 
     private func setupGhosttyOpacity() {
@@ -305,7 +317,7 @@ struct TerminalVideoBackgroundCard: View {
         Task { @MainActor in
             let succeeded = await hostActions.setVideoBackgroundGhosttyOpacity()
             isSettingUpGhostty = false
-            opacityStatus = hostActions.videoBackgroundGhosttyOpacityStatus()
+            opacityStatus = await hostActions.videoBackgroundGhosttyOpacityStatus()
             if succeeded {
                 if pendingEnableAfterSetup { enabled.set(true) }
                 pendingEnableAfterSetup = false
@@ -315,7 +327,9 @@ struct TerminalVideoBackgroundCard: View {
         }
     }
 
-    private func refreshOpacityStatus() { opacityStatus = hostActions.videoBackgroundGhosttyOpacityStatus() }
+    private func refreshOpacityStatus() async {
+        opacityStatus = await hostActions.videoBackgroundGhosttyOpacityStatus()
+    }
 
     private var ghosttyStatusLabel: String {
         guard opacityStatus.isAvailable else { return String(localized: "settings.terminal.videoBackground.ghostty.unavailable", defaultValue: "Ghostty status unavailable") }
@@ -336,10 +350,16 @@ struct TerminalVideoBackgroundCard: View {
 
     private func commitSourceDraft() {
         let trimmed = sourceDraft.trimmingCharacters(in: .whitespacesAndNewlines)
-        sourceDraft = trimmed
         var items = VideoBackgroundSettings().normalizedQueue(queue.current)
+        guard !trimmed.isEmpty else {
+            // The field mirrors the first queue entry. Do not leave an empty
+            // display while that stored entry continues to play.
+            sourceDraft = items.first ?? ""
+            return
+        }
+        sourceDraft = trimmed
         if items.isEmpty { source.set(trimmed) }
-        else if !trimmed.isEmpty { items[0] = trimmed; queue.set(items); source.set(trimmed) }
+        else { items[0] = trimmed; queue.set(items); source.set(trimmed) }
     }
 
     private func addQueueDraft() {
@@ -347,6 +367,11 @@ struct TerminalVideoBackgroundCard: View {
         guard !trimmed.isEmpty else { return }
         var items = VideoBackgroundSettings().normalizedQueue(queue.current)
         if items.isEmpty, !source.current.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { items.append(source.current) }
+        guard items.count < VideoBackgroundSettings.maximumQueueLength else {
+            // Keep the draft visible so the Add action cannot appear to have
+            // succeeded while silently dropping the new entry.
+            return
+        }
         items.append(trimmed)
         let normalized = VideoBackgroundSettings().normalizedQueue(items)
         queue.set(normalized)
@@ -385,4 +410,11 @@ struct TerminalVideoBackgroundCard: View {
         default: return String(localized: "settings.terminal.videoBackground.quality.1080p", defaultValue: "1080p (recommended)")
         }
     }
+
+    private static let unavailableOpacityStatus = VideoBackgroundGhosttyOpacityStatus(
+        isAvailable: false,
+        opacity: nil,
+        configPath: "",
+        isUsable: true
+    )
 }

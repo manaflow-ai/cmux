@@ -13,6 +13,10 @@ import AppKit
 final class VideoBackgroundAudioArbiter {
     private(set) weak var ownerWindow: NSWindow?
     private let controllers = NSHashTable<WindowVideoBackgroundController>.weakObjects()
+    /// Windows admitted by ``register(_:window:)`` are the only valid audio
+    /// handoff targets. A key auxiliary window must never become an audio
+    /// owner merely because AppKit reports it as the fallback.
+    private let registeredWindows = NSHashTable<NSWindow>.weakObjects()
 
     /// Creates an independent arbiter for one application composition root.
     init() {}
@@ -24,6 +28,7 @@ final class VideoBackgroundAudioArbiter {
     /// never waits for a key event before it may play audio.
     func register(_ controller: WindowVideoBackgroundController, window: NSWindow) {
         controllers.add(controller)
+        registeredWindows.add(window)
         if ownerWindow == nil || window.isKeyWindow {
             windowDidBecomeKey(window)
         }
@@ -36,6 +41,7 @@ final class VideoBackgroundAudioArbiter {
 
     /// Transfers audio ownership to the window that just became key.
     func windowDidBecomeKey(_ window: NSWindow) {
+        registeredWindows.add(window)
         guard ownerWindow !== window else { return }
         ownerWindow = window
         notifyControllers()
@@ -44,8 +50,12 @@ final class VideoBackgroundAudioArbiter {
     /// Releases ownership held by a closing window, handing it to `fallback`
     /// (typically the app's current key window) when one exists.
     func windowWillClose(_ window: NSWindow, fallback: NSWindow?) {
+        registeredWindows.remove(window)
         guard ownerWindow === window else { return }
-        ownerWindow = fallback === window ? nil : fallback
+        ownerWindow = fallback.flatMap { candidate in
+            guard candidate !== window, registeredWindows.contains(candidate) else { return nil }
+            return candidate
+        }
         notifyControllers()
     }
 

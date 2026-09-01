@@ -64,4 +64,23 @@ struct VideoBackgroundConfigEditorTests {
         let video = ((targetRoot["terminal"] as? [String: Any])?["videoBackground"] as? [String: Any])
         #expect((video?["queue"] as? [String]) == ["dQw4w9WgXcQ"])
     }
+
+    @Test
+    func snapshotRejectsMixedQueuesAndBooleanNumbers() throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-video-editor-types-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let url = directory.appendingPathComponent("cmux.json")
+        try """
+        { "terminal": { "videoBackground": {
+          "queue": ["valid", 42], "volume": true, "dimOpacity": false
+        } } }
+        """.write(to: url, atomically: true, encoding: .utf8)
+
+        let snapshot = try VideoBackgroundConfigEditor(fileURL: url).read()
+        #expect(snapshot.queue == nil)
+        #expect(snapshot.volume == nil)
+        #expect(snapshot.dimOpacity == nil)
+    }
 }

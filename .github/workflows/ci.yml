@@ -86,7 +86,7 @@ jobs:
             ci_router_changed=false
             while IFS= read -r changed_file; do
               case "$changed_file" in
-                ghostty|scripts/download-prebuilt-ghosttykit.sh|scripts/validate-xcframework-archive.py|scripts/ghosttykit-checksums.txt|tests/test_ci_ghosttykit_release_check.sh)
+                ghostty|scripts/download-prebuilt-ghosttykit.sh|scripts/validate-xcframework-archive.py|scripts/ghosttykit-checksums.txt|tests/test_ci_ghosttykit_release_check.sh|docs/ghostty-fork.md)
                   has_ghosttykit_guard_file=true
                   ;;
                 tests/test_ci_change_areas.py)

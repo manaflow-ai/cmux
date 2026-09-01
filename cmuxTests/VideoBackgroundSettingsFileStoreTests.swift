@@ -10,9 +10,6 @@ import Testing
 
 @Suite("Video background settings file", .serialized)
 struct VideoBackgroundSettingsFileStoreTests {
-    private let settingsFileBackupsDefaultsKey = "cmux.settingsFile.backups.v1"
-    private let importedManagedDefaultsKey = "cmux.settingsFile.importedManagedDefaults.v1"
-
     @Test
     func settingsFileStoreAppliesVideoBackgroundSection() throws {
         try loadVideoBackgroundSection(
@@ -79,55 +76,32 @@ struct VideoBackgroundSettingsFileStoreTests {
     }
 
     private func loadVideoBackgroundSection(_ sectionJSON: String, verify: (UserDefaults) throws -> Void) throws {
-        let defaults = UserDefaults.standard
-        try preservingDefaults(keys: [
-            VideoBackgroundSettings.enabledKey,
-            VideoBackgroundSettings.sourceKey,
-            VideoBackgroundSettings.dimOpacityKey,
-            VideoBackgroundSettings.queueKey,
-            VideoBackgroundSettings.qualityKey,
-            VideoBackgroundSettings.volumeKey,
-            VideoBackgroundSettings.mutedKey,
-            settingsFileBackupsDefaultsKey,
-            importedManagedDefaultsKey,
-        ]) {
-            let directoryURL = try makeTemporaryDirectory()
-            defer { try? FileManager.default.removeItem(at: directoryURL) }
+        let suiteName = "VideoBackgroundSettingsFileStoreTests.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defaults.removePersistentDomain(forName: suiteName)
+        defer { defaults.removePersistentDomain(forName: suiteName) }
 
-            let settingsFileURL = directoryURL.appendingPathComponent("cmux.json", isDirectory: false)
-            try """
-            {
-              "terminal": {
-                "videoBackground": \(sectionJSON)
-              }
-            }
-            """.write(to: settingsFileURL, atomically: true, encoding: .utf8)
+        let directoryURL = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directoryURL) }
 
-            _ = KeyboardShortcutSettingsFileStore(
-                primaryPath: settingsFileURL.path,
-                fallbackPath: nil,
-                additionalFallbackPaths: [],
-                startWatching: false
-            )
-
-            try verify(defaults)
+        let settingsFileURL = directoryURL.appendingPathComponent("cmux.json", isDirectory: false)
+        try """
+        {
+          "terminal": {
+            "videoBackground": \(sectionJSON)
+          }
         }
-    }
+        """.write(to: settingsFileURL, atomically: true, encoding: .utf8)
 
-    private func preservingDefaults(keys: [String], _ body: () throws -> Void) throws {
-        let defaults = UserDefaults.standard
-        let saved = keys.map { ($0, defaults.object(forKey: $0)) }
-        for key in keys { defaults.removeObject(forKey: key) }
-        defer {
-            for (key, value) in saved {
-                if let value {
-                    defaults.set(value, forKey: key)
-                } else {
-                    defaults.removeObject(forKey: key)
-                }
-            }
-        }
-        try body()
+        _ = KeyboardShortcutSettingsFileStore(
+            primaryPath: settingsFileURL.path,
+            fallbackPath: nil,
+            additionalFallbackPaths: [],
+            userDefaults: defaults,
+            startWatching: false
+        )
+
+        try verify(defaults)
     }
 
     private func makeTemporaryDirectory() throws -> URL {

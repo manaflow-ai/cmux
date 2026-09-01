@@ -24,10 +24,15 @@ struct VideoAwareWindowRootBackdrop: View {
     @LiveSetting(\.terminal.videoBackgroundDimOpacity) private var videoBackgroundDimOpacity
 
     var body: some View {
-        if presentation?.isActive == true,
-           case let .ghosttyTerminalBackdrop(color, opacity, _) = snapshot.terminalBackdropPolicy() {
+        if presentation?.isActive == true {
             let dim = CGFloat(VideoBackgroundSettings().normalizedDimOpacity(videoBackgroundDimOpacity))
-            Color(nsColor: color.withAlphaComponent(min(opacity, dim)))
+            // Glass-style terminal themes intentionally report a clear policy
+            // because their native material owns the ordinary backdrop. An
+            // active video still needs a readable terminal-colored veil, so
+            // derive it from the resolved snapshot for every policy kind.
+            Color(nsColor: snapshot.terminalBackgroundColor.withAlphaComponent(
+                min(snapshot.terminalBackgroundOpacity, dim)
+            ))
         } else {
             WindowBackdropLayer(role: .windowRoot, snapshot: snapshot)
         }
