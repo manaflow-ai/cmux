@@ -1,4 +1,4 @@
-import Darwin
+internal import Darwin
 import Foundation
 import os
 

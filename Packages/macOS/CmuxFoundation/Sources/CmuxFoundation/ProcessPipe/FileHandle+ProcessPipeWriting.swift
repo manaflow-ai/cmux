@@ -1,4 +1,4 @@
-import Darwin
+internal import Darwin
 public import Foundation
 
 extension FileHandle {
