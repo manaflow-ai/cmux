@@ -116,7 +116,9 @@ pub(crate) fn scan(
             Some(_) => None,
         };
         if let Some(emission) = emission {
-            mux.append_screen_detect_event(&emission);
+            if mux.append_screen_detect_event(&emission).is_err() {
+                tracker.rollback_emission(&emission);
+            }
         }
     }
 }

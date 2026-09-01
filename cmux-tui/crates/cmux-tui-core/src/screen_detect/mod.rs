@@ -170,6 +170,18 @@ impl ScreenDetectTracker {
         })
     }
 
+    /// Undo an edge when durable journal admission fails. The next scan will
+    /// emit the same transition again instead of treating it as delivered.
+    pub(crate) fn rollback_emission(&mut self, emission: &ScreenDetectEmission) {
+        let entry = self.terminals.entry(emission.terminal_id.clone()).or_default();
+        if emission.state == AgentState::Done {
+            entry.emitted = Some((emission.agent.clone(), AgentState::Idle));
+        } else {
+            entry.emitted = None;
+        }
+        entry.evaluated_revision = None;
+    }
+
     /// Drop terminals that left the session. Closed terminals are retired
     /// from the roster by the terminal lifecycle, not by an exit emission.
     pub(crate) fn retain_terminals(&mut self, live: impl Fn(&str) -> bool) {

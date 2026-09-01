@@ -6176,7 +6176,7 @@ impl Mux {
     pub(crate) fn append_screen_detect_event(
         &self,
         emission: &crate::screen_detect::ScreenDetectEmission,
-    ) {
+    ) -> anyhow::Result<()> {
         let kind = if emission.state == AgentState::Done {
             "agent.session.ended"
         } else {
@@ -6204,13 +6204,7 @@ impl Mux {
             correlation_id: None,
         };
         let idempotency_key = format!("screen-detect-{}", crate::workspace_registry::new_uuid_v4());
-        if let Err(error) = self.append_journal_ingress(&ingress, "screen-detect", &idempotency_key)
-        {
-            eprintln!(
-                "cmux-tui: journaling a screen-detected state for {} failed: {error}",
-                emission.terminal_id
-            );
-        }
+        self.append_journal_ingress(&ingress, "screen-detect", &idempotency_key).map(|_| ())
     }
 
     pub(crate) fn journal_hook_states(
