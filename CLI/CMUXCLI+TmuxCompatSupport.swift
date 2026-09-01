@@ -30,9 +30,11 @@ extension CMUXCLI {
             method: "pane.surfaces",
             params: ["workspace_id": workspaceId, "pane_id": paneId]
         )
+        let bundle = CLIExecutableLocator.enclosingAppBundle() ?? .main
         let invalidResponse = CLIError(message: String(
             localized: "cli.tmux-compat.error.invalidPaneSurfacesResponse",
-            defaultValue: "cmux couldn't resolve the selected pane. Select a different pane and try again."
+            defaultValue: "cmux couldn't resolve the selected pane. Select a different pane and try again.",
+            bundle: bundle
         ))
         guard let surfaces = payload["surfaces"] as? [[String: Any]] else { throw invalidResponse }
         guard !surfaces.isEmpty else { return nil }
