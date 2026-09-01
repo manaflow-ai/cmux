@@ -307,6 +307,38 @@ struct AgentChatSidecarProcessTests {
         ])
     }
 
+    @Test func sessionOnlyOwnershipCleansUpBeforeReplacement() async {
+        let attempts = OSAllocatedUnfairLock(initialState: [String]())
+        let gate = AgentChatActionInFlightGate(
+            sidecarStateFileStore: nil,
+            sessionTerminator: { session in
+                let launchId = session.launchId ?? "<missing>"
+                return attempts.withLock { values in
+                    values.append(launchId)
+                    return launchId != "original"
+                        || values.filter { $0 == "original" }.count > 1
+                }
+            }
+        )
+        let original = AgentChatOwnedServerSession(
+            port: 43123, pid: 9876, token: "original", launchId: "original"
+        )
+        let rejected = AgentChatOwnedServerSession(
+            port: 43124, pid: 9877, token: "rejected", launchId: "rejected"
+        )
+        let accepted = AgentChatOwnedServerSession(
+            port: 43125, pid: 9878, token: "accepted", launchId: "accepted"
+        )
+
+        #expect(await gate.updateOwnedServerSession(original))
+        #expect(!(await gate.updateOwnedServerSession(rejected)))
+        #expect(gate.ownedServerSession() == original)
+        gate.lock.withLock { state in state.terminationFailed = false }
+        #expect(await gate.updateOwnedServerSession(accepted))
+        #expect(gate.ownedServerSession() == accepted)
+        #expect(attempts.withLock { $0 } == ["original", "rejected", "original"])
+    }
+
     @Test func setupCleanupSignalsOnlyTheMatchingGeneration() {
         var signals: [(pid_t, Int32)] = []
         let didTerminate = AgentChatSidecarProcessTerminator(
