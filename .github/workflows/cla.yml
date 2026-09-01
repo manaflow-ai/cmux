@@ -43,7 +43,10 @@ jobs:
         github.event.issue.pull_request &&
         github.event.comment.user.type == 'User' &&
         (
-          github.event.comment.body == 'I have read the CLA Document v2.2 and I hereby sign the CLA' ||
+          (
+            github.event.comment.body == 'I have read the CLA Document v2.2 and I hereby sign the CLA' &&
+            github.event.comment.user.id == github.event.issue.user.id
+          ) ||
           (
             github.event.comment.body == 'recheck' &&
             (
@@ -118,6 +121,10 @@ jobs:
               fail "The issue-comment author association is malformed"
 
             if [[ "${COMMENT_BODY}" == "I have read the CLA Document v2.2 and I hereby sign the CLA" ]]; then
+              if [[ "${COMMENT_AUTHOR_ID}" != "${PR_AUTHOR_ID}" ]]; then
+                printf 'admitted=false\n' >>"${GITHUB_OUTPUT}"
+                exit 0
+              fi
               printf 'admitted=true\n' >>"${GITHUB_OUTPUT}"
               exit 0
             fi
@@ -202,7 +209,10 @@ jobs:
           github.event.issue.pull_request &&
           github.event.comment.user.type == 'User' &&
           (
-            github.event.comment.body == 'I have read the CLA Document v2.2 and I hereby sign the CLA' ||
+            (
+              github.event.comment.body == 'I have read the CLA Document v2.2 and I hereby sign the CLA' &&
+              github.event.comment.user.id == github.event.issue.user.id
+            ) ||
             (
               github.event.comment.body == 'recheck' &&
               (
@@ -442,6 +452,8 @@ jobs:
         ) ||
         (
           github.event.comment.body == 'I have read the CLA Document v2.2 and I hereby sign the CLA' &&
+          github.event.comment.user.type == 'User' &&
+          github.event.comment.user.id == github.event.issue.user.id &&
           needs.CLAAssistant.outputs.signature_recorded == 'true'
         )
       )

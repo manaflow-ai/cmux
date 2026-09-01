@@ -140,6 +140,7 @@ run_case() {
   rm -f "$output_file"
   case "$mode" in
     exact-sign) comment_body='I have read the CLA Document v2.2 and I hereby sign the CLA' ;;
+    non-author-sign) comment_body='I have read the CLA Document v2.2 and I hereby sign the CLA'; comment_author_id=301; comment_author_login=reviewer; comment_author_association=MEMBER ;;
     legacy-sign) comment_body='I have read the CLA Document and I hereby sign the CLA' ;;
     uppercase-recheck) comment_body=RECHECK ;;
     padded-sign) comment_body=' I have read the CLA Document v2.2 and I hereby sign the CLA ' ;;
@@ -202,6 +203,7 @@ run_case() {
 
 run_case exact-recheck 0 "" true
 run_case exact-sign 0 "" true
+run_case non-author-sign 0 "" false
 run_case legacy-sign 0 "" false
 run_case uppercase-recheck 0 "" false
 run_case untrusted-recheck 0 "" false
