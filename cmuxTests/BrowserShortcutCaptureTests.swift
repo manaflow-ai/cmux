@@ -338,6 +338,22 @@ final class BrowserShortcutCaptureTests {
                 "A responder below the real page-content root must resolve to its browser web view"
             )
             #expect(appDelegate.shouldCaptureBrowserKeyboardShortcuts(for: commandR))
+
+            #expect(harness.window.makeFirstResponder(overlappingUnknownSibling))
+            let unknownSiblingCommandR = try #require(makeKeyDownEvent(
+                key: "r",
+                modifiers: [.command],
+                keyCode: 15,
+                windowNumber: harness.window.windowNumber
+            ))
+            #expect(
+                appDelegate.shortcutEventBrowserWebView(unknownSiblingCommandR) == nil,
+                "A full-size unknown WebKit sibling must remain browser chrome"
+            )
+            #expect(
+                !appDelegate.shouldCaptureBrowserKeyboardShortcuts(for: unknownSiblingCommandR),
+                "Capture must fail closed when an unknown sibling owns focus"
+            )
         }
     }
 
