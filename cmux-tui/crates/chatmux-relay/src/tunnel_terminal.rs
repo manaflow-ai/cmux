@@ -1141,6 +1141,28 @@ mod tests {
         assert_eq!(rig.manager.attachment_count(), 0);
     }
 
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn peer_eof_closes_a_pending_open() {
+        let (rig, spawn_started) = rig_with_blocked_spawn().await;
+        let stream = connect(&rig).await;
+        let (mut read, mut write) = stream.into_split();
+        write
+            .write_all(&encode_control_frame(&json!({ "t": "open", "cols": 80, "rows": 24 })))
+            .await
+            .unwrap();
+
+        tokio::time::timeout(Duration::from_secs(1), spawn_started.notified())
+            .await
+            .expect("open reached the blocked PTY spawn");
+        drop(write);
+
+        tokio::time::timeout(Duration::from_secs(1), read_eof(&mut read))
+            .await
+            .expect("peer EOF must close the tunnel promptly");
+        assert_eq!(rig.manager.attachment_count(), 0);
+        rig.cancel.cancel();
+    }
+
     #[tokio::test]
     async fn bytes_before_open_are_a_protocol_error() {
         let rig = rig().await;
