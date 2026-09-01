@@ -17,7 +17,7 @@ struct NextTransportDenialPolicyTests {
     /// credential denials (DenialCode raw values inside `closed (...)`).
     private static let credentialDenials: [DenialCode] = [
         .invalidSignature, .expired, .revoked,
-        .keyMismatch, .deviceIDMismatch, .appMismatch,
+        .keyMismatch, .deviceIDMismatch, .appMismatch, .accountMismatch,
     ]
 
     /// States that mean the transport failed or the session is simply not

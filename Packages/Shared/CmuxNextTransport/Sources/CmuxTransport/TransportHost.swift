@@ -17,6 +17,11 @@ public struct TransportCounters: Sendable, Equatable {
 /// against `PeerConnection`, so the same host logic serves loopback today and
 /// the iroh / tailnet substrates in P1; only the dial/accept plumbing differs.
 public actor TransportHost {
+    /// Supplies the account currently authenticated on the host. When set,
+    /// every admission and renewal must carry that same account ID; returning
+    /// nil fails closed as ``DenialCode/accountMismatch``.
+    public typealias AccountIDProvider = @Sendable () async -> String?
+
     /// Supersession is keyed by (device ID, app identity), not by network key,
     /// so a reinstalled app with a freshly generated key still instantly
     /// replaces its own old session (contract 1.5, 4.5).
@@ -51,6 +56,8 @@ public actor TransportHost {
     private static let controlLaneName = "ctl"
 
     private let verifier: GrantVerifier
+    private let accountIDProvider: AccountIDProvider?
+    private let frameTypePolicy = FrameTypePolicy()
     /// 3.6d: how long past expiry a session survives awaiting renewal.
     private let expiryGraceSeconds: Int64
     /// 3.6c: how long before expiry the warning frame is sent.
@@ -76,9 +83,11 @@ public actor TransportHost {
         expiryWarningSeconds: Int64 = 3_600,
         epochNow: @escaping @Sendable () -> Int64 = {
             Int64(Date().timeIntervalSince1970)
-        }
+        },
+        accountIDProvider: AccountIDProvider? = nil
     ) {
         self.verifier = verifier
+        self.accountIDProvider = accountIDProvider
         self.expiryGraceSeconds = expiryGraceSeconds
         self.expiryWarningSeconds = expiryWarningSeconds
         self.epochNow = epochNow
@@ -279,9 +288,18 @@ public actor TransportHost {
         }
         let presentedKey = substrateKey ?? helloKey
 
-        let decision = verifier.decide(
-            grant: grant, presentedByKey: presentedKey, presentedByDeviceID: deviceID,
-            presentedByApp: appIdentity, revokedGrantIDs: revokedGrantIDs, now: now)
+        let expectedAccountID = await accountIDProvider?()
+        let decision: AdmissionDecision
+        if accountIDProvider != nil && expectedAccountID == nil {
+            // A configured account provider that cannot produce an authenticated
+            // identity is a signed-out host, never an unrestricted host.
+            decision = .deny(.accountMismatch)
+        } else {
+            decision = verifier.decide(
+                grant: grant, presentedByKey: presentedKey, presentedByDeviceID: deviceID,
+                presentedByApp: appIdentity, revokedGrantIDs: revokedGrantIDs, now: now,
+                expectedAccountID: expectedAccountID)
+        }
         switch decision {
         case .deny(let code):
             if TransportDebugLog.enabled {
@@ -591,6 +609,26 @@ public actor TransportHost {
         }
         let control = await connection.lane(Self.controlLaneName)
         for await frame in control.frames {
+            switch frameTypePolicy.classify(frame.type) {
+            case .known:
+                break
+            case .ignorableUnknown:
+                // Optional extensions are explicitly forward-compatible.
+                continue
+            case .fatalUnknown:
+                if TransportDebugLog.enabled {
+                    TransportDebugLog.host.error(
+                        """
+                        host ctl unknown mandatory frame; closing \
+                        type=\(frame.type, privacy: .public) \
+                        device=\(TransportDebugLog.prefix(key.deviceID), privacy: .public) \
+                        conn=\(TransportDebugLog.id(connection), privacy: .public)
+                        """)
+                }
+                await connection.closeAll(
+                    reason: ConnectionTermination(code: DenialCode.protocolMismatch.rawValue))
+                return
+            }
             guard frame.type == FrameTypes.grantUpdate else {
                 if TransportDebugLog.enabled {
                     TransportDebugLog.host.notice(
@@ -627,10 +665,20 @@ public actor TransportHost {
                 try? await control.send(Frame.grantAck(accepted: false, code: .malformedHello))
                 continue
             }
-            let decision = verifier.decide(
-                grant: renewed, presentedByKey: session.deviceKey,
-                presentedByDeviceID: key.deviceID, presentedByApp: key.appIdentity,
-                revokedGrantIDs: revokedGrantIDs, now: verificationNow())
+            let expectedAccountID = await accountIDProvider?()
+            guard sessions[key]?.connection === connection else {
+                return
+            }
+            let decision: AdmissionDecision
+            if accountIDProvider != nil && expectedAccountID == nil {
+                decision = .deny(.accountMismatch)
+            } else {
+                decision = verifier.decide(
+                    grant: renewed, presentedByKey: session.deviceKey,
+                    presentedByDeviceID: key.deviceID, presentedByApp: key.appIdentity,
+                    revokedGrantIDs: revokedGrantIDs, now: verificationNow(),
+                    expectedAccountID: expectedAccountID)
+            }
             switch decision {
             case .admit:
                 sessions[key]?.grant = renewed
@@ -692,6 +740,16 @@ public actor TransportHost {
                 """)
         }
         for await frame in lane.frames {
+            switch frameTypePolicy.classify(frame.type) {
+            case .known:
+                break
+            case .ignorableUnknown:
+                continue
+            case .fatalUnknown:
+                await connection.closeAll(
+                    reason: ConnectionTermination(code: DenialCode.protocolMismatch.rawValue))
+                return
+            }
             guard frame.type == FrameTypes.chatMessage || frame.type == FrameTypes.chatTyping
             else { continue }
             for (otherKey, endpoint) in chatEndpoints where otherKey != key {
@@ -716,6 +774,16 @@ public actor TransportHost {
     private func runEchoService(connection: any PeerConnection) async {
         let echo = await connection.lane(Self.echoLaneName)
         for await frame in echo.frames {
+            switch frameTypePolicy.classify(frame.type) {
+            case .known:
+                break
+            case .ignorableUnknown:
+                continue
+            case .fatalUnknown:
+                await connection.closeAll(
+                    reason: ConnectionTermination(code: DenialCode.protocolMismatch.rawValue))
+                return
+            }
             guard frame.type == FrameTypes.dataChunk else { continue }
             do {
                 try await echo.send(frame)
@@ -747,7 +815,26 @@ public struct TransportClient: Sendable {
         case denied(DenialCode)
     }
 
+    /// Performs the admission exchange with a cancellation escape hatch. A
+    /// cancelled FFI lane read is explicitly woken by closing the connection;
+    /// this keeps caller deadlines effective even when the underlying future
+    /// does not observe Swift task cancellation on its own.
     public static func connect(
+        connection: any PeerConnection, identity: PeerIdentity, grant: PairingGrant
+    ) async throws -> ConnectOutcome {
+        try await withTaskCancellationHandler(operation: {
+            try Task.checkCancellation()
+            return try await connectUncancelled(
+                connection: connection, identity: identity, grant: grant)
+        }, onCancel: {
+            Task {
+                await connection.closeAll(
+                    reason: ConnectionTermination(code: "admission-cancelled"))
+            }
+        })
+    }
+
+    private static func connectUncancelled(
         connection: any PeerConnection, identity: PeerIdentity, grant: PairingGrant
     ) async throws -> ConnectOutcome {
         let connectStart = ContinuousClock.now

@@ -158,6 +158,11 @@ public final class NextTransportDialClient {
     /// Observation of the owner state is retained so disconnect can cancel it
     /// before a facade drops this client.
     private var stateObservationTask: Task<Void, Never>?
+    /// At most one endpoint/owner boot may be in flight. The generation fence
+    /// makes a boot that resumes after `disconnect()` inert and closes any
+    /// endpoint it managed to create before noticing cancellation.
+    private var bootTask: Task<Void, Never>?
+    private var lifecycleGeneration: UInt64 = 0
     private let brokerFactory: BrokerFactory?
     private let defaults: UserDefaults
     private let keychainService: String
@@ -275,11 +280,27 @@ public final class NextTransportDialClient {
             log("connect: configure ticket + grant first")
             return
         }
-        if owner == nil { await bootOwner() }
-        await owner?.trigger(.explicit(trigger: "dev-connect"))
+        let generation = lifecycleGeneration
+        if owner == nil {
+            if bootTask == nil {
+                bootTask = Task { [weak self] in
+                    await self?.bootOwner(generation: generation)
+                }
+            }
+            await bootTask?.value
+            if generation == lifecycleGeneration {
+                bootTask = nil
+            }
+            guard generation == lifecycleGeneration else { return }
+        }
+        guard generation == lifecycleGeneration, let owner else { return }
+        await owner.trigger(.explicit(trigger: "dev-connect"))
     }
 
     public func disconnect() async {
+        lifecycleGeneration &+= 1
+        bootTask?.cancel()
+        bootTask = nil
         stateObservationTask?.cancel()
         stateObservationTask = nil
         renewTask?.cancel()
@@ -355,7 +376,8 @@ public final class NextTransportDialClient {
     /// retryable failure on the owner's normal backoff path.
     static let dialAttemptTimeout: Duration = .seconds(6)
 
-    private func bootOwner() async {
+    private func bootOwner(generation gen: UInt64) async {
+        guard gen == lifecycleGeneration, !Task.isCancelled else { return }
         if endpoint == nil {
             // Env broker (dev launches) keeps precedence; a home-screen
             // launch falls back to the app's signed-in session.
@@ -373,6 +395,7 @@ public final class NextTransportDialClient {
                 let mintStart = ContinuousClock.now
                 do {
                     let credentials = try await broker.mint(preferredUrl: hostRelayURL)
+                    guard gen == lifecycleGeneration, !Task.isCancelled else { return }
                     mintedCredentials = credentials
                     relays = credentials.map {
                         IrohSubstrate.RelayAccess(url: $0.relayUrl, authToken: $0.token)
@@ -395,19 +418,25 @@ public final class NextTransportDialClient {
                 }
             }
             do {
-                endpoint = try await (relays.isEmpty
+                let newEndpoint = try await (relays.isEmpty
                     ? IrohSubstrate.endpoint(identity: identity, minimalLoopback: false)
                     : IrohSubstrate.endpoint(identity: identity, relays: relays))
+                guard gen == lifecycleGeneration, !Task.isCancelled else {
+                    try? await newEndpoint.close()
+                    return
+                }
+                endpoint = newEndpoint
             } catch {
                 log("endpoint boot failed", error: error)
                 return
             }
+            guard gen == lifecycleGeneration, !Task.isCancelled else { return }
             startCredentialRenewal()
             // A credential pushed on a previous run (or before the endpoint
             // existed) applies now, not on some future dial.
             await applyPendingRelayCredential()
         }
-        guard let endpoint else { return }
+        guard gen == lifecycleGeneration, !Task.isCancelled, let endpoint else { return }
         let identity = identity
         let dial: @Sendable () async throws -> ConnectAttemptResult = { [weak self] in
             guard let self else { throw TransportError.pipeClosed }
@@ -435,9 +464,27 @@ public final class NextTransportDialClient {
                 ) { group in
                     group.addTask {
                         let conn = try await IrohSubstrate.dial(endpoint: endpoint, to: addr)
-                        switch try await TransportClient.connect(
-                            connection: conn, identity: identity, grant: grant)
-                        {
+                        let outcome: TransportClient.ConnectOutcome
+                        do {
+                            outcome = try await withTaskCancellationHandler(operation: {
+                                try Task.checkCancellation()
+                                return try await TransportClient.connect(
+                                    connection: conn, identity: identity, grant: grant)
+                            }, onCancel: {
+                                // A lane read in the admission exchange is an
+                                // FFI future; closing the connection explicitly
+                                // wakes it when the timeout task wins.
+                                Task {
+                                    await conn.closeAll(
+                                        reason: ConnectionTermination(code: "dial-cancelled"))
+                                }
+                            })
+                        } catch {
+                            await conn.closeAll(
+                                reason: ConnectionTermination(code: "dial-failed"))
+                            throw error
+                        }
+                        switch outcome {
                         case .admitted(let sessionID):
                             await self.log(
                                 "admitted as \(sessionID) in \(Self.elapsedMs(since: dialStart))ms")
@@ -477,12 +524,21 @@ public final class NextTransportDialClient {
             else { return }
             await self?.storePushedCredential(url: url, token: token)
         }
+        guard gen == lifecycleGeneration, !Task.isCancelled else {
+            await owner.stop(reason: .userRequested)
+            return
+        }
         self.owner = owner
         await owner.endpointReady(true)
+        guard gen == lifecycleGeneration, !Task.isCancelled else {
+            await owner.stop(reason: .userRequested)
+            if self.owner === owner { self.owner = nil }
+            return
+        }
         stateObservationTask = Task { [weak self] in
             for await state in await owner.states() {
                 await MainActor.run {
-                    guard let self else { return }
+                    guard let self, self.lifecycleGeneration == gen else { return }
                     switch state {
                     case .ready:
                         self.dialState = .ready

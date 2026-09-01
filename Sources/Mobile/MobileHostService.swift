@@ -484,6 +484,9 @@ final class MobileHostService {
     /// otherwise. Running both would reincarnate the binding in a loop.
     func configure(auth: AuthCoordinator) {
         self.auth = auth
+#if DEBUG
+        nextTransportRuntime.configure(auth: auth)
+#endif
         if MobileHostIrxRuntime.isEnabled {
             MobileHostIrxRuntime.shared.configure(auth: auth)
         } else {
@@ -534,6 +537,15 @@ final class MobileHostService {
         guard let auth else { return nil }
         await auth.awaitBootstrapped()
         guard auth.isAuthenticated else { return nil }
+        return auth.currentUser?.id
+    }
+
+    /// Synchronous main-actor snapshot for already-authorized local callers.
+    /// Unlike ``currentAuthenticatedLocalUserID()``, this never races session
+    /// restore by waiting; a caller that needs a definitive answer must use
+    /// the async form first.
+    func currentAuthenticatedLocalUserIDIfReady() -> String? {
+        guard let auth, auth.isAuthenticated, !auth.isRestoringSession else { return nil }
         return auth.currentUser?.id
     }
 

@@ -160,7 +160,19 @@ public enum IrohSubstrate {
         }
         let connection: Connection
         do {
-            connection = try await endpoint.connect(addr: addr, alpn: alpn)
+            // Keep the cancellable ConnectAttempt handle alive for the whole
+            // FFI handshake. A timeout or owner shutdown cancels this task;
+            // the attempt's Rust cancellation token then releases a UDP
+            // blackhole instead of leaving the caller parked in `connect()`.
+            let attempt = try endpoint.beginConnect(addr: addr, alpn: alpn)
+            connection = try await withTaskCancellationHandler(operation: {
+                try Task.checkCancellation()
+                let connected = try await attempt.connect()
+                try Task.checkCancellation()
+                return connected
+            }, onCancel: {
+                attempt.cancel()
+            })
         } catch {
             if TransportDebugLog.enabled {
                 TransportDebugLog.core.error(
@@ -243,9 +255,17 @@ public actor IrohPeerConnection: PeerConnection {
     private let connection: Connection
     private let role: Role
     private let remoteKey: Data
+    /// Genuine handshake deadline; injected for deterministic tests and to
+    /// ensure a peer cannot park the accept loop forever before sending the
+    /// first lane frame.
+    private let handshakeSleep: @Sendable (Duration) async throws -> Void
     private var lanes: [String: IrohLane] = [:]
     private var laneWaiters: [String: [CheckedContinuation<any TransportLane, Never>]] = [:]
     private var acceptLoop: Task<Void, Never>?
+    /// One bounded worker per accepted bidirectional stream. The accept loop
+    /// itself never waits for a peer's `lane.open`/`raw.open` handshake.
+    private var inboundStreamTasks: [UInt64: Task<Void, Never>] = [:]
+    private var inboundStreamCounter: UInt64 = 0
     private var rawStreamHandler: (@Sendable (String, RawByteStream) async -> Void)?
     private var pendingRawStreams: [(String, RawByteStream)] = []
     /// A single FIFO delivery task preserves the arrival order promised by
@@ -255,10 +275,21 @@ public actor IrohPeerConnection: PeerConnection {
     private var closedFlag = false
     private var localTermination: ConnectionTermination?
 
-    public init(connection: Connection, role: Role) {
+    private static let maxConcurrentInboundStreams = 64
+    private static let maxLaneCount = 128
+    private static let inboundOpenDeadline: Duration = .seconds(10)
+
+    public init(
+        connection: Connection,
+        role: Role,
+        handshakeSleep: @escaping @Sendable (Duration) async throws -> Void = { delay in
+            try await ContinuousClock().sleep(for: delay)
+        }
+    ) {
         self.connection = connection
         self.role = role
         self.remoteKey = connection.remoteId().toBytes()
+        self.handshakeSleep = handshakeSleep
     }
 
     /// Must be called once after init (an actor cannot spawn tasks on itself
@@ -360,6 +391,13 @@ public actor IrohPeerConnection: PeerConnection {
         }
         switch role {
         case .dialer:
+            guard lanes.count < Self.maxLaneCount else {
+                if TransportDebugLog.enabled {
+                    TransportDebugLog.core.error(
+                        "conn \(TransportDebugLog.id(self), privacy: .public) lane limit reached (\(Self.maxLaneCount, privacy: .public)); refusing name=\(name, privacy: .public)")
+                }
+                return DeadLane(name: name)
+            }
             do {
                 let stream = try await connection.openBi()
                 // Re-check after the suspension: a concurrent caller may have
@@ -375,7 +413,7 @@ public actor IrohPeerConnection: PeerConnection {
                 let channel = IrohLaneChannel(send: stream.send(), recv: stream.recv())
                 try await channel.sendFrame(
                     Frame(type: Self.laneOpenType, payload: ["name": .string(name)]))
-                let lane = IrohLane(name: name, channel: channel)
+                let lane = makeLane(name: name, channel: channel)
                 lanes[name] = lane
                 if TransportDebugLog.enabled {
                     TransportDebugLog.core.notice(
@@ -453,11 +491,15 @@ public actor IrohPeerConnection: PeerConnection {
                 """)
         }
         acceptLoop?.cancel()
+        for task in inboundStreamTasks.values { task.cancel() }
+        inboundStreamTasks.removeAll()
         rawDeliveryTask?.cancel()
         rawDeliveryTask = nil
         rawDeliveryQueue.removeAll()
         pendingRawStreams.removeAll()
-        for lane in lanes.values {
+        let openLanes = Array(lanes.values)
+        lanes.removeAll()
+        for lane in openLanes {
             await lane.finishSend()
         }
         try? connection.close(
@@ -519,76 +561,53 @@ public actor IrohPeerConnection: PeerConnection {
         return nil
     }
 
+    /// Creates a lane whose end callback returns ownership to this
+    /// connection, allowing completed streams to leave the bounded registry.
+    private func makeLane(name: String, channel: IrohLaneChannel) -> IrohLane {
+        let token = UUID()
+        return IrohLane(name: name, channel: channel, token: token) { [weak self] in
+            await self?.laneEnded(name: name, token: token)
+        }
+    }
+
+    /// Removes a completed lane only when the callback belongs to the stream
+    /// currently registered under that name; a newer stream with the same name
+    /// must not be removed by a stale EOF callback.
+    private func laneEnded(name: String, token: UUID) {
+        guard lanes[name]?.token == token else { return }
+        lanes.removeValue(forKey: name)
+        if TransportDebugLog.enabled {
+            TransportDebugLog.core.notice(
+                "conn \(TransportDebugLog.id(self), privacy: .public) lane released name=\(name, privacy: .public) remaining=\(self.lanes.count, privacy: .public)")
+        }
+    }
+
     private func runAcceptLoop() async {
         while true {
             do {
                 let stream = try await connection.acceptBi()
-                let channel = IrohLaneChannel(send: stream.send(), recv: stream.recv())
-                guard let open = await channel.receiveFrame() else {
-                    if TransportDebugLog.enabled {
-                        TransportDebugLog.core.notice(
-                            """
-                            conn \(TransportDebugLog.id(self), privacy: .public) accept-loop: \
-                            inbound stream EOF before open frame; skipped
-                            """)
-                    }
-                    continue
+                guard !Task.isCancelled, !closedFlag else {
+                    await closeUnadoptedStream(stream)
+                    return
                 }
-                // Raw application streams (graduation bridge): after the one
-                // handshake frame the stream is unframed bytes, handed whole
-                // to the registered owner. Decoder leftovers are re-injected
-                // so no early raw bytes are lost to frame parsing.
-                if open.type == Self.rawOpenType {
-                    let preamble = open.payload["preamble"]?.stringValue ?? ""
-                    let raw = RawByteStream(
-                        send: stream.send(), recv: stream.recv(),
-                        buffered: await channel.drainBufferedBytes())
-                    if TransportDebugLog.enabled {
-                        TransportDebugLog.core.notice(
-                            """
-                            conn \(TransportDebugLog.id(self), privacy: .public) accept-loop: \
-                            inbound raw stream preamble=\(preamble, privacy: .public) \
-                            delivery=\(self.rawStreamHandler != nil ? "handler" : "pending", privacy: .public) \
-                            remainderBytes=\(raw.handshakeRemainder.count, privacy: .public)
-                            """)
-                    }
-                    if rawStreamHandler != nil {
-                        rawDeliveryQueue.append((preamble, raw))
-                        // Delivery is serialized through one FIFO task so the
-                        // handler observes streams in substrate arrival order.
-                        startRawDeliveryIfNeeded()
-                    } else {
-                        pendingRawStreams.append((preamble, raw))
-                    }
-                    continue
-                }
-                guard open.type == Self.laneOpenType,
-                    let name = open.payload["name"]?.stringValue
-                else {
+                guard inboundStreamTasks.count < Self.maxConcurrentInboundStreams else {
                     if TransportDebugLog.enabled {
                         TransportDebugLog.core.error(
                             """
                             conn \(TransportDebugLog.id(self), privacy: .public) accept-loop: \
-                            inbound stream with unexpected open frame \
-                            type=\(open.type, privacy: .public); skipped
+                            inbound stream limit reached (\(Self.maxConcurrentInboundStreams, privacy: .public)); rejecting
                             """)
                     }
+                    await closeUnadoptedStream(stream)
                     continue
                 }
-                let lane = IrohLane(name: name, channel: channel)
-                lanes[name] = lane
-                let resumed = laneWaiters.removeValue(forKey: name) ?? []
-                if TransportDebugLog.enabled {
-                    TransportDebugLog.core.notice(
-                        """
-                        conn \(TransportDebugLog.id(self), privacy: .public) accept-loop: \
-                        inbound lane name=\(name, privacy: .public) \
-                        waitersResumed=\(resumed.count, privacy: .public)
-                        """)
+                inboundStreamCounter &+= 1
+                let taskID = inboundStreamCounter
+                let task = Task { [weak self] in
+                    guard let self else { return }
+                    await self.processInboundStream(stream, taskID: taskID)
                 }
-                for waiter in resumed {
-                    waiter.resume(returning: lane)
-                }
+                inboundStreamTasks[taskID] = task
             } catch {
                 // Connection died (or closed): every waiter gets a dead lane
                 // that EOFs immediately; in-flight lane bytes die with the
@@ -606,6 +625,146 @@ public actor IrohPeerConnection: PeerConnection {
                 return
             }
         }
+    }
+
+    /// Handles one stream independently of the accept loop. A peer that opens
+    /// a stream and never sends its preamble therefore consumes only one
+    /// bounded worker and cannot block later control/application lanes.
+    private func processInboundStream(_ stream: BiStream, taskID: UInt64) async {
+        defer { inboundStreamTasks.removeValue(forKey: taskID) }
+        let channel = IrohLaneChannel(send: stream.send(), recv: stream.recv())
+        guard let open = await receiveOpenFrameWithDeadline(channel: channel) else {
+            if TransportDebugLog.enabled {
+                TransportDebugLog.core.notice(
+                    """
+                    conn \(TransportDebugLog.id(self), privacy: .public) accept-loop: \
+                    inbound stream EOF/deadline before open frame; skipped
+                    """)
+            }
+            await closeUnadoptedStream(stream)
+            return
+        }
+
+        // Raw application streams (graduation bridge): after the one
+        // handshake frame the stream is unframed bytes, handed whole to the
+        // registered owner. `receiveOpenFrame` intentionally leaves all
+        // coalesced bytes in the decoder remainder.
+        if open.type == Self.rawOpenType {
+            let preamble = open.payload["preamble"]?.stringValue ?? ""
+            let raw = RawByteStream(
+                send: stream.send(), recv: stream.recv(),
+                buffered: await channel.drainBufferedBytes())
+            if TransportDebugLog.enabled {
+                TransportDebugLog.core.notice(
+                    """
+                    conn \(TransportDebugLog.id(self), privacy: .public) accept-loop: \
+                    inbound raw stream preamble=\(preamble, privacy: .public) \
+                    delivery=\(self.rawStreamHandler != nil ? "handler" : "pending", privacy: .public) \
+                    remainderBytes=\(raw.handshakeRemainder.count, privacy: .public)
+                    """)
+            }
+            if rawStreamHandler != nil {
+                rawDeliveryQueue.append((preamble, raw))
+                // Delivery is serialized through one FIFO task so the
+                // handler observes streams in substrate arrival order.
+                startRawDeliveryIfNeeded()
+            } else {
+                pendingRawStreams.append((preamble, raw))
+            }
+            return
+        }
+
+        guard open.type == Self.laneOpenType,
+            let name = open.payload["name"]?.stringValue,
+            !name.isEmpty,
+            name.utf8.count <= 256
+        else {
+            if TransportDebugLog.enabled {
+                TransportDebugLog.core.error(
+                    """
+                    conn \(TransportDebugLog.id(self), privacy: .public) accept-loop: \
+                    inbound stream with unexpected open frame type=\(open.type, privacy: .public); closing
+                    """)
+            }
+            if !open.type.hasPrefix(FrameTypePolicy.optionalPrefix) {
+                await closeAll(
+                    reason: ConnectionTermination(code: DenialCode.protocolMismatch.rawValue))
+            }
+            await closeUnadoptedStream(stream)
+            return
+        }
+        guard lanes.count < Self.maxLaneCount else {
+            if TransportDebugLog.enabled {
+                TransportDebugLog.core.error(
+                    """
+                    conn \(TransportDebugLog.id(self), privacy: .public) accept-loop: \
+                    lane limit reached (\(Self.maxLaneCount, privacy: .public)); rejecting name=\(name, privacy: .public)
+                    """)
+            }
+            await closeUnadoptedStream(stream)
+            return
+        }
+        guard lanes[name] == nil else {
+            // Keep the first stream as the lane's single source of truth;
+            // accepting a duplicate would orphan the original consumer and
+            // retain another live QUIC stream indefinitely.
+            if TransportDebugLog.enabled {
+                TransportDebugLog.core.error(
+                    """
+                    conn \(TransportDebugLog.id(self), privacy: .public) accept-loop: \
+                    duplicate inbound lane name=\(name, privacy: .public); rejecting
+                    """)
+            }
+            await closeUnadoptedStream(stream)
+            return
+        }
+
+        let lane = makeLane(
+            name: name,
+            channel: channel)
+        lanes[name] = lane
+        let resumed = laneWaiters.removeValue(forKey: name) ?? []
+        if TransportDebugLog.enabled {
+            TransportDebugLog.core.notice(
+                """
+                conn \(TransportDebugLog.id(self), privacy: .public) accept-loop: \
+                inbound lane name=\(name, privacy: .public) \
+                waitersResumed=\(resumed.count, privacy: .public)
+                """)
+        }
+        for waiter in resumed {
+            waiter.resume(returning: lane)
+        }
+    }
+
+    /// Races the first-frame read against a genuine, cancellable deadline.
+    /// On timeout, stopping the receive half is what wakes the FFI read; task
+    /// cancellation alone is not sufficient for all iroh-ffi versions.
+    private func receiveOpenFrameWithDeadline(channel: IrohLaneChannel) async -> Frame? {
+        let sleep = handshakeSleep
+        return await withTaskGroup(of: Frame?.self) { group in
+            group.addTask { await channel.receiveOpenFrame() }
+            group.addTask {
+                do {
+                    try await sleep(Self.inboundOpenDeadline)
+                } catch {
+                    return nil
+                }
+                return nil
+            }
+            let result = await group.next() ?? nil
+            group.cancelAll()
+            if result == nil {
+                await channel.abortReceive()
+            }
+            await group.waitForAll()
+            return result
+        }
+    }
+
+    private func closeUnadoptedStream(_ stream: BiStream) async {
+        try? await stream.send().finish()
+        try? await stream.recv().stop(errorCode: 1)
     }
 
     private func resumeAllWaitersClosed() {
@@ -652,13 +811,25 @@ public actor IrohPeerConnection: PeerConnection {
 /// One lane on one QUIC stream. Single-consumer, like every lane (see
 /// LaneFrames); the channel actor serializes writers so concurrent sends
 /// cannot interleave bytes mid-frame.
-public final class IrohLane: TransportLane {
-    public let name: String
+public actor IrohLane: TransportLane {
+    public nonisolated let name: String
     private let channel: IrohLaneChannel
+    /// Stable token used by the owning connection to remove this lane only
+    /// if the callback belongs to the currently registered stream.
+    nonisolated let token: UUID
+    private let onEnd: (@Sendable () async -> Void)?
+    private var endNotified = false
 
-    init(name: String, channel: IrohLaneChannel) {
+    init(
+        name: String,
+        channel: IrohLaneChannel,
+        token: UUID = UUID(),
+        onEnd: (@Sendable () async -> Void)? = nil
+    ) {
         self.name = name
         self.channel = channel
+        self.token = token
+        self.onEnd = onEnd
     }
 
     public func send(_ frame: Frame) async throws {
@@ -666,7 +837,12 @@ public final class IrohLane: TransportLane {
     }
 
     public func receive() async -> Frame? {
-        await channel.receiveFrame()
+        let frame = await channel.receiveFrame()
+        if frame == nil, !endNotified {
+            endNotified = true
+            await onEnd?()
+        }
+        return frame
     }
 
     /// QUIC flow control provides the survivable per-lane backpressure (5.3)
@@ -705,12 +881,11 @@ actor IrohLaneChannel {
     func receiveFrame() async -> Frame? {
         while pending.isEmpty && !eof {
             do {
-                let data = try await recvStream.read(sizeLimit: 1 << 16)
-                if data.isEmpty {
-                    eof = true
-                    break
-                }
-                let frames = try decoder.feed(data)
+                // First decode any complete frames left by the opening-frame
+                // handoff. A coalesced lane.open + data frame must be
+                // available immediately; waiting for another network read
+                // here would otherwise stall a perfectly live lane.
+                var frames = try decoder.feed(Data())
                 let encoded = decoder.drainEncodedFrames()
                 // The decoder emits one encoded byte sequence per frame. Keep
                 // the pairing so a framed-to-raw handoff can replay exact wire
@@ -720,11 +895,57 @@ actor IrohLaneChannel {
                     break
                 }
                 pending.append(contentsOf: zip(frames, encoded).map { (frame: $0.0, encoded: $0.1) })
+                if !pending.isEmpty { break }
+
+                let data = try await recvStream.read(sizeLimit: 1 << 16)
+                if data.isEmpty {
+                    eof = true
+                    break
+                }
+                frames = try decoder.feed(data)
+                let encodedAfterRead = decoder.drainEncodedFrames()
+                guard frames.count == encodedAfterRead.count else {
+                    eof = true
+                    break
+                }
+                pending.append(contentsOf: zip(frames, encodedAfterRead).map { (frame: $0.0, encoded: $0.1) })
             } catch {
                 eof = true
             }
         }
         return pending.isEmpty ? nil : pending.removeFirst().frame
+    }
+
+    /// Reads exactly one opening frame and leaves all coalesced bytes in the
+    /// decoder remainder for a later raw-stream consumer. Unlike
+    /// ``receiveFrame()``, this never attempts to parse bytes after the
+    /// opening frame as JSON.
+    func receiveOpenFrame() async -> Frame? {
+        while !eof {
+            do {
+                let data = try await recvStream.read(sizeLimit: 1 << 16)
+                if data.isEmpty {
+                    eof = true
+                    break
+                }
+                if let frame = try decoder.feedFirst(data) {
+                    // The opening frame is consumed by the caller; do not
+                    // leave its captured wire bytes in the handoff queue.
+                    _ = decoder.drainEncodedFrames()
+                    return frame
+                }
+            } catch {
+                eof = true
+                break
+            }
+        }
+        return nil
+    }
+
+    /// Wakes a pending receive when a handshake deadline expires.
+    func abortReceive() async {
+        try? await recvStream.stop(errorCode: 1)
+        eof = true
     }
 
     func finish() async {

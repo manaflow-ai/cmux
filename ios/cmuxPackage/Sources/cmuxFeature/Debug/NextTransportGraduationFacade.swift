@@ -33,7 +33,7 @@ struct NextTransportDenialPolicy: Sendable {
 
     init(credentialDenials: Set<DenialCode> = [
         .invalidSignature, .expired, .revoked,
-        .keyMismatch, .deviceIDMismatch, .appMismatch,
+        .keyMismatch, .deviceIDMismatch, .appMismatch, .accountMismatch,
     ]) {
         self.credentialDenials = credentialDenials
     }

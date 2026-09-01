@@ -29,7 +29,7 @@ struct NextTransportDialSurfaceTests {
         "typed policy invalidates on every credential denial",
         arguments: [
             "invalid-signature", "expired", "revoked",
-            "key-mismatch", "device-id-mismatch", "app-mismatch",
+            "key-mismatch", "device-id-mismatch", "app-mismatch", "account-mismatch",
         ])
     func typedPolicyInvalidatesCredentialDenials(raw: String) {
         guard let denial = DenialCode(rawValue: raw) else {

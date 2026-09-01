@@ -58,6 +58,24 @@ struct FramingTests {
         #expect(decoder.drainEncodedFrames() == [wire])
     }
 
+    @Test("Opening-frame decode preserves coalesced raw bytes verbatim")
+    func openingFrameLeavesRawRemainder() throws {
+        let opening = Frame(type: "raw.open", payload: ["preamble": .string("ctl")])
+        let encodedOpening = try FrameEncoder().encode(opening)
+        let rawBytes = Data([0x00, 0x01, 0x02, 0xFF, 0x7F])
+        var decoder = FrameDecoder(captureEncodedFrames: true)
+        var coalesced = encodedOpening
+        coalesced.append(rawBytes)
+
+        let decodedOptional = try decoder.feedFirst(coalesced)
+        let decoded = try #require(decodedOptional)
+        #expect(decoded == opening)
+        #expect(decoder.drainRemainder() == rawBytes)
+        // The opening frame remains available for diagnostics, but it is not
+        // part of the raw handoff remainder.
+        #expect(decoder.drainEncodedFrames() == [encodedOpening])
+    }
+
     @Test("Rejects oversize frames before buffering them")
     func oversizeRejected() throws {
         var decoder = FrameDecoder()

@@ -170,6 +170,41 @@ public struct FrameDecoder: Sendable {
         }
         return frames
     }
+
+    /// Decodes only the first complete frame in `chunk`, leaving every byte
+    /// after that frame in the decoder's remainder. This is required for a
+    /// framed-to-raw handoff: one network read may coalesce the handshake
+    /// frame with arbitrary application bytes that are not themselves frames.
+    ///
+    /// - Parameter chunk: The next arbitrary network read.
+    /// - Returns: The first complete frame, or `nil` while its header/body is
+    ///   still incomplete.
+    public mutating func feedFirst(_ chunk: Data) throws -> Frame? {
+        buffer.append(chunk)
+        guard buffer.count >= 4 else { return nil }
+        let length = buffer.prefix(4).reduce(0) { ($0 << 8) | Int($1) }
+        guard length <= CmuxPeerProtocol.maxFrameLength else {
+            throw FrameCodecError.frameTooLarge(length: length)
+        }
+        guard buffer.count >= 4 + length else { return nil }
+
+        let encoded = Data(buffer.prefix(4 + length))
+        let body = Data(encoded.dropFirst(4))
+        buffer.removeFirst(4 + length)
+        let envelope: FrameEnvelope
+        do {
+            envelope = try JSONDecoder().decode(FrameEnvelope.self, from: body)
+        } catch {
+            throw FrameCodecError.malformedJSON
+        }
+        guard envelope.v == CmuxPeerProtocol.version else {
+            throw FrameCodecError.unsupportedVersion(envelope.v)
+        }
+        if capturesEncodedFrames {
+            encodedFrames.append(encoded)
+        }
+        return Frame(type: envelope.t, payload: envelope.p?.objectValue ?? [:])
+    }
 }
 
 struct FrameEnvelope: Codable {

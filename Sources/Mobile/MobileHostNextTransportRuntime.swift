@@ -211,6 +211,11 @@ final class MobileHostNextTransportRuntime {
     /// generation, disable bumps it, and every post-await step re-checks it,
     /// so a stale start can never publish (or clobber a newer one).
     private var generation: UInt64 = 0
+    /// Auth lifecycle observer; a sign-out or account switch immediately
+    /// tears down the parallel endpoint so an old account's grants cannot
+    /// continue reaching the application lanes.
+    private var authObservationTask: Task<Void, Never>?
+    private var observedAccountID: String?
 
     /// OFF by default, even in dev builds: the defaults key must opt in.
     /// The Debug > Next Transport toggle is the control surface.
@@ -226,6 +231,34 @@ final class MobileHostNextTransportRuntime {
             startIfEnabled()
         } else {
             beginStop(reason: "setEnabled(false)")
+        }
+    }
+
+    /// Binds the runtime to the app's authenticated-session lifecycle. The
+    /// observer is deliberately owned here (rather than a static hook), so
+    /// every start/stop path shares one account fence.
+    func configure(auth: AuthCoordinator) {
+        authObservationTask?.cancel()
+        authObservationTask = Task { @MainActor [weak self] in
+            await auth.awaitBootstrapped()
+            guard !Task.isCancelled, let self else { return }
+            let identities = auth.authenticatedSessionIdentities()
+            for await identity in identities {
+                guard !Task.isCancelled else { return }
+                let accountID = identity?.accountID
+                let previous = self.observedAccountID
+                self.observedAccountID = accountID
+                if previous != nil, previous != accountID {
+                    self.beginStop(reason: "authenticated account changed")
+                } else if accountID == nil, self.endpoint != nil || self.startTask != nil {
+                    self.beginStop(reason: "authenticated session ended")
+                }
+                if accountID != nil, self.isEnabled, self.endpoint == nil,
+                    self.startTask == nil
+                {
+                    self.startIfEnabled()
+                }
+            }
         }
     }
 
@@ -390,9 +423,19 @@ final class MobileHostNextTransportRuntime {
                 """)
             return .failure(.notReady(readiness: readiness, state: state))
         }
+        guard let accountID = MobileHostService.shared.currentAuthenticatedLocalUserIDIfReady(),
+            !accountID.isEmpty
+        else {
+            // Never mint a grant with a placeholder account. A grant issued
+            // while signed out would remain cryptographically valid after a
+            // later account switch and could cross the host's trust boundary.
+            mobileHostNextTransportLog.notice(
+                "grant mint refused: no authenticated account")
+            return .failure(.notReady(readiness: readiness, state: state))
+        }
         guard
             let grant = try? signer.mint(
-                accountID: "acct-dev", deviceID: deviceID,
+                accountID: accountID, deviceID: deviceID,
                 devicePublicKey: devicePublicKey, appIdentity: appIdentity,
                 grantID: "g-dev-\(UUID().uuidString.prefix(8))",
                 issuedAt: Int64(Date().timeIntervalSince1970)),
@@ -424,6 +467,15 @@ final class MobileHostNextTransportRuntime {
         readiness = .starting
         mobileHostNextTransportLog.notice("host start begin state=starting")
         do {
+            // The parallel host is account-bound. Do not bind an endpoint or
+            // mint grants while auth is signed out; the auth observer retries
+            // after the next authenticated session is published.
+            guard await MobileHostService.shared.currentAuthenticatedLocalUserID() != nil else {
+                state = "waiting for authenticated account"
+                mobileHostNextTransportLog.notice(
+                    "host start deferred: no authenticated account")
+                return
+            }
             // Keys live in the Keychain (one-time migration from the legacy
             // UserDefaults copies); identity is stable per install, separate
             // from the legacy transport's identity (parallel hosts, parallel
@@ -434,7 +486,10 @@ final class MobileHostNextTransportRuntime {
             guard generation == gen else { return }
             self.signer = signer
             let host = TransportHost(
-                verifier: GrantVerifier(serverPublicKeyData: signer.publicKeyData))
+                verifier: GrantVerifier(serverPublicKeyData: signer.publicKeyData),
+                accountIDProvider: {
+                    await MobileHostService.shared.currentAuthenticatedLocalUserID()
+                })
             self.host = host
 
             // Staging credentials via the same self-minting client the

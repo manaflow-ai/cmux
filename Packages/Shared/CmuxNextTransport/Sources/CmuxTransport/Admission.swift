@@ -158,6 +158,10 @@ public enum DenialCode: String, Sendable, Equatable, CaseIterable {
     case deviceIDMismatch = "device-id-mismatch"
     /// e.g. cmux BETA presenting cmux INTERNAL's grant (contract 1.4).
     case appMismatch = "app-mismatch"
+    /// Grant belongs to a different signed-in account than the host currently
+    /// serving this connection. Account binding is checked only when the host
+    /// supplies an expected account identity.
+    case accountMismatch = "account-mismatch"
     case malformedHello = "malformed-hello"
     case protocolMismatch = "protocol-mismatch"
 }
@@ -178,7 +182,8 @@ public struct GrantVerifier: Sendable {
 
     public func decide(
         grant: PairingGrant, presentedByKey: Data, presentedByDeviceID: String,
-        presentedByApp: String, revokedGrantIDs: Set<String>, now: Int64
+        presentedByApp: String, revokedGrantIDs: Set<String>, now: Int64,
+        expectedAccountID: String? = nil
     ) -> AdmissionDecision {
         guard
             let key = try? Curve25519.Signing.PublicKey(rawRepresentation: serverPublicKeyData),
@@ -194,6 +199,11 @@ public struct GrantVerifier: Sendable {
         }
         guard grant.appIdentity == presentedByApp else {
             return .deny(.appMismatch)
+        }
+        if let expectedAccountID,
+            (expectedAccountID.isEmpty || grant.accountID != expectedAccountID)
+        {
+            return .deny(.accountMismatch)
         }
         if revokedGrantIDs.contains(grant.grantID) {
             return .deny(.revoked)

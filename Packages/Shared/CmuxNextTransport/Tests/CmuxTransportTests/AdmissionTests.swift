@@ -89,6 +89,33 @@ struct AdmissionTests {
         let decoded = PairingGrant(payloadValue: grant.payloadValue)
         #expect(decoded == grant)
     }
+
+    @Test("Account-bound verification fails closed across account changes")
+    func accountBinding() throws {
+        let identity = PeerIdentity.generate(appIdentity: "dev.cmux.lite", deviceID: "phone-1")
+        let grant = try mint(for: identity)
+        let verifier = GrantVerifier(serverPublicKeyData: signer.publicKeyData)
+        #expect(
+            verifier.decide(
+                grant: grant,
+                presentedByKey: identity.publicKeyData,
+                presentedByDeviceID: identity.deviceID,
+                presentedByApp: identity.appIdentity,
+                revokedGrantIDs: [],
+                now: now,
+                expectedAccountID: "acct-1"
+            ) == .admit)
+        #expect(
+            verifier.decide(
+                grant: grant,
+                presentedByKey: identity.publicKeyData,
+                presentedByDeviceID: identity.deviceID,
+                presentedByApp: identity.appIdentity,
+                revokedGrantIDs: [],
+                now: now,
+                expectedAccountID: "acct-2"
+            ) == .deny(.accountMismatch))
+    }
 }
 
 extension AdmissionTests {

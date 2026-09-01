@@ -66,6 +66,7 @@ public actor ReconnectOwner {
     /// listener starved. Everything the host says post-admission surfaces
     /// here or nowhere.
     private let onControlFrame: (@Sendable (Frame) async -> Void)?
+    private let frameTypePolicy = FrameTypePolicy()
 
     public init(
         config: Config = Config(),
@@ -408,6 +409,23 @@ public actor ReconnectOwner {
                 // dequeued (or one racing the cancellation's resume) still
                 // reaches this point — surface nothing after shutdown.
                 if Task.isCancelled { break }
+                switch frameTypePolicy.classify(frame.type) {
+                case .known, .ignorableUnknown:
+                    break
+                case .fatalUnknown:
+                    if TransportDebugLog.enabled {
+                        TransportDebugLog.core.error(
+                            """
+                            owner \(TransportDebugLog.id(self), privacy: .public) ctl unknown \
+                            mandatory frame; closing conn=\(TransportDebugLog.id(conn), privacy: .public) \
+                            type=\(frame.type, privacy: .public)
+                            """)
+                    }
+                    await conn.closeAll(
+                        reason: ConnectionTermination(code: DenialCode.protocolMismatch.rawValue))
+                    break
+                }
+                if frameTypePolicy.classify(frame.type) == .fatalUnknown { break }
                 if TransportDebugLog.enabled {
                     TransportDebugLog.core.notice(
                         """

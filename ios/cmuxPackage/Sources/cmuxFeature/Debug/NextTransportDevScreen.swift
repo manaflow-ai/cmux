@@ -1,6 +1,7 @@
 #if DEBUG && os(iOS)
 import CmuxNextTransport
 import SwiftUI
+import UIKit
 
 /// Graduation P4 slice 3 UI: the dev dial surface for the parallel
 /// next-transport host. Launched exactly like the other Debug alternate
