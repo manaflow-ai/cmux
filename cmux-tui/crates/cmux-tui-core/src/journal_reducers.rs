@@ -1011,11 +1011,7 @@ mod tests {
         assert!(roster.apply(&plugin).is_empty());
         assert_eq!(roster.entries["term_a"].source, "hook");
         let plugin_payload = plugin_payload(40_000);
-        let plugin = RosterEvent {
-            payload: &plugin_payload,
-            committed_at_ms: 40_000,
-            ..plugin
-        };
+        let plugin = RosterEvent { payload: &plugin_payload, committed_at_ms: 40_000, ..plugin };
         assert_eq!(roster.apply(&plugin).len(), 1);
         assert_eq!(roster.entries["term_a"].source, "plugin");
     }
