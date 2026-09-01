@@ -3,11 +3,13 @@ package main
 import (
 	"bufio"
 	"encoding/json"
+	"fmt"
 	"net"
 	"os"
 	"path/filepath"
 	"regexp"
 	"strings"
+	"sync"
 	"testing"
 )
 
@@ -172,6 +174,44 @@ func TestTmuxCompatStoreRoundTrip(t *testing.T) {
 		t.Error("missing main vertical layout for ws1")
 	} else if mvs.LastColumnSurfaceId != "surface-col" {
 		t.Errorf("lastColumnSurfaceId = %q, want %q", mvs.LastColumnSurfaceId, "surface-col")
+	}
+}
+
+func TestTmuxCompatStoreConcurrentMutations(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+
+	const writers = 20
+	errors := make(chan error, writers)
+	var group sync.WaitGroup
+	group.Add(writers)
+	for i := 0; i < writers; i++ {
+		i := i
+		go func() {
+			defer group.Done()
+			errors <- withLockedTmuxCompatStore(func(store *tmuxCompatStore) error {
+				store.Buffers["buf-"+fmt.Sprint(i)] = "payload-" + fmt.Sprint(i)
+				return nil
+			})
+		}()
+	}
+	group.Wait()
+	close(errors)
+	for err := range errors {
+		if err != nil {
+			t.Fatalf("concurrent mutation: %v", err)
+		}
+	}
+
+	store := loadTmuxCompatStore()
+	if len(store.Buffers) != writers {
+		t.Fatalf("buffer count = %d, want %d", len(store.Buffers), writers)
+	}
+	for i := 0; i < writers; i++ {
+		name := "buf-" + fmt.Sprint(i)
+		if store.Buffers[name] != "payload-"+fmt.Sprint(i) {
+			t.Errorf("buffer %s = %q, want payload-%d", name, store.Buffers[name], i)
+		}
 	}
 }
 
