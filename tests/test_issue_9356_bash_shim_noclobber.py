@@ -147,6 +147,9 @@ def _run_prompt_command_export_regression() -> None:
         newer_bash = find_newer_bash()
 
     if newer_bash is None:
+        if os.environ.get("GITHUB_ACTIONS") != "true":
+            print("SKIP: newer Bash is unavailable outside CI")
+            return
         raise RuntimeError(
             "Bash prompt export regression requires /bin/bash 3.2 and a distinct "
             "newer Bash executable"
