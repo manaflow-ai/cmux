@@ -175,7 +175,7 @@ actor CloudMachineLinkManager {
             await approval.value
         }
         guard let link = links[machineID] else {
-            throw ManagerError.retryLater("Cloud VM link disappeared while opening port (port).")
+            throw ManagerError.retryLater("Cloud VM link disappeared while opening port \(port).")
         }
         return try await link.forward(port: port, endpoint: endpoint)
     }

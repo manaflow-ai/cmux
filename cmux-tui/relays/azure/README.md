@@ -31,6 +31,9 @@ plane assigns two stable shards to each machine, passes the machine ticket
 helper and shard catalog to all four current providers, and gives clients
 short-lived Connect tickets through the Stack-authenticated API.
 
+Use the issuer convention `cmux-cloud-<shard>` in the relay catalog. The Azure
+cloud-init service sets that value for the matching shard.
+
 Do not put several relay processes behind one generic load balancer. The machine
 and client use different network flows, so a five-tuple hash cannot guarantee
 that both reach the same process. Add a shared circuit store or a route-aware
@@ -159,8 +162,9 @@ Use an immutable binary digest and a rolling VMSS model update. Before a
 planned replacement, systemd sends `SIGTERM` to the relay. The relay marks
 itself not ready, Azure stops sending new traffic, and existing sockets drain.
 Clients retry with unlimited attempts by default, exponential backoff from
-100 ms to 5 seconds, jitter, and heartbeats. The daemon retains replayable
-remote lanes for its resume lease and replays them after reconnect. Tunnel
+100 ms to 5 seconds, full jitter, and heartbeats. The daemon registration loop
+uses the same bounded exponential range and keeps retrying until shutdown. The
+daemon retains replayable remote lanes for its resume lease and replays them after reconnect. Tunnel
 streams are not replayed after a disconnect because repeating a TCP write can
 have an external side effect.
 
