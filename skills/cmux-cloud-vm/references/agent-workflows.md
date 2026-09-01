@@ -48,6 +48,19 @@ The agent runs as a detached terminal in the machine's cmux-tui session: it keep
 
 Inside the machine the agent authenticates like it would locally (its own login, or CodeRouter's env/config under `/root`, set once with `vm exec`). Never copy the user's tokens onto a machine unless they ask.
 
+## 2b. Drive an interactive program headlessly (REPL, TUI, watch mode, another agent)
+
+```bash
+out=$(cmux surface new-terminal --machine <id> --no-open --json --cwd /root/work/app -- bun test --watch)
+term=$(echo "$out" | jq -r '.terminal_id')
+cmux vm terminal wait <id> "$term" --pattern 'Waiting for file changes|passed|failed' --timeout 300
+cmux vm terminal read <id> "$term"                                # the screen a person would see
+cmux vm terminal send <id> "$term" --keys ctrl+c                  # stop it; `send … 'text' --keys enter` types a line
+cmux vm terminal close <id> "$term"                               # done with it
+```
+
+No pane is attached and no focus moves; a pane the user already has on that terminal shows the same input. `terminal wait` exits 1 on timeout with the screen tail, so branch on it rather than sleeping.
+
 ## 3. Repo with history (private repos, no credentials on the machine)
 
 ```bash
@@ -64,6 +77,7 @@ Public repos can just clone on the machine: `cmux vm exec <id> -- git clone http
 run=test-$(uuidgen | tr 'A-Z' 'a-z' | cut -c1-8)
 cmux vm exec <id> -- sh -c "cd work/app && rm -f /tmp/$run.log /tmp/$run.status && nohup sh -c 'make test > /tmp/$run.log 2>&1; echo \$? > /tmp/$run.status.tmp && mv /tmp/$run.status.tmp /tmp/$run.status' >/dev/null 2>&1 &"
 cmux vm exec <id> -- sh -c "cat /tmp/$run.status 2>/dev/null || echo running"   # poll; status appears atomically when done
+# or skip the pidfile dance: `cmux vm run --machine <id> --timeout 900 -- sh -c 'cd work/app && make test'` blocks up to 15 min and passes the exit code through
 cmux vm exec <id> -- tail -n 30 /tmp/$run.log
 cmux vm pull <id> work/app/dist ./dist-from-cloud
 ```
@@ -107,5 +121,5 @@ Pair with `cmux notify` so they know why a pane appeared. Prefer `--print`/`--de
 ## 8. Cleanup etiquette
 
 - Machines sleep on their own — idle machines cost nothing while asleep, so leaving one for the user to inspect is fine (say so in your handoff).
-- Delete forks and scratch machines you created once their purpose is served.
+- Delete forks and scratch machines you created once their purpose is served; close the workspaces and terminals you opened on a shared machine (`vm terminal close`, `vm workspace rm`).
 - Never `vm rm` or `vm base reset` a machine you didn't create without explicit user confirmation — both discard data permanently.
