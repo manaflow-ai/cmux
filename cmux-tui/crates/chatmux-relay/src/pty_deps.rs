@@ -752,9 +752,9 @@ fn spawn_real_pty(spec: &SpawnSpec) -> anyhow::Result<PtyHandle> {
     let exit_completion = Arc::clone(&completion);
     let wait_lifecycle = Arc::clone(&lifecycle);
     std::thread::spawn(move || {
-        let observed_exit = child
-            .process_id()
-            .is_some_and(|pid| wait_for_child_exit_without_reaping(pid as libc::pid_t).is_ok());
+        let process_id = child.process_id().map(|pid| pid as libc::pid_t);
+        let observed_exit =
+            process_id.is_some_and(|pid| wait_for_child_exit_without_reaping(pid).is_ok());
         if observed_exit {
             wait_lifecycle.mark_exited_before_reap();
         } else if wait_lifecycle.begin_termination() {
@@ -762,6 +762,9 @@ fn spawn_real_pty(spec: &SpawnSpec) -> anyhow::Result<PtyHandle> {
             // owned child handle to kill. This keeps a late control drop from
             // racing a PID that the eventual wait may release.
             let _ = child.kill();
+            if let Some(pid) = process_id {
+                force_kill_process_group(pid);
+            }
         }
         // Fence all late control cleanup before entering wait. Once wait
         // starts, the child may be reaped and its PID reused, so no later

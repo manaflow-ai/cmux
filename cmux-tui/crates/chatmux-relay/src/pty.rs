@@ -1072,7 +1072,6 @@ impl Inner {
             if owner.as_deref() == transport_id {
                 opening.cancelled.insert(pty_id.to_owned());
             }
-            return;
         }
         drop(opening);
         let Some(attachment) = self.attachments.lock().expect("attach lock").get(pty_id).cloned()
