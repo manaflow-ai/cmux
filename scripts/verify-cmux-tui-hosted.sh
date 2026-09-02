@@ -349,6 +349,10 @@ artifact_dir="cmux-tui/target/hosted/$commit"
 artifact_binary="$artifact_dir/cmux-tui"
 artifact_root="cmux-tui/target/hosted"
 artifact_parent="cmux-tui/target"
+if ! cmux_hosted_retention_validate_no_symlink_ancestors "$repo_root" cmux-tui target hosted; then
+  echo "error: hosted artifact path contains a symbolic-link ancestor" >&2
+  exit 2
+fi
 if [[ -L "$artifact_parent" || ! -d "$artifact_parent" || ! -O "$artifact_parent" ]]; then
   echo "error: hosted artifact parent is missing, symbolic, or not owned by this user" >&2
   exit 2

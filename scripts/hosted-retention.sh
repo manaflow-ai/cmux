@@ -26,6 +26,22 @@ cmux_hosted_retention_command_available() {
   fi
 }
 
+# Check every existing component before a caller creates or removes anything
+# below the path. This blocks a symlinked checkout ancestor from redirecting
+# artifact publication or retention cleanup outside the repository.
+cmux_hosted_retention_validate_no_symlink_ancestors() {
+  local base_path="$1"
+  shift
+  local component
+  local current_path="$base_path"
+
+  for component in "$@"; do
+    [[ -n "$component" && "$component" != . && "$component" != .. && "$component" != */* ]] || return 1
+    current_path="$current_path/$component"
+    [[ ! -L "$current_path" ]] || return 1
+  done
+}
+
 cmux_hosted_retention_bounded_integer() {
   local value="$1"
   local maximum="$2"
