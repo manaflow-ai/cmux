@@ -462,7 +462,7 @@ impl PtyManager {
                 };
                 if let Some(attachment) = self.inner.authorize(pty_id, context, "input") {
                     let accepted =
-                        self.inner.with_live_attachment(pty_id, &attachment, |control| {
+                        self.inner.with_live_attachment(pty_id, &attachment, context, |control| {
                             control.write(&data)
                         });
                     if accepted == Some(false) {
@@ -486,9 +486,10 @@ impl PtyManager {
                     return;
                 };
                 if let Some(attachment) = self.inner.authorize(pty_id, context, "resize") {
-                    let _ = self.inner.with_live_attachment(pty_id, &attachment, |control| {
-                        control.resize(cols, rows);
-                    });
+                    let _ =
+                        self.inner.with_live_attachment(pty_id, &attachment, context, |control| {
+                            control.resize(cols, rows)
+                        });
                 }
             }
             "pty_flow" => {
@@ -498,13 +499,14 @@ impl PtyManager {
                 }
                 let pause = frame.get("pause").and_then(Value::as_bool).unwrap_or(false);
                 if let Some(attachment) = self.inner.authorize(pty_id, context, "flow") {
-                    let _ = self.inner.with_live_attachment(pty_id, &attachment, |control| {
-                        if pause {
-                            control.pause();
-                        } else {
-                            control.resume();
-                        }
-                    });
+                    let _ =
+                        self.inner.with_live_attachment(pty_id, &attachment, context, |control| {
+                            if pause {
+                                control.pause();
+                            } else {
+                                control.resume();
+                            }
+                        });
                 }
             }
             "pty_close" => {
@@ -1121,10 +1123,11 @@ impl Inner {
         &self,
         pty_id: &str,
         attachment: &Attachment,
+        context: &FrameContext,
         operation: impl FnOnce(&dyn PtyControl) -> R,
     ) -> Option<R> {
         let _publication = attachment.publication_gate.lock().expect("attachment publication lock");
-        {
+        let actor_id = {
             let attachments = self.attachments.lock().expect("attach lock");
             let Some(current) = attachments.get(pty_id) else { return None };
             if current.generation != attachment.generation
@@ -1133,6 +1136,14 @@ impl Inner {
             {
                 return None;
             }
+            current.actor_id.clone()
+        };
+        // Authorization can change after the initial frame snapshot. Recheck
+        // it while the publication gate excludes detach and replacement, so a
+        // revoked context cannot send a control operation to the old
+        // attachment generation.
+        if !(context.live_authorized)(&actor_id) {
+            return None;
         }
         Some(operation(attachment.control.as_ref()))
     }
@@ -2861,6 +2872,11 @@ mod tests {
         let mut context = h.context("supervised", h.owner.clone());
         let live_auth_for_context = Arc::clone(&live_auth);
         context.live_auth = Arc::new(move || live_auth_for_context.lock().unwrap().clone());
+        let live_auth_for_authorized = Arc::clone(&live_auth);
+        context.live_authorized = Arc::new(move |actor| {
+            let (trust, owner) = live_auth_for_authorized.lock().unwrap().clone();
+            !trust.is_empty() && (trust != "observe" || owner.as_deref() == Some(actor))
+        });
         let frame = serde_json::json!({
             "version": 4,
             "type": "pty_open",
