@@ -13,10 +13,10 @@
 -- Blaxel machines BEFORE applying this migration — afterwards nothing in the
 -- control plane can address them.
 
-UPDATE "cloud_vms" SET "provider" = 'e2b' WHERE "provider" = 'blaxel';
-UPDATE "cloud_vm_usage_events" SET "provider" = 'e2b' WHERE "provider" = 'blaxel';
-UPDATE "cloud_vm_bases" SET "active_provider" = 'e2b' WHERE "active_provider" = 'blaxel';
-UPDATE "cloud_vm_base_generations" SET "provider" = 'e2b' WHERE "provider" = 'blaxel';
+UPDATE "cloud_vms" SET "provider" = 'e2b' WHERE "provider"::text = 'blaxel';
+UPDATE "cloud_vm_usage_events" SET "provider" = 'e2b' WHERE "provider"::text = 'blaxel';
+UPDATE "cloud_vm_bases" SET "active_provider" = 'e2b' WHERE "active_provider"::text = 'blaxel';
+UPDATE "cloud_vm_base_generations" SET "provider" = 'e2b' WHERE "provider"::text = 'blaxel';
 
 ALTER TYPE "vm_provider" RENAME TO "vm_provider_old";
 CREATE TYPE "vm_provider" AS ENUM ('e2b', 'freestyle', 'daytona');
