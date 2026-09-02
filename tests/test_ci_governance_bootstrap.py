@@ -46,4 +46,5 @@ def test_gate_workflow_is_read_only_and_has_both_lifecycle_triggers() -> None:
 
 if __name__ == "__main__":
     test_sensitive_ci_inputs_have_two_trusted_owners()
+    test_gate_workflow_is_read_only_and_has_both_lifecycle_triggers()
     print("PASS: bootstrap CI governance contract")

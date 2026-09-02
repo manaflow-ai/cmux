@@ -27,7 +27,7 @@ COMMON = tuple(module.COMMON_REQUIRED)
 
 def needs(outputs: dict[str, str], *, results: dict[str, str] | None = None) -> dict[str, object]:
     results = results or {}
-    outputs = dict(outputs)
+    route_outputs = dict(outputs)
     names = COMMON + ("linux-preflight", "tests") + ROUTE_JOBS
     return {
         name: {
@@ -37,7 +37,7 @@ def needs(outputs: dict[str, str], *, results: dict[str, str] | None = None) -> 
                 if name in COMMON or name in {"linux-preflight", "tests"}
                 else "skipped",
             ),
-            "outputs": outputs if name == "changes" else {},
+            "outputs": dict(route_outputs) if name == "changes" else {},
         }
         for name in names
     }
