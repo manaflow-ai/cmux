@@ -26,7 +26,7 @@ use std::fs::File;
 use std::os::fd::AsRawFd;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, OnceLock};
 use std::time::Duration;
 use tokio::sync::Notify;
 use tokio_util::sync::CancellationToken;
@@ -489,6 +489,39 @@ struct ControlLease {
     released: AtomicBool,
 }
 
+struct DeferredDetach {
+    control: Arc<dyn ControlHandle>,
+    lease: Arc<ControlLease>,
+    params: Value,
+}
+
+const DEFERRED_DETACH_QUEUE: usize = 256;
+static DEFERRED_DETACH_TX: OnceLock<std::sync::mpsc::SyncSender<DeferredDetach>> = OnceLock::new();
+
+fn enqueue_off_runtime_detach(task: DeferredDetach) -> Result<(), DeferredDetach> {
+    let sender = DEFERRED_DETACH_TX.get_or_init(|| {
+        let (sender, receiver) = std::sync::mpsc::sync_channel(DEFERRED_DETACH_QUEUE);
+        let _ = std::thread::Builder::new().name("cmux-relay-detach".to_owned()).spawn(move || {
+            let Ok(runtime) = tokio::runtime::Builder::new_current_thread().enable_all().build()
+            else {
+                while let Ok(task) = receiver.recv() {
+                    let _ = task.control.send("detach-attached-view", task.params);
+                    task.lease.finish_count();
+                }
+                return;
+            };
+            while let Ok(task) = receiver.recv() {
+                let _ = runtime.block_on(detach_control_with_deadline(&task.control, task.params));
+                task.lease.finish_count();
+            }
+        });
+        // A failed spawn drops the receiver with its closure, so enqueue
+        // reports failure and the caller retires ownership synchronously.
+        sender
+    });
+    sender.try_send(task).map_err(|error| error.into_inner())
+}
+
 impl ControlLease {
     fn finish_count(&self) {
         let Some(inner) = self.inner.upgrade() else { return };
@@ -528,22 +561,18 @@ impl ControlLease {
                 });
                 return;
             }
-            // PTY callbacks can run on a non-Tokio thread. Keep the same
-            // writer-acceptance ordering there by owning a short-lived
-            // current-thread runtime until the bounded send completes.
-            let control = Arc::clone(&self.control);
-            let lease = Arc::clone(self);
-            std::thread::spawn(move || {
-                let fallback_params = params.clone();
-                if let Ok(runtime) =
-                    tokio::runtime::Builder::new_current_thread().enable_all().build()
-                {
-                    let _ = runtime.block_on(detach_control_with_deadline(&control, params));
-                } else {
-                    let _ = control.send("detach-attached-view", fallback_params);
-                }
-                lease.finish_count();
-            });
+            // PTY callbacks can run on a non-Tokio thread. Use one bounded
+            // worker queue so rapid release churn cannot create one OS thread
+            // and runtime per attachment.
+            let task = DeferredDetach {
+                control: Arc::clone(&self.control),
+                lease: Arc::clone(self),
+                params,
+            };
+            if let Err(task) = enqueue_off_runtime_detach(task) {
+                let _ = task.control.send("detach-attached-view", task.params);
+                task.lease.finish_count();
+            }
             return;
         }
         self.finish_count();
