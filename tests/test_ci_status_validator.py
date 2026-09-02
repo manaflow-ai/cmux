@@ -50,12 +50,12 @@ def _ci_status_script() -> str:
     lines = CI_WORKFLOW.read_text(encoding="utf-8").splitlines()
     in_job = False
     for index, line in enumerate(lines):
-        if line == "  ci-status:":
+        if line == "  ci-status-validator-canary:":
             in_job = True
             continue
         if in_job and line.startswith("  ") and not line.startswith("    ") and line.strip():
             break
-        if in_job and line == "      - name: Check routed CI jobs":
+        if in_job and line == "      - name: Check serialized routed jobs":
             for run_index in range(index + 1, len(lines)):
                 if lines[run_index] == "        run: |":
                     body: list[str] = []

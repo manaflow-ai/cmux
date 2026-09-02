@@ -2405,19 +2405,65 @@ jobs:
       - release-build
     if: ${{ always() }}
     runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    steps:
+      - name: Check routed CI jobs
+        env:
+          CI_NEEDS: ${{ toJSON(needs) }}
+        run: |
+          python3 - <<'PY'
+          import json
+          import os
+          import sys
+
+          needs = json.loads(os.environ["CI_NEEDS"])
+          allowed = {"success", "skipped"}
+          bad = {
+              name: data["result"]
+              for name, data in sorted(needs.items())
+              if data["result"] not in allowed
+          }
+
+          if bad:
+              for name, result in bad.items():
+                  print(f"{name}: {result}", file=sys.stderr)
+              sys.exit(1)
+
+          for name, data in sorted(needs.items()):
+              print(f"{name}: {data['result']}")
+          PY
+
+  ci-status-validator-canary:
+    needs:
+      - changes
+      - workflow-guard-tests
+      - ghosttykit-release-check
+      - remote-daemon-tests
+      - web-typecheck
+      - react-apps-check
+      - diff-sidecar-check
+      - web-db-migrations
+      - linux-preflight
+      - app-host-unit-tests
+      - tests
+      - swift-package-tests
+      - agent-session-web-resources
+      - tests-build-and-lag
+      - release-build
+    if: ${{ always() }}
+    runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 5
     permissions:
       contents: read
-    # Bootstrap mode executes the validator from the PR checkout so the new
-    # contract is exercised on real `needs` data. PR11540 hardens this step by
-    # switching it to the exact trusted base revision before activation.
+    # This diagnostic job exercises the new validator with real needs data.
+    # It is intentionally not a required context. PR11540 moves the required
+    # ci-status job to the exact trusted base revision before activation.
     steps:
       - name: Checkout CI status validator
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           persist-credentials: false
 
-      - name: Check routed CI jobs
+      - name: Check serialized routed jobs
         env:
           CI_NEEDS: ${{ toJSON(needs) }}
         run: |
