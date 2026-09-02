@@ -39,6 +39,9 @@ enum CloudTreeIconPalette {
 /// nothing here is interactive.
 struct CloudTreeRowContentView: View {
     let kind: CloudTreeNode.Kind
+    /// "Workspaces / " when this row folded a parent group into itself
+    /// (`CloudTreeNode.compactingSingleChildChains`); empty otherwise.
+    var titlePrefix: String = ""
     var style: CloudTreeStyle = CloudTreeStyleStore.current
 
     var body: some View {
@@ -82,7 +85,7 @@ struct CloudTreeRowContentView: View {
                 style: style,
                 icon: "folder.fill",
                 tint: CloudTreeIconPalette.workspace,
-                title: workspace.name,
+                title: titlePrefix + workspace.name,
                 titleWeight: workspace.focused ? .medium : .regular,
                 detail: style.showsGroupCounts ? CloudTreeRowContentView.count(terminalCount) : nil
             )
@@ -117,13 +120,14 @@ struct CloudTreeRowContentView: View {
             )
         case .portsGroup:
             groupRow(title: String(localized: "cloudTree.group.ports", defaultValue: "Ports"))
-        case .port(let resource):
+        case .port(let resource, let url):
             CloudTreeLeafRow(
                 style: style,
                 icon: "network",
                 tint: CloudTreeIconPalette.browser,
-                title: resource.port.map(String.init) ?? resource.title,
-                detail: resource.detail?.isEmpty == false ? resource.detail : nil
+                title: url.map(CloudTreePortLinkText.displayText) ?? resource.port.map(String.init) ?? resource.title,
+                titleIsLink: url != nil,
+                detail: url == nil ? (resource.detail?.isEmpty == false ? resource.detail : nil) : nil
             )
         case .placeholder(_, let placeholder):
             HStack(alignment: .center, spacing: style.iconGap) {
@@ -221,6 +225,16 @@ struct CloudTreeRowIcon: View {
 
 /// The shared leaf-row chrome: icon slot, then title and detail arranged per
 /// the style's leaf layout and metadata placement, then trailing accessories.
+/// The scheme-free form of a port link for display (`host:port`, VS Code's
+/// forwarded-ports style) — never used for opening or copying, only for the
+/// row's title text.
+enum CloudTreePortLinkText {
+    static func displayText(forURL url: String) -> String {
+        guard let range = url.range(of: "://") else { return url }
+        return String(url[range.upperBound...])
+    }
+}
+
 struct CloudTreeLeafRow<Accessories: View>: View {
     let style: CloudTreeStyle
     let icon: String
@@ -228,6 +242,10 @@ struct CloudTreeLeafRow<Accessories: View>: View {
     let title: String
     var titleWeight: Font.Weight = .regular
     var titleDimmed: Bool = false
+    /// Underlined and tinted like a followable link (VS Code's forwarded-ports
+    /// panel): a port row's URL is the one title in this tree a click actually
+    /// navigates, so it reads as a link rather than a label.
+    var titleIsLink: Bool = false
     var detail: String?
     @ViewBuilder var accessories: () -> Accessories
 
@@ -238,6 +256,7 @@ struct CloudTreeLeafRow<Accessories: View>: View {
         title: String,
         titleWeight: Font.Weight = .regular,
         titleDimmed: Bool = false,
+        titleIsLink: Bool = false,
         detail: String? = nil,
         @ViewBuilder accessories: @escaping () -> Accessories
     ) {
@@ -247,6 +266,7 @@ struct CloudTreeLeafRow<Accessories: View>: View {
         self.title = title
         self.titleWeight = titleWeight
         self.titleDimmed = titleDimmed
+        self.titleIsLink = titleIsLink
         self.detail = detail
         self.accessories = accessories
     }
@@ -292,9 +312,15 @@ struct CloudTreeLeafRow<Accessories: View>: View {
     private var titleText: some View {
         Text(title)
             .cmuxFont(size: style.titleSize, weight: titleWeight, design: style.fontDesign)
-            .foregroundStyle(titleDimmed ? AnyShapeStyle(.secondary) : AnyShapeStyle(.primary))
+            .foregroundStyle(titleColor)
+            .underline(titleIsLink)
             .lineLimit(1)
             .truncationMode(.tail)
+    }
+
+    private var titleColor: AnyShapeStyle {
+        if titleIsLink { return AnyShapeStyle(Color.accentColor) }
+        return titleDimmed ? AnyShapeStyle(.secondary) : AnyShapeStyle(.primary)
     }
 
     private func detailText(_ text: String) -> some View {
@@ -314,6 +340,7 @@ extension CloudTreeLeafRow where Accessories == EmptyView {
         title: String,
         titleWeight: Font.Weight = .regular,
         titleDimmed: Bool = false,
+        titleIsLink: Bool = false,
         detail: String? = nil
     ) {
         self.init(
@@ -323,6 +350,7 @@ extension CloudTreeLeafRow where Accessories == EmptyView {
             title: title,
             titleWeight: titleWeight,
             titleDimmed: titleDimmed,
+            titleIsLink: titleIsLink,
             detail: detail,
             accessories: { EmptyView() }
         )

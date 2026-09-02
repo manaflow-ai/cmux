@@ -415,14 +415,18 @@ struct CloudTreeOutlineView: NSViewRepresentable {
                     if case .terminal(let row) = child.kind { return row.isOpen }
                     return false
                 }), case .terminal(let openRow) = shown.kind {
-                    nodeActions.project(openRow.resource.id, .split, true)
+                    // A terminal opens as a tab, not a new column: it joins the
+                    // existing layout instead of widening it every time.
+                    nodeActions.project(openRow.resource.id, .tab, true)
                 } else if let group = node.dragGroup, !group.isEmpty {
                     nodeActions.openGroupAsWorkspace(machine, group, workspace.id)
                 }
             case .localWorkspace(let row):
                 nodeActions.selectLocalWorkspace(row.workspaceID)
             case .terminal(let row):
-                nodeActions.project(row.resource.id, .split, true)
+                // A terminal opens as a tab, not a new column: it joins the
+                // existing layout instead of widening it every time.
+                nodeActions.project(row.resource.id, .tab, true)
             case .display(let resource, let openIn):
                 // A workspace's Desktop row opens INSIDE the local workspace showing
                 // that remote workspace — never a jump to a VNC pane in a different
@@ -432,7 +436,7 @@ struct CloudTreeOutlineView: NSViewRepresentable {
                 } else {
                     nodeActions.project(resource.id, .split, true)
                 }
-            case .port(let resource):
+            case .port(let resource, _):
                 nodeActions.project(resource.id, .split, true)
             case .browser(let row):
                 nodeActions.project(row.resource.id, .split, true)
@@ -602,8 +606,8 @@ struct CloudTreeOutlineView: NSViewRepresentable {
                 return resourceMenuItems(row.resource, isLocal: row.resource.machine.isLocal)
             case .display(let resource, let openIn):
                 return resourceMenuItems(resource, isLocal: false, openInLocalWorkspace: openIn)
-            case .port(let resource):
-                return resourceMenuItems(resource, isLocal: false)
+            case .port(let resource, let url):
+                return resourceMenuItems(resource, isLocal: false, portURL: url)
             case .browsersGroup, .portsGroup:
                 return [
                     item(String(localized: "cloudTree.menu.refresh", defaultValue: "Refresh")) { [nodeActions] in nodeActions.refresh() },
@@ -617,7 +621,12 @@ struct CloudTreeOutlineView: NSViewRepresentable {
         /// The verbs every surface row shares: open (reusing an open pane), open as a
         /// tab, a second pane (cloud resources only — a local terminal has one pane),
         /// and copying the resource id agents use with `cmux vm open`.
-        private func resourceMenuItems(_ resource: SurfaceResource, isLocal: Bool, openInLocalWorkspace: UUID? = nil) -> [NSMenuItem] {
+        private func resourceMenuItems(
+            _ resource: SurfaceResource,
+            isLocal: Bool,
+            openInLocalWorkspace: UUID? = nil,
+            portURL: String? = nil
+        ) -> [NSMenuItem] {
             var items: [NSMenuItem] = [
                 item(String(localized: "cloudTree.menu.open", defaultValue: "Open")) { [nodeActions] in
                     // Same scope rule as the row's open verb (one shared path).
@@ -633,7 +642,9 @@ struct CloudTreeOutlineView: NSViewRepresentable {
                 items.append(item(String(localized: "cloudTree.menu.openInNewPane", defaultValue: "Open in New Pane")) { [nodeActions] in nodeActions.project(resource.id, .split, false) })
             }
             items.append(.separator())
-            if let port = resource.port, resource.kind == .browser {
+            if let portURL {
+                items.append(item(String(localized: "cloudTree.menu.copyLink", defaultValue: "Copy Link")) { [nodeActions] in nodeActions.copyToPasteboard(portURL) })
+            } else if let port = resource.port, resource.kind == .browser {
                 items.append(item(String(localized: "cloudTree.menu.copyPort", defaultValue: "Copy Port")) { [nodeActions] in nodeActions.copyToPasteboard(String(port)) })
             }
             items.append(item(String(localized: "cloudTree.menu.copySurfaceID", defaultValue: "Copy Surface ID")) { [nodeActions] in nodeActions.copyToPasteboard(resource.id.rawValue) })
