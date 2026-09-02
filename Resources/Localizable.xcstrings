@@ -65966,23 +65966,6 @@
         }
       }
     },
-    "command.cloudVM.advanced.title": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Advanced"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "詳細"
-          }
-        }
-      }
-    },
     "command.cloudVM.current.missing.message": {
       "extractionState": "manual",
       "localizations": {
@@ -66251,6 +66234,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "エージェントハンドオフ"
+          }
+        }
+      }
+    },
+    "command.cloudVM.new.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "New Cloud VM"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "新しい Cloud VM"
           }
         }
       }
