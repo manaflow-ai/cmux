@@ -26,9 +26,11 @@ compilation. It detects accidental drift, not a cryptographic release
 signature for remote updates.
 
 The attribution and capability audit was rerun against the current herdr
-revision `cc88b3b8e5bb9f7d9f23ed6ae85a52fd7b5b9ed6` after the pinned snapshot.
-It found
-the first-acquisition OSC retention fix in
+revision `8633a398e653eee47b375c963996c78a8a14aa48` after the pinned snapshot.
+The only `src/detect` change after that snapshot is the exact Pi bundled CLI
+path correction in `b1ff4582e9688f52ffb943cfa8bee4871ae122e4`; this package
+adapts and tests both supported entrypoints. It also found the
+first-acquisition OSC retention fix in
 `82e6a80eb3ae39fb3d3ebd4d1fed19389767e605`; `src/detect.rs` ports that policy
 with a local revision fence because the generic host API cannot clear OSC
 state. It also found foreground group-leader CWD selection in
@@ -43,14 +45,15 @@ herdr-specific CWD code is copied. Later upstream commits
 `18e69891dca486d669a584facd80644bb51f54a2` change Windows launch, process
 environment, process-job, input handling, remote multiline paste, OpenSSH
 mouse input, or the application/client shell rendering architecture. The
-current tip `cc88b3b8e5bb9f7d9f23ed6ae85a52fd7b5b9ed6` adds stable client
-endpoint compatibility outside the detector and changes no detector or
-manifest path. These changes are not detector logic and are not copied. This
-package has no Windows SDK transport, native process backend, launch path, or
-input path, so those files are not copied. A standalone release must define
-and test SDK endpoint-generation compatibility before it promises upgrades
-across host versions. Recheck these upstream areas before publishing a
-Windows package.
+post-audit multi-client tab-view change
+`6c0bb273d5d5405a00985621b17e36f8b4d64609` and the reliable delayed-prompt
+change `8633a398e653eee47b375c963996c78a8a14aa48` change host/client and PTY
+input behavior, not this detector. These changes are not detector logic and
+are not copied. This package has no Windows SDK transport, native process
+backend, launch path, or input path, so those files are not copied. A
+standalone release must define and test SDK endpoint-generation compatibility
+before it promises upgrades across host versions. Recheck these upstream
+areas before publishing a Windows package.
 
 The original cmux portions of this package are licensed under MIT. The full
 text is in `LICENSE-MIT`. The Apache-2.0 text for the derived herdr material is

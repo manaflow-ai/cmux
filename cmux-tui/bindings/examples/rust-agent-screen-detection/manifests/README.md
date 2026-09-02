@@ -18,6 +18,9 @@ remote updates still need authenticated, signed catalog data before they can be
 treated as trusted.
 
 The capability audit was rerun against herdr master
-`cc88b3b8e5bb9f7d9f23ed6ae85a52fd7b5b9ed6`. That tip changes stable client
-endpoint compatibility outside `src/detect/manifests/`; it changes no bundled
-detector manifest. The package does not claim parity with that transport work.
+`8633a398e653eee47b375c963996c78a8a14aa48`. The only detector-source change
+after the snapshot is the exact Pi bundled CLI path correction from
+`b1ff4582e9688f52ffb943cfa8bee4871ae122e4`; no bundled manifest changed. The
+later multi-client tab-view and delayed-prompt commits are host/client and PTY
+input work, outside this manifest package. The package does not claim parity
+with that transport or input work.

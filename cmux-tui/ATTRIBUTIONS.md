@@ -61,27 +61,29 @@ Derived material and vendored material:
   signature for remote updates.
 
 The capability audit was rerun against the current herdr revision
-`cc88b3b8e5bb9f7d9f23ed6ae85a52fd7b5b9ed6`. The first-acquisition OSC
-retention fix in `82e6a80eb3ae39fb3d3ebd4d1fed19389767e605` is adapted in the
-userland tracker with a local revision fence. The foreground group-leader CWD
-fix in `3a3792622e59c7f2dc20f9c0236167161e4a5035` is already covered by the
-generic `foreground_cwd` resource, so no herdr-specific CWD policy is copied.
-The shell-render refactor in
-`207be3c771d281baae6e5fa0fb74be9a056e97a2` is application/client architecture,
-not detector behavior, and is not copied. Later upstream commits
-`5158adab10b6dcfea9370782043392f80fa0643c`,
-`5616196942cbe752cc0659b9bd0fb616b2a6ed5c`,
-`da8c7b05f9ef7898cfb7494989df8a533b947bb9`, `99c23cd1ea7468bd3661f6483c7105396503b417`,
-`0032c3b42751b6da9c5b1a91546b3c1a425d67f1`, and
-`18e69891dca486d669a584facd80644bb51f54a2` are Windows launch, process
-environment, process-job, input, remote multiline paste, or OpenSSH mouse
-input changes. The current tip `cc88b3b8e5bb9f7d9f23ed6ae85a52fd7b5b9ed6`
-adds stable client endpoint compatibility in herdr's transport and client
-layers, but changes no detector source, detector manifest, or
-`src/pane/agent_detection.rs` path. That transport work is outside this
-package. A standalone release must define and test SDK endpoint-generation
-compatibility before it promises binary upgrades across host versions. These
-upstream changes must be reviewed before Windows support is published.
+`8633a398e653eee47b375c963996c78a8a14aa48`. Comparing `src/detect` with the
+manifest snapshot found one detector-source change: the exact Pi bundled CLI
+path correction from `b1ff4582e9688f52ffb943cfa8bee4871ae122e4`. The userland
+`process.rs` adaptation covers both direct and `dist/bundle/cli.js` entrypoints
+and rejects lookalike scripts. The first-acquisition OSC retention fix in
+`82e6a80eb3ae39fb3d3ebd4d1fed19389767e605` is adapted in the userland tracker
+with a local revision fence. The foreground group-leader CWD fix in
+`3a3792622e59c7f2dc20f9c0236167161e4a5035` is already covered by the generic
+`foreground_cwd` resource, so no herdr-specific CWD policy is copied.
+
+The shell-render refactor in `207be3c771d281baae6e5fa0fb74be9a056e97a2` and
+independent multi-client tab views in
+`6c0bb273d5d5405a00985621b17e36f8b4d64609` are application/client architecture,
+not detector behavior. The latest delayed-agent-prompt fix in
+`8633a398e653eee47b375c963996c78a8a14aa48` changes PTY input sequencing, and
+`5616196942cbe752cc0659b9bd0fb616b2a6ed5c` hardens malformed Windows process
+environments in portable-pty. These changes are outside this Unix userland
+package and are not copied. If cmux needs atomic text-plus-Enter submission,
+that belongs in a separate generic terminal-input contract, not in a detector
+or an agent-specific core method. A standalone release must define and test
+SDK endpoint-generation compatibility before it promises binary upgrades
+across host versions. Review the Windows changes before publishing a Windows
+package.
 
 Files that port herdr logic carry a header comment naming the upstream
 file and the modifications.
