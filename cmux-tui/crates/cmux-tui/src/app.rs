@@ -16881,6 +16881,7 @@ impl App {
         self.tree.set_active_tab(workspace_index, screen_index, pane_id, tab_index);
         self.sidebar_workspace_selection =
             workspace_index.min(self.tree.workspaces().len().saturating_sub(1));
+        self.bump_sidebar_generation();
         self.pane_focus_history.record(pane_id);
         self.reported_focus = Some(crate::session::ClientFocus { pane: pane_id, tab: tab_index });
     }
@@ -18369,6 +18370,7 @@ impl App {
                     }
                     self.sidebar_workspace_selection = index;
                     self.workspace_rail_selection = WorkspaceRailSelection::Workspace;
+                    self.bump_sidebar_generation();
                 }
             }
             WorkspaceRailTarget::Recoverable(id) => {
@@ -20755,6 +20757,7 @@ impl App {
                     self.sidebar_workspace_selection = self.tree.active_workspace;
                     self.workspace_rail_selection = WorkspaceRailSelection::Workspace;
                     self.workspace_rail_follow_selection = true;
+                    self.bump_sidebar_generation();
                 } else if !self.sync_sidebar_files_to_focus(true) {
                     self.sidebar_files.refresh();
                 }
@@ -20784,6 +20787,7 @@ impl App {
                 self.sidebar_workspace_selection = self.tree.active_workspace;
                 self.workspace_rail_selection = WorkspaceRailSelection::Workspace;
                 self.workspace_rail_follow_selection = true;
+                self.bump_sidebar_generation();
             }
         }
     }
