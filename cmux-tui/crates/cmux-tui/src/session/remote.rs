@@ -3603,24 +3603,24 @@ impl Drop for RemoteSession {
         #[cfg(unix)]
         {
             let Ok(directory) = private_dump_directory(dir) else { return };
-            let logs = self.frame_logs.lock().unwrap();
-            let mut entries_by_surface: HashMap<SurfaceId, Vec<&str>> = HashMap::new();
-            for entry in &logs.entries {
-                entries_by_surface.entry(entry.surface).or_default().push(&entry.line);
+            let mut entries_by_surface: HashMap<SurfaceId, Vec<String>> = HashMap::new();
+            {
+                let logs = self.frame_logs.lock().unwrap();
+                for entry in &logs.entries {
+                    entries_by_surface.entry(entry.surface).or_default().push(entry.line.clone());
+                }
             }
-            for surface in self.surfaces.lock().unwrap().values() {
+            let surfaces: Vec<Arc<RemoteSurface>> =
+                self.surfaces.lock().unwrap().values().cloned().collect();
+            for surface in surfaces {
                 let mirror_name = format!("mirror-{}.txt", surface.id);
-                let mirror = dump_mirror(surface);
+                let mirror = dump_mirror(&surface);
                 let _ = write_private_dump(&directory, &mirror_name, |file| {
                     file.write_all(mirror.as_bytes())
                 });
                 let frames_name = format!("frames-{}.log", surface.id);
-                let _ = write_private_dump(&directory, &frames_name, |file| {
-                    for line in entries_by_surface.get(&surface.id).into_iter().flatten() {
-                        writeln!(file, "{line}")?;
-                    }
-                    Ok(())
-                });
+                let lines = entries_by_surface.get(&surface.id).map(Vec::as_slice).unwrap_or(&[]);
+                let _ = write_frame_dump(&directory, &frames_name, lines);
             }
         }
     }
@@ -3917,6 +3917,19 @@ fn private_dump_file(directory: &fs::File, name: &str) -> io::Result<fs::File> {
     // opened, and no previously existing file is truncated.
     file.set_permissions(fs::Permissions::from_mode(0o600))?;
     Ok(file)
+}
+
+#[cfg(unix)]
+fn write_frame_dump(directory: &fs::File, name: &str, lines: &[String]) -> io::Result<()> {
+    use std::io::BufWriter;
+
+    write_private_dump(directory, name, |file| {
+        let mut buffered = BufWriter::new(file);
+        for line in lines {
+            writeln!(buffered, "{line}")?;
+        }
+        buffered.flush()
+    })
 }
 
 #[cfg(unix)]
@@ -4854,6 +4867,19 @@ mod tests {
         let _directory = private_dump_directory(&dump_path).unwrap();
 
         assert!(!stale_path.exists());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn private_frame_dump_preserves_line_format() {
+        let root = tempfile::tempdir().unwrap();
+        let dump_path = root.path().join("dumps");
+        let directory = private_dump_directory(&dump_path).unwrap();
+        let lines = vec!["first".to_owned(), "second".to_owned()];
+
+        write_frame_dump(&directory, "frames.log", &lines).unwrap();
+
+        assert_eq!(fs::read(dump_path.join("frames.log")).unwrap(), b"first\nsecond\n");
     }
 
     #[cfg(unix)]
