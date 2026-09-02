@@ -2070,4 +2070,80 @@ mod tests {
         let error = registry.session_journal_after(0, 10).unwrap_err();
         assert!(error.to_string().contains("record count"), "{error:#}");
     }
+
+    #[test]
+    fn restore_cursor_decodes_a_multi_page_segment_once() {
+        let root = std::env::temp_dir().join(format!("cmux-journal-cursor-{}", new_uuid_v4()));
+        let mut registry = WorkspaceRegistry::open(&root, "cursor").unwrap();
+        let workspace_id = format!("ws_{}", "1".repeat(32));
+        for sequence in 1..=4 {
+            let tx = registry.connection.transaction().unwrap();
+            tx.execute(
+                "UPDATE meta SET value = ?1 WHERE key = 'resource_revision'",
+                [sequence.to_string()],
+            )
+            .unwrap();
+            append_resource_journal_record(
+                &tx,
+                sequence,
+                sequence - 1,
+                "cursor-test",
+                &format!("cursor-event-{sequence}"),
+                "workspace.focus",
+                None,
+                &serde_json::json!({"workspace_id":workspace_id}),
+                &serde_json::json!([]),
+            )
+            .unwrap();
+            tx.commit().unwrap();
+        }
+
+        let records = registry.session_journal_after(0, 10).unwrap().records;
+        let uncompressed = serde_json::to_vec(&records).unwrap();
+        let digest = Sha256::digest(&uncompressed);
+        let mut encoder =
+            flate2::GzBuilder::new().mtime(0).write(Vec::new(), flate2::Compression::fast());
+        encoder.write_all(&uncompressed).unwrap();
+        let compressed = encoder.finish().unwrap();
+        registry
+            .connection
+            .execute(
+                "INSERT INTO journal_segments(
+                   segment_id, start_sequence, end_sequence, record_count, codec, content,
+                   uncompressed_bytes, sha256, sealed_at_ms
+                 ) VALUES('cursor-segment', 1, 4, 4, 'gzip-json-v1', ?1, ?2, ?3, 1)",
+                params![compressed, i64::try_from(uncompressed.len()).unwrap(), digest.as_slice()],
+            )
+            .unwrap();
+        registry
+            .connection
+            .execute_batch(
+                "DROP TRIGGER session_journal_reject_delete;
+                 DELETE FROM session_journal;
+                 CREATE TRIGGER session_journal_reject_delete
+                   BEFORE DELETE ON session_journal
+                 BEGIN SELECT RAISE(ABORT, 'session journal is append-only'); END;",
+            )
+            .unwrap();
+
+        let reader = SessionJournalReader::open(&registry.session_journal_database_path().unwrap())
+            .unwrap();
+        reset_journal_segment_decode_count();
+        let mut cursor = reader.restore_cursor(0).unwrap();
+        let mut replayed = Vec::new();
+        loop {
+            let page = cursor.next_page(1).unwrap();
+            if page.records.is_empty() {
+                assert_eq!(page.head_sequence, 4);
+                break;
+            }
+            replayed.extend(page.records.into_iter().map(|record| record.sequence));
+        }
+        cursor.finish().unwrap();
+        assert_eq!(replayed, [1, 2, 3, 4]);
+        assert_eq!(journal_segment_decode_count(), 1);
+
+        drop(registry);
+        fs::remove_dir_all(root).unwrap();
+    }
 }
