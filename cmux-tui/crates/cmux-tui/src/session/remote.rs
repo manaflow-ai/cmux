@@ -4882,11 +4882,26 @@ mod tests {
 
     #[cfg(unix)]
     #[test]
-    fn private_dump_scan_ignores_missing_temp_entries() {
-        let root = tempfile::tempdir().unwrap();
-        let missing_path = root.path().join(".frames-1.log.tmp-99999999-1");
+    fn private_dump_scan_ignores_missing_temp_entries_after_directory_scan() {
+        use std::cell::Cell;
 
-        assert!(stale_dump_entry_metadata(&missing_path).unwrap().is_none());
+        let root = tempfile::tempdir().unwrap();
+        let dump_path = root.path().join("dumps");
+        let directory = private_dump_directory(&dump_path).unwrap();
+        let missing_path = dump_path.join(".frames-1.log.tmp-99999999-1");
+        fs::write(&missing_path, b"partial secret").unwrap();
+        let removed = Cell::new(false);
+
+        prune_stale_dump_temps_with(&directory, &dump_path, |path| {
+            assert_eq!(path, missing_path);
+            fs::remove_file(path).unwrap();
+            removed.set(true);
+            stale_dump_entry_metadata(path)
+        })
+        .unwrap();
+
+        assert!(removed.get());
+        assert!(!missing_path.exists());
     }
 
     #[cfg(unix)]
