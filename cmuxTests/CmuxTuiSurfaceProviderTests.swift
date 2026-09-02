@@ -182,6 +182,10 @@ import Testing
         #expect(CMUXCLI.resolveVMRemoteTerminalPlacement("term_build", machine: "vivid-newt", workspaceID: "ws_api", in: catalog) == .resolved(terminalID: "term_build", tabID: "tab_api"))
         #expect(CMUXCLI.resolveVMRemoteTerminalPlacement("term_build", machine: "vivid-newt", workspaceID: "ws_missing", in: catalog) == .notFound)
 
+        var inconsistent = resource
+        inconsistent["key"] = "stale-key"
+        #expect(CMUXCLI.resolveVMRemoteTerminalPlacement("vivid-newt/terminal/term_build", machine: "vivid-newt", workspaceID: "ws_api", in: ["resources": [inconsistent]]) == .resolved(terminalID: "term_build", tabID: "tab_api"))
+
         var duplicate = resource
         duplicate["remote_views"] = [
             ["tab_id": "tab_a", "workspace": ["id": "ws_main"], "focused": false],

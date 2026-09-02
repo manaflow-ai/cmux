@@ -186,7 +186,6 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
     private var stateRecoveryRefreshTask: Task<Void, Never>?
     private var stateRecoveryRefreshQueued = false
     private var stateRecoveryCount = 0
-    private let refreshClock: any Clock<Duration>
     private static let stateRecoveryLimit = 5
     private var changeWatcher: Task<Void, Never>?
     /// Identity of the link owned by `changeWatcher`. A provider can replace a
@@ -226,14 +225,12 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
     init(
         summary: VMSummary,
         links: CloudMachineLinkManager,
-        catalog: SurfaceCatalog,
-        refreshClock: any Clock<Duration> = ContinuousClock()
+        catalog: SurfaceCatalog
     ) {
         machineID = summary.id
         self.summary = summary
         self.links = links
         self.catalog = catalog
-        self.refreshClock = refreshClock
         info = Self.info(from: summary, linkState: summary.status == "running" ? .connecting : .asleep, linkError: nil, stats: nil)
     }
 
@@ -1301,14 +1298,10 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
         stateRecoveryCount += 1
         stateRecoveryRefreshQueued = true
         guard stateRecoveryRefreshTask == nil else { return }
-        let clock = refreshClock
-        stateRecoveryRefreshTask = Task { @MainActor [weak self, clock] in
-            do {
-                try await clock.sleep(for: .milliseconds(250))
-            } catch {
-                self?.stateRecoveryRefreshTask = nil
-                return
-            }
+        stateRecoveryRefreshTask = Task { @MainActor [weak self] in
+            // Yield one actor turn to coalesce a burst of barrier events. This is
+            // an ordering boundary, not a guessed transport delay.
+            await Task.yield()
             guard let self, !Task.isCancelled else { return }
             self.stateRecoveryRefreshTask = nil
             guard self.stateRecoveryRefreshQueued else { return }

@@ -846,9 +846,10 @@ extension CMUXCLI {
             guard let id = resource["id"] as? String else { return false }
             return id == selector || id == fullID
         }
-        let candidates = exactIDMatches.isEmpty
-            ? resources.filter { ($0["key"] as? String) == selector }
-            : exactIDMatches
+        let matchedByExactID = !exactIDMatches.isEmpty
+        let candidates = matchedByExactID
+            ? exactIDMatches
+            : resources.filter { ($0["key"] as? String) == selector }
         guard candidates.count == 1, let resource = candidates.first else {
             return candidates.isEmpty ? .notFound : .ambiguous
         }
@@ -869,11 +870,17 @@ extension CMUXCLI {
         }
 
         let terminalID: String?
-        if let key = (resource["key"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines), !key.isEmpty {
-            terminalID = key
-        } else if let id = resource["id"] as? String {
+        if matchedByExactID, let id = resource["id"] as? String {
             let prefix = "\(machine)/terminal/"
-            terminalID = id.hasPrefix(prefix) ? String(id.dropFirst(prefix.count)) : nil
+            if id.hasPrefix(prefix) {
+                terminalID = String(id.dropFirst(prefix.count))
+            } else if id == selector {
+                terminalID = id
+            } else {
+                terminalID = nil
+            }
+        } else if let key = (resource["key"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines), !key.isEmpty {
+            terminalID = key
         } else {
             terminalID = nil
         }
