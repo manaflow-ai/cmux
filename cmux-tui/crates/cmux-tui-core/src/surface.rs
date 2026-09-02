@@ -4255,7 +4255,10 @@ impl Surface {
         let pty = self.as_pty()?;
         let reaper = pty.reaper_thread.lock().unwrap().take();
         if let Some(reaper) = reaper {
-            if pty.reaper_completion.wait_until(deadline) {
+            if reaper.thread().id() == std::thread::current().id() {
+                *pty.reaper_thread.lock().unwrap() = Some(reaper);
+                eprintln!("cmux-tui: child reaper skipped self-join during shutdown");
+            } else if pty.reaper_completion.wait_until(deadline) {
                 if reaper.join().is_err() {
                     eprintln!("cmux-tui: child reaper thread panicked during shutdown");
                 }
