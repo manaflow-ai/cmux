@@ -193,6 +193,58 @@ describe("after sign-in native handoff", () => {
     expect(afterSignInTarget.searchParams.has("after_auth_return_to")).toBe(false);
   });
 
+  // A Debug build pointed at the deployed web (`./scripts/reload.sh --tag <tag>
+  // --prod-auth`) signs in through this same hosted flow, so its callback scheme
+  // must be honored here exactly like the stable app's. The build that started
+  // the sign-in verifies the callback's `cmux_auth_state` against its own
+  // attempt, so the web only has to refuse targets no cmux build registers.
+  const DEBUG_BUILD_SCHEMES = [
+    "cmux-dev",
+    "cmux-dev-issue-11397-nonblocking-machine-create",
+  ];
+
+  for (const scheme of DEBUG_BUILD_SCHEMES) {
+    test(`redirects verified handoffs to the ${scheme} build on the deployed host`, async () => {
+      handoffCookie = "handoff-nonce";
+      const nativeReturnTo = `${scheme}://auth-callback?cmux_auth_state=state-123`;
+
+      const response = await GET(signInRequest(nativeReturnTo, "handoff-nonce"));
+
+      expect(response.status).toBe(307);
+      const location = response.headers.get("location");
+      expect(location).toBeTruthy();
+      const callbackURL = new URL(location!);
+      expect(callbackURL.protocol).toBe(`${scheme}:`);
+      expect(callbackURL.hostname).toBe("auth-callback");
+      expect(callbackURL.searchParams.get("cmux_auth_state")).toBe("state-123");
+      expect(callbackURL.searchParams.get("stack_refresh")).toBe("refresh-token");
+    });
+
+    test(`keeps the manual return page for the ${scheme} build on the deployed host`, async () => {
+      handoffCookie = "different-nonce";
+      const nativeReturnTo = `${scheme}://auth-callback?cmux_auth_state=state-123`;
+
+      const response = await GET(signInRequest(nativeReturnTo, "handoff-nonce"));
+
+      expect(response.status).toBe(200);
+      expect(returnHref(await response.text())).toContain(`${scheme}://auth-callback`);
+    });
+  }
+
+  test("refuses native return targets outside the cmux scheme family", async () => {
+    handoffCookie = "handoff-nonce";
+    for (const nativeReturnTo of [
+      "evil://auth-callback?cmux_auth_state=state-123",
+      "cmux-devx://auth-callback?cmux_auth_state=state-123",
+      "cmux-dev-bad_tag://auth-callback?cmux_auth_state=state-123",
+      "cmux-dev-test://elsewhere?cmux_auth_state=state-123",
+    ]) {
+      const response = await GET(signInRequest(nativeReturnTo, "handoff-nonce"));
+      expect(response.status).toBe(307);
+      expect(response.headers.get("location")).toBe("https://cmux.test/");
+    }
+  });
+
   test("preserves the embedded pricing return path when switching accounts", async () => {
     handoffCookie = "different-nonce";
     const nativeReturnTo = "cmux://auth-callback";
@@ -367,7 +419,7 @@ describe("after sign-in native handoff", () => {
     );
   });
 
-  test("accepts only signed tagged purchase callbacks on the deployed host", async () => {
+  test("accepts signed tagged purchase callbacks on the deployed host", async () => {
     const previousSecret = process.env.CMUX_APP_PRICING_RELAY_SECRET;
     process.env.CMUX_APP_PRICING_RELAY_SECRET =
       "pricing-relay-test-secret-with-at-least-32-bytes";
@@ -399,9 +451,11 @@ describe("after sign-in native handoff", () => {
       expect(preservedAfterSignIn.searchParams.get("cmux_native_return_signature"))
         .toMatch(/^[a-f0-9]{64}$/);
 
+      // A tampered target that no cmux build registers is still refused, even
+      // beside an otherwise valid purchase signature.
       afterSignIn.searchParams.set(
         "native_app_return_to",
-        "cmux-dev-other://auth-callback",
+        "evil-app://auth-callback",
       );
       const tamperedResponse = await GET(new NextRequest(afterSignIn));
       expect(tamperedResponse.status).toBe(307);
