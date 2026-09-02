@@ -22,7 +22,7 @@
  * the master already has that shape, so it is recorded without a second
  * snapshot.
  */
-import { Freestyle } from "freestyle";
+import { Freestyle, type FirewallSpec } from "freestyle";
 import { writeFileSync } from "node:fs";
 import {
   VM_IMAGE_SIZE_NAMES,
@@ -55,7 +55,7 @@ for (const name of requested) {
 const sizes = requested as VmImageSizeName[];
 const replaceSlug = hasFlag("--replace-slug");
 
-const FIREWALL = { rules: [{ action: "allow" as const, source: {}, destination: { public: true } }] };
+const FIREWALL: FirewallSpec = { rules: [{ action: "allow", source: {}, destination: { public: true } }] };
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
 type Exec = { exec: (options: { command: string; timeoutMs?: number; linuxUser?: string }) => Promise<{ stdout?: string | null; stderr?: string | null; statusCode?: number | null }> };
