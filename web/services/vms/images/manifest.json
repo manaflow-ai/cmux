@@ -39,6 +39,26 @@
       },
       "validationStatus": "passed",
       "notes": "cmux devbox epoch 2026-09-01-r3, exec-replay bake of the shared devbox on the Freestyle public platform (api.freestyle.sh, slug cmux-devbox-20260902a) from main 12f6019189. Validated 2026-09-02 with scripts/verify-devbox-image.ts freestyle: agent pins, mise toolchain, Chrome + cua-driver, ble.sh ghost text, byte-identical baked files, cmux-tui daemon bootstrap (session answering, [::]:1337 listening, cmux-tui-daemon systemd unit active). cmux-tui transport over the VM public IPv6."
+    },
+    {
+      "provider": "freestyle",
+      "version": "freestyle-cmux-devbox-20260902b",
+      "imageId": "sh-749d7644e9b04ca38c0718b56a9b767b",
+      "envVar": "FREESTYLE_SANDBOX_SNAPSHOT",
+      "defaultForLocalDev": false,
+      "kind": "base",
+      "cmuxdRemoteCommit": "none-cmux-tui",
+      "builtAt": "2026-09-02T07:33:59.078Z",
+      "builderScriptVersion": "10eb7faf84d7acf0b52b8ba92bd390c5dbfb35f3c84ce7e649ac0486d737df88",
+      "agentToolResolvedVersions": {
+        "@anthropic-ai/claude-code": "2.1.252",
+        "@openai/codex": "0.151.0",
+        "opencode-ai": "1.18.25",
+        "@earendil-works/pi-coding-agent": "0.84.4",
+        "agent-browser": "0.35.2"
+      },
+      "validationStatus": "passed",
+      "notes": "cmux devbox epoch 2026-09-01-r3, exec-replay bake of the shared devbox on the Freestyle public platform (api.freestyle.sh, slug cmux-devbox-20260902b) from main 5383cb9234. Validated 2026-09-02 with scripts/verify-devbox-image.ts freestyle: agent pins, mise toolchain, Chrome + cua-driver, ble.sh ghost text and quiet marks, byte-identical baked files, cmux-tui daemon bootstrap (session answering, [::]:1337 listening, cmux-tui-daemon systemd unit active). cmux-tui transport over the VM public IPv6."
     }
   ]
 }

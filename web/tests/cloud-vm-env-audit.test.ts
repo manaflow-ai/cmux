@@ -80,7 +80,7 @@ describe("cloud VM provider coherence audit", () => {
     const result = auditCloudVmProviderCoherence(
       {
         CMUX_VM_DEFAULT_PROVIDER: "freestyle",
-        FREESTYLE_SANDBOX_SNAPSHOT: "sh-08be343bf2b54b4bb0e5226b97eaa6c4",
+        FREESTYLE_SANDBOX_SNAPSHOT: "sh-749d7644e9b04ca38c0718b56a9b767b",
         FREESTYLE_API_KEY: "x",
       },
       realManifest,
@@ -206,17 +206,12 @@ describe("required runtime env keys cover the production provider path", () => {
   test("no removed provider's env keys are still demanded", () => {
     for (const key of [
       "BL_API_KEY", "BL_WORKSPACE", "BLAXEL_SANDBOX_IMAGE", "BLAXEL_SANDBOX_DESKTOP_IMAGE", "CMUX_VM_BLAXEL_ENABLED",
+      "E2B_API_KEY", "E2B_CMUXD_WS_TEMPLATE", "E2B_SANDBOX_TEMPLATE", "CMUX_VM_E2B_ENABLED",
+      "DAYTONA_API_KEY", "DAYTONA_API_URL", "DAYTONA_SANDBOX_SNAPSHOT", "CMUX_VM_DAYTONA_ENABLED",
     ]) {
       expect(requiredRuntimeEnvKeys).not.toContain(key);
       expect(recommendedRuntimeEnvKeys).not.toContain(key);
       expect(legacyCloudVmEnvKeys).toContain(key);
-    }
-  });
-
-  test("retired E2B env keys are not demanded", () => {
-    for (const key of ["E2B_API_KEY", "E2B_CMUXD_WS_TEMPLATE", "CMUX_VM_E2B_ENABLED"]) {
-      expect(requiredRuntimeEnvKeys).not.toContain(key);
-      expect(recommendedRuntimeEnvKeys).not.toContain(key);
     }
   });
 
