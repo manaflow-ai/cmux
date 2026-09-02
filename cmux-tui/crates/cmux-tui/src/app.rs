@@ -21064,17 +21064,14 @@ impl App {
                     terminal_admission,
                 )
             }
-            MouseEventKind::ScrollLeft | MouseEventKind::ScrollRight => {
-                // Scrolling is a distinct gesture and ends click-repeat state.
-                self.reset_selection_click_sequence();
-                self.handle_horizontal_scroll_with_admission(
+            MouseEventKind::ScrollLeft | MouseEventKind::ScrollRight => self
+                .handle_horizontal_scroll_with_admission(
                     mouse.column,
                     mouse.row,
                     matches!(mouse.kind, MouseEventKind::ScrollRight),
                     mouse.modifiers,
                     terminal_admission,
-                )
-            }
+                ),
         }
     }
 
