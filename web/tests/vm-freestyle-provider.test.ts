@@ -87,8 +87,12 @@ describe("Freestyle platform contract", () => {
   });
 
   test("cmux-remote route prefers the private VPC address and never falls back from it", () => {
-    // On a VPC: the private IPv6 wins even when a public address exists,
-    // because a VPC machine has no public inbound rule.
+    // On a VPC: the private address wins even when a public address exists,
+    // because a VPC machine has no public inbound rule. v4 is preferred within
+    // the network — the tunnel routes the VPC's v4 prefix as a subnet and so
+    // reaches new members immediately, while its v6 path does not pick up VMs
+    // created after the tunnel came up, stalling their connect for the full
+    // timeout.
     expect(
       freestyleCmuxRemoteRoute(
         {
@@ -97,14 +101,14 @@ describe("Freestyle platform contract", () => {
         },
         VM_ID,
       ),
-    ).toBe("ws://[fd7a:115c:a1e0::a]:1337/v1/link");
-    // v4-only membership is the honest second choice, not a public fallback.
+    ).toBe("ws://10.40.0.10:1337/v1/link");
+    // v6-only membership is the honest second choice, not a public fallback.
     expect(
       freestyleCmuxRemoteRoute(
-        { publicIpv6: "2602:f75c:0:1::2a", vpcs: [{ ipv4: "10.40.0.10", ipv6: null }] },
+        { publicIpv6: "2602:f75c:0:1::2a", vpcs: [{ ipv4: null, ipv6: "fd7a:115c:a1e0::a" }] },
         VM_ID,
       ),
-    ).toBe("ws://10.40.0.10:1337/v1/link");
+    ).toBe("ws://[fd7a:115c:a1e0::a]:1337/v1/link");
     // A membership with no address is unreachable and must say so, not
     // silently dial a public address the firewall will drop.
     expect(() =>
