@@ -63,6 +63,27 @@ import Testing
     #expect("界x".projectedTerminalText(columns: 1, rows: 4, keepAllRows: true) == "界\nx")
 }
 
+@Test func viewportProjectionBoundsNarrowScrollbackExpansion() throws {
+    let historyWidth = MobileTerminalRenderGridFrame.maximumProjectedScrollbackLines + 3
+    let frame = try MobileTerminalRenderGridFrame(
+        surfaceID: "surface-a",
+        stateSeq: 1,
+        columns: historyWidth,
+        rows: 1,
+        rowSpans: [.init(row: 0, column: 0, text: "live")],
+        scrollbackRows: 1,
+        scrollbackSpans: [
+            .init(row: 0, column: 0, text: String(repeating: "h", count: historyWidth))
+        ]
+    )
+
+    let projected = frame.projectedViewport(columns: 1, rows: 1)
+
+    #expect(projected.scrollbackRows == MobileTerminalRenderGridFrame.maximumProjectedScrollbackLines)
+    #expect(projected.scrollbackSpans.count == MobileTerminalRenderGridFrame.maximumProjectedScrollbackLines)
+    #expect(projected.plainRows() == ["e"])
+}
+
 @Test func viewportProjectionHonorsExplicitSpanWidthsAndWideGlyphs() throws {
     let style = MobileTerminalRenderGridFrame.Style(id: 1, bold: true)
     let frame = try MobileTerminalRenderGridFrame(

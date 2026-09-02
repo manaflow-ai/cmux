@@ -45,21 +45,25 @@ public struct MobileTerminalRenderGridRevisionContinuity: Equatable, Sendable {
     /// Whether `frame` may patch on top of the delivered state.
     ///
     /// Full frames always pass: they replace state rather than patch it.
-    /// Deltas without a base revision or without an epoch pass so the history
-    /// chain remains their only guard (legacy producers omit both, and the
-    /// consumer records no identity for epochless frames — rejecting them
-    /// would loop replays forever). A delta that names a base must advance
-    /// past it (a producer diffs against an older capture, never the same or
-    /// a newer one) and passes only when `delivered` records exactly that
-    /// frame; with no delivered record it fails closed.
+    /// Deltas without a base revision pass, and epochless deltas use the
+    /// legacy render-revision/history chain because an emission identity cannot
+    /// be authenticated across producer lifetimes. A delta that names an
+    /// emission base must have a non-empty epoch and must advance past it; an
+    /// epochless delta falls through to its render-revision base when present.
+    /// A delta that names a base must advance past it (a producer diffs against
+    /// an older capture, never the same or a newer one) and passes only when
+    /// `delivered` records exactly that frame; with no delivered record it
+    /// fails closed.
     public static func admits(
         _ frame: MobileTerminalRenderGridFrame,
         delivered: Self?
     ) -> Bool {
         guard !frame.full else { return true }
-        if let emissionBase = frame.deltaBaseEmissionRevision {
-            guard !frame.renderEpoch.isEmpty,
-                  frame.emissionRevision > emissionBase,
+        if let emissionBase = frame.deltaBaseEmissionRevision,
+           !frame.renderEpoch.isEmpty {
+            // Epochful emission identities are exact and require a delivered
+            // emitted frame from the same producer lifetime.
+            guard frame.emissionRevision > emissionBase,
                   let delivered,
                   delivered.emissionIdentityAvailable else { return false }
             return delivered.renderEpoch == frame.renderEpoch

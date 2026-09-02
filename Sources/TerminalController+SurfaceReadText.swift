@@ -4,6 +4,11 @@ import Foundation
 
 /// Terminal text capture and formatting seams used by the local socket read plane.
 extension TerminalController {
+    nonisolated static let terminalTextReadFailureMessage = String(
+        localized: "socket.terminal.readText.failed",
+        defaultValue: "Failed to read terminal text"
+    )
+
     struct TerminalTextRawSnapshot: Sendable {
         var viewport: String?
         var screen: String?
@@ -52,12 +57,12 @@ extension TerminalController {
                 }
                 return left.bytes < right.bytes
             }) else {
-                return .failure(TerminalTextPayloadError(message: "Failed to read terminal text"))
+                return .failure(TerminalTextPayloadError(message: Self.terminalTextReadFailureMessage))
             }
             output = best
         } else {
             guard var viewport = snapshot.viewport else {
-                return .failure(TerminalTextPayloadError(message: "Failed to read terminal text"))
+                return .failure(TerminalTextPayloadError(message: Self.terminalTextReadFailureMessage))
             }
             if let lineLimit {
                 viewport = Self.tailTerminalLines(viewport, maxLines: lineLimit)
@@ -270,7 +275,7 @@ extension TerminalController {
         ) else {
             return .finished(ReadTextCaptureError(
                 code: "internal_error",
-                message: "Failed to read terminal text"
+                message: Self.terminalTextReadFailureMessage
             ))
         }
         // `terminalTextPayload`'s only failure predicate is snapshot shape
@@ -282,7 +287,7 @@ extension TerminalController {
         guard payloadIsFormattable else {
             return .finished(ReadTextCaptureError(
                 code: "internal_error",
-                message: "Failed to read terminal text"
+                message: Self.terminalTextReadFailureMessage
             ))
         }
         // Refs mint in the success payload's literal order (workspace,

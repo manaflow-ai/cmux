@@ -40,8 +40,11 @@ connection boundary. It never calls the terminal resize path: the Mac pane,
 Ghostty's PTY dimensions, shell wrapping, and other clients remain unchanged.
 This is deliberate because a PTY resize is global and would make one phone's
 width change every agent's terminal. The projection preserves styles, cursor,
-scrollback rows, and producer identity. `surface.read_text` is always projected
-as plain text. Replay fallbacks (`snapshot_data_b64` and `data_b64`) are
+scrollback rows, and producer identity. To keep a narrow viewport from
+expanding a large history without bound, at most 16,384 wrapped scrollback
+lines are retained; the newest lines win and the visible rows are always
+preserved. `surface.read_text` is always projected as plain text. Replay
+fallbacks (`snapshot_data_b64` and `data_b64`) are
 preserved byte-for-byte because they are VT/control streams; those responses
 report `viewport_override:false` when a render-grid frame is unavailable.
 
@@ -59,9 +62,10 @@ for delta-chain continuity. A delta carries
 `delta_base_emission_revision` (and the legacy
 `delta_base_render_revision` field for compatibility). Clients polling for
 changes should compare `render_epoch` + `render_revision`; clients validating a
-delta should compare the emission identity and its base. Legacy or
-connection-projected frames that have no emission identity cannot establish an
+delta should compare the emission identity and its base. An epochful
+legacy/connection-projected frame with no emission identity cannot establish an
 emission-delta baseline; a consumer must request a full replay in that case.
+Epochless legacy deltas use the older render-revision/history chain instead.
 
 The content revision advances once per visible rendered batch, not once per raw
 PTY chunk. A resize is a content change even when no bytes were received.

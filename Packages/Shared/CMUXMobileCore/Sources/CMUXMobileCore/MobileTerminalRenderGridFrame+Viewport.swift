@@ -1,6 +1,11 @@
 import Foundation
 
 extension MobileTerminalRenderGridFrame {
+    /// Maximum number of wrapped scrollback lines retained by one client
+    /// projection. Visible rows are always preserved; older projected history
+    /// is truncated at this bound to keep narrow viewport requests bounded.
+    public static let maximumProjectedScrollbackLines = 16_384
+
     private struct ViewportCell {
         var text: String
         let styleID: Int
@@ -53,7 +58,8 @@ extension MobileTerminalRenderGridFrame {
             rows: scrollbackSpans,
             rowCount: scrollbackRows,
             sourceColumns: self.columns,
-            targetColumns: columns
+            targetColumns: columns,
+            maximumLines: Self.maximumProjectedScrollbackLines
         )
         let projectedScrollbackSpans = Self.spans(
             from: scrollbackLines,
@@ -148,7 +154,8 @@ extension MobileTerminalRenderGridFrame {
         rows: [RowSpan],
         rowCount: Int,
         sourceColumns: Int,
-        targetColumns: Int
+        targetColumns: Int,
+        maximumLines: Int? = nil
     ) -> [ViewportLine] {
         // Canonicalize the entire span list once. The previous implementation
         // sorted every row independently, multiplying sort overhead for large
@@ -158,8 +165,25 @@ extension MobileTerminalRenderGridFrame {
         for span in canonicalRows {
             spansByRow[span.row, default: []].append(span)
         }
+        let resolvedRowCount = max(0, rowCount)
+        let sourceRows: [Int]
+        if let maximumLines {
+            guard maximumLines > 0, resolvedRowCount > 0 else { return [] }
+            // Scrollback is retained newest-first while wrapping so a narrow
+            // client cannot force allocation for every historical row. The
+            // final flatten restores oldest-to-newest wire order.
+            sourceRows = Array(stride(
+                from: resolvedRowCount - 1,
+                through: 0,
+                by: -1
+            ))
+        } else {
+            sourceRows = Array(0..<resolvedRowCount)
+        }
         var result: [ViewportLine] = []
-        for sourceRow in 0..<max(0, rowCount) {
+        var newestFirstRows: [[ViewportLine]] = []
+        var newestFirstLineCount = 0
+        for sourceRow in sourceRows {
             var cells = (0..<max(0, sourceColumns)).map { index in
                 ViewportCell(text: " ", styleID: 0, width: 1, sourceColumn: index)
             }
@@ -224,6 +248,7 @@ extension MobileTerminalRenderGridFrame {
             }
 
             var lineCells: [ViewportCell] = []
+            var rowLines: [ViewportLine] = []
             var lineWidth = 0
             for cell in cells where cell.width > 0 {
                 guard cell.width <= targetColumns else {
@@ -231,11 +256,11 @@ extension MobileTerminalRenderGridFrame {
                     // line. Leave that cell blank rather than creating an
                     // invalid span wider than the projected grid.
                     if lineWidth > 0 {
-                        result.append(ViewportLine(sourceRow: sourceRow, cells: lineCells))
+                        rowLines.append(ViewportLine(sourceRow: sourceRow, cells: lineCells))
                         lineCells.removeAll(keepingCapacity: true)
                         lineWidth = 0
                     }
-                    result.append(ViewportLine(
+                    rowLines.append(ViewportLine(
                         sourceRow: sourceRow,
                         cells: [ViewportCell(
                             text: " ",
@@ -247,21 +272,37 @@ extension MobileTerminalRenderGridFrame {
                     continue
                 }
                 if lineWidth > 0, lineWidth + cell.width > targetColumns {
-                    result.append(ViewportLine(sourceRow: sourceRow, cells: lineCells))
+                    rowLines.append(ViewportLine(sourceRow: sourceRow, cells: lineCells))
                     lineCells.removeAll(keepingCapacity: true)
                     lineWidth = 0
                 }
                 lineCells.append(cell)
                 lineWidth += cell.width
                 if lineWidth == targetColumns {
-                    result.append(ViewportLine(sourceRow: sourceRow, cells: lineCells))
+                    rowLines.append(ViewportLine(sourceRow: sourceRow, cells: lineCells))
                     lineCells.removeAll(keepingCapacity: true)
                     lineWidth = 0
                 }
             }
             if !lineCells.isEmpty || cells.isEmpty {
-                result.append(ViewportLine(sourceRow: sourceRow, cells: lineCells))
+                rowLines.append(ViewportLine(sourceRow: sourceRow, cells: lineCells))
             }
+
+            if let maximumLines {
+                let remaining = maximumLines - newestFirstLineCount
+                guard remaining > 0 else { break }
+                let retained = Array(rowLines.suffix(remaining))
+                newestFirstRows.append(retained)
+                newestFirstLineCount += retained.count
+                if rowLines.count >= remaining {
+                    break
+                }
+            } else {
+                result.append(contentsOf: rowLines)
+            }
+        }
+        if maximumLines != nil {
+            return newestFirstRows.reversed().flatMap { $0 }
         }
         return result
     }

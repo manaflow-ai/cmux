@@ -245777,6 +245777,23 @@
         }
       }
     },
+    "socket.terminal.readText.failed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Failed to read terminal text"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ターミナルテキストの読み取りに失敗しました"
+          }
+        }
+      }
+    },
     "socket.terminal.viewport.surfaceNotFound": {
       "extractionState": "manual",
       "localizations": {

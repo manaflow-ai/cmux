@@ -352,7 +352,7 @@ extension TerminalController {
                 return Self.v2Encoder.error(
                     id: request.id,
                     code: "internal_error",
-                    message: "Failed to read terminal text"
+                    message: Self.terminalTextReadFailureMessage
                 )
             }
 
