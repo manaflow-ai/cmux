@@ -832,4 +832,12 @@ mod tests {
 
         assert!(matches!(result, Err(AppendAttemptError::Fatal(_))));
     }
+
+    #[test]
+    fn detached_request_id_rejects_an_overlong_line() {
+        let input = format!("{}\n{{}}", "x".repeat(MAX_REQUEST_ID_BYTES + 1));
+        let mut reader = BufReader::new(input.as_bytes());
+        let error = read_detached_request_id(&mut reader).expect_err("oversized ID accepted");
+        assert!(error.to_string().contains("request id"));
+    }
 }
