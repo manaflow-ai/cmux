@@ -1,7 +1,7 @@
 // Coherence check between the deployed Cloud VM env and the image manifest.
 //
-// The 2026-08-26 outage: code shipped assuming CMUX_VM_DEFAULT_PROVIDER=blaxel
-// while production still said freestyle, and no BLAXEL_SANDBOX_IMAGE was set.
+// The 2026-08-26 outage: code shipped assuming one CMUX_VM_DEFAULT_PROVIDER
+// while production still said another, and no image selector was set for it.
 // Key-presence auditing could not catch that; provider VALUES have to agree
 // with the manifest. Image env vars derive from manifest.json (each entry
 // carries its provider and env var), so a new provider cannot be added
@@ -15,14 +15,13 @@ const PROVIDER_CREDENTIAL_KEYS = {
   e2b: ["E2B_API_KEY"],
   freestyle: ["FREESTYLE_API_KEY"],
   daytona: ["DAYTONA_API_KEY"],
-  blaxel: ["BL_API_KEY", "BL_WORKSPACE"],
 };
 
 // Mirrors defaultProviderId() in services/vms/drivers/index.ts. Shipped CLIs
 // also hardcode this provider's image ids (cmux.swift cloudVMDesktopImage /
 // cloudVMBaseImage), so it must stay provisionable in production even when
 // the env deliberately selects a different default as a rollback.
-export const CODE_DEFAULT_PROVIDER = "blaxel";
+export const CODE_DEFAULT_PROVIDER = "freestyle";
 
 // What `vercel env pull` writes for values it cannot decrypt. The default
 // provider and its image id are configuration, not secrets; stored as
@@ -97,11 +96,11 @@ export function auditProviderReadiness(provider, env, manifest) {
 /**
  * Full coherence audit. Two legs:
  * - the env-selected default provider (what imageless creates use), and
- * - the code default (blaxel) whenever the env selects something else,
- *   because shipped clients hardcode blaxel image ids: an env rollback to
- *   another default must not leave blaxel unprovisionable. This second leg
+ * - the code default (freestyle) whenever the env selects something else,
+ *   because shipped clients hardcode the code default's image ids: an env
+ *   rollback to another default must not leave it unprovisionable. This leg
  *   is what would have caught the 2026-08-26 production env, where a fully
- *   coherent freestyle default coexisted with clients that only send blaxel.
+ *   coherent env default coexisted with clients that only send the code default.
  *
  * @param {Record<string, string | undefined>} env
  * @param {{ images: Array<{ provider: string, version: string, imageId: string, envVar: string, validationStatus: string }> }} manifest

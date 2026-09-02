@@ -4294,7 +4294,7 @@ struct CMUXCLI {
     // never pins an image id unless the person passes `--image`: a pinned id
     // that drifted from the web deploy's manifest failed every create with
     // `vm_image_config_error`.
-    /// `--size` spellings → memory in MB. vCPUs scale with memory on Blaxel.
+    /// `--size` spellings → memory in MB. vCPUs scale with memory.
     private static let cloudVMSizeAliases: [String: Int] = [
         "2g": 2048, "2gb": 2048, "small": 2048,
         "4g": 4096, "4gb": 4096, "medium": 4096,
@@ -4597,7 +4597,7 @@ struct CMUXCLI {
             return nil
         }
         let normalized = trimmed.lowercased()
-        guard normalized == "e2b" || normalized == "freestyle" || normalized == "daytona" || normalized == "blaxel" else {
+        guard normalized == "e2b" || normalized == "freestyle" || normalized == "daytona" else {
             throw CLIError(message: """
                 vm new: unsupported Cloud VM service override.
 
@@ -5930,8 +5930,8 @@ struct CMUXCLI {
                 }
                 if let normalizedProvider { params["provider"] = normalizedProvider }
                 // Size is independent of the image/provider override. Providers that do
-                // not expose sizing ignore this optional field; Blaxel uses it for runtime
-                // memory and the backend applies the plan ceiling.
+                // not expose sizing ignore this optional field; providers that do use it
+                // for runtime memory get it, and the backend applies the plan ceiling.
                 if let memoryMb { params["memory_mb"] = memoryMb }
                 // The persistent per-machine home is keyed off whether the *person*
                 // overrode the image/provider (`imageOptRaw`), not the CLI-injected
@@ -5943,8 +5943,8 @@ struct CMUXCLI {
                     providerOption: providerOpt
                 )
                 // The persistent-default create sends no provider override: the backend's
-                // CMUX_VM_DEFAULT_PROVIDER decides, with Blaxel as the default. An explicit
-                // provider remains available for deliberate rollback/provider experiments.
+                // CMUX_VM_DEFAULT_PROVIDER decides, with Freestyle as the default. An
+                // explicit provider remains available for deliberate rollback/experiments.
                 if usesPersistentDefaultCloud {
                     // Every new machine is its own persistent computer: the backend mounts a
                     // volume derived from the machine's generated name, so `vm new` mints a
@@ -13061,7 +13061,7 @@ struct CMUXCLI {
         logVMTiming(
             "base.open",
             vmID: (response["id"] as? String) ?? "?",
-            provider: (response["provider"] as? String) ?? "blaxel",
+            provider: (response["provider"] as? String) ?? "freestyle",
             startedAt: vmCreateStartedAt
         )
 
@@ -13071,7 +13071,7 @@ struct CMUXCLI {
         }
 
         let id = (response["id"] as? String) ?? "?"
-        let provider = (response["provider"] as? String) ?? "blaxel"
+        let provider = (response["provider"] as? String) ?? "freestyle"
         let image = (response["image"] as? String) ?? "?"
         let base = response["base"] as? [String: Any]
         let generation = (base?["generation"] as? Int) ?? (base?["generation"] as? NSNumber)?.intValue
@@ -13151,7 +13151,7 @@ struct CMUXCLI {
         logVMTiming(
             "base.reset",
             vmID: (response["id"] as? String) ?? "?",
-            provider: (response["provider"] as? String) ?? "blaxel",
+            provider: (response["provider"] as? String) ?? "freestyle",
             startedAt: vmCreateStartedAt
         )
 
@@ -13161,7 +13161,7 @@ struct CMUXCLI {
         }
 
         let id = (response["id"] as? String) ?? "?"
-        let provider = (response["provider"] as? String) ?? "blaxel"
+        let provider = (response["provider"] as? String) ?? "freestyle"
         let image = (response["image"] as? String) ?? "?"
         let base = response["base"] as? [String: Any]
         let generation = (base?["generation"] as? Int) ?? (base?["generation"] as? NSNumber)?.intValue

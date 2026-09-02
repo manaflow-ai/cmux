@@ -4,8 +4,8 @@ import Foundation
 /// plane happens to deploy for it today.
 ///
 /// Clients request machines by kind and let the backend map the kind to the
-/// image its environment supports (`BLAXEL_SANDBOX_DESKTOP_IMAGE`,
-/// `BLAXEL_SANDBOX_IMAGE`, or the deployed manifest default). Pinning an
+/// image its environment supports (the provider's `_DESKTOP_IMAGE` selector,
+/// its base image selector, or the deployed manifest default). Pinning an
 /// image id on the client broke every build whose id drifted from the web
 /// deploy's manifest (`vm_image_config_error`), so the id is never sent unless
 /// a person passes `--image` explicitly.
