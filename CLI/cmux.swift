@@ -28408,7 +28408,7 @@ struct CMUXCLI {
                     cwd: parsedInput.cwd,
                     transcriptPath: parsedInput.transcriptPath,
                     agentLifecycle: .needsInput,
-                    hookEventName: reportedHookEventName(from: parsedInput) ?? "PreToolUse",
+                    hookEventName: reportedHookEventName(from: parsedInput) ?? "PermissionRequest",
                     lastSubtitle: waitingSubtitle,
                     lastBody: needsInputBody
                 )
