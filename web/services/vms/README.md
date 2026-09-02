@@ -99,11 +99,14 @@ Default image policy:
   (`api.freestyle.sh`). Set `CMUX_VM_DEFAULT_PROVIDER=freestyle` (the local loader supplies
   this when unset); Freestyle is the only provider, so the override can only ever name it, rather than
   silent fallbacks.
-- **The Freestyle devbox snapshot must be re-baked on the public platform.** The manifest's
-  only Freestyle entry (`sh-fb3dcf7b…`) was baked against the retired `beta-api.freestyle.sh`
-  and is marked `validationStatus: "unknown"`. Until `scripts/build-devbox-freestyle.ts` bakes
-  a public-platform snapshot and its id lands in the manifest, Freestyle creates fail closed
-  with `vm_image_config_error`.
+- The validated Freestyle devbox entry is `freestyle-cmux-devbox-20260902c`, image
+  `sh-940ec3bc46224c019e5e8d9a97053293`. It was baked and verified on the public platform
+  (`api.freestyle.sh`) from main `2526fbf0f2`, including the explicit Codex HTTP-only setting.
+  The retired beta entry remains only as a historical record and must not be selected. The
+  previous public entries `freestyle-cmux-devbox-20260902a` and `freestyle-cmux-devbox-20260902b`
+  remain in the manifest for rollback. When the shared Dockerfile epoch or tool pins change,
+  run `scripts/build-devbox-freestyle.ts`, verify the new snapshot, and append its id before
+  changing `FREESTYLE_SANDBOX_SNAPSHOT`.
 - Baked agent tools are installed at image-build time. They are not auto-updated on VM startup, so
   startup latency stays bounded and the active image manifest remains the source of truth.
 - To update tool versions, rebuild the provider images and record the new template/snapshot IDs in

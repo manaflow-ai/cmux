@@ -438,7 +438,7 @@ function cmuxTuiBackingDaemonInvocation(
 /**
  * The daemon command every provider's supervisor runs. Launch cwd = the persistent
  * home so new terminals open there. `remoteWsBind` defaults to the IPv4 wildcard
- * the container providers' proxies dial; Freestyle beta machines are reached at
+ * the container providers' proxies dial; Freestyle machines are reached at
  * their public IPv6 and pass a dual-stack `[::]` bind instead (a container with
  * IPv6 disabled cannot bind `[::]` at all, so dual-stack is per-provider, not the
  * default).

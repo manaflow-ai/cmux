@@ -20,6 +20,7 @@ import {
   isFreeProvisioningAllowed,
 } from "../scripts/cloud-vm/freeProvisioningAudit.mjs";
 import {
+  legacyCloudVmEnvKeys,
   recommendedRuntimeEnvKeys,
   requiredRuntimeEnvKeys,
 } from "../scripts/cloud-vm/projects.mjs";
@@ -75,10 +76,37 @@ describe("cloud VM provider coherence audit", () => {
     expect(result.problems.join("\n")).toContain("FREESTYLE_API_KEY");
   });
 
-  test("the freestyle devbox snapshot is not deployable until it is re-baked on the public platform", () => {
-    // The only freestyle manifest entry was baked against the retired
-    // beta-api.freestyle.sh endpoint and carries validationStatus "unknown".
-    // The audit must keep failing until a public-platform bake replaces it, so
+  test("the validated public-platform freestyle devbox passes as the default provider", () => {
+    const result = auditCloudVmProviderCoherence(
+      {
+        CMUX_VM_DEFAULT_PROVIDER: "freestyle",
+        CMUX_VM_FREESTYLE_ENABLED: "1",
+        FREESTYLE_SANDBOX_SNAPSHOT: "sh-940ec3bc46224c019e5e8d9a97053293",
+        FREESTYLE_API_KEY: "x",
+      },
+      realManifest,
+    ) as Coherence;
+    expect(result.selected?.provider).toBe("freestyle");
+    expect(result.codeDefault).toBeNull();
+    expect(result.problems).toEqual([]);
+  });
+
+  test("a disabled Freestyle flag fails the selected default audit", () => {
+    const result = auditCloudVmProviderCoherence(
+      {
+        CMUX_VM_DEFAULT_PROVIDER: "freestyle",
+        CMUX_VM_FREESTYLE_ENABLED: "0",
+        FREESTYLE_SANDBOX_SNAPSHOT: "sh-940ec3bc46224c019e5e8d9a97053293",
+        FREESTYLE_API_KEY: "x",
+      },
+      realManifest,
+    ) as Coherence;
+    expect(result.problems.join("\n")).toContain("CMUX_VM_FREESTYLE_ENABLED disables provider freestyle");
+  });
+
+  test("the retired beta-api freestyle snapshot is still not deployable", () => {
+    // That entry was baked against beta-api.freestyle.sh and keeps
+    // validationStatus "unknown"; pointing the env at it must stay red so
     // nobody ships a default provider that cannot boot a machine.
     const result = auditCloudVmProviderCoherence(
       {
@@ -192,10 +220,12 @@ describe("required runtime env keys cover the production provider path", () => {
   test("no removed provider's env keys are still demanded", () => {
     for (const key of [
       "BL_API_KEY", "BL_WORKSPACE", "BLAXEL_SANDBOX_IMAGE", "BLAXEL_SANDBOX_DESKTOP_IMAGE", "CMUX_VM_BLAXEL_ENABLED",
-      "E2B_API_KEY", "E2B_CMUXD_WS_TEMPLATE", "CMUX_VM_E2B_ENABLED",
+      "E2B_API_KEY", "E2B_CMUXD_WS_TEMPLATE", "E2B_SANDBOX_TEMPLATE", "CMUX_VM_E2B_ENABLED",
+      "DAYTONA_API_KEY", "DAYTONA_API_URL", "DAYTONA_SANDBOX_SNAPSHOT", "CMUX_VM_DAYTONA_ENABLED",
     ]) {
       expect(requiredRuntimeEnvKeys).not.toContain(key);
       expect(recommendedRuntimeEnvKeys).not.toContain(key);
+      expect(legacyCloudVmEnvKeys).toContain(key);
     }
   });
 
