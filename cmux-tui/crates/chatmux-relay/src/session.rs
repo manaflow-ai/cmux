@@ -904,17 +904,31 @@ async fn relay_session(
                 let Some(frame) = parse_server_frame(&text) else { continue };
                 match frame {
                     ServerFrame::HelloAccepted(hello) => {
+                        let local_trust = if state.managed {
+                            DEFAULT_RELAY_TRUST
+                        } else {
+                            effective_local_trust(config)
+                        };
+                        // Managed hello trust is server authority. Validate it
+                        // before changing connection, enrollment, token, or
+                        // trust state so an invalid acceptance cannot leave a
+                        // partially authenticated managed session behind.
+                        let effective_trust = if state.managed {
+                            let Some(trust) = Trust::parse(&hello.trust) else {
+                                break Err(RelayError::transient(
+                                    "server returned an invalid trust level; refusing terminal access",
+                                ));
+                            };
+                            trust
+                        } else {
+                            local_trust
+                        };
                         connected = true;
                         negotiated_version = hello.relay_protocol_version;
                         clear_invalid_yolo_confirmation(config);
                         let configured = relay_trust(
                             config.pending_trust.as_deref().or(config.trust.as_deref()),
                         );
-                        let local_trust = if state.managed {
-                            DEFAULT_RELAY_TRUST
-                        } else {
-                            effective_local_trust(config)
-                        };
                         if !state.managed
                             && (configured != local_trust || local_trust == Trust::Autonomous)
                         {
@@ -947,7 +961,7 @@ async fn relay_session(
                             hello.machine_name.clone()
                         };
                         let shown_trust = if state.managed {
-                            hello.trust.clone()
+                            effective_trust.as_str().to_owned()
                         } else {
                             local_trust.as_str().to_owned()
                         };
@@ -988,26 +1002,13 @@ async fn relay_session(
                             config.pending_trust = None;
                             save(config, config_path);
                         } else {
-                            config.trust = Some(hello.trust.clone());
+                            config.trust = Some(effective_trust.as_str().to_owned());
                         }
                         // Publish the reconciled auth for exec/PTY dispatch.
                         {
-                            let effective_trust = if state.managed {
-                                hello.trust.clone()
-                            } else {
-                                local_trust.as_str().to_owned()
-                            };
-                            // A server-supplied trust value is authority. Do
-                            // not treat an unknown string as a permissive
-                            // level in either the relay or tunnel data plane.
-                            if Trust::parse(&effective_trust).is_none() {
-                                break Err(RelayError::transient(
-                                    "server returned an invalid trust level; refusing terminal access",
-                                ));
-                            }
-                            let local_observe = effective_trust == Trust::Observe.as_str();
+                            let local_observe = effective_trust == Trust::Observe;
                             let mut snapshot = auth.lock().expect("auth lock");
-                            snapshot.trust = effective_trust;
+                            snapshot.trust = effective_trust.as_str().to_owned();
                             snapshot.roots = local_roots.clone();
                             snapshot.owner = config.owner_user_id.clone();
                             #[cfg(unix)]
