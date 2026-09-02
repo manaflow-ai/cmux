@@ -38,6 +38,7 @@ struct CloudTuiLegacySnapshotParser: Sendable {
     func protocolVersion(from data: Data) -> Int? {
         guard let root = try? JSONSerialization.jsonObject(with: data),
               let object = root as? [String: Any],
+              positiveInteger(from: object["id"]) == 1,
               (object["ok"] as? Bool) == true,
               let data = object["data"] as? [String: Any],
               let number = data["protocol"] as? NSNumber,
@@ -123,31 +124,32 @@ struct CloudTuiLegacySnapshotParser: Sendable {
     }
 
     private func number(from value: Any?) -> UInt64? {
-        if let number = value as? NSNumber {
-            // JSON booleans bridge to NSNumber on Apple platforms. They are
-            // not valid surface ids, and NSNumber's integer accessors would
-            // otherwise turn true into 1. Require an integral, positive,
-            // lossless conversion before accepting the value.
-            if CFGetTypeID(number) == CFBooleanGetTypeID() {
-                return nil
-            }
-            let type = String(cString: number.objCType)
-            switch type {
-            case "c", "s", "i", "l", "q":
-                let signed = number.int64Value
-                return signed > 0 ? UInt64(signed) : nil
-            case "C", "S", "I", "L", "Q":
-                let unsigned = number.uint64Value
-                return unsigned > 0 ? unsigned : nil
-            default:
-                // Floating-point JSON values (including 1.5) are rejected
-                // rather than rounded into a potentially different surface.
-                return nil
-            }
-        }
+        if let number = positiveInteger(from: value) { return number }
         if let string = value as? String {
             return UInt64(string).flatMap { $0 > 0 ? $0 : nil }
         }
         return nil
+    }
+
+    /// Converts a JSON number to a positive integer without accepting booleans
+    /// or floating-point values that NSNumber would otherwise coerce.
+    private func positiveInteger(from value: Any?) -> UInt64? {
+        guard let number = value as? NSNumber,
+              CFGetTypeID(number) != CFBooleanGetTypeID() else {
+            return nil
+        }
+        let type = String(cString: number.objCType)
+        switch type {
+        case "c", "s", "i", "l", "q":
+            let signed = number.int64Value
+            return signed > 0 ? UInt64(signed) : nil
+        case "C", "S", "I", "L", "Q":
+            let unsigned = number.uint64Value
+            return unsigned > 0 ? unsigned : nil
+        default:
+            // Floating-point JSON values (including 1.5) are rejected
+            // rather than rounded into a potentially different identifier.
+            return nil
+        }
     }
 }
