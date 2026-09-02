@@ -9,8 +9,8 @@
 #![cfg(unix)]
 
 use std::collections::{HashMap, VecDeque};
-use std::future::Future;
 use std::fs::File;
+use std::future::Future;
 use std::io::{Read, Write};
 use std::mem::{offset_of, size_of};
 use std::os::fd::AsRawFd;
@@ -46,8 +46,11 @@ where
     Fut: Future<Output = Result<Option<String>, ()>>,
 {
     let mut names = Vec::new();
-    while let Ok(Some(name)) = next_entry().await {
-        names.push(name);
+    loop {
+        match next_entry().await? {
+            Some(name) => names.push(name),
+            None => break,
+        }
     }
     Ok(names)
 }
