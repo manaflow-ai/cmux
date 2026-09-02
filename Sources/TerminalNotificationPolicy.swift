@@ -629,7 +629,9 @@ private final class NotificationHookProcessRun: @unchecked Sendable {
         var attributes: posix_spawnattr_t?
         try throwIfPOSIXError(posix_spawnattr_init(&attributes), operation: "initialize spawn attributes")
         defer { posix_spawnattr_destroy(&attributes) }
-        let flags = Int16(POSIX_SPAWN_SETPGROUP)
+        // Keep unrelated app descriptors out of hooks. The dup2 actions above
+        // preserve the hook's standard streams.
+        let flags = Int16(POSIX_SPAWN_SETPGROUP | POSIX_SPAWN_CLOEXEC_DEFAULT)
         try throwIfPOSIXError(posix_spawnattr_setflags(&attributes, flags), operation: "set spawn flags")
         try throwIfPOSIXError(posix_spawnattr_setpgroup(&attributes, 0), operation: "set process group")
         let arguments = ["/bin/sh", "-c", hook.command]
