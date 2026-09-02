@@ -62,6 +62,7 @@ const MAX_ENUM_SURFACES: usize = 8;
 const RAW_ATTACH_BACKLOG_CAP: usize = 1024 * 1024;
 const MAX_OUTPUT_CHUNK_BYTES: usize = 256 * 1024;
 const CONTROL_OPERATION_DRAIN_TIMEOUT: Duration = Duration::from_millis(250);
+const PTY_START_TIMEOUT: Duration = Duration::from_secs(5);
 const PTY_INPUT_B64_CAP: usize = 4 * 1024 * 1024;
 
 /// Random lowercase-hex identity for transports and tunnel attachments.
@@ -1349,7 +1350,30 @@ impl Inner {
             .await;
             return;
         }
-        let _ = started_rx.await;
+        tokio::select! {
+            _ = context.cancellation.cancelled() => {
+                self.emit_error_for_generation_async(
+                    context,
+                    &pty_id,
+                    generation,
+                    &publication_gate,
+                    "failed",
+                    "PTY output start cancelled",
+                ).await;
+            }
+            result = tokio::time::timeout(PTY_START_TIMEOUT, started_rx) => {
+                if result.is_err() {
+                    self.emit_error_for_generation_async(
+                        context,
+                        &pty_id,
+                        generation,
+                        &publication_gate,
+                        "failed",
+                        "PTY output start timed out",
+                    ).await;
+                }
+            }
+        }
     }
 
     /// Build the per-attachment emit closures (output + exit framing).
