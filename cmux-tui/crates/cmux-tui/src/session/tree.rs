@@ -2,6 +2,7 @@
 //! plus the JSON parser for the remote `list-workspaces` shape.
 
 use std::collections::{BTreeMap, HashMap, HashSet};
+use std::sync::OnceLock;
 
 use cmux_tui_core::resource::{
     BrowserPublicId, ContentPublicId, PanePublicId, ScreenPublicId, TabPublicId, TerminalPublicId,
@@ -21,6 +22,41 @@ pub struct TreeView {
     pub workspace_revision: u64,
     pub pane_revision: Option<u64>,
     pub active_workspace: usize,
+    #[doc(hidden)]
+    pub(crate) location_index: OnceLock<TreeLocationIndex>,
+}
+
+#[derive(Clone, Default)]
+pub(crate) struct TreeLocationIndex {
+    panes: HashMap<PaneId, (usize, usize, usize)>,
+    surfaces: HashMap<SurfaceId, (usize, usize, usize, usize)>,
+}
+
+impl TreeLocationIndex {
+    fn build(tree: &TreeView) -> Self {
+        let mut index = Self::default();
+        for (workspace_index, workspace) in tree.workspaces.iter().enumerate() {
+            for (screen_index, screen) in workspace.screens.iter().enumerate() {
+                for (pane_index, pane) in screen.panes.iter().enumerate() {
+                    index.panes.entry(pane.id).or_insert((
+                        workspace_index,
+                        screen_index,
+                        pane_index,
+                    ));
+                    for (tab_index, tab) in pane.tabs.iter().enumerate() {
+                        // The previous scans selected the first duplicate in tree order.
+                        index.surfaces.entry(tab.surface).or_insert((
+                            workspace_index,
+                            screen_index,
+                            pane_index,
+                            tab_index,
+                        ));
+                    }
+                }
+            }
+        }
+        index
+    }
 }
 
 #[derive(Clone)]
@@ -91,6 +127,7 @@ impl TreeView {
     /// with explicit detach/retire evidence. The local surface mirror is a
     /// lazy cache and can be empty during startup or reconnect.
     pub fn retain_not_retired(&mut self, retired: &HashSet<SurfaceId>) {
+        self.invalidate_location_index();
         for workspace in &mut self.workspaces {
             for screen in &mut workspace.screens {
                 for pane in &mut screen.panes {
@@ -160,10 +197,12 @@ impl TreeView {
     }
 
     pub fn active_workspace_mut(&mut self) -> Option<&mut WorkspaceView> {
+        self.invalidate_location_index();
         self.workspaces.get_mut(self.active_workspace)
     }
 
     pub fn active_workspace_mut_screen(&mut self) -> Option<&mut ScreenView> {
+        self.invalidate_location_index();
         let workspace = self.workspaces.get_mut(self.active_workspace)?;
         workspace.screens.get_mut(workspace.active_screen)
     }
@@ -174,14 +213,19 @@ impl TreeView {
     }
 
     pub fn pane(&self, id: PaneId) -> Option<&PaneView> {
+        let (workspace_index, screen_index, pane_index) =
+            self.location_index().panes.get(&id).copied()?;
         self.workspaces
-            .iter()
-            .flat_map(|ws| ws.screens.iter())
-            .flat_map(|screen| screen.panes.iter())
-            .find(|p| p.id == id)
+            .get(workspace_index)?
+            .screens
+            .get(screen_index)?
+            .panes
+            .get(pane_index)
+            .filter(|pane| pane.id == id)
     }
 
     pub fn pane_mut(&mut self, id: PaneId) -> Option<&mut PaneView> {
+        self.invalidate_location_index();
         self.workspaces
             .iter_mut()
             .flat_map(|workspace| workspace.screens.iter_mut())
@@ -190,12 +234,17 @@ impl TreeView {
     }
 
     pub fn surface(&self, id: SurfaceId) -> Option<&TabView> {
+        let (workspace_index, screen_index, pane_index, tab_index) =
+            self.location_index().surfaces.get(&id).copied()?;
         self.workspaces
-            .iter()
-            .flat_map(|workspace| workspace.screens.iter())
-            .flat_map(|screen| screen.panes.iter())
-            .flat_map(|pane| pane.tabs.iter())
-            .find(|tab| tab.surface == id)
+            .get(workspace_index)?
+            .screens
+            .get(screen_index)?
+            .panes
+            .get(pane_index)?
+            .tabs
+            .get(tab_index)
+            .filter(|tab| tab.surface == id)
     }
 
     /// Resolve the stable public terminal identity to the current internal
@@ -214,17 +263,7 @@ impl TreeView {
     /// Single-surface clients reapply this to every remote tree snapshot so
     /// unrelated focus changes cannot move them to another terminal.
     pub fn select_surface(&mut self, id: SurfaceId) -> bool {
-        let location =
-            self.workspaces.iter().enumerate().find_map(|(workspace_index, workspace)| {
-                workspace.screens.iter().enumerate().find_map(|(screen_index, screen)| {
-                    screen.panes.iter().enumerate().find_map(|(pane_index, pane)| {
-                        pane.tabs
-                            .iter()
-                            .position(|tab| tab.surface == id)
-                            .map(|tab_index| (workspace_index, screen_index, pane_index, tab_index))
-                    })
-                })
-            });
+        let location = self.location_index().surfaces.get(&id).copied();
         let Some((workspace_index, screen_index, pane_index, tab_index)) = location else {
             return false;
         };
@@ -244,14 +283,15 @@ impl TreeView {
     }
 
     pub fn surface_kind(&self, id: SurfaceId) -> SurfaceKind {
-        self.workspaces
-            .iter()
-            .flat_map(|ws| ws.screens.iter())
-            .flat_map(|screen| screen.panes.iter())
-            .flat_map(|pane| pane.tabs.iter())
-            .find(|tab| tab.surface == id)
-            .map(|tab| tab.kind)
-            .unwrap_or(SurfaceKind::Pty)
+        self.surface(id).map(|tab| tab.kind).unwrap_or(SurfaceKind::Pty)
+    }
+
+    fn location_index(&self) -> &TreeLocationIndex {
+        self.location_index.get_or_init(|| TreeLocationIndex::build(self))
+    }
+
+    fn invalidate_location_index(&mut self) {
+        self.location_index = OnceLock::new();
     }
 }
 
@@ -926,7 +966,10 @@ mod tests {
                     "panes": [{
                         "id": 3,
                         "active_tab": 0,
-                        "tabs": [{"surface": 7, "title": "first"}]
+                        "tabs": [
+                            {"surface": 7, "title": "first"},
+                            {"surface": 8, "title": "retained"}
+                        ]
                     }]
                 }]
             }, {
@@ -944,9 +987,14 @@ mod tests {
 
         assert_eq!(tree.surface(7).map(|tab| tab.title.as_str()), Some("first"));
         assert_eq!(tree.pane(3).map(|pane| pane.tabs[0].title.as_str()), Some("first"));
+        tree.active_workspace = 1;
+        assert!(tree.select_surface(7));
+        assert_eq!(tree.active_workspace, 0);
+        assert_eq!(tree.active_surface(), Some(7));
 
         tree.retain_not_retired(&HashSet::from([7]));
         assert!(tree.surface(7).is_none());
+        assert_eq!(tree.surface(8).map(|tab| tab.title.as_str()), Some("retained"));
         assert!(tree.pane(3).is_some());
     }
 

@@ -39805,6 +39805,7 @@ mod tests {
                     }],
                 }],
             }],
+            ..TreeView::default()
         }
     }
 
@@ -45489,6 +45490,7 @@ mod tests {
                     }],
                 }],
             }],
+            ..TreeView::default()
         }
     }
 

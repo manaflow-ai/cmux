@@ -316,6 +316,7 @@ mod tests {
             workspace_revision: 1,
             pane_revision: Some(1),
             active_workspace: 0,
+            ..TreeView::default()
         }
     }
 
