@@ -2565,7 +2565,7 @@ impl Action {
 }
 
 /// A key chord: code plus required modifiers.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct Chord {
     pub code: KeyCode,
     pub mods: KeyModifiers,
@@ -2593,17 +2593,20 @@ fn normalize_chord(code: KeyCode, mut mods: KeyModifiers) -> (KeyCode, KeyModifi
     }
 }
 
+fn canonical_chord(chord: Chord) -> Chord {
+    const TRACKED: KeyModifiers = KeyModifiers::CONTROL
+        .union(KeyModifiers::ALT)
+        .union(KeyModifiers::SHIFT)
+        .union(KeyModifiers::SUPER)
+        .union(KeyModifiers::HYPER)
+        .union(KeyModifiers::META);
+    let (code, mods) = normalize_chord(chord.code, chord.mods);
+    Chord { code, mods: mods & TRACKED }
+}
+
 impl Chord {
     pub fn matches(&self, key: &KeyEvent) -> bool {
-        const TRACKED: KeyModifiers = KeyModifiers::CONTROL
-            .union(KeyModifiers::ALT)
-            .union(KeyModifiers::SHIFT)
-            .union(KeyModifiers::SUPER)
-            .union(KeyModifiers::HYPER)
-            .union(KeyModifiers::META);
-        let (configured_code, configured_mods) = normalize_chord(self.code, self.mods);
-        let (event_code, event_mods) = normalize_chord(key.code, key.modifiers);
-        configured_code == event_code && configured_mods & TRACKED == event_mods & TRACKED
+        canonical_chord(*self) == canonical_chord(Chord { code: key.code, mods: key.modifiers })
     }
 
     /// Human-readable form used beside context-menu actions. Keep this
@@ -2656,6 +2659,8 @@ pub struct Keys {
     /// macOS Option mode instead of guessing from each event.
     pub macos_option_as_alt: bool,
     bindings: Vec<(Chord, Action)>,
+    action_by_chord: HashMap<Chord, Action>,
+    modeless_action_by_chord: HashMap<Chord, Action>,
     pub(crate) provider_menu_overridden: bool,
 }
 
@@ -2665,7 +2670,7 @@ impl Default for Keys {
         let alt = |code, action| (Chord { code, mods: KeyModifiers::ALT }, action);
         let command = |code, action| (Chord { code, mods: KeyModifiers::SUPER }, action);
         let prefix = Chord { code: KeyCode::Char('b'), mods: KeyModifiers::CONTROL };
-        Keys {
+        let mut keys = Keys {
             prefix,
             macos_option_as_alt: true,
             bindings: vec![
@@ -2744,12 +2749,30 @@ impl Default for Keys {
                 bind(KeyCode::Char('?'), Action::ShowShortcuts),
                 bind(KeyCode::Char('d'), Action::Detach),
             ],
+            action_by_chord: HashMap::new(),
+            modeless_action_by_chord: HashMap::new(),
             provider_menu_overridden: false,
-        }
+        };
+        keys.rebuild_dispatch_maps();
+        keys
     }
 }
 
 impl Keys {
+    fn rebuild_dispatch_maps(&mut self) {
+        self.action_by_chord.clear();
+        self.modeless_action_by_chord.clear();
+        for &(chord, action) in &self.bindings {
+            let canonical = canonical_chord(chord);
+            // Keep the first binding in canonical order. Config mutation
+            // resolves intentional collisions before this cache is built.
+            self.action_by_chord.entry(canonical).or_insert(action);
+            if self.is_modeless_binding(&chord, action) {
+                self.modeless_action_by_chord.entry(canonical).or_insert(action);
+            }
+        }
+    }
+
     fn is_modeless_binding(&self, chord: &Chord, action: Action) -> bool {
         if action == Action::SendPrefix && *chord == self.prefix {
             return false;
@@ -2769,17 +2792,18 @@ impl Keys {
 
     /// The action bound to a key event (after the prefix).
     pub fn action_for(&self, key: &KeyEvent) -> Option<Action> {
-        self.bindings.iter().find(|(chord, _)| chord.matches(key)).map(|(_, a)| *a)
+        self.action_by_chord
+            .get(&canonical_chord(Chord { code: key.code, mods: key.modifiers }))
+            .copied()
     }
 
     /// The modeless action bound to a key event. Alt- and Super-modified
     /// chords are modeless, as are Control-modified clear-history chords;
     /// other chords remain prefix-only.
     pub fn modeless_action_for(&self, key: &KeyEvent) -> Option<Action> {
-        self.bindings
-            .iter()
-            .find(|(chord, action)| self.is_modeless_binding(chord, *action) && chord.matches(key))
-            .map(|(_, a)| *a)
+        self.modeless_action_by_chord
+            .get(&canonical_chord(Chord { code: key.code, mods: key.modifiers }))
+            .copied()
     }
 
     /// The first configured shortcut for an action, including the prefix
@@ -2956,6 +2980,7 @@ impl Keys {
         }
         let prefix = self.prefix;
         self.bindings.retain(|(chord, action)| *action == Action::SendPrefix || *chord != prefix);
+        self.rebuild_dispatch_maps();
     }
 
     #[cfg(test)]
@@ -3921,6 +3946,7 @@ fn bind_user_command_chords(
             }
         }
     }
+    keys.rebuild_dispatch_maps();
 }
 
 fn normalize_ssh_machine_port(id: &str, port: Option<u16>) -> Option<u16> {
@@ -8699,6 +8725,39 @@ mod tests {
         assert_eq!(
             keys.action_for(&KeyEvent::new(KeyCode::Char('f'), KeyModifiers::NONE)),
             Some(Action::NewTab)
+        );
+    }
+
+    #[test]
+    fn key_dispatch_refreshes_after_rebinding_and_keeps_modeless_fallback() {
+        let mut keys = Keys::default();
+        assert_eq!(
+            keys.action_for(&KeyEvent::new(KeyCode::Char('g'), KeyModifiers::NONE)),
+            Some(Action::NewPaneRight)
+        );
+        assert_eq!(
+            keys.modeless_action_for(&KeyEvent::new(KeyCode::Char('t'), KeyModifiers::ALT)),
+            Some(Action::NewTab)
+        );
+
+        keys.apply(&HashMap::from([
+            ("new-tab".to_string(), Value::String("g".to_string())),
+            ("new-pane-right".to_string(), Value::String("alt+h".to_string())),
+        ]));
+
+        // Rebinding steals the ordinary chord while preserving modeless
+        // fallback lookup for the newly configured Alt chord.
+        assert_eq!(
+            keys.action_for(&KeyEvent::new(KeyCode::Char('g'), KeyModifiers::NONE)),
+            Some(Action::NewTab)
+        );
+        assert_eq!(
+            keys.modeless_action_for(&KeyEvent::new(KeyCode::Char('h'), KeyModifiers::ALT)),
+            Some(Action::NewPaneRight)
+        );
+        assert_eq!(
+            keys.modeless_action_for(&KeyEvent::new(KeyCode::Char('t'), KeyModifiers::ALT)),
+            None
         );
     }
 

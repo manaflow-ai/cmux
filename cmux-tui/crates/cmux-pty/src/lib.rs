@@ -184,6 +184,9 @@ impl PtyPair {
     /// Spawn the command, close the parent's slave descriptor, and return the
     /// master and child as one ownership-safe unit.
     pub fn spawn(self, command: PtyCommand) -> anyhow::Result<SpawnedPty> {
+        if command.program.trim().is_empty() {
+            anyhow::bail!("PTY command program must not be empty");
+        }
         let Self { master, slave } = self;
         let child = platform::spawn(&slave, command)?;
         drop(slave);
@@ -275,6 +278,26 @@ mod tests {
             let status = spawned.child.wait().unwrap();
             panic!("missing PTY program was published as child status {status:?}");
         }
+    }
+
+    #[test]
+    fn empty_program_is_rejected_before_platform_spawn() {
+        let pair = open(PtySize { rows: 24, cols: 80, pixel_width: 0, pixel_height: 0 }).unwrap();
+        let error = match pair.spawn(PtyCommand::new("")) {
+            Ok(_) => panic!("empty PTY program was spawned"),
+            Err(error) => error,
+        };
+        assert!(error.to_string().contains("program must not be empty"));
+    }
+
+    #[test]
+    fn whitespace_only_program_is_rejected_before_platform_spawn() {
+        let pair = open(PtySize { rows: 24, cols: 80, pixel_width: 0, pixel_height: 0 }).unwrap();
+        let error = match pair.spawn(PtyCommand::new(" \t\n")) {
+            Ok(_) => panic!("whitespace-only PTY program was spawned"),
+            Err(error) => error,
+        };
+        assert!(error.to_string().contains("program must not be empty"));
     }
 
     #[test]
