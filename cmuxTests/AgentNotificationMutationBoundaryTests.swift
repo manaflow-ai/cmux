@@ -272,7 +272,8 @@ extension AgentNotificationRegressionTests {
             target: .workspace(dockOwnerId),
             key: sessionKey,
             panelID: fixture.panelId,
-            clearStatus: true
+            clearStatus: true,
+            agentEventTime: nil
         )
         bus.drainForTesting()
         #expect(fixture.destination.statusEntries["omp"] == nil)
@@ -281,6 +282,105 @@ extension AgentNotificationRegressionTests {
             fixture.destination.agentLifecycleStatesByPanelId[fixture.panelId]?["omp"]
                 == nil
         )
+    }
+
+    @Test("Dock-owned notifications use the pane runtime ordering watermark")
+    func dockOwnedNotificationsUsePaneRuntimeOrderingWatermark() throws {
+        let fixture = try makeFixture()
+        defer { fixture.restore() }
+        let bus = TerminalMutationBus.shared
+        bus.discardPendingNotifications()
+        defer { bus.discardPendingNotifications() }
+
+        let dock = fixture.source.dockSplit
+        let transfer = try #require(fixture.source.detachSurface(panelId: fixture.panelId))
+        let rootPane = try #require(dock.bonsplitController.allPaneIds.first)
+        #expect(dock.attachDetachedSurface(transfer, inPane: rootPane, focus: false) == fixture.panelId)
+        #expect(dock.setAgentLifecycle(
+            key: "claude_code",
+            panelId: fixture.panelId,
+            lifecycle: .idle,
+            agentEventTime: 200,
+            enforceAgentEventOrdering: true
+        ))
+
+        bus.enqueueNotification(
+            tabId: fixture.source.id,
+            surfaceId: fixture.panelId,
+            title: "Claude Code",
+            subtitle: "Completed",
+            body: "Stale Dock notification",
+            agentStatusKey: "claude_code",
+            agentEventTime: 100,
+            coalesces: false
+        )
+        bus.enqueueNotification(
+            tabId: fixture.source.id,
+            surfaceId: fixture.panelId,
+            title: "Claude Code",
+            subtitle: "Completed",
+            body: "Current Dock notification",
+            agentStatusKey: "claude_code",
+            agentEventTime: 300,
+            coalesces: false
+        )
+        bus.drainForTesting()
+
+        #expect(!fixture.store.notifications.contains { $0.body == "Stale Dock notification" })
+        #expect(fixture.store.notifications.contains { $0.body == "Current Dock notification" })
+        #expect(
+            dock.agentRuntimeByPanelId[fixture.panelId]?.agentLifecycleEventTimes["claude_code"] == 300
+        )
+
+        bus.enqueueAgentNotificationClear(
+            forTabId: fixture.source.id,
+            surfaceId: fixture.panelId,
+            statusKey: "claude_code",
+            agentEventTime: 250
+        )
+        bus.drainForTesting()
+        #expect(fixture.store.notifications.contains { $0.body == "Current Dock notification" })
+
+        bus.enqueueAgentNotificationClear(
+            forTabId: fixture.source.id,
+            surfaceId: fixture.panelId,
+            statusKey: "claude_code",
+            agentEventTime: 400
+        )
+        bus.drainForTesting()
+        #expect(!fixture.store.notifications.contains { $0.body == "Current Dock notification" })
+    }
+
+    @Test("A no-op Dock resume clear does not advance hook ordering")
+    func noOpDockResumeClearDoesNotAdvanceOrderingWatermark() throws {
+        let fixture = try makeFixture()
+        defer { fixture.restore() }
+        let dock = fixture.source.dockSplit
+        let transfer = try #require(fixture.source.detachSurface(panelId: fixture.panelId))
+        let rootPane = try #require(dock.bonsplitController.allPaneIds.first)
+        #expect(dock.attachDetachedSurface(transfer, inPane: rootPane, focus: false) == fixture.panelId)
+        #expect(dock.surfaceResumeBinding(panelId: fixture.panelId) == nil)
+
+        #expect(!dock.clearSurfaceResumeBinding(
+            panelId: fixture.panelId,
+            agentSessionEnded: true
+        ))
+        #expect(dock.surfaceResumeBindingEventTimesByPanelId[fixture.panelId] == nil)
+
+        let eventTime: TimeInterval = 1_893_456_200
+        let binding = SurfaceResumeBindingSnapshot(
+            kind: "codex",
+            command: "codex resume after-no-op-dock-clear",
+            checkpointId: "after-no-op-dock-clear",
+            source: "agent-hook",
+            updatedAt: eventTime
+        )
+        #expect(dock.setSurfaceResumeBinding(
+            binding,
+            panelId: fixture.panelId,
+            agentEventTime: eventTime
+        ))
+        #expect(dock.surfaceResumeBinding(panelId: fixture.panelId)?.checkpointId == "after-no-op-dock-clear")
     }
 
     @Test("A stale source clear preserves a destination-confined stored notification")
@@ -580,6 +680,501 @@ extension AgentNotificationRegressionTests {
         #expect(
             fixture.destination.agentLifecycleStatesByPanelId[fixture.panelId]?["claude_code"] == .running
         )
+    }
+
+    @Test("A stale status update cannot rebind PID tracking")
+    func staleStatusUpdateDoesNotRecordPID() throws {
+        let fixture = try makeFixture()
+        defer { fixture.restore() }
+        fixture.source.setAgentLifecycle(
+            key: "claude_code",
+            panelId: fixture.panelId,
+            lifecycle: .idle,
+            agentEventTime: 200
+        )
+        fixture.source.statusEntries["claude_code"] = SidebarStatusEntry(
+            key: "claude_code",
+            value: "Idle",
+            icon: "pause.circle.fill",
+            color: "#8E8E93",
+            agentEventTime: 200
+        )
+
+        let bus = TerminalMutationBus.shared
+        bus.discardPendingNotifications()
+        TerminalController.shared.controlSidebarScheduleStatusUpsert(
+            target: .workspace(fixture.source.id),
+            key: "claude_code",
+            value: "Running",
+            icon: "bolt.fill",
+            color: "#4C8DFF",
+            url: nil,
+            priority: 0,
+            format: .plain,
+            panelID: fixture.panelId,
+            pid: 43_210,
+            agentEventTime: 100
+        )
+        bus.drainForTesting()
+
+        #expect(fixture.source.statusEntries["claude_code"]?.value == "Idle")
+        #expect(fixture.source.agentPIDs["claude_code"] == nil)
+    }
+
+    @Test("Agent status ordering is scoped to the owning pane")
+    func agentStatusOrderingIsScopedToOwningPanel() throws {
+        let fixture = try makeFixture()
+        defer { fixture.restore() }
+        let paneId = try #require(fixture.source.paneId(forPanelId: fixture.panelId))
+        let secondPanelId = try #require(
+            fixture.source.newTerminalSurface(inPane: paneId, focus: false)
+        ).id
+        let bus = TerminalMutationBus.shared
+        bus.discardPendingNotifications()
+
+        TerminalController.shared.controlSidebarScheduleStatusUpsert(
+            target: .workspace(fixture.source.id),
+            key: "claude_code",
+            value: "Running in first pane",
+            icon: "bolt.fill",
+            color: "#4C8DFF",
+            url: nil,
+            priority: 0,
+            format: .plain,
+            panelID: fixture.panelId,
+            pid: nil,
+            agentEventTime: 1_893_456_200
+        )
+        bus.drainForTesting()
+
+        TerminalController.shared.controlSidebarScheduleStatusUpsert(
+            target: .workspace(fixture.source.id),
+            key: "claude_code",
+            value: "Idle in second pane",
+            icon: "pause.circle.fill",
+            color: "#8E8E93",
+            url: nil,
+            priority: 0,
+            format: .plain,
+            panelID: secondPanelId,
+            pid: nil,
+            agentEventTime: 1_893_456_100
+        )
+        bus.drainForTesting()
+
+        #expect(fixture.source.statusEntries["claude_code"]?.value == "Idle in second pane")
+        #expect(fixture.source.statusEntries["claude_code"]?.agentEventTime == 1_893_456_100)
+    }
+
+    @Test("Clearing lifecycle state retains detached-hook ordering authority")
+    func clearedLifecycleRetainsStatusOrderingWatermark() throws {
+        let fixture = try makeFixture()
+        defer { fixture.restore() }
+        let bus = TerminalMutationBus.shared
+        bus.discardPendingNotifications()
+
+        fixture.source.setAgentLifecycle(
+            key: "claude_code",
+            panelId: fixture.panelId,
+            lifecycle: .running,
+            agentEventTime: 1_893_456_200
+        )
+        #expect(fixture.source.clearAgentLifecycle(key: "claude_code", panelId: fixture.panelId))
+
+        TerminalController.shared.controlSidebarScheduleStatusUpsert(
+            target: .workspace(fixture.source.id),
+            key: "claude_code",
+            value: "Late stale event",
+            icon: "bolt.fill",
+            color: "#4C8DFF",
+            url: nil,
+            priority: 0,
+            format: .plain,
+            panelID: fixture.panelId,
+            pid: 43_210,
+            agentEventTime: 1_893_456_100
+        )
+        bus.drainForTesting()
+
+        #expect(fixture.source.statusEntries["claude_code"] == nil)
+        #expect(fixture.source.agentPIDs["claude_code"] == nil)
+    }
+
+    @Test("Global lifecycle reset clears retained ordering watermarks")
+    func globalLifecycleResetClearsRetainedOrderingWatermarks() throws {
+        let fixture = try makeFixture()
+        defer { fixture.restore() }
+
+        #expect(fixture.source.setAgentLifecycle(
+            key: "claude_code",
+            panelId: fixture.panelId,
+            lifecycle: .running,
+            agentEventTime: 1_893_456_200
+        ))
+        #expect(fixture.source.clearAgentLifecycle(key: "claude_code", panelId: fixture.panelId))
+        #expect(fixture.source.agentLifecycleEventTimesByPanelId[fixture.panelId]?["claude_code"] == 1_893_456_200)
+
+        fixture.source.clearAllAgentLifecycleStates()
+
+        #expect(fixture.source.setAgentLifecycle(
+            key: "claude_code",
+            panelId: fixture.panelId,
+            lifecycle: .idle,
+            enforceAgentEventOrdering: true
+        ))
+        #expect(fixture.source.agentLifecycleStatesByPanelId[fixture.panelId]?["claude_code"] == .idle)
+    }
+
+    @Test("An untimestamped teardown cannot clear timestamped agent runtime")
+    func untimestampedAgentPIDClearCannotBypassOrderingWatermark() throws {
+        let fixture = try makeFixture()
+        defer { fixture.restore() }
+        let pidKey = "claude_code.session"
+        fixture.source.setAgentLifecycle(
+            key: "claude_code",
+            panelId: fixture.panelId,
+            lifecycle: .running,
+            agentEventTime: 200
+        )
+        _ = fixture.source.recordAgentPID(key: pidKey, pid: 43_210, panelId: fixture.panelId)
+        _ = fixture.source.upsertSidebarStatusEntry(
+            key: "claude_code",
+            value: "Running",
+            icon: "bolt.fill",
+            color: "#4C8DFF",
+            url: nil,
+            priority: 0,
+            format: .plain,
+            panelId: fixture.panelId,
+            pid: nil,
+            agentEventTime: 200
+        )
+
+        #expect(!fixture.source.clearAgentPID(
+            key: pidKey,
+            panelId: fixture.panelId,
+            clearStatus: true,
+            enforceAgentEventOrdering: true
+        ))
+        #expect(fixture.source.agentPIDs[pidKey] == 43_210)
+        #expect(fixture.source.statusEntries["claude_code"]?.value == "Running")
+        #expect(fixture.source.hasRunningAgentLifecycle(key: "claude_code", panelId: fixture.panelId))
+    }
+
+    @Test("A stale PID registration cannot bypass a newer runtime watermark")
+    func staleAgentPIDRegistrationCannotRebindAfterNewerEvent() throws {
+        let fixture = try makeFixture()
+        defer { fixture.restore() }
+        fixture.source.setAgentLifecycle(
+            key: "claude_code",
+            panelId: fixture.panelId,
+            lifecycle: .idle,
+            agentEventTime: 200
+        )
+
+        let bus = TerminalMutationBus.shared
+        bus.discardPendingNotifications()
+        TerminalController.shared.controlSidebarScheduleAgentPIDRecord(
+            target: .workspace(fixture.source.id),
+            key: "claude_code.session",
+            pid: 43_210,
+            panelID: fixture.panelId
+        )
+        bus.drainForTesting()
+
+        #expect(fixture.source.agentPIDs["claude_code.session"] == nil)
+        #expect(fixture.source.agentPIDPanelIdsByKey["claude_code.session"] == nil)
+    }
+
+    @Test("An older structured agent cannot replace a newer pane runtime")
+    func olderStructuredAgentCannotReplaceNewerPaneRuntime() throws {
+        let fixture = try makeFixture()
+        defer { fixture.restore() }
+        let newerKey = "codex.newer-session"
+        let olderKey = "claude_code.older-session"
+
+        _ = fixture.source.recordAgentPID(
+            key: newerKey,
+            pid: 43_210,
+            panelId: fixture.panelId,
+            agentEventTime: 1_893_456_200,
+            enforceAgentEventOrdering: true,
+            refreshPorts: false
+        )
+        _ = fixture.source.recordAgentPID(
+            key: olderKey,
+            pid: 43_211,
+            panelId: fixture.panelId,
+            agentEventTime: 1_893_456_100,
+            enforceAgentEventOrdering: true,
+            refreshPorts: false
+        )
+
+        #expect(fixture.source.agentPIDs[newerKey] == 43_210)
+        #expect(fixture.source.agentPIDPanelIdsByKey[newerKey] == fixture.panelId)
+        #expect(fixture.source.agentPIDs[olderKey] == nil)
+        #expect(fixture.source.agentPIDPanelIdsByKey[olderKey] == nil)
+    }
+
+    @Test("A displaced structured agent cannot restore pane-owned state")
+    func displacedStructuredAgentCannotRestorePaneOwnedState() throws {
+        let fixture = try makeFixture()
+        defer { fixture.restore() }
+
+        _ = fixture.source.recordAgentPID(
+            key: "codex.newer-session",
+            pid: 43_210,
+            panelId: fixture.panelId,
+            agentEventTime: 1_893_456_200,
+            enforceAgentEventOrdering: true,
+            refreshPorts: false
+        )
+
+        let lifecycleAccepted = fixture.source.setAgentLifecycle(
+            key: "claude_code",
+            panelId: fixture.panelId,
+            lifecycle: .running,
+            agentEventTime: 1_893_456_100,
+            enforceAgentEventOrdering: true
+        )
+        let statusDecision = fixture.source.upsertSidebarStatusEntry(
+            key: "claude_code",
+            value: "Running",
+            icon: "sparkles",
+            color: "#4C8DFF",
+            url: nil,
+            priority: 0,
+            format: .plain,
+            panelId: fixture.panelId,
+            pid: nil,
+            agentEventTime: 1_893_456_100
+        )
+        let notificationAccepted = fixture.source.acceptAgentRuntimeMutation(
+            statusKey: "claude_code",
+            panelId: fixture.panelId,
+            agentEventTime: 1_893_456_100,
+            enforceOrdering: true
+        )
+
+        #expect(!lifecycleAccepted)
+        #expect(statusDecision == .stale)
+        #expect(!notificationAccepted)
+        #expect(fixture.source.agentLifecycleStatesByPanelId[fixture.panelId]?["claude_code"] == nil)
+        #expect(fixture.source.statusEntries["claude_code"] == nil)
+        #expect(fixture.source.agentPIDs["codex.newer-session"] == 43_210)
+    }
+
+    @Test("A stale lifecycle update cannot bypass a newer status watermark")
+    func staleAgentLifecycleCannotBypassNewerStatusWatermark() throws {
+        let fixture = try makeFixture()
+        defer { fixture.restore() }
+        _ = fixture.source.upsertSidebarStatusEntry(
+            key: "claude_code",
+            value: "Idle",
+            icon: "pause.circle.fill",
+            color: "#8E8E93",
+            url: nil,
+            priority: 0,
+            format: .plain,
+            panelId: fixture.panelId,
+            pid: nil,
+            agentEventTime: 200
+        )
+
+        let bus = TerminalMutationBus.shared
+        bus.discardPendingNotifications()
+        TerminalController.shared.controlSidebarScheduleAgentLifecycle(
+            target: .workspace(fixture.source.id),
+            key: "claude_code",
+            lifecycleRawValue: AgentHibernationLifecycleState.running.rawValue,
+            panelID: fixture.panelId,
+            agentEventTime: 100
+        )
+        bus.drainForTesting()
+
+        #expect(fixture.source.statusEntries["claude_code"]?.value == "Idle")
+        #expect(fixture.source.agentLifecycleStatesByPanelId[fixture.panelId]?["claude_code"] == nil)
+    }
+
+    @Test("Arbitrary sidebar keys do not grow durable lifecycle watermarks")
+    func arbitrarySidebarKeysDoNotGrowLifecycleWatermarks() throws {
+        let fixture = try makeFixture()
+        defer { fixture.restore() }
+
+        for index in 0..<64 {
+            let key = "custom-status-\(index)"
+            let decision = fixture.source.upsertSidebarStatusEntry(
+                key: key,
+                value: "Value \(index)",
+                icon: nil,
+                color: nil,
+                url: nil,
+                priority: 0,
+                format: .plain,
+                panelId: fixture.panelId,
+                pid: nil,
+                agentEventTime: 1_893_456_200 + TimeInterval(index)
+            )
+            #expect(decision == .replace)
+        }
+
+        #expect(fixture.source.statusEntries["custom-status-63"]?.agentEventTime == 1_893_456_263)
+        #expect(fixture.source.agentLifecycleEventTimesByPanelId[fixture.panelId]?.isEmpty != false)
+    }
+
+    @Test("Feed attention overlays do not advance hook ordering watermarks")
+    func feedAttentionOverlayDoesNotAdvanceHookOrderingWatermark() throws {
+        let fixture = try makeFixture()
+        defer { fixture.restore() }
+        let hookEventTime: TimeInterval = 1_893_456_200
+
+        #expect(fixture.source.setAgentLifecycle(
+            key: "codex",
+            panelId: fixture.panelId,
+            lifecycle: .running,
+            agentEventTime: hookEventTime
+        ))
+        #expect(fixture.source.upsertSidebarStatusEntry(
+            key: "codex",
+            value: "Running",
+            icon: "bolt.fill",
+            color: "#4C8DFF",
+            url: nil,
+            priority: 0,
+            format: .plain,
+            panelId: fixture.panelId,
+            pid: nil,
+            agentEventTime: hookEventTime
+        ) == .replace)
+
+        let decision = ControlSidebarPanelOwner.workspace(fixture.source).setStatusEntry(
+            SidebarStatusEntry(
+                key: "codex",
+                value: "Needs input",
+                icon: "bell.fill",
+                color: "#4C8DFF"
+            ),
+            key: "codex",
+            panelId: fixture.panelId
+        )
+        #expect(decision == .replace)
+        #expect(fixture.source.statusEntries["codex"]?.value == "Needs input")
+        #expect(fixture.source.statusEntries["codex"]?.agentEventTime == hookEventTime)
+        #expect(fixture.source.agentLifecycleEventTimesByPanelId[fixture.panelId]?["codex"] == hookEventTime)
+
+        #expect(fixture.source.setAgentLifecycle(
+            key: "codex",
+            panelId: fixture.panelId,
+            lifecycle: .idle,
+            agentEventTime: hookEventTime
+        ))
+        #expect(fixture.source.agentLifecycleStatesByPanelId[fixture.panelId]?["codex"] == .idle)
+    }
+
+    @Test("Agent notification delivery and clear share event ordering")
+    func agentNotificationDeliveryAndClearShareEventOrdering() throws {
+        let fixture = try makeFixture()
+        defer { fixture.restore() }
+        let bus = TerminalMutationBus.shared
+        bus.discardPendingNotifications()
+        bus.setDrainsSuspendedForTesting(true)
+        defer {
+            bus.setDrainsSuspendedForTesting(false)
+            bus.discardPendingNotifications()
+        }
+
+        bus.enqueueNotification(
+            tabId: fixture.source.id,
+            surfaceId: fixture.panelId,
+            title: "Claude Code",
+            subtitle: "Completed",
+            body: "Current event",
+            agentStatusKey: "claude_code",
+            agentEventTime: 200,
+            coalesces: false
+        )
+        bus.enqueueAgentNotificationClear(
+            forTabId: fixture.source.id,
+            surfaceId: fixture.panelId,
+            statusKey: "claude_code",
+            agentEventTime: 100
+        )
+        bus.setDrainsSuspendedForTesting(false)
+        bus.drainForTesting()
+
+        #expect(fixture.store.notifications.map(\.body) == ["Current event"])
+
+        bus.setDrainsSuspendedForTesting(true)
+        bus.enqueueAgentNotificationClear(
+            forTabId: fixture.source.id,
+            surfaceId: fixture.panelId,
+            statusKey: "claude_code",
+            agentEventTime: 300
+        )
+        bus.enqueueNotification(
+            tabId: fixture.source.id,
+            surfaceId: fixture.panelId,
+            title: "Claude Code",
+            subtitle: "Completed",
+            body: "Stale event",
+            agentStatusKey: "claude_code",
+            agentEventTime: 250,
+            coalesces: false
+        )
+        bus.setDrainsSuspendedForTesting(false)
+        bus.drainForTesting()
+
+        #expect(fixture.store.notifications.isEmpty)
+    }
+
+    @Test("Coalesced agent clears retain the greatest event time and latest notification boundary")
+    func coalescedAgentClearsRetainOrderingAndBoundary() throws {
+        let fixture = try makeFixture()
+        defer { fixture.restore() }
+        let bus = TerminalMutationBus.shared
+        bus.discardPendingNotifications()
+        bus.setDrainsSuspendedForTesting(true)
+        defer {
+            bus.setDrainsSuspendedForTesting(false)
+            bus.discardPendingNotifications()
+        }
+
+        bus.enqueueAgentNotificationClear(
+            forTabId: fixture.source.id,
+            surfaceId: fixture.panelId,
+            statusKey: "claude_code",
+            agentEventTime: 300
+        )
+        bus.enqueueNotification(
+            tabId: fixture.source.id,
+            surfaceId: fixture.panelId,
+            title: "Claude Code",
+            subtitle: "Completed",
+            body: "Stale between coalesced clears",
+            agentStatusKey: "claude_code",
+            agentEventTime: 250,
+            coalesces: false
+        )
+        bus.enqueueAgentNotificationClear(
+            forTabId: fixture.source.id,
+            surfaceId: fixture.panelId,
+            statusKey: "claude_code",
+            agentEventTime: 100
+        )
+        bus.enqueueNotification(
+            tabId: fixture.source.id,
+            surfaceId: fixture.panelId,
+            title: "Claude Code",
+            subtitle: "Completed",
+            body: "Current after coalesced clears",
+            agentStatusKey: "claude_code",
+            agentEventTime: 350,
+            coalesces: false
+        )
+        bus.setDrainsSuspendedForTesting(false)
+        bus.drainForTesting()
+
+        #expect(fixture.store.notifications.map(\.body) == ["Current after coalesced clears"])
     }
 
     @Test("An authorized-workspace clear cancels a confined in-flight relay delivery")

@@ -1460,6 +1460,8 @@ struct SessionTerminalPanelSnapshot: Codable, Sendable {
     var tmuxStartCommand: String?
     var hibernation: SessionAgentHibernationSnapshot?
     var resumeBinding: SurfaceResumeBindingSnapshot?
+    /// Latest accepted hook event time for the surface resume binding.
+    var resumeBindingEventTime: TimeInterval?
     /// Agent-hook identity kept separately when a process-detected binding is
     /// the effective terminal resume target.
     var managedAgentResumeBinding: SurfaceResumeBindingSnapshot?
@@ -1479,6 +1481,7 @@ struct SessionTerminalPanelSnapshot: Codable, Sendable {
         tmuxStartCommand: String? = nil,
         hibernation: SessionAgentHibernationSnapshot? = nil,
         resumeBinding: SurfaceResumeBindingSnapshot? = nil,
+        resumeBindingEventTime: TimeInterval? = nil,
         managedAgentResumeBinding: SurfaceResumeBindingSnapshot? = nil,
         textBoxDraft: SessionTextBoxInputDraftSnapshot? = nil,
         isRemoteTerminal: Bool? = nil,
@@ -1493,6 +1496,7 @@ struct SessionTerminalPanelSnapshot: Codable, Sendable {
         self.tmuxStartCommand = tmuxStartCommand
         self.hibernation = hibernation
         self.resumeBinding = resumeBinding
+        self.resumeBindingEventTime = resumeBindingEventTime
         self.managedAgentResumeBinding = managedAgentResumeBinding
         self.textBoxDraft = textBoxDraft
         self.isRemoteTerminal = isRemoteTerminal

@@ -64,12 +64,26 @@ enum ControlSurfaceResumeTarget {
     }
 
     @discardableResult
-    func setBinding(_ binding: SurfaceResumeBindingSnapshot) -> Bool {
+    func setBinding(
+        _ binding: SurfaceResumeBindingSnapshot,
+        agentEventTime: TimeInterval? = nil,
+        requiresAgentEventTime: Bool = false
+    ) -> Bool {
         switch self {
         case .workspace(_, let workspace, let surfaceID):
-            workspace.setSurfaceResumeBinding(binding, panelId: surfaceID)
+            workspace.setSurfaceResumeBinding(
+                binding,
+                panelId: surfaceID,
+                agentEventTime: agentEventTime,
+                requiresAgentEventTime: requiresAgentEventTime
+            )
         case .dock(_, let dock, let surfaceID):
-            dock.setSurfaceResumeBinding(binding, panelId: surfaceID)
+            dock.setSurfaceResumeBinding(
+                binding,
+                panelId: surfaceID,
+                agentEventTime: agentEventTime,
+                requiresAgentEventTime: requiresAgentEventTime
+            )
         }
     }
 
@@ -112,21 +126,49 @@ enum ControlSurfaceResumeTarget {
         }
     }
 
+    @discardableResult
     func clearBinding(
         _ binding: SurfaceResumeBindingSnapshot?,
-        agentSessionEnded: Bool
-    ) {
+        agentSessionEnded: Bool,
+        agentEventTime: TimeInterval? = nil,
+        requiresAgentEventTime: Bool = false
+    ) -> Bool {
         switch self {
         case .workspace(_, let workspace, let surfaceID):
-            _ = workspace.clearSurfaceResumeBinding(
+            return workspace.clearSurfaceResumeBinding(
                 panelId: surfaceID,
-                agentSessionEnded: agentSessionEnded
+                agentSessionEnded: agentSessionEnded,
+                eventTime: agentEventTime,
+                requiresAgentEventTime: requiresAgentEventTime
             )
         case .dock(_, let dock, let surfaceID):
-            _ = dock.clearSurfaceResumeBinding(
+            return dock.clearSurfaceResumeBinding(
                 panelId: surfaceID,
                 binding: binding,
-                agentSessionEnded: agentSessionEnded
+                agentSessionEnded: agentSessionEnded,
+                eventTime: agentEventTime,
+                requiresAgentEventTime: requiresAgentEventTime
+            )
+        }
+    }
+
+    @discardableResult
+    func acceptsBindingMutation(
+        agentEventTime: TimeInterval?,
+        requiresAgentEventTime: Bool
+    ) -> Bool {
+        switch self {
+        case .workspace(_, let workspace, let surfaceID):
+            return workspace.acceptsSurfaceResumeBindingMutation(
+                panelId: surfaceID,
+                agentEventTime: agentEventTime,
+                requiresAgentEventTime: requiresAgentEventTime
+            )
+        case .dock(_, let dock, let surfaceID):
+            return dock.acceptsSurfaceResumeBindingMutation(
+                panelId: surfaceID,
+                agentEventTime: agentEventTime,
+                requiresAgentEventTime: requiresAgentEventTime
             )
         }
     }
@@ -656,7 +698,7 @@ extension TerminalController {
             permissionMode: inputs.permissionMode,
             autoResume: inputs.autoResume,
             resumeEvidenceProvenance: inputs.resumeEvidenceProvenance,
-            updatedAt: Date.now.timeIntervalSince1970
+            updatedAt: inputs.agentEventTime ?? Date.now.timeIntervalSince1970
         )
         guard let target = resolveSurfaceResumeTarget(
             routing: routing,
@@ -676,7 +718,24 @@ extension TerminalController {
         case let .resolved(binding):
             effectiveBinding = binding
         }
-        guard target.setBinding(effectiveBinding) else {
+        let requiresAgentEventTime = inputs.source?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() == "agent-hook"
+        guard target.acceptsBindingMutation(
+            agentEventTime: inputs.agentEventTime,
+            requiresAgentEventTime: requiresAgentEventTime
+        ) else {
+            return .result(surfaceResumeSnapshot(target: target, binding: target.binding, cleared: false))
+        }
+        guard target.setBinding(
+            effectiveBinding,
+            agentEventTime: inputs.agentEventTime,
+            requiresAgentEventTime: requiresAgentEventTime
+        ) else {
+            if !target.acceptsBindingMutation(
+                agentEventTime: inputs.agentEventTime,
+                requiresAgentEventTime: requiresAgentEventTime
+            ) {
+                return .result(surfaceResumeSnapshot(target: target, binding: target.binding, cleared: false))
+            }
             return .emptyResumeCommand
         }
         return .result(surfaceResumeSnapshot(target: target, binding: effectiveBinding, cleared: false))
@@ -732,6 +791,7 @@ extension TerminalController {
         expectedCheckpointID: String?,
         expectedSource: String?,
         expectedUpdatedAt: Double?,
+        agentEventTime: TimeInterval?,
         agentSessionEnded: Bool
     ) -> ControlSurfaceResumeResolution {
         guard let tabManager = resolveTabManager(routing: routing) else {
@@ -759,8 +819,22 @@ extension TerminalController {
            !expectedUpdatedAt.isFinite || bindingForClear?.updatedAt != expectedUpdatedAt {
             return .result(surfaceResumeSnapshot(target: target, binding: target.binding, cleared: false))
         }
-        target.clearBinding(bindingForClear, agentSessionEnded: agentSessionEnded)
-        return .result(surfaceResumeSnapshot(target: target, binding: target.binding, cleared: true))
+        let requiresAgentEventTime = agentSessionEnded
+            || expectedSource?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() == "agent-hook"
+            || bindingForClear?.source?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() == "agent-hook"
+        guard target.acceptsBindingMutation(
+            agentEventTime: agentEventTime,
+            requiresAgentEventTime: requiresAgentEventTime
+        ) else {
+            return .result(surfaceResumeSnapshot(target: target, binding: target.binding, cleared: false))
+        }
+        let didClear = target.clearBinding(
+            bindingForClear,
+            agentSessionEnded: agentSessionEnded,
+            agentEventTime: agentEventTime,
+            requiresAgentEventTime: requiresAgentEventTime
+        )
+        return .result(surfaceResumeSnapshot(target: target, binding: target.binding, cleared: didClear))
     }
 }
 

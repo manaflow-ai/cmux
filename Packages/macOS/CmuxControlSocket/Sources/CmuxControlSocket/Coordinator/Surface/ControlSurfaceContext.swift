@@ -243,6 +243,9 @@ public protocol ControlSurfaceContext: AnyObject {
     /// - Returns: The surface-resume strings.
     func controlSurfaceResumeStrings() -> ControlSurfaceResumeStrings
 
+    /// Returns the app-localized error for an invalid ordered agent timestamp.
+    nonisolated func controlSurfaceInvalidAgentEventTimeError() -> String
+
     /// Sets a resume binding for `surface.resume.set`. The app resolves the
     /// target, runs the (possibly blocking, app-bundle-localized) approval flow,
     /// and stores the binding.
@@ -291,6 +294,7 @@ public protocol ControlSurfaceContext: AnyObject {
         expectedCheckpointID: String?,
         expectedSource: String?,
         expectedUpdatedAt: Double?,
+        agentEventTime: TimeInterval?,
         agentSessionEnded: Bool
     ) -> ControlSurfaceResumeResolution
 

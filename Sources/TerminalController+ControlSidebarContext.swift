@@ -26,27 +26,12 @@ extension TerminalController: ControlSidebarContext {
         priority: Int,
         format: ControlSidebarMetadataFormat,
         panelID: UUID?,
-        pid: Int32?
+        pid: Int32?,
+        agentEventTime: TimeInterval? = nil
     ) {
         let appFormat = SidebarMetadataFormat(rawValue: format.rawValue) ?? .plain
         controlSidebarSchedulePanelOwnedMutation(target: target, panelID: panelID) { _, owner in
-            guard Self.shouldReplaceStatusEntry(
-                current: owner.statusEntry(key: key, panelId: panelID),
-                key: key,
-                value: value,
-                icon: icon,
-                color: color,
-                url: url,
-                priority: priority,
-                format: appFormat
-            ) else {
-                // Still update PID tracking even if the status display hasn't changed.
-                if let pid {
-                    owner.recordAgentPID(key: key, pid: pid, panelId: panelID)
-                }
-                return
-            }
-            owner.setStatusEntry(SidebarStatusEntry(
+            _ = owner.upsertStatusEntry(
                 key: key,
                 value: value,
                 icon: icon,
@@ -54,11 +39,10 @@ extension TerminalController: ControlSidebarContext {
                 url: url,
                 priority: priority,
                 format: appFormat,
-                timestamp: Date()
-            ), key: key, panelId: panelID)
-            if let pid {
-                owner.recordAgentPID(key: key, pid: pid, panelId: panelID)
-            }
+                panelId: panelID,
+                pid: pid.map(pid_t.init),
+                agentEventTime: agentEventTime
+            )
         }
     }
 
@@ -77,13 +61,16 @@ extension TerminalController: ControlSidebarContext {
         target: ControlSidebarTabTarget,
         key: String,
         pid: Int32,
-        panelID: UUID?
+        panelID: UUID?,
+        agentEventTime: TimeInterval? = nil
     ) {
         controlSidebarSchedulePanelOwnedMutation(target: target, panelID: panelID) { _, owner in
             let didReplaceAgentRuntime = owner.recordAgentPID(
                 key: key,
                 pid: pid,
-                panelId: panelID
+                panelId: panelID,
+                agentEventTime: agentEventTime,
+                enforceAgentEventOrdering: agentEventTime != nil
             )
             if didReplaceAgentRuntime, let panelID {
                 TerminalNotificationStore.shared.clearNotifications(
@@ -97,6 +84,13 @@ extension TerminalController: ControlSidebarContext {
 
     nonisolated func controlSidebarParseAgentLifecycle(_ raw: String) -> String? {
         AgentHibernationLifecycleState.parseCLIValue(raw)?.rawValue
+    }
+
+    nonisolated func controlSidebarInvalidAgentEventTimeError(_ raw: String) -> String {
+        String(
+            localized: "socket.surfaceResume.error.invalidAgentEventTime",
+            defaultValue: "Missing or invalid agent_event_time; expected Unix seconds between 2000-01-01 and 5 minutes from now"
+        )
     }
 
     /// `nonisolated` so the vault-registry disk IO runs on the calling
@@ -140,14 +134,21 @@ extension TerminalController: ControlSidebarContext {
         target: ControlSidebarTabTarget,
         key: String,
         lifecycleRawValue: String,
-        panelID: UUID?
+        panelID: UUID?,
+        agentEventTime: TimeInterval? = nil
     ) {
         guard let lifecycle = AgentHibernationLifecycleState(rawValue: lifecycleRawValue) else {
             // Unreachable: the coordinator only forwards a value this app produced.
             return
         }
         controlSidebarSchedulePanelOwnedMutation(target: target, panelID: panelID) { _, owner in
-            owner.setAgentLifecycle(key: key, panelId: panelID, lifecycle: lifecycle)
+            owner.setAgentLifecycle(
+                key: key,
+                panelId: panelID,
+                lifecycle: lifecycle,
+                agentEventTime: agentEventTime,
+                enforceAgentEventOrdering: agentEventTime != nil
+            )
         }
     }
 
@@ -206,6 +207,7 @@ extension TerminalController: ControlSidebarContext {
         key: String,
         panelID: UUID?,
         clearStatus: Bool,
+        agentEventTime: TimeInterval? = nil,
         requireOwnedKey: Bool = false
     ) {
         controlSidebarSchedulePanelOwnedMutation(target: target, panelID: panelID) { _, owner in
@@ -213,7 +215,9 @@ extension TerminalController: ControlSidebarContext {
                 key: key,
                 panelId: panelID,
                 clearStatus: clearStatus,
-                requireOwnedKey: requireOwnedKey
+                requireOwnedKey: requireOwnedKey,
+                agentEventTime: agentEventTime,
+                enforceAgentEventOrdering: agentEventTime != nil
             )
         }
     }

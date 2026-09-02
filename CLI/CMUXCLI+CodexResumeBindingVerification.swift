@@ -206,6 +206,7 @@ extension CMUXCLI {
                 surfaceId: surfaceID,
                 sessionId: checkpointID,
                 updatedAt: (bindingPayload?["updated_at"] as? NSNumber)?.doubleValue,
+                agentEventTime: (bindingPayload?["updated_at"] as? NSNumber)?.doubleValue,
                 sessionDidEnd: true
             )
             if outcome == .failed {

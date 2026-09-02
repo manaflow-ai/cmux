@@ -30,6 +30,25 @@ extension ControlCommandCoordinator {
         return source == "process-detected" ? "manual" : source
     }
 
+    private func surfaceAgentEventTime(
+        _ params: [String: JSONValue]
+    ) -> (value: TimeInterval?, error: ControlCallResult?) {
+        guard hasNonNull(params, "agent_event_time") else { return (nil, nil) }
+        guard let value = double(params, "agent_event_time"),
+              value.isPlausibleControlAgentEventTime else {
+            return (
+                nil,
+                .err(
+                    code: "invalid_params",
+                    message: context?.controlSurfaceInvalidAgentEventTimeError()
+                        ?? "Missing or invalid agent_event_time; expected Unix seconds between 2000-01-01 and 5 minutes from now",
+                    data: nil
+                )
+            )
+        }
+        return (value, nil)
+    }
+
     // MARK: - resume.set
 
     /// `surface.resume.set` — set (and run the approval flow for) a resume binding.
@@ -46,6 +65,8 @@ extension ControlCommandCoordinator {
         }
 
         let source = publicResumeSource(params)
+        let agentEventTime = surfaceAgentEventTime(params)
+        if let error = agentEventTime.error { return error }
         let remoteWorkspaceID = uuid(params, "_cmux_remote_workspace_id")
         if hasNonNull(params, "_cmux_remote_workspace_id"), remoteWorkspaceID == nil {
             return .err(
@@ -80,6 +101,7 @@ extension ControlCommandCoordinator {
                 ?? optionalTrimmedRawString(params, "checkpointId"),
             source: source,
             environment: stringMap(params, "environment"),
+            agentEventTime: agentEventTime.value,
             launchCommand: launchCommand,
             permissionMode: optionalTrimmedRawString(params, "permission_mode"),
             autoResume: source == "agent-hook" ? (bool(params, "auto_resume") ?? false) : false,
@@ -149,6 +171,8 @@ extension ControlCommandCoordinator {
         guard context?.controlSurfaceRoutingResolvesTabManager(routing: routing) ?? false else {
             return .err(code: "unavailable", message: Self.surfaceWindowUnavailableMessage, data: nil)
         }
+        let agentEventTime = surfaceAgentEventTime(params)
+        if let error = agentEventTime.error { return error }
         let agentSessionEnded: Bool
         switch params["agent_session_ended"] {
         case .none:
@@ -170,6 +194,7 @@ extension ControlCommandCoordinator {
                 ?? optionalTrimmedRawString(params, "checkpointId"),
             expectedSource: optionalTrimmedRawString(params, "source"),
             expectedUpdatedAt: double(params, "expected_updated_at"),
+            agentEventTime: agentEventTime.value,
             agentSessionEnded: agentSessionEnded
         ) ?? .surfaceNotFound
         return surfaceResumeResult(resolution)

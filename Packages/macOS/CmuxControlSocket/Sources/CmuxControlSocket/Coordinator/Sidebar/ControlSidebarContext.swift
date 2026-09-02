@@ -59,7 +59,8 @@ public protocol ControlSidebarContext: AnyObject {
         priority: Int,
         format: ControlSidebarMetadataFormat,
         panelID: UUID?,
-        pid: Int32?
+        pid: Int32?,
+        agentEventTime: TimeInterval?
     )
 
     /// Enqueues the `clear_status`/`clear_meta` removal mutation.
@@ -74,8 +75,13 @@ public protocol ControlSidebarContext: AnyObject {
         target: ControlSidebarTabTarget,
         key: String,
         pid: Int32,
-        panelID: UUID?
+        panelID: UUID?,
+        agentEventTime: TimeInterval?
     )
+
+    /// Formats an invalid agent-event-time error using the app's localization
+    /// bundle rather than the package bundle.
+    nonisolated func controlSidebarInvalidAgentEventTimeError(_ raw: String) -> String
 
     /// Parses an agent lifecycle CLI token, returning the canonical raw value
     /// (the app owns the `AgentHibernationLifecycleState` token table).
@@ -94,7 +100,8 @@ public protocol ControlSidebarContext: AnyObject {
         target: ControlSidebarTabTarget,
         key: String,
         lifecycleRawValue: String,
-        panelID: UUID?
+        panelID: UUID?,
+        agentEventTime: TimeInterval?
     )
 
     /// Workspace-scoped manual loading toggle for `workspace_loading`. `on`
@@ -118,6 +125,7 @@ public protocol ControlSidebarContext: AnyObject {
         key: String,
         panelID: UUID?,
         clearStatus: Bool,
+        agentEventTime: TimeInterval?,
         requireOwnedKey: Bool
     )
 

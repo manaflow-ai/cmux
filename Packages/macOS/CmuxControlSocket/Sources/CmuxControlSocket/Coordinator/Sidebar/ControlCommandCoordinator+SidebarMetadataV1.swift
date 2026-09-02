@@ -1,4 +1,4 @@
-internal import Foundation
+public import Foundation
 
 /// The v1 sidebar metadata commands (`set_status` / `report_meta` /
 /// `report_meta_block` / agent PID + lifecycle / `log` / `set_progress` and
@@ -79,6 +79,16 @@ extension ControlCommandCoordinator {
             }
             return nil
         }()
+        let agentEventTimeResult = sidebarParseAgentEventTime(parsed.options["agent-event-time"])
+        let agentEventTime: TimeInterval?
+        switch agentEventTimeResult {
+        case .absent:
+            agentEventTime = nil
+        case .valid(let value):
+            agentEventTime = value
+        case .invalid(let raw):
+            return sidebarInvalidAgentEventTimeError(raw, context: context)
+        }
 
         context?.controlSidebarScheduleStatusUpsert(
             target: target,
@@ -90,9 +100,41 @@ extension ControlCommandCoordinator {
             priority: priority,
             format: format,
             panelID: panelResolution.panelId,
-            pid: pidValue
+            pid: pidValue,
+            agentEventTime: agentEventTime
         )
         return "OK"
+    }
+
+    private enum SidebarAgentEventTimeParseResult {
+        case absent
+        case valid(TimeInterval)
+        case invalid(String)
+    }
+
+    private nonisolated func sidebarParseAgentEventTime(_ raw: String?) -> SidebarAgentEventTimeParseResult {
+        guard let raw else {
+            return .absent
+        }
+        let normalized = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !normalized.isEmpty else {
+            return .invalid(raw)
+        }
+        guard let value = TimeInterval(normalized),
+              value.isPlausibleControlAgentEventTime else {
+            return .invalid(normalized)
+        }
+        return .valid(value)
+    }
+
+    private nonisolated func sidebarInvalidAgentEventTimeError(
+        _ raw: String,
+        context: (any ControlCommandContext)?
+    ) -> String {
+        // Standalone package callers have no app localization bundle; preserve
+        // a stable English wire reply only for that non-production fallback.
+        context?.controlSidebarInvalidAgentEventTimeError(raw)
+            ?? "ERROR: Invalid agent event time '\(raw)' - must be between 2000-01-01 and 5 minutes from now"
     }
 
     /// The shared `clear_status`/`clear_meta` body (parse + bus enqueue; zero
@@ -325,7 +367,7 @@ extension ControlCommandCoordinator {
     /// (parse + bus enqueue; zero main hops).
     nonisolated func sidebarSetAgentPID(_ args: String, context: (any ControlCommandContext)?) -> String {
         let parsed = sidebarParseOptions(args)
-        let usage = "set_agent_pid <key> <pid> [--tab=<id>] [--panel=<id>]"
+        let usage = "set_agent_pid <key> <pid> [--tab=<id>] [--panel=<id>] [--agent-event-time=<seconds>]"
         guard parsed.positional.count >= 2,
               let pid = Int32(parsed.positional[1]), pid > 0 else {
             return "ERROR: Usage: \(usage)"
@@ -339,11 +381,22 @@ extension ControlCommandCoordinator {
         if let error = panelResolution.error {
             return error
         }
+        let agentEventTimeResult = sidebarParseAgentEventTime(parsed.options["agent-event-time"])
+        let agentEventTime: TimeInterval?
+        switch agentEventTimeResult {
+        case .absent:
+            agentEventTime = nil
+        case .valid(let value):
+            agentEventTime = value
+        case .invalid(let raw):
+            return sidebarInvalidAgentEventTimeError(raw, context: context)
+        }
         context?.controlSidebarScheduleAgentPIDRecord(
             target: target,
             key: key,
             pid: pid,
-            panelID: panelResolution.panelId
+            panelID: panelResolution.panelId,
+            agentEventTime: agentEventTime
         )
         return "OK"
     }
@@ -355,7 +408,7 @@ extension ControlCommandCoordinator {
     /// main and runs the registry disk IO on the calling thread.
     nonisolated func sidebarSetAgentLifecycle(_ args: String, context: (any ControlCommandContext)?) -> String {
         let parsed = sidebarParseOptions(args)
-        let usage = "set_agent_lifecycle <key> <unknown|running|idle|needsInput> [--tab=<id>] [--panel=<id>]"
+        let usage = "set_agent_lifecycle <key> <unknown|running|idle|needsInput> [--tab=<id>] [--panel=<id>] [--agent-event-time=<seconds>]"
         guard parsed.positional.count >= 2 else {
             return "ERROR: Usage: \(usage)"
         }
@@ -372,6 +425,16 @@ extension ControlCommandCoordinator {
         if let error = panelResolution.error {
             return error
         }
+        let agentEventTimeResult = sidebarParseAgentEventTime(parsed.options["agent-event-time"])
+        let agentEventTime: TimeInterval?
+        switch agentEventTimeResult {
+        case .absent:
+            agentEventTime = nil
+        case .valid(let value):
+            agentEventTime = value
+        case .invalid(let raw):
+            return sidebarInvalidAgentEventTimeError(raw, context: context)
+        }
         guard context?.controlSidebarIsAllowedAgentLifecycleKey(
             key,
             target: target,
@@ -383,7 +446,8 @@ extension ControlCommandCoordinator {
             target: target,
             key: key,
             lifecycleRawValue: lifecycleRawValue,
-            panelID: panelResolution.panelId
+            panelID: panelResolution.panelId,
+            agentEventTime: agentEventTime
         )
         return "OK"
     }
@@ -413,7 +477,7 @@ extension ControlCommandCoordinator {
     /// main hops).
     nonisolated func sidebarClearAgentPID(_ args: String, context: (any ControlCommandContext)?) -> String {
         let parsed = sidebarParseOptions(args)
-        let usage = "clear_agent_pid <key> [--tab=<id>] [--panel=<id>] [--clear-status]"
+        let usage = "clear_agent_pid <key> [--tab=<id>] [--panel=<id>] [--clear-status] [--agent-event-time=<seconds>]"
         guard let key = parsed.positional.first else {
             return "ERROR: Usage: \(usage)"
         }
@@ -425,11 +489,22 @@ extension ControlCommandCoordinator {
         if let error = panelResolution.error {
             return error
         }
+        let agentEventTimeResult = sidebarParseAgentEventTime(parsed.options["agent-event-time"])
+        let agentEventTime: TimeInterval?
+        switch agentEventTimeResult {
+        case .absent:
+            agentEventTime = nil
+        case .valid(let value):
+            agentEventTime = value
+        case .invalid(let raw):
+            return sidebarInvalidAgentEventTimeError(raw, context: context)
+        }
         context?.controlSidebarScheduleAgentPIDClear(
             target: target,
             key: key,
             panelID: panelResolution.panelId,
             clearStatus: parsed.options["clear-status"] != nil,
+            agentEventTime: agentEventTime,
             requireOwnedKey: parsed.options["require-owned-key"] != nil
         )
         return "OK"
@@ -557,5 +632,14 @@ extension ControlCommandCoordinator {
             return "ERROR: Tab not found"
         }
         return "OK"
+    }
+}
+
+extension TimeInterval {
+    /// Whether the value is a current, plausible Unix timestamp for agent event ordering.
+    public var isPlausibleControlAgentEventTime: Bool {
+        isFinite
+            && self >= 946_684_800
+            && self <= Date.now.timeIntervalSince1970 + 5 * 60
     }
 }

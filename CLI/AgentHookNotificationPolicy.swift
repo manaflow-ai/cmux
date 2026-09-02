@@ -1,6 +1,17 @@
 import CmuxSettings
 import Foundation
 
+/// Locale-stable values shared by every agent-hook wire protocol.
+struct AgentHookWireFormat {
+    static func eventTime(_ value: TimeInterval) -> String {
+        String(
+            format: "%.6f",
+            locale: Locale(identifier: "en_US_POSIX"),
+            value
+        )
+    }
+}
+
 enum AgentHookNotificationStatus: String, Codable {
     case idle
     case needsInput
@@ -29,11 +40,10 @@ enum AgentHookNotifyCategory: String {
         metaSegment(pending: pending, agentKind: nil, isSubagent: nil)
     }
 
-    /// Extended meta segment carrying optional agent-event context for the
-    /// app's notification-policy hooks:
-    /// `c=<category>;p=<0|1>[;a=<agent-kind>][;n=<0|1>][;k=<uuid>]` (canonical
-    /// field order; `a=` is the case-preserving registry identifier, `n=` marks a
-    /// nested subagent session, and `k=` is an opaque notification identity).
+    /// Extended meta segment carrying optional sound and agent-event context
+    /// for the app's notification-policy hooks. The final `k=/t=` pair is the
+    /// ordered status watermark; an earlier `k=` is an opaque notification
+    /// identity.
     /// An agent kind or correlation key that fails validation is dropped rather
     /// than risking the app-side parser folding the whole meta back into the
     /// body.
@@ -41,9 +51,11 @@ enum AgentHookNotifyCategory: String {
         pending: Bool,
         agentKind: String?,
         isSubagent: Bool?,
-        correlationKey: String? = nil
+        correlationKey: String? = nil,
+        statusKey: String? = nil,
+        eventTime: TimeInterval? = nil
     ) -> String? {
-        guard self != .other else { return nil }
+        guard self != .other || (statusKey != nil && eventTime != nil) else { return nil }
         var segment = "c=\(rawValue);p=\(pending ? 1 : 0)"
         if let agentKind, Self.isValidAgentKindTag(agentKind) {
             segment += ";a=\(agentKind)"
@@ -53,6 +65,15 @@ enum AgentHookNotifyCategory: String {
         }
         if let correlationKey, Self.isValidCorrelationKey(correlationKey) {
             segment += ";k=\(UUID(uuidString: correlationKey)?.uuidString.lowercased() ?? correlationKey)"
+        }
+        if let statusKey,
+           !statusKey.isEmpty,
+           statusKey.allSatisfy({ $0.isLetter || $0.isNumber || "._-".contains($0) }),
+           let eventTime,
+           eventTime.isFinite,
+           eventTime >= 946_684_800,
+           eventTime <= Date.now.timeIntervalSince1970 + 5 * 60 {
+            segment += ";k=\(statusKey);t=\(AgentHookWireFormat.eventTime(eventTime))"
         }
         return segment
     }
@@ -69,7 +90,9 @@ enum AgentHookNotifyCategory: String {
         agentID: String,
         alertType: NotificationSoundAlertType? = nil,
         isSubagent: Bool? = nil,
-        correlationKey: String? = nil
+        correlationKey: String? = nil,
+        statusKey: String? = nil,
+        eventTime: TimeInterval? = nil
     ) -> String? {
         let resolvedAlertType: NotificationSoundAlertType?
         switch self {
@@ -94,6 +117,15 @@ enum AgentHookNotifyCategory: String {
         segment += ";s=\(context.alertType.rawValue)"
         if let correlationKey, Self.isValidCorrelationKey(correlationKey) {
             segment += ";k=\(UUID(uuidString: correlationKey)?.uuidString.lowercased() ?? correlationKey)"
+        }
+        if let statusKey,
+           !statusKey.isEmpty,
+           statusKey.allSatisfy({ $0.isLetter || $0.isNumber || "._-".contains($0) }),
+           let eventTime,
+           eventTime.isFinite,
+           eventTime >= 946_684_800,
+           eventTime <= Date.now.timeIntervalSince1970 + 5 * 60 {
+            segment += ";k=\(statusKey);t=\(AgentHookWireFormat.eventTime(eventTime))"
         }
         return segment
     }
