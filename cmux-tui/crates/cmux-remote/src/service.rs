@@ -2714,6 +2714,32 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn unknown_stream_tombstone_is_lane_specific() {
+        let (client_endpoint, daemon_endpoint) = endpoint_pair();
+        let client = ServiceMultiplexer::new(client_endpoint, EndpointRole::Client);
+        let stream_id = 77;
+        client.closed.lock().await.insert_on(stream_id, LANE_INTERACTIVE_BIT);
+
+        let mut fatal = client.subscribe_fatal();
+        daemon_endpoint
+            .send_frame(
+                None,
+                Lane::Control,
+                stream_id,
+                Bytes::from_static(b"wrong lane"),
+                FrameFlags::empty(),
+            )
+            .await
+            .unwrap();
+
+        tokio::time::timeout(Duration::from_secs(1), fatal.changed()).await.unwrap().unwrap();
+        assert!(
+            fatal.borrow().as_deref().is_some_and(|message| message.contains("unknown stream"))
+        );
+        client.shutdown().await;
+    }
+
+    #[tokio::test]
     async fn mux_payload_after_a_lane_fin_resets_before_the_aggregate_fin() {
         let (client_endpoint, daemon_endpoint) = endpoint_pair();
         let client = ServiceMultiplexer::new(client_endpoint, EndpointRole::Client);
