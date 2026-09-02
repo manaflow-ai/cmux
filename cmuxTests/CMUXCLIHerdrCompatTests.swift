@@ -345,10 +345,11 @@ extension CMUXCLIErrorOutputRegressionTests {
         environment["CFFIXED_USER_HOME"] = home.path
         environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
         environment["AppleLanguages"] = "(\(locale))"
-        let posixLocale = locale == "fr" ? "fr_FR.UTF-8" : "en_US.UTF-8"
-        environment["AppleLocale"] = locale == "fr" ? "fr_FR" : "en_US"
-        environment["LANG"] = posixLocale
-        environment["LC_ALL"] = posixLocale
+        // Catalog ships `en` and `ja`; POSIX locale stays neutral so assertions
+        // exercise the app catalog rather than a POSIX-derived fallback.
+        environment["AppleLocale"] = "en_US"
+        environment["LANG"] = "en_US.UTF-8"
+        environment["LC_ALL"] = "en_US.UTF-8"
         return environment
     }
 }
