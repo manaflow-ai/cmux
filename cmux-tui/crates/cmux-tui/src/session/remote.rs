@@ -4858,6 +4858,19 @@ mod tests {
 
     #[cfg(unix)]
     #[test]
+    fn private_frame_dump_preserves_line_format() {
+        let root = tempfile::tempdir().unwrap();
+        let dump_path = root.path().join("dumps");
+        let directory = private_dump_directory(&dump_path).unwrap();
+        let lines = vec!["first".to_owned(), "second".to_owned()];
+
+        write_frame_dump(&directory, "frames.log", &lines).unwrap();
+
+        assert_eq!(fs::read(dump_path.join("frames.log")).unwrap(), b"first\nsecond\n");
+    }
+
+    #[cfg(unix)]
+    #[test]
     fn private_dump_write_failure_preserves_previous_dump_and_cleans_temp() {
         let root = tempfile::tempdir().unwrap();
         let dump_path = root.path().join("dumps");
