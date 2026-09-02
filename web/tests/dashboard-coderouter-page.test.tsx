@@ -45,6 +45,10 @@ mock.module("next/headers", () => ({
     ),
 }));
 
+mock.module("next/cache", () => ({
+  cacheLife: () => undefined,
+}));
+
 mock.module("next/navigation", () => ({
   redirect: (target: string) => {
     throw new Error(`unexpected redirect to ${target}`);

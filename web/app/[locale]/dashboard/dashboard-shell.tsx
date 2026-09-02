@@ -12,6 +12,7 @@ type DashboardNavGroup = {
     href: string;
     label: string;
     active: boolean;
+    prefetch?: true;
   }>;
 };
 
@@ -52,6 +53,7 @@ export function DashboardShell({
           href: "/dashboard/coderouter",
           label: t("coderouterOverview"),
           active: pathname.startsWith("/dashboard/coderouter"),
+          prefetch: true,
         },
       ],
     },
@@ -62,6 +64,7 @@ export function DashboardShell({
           href: "/dashboard/testflight",
           label: t("testflight"),
           active: pathname.startsWith("/dashboard/testflight"),
+          prefetch: true,
         },
       ],
     },
@@ -83,7 +86,10 @@ export function DashboardShell({
   );
 
   return (
-    <div className="min-h-screen bg-background text-sm text-foreground sm:grid sm:grid-cols-[13rem_minmax(0,1fr)]">
+    <div
+      data-testid="dashboard-shell"
+      className="min-h-screen bg-background text-sm text-foreground sm:grid sm:grid-cols-[13rem_minmax(0,1fr)]"
+    >
       <aside className="sticky top-0 hidden h-screen flex-col border-r border-border bg-background sm:flex">
         <div className="flex h-11 shrink-0 items-center border-b border-border px-3">
           <Link
@@ -166,6 +172,7 @@ function DashboardNav({
                 <Link
                   key={item.href}
                   href={item.href}
+                  prefetch={item.prefetch}
                   onClick={onNavigate}
                   aria-current={item.active ? "page" : undefined}
                   className={`block border-l px-2 py-1.5 focus-visible:outline focus-visible:outline-1 focus-visible:outline-foreground ${

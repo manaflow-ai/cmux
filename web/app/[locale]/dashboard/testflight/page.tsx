@@ -1,9 +1,10 @@
 import { Suspense } from "react";
 import { getTranslations } from "next-intl/server";
+import { cacheLife } from "next/cache";
 import { redirect } from "next/navigation";
 
-import { getStackServerApp, isStackConfigured } from "@/app/lib/stack";
-import { localizedVaultPath, vaultSignInHref } from "@/app/lib/vault-auth";
+import { requireDashboardUser } from "@/app/lib/dashboard-auth";
+import { isStackConfigured } from "@/app/lib/stack";
 import { Link } from "@/i18n/navigation";
 import { isAscConfigured } from "@/services/asc/client";
 import { testerGroupStatus } from "@/services/asc/testflight";
@@ -11,8 +12,8 @@ import { isTestflightEligible } from "@/services/billing/pro";
 import { captureAscError } from "@/services/errors";
 import { TestflightPageHeader } from "../components/dashboard-page-headers";
 
-// Eligibility and App Store status stay request-fresh behind a narrow boundary.
-// The page header can commit from the prefetched shell as soon as the user clicks.
+// The browser prefetches one private page snapshot. The snapshot is never
+// stored on the server, and its header and body commit as one render unit.
 export const instant = true;
 
 type SearchParams = {
@@ -36,12 +37,9 @@ export default function DashboardTestflightPage(props: PageProps) {
   }
 
   return (
-    <div className="mx-auto w-full max-w-5xl px-3 py-4">
-      <TestflightPageHeader />
-      <Suspense fallback={null}>
-        <DashboardTestflightContent {...props} />
-      </Suspense>
-    </div>
+    <Suspense fallback={null}>
+      <DashboardTestflightContent {...props} />
+    </Suspense>
   );
 }
 
@@ -49,13 +47,13 @@ export async function DashboardTestflightContent({
   params,
   searchParams,
 }: PageProps) {
+  "use cache: private";
+  cacheLife({ stale: 300 });
+
   const { locale } = await params;
   const query = await searchParams;
 
-  const user = await getStackServerApp().getUser({ or: "return-null" });
-  if (!user || user.isAnonymous) {
-    redirect(vaultSignInHref(localizedVaultPath(locale, "/dashboard/testflight")));
-  }
+  const user = await requireDashboardUser(locale, "/dashboard/testflight");
 
   const [t, eligible] = await Promise.all([
     getTranslations({ locale, namespace: "dashboard.testflight" }),
@@ -70,24 +68,27 @@ export async function DashboardTestflightContent({
   );
 
   return (
-    <div>
-      {banner ? (
-        <div className="mb-3 border border-border bg-background p-3 text-sm">
-          {t(`banners.${banner}`)}
-        </div>
-      ) : null}
+    <div className="mx-auto w-full max-w-5xl px-3 py-4">
+      <TestflightPageHeader />
+      <div>
+        {banner ? (
+          <div className="mb-3 border border-border bg-background p-3 text-sm">
+            {t(`banners.${banner}`)}
+          </div>
+        ) : null}
 
-      {!eligible ? (
-        <NotEligible t={t} />
-      ) : !email ? (
-        <NeedsEmail t={t} />
-      ) : status.unavailable ? (
-        <Unavailable t={t} />
-      ) : status.enrolled ? (
-        <Enrolled t={t} email={email} state={status.state} />
-      ) : (
-        <Join t={t} email={email} />
-      )}
+        {!eligible ? (
+          <NotEligible t={t} />
+        ) : !email ? (
+          <NeedsEmail t={t} />
+        ) : status.unavailable ? (
+          <Unavailable t={t} />
+        ) : status.enrolled ? (
+          <Enrolled t={t} email={email} state={status.state} />
+        ) : (
+          <Join t={t} email={email} />
+        )}
+      </div>
     </div>
   );
 }

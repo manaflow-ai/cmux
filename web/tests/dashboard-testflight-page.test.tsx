@@ -53,6 +53,10 @@ mock.module("next-intl/server", () => ({
   setRequestLocale: () => undefined,
 }));
 
+mock.module("next/cache", () => ({
+  cacheLife: () => undefined,
+}));
+
 mock.module("@/i18n/navigation", () => ({
   Link: ({ href, children, ...props }: { href: string; children: React.ReactNode }) => (
     <a href={href} {...props}>

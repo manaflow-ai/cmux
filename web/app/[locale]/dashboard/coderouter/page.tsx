@@ -1,5 +1,6 @@
 import { Suspense } from "react";
 import { getTranslations } from "next-intl/server";
+import { cacheLife } from "next/cache";
 import { headers } from "next/headers";
 import { redirect } from "next/navigation";
 import { buildAlternates, openGraphDefaults, seoDescription, twitterSummary } from "@/i18n/seo";
@@ -31,9 +32,8 @@ import {
 } from "../components/ai-account-forms";
 import { CoderouterPageHeader } from "../components/dashboard-page-headers";
 
-// Account authorization and the hosted account list must stay fresh for each
-// request. The stable page header commits from the prefetched shell while the
-// mutable per-user data streams through the boundary below it.
+// The browser prefetches one private page snapshot. The snapshot is never
+// stored on the server, and its header and body commit as one render unit.
 export const instant = true;
 
 type PageProps = {
@@ -81,16 +81,16 @@ export default function CoderouterOverviewPage(props: PageProps) {
   }
 
   return (
-    <div className="mx-auto w-full max-w-5xl px-3 py-4">
-      <CoderouterPageHeader />
-      <Suspense fallback={null}>
-        <CoderouterOverviewContent {...props} />
-      </Suspense>
-    </div>
+    <Suspense fallback={null}>
+      <CoderouterOverviewContent {...props} />
+    </Suspense>
   );
 }
 
 export async function CoderouterOverviewContent({ params, searchParams }: PageProps) {
+  "use cache: private";
+  cacheLife({ stale: 300 });
+
   const [{ locale }, { team: teamParam }] = await Promise.all([params, searchParams]);
   const team = Array.isArray(teamParam) ? teamParam[0] : teamParam;
 
@@ -138,7 +138,9 @@ export async function CoderouterOverviewContent({ params, searchParams }: PagePr
     if (!isSubrouterAuthorizationError(error)) throw error;
     const t = await getTranslations({ locale, namespace: "dashboard.aiAccounts" });
     return (
-      <StatusPanel title={t("loadErrorTitle")} body={t("loadErrorBody")} />
+      <CoderouterPageFrame>
+        <StatusPanel title={t("loadErrorTitle")} body={t("loadErrorBody")} />
+      </CoderouterPageFrame>
     );
   }
   if (!authenticated) {
@@ -177,109 +179,120 @@ export async function CoderouterOverviewContent({ params, searchParams }: PagePr
   });
 
   return (
-    <div>
-      <section className="mb-4 border border-border p-3">
-        <div className="mb-2 text-xs text-muted">{t("teamSwitcherLabel")}</div>
-        <div className="flex flex-wrap gap-3">
-          {teams.map((candidate) => {
-            const selected = candidate.id === selectedTeam.id;
-            return (
-              <Link
-                key={candidate.id}
-                href={`/dashboard/coderouter?team=${encodeURIComponent(candidate.id)}`}
-                className={`py-0.5 focus-visible:outline focus-visible:outline-1 focus-visible:outline-foreground ${
-                  selected ? "text-foreground" : "text-muted hover:text-foreground"
-                }`}
-              >
-                {candidate.name}
-              </Link>
-            );
-          })}
-        </div>
-      </section>
+    <CoderouterPageFrame>
+      <div>
+        <section className="mb-4 border border-border p-3">
+          <div className="mb-2 text-xs text-muted">{t("teamSwitcherLabel")}</div>
+          <div className="flex flex-wrap gap-3">
+            {teams.map((candidate) => {
+              const selected = candidate.id === selectedTeam.id;
+              return (
+                <Link
+                  key={candidate.id}
+                  href={`/dashboard/coderouter?team=${encodeURIComponent(candidate.id)}`}
+                  className={`py-0.5 focus-visible:outline focus-visible:outline-1 focus-visible:outline-foreground ${
+                    selected ? "text-foreground" : "text-muted hover:text-foreground"
+                  }`}
+                >
+                  {candidate.name}
+                </Link>
+              );
+            })}
+          </div>
+        </section>
 
-      <TeamMetricsSection
-        locale={locale}
-        metrics={metrics}
-        teamName={selectedTeam.name}
-      />
+        <TeamMetricsSection
+          locale={locale}
+          metrics={metrics}
+          teamName={selectedTeam.name}
+        />
 
-      {accountState.kind === "notConfigured" ? (
-        <StatusPanel title={t("notConfiguredTitle")} body={t("notConfiguredBody")} />
-      ) : accountState.kind === "migrationPending" ? (
-        <StatusPanel title={t("migrationPendingTitle")} body={t("migrationPendingBody")} />
-      ) : accountState.kind === "error" ? (
-        <StatusPanel title={t("loadErrorTitle")} body={t("loadErrorBody")} />
-      ) : (
-        <div>
-          {selectedTeam.manageAccounts ? (
-            <section className="mb-4">
-              <div className="mb-2">
-                <h2 className="text-sm font-medium">{t("addAccountsTitle")}</h2>
-              </div>
-              <AddAiAccountForms />
-            </section>
-          ) : null}
-
-          <section>
-            <div className="mb-2">
-              <h2 className="text-sm font-medium">{t("accountsTitle")}</h2>
-              <p className="mt-1 text-xs text-muted">
-                {t("accountsCount", { count: accountState.accounts.length })}
-              </p>
-            </div>
-
-            {accountState.accounts.length === 0 ? (
-              <div className="border border-border p-3">
-                <div className="text-sm font-medium">{t("emptyTitle")}</div>
-                <p className="mt-1 text-xs text-muted">{t("emptyBody")}</p>
-              </div>
-            ) : (
-              <div className="border border-border">
-                <div className="hidden grid-cols-[1.2fr_1fr_1fr_auto] gap-3 border-b border-border px-3 py-2 text-xs text-muted md:grid">
-                  <div>{t("providerColumn")}</div>
-                  <div>{t("labelColumn")}</div>
-                  <div>{t("createdColumn")}</div>
-                  {selectedTeam.manageAccounts ? (
-                    <div className="text-right">{t("actionsColumn")}</div>
-                  ) : <div />}
+        {accountState.kind === "notConfigured" ? (
+          <StatusPanel title={t("notConfiguredTitle")} body={t("notConfiguredBody")} />
+        ) : accountState.kind === "migrationPending" ? (
+          <StatusPanel title={t("migrationPendingTitle")} body={t("migrationPendingBody")} />
+        ) : accountState.kind === "error" ? (
+          <StatusPanel title={t("loadErrorTitle")} body={t("loadErrorBody")} />
+        ) : (
+          <div>
+            {selectedTeam.manageAccounts ? (
+              <section className="mb-4">
+                <div className="mb-2">
+                  <h2 className="text-sm font-medium">{t("addAccountsTitle")}</h2>
                 </div>
-                {accountState.accounts.map((account) => (
-                  <div
-                    key={account.id}
-                    className="grid gap-2 border-b border-border px-3 py-2 text-sm last:border-b-0 md:grid-cols-[1.2fr_1fr_1fr_auto] md:items-center md:gap-3"
-                  >
-                    <div>
-                      <div className="mb-1 text-xs text-muted md:hidden">
-                        {t("providerColumn")}
-                      </div>
-                      <div>{providerLabel(account.kind, t)}</div>
-                    </div>
-                    <div className="min-w-0 truncate text-muted">
-                      <div className="mb-1 text-xs text-muted md:hidden">
-                        {t("labelColumn")}
-                      </div>
-                      {account.label || t("unlabeledAccount")}
-                    </div>
-                    <div className="font-mono text-xs text-muted">
-                      <div className="mb-1 font-sans text-xs text-muted md:hidden">
-                        {t("createdColumn")}
-                      </div>
-                      {formatCreatedAt(account.createdAt, dateFormatter, t("unknownCreatedAt"))}
-                    </div>
+                <AddAiAccountForms />
+              </section>
+            ) : null}
+
+            <section>
+              <div className="mb-2">
+                <h2 className="text-sm font-medium">{t("accountsTitle")}</h2>
+                <p className="mt-1 text-xs text-muted">
+                  {t("accountsCount", { count: accountState.accounts.length })}
+                </p>
+              </div>
+
+              {accountState.accounts.length === 0 ? (
+                <div className="border border-border p-3">
+                  <div className="text-sm font-medium">{t("emptyTitle")}</div>
+                  <p className="mt-1 text-xs text-muted">{t("emptyBody")}</p>
+                </div>
+              ) : (
+                <div className="border border-border">
+                  <div className="hidden grid-cols-[1.2fr_1fr_1fr_auto] gap-3 border-b border-border px-3 py-2 text-xs text-muted md:grid">
+                    <div>{t("providerColumn")}</div>
+                    <div>{t("labelColumn")}</div>
+                    <div>{t("createdColumn")}</div>
                     {selectedTeam.manageAccounts ? (
-                      <DeleteAiAccountButton
-                        teamId={selectedTeam.id}
-                        accountId={account.id}
-                      />
+                      <div className="text-right">{t("actionsColumn")}</div>
                     ) : <div />}
                   </div>
-                ))}
-              </div>
-            )}
-          </section>
-        </div>
-      )}
+                  {accountState.accounts.map((account) => (
+                    <div
+                      key={account.id}
+                      className="grid gap-2 border-b border-border px-3 py-2 text-sm last:border-b-0 md:grid-cols-[1.2fr_1fr_1fr_auto] md:items-center md:gap-3"
+                    >
+                      <div>
+                        <div className="mb-1 text-xs text-muted md:hidden">
+                          {t("providerColumn")}
+                        </div>
+                        <div>{providerLabel(account.kind, t)}</div>
+                      </div>
+                      <div className="min-w-0 truncate text-muted">
+                        <div className="mb-1 text-xs text-muted md:hidden">
+                          {t("labelColumn")}
+                        </div>
+                        {account.label || t("unlabeledAccount")}
+                      </div>
+                      <div className="font-mono text-xs text-muted">
+                        <div className="mb-1 font-sans text-xs text-muted md:hidden">
+                          {t("createdColumn")}
+                        </div>
+                        {formatCreatedAt(account.createdAt, dateFormatter, t("unknownCreatedAt"))}
+                      </div>
+                      {selectedTeam.manageAccounts ? (
+                        <DeleteAiAccountButton
+                          teamId={selectedTeam.id}
+                          accountId={account.id}
+                        />
+                      ) : <div />}
+                    </div>
+                  ))}
+                </div>
+              )}
+            </section>
+          </div>
+        )}
+      </div>
+    </CoderouterPageFrame>
+  );
+}
+
+function CoderouterPageFrame({ children }: React.PropsWithChildren) {
+  return (
+    <div className="mx-auto w-full max-w-5xl px-3 py-4">
+      <CoderouterPageHeader />
+      {children}
     </div>
   );
 }
