@@ -58,13 +58,45 @@ final class MobileHostIrxRuntime {
     /// Changes on every (de)activation; per-connection supervisors compare it.
     private var generationToken = UUID()
 
+    /// Coarse lifecycle mirror for the Settings Networking section (see
+    /// `MobileHostIrxRuntime+SettingsControl`). `failed` means the last
+    /// activation attempt errored and the retry ladder owns recovery; it is
+    /// only cleared by a successful activation or an account change.
+    enum SettingsPhase: Equatable {
+        case idle
+        case activating
+        case active
+        case failed
+    }
+
+    private(set) var settingsPhase: SettingsPhase = .idle
+    /// True once an authenticated broker discovery succeeded during the
+    /// current activation, so Settings can report the relay fleet as
+    /// server-verified rather than served from the disk cache.
+    private(set) var hadLiveDiscoveryThisRun = false
+    /// Live settings-snapshot subscribers (`irohSettingsUpdates()`).
+    var irxSettingsContinuations: [UUID: AsyncStream<CmxIrohSettingsSnapshot>.Continuation] = [:]
+    /// Periodic re-yield loop; runs only while subscribers exist.
+    var irxSettingsRefreshTask: Task<Void, Never>?
+
     private var stateDirectory: URL?
-    private var brokerService: IrxBrokerService?
-    private var endpointSupervisor: IrxEndpointSupervisor?
+    private(set) var brokerService: IrxBrokerService?
+    private(set) var endpointSupervisor: IrxEndpointSupervisor?
     private var autopilot: IrxRelayCredentialAutopilot?
     private var registry: IrxServerSessionRegistry?
     private var acceptLoop: Task<Void, Never>?
     private var localBinding: IrxBindingSnapshot?
+    /// The always-on fact channel to the per-account control-plane DO: the
+    /// host publishes hint announcements on it (instant propagation to
+    /// phones) and ingests pushed relay passes. Never on any serving path.
+    private var controlPlane: IrxControlPlaneClient?
+    /// The CURRENT device-list lease the accept loop judges against:
+    /// synchronous O(1) reads, atomically swapped on every directory apply,
+    /// cleared (fail closed) on deactivation.
+    private var deviceListBox: IrxDeviceListCurrent?
+    /// Durable home of the lease (Keychain in Release, dev file store in
+    /// DEBUG), loaded at activation so admission works offline.
+    private var deviceListStore: IrxDeviceListStore?
 
     func configure(auth: AuthCoordinator) {
         self.auth = auth
@@ -86,12 +118,36 @@ final class MobileHostIrxRuntime {
         }
     }
 
+    /// Sets the settings-facing phase and pushes a fresh snapshot to any
+    /// Settings subscribers. Safe to call redundantly; only changes publish.
+    func setSettingsPhase(_ phase: SettingsPhase) {
+        guard phase != settingsPhase else { return }
+        settingsPhase = phase
+        publishIrxSettingsUpdate()
+    }
+
+    /// Marks the current run as having completed a live (network) broker
+    /// discovery, so the Settings policy source reads "server". Called from
+    /// activation and from the settings refresh action.
+    func noteLiveDiscoverySucceeded() {
+        hadLiveDiscoveryThisRun = true
+    }
+
     private func transition(to accountID: String?) async {
         guard accountID != activeAccountID else { return }
+        // Explicit sign-out (account -> nil): erase the persisted device-list
+        // lease alongside the in-memory clear deactivate() performs, in the
+        // same breath the account's other cached authorization material
+        // stops being usable. An account SWITCH keeps the old account's
+        // lease (it is account-scoped and TTL-bounded).
+        if accountID == nil, let deviceListStore {
+            await deviceListStore.clear()
+        }
         await deactivate()
         activeAccountID = accountID
         guard let accountID else { return }
         Self.journal.record("host-runtime", "activating", ["account": accountID])
+        setSettingsPhase(.activating)
         activationTask = Task { @MainActor [weak self] in
             await self?.activate(accountID: accountID)
         }
@@ -101,12 +157,21 @@ final class MobileHostIrxRuntime {
         guard let auth else { return }
         generationToken = UUID()
         let token = generationToken
+        // The control-plane client now starts EARLY in activation (before the
+        // broker calls that can throw), so a retry after a mid-activation
+        // failure must stop the previous attempt's client instead of leaking
+        // its reconnect loop beside a fresh one.
+        if let controlPlane {
+            await controlPlane.stop()
+            self.controlPlane = nil
+        }
         let tag = MobileHostIrohRuntime.currentTag()
         guard let brokerBaseURL = AuthEnvironment.irohBrokerBaseURL,
             let namespace = CmxIrohMacBundleNamespace(
                 bundleIdentifier: Bundle.main.bundleIdentifier)
         else {
             Self.journal.record("host-runtime", "activation-failed", ["reason": "environment"])
+            setSettingsPhase(.failed)
             return
         }
         let appSupport = FileManager.default.urls(
@@ -146,7 +211,10 @@ final class MobileHostIrxRuntime {
                     platform: .mac,
                     displayName: Host.current().localizedName,
                     cacheDirectory: stateDir,
-                    identityGeneration: material.generation
+                    identityGeneration: material.generation,
+                    // Release: broker caches live in the Keychain, scoped
+                    // per account + backend; DEBUG stays on the JSON files.
+                    accountID: accountID
                 ),
                 identity: identity,
                 accessTokenPair: { [weak auth] in
@@ -182,9 +250,96 @@ final class MobileHostIrxRuntime {
             let pilot = IrxRelayCredentialAutopilot(
                 broker: broker, endpoint: supervisor, journal: Self.journal)
             autopilot = pilot
-            // Registration FIRST: non-legacy namespaces need the binding
-            // authorization it establishes before any other broker call
-            // (relay minting, discovery) is accepted.
+            registry = IrxServerSessionRegistry(journal: Self.journal)
+
+            // DEVICE LIST: the admission authority. Load the persisted lease
+            // BEFORE anything network-bound so admission works offline, and
+            // start the control-plane client FIRST so the fresh directory
+            // (and any revocation) lands as early as possible. Neither step
+            // blocks the endpoint bind.
+            let listStore = IrxDeviceListStore(
+                secureStore: Self.deviceListSecureStore(stateDirectory: stateDir),
+                accountID: accountID,
+                backendHost: brokerBaseURL.host ?? "unknown-broker",
+                journal: Self.journal
+            )
+            deviceListStore = listStore
+            let listBox = IrxDeviceListCurrent()
+            deviceListBox = listBox
+            if let persisted = await listStore.loadPersisted() {
+                listBox.replace(persisted)
+            }
+            guard generationToken == token else { return }
+
+            // Control-plane socket: hint announcements out (instant phone
+            // propagation, the signed HTTPS registration stays authoritative),
+            // pushed relay passes in (same mint rules as HTTPS), and the
+            // device-list directory in (admission authority).
+            let control: IrxControlPlaneClient?
+            if let controlURL = PresenceHeartbeatClient.resolvedServiceURL() {
+                let client = IrxControlPlaneClient(
+                    configuration: .init(
+                        socketURL: controlURL
+                            .appendingPathComponent("v1/control/socket"),
+                        endpointIDHex: identity.endpointIDHex,
+                        // Phase A: passes stay on the HTTPS autopilot (with
+                        // the stale-connection retry). The broker mint
+                        // requires an endpoint-signed proof for non-legacy
+                        // namespaces, which a bearer-only proxy cannot
+                        // satisfy; flip when proof pass-through ships.
+                        wantPasses: false,
+                        cacheDirectory: stateDir,
+                        clientInfo: IrxCtlClientInfo(
+                            deviceID: deviceID,
+                            platform: "mac",
+                            appVersion: IrxCtlClientInfo.appVersionString(
+                                infoDictionary: Bundle.main.infoDictionary),
+                            releaseTrack: Self.hostReleaseTrack(),
+                            capabilities: ["cmux.irx.v2", "list-auth"]
+                        ),
+                        clientNamespace: namespace.rawValue
+                    ),
+                    tokenPair: { [weak auth] in
+                        guard let auth else { return nil }
+                        let session = try await auth.authenticatedSessionSnapshot()
+                        return (session.accessToken, session.refreshToken)
+                    },
+                    handlers: .init(
+                        onRelayPasses: { [weak self, weak broker, weak supervisor, weak pilot] pushed in
+                            guard let broker, let supervisor, let pilot,
+                                let accepted = await broker
+                                    .acceptPushedRelayCredentials(pushed)
+                            else { return false }
+                            await supervisor.rotateCredentials(accepted)
+                            await pilot.kick()
+                            await self?.publishIrxSettingsUpdate()
+                            return true
+                        },
+                        // The host dials no peers; hint facts are for clients.
+                        onHintUpdate: { _, _ in true },
+                        onDirectory: { _ in true },
+                        onSnapshotComplete: { _ in },
+                        onDirectoryFact: { [weak self] fact in
+                            await self?.applyDeviceListFact(fact) ?? false
+                        },
+                        onFreshness: { [weak self] rev, issuedAt in
+                            await self?.applyDeviceListFreshness(
+                                rev: rev, issuedAt: issuedAt)
+                        }
+                    ),
+                    journal: Self.journal
+                )
+                controlPlane = client
+                control = client
+                await client.start()
+            } else {
+                control = nil
+            }
+
+            // Registration FIRST among the broker calls: non-legacy
+            // namespaces need the binding authorization it establishes
+            // before any other broker call (relay minting, discovery) is
+            // accepted.
             let binding = try await broker.register(
                 pairingEnabled: true,
                 relayURLHint: nil
@@ -192,6 +347,7 @@ final class MobileHostIrxRuntime {
             localBinding = binding
             let credentials = try await pilot.usableCredentials()
             _ = try await broker.discover()
+            noteLiveDiscoverySucceeded()
 
             guard generationToken == token else { return }
             _ = try await supervisor.readyEndpoint(credentials: credentials)
@@ -199,16 +355,27 @@ final class MobileHostIrxRuntime {
             // refresh the binding so registry consumers see it too.
             let homeRelay = await supervisor.homeRelayURL() ?? credentials.first?.relayURL
             _ = try? await broker.register(pairingEnabled: true, relayURLHint: homeRelay)
+            if let control, let homeRelay {
+                await control.publishHint(homeRelayURL: homeRelay)
+            }
             // Relay hints are server-capped at 1h; refresh the registration on
-            // every credential rotation so the advertised hint never expires.
-            await pilot.setOnRotation { [weak broker, weak supervisor] in
+            // every credential rotation so the advertised hint never expires,
+            // and announce it over the socket so phones hear about relay
+            // moves in milliseconds instead of at the next registry read.
+            await pilot.setOnRotation { [weak self, weak broker, weak supervisor] in
                 guard let broker, let supervisor else { return }
                 let relay = await supervisor.homeRelayURL()
                 try? await broker.registerHintIfNeeded(
                     pairingEnabled: true, relayURLHint: relay)
+                if let relay, let control {
+                    await control.publishHint(homeRelayURL: relay)
+                }
+                // Credential rotation (and any home-relay move it reveals)
+                // changes the Settings snapshot's policy expiry and relay
+                // selection; push it to live subscribers.
+                await self?.publishIrxSettingsUpdate()
             }
             await pilot.start()
-            registry = IrxServerSessionRegistry(journal: Self.journal)
 
             publishRoute(identity: identity, relayURL: homeRelay)
             startAcceptLoop(token: token)
@@ -221,11 +388,17 @@ final class MobileHostIrxRuntime {
                     "path_mode": Self.forceRelayOnly ? "relay-only" : "automatic",
                 ]
             )
+            setSettingsPhase(.active)
         } catch {
             Self.journal.record(
                 "host-runtime", "activation-failed",
                 ["reason": String(describing: error)]
             )
+            if generationToken == token {
+                // Stays failed across the retry ladder (no activating/failed
+                // flicker in Settings); success or an account change clears it.
+                setSettingsPhase(.failed)
+            }
             // One bounded retry ladder, reset by the auth observation loop on
             // account change: retry activation after 5s while still desired.
             try? await Task.sleep(for: .seconds(5))
@@ -249,16 +422,113 @@ final class MobileHostIrxRuntime {
             await registry.closeAll(code: .hostShutdown)
         }
         registry = nil
+        if let controlPlane {
+            await controlPlane.stop()
+        }
+        controlPlane = nil
+        // Fail closed immediately: with the box cleared, the accept loop's
+        // judge denies every hello. Persisted clearing happens only on
+        // explicit sign-out (see `transition(to:)`), so a relaunch on the
+        // same account keeps working offline.
+        deviceListBox?.clear()
+        deviceListBox = nil
+        deviceListStore = nil
         if let endpointSupervisor {
             await endpointSupervisor.close()
         }
         endpointSupervisor = nil
         brokerService = nil
         localBinding = nil
+        hadLiveDiscoveryThisRun = false
+        setSettingsPhase(.idle)
         if Self.isEnabled {
             MobileHostPublicStatusCache.update(irohIdentity: nil)
         }
         Self.journal.record("host-runtime", "deactivated")
+    }
+
+    // MARK: - Device list (admission authority)
+
+    /// Applies a pushed directory fact: build the lease snapshot, persist it,
+    /// swap it into the accept path atomically, acknowledge the revision,
+    /// then enforce it on LIVE sessions (a revoked or delisted device is cut
+    /// now with `.revoked`, not at its next admission).
+    private func applyDeviceListFact(_ fact: IrxCtlDirectoryFact) async -> Bool {
+        guard let deviceListBox, let deviceListStore else { return false }
+        if let current = deviceListBox.current, fact.rev <= current.rev {
+            Self.journal.record(
+                "host-runtime", "device-list-stale-rev",
+                ["rev": String(fact.rev), "have": String(current.rev)]
+            )
+            return true
+        }
+        let snapshot = IrxDeviceListSnapshot(
+            fact: fact,
+            receivedAtWall: Date(),
+            receivedAtMonotonic: .now
+        )
+        guard await deviceListStore.persist(snapshot) else { return false }
+        deviceListBox.replace(snapshot)
+        Self.journal.record(
+            "host-runtime", "device-list-applied",
+            ["rev": String(fact.rev), "entries": String(snapshot.entries.count)]
+        )
+        if let registry {
+            await registry.closeAll(code: .revoked) { endpointIDHex in
+                guard let entry = snapshot.entries[endpointIDHex] else { return true }
+                return entry.revoked
+            }
+        }
+        return true
+    }
+
+    /// An explicit freshness re-stamp (`current`, or a `snapshot_complete`
+    /// carrying `issuedAt`) extends the CURRENT lease without changing its
+    /// membership.
+    private func applyDeviceListFreshness(rev: Int, issuedAt: Date) async {
+        guard let deviceListBox, let deviceListStore else { return }
+        guard
+            let updated = deviceListBox.restamp(
+                rev: rev,
+                issuedAt: issuedAt,
+                receivedAtWall: Date(),
+                receivedAtMonotonic: .now
+            )
+        else { return }
+        await deviceListStore.persist(updated)
+        Self.journal.record(
+            "host-runtime", "device-list-restamped", ["rev": String(rev)]
+        )
+    }
+
+    /// The lease's durable backend: Keychain in Release, the development
+    /// file store inside the irx state directory in DEBUG (the exact split
+    /// every other secure store uses; ad-hoc DEBUG builds lack the
+    /// data-protection Keychain entitlement).
+    private nonisolated static func deviceListSecureStore(
+        stateDirectory: URL
+    ) -> any CmxIrohSecureCredentialStoring {
+        #if DEBUG
+        CmxIrohDevelopmentFileCredentialStore(
+            directory: stateDirectory.appendingPathComponent(
+                "device-list", isDirectory: true)
+        )
+        #else
+        CmxIrohKeychainCredentialStore(
+            service: "com.cmuxterm.irx.device-list.v1"
+        )
+        #endif
+    }
+
+    /// The Mac build's control-plane release track: DEBUG builds are "dev",
+    /// nightly-flavored bundle ids are "nightly", everything else "stable".
+    private nonisolated static func hostReleaseTrack() -> String {
+        #if DEBUG
+        return "dev"
+        #else
+        let bundleIdentifier = Bundle.main.bundleIdentifier ?? ""
+        return bundleIdentifier.contains("nightly") ? "nightly" : "stable"
+        #endif
     }
 
     /// Publishes the irx endpoint as THE iroh route: attach tickets, host
@@ -290,21 +560,22 @@ final class MobileHostIrxRuntime {
     }
 
     private func startAcceptLoop(token: UUID) {
-        guard let endpointSupervisor, let brokerService, let registry, let localBinding
+        guard let endpointSupervisor, let brokerService, let registry, let localBinding,
+            let deviceListBox
         else { return }
         let journal = Self.journal
         guard let acceptor = try? acceptorPeer(binding: localBinding) else {
             journal.record("host-runtime", "activation-failed", ["reason": "acceptor-tuple"])
             return
         }
-        // Admission reads the persisted trust snapshot synchronously; it
-        // never awaits the broker (steady-state independence).
-        guard let stateDirectory else { return }
-        let judge = IrxGrantJudge(
-            acceptor: acceptor,
-            trustProvider: { IrxDiskCacheTrustReader.read(stateDirectory: stateDirectory) }
-        )
-        let trustSnapshot = { IrxDiskCacheTrustReader.read(stateDirectory: stateDirectory) }
+        // LIST AUTH: irx admission judges the TLS key against the current
+        // device-list lease, synchronously and O(1) (an atomic box read; no
+        // actor, no disk, no network). The hello's grant is ignored.
+        let judge = IrxListJudge(current: deviceListBox, journal: journal)
+        // The legacy dialect (old phones) still verifies pair grants against
+        // the persisted trust snapshot, read through the broker's cache so
+        // the Release keychain migration cannot strand it.
+        let trustSnapshot = { brokerService.cachedTrustForAdmission() }
         let brokerClient = brokerService.hostBrokerClient
         acceptLoop = Task { [weak self] in
             journal.record("host-runtime", "accept-loop-started")
@@ -369,7 +640,7 @@ final class MobileHostIrxRuntime {
 
     private func superviseConnection(
         _ irx: IrxConnection,
-        judge: IrxGrantJudge,
+        judge: IrxListJudge,
         registry: IrxServerSessionRegistry,
         token: UUID
     ) async {
@@ -381,7 +652,25 @@ final class MobileHostIrxRuntime {
                 journal: journal
             )
         else { return }
-        await registry.admit(deviceID: peer.deviceID, sessionID: sessionID, connection: irx)
+        let registered = await registry.admit(
+            deviceID: peer.deviceID,
+            sessionID: sessionID,
+            connection: irx,
+            stillAuthorized: { endpointIDHex in
+                do {
+                    _ = try judge.judgment()(nil, endpointIDHex)
+                    return true
+                } catch {
+                    return false
+                }
+            }
+        )
+        guard registered else { return }
+        // Automatic path mode: authorize NAT traversal so the admitted session
+        // can upgrade to a direct/LAN path make-before-break.
+        if !Self.forceRelayOnly {
+            await irx.authorizeDirectPaths()
+        }
 
         let admittedPeer: CmxIrohAdmittedPeer
         do {

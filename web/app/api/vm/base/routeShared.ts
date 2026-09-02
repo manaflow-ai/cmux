@@ -2,11 +2,6 @@ import type { AuthedUser } from "../../../../services/vms/auth";
 import { assertVmCreateEnabled } from "../../../../services/vms/config";
 import { defaultProviderId, isProviderId, type ProviderId } from "../../../../services/vms/drivers";
 import {
-  isVmBillingTeamResolutionError,
-  isVmProGateBlocked,
-  resolveVmEntitlements,
-} from "../../../../services/vms/entitlements";
-import {
   isVmCreateCreditsInsufficientError,
   isVmCreateDisabledError,
   isVmCreateFailedError,
@@ -15,7 +10,6 @@ import {
   isVmLimitExceededError,
 } from "../../../../services/vms/errors";
 import {
-  imageUsesBakedFreestyleSignedAdmin,
   inferVmProviderForImage,
   resolveVmImage,
 } from "../../../../services/vms/images/resolver";
@@ -28,11 +22,10 @@ import {
 import {
   jsonResponse,
   requestedVmTeamIdFromRequest,
-  vmBillingTeamErrorResponse,
   vmActiveLimitExceededResponse,
   vmErrorResponse,
   vmWorkflowErrorResponse,
-  vmRequiresProResponse,
+  resolveVmProvisioningAccountScope,
 } from "../../../../services/vms/routeHelpers";
 import { vmRequestLocale } from "../../../../services/vms/vmErrorMessages";
 import type { VmTimingRecorder } from "../../../../services/vms/timings";
@@ -56,19 +49,9 @@ export async function runBaseRoute(input: {
   if (!parsed.ok) return parsed.response;
 
   const requestedBillingTeamId = parsed.body.billingTeamId || requestedVmTeamIdFromRequest(input.request);
-  let entitlements;
-  try {
-    entitlements = resolveVmEntitlements(input.user, process.env, {
-      requestedBillingTeamId,
-    });
-  } catch (err) {
-    if (isVmBillingTeamResolutionError(err)) return vmBillingTeamErrorResponse(err);
-    throw err;
-  }
-
-  if (isVmProGateBlocked(entitlements)) {
-    return vmRequiresProResponse();
-  }
+  const account = await resolveVmProvisioningAccountScope(input.user, input.request, { requestedBillingTeamId });
+  if (!account.ok) return account.response;
+  const entitlements = account.entitlements;
 
   // Same provider inference as POST /api/vm: an explicit manifest image
   // names its own provider even when the deployment default disagrees.
@@ -123,7 +106,6 @@ export async function runBaseRoute(input: {
       image: imageSelection.image,
       imageVersion: imageSelection.imageVersion,
       baseName: parsed.body.name,
-      bakedFreestyleSignedAdmin: imageUsesBakedFreestyleSignedAdmin(provider, imageSelection.image),
       timing: input.timing,
     };
     entry = await runVmWorkflow(

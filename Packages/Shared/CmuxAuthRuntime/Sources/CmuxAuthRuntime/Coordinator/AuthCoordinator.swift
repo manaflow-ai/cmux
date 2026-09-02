@@ -250,6 +250,25 @@ public final class AuthCoordinator {
         await checkExistingSession()
     }
 
+    /// Supersede parked timed-out auth phases before an explicit interactive
+    /// attempt (a pairing attempt, a tapped retry). One Stack call hung on a
+    /// dead pooled connection times its phase out and dampens it for 30s;
+    /// without this, the very next user action fails in milliseconds with
+    /// ``AuthError/timedOut`` even though a fresh request would succeed. The
+    /// timed-out operation was already cancelled at its deadline and its
+    /// writes are dropped by the sign-in chokepoint, so releasing its slot is
+    /// safe; live operations keep their exclusivity.
+    public func supersedeTimedOutAuthPhases() async {
+        // Both dampers: sign-in exchanges park in the phase registry, and
+        // token-touching work (access-token fetches, session probes) parks in
+        // the coordinator's own timed-out states. Token-touching phases allow
+        // concurrent actives by construction (write safety is generational,
+        // via finishTokenTouchingPhase), so dropping the damper alone is
+        // sufficient there.
+        await phaseTimeoutRegistry.supersedeTimedOutPhases()
+        timedOutTokenTouchingPhaseStates.removeAll()
+    }
+
     // MARK: - Sign-in flows
 
     /// Send a sign-in code to `email`, or run the debug `42` shortcut.

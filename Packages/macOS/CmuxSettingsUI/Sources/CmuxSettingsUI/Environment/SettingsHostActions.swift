@@ -16,6 +16,15 @@ import Foundation
 /// when no host action is available.
 @MainActor
 public protocol SettingsHostActions: AnyObject {
+    /// A registry snapshot used to populate the per-agent notification sound
+    /// matrix. The host owns discovery so newly registered agents appear
+    /// without a second list in the settings package.
+    func notificationSoundAgentOptions() async -> [NotificationSoundAgentOption]
+
+    /// Validates and prepares a custom notification sound before a matrix cell
+    /// is persisted. Returning `false` keeps the previous cell untouched.
+    func validateNotificationSoundFile(path: String) async -> Bool
+
     /// Deletes the user's browser history (visited-page suggestions,
     /// omnibar autocomplete cache). Idempotent.
     func clearBrowserHistory()
@@ -260,10 +269,17 @@ public protocol SettingsHostActions: AnyObject {
 public struct CloudMachinesPlanSummary: Equatable, Sendable {
     public let planLabel: String
     public let activeMachines: Int
-    public let maxMachines: Int
+    /// Active-machine ceiling; nil when the plan has no cap.
+    public let maxMachines: Int?
     public let isPaidPlan: Bool
 
-    public init(planLabel: String, activeMachines: Int, maxMachines: Int, isPaidPlan: Bool) {
+    /// Creates a plan summary.
+    /// - Parameters:
+    ///   - planLabel: Display name of the plan, already localized.
+    ///   - activeMachines: Machines currently counted against the plan.
+    ///   - maxMachines: Active-machine ceiling, or nil when the plan has no cap.
+    ///   - isPaidPlan: Whether the plan is one the backend provisions for.
+    public init(planLabel: String, activeMachines: Int, maxMachines: Int?, isPaidPlan: Bool) {
         self.planLabel = planLabel
         self.activeMachines = activeMachines
         self.maxMachines = maxMachines
@@ -272,6 +288,12 @@ public struct CloudMachinesPlanSummary: Equatable, Sendable {
 }
 
 public extension SettingsHostActions {
+    /// Returns the registry-backed agent choices shown by notification sound settings.
+    func notificationSoundAgentOptions() -> [NotificationSoundAgentOption] { [] }
+
+    /// Validates a candidate custom notification sound path on the host.
+    func validateNotificationSoundFile(path: String) async -> Bool { false }
+
     /// Default no-op for previews and tests without a live control socket.
     func socketControlConfigurationDidChange() {}
 

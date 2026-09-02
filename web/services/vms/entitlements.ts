@@ -6,7 +6,8 @@ export type VmEntitlements = {
   readonly planId: string;
   readonly billingCustomerType: BillingCustomerType;
   readonly billingTeamId: string;
-  readonly maxActiveVms: number;
+  /** Active-machine ceiling for the plan; null when the plan has no cap. */
+  readonly maxActiveVms: number | null;
 };
 
 export type VmEntitlementOptions = {
@@ -39,7 +40,16 @@ export function resolveVmEntitlements(
   options: VmEntitlementOptions = {},
 ): VmEntitlements {
   const billing = resolveBillingContext(user, options);
-  const planId = normalizedPlanId(billing.billingPlanId ?? env.CMUX_VM_DEFAULT_PLAN ?? "free");
+  const configuredDefaultPlan = env.CMUX_VM_DEFAULT_PLAN;
+  // A deployment-wide default is useful for local/demo fixtures, but it must
+  // never grant a paid entitlement to an account with no billing metadata in
+  // the normal fail-closed mode. Reusing the same explicit escape hatch keeps
+  // this fallback from becoming a second permissive configuration path.
+  const defaultPlan = configuredDefaultPlan &&
+      (isVmFreeProvisioningAllowed(env) || !isPaidVmPlan(configuredDefaultPlan))
+    ? configuredDefaultPlan
+    : "free";
+  const planId = normalizedPlanId(billing.billingPlanId ?? defaultPlan);
   return {
     planId,
     billingCustomerType: billing.billingCustomerType,
@@ -105,7 +115,7 @@ function resolveBillingContext(
 }
 
 /**
- * Machine sizes a person can pick, as memory in MB. Blaxel scales vCPUs with
+ * Machine sizes a person can pick, as memory in MB. Providers scale vCPUs with
  * memory (a 4 GB machine reports 2 cpus), so memory is the whole size story.
  */
 export const VM_MEMORY_OPTIONS_MB: readonly number[] = [2048, 4096, 8192, 16384, 24576, 32768];
@@ -144,10 +154,15 @@ export function defaultMemoryMbForPlan(
   return Math.min(raw, maxMemoryMbForPlan(planId, env));
 }
 
+/**
+ * Active-machine ceiling for a plan, or null when there is none. Paid plans
+ * are uncapped: the subscription is the paywall and machine count is not a
+ * quota. Free plans stay capped (zero unless free provisioning is allowed).
+ */
 export function maxActiveVmsForPlan(
   planId: string | null | undefined,
   env: Record<string, string | undefined> = process.env,
-): number {
+): number | null {
   return activeVmLimitForPlan(normalizedPlanId(planId ?? ""), env);
 }
 
@@ -197,15 +212,38 @@ export function isPaidVmPlan(planId: string): boolean {
 }
 
 /**
- * Whether Cloud VM provisioning is gated behind a paid plan. Ships dark: the
- * gate is OFF unless CMUX_VM_REQUIRE_PRO is explicitly truthy, so free users
- * keep provisioning until product flips the env to launch (mirrors the
- * CMUX_VM_CREATE_ENABLED opt-out convention, inverted to opt-in).
+ * Whether Cloud VM provisioning is gated behind a paid plan.
+ *
+ * The safe default is enforced. `CMUX_VM_ALLOW_FREE_PROVISIONING=1` is an
+ * explicit operator escape hatch for demos or a controlled rollback. The
+ * historical `CMUX_VM_REQUIRE_PRO=0` spelling remains a compatibility alias
+ * when the new switch is absent; every other unset, malformed, or truthy
+ * value keeps the gate closed to free plans.
  */
 export function isVmProGateEnforced(
   env: Record<string, string | undefined> = process.env,
 ): boolean {
-  return isVmRequireProFlag(env.CMUX_VM_REQUIRE_PRO);
+  return !isVmFreeProvisioningAllowed(env);
+}
+
+/**
+ * Whether an operator has explicitly opted into free Cloud VM provisioning.
+ * Keep this as the shared policy predicate so the gate and free active limit
+ * cannot drift into different permissive states.
+ */
+export function isVmFreeProvisioningAllowed(
+  env: Record<string, string | undefined> = process.env,
+): boolean {
+  // The new name is authoritative when present. A value must be explicitly
+  // truthy; typos and explicit false values fail closed.
+  if (env.CMUX_VM_ALLOW_FREE_PROVISIONING !== undefined) {
+    return isVmTruthyFlag(env.CMUX_VM_ALLOW_FREE_PROVISIONING);
+  }
+
+  // Preserve the old opt-in gate's false values as a migration alias. An
+  // absent or malformed legacy value now fails closed instead of shipping dark.
+  const legacy = env.CMUX_VM_REQUIRE_PRO;
+  return legacy !== undefined && isVmFalseFlag(legacy);
 }
 
 /**
@@ -220,7 +258,7 @@ export function isVmProGateBlocked(
   return isVmProGateEnforced(env) && !isPaidVmPlan(entitlements.planId);
 }
 
-function isVmRequireProFlag(value: string | undefined): boolean {
+function isVmTruthyFlag(value: string | undefined): boolean {
   if (value === undefined) return false;
   switch (value.trim().toLowerCase()) {
     case "1":
@@ -234,21 +272,38 @@ function isVmRequireProFlag(value: string | undefined): boolean {
   }
 }
 
-function activeVmLimitForPlan(planId: string, env: Record<string, string | undefined>): number {
-  const planKey = planId.replace(/[^a-zA-Z0-9]/g, "_").toUpperCase();
-  const specific = env[`CMUX_VM_PLAN_${planKey}_MAX_ACTIVE_VMS`];
-  if (specific?.trim()) return positiveInteger(specific, `CMUX_VM_PLAN_${planKey}_MAX_ACTIVE_VMS`);
+function isVmFalseFlag(value: string | undefined): boolean {
+  if (value === undefined) return false;
+  switch (value.trim().toLowerCase()) {
+    case "0":
+    case "false":
+    case "no":
+    case "off":
+    case "disabled":
+      return true;
+    default:
+      return false;
+  }
+}
 
-  if (planId === "free") {
-    // Cloud machines are a paid feature: free plans start at zero. Every
-    // create is the upgrade prompt (vmActiveLimitExceededResponse renders the
-    // paywall variant for unpaid plans, and the app's New Machine button opens
-    // the Pro flow at the ceiling). CMUX_VM_FREE_MAX_ACTIVE_VMS re-opens a
-    // demo allowance without a deploy.
+function activeVmLimitForPlan(planId: string, env: Record<string, string | undefined>): number | null {
+  const planKey = planId.replace(/[^a-zA-Z0-9]/g, "_").toUpperCase();
+  if (!isPaidVmPlan(planId)) {
+    // Cloud machines are a paid feature. Keep every non-paid/unknown plan at
+    // zero unless the same explicit escape hatch that disables the Pro gate is
+    // set; this prevents a stale `CMUX_VM_FREE_MAX_ACTIVE_VMS` (or a plan-
+    // specific override) from reopening provisioning by configuration drift.
+    if (!isVmFreeProvisioningAllowed(env)) return 0;
+    const specific = env[`CMUX_VM_PLAN_${planKey}_MAX_ACTIVE_VMS`];
+    if (specific?.trim()) return positiveInteger(specific, `CMUX_VM_PLAN_${planKey}_MAX_ACTIVE_VMS`);
     return nonNegativeInteger(env.CMUX_VM_FREE_MAX_ACTIVE_VMS ?? "0", "CMUX_VM_FREE_MAX_ACTIVE_VMS");
   }
 
-  return positiveInteger(env.CMUX_VM_PAID_MAX_ACTIVE_VMS ?? "5", "CMUX_VM_PAID_MAX_ACTIVE_VMS");
+  // Paid plans have no machine cap. A plan-specific env override remains as an
+  // operator-only brake for an incident; unset means unlimited.
+  const specific = env[`CMUX_VM_PLAN_${planKey}_MAX_ACTIVE_VMS`];
+  if (specific?.trim()) return positiveInteger(specific, `CMUX_VM_PLAN_${planKey}_MAX_ACTIVE_VMS`);
+  return null;
 }
 
 function normalizedPlanId(planId: string): string {

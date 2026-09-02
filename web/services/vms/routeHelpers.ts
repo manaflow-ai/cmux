@@ -9,7 +9,7 @@ import {
 import {
   isPaidVmPlan,
   isVmBillingTeamResolutionError,
-  maxActiveVmsForPlan,
+  isVmProGateBlocked,
   resolveVmEntitlements,
   type VmEntitlements,
 } from "./entitlements";
@@ -34,7 +34,7 @@ import {
 import { recordSpanTiming } from "./timings";
 import { authProviderErrorResponse } from "./authErrors";
 import { reportVmErrorResponse, VM_ERROR_CODE_HEADER } from "./observability";
-import { vmRequestLocale, vmUnsupportedCopy } from "./vmErrorMessages";
+import { vmRequestLocale, vmRequiresProCopy, vmUnsupportedCopy } from "./vmErrorMessages";
 import type { Locale } from "../../i18n/routing";
 
 /** Bearer + refresh token pair the mac app stashes in keychain. */
@@ -271,11 +271,45 @@ export type VmRouteAccountScope =
     readonly response: Response;
   };
 
+type VmProvisioningScopeOptions = {
+  readonly requestedBillingTeamId?: string | null;
+};
+
+/**
+ * Resolve the account scope for a route that can allocate a new machine.
+ *
+ * Provisioning routes must use this helper instead of resolving entitlements
+ * and checking the Pro gate independently. Keeping the account lookup and
+ * policy decision together makes a newly added provisioning route fail closed
+ * by construction while management routes can continue to use
+ * `resolveVmRouteAccountScope` without a paywall.
+ */
+export async function resolveVmProvisioningAccountScope(
+  user: AuthedUser,
+  request: Request,
+  options: VmProvisioningScopeOptions = {},
+): Promise<VmRouteAccountScope> {
+  const scope = resolveVmAccountScope(user, request, options);
+  if (!scope.ok) return scope;
+  if (isVmProGateBlocked(scope.entitlements)) {
+    return { ok: false, response: await vmRequiresProResponse(vmRequestLocale(request)) };
+  }
+  return scope;
+}
+
 export function resolveVmRouteAccountScope(
   user: AuthedUser,
   request: Request,
 ): VmRouteAccountScope {
-  const requestedBillingTeamId = requestedVmTeamIdFromRequest(request);
+  return resolveVmAccountScope(user, request);
+}
+
+function resolveVmAccountScope(
+  user: AuthedUser,
+  request: Request,
+  options: VmProvisioningScopeOptions = {},
+): VmRouteAccountScope {
+  const requestedBillingTeamId = options.requestedBillingTeamId ?? requestedVmTeamIdFromRequest(request);
   try {
     return {
       ok: true,
@@ -306,20 +340,27 @@ export function vmBillingTeamErrorResponse(err: {
     action: err.code === "vm_billing_team_not_found"
       ? "Switch to a team you belong to, or run `cmux auth login` again and retry with the correct team id."
       : "Select a team in cmux, or pass the team id with `X-Cmux-Team-Id`.",
-    reason: err.message,
-  });
-}
-
-export function vmRequiresProResponse(): Response {
-  return vmErrorResponse({
-    error: "vm_requires_pro",
-    status: 402,
-    message: "Cloud VMs require a cmux Pro plan.",
-    action: "Upgrade to cmux Pro at https://cmux.com/pricing to create Cloud VMs.",
   });
 }
 
 const VM_UPGRADE_URL = "https://cmux.com/pricing";
+
+/**
+ * The paid-plan gate response. Copy comes from the `vmErrors.requiresPro`
+ * catalog so non-English clients get a translated upgrade instruction; the
+ * machine-readable `upgradeUrl`/`upgradeRequired` fields stay locale-free.
+ */
+export async function vmRequiresProResponse(locale: Locale = "en"): Promise<Response> {
+  const copy = await vmRequiresProCopy(locale, { upgradeUrl: VM_UPGRADE_URL });
+  return vmErrorResponse({
+    error: "vm_requires_pro",
+    status: 402,
+    message: copy.message,
+    action: copy.action,
+    displayTitle: copy.title,
+    extra: { upgradeRequired: true, upgradeUrl: VM_UPGRADE_URL },
+  });
+}
 
 /**
  * One response for every provisioning verb that hits the active-VM limit. On a free plan the
@@ -349,12 +390,11 @@ export function vmActiveLimitExceededResponse(input: {
   if (input.limit <= 0) {
     // Free plans have no allowance at all: this is the subscribe gate, not a
     // "free a slot" situation.
-    const proLimit = maxActiveVmsForPlan("pro");
     return vmErrorResponse({
       error: "vm_active_limit_exceeded",
       status: 402,
       message: "Cloud VMs require a cmux Pro subscription.",
-      action: `Subscribe to cmux Pro at ${VM_UPGRADE_URL} to get access to Cloud VMs (up to ${proLimit} active machines).`,
+      action: `Subscribe to cmux Pro at ${VM_UPGRADE_URL} to get access to Cloud VMs.`,
       extra: { limit: input.limit, upgradeRequired: true, upgradeUrl: VM_UPGRADE_URL },
       details: { limit: input.limit, upgradeRequired: true },
       ...(input.phase ? { phase: input.phase } : {}),
@@ -494,7 +534,7 @@ export async function vmWorkflowErrorResponse(
     const providerCause = providerCauseSummary(workflowError.cause);
     const phase = vmPhaseForOperation(workflowError.operation);
     if (providerImageNotFound(workflowError.cause)) {
-      // The provider rejected the resolved image (e.g. Blaxel IMAGE_NOT_FOUND):
+      // The provider rejected the resolved image (e.g. a provider IMAGE_NOT_FOUND):
       // nothing was created and retrying cannot help until an operator
       // publishes the image, so this is configuration, not availability.
       console.error(
@@ -523,31 +563,18 @@ export async function vmWorkflowErrorResponse(
         },
       });
     }
-    const retryExhausted = providerRetryExhausted(workflowError.cause);
-    if (retryExhausted) {
-      // Keep the provider and operation in operator logs only. The response
-      // below deliberately contains no URL, status, or upstream body.
-      console.error("[vm-provider-retry-exhausted]", {
-        provider: workflowError.provider,
-        operation: workflowError.operation,
-      });
-    }
     const retryAfterSeconds = retryAfterForOperation(workflowError.operation);
-    const providerMessage = !retryExhausted && providerCause?.message
+    const providerMessage = providerCause?.message
       ? sanitizedProviderMessage(providerCause.message)
       : null;
-    const providerCode = retryExhausted
-      ? "provider_retry_exhausted"
-      : providerCause?.code
-        ? sanitizedProviderCode(providerCause.code)
-        : inferredProviderCode(providerMessage);
+    const providerCode = providerCause?.code
+      ? sanitizedProviderCode(providerCause.code)
+      : inferredProviderCode(providerMessage);
     return vmErrorResponse({
       error: "vm_cloud_service_unavailable",
       status: 502,
       message: vmUnavailableMessage(phase),
-      reason: retryExhausted
-        ? "The Cloud VM service is temporarily unavailable."
-        : providerMessage
+      reason: providerMessage
         ? `Cloud VM service is temporarily unavailable: ${providerMessage}`
         : "Cloud VM service is temporarily unavailable.",
       action: cloudServiceAction(workflowError.operation, retryAfterSeconds),
@@ -627,17 +654,6 @@ async function vmUnsupportedOperationResponse(
   });
 }
 
-/** Identify a retry wrapper whose provider details must stay in operator logs. */
-function providerRetryExhausted(cause: unknown): boolean {
-  let current: unknown = cause;
-  for (let depth = 0; depth < 8 && current; depth += 1) {
-    const record = current as { name?: unknown; cause?: unknown };
-    if (record.name === "BlaxelRetryExhaustedError") return true;
-    current = record.cause;
-  }
-  return false;
-}
-
 /** True when the provider reported that the requested image/template does not exist. */
 function providerImageNotFound(cause: unknown): boolean {
   let current: unknown = cause;
@@ -645,8 +661,10 @@ function providerImageNotFound(cause: unknown): boolean {
     const record = current as { body?: { code?: unknown }; cause?: unknown; message?: unknown };
     const code = typeof record.body?.code === "string" ? record.body.code : "";
     const message = typeof record.message === "string" ? record.message : "";
-    if (/IMAGE_NOT_FOUND|TEMPLATE_NOT_FOUND/i.test(code)) return true;
-    if (/IMAGE_NOT_FOUND|TEMPLATE_NOT_FOUND|(image|template)\s+'[^']*'\s+not found|(image|template) not found/i.test(message)) {
+    // Freestyle resolves an image to a SNAPSHOT id, so its missing-image
+    // answer is a snapshot 404, not an IMAGE_NOT_FOUND code.
+    if (/IMAGE_NOT_FOUND|TEMPLATE_NOT_FOUND|SNAPSHOT_NOT_FOUND/i.test(code)) return true;
+    if (/IMAGE_NOT_FOUND|TEMPLATE_NOT_FOUND|SNAPSHOT_NOT_FOUND|(image|template|snapshot)\s+'[^']*'\s+not found|(image|template|snapshot) not found/i.test(message)) {
       return true;
     }
     current = record.cause;
@@ -803,7 +821,6 @@ function sanitizedProviderMessage(message: string): string {
   if (/not found|deleted/i.test(normalized)) return "VM not found";
   return normalized
     .replace(/freestyle/gi, "Cloud VM")
-    .replace(/e2b/gi, "Cloud VM")
     .slice(0, 240);
 }
 
