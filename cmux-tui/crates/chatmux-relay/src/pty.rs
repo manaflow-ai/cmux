@@ -1566,6 +1566,9 @@ impl Inner {
                 match result {
                     Ok(opened) => opened,
                     Err(message) => {
+                        if cancellation.is_cancelled() {
+                            return;
+                        }
                         fail("failed", &message);
                         return;
                     }
@@ -2683,6 +2686,11 @@ impl Inner {
                     return Err("cannot reattach existing shell under scoped roots".to_owned());
                 }
                 pending_viewer.store(true, Ordering::Release);
+                let _flow = existing.flow_lock.lock().expect("shell flow lock");
+                if cancellation.is_cancelled() {
+                    existing.pending_viewers.fetch_sub(1, Ordering::AcqRel);
+                    return Err("terminal open cancelled".to_owned());
+                }
                 existing.control.resize(cols, rows);
                 break existing;
             }
