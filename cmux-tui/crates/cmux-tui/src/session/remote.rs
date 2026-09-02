@@ -2197,6 +2197,12 @@ impl RemoteSession {
         self.capabilities.lock().unwrap().contains(capability)
     }
 
+    /// Pipe-IO requires the daemon's attach-time geometry handshake so the
+    /// initial replay is rendered for the embedder's requested dimensions.
+    pub(crate) fn supports_pipe_io_initial_size(&self) -> bool {
+        self.supports_capability(cmux_tui_core::server::ATTACH_INITIAL_SIZE_CAPABILITY)
+    }
+
     pub fn supports_surface_subscription_filter(&self) -> bool {
         self.supports_capability(cmux_tui_core::server::SURFACE_SUBSCRIBE_FILTER_CAPABILITY)
     }
@@ -4757,6 +4763,18 @@ mod tests {
         }));
         require_capability(&with_key_fallback, CLEAR_HISTORY_KEY_CAPABILITY, "clear-history")
             .unwrap();
+    }
+
+    #[test]
+    fn pipe_io_initial_size_requires_atomic_attach_capability() {
+        let without = test_session_with_provider_context(None, HashSet::new());
+        assert!(!without.supports_pipe_io_initial_size());
+
+        let with = test_session_with_provider_context(
+            None,
+            HashSet::from([cmux_tui_core::server::ATTACH_INITIAL_SIZE_CAPABILITY.to_string()]),
+        );
+        assert!(with.supports_pipe_io_initial_size());
     }
 
     #[test]
