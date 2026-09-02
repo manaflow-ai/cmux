@@ -8,18 +8,23 @@ public struct TerminalSurfaceBackgroundFillPlan {
     /// Color to apply to the terminal host layer, or clear when another layer owns the fill.
     public let hostLayerColor: NSColor
 
-    /// Whether a host-layer fill must subtract itself from the shared window backdrop.
-    public let clearsSharedWindowBackdrop: Bool
+    /// Whether this pane's host fill must exclude the shared root below it.
+    public let excludesSharedRootBackdrop: Bool
 
     /// Creates a terminal surface background fill plan.
+    ///
+    /// - Parameters:
+    ///   - owner: Component responsible for the visible terminal background.
+    ///   - hostLayerColor: Color painted by the terminal host, or clear for another owner.
+    ///   - excludesSharedRootBackdrop: Whether the shared root must leave this pane clear.
     public init(
         owner: TerminalSurfaceBackgroundFillOwner,
         hostLayerColor: NSColor,
-        clearsSharedWindowBackdrop: Bool
+        excludesSharedRootBackdrop: Bool
     ) {
         self.owner = owner
         self.hostLayerColor = hostLayerColor
-        self.clearsSharedWindowBackdrop = clearsSharedWindowBackdrop
+        self.excludesSharedRootBackdrop = excludesSharedRootBackdrop
     }
 
     /// Whether the terminal host layer should paint a non-clear fill.
@@ -64,8 +69,9 @@ public struct TerminalSurfaceBackgroundFillPlan {
         sharesWindowBackdrop: Bool,
         usesBonsplitPaneBackdrop: Bool
     ) -> Self {
-        let resolvedColor = (surfaceBackgroundColor ?? defaultBackgroundColor)
-            .withAlphaComponent(WindowAppearanceSnapshot.clampedOpacity(backgroundOpacity))
+        let backgroundColor = surfaceBackgroundColor ?? defaultBackgroundColor
+        let opacity = WindowAppearanceSnapshot.clampedOpacity(backgroundOpacity)
+        let translucentColor = backgroundColor.withAlphaComponent(opacity)
         let owner: TerminalSurfaceBackgroundFillOwner
         let usesPaneLocalSurfaceFill = surfaceBackgroundColor != nil &&
             renderingMode.usesWindowHostBackdrop &&
@@ -81,10 +87,24 @@ public struct TerminalSurfaceBackgroundFillPlan {
         } else {
             owner = .bonsplitPaneBackdrop
         }
+
+        let hostLayerColor: NSColor
+        if owner != .surfaceHostLayer {
+            hostLayerColor = .clear
+        } else if opacity >= 0.999 {
+            hostLayerColor = WindowAppearanceSnapshot.compositedTerminalColor(
+                backgroundColor: backgroundColor,
+                opacity: Double(opacity)
+            )
+        } else {
+            hostLayerColor = translucentColor
+        }
         return Self(
             owner: owner,
-            hostLayerColor: owner == .surfaceHostLayer ? resolvedColor : .clear,
-            clearsSharedWindowBackdrop: usesPaneLocalSurfaceFill && sharesWindowBackdrop
+            hostLayerColor: hostLayerColor,
+            excludesSharedRootBackdrop: usesPaneLocalSurfaceFill &&
+                sharesWindowBackdrop &&
+                opacity < 0.999
         )
     }
 }

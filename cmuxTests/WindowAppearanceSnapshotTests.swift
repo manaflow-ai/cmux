@@ -1,9 +1,9 @@
-import XCTest
 import AppKit
 import CmuxAppKitSupportUI
 import CmuxFoundation
 import CmuxWorkspaces
 import SwiftUI
+import Testing
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
@@ -11,8 +11,9 @@ import SwiftUI
 @testable import cmux
 #endif
 
-final class WindowAppearanceSnapshotTests: XCTestCase {
-    func testUnifiedSurfaceBackdropsUseSingleWindowRootBackdrop() {
+@MainActor
+@Suite struct WindowAppearanceSnapshotTests {
+    @Test func unifiedSurfaceBackdropsUseSingleWindowRootBackdrop() {
         let snapshot = makeSnapshot(unifySurfaceBackdrops: true)
 
         assertTerminalBackdrop(snapshot.policy(for: .windowRoot))
@@ -24,7 +25,7 @@ final class WindowAppearanceSnapshotTests: XCTestCase {
         assertClearBackdrop(snapshot.policy(for: .rightSidebar))
     }
 
-    func testSeparateSurfaceBackdropsKeepRootBackdropAndSidebarMaterialsSeparate() {
+    @Test func separateSurfaceBackdropsKeepRootBackdropAndSidebarMaterialsSeparate() {
         let snapshot = makeSnapshot(unifySurfaceBackdrops: false)
 
         assertTerminalBackdrop(snapshot.policy(for: .windowRoot))
@@ -34,45 +35,45 @@ final class WindowAppearanceSnapshotTests: XCTestCase {
         assertClearBackdrop(snapshot.policy(for: .browserSurface))
 
         guard case let .sidebarMaterial(leftPolicy) = snapshot.policy(for: .leftSidebar) else {
-            XCTFail("left sidebar should keep its own material policy")
+            Issue.record("left sidebar should keep its own material policy")
             return
         }
-        XCTAssertEqual(leftPolicy.material, .sidebar)
-        XCTAssertEqual(leftPolicy.blendingMode, .withinWindow)
+        #expect(leftPolicy.material == .sidebar)
+        #expect(leftPolicy.blendingMode == .withinWindow)
 
         guard case let .sidebarMaterial(rightPolicy) = snapshot.policy(for: .rightSidebar) else {
-            XCTFail("right sidebar should keep its own material policy")
+            Issue.record("right sidebar should keep its own material policy")
             return
         }
-        XCTAssertEqual(rightPolicy.material, .sidebar)
-        XCTAssertEqual(rightPolicy.blendingMode, .withinWindow)
+        #expect(rightPolicy.material == .sidebar)
+        #expect(rightPolicy.blendingMode == .withinWindow)
     }
 
-    func testMacOSGlassClearForcesTransparentHostingAndClearGlassStyle() {
+    @Test func macOSGlassClearForcesTransparentHostingAndClearGlassStyle() {
         let snapshot = makeSnapshot(
             unifySurfaceBackdrops: true,
             backgroundOpacity: 1.0,
             backgroundBlur: .macosGlassClear
         )
 
-        XCTAssertTrue(snapshot.shouldUseTransparentHosting(
+        #expect(snapshot.shouldUseTransparentHosting(
             glassEffectAvailable: true,
             windowBackgroundPolicy: WindowBackgroundComposition.policy
         ))
-        XCTAssertTrue(snapshot.windowGlassSettings.shouldApply(
+        #expect(snapshot.windowGlassSettings.shouldApply(
             glassEffectAvailable: true,
             windowBackgroundPolicy: WindowBackgroundComposition.policy
         ))
-        XCTAssertEqual(snapshot.windowGlassSettings.style, .clear)
-        XCTAssertEqual(snapshot.windowGlassSettings.tintColor.hexString(includeAlpha: true), "#272822FF")
+        #expect(snapshot.windowGlassSettings.style == .clear)
+        #expect(snapshot.windowGlassSettings.tintColor.hexString(includeAlpha: true) == "#272822FF")
         assertClearBackdrop(snapshot.policy(for: .windowRoot))
-        XCTAssertEqual(snapshot.backdropPlan(
+        #expect(snapshot.backdropPlan(
             glassEffectAvailable: true,
             windowBackgroundPolicy: WindowBackgroundComposition.policy
-        ).hostingPhase, .windowGlass)
+        ).hostingPhase == .windowGlass)
     }
 
-    func testTranslucentTerminalWithSidebarTintKeepsRootBackdropOwner() {
+    @Test func translucentTerminalWithSidebarTintKeepsRootBackdropOwner() {
         let snapshot = makeSnapshot(
             unifySurfaceBackdrops: false,
             backgroundOpacity: 0.9,
@@ -84,37 +85,36 @@ final class WindowAppearanceSnapshotTests: XCTestCase {
             windowBackgroundPolicy: WindowBackgroundComposition.policy
         )
 
-        XCTAssertEqual(plan.hostingPhase, .transparentRootBackdrop)
-        XCTAssertTrue(plan.usesTransparentWindow)
-        XCTAssertFalse(plan.usesWindowGlass)
+        #expect(plan.hostingPhase == .transparentRootBackdrop)
+        #expect(plan.usesTransparentWindow)
+        #expect(!plan.usesWindowGlass)
         assertTerminalBackdrop(plan.rootPolicy, expectedOpacity: 0.9)
 
         guard case let .sidebarMaterial(sidebarPolicy) = snapshot.policy(for: .leftSidebar) else {
-            XCTFail("left sidebar should keep its own tint material")
+            Issue.record("left sidebar should keep its own tint material")
             return
         }
-        XCTAssertEqual(sidebarPolicy.tintColor.hexString(includeAlpha: true), "#FF000066")
+        #expect(sidebarPolicy.tintColor.hexString(includeAlpha: true) == "#FF000066")
     }
 
-    func testTranslucentTerminalUsesTransparentHostingWithOpaqueCompositedChromeColor() {
+    @Test func translucentTerminalUsesTransparentHostingWithOpaqueCompositedChromeColor() {
         let snapshot = makeSnapshot(
             unifySurfaceBackdrops: true,
             backgroundOpacity: 0.5
         )
 
-        XCTAssertEqual(snapshot.compositedTerminalBackgroundColor.alphaComponent, 1, accuracy: 0.0001)
+        #expect(abs(snapshot.compositedTerminalBackgroundColor.alphaComponent - 1) < 0.0001)
 
         let plan = snapshot.backdropPlan(
             glassEffectAvailable: false,
             windowBackgroundPolicy: WindowBackgroundComposition.policy
         )
-        XCTAssertEqual(plan.hostingPhase, .transparentRootBackdrop)
-        XCTAssertTrue(plan.usesTransparentWindow)
+        #expect(plan.hostingPhase == .transparentRootBackdrop)
+        #expect(plan.usesTransparentWindow)
     }
 
-    /// Verifies a mounted Dock does not cover the shared window backdrop.
-    @MainActor
-    func testDockChromeLeavesSharedWindowBackdropUnpainted() {
+    /// A mounted Dock must leave the shared window backdrop visible.
+    @Test func dockChromeLeavesSharedWindowBackdropUnpainted() {
         let snapshot = makeSnapshot(
             unifySurfaceBackdrops: true,
             backgroundOpacity: 0.8
@@ -128,30 +128,27 @@ final class WindowAppearanceSnapshotTests: XCTestCase {
             windowAppearance: snapshot
         )
 
-        XCTAssertTrue(appearance.usesSharedBackdrop)
-        XCTAssertEqual(
-            appearance.chromeColors.backgroundHex,
-            "#00000000",
+        #expect(appearance.usesSharedBackdrop)
+        #expect(
+            appearance.chromeColors.backgroundHex == "#00000000",
             "Dock chrome must leave the shared window backdrop visible behind terminal surfaces"
         )
-        XCTAssertEqual(appearance.chromeColors.paneBackgroundHex, "#00000000")
+        #expect(appearance.chromeColors.paneBackgroundHex == "#00000000")
     }
 
-    /// Verifies the controller's pre-mount appearance retains a concrete fallback.
-    @MainActor
-    func testDockChromeKeepsConcreteFallbackBeforeWindowBackdropMounts() {
+    /// The controller's pre-mount appearance retains a concrete fallback.
+    @Test func dockChromeKeepsConcreteFallbackBeforeWindowBackdropMounts() {
         let config = GhosttyConfig()
         let appearance = DockSplitStore.makeAppearance(from: config)
 
-        XCTAssertNotEqual(
-            appearance.chromeColors.backgroundHex,
-            "#00000000",
+        #expect(
+            appearance.chromeColors.backgroundHex != "#00000000",
             "The pre-mount Dock configuration needs a concrete fallback"
         )
     }
 
-    /// Verifies renderer-owned surfaces keep their concrete Dock chrome color.
-    func testDockChromeKeepsConcreteColorWhenGhosttyOwnsTheSurface() {
+    /// Renderer-owned surfaces keep their concrete Dock chrome color.
+    @Test func dockChromeKeepsConcreteColorWhenGhosttyOwnsTheSurface() {
         let color = NSColor(hex: "#112233")!
         let colors = Workspace.bonsplitChromeColors(
             backgroundColor: color,
@@ -161,10 +158,10 @@ final class WindowAppearanceSnapshotTests: XCTestCase {
             chromeHost: .dock
         )
 
-        XCTAssertEqual(colors.backgroundHex, "#112233CC")
+        #expect(colors.backgroundHex == "#112233CC")
     }
 
-    func testSidebarTintChangesDoNotDriveWindowBackdropPlanIdentity() {
+    @Test func sidebarTintChangesDoNotDriveWindowBackdropPlanIdentity() {
         let red = makeSnapshot(
             unifySurfaceBackdrops: false,
             backgroundOpacity: 0.9,
@@ -178,11 +175,11 @@ final class WindowAppearanceSnapshotTests: XCTestCase {
             sidebarTintOpacity: 0.8
         )
 
-        XCTAssertEqual(
+        #expect(
             red.backdropPlan(
                 glassEffectAvailable: false,
                 windowBackgroundPolicy: WindowBackgroundComposition.policy
-            ).appKitMutationID,
+            ).appKitMutationID ==
             blue.backdropPlan(
                 glassEffectAvailable: false,
                 windowBackgroundPolicy: WindowBackgroundComposition.policy
@@ -190,41 +187,39 @@ final class WindowAppearanceSnapshotTests: XCTestCase {
         )
     }
 
-    func testChromeColorSchemeFollowsTerminalBackground() {
-        XCTAssertEqual(
-            makeSnapshot(unifySurfaceBackdrops: true, backgroundHex: "#F8F8F2").chromeColorScheme,
-            .light
+    @Test func chromeColorSchemeFollowsTerminalBackground() {
+        #expect(
+            makeSnapshot(unifySurfaceBackdrops: true, backgroundHex: "#F8F8F2").chromeColorScheme ==
+                .light
         )
-        XCTAssertEqual(
-            makeSnapshot(unifySurfaceBackdrops: true, backgroundHex: "#101820").chromeColorScheme,
-            .dark
+        #expect(
+            makeSnapshot(unifySurfaceBackdrops: true, backgroundHex: "#101820").chromeColorScheme ==
+                .dark
         )
     }
 
-    func testChromeColorSchemeAccountsForTranslucentTerminalBackground() {
+    @Test func chromeColorSchemeAccountsForTranslucentTerminalBackground() {
         let composited = WindowAppearanceSnapshot.compositedTerminalColor(
             backgroundColor: NSColor(hex: "#101820")!,
             opacity: 0.05,
             over: .white
         )
 
-        XCTAssertEqual(cmuxReadableColorScheme(for: composited), .light)
+        #expect(cmuxReadableColorScheme(for: composited) == .light)
     }
 
-    func testSidebarContentColorSchemeUsesResolvedTerminalThemeForAllBackdrops() {
-        XCTAssertEqual(
+    @Test func sidebarContentColorSchemeUsesResolvedTerminalThemeForAllBackdrops() {
+        #expect(
             makeSnapshot(unifySurfaceBackdrops: true, backgroundHex: "#101820", sidebarColorScheme: .light)
-                .sidebarContentColorScheme,
-            .dark
+                .sidebarContentColorScheme == .dark
         )
-        XCTAssertEqual(
+        #expect(
             makeSnapshot(unifySurfaceBackdrops: false, backgroundHex: "#101820", sidebarColorScheme: .light)
-                .sidebarContentColorScheme,
-            .dark
+                .sidebarContentColorScheme == .dark
         )
     }
 
-    func testSidebarTintSelectionUsesResolvedTerminalThemeWhenSystemDisagrees() {
+    @Test func sidebarTintSelectionUsesResolvedTerminalThemeWhenSystemDisagrees() {
         let snapshot = makeSnapshot(
             unifySurfaceBackdrops: false,
             backgroundHex: "#F8F8F2",
@@ -234,13 +229,13 @@ final class WindowAppearanceSnapshotTests: XCTestCase {
         )
 
         guard case let .sidebarMaterial(policy) = snapshot.policy(for: .rightSidebar) else {
-            XCTFail("right sidebar should keep its own material policy")
+            Issue.record("right sidebar should keep its own material policy")
             return
         }
-        XCTAssertEqual(policy.tintColor.hexString(includeAlpha: true), "#00000066")
+        #expect(policy.tintColor.hexString(includeAlpha: true) == "#00000066")
     }
 
-    func testDockAndSidebarChromeShareResolvedTerminalThemeWhenSystemDisagrees() {
+    @Test func dockAndSidebarChromeShareResolvedTerminalThemeWhenSystemDisagrees() {
         let cases: [(backgroundHex: String, expected: ColorScheme)] = [
             ("#F8F8F2", .light),
             ("#101820", .dark),
@@ -254,21 +249,19 @@ final class WindowAppearanceSnapshotTests: XCTestCase {
                     sidebarColorScheme: systemResolvedSidebarScheme
                 )
 
-                XCTAssertEqual(
-                    snapshot.chromeColorScheme,
-                    testCase.expected,
+                #expect(
+                    snapshot.chromeColorScheme == testCase.expected,
                     "Unexpected terminal theme resolution for \(testCase.backgroundHex)"
                 )
-                XCTAssertEqual(
-                    snapshot.sidebarContentColorScheme,
-                    testCase.expected,
+                #expect(
+                    snapshot.sidebarContentColorScheme == testCase.expected,
                     "Dock/sidebar chrome diverged for terminal \(testCase.expected) and system \(systemResolvedSidebarScheme)"
                 )
             }
         }
     }
 
-    func testMatchedLeftAndRightSidebarBackdropsShareTerminalRootBackdrop() {
+    @Test func matchedLeftAndRightSidebarBackdropsShareTerminalRootBackdrop() {
         let cases: [(backgroundHex: String, opacity: CGFloat)] = [
             ("#FFFFFF", 1),
             ("#000000", 1),
@@ -294,23 +287,23 @@ final class WindowAppearanceSnapshotTests: XCTestCase {
             assertClearBackdrop(snapshot.policy(for: .browserSurface))
             assertClearBackdrop(snapshot.policy(for: .leftSidebar))
             assertClearBackdrop(snapshot.policy(for: .rightSidebar))
-            XCTAssertEqual(snapshot.sidebarContentColorScheme, snapshot.chromeColorScheme)
+            #expect(snapshot.sidebarContentColorScheme == snapshot.chromeColorScheme)
         }
     }
 
-    func testUnifiedSidebarBackdropsDoNotTintTransparentTerminalBackground() {
+    @Test func unifiedSidebarBackdropsDoNotTintTransparentTerminalBackground() {
         let snapshot = makeSnapshot(
             unifySurfaceBackdrops: true,
             backgroundHex: "#000000",
             backgroundOpacity: 0.05
         )
 
-        XCTAssertEqual(snapshot.compositedTerminalBackgroundColor.alphaComponent, 1, accuracy: 0.0001)
+        #expect(abs(snapshot.compositedTerminalBackgroundColor.alphaComponent - 1) < 0.0001)
         assertClearBackdrop(snapshot.policy(for: .leftSidebar))
         assertClearBackdrop(snapshot.policy(for: .rightSidebar))
     }
 
-    func testSeparateSidebarBackdropsKeepCustomTintBehavior() {
+    @Test func separateSidebarBackdropsKeepCustomTintBehavior() {
         let snapshot = makeSnapshot(
             unifySurfaceBackdrops: false,
             backgroundHex: "#000000",
@@ -319,25 +312,26 @@ final class WindowAppearanceSnapshotTests: XCTestCase {
         )
 
         guard case let .sidebarMaterial(sidebarPolicy) = snapshot.policy(for: .leftSidebar) else {
-            XCTFail("left sidebar should keep its own tint material")
+            Issue.record("left sidebar should keep its own tint material")
             return
         }
-        XCTAssertEqual(sidebarPolicy.tintColor.hexString(includeAlpha: true), "#FF000066")
+        #expect(sidebarPolicy.tintColor.hexString(includeAlpha: true) == "#FF000066")
     }
 
-    func testOpaqueTerminalUsesOpaqueWindowFill() {
+    @Test func opaqueTerminalUsesLayerBackedOpaqueRoot() {
         let snapshot = makeSnapshot(unifySurfaceBackdrops: false, backgroundOpacity: 1.0)
         let plan = snapshot.backdropPlan(
             glassEffectAvailable: false,
             windowBackgroundPolicy: WindowBackgroundComposition.policy
         )
 
-        XCTAssertEqual(plan.hostingPhase, .opaqueWindowFill)
-        XCTAssertFalse(plan.usesTransparentWindow)
-        XCTAssertEqual(plan.windowBackgroundColor.hexString(includeAlpha: true), "#272822FF")
+        #expect(plan.hostingPhase == .opaqueRootBackdrop)
+        #expect(!plan.usesTransparentWindow)
+        #expect(plan.windowBackgroundColor.hexString(includeAlpha: true) == "#00000000")
+        assertTerminalBackdrop(plan.rootPolicy, expectedOpacity: 1)
     }
 
-    func testDebugBackgroundGlassUsesWindowGlassPhase() {
+    @Test func debugBackgroundGlassUsesWindowGlassPhase() {
         let snapshot = makeSnapshot(
             unifySurfaceBackdrops: false,
             backgroundOpacity: 1.0,
@@ -349,13 +343,13 @@ final class WindowAppearanceSnapshotTests: XCTestCase {
             windowBackgroundPolicy: WindowBackgroundComposition.policy
         )
 
-        XCTAssertEqual(plan.hostingPhase, .windowGlass)
-        XCTAssertTrue(plan.usesTransparentWindow)
-        XCTAssertTrue(plan.usesWindowGlass)
+        #expect(plan.hostingPhase == .windowGlass)
+        #expect(plan.usesTransparentWindow)
+        #expect(plan.usesWindowGlass)
     }
 
     /// Verifies pane-local OSC colors paint on the host layer over a shared root backdrop.
-    func testOSCOverrideUsesSurfaceHostFillWhenWindowRootBackdropIsShared() {
+    @Test func oscOverrideUsesSurfaceHostFillWhenWindowRootBackdropIsShared() {
         let plan = TerminalSurfaceBackgroundFillPlan.resolve(
             renderingMode: .windowHostBackdrop,
             surfaceBackgroundColor: NSColor(hex: "#D2EEF9") ?? .white,
@@ -365,13 +359,13 @@ final class WindowAppearanceSnapshotTests: XCTestCase {
             usesBonsplitPaneBackdrop: false
         )
 
-        XCTAssertEqual(plan.owner, .surfaceHostLayer)
-        XCTAssertEqual(plan.hostLayerColor.hexString(includeAlpha: true), "#D2EEF9FF")
-        XCTAssertTrue(plan.clearsSharedWindowBackdrop)
+        #expect(plan.owner == .surfaceHostLayer)
+        #expect(plan.hostLayerColor.hexString(includeAlpha: true) == "#D2EEF9FF")
+        #expect(!plan.excludesSharedRootBackdrop)
     }
 
     /// Verifies translucent OSC colors use one host-layer fill with configured opacity.
-    func testTranslucentOSCOverrideUsesOneSurfaceHostFillWithConfiguredOpacity() {
+    @Test func translucentOSCOverrideUsesOneSurfaceHostFillWithConfiguredOpacity() {
         let plan = TerminalSurfaceBackgroundFillPlan.resolve(
             renderingMode: .windowHostBackdrop,
             surfaceBackgroundColor: NSColor(hex: "#E2D2F0") ?? .white,
@@ -381,14 +375,14 @@ final class WindowAppearanceSnapshotTests: XCTestCase {
             usesBonsplitPaneBackdrop: false
         )
 
-        XCTAssertEqual(plan.owner, .surfaceHostLayer)
-        XCTAssertEqual(plan.hostLayerColor.hexString(), "#E2D2F0")
-        XCTAssertEqual(plan.hostLayerColor.alphaComponent, 0.42, accuracy: 0.0001)
-        XCTAssertTrue(plan.clearsSharedWindowBackdrop)
+        #expect(plan.owner == .surfaceHostLayer)
+        #expect(plan.hostLayerColor.hexString() == "#E2D2F0")
+        #expect(abs(plan.hostLayerColor.alphaComponent - 0.42) < 0.0001)
+        #expect(plan.excludesSharedRootBackdrop)
     }
 
-    /// Verifies default backgrounds keep the shared backdrop intact.
-    func testSharedWindowBackdropDoesNotCutOutForDefaultBackgrounds() {
+    /// Verifies default backgrounds remain owned by the shared root backdrop.
+    @Test func defaultBackgroundUsesSharedWindowBackdrop() {
         let plan = TerminalSurfaceBackgroundFillPlan.resolve(
             renderingMode: .windowHostBackdrop,
             surfaceBackgroundColor: nil,
@@ -398,13 +392,13 @@ final class WindowAppearanceSnapshotTests: XCTestCase {
             usesBonsplitPaneBackdrop: false
         )
 
-        XCTAssertEqual(plan.owner, .sharedWindowBackdrop)
-        XCTAssertEqual(plan.hostLayerColor.hexString(includeAlpha: true), "#00000000")
-        XCTAssertFalse(plan.clearsSharedWindowBackdrop)
+        #expect(plan.owner == .sharedWindowBackdrop)
+        #expect(plan.hostLayerColor.hexString(includeAlpha: true) == "#00000000")
+        #expect(!plan.excludesSharedRootBackdrop)
     }
 
-    /// Verifies Bonsplit-owned pane backdrops stay authoritative when no cutout is available.
-    func testOSCOverrideKeepsBonsplitPaneBackdropOwnerWhenNoCutoutIsAvailable() {
+    /// Verifies Bonsplit-owned pane backdrops stay authoritative for OSC overrides.
+    @Test func oscOverrideKeepsBonsplitPaneBackdropOwner() {
         let plan = TerminalSurfaceBackgroundFillPlan.resolve(
             renderingMode: .windowHostBackdrop,
             surfaceBackgroundColor: NSColor(hex: "#D2EEF9") ?? .white,
@@ -414,13 +408,13 @@ final class WindowAppearanceSnapshotTests: XCTestCase {
             usesBonsplitPaneBackdrop: true
         )
 
-        XCTAssertEqual(plan.owner, .bonsplitPaneBackdrop)
-        XCTAssertEqual(plan.hostLayerColor.hexString(includeAlpha: true), "#00000000")
-        XCTAssertFalse(plan.clearsSharedWindowBackdrop)
+        #expect(plan.owner == .bonsplitPaneBackdrop)
+        #expect(plan.hostLayerColor.hexString(includeAlpha: true) == "#00000000")
+        #expect(!plan.excludesSharedRootBackdrop)
     }
 
     /// Verifies non-shared window backdrops let OSC colors paint directly on the host layer.
-    func testOSCOverrideUsesSurfaceHostFillWhenWindowBackdropIsNotShared() {
+    @Test func oscOverrideUsesSurfaceHostFillWhenWindowBackdropIsNotShared() {
         let plan = TerminalSurfaceBackgroundFillPlan.resolve(
             renderingMode: .windowHostBackdrop,
             surfaceBackgroundColor: NSColor(hex: "#B5EAD7") ?? .white,
@@ -430,14 +424,14 @@ final class WindowAppearanceSnapshotTests: XCTestCase {
             usesBonsplitPaneBackdrop: false
         )
 
-        XCTAssertEqual(plan.owner, .surfaceHostLayer)
-        XCTAssertEqual(plan.hostLayerColor.hexString(), "#B5EAD7")
-        XCTAssertEqual(plan.hostLayerColor.alphaComponent, 0.73, accuracy: 0.0001)
-        XCTAssertFalse(plan.clearsSharedWindowBackdrop)
+        #expect(plan.owner == .surfaceHostLayer)
+        #expect(plan.hostLayerColor.hexString() == "#B5EAD7")
+        #expect(abs(plan.hostLayerColor.alphaComponent - 0.73) < 0.0001)
+        #expect(!plan.excludesSharedRootBackdrop)
     }
 
     /// Verifies renderer-owned backgrounds keep cmux host layers clear.
-    func testRendererOwnedOSCOverrideKeepsHostLayerClearWhenWindowRootBackdropIsShared() {
+    @Test func rendererOwnedOSCOverrideKeepsHostLayerClearWhenWindowRootBackdropIsShared() {
         let plan = TerminalSurfaceBackgroundFillPlan.resolve(
             renderingMode: .ghosttyRendererOwnedBackgroundImage,
             surfaceBackgroundColor: NSColor(hex: "#D2EEF9") ?? .white,
@@ -447,9 +441,9 @@ final class WindowAppearanceSnapshotTests: XCTestCase {
             usesBonsplitPaneBackdrop: false
         )
 
-        XCTAssertEqual(plan.owner, .ghosttyNativeRenderer)
-        XCTAssertEqual(plan.hostLayerColor.hexString(includeAlpha: true), "#00000000")
-        XCTAssertFalse(plan.clearsSharedWindowBackdrop)
+        #expect(plan.owner == .ghosttyNativeRenderer)
+        #expect(plan.hostLayerColor.hexString(includeAlpha: true) == "#00000000")
+        #expect(!plan.excludesSharedRootBackdrop)
     }
 
     /// A translucent terminal theme does not own the rendered pixels: the
@@ -457,7 +451,7 @@ final class WindowAppearanceSnapshotTests: XCTestCase {
     /// color composited over the ambient window base. The resolved chrome
     /// scheme must follow that rendered result, or icons keyed off it become
     /// white-on-white in a light window (issue #10477).
-    func testTranslucentTerminalChromeSchemeFollowsRenderedBackdrop() {
+    @Test func translucentTerminalChromeSchemeFollowsRenderedBackdrop() {
         let resolver = WindowAppearanceResolver(
             terminalAppearance: WindowTerminalAppearanceSnapshot(
                 backgroundColor: NSColor(hex: "#101820") ?? .black,
@@ -469,21 +463,18 @@ final class WindowAppearanceSnapshotTests: XCTestCase {
         )
 
         let lightWindow = resolver.current(settings: makeUserSettings(colorScheme: .light))
-        XCTAssertEqual(
-            lightWindow.resolvedColorScheme,
-            .light,
+        #expect(
+            lightWindow.resolvedColorScheme == .light,
             "Translucent dark theme over a light window renders a light backdrop; chrome icons must resolve dark"
         )
-        XCTAssertEqual(
-            cmuxReadableColorScheme(for: lightWindow.resolvedChromeBackgroundColor),
-            .light,
+        #expect(
+            cmuxReadableColorScheme(for: lightWindow.resolvedChromeBackgroundColor) == .light,
             "Chrome background must composite over the light window base the user actually sees"
         )
 
         let darkWindow = resolver.current(settings: makeUserSettings(colorScheme: .dark))
-        XCTAssertEqual(
-            darkWindow.resolvedColorScheme,
-            .dark,
+        #expect(
+            darkWindow.resolvedColorScheme == .dark,
             "Translucent dark theme over a dark window keeps dark chrome"
         )
     }
@@ -491,7 +482,7 @@ final class WindowAppearanceSnapshotTests: XCTestCase {
     /// Opaque themes own their rendered pixels, so the terminal theme stays
     /// the light/dark authority even when the window appearance disagrees
     /// (issue #10146 contract).
-    func testOpaqueTerminalChromeSchemeKeepsTerminalThemeAuthority() {
+    @Test func opaqueTerminalChromeSchemeKeepsTerminalThemeAuthority() {
         for (backgroundHex, terminalScheme) in [("#101820", ColorScheme.dark), ("#F8F8F2", .light)] {
             for ambientScheme in [ColorScheme.light, .dark] {
                 let resolver = WindowAppearanceResolver(
@@ -504,9 +495,8 @@ final class WindowAppearanceSnapshotTests: XCTestCase {
                     )
                 )
                 let snapshot = resolver.current(settings: makeUserSettings(colorScheme: ambientScheme))
-                XCTAssertEqual(
-                    snapshot.resolvedColorScheme,
-                    terminalScheme,
+                #expect(
+                    snapshot.resolvedColorScheme == terminalScheme,
                     "Opaque \(backgroundHex) theme must keep terminal authority under \(ambientScheme) ambient"
                 )
             }
@@ -517,16 +507,15 @@ final class WindowAppearanceSnapshotTests: XCTestCase {
     /// the workspace hands it, so that hex must match the rendered backdrop:
     /// composited over the ambient base for translucent themes, the theme
     /// color itself for opaque ones (issue #10477).
-    func testBonsplitChromeBackgroundColorMatchesRenderedBackdrop() {
+    @Test func bonsplitChromeBackgroundColorMatchesRenderedBackdrop() {
         let translucentDarkOverLight = Workspace.resolvedTerminalChromeBackgroundColor(
             backgroundColor: NSColor(hex: "#101820") ?? .black,
             backgroundOpacity: 0.3,
             terminalColorScheme: .dark,
             ambientColorScheme: .light
         )
-        XCTAssertEqual(
-            cmuxReadableColorScheme(for: translucentDarkOverLight),
-            .light,
+        #expect(
+            cmuxReadableColorScheme(for: translucentDarkOverLight) == .light,
             "Translucent dark theme in a light window must hand Bonsplit a light hex so tab glyphs resolve dark"
         )
 
@@ -536,7 +525,7 @@ final class WindowAppearanceSnapshotTests: XCTestCase {
             terminalColorScheme: .dark,
             ambientColorScheme: .dark
         )
-        XCTAssertEqual(cmuxReadableColorScheme(for: translucentDarkOverDark), .dark)
+        #expect(cmuxReadableColorScheme(for: translucentDarkOverDark) == .dark)
 
         let opaqueDarkOverLight = Workspace.resolvedTerminalChromeBackgroundColor(
             backgroundColor: NSColor(hex: "#101820") ?? .black,
@@ -544,13 +533,13 @@ final class WindowAppearanceSnapshotTests: XCTestCase {
             terminalColorScheme: .dark,
             ambientColorScheme: .light
         )
-        XCTAssertEqual(cmuxReadableColorScheme(for: opaqueDarkOverLight), .dark)
+        #expect(cmuxReadableColorScheme(for: opaqueDarkOverLight) == .dark)
     }
 
     /// Callers that omit the ambient scheme (`currentFromUserDefaults`) must
     /// not have translucent chrome resolved against a guessed light window:
     /// the resolver fails closed to the terminal authority instead.
-    func testOmittedAmbientSchemeFailsClosedToTerminalAuthority() {
+    @Test func omittedAmbientSchemeFailsClosedToTerminalAuthority() {
         let resolver = WindowAppearanceResolver(
             terminalAppearance: WindowTerminalAppearanceSnapshot(
                 backgroundColor: NSColor(hex: "#101820") ?? .black,
@@ -564,9 +553,8 @@ final class WindowAppearanceSnapshotTests: XCTestCase {
             defaults: UserDefaults(suiteName: "cmux.tests.omitted-ambient")!
         )
 
-        XCTAssertEqual(
-            snapshot.resolvedColorScheme,
-            .dark,
+        #expect(
+            snapshot.resolvedColorScheme == .dark,
             "Without an injected ambient scheme, translucent chrome must stay on the terminal authority, not a guessed light window"
         )
     }
@@ -634,26 +622,20 @@ final class WindowAppearanceSnapshotTests: XCTestCase {
     private func assertTerminalBackdrop(
         _ policy: WindowBackdropPolicy,
         expectedHex: String = "#272822",
-        expectedOpacity: CGFloat = 0.6,
-        file: StaticString = #filePath,
-        line: UInt = #line
+        expectedOpacity: CGFloat = 0.6
     ) {
         guard case let .ghosttyTerminalBackdrop(color, opacity, renderingMode) = policy else {
-            XCTFail("expected terminal backdrop", file: file, line: line)
+            Issue.record("expected terminal backdrop")
             return
         }
-        XCTAssertEqual(color.hexString(), expectedHex, file: file, line: line)
-        XCTAssertEqual(opacity, expectedOpacity, accuracy: 0.0001, file: file, line: line)
-        XCTAssertEqual(renderingMode, .windowHostBackdrop, file: file, line: line)
+        #expect(color.hexString() == expectedHex)
+        #expect(abs(opacity - expectedOpacity) < 0.0001)
+        #expect(renderingMode == .windowHostBackdrop)
     }
 
-    private func assertClearBackdrop(
-        _ policy: WindowBackdropPolicy,
-        file: StaticString = #filePath,
-        line: UInt = #line
-    ) {
+    private func assertClearBackdrop(_ policy: WindowBackdropPolicy) {
         guard case .clear = policy else {
-            XCTFail("expected clear backdrop", file: file, line: line)
+            Issue.record("expected clear backdrop")
             return
         }
     }
