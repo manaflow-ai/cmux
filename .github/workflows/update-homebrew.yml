@@ -20,8 +20,8 @@ jobs:
     runs-on: ubuntu-24.04 # github-hosted-required: release provenance requires hosted isolation
     timeout-minutes: 10
     permissions:
-      actions: read
-      contents: read
+      actions: read # Read source workflow and run metadata for provenance checks.
+      contents: read # Read release refs/assets and the pinned validator checkout.
     outputs:
       skip: ${{ steps.provenance.outputs.skip }}
       version: ${{ steps.provenance.outputs.version }}
@@ -71,8 +71,8 @@ jobs:
       name: homebrew-cask
       url: https://github.com/manaflow-ai/homebrew-cmux
     permissions:
-      actions: read
-      contents: read
+      actions: read # Recheck source workflow/run metadata before mutation.
+      contents: read # Read release metadata and the pinned validator checkout.
     steps:
       - name: Checkout validator
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
