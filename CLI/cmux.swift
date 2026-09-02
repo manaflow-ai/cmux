@@ -40347,6 +40347,7 @@ export default CMUXSessionRestore;
           \(subdued)Run \(reset)\(bold)cmux shortcuts\(reset)\(subdued) to edit shortcuts.\(reset)
           \(subdued)Run \(reset)\(bold)cmux feedback\(reset)\(subdued) to report a bug.\(reset)
 
+
         """
 
         let screen = "\n" + logo + "\n" + belowLogo
