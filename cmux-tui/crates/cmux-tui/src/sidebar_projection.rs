@@ -430,4 +430,38 @@ mod tests {
         let rows = rows(&spec(vec![SidebarResourceKind::Agents]), &tree(), &[], 0, &HashSet::new());
         assert!(rows.is_empty());
     }
+
+    #[test]
+    fn projection_cache_reuses_rows_until_revision_changes() {
+        let tree = tree();
+        let view = spec(vec![SidebarResourceKind::Workspaces, SidebarResourceKind::Tabs]);
+        let collapsed = HashSet::new();
+        let revision = ProjectionRevision {
+            tree_workspace: tree.workspace_revision,
+            tree_pane: tree.pane_revision,
+            agents: 3,
+            sidebar: 7,
+        };
+        let mut cache = ProjectionRowsCache::default();
+        let mut builds = 0;
+        let first = cache.get_or_build("tabs", revision, || {
+            builds += 1;
+            rows(&view, &tree, &[], 0, &collapsed)
+        });
+        let second = cache.get_or_build("tabs", revision, || {
+            builds += 1;
+            rows(&view, &tree, &[], 0, &collapsed)
+        });
+
+        assert_eq!(first, second);
+        assert_eq!(builds, 1);
+
+        let changed = ProjectionRevision { sidebar: 8, ..revision };
+        let third = cache.get_or_build("tabs", changed, || {
+            builds += 1;
+            rows(&view, &tree, &[], 0, &collapsed)
+        });
+        assert_eq!(third, first);
+        assert_eq!(builds, 2);
+    }
 }
