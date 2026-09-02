@@ -2744,6 +2744,98 @@ mod tests {
         client.shutdown().await;
     }
 
+    fn test_registration(service: Service) -> StreamRegistration {
+        let (chunks, _receiver) = mpsc::channel(1);
+        let (failure, _failure_changed) = watch::channel(None);
+        StreamRegistration {
+            service,
+            generation: generation_for_service(service, 0),
+            chunks,
+            failure,
+            state: Arc::new(AtomicU8::new(0)),
+            terminal: LaneTerminalState::new(service),
+        }
+    }
+
+    #[tokio::test]
+    async fn reset_tombstone_covers_all_legal_lanes() {
+        let (client_endpoint, daemon_endpoint) = endpoint_pair();
+        let client = ServiceMultiplexer::new(client_endpoint, EndpointRole::Client);
+        let stream = client.open(Service::ProcessStream, BTreeMap::new()).await.unwrap();
+        let stream_id = stream.id();
+        let _peer = daemon_endpoint.receive_frame().await.unwrap().expect("open frame");
+        daemon_endpoint
+            .send_frame(None, Lane::Control, stream_id, Bytes::new(), FrameFlags::RESET)
+            .await
+            .unwrap();
+        tokio::time::timeout(Duration::from_secs(1), stream.wait_for_failure())
+            .await
+            .expect("reset was not delivered");
+
+        let mut fatal = client.subscribe_fatal();
+        daemon_endpoint
+            .send_frame(
+                None,
+                Lane::Interactive,
+                stream_id,
+                Bytes::from_static(b"late reset"),
+                FrameFlags::empty(),
+            )
+            .await
+            .unwrap();
+        assert!(tokio::time::timeout(Duration::from_millis(25), fatal.changed()).await.is_err());
+        assert!(fatal.borrow().is_none());
+        client.shutdown().await;
+    }
+
+    #[tokio::test]
+    async fn queue_full_tombstone_covers_all_legal_lanes() {
+        let streams = Mutex::new(HashMap::from([(1, test_registration(Service::ProcessStream))]));
+        let closed = Mutex::new(ClosedStreams::default());
+        reset_registered_stream(&streams, &closed, 1, Lane::Control, "queue full").await;
+        let closed = closed.lock().await;
+        assert!(closed.contains_on(1, Lane::Interactive));
+        assert!(closed.contains_on(1, Lane::Bulk));
+    }
+
+    #[tokio::test]
+    async fn open_limit_tombstone_covers_all_legal_lanes() {
+        let (client_endpoint, daemon_endpoint) = endpoint_pair();
+        let client = ServiceMultiplexer::new(client_endpoint, EndpointRole::Client);
+        {
+            let mut streams = client.streams.lock().await;
+            for id in 1..=MAX_OPEN_STREAMS as u64 {
+                streams.insert(id * 2, test_registration(Service::ProcessStream));
+            }
+        }
+        let stream_id = 2 * (MAX_OPEN_STREAMS as u64 + 1);
+        let payload = serde_json::to_vec(&ServiceControl::Open {
+            service: Service::ProcessStream,
+            metadata: BTreeMap::new(),
+        })
+        .unwrap();
+        daemon_endpoint
+            .send_frame(None, Lane::Control, stream_id, Bytes::from(payload), FrameFlags::OPEN)
+            .await
+            .unwrap();
+        tokio::task::yield_now().await;
+
+        let mut fatal = client.subscribe_fatal();
+        daemon_endpoint
+            .send_frame(
+                None,
+                Lane::Interactive,
+                stream_id,
+                Bytes::from_static(b"late open-limit"),
+                FrameFlags::empty(),
+            )
+            .await
+            .unwrap();
+        assert!(tokio::time::timeout(Duration::from_millis(25), fatal.changed()).await.is_err());
+        assert!(fatal.borrow().is_none());
+        client.shutdown().await;
+    }
+
     #[tokio::test]
     async fn dropped_stream_tombstone_covers_its_default_lane() {
         let (client_endpoint, daemon_endpoint) = endpoint_pair();
