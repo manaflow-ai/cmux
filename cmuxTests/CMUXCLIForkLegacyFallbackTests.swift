@@ -13,6 +13,66 @@ struct CMUXCLIForkLegacyFallbackTests {
     private final class BundleToken {}
 
     @Test
+    func directRecordsFailClosedInsteadOfReplayingResumeCommand() throws {
+        let fileManager = FileManager.default
+        let surfaceID = UUID().uuidString.lowercased()
+        let checkpointID = "direct-fork-checkpoint"
+        let responseData = try JSONSerialization.data(withJSONObject: [
+            "ok": true,
+            "result": [
+                "restore_record": [
+                    "mode": "direct",
+                    "kind": "custom-agent",
+                    "checkpoint_id": checkpointID,
+                    "launch_command": [
+                        "arguments": ["custom-agent", "--resume", checkpointID],
+                    ],
+                ],
+            ],
+        ])
+        let socketPath = "/tmp/cmux-fork-direct-\(UUID().uuidString.prefix(8)).sock"
+        let responder = try UnixSocketResponder(
+            path: socketPath,
+            response: String(decoding: responseData, as: UTF8.self)
+        )
+        defer { responder.stop() }
+
+        let home = fileManager.temporaryDirectory
+            .appendingPathComponent("cmux-fork-direct-home-\(UUID().uuidString)", isDirectory: true)
+        try fileManager.createDirectory(at: home, withIntermediateDirectories: true)
+        defer { try? fileManager.removeItem(at: home) }
+        var environment = ProcessInfo.processInfo.environment.filter {
+            !$0.key.hasPrefix("CMUX_") && !$0.key.hasPrefix("CMUXD_")
+        }
+        environment["CMUX_SOCKET_PATH"] = socketPath
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+        environment["HOME"] = home.path
+        environment["CFFIXED_USER_HOME"] = home.path
+        environment["AppleLanguages"] = "(en)"
+        environment["AppleLocale"] = "en_US_POSIX"
+        environment["LANG"] = "en_US.UTF-8"
+        environment["LC_ALL"] = "C"
+
+        let process = Process()
+        process.executableURL = URL(
+            fileURLWithPath: try BundledCLITestSupport.bundledCLIPath(for: BundleToken.self)
+        )
+        process.arguments = ["fork", "--surface", surfaceID, "custom-agent", checkpointID]
+        process.environment = environment
+        let stderr = Pipe()
+        process.standardError = stderr
+        try process.run()
+        process.waitUntilExit()
+
+        #expect(process.terminationStatus != 0)
+        let errorOutput = String(
+            decoding: stderr.fileHandleForReading.readDataToEndOfFile(),
+            as: UTF8.self
+        )
+        #expect(errorOutput.contains("does not support forking"))
+    }
+
+    @Test
     func structuredLaunchRunsBeforeLegacyForkCommand() throws {
         let fileManager = FileManager.default
         let root = fileManager.temporaryDirectory

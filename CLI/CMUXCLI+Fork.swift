@@ -74,6 +74,16 @@ extension CMUXCLI {
                 detail: record.mode
             )
         }
+        // A direct record is an exact command replay, not an agent session
+        // with fork authority. Failing closed here prevents `cmux fork` from
+        // accidentally executing a recorded resume command unchanged.
+        guard recordMode != .direct else {
+            throw loggedForkError(
+                .unsupported,
+                stage: "record.mode.direct",
+                detail: record.mode
+            )
+        }
 
         record = try await recoveredHermesContinuationRecord(
             record,
