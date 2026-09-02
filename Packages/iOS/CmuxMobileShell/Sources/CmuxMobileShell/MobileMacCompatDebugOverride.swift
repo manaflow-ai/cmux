@@ -10,8 +10,11 @@ internal import Foundation
 /// with `CMUX_DEBUG_FORCE_MAC_COMPAT=1` (or the launch argument
 /// `-CMUXDebugForceMacCompat YES`); the gate then evaluates the dev Mac with
 /// its channel derived from the reported version grammar.
-func mobileMacCompatDebugOverrideForcesEvaluation() -> Bool {
-    ProcessInfo.processInfo.environment["CMUX_DEBUG_FORCE_MAC_COMPAT"] == "1"
-        || UserDefaults.standard.bool(forKey: "CMUXDebugForceMacCompat")
+func mobileMacCompatDebugOverrideForcesEvaluation(
+    environment: [String: String] = ProcessInfo.processInfo.environment,
+    defaults: UserDefaults = .standard
+) -> Bool {
+    environment["CMUX_DEBUG_FORCE_MAC_COMPAT"] == "1"
+        || defaults.bool(forKey: "CMUXDebugForceMacCompat")
 }
 #endif

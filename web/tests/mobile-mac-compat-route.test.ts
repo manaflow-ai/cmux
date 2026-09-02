@@ -5,6 +5,10 @@ import {
   type MobileMacCompatList,
 } from "../data/mobile-mac-compat";
 
+// Dynamic on purpose, mirroring whats-new-route.test.ts: the route module
+// validates the committed list and computes PAYLOAD/ETAG at import time, and
+// the deferred import keeps that module-init side effect inside the test
+// run (a static import would hoist it before this file's own imports).
 const { GET, OPTIONS, validateList } = await import(
   "../app/api/mobile-mac-compat/route"
 );

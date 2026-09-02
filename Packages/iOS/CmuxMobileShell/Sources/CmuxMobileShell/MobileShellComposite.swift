@@ -11275,9 +11275,12 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
 
     /// Replaces a generic classification with the exact version-gate
     /// violation captured while the failed attempt's routes were rejected.
-    /// The stash wins whenever set: even when a later route failed
-    /// differently (say, a timeout), the actionable truth is that the Mac
-    /// the routes reach is below the version floor.
+    /// The stash wins whenever set — a REVIEWED decision, not an oversight:
+    /// every route of one attempt dials the same Mac and the stash is
+    /// cleared when the attempt starts, so a captured violation proves that
+    /// Mac is below the floor no matter how a later route to it failed
+    /// (say, a timeout). Updating the Mac is the one action that can fix
+    /// the connection, so it is the failure worth surfacing.
     private func resolvingMacVersionGateViolation(
         _ category: MobilePairingFailureCategory
     ) -> MobilePairingFailureCategory {

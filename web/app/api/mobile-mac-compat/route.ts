@@ -21,8 +21,9 @@ const ALLOWED_DOWNLOAD_URL_HOSTS = new Set([
 // One to three components, matching the client's MobileMacAppVersion
 // grammar exactly: the client discards a payload it cannot fully parse, so a
 // four-component version served here would strand every device on its stale
-// cached policy.
-const VERSION_PATTERN = /^\d+(\.\d+){0,2}$/;
+// cached policy. Components are capped at nine digits so the ordering
+// check's Number() conversion stays exact (no Infinity/NaN comparisons).
+const VERSION_PATTERN = /^\d{1,9}(\.\d{1,9}){0,2}$/;
 const BUILD_PATTERN = /^\d+$/;
 const PAYLOAD = JSON.stringify(validateList(mobileMacCompatList));
 const ETAG = `"${createHash("sha256").update(PAYLOAD).digest("base64url")}"`;
