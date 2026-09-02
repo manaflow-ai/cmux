@@ -367,14 +367,15 @@ fn is_shell_command_flag(runtime: &str, flag: &str) -> bool {
     };
     // `c` is special only as the final short option. A repeated c, or a
     // command marker before another character, is not a command-mode flag.
-    if characters.next_back() != Some('c') || characters.any(|character| character == 'c') {
+    if characters.next_back() != Some('c') {
         return false;
     }
     characters.all(|character| {
-        matches!(
-            shell_short_option_kind(runtime, character),
-            Some(ShellOptionKind::Safe | ShellOptionKind::NoScript)
-        )
+        character != 'c'
+            && matches!(
+                shell_short_option_kind(runtime, character),
+                Some(ShellOptionKind::Safe | ShellOptionKind::NoScript)
+            )
     })
 }
 
