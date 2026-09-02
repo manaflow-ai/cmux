@@ -973,8 +973,7 @@ fn pump_pty(
     completion.reader_finished();
 }
 
-fn spawn_pipe_mode(spec: &SpawnSpec, reason: &str, handoff: &SpawnHandoff) -> PtyHandle {
-    let _ = reason;
+fn spawn_pipe_mode(spec: &SpawnSpec, handoff: &SpawnHandoff) -> PtyHandle {
     let output = ThreadOutput::new();
     let mut command = std::process::Command::new(&spec.file);
     command.args(&spec.args).current_dir(&spec.cwd).env_clear();
@@ -1213,7 +1212,7 @@ impl PtyDeps for RealPtyDeps {
                         banner: None,
                     }
                 }
-                Err(error) => spawn_pipe_mode(&spec, &error.to_string(), &worker_handoff),
+                Err(_) => spawn_pipe_mode(&spec, &worker_handoff),
             }
         });
         let result = match await_spawn_or_cancel(&mut worker, &cancellation).await {
