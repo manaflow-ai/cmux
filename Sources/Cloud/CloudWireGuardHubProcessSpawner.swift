@@ -12,12 +12,15 @@ struct CloudWireGuardHubProcessSpawner: CloudWireGuardHubSpawning {
         let stderr = Pipe()
         process.standardOutput = stdout
         process.standardError = stderr
-        let wrapper = CloudWireGuardHubFoundationProcess(process: process, stdout: stdout.fileHandleForReading)
+        let wrapper = CloudWireGuardHubFoundationProcess(process: process)
         process.terminationHandler = { terminated in
             wrapper.didExit(status: terminated.terminationStatus)
         }
         try process.run()
-        wrapper.drain(stderr.fileHandleForReading)
+        // Read the pipes only after run(), the same order CloudMachineLink uses for the
+        // sidecar's connection-snapshot line: the readabilityHandler is armed once the
+        // child owns the write end.
+        wrapper.beginReading(stdout: stdout.fileHandleForReading, stderr: stderr.fileHandleForReading)
         return wrapper
     }
 }
@@ -31,14 +34,28 @@ final class CloudWireGuardHubFoundationProcess: CloudWireGuardHubProcess, @unche
     private var tail: [String] = []
     private var status: Int32?
     private var exitHandler: (@Sendable (Int32) -> Void)?
-    let stdoutLines: AsyncStream<String>
+    private let stdoutStream: AsyncStream<String>
+    private let stdoutContinuation: AsyncStream<String>.Continuation
 
-    init(process: Process, stdout: FileHandle) {
+    init(process: Process) {
         self.process = process
-        stdoutLines = CloudLinkPipe.lines(from: stdout)
+        (stdoutStream, stdoutContinuation) = AsyncStream<String>.makeStream(bufferingPolicy: .unbounded)
     }
 
+    var stdoutLines: AsyncStream<String> { stdoutStream }
+
     var isRunning: Bool { process.isRunning }
+
+    /// Arm the pipe readers after `process.run()`, so the child owns the write ends.
+    func beginReading(stdout: FileHandle, stderr: FileHandle) {
+        let continuation = stdoutContinuation
+        let stdoutLines = CloudLinkPipe.lines(from: stdout)
+        Task.detached {
+            for await line in stdoutLines { continuation.yield(line) }
+            continuation.finish()
+        }
+        drain(stderr)
+    }
 
     var exitStatus: Int32? {
         lock.lock()

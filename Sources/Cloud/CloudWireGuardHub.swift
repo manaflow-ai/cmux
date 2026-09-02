@@ -261,7 +261,13 @@ actor CloudWireGuardHub {
     }
 
     private func start(generation startGeneration: UInt64) async throws -> Ready {
+        #if DEBUG
+        cmuxDebugLog("cloud.hub.start.begin gen=\(startGeneration)")
+        #endif
         let enrollment = try await configuration.enroll()
+        #if DEBUG
+        cmuxDebugLog("cloud.hub.start.enrolled routes=\(enrollment.routes) config=\(enrollment.configPath)")
+        #endif
         try Task.checkCancellation()
         guard generation == startGeneration else { throw CancellationError() }
         removeSocketFile()
@@ -275,6 +281,9 @@ actor CloudWireGuardHub {
         } catch {
             throw HubError.spawnFailed(error.localizedDescription)
         }
+        #if DEBUG
+        cmuxDebugLog("cloud.hub.start.spawned socket=\(socketPath)")
+        #endif
         processHandle.replace(with: process)
         let exit = CloudLinkFirstValue<Int32>()
         process.onExit { [weak self] status in
@@ -312,6 +321,9 @@ actor CloudWireGuardHub {
             group.cancelAll()
             return first
         }
+        #if DEBUG
+        cmuxDebugLog("cloud.hub.start.outcome \(String(describing: outcome))")
+        #endif
         let event: CloudWireGuardHubReadyEvent
         switch outcome {
         case .success(let ready):
@@ -329,6 +341,9 @@ actor CloudWireGuardHub {
             throw HubError.notReady("hub announced \(event.socketPath) but nothing accepts there")
         }
         lastError = nil
+        #if DEBUG
+        cmuxDebugLog("cloud.hub.start.ready socket=\(event.socketPath) routes=\(event.routes)")
+        #endif
         // The hub's own view of AllowedIPs is authoritative; the enrollment response is
         // the fallback for a hub build that omits them.
         return Ready(socketPath: event.socketPath, routes: event.routes.isEmpty ? enrollment.routes : event.routes)
