@@ -37,9 +37,22 @@ actor GhosttyPointerStyleIngress {
         let (lifecycleStream, lifecycleContinuation) =
             AsyncStream<GhosttyPointerStyleIngressRequest>.makeStream(
                 bufferingPolicy: .bufferingNewest(2)
-            )
+        )
         self.continuation = continuation
         self.lifecycleContinuation = lifecycleContinuation
+        Task { [weak self] in
+            guard let self else { return }
+            await self.startConsumers(
+                stream: stream,
+                lifecycleStream: lifecycleStream
+            )
+        }
+    }
+
+    private func startConsumers(
+        stream: AsyncStream<GhosttyPointerStyleIngressRequest>,
+        lifecycleStream: AsyncStream<GhosttyPointerStyleIngressRequest>
+    ) {
         consumerTask = Task { [weak self] in
             for await request in stream {
                 guard let self else { return }

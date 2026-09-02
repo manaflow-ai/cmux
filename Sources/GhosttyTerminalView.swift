@@ -4945,11 +4945,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         }
         windowKeyObservers.forEach { NotificationCenter.default.removeObserver($0) }
         windowKeyObservers.removeAll()
-        // Balance the cursor stack if the view is removed while hover is active
-        if wordPathHoverActive {
-            wordPathHoverActive = false
-            NSCursor.pop()
-        }
+        // Clear the view-owned link override when the view leaves its window.
         applyTerminalPointerStyle(.cmuxLinkHoverChanged(false))
         if window == nil {
             applyTerminalPointerStyle(.focusChanged(false))
@@ -8935,10 +8931,6 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     override func mouseExited(with event: NSEvent) {
         if routeInputDuringClipboardRead(event) { return }
         reconcileGhosttyMouseButtons(reason: "mouseExited")
-        if wordPathHoverActive {
-            wordPathHoverActive = false
-            NSCursor.pop()
-        }
         applyTerminalPointerStyle(.cmuxLinkHoverChanged(false))
         guard let surface = surface else { return }
         if !ghosttyMouseSessionLedger.activeButtons.isEmpty {
