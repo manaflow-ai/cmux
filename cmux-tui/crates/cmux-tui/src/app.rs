@@ -27919,6 +27919,22 @@ mod tests {
     }
 
     #[test]
+    fn word_click_flattens_the_optional_terminal_range() {
+        let (app, mux, surface, _content) =
+            wrapped_selection_fixture("optional-word-range-selection-test", "AB 橋".as_bytes());
+
+        let selection = app.selection_for_click(surface.id, (3, 0), SelectionMode::Word);
+
+        assert_eq!(
+            selection.map(|selection| selection.range()),
+            Some(((0, 1), (0, 1))),
+            "a semantic click must unwrap the terminal's optional range"
+        );
+
+        mux.close_surface(surface.id).unwrap();
+    }
+
+    #[test]
     fn double_click_selects_a_complete_word() {
         let (mut app, mux, surface, content) =
             selection_fixture("double-click-word-selection-test", b"alpha beta gamma");
