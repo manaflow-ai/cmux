@@ -91,6 +91,7 @@ struct NewMachineModelTests {
 
     @Test func testNonDefaultSizeTravelsAsAFlag() {
         let (model, _) = makeModel(plan: MachinePlanSnapshot(activeCount: 1, maxActiveVms: 50, planId: "pro"))
+        model.kind = .base
         model.memoryMb = 16384
         #expect(model.cliArguments == ["vm", "new", "--base", "--size", "16384"])
     }
