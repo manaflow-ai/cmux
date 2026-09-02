@@ -756,9 +756,9 @@ mod detach {
     use std::sync::mpsc;
     use std::time::{Duration, SystemTime};
 
-    use anyhow::{Context, anyhow, bail};
+    use anyhow::{anyhow, bail, Context};
 
-    use super::{DETACHED_SPOOL_MODE_ARG, Handoff, MAX_MESSAGE_BYTES};
+    use super::{Handoff, DETACHED_SPOOL_MODE_ARG, MAX_MESSAGE_BYTES};
 
     const MAX_SPOOL_CLEANUP_ENTRIES: usize = 128;
     const MAX_SPOOL_REQUEST_ID_BYTES: usize = 256;
