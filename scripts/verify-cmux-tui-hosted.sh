@@ -372,60 +372,31 @@ if [[ "$retention_dry_run" == false && "$retention_confirmed" != "1" ]]; then
   exit 2
 fi
 preview_file="cmux-tui/target/hosted/.retention-preview"
-lsof_available=false
-if command -v lsof >/dev/null 2>&1; then
-  lsof_available=true
-fi
-
-hosted_artifact_dirs=()
-hosted_artifact_order=()
-while IFS= read -r -d '' candidate_dir; do
-  candidate_commit="${candidate_dir##*/}"
-  [[ "$candidate_commit" =~ ^[0-9a-f]{40}$ ]] || continue
-  if stat -f '%m' "$candidate_dir" >/dev/null 2>&1; then
-    candidate_mtime="$(stat -f '%m' "$candidate_dir")"
-  else
-    candidate_mtime="$(stat -c '%Y' "$candidate_dir")"
-  fi
-  hosted_artifact_order+=("$candidate_mtime	$candidate_commit	$candidate_dir")
-done < <(find cmux-tui/target/hosted -mindepth 1 -maxdepth 1 -type d -user "$(id -u)" -print0)
-if ((${#hosted_artifact_order[@]} > 0)); then
-  while IFS=$'\t' read -r _ candidate_commit candidate_dir; do
-    hosted_artifact_dirs+=("$candidate_dir")
-  done < <(printf '%s\n' "${hosted_artifact_order[@]}" | sort -t $'\t' -k1,1nr -k2,2r)
-fi
-candidate_set_hash="$(printf '%s\n' "${hosted_artifact_dirs[@]}" | shasum -a 256 | awk '{print $1}')"
+retention_plan="$temp_dir/retention-plan"
+retention_helper="$repo_root/scripts/lib/hosted-retention-plan.sh"
+"$retention_helper" plan "cmux-tui/target/hosted" "$retention_count" "$commit" >"$retention_plan"
 if [[ "$retention_dry_run" == true ]]; then
-  printf '%s\t%s\n' "$candidate_set_hash" "$(date +%s)" > "$preview_file"
-elif [[ ! -f "$preview_file" ]] || [[ "$(cut -f1 "$preview_file")" != "$candidate_set_hash" ]] || \
-  (( $(date +%s) - $(cut -f2 "$preview_file") > 600 )); then
-  echo "error: retention requires a fresh dry-run preview for this candidate set" >&2
-  exit 2
+  "$retention_helper" token "$retention_plan" "$(date +%s)" >"$preview_file"
+else
+  "$retention_helper" validate "$retention_plan" "$preview_file" "$(date +%s)" 600
 fi
-retained=0
-for candidate_dir in "${hosted_artifact_dirs[@]}"; do
-  candidate_commit="${candidate_dir##*/}"
-  candidate_binary="$candidate_dir/cmux-tui"
-  if [[ "$candidate_commit" == "$commit" ]]; then
-    continue
-  fi
-  if (( retained < retention_count )); then
-    retained=$((retained + 1))
-    continue
-  fi
-  if [[ "$lsof_available" != true ]]; then
-    echo "error: cannot prove artifact is inactive because lsof is unavailable" >&2
-    exit 2
-  fi
-  if [[ -f "$candidate_binary" ]] && lsof -t -- "$candidate_binary" >/dev/null 2>&1; then
-    echo "Keeping active hosted artifact: $candidate_binary" >&2
-    continue
-  fi
+victim_commits=()
+while IFS=$'\t' read -r disposition candidate_commit; do
+  [[ "$disposition" == victim ]] || continue
+  victim_commits+=("$candidate_commit")
+done <"$retention_plan"
+for candidate_commit in "${victim_commits[@]}"; do
+  candidate_dir="cmux-tui/target/hosted/$candidate_commit"
   if [[ "$retention_dry_run" == true ]]; then
     echo "Would remove hosted artifact: $candidate_dir" >&2
   else
-    rm -rf -- "$candidate_dir"
-    echo "Removed hosted artifact: $candidate_dir" >&2
+    remove_result="$(CMUX_TUI_HOSTED_RETENTION_CONFIRM=1 "$retention_helper" remove \
+      "cmux-tui/target/hosted" "$candidate_commit" "$retention_plan" "$preview_file" "$commit")"
+    case "$remove_result" in
+      $'active\t'*) echo "Keeping active hosted artifact: $candidate_dir" >&2 ;;
+      $'removed\t'*) echo "Removed hosted artifact: $candidate_dir" >&2 ;;
+      *) echo "error: unexpected retention removal result for $candidate_dir" >&2; exit 2 ;;
+    esac
   fi
 done
 
