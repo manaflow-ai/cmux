@@ -36,9 +36,11 @@
  * onto the new snapshot (the old holder keeps its data under its id);
  * without it a collision leaves the new snapshot slugless.
  *
- * Builder VM: freestyle/ubuntu (4 vCPU / 8 GiB / 32 GB). VMs always boot at
- * their snapshot's size and resizing is grow-only, so this is the shape every
- * cmux Cloud machine gets. CMUX_FREESTYLE_BUILDER_SNAPSHOT overrides it.
+ * Builder VM: freestyle/ubuntu-sm (2 vCPU / 4 GiB / 16 GB), the floor of
+ * Freestyle's size ladder. VMs boot at their snapshot's size and resizing is
+ * grow-only, so the bake happens once at the smallest shape and
+ * derive-devbox-sizes.ts turns it into one snapshot per ladder size.
+ * CMUX_FREESTYLE_BUILDER_SNAPSHOT overrides the base.
  * Outbound-only firewall; deleted whatever happens (unless --keep-builder).
  *
  * Daemon contract: the session daemon is cmux-tui, same as every other
@@ -107,7 +109,7 @@ const BUILD_ENV = {
 const WORK_USER = "ubuntu";
 const WORK_HOME = `/home/${WORK_USER}`;
 
-const builderSnapshot = process.env.CMUX_FREESTYLE_BUILDER_SNAPSHOT?.trim() || "freestyle/ubuntu";
+const builderSnapshot = process.env.CMUX_FREESTYLE_BUILDER_SNAPSHOT?.trim() || "freestyle/ubuntu-sm";
 const { vm, vmId } = await fs.vms.create({
   snapshotId: builderSnapshot,
   displayName: `cmux-devbox-builder ${slug}`,

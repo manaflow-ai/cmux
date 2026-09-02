@@ -98,8 +98,6 @@ pub struct ResolvedCwd {
     pub path: PathBuf,
     #[cfg(unix)]
     pub directory: Arc<File>,
-    #[cfg(unix)]
-    ancestry: Arc<Vec<DirectoryIdentity>>,
 }
 
 #[cfg(unix)]
@@ -219,7 +217,7 @@ fn scoped_cwd(
         {
             return Err("cwd is outside the allowed roots".to_owned());
         }
-        Ok(ResolvedCwd { path, directory: Arc::new(directory), ancestry: Arc::new(ancestry) })
+        Ok(ResolvedCwd { path, directory: Arc::new(directory) })
     }
     #[cfg(not(unix))]
     {
