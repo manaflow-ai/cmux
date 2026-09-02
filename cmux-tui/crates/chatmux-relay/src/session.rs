@@ -457,17 +457,22 @@ pub async fn stay_online(
     // connections on loopback 127.0.0.1:9776. Managed sandboxes ONLY — this
     // branch is the gate; paired human machines never start the listener.
     // Best-effort: a failed bind degrades to the relay-socket terminal path.
+    let mut tunnel_listener: Option<tokio::task::JoinHandle<()>> = None;
+    let tunnel_listener_cancel = cancellation.child_token();
     #[cfg(unix)]
     if state.managed {
         match crate::tunnel_terminal::start_tunnel_terminal_listener(
             Arc::clone(&runtime.pty),
-            cancellation.child_token(),
+            tunnel_listener_cancel.clone(),
             crate::tunnel_terminal::TUNNEL_TERMINAL_HOST,
             crate::tunnel_terminal::TUNNEL_TERMINAL_PORT,
         )
         .await
         {
-            Ok(_) => eprintln!("Tunnel terminal listener is up on loopback."),
+            Ok((_, task)) => {
+                tunnel_listener = Some(task);
+                eprintln!("Tunnel terminal listener is up on loopback.");
+            }
             Err(error) => eprintln!(
                 "Tunnel terminal listener bind failed: {error}. Terminals stay on the relay socket path."
             ),
@@ -476,6 +481,9 @@ pub async fn stay_online(
     let mut attempt: u32 = 0;
     loop {
         if cancellation.is_cancelled() {
+            if let Some(task) = tunnel_listener.take() {
+                let _ = task.await;
+            }
             return Ok(());
         }
         match relay_session(&mut config, config_path, &mut state, &runtime, &cancellation).await {
@@ -485,6 +493,10 @@ pub async fn stay_online(
                 }
             }
             Err(RelayError::Fatal { message, exit_code }) => {
+                tunnel_listener_cancel.cancel();
+                if let Some(task) = tunnel_listener.take() {
+                    let _ = task.await;
+                }
                 return Err(RelayError::Fatal { message, exit_code });
             }
             Err(RelayError::WakeRedial { message }) => {
@@ -501,12 +513,18 @@ pub async fn stay_online(
             }
         }
         if cancellation.is_cancelled() {
+            if let Some(task) = tunnel_listener.take() {
+                let _ = task.await;
+            }
             return Ok(());
         }
         let ceiling = 500_u64.saturating_mul(1_u64 << attempt.min(10)).min(30_000);
         attempt = attempt.saturating_add(1);
         let delay = (ceiling as f64 * jitter()).round().max(0.0) as u64;
         if !wait_for_reconnect(&cancellation, Duration::from_millis(delay)).await {
+            if let Some(task) = tunnel_listener.take() {
+                let _ = task.await;
+            }
             return Ok(());
         }
     }
@@ -550,12 +568,15 @@ fn make_context(
     out: &OutboundSink,
     pending: &Arc<AtomicU64>,
     auth: &AuthSnapshot,
+    live_auth: &Arc<std::sync::Mutex<AuthSnapshot>>,
     transport_id: &str,
     cancellation: &CancellationToken,
 ) -> FrameContext {
     let sender = out.clone();
     let pending_send = Arc::clone(pending);
     let pending_probe = Arc::clone(pending);
+    let live_auth = Arc::clone(live_auth);
+    let live_auth_for_auth = Arc::clone(&live_auth);
     FrameContext {
         send: Arc::new(move |frame: Value| {
             let size = serde_json::to_string(&frame).map(|text| text.len() as u64).unwrap_or(0);
@@ -583,6 +604,18 @@ fn make_context(
         trust: auth.trust.clone(),
         local_roots: auth.roots.clone(),
         owner_user_id: auth.owner.clone(),
+        live_auth: Arc::new(move || {
+            let auth = live_auth.lock().expect("auth lock");
+            (auth.trust.clone(), auth.owner.clone())
+        }),
+        live_authorized: Arc::new({
+            let live_auth = live_auth_for_auth;
+            move |actor| {
+                let auth = live_auth.lock().expect("auth lock");
+                !auth.trust.is_empty()
+                    && (auth.trust != "observe" || auth.owner.as_deref() == Some(actor))
+            }
+        }),
         transport_id: Some(transport_id.to_owned()),
         cancellation: cancellation.clone(),
     }
@@ -677,11 +710,18 @@ async fn relay_session(
                 };
                 let snapshot = auth.lock().expect("auth lock").clone();
                 let context =
-                    make_context(&out, &pending, &snapshot, &transport, &connection_token);
-                tokio::select! {
-                    biased;
-                    _ = connection_token.cancelled() => break,
-                    _ = manager.handle_frame(&frame, &context) => {}
+                    make_context(&out, &pending, &snapshot, &auth, &transport, &connection_token);
+                // An admitted open may already have queued a remote attach.
+                // Let it finish so its lease cleanup can run; cancellation
+                // still interrupts all later mutations.
+                if frame.get("type").and_then(Value::as_str) == Some("pty_open") {
+                    manager.handle_frame(&frame, &context).await;
+                } else {
+                    tokio::select! {
+                        biased;
+                        _ = connection_token.cancelled() => break,
+                        _ = manager.handle_frame(&frame, &context) => {}
+                    }
                 }
             }
         });
@@ -1145,6 +1185,7 @@ async fn relay_session(
                                     &out_tx,
                                     &pending,
                                     &snapshot,
+                                    &auth_direct,
                                     &transport_id,
                                     &connection_cancellation,
                                 );

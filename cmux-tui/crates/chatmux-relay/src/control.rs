@@ -6,6 +6,7 @@
 //! reading so PTY backpressure applies naturally.
 
 use serde_json::Value;
+use std::future::Future;
 
 /// Per-request budget on a cmux-tui control connection.
 pub const CONTROL_TIMEOUT_MS: u64 = 3_000;
@@ -27,7 +28,18 @@ pub trait ControlHandle: Send + Sync {
         params: Value,
     ) -> std::pin::Pin<Box<dyn Future<Output = Option<Value>> + Send + '_>>;
     /// Fire-and-forget (input/resize hot paths); the response line drops.
-    fn send(&self, cmd: &str, params: Value);
+    fn send(&self, cmd: &str, params: Value) -> bool;
+    /// Enqueue a fire-and-forget command with backpressure. Implementations
+    /// that override this method resolve after the writer accepts the line.
+    /// The default implementation only reports queue admission, like `send`.
+    fn send_reliable(
+        &self,
+        cmd: &str,
+        params: Value,
+    ) -> std::pin::Pin<Box<dyn Future<Output = bool> + Send + '_>> {
+        let accepted = self.send(cmd, params);
+        Box::pin(async move { accepted })
+    }
     fn on_event(&self, handler: EventHandler);
     /// Fires on unexpected close only (not after `end()`).
     fn on_close(&self, handler: CloseHandler);
@@ -95,10 +107,23 @@ mod unix {
         }
     }
 
+    // `ControlHandle::request` futures can be dropped by `tokio::select!`
+    // while they wait for a write acknowledgement or response. Retire the
+    // registration from `Drop`, rather than relying on a timeout or `end()`.
+    struct PendingRequestGuard {
+        shared: Arc<Shared>,
+        id: u64,
+    }
+
+    impl Drop for PendingRequestGuard {
+        fn drop(&mut self) {
+            self.shared.pending.lock().expect("control pending lock").remove(&self.id);
+        }
+    }
+
     pub struct UnixControl {
         shared: Arc<Shared>,
         writer_tx: Sender<OutboundLine>,
-        raw_fd: std::os::fd::RawFd,
         next_id: AtomicU64,
         timeout_ms: u64,
     }
@@ -120,10 +145,6 @@ mod unix {
             .await
             .map_err(|_| format!("cmux-tui control connect timed out ({})", socket_path.display()))?
             .map_err(|error| error.to_string())?;
-        let raw_fd = {
-            use std::os::fd::AsRawFd as _;
-            stream.as_raw_fd()
-        };
         let (read_half, write_half) = stream.into_split();
         let shared = Arc::new(Shared {
             pending: Mutex::new(HashMap::new()),
@@ -147,13 +168,7 @@ mod unix {
         let (writer_tx, writer_rx) = mpsc::channel(MAX_WRITER_QUEUE);
         tokio::spawn(write_loop(writer, writer_rx, Arc::clone(&shared)));
         tokio::spawn(read_loop(read_half, Arc::clone(&shared)));
-        Ok(Arc::new(UnixControl {
-            shared,
-            writer_tx,
-            raw_fd,
-            next_id: AtomicU64::new(1),
-            timeout_ms,
-        }))
+        Ok(Arc::new(UnixControl { shared, writer_tx, next_id: AtomicU64::new(1), timeout_ms }))
     }
 
     #[cfg(test)]
@@ -191,7 +206,20 @@ mod unix {
             }
             let result = {
                 let mut writer = writer.lock().await;
-                writer.write_all(&line.bytes).await
+                let closed = shared.closed_notify.notified();
+                tokio::pin!(closed);
+                closed.as_mut().enable();
+                let (result, closed_by_end) = tokio::select! {
+                    result = writer.write_all(&line.bytes) => (result, false),
+                    _ = closed => (Err(std::io::Error::other("control closed")), true),
+                };
+                if closed_by_end {
+                    if let Some(written) = line.written {
+                        let _ = written.send(false);
+                    }
+                    break;
+                }
+                result
             };
             let succeeded = result.is_ok();
             if let Some(written) = line.written {
@@ -241,9 +269,15 @@ mod unix {
                     _ = closed => break 'read_loop,
                 }
             }
-            let count = match reader.read(&mut chunk).await {
-                Ok(0) | Err(_) => break,
-                Ok(count) => count,
+            let closed = shared.closed_notify.notified();
+            tokio::pin!(closed);
+            closed.as_mut().enable();
+            let count = tokio::select! {
+                result = reader.read(&mut chunk) => match result {
+                    Ok(0) | Err(_) => break,
+                    Ok(count) => count,
+                },
+                _ = closed => break,
             };
             buffer.extend_from_slice(&chunk[..count]);
             if buffer.len() > MAX_CONTROL_LINE_BYTES {
@@ -294,6 +328,11 @@ mod unix {
             receiver
         }
 
+        #[cfg(test)]
+        pub(crate) fn pending_len(&self) -> usize {
+            self.shared.pending.lock().expect("control pending lock").len()
+        }
+
         fn encode_line(id: u64, cmd: &str, params: Value) -> Vec<u8> {
             let mut frame = match params {
                 Value::Object(map) => map,
@@ -339,33 +378,57 @@ mod unix {
                     }
                     pending.insert(id, sender);
                 }
+                let _pending_guard = PendingRequestGuard { shared: Arc::clone(&self.shared), id };
                 let deadline = tokio::time::Instant::now() + Duration::from_millis(self.timeout_ms);
                 let (written, write_result) = oneshot::channel();
                 if !self.enqueue_line(id, &cmd, params, Some(written)) {
-                    self.shared.pending.lock().expect("control pending lock").remove(&id);
                     return None;
                 }
                 let write_ok =
                     matches!(tokio::time::timeout_at(deadline, write_result).await, Ok(Ok(true)));
                 if !write_ok {
-                    self.shared.pending.lock().expect("control pending lock").remove(&id);
                     return None;
                 }
                 if let Ok(Ok(value)) = tokio::time::timeout_at(deadline, receiver).await {
                     Some(value)
                 } else {
-                    self.shared.pending.lock().expect("control pending lock").remove(&id);
                     None
                 }
             })
         }
 
-        fn send(&self, cmd: &str, params: Value) {
+        fn send(&self, cmd: &str, params: Value) -> bool {
             if self.shared.closed.load(Ordering::SeqCst) {
-                return;
+                return false;
             }
             let id = self.next_id.fetch_add(1, Ordering::SeqCst);
-            let _ = self.enqueue_line(id, cmd, params, None);
+            self.enqueue_line(id, cmd, params, None)
+        }
+
+        fn send_reliable(
+            &self,
+            cmd: &str,
+            params: Value,
+        ) -> std::pin::Pin<Box<dyn Future<Output = bool> + Send + '_>> {
+            let cmd = cmd.to_owned();
+            Box::pin(async move {
+                if self.shared.closed.load(Ordering::SeqCst) {
+                    return false;
+                }
+                let (written, result) = oneshot::channel();
+                if self
+                    .writer_tx
+                    .send(OutboundLine {
+                        bytes: Self::encode_line(0, &cmd, params),
+                        written: Some(written),
+                    })
+                    .await
+                    .is_err()
+                {
+                    return false;
+                }
+                result.await.unwrap_or(false)
+            })
         }
 
         fn on_event(&self, handler: EventHandler) {
@@ -388,13 +451,16 @@ mod unix {
         fn end(&self) {
             self.shared.deliberate.store(true, Ordering::SeqCst);
             self.shared.settle_closed();
-            // Shut both directions so the read loop sees EOF and any blocked
-            // writer unblocks; the halves drop and close the fd afterwards.
-            // SAFETY: shutdown on a socket fd this handle owns for the split
-            // stream's lifetime; a failure (already closed) is harmless.
-            unsafe {
-                libc::shutdown(self.raw_fd, libc::SHUT_RDWR);
-            }
+        }
+    }
+
+    // A cancelled request can drop its last Arc<dyn ControlHandle> while the
+    // reader and writer tasks still own their socket halves. End the protocol
+    // explicitly so those tasks wake, close, and release any daemon-side
+    // attachment instead of surviving the request future.
+    impl Drop for UnixControl {
+        fn drop(&mut self) {
+            self.end();
         }
     }
 }
@@ -410,7 +476,7 @@ mod tests {
     use tokio::sync::{Notify, oneshot};
 
     #[tokio::test]
-    async fn end_wakes_paused_reader_and_closes_socket() {
+    async fn drop_wakes_paused_reader_and_closes_socket() {
         let socket_path = std::env::temp_dir()
             .join(format!("chatmux-relay-control-close-{}.sock", std::process::id()));
         let _ = std::fs::remove_file(&socket_path);
@@ -433,20 +499,13 @@ mod tests {
         accepted_rx.await.expect("wait for control close test server");
         control.pause();
 
-        // Register both waiters before end() so the test deterministically
-        // exercises the paused-reader branch and the close wakeup.
+        // Register the paused-reader waiter before dropping the last control
+        // Arc so the test exercises the RAII close path.
         let read_waiting = control.arm_reader_waiting();
         paused_tx.send(()).expect("tell server that reader is paused");
         read_waiting.await.expect("paused reader entered wait");
-        let waiter_control = Arc::clone(&control);
-        let reader_done = tokio::spawn(async move { waiter_control.wait_reader_done().await });
-        tokio::task::yield_now().await;
-        control.end();
+        drop(control);
 
-        tokio::time::timeout(Duration::from_secs(1), reader_done)
-            .await
-            .expect("paused reader exits after end")
-            .expect("join paused reader waiter");
         tokio::time::timeout(Duration::from_secs(1), server)
             .await
             .expect("server observes client close")
@@ -489,6 +548,58 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn dropped_request_retires_pending_entry() {
+        let socket_path = std::env::temp_dir()
+            .join(format!("chatmux-relay-control-cancel-{}.sock", std::process::id()));
+        let _ = std::fs::remove_file(&socket_path);
+        let listener = UnixListener::bind(&socket_path).expect("bind control cancel test socket");
+        let (accepted_tx, accepted_rx) = oneshot::channel();
+        let (request_seen_tx, request_seen_rx) = oneshot::channel();
+        let (release_tx, release_rx) = oneshot::channel();
+        let server = tokio::spawn(async move {
+            let (stream, _) = listener.accept().await.expect("accept control cancel test socket");
+            accepted_tx.send(()).expect("tell client that socket is accepted");
+            let (read_half, write_half) = stream.into_split();
+            let mut reader = tokio::io::BufReader::new(read_half);
+            let mut line = String::new();
+            reader.read_line(&mut line).await.expect("read in-flight control request");
+            let request: Value =
+                serde_json::from_str(line.trim_end()).expect("decode in-flight control request");
+            assert_eq!(request.get("cmd").and_then(Value::as_str), Some("attach-surface"));
+            request_seen_tx.send(()).expect("tell client request is in flight");
+            release_rx.await.expect("release control cancel test socket");
+            drop(write_half);
+        });
+
+        let control = unix::connect_control_for_test(&socket_path, 3_000)
+            .await
+            .expect("connect control cancel test socket");
+        accepted_rx.await.expect("wait for control cancel test server");
+        let request_control = Arc::clone(&control);
+        let request = tokio::spawn(async move {
+            request_control.request("attach-surface", json!({ "surface": 7 })).await
+        });
+        request_seen_rx.await.expect("wait for in-flight control request");
+        assert_eq!(control.pending_len(), 1, "request must register before it is canceled");
+
+        request.abort();
+        let join = tokio::time::timeout(Duration::from_secs(1), request)
+            .await
+            .expect("canceled request task must finish promptly")
+            .expect_err("aborting the request task must report cancellation");
+        assert!(join.is_cancelled());
+        assert_eq!(control.pending_len(), 0, "dropping the request must retire its map entry");
+
+        release_tx.send(()).expect("release control cancel test socket");
+        control.end();
+        tokio::time::timeout(Duration::from_secs(1), server)
+            .await
+            .expect("join control cancel test server")
+            .expect("control cancel test server must not panic");
+        let _ = std::fs::remove_file(socket_path);
+    }
+
+    #[tokio::test]
     async fn writer_queue_preserves_complete_fifo_lines() {
         let socket_path =
             std::env::temp_dir().join(format!("chatmux-relay-control-{}.sock", std::process::id()));
@@ -524,7 +635,7 @@ mod tests {
         accepted_rx.await.expect("wait for control test server");
         let payload = "x".repeat(128 * 1024);
         for index in 0..8 {
-            control.send("send", json!({ "index": index, "payload": payload.clone() }));
+            let _ = control.send("send", json!({ "index": index, "payload": payload.clone() }));
         }
         release_tx.send(()).expect("release control test reader");
         let response = control.request("probe", json!({})).await;
