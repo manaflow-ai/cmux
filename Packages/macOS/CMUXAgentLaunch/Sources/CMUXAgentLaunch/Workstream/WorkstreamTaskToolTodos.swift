@@ -12,6 +12,9 @@ struct WorkstreamTaskToolTodos: Sendable {
     static let maxRetainedTodos = 50
     /// Bounds ownership metadata retained for deleted/evicted tasks.
     static let maxOwnedIds = 200
+    /// Bounds provisional subject-to-id bookkeeping independently of the
+    /// retained checklist rows.
+    private static let maxProvisionalIDs = 200
 
     private var todos: [WorkstreamTaskTodo] = []
     private var ownedIDsInOrder: [String] = []
@@ -263,8 +266,23 @@ struct WorkstreamTaskToolTodos: Sendable {
             return .ignored
         }
         if establishesCompleteness {
-            pendingPreOperations.removeAll(keepingCapacity: true)
-            pendingPostOperations.removeAll(keepingCapacity: true)
+            // A complete snapshot supersedes only an earlier snapshot with
+            // the same operation identity. Delta operations for other tool
+            // calls remain in flight and must still project over this base.
+            if let index = pendingOperationIndex(
+                tool: tool,
+                inputJSON: inputJSON,
+                requestID: requestID
+            ) {
+                pendingPreOperations.remove(at: index)
+            }
+            if let index = pendingPostIndex(
+                tool: tool,
+                inputJSON: inputJSON,
+                requestID: requestID
+            ) {
+                pendingPostOperations.remove(at: index)
+            }
             return applyPreMutation(
                 tool: tool,
                 inputJSON: inputJSON,
@@ -383,8 +401,25 @@ struct WorkstreamTaskToolTodos: Sendable {
 
         if tool == .todoWrite || tool == .taskList,
            case .success(let authoritativeResponse) = completion {
-            pendingPreOperations.removeAll(keepingCapacity: true)
-            pendingPostOperations.removeAll(keepingCapacity: true)
+            // Keep unrelated deltas in flight. They are projected after this
+            // authoritative snapshot and reconciled when their own post hook
+            // arrives.
+            if let index = pendingOperationIndex(
+                tool: tool,
+                inputJSON: inputJSON,
+                requestID: requestID
+            ) {
+                pendingPreOperations[index].completion = completion
+                reconcileReadyOperations()
+                return .list(projectedState().todos)
+            }
+            if let index = pendingPostIndex(
+                tool: tool,
+                inputJSON: inputJSON,
+                requestID: requestID
+            ) {
+                pendingPostOperations.remove(at: index)
+            }
             let outcome = applyPostMutation(
                 tool: tool,
                 inputJSON: inputJSON,
@@ -655,6 +690,19 @@ struct WorkstreamTaskToolTodos: Sendable {
         if id.hasPrefix("pending-"),
            let suffix = Int(id.dropFirst("pending-".count)) {
             nextProvisionalID = max(nextProvisionalID, suffix)
+        }
+        guard provisionalIDsInOrder.count > Self.maxProvisionalIDs else { return }
+        let evicted = Set(provisionalIDsInOrder.prefix(
+            provisionalIDsInOrder.count - Self.maxProvisionalIDs
+        ))
+        provisionalIDsInOrder.removeFirst(evicted.count)
+        for key in Array(provisionalIDsBySubject.keys) {
+            let retained = provisionalIDsBySubject[key, default: []].filter { !evicted.contains($0) }
+            if retained.isEmpty {
+                provisionalIDsBySubject.removeValue(forKey: key)
+            } else {
+                provisionalIDsBySubject[key] = retained
+            }
         }
     }
 

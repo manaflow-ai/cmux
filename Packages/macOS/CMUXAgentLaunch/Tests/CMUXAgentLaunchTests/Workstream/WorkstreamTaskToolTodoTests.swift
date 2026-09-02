@@ -410,6 +410,33 @@ struct WorkstreamTaskToolTodoTests {
         #expect(latestTodos(store)?.map(\.id) == ["1", "2"])
     }
 
+    @Test("A complete snapshot preserves an unrelated in-flight delta")
+    func completeSnapshotPreservesInFlightDelta() {
+        var accumulator = WorkstreamTaskToolTodos()
+        _ = accumulator.applyPre(
+            tool: .taskCreate,
+            inputJSON: #"{"subject":"still running"}"#,
+            requestID: "create-1"
+        )
+
+        _ = accumulator.applyPre(
+            tool: .todoWrite,
+            inputJSON: #"{"todos":[]}"#,
+            requestID: "snapshot-1",
+            establishesCompleteness: true
+        )
+        _ = accumulator.applyPost(
+            tool: .todoWrite,
+            inputJSON: #"{"todos":[]}"#,
+            responseJSON: #"{"todos":[]}"#,
+            isError: false,
+            requestID: "snapshot-1"
+        )
+
+        #expect(accumulator.ownedIDList == ["pending-1"])
+        #expect(accumulator.isEmpty == false)
+    }
+
     @Test("A failed TaskUpdate restores the pre-tool checklist")
     func failedTaskUpdateRestoresPreToolState() {
         let store = WorkstreamStore(ringCapacity: 50)
