@@ -147,6 +147,10 @@ impl Default for ClosedStreams {
 }
 
 impl ClosedStreams {
+    fn contains_on(&self, stream: u64, lane: Lane) -> bool {
+        self.lanes.get(&stream).is_some_and(|lane_mask| lane_mask & lane_bit(lane) != 0)
+    }
+
     fn insert_on(&mut self, stream: u64, lane_mask: u8) -> bool {
         if lane_mask == 0 {
             return false;
@@ -1097,7 +1101,7 @@ async fn reader_loop(reader: ReaderLoop) {
             if frame.flags.contains(FrameFlags::RESET) || frame.flags.contains(FrameFlags::FIN) {
                 continue;
             }
-            if closed.lock().await.ids.contains(&frame.stream) {
+            if closed.lock().await.contains_on(frame.stream, frame.lane) {
                 continue;
             }
             if frame.lane == Lane::Tunnel && frame.generation != *generation.borrow() {
