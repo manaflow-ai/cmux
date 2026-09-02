@@ -505,8 +505,7 @@ struct FeedEventClassifier {
             )
         }
         let meta: String?
-        if requiresCorrelatedIdentity {
-            guard let approvalIdentity else { return nil }
+        if let approvalIdentity {
             meta = AgentHookNotifyCategory.needsPermission.metaSegment(
                 pending: false,
                 approvalID: approvalIdentity.approvalID,

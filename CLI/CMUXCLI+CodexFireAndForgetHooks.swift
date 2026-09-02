@@ -326,7 +326,11 @@ extension CMUXCLI {
 
     static func codexFireAndForgetAgentHookShellCommand(_ command: String, for def: AgentHookDef) -> String {
         let routedArguments = command.hasPrefix("cmux ") ? String(command.dropFirst("cmux ".count)) : command
-        let runner = "payload=\"$1\"; shift; \"$@\" <\"$payload\" >/dev/null 2>&1 & child=\"$!\"; ( timer=; trap \"kill \\$timer 2>/dev/null || true; wait \\$timer 2>/dev/null || true; exit 0\" HUP INT TERM; sleep 30 & timer=\"$!\"; wait \"$timer\" 2>/dev/null || true; timer=; kill \"$child\" 2>/dev/null || true ) & watchdog=\"$!\"; wait \"$child\" 2>/dev/null || true; kill \"$watchdog\" 2>/dev/null || true; wait \"$watchdog\" 2>/dev/null || true; rm -f \"$payload\""
+        // The supervisor must finish installing its signal trap and timer
+        // before a fast child can trigger the parent's cleanup.  Without this
+        // readiness handshake, `kill "$watchdog"` can win the race before the
+        // trap exists, leaving the timer process orphaned.
+        let runner = "payload=\"$1\"; shift; ready=\"$payload.ready\"; rm -f \"$ready\"; \"$@\" <\"$payload\" >/dev/null 2>&1 & child=\"$!\"; ( timer=; trap \"kill \\$timer 2>/dev/null || true; wait \\$timer 2>/dev/null || true; exit 0\" HUP INT TERM; sleep 30 & timer=\"$!\"; printf ready >\"$ready\"; wait \"$timer\" 2>/dev/null || true; timer=; kill \"$child\" 2>/dev/null || true ) & watchdog=\"$!\"; ready_attempt=0; while [ ! -s \"$ready\" ] && [ \"$ready_attempt\" -lt 100 ]; do /bin/sleep 0.001; ready_attempt=$((ready_attempt + 1)); done; wait \"$child\" 2>/dev/null || true; kill \"$watchdog\" 2>/dev/null || true; wait \"$watchdog\" 2>/dev/null || true; rm -f \"$payload\" \"$ready\""
         let noOp = stdinDrainingHookNoOpShellCommand
         return [
             "cmux_cli=\"${CMUX_BUNDLED_CLI_PATH:-}\"",

@@ -814,9 +814,13 @@ struct CLICodexHookTimeoutRegressionTests {
         let promptCommand = try #require(
             codexHookEntries(in: codexHome).first { $0.eventName == "UserPromptSubmit" }?.command
         )
+        let sessionStartCommand = try #require(
+            codexHookEntries(in: codexHome).first { $0.eventName == "SessionStart" }?.command
+        )
         let stopCommand = try #require(
             codexHookEntries(in: codexHome).first { $0.eventName == "Stop" }?.command
         )
+        let ledgerURL = root.appendingPathComponent("codex-turn-ledger.json", isDirectory: false)
         let environment = [
             "HOME": root.path,
             "CODEX_HOME": codexHome.path,
@@ -831,8 +835,22 @@ struct CLICodexHookTimeoutRegressionTests {
             "CMUX_BUNDLED_CLI_PATH": cliPath,
             "CMUX_CODEX_PID": "4242",
             "CMUX_CODEX_INVOCATION_ID": "installed-\(sessionId)",
-            "CMUX_CODEX_TURN_LEDGER_PATH": root.appendingPathComponent("codex-turn-ledger.json").path,
+            "CMUX_CODEX_TURN_LEDGER_PATH": ledgerURL.path,
         ]
+
+        // Tokenized Codex hooks normally receive SessionStart before prompt
+        // callbacks. Seed that owner record here so the stale-stop assertions
+        // exercise the modern ledger path rather than the legacy fallback.
+        let sessionStart = runCodexHookProcess(
+            executablePath: "/bin/sh",
+            arguments: ["-c", sessionStartCommand],
+            environment: environment,
+            standardInput: #"{"session_id":"\#(sessionId)","cwd":"\#(root.path)","hook_event_name":"SessionStart"}"#,
+            timeout: 3
+        )
+        #expect(sessionStart.status == 0, Comment(rawValue: sessionStart.stderr))
+        #expect(sessionStart.stdout == "{}\n")
+        #expect(waitForFile(ledgerURL, containing: sessionId, timeout: 2))
 
         let oldPrompt = runCodexHookProcess(
             executablePath: "/bin/sh",
