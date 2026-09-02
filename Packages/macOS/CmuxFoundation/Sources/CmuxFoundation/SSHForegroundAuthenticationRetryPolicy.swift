@@ -98,10 +98,13 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
     /// handler cannot escape by forking a replacement and exiting before the next
     /// scan. Every recursive grace check shares one two-second deadline, while an
     /// isolated child process group is terminated as one unit before recursion.
-    /// Once that deadline has passed, each remaining node is frozen and
-    /// force-killed together with every descendant found under it, so a
-    /// deadline that expires partway down a deep tree cannot leak the children
-    /// the walk never reached.
+    /// Once that deadline has passed, the node being visited is frozen and
+    /// force-killed together with every descendant found under it from one
+    /// process-table snapshot, and the walk stops descending, so a deadline
+    /// that expires partway down a deep tree cannot leak the children the walk
+    /// never reached. Remaining siblings are covered by their parent's sweep
+    /// rather than visited one by one, so the post-deadline cost is bounded by
+    /// tree depth (one or two `ps` snapshots per ancestor), not by tree width.
     /// The caller supplies the authentication root's known wrapper PID so root
     /// validation is not inferred from a potentially reused candidate PID.
     ///
@@ -207,6 +210,10 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
               exit 0
             fi
             for cmux_ssh_auth_tree_child in $(/usr/bin/pgrep -P "$cmux_ssh_auth_tree_pid" . 2>/dev/null || true); do
+              if ! cmux_ssh_auth_cleanup_has_time; then
+                cmux_ssh_kill_auth_subtree "$cmux_ssh_auth_tree_pid"
+                exit 0
+              fi
               cmux_ssh_terminate_auth_process "$cmux_ssh_auth_tree_child" "$cmux_ssh_auth_tree_pid"
             done
             if ! cmux_ssh_auth_cleanup_has_time; then
@@ -237,6 +244,10 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
               exit 0
             fi
             for cmux_ssh_auth_tree_child in $(/usr/bin/pgrep -P "$cmux_ssh_auth_tree_pid" . 2>/dev/null || true); do
+              if ! cmux_ssh_auth_cleanup_has_time; then
+                cmux_ssh_kill_auth_subtree "$cmux_ssh_auth_tree_pid"
+                exit 0
+              fi
               cmux_ssh_terminate_auth_process "$cmux_ssh_auth_tree_child" "$cmux_ssh_auth_tree_pid"
             done
             if cmux_ssh_auth_process_is_original "$cmux_ssh_auth_tree_pid" "$cmux_ssh_auth_tree_parent_pid"; then
