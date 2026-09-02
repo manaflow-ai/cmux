@@ -43,11 +43,16 @@ async fn control_request_until_cancelled(
     cmd: &str,
     params: Value,
     cancellation: &CancellationToken,
-) -> Option<Value> {
+) -> ControlRequestOutcome {
     tokio::select! {
-        response = control.request(cmd, params) => response,
-        _ = cancellation.cancelled() => None,
+        response = control.request(cmd, params) => ControlRequestOutcome::Response(response),
+        _ = cancellation.cancelled() => ControlRequestOutcome::Cancelled,
     }
+}
+
+enum ControlRequestOutcome {
+    Response(Option<Value>),
+    Cancelled,
 }
 
 pub type DataSink = Arc<dyn Fn(Bytes) + Send + Sync>;
@@ -1800,13 +1805,22 @@ impl Inner {
         } else {
             json!({ "surface": surface_id })
         };
-        let attached = control_request_until_cancelled(
+        let attached = match control_request_until_cancelled(
             control.as_ref(),
             "attach-surface",
             attach_params,
             &context.cancellation,
         )
-        .await;
+        .await
+        {
+            ControlRequestOutcome::Response(response) => response,
+            // The attachment cancellation belongs to this open request. Do
+            // not end the shared control connection while another attachment
+            // may still be using it.
+            ControlRequestOutcome::Cancelled => {
+                return Err((RelayPtyErrorCode::Failed, "attach-surface cancelled".to_owned()));
+            }
+        };
         if attached.as_ref().and_then(|v| v.get("ok")).and_then(Value::as_bool) != Some(true) {
             control.end();
             let reason = attached
@@ -2066,7 +2080,7 @@ mod tests {
             .await
             .expect("cancellation must resolve promptly")
             .expect("request task must not panic");
-        assert!(result.is_none());
+        assert!(matches!(result, ControlRequestOutcome::Cancelled));
         assert_eq!(control.requests.load(AtomicOrdering::SeqCst), 1);
     }
 
