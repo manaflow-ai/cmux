@@ -51,11 +51,13 @@ export function AdminProPanel() {
 
   async function runSearch(value: string) {
     const trimmed = value.trim();
+    // Every submit claims a new sequence number, including a too-short query,
+    // so an older in-flight search cannot land on top of the reset state.
+    const seq = ++requestSeq.current;
     if (trimmed.length < 2) {
       setSearch({ kind: "idle" });
       return;
     }
-    const seq = ++requestSeq.current;
     setSearch({ kind: "searching" });
     let response: Response;
     try {
