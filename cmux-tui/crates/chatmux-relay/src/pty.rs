@@ -2673,7 +2673,7 @@ impl Inner {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::control::{CloseHandler, EventHandler};
+    use crate::control::{CONTROL_TIMEOUT_MS, CloseHandler, EventHandler};
     use std::future::Future;
     #[cfg(unix)]
     use std::os::unix::fs::MetadataExt;
@@ -2682,6 +2682,7 @@ mod tests {
     use std::sync::atomic::{AtomicUsize, Ordering as AtomicOrdering};
     use std::sync::{Arc as TestArc, Barrier, Mutex as StdMutex};
     use std::thread;
+    use std::time::Duration;
 
     static NEXT_TEST_DIRECTORY: AtomicU64 = AtomicU64::new(0);
 
@@ -3491,6 +3492,37 @@ mod tests {
         }
     }
 
+    struct StalledDetachControl {
+        ended: Arc<AtomicUsize>,
+    }
+
+    impl ControlHandle for StalledDetachControl {
+        fn request(
+            &self,
+            _cmd: &str,
+            _params: Value,
+        ) -> std::pin::Pin<Box<dyn Future<Output = Option<Value>> + Send + '_>> {
+            Box::pin(async { Some(json!({ "ok": true })) })
+        }
+        fn send(&self, _cmd: &str, _params: Value) -> bool {
+            true
+        }
+        fn send_reliable(
+            &self,
+            _cmd: &str,
+            _params: Value,
+        ) -> std::pin::Pin<Box<dyn Future<Output = bool> + Send + '_>> {
+            Box::pin(std::future::pending())
+        }
+        fn on_event(&self, _handler: EventHandler) {}
+        fn on_close(&self, _handler: CloseHandler) {}
+        fn pause(&self) {}
+        fn resume(&self) {}
+        fn end(&self) {
+            self.ended.fetch_add(1, AtomicOrdering::SeqCst);
+        }
+    }
+
     #[test]
     fn control_leases_detach_each_surface_and_end_once_after_last_release() {
         let h = harness(None, None);
@@ -3505,6 +3537,27 @@ mod tests {
         assert_eq!(ended.load(AtomicOrdering::SeqCst), 0);
         second.release(8, Some("lease-b"), true);
         assert_eq!(detached.load(AtomicOrdering::SeqCst), 2);
+        assert_eq!(ended.load(AtomicOrdering::SeqCst), 1);
+        assert!(h.manager.inner.control_users.lock().unwrap().is_empty());
+    }
+
+    #[tokio::test]
+    async fn stalled_detach_releases_control_after_deadline() {
+        let h = harness(None, None);
+        let ended = Arc::new(AtomicUsize::new(0));
+        let control: Arc<dyn ControlHandle> =
+            Arc::new(StalledDetachControl { ended: Arc::clone(&ended) });
+        let lease = h.manager.inner.register_control_user(&control);
+
+        lease.release(7, Some("lease-a"), true);
+
+        tokio::time::timeout(Duration::from_millis(CONTROL_TIMEOUT_MS + 500), async {
+            while ended.load(AtomicOrdering::SeqCst) == 0 {
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .expect("stalled detach must not retain the control lease");
         assert_eq!(ended.load(AtomicOrdering::SeqCst), 1);
         assert!(h.manager.inner.control_users.lock().unwrap().is_empty());
     }
