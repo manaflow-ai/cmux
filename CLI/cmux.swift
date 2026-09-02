@@ -4294,14 +4294,11 @@ struct CMUXCLI {
     // never pins an image id unless the person passes `--image`: a pinned id
     // that drifted from the web deploy's manifest failed every create with
     // `vm_image_config_error`.
-    /// `--size` spellings → memory in MB. vCPUs scale with memory (one per
-    /// 4 GB); 20g is the plan machine and every plan's ceiling.
+    /// `--size` spellings → memory in MB. Every plan sells exactly the plan
+    /// machine (5 vCPU / 20 GB / 200 GB), so 20g is the only preset; the
+    /// backend refuses other sizes with `vm_memory_unsupported`.
     private static let cloudVMSizeAliases: [String: Int] = [
-        "2g": 2048, "2gb": 2048, "small": 2048,
-        "4g": 4096, "4gb": 4096, "medium": 4096,
-        "8g": 8192, "8gb": 8192, "large": 8192,
-        "16g": 16384, "16gb": 16384, "xl": 16384,
-        "20g": 20480, "20gb": 20480, "xxl": 20480,
+        "20g": 20480, "20gb": 20480,
     ]
     static func parseCloudVMSize(_ raw: String) -> Int? {
         let key = raw.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()

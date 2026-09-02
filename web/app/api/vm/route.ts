@@ -23,6 +23,7 @@ import {
   isVmLimitExceededError,
 } from "../../../services/vms/errors";
 import {
+  VM_MEMORY_OPTIONS_MB,
   defaultMemoryMbForPlan,
   isPaidVmPlan,
   isVmBillingTeamResolutionError,
@@ -370,6 +371,17 @@ export async function POST(request: Request): Promise<Response> {
             message: "The requested Cloud VM size exceeds this plan's memory limit.",
             action: `Choose a size at or below ${maxMemoryMb} MB, or upgrade the plan before retrying.`,
             details: { requestedMemoryMb: memoryMb, maxMemoryMb, planId: entitlements.planId },
+          });
+        }
+        if (!VM_MEMORY_OPTIONS_MB.includes(memoryMb)) {
+          // The pricing page promises every machine is the plan machine, so a
+          // smaller request is refused rather than quietly under-delivered.
+          return vmErrorResponse({
+            error: "vm_memory_unsupported",
+            status: 400,
+            message: "The requested Cloud VM size is not offered.",
+            action: `Omit \`memoryMb\`, or choose one of: ${VM_MEMORY_OPTIONS_MB.join(", ")} MB.`,
+            details: { requestedMemoryMb: memoryMb, memoryOptionsMb: [...VM_MEMORY_OPTIONS_MB], planId: entitlements.planId },
           });
         }
         setSpanAttributes(span, {

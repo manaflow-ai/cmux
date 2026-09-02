@@ -78,7 +78,7 @@ describe("Cloud VM memory allowance", () => {
     expect(maxMemoryMbForPlan("free", {})).toBe(20480);
     expect(defaultMemoryMbForPlan("pro", {})).toBe(20480);
     expect(maxMemoryMbForPlan("pro", {})).toBe(20480);
-    expect(VM_MEMORY_OPTIONS_MB.at(-1)).toBe(20480);
+    expect(VM_MEMORY_OPTIONS_MB).toEqual([20480]);
   });
 
   test("vCPUs follow memory at one per 4 GB, so the plan machine is 5 vCPU", () => {

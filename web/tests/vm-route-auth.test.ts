@@ -583,12 +583,12 @@ describe("VM REST auth", () => {
       new Request("https://cmux.test/api/vm", {
         method: "POST",
         headers: { origin: "https://cmux.test" },
-        body: JSON.stringify({ provider: "freestyle", image: "snapshot-test", memoryMb: 16384 }),
+        body: JSON.stringify({ provider: "freestyle", image: "snapshot-test", memoryMb: 20480 }),
       }),
     );
 
     expect(response.status).toBe(200);
-    expect(createVm).toHaveBeenCalledWith(expect.objectContaining({ memoryMb: 16384 }));
+    expect(createVm).toHaveBeenCalledWith(expect.objectContaining({ memoryMb: 20480 }));
   });
 
   test("rejects a memory size above the plan ceiling before the workflow", async () => {
@@ -608,6 +608,27 @@ describe("VM REST auth", () => {
     expect(payload).toMatchObject({
       error: "vm_memory_exceeds_plan",
       details: { requestedMemoryMb: 32768, maxMemoryMb: 20480, planId: "free" },
+    });
+    expect(runVmWorkflow).not.toHaveBeenCalled();
+  });
+
+  test("refuses a Cloud VM smaller than the plan machine", async () => {
+    process.env.CMUX_VM_ALLOW_FREE_PROVISIONING = "1";
+    getUser.mockResolvedValue(freePlanStackUser());
+
+    const response = await POST(
+      new Request("https://cmux.test/api/vm", {
+        method: "POST",
+        headers: { origin: "https://cmux.test" },
+        body: JSON.stringify({ provider: "freestyle", image: "snapshot-test", memoryMb: 8192 }),
+      }),
+    );
+
+    expect(response.status).toBe(400);
+    const payload = await response.json();
+    expect(payload).toMatchObject({
+      error: "vm_memory_unsupported",
+      details: { requestedMemoryMb: 8192, memoryOptionsMb: [20480], planId: "free" },
     });
     expect(runVmWorkflow).not.toHaveBeenCalled();
   });

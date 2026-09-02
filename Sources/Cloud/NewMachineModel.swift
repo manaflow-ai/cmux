@@ -31,8 +31,9 @@ final class NewMachineModel {
     typealias Launch = @MainActor ([String], @escaping @MainActor (CloudVMActionLauncher.Completion) -> Void) -> Bool
 
     /// Memory sizes the backend accepts (`VM_MEMORY_OPTIONS_MB` in
-    /// `web/services/vms/entitlements.ts`); the plan ceiling trims the tail.
-    static let memoryOptionsMb: [Int] = [2048, 4096, 8192, 16384, planMachineMemoryMb]
+    /// `web/services/vms/entitlements.ts`): exactly the plan machine, so the
+    /// picker mirrors what /pricing promises. The plan ceiling trims the tail.
+    static let memoryOptionsMb: [Int] = [planMachineMemoryMb]
     /// The plan machine (`PLAN_MACHINE_MEMORY_MB`): 20 GB, 5 vCPU, 200 GB disk.
     static let planMachineMemoryMb = 20480
     /// Mirrors `maxMemoryMbForPlan`: every plan, free included, gets the plan

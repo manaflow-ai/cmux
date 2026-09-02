@@ -129,11 +129,13 @@ function resolveBillingContext(
 }
 
 /**
- * Machine sizes a person can pick, as memory in MB. vCPUs follow memory
- * (vcpusForMemoryMb), so memory is the whole size story. The plan machine is
- * the largest entry; a plan ceiling trims the tail.
+ * Machine sizes a person can pick, as memory in MB. Every plan sells exactly
+ * the plan machine (5 vCPU / 20 GB / 200 GB), so this is one entry: the
+ * pricing copy promises that size, and a smaller machine would fall short of
+ * it. vCPUs follow memory (vcpusForMemoryMb). Kept as a list so a future
+ * size tier is one entry, not a new concept.
  */
-export const VM_MEMORY_OPTIONS_MB: readonly number[] = [2048, 4096, 8192, 16384, PLAN_MACHINE_MEMORY_MB];
+export const VM_MEMORY_OPTIONS_MB: readonly number[] = [PLAN_MACHINE_MEMORY_MB];
 
 /** Largest machine a plan may create. Env-overridable per plan. */
 export function maxMemoryMbForPlan(
