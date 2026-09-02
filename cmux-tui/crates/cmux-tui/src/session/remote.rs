@@ -3622,12 +3622,24 @@ fn private_dump_file(path: &Path) -> io::Result<fs::File> {
     #[cfg(unix)]
     {
         use std::os::unix::fs::OpenOptionsExt;
-        options.mode(0o600).custom_flags(libc::O_NOFOLLOW);
+        options.mode(0o600).custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK);
     }
     let file = options.open(path)?;
     #[cfg(unix)]
     {
-        use std::os::unix::fs::PermissionsExt;
+        use std::os::unix::fs::{MetadataExt, PermissionsExt};
+        let metadata = file.metadata()?;
+        // O_NOFOLLOW protects only the final path component. Verify the
+        // opened descriptor as well, so a stale or malicious dump entry
+        // cannot block on a FIFO or redirect output to a device. A link count
+        // above one indicates a hard link, which could otherwise truncate a
+        // different file when the dump is refreshed.
+        if !metadata.is_file() || metadata.nlink() != 1 {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                format!("dump target is not a private regular file: {}", path.display()),
+            ));
+        }
         // `mode` only applies when the file is new. Set permissions through
         // the opened descriptor so existing files are also private without a
         // path-based symlink race.
