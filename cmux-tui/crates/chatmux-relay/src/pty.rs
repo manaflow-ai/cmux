@@ -5240,6 +5240,19 @@ mod tests {
         }
     }
 
+    #[test]
+    fn detached_transport_revokes_surface_delivery_token() {
+        let h = harness(None, None);
+        let context = h.context_with_transport("supervised", h.owner.clone(), Some("relay-live"));
+        h.manager.update_transport_auth(&context);
+        let auth = h.manager.inner.auth_for_transport(&context).expect("transport authority");
+        assert!(auth.delivery_live.load(Ordering::Acquire));
+
+        h.manager.detach_transport_kind("relay-live", TransportKind::Relay);
+
+        assert!(!auth.delivery_live.load(Ordering::Acquire));
+    }
+
     #[tokio::test]
     async fn tunnel_authority_without_a_generation_is_rejected_after_revoke() {
         let h = harness(None, None);
