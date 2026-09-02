@@ -480,7 +480,10 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
         try """
         #!/bin/sh
         trap '' HUP INT TERM
-        /bin/sleep 0.5
+        # Keep the replacement behind the first one-second FIFO read. The
+        # helper must retry the completion event through its bounded deadline
+        # before releasing the wrapper and discovering the detached child.
+        /bin/sleep 1.2
         /bin/sh "$CMUX_TEST_REPLACEMENT_SCRIPT" &
         printf '%s\\n' "$!" > "$CMUX_TEST_REPLACEMENT_PID"
         : > "$CMUX_TEST_HANDLER_DONE"

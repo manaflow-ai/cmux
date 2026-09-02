@@ -362,19 +362,22 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
             if [ ! -p "$cmux_ssh_auth_term_event_ack_fifo" ] || ! exec 10<> "$cmux_ssh_auth_term_event_ack_fifo"; then return 0; fi
             exec 9<> "$cmux_ssh_auth_term_event_fifo" || return 0
             cmux_ssh_auth_term_event_writer=
-            # macOS /bin/sh accepts only an integer read timeout. The read is
-            # intentionally anchored to TERM delivery rather than the setup
-            # clock: process-table validation can consume the first second on
-            # a fork-starved runner, but the handler still needs one complete
-            # scheduling window to publish its completion event.
-            if IFS= read -r -t 1 cmux_ssh_auth_term_event_writer <&9; then
-              # The FIFO directory and payload both carry the random,
-              # per-attempt nonce. Process ownership is established by the
-              # marker FD journal, not by a PID that can be reused.
-              if [ "$cmux_ssh_auth_term_event_writer" = "$cmux_ssh_auth_event_token" ]; then
-                cmux_ssh_auth_term_event_received=1
+            # macOS /bin/sh accepts only an integer read timeout. Retry the
+            # blocking read through the remaining cleanup deadline so a TERM
+            # handler that is delayed by scheduler pressure can still publish
+            # its replacement marker. The FIFO stays open across retries.
+            cmux_ssh_auth_term_event_wait_start=${SECONDS:-0}
+            while [ "$cmux_ssh_auth_term_event_received" != 1 ] &&
+                  [ "$((${SECONDS:-0} - cmux_ssh_auth_term_event_wait_start))" -lt 2 ]; do
+              if IFS= read -r -t 1 cmux_ssh_auth_term_event_writer <&9; then
+                # The FIFO directory and payload both carry the random,
+                # per-attempt nonce. Process ownership is established by the
+                # marker FD journal, not by a PID that can be reused.
+                if [ "$cmux_ssh_auth_term_event_writer" = "$cmux_ssh_auth_event_token" ]; then
+                  cmux_ssh_auth_term_event_received=1
+                fi
               fi
-            fi
+            done
             if [ "$cmux_ssh_auth_term_event_received" != 1 ]; then
               exec 9>&-
             fi
@@ -395,13 +398,29 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
           # The validation and SIGCONT happen in one Perl process, so a failed
           # process-table snapshot never turns a stale PID into an unverified
           # signal.
-          cmux_ssh_auth_resume_kernel_journal() {
+          # Validate and signal an identity batch in one Perl process. The
+          # shell/awk snapshot is only a candidate list. Every operation gets
+          # a fresh proc_bsdinfo read immediately before the signal, and STOP
+          # candidates are checked again after the signal. A PID that was
+          # replaced can therefore be briefly stopped, but it is resumed before
+          # it can enter the ownership journal. TERM and KILL are sent only to a
+          # confirmed stopped identity. A stopped process cannot exit and reuse
+          # its PID, which closes the destructive KILL window without relying on
+          # a numeric PID after it has been released.
+          cmux_ssh_auth_signal_verified_batch() {
+            cmux_ssh_auth_signal_name="$1"
+            cmux_ssh_auth_signal_input="$2"
+            cmux_ssh_auth_signal_output="${3:-/dev/null}"
             /usr/bin/perl -e '
               use strict;
               use warnings;
-              my $journal_path = shift;
-              exit 0 unless defined $journal_path;
-              open my $journal, "<", $journal_path or exit 1;
+
+              my ($signal, $input_path, $output_path) = @ARGV;
+              exit 2 unless defined $signal && defined $input_path && defined $output_path;
+              exit 2 unless $signal eq "STOP" || $signal eq "TERM" ||
+                $signal eq "CONT" || $signal eq "KILL";
+              open my $input, "<", $input_path or exit 1;
+              open my $output, ">", $output_path or exit 1;
 
               sub process_identity {
                 my ($pid) = @_;
@@ -428,25 +447,84 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
                 return ($observed_pid, $parent, $group, $status, $seconds, $microseconds);
               }
 
-              while (my $line = <$journal>) {
+              sub same_identity {
+                my ($identity, $pid, $group, $seconds, $microseconds) = @_;
+                return 0 unless defined $identity && @$identity == 6;
+                return $identity->[0] == $pid && $identity->[2] == $group &&
+                  $identity->[4] == $seconds && $identity->[5] == $microseconds;
+              }
+
+              while (my $line = <$input>) {
+                chomp $line;
                 my @fields = grep { length } split(/\s+/, $line);
                 next unless @fields == 6;
-                my ($pid, $parent, $group, $started) = @fields[1, 2, 3, 5];
-                next unless $pid =~ /\A[1-9][0-9]*\z/ &&
-                  $parent =~ /\A[0-9]+\z/ && $group =~ /\A[1-9][0-9]*\z/;
+                my ($depth, $pid, $parent, $group, $original_state, $started) = @fields;
+                next unless $depth =~ /\A[0-9]+\z/ &&
+                  $pid =~ /\A[1-9][0-9]*\z/ &&
+                  $parent =~ /\A[0-9]+\z/ &&
+                  $group =~ /\A[1-9][0-9]*\z/;
                 next unless $started =~ /\AK_([0-9]+)_([0-9]+)_0_0\z/;
                 my ($expected_seconds, $expected_microseconds) = ($1, $2);
                 next if $expected_microseconds >= 1_000_000;
-                my @identity = process_identity(0 + $pid);
-                next unless @identity == 6;
-                my ($observed_pid, $observed_parent, $observed_group,
-                    $status, $seconds, $microseconds) = @identity;
-                next unless $observed_pid == $pid && $observed_group == $group &&
-                  $seconds == $expected_seconds &&
-                  $microseconds == $expected_microseconds && $status == 4;
-                kill("CONT", 0 + $pid);
+                my @before = process_identity(0 + $pid);
+                next unless same_identity(\@before, 0 + $pid, 0 + $group,
+                  $expected_seconds, $expected_microseconds);
+                next if $before[3] == 5;
+
+                if ($signal eq "STOP") {
+                  # Never claim a process that was already stopped. It may be
+                  # owned by an unrelated debugger, and resuming it would be
+                  # an observable side effect of failed cleanup.
+                  next if $before[3] == 4;
+                  next unless kill("STOP", 0 + $pid);
+                  my @after = process_identity(0 + $pid);
+                  if (same_identity(\@after, 0 + $pid, 0 + $group,
+                        $expected_seconds, $expected_microseconds) && $after[3] == 4) {
+                    print {$output} $line, "\n";
+                  } else {
+                    # If the PID changed, only resume the process that this
+                    # helper just stopped. A stopped process cannot be reused
+                    # between this identity check and CONT.
+                    my @rollback = process_identity(0 + $pid);
+                    if (@rollback == 6 && $rollback[3] == 4 &&
+                        !same_identity(\@rollback, 0 + $pid, 0 + $group,
+                          $expected_seconds, $expected_microseconds)) {
+                      kill("CONT", 0 + $pid);
+                    }
+                  }
+                  next;
+                }
+
+                # Rollback never resumes a process that was already stopped
+                # before this helper acquired it.
+                next if $signal eq "CONT" && $original_state eq "T";
+                next unless $before[3] == 4;
+                if ($signal eq "TERM") {
+                  if (!kill("TERM", 0 + $pid)) {
+                    my @current = process_identity(0 + $pid);
+                    kill("CONT", 0 + $pid)
+                      if same_identity(\@current, 0 + $pid, 0 + $group,
+                        $expected_seconds, $expected_microseconds) && $current[3] == 4;
+                    next;
+                  }
+                  my @after = process_identity(0 + $pid);
+                  kill("CONT", 0 + $pid)
+                    if same_identity(\@after, 0 + $pid, 0 + $group,
+                      $expected_seconds, $expected_microseconds) && $after[3] == 4;
+                } elsif ($signal eq "CONT") {
+                  kill("CONT", 0 + $pid);
+                } elsif ($signal eq "KILL") {
+                  # The identity was confirmed stopped immediately above, so
+                  # the kernel cannot recycle this PID before KILL is queued.
+                  kill("KILL", 0 + $pid);
+                }
               }
-            ' "$1" >/dev/null 2>&1 || true
+            ' "$cmux_ssh_auth_signal_name" "$cmux_ssh_auth_signal_input" \
+              "$cmux_ssh_auth_signal_output" >/dev/null 2>&1
+          }
+
+          cmux_ssh_auth_resume_kernel_journal() {
+            cmux_ssh_auth_signal_verified_batch CONT "$1" /dev/null || true
           }
 
           cmux_ssh_auth_resume_unconfirmed_stops() {
@@ -578,17 +656,10 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
               break
             fi
             : > "$cmux_ssh_auth_pending"
-            while IFS=' ' read -r cmux_depth cmux_pid cmux_parent cmux_group cmux_state cmux_started; do
-              case "$cmux_pid:$cmux_parent:$cmux_group:$cmux_started" in
-                *[!0-9A-Za-z_:]*|:*|*:) continue ;;
-              esac
-              # Only successful STOP calls enter the pending ownership journal.
-              if kill -STOP "$cmux_pid" >/dev/null 2>&1; then
-                printf '%s %s %s %s %s %s\n' \
-                  "$cmux_depth" "$cmux_pid" "$cmux_parent" "$cmux_group" "$cmux_state" "$cmux_started" \
-                  >> "$cmux_ssh_auth_pending" || exit 0
-              fi
-            done < "$cmux_ssh_auth_stop_candidates"
+            # Only STOP operations that pass the in-process identity fence
+            # enter the pending ownership journal.
+            cmux_ssh_auth_signal_verified_batch STOP \
+              "$cmux_ssh_auth_stop_candidates" "$cmux_ssh_auth_pending" || exit 0
             cmux_ssh_auth_append_pending || exit 0
 
             if ! cmux_ssh_auth_take_snapshot || ! cmux_ssh_auth_extract_tree; then
@@ -633,11 +704,7 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
               }
             }
           ' "$cmux_ssh_auth_term_candidates" > "$cmux_ssh_auth_term" || exit 0
-          while IFS=' ' read -r cmux_depth cmux_pid cmux_parent cmux_group cmux_state cmux_started; do
-            case "$cmux_pid" in ''|*[!0-9]*) continue ;; esac
-            kill -TERM "$cmux_pid" >/dev/null 2>&1 || true
-            kill -CONT "$cmux_pid" >/dev/null 2>&1 || true
-          done < "$cmux_ssh_auth_term"
+          cmux_ssh_auth_signal_verified_batch TERM "$cmux_ssh_auth_term" /dev/null || true
           # The wrapper sends its event immediately after forwarding TERM and
           # waits for our ACK. Snapshot before ACK so a replacement is still
           # attached to the live wrapper even when its direct parent exits.
@@ -733,16 +800,8 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
               break
             fi
             : > "$cmux_ssh_auth_pending"
-            while IFS=' ' read -r cmux_depth cmux_pid cmux_parent cmux_group cmux_state cmux_started; do
-              case "$cmux_pid:$cmux_parent:$cmux_group:$cmux_started" in
-                *[!0-9A-Za-z_:]*|:*|*:) continue ;;
-              esac
-              if kill -STOP "$cmux_pid" >/dev/null 2>&1; then
-                printf '%s %s %s %s %s %s\n' \
-                  "$cmux_depth" "$cmux_pid" "$cmux_parent" "$cmux_group" "$cmux_state" "$cmux_started" \
-                  >> "$cmux_ssh_auth_pending" || exit 0
-              fi
-            done < "$cmux_ssh_auth_stop_candidates"
+            cmux_ssh_auth_signal_verified_batch STOP \
+              "$cmux_ssh_auth_stop_candidates" "$cmux_ssh_auth_pending" || exit 0
             cmux_ssh_auth_append_pending || exit 0
             if ! cmux_ssh_auth_take_snapshot || ! cmux_ssh_auth_extract_owned; then
               cmux_ssh_auth_resume_unconfirmed_stops "$cmux_ssh_auth_owned"
@@ -770,17 +829,8 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
             exit 0
           fi
           cmux_ssh_auth_kill_failed=0
-          while IFS=' ' read -r cmux_depth cmux_pid cmux_parent cmux_group cmux_state cmux_started; do
-            case "$cmux_pid" in ''|*[!0-9]*) continue ;; esac
-            if ! kill -KILL "$cmux_pid" >/dev/null 2>&1; then
-              # A process can exit between the confirming snapshot and this
-              # builtin call. Retry once, then leave the EXIT rollback armed
-              # if the PID still refuses the signal.
-              if ! kill -KILL "$cmux_pid" >/dev/null 2>&1; then
-                cmux_ssh_auth_kill_failed=1
-              fi
-            fi
-          done < "$cmux_ssh_auth_kill_candidates"
+          cmux_ssh_auth_signal_verified_batch KILL \
+            "$cmux_ssh_auth_kill_candidates" /dev/null || cmux_ssh_auth_kill_failed=1
           if [ "$cmux_ssh_auth_kill_failed" = 0 ]; then
             cmux_ssh_auth_cleanup_complete=1
           fi
