@@ -337,10 +337,10 @@ struct TerminalColorSchemeProtocolTests {
         let contentView = try #require(window.contentView)
         hostedView.frame = contentView.bounds
         hostedView.autoresizingMask = [.width, .height]
+        // Move out of the hidden bootstrap window before attaching the real host.
+        hostedView.removeFromSuperview()
         contentView.addSubview(hostedView)
-        // TerminalSurface's construction-time attachment happened while its
-        // bootstrap window was being adopted. Re-attach once the test host is
-        // in the real window so the native surface is created on this PTY.
+        // Re-attach so the native surface is created on this PTY.
         hostedView.attachSurface(surface)
         window.makeKeyAndOrderFront(nil)
         window.displayIfNeeded()
