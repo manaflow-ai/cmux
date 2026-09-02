@@ -848,6 +848,21 @@ mod tests {
     }
 
     #[test]
+    fn repeated_agent_report_failures_coalesce_diagnostics() {
+        let mux = Mux::new_for_test("aux-agent-error-coalesce", SurfaceOptions::default());
+        let diagnostics = Arc::new(std::sync::Mutex::new(Vec::<String>::new()));
+        let diagnostics_for_reporter = Arc::clone(&diagnostics);
+        assert!(mux.set_diagnostic_reporter(Arc::new(move |message| {
+            diagnostics_for_reporter.lock().unwrap().push(message.to_string());
+        })));
+        for _ in 0..3 {
+            let error = anyhow::anyhow!("unknown terminal term_deadbeef");
+            let _ = agent_report_operation_error(mux.as_ref(), error);
+        }
+        assert_eq!(diagnostics.lock().unwrap().len(), 1);
+    }
+
+    #[test]
     fn filtered_agent_list_does_not_decode_unrelated_projections() {
         let mux = Mux::new_for_test("filtered-agent-list", SurfaceOptions::default());
         let requested = mux.new_workspace(Some("requested".into()), None).unwrap();
