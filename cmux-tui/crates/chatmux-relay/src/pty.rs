@@ -44,10 +44,13 @@ async fn control_request_until_cancelled(
     params: Value,
     cancellation: &CancellationToken,
 ) -> ControlRequestOutcome {
-    tokio::select! {
-        response = control.request(cmd, params) => ControlRequestOutcome::Response(response),
-        _ = cancellation.cancelled() => ControlRequestOutcome::Cancelled,
+    if cancellation.is_cancelled() {
+        return ControlRequestOutcome::Cancelled;
     }
+    // Once a request is handed to the control writer, let it finish. Dropping
+    // the future cannot retract a queued attach and would leave an unscoped
+    // server-side stream on peers without lease-addressed detach support.
+    ControlRequestOutcome::Response(control.request(cmd, params).await)
 }
 
 enum ControlRequestOutcome {
@@ -1814,13 +1817,9 @@ impl Inner {
         .await
         {
             ControlRequestOutcome::Response(response) => response,
-            // The attachment cancellation belongs to this open request. Do
-            // not end the shared control connection while another attachment
-            // may still be using it. Ask the server to retire this stream;
-            // older peers treat the request as a no-op and still keep the
-            // connection available for other attachments.
+            // Cancellation was observed before the request reached the
+            // control writer, so no remote attach exists to clean up.
             ControlRequestOutcome::Cancelled => {
-                control.send("detach-attached-view", json!({ "surface": surface_id }));
                 return Err((RelayPtyErrorCode::Failed, "attach-surface cancelled".to_owned()));
             }
         };
