@@ -6515,6 +6515,8 @@ mod tests {
         remaining_responses: usize,
         release: Arc<(Mutex<bool>, Condvar)>,
         exited: Sender<()>,
+        entered: Option<Sender<()>>,
+        exit_delay: Duration,
     }
 
     impl RemoteMessageReader for LifecycleReader {
@@ -6527,9 +6529,15 @@ mod tests {
             }
 
             let (released, changed) = &*self.release;
+            if let Some(entered) = self.entered.take() {
+                let _ = entered.send(());
+            }
             let mut released = released.lock().unwrap();
             while !*released {
                 released = changed.wait(released).unwrap();
+            }
+            if !self.exit_delay.is_zero() {
+                std::thread::sleep(self.exit_delay);
             }
             self.exited.send(()).unwrap();
             Ok(None)
@@ -6595,6 +6603,8 @@ mod tests {
                 remaining_responses: 3,
                 release: release.clone(),
                 exited: reader_exited,
+                entered: None,
+                exit_delay: Duration::ZERO,
             }),
             Box::new(LifecycleWriter { responses, closed: closed.clone(), exited: writer_exited }),
             Arc::new(LifecycleAbort { release }),
@@ -6610,6 +6620,42 @@ mod tests {
         writer_exited_rx
             .recv_timeout(Duration::from_millis(100))
             .expect("transport shutdown must join the writer");
+    }
+
+    #[test]
+    fn dropping_session_waits_for_blocked_reader_worker() {
+        let (responses, response_rx) = channel();
+        let release = Arc::new((Mutex::new(false), Condvar::new()));
+        let (reader_entered, reader_entered_rx) = channel();
+        let (reader_exited, reader_exited_rx) = channel();
+        let (writer_exited, _writer_exited_rx) = channel();
+        let closed = Arc::new(AtomicBool::new(false));
+        let session = RemoteSession::connect_transport(RemoteTransport::new(
+            Box::new(LifecycleReader {
+                responses: response_rx,
+                remaining_responses: 3,
+                release: release.clone(),
+                exited: reader_exited,
+                entered: Some(reader_entered),
+                exit_delay: Duration::from_millis(50),
+            }),
+            Box::new(LifecycleWriter { responses, closed, exited: writer_exited }),
+            Arc::new(LifecycleAbort { release }),
+        ))
+        .unwrap();
+        reader_entered_rx
+            .recv_timeout(Duration::from_secs(1))
+            .expect("reader did not reach its blocked receive");
+
+        let started = Instant::now();
+        drop(session);
+        assert!(
+            started.elapsed() >= Duration::from_millis(40),
+            "dropping the session returned before the reader worker exited"
+        );
+        reader_exited_rx
+            .recv_timeout(Duration::from_millis(100))
+            .expect("reader worker did not exit before session drop returned");
     }
 
     #[test]
