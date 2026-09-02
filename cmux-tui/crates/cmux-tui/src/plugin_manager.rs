@@ -478,7 +478,10 @@ fn validate_git_source(source: &str) -> anyhow::Result<()> {
             // Only a plain SSH username is permitted. Every other URL
             // userinfo form can carry credentials and would leak via argv or
             // Git diagnostics.
-            if !scheme.eq_ignore_ascii_case("ssh") || userinfo.contains([':', '%']) {
+            if !scheme.eq_ignore_ascii_case("ssh")
+                || userinfo.starts_with('-')
+                || userinfo.contains([':', '%'])
+            {
                 anyhow::bail!("plugin git URL must not contain embedded credentials");
             }
         }
