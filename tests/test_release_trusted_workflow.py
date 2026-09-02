@@ -323,9 +323,16 @@ class ReleaseTrustedWorkflowTests(unittest.TestCase):
             '[[ -f "$cert_path" && ! -L "$cert_path" ]]',
             "trap 'rm -f -- \"$cert_path\"' EXIT",
             'chmod 600 "$cert_path"',
+            'base64 -D > "$cert_path"',
         ):
             self.assertIn(required, import_run)
         self.assertNotIn("/tmp/cert.p12", import_run)
+
+        profile_step = next(
+            step for step in sign_steps if step.get("name") == "Embed release provisioning profile"
+        )
+        self.assertIn("base64 -D > \"$TMP_PROFILE\"", profile_step["run"])
+        self.assertNotIn("base64 --decode", WORKFLOW.read_text(encoding="utf-8"))
 
     def test_keychain_search_list_is_restored_and_cleanup_is_fail_closed(self) -> None:
         document = load()
