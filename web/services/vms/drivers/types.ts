@@ -189,6 +189,13 @@ export type CmuxRemoteEndpoint = {
     invitationId: string;
     expiresAtUnix: number;
   };
+  /**
+   * The machine's addresses on its owner's private network, when the driver
+   * read them while resolving the route. The workflow backfills them into the
+   * VM row so machines created before address recording still get a copyable
+   * IP after their first attach.
+   */
+  networkAddresses?: { ipv4?: string; ipv6?: string };
 };
 
 export type CmuxRemoteAttachOptions = {

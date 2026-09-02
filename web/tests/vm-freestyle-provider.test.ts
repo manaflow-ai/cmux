@@ -5,6 +5,7 @@ import {
   FREESTYLE_NETWORK_FIREWALL_RULES,
   FreestyleProvider,
   freestyleCmuxRemoteRoute,
+  freestyleNetworkAddressMetadata,
   freestyleDaemonHealthyCommand,
   freestyleFirewallRules,
   freestyleStartDaemonCommand,
@@ -66,9 +67,21 @@ describe("Freestyle platform contract", () => {
   });
 
   test("network firewall: one members-reach-each-other rule, nothing else", () => {
+    // No port/protocol matcher: members reach each other on ALL ports. The
+    // same rule is re-created by the reuse-path heal if deleted out of band.
     expect(FREESTYLE_NETWORK_FIREWALL_RULES).toEqual([
       { action: "allow", source: {}, destination: {} },
     ]);
+  });
+
+  test("network addresses persist from the create response, absent without a network", () => {
+    expect(
+      freestyleNetworkAddressMetadata({
+        vpcs: [{ ipv4: "10.16.133.3", ipv6: "fd60:1e5e:6720::3" }],
+      }),
+    ).toEqual({ networkIpv4: "10.16.133.3", networkIpv6: "fd60:1e5e:6720::3" });
+    expect(freestyleNetworkAddressMetadata({ vpcs: [] })).toEqual({});
+    expect(freestyleNetworkAddressMetadata({ publicIpv6: "2602::1" })).toEqual({});
   });
 
   test("cmux-remote route prefers the private VPC address and never falls back from it", () => {

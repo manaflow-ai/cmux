@@ -64,6 +64,31 @@ private func checkGreaterThanOrEqual<T: Comparable>(_ actual: T, _ expected: T, 
 @Suite
 struct BrowserInsecureHTTPSettingsTests {
     @Test
+    func privateNetworkLiteralsSkipTheInsecureHTTPWarning() {
+        // cmux VPC machine addresses (through the WireGuard tunnel) and home
+        // LAN gear: traffic never crosses the public network, so no modal.
+        for host in [
+            "10.16.133.3", "10.0.0.1", "172.16.0.9", "172.31.255.255",
+            "192.168.1.20", "169.254.77.2",
+            "fd60:1e5e:6720::3", "fc00::1", "fe80::1",
+        ] {
+            #expect(BrowserInsecureHTTPSettings.isHostAllowed(host, rawAllowlist: ""))
+        }
+    }
+
+    @Test
+    func publicHostsStillWarnOnPlainHTTP() {
+        for host in [
+            "example.com", "8.8.8.8", "172.32.0.1", "11.0.0.1", "2602:f75c::1",
+            // A NAME is never private, even if it would resolve to a private
+            // address — DNS must not smuggle a bypass in.
+            "router.local.example",
+        ] {
+            #expect(!BrowserInsecureHTTPSettings.isHostAllowed(host, rawAllowlist: ""))
+        }
+    }
+
+    @Test
     func testDefaultAllowlistPatternsArePresent() {
         checkEqual(
             BrowserInsecureHTTPSettings.normalizedAllowlistPatterns(rawValue: nil),
@@ -534,19 +559,10 @@ struct TitlebarControlsHoverPolicyTests {
             let ranges = TitlebarControlsHitRegions.buttonXRanges(config: config)
 
             checkEqual(ranges.count, MinimalModeSidebarControlActionSlot.allCases.count)
-            for (index, range) in ranges.enumerated() {
-                let slot = MinimalModeSidebarControlActionSlot(rawValue: index)
-                let expectedWidth: CGFloat = switch slot {
-                case .some(.newTab):
-                    TitlebarNewWorkspaceCloudSplitButtonMetrics.primaryWidth(config: config)
-                case .some(.cloudVM):
-                    TitlebarNewWorkspaceCloudSplitButtonMetrics.dropdownWidth(config: config)
-                case .some(.toggleSidebar), .some(.showNotifications), .some(.focusHistoryBack), .some(.focusHistoryForward), nil:
-                    config.buttonSize
-                }
+            for range in ranges {
                 checkEqual(
                     range.upperBound - range.lowerBound,
-                    expectedWidth,
+                    config.buttonSize,
                     accuracy: 0.001,
                     "Expected titlebar hit lane width to match its visible control for style \(style)"
                 )
