@@ -35,7 +35,9 @@ Process identity uses executable and wrapper arguments before reading
 `CMUX_AGENT` or `HERDR_AGENT` from the host process environment. The hint is a
 fallback for wrappers that hide their executable, which keeps normal scans
 cheap and avoids treating a globally inherited hint as stronger than visible
-process evidence.
+process evidence. Runtime parsing handles attached eval and module flags and
+stops at the first positional script. A package-shaped path inside eval text
+cannot claim an agent identity.
 
 When cmux supervises the process, the scanner copies
 `CMUX_PLUGIN_GENERATION` into each event. This lets the core retire an old
