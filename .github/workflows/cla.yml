@@ -145,6 +145,9 @@ jobs:
           required-base-ref: "main"
           custom-pr-sign-comment: "I have read the CLA Document v2.2 and I hereby sign the CLA"
           require-opener-as-author: "true"
+          # Keep this exemption set limited to the two independent maintainers.
+          # Maintainer IDs are intentionally absent: an opener exemption would
+          # let a maintainer bypass the same CLA ledger required of contributors.
           allowlist-ids: "38676809,67667005"
 
   # This is the only job with ledger and comment write permissions. It has no
@@ -223,6 +226,9 @@ jobs:
           branch: "cla-signatures"
           required-base-ref: "main"
           custom-pr-sign-comment: "I have read the CLA Document v2.2 and I hereby sign the CLA"
+          # Keep this exemption set limited to the two independent maintainers.
+          # Maintainer IDs are intentionally absent for the same self-bypass
+          # reason as the signer preflight above.
           allowlist-ids: "38676809,67667005"
           require-opener-as-author: "true"
           lock-pullrequest-aftermerge: "false"
