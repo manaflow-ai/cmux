@@ -609,11 +609,27 @@ if [ "$failed_swift_classifier_status" -ne 1 ]; then
   exit 1
 fi
 
-if ! bash "$ROOT_DIR/scripts/ci/classify-app-host-test-result.sh" \
-  65 "$EXPECTED_FAILURE_OUTPUT"; then
-  echo "FAIL: ordinary expected XCTest failures must retain their tolerant classification"
-  exit 1
-fi
+for expected_xctest_status in 65 125; do
+  if ! bash "$ROOT_DIR/scripts/ci/classify-app-host-test-result.sh" \
+    "$expected_xctest_status" "$EXPECTED_FAILURE_OUTPUT"; then
+    echo "FAIL: ordinary expected XCTest status $expected_xctest_status must retain its tolerant classification"
+    exit 1
+  fi
+done
+
+for unknown_failure_status in 1 64 134; do
+  set +e
+  bash "$ROOT_DIR/scripts/ci/classify-app-host-test-result.sh" \
+    "$unknown_failure_status" "$EXPECTED_FAILURE_OUTPUT" \
+    >"$TMP_DIR/unknown-$unknown_failure_status-output.log" 2>&1
+  unknown_classifier_status=$?
+  set -e
+  if [ "$unknown_classifier_status" -ne 1 ]; then
+    cat "$TMP_DIR/unknown-$unknown_failure_status-output.log"
+    echo "FAIL: unknown app-host status $unknown_failure_status must not inherit an expected XCTest summary"
+    exit 1
+  fi
+done
 
 UNEXPECTED_FAILURE_OUTPUT="$TMP_DIR/unexpected-failure-output.log"
 printf '%s\n' \
