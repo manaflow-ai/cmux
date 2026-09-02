@@ -117,7 +117,6 @@ struct WorkstreamTaskToolTodos: Sendable {
                     && content(in: object(from: operations[$0][keyPath: inputJSONKeyPath])) == subject
             }
             if matches.count == 1, let index = matches.first { return index }
-            if tool == .taskCreate, let first = matches.first { return first }
         }
         return nil
     }
@@ -414,6 +413,27 @@ struct WorkstreamTaskToolTodos: Sendable {
             requestID: requestID
         ) != nil {
             return .list(projectedState().todos)
+        }
+
+        // A subject is only a fallback identity when it identifies one
+        // pending create. If duplicate creates are in flight, keep each
+        // confirmed task under its stable id without claiming a provisional
+        // row. This avoids both assigning the wrong row and losing progress.
+        if tool == .taskCreate,
+           requestID?.isEmpty != false,
+           let subject = content(in: object(from: inputJSON)),
+           pendingPreOperations.filter({ operation in
+               operation.tool == .taskCreate
+                   && content(in: object(from: operation.inputJSON)) == subject
+           }).count > 1 {
+            let outcome = applyPostMutation(
+                tool: tool,
+                inputJSON: inputJSON,
+                responseJSON: responseJSON,
+                isError: isError
+            )
+            hasCompleteTaskList = false
+            return outcome.producedList ? outcome : .list(projectedState().todos)
         }
 
         switch completion {
