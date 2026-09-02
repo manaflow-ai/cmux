@@ -6202,9 +6202,34 @@ impl Mux {
             && !self.agent_roster_fold_worker_running.load(Ordering::Acquire)
         {
             if let Some(handle) = self.agent_roster_fold_worker_handle.lock().unwrap().take() {
-                let _ = handle.join();
+                Self::join_agent_roster_fold_worker(handle);
             }
         }
+    }
+
+    /// A worker can be the last owner of its mux. In that case dropping the
+    /// mux runs this cleanup on the worker itself, and joining its own handle
+    /// would deadlock or panic. Hand the join to a short-lived reaper so the
+    /// worker still gets joined after it finishes unwinding the mux.
+    fn join_agent_roster_fold_worker(handle: std::thread::JoinHandle<()>) {
+        if handle.thread().id() == std::thread::current().id() {
+            let spawn = std::thread::Builder::new().name("agent-roster-fold-reaper".into()).spawn(
+                move || {
+                    if handle.join().is_err() {
+                        eprintln!(
+                            "cmux-tui: agent roster fold worker panicked during self-join handoff"
+                        );
+                    }
+                },
+            );
+            if let Err(error) = spawn {
+                eprintln!(
+                    "cmux-tui: hand off agent roster fold worker self-join to reaper failed: {error}"
+                );
+            }
+            return;
+        }
+        let _ = handle.join();
     }
 
     fn run_agent_roster_fold_worker(mux: Weak<Self>, signal: Arc<JournalEventSignal>) {
@@ -18007,7 +18032,7 @@ impl Drop for Mux {
         if let Ok(handle) = self.agent_roster_fold_worker_handle.get_mut()
             && let Some(handle) = handle.take()
         {
-            let _ = handle.join();
+            Self::join_agent_roster_fold_worker(handle);
         }
         self.finalize_terminal_journal("mux drop");
         self.journal_kernel.shutdown();
@@ -19101,6 +19126,36 @@ mod tests {
 
     fn test_mux() -> Arc<Mux> {
         Mux::new_for_test("test", SurfaceOptions::default())
+    }
+
+    #[test]
+    fn mux_drop_from_roster_worker_does_not_self_join() {
+        let mux = test_mux();
+        let weak = Arc::downgrade(&mux);
+        let (ready_sender, ready_receiver) = std::sync::mpsc::sync_channel(0);
+        let (release_sender, release_receiver) = std::sync::mpsc::sync_channel(0);
+        let (result_sender, result_receiver) = std::sync::mpsc::sync_channel(0);
+        let worker = std::thread::spawn(move || {
+            let worker_mux = weak.upgrade().expect("test mux stays alive for the worker");
+            ready_sender.send(()).unwrap();
+            release_receiver.recv().unwrap();
+            let dropped = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                drop(worker_mux);
+            }))
+            .is_ok();
+            result_sender.send(dropped).unwrap();
+        });
+        *mux.agent_roster_fold_worker_handle.lock().unwrap() = Some(worker);
+
+        ready_receiver.recv().unwrap();
+        // Dropping the last external owner leaves the worker-owned Arc as the
+        // owner that runs Mux::drop after it releases its shutdown gate.
+        drop(mux);
+        release_sender.send(()).unwrap();
+        assert!(
+            result_receiver.recv_timeout(Duration::from_secs(1)).unwrap_or(false),
+            "dropping Mux from its roster worker must not panic while joining itself"
+        );
     }
 
     /// Direct registry appends stage a pending hook receipt by design. Tests
