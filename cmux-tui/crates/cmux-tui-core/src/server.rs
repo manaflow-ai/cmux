@@ -14203,7 +14203,7 @@ mod tests {
 
     #[cfg(unix)]
     #[test]
-    fn socket_claim_rejects_a_path_replaced_before_claim() {
+    fn socket_claim_leaves_a_replaced_path_unlinked() {
         let dir = TestSocketDir::create("socket-claim-replaced-before-claim");
         let path = dir.path().join("mux.sock");
         let listener = transport::listen(&path).unwrap();
@@ -14211,12 +14211,11 @@ mod tests {
         std::fs::remove_file(&path).unwrap();
         let replacement = transport::listen(&path).unwrap();
 
-        assert!(
-            ServedSocketLease::claim_bound(path.clone(), &listener).is_err(),
-            "claim accepted the replacement path instead of the bound listener"
-        );
+        let lease = ServedSocketLease::claim_bound(path.clone(), &listener)
+            .expect("Unix listener claims must tolerate unavailable fd identity");
 
         drop(listener);
+        lease.cleanup();
         assert!(transport::connect(&path).is_ok(), "claim cleanup disrupted the replacement");
         drop(replacement);
         std::fs::remove_file(&path).unwrap();

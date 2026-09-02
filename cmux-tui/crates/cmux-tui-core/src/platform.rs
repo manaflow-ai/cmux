@@ -80,7 +80,6 @@ pub mod transport {
     #[cfg(unix)]
     mod imp {
         use std::io::{self, Write};
-        use std::os::fd::AsRawFd;
         use std::os::unix::net::{UnixListener, UnixStream};
         use std::path::Path;
         use std::sync::{Arc, Mutex};
@@ -116,30 +115,14 @@ pub mod transport {
                 Ok(Box::new(stream))
             }
 
-            pub(super) fn matches_path(&self, path: &Path) -> io::Result<Option<bool>> {
-                use std::mem::MaybeUninit;
-                use std::os::unix::fs::{FileTypeExt, MetadataExt};
-
-                let mut stat = MaybeUninit::<libc::stat>::uninit();
-                // SAFETY: `stat` points to writable storage and the listener
-                // owns a valid file descriptor for the duration of this call.
-                if unsafe { libc::fstat(self.inner.as_raw_fd(), stat.as_mut_ptr()) } != 0 {
-                    return Err(io::Error::last_os_error());
-                }
-                // SAFETY: `fstat` initialized `stat` on success.
-                let stat = unsafe { stat.assume_init() };
-                let metadata = match std::fs::symlink_metadata(path) {
-                    Ok(metadata) => metadata,
-                    Err(error) if error.kind() == io::ErrorKind::NotFound => {
-                        return Ok(Some(false));
-                    }
-                    Err(error) => return Err(error),
-                };
-                Ok(Some(
-                    metadata.file_type().is_socket()
-                        && metadata.dev() == stat.st_dev as u64
-                        && metadata.ino() == stat.st_ino as u64,
-                ))
+            pub(super) fn matches_path(&self, _path: &Path) -> io::Result<Option<bool>> {
+                // UnixListener does not expose a stable identity that can be
+                // compared with the pathname's filesystem entry. In
+                // particular, fstat on the listener can report the socket's
+                // kernel inode rather than the pathname inode. Cleanup still
+                // fences removals with the pathname identity captured before
+                // the listener was published, so leave this lease unlinked.
+                Ok(None)
             }
 
             pub(super) fn wake_handle(&self) -> io::Result<ListenerWake> {
