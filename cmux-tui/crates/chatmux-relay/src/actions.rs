@@ -1478,9 +1478,13 @@ async fn run_spec(
             }, if final_wait_deadline.is_some() && exited.is_none() => {
                 final_wait_deadline = None;
                 wait_retry_deadline = None;
-                // SIGKILL should reap the leader, but keep a terminal state
-                // when wait remains pending so this branch cannot re-enable
-                // the gated child.wait future forever.
+                // Keep a direct kill fallback before declaring the wait
+                // terminal. The process-group signal can fail after the
+                // leader leaves its group, while the leader itself remains
+                // alive and must not outlive this action.
+                let _ = child.start_kill();
+                // Keep a terminal state when wait remains pending so this
+                // branch cannot re-enable the gated child.wait future forever.
                 exited = Some(1);
                 if stdout_open || stderr_open {
                     drain_deadline = Some(Box::pin(tokio::time::sleep(
