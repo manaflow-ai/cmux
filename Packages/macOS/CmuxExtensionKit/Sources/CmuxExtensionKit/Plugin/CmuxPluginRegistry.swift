@@ -86,25 +86,30 @@ public actor CmuxPluginRegistry {
     /// Reloads manifests and recomputes all effective grants.
     @discardableResult
     public func reload() async -> CmuxPluginRegistrySnapshot {
+        reloadGeneration &+= 1
+        let generation = reloadGeneration
         let loadedReport = await loader.load()
-        return await reload(loadedReport: loadedReport)
+        return await reload(loadedReport: loadedReport, generation: generation)
     }
 
     /// Reloads only the plugin directories named by a path-aware file event.
     @discardableResult
     public func reload(affectedPluginIDs: Set<String>) async -> CmuxPluginRegistrySnapshot {
         guard !affectedPluginIDs.isEmpty else { return await reload() }
+        reloadGeneration &+= 1
+        let generation = reloadGeneration
         let partialReport = await loader.load(only: affectedPluginIDs)
         let mergedReport = mergedReport(
             replacing: affectedPluginIDs,
             with: partialReport
         )
-        return await reload(loadedReport: mergedReport)
+        return await reload(loadedReport: mergedReport, generation: generation)
     }
 
-    private func reload(loadedReport: CmuxPluginLoadReport) async -> CmuxPluginRegistrySnapshot {
-        reloadGeneration &+= 1
-        let generation = reloadGeneration
+    private func reload(
+        loadedReport: CmuxPluginLoadReport,
+        generation: UInt64
+    ) async -> CmuxPluginRegistrySnapshot {
         let previousTokens = tokensByID
         let previousTokenFingerprints = tokenFingerprintsByID
         let previousPermissions = permissionsByID
@@ -172,8 +177,8 @@ public actor CmuxPluginRegistry {
         with partialReport: CmuxPluginLoadReport
     ) -> CmuxPluginLoadReport {
         let retainedPlugins = report.plugins.filter {
-            !pluginIDs.contains($0.plugin.manifest.id)
-                && !pluginIDs.contains($0.plugin.directoryURL.lastPathComponent)
+            !pluginIDs.contains($0.manifest.id)
+                && !pluginIDs.contains($0.directoryURL.lastPathComponent)
         }
         let retainedFailures = report.failures.filter {
             !pluginIDs.contains($0.directoryURL.lastPathComponent)

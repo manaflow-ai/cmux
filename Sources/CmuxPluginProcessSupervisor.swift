@@ -249,8 +249,26 @@ final class CmuxPluginProcessSupervisor {
             )
             return
         }
+        guard let launchArguments = Self.launchArguments(
+            for: executionSnapshot.entrypointExecution,
+            entrypointPath: executionSnapshot.entrypointURL.path,
+            interpreterPath: executionSnapshot.interpreterURL?.path,
+            containmentMarkerPath: containment.markerURL.path
+        ) else {
+            containment.cleanup()
+            await snapshotter.remove(executionSnapshot)
+            reportError(
+                pluginID,
+                String(
+                    localized: "settings.plugins.error.launch",
+                    defaultValue: "The plugin could not be launched."
+                )
+            )
+            return
+        }
         let integrityMonitor = CmuxPluginSnapshotIntegrityMonitor(
-            rootURL: executionSnapshot.directoryURL.deletingLastPathComponent()
+            rootURL: executionSnapshot.directoryURL.deletingLastPathComponent(),
+            additionalURLs: executionSnapshot.interpreterURL.map { [$0] } ?? []
         )
         let integrityTask = Task { @MainActor [weak self, weak runtime] in
             for await _ in integrityMonitor.events {
@@ -267,9 +285,6 @@ final class CmuxPluginProcessSupervisor {
             fileDescriptor: executionSnapshot.entrypointFileDescriptor,
             closeOnDealloc: false
         )
-        let pinnedInterpreter = executionSnapshot.interpreterFileDescriptor.map {
-            FileHandle(fileDescriptor: $0, closeOnDealloc: false)
-        }
         guard let launcherURL = Bundle.main.executableURL else {
             integrityMonitor.cancel()
             integrityTask.cancel()
@@ -287,15 +302,12 @@ final class CmuxPluginProcessSupervisor {
         process.executableURL = launcherURL
         process.currentDirectoryURL = executionSnapshot.directoryURL
         // The shell blocks on stdin until the parent has registered its PID.
-        // It then duplicates the already-open entrypoint descriptor to fd 3
-        // and execs that descriptor. This preserves the PID gate while making
-        // pathname replacement after validation unable to change the bytes
-        // that receive the plugin token.
+        // The already-open entrypoint descriptor is exposed as `/dev/fd/3` to
+        // script interpreters; Darwin has no portable fexecve API for native
+        // binaries, so the verified immutable snapshot path is used as the
+        // executable launch path.
         process.arguments = ["--cmux-plugin-launcher"]
-            + Self.launchArguments(
-                for: executionSnapshot.entrypointExecution,
-                containmentMarkerPath: containment.markerURL.path
-            )
+            + launchArguments
         var environment = Self.inheritedPluginEnvironment(
             from: ProcessInfo.processInfo.environment
         )
@@ -312,7 +324,7 @@ final class CmuxPluginProcessSupervisor {
         process.environment = environment
         process.standardInput = launchGate
         process.standardOutput = pinnedEntrypoint
-        process.standardError = pinnedInterpreter ?? FileHandle.nullDevice
+        process.standardError = FileHandle.nullDevice
 
         // Install the callback before `run()`: a short-lived plugin can exit
         // between process creation and the first supervisor bookkeeping step.
@@ -727,23 +739,28 @@ final class CmuxPluginProcessSupervisor {
 
     private static func launchArguments(
         for execution: CmuxPluginEntrypointExecution,
+        entrypointPath: String,
+        interpreterPath: String?,
         containmentMarkerPath: String
-    ) -> [String] {
+    ) -> [String]? {
         let gate = "exec 9>>\"$1\" || exit 126; shift; read -r cmuxLaunchGate || true; [ \"$cmuxLaunchGate\" = cmux-ready ] || exit 126; exec 3>&1;"
         switch execution {
         case .executable:
             return [
                 "-c",
-                "\(gate) exec 1>/dev/null 2>/dev/null; exec /dev/fd/3",
+                "\(gate) exec 1>/dev/null 2>/dev/null; exec \"$1\"",
                 "cmux-plugin-launch-gate",
                 containmentMarkerPath,
+                entrypointPath,
             ]
         case .interpreter(let interpreterArguments):
+            guard let interpreterPath else { return nil }
             return [
                 "-c",
-                "\(gate) exec 4>&2; exec 1>/dev/null 2>/dev/null; exec /dev/fd/4 \"$@\" /dev/fd/3",
+                "\(gate) interpreter=\"$1\"; shift; exec 1>/dev/null 2>/dev/null; exec \"$interpreter\" \"$@\" /dev/fd/3",
                 "cmux-plugin-launch-gate",
                 containmentMarkerPath,
+                interpreterPath,
             ] + interpreterArguments
         }
     }

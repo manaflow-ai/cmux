@@ -41,7 +41,11 @@ struct CmuxPluginArtifactFingerprinter {
         entrypointDeclaration: String,
         interpreterData: Data? = nil
     ) throws -> String {
-        let root = pluginDirectoryURL.standardizedFileURL
+        // `FileManager.temporaryDirectory` is commonly exposed through the
+        // `/var` symlink on macOS, while enumerators return `/private/var`.
+        // Resolve the root once so containment checks compare one canonical
+        // path representation rather than rejecting every temporary bundle.
+        let root = canonicalURL(pluginDirectoryURL)
         let files = try regularFiles(in: root)
         let manifestRelativePath = "manifest.json"
         guard files.contains(where: { $0.relativePath == manifestRelativePath }) else {
@@ -313,5 +317,24 @@ struct CmuxPluginArtifactFingerprinter {
             bytes.append(Self.lowercaseHexDigits[Int(byte & 0x0F)])
         }
         return String(decoding: bytes, as: UTF8.self)
+    }
+
+    /// Resolves filesystem aliases such as macOS's `/var` link before doing
+    /// lexical containment checks. Foundation's URL symlink resolver can
+    /// preserve that system alias, while `FileManager` enumeration returns
+    /// the physical `/private/var` spelling.
+    private func canonicalURL(_ url: URL) -> URL {
+        let standardized = url.standardizedFileURL
+        var buffer = [CChar](repeating: 0, count: Int(PATH_MAX))
+        let resolved = standardized.path.withCString { pointer in
+            Darwin.realpath(pointer, &buffer)
+        }
+        guard resolved != nil else { return standardized }
+        let length = buffer.firstIndex(of: 0) ?? buffer.count
+        let path = String(
+            decoding: buffer[..<length].map { UInt8(bitPattern: $0) },
+            as: UTF8.self
+        )
+        return URL(fileURLWithPath: path, isDirectory: url.hasDirectoryPath)
     }
 }

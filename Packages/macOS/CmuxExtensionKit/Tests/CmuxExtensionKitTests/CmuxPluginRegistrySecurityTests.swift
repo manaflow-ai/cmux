@@ -141,7 +141,7 @@ struct CmuxPluginRegistrySecurityTests {
         #expect(replacementPlugin.manifestFingerprint != originalPlugin.manifestFingerprint)
 
         _ = await registry.reload()
-        #expect((await registry.snapshot()).plugins.first?.permissions == .none)
+        #expect((await registry.snapshot()).plugins.first?.permissions == CmuxPluginPermissions.none)
         do {
             _ = try await registry.sessionToken(pluginID: manifest.id)
             Issue.record("Replacing a plugin sibling file must invalidate its grant")
@@ -271,6 +271,8 @@ struct CmuxPluginRegistrySecurityTests {
         let snapshot = try await snapshotter.makeSnapshot(for: plugin)
         #expect(snapshot.entrypointExecution == .interpreter([]))
         #expect(snapshot.interpreterFileDescriptor != nil)
+        let interpreterPath = try #require(snapshot.interpreterURL).path
+        #expect(await snapshotter.verify(snapshot))
 
         let markerURL = root.appendingPathComponent("launch-marker", isDirectory: false)
         // An attacker may try either an atomic pathname replacement or an
@@ -299,8 +301,9 @@ struct CmuxPluginRegistrySecurityTests {
         process.executableURL = URL(fileURLWithPath: "/bin/sh", isDirectory: false)
         process.arguments = [
             "-c",
-            "read -r cmuxLaunchGate || true; [ \"$cmuxLaunchGate\" = cmux-ready ] || exit 126; exec 3>&1; exec 4>&2; exec 1>/dev/null 2>/dev/null; exec /dev/fd/4 \"$@\" /dev/fd/3",
+            "read -r cmuxLaunchGate || true; [ \"$cmuxLaunchGate\" = cmux-ready ] || exit 126; exec 3>&1; exec 1>/dev/null 2>/dev/null; exec \"$1\" /dev/fd/3",
             "cmux-plugin-launch-gate",
+            interpreterPath,
         ]
         var environment = ProcessInfo.processInfo.environment
         environment["CMUX_TEST_MARKER"] = markerURL.path
@@ -310,10 +313,7 @@ struct CmuxPluginRegistrySecurityTests {
             fileDescriptor: snapshot.entrypointFileDescriptor,
             closeOnDealloc: false
         )
-        process.standardError = FileHandle(
-            fileDescriptor: try #require(snapshot.interpreterFileDescriptor),
-            closeOnDealloc: false
-        )
+        process.standardError = FileHandle.nullDevice
         try process.run()
         try gate.fileHandleForReading.close()
         try gate.fileHandleForWriting.write(contentsOf: Data("cmux-ready\n".utf8))
@@ -321,7 +321,7 @@ struct CmuxPluginRegistrySecurityTests {
         process.waitUntilExit()
 
         #expect(process.terminationStatus == 0)
-        #expect(try String(contentsOf: markerURL, encoding: .utf8) == "original\n")
+        #expect(try String(contentsOf: markerURL, encoding: .utf8) == "original")
         await snapshotter.remove(snapshot)
     }
 

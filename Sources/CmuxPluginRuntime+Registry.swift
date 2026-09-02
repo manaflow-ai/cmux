@@ -32,6 +32,9 @@ extension CmuxPluginRuntime {
         if let continuation {
             continuation.yield(())
         } else {
+            lock.lock()
+            pendingPluginReloadIDs.subtract(affectedPluginIDs)
+            lock.unlock()
             _ = enqueueRegistryUpdate { registry in
                 await registry.reload(affectedPluginIDs: affectedPluginIDs)
             }

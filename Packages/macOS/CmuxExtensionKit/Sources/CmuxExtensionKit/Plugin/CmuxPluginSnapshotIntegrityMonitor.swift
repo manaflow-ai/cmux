@@ -22,11 +22,14 @@ public final class CmuxPluginSnapshotIntegrityMonitor: @unchecked Sendable {
     ///
     /// - Parameters:
     ///   - rootURL: The staging root whose files should be watched.
+    ///   - additionalURLs: Individual external files (such as a shebang
+    ///     interpreter) whose bytes participate in the launch contract.
     ///   - fileManager: Filesystem provider used to enumerate the snapshot.
     ///
     /// Consume ``events`` to receive invalidation signals without polling.
     public init(
         rootURL: URL,
+        additionalURLs: [URL] = [],
         fileManager: FileManager = .default
     ) {
         let (events, continuation) = AsyncStream<Event>.makeStream(
@@ -44,6 +47,21 @@ public final class CmuxPluginSnapshotIntegrityMonitor: @unchecked Sendable {
                 paths.append(url)
             }
         }
+        let canonicalAdditionalURLs = additionalURLs.map { url -> URL in
+            let standardized = url.standardizedFileURL
+            var buffer = [CChar](repeating: 0, count: Int(PATH_MAX))
+            let resolved = standardized.path.withCString { pointer in
+                Darwin.realpath(pointer, &buffer)
+            }
+            guard resolved != nil else { return standardized }
+            let length = buffer.firstIndex(of: 0) ?? buffer.count
+            let path = String(
+                decoding: buffer[..<length].map { UInt8(bitPattern: $0) },
+                as: UTF8.self
+            )
+            return URL(fileURLWithPath: path, isDirectory: url.hasDirectoryPath)
+        }
+        paths.append(contentsOf: canonicalAdditionalURLs)
 
         var sources: [any DispatchSourceFileSystemObject] = []
         var watchedPaths = Set<String>()

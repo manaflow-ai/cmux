@@ -18,7 +18,7 @@ struct CmuxPluginBoundedArtifactCopier {
     /// is being copied fails closed instead of allowing an unbounded
     /// `FileManager.copyItem` allocation.
     func copyDirectory(from source: URL, to destination: URL) throws {
-        let source = source.standardizedFileURL
+        let source = canonicalURL(source)
         let destination = destination.standardizedFileURL
         guard let rootValues = try? source.resourceValues(
             forKeys: [.isDirectoryKey, .isSymbolicLinkKey]
@@ -100,7 +100,7 @@ struct CmuxPluginBoundedArtifactCopier {
 
     private func relativePath(of url: URL, under root: URL) throws -> String {
         let rootPath = root.path
-        let candidatePath = url.standardizedFileURL.path
+        let candidatePath = canonicalURL(url).path
         guard candidatePath.hasPrefix(rootPath + "/") else {
             throw CmuxPluginExecutionSnapshotError.copyFailed
         }
@@ -180,5 +180,23 @@ struct CmuxPluginBoundedArtifactCopier {
             throw CmuxPluginExecutionSnapshotError.copyFailed
         }
         return copiedBytes
+    }
+
+    /// Resolves system aliases before comparing enumerated paths with the
+    /// source root. The destination remains user-writable and is not used for
+    /// trust decisions.
+    private func canonicalURL(_ url: URL) -> URL {
+        let standardized = url.standardizedFileURL
+        var buffer = [CChar](repeating: 0, count: Int(PATH_MAX))
+        let resolved = standardized.path.withCString { pointer in
+            Darwin.realpath(pointer, &buffer)
+        }
+        guard resolved != nil else { return standardized }
+        let length = buffer.firstIndex(of: 0) ?? buffer.count
+        let path = String(
+            decoding: buffer[..<length].map { UInt8(bitPattern: $0) },
+            as: UTF8.self
+        )
+        return URL(fileURLWithPath: path, isDirectory: url.hasDirectoryPath)
     }
 }

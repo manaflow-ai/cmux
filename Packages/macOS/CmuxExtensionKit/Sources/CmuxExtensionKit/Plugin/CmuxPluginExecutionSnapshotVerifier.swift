@@ -53,7 +53,13 @@ struct CmuxPluginExecutionSnapshotVerifier {
                   let data = readBoundedData(
                       descriptor: interpreterDescriptor,
                       maximumBytes: Self.maximumInterpreterBytes
-                  ) else {
+                  ),
+                  let sourceURL = snapshot.interpreterURL,
+                  let sourceData = readBoundedData(
+                      at: sourceURL,
+                      maximumBytes: Self.maximumInterpreterBytes
+                  ),
+                  sourceData == data else {
                 return false
             }
             interpreterData = data
@@ -98,11 +104,26 @@ struct CmuxPluginExecutionSnapshotVerifier {
         return data.count <= maximumBytes ? data : nil
     }
 
+    private func readBoundedData(at url: URL, maximumBytes: Int) -> Data? {
+        let descriptor = Darwin.open(
+            url.path,
+            O_RDONLY | O_NOFOLLOW | O_CLOEXEC | O_NONBLOCK
+        )
+        guard descriptor >= 0 else { return nil }
+        defer { Darwin.close(descriptor) }
+        return readBoundedData(descriptor: descriptor, maximumBytes: maximumBytes)
+    }
+
     private func sameFile(_ descriptor: Int32, _ url: URL) -> Bool {
         var descriptorMetadata = Darwin.stat()
         var pathMetadata = Darwin.stat()
-        guard Darwin.fstat(descriptor, &descriptorMetadata) == 0,
-              url.path.withCString({ Darwin.stat($0, &pathMetadata) }) == 0,
+        guard Darwin.fstat(descriptor, &descriptorMetadata) == 0 else {
+            return false
+        }
+        let statResult: Int32 = url.path.withCString { pointer in
+            stat(pointer, &pathMetadata)
+        }
+        guard statResult == 0,
               (descriptorMetadata.st_mode & mode_t(S_IFMT)) == mode_t(S_IFREG),
               (pathMetadata.st_mode & mode_t(S_IFMT)) == mode_t(S_IFREG) else {
             return false

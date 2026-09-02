@@ -25,21 +25,29 @@ public struct CmuxPluginExecutionSnapshot: Equatable, Sendable {
     /// An open descriptor for the validated entrypoint bytes.
     ///
     /// The snapshotter owns this descriptor and closes it when ``remove(_:)``
-    /// is called. Consumers must not close it directly; the descriptor exists
-    /// to make launch independent of later pathname replacement.
+    /// is called. Consumers must not close it directly; the descriptor is used
+    /// to verify the launch path and to expose a stable script input stream.
     public let entrypointFileDescriptor: Int32
-    /// Whether the descriptor is launched directly or through a shebang
+    /// How the copied entrypoint is launched, directly or through a shebang
     /// interpreter.
     public let entrypointExecution: CmuxPluginEntrypointExecution
     /// An open descriptor for the pinned shebang interpreter, when needed.
-    /// The snapshotter owns and closes it with the snapshot.
+    /// The snapshotter owns and closes it with the snapshot; its bytes are
+    /// compared with the resolved source interpreter before launch.
     public let interpreterFileDescriptor: Int32?
+    /// The resolved source interpreter path used by Darwin's path-based
+    /// launch API. Its bytes are checked against the pinned descriptor before
+    /// the launch gate is released.
+    public let interpreterURL: URL?
     /// Open descriptors for every regular file in the copied plugin bundle,
     /// keyed by path relative to ``directoryURL``. The verifier uses these
     /// identities to reject sibling replacement before capabilities are released.
     public let pinnedFileDescriptors: [String: Int32]
 
     /// Creates an execution snapshot value.
+    ///
+    /// - Parameter interpreterURL: The resolved source interpreter path when
+    ///   the entrypoint is a shebang script.
     public init(
         directoryURL: URL,
         manifestURL: URL,
@@ -48,7 +56,8 @@ public struct CmuxPluginExecutionSnapshot: Equatable, Sendable {
         entrypointFileDescriptor: Int32 = -1,
         entrypointExecution: CmuxPluginEntrypointExecution = .executable,
         interpreterFileDescriptor: Int32? = nil,
-        pinnedFileDescriptors: [String: Int32] = [:]
+        pinnedFileDescriptors: [String: Int32] = [:],
+        interpreterURL: URL? = nil
     ) {
         self.directoryURL = directoryURL
         self.manifestURL = manifestURL
@@ -58,6 +67,7 @@ public struct CmuxPluginExecutionSnapshot: Equatable, Sendable {
         self.entrypointExecution = entrypointExecution
         self.interpreterFileDescriptor = interpreterFileDescriptor
         self.pinnedFileDescriptors = pinnedFileDescriptors
+        self.interpreterURL = interpreterURL
     }
 }
 
@@ -184,7 +194,7 @@ public actor CmuxPluginExecutionSnapshotter {
             throw CmuxPluginExecutionSnapshotError.missingEntrypoint
         }
 
-        guard entrypointURL.standardizedFileURL == provisionalEntrypointURL else {
+        guard canonicalURL(entrypointURL) == canonicalURL(provisionalEntrypointURL) else {
             removeStagingRoot(stagingRoot)
             throw CmuxPluginExecutionSnapshotError.missingEntrypoint
         }
@@ -246,12 +256,14 @@ public actor CmuxPluginExecutionSnapshotter {
         let pinnedEntrypoint: (
             descriptor: Int32,
             execution: CmuxPluginEntrypointExecution,
-            interpreterDescriptor: Int32?
+            interpreterDescriptor: Int32?,
+            interpreterURL: URL?
         )
         do {
             pinnedEntrypoint = try openEntrypoint(
                 at: provisionalEntrypointURL,
-                interpreterDescriptor: preparedInterpreter?.descriptor
+                interpreterDescriptor: preparedInterpreter?.descriptor,
+                interpreterURL: preparedInterpreter?.sourceURL
             )
             openEntrypointDescriptors.insert(pinnedEntrypoint.descriptor)
         } catch let error as CmuxPluginExecutionSnapshotError {
@@ -278,7 +290,8 @@ public actor CmuxPluginExecutionSnapshotter {
             entrypointFileDescriptor: pinnedEntrypoint.descriptor,
             entrypointExecution: pinnedEntrypoint.execution,
             interpreterFileDescriptor: pinnedEntrypoint.interpreterDescriptor,
-            pinnedFileDescriptors: pinnedFileDescriptors
+            pinnedFileDescriptors: pinnedFileDescriptors,
+            interpreterURL: pinnedEntrypoint.interpreterURL
         )
     }
 
@@ -299,11 +312,13 @@ public actor CmuxPluginExecutionSnapshotter {
 
     private func openEntrypoint(
         at url: URL,
-        interpreterDescriptor: Int32?
+        interpreterDescriptor: Int32?,
+        interpreterURL: URL?
     ) throws -> (
         descriptor: Int32,
         execution: CmuxPluginEntrypointExecution,
-        interpreterDescriptor: Int32?
+        interpreterDescriptor: Int32?,
+        interpreterURL: URL?
     ) {
         let executableDescriptor = Darwin.open(url.path, O_EXEC)
         guard executableDescriptor >= 0 else {
@@ -318,21 +333,22 @@ public actor CmuxPluginExecutionSnapshotter {
 
         do {
             if let interpreterArguments = try shebangArguments(from: readableDescriptor) {
-                guard interpreterDescriptor != nil else {
+                guard interpreterDescriptor != nil, interpreterURL != nil else {
                     throw CmuxPluginExecutionSnapshotError.invalidInterpreter
                 }
                 Darwin.close(executableDescriptor)
                 return (
                     readableDescriptor,
                     .interpreter(Array(interpreterArguments.dropFirst())),
-                    interpreterDescriptor
+                    interpreterDescriptor,
+                    interpreterURL
                 )
             }
             guard interpreterDescriptor == nil else {
                 throw CmuxPluginExecutionSnapshotError.invalidInterpreter
             }
             Darwin.close(readableDescriptor)
-            return (executableDescriptor, .executable, nil)
+            return (executableDescriptor, .executable, nil, nil)
         } catch {
             Darwin.close(executableDescriptor)
             Darwin.close(readableDescriptor)
@@ -341,6 +357,7 @@ public actor CmuxPluginExecutionSnapshotter {
     }
 
     private func openPinnedFiles(at root: URL) throws -> [String: Int32] {
+        let root = canonicalURL(root)
         guard let enumerator = fileManager.enumerator(
             at: root,
             includingPropertiesForKeys: [.isDirectoryKey, .isRegularFileKey, .isSymbolicLinkKey],
@@ -508,7 +525,7 @@ public actor CmuxPluginExecutionSnapshotter {
     ) {
         let root = (rootDirectory ?? rootDirectoryURL).standardizedFileURL
         let candidate = stagingRoot.standardizedFileURL
-        guard candidate.path.hasPrefix(root.path + "/") else { return }
+        guard canonicalURL(candidate).path.hasPrefix(canonicalURL(root).path + "/") else { return }
         guard let values = try? candidate.resourceValues(forKeys: [.isDirectoryKey, .isSymbolicLinkKey]),
               values.isDirectory == true,
               values.isSymbolicLink != true else {
@@ -550,7 +567,7 @@ public actor CmuxPluginExecutionSnapshotter {
                   rootValues.isSymbolicLink != true else {
                 continue
             }
-            if root.standardizedFileURL != rootDirectoryURL.standardizedFileURL,
+            if canonicalURL(root) != canonicalURL(rootDirectoryURL),
                let pid = snapshotRootProcessID(root.lastPathComponent),
                isProcessAlive(pid) {
                 continue
@@ -599,7 +616,7 @@ public actor CmuxPluginExecutionSnapshotter {
               entries.isEmpty else {
             return
         }
-        if root != rootDirectoryURL.standardizedFileURL,
+        if canonicalURL(root) != canonicalURL(rootDirectoryURL),
            let pid = snapshotRootProcessID(root.lastPathComponent),
            isProcessAlive(pid) {
             return
@@ -617,6 +634,24 @@ public actor CmuxPluginExecutionSnapshotter {
 
     private func isProcessAlive(_ processID: pid_t) -> Bool {
         Darwin.kill(processID, 0) == 0 || errno == EPERM
+    }
+
+    /// Resolves system aliases such as `/var` before lexical path comparisons.
+    /// The caller still performs symlink checks on the original URL so this
+    /// helper cannot turn an untrusted link into an apparently safe path.
+    private func canonicalURL(_ url: URL) -> URL {
+        let standardized = url.standardizedFileURL
+        var buffer = [CChar](repeating: 0, count: Int(PATH_MAX))
+        let resolved = standardized.path.withCString { pointer in
+            Darwin.realpath(pointer, &buffer)
+        }
+        guard resolved != nil else { return standardized }
+        let length = buffer.firstIndex(of: 0) ?? buffer.count
+        let path = String(
+            decoding: buffer[..<length].map { UInt8(bitPattern: $0) },
+            as: UTF8.self
+        )
+        return URL(fileURLWithPath: path, isDirectory: url.hasDirectoryPath)
     }
 
     private func readBoundedFile(at url: URL, maximumBytes: Int) -> Data? {

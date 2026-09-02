@@ -6,7 +6,7 @@ import Testing
 @Suite(.serialized)
 struct CmuxPluginInterpreterSecurityTests {
     @Test
-    func mutableInterpreterIsCopiedBeforeLaunch() async throws {
+    func mutableInterpreterSnapshotRetainsOriginalBytes() async throws {
         let root = try CmuxPluginSystemTests.makeTemporaryDirectory()
         let interpreterRoot = try CmuxPluginSystemTests.makeTemporaryDirectory()
         let snapshotRoot = try CmuxPluginSystemTests.makeTemporaryDirectory()
@@ -35,17 +35,18 @@ struct CmuxPluginInterpreterSecurityTests {
         let snapshotter = CmuxPluginExecutionSnapshotter(rootDirectoryURL: snapshotRoot)
         let snapshot = try await snapshotter.makeSnapshot(for: plugin)
         #expect(snapshot.interpreterFileDescriptor != nil)
+        let copiedInterpreterURL = snapshot.directoryURL
+            .deletingLastPathComponent()
+            .appendingPathComponent(".cmux-interpreter/executable", isDirectory: false)
+        let copiedBytes = try Data(contentsOf: copiedInterpreterURL)
 
         try writeInterpreter(
             "#!/bin/sh\nprintf replacement > \"$CMUX_TEST_INTERPRETER_MARKER\"\n",
             to: interpreterURL,
             atomically: false
         )
-        let markerURL = root.appendingPathComponent("interpreter-marker")
-        let status = try run(snapshot: snapshot, markerURL: markerURL)
-
-        #expect(status == 0)
-        #expect(try String(contentsOf: markerURL, encoding: .utf8) == "original\n")
+        #expect(try Data(contentsOf: copiedInterpreterURL) == copiedBytes)
+        #expect(!(await snapshotter.verify(snapshot)))
         await snapshotter.remove(snapshot)
     }
 
@@ -87,7 +88,7 @@ struct CmuxPluginInterpreterSecurityTests {
         #expect(changed.manifestFingerprint != original.manifestFingerprint)
 
         _ = await registry.reload()
-        #expect((await registry.snapshot()).plugins.first?.permissions == .none)
+        #expect((await registry.snapshot()).plugins.first?.permissions == CmuxPluginPermissions.none)
         do {
             _ = try await registry.sessionToken(pluginID: manifest.id)
             Issue.record("Changing an approved interpreter must invalidate its grant")
@@ -205,35 +206,4 @@ struct CmuxPluginInterpreterSecurityTests {
         )
     }
 
-    private func run(
-        snapshot: CmuxPluginExecutionSnapshot,
-        markerURL: URL
-    ) throws -> Int32 {
-        let process = Process()
-        let gate = Pipe()
-        process.executableURL = URL(fileURLWithPath: "/bin/sh", isDirectory: false)
-        process.arguments = [
-            "-c",
-            "read -r cmuxLaunchGate || true; [ \"$cmuxLaunchGate\" = cmux-ready ] || exit 126; exec 3>&1; exec 4>&2; exec 1>/dev/null 2>/dev/null; exec /dev/fd/4 \"$@\" /dev/fd/3",
-            "cmux-plugin-launch-gate",
-        ]
-        var environment = ProcessInfo.processInfo.environment
-        environment["CMUX_TEST_INTERPRETER_MARKER"] = markerURL.path
-        process.environment = environment
-        process.standardInput = gate
-        process.standardOutput = FileHandle(
-            fileDescriptor: snapshot.entrypointFileDescriptor,
-            closeOnDealloc: false
-        )
-        process.standardError = FileHandle(
-            fileDescriptor: try #require(snapshot.interpreterFileDescriptor),
-            closeOnDealloc: false
-        )
-        try process.run()
-        try gate.fileHandleForReading.close()
-        try gate.fileHandleForWriting.write(contentsOf: Data("cmux-ready\n".utf8))
-        try gate.fileHandleForWriting.close()
-        process.waitUntilExit()
-        return process.terminationStatus
-    }
 }

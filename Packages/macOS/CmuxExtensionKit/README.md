@@ -47,14 +47,16 @@ an event or action without its family is rejected. Every plugin is disabled
 until the user reviews its requested scopes in Settings → Automation. A
 manifest, bundle-content, or declared-interpreter fingerprint change
 invalidates the previous approval. Approved processes launch from a
-revalidated private bundle snapshot, and the entrypoint is executed through a
-pinned descriptor. The complete launch snapshot is read-only, so
-source-directory, sibling-file, or snapshot-path replacement cannot change the
-bytes that receive the reviewed capabilities. Shebang interpreters are copied
-into that private snapshot and pinned there; CMUX never changes the original
-interpreter file. CMUX rechecks descriptor identity and the complete snapshot
-fingerprint immediately before releasing the process launch gate. Use an
-absolute executable interpreter path when writing scripts.
+revalidated private bundle snapshot. The complete launch snapshot is read-only,
+and open descriptors are retained for identity and content checks, so
+source-directory, sibling-file, or snapshot-path replacement fails closed
+before capabilities are released. Darwin does not provide a portable
+`fexecve` API, so the final process launch uses the verified snapshot path (or
+the resolved shebang interpreter path); scripts receive the pinned entrypoint
+as a `/dev/fd/...` argument. Shebang interpreter bytes are copied into the
+private snapshot for approval and revalidation; CMUX never changes the
+original interpreter file and watches it for changes until launch completes.
+Use an absolute executable interpreter path when writing scripts.
 Use `TMPDIR` or another application-data location for plugin-generated files.
 Disabling a plugin preserves the reviewed grant but stops its process and event
 stream.
@@ -81,12 +83,15 @@ When enabled, CMUX launches the validated entry point with these variables:
 | `CMUX_PLUGIN_API_VERSION` | Plugin API selected by the host as `major.minor`. |
 | `CMUX_SOCKET_PATH` | Alias for the active socket path. |
 
-CMUX executes approved entrypoint/interpreter bytes through pinned file
-descriptors, so a process may observe `/dev/fd/...` as `argv[0]`, `$0`, or
-`__file__`. Plugins must resolve bundle-relative modules and resources from the
-directory containing `CMUX_PLUGIN_MANIFEST_PATH` (the process working directory),
-or use `CMUX_PLUGIN_ENTRYPOINT_PATH` when the declared entrypoint path itself is
-needed. Descriptor paths are an intentional part of the API 3.0 security contract.
+CMUX validates approved entrypoint/interpreter bytes through pinned file
+descriptors and launches from the sealed snapshot path. A script interpreter
+receives the pinned entrypoint as a `/dev/fd/...` argument, so `$0` or
+`__file__` may use that descriptor path. Plugins must resolve bundle-relative
+modules and resources from the directory containing
+`CMUX_PLUGIN_MANIFEST_PATH` (the process working directory), or use
+`CMUX_PLUGIN_ENTRYPOINT_PATH` when the declared entrypoint path itself is
+needed. Descriptor-backed verification and the stable path environment value
+are intentional parts of the API 3.0 security contract.
 
 ### Event subscription
 

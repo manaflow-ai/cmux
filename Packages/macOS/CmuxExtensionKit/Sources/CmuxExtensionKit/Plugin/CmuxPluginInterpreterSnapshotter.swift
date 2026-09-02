@@ -17,7 +17,7 @@ struct CmuxPluginInterpreterSnapshotter {
     func makeSnapshot(
         for entrypointURL: URL,
         stagingRoot: URL
-    ) throws -> (descriptor: Int32, data: Data)? {
+    ) throws -> (descriptor: Int32, data: Data, sourceURL: URL)? {
         let entrypointDescriptor = Darwin.open(
             entrypointURL.path,
             O_RDONLY | O_NOFOLLOW | O_CLOEXEC
@@ -39,9 +39,9 @@ struct CmuxPluginInterpreterSnapshotter {
             throw CmuxPluginExecutionSnapshotError.invalidInterpreter
         }
 
-        let resolvedInterpreterURL = URL(fileURLWithPath: shebang.interpreterPath)
-            .resolvingSymlinksInPath()
-            .standardizedFileURL
+        let resolvedInterpreterURL = canonicalURL(
+            URL(fileURLWithPath: shebang.interpreterPath)
+        )
         let sourceDescriptor = Darwin.open(
             resolvedInterpreterURL.path,
             O_RDONLY | O_NOFOLLOW | O_CLOEXEC
@@ -100,7 +100,7 @@ struct CmuxPluginInterpreterSnapshotter {
             Darwin.close(executableDescriptor)
             throw CmuxPluginExecutionSnapshotError.fingerprintMismatch
         }
-        return (executableDescriptor, data)
+        return (executableDescriptor, data, resolvedInterpreterURL)
     }
 
     /// Rejects interpreter indirection that would resolve outside the pinned
@@ -180,5 +180,22 @@ struct CmuxPluginInterpreterSnapshotter {
         }
         return leftMetadata.st_dev == rightMetadata.st_dev
             && leftMetadata.st_ino == rightMetadata.st_ino
+    }
+
+    /// Resolves a source interpreter path to the physical spelling used by
+    /// descriptor and filesystem checks (for example `/var` → `/private/var`).
+    private func canonicalURL(_ url: URL) -> URL {
+        let standardized = url.standardizedFileURL
+        var buffer = [CChar](repeating: 0, count: Int(PATH_MAX))
+        let resolved = standardized.path.withCString { pointer in
+            Darwin.realpath(pointer, &buffer)
+        }
+        guard resolved != nil else { return standardized }
+        let length = buffer.firstIndex(of: 0) ?? buffer.count
+        let path = String(
+            decoding: buffer[..<length].map { UInt8(bitPattern: $0) },
+            as: UTF8.self
+        )
+        return URL(fileURLWithPath: path, isDirectory: url.hasDirectoryPath)
     }
 }

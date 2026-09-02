@@ -80,12 +80,17 @@ extension CmuxPluginRuntime {
         peerProcessID: pid_t?
     ) -> Bool {
         guard let peerProcessID else { return false }
-        guard case .active(let authorizedPluginID) = processAuthorization(forProcess: peerProcessID),
+        guard let processCheck = processAuthorizationCheck(forProcess: peerProcessID),
+              case .active(let authorizedPluginID) = processCheck.authorization,
               authorizedPluginID == pluginID else {
             return false
         }
         lock.lock()
-        guard let expectedToken = sessionTokens[pluginID],
+        guard processAuthorizations[processCheck.rootProcessID]
+                == .active(pluginID: pluginID),
+              processAuthorizationIdentities[processCheck.rootProcessID]?.startMicroseconds
+                == processCheck.startMicroseconds,
+              let expectedToken = sessionTokens[pluginID],
               Self.constantTimeEquals(expectedToken, token),
               snapshot.plugins.contains(where: {
                   $0.plugin.manifest.id == pluginID && $0.isEnabled
