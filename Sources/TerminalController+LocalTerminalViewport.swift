@@ -43,6 +43,11 @@ extension TerminalController {
     /// projection on the main actor. Target capture remains a minimal
     /// `MainActor` operation; response parsing, frame projection, and JSON
     /// encoding run on the socket worker.
+#if compiler(>=6.2)
+    @concurrent
+#else
+    @Sendable
+#endif
     nonisolated func v2LocalViewportCommandResultAsync(
         request: ControlRequest,
         session: LocalTerminalViewportSession
