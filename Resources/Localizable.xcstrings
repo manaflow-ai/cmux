@@ -1,6 +1,146 @@
 {
   "sourceLanguage": "en",
   "strings": {
+    "cli.help.readScreen": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Usage: cmux read-screen [flags]\n\nRead terminal text from a surface as plain text.\n\nFlags:\n  --workspace <id|ref|index>   Target workspace (default: $CMUX_WORKSPACE_ID)\n  --surface <id|ref|index>     Target surface (default: $CMUX_SURFACE_ID)\n  --window <id|ref|index>      Window context for workspace/surface refs and indexes\n  --scrollback                 Include scrollback (not just visible viewport)\n  --lines <n>                  Limit to the last n lines (implies --scrollback)\n  --selection                  Read only the active selection; cannot be combined with --scrollback or --lines\n\nExample:\n  cmux read-screen\n  cmux read-screen --surface surface:2 --scrollback --lines 200\n  cmux read-screen --surface surface:2 --selection" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "使用方法: cmux read-screen [flags]\n\nサーフェスのターミナルテキストをプレーンテキストとして読み取ります。\n\nフラグ:\n  --workspace <id|ref|index>   対象ワークスペース（既定: $CMUX_WORKSPACE_ID）\n  --surface <id|ref|index>     対象サーフェス（既定: $CMUX_SURFACE_ID）\n  --window <id|ref|index>      ワークスペース／サーフェスの参照とインデックスに使うウィンドウコンテキスト\n  --scrollback                 表示中のビューポートだけでなくスクロールバックも含める\n  --lines <n>                  末尾 n 行に制限する（--scrollback を含意）\n  --selection                  アクティブな選択範囲だけを読み取る（--scrollback、--lines との併用不可）\n\n例:\n  cmux read-screen\n  cmux read-screen --surface surface:2 --scrollback --lines 200\n  cmux read-screen --surface surface:2 --selection" } }
+      }
+    },
+    "cli.help.readSelection": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Usage: cmux read-selection [flags]\n\nRead the active selection from any selectable surface. Plain output includes source context; --json returns the complete response.\n\nFlags:\n  --workspace <id|ref|index>   Target workspace (default: $CMUX_WORKSPACE_ID)\n  --surface <id|ref|index>     Target surface (default: $CMUX_SURFACE_ID)\n  --window <id|ref|index>      Window context for workspace/surface refs and indexes\n\nExample:\n  cmux read-selection --surface surface:2\n  cmux read-selection --surface surface:2 --json" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "使用方法: cmux read-selection [flags]\n\n選択可能なサーフェスからアクティブな選択範囲を読み取ります。通常出力にはソースコンテキストが含まれ、--json は完全なレスポンスを返します。\n\nフラグ:\n  --workspace <id|ref|index>   対象ワークスペース（既定: $CMUX_WORKSPACE_ID）\n  --surface <id|ref|index>     対象サーフェス（既定: $CMUX_SURFACE_ID）\n  --window <id|ref|index>      ワークスペース／サーフェスの参照とインデックスに使うウィンドウコンテキスト\n\n例:\n  cmux read-selection --surface surface:2\n  cmux read-selection --surface surface:2 --json" } }
+      }
+    },
+    "cli.readSelection.output.noActiveSelection": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Has selection: false" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "選択範囲あり: false" } }
+      }
+    },
+    "cli.readSelection.error.readScreenConflict": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "read-screen: --selection cannot be combined with --scrollback or --lines" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "read-screen: --selection は --scrollback または --lines と併用できません" } }
+      }
+    },
+    "cli.readSelection.error.unexpectedArguments": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "%@: unexpected arguments: %@" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "%@: 予期しない引数: %@" } }
+      }
+    },
+    "cli.readSelection.output.file": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "File: %@" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "ファイル: %@" } }
+      }
+    },
+    "cli.readSelection.output.kind": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Kind: %@" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "種類: %@" } }
+      }
+    },
+    "cli.readSelection.output.line": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Line: %lld" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "行: %lld" } }
+      }
+    },
+    "cli.readSelection.output.lines": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Lines: %lld-%lld" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "行: %lld-%lld" } }
+      }
+    },
+    "cli.readSelection.output.url": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "URL: %@" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "URL: %@" } }
+      }
+    },
+    "cli.usage.readScreen": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "read-screen [--workspace <id|ref|index>] [--surface <id|ref|index>] [--window <id|ref|index>] [--scrollback] [--lines <n>] [--selection]" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "read-screen [--workspace <id|ref|index>] [--surface <id|ref|index>] [--window <id|ref|index>] [--scrollback] [--lines <n>] [--selection]" } }
+      }
+    },
+    "cli.usage.readSelection": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "read-selection [--workspace <id|ref|index>] [--surface <id|ref|index>] [--window <id|ref|index>]" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "read-selection [--workspace <id|ref|index>] [--surface <id|ref|index>] [--window <id|ref|index>]" } }
+      }
+    },
+    "socket.surfaceSelection.noFocusedSurface": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "No surface is focused." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "フォーカスされているサーフェスがありません。" } }
+      }
+    },
+    "socket.surfaceSelection.invalidSelector": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Invalid selector for `%@`." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "`%@` のセレクターが無効です。" } }
+      }
+    },
+    "socket.surfaceSelection.surfaceNotFound": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Surface not found for the given surface selector." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "指定したサーフェスセレクターに一致するサーフェスが見つかりません。" } }
+      }
+    },
+    "socket.surfaceSelection.tabManagerUnavailable": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Selection reading is currently unavailable." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "現在、選択範囲を読み取れません。" } }
+      }
+    },
+    "socket.surfaceSelection.unavailable": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Selection reading is currently unavailable." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "現在、選択範囲を読み取れません。" } }
+      }
+    },
+    "socket.surfaceSelection.timeout": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Request timed out after 5 seconds" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "リクエストは5秒後にタイムアウトしました。" } }
+      }
+    },
+    "socket.surfaceSelection.unsupported": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "This surface does not support selection reads." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "このサーフェスは選択範囲の読み取りに対応していません。" } }
+      }
+    },
+    "socket.surfaceSelection.workspaceNotFound": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Workspace not found." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "ワークスペースが見つかりません。" } }
+      }
+    },
     "socket.error.unknownMethod": {
       "extractionState": "manual",
       "localizations": {
