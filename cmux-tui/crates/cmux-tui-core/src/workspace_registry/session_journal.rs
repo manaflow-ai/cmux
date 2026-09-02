@@ -319,6 +319,7 @@ impl JournalRestoreCursor {
                 )?
                 .map(|row| decode_record(row?))
                 .collect::<anyhow::Result<Vec<_>>>()?;
+            drop(statement);
             for record in active {
                 self.validate_and_advance(record, &mut records)?;
             }
@@ -349,7 +350,8 @@ impl JournalRestoreCursor {
 
     pub(crate) fn finish(mut self) -> anyhow::Result<()> {
         self.finished = true;
-        self.connection.execute_batch("COMMIT")
+        self.connection.execute_batch("COMMIT")?;
+        Ok(())
     }
 }
 
