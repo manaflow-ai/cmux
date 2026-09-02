@@ -4683,6 +4683,57 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn paused_backlog_overflow_detaches_instead_of_evicting_bytes() {
+        let h = harness(None, None);
+        h.open("p1", "main", Value::Null, "supervised", h.owner.clone()).await;
+        h.open("p2", "main", Value::Null, "supervised", h.owner.clone()).await;
+        let pty = h.spawned()[0].clone();
+        h.frame(serde_json::json!({ "type": "pty_flow", "ptyId": "p1", "pause": true })).await;
+
+        let chunk = "x".repeat(SCROLLBACK_LIMIT / 2 + 1);
+        pty.emit_while_paused(&chunk);
+        pty.emit_while_paused(&chunk);
+
+        let sent = h.sent();
+        assert!(sent.iter().any(|frame| {
+            frame["type"] == "pty_exit" && frame["ptyId"] == "p1" && frame["code"] == 1
+        }));
+        assert!(
+            !sent.iter().any(|frame| { frame["type"] == "pty_output" && frame["ptyId"] == "p1" })
+        );
+    }
+
+    #[tokio::test]
+    async fn output_rechecks_publication_after_delivery_gate_wait() {
+        let h = harness(None, None);
+        h.open("p1", "main", Value::Null, "supervised", h.owner.clone()).await;
+        let pty = h.spawned()[0].clone();
+        let attachment = h.manager.inner.attachment("p1").expect("attachment");
+        let publication_before = attachment.publication_state.load(Ordering::Acquire);
+        let delivery = attachment.delivery_gate.lock().expect("delivery gate");
+        let emit = thread::spawn(move || pty.emit("stale after revoke"));
+
+        for _ in 0..10_000 {
+            if attachment.publication_state.load(Ordering::Acquire) > publication_before {
+                break;
+            }
+            thread::yield_now();
+        }
+        assert!(attachment.publication_state.load(Ordering::Acquire) > publication_before);
+        Inner::revoke_publication(&attachment);
+        attachment.closing.store(true, Ordering::Release);
+        h.manager.inner.attachments.lock().expect("attach lock").remove("p1");
+        drop(delivery);
+        emit.join().expect("output callback thread");
+
+        assert!(
+            !h.sent()
+                .iter()
+                .any(|frame| { frame["type"] == "pty_output" && frame["ptyId"] == "p1" })
+        );
+    }
+
+    #[tokio::test]
     async fn detaching_one_viewer_leaves_the_other_live_exit_reaches_every_viewer() {
         let h = harness(None, None);
         h.open("p1", "main", Value::Null, "supervised", h.owner.clone()).await;
