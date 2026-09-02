@@ -528,21 +528,40 @@ fn enqueue_off_runtime_detach(task: DeferredDetach) -> Result<(), DeferredDetach
     sender.try_send(task).map_err(|error| error.into_inner())
 }
 
-/// Retire a detach that cannot enter the bounded worker queue. A direct
-/// `ControlHandle::send` is unsafe here: it only queues bytes, so releasing
-/// the final lease immediately afterward can call `end()` and make the
-/// control writer discard those bytes. Closing the control socket is the
-/// authoritative cleanup path when the bounded queue is saturated.
+/// Retire a detach that cannot enter the bounded worker queue. A shared
+/// control still needs an explicit per-surface detach, while the final lease
+/// uses control shutdown as its authoritative cleanup path.
 fn release_off_runtime_detach(
     task: DeferredDetach,
     enqueue: impl FnOnce(DeferredDetach) -> Result<(), DeferredDetach>,
 ) {
     if let Err(task) = enqueue(task) {
-        task.lease.finish_count();
+        task.lease.retire_surface(task.params);
     }
 }
 
 impl ControlLease {
+    /// Retire one surface after its reliable detach could not be queued.
+    /// Keep the detach on a shared control, then release this lease. The
+    /// final lease closes the control instead of queuing bytes that shutdown
+    /// could discard.
+    fn retire_surface(&self, params: Value) {
+        let Some(inner) = self.inner.upgrade() else { return };
+        let mut users = inner.control_users.lock().expect("control users lock");
+        let Some(state) = users.get_mut(&self.key) else { return };
+        if !Arc::ptr_eq(&state.control, &self.control) {
+            return;
+        }
+        if state.count > 1 {
+            let _ = self.control.send("detach-attached-view", params);
+        }
+        state.count = state.count.saturating_sub(1);
+        if state.count == 0 {
+            users.remove(&self.key);
+            self.control.end();
+        }
+    }
+
     fn finish_count(&self) {
         let Some(inner) = self.inner.upgrade() else { return };
         let mut users = inner.control_users.lock().expect("control users lock");
