@@ -481,8 +481,8 @@ fn shell_option_takes_value(runtime: &str, flag: &str) -> bool {
     match runtime {
         "bash" => {
             // This predicate means that the option consumes the *next*
-            // argv element. `--rcfile=value` already carries its value and
-            // must leave the following script visible.
+            // argv element. Attached spellings are accepted only below when
+            // the runtime documents them.
             matches!(flag, "-o" | "-O" | "--rcfile" | "--init-file")
         }
         "zsh" => matches!(flag, "-o" | "+o"),
@@ -505,10 +505,6 @@ fn shell_option_takes_value(runtime: &str, flag: &str) -> bool {
 
 fn shell_option_has_attached_value(runtime: &str, flag: &str) -> bool {
     match runtime {
-        "bash" => {
-            long_option_with_attached_value(flag, "--rcfile")
-                || long_option_with_attached_value(flag, "--init-file")
-        }
         "fish" => [
             "--debug",
             "--debug-output",
@@ -697,9 +693,11 @@ fn runtime_option_takes_value(runtime: &str, argument: &str) -> bool {
             // `-S` is a boolean site-import switch. `-L` and `-o` are kept
             // for alternate Python runtimes that document those options.
             // This predicate only describes options that consume the next
-            // argv element. An attached `--check-hash-based-pycs=value`
-            // already contains its value and must leave the script visible.
+            // argv element. Python does not document an `=` form for
+            // `--check-hash-based-pycs`; treat it as value-bearing so an
+            // invalid invocation fails closed instead of exposing a script.
             matches!(argument, "-m" | "-W" | "-X" | "-L" | "-o" | "--check-hash-based-pycs")
+                || long_option_with_attached_value(argument, "--check-hash-based-pycs")
         }
         _ => false,
     }
