@@ -242,12 +242,16 @@ fn wrapped_agent_from_argv(runtime: &str, argv: &[String]) -> Option<String> {
 
 fn shell_wrapped_agent(runtime: &str, argv: &[String]) -> Option<String> {
     let mut index = 1;
+    let mut reads_stdin = false;
     while let Some(argument) = argv.get(index) {
         // Shell option letters are case-sensitive. Keep the raw spelling for
         // this parser; `normalized_flag` is reserved for the case-insensitive
         // Windows and PowerShell wrappers below.
         let flag = shell_flag(argument);
         if flag == "--" {
+            if reads_stdin {
+                return None;
+            }
             return argv
                 .get(index + 1)
                 .and_then(|script| path_candidates(script).into_iter().next());
@@ -265,12 +269,20 @@ fn shell_wrapped_agent(runtime: &str, argv: &[String]) -> Option<String> {
                 index = index.saturating_add(2);
                 continue;
             }
+            if shell_option_reads_stdin(runtime, flag) {
+                reads_stdin = true;
+                index += 1;
+                continue;
+            }
             if shell_option_without_value(runtime, flag) {
                 index += 1;
                 continue;
             }
             // Unknown options may consume the next value. Failing closed is
             // safer than treating that value as an agent executable.
+            return None;
+        }
+        if reads_stdin {
             return None;
         }
         // For `sh /path/to/agent`, the first positional value is the script.
@@ -478,6 +490,26 @@ fn shell_option_takes_value(runtime: &str, flag: &str) -> bool {
         "sh" => flag == "-o",
         _ => false,
     }
+}
+
+/// Return true for a short-option cluster that selects stdin as the shell's
+/// command source. These options do not consume a following argument, but a
+/// following positional token becomes `$0` or a shell argument rather than a
+/// script. A later `-c` remains valid, so the caller tracks this state instead
+/// of treating `-s` or `-t` as an unknown option.
+fn shell_option_reads_stdin(runtime: &str, flag: &str) -> bool {
+    let Some(characters) = flag.strip_prefix('-').filter(|value| !value.is_empty()) else {
+        return false;
+    };
+    let mut saw_stdin_mode = false;
+    for character in characters.chars() {
+        match shell_short_option_kind(runtime, character) {
+            Some(ShellOptionKind::Safe) => {}
+            Some(ShellOptionKind::NoScript) => saw_stdin_mode = true,
+            _ => return false,
+        }
+    }
+    saw_stdin_mode
 }
 
 fn long_option_with_value(flag: &str, option: &str) -> bool {
