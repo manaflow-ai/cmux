@@ -6254,6 +6254,46 @@ mod unix {
             }
         }
 
+        #[derive(Debug)]
+        struct GuardTestChild {
+            kills: Arc<AtomicUsize>,
+        }
+
+        impl ChildKiller for GuardTestChild {
+            fn kill(&mut self) -> std::io::Result<()> {
+                self.kills.fetch_add(1, Ordering::Relaxed);
+                Ok(())
+            }
+
+            fn clone_killer(&self) -> Box<dyn ChildKiller + Send + Sync> {
+                Box::new(Self { kills: Arc::clone(&self.kills) })
+            }
+        }
+
+        impl Child for GuardTestChild {
+            fn try_wait(&mut self) -> std::io::Result<Option<cmux_pty::ExitStatus>> {
+                Ok(Some(cmux_pty::ExitStatus::with_exit_code(0)))
+            }
+
+            fn wait(&mut self) -> std::io::Result<cmux_pty::ExitStatus> {
+                Ok(cmux_pty::ExitStatus::with_exit_code(0))
+            }
+
+            fn process_id(&self) -> Option<u32> {
+                Some(42)
+            }
+        }
+
+        #[test]
+        fn spawned_pty_child_disarm_prevents_late_kill() {
+            let kills = Arc::new(AtomicUsize::new(0));
+            let child = GuardTestChild { kills: Arc::clone(&kills) };
+            let mut guard = SpawnedPtyChild::new(Box::new(child));
+            guard.disarm();
+            drop(guard);
+            assert_eq!(kills.load(Ordering::Relaxed), 0);
+        }
+
         fn exited_host_fixture_with_parser_at(
             exit_record_parent: PathBuf,
         ) -> (Arc<HostShared>, Receiver<ParserCommand>) {
