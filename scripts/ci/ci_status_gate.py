@@ -123,7 +123,7 @@ def _array_rows(payload: object, label: str) -> list[Mapping[str, Any]]:
 
 
 class GitHubAPI:
-    """Small read-only wrapper around the runner's authenticated gh client."""
+    """Small wrapper around the runner's authenticated gh client."""
 
     def __init__(self, repository: str, token: str | None = None) -> None:
         if not re.fullmatch(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+", repository):

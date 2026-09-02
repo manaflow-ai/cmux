@@ -19,7 +19,7 @@ on:
 permissions:
   contents: read
   actions: read
-  checks: write
+  checks: read
   pull-requests: read
 
 concurrency:
