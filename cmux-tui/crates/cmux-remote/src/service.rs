@@ -593,7 +593,10 @@ impl PendingOpenGuard {
         }
         self.state.store(STREAM_LOCAL_FIN | STREAM_REMOTE_FIN | STREAM_RESET, Ordering::Release);
         self.failure.send_replace(Some(StreamFailure::Reset(reason.into())));
-        self.closed.lock().await.insert(self.id);
+        self.closed
+            .lock()
+            .await
+            .insert_on(self.id, tombstone_lane_mask(self.service, open_lane(self.service)));
         self.registrations.lock().await.remove(&self.id);
         self.cleanup.spawn(
             self.endpoint.clone(),
@@ -620,10 +623,11 @@ impl Drop for PendingOpenGuard {
         let cleanup = self.cleanup.clone();
         let generation = self.generation;
         let lane = open_lane(self.service);
+        let service = self.service;
         let id = self.id;
         if let Ok(runtime) = tokio::runtime::Handle::try_current() {
             runtime.spawn(async move {
-                closed.lock().await.insert(id);
+                closed.lock().await.insert_on(id, tombstone_lane_mask(service, lane));
                 registrations.lock().await.remove(&id);
                 cleanup.spawn(endpoint, generation, lane, id, None);
             });
@@ -817,7 +821,8 @@ impl ServiceStream {
         };
         let previous = self.state.fetch_or(committed, Ordering::AcqRel);
         if self.service != Service::TcpTunnel || previous & STREAM_REMOTE_FIN != 0 {
-            self.closed.lock().await.insert(self.id);
+            let lane_mask = lanes.iter().fold(0, |mask, lane| mask | lane_bit(*lane));
+            self.closed.lock().await.insert_on(self.id, lane_mask);
             self.registrations.lock().await.remove(&self.id);
         }
         Ok(())
@@ -889,7 +894,7 @@ impl Drop for ServiceStream {
         let service = self.service;
         if let Ok(runtime) = tokio::runtime::Handle::try_current() {
             runtime.spawn(async move {
-                closed.lock().await.insert(id);
+                closed.lock().await.insert_on(id, tombstone_lane_mask(service, lane));
                 registrations.lock().await.remove(&id);
                 if !complete {
                     cleanup.spawn(endpoint, generation, lane, id, Some((state, service)));
@@ -1004,7 +1009,10 @@ async fn reader_loop(reader: ReaderLoop) {
             let mut table = streams.lock().await;
             if table.len() >= MAX_OPEN_STREAMS {
                 drop(table);
-                closed.lock().await.insert(frame.stream);
+                closed
+                    .lock()
+                    .await
+                    .insert_on(frame.stream, tombstone_lane_mask(control.0, frame.lane));
                 cleanup.spawn(
                     endpoint.clone(),
                     stream_generation,
@@ -1059,7 +1067,10 @@ async fn reader_loop(reader: ReaderLoop) {
                 Ok(()) => {}
                 Err(mpsc::error::TrySendError::Closed(_)) => break,
                 Err(mpsc::error::TrySendError::Full(incoming)) => {
-                    closed.lock().await.insert(frame.stream);
+                    closed
+                        .lock()
+                        .await
+                        .insert_on(frame.stream, tombstone_lane_mask(control.0, frame.lane));
                     if let Some(registration) = streams.lock().await.remove(&frame.stream) {
                         fail_registration(
                             registration,
@@ -1113,6 +1124,7 @@ async fn reader_loop(reader: ReaderLoop) {
                 &streams,
                 &closed,
                 frame.stream,
+                frame.lane,
                 "mux-control frame used the tunnel lane",
             )
             .await;
@@ -1131,6 +1143,7 @@ async fn reader_loop(reader: ReaderLoop) {
                 &streams,
                 &closed,
                 frame.stream,
+                frame.lane,
                 "peer sent a frame after FIN on the same lane",
             )
             .await;
@@ -1143,6 +1156,7 @@ async fn reader_loop(reader: ReaderLoop) {
                 &streams,
                 &closed,
                 frame.stream,
+                frame.lane,
                 "remote peer reset the stream",
             )
             .await;
@@ -1164,6 +1178,7 @@ async fn reader_loop(reader: ReaderLoop) {
                 &streams,
                 &closed,
                 frame.stream,
+                frame.lane,
                 "incoming frame length exceeded the stream budget representation",
             )
             .await;
@@ -1176,6 +1191,7 @@ async fn reader_loop(reader: ReaderLoop) {
                     &streams,
                     &closed,
                     frame.stream,
+                    frame.lane,
                     "incoming stream byte budget was exhausted",
                 )
                 .await;
@@ -1204,18 +1220,25 @@ async fn reader_loop(reader: ReaderLoop) {
                     || prior_state & STREAM_LOCAL_FIN != 0 =>
             {
                 streams.lock().await.remove(&frame.stream);
-                closed.lock().await.insert(frame.stream);
+                closed
+                    .lock()
+                    .await
+                    .insert_on(frame.stream, tombstone_lane_mask(service, frame.lane));
             }
             Ok(()) => {}
             Err(mpsc::error::TrySendError::Closed(_)) => {
                 streams.lock().await.remove(&frame.stream);
-                closed.lock().await.insert(frame.stream);
+                closed
+                    .lock()
+                    .await
+                    .insert_on(frame.stream, tombstone_lane_mask(service, frame.lane));
             }
             Err(mpsc::error::TrySendError::Full(_)) => {
                 reset_registered_stream(
                     &streams,
                     &closed,
                     frame.stream,
+                    frame.lane,
                     "incoming stream delivery queue was full",
                 )
                 .await;
@@ -1233,10 +1256,15 @@ async fn reset_registered_stream(
     streams: &Mutex<HashMap<u64, StreamRegistration>>,
     closed: &Mutex<ClosedStreams>,
     stream: u64,
+    lane: Lane,
     reason: &str,
 ) -> bool {
     let registration = streams.lock().await.remove(&stream);
-    closed.lock().await.insert(stream);
+    let lane_mask = registration
+        .as_ref()
+        .map(|registration| tombstone_lane_mask(registration.service, lane))
+        .unwrap_or_else(|| lane_bit(lane));
+    closed.lock().await.insert_on(stream, lane_mask);
     if let Some(registration) = registration {
         fail_registration(registration, StreamFailure::Reset(reason.into()));
         true
@@ -1424,6 +1452,10 @@ fn lane_bit(lane: Lane) -> u8 {
         Lane::Bulk => LANE_BULK_BIT,
         Lane::Tunnel => LANE_TUNNEL_BIT,
     }
+}
+
+fn tombstone_lane_mask(service: Service, lane: Lane) -> u8 {
+    if service == Service::MuxControl { MULTI_LANE_TERMINAL_MASK } else { lane_bit(lane) }
 }
 
 fn open_lane(service: Service) -> Lane {
