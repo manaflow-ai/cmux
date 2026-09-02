@@ -429,6 +429,7 @@ async fn handle_client_frame(
     connection: &Arc<Connection>,
     context: &FrameContext,
     frame: TunnelFrame,
+    parsed: Option<ClientFrame>,
 ) {
     if connection.finished.load(Ordering::SeqCst) {
         return;
@@ -447,7 +448,7 @@ async fn handle_client_frame(
         connection.manager.handle_frame(&input, context).await;
         return;
     }
-    let Some(parsed) = parse_tunnel_client_frame(&frame.payload) else {
+    let Some(parsed) = parsed else {
         connection.protocol_error("bad_request", "invalid terminal request");
         return;
     };
@@ -521,13 +522,14 @@ async fn serve_connection(stream: TcpStream, manager: Arc<PtyManager>, parent: C
     let dispatch_done = connection.done.clone();
     let mut dispatcher = tokio::spawn(async move {
         while let Some(frame) = dispatch_rx.recv().await {
-            let admitted_open = frame.kind == FRAME_KIND_CONTROL
-                && parse_tunnel_client_frame(&frame.payload)
-                    .is_some_and(|parsed| matches!(parsed, ClientFrame::Open { .. }));
+            let parsed = (frame.kind == FRAME_KIND_CONTROL)
+                .then(|| parse_tunnel_client_frame(&frame.payload))
+                .flatten();
+            let admitted_open = matches!(parsed.as_ref(), Some(ClientFrame::Open { .. }));
             let operation_connection = Arc::clone(&dispatch_connection);
             let operation_context = dispatch_context.clone();
             let mut operation = tokio::spawn(async move {
-                handle_client_frame(&operation_connection, &operation_context, frame).await;
+                handle_client_frame(&operation_connection, &operation_context, frame, parsed).await;
             });
             if admitted_open {
                 // Once admitted, let OPEN finish so a remote attach receives

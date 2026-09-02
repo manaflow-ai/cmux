@@ -55,6 +55,8 @@ pub const OUTPUT_BUFFER_CAP: u64 = 1024 * 1024;
 const CONTROL_MIN_PROTOCOL: i64 = 5;
 const VIEW_ATTACHMENT_LEASE_CAPABILITY: &str = "view-attachment-lease-v1";
 const VIEW_ATTACHMENT_DETACH_CAPABILITY: &str = "view-attachment-detach-v1";
+const RAW_ATTACH_UNAVAILABLE_MESSAGE: &str =
+    "this terminal cannot be attached; update cmux-tui and try again";
 /// Inner terminals listed per session (surface_list stays bounded).
 const MAX_ENUM_TERMINALS: usize = 8;
 const MAX_ALLOWED_ROOTS: usize = 32;
@@ -904,12 +906,12 @@ impl Inner {
         // OWNER's terminal. Any trust level admits the owner.
         // Only locally established trust is authoritative. Missing local
         // state fails closed; the untrusted frame cannot elevate access.
-        let trust = context.trust.clone();
+        let (trust, owner_user_id) = (context.live_auth)();
         if trust.is_empty() {
             fail("trust_refused", "terminal trust is not established");
             return;
         }
-        let owner = context.owner_user_id.as_deref();
+        let owner = owner_user_id.as_deref();
         let actor = frame.get("actorId").and_then(Value::as_str).unwrap_or_default();
         if trust == "observe" && (owner.is_none() || Some(actor) != owner) {
             fail(
@@ -1499,21 +1501,6 @@ struct Opened {
     start: Box<dyn FnOnce() + Send>,
 }
 
-/// Own a control connection while an OPEN operation performs cancellable
-/// discovery and attach requests. Dropping the request must close the socket
-/// even when no `Opened` value has been returned yet.
-struct ControlGuard(Option<Arc<dyn ControlHandle>>);
-
-impl ControlGuard {
-    fn new(control: Arc<dyn ControlHandle>) -> Self {
-        Self(Some(control))
-    }
-
-    fn disarm(&mut self) -> Arc<dyn ControlHandle> {
-        self.0.take().expect("control guard owns a connection")
-    }
-}
-
 async fn request_control_with_cancellation(
     control: &Arc<dyn ControlHandle>,
     cmd: &str,
@@ -1526,14 +1513,6 @@ async fn request_control_with_cancellation(
     // Once queued, let the mutation finish. Dropping this future cannot
     // retract an attach request, so cancellation cleanup uses its lease.
     control.request(cmd, params).await
-}
-
-impl Drop for ControlGuard {
-    fn drop(&mut self) {
-        // Callers explicitly choose `end_control_if_unshared` on every
-        // failure path. An unconditional end here could tear down a control
-        // connection that already has other attachment leases.
-    }
 }
 
 // ---------------------------------------------------------------------------
@@ -1579,7 +1558,6 @@ impl Inner {
                 .connect_control(&ensured.socket_path)
                 .await
                 .map_err(|_| "cannot inspect existing daemon cwd".to_owned())?;
-            let _control_guard = ControlGuard::new(Arc::clone(&control));
             let Some(listed) = control.request("list-workspaces", json!({})).await else {
                 control.end();
                 return Err("cannot inspect existing daemon surfaces".to_owned());
@@ -2283,8 +2261,6 @@ impl Inner {
             Ok(control) => control,
             Err(_) => return Ok(None), // degrade to the whole-session attach
         };
-        let mut control_guard = ControlGuard::new(Arc::clone(&control));
-
         let identify = control.request("identify", json!({})).await;
         let info = identify.as_ref().filter(|v| v.get("ok").and_then(Value::as_bool) == Some(true));
         let protocol = info
@@ -2319,11 +2295,11 @@ impl Inner {
             false
         };
         if scoped_detach_advertised && !detach_supported {
+            eprintln!(
+                "raw terminal attach rejected: required capabilities {VIEW_ATTACHMENT_LEASE_CAPABILITY} and {VIEW_ATTACHMENT_DETACH_CAPABILITY}"
+            );
             self.end_control_if_unshared(&control);
-            return Err((
-                RelayPtyErrorCode::Failed,
-                "control does not support scoped attachment detach".to_owned(),
-            ));
+            return Err((RelayPtyErrorCode::Failed, RAW_ATTACH_UNAVAILABLE_MESSAGE.to_owned()));
         }
 
         // Resolve the ref: numeric surface id directly, else via the tree.
@@ -2465,14 +2441,13 @@ impl Inner {
             return Err((RelayPtyErrorCode::Failed, "attachment canceled".to_owned()));
         }
         if scoped_detach_advertised && lease.is_none() {
+            eprintln!(
+                "raw terminal attach returned no lease from attach-surface for surface {surface_id}"
+            );
             self.end_control_if_unshared(&control);
-            return Err((
-                RelayPtyErrorCode::Failed,
-                "attach-surface returned no attachment lease".to_owned(),
-            ));
+            return Err((RelayPtyErrorCode::Failed, RAW_ATTACH_UNAVAILABLE_MESSAGE.to_owned()));
         }
 
-        let control = control_guard.disarm();
         let user = self.register_control_user(&control);
         let proxy =
             Arc::new(ControlTerminalControl { control, surface_id, lease, detach_supported, user });
@@ -3987,7 +3962,7 @@ mod tests {
         context
     }
 
-    #[tokio::test(flavor = "current_thread")]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn exit_publication_retains_closing_id_until_frame_is_sent() {
         let h = harness(None, None);
         let entered = TestArc::new(Barrier::new(2));
@@ -4012,10 +3987,13 @@ mod tests {
         let manager = PtyManager { inner: Arc::clone(&h.manager.inner) };
         let replacement_for_task = replacement.clone();
         let frame_for_replacement = frame.clone();
-        let replacement_task = tokio::spawn(async move {
-            manager.handle_frame(&frame_for_replacement, &replacement_for_task).await;
+        let runtime = tokio::runtime::Handle::current();
+        let replacement_task = thread::spawn(move || {
+            runtime.block_on(async move {
+                manager.handle_frame(&frame_for_replacement, &replacement_for_task).await;
+            });
         });
-        tokio::task::yield_now().await;
+        std::thread::yield_now();
         assert!(
             !replacement_task.is_finished(),
             "same-ID replacement must wait for the closing publication"
@@ -4031,14 +4009,14 @@ mod tests {
 
         release.wait();
         exit.join().expect("exit callback");
-        replacement_task.await.expect("replacement open");
+        replacement_task.join().expect("replacement open");
         h.manager.handle_frame(&frame, &replacement).await;
         assert!(h.sent().iter().any(|frame| {
             frame["type"] == "pty_opened" && frame["ptyId"] == "p1" && frame["created"] == false
         }));
     }
 
-    #[tokio::test]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn overflow_error_publication_cannot_reach_a_same_id_replacement() {
         let h = harness(None, None);
         let entered = TestArc::new(Barrier::new(2));
@@ -4061,13 +4039,27 @@ mod tests {
         entered.wait();
 
         let replacement = h.context("supervised", h.owner.clone());
-        h.manager.handle_frame(&frame, &replacement).await;
+        let manager = PtyManager { inner: Arc::clone(&h.manager.inner) };
+        let frame_for_replacement = frame.clone();
+        let replacement_for_task = replacement.clone();
+        let runtime = tokio::runtime::Handle::current();
+        let replacement_task = thread::spawn(move || {
+            runtime.block_on(async move {
+                manager.handle_frame(&frame_for_replacement, &replacement_for_task).await;
+            });
+        });
+        std::thread::yield_now();
+        assert!(
+            !replacement_task.is_finished(),
+            "same-ID replacement must wait for the closing publication"
+        );
         assert!(!h.sent().iter().any(|frame| {
             frame["type"] == "pty_opened" && frame["ptyId"] == "p1" && frame["created"] == false
         }));
 
         release.wait();
         output.join().expect("output callback");
+        replacement_task.join().expect("replacement open");
         h.buffered.store(0, Ordering::SeqCst);
         h.manager.handle_frame(&frame, &replacement).await;
         assert!(h.sent().iter().any(|frame| {

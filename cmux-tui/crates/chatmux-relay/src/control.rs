@@ -29,8 +29,9 @@ pub trait ControlHandle: Send + Sync {
     ) -> std::pin::Pin<Box<dyn Future<Output = Option<Value>> + Send + '_>>;
     /// Fire-and-forget (input/resize hot paths); the response line drops.
     fn send(&self, cmd: &str, params: Value) -> bool;
-    /// Enqueue a fire-and-forget command with backpressure. The future
-    /// resolves after the writer accepts the line.
+    /// Enqueue a fire-and-forget command with backpressure. Implementations
+    /// that override this method resolve after the writer accepts the line.
+    /// The default implementation only reports queue admission, like `send`.
     fn send_reliable(
         &self,
         cmd: &str,

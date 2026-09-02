@@ -1093,6 +1093,7 @@ impl PtyDeps for RealPtyDeps {
                 // dead handle immediately; the closure observes cancellation
                 // at its next safe boundary and releases any allocation.
                 task.abort();
+                fallback_output.push_exit(1);
                 PtyHandle { control: Arc::new(DeadControl), output: fallback_output, banner: None }
             }
         }
