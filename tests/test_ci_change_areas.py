@@ -654,8 +654,8 @@ def test_non_pr_events_run_all_areas() -> None:
     assert "Resolved areas: macos=true web=true agent_session_web=true" in result.stdout
 
 
-def test_ci_status_job_accepts_skipped_routed_jobs() -> None:
-    block = workflow_job_block("ci-status")
+def test_ci_status_advisory_job_accepts_skipped_routed_jobs() -> None:
+    block = workflow_job_block("ci-status-advisory")
 
     for job_name in [
         "changes",

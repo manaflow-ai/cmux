@@ -325,6 +325,9 @@ jobs:
       - name: Validate CI status validator
         run: python3 tests/test_ci_status_validator.py
 
+      - name: Validate base-owned CI status gate
+        run: python3 tests/test_ci_status_gate.py
+
       - name: Validate bootstrap CI governance
         run: python3 tests/test_ci_governance_bootstrap.py
 
@@ -2387,7 +2390,7 @@ jobs:
           ./scripts/verify-diff-sidecar-artifact.sh "$DIFF_SIDECAR"
           [[ "$SDK_VERSION" == 26.* ]]
 
-  ci-status:
+  ci-status-advisory:
     needs:
       - changes
       - workflow-guard-tests

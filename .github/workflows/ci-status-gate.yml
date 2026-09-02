@@ -1,0 +1,66 @@
+name: CI status gate
+
+on:
+  # This workflow is evaluated from the trusted base revision. It never
+  # checks out or executes pull-request files.
+  pull_request_target:
+    branches:
+      - main
+    types: [opened, edited, reopened, synchronize, ready_for_review]
+  # A PR event can arrive before CI has published its checks. Re-evaluate when
+  # the base-owned CI workflow completes so a transient missing-check failure
+  # is replaced by the exact-head result.
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
+
+permissions:
+  contents: read
+  actions: read
+  checks: read
+  pull-requests: read
+
+concurrency:
+  group: ci-status-gate-${{ github.event.pull_request.head.sha || github.event.workflow_run.head_sha || github.run_id }}
+  cancel-in-progress: true
+
+jobs:
+  ci-status-gate:
+    name: ci-status-gate
+    if: ${{ github.event_name == 'pull_request_target' || (github.event_name == 'workflow_run' && github.event.workflow_run.event == 'pull_request') }}
+    runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      actions: read
+      checks: read
+      pull-requests: read
+    steps:
+      - name: Checkout trusted gate
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ github.event.pull_request.base.sha || github.event.workflow_run.pull_requests[0].base.sha || github.sha }}
+          path: .ci-trusted
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Verify trusted gate revision
+        env:
+          TRUSTED_SHA: ${{ github.event.pull_request.base.sha || github.event.workflow_run.pull_requests[0].base.sha || github.sha }}
+        run: |
+          set -euo pipefail
+          if [[ ${#TRUSTED_SHA} -ne 40 || "$TRUSTED_SHA" =~ [^0-9a-f] ]]; then
+            echo "::error::Trusted gate SHA is not a full commit SHA" >&2
+            exit 1
+          fi
+          actual_sha="$(git -C .ci-trusted rev-parse --verify 'HEAD^{commit}')"
+          if [[ "$actual_sha" != "$TRUSTED_SHA" ]]; then
+            echo "::error::Trusted gate checkout does not match $TRUSTED_SHA (got $actual_sha)" >&2
+            exit 1
+          fi
+
+      - name: Evaluate exact CI check runs
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+        run: python3 .ci-trusted/scripts/ci/ci_status_gate.py

@@ -4,7 +4,8 @@
 from __future__ import annotations
 
 import importlib.util
-import json
+from contextlib import redirect_stderr, redirect_stdout
+from io import StringIO
 from pathlib import Path
 
 
@@ -65,7 +66,55 @@ def complete_checks() -> list[dict[str, object]]:
     return checks
 
 
-ALL_FALSE = {route: False for route in module.ROUTE_NAMES}
+class FakeAPI:
+    """In-memory GitHub API fixture for the end-to-end gate path."""
+
+    repository = "manaflow-ai/cmux"
+
+    def __init__(self, checks: list[dict[str, object]]) -> None:
+        self.checks = checks
+        self.requests: list[str] = []
+
+    def get(self, endpoint: str, *, paginate: bool = False) -> object:
+        self.requests.append(endpoint)
+        if endpoint.endswith("/pulls/1"):
+            return {
+                "number": 1,
+                "state": "open",
+                "changed_files": 1,
+                "base": {"ref": "main", "repo": {"full_name": self.repository}},
+                "head": {"sha": HEAD_SHA},
+            }
+        if "/actions/runs?event=" in endpoint:
+            return {
+                "workflow_runs": [
+                    {
+                        "id": 900,
+                        "path": module.CI_WORKFLOW_PATH,
+                        "event": "pull_request",
+                        "head_sha": HEAD_SHA,
+                        "status": "completed",
+                        "created_at": "2026-09-01T00:00:00Z",
+                        "pull_requests": [{"number": 1}],
+                    }
+                ]
+            }
+        if endpoint.endswith("/actions/runs/900/jobs?per_page=100"):
+            jobs = []
+            for item in self.checks:
+                jobs.append(
+                    {
+                        "name": item["name"],
+                        "head_sha": HEAD_SHA,
+                        "check_run_url": f"https://api.github.com/repos/manaflow-ai/cmux/check-runs/{item['id']}",
+                    }
+                )
+            return [{"jobs": jobs}]
+        if "/commits/" in endpoint and "/check-runs" in endpoint:
+            return [{"check_runs": self.checks}]
+        if endpoint.endswith("/pulls/1/files?per_page=100"):
+            return [{"files": [{"filename": "README.md"}]}]
+        raise AssertionError(f"unexpected API endpoint: {endpoint}")
 
 
 def test_docs_only_snapshot_accepts_skipped_routes() -> None:
@@ -157,6 +206,24 @@ def test_event_payload_parser_rejects_invalid_json() -> None:
         assert "event payload" in str(error)
     else:
         raise AssertionError("invalid event payload was accepted")
+
+
+def test_gate_queries_exact_head_and_ci_run_jobs() -> None:
+    api = FakeAPI(complete_checks())
+    stdout = StringIO()
+    stderr = StringIO()
+    with redirect_stdout(stdout), redirect_stderr(stderr):
+        result = module._run_gate(
+            api,
+            "pull_request_target",
+            {"number": 1, "pull_request": {"head": {"sha": HEAD_SHA}}},
+        )
+    assert result == 0, stderr.getvalue()
+    assert any(
+        f"/commits/{HEAD_SHA}/check-runs?per_page=100" in request
+        for request in api.requests
+    )
+    assert "CI status gate passed." in stdout.getvalue()
 
 
 if __name__ == "__main__":
