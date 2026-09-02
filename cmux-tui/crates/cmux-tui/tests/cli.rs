@@ -4281,6 +4281,8 @@ struct PipeIoRelay {
     stdin: Option<std::process::ChildStdin>,
     stdout: std::sync::Arc<std::sync::Mutex<Vec<u8>>>,
     stderr: std::sync::Arc<std::sync::Mutex<Vec<u8>>>,
+    stdout_drain: Option<std::thread::JoinHandle<()>>,
+    stderr_drain: Option<std::thread::JoinHandle<()>>,
 }
 
 #[cfg(unix)]
@@ -4320,15 +4322,22 @@ impl PipeIoRelay {
         let out = child.stdout.take().unwrap();
         let err = child.stderr.take().unwrap();
         let stdout_sink = stdout.clone();
-        std::thread::spawn(move || drain_into(out, stdout_sink));
+        let stdout_drain = std::thread::spawn(move || drain_into(out, stdout_sink));
         let stderr_sink = stderr.clone();
-        std::thread::spawn(move || {
+        let stderr_drain = std::thread::spawn(move || {
             if !stderr_delay.is_zero() {
                 std::thread::sleep(stderr_delay);
             }
             drain_into(err, stderr_sink);
         });
-        Self { child, stdin, stdout, stderr }
+        Self {
+            child,
+            stdin,
+            stdout,
+            stderr,
+            stdout_drain: Some(stdout_drain),
+            stderr_drain: Some(stderr_drain),
+        }
     }
 
     fn send_input(&mut self, bytes: &[u8]) {
@@ -4378,8 +4387,15 @@ impl PipeIoRelay {
         let deadline = Instant::now() + Duration::from_secs(20);
         while Instant::now() < deadline {
             if let Some(status) = self.child.try_wait().unwrap() {
-                // Let the drain threads observe EOF.
-                std::thread::sleep(Duration::from_millis(100));
+                // Child EOF is the completion signal for both drain threads.
+                // Join them before reading stderr so the final exit record
+                // cannot race the test's parser.
+                if let Some(drain) = self.stdout_drain.take() {
+                    drain.join().expect("stdout drain thread panicked");
+                }
+                if let Some(drain) = self.stderr_drain.take() {
+                    drain.join().expect("stderr drain thread panicked");
+                }
                 let stderr_text =
                     String::from_utf8_lossy(&self.stderr.lock().unwrap()).into_owned();
                 let exit_line = stderr_text
