@@ -177,6 +177,9 @@ const nextConfig: NextConfig = {
       "./public/logo.png",
     ],
     "**/browser-opengraph-image": ["./public/logo.png"],
+    // The schema-parity health route reads bundled migration names (and, for
+    // legacy rows, sql hashes) from the migrations folder at request time.
+    "**/api/health/schema-parity": ["./db/migrations/*/migration.sql"],
   },
   images: {
     // AVIF first: for the detailed hero screenshot (crisp terminal text +
