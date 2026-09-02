@@ -13,13 +13,15 @@
 
 use std::fmt;
 use std::net::{IpAddr, SocketAddr};
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use async_trait::async_trait;
 use tokio::io::{AsyncRead, AsyncWrite};
-use tokio::net::TcpStream;
+use tokio::net::{TcpStream, UnixStream};
 
 use crate::link::LinkError;
+use crate::provider::socks;
 
 /// The bounds a dialed carrier must satisfy. Blanket-implemented, so any
 /// Tokio stream qualifies; the trait exists only because a trait object can
@@ -81,6 +83,59 @@ impl Dialer for OsTcpDialer {
         Err(LinkError::Transport(match last_error {
             Some(error) => format!("connect {host}:{port}: {error}"),
             None => format!("connect {host}:{port}: no addresses"),
+        }))
+    }
+}
+
+/// SOCKS5 CONNECT through a hub process on a Unix socket
+/// (`cmux-tui wg hub`). Used by sidecars that share one WireGuard tunnel: the
+/// hub owns the key, the sidecar owns nothing but this path. Names are
+/// resolved here and sent as literal addresses, because the hub dials
+/// literals only.
+pub struct SocksDialer {
+    path: PathBuf,
+}
+
+impl SocksDialer {
+    pub fn new(path: impl Into<PathBuf>) -> Self {
+        Self { path: path.into() }
+    }
+
+    pub fn path(&self) -> &Path {
+        &self.path
+    }
+}
+
+impl fmt::Debug for SocksDialer {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.debug_struct("SocksDialer").field("path", &self.path).finish()
+    }
+}
+
+#[async_trait]
+impl Dialer for SocksDialer {
+    fn name(&self) -> &'static str {
+        "socks-hub"
+    }
+
+    async fn dial(&self, host: &str, port: u16) -> Result<DialedStream, LinkError> {
+        let addresses = resolve_dial_target(host, port).await?;
+        let mut last_error = None;
+        for address in addresses {
+            let mut stream = UnixStream::connect(&self.path).await.map_err(|error| {
+                LinkError::Transport(format!(
+                    "wireguard hub {} is not reachable: {error}",
+                    self.path.display()
+                ))
+            })?;
+            match socks::client_connect(&mut stream, address).await {
+                Ok(()) => return Ok(Box::new(stream)),
+                Err(error) => last_error = Some(error),
+            }
+        }
+        Err(LinkError::Transport(match last_error {
+            Some(error) => format!("wireguard hub {}: {error}", self.path.display()),
+            None => format!("wireguard hub {}: no addresses for {host}", self.path.display()),
         }))
     }
 }

@@ -8,6 +8,7 @@ mod dial;
 #[cfg(feature = "iroh-transport")]
 mod iroh;
 mod relay;
+pub(crate) mod socks;
 mod ssh;
 mod stream;
 #[cfg(unix)]
@@ -41,7 +42,7 @@ pub use stream::LengthDelimitedLink;
 pub use unix::UnixProvider;
 #[cfg(feature = "wireguard-transport")]
 pub use dial::WireGuardDialer;
-pub use dial::{DialedIo, DialedStream, Dialer, OsTcpDialer, resolve_dial_target};
+pub use dial::{DialedIo, DialedStream, Dialer, OsTcpDialer, SocksDialer, resolve_dial_target};
 pub use websocket::{
     AxumWebSocketLink, DirectWebSocketProvider, TungsteniteWebSocketLink, connect_websocket,
     connect_websocket_via,

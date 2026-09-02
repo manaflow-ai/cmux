@@ -114,6 +114,17 @@ If the binary is absent or reports an understood incompatible probe, an npm-back
 
 Every command that selects SSH as its initial route performs the same probe and automatic install before starting its authenticated connection. This includes a raw `ssh://` route passed to `connect`, `forward`, or `rpc`. The bootstrap runs outside the short carrier-reattachment deadline, so installation can finish without making later keystroke-path reconnects wait on package setup. A later SSH fallback is expected to use the binary installed by an earlier SSH connection or by the server owner. These commands accept `--session`, `--ssh-binary`, `--remote-binary`, `--remote-state-dir`, repeated `--ssh-arg` values, `--upgrade`, and `--no-install`. Repeat `--session dev` on later connections to a non-main SSH session; the known-daemon record stores routes and keys, not the remote session name.
 
+## Share one WireGuard tunnel between clients
+
+One WireGuard key supports one live session: the server keeps the endpoint of the last authenticated sender, so two processes handshaking with the same key steal each other's traffic. When several `remote connect` processes on one machine must reach the same private network, run one hub and point each client at it:
+
+```sh
+cmux-tui wg hub --config ~/.cmuxterm/wireguard/app.conf --socket ~/.cmuxterm/wireguard/hub.sock
+cmux-tui remote connect 'ws://[fd7a::10]:1337/v1/link' --wireguard-hub ~/.cmuxterm/wireguard/hub.sock
+```
+
+The hub owns the tunnel and serves SOCKS5 CONNECT with no authentication on an owner-only Unix socket (parent directory `0700`, socket `0600`, peer uid checked). It dials literal IP targets inside the tunnel's `AllowedIPs` only: other addresses get reply `0x02` (not allowed by ruleset), names get `0x08` (address type not supported). It prints one JSON line `{"event":"hub-ready","socket":"<path>","routes":[...]}` when listening, exits non-zero with a clear error otherwise, and removes the socket on SIGTERM or SIGINT. `remote-probe --json` lists `wireguard-hub` in `capabilities` when a client supports both halves.
+
 ## Client option reference
 
 `connect`, `ssh`, `forward`, and `rpc` share these connection options:
@@ -135,6 +146,7 @@ Every command that selects SSH as its initial route performs the same probe and 
 | `--iroh-address <addr>` | Add an Iroh direct address; repeat for several addresses |
 | `--iroh-path <mode>` | `auto`, `direct-only`, or `relay-only`; default `auto` |
 | `--wireguard-config <path>` | Run an in-process WireGuard peer from an owner-only wg-quick file and dial `ws`/`wss` routes whose address is inside its `AllowedIPs` through it; other addresses use the operating system. No root and no system interface; only this client's links travel through the tunnel |
+| `--wireguard-hub <path>` | Dial `ws`/`wss` routes through a running `cmux-tui wg hub` Unix socket (SOCKS5 CONNECT) instead of owning a tunnel. Exclusive with `--wireguard-config`. Several `remote connect` processes share one key this way, because one WireGuard key supports only one live session |
 
 Reconnect defaults are unlimited attempts, 100 ms initial delay, 5 s maximum delay, a 15 s timeout per attempt, full jitter, a 5 s heartbeat interval, and a 15 s heartbeat timeout. Override them with `--reconnect-attempts <n|unlimited>`, `--reconnect-initial-ms`, `--reconnect-max-ms`, `--reconnect-attempt-timeout-ms`, `--reconnect-jitter <full|none>`, `--heartbeat-interval-ms`, and `--heartbeat-timeout-ms`. The per-attempt timeout also deadlines each link's initial handshake on every dial, invitation dials included, so an endpoint that accepts the connection but never completes the cmux handshake fails within that budget and tears its transport down instead of holding the connection open. The failure is a retryable carrier failure, so `--reconnect-attempts` and the backoff delays decide when the client stops redialing; an invitation's enrollment-approval wait happens after the handshake and keeps its own longer window.
 

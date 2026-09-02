@@ -33,11 +33,10 @@ use cmux_remote::identity::{
 };
 use cmux_remote::observability::ClientConnectionSnapshot;
 use cmux_remote::provider::{
-    ConnectRequest, DirectWebSocketProvider, IrohListener, IrohPathMode, IrohProvider,
+    ConnectRequest, Dialer, DirectWebSocketProvider, IrohListener, IrohPathMode, IrohProvider,
     IrohProviderConfig, LinkGroup, ProviderError, RelayClientConfig, RelayCredentialSource,
     RelayDaemonConfig, RelayDaemonRegistration, RelayProvider, SshProvider, SshProviderConfig,
-    SupportedClientAuthModes, TransportProvider, UnixProvider, WireGuardDialer,
-    load_or_create_iroh_secret,
+    SupportedClientAuthModes, TransportProvider, UnixProvider, load_or_create_iroh_secret,
     register_relay_daemon_with_credentials, sanitized_route, sanitized_route_text,
 };
 use cmux_remote::secure_directory::{DirectoryAccess, ensure_secure_directory};
@@ -435,21 +434,18 @@ impl TransportProvider for RoutedRelayProvider {
 
 /// The client-side transport registry.
 ///
-/// `wireguard` is an in-process tunnel (`cmux-wg`). When present, `ws`/`wss`
-/// routes whose address falls inside the tunnel's routes are dialed through
-/// it; every other address, and every other scheme, is unaffected.
+/// `direct_dialer` replaces the operating-system TCP dial for `ws`/`wss`
+/// routes: an in-process WireGuard tunnel (`WireGuardDialer`) or a shared hub
+/// (`SocksDialer`). Every other scheme is unaffected.
 pub fn client_provider_registry(
     ssh: SshProviderConfig,
     relay_routes: BTreeMap<String, RelayClientOptions>,
     iroh_path: IrohPathMode,
-    wireguard: Option<Arc<cmux_wg::WgNet>>,
+    direct_dialer: Option<Arc<dyn Dialer>>,
 ) -> Result<cmux_remote::provider::ProviderRegistry, ProviderError> {
     let mut providers = cmux_remote::provider::ProviderRegistry::default();
-    let direct = match wireguard {
-        Some(net) => DirectWebSocketProvider::with_dialer(
-            MAX_CARRIER_FRAME_BYTES,
-            Arc::new(WireGuardDialer::new(net)),
-        ),
+    let direct = match direct_dialer {
+        Some(dialer) => DirectWebSocketProvider::with_dialer(MAX_CARRIER_FRAME_BYTES, dialer),
         None => DirectWebSocketProvider::new(MAX_CARRIER_FRAME_BYTES),
     };
     providers.register(Arc::new(direct))?;
