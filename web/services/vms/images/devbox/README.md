@@ -22,10 +22,10 @@ time and heals pin drift on attach
 daemon.
 
 The baked `cmux-tui-daemon` systemd unit runs that supervisor with
-`CMUX_TUI_REMOTE_WS_BIND=[::]:1337`. The platform has no HTTP ingress to
-arbitrary ports, so the route is the VM's stable public IPv6 straight to the
-daemon (`ws://[ipv6]:1337/v1/link`, Noise enrollment as the session gate) and
-the listener must therefore be dual-stack.
+`CMUX_TUI_REMOTE_WS_BIND=[::]:1337`. The public API does not provide an
+authenticated HTTP proxy for arbitrary ports, so the route is the VM's stable
+public IPv6 straight to the daemon (`ws://[ipv6]:1337/v1/link`, Noise
+enrollment as the session gate). The listener must therefore be dual-stack.
 
 Shells spawned by the daemon run as root with HOME=/root and get the bash
 devshell (ble.sh ghost text, half-life prompt, seeded history) through the
@@ -41,13 +41,13 @@ and no daemon build are needed.
 FREESTYLE_API_KEY=... bun scripts/build-devbox-freestyle.ts cmux-devbox-<tag>
 ```
 
-Auth is `FREESTYLE_API_KEY`, or `FREESTYLE_STACK_ACCESS_TOKEN` +
-`FREESTYLE_TEAM_ID`; the argument is the snapshot slug (falls back to slugless
-on a collision) and the printed `sh-…` id is the pointer to pin. Agent pins
-live only in the Dockerfile ARG defaults; bump them together with
-`CMUX_IMAGE_EPOCH` and the chatmux template. The cmux-tui pin comes from the
-artifacts manifest at deploy time (`CMUX_VM_CMUX_TUI_MANIFEST_URL`), never
-from the image.
+Freestyle public-platform auth is `FREESTYLE_API_KEY`, or
+`FREESTYLE_STACK_ACCESS_TOKEN` + `FREESTYLE_TEAM_ID`; the argument is the
+snapshot slug (falls back to slugless on a collision) and the printed
+`sh-…` id is the pointer to pin. Agent pins live only in the Dockerfile ARG
+defaults; bump them together with `CMUX_IMAGE_EPOCH` and the chatmux
+template. The cmux-tui pin comes from the artifacts manifest at deploy time
+(`CMUX_VM_CMUX_TUI_MANIFEST_URL`), never from the image.
 
 ## Verify
 
