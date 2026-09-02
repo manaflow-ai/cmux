@@ -5,6 +5,7 @@ import {
   listAllPendingEmailGrants,
   loadProListSnapshot,
   loadProListSnapshotWithin,
+  ProListDatabaseUnavailableError,
   ProListTimeoutError,
   withStatementTimeout,
   mapWithConcurrency,
@@ -269,6 +270,16 @@ describe("Pro roster", () => {
     } finally {
       Date.now = realNow;
     }
+  });
+
+  test("a missing database config becomes ProListDatabaseUnavailableError, a timeout stays a timeout", async () => {
+    const noConfig = {
+      select: () => { throw new Error("DATABASE_URL is required for Cloud VM database access"); },
+    } as unknown as ProListDb;
+    await expect(loadProListSnapshot({ db: noConfig, app: fakeApp({}) })).rejects.toBeInstanceOf(ProListDatabaseUnavailableError);
+    await expect(
+      loadProListSnapshot({ db: fakeDb(new Map()), app: fakeApp({}), deadlineMs: Date.now() - 1 }),
+    ).rejects.toBeInstanceOf(ProListTimeoutError);
   });
 
   test("no read starts after the deadline has passed", async () => {

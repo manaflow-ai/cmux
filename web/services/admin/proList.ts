@@ -385,7 +385,6 @@ export async function loadProListSnapshot(
     readonly deadlineMs?: number;
   } = {},
 ): Promise<ProListSnapshot> {
-  const db = options.db ?? cloudDb();
   const guard = () => {
     if (options.deadlineMs !== undefined && Date.now() > options.deadlineMs) {
       throw new ProListTimeoutError(Math.max(0, options.deadlineMs - Date.now()));
@@ -401,6 +400,9 @@ export async function loadProListSnapshot(
     return configured === undefined ? remaining : Math.min(configured, remaining);
   };
   try {
+    // Client creation can fail the same way a read does (no DATABASE_URL), so
+    // it lives inside the same error boundary.
+    const db = options.db ?? cloudDb();
     // Each read gets its own short transaction, so a failed optional read
     // (missing admin_plan_grants table) aborts only its own transaction and
     // the catch below still yields an empty pending list.
