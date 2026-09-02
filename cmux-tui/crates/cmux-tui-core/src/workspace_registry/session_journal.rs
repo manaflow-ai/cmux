@@ -2340,6 +2340,7 @@ mod tests {
         reset_journal_segment_decode_count();
         reset_journal_segment_content_load_count();
         let mut cursor = reader.restore_cursor(0).unwrap();
+        assert!(cursor.segments.is_empty());
         assert_eq!(journal_segment_content_load_count(), 0);
         let mut replayed = Vec::new();
         loop {
