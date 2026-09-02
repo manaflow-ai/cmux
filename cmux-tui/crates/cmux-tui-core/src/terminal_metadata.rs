@@ -27,11 +27,28 @@ enum OscState {
 struct OscCollector {
     state: OscState,
     body: Vec<u8>,
+    /// Number of UTF-8 continuation bytes still expected after a lead byte.
+    /// Raw C1 values share this byte range, so framing is recognized only at
+    /// code-point boundaries.
+    utf8_continuations: u8,
 }
 
 impl OscCollector {
     fn observe(&mut self, bytes: &[u8], mut receive: impl FnMut(&[u8])) {
         for &byte in bytes {
+            if self.utf8_continuations > 0 {
+                if is_utf8_continuation(byte) {
+                    self.utf8_continuations -= 1;
+                    if self.state == OscState::Body {
+                        self.push(byte);
+                    }
+                    continue;
+                }
+                // An invalid or truncated UTF-8 sequence cannot hide the
+                // next control byte. Process this byte again as framing.
+                self.utf8_continuations = 0;
+            }
+            self.utf8_continuations = utf8_continuation_count(byte);
             match self.state {
                 OscState::Ground => match byte {
                     0x1b => self.state = OscState::Escape,
@@ -41,6 +58,11 @@ impl OscCollector {
                         self.body.clear();
                         self.state = OscState::Body;
                     }
+                    // C1 DCS, SOS, PM, and APC. Their payloads are ignored
+                    // so an embedded OSC cannot leak metadata.
+                    0x90 | 0x98 | 0x9e | 0x9f => {
+                        self.state = OscState::IgnoringString;
+                    }
                     _ => {}
                 },
                 OscState::Escape => match byte {
@@ -48,6 +70,7 @@ impl OscCollector {
                         self.body.clear();
                         self.state = OscState::Body;
                     }
+                    0x18 | 0x1a => self.state = OscState::Ground,
                     0x1b => self.state = OscState::Escape,
                     b'P' | b'X' | b'^' | b'_' => {
                         // DCS, SOS, PM, and APC are string controls. Ignore
@@ -57,11 +80,13 @@ impl OscCollector {
                     _ => self.state = OscState::Ground,
                 },
                 OscState::Body => match byte {
+                    0x18 | 0x1a => self.cancel(),
                     0x07 | 0x9c => self.finish(&mut receive),
                     0x1b => self.state = OscState::BodyEscape,
                     _ => self.push(byte),
                 },
                 OscState::BodyEscape => match byte {
+                    0x18 | 0x1a => self.cancel(),
                     b'\\' => self.finish(&mut receive),
                     0x07 | 0x9c => self.finish(&mut receive),
                     0x1b => {
@@ -82,21 +107,25 @@ impl OscCollector {
                     }
                 },
                 OscState::IgnoringString => match byte {
+                    0x18 | 0x1a => self.cancel(),
                     0x1b => self.state = OscState::IgnoringStringEscape,
                     0x9c => self.state = OscState::Ground,
                     _ => {}
                 },
                 OscState::IgnoringStringEscape => match byte {
+                    0x18 | 0x1a => self.cancel(),
                     b'\\' | 0x9c => self.state = OscState::Ground,
                     0x1b => self.state = OscState::IgnoringStringEscape,
                     _ => self.state = OscState::IgnoringString,
                 },
                 OscState::Discarding => match byte {
+                    0x18 | 0x1a => self.cancel(),
                     0x07 | 0x9c => self.state = OscState::Ground,
                     0x1b => self.state = OscState::DiscardingEscape,
                     _ => {}
                 },
                 OscState::DiscardingEscape => match byte {
+                    0x18 | 0x1a => self.cancel(),
                     b'\\' | 0x9c => self.state = OscState::Ground,
                     0x1b => self.state = OscState::DiscardingEscape,
                     _ => self.state = OscState::Discarding,
@@ -120,6 +149,29 @@ impl OscCollector {
         self.body.clear();
         self.state = OscState::Ground;
     }
+
+    fn cancel(&mut self) {
+        self.body.clear();
+        self.state = OscState::Ground;
+        self.utf8_continuations = 0;
+    }
+}
+
+fn is_utf8_continuation(byte: u8) -> bool {
+    (0x80..=0xbf).contains(&byte)
+}
+
+fn utf8_continuation_count(byte: u8) -> u8 {
+    match byte {
+        0xc2..=0xdf => 1,
+        0xe0..=0xef => 2,
+        0xf0..=0xf4 => 3,
+        _ => 0,
+    }
+}
+
+fn is_string_opener(byte: u8) -> bool {
+    matches!(byte, 0x90 | 0x98 | 0x9d | 0x9f | 0x9e)
 }
 
 /// Generic terminal metadata retained from the output stream.
@@ -137,7 +189,10 @@ impl TerminalMetadata {
         // while the collector is inside a control sequence, even when this
         // chunk contains no new ESC or C1 introducer.
         if self.osc.state == OscState::Ground
-            && !bytes.iter().any(|byte| *byte == 0x1b || *byte == 0x9d)
+            && self.osc.utf8_continuations == 0
+            && !bytes.iter().any(|byte| {
+                *byte == 0x1b || is_string_opener(*byte) || utf8_continuation_count(*byte) != 0
+            })
         {
             return;
         }
