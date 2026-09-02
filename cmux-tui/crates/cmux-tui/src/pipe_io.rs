@@ -28,14 +28,14 @@ use std::sync::{Arc, Mutex, Weak};
 use std::time::{Duration, Instant};
 
 use base64::Engine as _;
-use cmux_tui_core::resource::TerminalPublicId;
 use cmux_tui_core::SurfaceId;
+use cmux_tui_core::resource::TerminalPublicId;
 use crossbeam_channel::{Receiver, Sender};
 use serde::Deserialize;
 
 use crate::session::{
-    is_remote_surface_unavailable, PipeIoByteBudget, PipeIoEvent, PipeIoSurfaceAttach,
-    RemoteSession,
+    PipeIoByteBudget, PipeIoEvent, PipeIoSurfaceAttach, RemoteSession,
+    is_remote_surface_unavailable,
 };
 
 /// The terminal ended, or the embedder walked away: respawning is wrong.
@@ -239,6 +239,14 @@ pub fn run(
         // Classify the startup failure so the embedder can either stop for a
         // retired terminal or reconnect after a lost daemon transport.
         return Ok(attach_failure_exit_reason(&error, surface));
+    }
+    // Older daemons do not accept geometry in the attach request. Apply the
+    // requested initial size explicitly after claiming authority so the
+    // first replay uses the embedder's dimensions on that compatibility path.
+    if !remote.supports_capability(cmux_tui_core::server::ATTACH_INITIAL_SIZE_CAPABILITY) {
+        if let Err(error) = remote.resize_pipe_io(surface, cols.max(1), rows.max(1)) {
+            return Ok(attach_failure_exit_reason(&error, surface));
+        }
     }
     let stderr_gate = Arc::new(StderrGate::default());
     let _stdin_pump = match spawn_stdin_pump(handle, lifecycle_sender, stderr_gate.clone()) {
