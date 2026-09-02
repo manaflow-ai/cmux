@@ -402,11 +402,15 @@ impl<T> Drop for AbortOnDrop<T> {
 
 impl Connection {
     fn send_control(&self, frame: &Value) {
+        self.send_control_with_live(frame, None);
+    }
+
+    fn send_control_with_live(&self, frame: &Value, live: Option<Arc<AtomicBool>>) {
         let Some(encoded) = encode_control_frame(frame) else {
             self.finish();
             return;
         };
-        let _ = self.enqueue_frame(encoded, true, None);
+        let _ = self.enqueue_frame(encoded, true, live);
     }
 
     fn reserve_bytes(&self, length: usize, control: bool) -> bool {
@@ -542,7 +546,7 @@ impl Connection {
                 if let Some(surface) = frame.get("surface").and_then(Value::as_str) {
                     opened["surface"] = Value::from(surface);
                 }
-                self.send_control(&opened);
+                self.send_control_with_live(&opened, live);
             }
             Some("pty_output") => {
                 let Some(bytes) = frame
@@ -571,13 +575,13 @@ impl Connection {
             }
             Some("pty_exit") => {
                 let code = frame.get("code").and_then(Value::as_i64).unwrap_or(0);
-                self.send_control(&json!({ "t": "exit", "code": code }));
+                self.send_control_with_live(&json!({ "t": "exit", "code": code }), live);
                 self.finish();
             }
             Some("pty_error") => {
                 let code =
                     wire_error_code(frame.get("code").and_then(Value::as_str).unwrap_or("failed"));
-                self.send_control(&json!({ "t": "error", "code": code }));
+                self.send_control_with_live(&json!({ "t": "error", "code": code }), live);
                 // Non-fatal errors (an oversized input frame) keep the
                 // attachment; a refused open or a dropped attachment ends
                 // the connection.

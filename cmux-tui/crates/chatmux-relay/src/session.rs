@@ -614,7 +614,16 @@ fn make_context(
             let Some(text) = serde_json::to_string(&frame).ok() else { return };
             let size = text.len() as u64;
             pending_send_live.fetch_add(size, Ordering::SeqCst);
-            if live_sender.try_watch_text_with_token(text, Some(live)).is_err() {
+            let critical = matches!(
+                frame.get("type").and_then(Value::as_str),
+                Some("pty_opened" | "pty_error" | "pty_exit" | "pty_closed")
+            );
+            let result = if critical {
+                live_sender.try_critical_text_with_token(text, Some(live))
+            } else {
+                live_sender.try_watch_text_with_token(text, Some(live))
+            };
+            if result.is_err() {
                 pending_send_live.fetch_sub(
                     size.min(pending_send_live.load(Ordering::SeqCst)),
                     Ordering::SeqCst,
