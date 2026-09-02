@@ -148,7 +148,7 @@ final class DockPointerInteractionHostView: NSView {
     private var applicationResignActiveObserver: NSObjectProtocol?
     // The reference is immutable and its methods marshal all handle access to
     // the MainActor, which makes it safe to request from `deinit`.
-    nonisolated(unsafe) private let teardownBox = DockPointerTeardownBox()
+    private let teardownBox = DockPointerTeardownBox()
 
     deinit {
         if Thread.isMainThread {
@@ -194,14 +194,22 @@ final class DockPointerInteractionHostView: NSView {
             object: window,
             queue: .main
         ) { [weak self, weak window] _ in
-            self?.store?.cancelDockPointerInteraction(window: window)
+            // `.main` delivers this AppKit lifecycle callback on the same
+            // executor that owns the Dock store.
+            MainActor.assumeIsolated {
+                self?.store?.cancelDockPointerInteraction(window: window)
+            }
         }
         applicationResignActiveObserver = NotificationCenter.default.addObserver(
             forName: NSApplication.didResignActiveNotification,
             object: NSApp,
             queue: .main
         ) { [weak self, weak window] _ in
-            self?.store?.cancelDockPointerInteraction(window: window)
+            // `.main` delivers this AppKit lifecycle callback on the same
+            // executor that owns the Dock store.
+            MainActor.assumeIsolated {
+                self?.store?.cancelDockPointerInteraction(window: window)
+            }
         }
         refreshTeardownCleanup()
     }

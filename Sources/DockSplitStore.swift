@@ -63,7 +63,7 @@ final class DockSplitStore: BonsplitDelegate, FilePreviewTabMetadataHost {
     /// Bounded capability snapshot consumed by the app-level Commands body.
     /// Mutate it only through `refreshDockMenuCapabilities()` so menu reads do
     /// not observe the Dock's full tab/panel collections.
-    internal(set) var menuCapabilities = DockMenuCapabilitySnapshot.empty
+    var menuCapabilities = DockMenuCapabilitySnapshot.empty
     @ObservationIgnored private(set) var isRetired = false
     /// Host views currently showing this Dock. Normally at most one (the owning
     /// window's right sidebar), but SwiftUI remounts can briefly overlap an old
@@ -727,7 +727,12 @@ final class DockSplitStore: BonsplitDelegate, FilePreviewTabMetadataHost {
             websiteDataStore: websiteDataStore
         ) else { return nil }
         let previousFocus = focus ? nil : focusedDockPaneSelection()
-        guard let tabId = attachPanelAsTab(panel, kind: kind, title: panel.displayTitle, inPane: paneId) else {
+        guard attachPanelAsTab(
+            panel,
+            kind: kind,
+            title: panel.displayTitle,
+            inPane: paneId
+        ) != nil else {
             return nil
         }
         commitStartupRestoreIfNeeded(
@@ -817,7 +822,12 @@ final class DockSplitStore: BonsplitDelegate, FilePreviewTabMetadataHost {
             // Empty tree: place into the root pane rather than splitting.
             let previousFocus = focus ? nil : focusedDockPaneSelection()
             guard let rootPane = bonsplitController.allPaneIds.first,
-                  let tabId = attachPanelAsTab(panel, kind: kind, title: panel.displayTitle, inPane: rootPane) else {
+                  attachPanelAsTab(
+                      panel,
+                      kind: kind,
+                      title: panel.displayTitle,
+                      inPane: rootPane
+                  ) != nil else {
                 return nil
             }
             commitStartupRestoreIfNeeded(
