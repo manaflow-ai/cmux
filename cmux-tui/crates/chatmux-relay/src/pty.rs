@@ -4058,6 +4058,22 @@ mod tests {
         fn kill(&self) {}
     }
 
+    struct BlockingKillControl {
+        entered: Arc<Barrier>,
+        release: Arc<Barrier>,
+    }
+
+    impl PtyControl for BlockingKillControl {
+        fn write(&self, _data: &[u8]) {}
+        fn resize(&self, _cols: u16, _rows: u16) {}
+        fn pause(&self) {}
+        fn resume(&self) {}
+        fn kill(&self) {
+            self.entered.wait();
+            self.release.wait();
+        }
+    }
+
     /// Pauses provider resolution after the open reservation is published.
     /// This gives lifecycle tests a deterministic boundary at which a
     /// transport can detach while its provider task is still in flight.
@@ -4520,6 +4536,35 @@ mod tests {
         let spawned = h.spawned();
         assert_eq!(spawned.len(), 1);
         assert!(spawned[0].state.lock().unwrap().killed);
+    }
+
+    #[tokio::test]
+    async fn dropping_opened_does_not_block_on_control_kill() {
+        let entered = Arc::new(Barrier::new(2));
+        let release = Arc::new(Barrier::new(2));
+        let opened = Opened {
+            created: false,
+            surface: None,
+            control: Some(Arc::new(BlockingKillControl {
+                entered: Arc::clone(&entered),
+                release: Arc::clone(&release),
+            })),
+            closing: Some(Arc::new(AtomicBool::new(false))),
+            start: None,
+            cleanup_on_drop: true,
+        };
+        let drop_task = tokio::spawn(async move { drop(opened) });
+
+        tokio::task::spawn_blocking(move || entered.wait())
+            .await
+            .expect("kill must start");
+        assert!(
+            tokio::time::timeout(Duration::from_millis(100), drop_task).await.is_ok(),
+            "Opened::drop must not wait for a blocking PTY kill"
+        );
+        tokio::task::spawn_blocking(move || release.wait())
+            .await
+            .expect("kill release");
     }
 
     #[tokio::test]
