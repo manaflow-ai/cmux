@@ -3,8 +3,8 @@
 Audit target: https://github.com/manaflow-ai/cmux/pull/10599
 PR branch: `justincrich/cmux:upstream/file-preview-code-view-tokens-gutter`
 Maintainer update remote: `https://github.com/justincrich/cmux.git`
-Audited head: `461f6794456d051145b2862edc0bce34e0395899`
-Merged base: `9e2dd50957936153ca0da61d2f079937674f9375`
+Audited head: `f4fd1ff5ab3da5662d52c54298bce714484ac67e`
+Merged base: `5a453950eac6e765e9d2eeb98fa45a68016f98b9`
 
 ## Merge and compatibility history
 
@@ -15,6 +15,8 @@ Merged base: `9e2dd50957936153ca0da61d2f079937674f9375`
 - `461f679445` merged the subsequently advanced `origin/main` with parents
   `d671c5d257` and `9e2dd50957`. The final PR head therefore has an explicit
   two-parent merge for the current base.
+- `f4fd1ff5ab` merged the latest `origin/main` with parents `fe0f5540e6` and
+  `5a453950ea`; its tree is the exact final PR tree.
 - `d5a2941c78` is the small base-merge compatibility repair that uses
   `hostedView.surfaceView.terminalSurface` for portal teardown identity. It is
   unrelated to the File Preview redesign.
@@ -107,18 +109,20 @@ absence was recorded. `.github/swift-warning-budget.tsv` was not modified.
 
 ## Tagged build and launch
 
-The authorized command completed successfully for the audited head:
+The authorized command completed successfully for the code-affecting tree; the
+final base merge changed only iOS sources and was rebuilt under the same tag:
 
 ```text
 CMUX_SKIP_ZIG_BUILD=1 scripts/reload-cloud.sh --tag pr-10599-review --launch
 ```
 
-Cloud run: `pr-10599-review-8ac6289031ae`.
+Cloud runs: `pr-10599-review-8ac6289031ae` (code tree) and
+`pr-10599-review-be7f3171c8ff` (final merged head).
 
 The installed and launched identity is `cmux DEV pr-10599-review` with bundle
 identifier `com.cmuxterm.app.debug.pr.10599.review`. The matching tagged debug
 socket responded to a workspace-list probe after launch. No launch failure was
-reported.
+reported. The consolidated audit-table comment is GitHub comment `5502995722`.
 
 ## Remaining external action
 
