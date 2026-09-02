@@ -2000,7 +2000,22 @@ impl Inner {
             {
                 return;
             }
-            self.close_exact(pty_id, generation, Some(&publication_gate));
+            let removed = {
+                let mut attachments = self.attachments.lock().expect("attach lock");
+                let Some(current) = attachments.get(pty_id) else { return };
+                if generation.is_some_and(|expected| current.generation != expected)
+                    || !Arc::ptr_eq(&current.publication_gate, &publication_gate)
+                    || !current.close_pending.load(Ordering::SeqCst)
+                    || current.closing.load(Ordering::SeqCst)
+                {
+                    return;
+                }
+                let removed = attachments.remove(pty_id).expect("attachment still present");
+                removed.closing.store(true, Ordering::SeqCst);
+                removed
+            };
+            drop(_publication);
+            removed.control.kill();
         }
     }
 
@@ -2109,7 +2124,34 @@ impl Inner {
         {
             return;
         }
-        self.close_exact_authorized(pty_id, attachment, context);
+        let live_auth = Self::auth_snapshot(context);
+        if !self.auth_allows(&live_auth, &current) {
+            current.close_pending.store(false, Ordering::SeqCst);
+            drop(_publication);
+            send_pty_error(
+                context,
+                pty_id,
+                "trust_revoked",
+                "PTY close refused after trust change",
+            );
+            return;
+        }
+        let removed = {
+            let mut attachments = self.attachments.lock().expect("attach lock");
+            let Some(current) = attachments.get(pty_id) else { return };
+            if current.generation != attachment.generation
+                || !Arc::ptr_eq(&current.publication_gate, &gate)
+                || !current.close_pending.load(Ordering::SeqCst)
+                || current.closing.load(Ordering::SeqCst)
+            {
+                return;
+            }
+            let removed = attachments.remove(pty_id).expect("attachment still present");
+            removed.closing.store(true, Ordering::SeqCst);
+            removed
+        };
+        drop(_publication);
+        removed.control.kill();
     }
 
     fn close_exact(
