@@ -2702,6 +2702,39 @@ struct DockShortcutRoutingTests {
         }
     }
 
+    @Test("An empty Dock pane publishes Dock ownership for creation commands")
+    @MainActor
+    func emptyDockPanePublishesDockFocus() async throws {
+        try await AppContextSerialGate.withExclusiveAppContext {
+            try await Self.withHarness { harness in
+                let mainPanelId = try #require(
+                    harness.mainWorkspace.focusedPanelId
+                )
+                harness.appDelegate.noteMainPanelKeyboardFocusIntent(
+                    workspaceId: harness.mainWorkspace.id,
+                    panelId: mainPanelId,
+                    in: harness.window
+                )
+
+                harness.dock.focusPaneFromDockInteraction(
+                    harness.rootPane,
+                    window: harness.window
+                )
+
+                #expect(
+                    harness.appDelegate.keyboardFocusCoordinator(
+                        for: harness.window
+                    )?.focusedRightSidebarMode == .dock
+                )
+                #expect(
+                    harness.appDelegate.focusedDockStoreForShortcut(
+                        preferredWindow: harness.window
+                    ) === harness.dock
+                )
+            }
+        }
+    }
+
     @Test("Focus-neutral Dock selection restoration preserves main focus")
     @MainActor
     func focusNeutralDockSelectionRestorationPreservesMainFocus() async throws {
