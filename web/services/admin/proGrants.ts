@@ -598,13 +598,23 @@ function escapeLikePattern(value: string): string {
   return value.replace(/[\\%_]/g, (char) => `\\${char}`);
 }
 
+export type CreatePendingEmailGrantResult = AdminPendingGrantRow & {
+  /**
+   * Accounts whose superseded grant could not be cleared right now. The
+   * clear is retried at that user's next sign-in; an admin can also use
+   * "Remove grant" on the user row immediately. Never empty silently: the
+   * route reports it and the UI shows it.
+   */
+  readonly unclearedUserIds: readonly string[];
+};
+
 export async function createPendingEmailGrant(input: {
   readonly email: string;
   readonly plan: AdminGrantablePlanId;
   readonly admin: { readonly id: string; readonly primaryEmail?: string | null };
   readonly db?: AdminGrantsDb;
   readonly grant?: (input: SetManualPlanGrantInput) => Promise<unknown>;
-}): Promise<AdminPendingGrantRow> {
+}): Promise<CreatePendingEmailGrantResult> {
   if (!isPlausibleEmail(input.email)) {
     throw new AdminInvalidEmailError(input.email);
   }
@@ -653,6 +663,7 @@ export async function createPendingEmailGrant(input: {
       });
     return { row: inserted, superseded: supersededRows };
   });
+  const unclearedUserIds: string[] = [];
   for (const old of superseded) {
     if (!old.appliedUserId) continue;
     try {
@@ -673,6 +684,7 @@ export async function createPendingEmailGrant(input: {
         grantId: old.id,
         failure: error instanceof Error ? error.name : "unknown",
       });
+      unclearedUserIds.push(old.appliedUserId);
     }
   }
   if (!row) throw new Error("admin_plan_grants insert returned no row");
@@ -682,6 +694,7 @@ export async function createPendingEmailGrant(input: {
     plan: row.plan,
     grantedByEmail: row.grantedByEmail ?? null,
     createdAt: row.createdAt.toISOString(),
+    unclearedUserIds,
   };
 }
 

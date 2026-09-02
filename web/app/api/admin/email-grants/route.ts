@@ -62,8 +62,14 @@ export async function POST(request: NextRequest) {
   }
 
   try {
-    const pendingGrant = await createPendingEmailGrant({ email, plan, admin: gate.admin });
-    return adminJsonResponse({ pendingGrant });
+    const { unclearedUserIds, ...pendingGrant } = await createPendingEmailGrant({
+      email,
+      plan,
+      admin: gate.admin,
+    });
+    // Recorded, but a superseded grant is still active on these accounts
+    // until their next sign-in or a manual "Remove grant". Say so.
+    return adminJsonResponse({ pendingGrant, unclearedUserIds });
   } catch (error) {
     if (error instanceof AdminInvalidEmailError) {
       return adminJsonResponse({ error: "invalid_email" }, 400);

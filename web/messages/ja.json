@@ -377,7 +377,8 @@
         "downgraded": "{target} は現在の期間終了時に解約されます。",
         "resumed": "{target} のサブスクリプションを再開しました。",
         "emailGranted": "{target} の初回の確認済みサインイン時に {plan} が適用されます。",
-        "pendingRevoked": "{target} の保留中の付与を取り消しました。"
+        "pendingRevoked": "{target} の保留中の付与を取り消しました。",
+        "supersededNotCleared": "付与は記録されましたが、以前の付与が {count} 件のアカウントでまだ有効です。そのメールを検索してユーザー行の「付与を解除」を使用するか、次回サインイン時に解除されます。"
       },
       "errors": {
         "network": "ネットワークエラーです。もう一度お試しください。",

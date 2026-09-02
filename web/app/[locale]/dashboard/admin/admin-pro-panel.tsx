@@ -164,6 +164,7 @@ export function AdminProPanel() {
       user?: AdminUserRow;
       team?: AdminTeamRow;
       pendingGrant?: PendingGrantRow;
+      unclearedUserIds?: string[];
       action?: "cancel" | "resume";
     };
     try {
@@ -173,7 +174,11 @@ export function AdminProPanel() {
     }
     applyMutationResult(pending, body);
     setMutation({ kind: "idle" });
-    setNotice(successNotice(t, pending));
+    setNotice(
+      body.unclearedUserIds && body.unclearedUserIds.length > 0
+        ? t("notices.supersededNotCleared", { count: body.unclearedUserIds.length })
+        : successNotice(t, pending),
+    );
     setPending(null);
     if (pending.kind === "user-subscription" || pending.kind === "team-subscription") {
       // Subscription state comes back from Stripe; refresh the rows.

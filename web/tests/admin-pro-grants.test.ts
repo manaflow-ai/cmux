@@ -827,6 +827,7 @@ describe("pending email grants", () => {
     expect(rows[0]!.revokedAt).toBeInstanceOf(Date);
     expect(rows[0]!.appliedUserId).toBeNull();
     expect(created.plan).toBe("founders");
+    expect(created.unclearedUserIds).toEqual([]);
     expect((await listPendingEmailGrants("pat", { db })).map((row) => row.plan)).toEqual(["founders"]);
   });
 
@@ -838,6 +839,7 @@ describe("pending email grants", () => {
     rows[0]!.claimedAt = new Date();
     const created = await createPendingEmailGrant({ email: "pat@example.com", plan: "founders", admin, db, grant: async () => { throw new AdminGrantConflictError("u9"); } });
     expect(created.plan).toBe("founders");
+    expect(created.unclearedUserIds).toEqual(["u9"]);
     expect(rows[0]!.revokedAt).toBeInstanceOf(Date);
     expect(rows[0]!.appliedUserId).toBe("u9");
     // The user's next sign-in retries the clear before applying the new grant.

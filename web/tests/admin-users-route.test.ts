@@ -455,8 +455,10 @@ describe("admin email grants route", () => {
       postRequest({ email: "future@example.com", plan: "pro" }, {}, "/api/admin/email-grants"),
     );
     expect(response.status).toBe(200);
-    const body = (await response.json()) as { pendingGrant: Record<string, unknown> };
+    const body = (await response.json()) as { pendingGrant: Record<string, unknown>; unclearedUserIds: string[] };
     expect(body.pendingGrant).toMatchObject({ email: "future@example.com", plan: "pro" });
+    expect(body.pendingGrant).not.toHaveProperty("unclearedUserIds");
+    expect(body.unclearedUserIds).toEqual([]);
     expect(pendingGrantRows).toHaveLength(1);
     expect(pendingGrantRows[0]).toMatchObject({ grantedByUserId: "admin-1", grantedByEmail: "lawrence@manaflow.ai" });
 

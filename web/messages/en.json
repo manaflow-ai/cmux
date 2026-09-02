@@ -377,7 +377,8 @@
         "downgraded": "{target} cancels at the end of the current period.",
         "resumed": "Subscription for {target} resumed.",
         "emailGranted": "{plan} will apply to {target} at first verified sign-in.",
-        "pendingRevoked": "Pending grant for {target} revoked."
+        "pendingRevoked": "Pending grant for {target} revoked.",
+        "supersededNotCleared": "Grant recorded, but the previous grant is still active on {count, plural, =1 {1 account} other {# accounts}}. Search that email and use Remove grant on the user row, or it clears at their next sign-in."
       },
       "errors": {
         "network": "Network error. Try again.",
