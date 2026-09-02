@@ -1449,11 +1449,11 @@ fn lane_bit(lane: Lane) -> u8 {
 }
 
 fn tombstone_lane_mask(service: Service, lane: Lane) -> u8 {
-    if service == Service::MuxControl { MULTI_LANE_TERMINAL_MASK } else { lane_bit(lane) }
+    if service == Service::TcpTunnel { lane_bit(lane) } else { MULTI_LANE_TERMINAL_MASK }
 }
 
 fn legal_tombstone_lane_mask(service: Service) -> u8 {
-    if service == Service::TcpTunnel { lane_bit(Lane::Tunnel) } else { MULTI_LANE_TERMINAL_MASK }
+    tombstone_lane_mask(service, default_lane(service))
 }
 
 fn open_lane(service: Service) -> Lane {
