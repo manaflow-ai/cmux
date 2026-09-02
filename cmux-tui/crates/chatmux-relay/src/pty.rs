@@ -3442,6 +3442,26 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn live_trust_rejection_clears_open_reservation() {
+        let h = harness(None, None);
+        let mut context = h.context("supervised", h.owner.clone());
+        context.live_auth = Arc::new(|| ("observe".to_owned(), Some("user_owner".to_owned())));
+        let frame = serde_json::json!({
+            "version": 4,
+            "type": "pty_open",
+            "ptyId": "p1",
+            "session": "main",
+            "cols": 80,
+            "rows": 24,
+            "actorId": "user_other",
+        });
+        h.manager.handle_frame(&frame, &context).await;
+        assert_eq!(h.manager.opening_count(), 0);
+        assert!(!h.manager.has_attachment("p1"));
+        assert!(h.sent().iter().any(|frame| frame["code"] == "trust_revoked"));
+    }
+
+    #[tokio::test]
     async fn close_requires_current_trust() {
         let h = harness(None, None);
         h.open("p1", "main", Value::Null, "supervised", h.owner.clone()).await;
