@@ -511,24 +511,24 @@ impl ControlLease {
         if !Arc::ptr_eq(&state.control, &self.control) {
             return;
         }
+        drop(users);
         if detach_supported && let Some(lease) = lease {
-            // The detach command is idempotent and queued before the control
-            // is closed. This handles an attach response racing cancellation.
+            // Await writer acceptance before the final lease closes the
+            // socket. Otherwise end() can discard a queued detach line.
             let params = json!({ "surface": surface_id, "lease": lease });
-            if !self.control.send("detach-attached-view", params.clone()) {
-                drop(users);
-                if let Ok(handle) = tokio::runtime::Handle::try_current() {
-                    let control = Arc::clone(&self.control);
-                    let lease = Arc::clone(self);
-                    handle.spawn(async move {
-                        let _ = control.send_reliable("detach-attached-view", params).await;
-                        lease.finish_count();
-                    });
-                }
+            if let Ok(handle) = tokio::runtime::Handle::try_current() {
+                let control = Arc::clone(&self.control);
+                let lease = Arc::clone(self);
+                handle.spawn(async move {
+                    let _ = control.send_reliable("detach-attached-view", params).await;
+                    lease.finish_count();
+                });
+                return;
+            }
+            if !self.control.send("detach-attached-view", params) {
                 return;
             }
         }
-        drop(users);
         self.finish_count();
     }
 }

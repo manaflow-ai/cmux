@@ -284,6 +284,8 @@ struct Connection {
     open_sent: AtomicBool,
     /// The manager answered pty_opened (clears the open deadline).
     opened_seen: AtomicBool,
+    /// The ordered open operation returned, including typed failures.
+    open_completed: AtomicBool,
     finished: AtomicBool,
     /// Cancels manager/reader work immediately. Writer drain uses its own
     /// token so mandatory error/exit frames can flush before socket close.
@@ -467,6 +469,7 @@ async fn handle_client_frame(
                 open["surface"] = Value::from(surface);
             }
             connection.manager.handle_frame(&open, context).await;
+            connection.open_completed.store(true, Ordering::SeqCst);
         }
         ClientFrame::Resize { cols, rows } => {
             if !connection.open_sent.load(Ordering::SeqCst) {
@@ -500,6 +503,7 @@ async fn serve_connection(stream: TcpStream, manager: Arc<PtyManager>, parent: C
         paused: AtomicBool::new(false),
         open_sent: AtomicBool::new(false),
         opened_seen: AtomicBool::new(false),
+        open_completed: AtomicBool::new(false),
         finished: AtomicBool::new(false),
         done: done.clone(),
         writer_done: CancellationToken::new(),
@@ -615,7 +619,7 @@ async fn serve_connection(stream: TcpStream, manager: Arc<PtyManager>, parent: C
                 break;
             }
             _ = connection.done.cancelled() => break,
-            _ = &mut open_deadline, if !connection.opened_seen.load(Ordering::SeqCst) => {
+            _ = &mut open_deadline, if !connection.open_completed.load(Ordering::SeqCst) => {
                 connection.protocol_error("bad_request", "no open frame");
                 break;
             }
@@ -635,7 +639,7 @@ async fn serve_connection(stream: TcpStream, manager: Arc<PtyManager>, parent: C
                             if connection.done.is_cancelled() {
                                 break 'reader;
                             }
-                            if !connection.opened_seen.load(Ordering::SeqCst)
+                            if !connection.open_completed.load(Ordering::SeqCst)
                                 && open_deadline.is_elapsed()
                             {
                                 connection.protocol_error("bad_request", "open timed out");
@@ -654,7 +658,7 @@ async fn serve_connection(stream: TcpStream, manager: Arc<PtyManager>, parent: C
                                             break 'reader;
                                         }
                                         _ = connection.done.cancelled() => break 'reader,
-                                        _ = &mut open_deadline, if !connection.opened_seen.load(Ordering::SeqCst) => {
+                                        _ = &mut open_deadline, if !connection.open_completed.load(Ordering::SeqCst) => {
                                             connection.protocol_error("bad_request", "open timed out");
                                             break 'reader;
                                         }
