@@ -132,7 +132,9 @@ describe("billing portal route", () => {
   test("App Store portal block redirects to the direct dev-backend origin", async () => {
     const previousTransport = process.env.CMUX_DEV_BACKEND_TRANSPORT;
     const previousOrigin = process.env.CMUX_WWW_ORIGIN;
+    const previousHost = process.env.CMUX_DEV_BACKEND_TAILSCALE_HOST;
     process.env.CMUX_DEV_BACKEND_TRANSPORT = "direct";
+    process.env.CMUX_DEV_BACKEND_TAILSCALE_HOST = "cmux-dev-backend-1.tail137216.ts.net";
     process.env.CMUX_WWW_ORIGIN = "https://cmux-dev-backend-1.tail137216.ts.net:3916/";
     try {
       const response = await GET(
@@ -150,6 +152,8 @@ describe("billing portal route", () => {
       else process.env.CMUX_DEV_BACKEND_TRANSPORT = previousTransport;
       if (previousOrigin === undefined) delete process.env.CMUX_WWW_ORIGIN;
       else process.env.CMUX_WWW_ORIGIN = previousOrigin;
+      if (previousHost === undefined) delete process.env.CMUX_DEV_BACKEND_TAILSCALE_HOST;
+      else process.env.CMUX_DEV_BACKEND_TAILSCALE_HOST = previousHost;
     }
   });
 
