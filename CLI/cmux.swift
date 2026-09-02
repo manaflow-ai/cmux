@@ -1162,6 +1162,10 @@ final class ClaudeHookSessionStore {
             guard var record = state.sessions[normalizedSessionId] else { return }
             record.agentLifecycle = .unknown
             if let hookEventName = normalizeOptional(hookEventName) {
+                if record.hookEventName != hookEventName {
+                    record.lastSubtitle = nil
+                    record.lastBody = nil
+                }
                 record.hookEventName = hookEventName
             }
             record.updatedAt = Date().timeIntervalSince1970

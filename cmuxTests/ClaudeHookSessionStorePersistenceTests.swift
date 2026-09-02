@@ -103,5 +103,7 @@ import Testing
         let ended = try #require(store.lookup(sessionId: "session-1"))
         #expect(ended.agentLifecycle == .unknown)
         #expect(ended.hookEventName == "SessionEnd")
+        #expect(ended.lastSubtitle == nil)
+        #expect(ended.lastBody == nil)
     }
 }
