@@ -14,6 +14,7 @@ import {
   NATIVE_HANDOFF_COOKIE_NAME,
   NATIVE_HANDOFF_QUERY_PARAM,
 } from "../native-handoff-cookie";
+import { requestOrigin } from "../../lib/request-origin";
 
 const ANONYMOUS_IF_EXISTS = "anonymous-if-exists[deprecated]" as const;
 
@@ -303,7 +304,7 @@ function anonymousPromotionFailureResponse(
   localized: LocalizedAfterSignInMessages,
   retryHref: string | null,
 ): NextResponse {
-  const href = retryHref ?? new URL("/handler/sign-in", request.url).toString();
+  const href = retryHref ?? new URL("/handler/sign-in", requestOrigin(request)).toString();
   const response = new NextResponse(
     `<!doctype html>
 <html lang="${escapeHtml(localized.locale)}">
@@ -329,7 +330,7 @@ function anonymousPromotionFailureResponse(
 }
 
 function currentAfterSignInPath(request: NextRequest): string {
-  const afterSignIn = new URL(request.nextUrl.pathname, request.nextUrl.origin);
+  const afterSignIn = new URL(request.nextUrl.pathname, requestOrigin(request));
   const nativeReturnTo = request.nextUrl.searchParams.get("native_app_return_to");
   if (nativeReturnTo) afterSignIn.searchParams.set("native_app_return_to", nativeReturnTo);
   for (const name of APP_PRICING_NATIVE_RETURN_QUERY_PARAMS) {
@@ -343,10 +344,10 @@ function currentAfterSignInPath(request: NextRequest): string {
 
 function switchAccountHref(request: NextRequest): string | null {
   if (!request.nextUrl.searchParams.has("native_app_return_to")) return null;
-  const nativeSignIn = new URL("/handler/native-sign-in", request.nextUrl.origin);
+  const nativeSignIn = new URL("/handler/native-sign-in", requestOrigin(request));
   nativeSignIn.searchParams.set("after_auth_return_to", currentAfterSignInPath(request));
 
-  const signOut = new URL("/handler/sign-out-and-sign-in", request.nextUrl.origin);
+  const signOut = new URL("/handler/sign-out-and-sign-in", requestOrigin(request));
   signOut.searchParams.set("after_auth_return_to", `${nativeSignIn.pathname}${nativeSignIn.search}`);
   return `${signOut.pathname}${signOut.search}`;
 }
@@ -355,7 +356,7 @@ export function makeAfterSignInHandler(dependencies: AfterSignInHandlerDependenc
   return async function GET(request: NextRequest) {
     const projectId = dependencies.projectId;
     const authApp = dependencies.stackServerApp;
-    if (!authApp || !projectId) return NextResponse.redirect(new URL("/", request.url));
+    if (!authApp || !projectId) return NextResponse.redirect(new URL("/", requestOrigin(request)));
     const localizedMessages = await afterSignInMessages(request);
 
     const stackCookies = await dependencies.getCookieStore();
@@ -458,12 +459,12 @@ export function makeAfterSignInHandler(dependencies: AfterSignInHandlerDependenc
           return nativeReturnResponse(href, localizedMessages, switchAccountHref(request));
         }
       }
-      return NextResponse.redirect(new URL("/", request.url));
+      return NextResponse.redirect(new URL("/", requestOrigin(request)));
     }
 
     const afterAuth = request.nextUrl.searchParams.get("after_auth_return_to");
     if (afterAuth && afterAuth.startsWith("/") && !afterAuth.startsWith("//")) {
-      return NextResponse.redirect(new URL(afterAuth, request.url));
+      return NextResponse.redirect(new URL(afterAuth, requestOrigin(request)));
     }
 
     if (refreshToken && accessCookie) {
@@ -471,6 +472,6 @@ export function makeAfterSignInHandler(dependencies: AfterSignInHandlerDependenc
       if (fallback) return nativeReturnResponse(fallback, localizedMessages, switchAccountHref(request));
     }
 
-    return NextResponse.redirect(new URL("/", request.url));
+    return NextResponse.redirect(new URL("/", requestOrigin(request)));
   };
 }

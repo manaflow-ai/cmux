@@ -33,17 +33,30 @@ export function vmCreateDisabledReason(
 
 export function providerEnabledEnvKey(provider: ProviderId): string {
   switch (provider) {
-    case "e2b":
-      return "CMUX_VM_E2B_ENABLED";
     case "freestyle":
       return "CMUX_VM_FREESTYLE_ENABLED";
-    case "daytona":
-      return "CMUX_VM_DAYTONA_ENABLED";
-    case "blaxel":
-      return "CMUX_VM_BLAXEL_ENABLED";
     default:
       return assertNever(provider);
   }
+}
+
+/**
+ * Whether new machines join their owner's private network — the default.
+ *
+ * This is one switch rather than two because the network and the closed
+ * inbound port are the same decision: a machine placed on the VPC is reached
+ * at its private address and opens no public port, and a machine kept off it
+ * is reached at its public IPv6 and must open one. Splitting them would let a
+ * deployment configure a machine that is on the network but still publicly
+ * exposed, or on the network but addressed publicly and therefore unreachable.
+ *
+ * Setting `CMUX_VM_PRIVATE_NETWORK_ENABLED=0` is the complete rollback: later
+ * creates go back to the public-IPv6 posture, and machines already on a network
+ * keep working, because reachability is resolved per machine from the addresses
+ * it actually holds.
+ */
+export function vmPrivateNetworkEnabled(env: VmRuntimeEnv = process.env): boolean {
+  return !isFalseFlag(env.CMUX_VM_PRIVATE_NETWORK_ENABLED);
 }
 
 export function isDeployedRuntime(env: VmRuntimeEnv = process.env): boolean {

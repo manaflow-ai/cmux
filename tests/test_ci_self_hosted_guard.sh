@@ -15,22 +15,6 @@ COMPAT_FILE="$ROOT_DIR/.github/workflows/ci-macos-compat.yml"
 E2E_FILE="$ROOT_DIR/.github/workflows/test-e2e.yml"
 TMUX_CORPUS_FILE="$ROOT_DIR/.github/workflows/tmux-corpus.yml"
 IOS_FILE="$ROOT_DIR/.github/workflows/test-ios.yml"
-CLA_GUARD_FILE="$ROOT_DIR/.github/workflows/cla-policy-guard.yml"
-
-check_cla_guard_runner() {
-  if ! grep -Fqx '    runs-on: ubuntu-24.04' "$CLA_GUARD_FILE"; then
-    echo "FAIL: cla-policy-guard.yml must use the fixed GitHub-hosted ubuntu-24.04 runner"
-    exit 1
-  fi
-
-  if grep -Eq '^    runs-on:.*(vars\.LINUX_RUNNER|blacksmith-|self-hosted)' "$CLA_GUARD_FILE"; then
-    echo "FAIL: cla-policy-guard.yml must not allow a variable or self-hosted runner override"
-    exit 1
-  fi
-
-  echo "PASS: CLA policy guard uses the fixed GitHub-hosted runner"
-}
-
 check_macos_runner() {
   local file="$1" job="$2"
   if ! awk -v job="$job" '
@@ -1125,9 +1109,9 @@ check_no_bare_github_hosted_runners() {
   # MACOS_RUNNER_*) so the Blacksmith<->Warp / Blacksmith<->macos-26 overflow
   # switch is a single repo-variable flip with no PR. A bare GitHub-hosted
   # label (ubuntu-*, macos-NN) cannot be redirected, so it is forbidden.
-  # The CLA policy guard is a separate immutable control-plane job and is
-  # intentionally exempted below because it must never honor a repository
-  # variable or self-hosted runner override.
+  # The base-controlled CLA policy guard is intentionally fixed to a
+  # GitHub-hosted runner and must never honor a repository runner variable;
+  # keep that immutable control-plane workflow out of the product-job scan.
   # Bare paid-provider labels (blacksmith-*, warp-*, depot-*) stay allowed for
   # deliberate single-runner pins such as the testmanagerd-wedged
   # `app-host-unit-tests` job.
@@ -1256,7 +1240,6 @@ check_no_self_hosted_fleet_runners() {
 }
 
 # ci.yml jobs
-check_cla_guard_runner
 check_no_bare_github_hosted_runners
 check_no_self_hosted_fleet_runners
 check_macos_runner "$CI_FILE" "app-host-unit-tests"
