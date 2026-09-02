@@ -398,10 +398,8 @@ extension TerminalController {
         )
     }
 
-    private static var localViewportUnknownMethodMessage: String {
-        String(
-            localized: "socket.terminal.viewport.unknownMethod",
-            defaultValue: "Unknown terminal viewport method"
-        )
-    }
+    nonisolated private static let localViewportUnknownMethodMessage = String(
+        localized: "socket.terminal.viewport.unknownMethod",
+        defaultValue: "Unknown terminal viewport method"
+    )
 }
