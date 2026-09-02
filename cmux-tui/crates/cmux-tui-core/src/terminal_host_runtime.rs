@@ -47,7 +47,8 @@ const MAX_BLOB: usize = crate::surface::VT_REPLAY_MAX_BYTES;
 const MAX_ARGV: usize = 256;
 const MAX_ENV: usize = 1024;
 const MAX_RENDERER_CAPABILITY_TTL: std::time::Duration = std::time::Duration::from_secs(60);
-pub(crate) const CONTROL_RESPONSE_TIMEOUT: std::time::Duration = crate::budgets::HOST_CONTROL_RESPONSE;
+pub(crate) const CONTROL_RESPONSE_TIMEOUT: std::time::Duration =
+    crate::budgets::HOST_CONTROL_RESPONSE;
 const HOST_HANDSHAKE_TIMEOUT: std::time::Duration = crate::budgets::HOST_HANDSHAKE;
 const HOST_CONNECT_RETRY_WINDOW: std::time::Duration = crate::budgets::HOST_CONNECT_WINDOW;
 const HOST_CONNECT_RETRY_INTERVAL: std::time::Duration = crate::budgets::HOST_CONNECT_INTERVAL;

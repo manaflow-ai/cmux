@@ -25,6 +25,7 @@ pub(super) enum CommandPlan {
     ProviderAuthority(ProviderAuthorityPlan),
     RawCommand(super::raw::RawCommandPlan),
     Diag(super::diag::DiagPlan),
+    Bench(super::bench::BenchPlan),
 }
 
 #[derive(Clone, Debug)]
@@ -173,6 +174,7 @@ pub(super) fn parse(args: &[String]) -> Result<CommandPlan, UsageError> {
         "provider" => parse_provider(&tokens.words[1..], &mut selectors, &mut tokens.flags)?,
         "raw" => parse_raw(&tokens.words[1..], &mut tokens.flags)?,
         "diag" => parse_diag(&tokens.words[1..])?,
+        "bench" => parse_bench(&tokens.words[1..], &mut tokens.flags)?,
         value => return Err(super::unknown_scope(value)),
     };
     tokens.flags.reject_remaining()?;
@@ -1651,12 +1653,42 @@ fn parse_provider(
     }
 }
 
+fn parse_bench(words: &[String], flags: &mut Flags) -> Result<CommandPlan, UsageError> {
+    match strs(words).as_slice() {
+        ["interact"] => {
+            let creates = parse_count(flags, "creates", 20)?;
+            let clients = parse_count(flags, "clients", 1)?.max(1);
+            let typing_probes = parse_count(flags, "typing-probes", 0)?;
+            Ok(CommandPlan::Bench(super::bench::BenchPlan {
+                creates_per_client: creates,
+                clients,
+                typing_probes,
+            }))
+        }
+        [action] => {
+            Err(UsageError::new(format!("unknown bench action {action:?}; expected interact")))
+        }
+        _ => Err(UsageError::new(
+            "usage: cmux bench interact --creates <K> --clients <N> [--typing-probes <M>]",
+        )),
+    }
+}
+
+fn parse_count(flags: &mut Flags, name: &str, default: usize) -> Result<usize, UsageError> {
+    match flags.take(name) {
+        None => Ok(default),
+        Some(value) => value
+            .parse::<usize>()
+            .map_err(|_| UsageError::new(format!("--{name} must be a non-negative integer"))),
+    }
+}
+
 fn parse_diag(words: &[String]) -> Result<CommandPlan, UsageError> {
     match strs(words).as_slice() {
         ["budgets"] => Ok(CommandPlan::Diag(super::diag::DiagPlan::Budgets)),
-        [action] => Err(UsageError::new(format!(
-            "unknown diag action {action:?}; expected budgets"
-        ))),
+        [action] => {
+            Err(UsageError::new(format!("unknown diag action {action:?}; expected budgets")))
+        }
         _ => Err(UsageError::new("usage: cmux diag budgets [--json]")),
     }
 }

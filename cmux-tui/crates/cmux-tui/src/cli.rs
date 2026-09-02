@@ -4,6 +4,7 @@
 //! is deliberately isolated in `cli/wire.rs`, so public commands cannot
 //! accidentally fall back to the private command protocol.
 
+mod bench;
 mod command;
 mod diag;
 mod lifecycle;
@@ -35,6 +36,7 @@ const PUBLIC_SCOPES: &[&str] = &[
     "provider",
     "raw",
     "diag",
+    "bench",
 ];
 
 const REMOTE_COMMANDS: &[&str] = &[
@@ -160,6 +162,7 @@ pub fn run(args: &[String], startup_usage: &str) -> i32 {
             }
             CommandPlan::RawCommand(command) => raw::run(global, command),
             CommandPlan::Diag(plan) => diag::run(global, plan),
+            CommandPlan::Bench(plan) => bench::run(global, plan),
         },
         Err(failure) => {
             let message = if matches!(failure.output, OutputMode::Quiet | OutputMode::Human) {
@@ -421,6 +424,7 @@ fn scope_help_for(
         "provider" => Cow::Borrowed(PROVIDER_HELP),
         "raw" => Cow::Borrowed(RAW_HELP),
         "diag" => Cow::Borrowed(DIAG_HELP),
+        "bench" => Cow::Borrowed(BENCH_HELP),
         _ => Cow::Owned(root_help(&catalog.local_server)),
     }
 }
@@ -477,6 +481,7 @@ const ROOT_HELP_SCOPES_SUFFIX: &str = "\
   provider      Install private provider authority
   raw           Send an explicit low-level operation
   diag          Local diagnostics (named budgets)
+  bench         Measure interaction latency against a session
 
 Run `cmux <scope> --help` for scope-specific paths.
 ";
@@ -676,6 +681,19 @@ USAGE
 
 `raw operation` uses cmux.protocol/2. `raw command` is an unsafe internal
 escape for the legacy control protocol and provides no compatibility promise.
+";
+
+const BENCH_HELP: &str = "\
+USAGE
+  cmux bench interact --creates <K> --clients <N> [--typing-probes <M>]
+    [--socket <path> | --session <name>] [--json]
+
+`bench interact` drives a session as a client and records interaction
+latencies: create request to response, request to the tree delta that makes it
+visible on a separate subscriber, attach to first frame, close to response, and
+one-byte typing latency on both a separate connection and the create connection.
+With no --socket and no --session it starts and stops a throwaway session. It
+sends only existing commands; it adds no protocol command.
 ";
 
 const DIAG_HELP: &str = "\
