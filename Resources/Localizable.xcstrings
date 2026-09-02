@@ -58622,6 +58622,23 @@
         }
       }
     },
+    "cli.vm.list.planMeter.unlimited": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$d machines on the %2$@ plan, no limit"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%2$@ プランのマシン %1$d 台（上限なし）"
+          }
+        }
+      }
+    },
     "cli.vm.list.planMeter": {
       "extractionState": "manual",
       "localizations": {
@@ -126939,13 +126956,30 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Subscribe to cmux Pro to use up to 5 machines"
+            "value": "Subscribe to cmux Pro for unlimited machines"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux Pro に登録すると最大 5 台のマシンを利用できます"
+            "value": "cmux Pro に登録するとマシンを無制限に利用できます"
+          }
+        }
+      }
+    },
+    "machines.empty.planIncludes.unlimited": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Your plan includes unlimited machines"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "現在のプランではマシンを無制限に利用できます"
           }
         }
       }
@@ -127269,6 +127303,40 @@
           "stringUnit": {
             "state": "translated",
             "value": "マシン %1$d / %2$d"
+          }
+        }
+      }
+    },
+    "machines.meter.count.unlimited": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$d machines"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "マシン %1$d 台"
+          }
+        }
+      }
+    },
+    "machines.meter.count.unlimited.single": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "1 machine"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "マシン 1 台"
           }
         }
       }
@@ -183779,6 +183847,23 @@
         }
       }
     },
+    "settings.cloudMachines.plan.summary.unlimited": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ · %2$d machines, no limit"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ · マシン %2$d 台（上限なし）"
+          }
+        }
+      }
+    },
     "settings.cloudMachines.plan.summary": {
       "extractionState": "manual",
       "localizations": {
@@ -193771,7 +193856,7 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "cloud machines vm virtual machine persistent computer sandbox plan upgrade fleet blaxel"
+            "value": "cloud machines vm virtual machine persistent computer sandbox plan upgrade fleet freestyle"
           }
         },
         "ja": {
@@ -272444,6 +272529,40 @@
           "stringUnit": {
             "state": "translated",
             "value": "1 台中 %1$d 台を使用中"
+          }
+        }
+      }
+    },
+    "machines.new.plan.unlimited": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$d machines in use"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$d 台を使用中"
+          }
+        }
+      }
+    },
+    "machines.new.plan.unlimited.single": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "1 machine in use"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "1 台を使用中"
           }
         }
       }
