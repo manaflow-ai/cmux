@@ -100,7 +100,7 @@ struct CachedProjectionRows {
 
 #[derive(Default)]
 pub(crate) struct ProjectionRowsCache {
-    entries: HashMap<String, CachedProjectionRows>,
+    entries: HashMap<(usize, String), CachedProjectionRows>,
 }
 
 impl ProjectionRowsCache {
@@ -110,26 +110,28 @@ impl ProjectionRowsCache {
 
     pub(crate) fn get_or_build(
         &mut self,
+        view_index: usize,
         view_id: &str,
         revision: ProjectionRevision,
         build: impl FnOnce() -> Vec<ProjectionRow>,
     ) -> Arc<[ProjectionRow]> {
-        if let Some(cached) = self.entries.get(view_id)
+        let key = (view_index, view_id.to_string());
+        if let Some(cached) = self.entries.get(&key)
             && cached.revision == revision
         {
             return Arc::clone(&cached.rows);
         }
         let rows: Arc<[ProjectionRow]> = build().into();
-        self.entries.insert(
-            view_id.to_string(),
-            CachedProjectionRows { revision, rows: Arc::clone(&rows) },
-        );
+        self.entries.insert(key, CachedProjectionRows { revision, rows: Arc::clone(&rows) });
         rows
     }
 
     #[cfg(test)]
-    pub(crate) fn revision_for(&self, view_id: &str) -> Option<ProjectionRevision> {
-        self.entries.get(view_id).map(|entry| entry.revision)
+    pub(crate) fn revision_for(&self, view_index: usize) -> Option<ProjectionRevision> {
+        self.entries
+            .iter()
+            .find(|((index, _), _)| *index == view_index)
+            .map(|(_, entry)| entry.revision)
     }
 }
 
@@ -533,7 +535,10 @@ mod tests {
             builds += 1;
             rows(&spec(vec![SidebarResourceKind::Agents]), &tree, &[], 0, &collapsed)
         });
-        assert!(duplicate_id.is_empty(), "distinct view indexes must not reuse rows by duplicate id");
+        assert!(
+            duplicate_id.is_empty(),
+            "distinct view indexes must not reuse rows by duplicate id"
+        );
         assert_eq!(builds, 3);
     }
 }

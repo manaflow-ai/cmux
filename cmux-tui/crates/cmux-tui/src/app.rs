@@ -10237,7 +10237,7 @@ impl App {
         let tree = &self.tree;
         let session = &self.session;
         let selected_workspace = self.sidebar_workspace_selection;
-        self.projection_rows_cache.get_or_build(&spec.id, revision, || {
+        self.projection_rows_cache.get_or_build(index, &spec.id, revision, || {
             let agents = if spec.includes(SidebarResourceKind::Agents) {
                 // Finished reports are historical records, not active agents.
                 // Otherwise detached "surface..." rows remain forever after exit.
