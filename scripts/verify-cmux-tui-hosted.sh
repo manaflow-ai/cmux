@@ -342,6 +342,57 @@ artifact_binary="$artifact_dir/cmux-tui"
 mkdir -p "$artifact_dir"
 install -m 0755 "$downloaded_binary" "$artifact_binary"
 
+# Keep a small, bounded local cache. Cleanup is opt-in so existing callers do
+# not lose artifacts unexpectedly. Only directories owned by this user and
+# named for a complete commit SHA are eligible. The current commit and any
+# binary still open by a process are always retained.
+retention_count="${CMUX_TUI_HOSTED_RETENTION_COUNT:-5}"
+if [[ ! "$retention_count" =~ ^[1-9][0-9]*$ ]]; then
+  echo "error: CMUX_TUI_HOSTED_RETENTION_COUNT must be a positive integer" >&2
+  exit 2
+fi
+if [[ "${CMUX_TUI_HOSTED_RETENTION_DRY_RUN:-0}" == "1" ]]; then
+  retention_dry_run=true
+elif [[ "${CMUX_TUI_HOSTED_RETENTION_DRY_RUN:-0}" == "0" ]]; then
+  retention_dry_run=false
+else
+  echo "error: CMUX_TUI_HOSTED_RETENTION_DRY_RUN must be 0 or 1" >&2
+  exit 2
+fi
+
+hosted_artifact_dirs=()
+while IFS= read -r -d '' candidate_dir; do
+  candidate_commit="${candidate_dir##*/}"
+  [[ "$candidate_commit" =~ ^[0-9a-f]{40}$ ]] || continue
+  hosted_artifact_dirs+=("$candidate_dir")
+done < <(find cmux-tui/target/hosted -mindepth 1 -maxdepth 1 -type d -user "$(id -u)" -print0)
+if ((${#hosted_artifact_dirs[@]} > 1)); then
+  IFS=$'\n' hosted_artifact_dirs=($(printf '%s\n' "${hosted_artifact_dirs[@]}" | sort -r))
+  unset IFS
+fi
+retained=0
+for candidate_dir in "${hosted_artifact_dirs[@]}"; do
+  candidate_commit="${candidate_dir##*/}"
+  candidate_binary="$candidate_dir/cmux-tui"
+  if [[ "$candidate_commit" == "$commit" || ! -f "$candidate_binary" ]]; then
+    continue
+  fi
+  if (( retained < retention_count )); then
+    retained=$((retained + 1))
+    continue
+  fi
+  if command -v lsof >/dev/null 2>&1 && lsof -t -- "$candidate_binary" >/dev/null 2>&1; then
+    echo "Keeping active hosted artifact: $candidate_binary" >&2
+    continue
+  fi
+  if [[ "$retention_dry_run" == true ]]; then
+    echo "Would remove hosted artifact: $candidate_dir" >&2
+  else
+    rm -rf -- "$candidate_dir"
+    echo "Removed hosted artifact: $candidate_dir" >&2
+  fi
+done
+
 echo "Hosted verification passed: $run_url"
 echo "Artifact: $artifact_binary"
 echo "Dogfood: $artifact_binary --session verify-${commit:0:8}"
