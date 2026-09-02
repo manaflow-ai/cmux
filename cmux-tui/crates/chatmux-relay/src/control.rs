@@ -93,6 +93,11 @@ mod unix {
             // broadcast wakeup so either task can observe closure without
             // consuming the other's permit.
             self.closed_notify.notify_waiters();
+            // Serialize marker enqueue with on_close registration. The event
+            // worker may receive the marker immediately, so the handler must
+            // be either installed before enqueue or installed by on_close
+            // while the worker waits on this same mutex.
+            let _close_handler = self.close_handler.lock().expect("control close lock");
             let _ = self.dispatch_tx.try_send(Dispatch::Closed);
         }
     }
@@ -147,23 +152,40 @@ mod unix {
         std::thread::Builder::new()
             .name("chatmux-relay-control-events".to_owned())
             .spawn(move || {
-                while let Ok(dispatch) = dispatch_rx.recv() {
-                    let Some(shared) = weak_shared.upgrade() else { break };
-                    if shared.closed.load(Ordering::SeqCst) {
-                        if !shared.deliberate.load(Ordering::SeqCst) {
-                            let handler =
-                                shared.close_handler.lock().expect("control close lock").take();
-                            if let Some(handler) = handler {
-                                handler();
+                loop {
+                    let dispatch = match dispatch_rx.recv_timeout(Duration::from_millis(50)) {
+                        Ok(dispatch) => dispatch,
+                        Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
+                            let Some(shared) = weak_shared.upgrade() else { break };
+                            if shared.closed.load(Ordering::SeqCst) {
+                                Dispatch::Closed
+                            } else {
+                                continue;
                             }
                         }
-                        break;
-                    }
-                    if let Dispatch::Event(event) = dispatch {
-                        let handler =
-                            shared.event_handler.lock().expect("control event lock").clone();
-                        if let Some(handler) = handler {
-                            handler(&event);
+                        Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => break,
+                    };
+                    let Some(shared) = weak_shared.upgrade() else { break };
+                    match dispatch {
+                        Dispatch::Event(event) => {
+                            // Closure is settled before the marker is queued,
+                            // but events already in the FIFO still belong to
+                            // the stream and must be delivered first.
+                            let handler =
+                                shared.event_handler.lock().expect("control event lock").clone();
+                            if let Some(handler) = handler {
+                                handler(&event);
+                            }
+                        }
+                        Dispatch::Closed => {
+                            if !shared.deliberate.load(Ordering::SeqCst) {
+                                let handler =
+                                    shared.close_handler.lock().expect("control close lock").take();
+                                if let Some(handler) = handler {
+                                    handler();
+                                }
+                            }
+                            break;
                         }
                     }
                 }
@@ -404,11 +426,16 @@ mod unix {
         }
 
         fn on_close(&self, handler: CloseHandler) {
-            let was_closed = self.shared.closed.load(Ordering::SeqCst);
-            let deliberate = self.shared.deliberate.load(Ordering::SeqCst);
-            *self.shared.close_handler.lock().expect("control close lock") = Some(handler);
-            if was_closed && !deliberate {
+            let mut slot = self.shared.close_handler.lock().expect("control close lock");
+            if self.shared.closed.load(Ordering::SeqCst) {
+                if self.shared.deliberate.load(Ordering::SeqCst) {
+                    return;
+                }
+                *slot = Some(handler);
+                drop(slot);
                 let _ = self.shared.dispatch_tx.try_send(Dispatch::Closed);
+            } else {
+                *slot = Some(handler);
             }
         }
 
