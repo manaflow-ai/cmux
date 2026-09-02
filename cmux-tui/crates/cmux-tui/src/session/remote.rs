@@ -7735,7 +7735,6 @@ mod tests {
             state: "working".into(),
             source: "hook".into(),
             session: Some("review".into()),
-            agent: None,
             updated_at_ms: 41,
         });
         cache.replace(TreeView::default(), cache.title_generation());
