@@ -267,6 +267,10 @@ struct FilePreviewTextEditor<PanelModel>: NSViewRepresentable where PanelModel: 
         var isApplyingPanelUpdate = false
         var lastAppliedContentRevision: Int?
         var isHighlightingVisible = false
+        // `FilePreviewSyntaxStyler` owns the cancellable task and cancels it in
+        // its own deinitializer. Keeping teardown in that owner also avoids an
+        // actor-isolated generic deinitializer that older Swift optimizers can
+        // crash while compiling the Release WMO build.
         private let styler = FilePreviewSyntaxStyler()
         private let editorSettings: FilePreviewEditorSettings
 
@@ -279,10 +283,6 @@ struct FilePreviewTextEditor<PanelModel>: NSViewRepresentable where PanelModel: 
             self.panelIdentity = ObjectIdentifier(panel)
             self.filePath = filePath
             self.editorSettings = editorSettings
-        }
-
-        isolated deinit {
-            styler.cancel()
         }
 
         func textDidChange(_ notification: Notification) {

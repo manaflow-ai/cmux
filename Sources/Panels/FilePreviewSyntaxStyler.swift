@@ -118,14 +118,20 @@ final class FilePreviewSyntaxStyler {
 
         // A later `schedule` cancels this task (generation + Task.cancel).
         // Do not debounce with Task.sleep: typing must not wait on a timer.
-        let task = Task { [weak self, weak textView] in
-            guard !Task.isCancelled, let self else { return }
-            let highlighted = await self.engine.highlight(
+        // Capture the actor independently so the task does not retain `self`
+        // across the await. Otherwise `self` retains its task and the cycle
+        // can prevent the deinitializer from cancelling a request during view
+        // teardown.
+        let engine = self.engine
+        let task = Task { [weak self, weak textView, engine] in
+            guard !Task.isCancelled, self != nil else { return }
+            let highlighted = await engine.highlight(
                 text: text,
                 language: language,
                 theme: theme
             )
             guard !Task.isCancelled,
+                  let self,
                   self.highlightGeneration == generation,
                   let textView else { return }
             self.lastAppliedHighlighted = self.applyHighlightedText(
