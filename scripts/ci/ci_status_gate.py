@@ -625,7 +625,7 @@ def _pr_files(api: GitHubAPI, number: int, expected_count: object) -> list[str]:
     payload = api.get(
         f"repos/{api.repository}/pulls/{number}/files?per_page=100", paginate=True
     )
-    rows = _page_rows(payload, "files")
+    rows = _array_rows(payload, "pull-request files")
     files: list[str] = []
     for row in rows:
         filename = row.get("filename")
