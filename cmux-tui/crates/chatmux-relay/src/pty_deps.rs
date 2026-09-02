@@ -1056,7 +1056,8 @@ impl PtyDeps for RealPtyDeps {
         let output = ThreadOutput::new();
         let task_output = Arc::clone(&output);
         let fallback_output = Arc::clone(&output);
-        tokio::task::spawn_blocking(move || {
+        let cancellation = spec.cancellation.clone();
+        let mut task = tokio::task::spawn_blocking(move || {
             if spec.cancellation.is_cancelled() {
                 task_output.push_exit(1);
                 return PtyHandle {
@@ -1081,12 +1082,20 @@ impl PtyDeps for RealPtyDeps {
                 handle.control.kill();
             }
             handle
-        })
-        .await
-        .unwrap_or_else(|_| {
-            fallback_output.push_exit(1);
-            PtyHandle { control: Arc::new(DeadControl), output: fallback_output, banner: None }
-        })
+        });
+        tokio::select! {
+            result = &mut task => result.unwrap_or_else(|_| {
+                fallback_output.push_exit(1);
+                PtyHandle { control: Arc::new(DeadControl), output: fallback_output, banner: None }
+            }),
+            _ = cancellation.cancelled() => {
+                // spawn_blocking cannot stop a running allocator. Return a
+                // dead handle immediately; the closure observes cancellation
+                // at its next safe boundary and releases any allocation.
+                task.abort();
+                PtyHandle { control: Arc::new(DeadControl), output: fallback_output, banner: None }
+            }
+        }
     }
 
     async fn resolve_cmux_tui(&self) -> Option<CmuxTui> {
