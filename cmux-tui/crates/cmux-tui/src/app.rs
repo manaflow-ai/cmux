@@ -34687,6 +34687,7 @@ mod tests {
         pane.tabs.push(third);
         pane.active_tab = 1;
         app.replace_tree(tree);
+        assert_eq!(app.tree.surface(40).map(|tab| tab.surface), Some(40));
 
         app.remove_surface_from_cached_tree(40);
 
@@ -34696,6 +34697,9 @@ mod tests {
         assert!(!app.tab_locations.contains_key(&40));
         assert_eq!(app.tab_locations.get(&41), Some(&[0, 0, 0, 0]));
         assert_eq!(app.tab_locations.get(&43), Some(&[0, 0, 0, 1]));
+        assert!(app.tree.surface(40).is_none());
+        assert_eq!(app.tree.surface(41).map(|tab| tab.surface), Some(41));
+        assert_eq!(app.tree.surface(43).map(|tab| tab.surface), Some(43));
     }
 
     #[test]
