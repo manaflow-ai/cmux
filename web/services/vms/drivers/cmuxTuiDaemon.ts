@@ -378,7 +378,9 @@ function cmuxTuiSupervisedDaemonInvocation(
     `( cmux_tui_killer_polls=0;`,
     `while [ "$cmux_tui_killer_polls" -lt ${CMUX_TUI_CHILD_SHUTDOWN_GRACE_POLLS} ] && kill -0 "$cmux_tui_terminate_pid" 2>/dev/null; do`,
     `sleep ${CMUX_TUI_CHILD_SHUTDOWN_POLL_SECONDS}; cmux_tui_killer_polls=$((cmux_tui_killer_polls + 1)); done;`,
-    `kill -KILL "$cmux_tui_terminate_pid" 2>/dev/null || true ) &`,
+    // Only a child that outlived the whole grace period is KILLed; a pid that
+    // already went away is never signalled, so a reused pid is not at risk.
+    `if [ "$cmux_tui_killer_polls" -ge ${CMUX_TUI_CHILD_SHUTDOWN_GRACE_POLLS} ]; then kill -KILL "$cmux_tui_terminate_pid" 2>/dev/null || true; fi ) &`,
     `cmux_tui_killer_pid=$!;`,
     `wait "$cmux_tui_terminate_pid" 2>/dev/null || true;`,
     `wait "$cmux_tui_killer_pid" 2>/dev/null || true;`,
