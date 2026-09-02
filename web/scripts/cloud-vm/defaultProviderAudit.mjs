@@ -65,7 +65,11 @@ export function auditProviderReadiness(provider, env, manifest) {
       `validationStatus ${entry.validationStatus}, not passed`,
     );
   }
-  const baseDefault = kindDefaults.find((entry) => (entry.kind ?? "base") === "base");
+  // Only a validated default counts as the served image: an unvalidated one
+  // is already reported above and must not be echoed back as the selection.
+  const baseDefault = kindDefaults.find(
+    (entry) => (entry.kind ?? "base") === "base" && entry.validationStatus === "passed",
+  );
   const image = baseDefault?.imageId ?? null;
   if (!baseDefault) {
     problems.push(

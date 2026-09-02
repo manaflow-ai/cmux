@@ -93,7 +93,8 @@ const DAEMON_CHECKS: readonly string[] = [
 // is loopback-only, noVNC answers on 6901 (hex 1AF5), the dock and window
 // manager are up, Ghostty and Chrome are installed with first run
 // pre-accepted, and every desktop file ships byte-identical.
-const DESKTOP_FILE_PIN_CHECKS = [
+// Hashed lazily: a base-only verification must not read the desktop assets.
+const desktopFilePinChecks = (): string[] => [
   ["start-vnc.sh", "/usr/local/bin/start-vnc.sh"],
   ["cmux-desktop-boot", "/usr/local/bin/cmux-desktop-boot"],
   ["cmux-desktop.service", "/etc/systemd/system/cmux-desktop.service"],
@@ -104,7 +105,7 @@ const DESKTOP_FILE_PIN_CHECKS = [
   ["ghostty-cmux.desktop", "/etc/cmux/apps/ghostty-cmux.desktop"],
 ].map(([source, target]) => `echo '${desktopShaOf(source)}  ${target}' | sha256sum -c -`);
 
-const DESKTOP_CHECKS: readonly string[] = [
+const desktopChecks = (): readonly string[] => [
   "systemctl is-active cmux-desktop >/dev/null && echo desktop-unit-active",
   "awk '$2 ~ /:170D$/ && $4 == \"0A\" { found=1 } END { exit !found }' /proc/net/tcp /proc/net/tcp6 && echo vnc-5901-listening",
   // 5901 must be loopback-only: every listener on it is bound to 127.0.0.1 (0100007F) or ::1.
@@ -118,7 +119,7 @@ const DESKTOP_CHECKS: readonly string[] = [
   "ghostty +version | head -1",
   "test -f '/home/ubuntu/.config/google-chrome/First Run' && echo chrome-first-run-ok",
   "test -s /etc/cmux/icons/google-chrome.png && test -s /etc/cmux/icons/thunar.png && test -s /etc/cmux/icons/ghostty.png && echo dock-icons-ok",
-  ...DESKTOP_FILE_PIN_CHECKS,
+  ...desktopFilePinChecks(),
 ];
 
 // Freestyle: the work user is the base's `ubuntu` (uid 1000, passwordless
@@ -208,7 +209,15 @@ async function bootstrapDaemon(
 const provider = process.argv[2] ?? "";
 const image = process.argv[3] ?? "";
 if (!image) {
-  throw new Error("usage: bun scripts/verify-devbox-image.ts freestyle <snapshot-id>");
+  throw new Error("usage: bun scripts/verify-devbox-image.ts freestyle <snapshot-id> [--expect-kind desktop|base]");
+}
+// The caller's belief about the image (promote-devbox-image.ts derives it from
+// --no-desktop). The stamp baked into the image is the truth; a mismatch fails
+// the verification so a base image is never promoted as the desktop default.
+const expectKindIndex = process.argv.indexOf("--expect-kind");
+const expectKind = expectKindIndex === -1 ? undefined : process.argv[expectKindIndex + 1];
+if (expectKind !== undefined && expectKind !== "desktop" && expectKind !== "base") {
+  throw new Error(`--expect-kind: expected desktop or base, got ${expectKind ?? "(nothing)"}`);
 }
 let pass = false;
 
@@ -252,6 +261,10 @@ if (provider === "freestyle") {
     const stamp = await exec("cat /etc/cmux/image-stamp 2>/dev/null || true", 30_000);
     const desktop = /\bdesktop\b/.test(stamp.output);
     console.log(`image stamp: ${stamp.output.trim() || "(none)"} -> desktop checks ${desktop ? "on" : "off"}`);
+    const stampKind = desktop ? "desktop" : "base";
+    if (expectKind !== undefined && expectKind !== stampKind) {
+      throw new Error(`image stamp says ${stampKind} but --expect-kind ${expectKind} was requested`);
+    }
     pass = await runChecks("freestyle", [
       ...CHECKS,
       ...DAEMON_CHECKS,
@@ -259,7 +272,7 @@ if (provider === "freestyle") {
       "systemctl is-active cmux-tui-daemon >/dev/null && echo systemd-supervisor-active",
       ...FREESTYLE_BASE_CHECKS,
       ...(desktop
-        ? DESKTOP_CHECKS
+        ? desktopChecks()
         : ["test ! -e /usr/local/bin/start-vnc.sh && echo base-image-has-no-desktop"]),
     ], exec);
   } finally {

@@ -111,9 +111,12 @@ describe("cloud VM provider coherence audit", () => {
       ),
     };
     const bad = auditProviderReadiness("freestyle", { FREESTYLE_API_KEY: "x" }, unvalidated) as {
+      image: string | null;
       problems: string[];
     };
     expect(bad.problems.join("\n")).toMatch(/manifest default .* has validationStatus unknown, not passed/);
+    expect(bad.problems.join("\n")).toContain("the manifest has no validated base default for freestyle");
+    expect(bad.image).toBeNull();
   });
 
   test("the validated public-platform freestyle devbox passes as the default provider", () => {

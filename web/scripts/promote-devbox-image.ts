@@ -142,7 +142,11 @@ if (skipVerify) {
   entry = { ...entry, validationStatus: "unknown" };
   validationNotes = "NOT VERIFIED (promote --skip-verify); verify before flagging as a default.";
 } else {
-  const verifyStatus = run("verify", ["scripts/verify-devbox-image.ts", provider, imageId]);
+  // The bake result or --no-desktop says which layer the image should carry;
+  // verify reads the baked stamp and fails on a mismatch, so a base image can
+  // never land as the desktop default.
+  const expectedKind: DevboxImageKind = entry.kind ?? (withDesktop ? "desktop" : "base");
+  const verifyStatus = run("verify", ["scripts/verify-devbox-image.ts", provider, imageId, "--expect-kind", expectedKind]);
   if (verifyStatus !== 0) {
     console.error(`verify failed (exit ${verifyStatus}) for ${provider} ${imageId}; nothing promoted`);
     process.exit(verifyStatus);
