@@ -166,35 +166,48 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
           # growing (a pid seen once stays in the kill set even if a later
           # snapshot no longer lists it), and the final set is frozen once more
           # before the kill so nothing found by the last rescan can fork.
-          # kill -STOP only queues the signal; wait until the process is seen
-          # stopped (or gone) so a fork in flight cannot slip past the snapshot.
+          # kill -STOP only queues the signal. Poll the listed processes until
+          # none is still runnable (every one reads stopped, zombie, or gone),
+          # bounded at half a second, so a fork in flight cannot slip past the
+          # snapshot taken afterwards.
           cmux_ssh_auth_wait_stopped() (
             cmux_ssh_auth_wait_polls=0
             while [ "$cmux_ssh_auth_wait_polls" -lt 50 ]; do
-              cmux_ssh_auth_wait_state=$(/bin/ps -o state= -p "$1" 2>/dev/null) || exit 0
-              case "$cmux_ssh_auth_wait_state" in *T*|*Z*|'') exit 0 ;; esac
+              cmux_ssh_auth_wait_states=$(/bin/ps -o state= -p "$(printf '%s,' "$@" | /usr/bin/sed 's/,$//')" 2>/dev/null || true)
+              case "$cmux_ssh_auth_wait_states" in *[RSUI]*) ;; *) exit 0 ;; esac
               /bin/sleep 0.01
               cmux_ssh_auth_wait_polls=$((cmux_ssh_auth_wait_polls + 1))
             done
           )
 
+          # Signals go through xargs in bounded batches so a very wide tree can
+          # never exceed the exec argument limit and silently skip the sweep.
+          # Every member of a snapshot is frozen and observed stopped before the
+          # next snapshot, so a stopped set can neither fork nor exit: the
+          # latest snapshot is authoritative (no stale pid is ever signalled)
+          # and the sweep is stable once a snapshot repeats (every member was
+          # frozen and observed stopped before that repeat). Only a set that
+          # was still growing when the rescan budget ran out is frozen and
+          # observed stopped once more before the kill.
           cmux_ssh_kill_auth_subtree() (
             /bin/kill -STOP "$1" >/dev/null 2>&1 || exit 0
             cmux_ssh_auth_wait_stopped "$1"
             cmux_ssh_auth_subtree_pids=$(cmux_ssh_list_auth_subtree "$1")
             [ -n "$cmux_ssh_auth_subtree_pids" ] || cmux_ssh_auth_subtree_pids="$1"
-            cmux_ssh_auth_subtree_pids=$(printf '%s\\n' $cmux_ssh_auth_subtree_pids | /usr/bin/sort -un | /usr/bin/tr '\\n' ' ')
             cmux_ssh_auth_subtree_rescan=0
-            if [ "$cmux_ssh_auth_subtree_pids" = "$1 " ]; then cmux_ssh_auth_subtree_rescan=3; fi
-            while [ "$cmux_ssh_auth_subtree_rescan" -lt 3 ]; do
+            while [ "$cmux_ssh_auth_subtree_rescan" -lt 3 ] && [ "$cmux_ssh_auth_subtree_pids" != "$1" ]; do
               printf '%s ' $cmux_ssh_auth_subtree_pids | /usr/bin/xargs -n 256 /bin/kill -STOP >/dev/null 2>&1 || true
+              cmux_ssh_auth_wait_stopped $cmux_ssh_auth_subtree_pids
               cmux_ssh_auth_subtree_rescanned=$(cmux_ssh_list_auth_subtree "$1")
-              cmux_ssh_auth_subtree_merged=$(printf '%s\\n' $cmux_ssh_auth_subtree_pids $cmux_ssh_auth_subtree_rescanned | /usr/bin/sort -un | /usr/bin/tr '\\n' ' ')
-              if [ "$cmux_ssh_auth_subtree_merged" = "$cmux_ssh_auth_subtree_pids" ]; then break; fi
-              cmux_ssh_auth_subtree_pids="$cmux_ssh_auth_subtree_merged"
+              [ -n "$cmux_ssh_auth_subtree_rescanned" ] || cmux_ssh_auth_subtree_rescanned="$1"
+              if [ "$cmux_ssh_auth_subtree_rescanned" = "$cmux_ssh_auth_subtree_pids" ]; then break; fi
+              cmux_ssh_auth_subtree_pids="$cmux_ssh_auth_subtree_rescanned"
               cmux_ssh_auth_subtree_rescan=$((cmux_ssh_auth_subtree_rescan + 1))
             done
-            printf '%s ' $cmux_ssh_auth_subtree_pids | /usr/bin/xargs -n 256 /bin/kill -STOP >/dev/null 2>&1 || true
+            if [ "$cmux_ssh_auth_subtree_rescan" -ge 3 ]; then
+              printf '%s ' $cmux_ssh_auth_subtree_pids | /usr/bin/xargs -n 256 /bin/kill -STOP >/dev/null 2>&1 || true
+              cmux_ssh_auth_wait_stopped $cmux_ssh_auth_subtree_pids
+            fi
             printf '%s ' $cmux_ssh_auth_subtree_pids | /usr/bin/xargs -n 256 /bin/kill -KILL >/dev/null 2>&1 || true
             printf '%s ' $cmux_ssh_auth_subtree_pids | /usr/bin/xargs -n 256 /bin/kill -CONT >/dev/null 2>&1 || true
           )
