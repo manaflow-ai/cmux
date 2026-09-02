@@ -974,6 +974,7 @@ struct MachinesPanelListProblemTests {
 @Suite("Cloud machines client bootstrap")
 struct MachinesPanelClientBootstrapTests {
     @Test("A missing client retries only through the bounded bootstrap budget")
+    @MainActor
     func missingClientUsesBoundedRetryBudget() async {
         var attempts = 0
 
@@ -987,6 +988,7 @@ struct MachinesPanelClientBootstrapTests {
     }
 
     @Test("A client that appears during bootstrap completes immediately")
+    @MainActor
     func clientAppearsDuringBootstrap() async {
         var attempts = 0
 

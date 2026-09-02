@@ -324,6 +324,22 @@ enum MachineSnapshotBuilder {
     }
 }
 
+/// Runs the bounded retry phase while the signed-in Cloud client is still bootstrapping.
+@MainActor
+enum CloudClientBootstrapRetry {
+    static func run(
+        maxRetries: Int,
+        attempt: () async -> Bool
+    ) async -> Bool {
+        for retry in 0...maxRetries {
+            if await attempt() { return true }
+            guard !Task.isCancelled, retry < maxRetries else { return false }
+            await Task.yield()
+        }
+        return false
+    }
+}
+
 /// Loads the machine fleet for the right-sidebar Machines tab. Refreshes on
 /// demand plus a slow poll while the panel is visible; machine mutations go
 /// through the shared Cloud VM action path (`CloudVMActionLauncher`), never
@@ -402,7 +418,6 @@ final class MachinesPanelViewModel: ObservableObject {
     }
 
     private var refreshTask: Task<Void, Never>?
-    private var clientBootstrapRetryCount = 0
     private static let maxClientBootstrapRetries = 3
     private var pollTask: Task<Void, Never>?
     private var statsTask: Task<Void, Never>?
@@ -582,16 +597,19 @@ final class MachinesPanelViewModel: ObservableObject {
             return
         }
         isLoading = true
-        clientBootstrapRetryCount = 0
         refreshTask = Task { [weak self] in
             guard let self else { return }
-            await self.performRefresh()
-            if !Task.isCancelled, !self.hasLoadedOnce, self.clientBootstrapRetryCount < Self.maxClientBootstrapRetries {
-                self.clientBootstrapRetryCount += 1
-                self.refreshTask = nil
-                await Task.yield()
-                self.refresh()
-                return
+            let loaded = await CloudClientBootstrapRetry.run(maxRetries: Self.maxClientBootstrapRetries) {
+                await self.performRefresh()
+            }
+            if !loaded, !Task.isCancelled {
+                self.lastErrorDescription = String(
+                    localized: "machines.unavailable.title",
+                    defaultValue: "Cloud is unreachable"
+                )
+                self.listProblem = .unreachable
+                self.isLoading = false
+                self.hasLoadedOnce = true
             }
             self.refreshTask = nil
             if self.refreshRequestedWhileLoading {
@@ -679,12 +697,13 @@ final class MachinesPanelViewModel: ObservableObject {
         isLoading = false
     }
 
-    private func performRefresh() async {
+    /// Returns false only when the client has not finished bootstrapping yet.
+    private func performRefresh() async -> Bool {
         guard let client = VMClient.shared else {
             // A signed-in panel can briefly outlive the client during bootstrap.
             // Treat that as a completed, retryable load so the UI cannot remain
             // blank behind an endless spinner.
-            return
+            return false
         }
         do {
             let page = try await client.listPage()
@@ -718,7 +737,7 @@ final class MachinesPanelViewModel: ObservableObject {
                 listProblem = nil
                 hasLoadedOnce = false
                 isLoading = false
-                return
+                return true
             }
             lastErrorDescription = String(describing: error)
             listProblem = Self.classifyListFailure(error)
@@ -728,5 +747,6 @@ final class MachinesPanelViewModel: ObservableObject {
         }
         isLoading = false
         hasLoadedOnce = true
+        return true
     }
 }
