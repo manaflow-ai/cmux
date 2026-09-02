@@ -1954,8 +1954,8 @@ line_regex = ["^working$", "^missing line$"]
 
     #[test]
     fn screen_detect_claude_background_shell_alone_is_idle_fallback() {
-        let claude = ManifestSet::bundled().identify("claude").unwrap();
-        let idle = claude.detect(input("  ⏵⏵ auto mode on · 1 shell · ← for agents\n"));
+        let idle = ManifestSet::bundled()
+            .explain("claude", input("  ⏵⏵ auto mode on · 1 shell · ← for agents\n"));
 
         assert_eq!(idle.state, ScreenState::Idle);
         assert!(idle.matched_rule.is_none());
