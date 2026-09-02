@@ -263,6 +263,17 @@ def test_pr_file_pagination_accepts_slurped_array_pages() -> None:
     assert module._pr_files(api, 1, 1) == ["README.md"]
 
 
+def test_pr_file_count_must_be_present_and_exact() -> None:
+    api = FakeAPI(complete_checks())
+    for expected_count in (None, 0, 2):
+        try:
+            module._pr_files(api, 1, expected_count)
+        except module.GateError as error:
+            assert "pull request file" in str(error)
+        else:
+            raise AssertionError("incomplete pull request file metadata was accepted")
+
+
 def test_workflow_definition_mismatch_requires_trusted_review() -> None:
     class WorkflowAPI(FakeAPI):
         def __init__(self, *, approved: bool) -> None:
