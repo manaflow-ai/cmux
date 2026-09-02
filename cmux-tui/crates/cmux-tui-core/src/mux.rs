@@ -2616,6 +2616,12 @@ impl Mux {
                 }
             }
         }
+        // The roster reducer and the public projection are durable in
+        // separate transactions. A crash can therefore leave a plugin row in
+        // the roster while dropping the projection side effect. Reconcile
+        // after restored surfaces exist, and repeat at the end of asynchronous
+        // terminal adoption for hosts that were not available yet.
+        mux.reconcile_agent_roster_projections();
         let recovery_deadline = Instant::now() + Duration::from_secs(15);
         while mux.reconcile_interrupted_resource_creations()? {
             if Instant::now() >= recovery_deadline {
@@ -3313,6 +3319,7 @@ impl Mux {
         // only hooks scoped to this terminal, not the entire pending table.
         if let Ok(terminal_id) = TerminalPublicId::parse(terminal_id) {
             let _ = self.retry_pending_agent_hooks_for_terminal(&terminal_id);
+            self.reconcile_agent_roster_projections_for_terminal(&terminal_id);
         }
         Ok(())
     }
@@ -5816,6 +5823,84 @@ impl Mux {
         for delta in deltas {
             self.apply_roster_delta(delta, &ingress.kind);
         }
+    }
+
+    /// Repair public projections whose plugin roster event was folded before
+    /// the daemon stopped. The roster is the canonical live view; the
+    /// projection is a separately committed compatibility view for clients.
+    /// Compare durable values first so a healthy restart emits no mutations.
+    fn reconcile_agent_roster_projections(&self) {
+        let entries = self
+            .agent_roster
+            .lock()
+            .unwrap()
+            .roster
+            .entries
+            .iter()
+            .filter(|(_, entry)| entry.agent_source() == AgentSource::Plugin)
+            .map(|(terminal_id, entry)| (terminal_id.clone(), entry.clone()))
+            .collect::<Vec<_>>();
+        for (terminal_id, entry) in entries {
+            let Ok(terminal_id) = TerminalPublicId::parse(&terminal_id) else { continue };
+            self.reconcile_agent_roster_projection_for_entry(&terminal_id, entry);
+        }
+    }
+
+    fn reconcile_agent_roster_projections_for_terminal(&self, terminal_id: &TerminalPublicId) {
+        let entry = self
+            .agent_roster
+            .lock()
+            .unwrap()
+            .roster
+            .entries
+            .get(terminal_id.as_str())
+            .filter(|entry| entry.agent_source() == AgentSource::Plugin)
+            .cloned();
+        if let Some(entry) = entry {
+            self.reconcile_agent_roster_projection_for_entry(terminal_id, entry);
+        }
+    }
+
+    fn reconcile_agent_roster_projection_for_entry(
+        &self,
+        terminal_id: &TerminalPublicId,
+        entry: crate::journal_reducers::RosterEntry,
+    ) {
+        let registry = match self.workspace_registry.lock() {
+            Ok(registry) => registry,
+            Err(_) => {
+                eprintln!(
+                    "cmux-tui: could not inspect agent projection for {terminal_id} during startup reconciliation: workspace registry mutex is poisoned"
+                );
+                return;
+            }
+        };
+        let projection = match registry.public_agent_projections(Some(terminal_id), None) {
+            Ok(projections) => projections.into_iter().next(),
+            Err(error) => {
+                eprintln!(
+                    "cmux-tui: could not inspect agent projection for {terminal_id} during startup reconciliation: {error}"
+                );
+                return;
+            }
+        };
+        drop(registry);
+        let matches = projection.as_ref().is_some_and(|projection| {
+            projection.state == entry.state
+                && projection.source == entry.source
+                && projection.source_session == entry.session
+                && projection.updated_at_ms == entry.updated_at_ms
+        });
+        if matches {
+            return;
+        }
+        self.apply_roster_delta(
+            crate::journal_reducers::RosterDelta::Upsert {
+                terminal_id: terminal_id.to_string(),
+                entry,
+            },
+            "startup-reconcile",
+        );
     }
 
     /// Apply one roster delta's side effects: the durable agent projection
