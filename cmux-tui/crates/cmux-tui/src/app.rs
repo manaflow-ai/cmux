@@ -24888,6 +24888,27 @@ mod tests {
     }
 
     #[test]
+    fn host_input_runtime_shutdown_joins_reader_before_returning() {
+        let mut runtime = HostInputRuntime::new();
+        let ingress = runtime.ingress.clone();
+        let (finished_tx, finished_rx) = std::sync::mpsc::sync_channel(1);
+        let reader = std::thread::spawn(move || {
+            while !ingress.is_closed() {
+                std::thread::yield_now();
+            }
+            finished_tx.send(()).unwrap();
+        });
+
+        runtime.attach_reader(reader);
+        runtime.shutdown();
+
+        assert!(
+            finished_rx.try_recv().is_ok(),
+            "runtime shutdown must join the input reader before returning"
+        );
+    }
+
+    #[test]
     fn host_input_ingress_keeps_latest_adjacent_resize() {
         let ingress = HostInputIngress::default();
         ingress.send(Event::Resize(80, 24)).unwrap();
