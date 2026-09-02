@@ -1591,6 +1591,13 @@ impl Inner {
         let Some(attachment) =
             self.authorize_snapshot_for_generation_nonterminal(pty_id, &auth, context, "close", 0)
         else {
+            // A present attachment may have failed authorization. The
+            // non-terminal error above must not fall through to the opening
+            // cancellation path, which would otherwise let a denied CLOSE
+            // retire the live attachment.
+            if self.attachments.lock().expect("attach lock").contains_key(pty_id) {
+                return;
+            }
             // A close may race the asynchronous open before its attachment
             // is published. The transport fence ran at frame dispatch, so
             // this exact owner can cancel the pending reservation now.
