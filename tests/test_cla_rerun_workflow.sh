@@ -95,14 +95,15 @@ export SIGNATURE_RECORDED=false
 # run still carries head_repository identity. GitHub may report the source PR
 # SHA or a different execution SHA on a pull_request_target run, so this fixture
 # keeps the live PR head at `aaaa...` and the selected run/job execution SHA at
-# `bbbb...`. The production-shaped fallback has an empty pull_requests array;
-# it is accepted without another check only when the run uses the live PR base
-# SHA. A source-SHA, null-repository, or mismatched-base run must carry a failed
-# GitHub Actions check whose URL binds the selected run and job to `aaaa...`.
+# `bbbb...`. A production-shaped empty association is accepted only when the
+# run has complete source metadata and uses the live PR base SHA. A source-SHA,
+# null-repository, stale-base, or mismatched metadata run must fail closed.
 gh() {
   local endpoint=""
   local api_page=1
   local api_filter=""
+  local api_check_name=""
+  local api_app_id=""
   local arg
   for arg in "$@"; do
     if [[ "$arg" == page=* ]]; then
@@ -110,6 +111,12 @@ gh() {
     fi
     if [[ "$arg" == filter=* ]]; then
       api_filter="${arg#filter=}"
+    fi
+    if [[ "$arg" == check_name=* ]]; then
+      api_check_name="${arg#check_name=}"
+    fi
+    if [[ "$arg" == app_id=* ]]; then
+      api_app_id="${arg#app_id=}"
     fi
     if [[ "$arg" == repos/* ]]; then
       endpoint="$arg"
@@ -122,6 +129,12 @@ gh() {
   if [[ "$endpoint" == repos/manaflow-ai/cmux/commits/*/check-runs &&
         "$api_filter" != all ]]; then
     echo "check-runs lookup must request filter=all" >&2
+    return 1
+  fi
+  if [[ "$endpoint" == repos/manaflow-ai/cmux/commits/*/check-runs &&
+        ( "$api_check_name" != "CLA Assistant v3" && "$api_check_name" != "CLA Assistant" ||
+          "$api_app_id" != 15368 ) ]]; then
+    echo "check-runs lookup must bind the expected CLA check and app" >&2
     return 1
   fi
   if [[ "$endpoint" == repos/manaflow-ai/cmux/commits/*/pulls &&
@@ -141,7 +154,9 @@ gh() {
   local run_sha=bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
   local marker="CLA generation ${CLA_GENERATION}"
   local run_path=.github/workflows/cla.yml
-  local run_prs='[{"number":123,"base":{"ref":"main","repo":{"id":100,"full_name":"manaflow-ai/cmux"}},"head":{"ref":"feature","sha":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","repo":{"id":200,"full_name":"contributor/cmux"}}}]'
+  local run_name='CLA Assistant v3'
+  local check_app_id=15368
+  local run_prs='[{"number":123,"base":{"ref":"main","sha":"cccccccccccccccccccccccccccccccccccccccc","repo":{"id":100,"full_name":"manaflow-ai/cmux"}},"head":{"ref":"feature","sha":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","repo":{"id":200,"full_name":"contributor/cmux"}}}]'
   local ledger_id=400
   local ledger_login=coauthor
   local ledger_comment_id=900
@@ -150,6 +165,9 @@ gh() {
     stale-marker) marker="CLA generation v2.2-action-0000000000000000000000000000000000000000" ;;
     unrelated-main-commit) marker="CLA generation ${CLA_GENERATION}" ;;
     wrong-head-repo) run_head_repo=attacker/cmux; run_head_repo_id=201; run_prs='[]' ;;
+    stale-base-association)
+      run_prs='[{"number":123,"base":{"ref":"main","sha":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb","repo":{"id":100,"full_name":"manaflow-ai/cmux"}},"head":{"ref":"feature","sha":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","repo":{"id":200,"full_name":"contributor/cmux"}}}]'
+      ;;
     association-overflow) run_prs='[]' ;;
     fork-current|empty-run-association) run_prs='[]'; run_sha=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa ;;
     empty-different-execution-associated|empty-different-execution-source-mismatch|empty-different-execution-check-bound|empty-different-execution-check-mismatch)
@@ -161,10 +179,12 @@ gh() {
       run_sha=bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
       live_base_sha=bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
       ;;
-    check-wrong-app|check-wrong-sha|check-wrong-job|check-missing-final|oversized-check-response)
+    check-wrong-app|check-wrong-app-id|check-wrong-sha|check-wrong-job|check-missing-final|oversized-check-response)
       run_prs='[]'
       run_sha=bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
+      live_base_sha=bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
       ;;
+    wrong-workflow-name) run_name='Untrusted workflow' ;;
     fork-null-head-check-bound|fork-null-head-no-check)
       run_prs='[]'
       run_head_repository_null=true
@@ -242,21 +262,21 @@ gh() {
         commit_sha="${commit_sha%/pulls}"
         if [[ "${FAKE_MODE}" == empty-different-execution-source-bound &&
               "${commit_sha}" == bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb ]]; then
-          jq -nc '[{number:123,base:{ref:"main",repo:{id:100,full_name:"manaflow-ai/cmux"}},head:{ref:"feature",sha:"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",repo:{id:200,full_name:"contributor/cmux"}}}]'
+          jq -nc --arg base_sha "$live_base_sha" '[{number:123,base:{ref:"main",sha:$base_sha,repo:{id:100,full_name:"manaflow-ai/cmux"}},head:{ref:"feature",sha:"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",repo:{id:200,full_name:"contributor/cmux"}}}]'
         elif [[ "${FAKE_MODE}" == empty-different-execution-source-mismatch &&
                 "${commit_sha}" == bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb ]]; then
-          jq -nc '[{number:124,base:{ref:"main",repo:{id:100,full_name:"manaflow-ai/cmux"}},head:{ref:"feature",sha:"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",repo:{id:200,full_name:"contributor/cmux"}}}]'
+          jq -nc --arg base_sha "$live_base_sha" '[{number:124,base:{ref:"main",sha:$base_sha,repo:{id:100,full_name:"manaflow-ai/cmux"}},head:{ref:"feature",sha:"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",repo:{id:200,full_name:"contributor/cmux"}}}]'
         else
           printf '[]\n'
         fi
       elif [[ "${FAKE_MODE}" == association-overflow ]]; then
-        jq -nc '[range(0; 100) | {number:(1000 + .),base:{ref:"main",repo:{id:100,full_name:"manaflow-ai/cmux"}},head:{ref:"feature",sha:"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",repo:{id:200,full_name:"contributor/cmux"}}}]'
+        jq -nc --arg base_sha "$live_base_sha" '[range(0; 100) | {number:(1000 + .),base:{ref:"main",sha:$base_sha,repo:{id:100,full_name:"manaflow-ai/cmux"}},head:{ref:"feature",sha:"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",repo:{id:200,full_name:"contributor/cmux"}}}]'
       elif [[ "${FAKE_MODE}" == paginated-associations && "${api_page}" == 1 ]]; then
-        jq -nc '[range(0; 100) | {number:(1000 + .),base:{ref:"main",repo:{id:100,full_name:"manaflow-ai/cmux"}},head:{ref:"feature",sha:"cccccccccccccccccccccccccccccccccccccccc",repo:{id:200,full_name:"contributor/cmux"}}}]'
+        jq -nc --arg base_sha "$live_base_sha" '[range(0; 100) | {number:(1000 + .),base:{ref:"main",sha:$base_sha,repo:{id:100,full_name:"manaflow-ai/cmux"}},head:{ref:"feature",sha:"cccccccccccccccccccccccccccccccccccccccc",repo:{id:200,full_name:"contributor/cmux"}}}]'
       elif [[ "${FAKE_MODE}" == paginated-associations && "${api_page}" == 2 ]]; then
-        jq -nc '[{number:123,base:{ref:"main",repo:{id:100,full_name:"manaflow-ai/cmux"}},head:{ref:"feature",sha:"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",repo:{id:200,full_name:"contributor/cmux"}}}]'
+          jq -nc --arg base_sha "$live_base_sha" '[{number:123,base:{ref:"main",sha:$base_sha,repo:{id:100,full_name:"manaflow-ai/cmux"}},head:{ref:"feature",sha:"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",repo:{id:200,full_name:"contributor/cmux"}}}]'
       elif [[ "${FAKE_MODE}" == same-repo-empty ]]; then
-        jq -nc '[{number:123,base:{ref:"main",repo:{id:100,full_name:"manaflow-ai/cmux"}},head:{ref:"feature",sha:"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",repo:{id:100,full_name:"manaflow-ai/cmux"}}}]'
+        jq -nc --arg base_sha "$live_base_sha" '[{number:123,base:{ref:"main",sha:$base_sha,repo:{id:100,full_name:"manaflow-ai/cmux"}},head:{ref:"feature",sha:"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",repo:{id:100,full_name:"manaflow-ai/cmux"}}}]'
       else
         printf '[]\n'
       fi
@@ -312,6 +332,14 @@ gh() {
       ;;
     repos/manaflow-ai/cmux/commits/*/check-runs)
       local check_call=1
+      local check_sha=bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
+      local check_app_slug=github-actions
+      local check_id=9000
+      local check_name="CLA Assistant v3"
+      local check_details="https://github.com/manaflow-ai/cmux/actions/runs/400/job/500"
+      local check_prefix=repos/manaflow-ai/cmux/commits/
+      check_sha="${endpoint#"${check_prefix}"}"
+      check_sha="${check_sha%/check-runs}"
       if [[ -n "${FAKE_CHECK_CALL_FILE:-}" ]]; then
         if [[ -s "${FAKE_CHECK_CALL_FILE}" ]]; then
           read -r check_call <"${FAKE_CHECK_CALL_FILE}"
@@ -327,19 +355,22 @@ gh() {
             "${FAKE_MODE}" == check-missing-final && "${check_call}" -gt 1 ]]; then
         printf '%s\n' '{"check_runs":[]}'
       elif [[ "${FAKE_MODE}" == oversized-check-response ]]; then
-        printf '%s' '{"check_runs":[{"name":"CLA Assistant v3","status":"completed","conclusion":"failure","head_sha":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","app":{"slug":"github-actions"},"details_url":"https://github.com/manaflow-ai/cmux/actions/runs/400/job/500","padding":"'
+        printf '%s' '{"check_runs":[{"id":9000,"name":"CLA Assistant v3","status":"completed","conclusion":"failure","head_sha":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","app":{"id":15368,"slug":"github-actions"},"details_url":"https://github.com/manaflow-ai/cmux/actions/runs/400/job/500","padding":"'
         head -c 2100000 /dev/zero | tr '\0' 'A'
         printf '%s\n' '"}]}'
       elif [[ "${FAKE_MODE}" == check-wrong-app ]]; then
-        printf '%s\n' '{"check_runs":[{"name":"CLA Assistant v3","status":"completed","conclusion":"failure","head_sha":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","app":{"slug":"untrusted-app"},"details_url":"https://github.com/manaflow-ai/cmux/actions/runs/400/job/500"}]}'
+        printf '%s\n' '{"check_runs":[{"id":9000,"name":"CLA Assistant v3","status":"completed","conclusion":"failure","head_sha":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb","app":{"id":15368,"slug":"untrusted-app"},"details_url":"https://github.com/manaflow-ai/cmux/actions/runs/400/job/500"}]}'
+      elif [[ "${FAKE_MODE}" == check-wrong-app-id ]]; then
+        printf '%s\n' '{"check_runs":[{"id":9000,"name":"CLA Assistant v3","status":"completed","conclusion":"failure","head_sha":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb","app":{"id":999,"slug":"github-actions"},"details_url":"https://github.com/manaflow-ai/cmux/actions/runs/400/job/500"}]}'
       elif [[ "${FAKE_MODE}" == check-wrong-sha ]]; then
-        printf '%s\n' '{"check_runs":[{"name":"CLA Assistant v3","status":"completed","conclusion":"failure","head_sha":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb","app":{"slug":"github-actions"},"details_url":"https://github.com/manaflow-ai/cmux/actions/runs/400/job/500"}]}'
+        printf '%s\n' '{"check_runs":[{"id":9000,"name":"CLA Assistant v3","status":"completed","conclusion":"failure","head_sha":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","app":{"id":15368,"slug":"github-actions"},"details_url":"https://github.com/manaflow-ai/cmux/actions/runs/400/job/500"}]}'
       elif [[ "${FAKE_MODE}" == check-wrong-job ]]; then
-        printf '%s\n' '{"check_runs":[{"name":"CLA Assistant v3","status":"completed","conclusion":"failure","head_sha":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","app":{"slug":"github-actions"},"details_url":"https://github.com/manaflow-ai/cmux/actions/runs/400/job/999"}]}'
+        printf '%s\n' '{"check_runs":[{"id":9000,"name":"CLA Assistant v3","status":"completed","conclusion":"failure","head_sha":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb","app":{"id":15368,"slug":"github-actions"},"details_url":"https://github.com/manaflow-ai/cmux/actions/runs/400/job/999"}]}'
       elif [[ "${FAKE_MODE}" == duplicate-runs ]]; then
-        printf '%s\n' '{"check_runs":[{"name":"CLA Assistant v3","status":"completed","conclusion":"failure","head_sha":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","app":{"slug":"github-actions"},"details_url":"https://github.com/manaflow-ai/cmux/actions/runs/401/job/501"}]}'
+        printf '%s\n' '{"id":9000,"check_runs":[{"id":9000,"name":"CLA Assistant v3","status":"completed","conclusion":"failure","head_sha":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb","app":{"id":15368,"slug":"github-actions"},"details_url":"https://github.com/manaflow-ai/cmux/actions/runs/401/job/501"}]}'
       else
-        printf '%s\n' '{"check_runs":[{"name":"CLA Assistant v3","status":"completed","conclusion":"failure","head_sha":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","app":{"slug":"github-actions"},"details_url":"https://github.com/manaflow-ai/cmux/actions/runs/400/job/500"}]}'
+        jq -nc --arg sha "$check_sha" --arg slug "$check_app_slug" --argjson app_id "$check_app_id" --argjson id "$check_id" --arg name "$check_name" --arg details "$check_details" \
+          '{check_runs:[{id:$id,name:$name,status:"completed",conclusion:"failure",head_sha:$sha,app:{id:$app_id,slug:$slug},details_url:$details}]}'
       fi
       ;;
     repos/manaflow-ai/cmux/actions/workflows)
@@ -352,29 +383,29 @@ gh() {
     repos/manaflow-ai/cmux/actions/workflows/300/runs)
       if [[ "${FAKE_MODE}" == full-run-window ]]; then
         if [[ "${api_page}" == 10 ]]; then
-          jq -nc --arg path "$run_path" --arg run_sha "$run_sha" --argjson run_prs "$run_prs" \
-            '{workflow_runs:([range(0; 99) | {id:(1000 + .),workflow_id:300,path:$path,event:"pull_request_target",status:"completed",conclusion:"success",head_sha:"cccccccccccccccccccccccccccccccccccccccc",head_branch:"other",head_repository:{id:200,full_name:"contributor/cmux"},pull_requests:[],created_at:"2026-08-31T07:45:00Z"}] + [{id:400,workflow_id:300,path:$path,event:"pull_request_target",status:"completed",conclusion:"failure",head_sha:$run_sha,head_branch:"feature",head_repository:{id:200,full_name:"contributor/cmux"},pull_requests:$run_prs,created_at:"2026-08-31T07:00:00Z"}])}'
+          jq -nc --arg path "$run_path" --arg name "$run_name" --arg run_sha "$run_sha" --argjson run_prs "$run_prs" \
+            '{workflow_runs:([range(0; 99) | {id:(1000 + .),workflow_id:300,name:$name,path:$path,event:"pull_request_target",status:"completed",conclusion:"success",head_sha:"cccccccccccccccccccccccccccccccccccccccc",head_branch:"other",head_repository:{id:200,full_name:"contributor/cmux"},pull_requests:[],created_at:"2026-08-31T07:45:00Z"}] + [{id:400,workflow_id:300,name:$name,path:$path,event:"pull_request_target",status:"completed",conclusion:"failure",head_sha:$run_sha,head_branch:"feature",head_repository:{id:200,full_name:"contributor/cmux"},pull_requests:$run_prs,created_at:"2026-08-31T07:00:00Z"}])}'
         else
-          jq -nc '{workflow_runs:[range(0; 100) | {id:(1000 + .),workflow_id:300,path:".github/workflows/cla.yml",event:"pull_request_target",status:"completed",conclusion:"success",head_sha:"cccccccccccccccccccccccccccccccccccccccc",head_branch:"other",head_repository:{id:200,full_name:"contributor/cmux"},pull_requests:[],created_at:"2026-08-31T07:45:00Z"}]}'
+          jq -nc --arg name "$run_name" '{workflow_runs:[range(0; 100) | {id:(1000 + .),workflow_id:300,name:$name,path:".github/workflows/cla.yml",event:"pull_request_target",status:"completed",conclusion:"success",head_sha:"cccccccccccccccccccccccccccccccccccccccc",head_branch:"other",head_repository:{id:200,full_name:"contributor/cmux"},pull_requests:[],created_at:"2026-08-31T07:45:00Z"}]}'
         fi
       elif [[ "${FAKE_MODE}" == full-run-window-no-match ]]; then
-        jq -nc '{workflow_runs:[range(0; 100) | {id:(1000 + .),workflow_id:300,path:".github/workflows/cla.yml",event:"pull_request_target",status:"completed",conclusion:"success",head_sha:"cccccccccccccccccccccccccccccccccccccccc",head_branch:"other",head_repository:{id:200,full_name:"contributor/cmux"},pull_requests:[],created_at:"2026-08-31T07:45:00Z"}]}'
+        jq -nc --arg name "$run_name" '{workflow_runs:[range(0; 100) | {id:(1000 + .),workflow_id:300,name:$name,path:".github/workflows/cla.yml",event:"pull_request_target",status:"completed",conclusion:"success",head_sha:"cccccccccccccccccccccccccccccccccccccccc",head_branch:"other",head_repository:{id:200,full_name:"contributor/cmux"},pull_requests:[],created_at:"2026-08-31T07:45:00Z"}]}'
       elif [[ "${FAKE_MODE}" == paginated-runs && "${api_page}" == 1 ]]; then
-        jq -nc '{workflow_runs:[range(0; 100) | {id:(1000 + .),workflow_id:300,path:".github/workflows/cla.yml",event:"pull_request_target",status:"completed",conclusion:"success",head_sha:"cccccccccccccccccccccccccccccccccccccccc",head_branch:"other",head_repository:{id:200,full_name:"contributor/cmux"},pull_requests:[],created_at:"2026-08-31T07:45:00Z"}]}'
+        jq -nc --arg name "$run_name" '{workflow_runs:[range(0; 100) | {id:(1000 + .),workflow_id:300,name:$name,path:".github/workflows/cla.yml",event:"pull_request_target",status:"completed",conclusion:"success",head_sha:"cccccccccccccccccccccccccccccccccccccccc",head_branch:"other",head_repository:{id:200,full_name:"contributor/cmux"},pull_requests:[],created_at:"2026-08-31T07:45:00Z"}]}'
       elif [[ "${FAKE_MODE}" == empty-mismatched-newer ]]; then
-        jq -nc '{workflow_runs:[
-          {id:400,workflow_id:300,path:".github/workflows/cla.yml",event:"pull_request_target",status:"completed",conclusion:"failure",head_sha:"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",head_branch:"feature",head_repository:{id:200,full_name:"contributor/cmux"},pull_requests:[],created_at:"2026-08-31T07:00:00Z"},
-          {id:401,workflow_id:300,path:".github/workflows/cla.yml",event:"pull_request_target",status:"completed",conclusion:"failure",head_sha:"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",head_branch:"feature",head_repository:{id:200,full_name:"contributor/cmux"},pull_requests:[],created_at:"2026-08-31T07:30:00Z"}
+        jq -nc --arg name "$run_name" '{workflow_runs:[
+          {id:400,workflow_id:300,name:$name,path:".github/workflows/cla.yml",event:"pull_request_target",status:"completed",conclusion:"failure",head_sha:"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",head_branch:"feature",head_repository:{id:200,full_name:"contributor/cmux"},pull_requests:[],created_at:"2026-08-31T07:00:00Z"},
+          {id:401,workflow_id:300,name:$name,path:".github/workflows/cla.yml",event:"pull_request_target",status:"completed",conclusion:"failure",head_sha:"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",head_branch:"feature",head_repository:{id:200,full_name:"contributor/cmux"},pull_requests:[],created_at:"2026-08-31T07:30:00Z"}
         ]}'
       elif [[ "${FAKE_MODE}" == duplicate-runs ]]; then
-        jq -nc --arg head_repo "$run_head_repo" --argjson head_repo_id "$run_head_repo_id" --argjson head_repo_null "$run_head_repository_null" --arg run_sha "$run_sha" --arg path "$run_path" --argjson run_prs "$run_prs" \
+        jq -nc --arg head_repo "$run_head_repo" --argjson head_repo_id "$run_head_repo_id" --argjson head_repo_null "$run_head_repository_null" --arg run_sha "$run_sha" --arg path "$run_path" --arg name "$run_name" --argjson run_prs "$run_prs" \
           '{workflow_runs:[
-            {id:400,workflow_id:300,path:$path,event:"pull_request_target",status:"completed",conclusion:"failure",head_sha:$run_sha,head_branch:"feature",head_repository:(if $head_repo_null then null else {id:$head_repo_id,full_name:$head_repo} end),pull_requests:$run_prs,created_at:"2026-08-31T07:00:00Z"},
-            {id:401,workflow_id:300,path:$path,event:"pull_request_target",status:"completed",conclusion:"failure",head_sha:$run_sha,head_branch:"feature",head_repository:(if $head_repo_null then null else {id:$head_repo_id,full_name:$head_repo} end),pull_requests:$run_prs,created_at:"2026-08-31T07:30:00Z"}
+            {id:400,workflow_id:300,name:$name,path:$path,event:"pull_request_target",status:"completed",conclusion:"failure",head_sha:$run_sha,head_branch:"feature",head_repository:(if $head_repo_null then null else {id:$head_repo_id,full_name:$head_repo} end),pull_requests:$run_prs,created_at:"2026-08-31T07:00:00Z"},
+            {id:401,workflow_id:300,name:$name,path:$path,event:"pull_request_target",status:"completed",conclusion:"failure",head_sha:$run_sha,head_branch:"feature",head_repository:(if $head_repo_null then null else {id:$head_repo_id,full_name:$head_repo} end),pull_requests:$run_prs,created_at:"2026-08-31T07:30:00Z"}
           ]}'
       else
-        jq -nc --arg head_repo "$run_head_repo" --argjson head_repo_id "$run_head_repo_id" --argjson head_repo_null "$run_head_repository_null" --arg run_sha "$run_sha" --arg path "$run_path" --argjson run_prs "$run_prs" \
-          '{workflow_runs:[{id:400,workflow_id:300,path:$path,event:"pull_request_target",status:"completed",conclusion:"failure",head_sha:$run_sha,head_branch:"feature",head_repository:(if $head_repo_null then null else {id:$head_repo_id,full_name:$head_repo} end),pull_requests:$run_prs,created_at:"2026-08-31T07:00:00Z"}]}'
+        jq -nc --arg head_repo "$run_head_repo" --argjson head_repo_id "$run_head_repo_id" --argjson head_repo_null "$run_head_repository_null" --arg run_sha "$run_sha" --arg path "$run_path" --arg name "$run_name" --argjson run_prs "$run_prs" \
+          '{workflow_runs:[{id:400,workflow_id:300,name:$name,path:$path,event:"pull_request_target",status:"completed",conclusion:"failure",head_sha:$run_sha,head_branch:"feature",head_repository:(if $head_repo_null then null else {id:$head_repo_id,full_name:$head_repo} end),pull_requests:$run_prs,created_at:"2026-08-31T07:00:00Z"}]}'
       fi
       ;;
     repos/manaflow-ai/cmux/actions/runs/400|repos/manaflow-ai/cmux/actions/runs/401)
@@ -388,8 +419,8 @@ gh() {
       if [[ "${FAKE_MODE}" == empty-mismatched-newer ]]; then
         if [[ "$run_id" == 400 ]]; then detail_sha=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa; else detail_sha=bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb; fi
       fi
-      jq -nc --argjson run_id "$run_id" --arg created_at "$created_at" --arg head_repo "$run_head_repo" --argjson head_repo_id "$run_head_repo_id" --argjson head_repo_null "$run_head_repository_null" --arg run_sha "$detail_sha" --arg path "$run_path" --argjson run_prs "$run_prs" \
-        '{id:$run_id,workflow_id:300,path:$path,event:"pull_request_target",status:"completed",conclusion:"failure",head_sha:$run_sha,head_branch:"feature",head_repository:(if $head_repo_null then null else {id:$head_repo_id,full_name:$head_repo} end),pull_requests:$run_prs,created_at:$created_at}'
+      jq -nc --argjson run_id "$run_id" --arg created_at "$created_at" --arg head_repo "$run_head_repo" --argjson head_repo_id "$run_head_repo_id" --argjson head_repo_null "$run_head_repository_null" --arg run_sha "$detail_sha" --arg path "$run_path" --arg name "$run_name" --argjson run_prs "$run_prs" \
+        '{id:$run_id,workflow_id:300,name:$name,path:$path,event:"pull_request_target",status:"completed",conclusion:"failure",head_sha:$run_sha,head_branch:"feature",head_repository:(if $head_repo_null then null else {id:$head_repo_id,full_name:$head_repo} end),pull_requests:$run_prs,created_at:$created_at}'
       ;;
     repos/manaflow-ai/cmux/actions/runs/400/jobs|repos/manaflow-ai/cmux/actions/runs/401/jobs)
       local run_id=400
@@ -408,14 +439,14 @@ gh() {
         jq -nc --argjson run_id "$run_id" --argjson job_id "$job_id" --arg marker "$marker" --arg run_sha "$run_sha" \
           '{jobs:[
             {id:$job_id,run_id:$run_id,name:"CLA Assistant v3",workflow_name:"CLA Assistant v3",status:"completed",conclusion:"failure",head_sha:$run_sha,head_branch:"feature",head_repository:null,steps:[{name:$marker,status:"completed",conclusion:"failure"}]},
-            {id:502,run_id:$run_id,name:"CLA Assistant",workflow_name:"CLA Assistant v3",status:"completed",conclusion:"failure",head_sha:$run_sha,head_branch:"feature",head_repository:null,steps:[]}
+            {id:502,run_id:$run_id,name:"CLA Assistant",workflow_name:"CLA Assistant v3",status:"completed",conclusion:"failure",head_sha:$run_sha,head_branch:"feature",head_repository:null,steps:[{name:"Mirror CLA Assistant compatibility result",status:"completed",conclusion:"failure"}]}
           ]}'
       elif [[ "${FAKE_MODE}" == writer-failed ]]; then
         jq -nc --argjson run_id "$run_id" --argjson job_id "$job_id" --arg marker "$marker" --arg run_sha "$run_sha" \
           '{jobs:[
             {id:505,run_id:$run_id,name:"CLA ledger writer",workflow_name:"CLA Assistant v3",status:"completed",conclusion:"failure",head_sha:$run_sha,head_branch:"feature",head_repository:null,steps:[]},
             {id:$job_id,run_id:$run_id,name:"CLA Assistant v3",workflow_name:"CLA Assistant v3",status:"completed",conclusion:"failure",head_sha:$run_sha,head_branch:"feature",head_repository:null,steps:[{name:$marker,status:"completed",conclusion:"failure"}]},
-            {id:506,run_id:$run_id,name:"CLA Assistant",workflow_name:"CLA Assistant v3",status:"completed",conclusion:"failure",head_sha:$run_sha,head_branch:"feature",head_repository:null,steps:[]}
+            {id:506,run_id:$run_id,name:"CLA Assistant",workflow_name:"CLA Assistant v3",status:"completed",conclusion:"failure",head_sha:$run_sha,head_branch:"feature",head_repository:null,steps:[{name:"Mirror CLA Assistant compatibility result",status:"completed",conclusion:"failure"}]}
           ]}'
       elif [[ "${FAKE_MODE}" == writer-only-failed ]]; then
         jq -nc --argjson run_id "$run_id" --argjson job_id "$job_id" --arg marker "$marker" --arg run_sha "$run_sha" \
@@ -469,7 +500,7 @@ run_case() {
   local expected_posts="$4"
   local expected_post="${5:-}"
   local expected_checks="${6:-}"
-  local output status posts comment_author=contributor comment_author_id=300 comment_type=User comment_association=NONE comment_body=recheck signature_recorded=false
+  local output status posts comment_author=contributor comment_author_id=300 comment_type=User comment_association=NONE comment_body=recheck signature_recorded=false generation="${CLA_GENERATION}"
   if [[ "$mode" == untrusted-recheck ]]; then
     comment_author=untrusted-user
     comment_author_id=301
@@ -492,6 +523,10 @@ run_case() {
     comment_author_id=400
     comment_body='I have read the CLA Document v2.2 and I hereby sign the CLA'
     signature_recorded=true
+  elif [[ "$mode" == alternate-generation ]]; then
+    generation=v2.2-action-deadbeef
+  elif [[ "$mode" == malformed-comment-login ]]; then
+    comment_author=$'contributor\nattacker'
   fi
   : >"$work/posts-$mode"
   printf '0\n' >"$work/association-$mode"
@@ -508,6 +543,7 @@ run_case() {
     COMMENT_AUTHOR_TYPE="$comment_type" \
     COMMENT_AUTHOR_ASSOCIATION="$comment_association" \
     SIGNATURE_RECORDED="$signature_recorded" \
+    CLA_GENERATION="$generation" \
     bash "$rerun_script" 2>&1
   )"
   status=$?
@@ -547,7 +583,7 @@ run_case() {
 
 run_case run-association 0 "Requested rerun for CLA job 500 in workflow run 400" 1
 run_case oversized-api-response 1 "Could not query the issue" 0
-run_case minimal-run-association 0 "Requested rerun for CLA job 500 in workflow run 400" 1
+run_case minimal-run-association 1 "outdated or malformed pull request base SHA" 0
 run_case fork-current 0 "Requested rerun for CLA job 500 in workflow run 400" 1
 run_case association-not-found 0 "Requested rerun for CLA job 500 in workflow run 400" 1
 run_case association-validation-error 0 "Requested rerun for CLA job 500 in workflow run 400" 1
@@ -572,6 +608,7 @@ run_case empty-different-execution-check-mismatch 1 "No failed CLA check is boun
 run_case fork-null-head-check-bound 0 "Requested rerun for CLA job 500 in workflow run 400" 1 "" 2
 run_case fork-null-head-no-check 1 "No failed CLA check is bound to the exact pull request head and selected job" 0 "" 1
 run_case check-wrong-app 1 "No failed CLA check is bound to the exact pull request head and selected job" 0 "" 1
+run_case check-wrong-app-id 1 "No failed CLA check is bound" 0 "" 1
 run_case check-wrong-sha 1 "No failed CLA check is bound to the exact pull request head and selected job" 0 "" 1
 run_case check-wrong-job 1 "No failed CLA check is bound to the exact pull request head and selected job" 0 "" 1
 run_case check-missing-final 1 "No failed CLA check is bound to the exact pull request head and selected job" 0 "" 2
@@ -589,7 +626,11 @@ run_case retargeted-pr 1 "The live pull request is not valid" 0
 run_case ambiguous-association 1 "Expected exactly one open pull request for this head" 0
 run_case untrusted-recheck 1 "Only the pull request author or a trusted repository participant" 0
 run_case recheck-unset-output 0 "Requested rerun for CLA job 500 in workflow run 400" 1
-run_case suffixed-path 0 "Requested rerun for CLA job 500 in workflow run 400" 1
+run_case suffixed-path 1 "No failed CLA run exists for this pull request head" 0
+run_case wrong-workflow-name 1 "No failed CLA run exists for this pull request head" 0
+run_case stale-base-association 1 "outdated or malformed pull request base SHA" 0
+run_case alternate-generation 1 "Unexpected CLA generation marker" 0
+run_case malformed-comment-login 1 "Comment author is malformed" 0
 run_case late-ambiguous 1 "Expected exactly one open pull request for this head" 0
 run_case external-signer 0 "Requested rerun for CLA job 500 in workflow run 400" 1
 run_case unrecorded-signer 1 "did not result in a persisted signature" 0
