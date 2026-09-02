@@ -430,7 +430,7 @@ struct WorkstreamTaskToolTodos: Sendable {
                 tool: tool,
                 inputJSON: inputJSON,
                 responseJSON: responseJSON,
-                isError: false
+                isError: isError
             )
             hasCompleteTaskList = false
             return outcome.producedList ? outcome : .list(projectedState().todos)
