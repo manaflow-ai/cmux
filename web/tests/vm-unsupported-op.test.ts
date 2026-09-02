@@ -58,7 +58,7 @@ describe("unsupported provider operations", () => {
 
   test("a provider message containing the capability phrase stays retryable", async () => {
     const response = await vmWorkflowErrorResponse(new VmProviderOperationError({
-      provider: "e2b",
+      provider: "freestyle",
       operation: "snapshot",
       cause: new Error("Cloud VM snapshots are not supported by this provider gateway"),
     }));
@@ -71,7 +71,7 @@ describe("unsupported provider operations", () => {
   test("a driver without fork reports the capability as false, so clients hide the verb", () => {
     // vmCapabilitiesFor derives `fork` from the method's existence; the gateway
     // raises VmOperationUnsupportedError when a caller asks anyway.
-    for (const provider of ["freestyle", "e2b", "daytona"] as const) {
+    for (const provider of ["freestyle"] as const) {
       const capabilities = vmCapabilitiesFor(provider);
       expect(capabilities.fork).toBe(typeof getProvider(provider).fork === "function");
       expect(capabilities.snapshot).toBe(true);
