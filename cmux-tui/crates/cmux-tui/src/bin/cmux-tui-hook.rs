@@ -688,7 +688,11 @@ mod detach {
         unsafe {
             command.pre_exec(detach_session);
         }
-        let (sender, receiver) = mpsc::sync_channel(1);
+        // A rendezvous channel makes setup ownership transfer atomic with the
+        // timeout decision. A queued result could otherwise be dropped after
+        // `recv_timeout` returns, which would drop the guard and kill the
+        // successfully spawned child.
+        let (sender, receiver) = mpsc::sync_channel(0);
         let request_id = request_id.to_owned();
         let encoded = encoded.to_owned();
         std::thread::spawn(move || {
@@ -781,7 +785,10 @@ mod detach {
             .stdout(Stdio::piped())
             .stderr(Stdio::null());
         command.creation_flags(DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP);
-        let (sender, receiver) = mpsc::sync_channel(1);
+        // Keep setup ownership as a rendezvous with the timeout path. There
+        // must be no queued successful handoff for a timed-out receiver to
+        // drop later.
+        let (sender, receiver) = mpsc::sync_channel(0);
         let request_id = request_id.to_owned();
         let encoded = encoded.to_owned();
         std::thread::spawn(move || {
@@ -967,7 +974,7 @@ mod tests {
             .unwrap();
         let mut guard = DetachedChildGuard::new(child);
         let stdout = guard.child_mut().stdout.take().unwrap();
-        let (sender, receiver) = mpsc::sync_channel(1);
+        let (sender, receiver) = mpsc::sync_channel(0);
         drop(receiver);
 
         forward_setup_result(sender, Ok((guard, stdout)));
