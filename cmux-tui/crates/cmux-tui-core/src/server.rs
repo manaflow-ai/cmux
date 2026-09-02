@@ -14013,6 +14013,28 @@ mod tests {
 
     #[cfg(unix)]
     #[test]
+    fn stale_socket_cleanup_preserves_a_replacement_bound_after_probe() {
+        let dir = TestSocketDir::create("stale-socket-replacement-after-probe");
+        let path = dir.path().join("mux.sock");
+        let stale = transport::listen(&path).unwrap();
+        let stale_identity = SocketPathIdentity::capture(&path).unwrap();
+
+        std::fs::remove_file(&path).unwrap();
+        let replacement = transport::listen(&path).unwrap();
+
+        assert!(
+            !remove_stale_socket_if_unchanged(&path, stale_identity).unwrap(),
+            "stale cleanup removed a successor bound after the failed probe"
+        );
+        assert!(transport::connect(&path).is_ok(), "stale cleanup disrupted the replacement");
+
+        drop(stale);
+        drop(replacement);
+        std::fs::remove_file(&path).unwrap();
+    }
+
+    #[cfg(unix)]
+    #[test]
     fn unix_socket_path_reserves_trailing_nul() {
         const SUN_PATH_CAPACITY: usize =
             size_of::<libc::sockaddr_un>() - offset_of!(libc::sockaddr_un, sun_path);
