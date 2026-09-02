@@ -439,19 +439,50 @@ def verify_ci_workflow_revision(
     )
 
 
-def _dedupe_pr_numbers(numbers: Iterable[object]) -> list[int]:
-    """Keep one unambiguous PR number and reject cross-PR workflow runs."""
+def _single_pr_number(rows: object, source: str) -> int:
+    """Return one well-formed PR number, rejecting missing or ambiguous rows."""
 
-    unique = list(
-        dict.fromkeys(
-            number
-            for number in numbers
-            if isinstance(number, int) and not isinstance(number, bool) and number > 0
-        )
+    if not isinstance(rows, list):
+        raise GateError(f"{source} pull request association is malformed")
+    if not rows:
+        raise GateError(f"{source} is not associated with a pull request")
+    if len(rows) > 1:
+        raise GateError(f"{source} is associated with multiple pull requests")
+    return _pr_number(rows[0], source)
+
+
+def _pr_number(row: object, source: str) -> int:
+    """Read one positive PR number from a validated association row."""
+
+    if not isinstance(row, Mapping):
+        raise GateError(f"{source} pull request association is malformed")
+    number = row.get("number")
+    if not isinstance(number, int) or isinstance(number, bool) or number <= 0:
+        raise GateError(f"{source} pull request number is malformed")
+    return number
+
+
+def _validate_commit_pull(
+    row: Mapping[str, Any], repository: str, head_sha: str
+) -> int:
+    """Validate one commit-to-PR association before using its number."""
+
+    if row.get("state") != "open":
+        raise GateError("commit is not associated with an open pull request")
+    base = row.get("base")
+    if not isinstance(base, Mapping) or base.get("ref") != "main":
+        raise GateError("commit pull request base is not main")
+    base_repo = base.get("repo")
+    if not isinstance(base_repo, Mapping) or base_repo.get("full_name") != repository:
+        raise GateError("commit pull request targets a different repository")
+    head = row.get("head")
+    row_head = _as_sha(
+        head.get("sha") if isinstance(head, Mapping) else None,
+        "commit pull request head SHA",
     )
-    if len(unique) > 1:
-        raise GateError("workflow run is associated with multiple pull requests")
-    return unique
+    if row_head != head_sha:
+        raise GateError("commit pull request head does not match the workflow run")
+    return _pr_number(row, "commit")
 
 
 def _event_target(
@@ -488,20 +519,21 @@ def _event_target(
         pull_requests = run.get("pull_requests")
         if not isinstance(pull_requests, list):
             raise GateError("workflow run API response is missing pull requests")
-        numbers = _dedupe_pr_numbers(
-            item.get("number") for item in pull_requests if isinstance(item, Mapping)
-        )
-        if not numbers:
+        if pull_requests:
+            pr_number = _single_pr_number(pull_requests, "workflow run")
+        else:
             pull_payload = api.get(
-                f"repos/{api.repository}/commits/{event_head}/pulls?per_page=100"
+                f"repos/{api.repository}/commits/{event_head}/pulls?per_page=100",
+                paginate=True,
             )
-            if isinstance(pull_payload, list):
-                numbers = _dedupe_pr_numbers(
-                    item.get("number") for item in pull_payload if isinstance(item, Mapping)
+            commit_rows = _array_rows(pull_payload, "commit pull requests")
+            if len(commit_rows) != 1:
+                raise GateError(
+                    "commit must resolve to exactly one pull request"
                 )
-        if not numbers:
-            raise GateError("workflow run is not associated with a pull request")
-        pr_number = numbers[0]
+            pr_number = _validate_commit_pull(
+                commit_rows[0], api.repository, event_head
+            )
     else:
         raise GateError(f"unsupported event {event_name or 'unknown'}")
 

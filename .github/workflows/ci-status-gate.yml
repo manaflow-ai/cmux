@@ -41,24 +41,33 @@ jobs:
       - name: Checkout trusted gate
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
-          ref: ${{ github.event.pull_request.base.sha || github.event.workflow_run.pull_requests[0].base.sha || github.sha }}
+          # Workflow-run payloads for external forks can omit pull_requests.
+          # Use the protected main ref in that case, never the event's default
+          # ref or SHA. Pull-request events still pin the exact base commit.
+          ref: ${{ github.event.pull_request.base.sha || github.event.workflow_run.pull_requests[0].base.sha || 'refs/heads/main' }}
           path: .ci-trusted
           fetch-depth: 1
           persist-credentials: false
 
       - name: Verify trusted gate revision
         env:
-          TRUSTED_SHA: ${{ github.event.pull_request.base.sha || github.event.workflow_run.pull_requests[0].base.sha || github.sha }}
+          TRUSTED_REF: ${{ github.event.pull_request.base.sha || github.event.workflow_run.pull_requests[0].base.sha || 'refs/heads/main' }}
         run: |
           set -euo pipefail
-          if [[ ${#TRUSTED_SHA} -ne 40 || "$TRUSTED_SHA" =~ [^0-9a-f] ]]; then
-            echo "::error::Trusted gate SHA is not a full commit SHA" >&2
+          actual_sha="$(git -C .ci-trusted rev-parse --verify 'HEAD^{commit}')"
+          if [[ ! "$actual_sha" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "::error::Trusted gate checkout is not a full commit SHA" >&2
             exit 1
           fi
-          actual_sha="$(git -C .ci-trusted rev-parse --verify 'HEAD^{commit}')"
-          if [[ "$actual_sha" != "$TRUSTED_SHA" ]]; then
-            echo "::error::Trusted gate checkout does not match $TRUSTED_SHA (got $actual_sha)" >&2
-            exit 1
+          if [[ "$TRUSTED_REF" != "refs/heads/main" ]]; then
+            if [[ ! "$TRUSTED_REF" =~ ^[0-9a-f]{40}$ ]]; then
+              echo "::error::Trusted gate ref is not a full commit SHA or refs/heads/main" >&2
+              exit 1
+            fi
+            if [[ "$actual_sha" != "$TRUSTED_REF" ]]; then
+              echo "::error::Trusted gate checkout does not match the requested base commit" >&2
+              exit 1
+            fi
           fi
 
       - name: Evaluate exact CI check runs
