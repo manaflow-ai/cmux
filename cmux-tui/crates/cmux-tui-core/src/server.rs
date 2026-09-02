@@ -71,6 +71,20 @@ fn retry_accept_os_error(error: &std::io::Error) -> bool {
     }
 }
 
+#[derive(Debug, PartialEq, Eq)]
+enum AcceptErrorAction {
+    Retry,
+    Terminate,
+}
+
+fn accept_error_action(error: &std::io::Error, shutting_down: bool) -> AcceptErrorAction {
+    if shutting_down || !retry_accept_os_error(error) {
+        AcceptErrorAction::Terminate
+    } else {
+        AcceptErrorAction::Retry
+    }
+}
+
 use anyhow::Context;
 use base64::Engine;
 use ghostty_vt::{
@@ -5518,8 +5532,10 @@ pub fn serve_paused(mux: Arc<Mux>, path: Option<PathBuf>) -> anyhow::Result<Pend
                     stream
                 }
                 Ok(None) => break,
-                Err(_) if server_shutdown.load(Ordering::Acquire) => break,
-                Err(error) if retry_accept_os_error(&error) => {
+                Err(error)
+                    if accept_error_action(&error, server_shutdown.load(Ordering::Acquire))
+                        == AcceptErrorAction::Retry =>
+                {
                     if !accept_retry_allowed(transient_accept_failures) {
                         eprintln!(
                             "cmux-tui: listener accept retry limit exceeded after {transient_accept_failures} failures: {error}"
@@ -13802,6 +13818,24 @@ mod tests {
         assert!(accept_retry_allowed(0));
         assert!(accept_retry_allowed(ACCEPT_RETRY_LIMIT - 1));
         assert!(!accept_retry_allowed(ACCEPT_RETRY_LIMIT));
+    }
+
+    #[test]
+    fn transient_accept_error_keeps_service_running() {
+        let error = std::io::Error::from(std::io::ErrorKind::ConnectionReset);
+        assert_eq!(accept_error_action(&error, false), AcceptErrorAction::Retry);
+    }
+
+    #[test]
+    fn fatal_accept_error_terminates_service() {
+        let error = std::io::Error::from(std::io::ErrorKind::PermissionDenied);
+        assert_eq!(accept_error_action(&error, false), AcceptErrorAction::Terminate);
+    }
+
+    #[test]
+    fn shutdown_terminates_even_for_transient_accept_error() {
+        let error = std::io::Error::from(std::io::ErrorKind::Interrupted);
+        assert_eq!(accept_error_action(&error, true), AcceptErrorAction::Terminate);
     }
 
     #[cfg(unix)]
