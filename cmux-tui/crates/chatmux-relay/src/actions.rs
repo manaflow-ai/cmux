@@ -2362,6 +2362,19 @@ mod tests {
         );
     }
 
+    #[tokio::test]
+    async fn process_supervisor_drop_cancels_owned_tasks() {
+        let supervisor = ProcessSupervisor::new();
+        let (_receiver, cancellation) = supervisor
+            .spawn(|token| async move {
+                token.cancelled().await;
+                RunOutcome::Failed { message: "process cancelled".to_owned() }
+            })
+            .expect("open supervisor admits process");
+        drop(supervisor);
+        assert!(cancellation.is_cancelled());
+    }
+
     #[test]
     fn wait_error_state_distinguishes_already_reaped() {
         assert_eq!(WaitState::from_wait_error(true), WaitState::AlreadyReaped);
