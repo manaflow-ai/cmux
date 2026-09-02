@@ -1780,6 +1780,12 @@ mod tests {
             ("bash", vec!["bash", "-t", "-c", "exec codex"], "codex"),
             ("sh", vec!["sh", "-s", "-c", "exec claude"], "claude"),
             ("zsh", vec!["zsh", "-t", "-c", "exec pi"], "pi"),
+            // Bash, sh, and zsh accept `c` anywhere in a short-option
+            // cluster. Fish requires `c` to be the final short option.
+            ("bash", vec!["bash", "-cs", "exec codex"], "codex"),
+            ("bash", vec!["bash", "-ci", "exec codex"], "codex"),
+            ("sh", vec!["sh", "-cs", "exec claude"], "claude"),
+            ("zsh", vec!["zsh", "-ci", "exec pi"], "pi"),
         ] {
             let job =
                 ForegroundJob { process_group_id: 10, processes: vec![process(10, name, &argv)] };
@@ -1790,9 +1796,14 @@ mod tests {
             );
         }
 
-        for (name, argv) in
-            [("bash", vec!["bash", "-s", "--", "codex"]), ("sh", vec!["sh", "-t", "claude"])]
-        {
+        for (name, argv) in [
+            ("bash", vec!["bash", "-s", "--", "codex"]),
+            ("sh", vec!["sh", "-t", "claude"]),
+            // Unlike POSIX shells, fish treats `-ci` as an unknown
+            // option because its command flag must be last in the
+            // cluster.
+            ("fish", vec!["fish", "-ci", "codex"]),
+        ] {
             let job =
                 ForegroundJob { process_group_id: 11, processes: vec![process(11, name, &argv)] };
             assert!(
