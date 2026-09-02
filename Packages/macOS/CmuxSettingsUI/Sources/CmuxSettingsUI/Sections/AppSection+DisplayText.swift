@@ -77,6 +77,14 @@ extension AppSection {
         }
     }
 
+    func closeCloudTerminalSubtitle(_ action: CloudTerminalCloseAction) -> String {
+        switch action {
+        case .ask: return String(localized: "settings.app.closeCloudTerminal.subtitleAsk", defaultValue: "Closing a cloud terminal pane asks whether to detach it or kill its process.")
+        case .detach: return String(localized: "settings.app.closeCloudTerminal.subtitleDetach", defaultValue: "Closing the pane keeps the terminal running on its machine. Kill it from the tab or pane menu.")
+        case .kill: return String(localized: "settings.app.closeCloudTerminal.subtitleKill", defaultValue: "Closing the pane ends the terminal's process on its machine. Detach it from the tab or pane menu.")
+        }
+    }
+
     func warnCloseXSubtitle(hideCloseButton: Bool, warnEnabled: Bool) -> String {
         // Mirrors legacy warnBeforeClosingTabXButtonSubtitle: hidden override
         // takes priority, then on/off wording.

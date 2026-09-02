@@ -269,7 +269,7 @@ resources in: `LocalSurfaceProvider` (this Mac's terminals and browsers) and one
 from the headless link, its noVNC screen `display:1`, its forwarded ports).
 `catalog.project(resource, into:)` is the single open path — the sidebar tree,
 drag and drop, the CLI and agents all go through it — so an already-open
-resource is focused instead of duplicated, a closed pane never destroys a
+resource is focused instead of duplicated, a closed pane detaches rather than destroys a
 remote resource, and restored panes re-project when their provider reports the
 resource again.
 

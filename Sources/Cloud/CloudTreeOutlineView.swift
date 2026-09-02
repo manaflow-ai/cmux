@@ -56,6 +56,11 @@ struct CloudTreeOutlineView: NSViewRepresentable {
 
     @MainActor
     final class Coordinator: NSObject, NSOutlineViewDataSource, NSOutlineViewDelegate, NSMenuDelegate {
+        /// Where a row's open verb (one click, or "Open") lands its surface: a tab of the
+        /// selected workspace's current pane, so clicking through a machine's terminals
+        /// does not tile the workspace into splits. "Open in New Pane" is the split.
+        static let rowOpenPlacement: SurfacePlacement = .tab
+
         var machineActions: MachineRowActions
         var nodeActions: CloudTreeNodeActions
         let expansionStore: CloudTreeExpansionStore
@@ -415,14 +420,14 @@ struct CloudTreeOutlineView: NSViewRepresentable {
                     if case .terminal(let row) = child.kind { return row.isOpen }
                     return false
                 }), case .terminal(let openRow) = shown.kind {
-                    nodeActions.project(openRow.resource.id, .split, true)
+                    nodeActions.project(openRow.resource.id, Self.rowOpenPlacement, true)
                 } else if let group = node.dragGroup, !group.isEmpty {
                     nodeActions.openGroupAsWorkspace(machine, group, workspace.id)
                 }
             case .localWorkspace(let row):
                 nodeActions.selectLocalWorkspace(row.workspaceID)
             case .terminal(let row):
-                nodeActions.project(row.resource.id, .split, true)
+                nodeActions.project(row.resource.id, Self.rowOpenPlacement, true)
             case .display(let resource, let openIn):
                 // A workspace's Desktop row opens INSIDE the local workspace showing
                 // that remote workspace — never a jump to a VNC pane in a different
@@ -430,12 +435,12 @@ struct CloudTreeOutlineView: NSViewRepresentable {
                 if let openIn {
                     nodeActions.projectInLocalWorkspace(resource.id, openIn)
                 } else {
-                    nodeActions.project(resource.id, .split, true)
+                    nodeActions.project(resource.id, Self.rowOpenPlacement, true)
                 }
             case .port(let resource):
-                nodeActions.project(resource.id, .split, true)
+                nodeActions.project(resource.id, Self.rowOpenPlacement, true)
             case .browser(let row):
-                nodeActions.project(row.resource.id, .split, true)
+                nodeActions.project(row.resource.id, Self.rowOpenPlacement, true)
             case .placeholder(let machineID, let placeholder):
                 // "Asleep — open to wake": a fresh terminal on the machine is what wakes it.
                 if placeholder.style == .dimmed, let machine = machine(id: machineID) {
@@ -609,9 +614,9 @@ struct CloudTreeOutlineView: NSViewRepresentable {
             }
         }
 
-        /// The verbs every surface row shares: open (reusing an open pane), open as a
-        /// tab, a second pane (cloud resources only — a local terminal has one pane),
-        /// and copying the resource id agents use with `cmux vm open`.
+        /// The verbs every surface row shares: open (a tab of the current pane, reusing
+        /// an open pane), a second pane (cloud resources only — a local terminal has one
+        /// pane), and copying the resource id agents use with `cmux vm open`.
         private func resourceMenuItems(_ resource: SurfaceResource, isLocal: Bool, openInLocalWorkspace: UUID? = nil) -> [NSMenuItem] {
             var items: [NSMenuItem] = [
                 item(String(localized: "cloudTree.menu.open", defaultValue: "Open")) { [nodeActions] in
@@ -619,10 +624,9 @@ struct CloudTreeOutlineView: NSViewRepresentable {
                     if let openInLocalWorkspace {
                         nodeActions.projectInLocalWorkspace(resource.id, openInLocalWorkspace)
                     } else {
-                        nodeActions.project(resource.id, .split, true)
+                        nodeActions.project(resource.id, Self.rowOpenPlacement, true)
                     }
                 },
-                item(String(localized: "cloudTree.menu.openInNewTab", defaultValue: "Open in New Tab")) { [nodeActions] in nodeActions.project(resource.id, .tab, true) },
             ]
             if !isLocal {
                 items.append(item(String(localized: "cloudTree.menu.openInNewPane", defaultValue: "Open in New Pane")) { [nodeActions] in nodeActions.project(resource.id, .split, false) })

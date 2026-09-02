@@ -386,6 +386,7 @@ enum SettingsSearchIndex {
         setting(.app, "default-terminal", String(localized: "settings.app.defaultTerminal", defaultValue: "Default Terminal"), "ssh links command tool unix executable launch services handler registration system default"),
         setting(.app, "warn-before-quit", String(localized: "settings.app.warnBeforeQuit", defaultValue: "Warn Before Quit"), "cmd q confirmation confirmQuit"),
         setting(.app, "warn-before-closing-tab", String(localized: "settings.app.warnBeforeClosingTab", defaultValue: "Warn Before Closing Tab"), "cmd w close tab confirmation"),
+        setting(.app, "close-cloud-terminal", String(localized: "settings.app.closeCloudTerminal", defaultValue: "Closing a Cloud Terminal"), "cmd w cloud terminal detach kill process pty remote machine closeCloudTerminal"),
         setting(
             .app,
             "warn-before-closing-tab-x-button",
@@ -555,6 +556,7 @@ enum SettingsSearchIndex {
         "app.confirmQuit": settingID(for: .app, idSuffix: "warn-before-quit"),
         "app.warnBeforeQuit": settingID(for: .app, idSuffix: "warn-before-quit"),
         "app.warnBeforeClosingTab": settingID(for: .app, idSuffix: "warn-before-closing-tab"),
+        "app.closeCloudTerminal": settingID(for: .app, idSuffix: "close-cloud-terminal"),
         "app.warnBeforeClosingTabXButton": settingID(for: .app, idSuffix: "warn-before-closing-tab-x-button"),
         "app.hideTabCloseButton": settingID(for: .app, idSuffix: "hide-tab-close-button"),
         "app.renameSelectsExistingName": settingID(for: .app, idSuffix: "rename-selects-name"),

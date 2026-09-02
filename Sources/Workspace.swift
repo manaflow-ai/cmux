@@ -920,7 +920,7 @@ extension Workspace {
         return eligibleByTab || eligibleByPanel
     }
 
-    private func clearCloseHistoryEligibility(tabId: TabID, panelId: UUID? = nil) {
+    func clearCloseHistoryEligibility(tabId: TabID, panelId: UUID? = nil) {
         closeHistoryEligibleTabIds.remove(tabId)
         let resolvedPanelId = panelId ?? panelIdFromSurfaceId(tabId)
         if let resolvedPanelId {
@@ -4033,6 +4033,7 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
             self?.bonsplitTabMoveDestinations(for: tabId) ?? []
         }
         configureForkAgentConversationContextMenuAvailability()
+        configureCloudTerminalContextMenuAvailability()
         bonsplitController.tabContextForkConversationDefaultActionProvider = { _, _ in
             AgentConversationForkDefaultSettings.current().tabContextAction
         }
@@ -4324,6 +4325,14 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
 
     /// User-initiated close attempts, distinct from internal close/move flows.
     private var explicitUserCloseTabIds: Set<TabID> = []
+    /// Cloud terminal tabs whose detach/kill decision is already made (a menu verb,
+    /// a prompt answer, or a finished kill), so the re-requested close skips the gate.
+    var cloudTerminalCloseDecidedTabIds: Set<TabID> = []
+    /// Panes whose cloud terminals were decided as a group (pane close), likewise.
+    var cloudTerminalCloseDecidedPaneIds: Set<UUID> = []
+    /// Cloud terminal tabs with the detach/kill prompt queued or showing, so a
+    /// repeated close gesture cannot stack prompts.
+    var cloudTerminalClosePromptTabIds: Set<TabID> = []
     private var closeHistoryEligibleTabIds: Set<TabID> = []
     private var closeHistoryEligiblePanelIds: Set<UUID> = []
     private var suppressClosedPanelHistory = false
@@ -6132,6 +6141,12 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
            let activity = AppDelegate.shared?.remoteTmuxController
                .cachedMirrorTabActivity(workspaceId: id, panelId: panelId) {
             return activity.hasActiveCommand
+        }
+        // A cloud terminal pane runs only the local attach client; closing it loses
+        // nothing (detach) and the kill decision is the cloud close gate's, so the
+        // generic "Close tab?" never applies.
+        if cloudProjectedResource(forPanel: panelId)?.kind == .terminal {
+            return false
         }
         if let terminalPanel = panel as? TerminalPanel {
             return panelNeedsConfirmClose(
@@ -10461,6 +10476,41 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         return closed
     }
 
+    func isForceClosingTab(_ tabId: TabID) -> Bool {
+        forceCloseTabIds.contains(tabId)
+    }
+
+    /// Re-requests a cloud terminal tab close after its detach/kill decision. The
+    /// original gesture's markers are restored so the second pass keeps its meaning
+    /// (tab close button vs shortcut, explicit vs programmatic), and the cloud gate
+    /// is skipped once; every other rule (pinned, last surface, history) still runs.
+    func requestCloseCloudTerminalTab(_ tabId: TabID, reclose: CloudTerminalReclose) -> Bool {
+        cloudTerminalCloseDecidedTabIds.insert(tabId)
+        if let tabCloseButton = reclose.tabCloseButton {
+            tabStripCloseButtonByTabId[tabId] = tabCloseButton
+        } else if reclose.explicitUserClose {
+            explicitUserCloseTabIds.insert(tabId)
+        }
+        let closed = bonsplitController.closeTab(tabId)
+        if !closed {
+            cloudTerminalCloseDecidedTabIds.remove(tabId)
+            tabStripCloseButtonByTabId.removeValue(forKey: tabId)
+            explicitUserCloseTabIds.remove(tabId)
+        }
+        return closed
+    }
+
+    /// Closes a pane whose cloud terminals were decided as a group: the pane gate
+    /// is skipped once and its tabs are force-closed (they no longer need any prompt).
+    func forceClosePaneAfterCloudTerminalDecision(_ pane: PaneID, tabIds: [TabID]) {
+        cloudTerminalCloseDecidedPaneIds.insert(pane.id)
+        forceCloseTabIds.formUnion(tabIds)
+        if !bonsplitController.closePane(pane) {
+            cloudTerminalCloseDecidedPaneIds.remove(pane.id)
+            forceCloseTabIds.subtract(tabIds)
+        }
+    }
+
     /// Returns the nearest right-side sibling pane for browser/file-preview placement.
     /// The search is local to the source pane's ancestry in the split tree:
     /// use the closest horizontal ancestor where the source is in the first (left) branch.
@@ -13713,6 +13763,13 @@ extension Workspace: BonsplitDelegate {
             return false
         }
 
+        // A cloud terminal pane is a projection: closing it must say whether the
+        // terminal on the machine survives (detach) or ends (kill).
+        if interceptCloudTerminalTabClose(tab: tab, tabCloseButton: tabCloseButtonClose, explicitUserClose: explicitUserClose) {
+            clearStagedClosedBrowserRestoreSnapshot(for: tab.id)
+            return false
+        }
+
         if explicitUserClose && shouldCloseWorkspaceOnLastSurface(for: tab.id, tabStripClose: tabStripClose) {
             clearStagedClosedBrowserRestoreSnapshot(for: tab.id)
             clearCloseHistoryEligibility(tabId: tab.id)
@@ -14134,6 +14191,11 @@ extension Workspace: BonsplitDelegate {
     func splitTabBar(_ controller: BonsplitController, shouldClosePane pane: PaneID) -> Bool {
         // Check if any panel in this pane needs close confirmation
         let tabs = controller.tabs(inPane: pane)
+        if interceptCloudTerminalPaneClose(pane: pane, tabs: tabs) {
+            pendingPaneClosePanelIds.removeValue(forKey: pane.id)
+            pendingPaneCloseHistoryEntries.removeValue(forKey: pane.id)
+            return false
+        }
         for tab in tabs {
             if forceCloseTabIds.contains(tab.id) { continue }
             if let panelId = panelIdFromSurfaceId(tab.id),
@@ -14590,6 +14652,12 @@ extension Workspace: BonsplitDelegate {
         case .toggleFullWidthTab:
             guard let panelId = panelIdFromSurfaceId(tab.id) else { return }
             toggleFullWidthTabMode(panelId: panelId)
+        case .detachCloudTerminal:
+            guard let panelId = panelIdFromSurfaceId(tab.id) else { return }
+            detachCloudTerminal(panelId: panelId)
+        case .killCloudTerminal:
+            guard let panelId = panelIdFromSurfaceId(tab.id) else { return }
+            killCloudTerminal(panelId: panelId)
         case .forkConversation,
              .forkConversationRight,
              .forkConversationLeft,

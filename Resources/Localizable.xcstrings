@@ -60932,23 +60932,6 @@
         }
       }
     },
-    "cloudTree.menu.openInNewTab": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Open in New Tab"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "新しいタブで開く"
-          }
-        }
-      }
-    },
     "cloudTree.menu.refresh": {
       "extractionState": "manual",
       "localizations": {
@@ -273218,6 +273201,312 @@
           "stringUnit": {
             "state": "translated",
             "value": "作成"
+          }
+        }
+      }
+    },
+    "terminalContextMenu.detachCloudTerminal": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Detach Terminal"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ターミナルをデタッチ"
+          }
+        }
+      }
+    },
+    "terminalContextMenu.killCloudTerminal": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kill Process"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "プロセスを終了"
+          }
+        }
+      }
+    },
+    "dialog.closeCloudTerminal.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Close cloud terminal “%@”?"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "クラウドターミナル“%@”を閉じますか？"
+          }
+        }
+      }
+    },
+    "dialog.closeCloudTerminal.message": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Detach keeps it running on %@; reopen it from the Cloud sidebar. Kill Process ends it on the machine."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "「デタッチ」は %@ 上で実行を続け、Cloud サイドバーから再び開けます。「プロセスを終了」はマシン上でプロセスを終了します。"
+          }
+        }
+      }
+    },
+    "dialog.closeCloudTerminals.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Close %lld cloud terminals?"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld 個のクラウドターミナルを閉じますか？"
+          }
+        }
+      }
+    },
+    "dialog.closeCloudTerminals.message": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Detach keeps them running on %@; reopen them from the Cloud sidebar. Kill Process ends them on the machine."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "「デタッチ」は %@ 上で実行を続け、Cloud サイドバーから再び開けます。「プロセスを終了」はマシン上でプロセスを終了します。"
+          }
+        }
+      }
+    },
+    "dialog.closeCloudTerminal.unnamed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "terminal"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ターミナル"
+          }
+        }
+      }
+    },
+    "dialog.closeCloudTerminal.detach": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Detach"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "デタッチ"
+          }
+        }
+      }
+    },
+    "dialog.closeCloudTerminal.kill": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kill Process"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "プロセスを終了"
+          }
+        }
+      }
+    },
+    "dialog.closeCloudTerminal.remember": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Remember my choice (change it in Settings › App)"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "選択を記憶する（設定 › アプリで変更できます）"
+          }
+        }
+      }
+    },
+    "dialog.killCloudTerminal.failed.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Couldn’t kill “%@”"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "“%@”を終了できませんでした"
+          }
+        }
+      }
+    },
+    "settings.app.closeCloudTerminal": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Closing a Cloud Terminal"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "クラウドターミナルを閉じるとき"
+          }
+        }
+      }
+    },
+    "settings.app.closeCloudTerminal.ask": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ask"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "確認"
+          }
+        }
+      }
+    },
+    "settings.app.closeCloudTerminal.detach": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Detach"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "デタッチ"
+          }
+        }
+      }
+    },
+    "settings.app.closeCloudTerminal.kill": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kill"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "終了"
+          }
+        }
+      }
+    },
+    "settings.app.closeCloudTerminal.subtitleAsk": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Closing a cloud terminal pane asks whether to detach it or kill its process."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "クラウドターミナルのペインを閉じるとき、デタッチするかプロセスを終了するかを確認します。"
+          }
+        }
+      }
+    },
+    "settings.app.closeCloudTerminal.subtitleDetach": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Closing the pane keeps the terminal running on its machine. Kill it from the tab or pane menu."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ペインを閉じてもターミナルはマシン上で実行を続けます。終了はタブまたはペインのメニューから行えます。"
+          }
+        }
+      }
+    },
+    "settings.app.closeCloudTerminal.subtitleKill": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Closing the pane ends the terminal's process on its machine. Detach it from the tab or pane menu."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ペインを閉じるとマシン上のターミナルのプロセスを終了します。デタッチはタブまたはペインのメニューから行えます。"
           }
         }
       }

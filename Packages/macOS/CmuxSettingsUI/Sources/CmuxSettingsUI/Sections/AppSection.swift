@@ -62,6 +62,7 @@ public struct AppSection: View {
     @State private var telemetry: DefaultsValueModel<Bool>
     @State private var confirmQuit: DefaultsValueModel<ConfirmQuitMode>
     @State private var warnCloseTab: DefaultsValueModel<Bool>
+    @State private var closeCloudTerminal: DefaultsValueModel<CloudTerminalCloseAction>
     @State private var warnCloseX: DefaultsValueModel<Bool>
     @State private var hideCloseButton: DefaultsValueModel<Bool>
     @State private var renameSelects: DefaultsValueModel<Bool>
@@ -120,6 +121,7 @@ public struct AppSection: View {
         _telemetry = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.app.sendAnonymousTelemetry))
         _confirmQuit = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.app.confirmQuitMode))
         _warnCloseTab = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.app.warnBeforeClosingTab))
+        _closeCloudTerminal = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.app.closeCloudTerminal))
         _warnCloseX = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.app.warnBeforeClosingTabXButton))
         _hideCloseButton = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.app.hideTabCloseButton))
         _renameSelects = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.app.renameSelectsExistingName))
@@ -145,7 +147,7 @@ public struct AppSection: View {
             mainCard
         }
         .task {
-            startSettingsObservation([language, appearance, appIcon, placement, inheritDir, minimalMode, keepWorkspaceOpen, firstClick, focusHistoryIncludesPanesAndTabs, fileDrop, preferredEditor, openSupported, openMarkdown, globalFontMagnification, markdownFontSize, markdownFontFamily, markdownMaxWidth, canvasPaneGap, canvasSnapping, fileEditorWordWrap, iMessage, reorder, dockBadge, menuBarOnly, showInMenuBar, paneRing, paneFlash, desktopNotifications, agentPermissionPrompt, agentTurnComplete, agentIdleReminder, soundName, soundCommand, customSoundFile, soundOverrides, telemetry, confirmQuit, warnCloseTab, warnCloseX, hideCloseButton, renameSelects, paletteAllSurfaces])
+            startSettingsObservation([language, appearance, appIcon, placement, inheritDir, minimalMode, keepWorkspaceOpen, firstClick, focusHistoryIncludesPanesAndTabs, fileDrop, preferredEditor, openSupported, openMarkdown, globalFontMagnification, markdownFontSize, markdownFontFamily, markdownMaxWidth, canvasPaneGap, canvasSnapping, fileEditorWordWrap, iMessage, reorder, dockBadge, menuBarOnly, showInMenuBar, paneRing, paneFlash, desktopNotifications, agentPermissionPrompt, agentTurnComplete, agentIdleReminder, soundName, soundCommand, customSoundFile, soundOverrides, telemetry, confirmQuit, warnCloseTab, closeCloudTerminal, warnCloseX, hideCloseButton, renameSelects, paletteAllSurfaces])
             if soundAgents.isEmpty {
                 soundAgents = await hostActions.notificationSoundAgentOptions()
             }
@@ -764,6 +766,24 @@ public struct AppSection: View {
                 Toggle("", isOn: Binding(get: { warnCloseTab.current }, set: { warnCloseTab.set($0) }))
                     .labelsHidden()
                     .controlSize(.small)
+            }
+            SettingsCardDivider()
+
+            // Closing a Cloud Terminal
+            SettingsCardRow(
+                configurationReview: .json("app.closeCloudTerminal"),
+                String(localized: "settings.app.closeCloudTerminal", defaultValue: "Closing a Cloud Terminal"),
+                subtitle: closeCloudTerminalSubtitle(closeCloudTerminal.current),
+                controlWidth: Self.columnWidth
+            ) {
+                Picker("", selection: Binding(get: { closeCloudTerminal.current }, set: { closeCloudTerminal.set($0) })) {
+                    Text(String(localized: "settings.app.closeCloudTerminal.ask", defaultValue: "Ask")).tag(CloudTerminalCloseAction.ask)
+                    Text(String(localized: "settings.app.closeCloudTerminal.detach", defaultValue: "Detach")).tag(CloudTerminalCloseAction.detach)
+                    Text(String(localized: "settings.app.closeCloudTerminal.kill", defaultValue: "Kill")).tag(CloudTerminalCloseAction.kill)
+                }
+                .labelsHidden()
+                .pickerStyle(.segmented)
+                .controlSize(.small)
             }
             SettingsCardDivider()
 
