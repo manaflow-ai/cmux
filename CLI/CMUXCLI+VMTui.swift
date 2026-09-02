@@ -775,6 +775,107 @@ extension CMUXCLI {
         return workspace
     }
 
+    /// Resolves a terminal selector to one daemon tab. A terminal can be shown in several
+    /// tabs, so its id alone does not identify the placement whose name or pane the caller
+    /// means. The returned tab id is passed to `surface.project` as a placement fence.
+    enum VMRemoteTerminalPlacementResolution: Equatable {
+        case resolved(terminalID: String, tabID: String)
+        case notFound
+        case ambiguous
+        case unavailable
+    }
+
+    static func resolveVMRemoteTerminalPlacement(
+        _ rawSelector: String,
+        machine: String,
+        workspaceID: String,
+        in catalog: [String: Any]
+    ) -> VMRemoteTerminalPlacementResolution {
+        let selector = rawSelector.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !selector.isEmpty, !machine.isEmpty, !workspaceID.isEmpty else { return .notFound }
+        guard let rawResources = catalog["resources"] as? [[String: Any]] else { return .unavailable }
+
+        let resources = rawResources.filter { resource in
+            guard (resource["kind"] as? String) == "terminal" else { return false }
+            if let resourceMachine = resource["machine"] as? String {
+                return resourceMachine == machine
+            }
+            guard let id = resource["id"] as? String else { return false }
+            return id.hasPrefix("\(machine)/terminal/")
+        }
+
+        // Full resource ids take precedence over keys. This prevents a malformed or mutable
+        // key from shadowing an exact identity, matching workspace selector semantics.
+        let fullID = "\(machine)/terminal/\(selector)"
+        let exactIDMatches = resources.filter { resource in
+            guard let id = resource["id"] as? String else { return false }
+            return id == selector || id == fullID
+        }
+        let candidates = exactIDMatches.isEmpty
+            ? resources.filter { ($0["key"] as? String) == selector }
+            : exactIDMatches
+        guard candidates.count == 1, let resource = candidates.first else {
+            return candidates.isEmpty ? .notFound : .ambiguous
+        }
+
+        guard let view = vmRemoteView(in: resource, workspaceID: workspaceID) else {
+            // A cloud resource must expose `remote_views` to support an exact tab. A missing
+            // view is a current answer that this terminal is not in the requested workspace;
+            // a null or absent list means the placement contract is unavailable.
+            if resource["remote_views"] == nil || resource["remote_views"] is NSNull {
+                return .unavailable
+            }
+            return .notFound
+        }
+        guard let tabID = (view["tab_id"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !tabID.isEmpty else {
+            return .unavailable
+        }
+        if let views = resource["remote_views"] as? [[String: Any]],
+           views.filter({ ($0["tab_id"] as? String) == tabID }).count != 1 {
+            return .ambiguous
+        }
+
+        let terminalID: String?
+        if let key = (resource["key"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines), !key.isEmpty {
+            terminalID = key
+        } else if let id = resource["id"] as? String {
+            let prefix = "\(machine)/terminal/"
+            terminalID = id.hasPrefix(prefix) ? String(id.dropFirst(prefix.count)) : nil
+        } else {
+            terminalID = nil
+        }
+        guard let terminalID, !terminalID.isEmpty else { return .unavailable }
+        return .resolved(terminalID: terminalID, tabID: tabID)
+    }
+
+    private static func vmTerminalPlacementResolutionError(
+        _ resolution: VMRemoteTerminalPlacementResolution,
+        machine: String,
+        workspace: String,
+        selector: String
+    ) -> CLIError {
+        switch resolution {
+        case .resolved:
+            preconditionFailure("resolved terminal placement cannot produce an error")
+        case .notFound:
+            return CLIError(message: String(
+                format: String(localized: "cli.vm.open.terminalNotFound", defaultValue: "%1$@ has no terminal '%2$@' in workspace '%3$@'. See: cmux vm tree %1$@"),
+                machine, selector, workspace
+            ))
+        case .ambiguous:
+            return CLIError(message: String(
+                format: String(localized: "cli.vm.open.terminalAmbiguous", defaultValue: "Terminal '%2$@' on %1$@ has no unique tab in workspace '%3$@'. Use cmux vm tree %1$@ and choose an exact placement."),
+                machine, selector, workspace
+            ))
+        case .unavailable:
+            return CLIError(message: String(
+                format: String(localized: "cli.vm.open.terminalUnavailable", defaultValue: "Terminal placement for %1$@ is unavailable. Reconnect and retry."),
+                machine
+            ))
+        }
+    }
+
     private static func vmWorkspaceResolutionError(
         _ resolution: VMRemoteWorkspaceSelectorResolution,
         machine: String,
@@ -1565,10 +1666,25 @@ extension CMUXCLI {
                 machine: machine,
                 catalog: catalog
             )
+            let placement = Self.resolveVMRemoteTerminalPlacement(
+                terminal,
+                machine: machine,
+                workspaceID: remoteWorkspaceID,
+                in: catalog
+            )
+            guard case .resolved(let terminalID, let remoteTabID) = placement else {
+                throw Self.vmTerminalPlacementResolutionError(
+                    placement,
+                    machine: machine,
+                    workspace: remoteWorkspace,
+                    selector: terminal
+                )
+            }
             try openVMTerminal(
                 machine: machine,
-                terminalId: terminal,
+                terminalId: terminalID,
                 remoteWorkspaceID: remoteWorkspaceID,
+                remoteTabID: remoteTabID,
                 workspaceRaw: workspaceRaw,
                 focus: focus,
                 client: client,
@@ -1613,7 +1729,7 @@ extension CMUXCLI {
                 return
             }
             // A remote workspace with nothing running: start a shell in it and show that.
-            var params: [String: Any] = ["machine": machine, "remote_workspace_id": remoteWorkspaceId, "open": true]
+            var params: [String: Any] = ["machine": machine, "remote_workspace_id": remoteWorkspaceID, "open": true]
             if let workspaceRaw { params["workspace_id"] = workspaceRaw }
             if let focus { params["focus"] = focus }
             let response = try client.sendV2(method: "surface.new_terminal", params: params, responseTimeout: 180)
@@ -1623,7 +1739,7 @@ extension CMUXCLI {
             }
             let terminalId = (response["terminal_id"] as? String) ?? "?"
             let surfaceId = (response["surface_id"] as? String) ?? ""
-            print("OK terminal=\(terminalId) workspace=\(remoteWorkspaceId)\(surfaceId.isEmpty ? "" : " surface=\(surfaceId)")")
+            print("OK terminal=\(terminalId) workspace=\(remoteWorkspaceID)\(surfaceId.isEmpty ? "" : " surface=\(surfaceId)")")
         }
     }
 

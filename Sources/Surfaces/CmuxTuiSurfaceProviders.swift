@@ -183,11 +183,11 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
     /// A failed event feed is a transport warning, separate from the freshness of the last
     /// accepted snapshot. Agents can read the exact graph and the warning in one export.
     private var eventsFeedWarning: String?
-    private var unknownBarrierRefreshTask: Task<Void, Never>?
-    private var unknownBarrierRefreshQueued = false
-    private var unknownBarrierCount = 0
+    private var stateRecoveryRefreshTask: Task<Void, Never>?
+    private var stateRecoveryRefreshQueued = false
+    private var stateRecoveryCount = 0
     private let refreshClock: any Clock<Duration>
-    private static let unknownBarrierLimit = 5
+    private static let stateRecoveryLimit = 5
     private var changeWatcher: Task<Void, Never>?
     /// Identity of the link owned by `changeWatcher`. A provider can replace a
     /// dead link during refresh; the old stream must not clear or restart the
@@ -265,10 +265,10 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
         changeWatcherID = nil
         scheduledRefresh?.cancel()
         scheduledRefresh = nil
-        unknownBarrierRefreshTask?.cancel()
-        unknownBarrierRefreshTask = nil
-        unknownBarrierRefreshQueued = false
-        unknownBarrierCount = 0
+        stateRecoveryRefreshTask?.cancel()
+        stateRecoveryRefreshTask = nil
+        stateRecoveryRefreshQueued = false
+        stateRecoveryCount = 0
         eventsFeedWarning = nil
         endpointPrefetch?.cancel()
         endpointPrefetch = nil
@@ -1205,12 +1205,12 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
             guard let object = try? JSONSerialization.jsonObject(with: payload) as? [String: Any],
                   let incoming = CmuxTuiSnapshotParser.state(fromSnapshot: object, machine: machine),
                   incoming.cursor == cursor else {
-                await refresh(force: true)
+                scheduleStateRecoveryRefresh()
                 return
             }
             if installSnapshotIfNewer(incoming) {
                 eventsFeedWarning = nil
-                unknownBarrierCount = 0
+                clearStateRecovery()
                 await link.setEventsCursor(incoming.cursor)
                 info.linkState = .connected
                 info.linkError = nil
@@ -1238,13 +1238,13 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
                         to: current
                       ),
                       next.cursor == cursor else {
-                    await refresh(force: true)
+                    scheduleStateRecoveryRefresh()
                     return
                 }
                 cloudState = next
                 cloudStateInstallVersion &+= 1
                 eventsFeedWarning = nil
-                unknownBarrierCount = 0
+                clearStateRecovery()
                 await link.setEventsCursor(next.cursor)
                 info.linkState = .connected
                 info.linkError = nil
@@ -1265,37 +1265,48 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
         case .unknown:
             // An unknown item is a synchronization barrier, but it is not proof that the
             // transport is dead. Coalesce the expensive snapshot repair and stop after a small
-            // bounded number of barriers from one broken stream.
-            scheduleUnknownBarrierRefresh()
+            // bounded number of recovery attempts from one broken stream.
+            scheduleStateRecoveryRefresh()
         }
     }
 
-    private func scheduleUnknownBarrierRefresh() {
-        guard unknownBarrierCount < Self.unknownBarrierLimit else {
-            eventsFeedWarning = "unknown_event_stream"
-            unknownBarrierRefreshQueued = false
+    /// Coalesces malformed, unknown, and relationship-invalid events behind one bounded
+    /// snapshot refresh. A daemon can emit many bad lines during a protocol mismatch; one
+    /// pending task and a finite budget protect both the machine and the UI from a refresh
+    /// storm while preserving a visible warning after recovery is exhausted.
+    private func scheduleStateRecoveryRefresh() {
+        guard stateRecoveryCount < Self.stateRecoveryLimit else {
+            eventsFeedWarning = "state_recovery_exhausted"
+            stateRecoveryRefreshQueued = false
             return
         }
-        unknownBarrierCount += 1
-        unknownBarrierRefreshQueued = true
-        guard unknownBarrierRefreshTask == nil else { return }
+        stateRecoveryCount += 1
+        stateRecoveryRefreshQueued = true
+        guard stateRecoveryRefreshTask == nil else { return }
         let clock = refreshClock
-        unknownBarrierRefreshTask = Task { @MainActor [weak self, clock] in
+        stateRecoveryRefreshTask = Task { @MainActor [weak self, clock] in
             do {
                 try await clock.sleep(for: .milliseconds(250))
             } catch {
-                self?.unknownBarrierRefreshTask = nil
+                self?.stateRecoveryRefreshTask = nil
                 return
             }
             guard let self, !Task.isCancelled else { return }
-            self.unknownBarrierRefreshTask = nil
-            guard self.unknownBarrierRefreshQueued else { return }
-            self.unknownBarrierRefreshQueued = false
+            self.stateRecoveryRefreshTask = nil
+            guard self.stateRecoveryRefreshQueued else { return }
+            self.stateRecoveryRefreshQueued = false
             await self.refresh(force: true)
-            if self.unknownBarrierRefreshQueued {
-                self.scheduleUnknownBarrierRefresh()
+            if self.stateRecoveryRefreshQueued {
+                self.scheduleStateRecoveryRefresh()
             }
         }
+    }
+
+    private func clearStateRecovery() {
+        stateRecoveryRefreshTask?.cancel()
+        stateRecoveryRefreshTask = nil
+        stateRecoveryRefreshQueued = false
+        stateRecoveryCount = 0
     }
 
     /// Mutations also request a snapshot as a safety check. One main-actor yield

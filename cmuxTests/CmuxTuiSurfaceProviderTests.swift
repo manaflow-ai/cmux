@@ -159,6 +159,39 @@ import Testing
         #expect(CMUXCLI.vmRemoteView(in: duplicate, workspaceID: "ws_main") == nil)
     }
 
+    @Test func vmOpenTerminalResolvesAnExactTabOrFailsClosed() {
+        let resource: [String: Any] = [
+            "id": "vivid-newt/terminal/term_build",
+            "machine": "vivid-newt",
+            "kind": "terminal",
+            "key": "term_build",
+            "remote_views": [
+                [
+                    "tab_id": "tab_main",
+                    "workspace": ["id": "ws_main", "name": "main"],
+                    "focused": false,
+                ],
+                [
+                    "tab_id": "tab_api",
+                    "workspace": ["id": "ws_api", "name": "api"],
+                    "focused": true,
+                ],
+            ],
+        ]
+        let catalog: [String: Any] = ["resources": [resource]]
+        #expect(CMUXCLI.resolveVMRemoteTerminalPlacement("term_build", machine: "vivid-newt", workspaceID: "ws_api", in: catalog) == .resolved(terminalID: "term_build", tabID: "tab_api"))
+        #expect(CMUXCLI.resolveVMRemoteTerminalPlacement("term_build", machine: "vivid-newt", workspaceID: "ws_missing", in: catalog) == .notFound)
+
+        var duplicate = resource
+        duplicate["remote_views"] = [
+            ["tab_id": "tab_a", "workspace": ["id": "ws_main"], "focused": false],
+            ["tab_id": "tab_b", "workspace": ["id": "ws_main"], "focused": false],
+        ]
+        #expect(CMUXCLI.resolveVMRemoteTerminalPlacement("term_build", machine: "vivid-newt", workspaceID: "ws_main", in: ["resources": [duplicate]]) == .ambiguous)
+
+        #expect(CMUXCLI.resolveVMRemoteTerminalPlacement("term_build", machine: "vivid-newt", workspaceID: "ws_main", in: ["resources": [["kind": "terminal", "key": "term_build", "remote_views": NSNull()]]]) == .unavailable)
+    }
+
     @Test func cloudRenameWriteThroughTargetsAndNames() throws {
         // The persisted binding wins over projections.
         let bound = CloudWorkspaceRenameWriteThrough.remoteTarget(

@@ -59778,6 +59778,57 @@
         }
       }
     },
+    "cli.vm.open.terminalNotFound": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ has no terminal '%2$@' in workspace '%3$@'. See: cmux vm tree %1$@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ のワークスペース '%3$@' にターミナル '%2$@' はありません。cmux vm tree %1$@ を確認してください"
+          }
+        }
+      }
+    },
+    "cli.vm.open.terminalAmbiguous": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Terminal '%2$@' on %1$@ has no unique tab in workspace '%3$@'. Use cmux vm tree %1$@ and choose an exact placement."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ のターミナル '%2$@' はワークスペース '%3$@' に一意なタブがありません。cmux vm tree %1$@ で正確な配置を選んでください。"
+          }
+        }
+      }
+    },
+    "cli.vm.open.terminalUnavailable": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Terminal placement for %1$@ is unavailable. Reconnect and retry."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ のターミナル配置を取得できません。再接続してから再試行してください。"
+          }
+        }
+      }
+    },
     "cli.vm.route.wouldProvision": {
       "extractionState": "manual",
       "localizations": {
