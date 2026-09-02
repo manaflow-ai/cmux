@@ -25,12 +25,12 @@ Socket `vm.list`. Text: a `NAME  LABEL  STATE  PROVIDER  IMAGE` table, then the 
 ### `cmux vm new`
 
 ```bash
-cmux vm new [--desktop|--base] [--size <2g|4g|8g|16g|24g|32g|MB>] [--name <label>] [--provider <p>] [--image <id>] [--workspace <id>] [--window <id|ref|index>] [--detach|-d] [--json]
+cmux vm new [--desktop|--base] [--size <2g|4g|8g|16g|24g|32g|MB>] [--name <label>] [--provider <p>] [--image <id>] [--workspace <id>] [--window <id|ref|index>] [--focus <true|false>] [--detach|-d] [--json]
 # alias: cmux vm create
 ```
 
 Socket `vm.create` with the machine **kind** — shell-only (`base`) by default; `--desktop` fails closed with a server-side image config error because no provider ships a desktop image today (`--base`/`--no-desktop` stay accepted for old scripts). The backend picks the image for the kind; `--image <id>` is the explicit override and the only way an image id leaves the client. `--size` is a memory preset (`2g|4g|8g|16g|24g|32g`, aliases `small|medium|large|xl|xxl`, or MB ≥ 512); plans cap it. `--name` applies a display label through `vm.rename` after the create. Positional arguments are rejected (`cmux vm new myvm` errors instead of provisioning). Retries of a failed create reuse an idempotency key so a transient failure never mints two machines.
-Without `--detach`, opens a plain terminal on the machine (the same open path as `vm shell`); desktop machines would also get their screen in a split, when a desktop image exists. `--detach` prints `<id> is ready` and the follow-up commands. `--json`: the `vm.create` payload (`{id, provider, image, kind?, …}`) and no pane. Sidebar: Machines panel ＋ / "New Cloud Machine…" sheet (name, kind, size, plan meter). On a free or unknown plan the backend returns `vm_requires_pro` (exit 1); paid plans have no machine cap. Providers: `--provider e2b|freestyle|daytona` (default Freestyle, chosen server-side).
+Without `--detach`, opens a plain terminal on the machine (the same open path as `vm shell`); `--focus false` opens it without switching to its workspace (what the New Machine sheet does — the app's Create returns control immediately and the pane appears in the background); desktop machines would also get their screen in a split, when a desktop image exists. Text output carries the stable `OK machine=<id>` marker after the localized created line; `--detach` prints `<id> is ready` and the follow-up commands. `--json`: the `vm.create` payload (`{id, provider, image, kind?, …}`) and no pane. Sidebar: Machines panel ＋ / "New Cloud Machine…" sheet (name, kind, size, plan meter). On a free or unknown plan the backend returns `vm_requires_pro` (exit 1); paid plans have no machine cap. Providers: `--provider e2b|freestyle|daytona` (default Freestyle, chosen server-side).
 
 ### `cmux vm status`
 
@@ -92,7 +92,7 @@ Socket `vm.status`, printed as a short block (id, provider, status, `attach: cmu
 ### Base: `cmux vm base open` / `cmux vm base reset`
 
 ```bash
-cmux vm base [open] [--desktop|--base] [--workspace <workspace-id>] [--window <id|ref|index>] [--detach|-d] [--json]
+cmux vm base [open] [--desktop|--base] [--workspace <workspace-id>] [--window <id|ref|index>] [--focus <true|false>] [--detach|-d] [--json]
 cmux vm base reset [--desktop|--base] [--reason <text>] [--workspace <workspace-id>] [--window <id|ref|index>] [--detach|-d] [--json]
 ```
 

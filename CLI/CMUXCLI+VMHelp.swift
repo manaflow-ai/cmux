@@ -40,7 +40,7 @@ extension CMUXCLI {
     static var vmBaseUsage: String {
         """
         Usage:
-          cmux vm base open [--desktop|--base] [--workspace <workspace-id>] [--window <id|ref|index>] [--detach|-d]
+          cmux vm base open [--desktop|--base] [--workspace <workspace-id>] [--window <id|ref|index>] [--focus <true|false>] [--detach|-d]
           cmux vm base reset [--desktop|--base] [--reason <text>] [--workspace <workspace-id>] [--window <id|ref|index>] [--detach|-d]
 
         Base is your persistent cloud workspace. Opening it reuses the
