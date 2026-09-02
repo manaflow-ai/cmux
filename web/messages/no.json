@@ -1148,6 +1148,7 @@
           "maxWidth": "Default maximum reading column width, in CSS pixels, for newly opened markdown viewers."
         },
         "sidebar": {
+          "ignoredPorts": "Porter som utelates fra merkene i sidefeltet. Som standard utelates portene 49152-65535. Oppføringer kan være nøyaktige portnumre eller inklusive «start-end»-områder; bruk [] for å vise alle oppdagede porter.",
           "notificationMessageLineLimit": "Maksimalt antall linjer som vises for det nyeste varselet under tittelen til hvert arbeidsområde.",
           "rightMaxWidth": "Maksimal bredde i punkter for høyre sidepanel. Hvis den utelates, brukes den innebygde dynamiske grensen."
         },

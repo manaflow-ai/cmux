@@ -37,9 +37,13 @@ struct CLIRemoteShellStartupPerformanceTests {
 
     @Test
     func generatedSSHStartupDoesNotBlockOnRelayRPCWarmup() throws {
-        let startupCommand = try generatedSSHStartupCommandForShellPerformance()
+        let generatedStartupCommand = try generatedSSHStartupCommandForShellPerformance()
         let root = try makeFakeRemoteShellRoot()
         defer { try? FileManager.default.removeItem(at: root.url) }
+        let startupCommand = try SSHStartupCommandTestSupport.replacingSystemSSH(
+            in: generatedStartupCommand,
+            with: root.bin.appendingPathComponent("ssh").path
+        )
         let shellMarker = root.url.appendingPathComponent("remote-shell-started")
         let relayRPCGate = root.url.appendingPathComponent("relay-rpc-gate")
 

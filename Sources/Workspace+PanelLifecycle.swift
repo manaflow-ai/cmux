@@ -364,14 +364,18 @@ extension Workspace {
     }
 
     func recomputeListeningPorts() {
+        let policy = currentSidebarPortVisibilityPolicy()
         let unique = Set(surfaceListeningPorts.values.flatMap { $0 })
             .union(agentListeningPorts)
             .union(remoteDetectedPorts)
             .union(remoteForwardedPorts)
-        let next = unique.sorted()
-        if listeningPorts != next {
-            listeningPorts = next
+        let authoritativePorts = unique.sorted()
+        if listeningPorts != authoritativePorts {
+            listeningPorts = authoritativePorts
         }
+        // Keep authoritative observations independent from the sidebar
+        // projection so control APIs and automation never lose hidden badges.
+        setSidebarVisibleListeningPorts(policy.visiblePorts(from: authoritativePorts))
     }
 
     @discardableResult
@@ -434,7 +438,8 @@ extension Workspace {
         requestTransferredRemoteCleanup: Bool,
         discardAgentHibernationTracking: Bool = true,
         cleanupControllerSurfaceState: Bool = false,
-        preservesTerminalForTransfer: Bool = false
+        preservesTerminalForTransfer: Bool = false,
+        recomputePortProjection: Bool = true
     ) -> WorkspaceRemoteConfiguration? {
         appLinkHandoffCoordinator.cancel(sourcePanelID: panelId)
         if publishSurfaceClosedEvent {
@@ -530,7 +535,7 @@ extension Workspace {
         pendingPlainSSHRestorePanelIds.remove(panelId)
         observedPlainSSHPanelIds.remove(panelId)
         plainSSHDetectionMissesByPanelId.removeValue(forKey: panelId)
-        surfaceListeningPorts.removeValue(forKey: panelId)
+        removeSurfaceListeningPorts(for: panelId)
         restoredTerminalScrollbackByPanelId.removeValue(forKey: panelId)
 #if DEBUG
         debugSessionSnapshotScrollbackFallbackPanelIds.remove(panelId)
@@ -540,6 +545,9 @@ extension Workspace {
         clearRestoredAgentSnapshot(panelId: panelId)
         invalidatedRestoredAgentFingerprintsByPanelId.removeValue(forKey: panelId)
         PortScanner.shared.unregisterPanel(workspaceId: id, panelId: panelId)
+        if recomputePortProjection {
+            recomputeListeningPorts()
+        }
         removeTerminalConfigInheritanceSource(panelId: panelId)
         if clearSurfaceNotifications {
             AppDelegate.shared?.notificationStore?.clearNotifications(forTabId: id, surfaceId: panelId)

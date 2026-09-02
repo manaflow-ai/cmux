@@ -30,6 +30,9 @@ if [ "${CMUX_MOCK_XCODEBUILD_PROCESS:-0}" = "1" ]; then
   config_suffix='Library/Application Support/com.mitchellh.ghostty/config.ghostty'
   emit_config_evidence=1
   case "${CMUX_MOCK_XCODEBUILD_MODE:-timeout}" in
+    canonical-alias-success)
+      config_home="${CMUX_MOCK_CONFIG_HOME_ALIAS:?}"
+      ;;
     leak) config_home=/Users/runner ;;
     sibling-leak) config_home="${TEST_RUNNER_HOME}-other" ;;
     published-default-alias) config_home="$CMUX_APP_HOST_HOME" ;;
@@ -69,6 +72,7 @@ if [ "${CMUX_MOCK_XCODEBUILD_PROCESS:-0}" = "1" ]; then
   fi
   [ "${CMUX_MOCK_XCODEBUILD_MODE:-timeout}" != "leak" ] || exit 0
   if [ "${CMUX_MOCK_XCODEBUILD_MODE:-timeout}" = "success" ] \
+    || [ "${CMUX_MOCK_XCODEBUILD_MODE:-timeout}" = "canonical-alias-success" ] \
     || [ "${CMUX_MOCK_XCODEBUILD_MODE:-timeout}" = "xdg-config-leak" ] \
     || [ "${CMUX_MOCK_XCODEBUILD_MODE:-timeout}" = "xdg-default-leak" ] \
     || [ "${CMUX_MOCK_XCODEBUILD_MODE:-timeout}" = "unrelated-config-token" ] \
@@ -219,6 +223,70 @@ if [ "$missing_isolation_status" -ne 1 ] \
   || [ -s "$TMP_DIR/missing-isolation-xcodebuild-args.log" ]; then
   cat "$TMP_DIR/missing-isolation-output.log"
   echo "FAIL: mandatory isolation must reject missing redirects before xcodebuild"
+  exit 1
+fi
+
+APP_HOST_HOME_ALIAS="$TMP_DIR/app-host-home-alias"
+ln -s "$APP_HOST_HOME" "$APP_HOST_HOME_ALIAS"
+set +e
+PATH="$TMP_DIR:$PATH" \
+RUNNER_TEMP="$RUNNER_TEMP_DIR" \
+CMUX_CAPTURE_XCODEBUILD_ARGS="$TMP_DIR/canonical-alias-xcodebuild-args.log" \
+CMUX_CAPTURE_TEST_RUNNER_ENV="$TMP_DIR/canonical-alias-test-runner-env.log" \
+CMUX_CAPTURE_XCODEBUILD_PARENT_ENV="$TMP_DIR/canonical-alias-parent-env.log" \
+CMUX_CAPTURE_TEST_RUNNER_HOME_ENV="$TMP_DIR/canonical-alias-runner-home-env.log" \
+CMUX_MOCK_XCODEBUILD_PROCESS=1 \
+CMUX_MOCK_XCODEBUILD_MODE=canonical-alias-success \
+CMUX_MOCK_CONFIG_HOME_ALIAS="$APP_HOST_HOME_ALIAS" \
+CMUX_APP_HOST_XCODEBUILD_ATTEMPTS=1 \
+CMUX_XCODEBUILD_NONINTERACTIVE_IDLE_TIMEOUT_SECONDS=5 \
+CMUX_CI_APP_HOST_ISOLATION_REQUIRED=1 \
+CMUX_APP_HOST_HOME="$APP_HOST_HOME" \
+CMUX_APP_HOST_XDG_CONFIG_HOME="$APP_HOST_XDG_CONFIG_HOME" \
+  bash "$ROOT_DIR/scripts/ci/run-app-host-xcodebuild.sh" test \
+    >"$TMP_DIR/canonical-alias-output.log" 2>&1
+canonical_alias_status=$?
+set -e
+
+if [ "$canonical_alias_status" -ne 0 ] \
+  || [ "$(grep -cx 'test' "$TMP_DIR/canonical-alias-xcodebuild-args.log" 2>/dev/null || true)" -ne 1 ]; then
+  cat "$TMP_DIR/canonical-alias-output.log"
+  echo "FAIL: wrapper must accept a Ghostty config path resolving inside the isolated home"
+  exit 1
+fi
+
+APP_HOST_CONFIG_PATH="$APP_HOST_HOME/Library/Application Support/com.mitchellh.ghostty/config.ghostty"
+APP_HOST_CONFIG_BACKUP="$APP_HOST_CONFIG_PATH.original"
+EXTERNAL_CONFIG_PATH="$TMP_DIR/external-config.ghostty"
+printf '# external config\n' > "$EXTERNAL_CONFIG_PATH"
+mv "$APP_HOST_CONFIG_PATH" "$APP_HOST_CONFIG_BACKUP"
+ln -s "$EXTERNAL_CONFIG_PATH" "$APP_HOST_CONFIG_PATH"
+set +e
+PATH="$TMP_DIR:$PATH" \
+RUNNER_TEMP="$RUNNER_TEMP_DIR" \
+CMUX_CAPTURE_XCODEBUILD_ARGS="$TMP_DIR/config-symlink-xcodebuild-args.log" \
+CMUX_CAPTURE_TEST_RUNNER_ENV="$TMP_DIR/config-symlink-test-runner-env.log" \
+CMUX_CAPTURE_XCODEBUILD_PARENT_ENV="$TMP_DIR/config-symlink-parent-env.log" \
+CMUX_CAPTURE_TEST_RUNNER_HOME_ENV="$TMP_DIR/config-symlink-runner-home-env.log" \
+CMUX_MOCK_XCODEBUILD_PROCESS=1 \
+CMUX_MOCK_XCODEBUILD_MODE=success \
+CMUX_APP_HOST_XCODEBUILD_ATTEMPTS=1 \
+CMUX_XCODEBUILD_NONINTERACTIVE_IDLE_TIMEOUT_SECONDS=5 \
+CMUX_CI_APP_HOST_ISOLATION_REQUIRED=1 \
+CMUX_APP_HOST_HOME="$APP_HOST_HOME" \
+CMUX_APP_HOST_XDG_CONFIG_HOME="$APP_HOST_XDG_CONFIG_HOME" \
+  bash "$ROOT_DIR/scripts/ci/run-app-host-xcodebuild.sh" test \
+    >"$TMP_DIR/config-symlink-output.log" 2>&1
+config_symlink_status=$?
+set -e
+rm -f -- "$APP_HOST_CONFIG_PATH"
+mv "$APP_HOST_CONFIG_BACKUP" "$APP_HOST_CONFIG_PATH"
+
+if [ "$config_symlink_status" -ne 1 ] || ! grep -Fq \
+  "FAIL: Ghostty accessed configuration outside the isolated app-host home" \
+  "$TMP_DIR/config-symlink-output.log"; then
+  cat "$TMP_DIR/config-symlink-output.log"
+  echo "FAIL: wrapper must reject a symlinked Ghostty config file"
   exit 1
 fi
 

@@ -2275,9 +2275,12 @@ extension Workspace {
         }
 
         if snapshot.terminal?.hibernation != nil {
-            surfaceListeningPorts.removeValue(forKey: panelId)
+            removeSurfaceListeningPorts(for: panelId)
         } else {
-            surfaceListeningPorts[panelId] = Array(Set(snapshot.listeningPorts)).sorted()
+            setSurfaceListeningPorts(
+                Array(Set(snapshot.listeningPorts)).sorted(),
+                for: panelId
+            )
         }
 
         if let ttyName = snapshot.ttyName?.trimmingCharacters(in: .whitespacesAndNewlines), !ttyName.isEmpty {
@@ -2594,6 +2597,8 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
     /// may inject a prepared snapshot.
     let restorableAgentIndexProvider: @MainActor () -> RestorableAgentSessionIndex?
     private let settings: any SettingsReading
+    private var sidebarPortVisibilityPolicy: SidebarPortVisibilityPolicy
+    private var sidebarVisibleSurfacePorts: [UUID: [Int]] = [:]
 
     /// Ordinal for CMUX_PORT range assignment (monotonically increasing per app session)
     var portOrdinal: Int = 0
@@ -2934,7 +2939,7 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         get { sidebarMetadata.panelPullRequests }
         set { sidebarMetadata.panelPullRequests = newValue }
     }
-    @Published var surfaceListeningPorts: [UUID: [Int]] = [:]
+    @Published private(set) var surfaceListeningPorts: [UUID: [Int]] = [:]
     var agentListeningPorts: [Int] = []
     @Published var remoteConfiguration: WorkspaceRemoteConfiguration?
     /// The cloud machine whose cmux-tui session runs in this workspace's pane. Unlike
@@ -2966,6 +2971,9 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
     @Published var remoteHeartbeatCount: Int = 0
     @Published var remoteLastHeartbeatAt: Date?
     @Published var listeningPorts: [Int] = []
+    // Workspace remains an ObservableObject; this presentation projection uses
+    // its existing publisher until the planned Workspace observation migration.
+    @Published private(set) var sidebarVisibleListeningPorts: [Int] = []
     @Published private(set) var activeRemoteTerminalSessionCount: Int = 0
     var remoteSessionController: RemoteSessionCoordinator?
     // Retains each detached controller until cleanup finishes or ownership transfers.
@@ -3816,6 +3824,9 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         self.sidebarProcessTitleObservation = sidebarProcessTitleObservation ?? WorkspaceSidebarProcessTitleObservationModel()
         self.nativeSSHConnectionBroker = nativeSSHConnectionBroker
         self.settings = settings
+        self.sidebarPortVisibilityPolicy = SidebarPortVisibilityPolicy(
+            ignoredRules: settings.value(for: SettingCatalog().sidebar.ignoredPorts)
+        )
         self.closeTabWarningDefaults = closeTabWarningDefaults
         self.agentSessionAutoResumeDefaults = agentSessionAutoResumeDefaults
         self.agentChatResumeIntentRecorder = agentChatResumeIntentRecorder
@@ -5881,7 +5892,7 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         if !isRemoteWorkspace {
             // Hibernation destroys the local PTY. Clear its derived badge and
             // reject any queued publication captured before that teardown.
-            surfaceListeningPorts.removeValue(forKey: panelId)
+            removeSurfaceListeningPorts(for: panelId)
             recomputeListeningPorts()
             PortScanner.shared.unregisterPanel(workspaceId: id, panelId: panelId)
         }
@@ -6265,8 +6276,9 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         panelGitBranches.removeAll()
         pullRequest = nil
         panelPullRequests.removeAll()
-        surfaceListeningPorts.removeAll()
+        removeAllSurfaceListeningPorts()
         listeningPorts.removeAll()
+        setSidebarVisibleListeningPorts([])
         metadataBlocks.removeAll()
         resetBrowserPanelsForContextChange(reason: reason)
     }
@@ -6336,7 +6348,7 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         restoredUnreadPanelIndicators = restoredUnreadPanelIndicators.filter { validSurfaceIds.contains($0.key) }
         panelGitBranches = panelGitBranches.filter { validSurfaceIds.contains($0.key) }
         manualUnreadMarkedAt = manualUnreadMarkedAt.filter { validSurfaceIds.contains($0.key) }
-        surfaceListeningPorts = surfaceListeningPorts.filter { validSurfaceIds.contains($0.key) }
+        retainSurfaceListeningPorts(for: validSurfaceIds)
         surfaceTTYNames = surfaceTTYNames.filter { validSurfaceIds.contains($0.key) }
         surfaceRegistry.remoteTTYReportOriginWorkspaceIDs =
             surfaceRegistry.remoteTTYReportOriginWorkspaceIDs.filter {
@@ -6619,6 +6631,92 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         guard isRemoteWorkspace else { return }
         syncRemotePortScanTTYs()
         remoteSessionController?.kickRemotePortScan(panelId: panelId, reason: reason)
+    }
+
+    /// Returns the indexed sidebar projection policy shared by every port-badge surface.
+    func currentSidebarPortVisibilityPolicy() -> SidebarPortVisibilityPolicy {
+        sidebarPortVisibilityPolicy
+    }
+
+    /// Applies one or more raw per-surface observations with a single publication.
+    /// The sidebar cache is updated only for the touched surfaces before observers
+    /// receive the new authoritative dictionary.
+    func updateSurfaceListeningPorts(
+        setting updates: [UUID: [Int]] = [:],
+        removing removedPanelIds: Set<UUID> = []
+    ) {
+        guard !updates.isEmpty || !removedPanelIds.isEmpty else { return }
+
+        var next = surfaceListeningPorts
+        var didChange = false
+
+        for panelId in removedPanelIds {
+            if next.removeValue(forKey: panelId) != nil {
+                didChange = true
+            }
+            sidebarVisibleSurfacePorts.removeValue(forKey: panelId)
+        }
+
+        for (panelId, ports) in updates {
+            let visiblePorts = sidebarPortVisibilityPolicy.visiblePorts(from: ports)
+            if sidebarVisibleSurfacePorts[panelId] != visiblePorts {
+                sidebarVisibleSurfacePorts[panelId] = visiblePorts
+            }
+            if next[panelId] != ports {
+                next[panelId] = ports
+                didChange = true
+            }
+        }
+
+        guard didChange else { return }
+        surfaceListeningPorts = next
+    }
+
+    func setSurfaceListeningPorts(_ ports: [Int], for panelId: UUID) {
+        updateSurfaceListeningPorts(setting: [panelId: ports])
+    }
+
+    func removeSurfaceListeningPorts(for panelId: UUID) {
+        updateSurfaceListeningPorts(removing: [panelId])
+    }
+
+    func removeAllSurfaceListeningPorts() {
+        sidebarVisibleSurfacePorts.removeAll()
+        guard !surfaceListeningPorts.isEmpty else { return }
+        surfaceListeningPorts.removeAll()
+    }
+
+    func retainSurfaceListeningPorts(for validPanelIds: Set<UUID>) {
+        let removedPanelIds = Set(surfaceListeningPorts.keys).subtracting(validPanelIds)
+        updateSurfaceListeningPorts(removing: removedPanelIds)
+    }
+
+    func setSidebarVisibleListeningPorts(_ ports: [Int]) {
+        guard sidebarVisibleListeningPorts != ports else { return }
+        sidebarVisibleListeningPorts = ports
+    }
+
+    /// Rebuilds the per-surface sidebar projection outside SwiftUI render paths.
+    func refreshSidebarVisibleSurfacePorts(using policy: SidebarPortVisibilityPolicy) {
+        let next = surfaceListeningPorts.mapValues { policy.visiblePorts(from: $0) }
+        guard next != sidebarVisibleSurfacePorts else { return }
+        sidebarVisibleSurfacePorts = next
+    }
+
+    /// Returns the cached sidebar projection for one surface.
+    func sidebarVisiblePorts(for panelId: UUID) -> [Int] {
+        sidebarVisibleSurfacePorts[panelId] ?? []
+    }
+
+    /// Rebuilds and applies the policy only when ignored-port behavior changes.
+    func refreshSidebarPortVisibilityPolicy() {
+        let nextPolicy = SidebarPortVisibilityPolicy(
+            ignoredRules: settings.value(for: SettingCatalog().sidebar.ignoredPorts)
+        )
+        guard nextPolicy != sidebarPortVisibilityPolicy else { return }
+        sidebarPortVisibilityPolicy = nextPolicy
+        refreshSidebarVisibleSurfacePorts(using: nextPolicy)
+        recomputeListeningPorts()
     }
 
     /// Whether remote listening-port discovery may run, derived from the global
@@ -7983,18 +8081,16 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         target: String
     ) {
         let trackedSurfaceIds = Set(detectedByPanel.keys)
-        for panelId in remoteDetectedSurfaceIds.subtracting(trackedSurfaceIds) {
-            surfaceListeningPorts.removeValue(forKey: panelId)
-        }
+        let removedPanelIds = remoteDetectedSurfaceIds.subtracting(trackedSurfaceIds)
+            .union(detectedByPanel.compactMap { panelId, ports in
+                ports.isEmpty ? panelId : nil
+            })
+        let updatedPorts = detectedByPanel.filter { !$0.value.isEmpty }
+        updateSurfaceListeningPorts(
+            setting: updatedPorts,
+            removing: removedPanelIds
+        )
         remoteDetectedSurfaceIds = trackedSurfaceIds
-
-        for (panelId, ports) in detectedByPanel {
-            if ports.isEmpty {
-                surfaceListeningPorts.removeValue(forKey: panelId)
-            } else {
-                surfaceListeningPorts[panelId] = ports
-            }
-        }
 
         remoteDetectedPorts = detected
         remoteForwardedPorts = forwarded
@@ -8027,9 +8123,7 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
     }
 
     private func clearRemoteDetectedSurfacePorts() {
-        for panelId in remoteDetectedSurfaceIds {
-            surfaceListeningPorts.removeValue(forKey: panelId)
-        }
+        updateSurfaceListeningPorts(removing: remoteDetectedSurfaceIds)
         remoteDetectedSurfaceIds.removeAll()
     }
 
@@ -10398,7 +10492,8 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
                 clearSurfaceNotifications: true,
                 requestTransferredRemoteCleanup: true,
                 discardAgentHibernationTracking: true,
-                cleanupControllerSurfaceState: true
+                cleanupControllerSurfaceState: true,
+                recomputePortProjection: false
             )
         }
         clearAllAgentPIDs(refreshPorts: false)
@@ -13910,7 +14005,8 @@ extension Workspace: BonsplitDelegate {
             requestTransferredRemoteCleanup: false,
             discardAgentHibernationTracking: !isDetaching,
             cleanupControllerSurfaceState: !isDetaching,
-            preservesTerminalForTransfer: isDetaching
+            preservesTerminalForTransfer: isDetaching,
+            recomputePortProjection: false
         )
         if !isDetaching {
             owningTabManager?.invalidateFocusHistoryTarget(workspaceId: id, panelId: panelId)
@@ -14106,7 +14202,8 @@ extension Workspace: BonsplitDelegate {
                     requestTransferredRemoteCleanup: true,
                     discardAgentHibernationTracking: !isDetachingCloseTransaction,
                     cleanupControllerSurfaceState: !isDetachingCloseTransaction,
-                    preservesTerminalForTransfer: isDetachingCloseTransaction
+                    preservesTerminalForTransfer: isDetachingCloseTransaction,
+                    recomputePortProjection: false
                 )
                 if !isDetachingCloseTransaction {
                     owningTabManager?.invalidateFocusHistoryTarget(workspaceId: id, panelId: panelId)

@@ -1148,6 +1148,7 @@
           "maxWidth": "Default maximum reading column width, in CSS pixels, for newly opened markdown viewers."
         },
         "sidebar": {
+          "ignoredPorts": "Porte, der udelades fra sidepanelets badges. Som standard udelades portene 49152-65535. Elementer kan være præcise portnumre eller inklusive \"start-end\"-intervaller; brug [] for at vise alle detekterede porte.",
           "notificationMessageLineLimit": "Det maksimale antal linjer, der vises for den seneste notifikation under hver arbejdsområdetitel.",
           "rightMaxWidth": "Maksimal bredde i punkter for højre sidepanel. Hvis den udelades, bruges den indbyggede dynamiske grænse."
         },

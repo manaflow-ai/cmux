@@ -368,7 +368,7 @@ extension TerminalController: ControlSystemContext {
             latestConversationMessage: workspace.latestConversationMessage,
             latestSubmittedMessage: workspace.latestSubmittedMessage,
             latestSubmittedAtISO: workspace.latestSubmittedAt.map(CmuxEventBus.isoTimestamp),
-            listeningPorts: workspace.listeningPorts,
+            listeningPorts: workspace.sidebarVisibleListeningPorts,
             pullRequestURLs: workspace.sidebarPullRequestsInDisplayOrder().map { $0.url.absoluteString },
             panelDirectories: workspace.sidebarFilesystemDirectoriesInDisplayOrder(),
             gitBranches: workspace.sidebarGitBranchesInDisplayOrder().map {

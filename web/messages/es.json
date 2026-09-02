@@ -1148,6 +1148,7 @@
           "maxWidth": "Default maximum reading column width, in CSS pixels, for newly opened markdown viewers."
         },
         "sidebar": {
+          "ignoredPorts": "Puertos omitidos de las insignias de la barra lateral. De forma predeterminada, se omiten los puertos 49152-65535. Las entradas pueden ser números de puerto exactos o rangos inclusivos «start-end»; usa [] para mostrar todos los puertos detectados.",
           "notificationMessageLineLimit": "Número máximo de líneas que se muestran para la notificación más reciente debajo del título de cada espacio de trabajo.",
           "rightMaxWidth": "Ancho máximo en puntos para la barra lateral derecha. Si se omite, se aplica el límite dinámico integrado."
         },

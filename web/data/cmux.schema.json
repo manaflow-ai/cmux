@@ -1145,6 +1145,25 @@
           "default": true,
           "description": "Show listening ports."
         },
+        "ignoredPorts": {
+          "type": "array",
+          "default": ["49152-65535"],
+          "description": "Ports omitted from sidebar badges. By default, ports 49152-65535 are omitted. Entries may be exact port numbers or inclusive \"start-end\" ranges; use [] to show every detected port.",
+          "descriptionKey": "schemaDescriptions.sidebar.ignoredPorts",
+          "items": {
+            "oneOf": [
+              {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 65535
+              },
+              {
+                "type": "string",
+                "pattern": "^\\s*(6553[0-5]|655[0-2][0-9]|65[0-4][0-9]{2}|6[0-4][0-9]{3}|[1-5][0-9]{4}|[1-9][0-9]{0,3})\\s*-\\s*(6553[0-5]|655[0-2][0-9]|65[0-4][0-9]{2}|6[0-4][0-9]{3}|[1-5][0-9]{4}|[1-9][0-9]{0,3})\\s*$"
+              }
+            ]
+          }
+        },
         "showLog": {
           "type": "boolean",
           "default": true,

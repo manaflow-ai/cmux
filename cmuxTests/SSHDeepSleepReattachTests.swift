@@ -355,7 +355,8 @@ struct SSHDeepSleepReattachTests {
         let result = Self.runProcess(
             command: SSHPTYAttachStartupCommandBuilder.command(
                 sessionID: "ssh-test-session",
-                foregroundAuth: Self.foregroundAuth()
+                foregroundAuth: Self.foregroundAuth(),
+                sshExecutable: fakeSSH.path
             ),
             environment: environment
         )
@@ -464,7 +465,8 @@ struct SSHDeepSleepReattachTests {
         let result = Self.runProcess(
             command: SSHPTYAttachStartupCommandBuilder.command(
                 sessionID: "ssh-test-session",
-                foregroundAuth: Self.foregroundAuth()
+                foregroundAuth: Self.foregroundAuth(),
+                sshExecutable: fakeSSH.path
             ),
             environment: environment
         )

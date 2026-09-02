@@ -1148,6 +1148,7 @@
           "maxWidth": "Default maximum reading column width, in CSS pixels, for newly opened markdown viewers."
         },
         "sidebar": {
+          "ignoredPorts": "사이드바 배지에서 제외할 포트입니다. 기본적으로 포트 49152-65535를 제외합니다. 항목은 정확한 포트 번호 또는 양 끝을 포함하는 \"start-end\" 범위일 수 있습니다. 감지된 모든 포트를 표시하려면 []를 사용하세요.",
           "notificationMessageLineLimit": "각 작업 공간 제목 아래에 표시되는 최신 알림의 최대 줄 수입니다.",
           "rightMaxWidth": "오른쪽 사이드바의 최대 너비(포인트). 생략하면 내장 동적 상한이 적용됩니다."
         },

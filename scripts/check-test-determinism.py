@@ -3602,7 +3602,9 @@ def _is_private_ipv4(text: str) -> bool:
     return False
 
 
-def detect_fixed_port_bind(line: str) -> bool:
+def detect_fixed_port_bind(line: str, executable_line: Optional[str] = None) -> bool:
+    if executable_line is not None and not _BIND_VERB.search(executable_line):
+        return False
     if not _BIND_VERB.search(line):
         return False
     for match in _HOST_PORT_TUPLE.finditer(line):
@@ -3787,6 +3789,24 @@ def scan_text(rel_posix: str, text: str) -> list[Finding]:
     suffix = pathlib.PurePosixPath(rel_posix).suffix
     raw_lines = text.splitlines()
     code_lines = [_strip_comment(line, suffix) for line in raw_lines]
+    # Keep the line-oriented detectors on the same source-aware executable
+    # view used by the network detector.  The lexical mask is computed once
+    # for the whole source so multiline literals/comments cannot leak tokens
+    # into a later physical line.
+    executable_source = _executable_code_positions(text, suffix)
+    executable_lines: list[str] = []
+    source_offset = 0
+    for source_line in text.splitlines(keepends=True):
+        content = source_line.rstrip("\r\n")
+        content_end = source_offset + len(content)
+        mask = executable_source[source_offset:content_end]
+        executable_lines.append(
+            "".join(
+                character if mask[index] else " "
+                for index, character in enumerate(content)
+            )
+        )
+        source_offset += len(source_line)
     findings: list[Finding] = []
     if _NETWORK_VERB.search(text) and _contains_public_network_url(text):
         network_source = _strip_comments(text, suffix)
@@ -3815,13 +3835,13 @@ def scan_text(rel_posix: str, text: str) -> list[Finding]:
         line_no = i + 1
         snippet = raw_lines[i].strip()
 
-        if detect_assert_on_duration(code):
+        if detect_assert_on_duration(executable_lines[i]):
             findings.append(Finding(rel_posix, line_no, RULE_ASSERT_ON_DURATION, snippet))
         if line_no in live_network_lines:
             findings.append(Finding(rel_posix, line_no, RULE_LIVE_NETWORK_HOST, snippet))
-        if detect_fixed_port_bind(code):
+        if detect_fixed_port_bind(code, executable_lines[i]):
             findings.append(Finding(rel_posix, line_no, RULE_FIXED_PORT_BIND, snippet))
-        if detect_sleep_then_assert(code_lines, i, suffix):
+        if detect_sleep_then_assert(executable_lines, i, suffix):
             findings.append(Finding(rel_posix, line_no, RULE_SLEEP_THEN_ASSERT, snippet))
 
     return findings
@@ -4855,6 +4875,33 @@ def _self_test() -> int:
             {RULE_LIVE_NETWORK_HOST},
         ),
         (
+            "tests/quoted-dollar-substitution.sh",
+            'value="$(curl -fsSL https://api.openai.com/v1/items)"\n',
+            {RULE_LIVE_NETWORK_HOST},
+        ),
+        (
+            "tests/quoted-backtick-substitution.sh",
+            'value="`curl -fsSL https://api.openai.com/v1/items`"\n',
+            {RULE_LIVE_NETWORK_HOST},
+        ),
+        (
+            "web/tests/template-interpolation.ts",
+            'const rendered = `${fetch("https://api.openai.com/v1/items")}`;\n',
+            {RULE_LIVE_NETWORK_HOST},
+        ),
+        (
+            "tests/f-string.py",
+            'message = f"{requests.get(\'https://api.openai.com/v1/items\')}"\n',
+            {RULE_LIVE_NETWORK_HOST},
+        ),
+        (
+            "web/tests/template-comment.ts",
+            "const fixture = `\n"
+            "  // inert text`;\n"
+            'await fetch("https://api.openai.com/v1/items")\n',
+            {RULE_LIVE_NETWORK_HOST},
+        ),
+        (
             "tests/d.py",
             "sock.connect(('8.8.8.8', 53))\n",  # bare IP -> only the fixed port is high-confidence
             {RULE_FIXED_PORT_BIND},
@@ -4873,6 +4920,13 @@ def _self_test() -> int:
             "cmuxUITests/f.swift",
             "try await Task.sleep(nanoseconds: 300_000_000)\nXCTAssertTrue(view.exists)\n",
             {RULE_SLEEP_THEN_ASSERT},
+        ),
+        # Raw Swift strings still execute expressions introduced by the
+        # matching-hash interpolation marker.
+        (
+            "cmuxTests/raw-string-interpolation.swift",
+            'let rendered = ##"\\##(fetch("https://api.openai.com/v1/items"))"##\n',
+            {RULE_LIVE_NETWORK_HOST},
         ),
         (
             "tests/sh.sh",
@@ -5479,6 +5533,38 @@ def _self_test() -> int:
                 "            time.sleep(0.3)\n"
                 "        _must('ok' in body, body)\n"
             ),
+        ),
+        # Literal bodies preserve their source text for URL matching, but must
+        # not be treated as executable by the other detectors.
+        (
+            "tests/n28.py",
+            'script = """\n'
+            "time.sleep(0.1)\n"
+            "# assert ready\n"
+            '"""\n',
+        ),
+        (
+            "tests/n29.py",
+            'script = """\n'
+            "elapsed_ms < 5\n"
+            "assert elapsed_ms < 5\n"
+            '"""\n',
+        ),
+        (
+            "tests/n30.py",
+            'script = """\n'
+            "sock.bind(('127.0.0.1', 8080))\n"
+            '"""\n',
+        ),
+        # Swift block comments may nest; all content remains inert until the
+        # matching outer terminator.
+        (
+            "cmuxTests/n31.swift",
+            "/* outer comment\n"
+            " /* inner comment */\n"
+            " Task.sleep(nanoseconds: 1)\n"
+            " #expect(false)\n"
+            "*/\n",
         ),
     ]
 

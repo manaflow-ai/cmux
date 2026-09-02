@@ -479,6 +479,7 @@ extension CmuxSettingsFileStore {
         "sidebar.openPortLinksInCmuxBrowser",
         "sidebar.showSSH",
         "sidebar.showPorts",
+        "sidebar.ignoredPorts",
         "sidebar.showLog",
         "sidebar.showProgress",
         "sidebar.showAgentActivity",
