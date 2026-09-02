@@ -9,6 +9,7 @@
 #![cfg(unix)]
 
 use std::collections::{HashMap, VecDeque};
+use std::future::Future;
 use std::fs::File;
 use std::io::{Read, Write};
 use std::mem::{offset_of, size_of};
@@ -38,6 +39,18 @@ const PIPE_READ_POLL_MS: i32 = 100;
 // `lifecycle_ready` was added to the cmux-tui control protocol at version 12.
 // This is distinct from the relay's lower-level CONTROL_MIN_PROTOCOL floor.
 const DAEMON_LIFECYCLE_PROTOCOL_MIN: u64 = 12;
+
+async fn collect_dir_names<F, Fut>(mut next_entry: F) -> Result<Vec<String>, ()>
+where
+    F: FnMut() -> Fut,
+    Fut: Future<Output = Result<Option<String>, ()>>,
+{
+    let mut names = Vec::new();
+    while let Ok(Some(name)) = next_entry().await {
+        names.push(name);
+    }
+    Ok(names)
+}
 
 async fn control_ready(control: &Arc<dyn ControlHandle>, session: &str) -> bool {
     control.request("identify", serde_json::Value::Null).await.is_some_and(|response| {
@@ -957,11 +970,14 @@ impl PtyDeps for RealPtyDeps {
 
     async fn read_dir(&self, path: &Path) -> Result<Vec<String>, ()> {
         let mut entries = tokio::fs::read_dir(path).await.map_err(|_| ())?;
-        let mut names = Vec::new();
-        while let Ok(Some(entry)) = entries.next_entry().await {
-            names.push(entry.file_name().to_string_lossy().into_owned());
-        }
-        Ok(names)
+        collect_dir_names(|| async {
+            entries
+                .next_entry()
+                .await
+                .map(|entry| entry.map(|entry| entry.file_name().to_string_lossy().into_owned()))
+                .map_err(|_| ())
+        })
+        .await
     }
 
     fn socket_dir(&self) -> PathBuf {
@@ -1044,6 +1060,19 @@ mod tests {
         let error = session_socket_path(Path::new("/run/cmux-tui-501"), 501, "bad/name")
             .expect_err("path separator must be rejected");
         assert!(error.contains("invalid session"));
+    }
+
+    #[tokio::test]
+    async fn directory_entry_read_errors_fail_closed() {
+        let mut calls = 0;
+        let result = collect_dir_names(|| {
+            calls += 1;
+            async { Err::<Option<String>, ()>(()) }
+        })
+        .await;
+
+        assert_eq!(result, Err(()));
+        assert_eq!(calls, 1, "stop after the first directory read error");
     }
 
     #[test]
