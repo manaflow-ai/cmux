@@ -1713,7 +1713,7 @@ fn run_wg(args: &[String]) -> anyhow::Result<()> {
     let async_runtime = tokio_runtime()?;
     let net = start_wireguard(&async_runtime, &flags.config)?;
     let hub = async_runtime
-        .block_on(cmux_remote::wireguard_hub::serve_wireguard_hub(net, flags.socket.clone()))
+        .block_on(cmux_remote::wireguard_hub::serve_wireguard_hub(net, flags.socket))
         .map_err(|error| anyhow!(catalog().remote_client.wireguard_hub_serve_failed(&error.to_string())))?;
     let ready = serde_json::json!({
         "event": "hub-ready",
@@ -2717,18 +2717,18 @@ mod tests {
 
     #[test]
     fn probe_capabilities_include_direct_ws_user_agent() {
-        assert!(super::PROBE_CAPABILITIES.contains(&"direct-ws-user-agent"));
-        assert!(super::PROBE_CAPABILITIES.contains(&"wireguard-hub"));
+        assert!(PROBE_CAPABILITIES.contains(&"direct-ws-user-agent"));
+        assert!(PROBE_CAPABILITIES.contains(&"wireguard-hub"));
     }
 
     #[test]
     fn wireguard_config_and_hub_are_mutually_exclusive() {
         let both = ["ws://[fd00::1]:1337/v1/link", "--wireguard-config", "/tmp/a.conf", "--wireguard-hub", "/tmp/hub.sock"]
             .map(str::to_string);
-        let error = super::parse_connect_flags(&both).unwrap_err();
+        let error = parse_connect_flags(&both).err().expect("both flags must be rejected");
         assert_eq!(error.to_string(), catalog().remote_client.wireguard_hub_conflict);
         let hub_only = ["ws://[fd00::1]:1337/v1/link", "--wireguard-hub", "/tmp/hub.sock"].map(str::to_string);
-        let flags = super::parse_connect_flags(&hub_only).unwrap();
+        let flags = parse_connect_flags(&hub_only).unwrap();
         assert_eq!(flags.wireguard_hub, Some(PathBuf::from("/tmp/hub.sock")));
         assert!(flags.wireguard_config.is_none());
     }
@@ -2736,15 +2736,15 @@ mod tests {
     #[test]
     fn wg_hub_flags_require_config_and_socket() {
         let full = ["hub", "--config", "/tmp/wg.conf", "--socket", "/tmp/wg.sock"].map(str::to_string);
-        let flags = super::parse_wg_hub_flags(&full[1..]).unwrap();
+        let flags = parse_wg_hub_flags(&full[1..]).unwrap();
         assert_eq!(flags.config, PathBuf::from("/tmp/wg.conf"));
         assert_eq!(flags.socket, PathBuf::from("/tmp/wg.sock"));
         let missing = ["--config", "/tmp/wg.conf"].map(str::to_string);
-        assert!(super::parse_wg_hub_flags(&missing).is_err());
+        assert!(parse_wg_hub_flags(&missing).is_err());
         let unknown = ["--config", "/tmp/wg.conf", "--socket", "/tmp/s", "--bogus"].map(str::to_string);
-        assert!(super::parse_wg_hub_flags(&unknown).is_err());
+        assert!(parse_wg_hub_flags(&unknown).is_err());
         let not_hub = ["frobnicate"].map(str::to_string);
-        assert!(super::run_wg(&not_hub).is_err());
+        assert!(run_wg(&not_hub).is_err());
     }
 
     use super::*;
