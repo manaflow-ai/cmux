@@ -393,7 +393,6 @@
       "list": {
         "title": "All Pro users",
         "description": "Every account with Pro access and why: active Stripe subscriptions from the billing mirror, manual grants found by walking the account directory, and grants waiting for a first sign-in.",
-        "load": "Load list",
         "reload": "Reload",
         "loading": "Loading…",
         "stats": {
