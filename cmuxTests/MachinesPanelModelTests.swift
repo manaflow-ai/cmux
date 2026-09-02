@@ -985,6 +985,17 @@ struct MachinesPanelClientBootstrapTests {
         #expect(model.listProblem == .notConfigured)
         #expect(model.lastErrorDescription?.isEmpty == false)
     }
+
+    @Test("Auth teardown clears refresh ownership and loading state")
+    @MainActor
+    func authTeardownClearsRefreshState() {
+        let model = MachinesPanelViewModel()
+
+        model.resetForAuthTransition()
+
+        #expect(!model.isLoading)
+        #expect(!model.hasLoadedOnce)
+    }
 }
 
 @Suite("Cloud machines paid-plan classification")
