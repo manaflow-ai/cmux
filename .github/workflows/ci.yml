@@ -316,6 +316,9 @@ jobs:
       - name: Validate CI status contract
         run: python3 tests/test_ci_status.py
 
+      - name: Validate CI governance contract
+        run: python3 tests/test_ci_governance.py
+
       - name: Validate release attestation retry guard
         run: ./tests/test_ci_attestation_retry.sh
 
@@ -1823,17 +1826,39 @@ jobs:
     permissions:
       contents: read
     steps:
-      - name: Checkout CI contract
+      # This job is a required gate. Never execute its validator from the PR
+      # checkout, because a PR can change that file. The base commit is the
+      # trusted revision until the PR merges.
+      - name: Checkout trusted CI contract
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
+          repository: ${{ github.repository }}
+          ref: ${{ github.event.pull_request.base.sha || github.sha }}
+          path: .ci-trusted
           fetch-depth: 1
           persist-credentials: false
+
+      - name: Verify trusted CI contract revision
+        env:
+          TRUSTED_SHA: ${{ github.event.pull_request.base.sha || github.sha }}
+        run: |
+          set -euo pipefail
+          if [[ ${#TRUSTED_SHA} -ne 40 || "$TRUSTED_SHA" =~ [^0-9a-f] ]]; then
+            echo "::error::Trusted CI contract SHA is not a full commit SHA" >&2
+            exit 1
+          fi
+          actual_sha="$(git -C .ci-trusted rev-parse --verify 'HEAD^{commit}')"
+          if [[ "$actual_sha" != "$TRUSTED_SHA" ]]; then
+            echo "::error::Trusted CI contract checkout does not match $TRUSTED_SHA (got $actual_sha)" >&2
+            exit 1
+          fi
+          test -f .ci-trusted/scripts/ci/check_ci_status.py
 
       - name: Check cheap CI layer before macOS runners
         env:
           CI_NEEDS: ${{ toJSON(needs) }}
         run: |
-          python3 scripts/ci/check_ci_status.py --phase preflight
+          python3 .ci-trusted/scripts/ci/check_ci_status.py --phase preflight
 
   tests-build-and-lag:
     needs:
@@ -2376,14 +2401,36 @@ jobs:
     permissions:
       contents: read
     steps:
-      - name: Checkout CI contract
+      # This job is a required gate. Never execute its validator from the PR
+      # checkout, because a PR can change that file. The base commit is the
+      # trusted revision until the PR merges.
+      - name: Checkout trusted CI contract
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
+          repository: ${{ github.repository }}
+          ref: ${{ github.event.pull_request.base.sha || github.sha }}
+          path: .ci-trusted
           fetch-depth: 1
           persist-credentials: false
+
+      - name: Verify trusted CI contract revision
+        env:
+          TRUSTED_SHA: ${{ github.event.pull_request.base.sha || github.sha }}
+        run: |
+          set -euo pipefail
+          if [[ ${#TRUSTED_SHA} -ne 40 || "$TRUSTED_SHA" =~ [^0-9a-f] ]]; then
+            echo "::error::Trusted CI contract SHA is not a full commit SHA" >&2
+            exit 1
+          fi
+          actual_sha="$(git -C .ci-trusted rev-parse --verify 'HEAD^{commit}')"
+          if [[ "$actual_sha" != "$TRUSTED_SHA" ]]; then
+            echo "::error::Trusted CI contract checkout does not match $TRUSTED_SHA (got $actual_sha)" >&2
+            exit 1
+          fi
+          test -f .ci-trusted/scripts/ci/check_ci_status.py
 
       - name: Check routed CI jobs
         env:
           CI_NEEDS: ${{ toJSON(needs) }}
         run: |
-          python3 scripts/ci/check_ci_status.py --phase aggregate
+          python3 .ci-trusted/scripts/ci/check_ci_status.py --phase aggregate

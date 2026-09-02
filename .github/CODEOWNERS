@@ -10,8 +10,12 @@
 # That branch-protection change is the actual gate; this file makes it effective
 # and documents ownership in the meantime.
 
-# All GitHub Actions workflows (all can access secrets).
-/.github/workflows/                     @lawrencecchen
+# The CI router and its required-check validator can change which jobs run.
+# Two trusted maintainers own these files. Branch protection must require an
+# approving code-owner review before the policy is activated.
+/.github/workflows/**                    @austinywang @azooz2003-bit
+/scripts/ci/**                           @austinywang @azooz2003-bit
+/.github/CODEOWNERS                      @austinywang @azooz2003-bit
 
 # iOS TestFlight publish path + App Store Connect config.
 /ios/scripts/upload-testflight.sh       @lawrencecchen

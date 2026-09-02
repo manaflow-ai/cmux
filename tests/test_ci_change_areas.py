@@ -6,6 +6,7 @@ from __future__ import annotations
 import importlib.util
 import json
 import os
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -223,14 +224,18 @@ def workflow_job_step_script(job_name: str, step_name: str, workflow_path: Path 
 def run_linux_preflight(needs: dict[str, object]) -> subprocess.CompletedProcess[str]:
     script = workflow_job_step_script("linux-preflight", "Check cheap CI layer before macOS runners")
     env = {**os.environ, "CI_NEEDS": json.dumps(needs)}
-    return subprocess.run(
-        ["bash", "-c", script],
-        cwd=ROOT,
-        env=env,
-        text=True,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-    )
+    with tempfile.TemporaryDirectory() as temp_dir:
+        trusted_helper = Path(temp_dir) / ".ci-trusted" / "scripts" / "ci" / "check_ci_status.py"
+        trusted_helper.parent.mkdir(parents=True)
+        shutil.copy2(ROOT / "scripts" / "ci" / "check_ci_status.py", trusted_helper)
+        return subprocess.run(
+            ["bash", "-c", script],
+            cwd=temp_dir,
+            env=env,
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+        )
 
 
 def run_app_host_unit_test_step(
@@ -710,7 +715,7 @@ def test_ci_status_job_wires_route_contract() -> None:
     assert "if: ${{ always() }}" in block
     assert "uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd" in block
     assert "persist-credentials: false" in block
-    assert "python3 scripts/ci/check_ci_status.py --phase aggregate" in block
+    assert "python3 .ci-trusted/scripts/ci/check_ci_status.py --phase aggregate" in block
 
 
 def test_required_tests_status_waits_for_app_host_matrix() -> None:
@@ -769,7 +774,7 @@ def test_linux_preflight_blocks_macos_on_cheap_layer_failure() -> None:
     assert "if: ${{ always() }}" in block
     assert "uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd" in block
     assert "CI_NEEDS: ${{ toJSON(needs) }}" in block
-    assert "python3 scripts/ci/check_ci_status.py --phase preflight" in block
+    assert "python3 .ci-trusted/scripts/ci/check_ci_status.py --phase preflight" in block
 
 
 def test_linux_preflight_fails_when_routed_job_skips() -> None:
