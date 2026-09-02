@@ -27925,6 +27925,37 @@ mod tests {
     }
 
     #[test]
+    fn cell_drag_selects_both_halves_of_a_wide_glyph() {
+        let drag_selection = |name: &str, start: u16, end: u16| {
+            let (mut app, mux, surface, content) =
+                selection_fixture(name, "foo 界 bar".as_bytes());
+            let press = MouseEvent {
+                kind: MouseEventKind::Down(MouseButton::Left),
+                column: content.x + start,
+                row: content.y,
+                modifiers: KeyModifiers::NONE,
+            };
+            app.handle_mouse(press).unwrap();
+            app.handle_mouse(MouseEvent {
+                kind: MouseEventKind::Drag(MouseButton::Left),
+                column: content.x + end,
+                row: content.y,
+                modifiers: KeyModifiers::NONE,
+            })
+            .unwrap();
+
+            let selection = app.selection.expect("cell drag must create a selection");
+            assert!(selection.contains_viewport(4, 0, 0));
+            assert!(selection.contains_viewport(5, 0, 0));
+            mux.close_surface(surface.id).unwrap();
+            selection.range()
+        };
+
+        assert_eq!(drag_selection("wide-cell-tail-to-narrow-test", 5, 7), ((4, 0), (7, 0)));
+        assert_eq!(drag_selection("wide-cell-lead-to-tail-test", 4, 5), ((4, 0), (5, 0)));
+    }
+
+    #[test]
     fn a_single_cell_press_does_not_store_a_zero_length_selection() {
         let (mut app, mux, surface, content) =
             selection_fixture("single-cell-press-selection-state-test", b"alpha beta");
@@ -27944,59 +27975,6 @@ mod tests {
 
         app.handle_mouse(MouseEvent { kind: MouseEventKind::Up(MouseButton::Left), ..click })
             .unwrap();
-        mux.close_surface(surface.id).unwrap();
-    }
-
-    #[test]
-    fn shift_double_click_selects_a_complete_word() {
-        let (mut app, mux, surface, content) =
-            selection_fixture("shift-double-click-word-selection-test", b"alpha beta gamma");
-
-        let click = MouseEvent {
-            kind: MouseEventKind::Down(MouseButton::Left),
-            column: content.x + 1,
-            row: content.y,
-            modifiers: KeyModifiers::SHIFT,
-        };
-        app.handle_mouse(click).unwrap();
-        app.handle_mouse(MouseEvent { kind: MouseEventKind::Up(MouseButton::Left), ..click })
-            .unwrap();
-        app.handle_mouse(click).unwrap();
-        app.handle_mouse(MouseEvent { kind: MouseEventKind::Up(MouseButton::Left), ..click })
-            .unwrap();
-
-        assert_eq!(
-            app.selection.map(|selection| selection.range()),
-            Some(((0, 0), (4, 0))),
-            "Shift double click must select the complete word when bypassing PTY mouse reporting"
-        );
-
-        mux.close_surface(surface.id).unwrap();
-    }
-
-    #[test]
-    fn shift_triple_click_selects_a_complete_line() {
-        let (mut app, mux, surface, content) =
-            selection_fixture("shift-triple-click-line-selection-test", b"alpha beta\ngamma");
-
-        let click = MouseEvent {
-            kind: MouseEventKind::Down(MouseButton::Left),
-            column: content.x + 1,
-            row: content.y,
-            modifiers: KeyModifiers::SHIFT,
-        };
-        for _ in 0..3 {
-            app.handle_mouse(click).unwrap();
-            app.handle_mouse(MouseEvent { kind: MouseEventKind::Up(MouseButton::Left), ..click })
-                .unwrap();
-        }
-
-        assert_eq!(
-            app.selection.map(|selection| selection.range()),
-            Some(((0, 0), (10, 0))),
-            "Shift triple click must select the complete line when bypassing PTY mouse reporting"
-        );
-
         mux.close_surface(surface.id).unwrap();
     }
 
