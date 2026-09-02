@@ -274,6 +274,33 @@ def test_workflow_run_duplicate_association_is_deduplicated() -> None:
     assert workflow_run_id == 900
 
 
+def test_workflow_run_api_head_must_match_event_head() -> None:
+    class DriftAPI(FakeAPI):
+        def get(self, endpoint: str, *, paginate: bool = False) -> object:
+            if endpoint.endswith("/actions/runs/900"):
+                return {
+                    "id": 900,
+                    "path": module.CI_WORKFLOW_PATH,
+                    "event": "pull_request",
+                    "head_sha": "b" * 40,
+                    "status": "completed",
+                    "created_at": "2026-09-01T00:00:00Z",
+                    "pull_requests": [{"number": 1}],
+                }
+            return super().get(endpoint, paginate=paginate)
+
+    try:
+        module._event_target(
+            DriftAPI(complete_checks()),
+            "workflow_run",
+            {"workflow_run": {"id": 900, "head_sha": HEAD_SHA}},
+        )
+    except module.GateError as error:
+        assert "head" in str(error)
+    else:
+        raise AssertionError("workflow run head drift was accepted")
+
+
 def test_external_fork_workflow_run_fallback_keeps_empty_association() -> None:
     class ForkRunAPI(FakeAPI):
         def get(self, endpoint: str, *, paginate: bool = False) -> object:
