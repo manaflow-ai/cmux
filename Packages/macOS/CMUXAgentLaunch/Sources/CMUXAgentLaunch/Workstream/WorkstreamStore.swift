@@ -395,6 +395,13 @@ public final class WorkstreamStore {
                 // not project that input into the checklist, or a failed
                 // explicit-ID TaskCreate becomes a phantom row.
                 if event.isError == true {
+                    var accumulator = taskToolTodosByWorkstream[workstreamID]
+                        ?? WorkstreamTaskToolTodos()
+                    accumulator.invalidateCompleteness()
+                    taskToolTodosByWorkstream[workstreamID] = accumulator
+                    taskToolListCompletenessByWorkstream[workstreamID] = false
+                    touchTaskToolWorkstream(workstreamID)
+                    trimTaskToolWorkstreams()
                     return (
                         .toolResult,
                         .toolResult(toolName: toolName, resultJSON: toolInput, isError: true)
