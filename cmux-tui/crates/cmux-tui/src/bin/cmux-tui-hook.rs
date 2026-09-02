@@ -936,3 +936,25 @@ mod tests {
         assert!(matches!(result, Err(AppendAttemptError::Fatal(_))));
     }
 }
+
+#[cfg(target_os = "windows")]
+#[cfg(test)]
+mod windows_spool_tests {
+    use super::detach::{cleanup_stale_spool_files, read_spooled_request, write_spooled_request};
+
+    #[test]
+    fn spool_file_retains_complete_request_after_parent_handles_close() {
+        let root = tempfile::tempdir().unwrap();
+        let request_id = "request_spool_test";
+        let encoded = b"{\"protocol\":\"cmux.protocol/2\"}\n";
+
+        let path = write_spooled_request(root.path(), request_id, encoded).unwrap();
+        let loaded = read_spooled_request(&path).unwrap();
+        drop(path);
+
+        assert_eq!(loaded.0, request_id);
+        assert_eq!(loaded.1, encoded);
+        cleanup_stale_spool_files(root.path());
+        assert!(root.path().join(format!("{request_id}.req")).exists());
+    }
+}
