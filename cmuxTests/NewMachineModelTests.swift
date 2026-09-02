@@ -39,25 +39,35 @@ final class NewMachineModelTests: XCTestCase {
     // MARK: Kind
 
     func testKindInferredFromImageWhenBackendOmitsIt() {
-        XCTAssertEqual(VMMachineKind.inferred(fromImage: "sandbox/cmux-devbox:latest"), .desktop)
-        XCTAssertEqual(VMMachineKind.inferred(fromImage: "blaxel/xfce-vnc:latest"), .desktop)
-        XCTAssertEqual(VMMachineKind.inferred(fromImage: "blaxel/base-image:latest"), .base)
+        XCTAssertEqual(VMMachineKind.inferred(fromImage: "cmux-xfce-vnc:latest"), .desktop)
+        XCTAssertEqual(VMMachineKind.inferred(fromImage: "cmuxd-ws:tooling-20260509f"), .base)
         XCTAssertEqual(VMMachineKind.inferred(fromImage: ""), .base)
     }
 
+    /// Regression: `devbox` used to imply a desktop because one provider's
+    /// devbox image bundled xfce + noVNC. The shared devbox image every
+    /// remaining provider boots is shell-only, so inferring a desktop from the
+    /// name published a Desktop surface for a machine with no screen.
+    func testSharedDevboxImageIsNotInferredAsDesktop() {
+        XCTAssertEqual(VMMachineKind.inferred(fromImage: "cmux-devbox:devbox-20260828b"), .base)
+        XCTAssertEqual(VMMachineKind.inferred(fromImage: "cmux-devbox-20260828b"), .base)
+    }
+
     func testResolvedKindPrefersBackendField() {
-        XCTAssertEqual(VMMachineKind.resolved(kind: "base", image: "sandbox/cmux-devbox:latest"), .base)
-        XCTAssertEqual(VMMachineKind.resolved(kind: "DESKTOP", image: "blaxel/base-image:latest"), .desktop)
-        XCTAssertEqual(VMMachineKind.resolved(kind: "bogus", image: "blaxel/xfce-vnc:latest"), .desktop)
+        XCTAssertEqual(VMMachineKind.resolved(kind: "base", image: "cmux-devbox:devbox-20260828b"), .base)
+        XCTAssertEqual(VMMachineKind.resolved(kind: "DESKTOP", image: "cmuxd-ws:tooling-20260509f"), .desktop)
+        XCTAssertEqual(VMMachineKind.resolved(kind: "bogus", image: "cmux-xfce-vnc:latest"), .desktop)
         XCTAssertEqual(VMMachineKind.resolved(kind: nil, image: nil), .base)
     }
 
     func testSummaryResolvedKindPrefersServerKindOverImageName() {
         var summary = VMSummary(
             id: "noble-wren",
-            provider: "blaxel",
+            provider: "freestyle",
             status: "running",
-            image: "sandbox/cmux-devbox:latest",
+            // An image whose name says desktop, so the server's `base` has
+            // something to override.
+            image: "cmux-xfce-vnc:latest",
             createdAt: 0,
             base: nil
         )
@@ -138,13 +148,39 @@ final class NewMachineModelTests: XCTestCase {
 
     func testSelectedImageFollowsTheKind() {
         let kinds = [
-            VMImageKindOption(kind: .desktop, image: "sandbox/cmux-devbox:latest"),
-            VMImageKindOption(kind: .base, image: "blaxel/base-image:latest"),
+            VMImageKindOption(kind: .desktop, image: "cmux-xfce-vnc:latest"),
+            VMImageKindOption(kind: .base, image: "cmuxd-ws:tooling-20260509f"),
         ]
         let (model, _) = makeModel(imageKinds: kinds)
-        XCTAssertEqual(model.selectedImage, "sandbox/cmux-devbox:latest")
+        XCTAssertEqual(model.selectedImage, "cmux-xfce-vnc:latest")
         model.kind = .base
-        XCTAssertEqual(model.selectedImage, "blaxel/base-image:latest")
+        XCTAssertEqual(model.selectedImage, "cmuxd-ws:tooling-20260509f")
+    }
+
+    /// The sheet must not open preselected on a kind the deployment cannot
+    /// provision: no provider ships a desktop image today, so a desktop
+    /// default would make the primary button fail with an image config error.
+    func testKindDefaultsToAServableKind() {
+        let baseOnly = [VMImageKindOption(kind: .base, image: "cmuxd-ws:tooling-20260509f")]
+        let (baseModel, _) = makeModel(imageKinds: baseOnly)
+        XCTAssertEqual(baseModel.kind, .base)
+        XCTAssertEqual(baseModel.selectableKinds, [.base])
+
+        let both = [
+            VMImageKindOption(kind: .desktop, image: "cmux-xfce-vnc:latest"),
+            VMImageKindOption(kind: .base, image: "cmuxd-ws:tooling-20260509f"),
+        ]
+        let (bothModel, _) = makeModel(imageKinds: both)
+        XCTAssertEqual(bothModel.kind, .desktop)
+        XCTAssertEqual(bothModel.selectableKinds, [.desktop, .base])
+    }
+
+    /// An older control plane sends no `limits.imageKinds`. Offering nothing
+    /// would be worse than offering both, so the sheet keeps the full picker.
+    func testUnknownImageKindsStillOfferEveryKind() {
+        let (model, _) = makeModel(imageKinds: [])
+        XCTAssertEqual(model.selectableKinds, VMMachineKind.allCases)
+        XCTAssertEqual(model.kind, .base)
     }
 
     func testMemoryLabelsReadInGigabytes() {
