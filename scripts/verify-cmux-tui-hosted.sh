@@ -346,7 +346,14 @@ install -m 0755 "$downloaded_binary" "$artifact_binary"
 # not lose artifacts unexpectedly. Only directories owned by this user and
 # named for a complete commit SHA are eligible. The current commit and any
 # binary still open by a process are always retained.
-retention_count="${CMUX_TUI_HOSTED_RETENTION_COUNT:-5}"
+retention_count="${CMUX_TUI_HOSTED_RETENTION_COUNT:-}"
+if [[ -z "$retention_count" ]]; then
+  echo "Hosted artifact retention disabled (set CMUX_TUI_HOSTED_RETENTION_COUNT to enable)" >&2
+  echo "Hosted verification passed: $run_url"
+  echo "Artifact: $artifact_binary"
+  echo "Dogfood: $artifact_binary --session verify-${commit:0:8}"
+  exit 0
+fi
 if [[ ! "$retention_count" =~ ^[1-9][0-9]*$ ]]; then
   echo "error: CMUX_TUI_HOSTED_RETENTION_COUNT must be a positive integer" >&2
   exit 2
