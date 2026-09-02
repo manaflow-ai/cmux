@@ -168,8 +168,8 @@ struct TitlebarNewWorkspaceCloudSplitButton: View {
                     CmuxSystemSymbolImage(systemName: "plus", pointSize: config.iconSize, weight: .medium)
                         .padding(plusIconPadding)
                 }
-                    .frame(width: primaryWidth, height: config.buttonSize)
-                    .contentShape(Rectangle())
+                .frame(width: primaryWidth, height: config.buttonSize)
+                .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
             .frame(width: primaryWidth, height: config.buttonSize)
