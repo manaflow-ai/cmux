@@ -10,7 +10,7 @@ import {
   CMUX_TUI_SESSION,
   cmuxTuiDaemonCommand,
 } from "../services/vms/drivers/cmuxTuiDaemon";
-import { DEVBOX_TEMPLATE_FILES, devboxAgentPins, devboxCuaDriverVersion } from "../scripts/devbox-image-common";
+import { DEVBOX_TEMPLATE_FILES, devboxAgentPins, devboxCuaDriverVersion, devboxParkDaemonCommand } from "../scripts/devbox-image-common";
 
 // Contract tests for the shared cmux Cloud devbox image template
 // (services/vms/images/devbox), consumed by build-devbox-freestyle.ts,
@@ -229,9 +229,31 @@ describe("devbox image template", () => {
       cmuxTuiDaemonCommand('"${CMUX_TUI_REMOTE_WS_BIND:-0.0.0.0:1337}"').replace("cd /root && ", ""),
     );
     expect(cmuxTuiDaemonCommand()).toContain("--remote-ws 0.0.0.0:1337");
-    expect(devboxBoot).toContain("if [ -x /root/.cmux/bin/cmux-tui ]");
+    expect(devboxBoot).toContain("BIN=/root/.cmux/bin/cmux-tui");
+    expect(devboxBoot).toContain('if [ -x "$BIN" ]');
     expect(dockerfile).toContain("COPY cmux-devbox-boot /usr/local/bin/cmux-devbox-boot");
-    // No binary is baked and the old cmuxd stack is gone everywhere.
+    // A Freestyle snapshot is a memory image: the supervisor keys the daemon
+    // identity on the platform instance id, wiping cmux-remote's default root
+    // state dir on a clone, and holds the daemon on the builder itself.
+    expect(devboxBoot).toContain("REMOTE_STATE_DIR=/root/.local/state/cmux/remote");
+    expect(devboxBoot).toContain("/latest/meta-data/instance-id");
+    expect(devboxBoot).toContain("BOUND_INSTANCE_FILE=/etc/cmux/daemon-instance-id");
+    expect(devboxBoot).toContain("BAKE_INSTANCE_FILE=/etc/cmux/bake-instance-id");
+    expect(devboxBoot).toContain('rm -rf "$REMOTE_STATE_DIR"');
+    // The supervisor owns the daemon as a background child so it can stop a
+    // daemon that belongs to another machine (a clone of a live machine).
+    expect(devboxBoot).toContain("daemon_pid=$!");
+    expect(devboxBoot).toContain("stop_daemon");
+    // The Freestyle bake installs the pin with the driver's own install
+    // command, proves the daemon, and parks it before the snapshot; the size
+    // derive parks before each of its snapshots too.
+    const freestyleBake = readScript("build-devbox-freestyle.ts");
+    expect(freestyleBake).toContain('await step("cmux-tui-install", cmuxTuiInstallCommand(cmuxTuiSource));');
+    expect(freestyleBake).toContain('await step("cmux-tui-daemon-park", devboxParkDaemonCommand());');
+    expect(readScript("derive-devbox-sizes.ts")).toContain("await sh(vm, devboxParkDaemonCommand(), 120_000);");
+    expect(devboxParkDaemonCommand()).toContain("> /etc/cmux/bake-instance-id");
+    expect(devboxParkDaemonCommand()).toContain("daemon-parked-for-clones");
+    // The container image bakes no binary, and the old cmuxd stack is gone everywhere.
     // The image itself carries nothing cmuxd-era, and no bake or verify
     // script installs or launches the old daemon (prose references to the
     // legacy driver are fine).

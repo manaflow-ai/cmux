@@ -274,6 +274,60 @@ struct CloudManualMirrorTransportTests {
         )
     }
 
+    /// The compatibility tree is only reachable over the raw command bridge.
+    /// Sent as a leading `list-workspaces` word, the resource CLI reads it as a
+    /// resource scope and answers `unknown resource scope "list-workspaces"`,
+    /// which left the tree — and so every cloud terminal's surface — unresolvable.
+    @Test
+    func legacyWorkspaceTreeIsRequestedOverTheRawCommandBridge() throws {
+        let arguments = CloudTuiCommandLine.legacyListWorkspacesArguments(socketPath: "/tmp/cmux.sock")
+        #expect(arguments.prefix(5).elementsEqual(["--socket", "/tmp/cmux.sock", "--json", "raw", "command"]))
+        let requestIndex = try #require(arguments.firstIndex(of: "--request-json")) + 1
+        let request = try #require(
+            JSONSerialization.jsonObject(with: Data(arguments[requestIndex].utf8)) as? [String: Any]
+        )
+        #expect(request["cmd"] as? String == "list-workspaces")
+        // The bare subcommand spelling is what the CLI rejects.
+        #expect(!arguments.contains { $0 == "list-workspaces" })
+    }
+
+    /// `resolve-terminal` takes a terminal *host* id (UUIDv4 hex); the app only
+    /// ever holds a public `term_…` resource id, whose hex is not a UUIDv4 and
+    /// which no command maps to a host id. The daemon answers
+    /// `invalid_terminal_id`, and treating that as a hard failure made every
+    /// cloud terminal fail with "cmux-tui did not report the new terminal"
+    /// instead of falling back to the tree that can resolve it.
+    @Test
+    func idSpaceRejectionFallsBackToTheCompatibilityTree() {
+        let daemonAnswer = """
+        {"code":"raw.command_failed","details":{"error":"invalid_terminal_id","id":1,"ok":false},        "message":"invalid_terminal_id","retryable":false}
+        """
+        #expect(
+            CmuxTuiSurfaceProvider.isExplicitUnsupportedResolverError(
+                CloudMachineLink.LinkError.exited(status: 1, output: daemonAnswer)
+            )
+        )
+        // A daemon predating the resolver keeps its own fallback signal.
+        #expect(
+            CmuxTuiSurfaceProvider.isExplicitUnsupportedResolverError(
+                CloudMachineLink.LinkError.exited(
+                    status: 1,
+                    output: #"{"code":"operation.unsupported"}"#
+                )
+            )
+        )
+        // An unrelated failure must still fail closed rather than silently
+        // resolving a terminal against a stale tree.
+        #expect(
+            !CmuxTuiSurfaceProvider.isExplicitUnsupportedResolverError(
+                CloudMachineLink.LinkError.exited(
+                    status: 1,
+                    output: #"{"code":"internal","message":"boom"}"#
+                )
+            )
+        )
+    }
+
     @Test
     func legacyTreeResolverRejectsNonIntegralSurfaceValuesAndScansManyIDsOnce() throws {
         let tree: [String: Any] = [

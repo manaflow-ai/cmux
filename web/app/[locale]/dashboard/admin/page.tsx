@@ -4,6 +4,7 @@ import { notFound, redirect } from "next/navigation";
 import { getStackServerApp, isStackConfigured } from "@/app/lib/stack";
 import { localizedVaultPath, vaultSignInHref } from "@/app/lib/vault-auth";
 import { ADMIN_EMAIL_DOMAINS, isAdminUser } from "@/services/admin/access";
+import { loadProListSnapshot, type ProListSnapshot } from "@/services/admin/proList";
 
 import { AdminProPanel } from "./admin-pro-panel";
 
@@ -29,6 +30,17 @@ export default async function DashboardAdminPage({
   }
 
   const t = await getTranslations({ locale, namespace: "dashboard.admin" });
+  // The Stripe-backed roster renders with the page; the client streams the
+  // directory scans on mount. A database outage leaves the roster in an
+  // error state with a retry, but never blocks the rest of the page.
+  let initialSnapshot: ProListSnapshot | null = null;
+  try {
+    initialSnapshot = await loadProListSnapshot();
+  } catch (error) {
+    console.error("admin.pro_list.initial_load_failed", {
+      failure: error instanceof Error ? error.name : "unknown",
+    });
+  }
 
   return (
     <div className="mx-auto w-full max-w-5xl px-3 py-4">
@@ -43,7 +55,7 @@ export default async function DashboardAdminPage({
           })}
         </p>
       </div>
-      <AdminProPanel />
+      <AdminProPanel initialSnapshot={initialSnapshot} />
     </div>
   );
 }

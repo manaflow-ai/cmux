@@ -14,6 +14,13 @@
  *   --image     promote an already-baked image (still verified) instead of baking.
  *   --bake-result <json>  adopt a bake script's --out file (its manifest entry
  *               and image id) instead of baking; still verified.
+ *   --sizes     ladder sizes to derive from the verified bake (default
+ *               sm,md,lg,xl,2xl; "none" records a single size-less entry):
+ *               derive-devbox-sizes.ts boots the bake, resizes, snapshots and
+ *               re-boots each one; the manifest gets one entry per kind and
+ *               size, each the default for that kind+size. The bake must be
+ *               on the smallest requested size (the default builder is
+ *               freestyle/ubuntu-sm).
  *   --kinds     machine kinds the image serves; each gets a manifest entry
  *               flagged defaultForKind (default: desktop,base for a desktop
  *               bake, base for --no-desktop). A desktop image is a superset
@@ -38,6 +45,7 @@ import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { VM_IMAGE_SIZE_NAMES, isVmImageSizeName, type VmImageSize } from "../services/vms/images/sizes";
 import {
   argValue,
   bakeMetadata,
@@ -76,6 +84,11 @@ if (kinds.includes("desktop") && !withDesktop) {
 }
 const pointerSlug = argValue("--pointer-slug") ?? "cmux-devbox";
 const skipVerify = hasFlag("--skip-verify");
+const sizesArg = argValue("--sizes") ?? VM_IMAGE_SIZE_NAMES.join(",");
+const sizeNames = sizesArg === "none" ? [] : sizesArg.split(",").map((name) => name.trim()).filter(Boolean);
+for (const name of sizeNames) {
+  if (!isVmImageSizeName(name)) throw new Error(`--sizes: unknown size ${name}; expected ${VM_IMAGE_SIZE_NAMES.join(", ")} or none`);
+}
 const dryRun = hasFlag("--dry-run");
 const existingImage = argValue("--image");
 const tag = defaultBakeTag();
@@ -157,11 +170,34 @@ if (skipVerify) {
     (withDesktop ? " (toolchain, agent pins, daemon contract, desktop on 5901/6901)." : " (toolchain, agent pins, daemon contract).");
 }
 
+// 2b. Sizes: derive the ladder from the verified bake, each booted and checked.
+let sizes: Array<{ imageId: string; size: VmImageSize }> | undefined;
+if (!skipVerify && sizeNames.length > 0) {
+  const sizesOut = path.join(workDir, "sizes.json");
+  const deriveStatus = run("derive sizes", [
+    "scripts/derive-devbox-sizes.ts",
+    imageId,
+    argValue("--pointer-slug") ?? "cmux-devbox",
+    "--sizes",
+    sizeNames.join(","),
+    "--out",
+    sizesOut,
+    ...(hasFlag("--replace-slug") ? ["--replace-slug"] : []),
+  ]);
+  if (deriveStatus !== 0) {
+    console.error(`derive sizes failed (exit ${deriveStatus}); nothing promoted`);
+    process.exit(deriveStatus);
+  }
+  const derived = JSON.parse(readFileSync(sizesOut, "utf8")) as { sizes: Record<string, { imageId: string; size: VmImageSize }> };
+  sizes = Object.values(derived.sizes).map((row) => ({ imageId: row.imageId, size: row.size }));
+  validationNotes += ` Sizes derived and re-booted by derive-devbox-sizes.ts: ${sizes.map((row) => `${row.size.name}=${row.imageId}`).join(", ")}.`;
+}
+
 // 3. Manifest: append and flip defaults (pure edit), then re-check invariants.
 const manifest = readImageManifest();
 const next = skipVerify
   ? { ...manifest, images: [...manifest.images, { ...entry, kind: kinds[0], notes: [entry.notes, validationNotes].filter(Boolean).join(" ") }] }
-  : promoteImageManifestEntry(manifest, entry, { kinds, validationNotes });
+  : promoteImageManifestEntry(manifest, entry, { kinds, sizes, validationNotes });
 const problems = imageManifestProblems(next);
 if (problems.length > 0) {
   throw new Error(`refusing to write an inconsistent manifest:\n  ${problems.join("\n  ")}`);
@@ -175,9 +211,10 @@ if (dryRun) {
   console.log(`wrote ${imageManifestPath} (+${added.length} entries)`);
 }
 
-// 4. Pointer slug: a readable "current" handle on the platform.
+// 4. Pointer slug: a readable "current" handle on the platform. With sizes,
+// derive-devbox-sizes.ts already named each snapshot `<pointer>[-<size>]`.
 let pointer: string | null = null;
-if (!dryRun && !skipVerify && pointerSlug !== "none") {
+if (!dryRun && !skipVerify && pointerSlug !== "none" && !sizes) {
   const { Freestyle } = await import("freestyle");
   const fs = new Freestyle({ baseUrl: process.env.FREESTYLE_API_URL?.trim() || undefined });
   try {
@@ -200,6 +237,7 @@ const result = {
   imageId,
   kinds,
   versions: added.map((row) => row.version),
+  sizes: sizes?.map((row) => row.size.name) ?? [],
   validationStatus: entry.validationStatus,
   pointerSlug: pointer,
   manifest: dryRun ? null : imageManifestPath,

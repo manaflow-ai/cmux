@@ -21,6 +21,7 @@ import {
 } from "../billing/pro";
 import {
   grantRecordFromServerMetadata,
+  isMissingGrantsTableError,
   type AdminPendingGrantRow,
   type AdminPlanGrantRecord,
   type AdminStackTeam,
@@ -323,4 +324,47 @@ function defaultProListStackApp(): ProListStackApp {
     listUsers: (options) => app.listUsers(options),
     listTeams: (options) => app.listTeams(options),
   };
+}
+
+export class ProListDatabaseUnavailableError extends Error {
+  constructor() {
+    super("Pro roster database is not configured");
+    this.name = "ProListDatabaseUnavailableError";
+  }
+}
+
+/**
+ * The Stripe-backed part of the roster in one call, used by the page render
+ * and by the API for reloads. A missing admin_plan_grants table (migration
+ * not run yet) yields an empty pending list; a missing database throws
+ * ProListDatabaseUnavailableError.
+ */
+export async function loadProListSnapshot(
+  options: { readonly db?: ProListDb; readonly app?: ProListStackApp } = {},
+): Promise<ProListSnapshot> {
+  try {
+    const [subscribers, teamSubscriptions, pendingGrants] = await Promise.all([
+      listStripeProSubscribers(options),
+      listStripeTeamSubscriptions(options),
+      listAllPendingEmailGrants(options).catch((error: unknown) => {
+        if (isMissingGrantsTableError(error)) return { rows: [], truncated: false };
+        throw error;
+      }),
+    ]);
+    return {
+      subscribers: subscribers.rows,
+      teamSubscriptions: teamSubscriptions.rows,
+      pendingGrants: pendingGrants.rows,
+      truncated: {
+        subscribers: subscribers.truncated,
+        teamSubscriptions: teamSubscriptions.truncated,
+        pendingGrants: pendingGrants.truncated,
+      },
+    };
+  } catch (error) {
+    if (error instanceof Error && /DATABASE_URL is required/.test(error.message)) {
+      throw new ProListDatabaseUnavailableError();
+    }
+    throw error;
+  }
 }

@@ -146756,6 +146756,23 @@
         }
       }
     },
+    "notifications.copy": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Copy"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "コピー"
+          }
+        }
+      }
+    },
     "notifications.dismiss": {
       "extractionState": "manual",
       "localizations": {

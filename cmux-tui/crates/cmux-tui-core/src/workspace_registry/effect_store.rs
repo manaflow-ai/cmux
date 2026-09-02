@@ -703,7 +703,7 @@ impl WorkspaceRegistry {
         // does); otherwise later legacy CAS mutations conflict forever.
         let workspace_revision = workspace_ledger
             .map(|ledger| {
-                super::commit_workspace_registry_in_transaction(
+                commit_workspace_registry_in_transaction(
                     &tx,
                     mutation,
                     &fingerprint,

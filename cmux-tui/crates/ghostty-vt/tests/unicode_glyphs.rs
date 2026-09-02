@@ -278,7 +278,7 @@ fn unicode_corpus_preserves_text_and_cell_geometry() {
             .unwrap_or_else(|| panic!("case {} produced no lead cell", case.id));
         match case.width {
             WidthExpectation::Narrow => {
-                assert_eq!(lead.width, CellWidth::Narrow, "case {}", case.id)
+                assert_eq!(lead.width, CellWidth::Narrow, "case {}", case.id);
             }
             WidthExpectation::Wide => assert_eq!(lead.width, CellWidth::Wide, "case {}", case.id),
             WidthExpectation::Policy => {

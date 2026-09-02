@@ -334,10 +334,10 @@ mod tests {
             "wss://machine-1337.vm.cmux.sh/v1/link?bl_preview_token=t&cmux_lane=control",
         )
         .unwrap();
-        let request = super::client_request(&endpoint).unwrap();
+        let request = client_request(&endpoint).unwrap();
         assert_eq!(
             request.headers().get("user-agent").and_then(|value| value.to_str().ok()),
-            Some(super::CLIENT_USER_AGENT)
+            Some(CLIENT_USER_AGENT)
         );
         assert!(request.headers().get("origin").is_none());
         assert_eq!(request.uri().query(), Some("bl_preview_token=t&cmux_lane=control"));

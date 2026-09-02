@@ -1787,6 +1787,7 @@ fn porcelain_v1_xy(xy: &str) -> String {
     xy.chars().map(|column| if column == '.' { ' ' } else { column }).collect()
 }
 
+#[cfg(test)]
 async fn run_git_status(scope: &Scope) -> Result<wire::WorkspaceResultBody, Refusal> {
     let cancellation = CancellationToken::new();
     run_git_status_with_cancel_until(
@@ -1797,6 +1798,7 @@ async fn run_git_status(scope: &Scope) -> Result<wire::WorkspaceResultBody, Refu
     .await
 }
 
+#[cfg(test)]
 async fn run_git_status_with_cancel(
     scope: &Scope,
     cancellation: &CancellationToken,
@@ -1991,6 +1993,7 @@ async fn run_git_status_with_cancel_until(
     }))
 }
 
+#[cfg(test)]
 async fn run_git_diff(
     scope: &Scope,
     op: &wire::GitDiffOp,
@@ -2459,16 +2462,16 @@ impl Connection {
         }
         let outbound = self.outbound.clone();
         let cancellation = self.request_cancel.clone();
-        if let Ok(mut requests) = self.requests.lock() {
-            if !self.request_cancel.is_cancelled() {
-                requests.spawn(async move {
-                    let _ = tokio::select! {
-                        biased;
-                        _ = cancellation.cancelled() => Err(()),
-                        result = outbound.critical_text(text) => result,
-                    };
-                });
-            }
+        if let Ok(mut requests) = self.requests.lock()
+            && !self.request_cancel.is_cancelled()
+        {
+            requests.spawn(async move {
+                let _ = tokio::select! {
+                    biased;
+                    _ = cancellation.cancelled() => Err(()),
+                    result = outbound.critical_text(text) => result,
+                };
+            });
         }
     }
 }
@@ -2534,7 +2537,7 @@ async fn execute(
     let started = std::time::Instant::now();
     let deadline = started + Duration::from_millis(timeout_ms as u64);
     let outcome = run_op(runtime, request, permit, cancellation, deadline).await;
-    if started.elapsed() > std::time::Duration::from_millis(timeout_ms.unsigned_abs()) {
+    if started.elapsed() > Duration::from_millis(timeout_ms.unsigned_abs()) {
         Err(Refusal::new(
             wire::WorkspaceErrorCode::Timeout,
             format!("workspace op exceeded {timeout_ms}ms"),
@@ -3440,7 +3443,7 @@ mod tests {
         let (sink, mut critical, _watch) = OutboundSink::channels();
         let connection = Connection::new(runtime, sink);
         connection.handle_frame(patched);
-        let frame = tokio::time::timeout(std::time::Duration::from_secs(15), critical.recv())
+        let frame = tokio::time::timeout(Duration::from_secs(15), critical.recv())
             .await
             .expect("no answer within 15s")
             .expect("channel open");
@@ -3482,11 +3485,11 @@ mod tests {
         }
 
         let mut ids = [
-            tokio::time::timeout(std::time::Duration::from_secs(15), critical.recv())
+            tokio::time::timeout(Duration::from_secs(15), critical.recv())
                 .await
                 .expect("first request timed out")
                 .expect("channel closed"),
-            tokio::time::timeout(std::time::Duration::from_secs(15), critical.recv())
+            tokio::time::timeout(Duration::from_secs(15), critical.recv())
                 .await
                 .expect("second request timed out")
                 .expect("channel closed"),

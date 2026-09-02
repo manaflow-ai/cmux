@@ -56,45 +56,80 @@ daemon as root and exposes no ingress to 6901 (a `style.dev` or
 ## Session daemon: cmux-tui
 
 Machines attach through the cmux-tui remote daemon on port 1337
-(transport `cmux-remote`, docs/cloud-cmux-tui-daemon.md). The binary is NOT
-baked: the driver installs the pinned files.cmux.com build
-(sha256-verified) at create time and heals pin drift on attach
-(`web/services/vms/drivers/cmuxTuiDaemon.ts`). The image ships only
-`cmux-devbox-boot`, the supervisor that waits for the binary and restarts
-the daemon, run by the baked `cmux-tui-daemon` systemd unit with
-`CMUX_TUI_REMOTE_WS_BIND=[::]:1337` (the driver reaches the daemon at the
-VM's IPv6 address, so the listener must be dual-stack).
+(transport `cmux-remote`, docs/cloud-cmux-tui-daemon.md). The Freestyle bake
+installs the pinned files.cmux.com build (sha256-verified, the driver's own
+install command) at `/root/.cmux/bin/cmux-tui`, proves the daemon answers,
+then parks it, because a Freestyle snapshot is a memory image and a live
+daemon would give every machine the builder's Noise identity. The
+`cmux-devbox-boot` supervisor, run by the baked `cmux-tui-daemon` systemd
+unit with `CMUX_TUI_REMOTE_WS_BIND=[::]:1337` (the driver reaches the daemon
+at the VM's IPv6 address, so the listener must be dual-stack), reads the
+platform instance id from the metadata service, wipes the remote identity
+when the machine is a clone, and starts the daemon. The driver runs no
+bootstrap at create; it heals pin drift and a missing listener on attach
+(`web/services/vms/drivers/cmuxTuiDaemon.ts`). The container Dockerfile still
+ships only the supervisor and waits for a driver install.
 
 Shells spawned by the daemon get the bash devshell (ble.sh ghost text,
 half-life prompt, seeded history) through the `/etc/bash.bashrc` chain.
 
-## Promote: bake, verify, record (one command)
+## Sizes: one bake, one snapshot per size
+
+A Freestyle VM boots at its snapshot's size and resize is grow-only, so the
+bake happens once on the ladder floor (`freestyle/ubuntu-sm`, 2 vCPU / 4 GiB /
+16 GB) and `derive-devbox-sizes.ts` turns it into one snapshot per size:
+boot the bake, `vm.resize`, snapshot, delete, then boot the derived snapshot
+once more and check `nproc`, memory, the grown root filesystem and the
+daemon/desktop units. Sizes are Freestyle's own ladder
+(`web/services/vms/images/sizes.ts`, verbatim from freestyle-vms
+`catalog/snapshots.json`), so every cmux machine is a shape Freestyle already
+bills and caps:
+
+| name | vCPU | memory | disk | Freestyle base |
+|---|---|---|---|---|
+| `sm` | 2 | 4 GiB | 16 GB | `freestyle/ubuntu-sm` |
+| `md` | 4 | 8 GiB | 32 GB | `freestyle/ubuntu` |
+| `lg` | 8 | 16 GiB | 64 GB | `freestyle/ubuntu-lg` |
+| `xl` | 16 | 32 GiB | 128 GB | `freestyle/ubuntu-xl` |
+| `2xl` | 32 | 64 GiB | 128 GB | `freestyle/ubuntu-2xl` |
+
+The manifest records one entry per kind and size (`size: { name, cpu,
+memoryMb, storageMb }`), each the default for its kind+size. The resolver
+picks the smallest size whose memory covers the plan's `memoryMb`
+(`defaultMemoryMbForPlan`; today's paid default of 24 GiB lands on `xl`), so
+the driver never resizes at create and nothing has to grow at boot. Snapshot
+slugs are `cmux-devbox-<size>` (`cmux-devbox` for `md`).
+
+## Promote: bake, verify, derive sizes, record (one command)
 
 The checked-in manifest (`web/services/vms/images/manifest.json`) is the
 only source of truth for the image users get: the resolver serves the entry
-flagged `defaultForKind`, in local dev and every deployed runtime alike, and
-no env var selects or overrides it. `promote-devbox-image.ts` is the only
-sanctioned writer:
+flagged `defaultForKind` for the requested kind and the plan's size, in local
+dev and every deployed runtime alike, and no env var selects or overrides
+it. `promote-devbox-image.ts` is the only sanctioned writer:
 
 ```bash
 # from web/, with the Freestyle key in env
-FREESTYLE_API_KEY=... bun run devbox:promote -- freestyle
-FREESTYLE_API_KEY=... bun run devbox:promote -- freestyle --image sh-…   # verify + record an existing snapshot
+FREESTYLE_API_KEY=... bun run devbox:promote -- freestyle                     # bake -> verify -> sm,md,lg,xl,2xl -> manifest
+FREESTYLE_API_KEY=... bun run devbox:promote -- freestyle --sizes lg,xl       # a subset of the ladder
+FREESTYLE_API_KEY=... bun run devbox:promote -- freestyle --sizes none        # one size-less entry (pre-ladder behaviour)
+FREESTYLE_API_KEY=... bun run devbox:promote -- freestyle --image sh-…        # verify + derive + record an existing bake
 ```
 
 Snapshots are account-scoped: promote under the Freestyle account the
-deployment's `FREESTYLE_API_KEY` belongs to, or the recorded id is
+deployment's `FREESTYLE_API_KEY` belongs to, or the recorded ids are
 unreachable from production.
 
 It runs the stale-checkout preflight (`CMUX_BAKE_ALLOW_BRANCH=1` for
 deliberate branch bakes), the bake, then `verify-devbox-image.ts`; only a
-passing verify writes the manifest, appending one entry per kind flagged
-`defaultForKind` while demoting the provider's previous defaults. Existing
-entries are never removed, so rollback is a manifest revert. It also moves the
-`cmux-devbox` snapshot slug onto the new id as a dashboard convenience;
-production boots from the immutable `sh-…` id, never the slug. The last
-stdout line is `IMAGE_ID <id>`; `--out <json>` writes the summary.
-Commit the manifest diff in a PR; merging it is the promotion.
+passing verify derives the sizes and writes the manifest, appending one
+entry per kind and size flagged `defaultForKind` while demoting the
+provider's previous defaults for those kind+size pairs (a sized promotion
+also demotes size-less defaults: the ladder replaces the single-shape
+image). Existing entries are never removed, so rollback is a manifest
+revert. The last stdout line is `IMAGE_ID <id>` (the bake); `--out <json>`
+writes the summary with every derived id. Commit the manifest diff in a PR;
+merging it is the promotion.
 
 ## Bake and verify by hand
 
@@ -117,9 +152,10 @@ never from the image.
 Each bake prints a `next` command. The verifier boots one VM from the
 snapshot, asserts the toolchain, the exact agent pins, ghost text
 under a tmux PTY, byte-identical baked files, the work user, and (when
-`/etc/cmux/image-stamp` says `desktop`) the desktop contract, then replays
-the driver's create-time cmux-tui bootstrap and asserts the daemon contract,
-and deletes the sandbox:
+`/etc/cmux/image-stamp` says `desktop`) the desktop contract, then waits for
+the baked daemon to come up on its own, asserts the daemon contract (current
+pin, identity bound to this instance id) and that a second machine from the
+snapshot holds a different daemon identity, and deletes both sandboxes:
 
 ```bash
 bun scripts/verify-devbox-image.ts freestyle <sh-snapshot-id>

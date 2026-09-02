@@ -36,20 +36,29 @@
  * onto the new snapshot (the old holder keeps its data under its id);
  * without it a collision leaves the new snapshot slugless.
  *
- * Builder VM: freestyle/ubuntu (4 vCPU / 8 GiB / 32 GB). VMs always boot at
- * their snapshot's size and resizing is grow-only, so this is the shape every
- * cmux Cloud machine gets. CMUX_FREESTYLE_BUILDER_SNAPSHOT overrides it.
+ * Builder VM: freestyle/ubuntu-sm (2 vCPU / 4 GiB / 16 GB), the floor of
+ * Freestyle's size ladder. VMs boot at their snapshot's size and resizing is
+ * grow-only, so the bake happens once at the smallest shape and
+ * derive-devbox-sizes.ts turns it into one snapshot per ladder size.
+ * CMUX_FREESTYLE_BUILDER_SNAPSHOT overrides the base.
  * Outbound-only firewall; deleted whatever happens (unless --keep-builder).
  *
- * Daemon contract: the session daemon is cmux-tui, same as every other
- * provider (docs/cloud-cmux-tui-daemon.md). No binary is baked: the
- * cmux-tui-daemon systemd unit runs /usr/local/bin/cmux-devbox-boot, which
- * waits for /root/.cmux/bin/cmux-tui and supervises the daemon once a driver
- * installs the pinned build at create time. The unit binds the listener
- * dual-stack (CMUX_TUI_REMOTE_WS_BIND=[::]:1337) because the driver
- * (web/services/vms/drivers/freestyle.ts) routes attaches to the VM's stable
- * public IPv6. The daemon still runs as root until the driver adopts the
- * ubuntu user for sessions.
+ * Daemon contract: the session daemon is cmux-tui (docs/cloud-cmux-tui-daemon.md).
+ * The bake installs the pinned files.cmux.com build (sha256-verified, the same
+ * install command the driver's attach-time heal uses) at /root/.cmux/bin/cmux-tui
+ * and the cmux-tui-daemon systemd unit runs /usr/local/bin/cmux-devbox-boot,
+ * which starts and supervises it. The bake proves the daemon answers on
+ * [::]:1337, then parks it: a snapshot is a memory image, so a daemon left
+ * running would give every machine the builder's Noise identity. The
+ * supervisor binds the identity to the platform instance id (see the boot
+ * script) and every machine created from the snapshot starts its own daemon,
+ * with a fresh identity, within one supervisor tick of resume. The driver
+ * (web/services/vms/drivers/freestyle.ts) therefore runs no install, start, or
+ * readiness exec at create; it writes the model-plane env file and returns.
+ * The unit binds the listener dual-stack (CMUX_TUI_REMOTE_WS_BIND=[::]:1337)
+ * because the driver routes attaches to the VM's stable public IPv6. The
+ * daemon still runs as root until the driver adopts the ubuntu user for
+ * sessions.
  *
  * Desktop contract (desktop/start-vnc.sh): RFB 5901 loopback, noVNC 6901,
  * run as `ubuntu` by the cmux-desktop systemd unit.
@@ -57,12 +66,20 @@
 import { Freestyle } from "freestyle";
 import { fileURLToPath } from "node:url";
 import {
+  CMUX_TUI_SESSION,
+  cmuxTuiInstallCommand,
+  cmuxTuiPinCheckCommand,
+  resolveCmuxTuiSource,
+} from "../services/vms/drivers/cmuxTuiDaemon";
+import {
   DEVBOX_GHOSTTY_DEB_URL,
+  DEVBOX_INSTANCE_ID_COMMAND,
   bakeMetadata,
   bakePreflight,
   devboxAgentPins,
   devboxCuaDriverVersion,
   devboxFileBytes,
+  devboxParkDaemonCommand,
   emitBakeResult,
   hasFlag,
   manifestEntrySkeleton,
@@ -90,6 +107,8 @@ const keepBuilder = hasFlag("--keep-builder");
 const replaceSlug = hasFlag("--replace-slug");
 
 const preflight = bakePreflight({ desktop: withDesktop });
+// Resolved before the builder exists so a manifest outage fails the bake for free.
+const cmuxTuiSource = await resolveCmuxTuiSource("freestyle");
 
 // The exec API caps timeoutMs at 300000 (5 minutes per step).
 const STEP_TIMEOUT_MS = 300_000;
@@ -105,9 +124,11 @@ const BUILD_ENV = {
 
 /** The work user: the base's uid-1000 account, the API and SSH default. */
 const WORK_USER = "ubuntu";
+
+const instanceIdCommand = DEVBOX_INSTANCE_ID_COMMAND;
 const WORK_HOME = `/home/${WORK_USER}`;
 
-const builderSnapshot = process.env.CMUX_FREESTYLE_BUILDER_SNAPSHOT?.trim() || "freestyle/ubuntu";
+const builderSnapshot = process.env.CMUX_FREESTYLE_BUILDER_SNAPSHOT?.trim() || "freestyle/ubuntu-sm";
 const { vm, vmId } = await fs.vms.create({
   snapshotId: builderSnapshot,
   displayName: `cmux-devbox-builder ${slug}`,
@@ -303,8 +324,16 @@ try {
     );
   }
 
-  // The cmux-tui daemon supervisor + its systemd unit. No binary is baked; the
-  // unit's supervisor loop waits for the driver-installed build (see the header).
+  // The pinned cmux-tui build, installed with the driver's own command so the
+  // bake and the attach-time heal can never disagree about path or digest.
+  console.log(`cmux-tui pin: commit ${cmuxTuiSource.commit} sha256 ${cmuxTuiSource.sha256.slice(0, 12)}…`);
+  await step("cmux-tui-install", cmuxTuiInstallCommand(cmuxTuiSource));
+  await step(
+    "cmux-tui-pin",
+    `${cmuxTuiPinCheckCommand(cmuxTuiSource)} && mkdir -p /etc/cmux /root/.config/cmux && printf '%s %s\n' ${cmuxTuiSource.sha256} ${cmuxTuiSource.commit} > /etc/cmux/cmux-tui-pin && cat /etc/cmux/cmux-tui-pin`,
+  );
+
+  // The cmux-tui daemon supervisor + its systemd unit (see the header).
   const service = [
     "[Unit]",
     "Description=cmux-tui session daemon supervisor",
@@ -332,8 +361,18 @@ try {
   await vm.fs.writeFile("/etc/systemd/system/cmux-tui-daemon.service", `${service}\n`, { mode: 0o644 });
   await step(
     "cmux-tui-daemon-unit",
-    "sh -n /usr/local/bin/cmux-devbox-boot && mkdir -p /etc/systemd/system/multi-user.target.wants && ln -sf /etc/systemd/system/cmux-tui-daemon.service /etc/systemd/system/multi-user.target.wants/cmux-tui-daemon.service && systemctl daemon-reload && systemctl enable cmux-tui-daemon && systemctl restart cmux-tui-daemon && systemctl is-active cmux-tui-daemon",
+    "sh -n /usr/local/bin/cmux-devbox-boot && rm -f /etc/cmux/bake-instance-id && mkdir -p /etc/systemd/system/multi-user.target.wants && ln -sf /etc/systemd/system/cmux-tui-daemon.service /etc/systemd/system/multi-user.target.wants/cmux-tui-daemon.service && systemctl daemon-reload && systemctl enable cmux-tui-daemon && systemctl restart cmux-tui-daemon && systemctl is-active cmux-tui-daemon",
   );
+  // Prove the daemon contract on the builder: the supervisor started the
+  // daemon on its own, the session answers, and the listener is dual-stack.
+  await step(
+    "cmux-tui-daemon-up",
+    `for i in $(seq 1 30); do env HOME=/root /root/.cmux/bin/cmux-tui server status --session ${CMUX_TUI_SESSION} >/dev/null 2>&1 && grep -qi ':0539 ' /proc/net/tcp6 && break; sleep 1; done && env HOME=/root /root/.cmux/bin/cmux-tui server status --session ${CMUX_TUI_SESSION} && grep -qi ':0539 ' /proc/net/tcp6 && test "$(cat /etc/cmux/daemon-instance-id)" = "$(${instanceIdCommand})" && echo daemon-up-bound-to-builder`,
+  );
+  // Park it (devboxParkDaemonCommand): the supervisor stops the daemon while
+  // the machine's id equals the recorded bake id, its identity and session
+  // state are wiped, and a clone (different id) starts fresh within one tick.
+  await step("cmux-tui-daemon-park", devboxParkDaemonCommand());
 
   await step(
     "ghost-text-smoke",
@@ -404,16 +443,20 @@ emitBakeResult({
   slug: assignedSlug,
   builderSnapshot,
   desktop: withDesktop,
-  manifestEntry: manifestEntrySkeleton(
-    "freestyle",
-    `freestyle-${slug}`,
-    snapshotId,
-    "FREESTYLE_SANDBOX_SNAPSHOT",
-    metadata,
-    withDesktop
-      ? `Devbox on the Freestyle public platform (api.freestyle.sh) from ${builderSnapshot}: the base's Node/Bun/Python/uv/Docker plus pinned agents, devtools, Chrome + cua-driver, ble.sh devshell, cmux login banner, and the desktop layer (openbox/TigerVNC 5901, noVNC 6901, Ghostty, Chrome, Thunar) run by the cmux-desktop systemd unit as ubuntu; ubuntu (uid 1000, NOPASSWD sudo) is the work user; cmux-tui transport.`
-      : `Devbox on the Freestyle public platform (api.freestyle.sh) from ${builderSnapshot}: the base's Node/Bun/Python/uv/Docker plus pinned agents, devtools, Chrome + cua-driver, ble.sh devshell, cmux login banner; ubuntu (uid 1000, NOPASSWD sudo) is the work user; cmux-tui transport.`,
-    withDesktop ? "desktop" : "base",
-  ),
+  manifestEntry: {
+    ...manifestEntrySkeleton(
+      "freestyle",
+      `freestyle-${slug}`,
+      snapshotId,
+      "FREESTYLE_SANDBOX_SNAPSHOT",
+      metadata,
+      withDesktop
+        ? `Devbox on the Freestyle public platform (api.freestyle.sh) from ${builderSnapshot}: the base's Node/Bun/Python/uv/Docker plus pinned agents, devtools, Chrome + cua-driver, ble.sh devshell, cmux login banner, and the desktop layer (openbox/TigerVNC 5901, noVNC 6901, Ghostty, Chrome, Thunar) run by the cmux-desktop systemd unit as ubuntu; ubuntu (uid 1000, NOPASSWD sudo) is the work user; baked cmux-tui daemon ${cmuxTuiSource.commit.slice(0, 10)}, identity bound to the instance id, no create-time bootstrap.`
+        : `Devbox on the Freestyle public platform (api.freestyle.sh) from ${builderSnapshot}: the base's Node/Bun/Python/uv/Docker plus pinned agents, devtools, Chrome + cua-driver, ble.sh devshell, cmux login banner; ubuntu (uid 1000, NOPASSWD sudo) is the work user; baked cmux-tui daemon ${cmuxTuiSource.commit.slice(0, 10)}, identity bound to the instance id, no create-time bootstrap.`,
+      withDesktop ? "desktop" : "base",
+    ),
+    cmuxTuiCommit: cmuxTuiSource.commit,
+    cmuxTuiSha256: cmuxTuiSource.sha256,
+  },
   next: `bun scripts/verify-devbox-image.ts freestyle ${snapshotId}`,
 });

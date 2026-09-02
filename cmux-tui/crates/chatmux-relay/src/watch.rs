@@ -122,6 +122,18 @@ struct WatchSlot {
 
 type Sessions = Arc<Mutex<HashMap<String, WatchSlot>>>;
 
+/// Registry handles one `fs_watch_open` attempt carries from reservation
+/// through commit or failure. `generation` and `live` identify the attempt;
+/// a newer replacement cancels `cancellation` and retires `live`.
+struct OpenContext {
+    watch_id: String,
+    generation: u64,
+    live: Arc<AtomicBool>,
+    cancellation: CancellationToken,
+    sessions: Sessions,
+    outbound: OutboundSink,
+}
+
 enum RetiredWatch {
     Active(ActiveWatch),
     Opening(Opening),
@@ -218,6 +230,7 @@ async fn report_watch_failure(
 }
 
 impl WatchRegistry {
+    #[cfg(test)]
     pub(crate) fn new(outbound: OutboundSink) -> WatchRegistry {
         Self::new_with_teardown_slots(
             outbound,
@@ -225,6 +238,7 @@ impl WatchRegistry {
         )
     }
 
+    #[cfg(test)]
     pub(crate) fn new_with_teardown_slots(
         outbound: OutboundSink,
         teardown_slots: Arc<Semaphore>,
@@ -301,17 +315,18 @@ impl WatchRegistry {
                     // abort handle before another caller can close/replace
                     // this slot. Tokio guarantees `spawn` does not poll the
                     // future synchronously as part of this call.
-                    let task_id = watch_id.clone();
-                    let task_cancellation = opening_cancellation.clone();
+                    let context = OpenContext {
+                        watch_id: watch_id.clone(),
+                        generation,
+                        live: Arc::clone(&opening_live),
+                        cancellation: opening_cancellation,
+                        sessions: Arc::clone(&sessions),
+                        outbound,
+                    };
                     let task = tokio::spawn(coordinate_open(
-                        task_id,
+                        context,
                         frame,
                         local_roots_for_task,
-                        generation,
-                        Arc::clone(&opening_live),
-                        task_cancellation,
-                        Arc::clone(&sessions),
-                        outbound,
                         setup_slots,
                         teardown_slots,
                     ));
@@ -403,60 +418,28 @@ async fn setup_watch(
 }
 
 async fn coordinate_open(
-    watch_id: String,
+    context: OpenContext,
     frame: wire::RelayFsWatchOpen,
     local_roots: Option<Vec<String>>,
-    generation: u64,
-    live: Arc<AtomicBool>,
-    cancellation: CancellationToken,
-    sessions: Sessions,
-    outbound: OutboundSink,
     setup_slots: Arc<Semaphore>,
     teardown_slots: Arc<Semaphore>,
 ) {
-    let setup =
-        setup_watch(frame, local_roots, cancellation.clone(), setup_slots.clone(), teardown_slots)
-            .await;
+    let setup = setup_watch(
+        frame,
+        local_roots,
+        context.cancellation.clone(),
+        Arc::clone(&setup_slots),
+        teardown_slots,
+    )
+    .await;
     match setup {
-        Ok((root, prepared)) => {
-            commit_open(
-                watch_id,
-                root,
-                prepared,
-                generation,
-                live,
-                cancellation,
-                sessions,
-                outbound,
-                setup_slots,
-            );
-        }
+        Ok((root, prepared)) => commit_open(context, root, prepared, setup_slots),
         Err(SetupFailure::Cancelled) => {}
         Err(SetupFailure::Refused { code, message }) => {
-            finish_open_failure(
-                &watch_id,
-                generation,
-                live,
-                cancellation,
-                sessions,
-                outbound,
-                code,
-                Some(message),
-            )
-            .await;
+            finish_open_failure(context, code, Some(message)).await;
         }
         Err(SetupFailure::Failed(_message)) => {
-            finish_open_failure(
-                &watch_id,
-                generation,
-                live,
-                cancellation,
-                sessions,
-                outbound,
-                wire::WorkspaceErrorCode::Failed,
-                None,
-            )
-            .await;
+            finish_open_failure(context, wire::WorkspaceErrorCode::Failed, None).await;
         }
     }
 }
@@ -465,16 +448,12 @@ async fn coordinate_open(
 /// `prepared` stays outside the mutex on every rejection path so dropping a
 /// notify watcher cannot run while registry state is locked.
 fn commit_open(
-    watch_id: String,
+    context: OpenContext,
     root: PathBuf,
     prepared: PreparedWatch,
-    generation: u64,
-    live: Arc<AtomicBool>,
-    cancellation: CancellationToken,
-    sessions: Sessions,
-    outbound: OutboundSink,
     setup_slots: Arc<Semaphore>,
 ) {
+    let OpenContext { watch_id, generation, live, cancellation, sessions, outbound } = context;
     let opened = serde_json::to_string(&wire::RelayFsWatchOpened {
         version: WORKSPACE_FRAME_VERSION,
         r#type: wire::TagFsWatchOpened::FsWatchOpened,
@@ -496,10 +475,10 @@ fn commit_open(
         {
             let (start_tx, start_rx) = oneshot::channel();
             let run_id = watch_id.clone();
-            let run_root = root.clone();
-            let run_outbound = outbound.clone();
+            let run_root = root;
+            let run_outbound = outbound;
             let run_sessions = Arc::clone(&sessions);
-            let run_setup_slots = Arc::clone(&setup_slots);
+            let run_setup_slots = setup_slots;
             let run_cancellation = cancellation.clone();
             let run_live = Arc::clone(&live);
             let run_prepared = prepared.take().expect("prepared watch present");
@@ -564,15 +543,12 @@ fn commit_open(
 }
 
 async fn finish_open_failure(
-    watch_id: &str,
-    generation: u64,
-    live: Arc<AtomicBool>,
-    cancellation: CancellationToken,
-    sessions: Sessions,
-    outbound: OutboundSink,
+    context: OpenContext,
     code: wire::WorkspaceErrorCode,
     message: Option<String>,
 ) {
+    let OpenContext { watch_id, generation, live, cancellation, sessions, outbound } = context;
+    let watch_id = watch_id.as_str();
     let text = watch_error_frame(watch_id, code, message.as_deref());
     let should_report = sessions.lock().ok().is_some_and(|state| {
         state.get(watch_id).is_some_and(|slot| {
@@ -1323,12 +1299,14 @@ mod tests {
             },
         );
         let task = tokio::spawn(finish_open_failure(
-            "failed",
-            1,
-            live,
-            cancellation,
-            Arc::clone(&sessions),
-            sink,
+            OpenContext {
+                watch_id: "failed".to_owned(),
+                generation: 1,
+                live,
+                cancellation,
+                sessions: Arc::clone(&sessions),
+                outbound: sink,
+            },
             wire::WorkspaceErrorCode::Failed,
             None,
         ));
@@ -1363,12 +1341,14 @@ mod tests {
             },
         );
         let task = tokio::spawn(finish_open_failure(
-            "saturated",
-            1,
-            live,
-            cancellation,
-            Arc::clone(&sessions),
-            sink,
+            OpenContext {
+                watch_id: "saturated".to_owned(),
+                generation: 1,
+                live,
+                cancellation,
+                sessions: Arc::clone(&sessions),
+                outbound: sink,
+            },
             wire::WorkspaceErrorCode::Failed,
             None,
         ));

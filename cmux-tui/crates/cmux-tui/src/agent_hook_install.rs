@@ -1667,6 +1667,7 @@ fn codex_owned_hook_entry<'a>(
     })
 }
 
+#[cfg(test)]
 fn codex_owned_hook_position(root: &Map<String, Value>, event: &str) -> Option<(usize, usize)> {
     codex_owned_hook_entry(root, event)
         .map(|(group_index, handler_index, _, _)| (group_index, handler_index))
@@ -2282,10 +2283,10 @@ mod tests {
 
         let startup_deadline = Instant::now() + Duration::from_secs(1);
         let pid = loop {
-            if let Ok(contents) = fs::read_to_string(&pid_path) {
-                if let Ok(pid) = contents.trim().parse::<libc::pid_t>() {
-                    break pid;
-                }
+            if let Ok(contents) = fs::read_to_string(&pid_path)
+                && let Ok(pid) = contents.trim().parse::<libc::pid_t>()
+            {
+                break pid;
             }
             assert!(Instant::now() < startup_deadline, "Hermes child did not complete startup");
             std::thread::sleep(Duration::from_millis(5));

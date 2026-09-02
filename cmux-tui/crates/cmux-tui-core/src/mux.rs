@@ -60,12 +60,13 @@ use crate::terminal_host_runtime::TerminalHostIdentity;
 #[cfg(unix)]
 use crate::terminal_host_runtime::TerminalHostLiveness;
 use crate::workspace_registry::{
-    FrontendProjection, ProjectionCommit, RESOURCE_API_FRONTEND_PROJECTION_SCHEMA_VERSION,
-    RegistryBrowser, RegistryBrowserReconnect, RegistryCommit, RegistryLayoutNode,
-    RegistrySnapshot, RegistryTab, RegistryTerminal, RegistryViewport, RegistryWorkspace,
-    ResourceChange, ResourceEffectOutcome, ResourceEffectPreparation, ResourcePatch,
-    ResourcePatchCommit, ResourceTopologySnapshot, ResourceWorkspaceLedger, TerminalLifecycle,
-    TerminalOnExit, TerminalRegistrySnapshot, WorkspaceMutation, WorkspaceRegistry,
+    AgentHookPendingFailure, FrontendProjection, ProjectionCommit,
+    RESOURCE_API_FRONTEND_PROJECTION_SCHEMA_VERSION, RegistryBrowser, RegistryBrowserReconnect,
+    RegistryCommit, RegistryLayoutNode, RegistrySnapshot, RegistryTab, RegistryTerminal,
+    RegistryViewport, RegistryWorkspace, ResourceChange, ResourceEffectOutcome,
+    ResourceEffectPreparation, ResourcePatch, ResourcePatchCommit, ResourceTopologySnapshot,
+    ResourceWorkspaceLedger, TerminalLifecycle, TerminalOnExit, TerminalRegistrySnapshot,
+    WorkspaceMutation, WorkspaceRegistry,
 };
 use crate::{
     PairingChallenge, PairingDecision, PairingError, PaneId, ScreenId, SplitDir, SplitId,
@@ -1119,6 +1120,14 @@ struct HookFence {
     session_id: String,
     sequence: u64,
     ended: bool,
+}
+
+/// Durable hook projection carried by a hook-sourced agent report. Socket
+/// reports carry none; hook reports carry the fence state and the journal
+/// sequence that produced it.
+struct DurableHookReport {
+    state: crate::workspace_registry::AgentHookProjectionState,
+    journal_sequence: u64,
 }
 
 /// Session-less adapters get a local generation token. The journal sequence
@@ -2620,8 +2629,10 @@ impl Mux {
                             &key,
                             sequence,
                             &ingress,
-                            AGENT_HOOK_RETRY_ERROR,
-                            agent_hook_retry_class(&error),
+                            AgentHookPendingFailure {
+                                error: AGENT_HOOK_RETRY_ERROR,
+                                retry_class: agent_hook_retry_class(&error),
+                            },
                         )
                         .is_err()
                     {
@@ -3966,7 +3977,7 @@ impl Mux {
                     id: workspace.id,
                     public_id: public_id.clone(),
                     key: key.clone(),
-                    name: name.clone(),
+                    name,
                     group_key: self.session.clone(),
                 };
                 let mut desired = self.registry_projection(state);
@@ -5441,8 +5452,10 @@ impl Mux {
                         idempotency_key,
                         commit.sequence,
                         ingress,
-                        AGENT_HOOK_RETRY_ERROR,
-                        agent_hook_retry_class(&error),
+                        AgentHookPendingFailure {
+                            error: AGENT_HOOK_RETRY_ERROR,
+                            retry_class: agent_hook_retry_class(&error),
+                        },
                     )
                 {
                     self.report_internal_diagnostic(
@@ -5531,7 +5544,6 @@ impl Mux {
         // fence for a start would let a delayed, session-less start mutate a
         // newer lifecycle.
         let agent_session_id = explicit_session_id
-            .clone()
             .or_else(|| {
                 (!is_session_start)
                     .then(|| previous_fence.as_ref().filter(|fence| !fence.ended))
@@ -5573,8 +5585,7 @@ impl Mux {
             AgentSource::Hook,
             Some(marker),
             true,
-            Some(hook_state),
-            Some(sequence),
+            Some(DurableHookReport { state: hook_state, journal_sequence: sequence }),
         )?;
         fences.insert(
             terminal_id.clone(),
@@ -8946,7 +8957,7 @@ impl Mux {
         source: AgentSource,
         session: Option<String>,
     ) -> anyhow::Result<AgentRecord> {
-        self.report_agent_with_sequence_lock(surface, state, source, session, false, None, None)
+        self.report_agent_with_sequence_lock(surface, state, source, session, false, None)
     }
 
     fn report_agent_with_sequence_lock(
@@ -8956,8 +8967,7 @@ impl Mux {
         source: AgentSource,
         session: Option<String>,
         sequence_lock_held: bool,
-        hook_state: Option<crate::workspace_registry::AgentHookProjectionState>,
-        journal_sequence: Option<u64>,
+        hook: Option<DurableHookReport>,
     ) -> anyhow::Result<AgentRecord> {
         let mutation = WorkspaceMutation::new(
             format!("raw-agent-{}", crate::workspace_registry::new_uuid_v4()),
@@ -8979,8 +8989,8 @@ impl Mux {
             &mutation,
             &fingerprint,
             sequence_lock_held,
-            hook_state.as_ref(),
-            journal_sequence,
+            hook.as_ref().map(|hook| &hook.state),
+            hook.as_ref().map(|hook| hook.journal_sequence),
         )?;
         let record = record.context("fresh raw agent report unexpectedly replayed")?;
         if source != AgentSource::Hook {
@@ -9196,10 +9206,10 @@ impl Mux {
             "state":record.state.as_str(),
             "source":record.source.as_str(),
             "updated_at_ms":record.updated_at_ms.to_string(),
-            "source_session":persisted_source_session.clone().or(record.session.clone()),
+            "source_session":persisted_source_session.or(record.session.clone()),
         });
         let mut public_value = value.clone();
-        public_value["source_session"] = serde_json::json!(record.session.clone());
+        public_value["source_session"] = serde_json::json!(record.session);
         let deltas = if effective_hook_state.is_some_and(|state| state.ended) {
             serde_json::json!([{
                 "kind":"delete",
@@ -9216,40 +9226,28 @@ impl Mux {
                 "value":public_value,
             }])
         };
-        let commit = match journal_sequence {
-            Some(sequence) => registry.commit_agent_projection_with_hook_state_and_sequence(
-                mutation,
-                fingerprint,
-                expected_revision,
-                &terminal_id,
-                &value,
-                &deltas,
-                effective_hook_state,
-                sequence,
-            )?,
-            None => registry.commit_agent_projection_with_hook_state(
-                mutation,
-                fingerprint,
-                expected_revision,
-                &terminal_id,
-                &value,
-                &deltas,
-                effective_hook_state,
-            )?,
-        };
-        if !commit.replayed {
-            if let (Some(direct_state), Some(sequence_guard)) =
+        let commit = registry.commit_agent_projection_with_hook_state(
+            mutation,
+            fingerprint,
+            expected_revision,
+            &terminal_id,
+            &value,
+            &deltas,
+            effective_hook_state,
+            journal_sequence,
+        )?;
+        if !commit.replayed
+            && let (Some(direct_state), Some(sequence_guard)) =
                 (direct_hook_state.as_ref(), sequence_guard.as_mut())
-            {
-                sequence_guard.insert(
-                    terminal_id.clone(),
-                    HookFence {
-                        session_id: direct_state.agent_session_id.clone(),
-                        sequence: direct_state.applied_sequence,
-                        ended: false,
-                    },
-                );
-            }
+        {
+            sequence_guard.insert(
+                terminal_id.clone(),
+                HookFence {
+                    session_id: direct_state.agent_session_id.clone(),
+                    sequence: direct_state.applied_sequence,
+                    ended: false,
+                },
+            );
         }
         state.resource_revision = commit.revision;
         if !commit.replayed {
@@ -23149,8 +23147,10 @@ mod tests {
                 "pending-before-close",
                 1,
                 &ingress,
-                AGENT_HOOK_RETRY_ERROR,
-                crate::workspace_registry::AgentHookRetryClass::Transient,
+                AgentHookPendingFailure {
+                    error: AGENT_HOOK_RETRY_ERROR,
+                    retry_class: crate::workspace_registry::AgentHookRetryClass::Transient,
+                },
             )
             .unwrap();
         mux.purge_terminal_side_tables(&terminal_id);
