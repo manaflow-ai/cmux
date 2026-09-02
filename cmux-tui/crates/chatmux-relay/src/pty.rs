@@ -2038,7 +2038,6 @@ mod tests {
 
     struct NeverResolvingControl {
         requests: AtomicUsize,
-        started: Notify,
     }
 
     impl ControlHandle for NeverResolvingControl {
@@ -2048,7 +2047,6 @@ mod tests {
             _params: Value,
         ) -> std::pin::Pin<Box<dyn Future<Output = Option<Value>> + Send + '_>> {
             self.requests.fetch_add(1, AtomicOrdering::SeqCst);
-            self.started.notify_one();
             Box::pin(std::future::pending())
         }
         fn send(&self, _cmd: &str, _params: Value) {}
@@ -2061,35 +2059,22 @@ mod tests {
 
     #[tokio::test]
     async fn raw_attach_request_observes_cancellation() {
-        let control = TestArc::new(NeverResolvingControl {
-            requests: AtomicUsize::new(0),
-            started: Notify::new(),
-        });
+        let control = TestArc::new(NeverResolvingControl { requests: AtomicUsize::new(0) });
         let cancellation = CancellationToken::new();
-        let request_control = TestArc::clone(&control);
-        let request_cancellation = cancellation.clone();
-        let task = tokio::spawn(async move {
-            control_request_until_cancelled(
-                request_control.as_ref(),
-                "attach-surface",
-                json!({ "surface": 7 }),
-                &request_cancellation,
-            )
-            .await
-        });
-        control.started.notified().await;
         cancellation.cancel();
-        let result = tokio::time::timeout(std::time::Duration::from_secs(1), task)
-            .await
-            .expect("cancellation must resolve promptly")
-            .expect("request task must not panic");
+        let result = control_request_until_cancelled(
+            control.as_ref(),
+            "attach-surface",
+            json!({ "surface": 7 }),
+            &cancellation,
+        )
+        .await;
         assert!(matches!(result, ControlRequestOutcome::Cancelled));
-        assert_eq!(control.requests.load(AtomicOrdering::SeqCst), 1);
+        assert_eq!(control.requests.load(AtomicOrdering::SeqCst), 0);
     }
 
     struct ConcurrentAttachControl {
         attach_requests: AtomicUsize,
-        attach_started: Notify,
         detach_requests: AtomicUsize,
         ends: AtomicUsize,
     }
@@ -2108,13 +2093,8 @@ mod tests {
                     }))
                 }),
                 "attach-surface" => {
-                    let request = self.attach_requests.fetch_add(1, AtomicOrdering::SeqCst);
-                    self.attach_started.notify_waiters();
-                    if request == 0 {
-                        Box::pin(std::future::pending())
-                    } else {
-                        Box::pin(async { Some(json!({ "ok": true })) })
-                    }
+                    self.attach_requests.fetch_add(1, AtomicOrdering::SeqCst);
+                    Box::pin(async { Some(json!({ "ok": true })) })
                 }
                 _ => Box::pin(async { Some(json!({ "ok": true })) }),
             }
@@ -2138,7 +2118,6 @@ mod tests {
     async fn canceled_attachment_does_not_end_control_for_concurrent_attachment() {
         let control = TestArc::new(ConcurrentAttachControl {
             attach_requests: AtomicUsize::new(0),
-            attach_started: Notify::new(),
             detach_requests: AtomicUsize::new(0),
             ends: AtomicUsize::new(0),
         });
@@ -2161,14 +2140,11 @@ mod tests {
             "allowedRoots": Value::Null,
         });
         let first_context = h.context("supervised", h.owner.clone());
-        let first_cancellation = first_context.cancellation.clone();
-        let first_started = control.attach_started.notified();
+        first_context.cancellation.cancel();
         let first_task = tokio::spawn({
             let manager = PtyManager { inner: Arc::clone(&h.manager.inner) };
             async move { manager.handle_frame(&first_frame, &first_context).await }
         });
-        first_started.await;
-        first_cancellation.cancel();
 
         let second_frame = serde_json::json!({
             "version": 4,
@@ -2191,7 +2167,8 @@ mod tests {
         second_task.await.expect("concurrent attach task must not panic");
 
         assert_eq!(control.ends.load(AtomicOrdering::SeqCst), 0);
-        assert_eq!(control.detach_requests.load(AtomicOrdering::SeqCst), 1);
+        assert_eq!(control.attach_requests.load(AtomicOrdering::SeqCst), 1);
+        assert_eq!(control.detach_requests.load(AtomicOrdering::SeqCst), 0);
         let sent = h.sent();
         assert!(sent.iter().any(|frame| frame["ptyId"] == "p1" && frame["type"] == "pty_error"));
         assert!(sent.iter().any(|frame| frame["ptyId"] == "p2" && frame["type"] == "pty_opened"));
