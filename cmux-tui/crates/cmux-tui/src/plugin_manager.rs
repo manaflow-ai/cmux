@@ -3,7 +3,8 @@ use std::fs;
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::thread;
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
@@ -20,6 +21,8 @@ const MAX_PLUGIN_COMMAND_ARGS: usize = 256;
 const MAX_PLUGIN_COMMAND_ARG_BYTES: usize = 4096;
 const MAX_PLUGIN_REGISTRY_METADATA_BYTES: usize = 16 * 1024;
 const MAX_PLUGIN_GIT_OUTPUT_BYTES: usize = 16 * 1024;
+/// A userland plugin build must not hold the CLI forever.
+const PLUGIN_BUILD_TIMEOUT: Duration = Duration::from_secs(300);
 /// Bound the number of filesystem entries inspected by one plugin-manager
 /// operation. The registry is user-controlled, so a malicious or stale data
 /// directory must not turn `list` or selector resolution into an unbounded
@@ -798,6 +801,9 @@ fn validate_git_source(source: &str) -> anyhow::Result<()> {
     if source.bytes().any(|byte| byte == 0 || byte.is_ascii_control()) {
         anyhow::bail!("plugin git URL must not contain NUL or control characters");
     }
+    if source.contains("::") {
+        anyhow::bail!("plugin git URL must not use a custom Git transport");
+    }
 
     // Git receives this value as a process argument. Reject URL forms that
     // can carry a password or token so credentials do not enter the process
@@ -805,6 +811,12 @@ fn validate_git_source(source: &str) -> anyhow::Result<()> {
     // valid because `ssh://git@host/repo` is a normal key-based source.
     if let Some(scheme_end) = source.find("://") {
         let scheme = &source[..scheme_end];
+        if !matches!(
+            scheme.to_ascii_lowercase().as_str(),
+            "file" | "git" | "http" | "https" | "ssh"
+        ) {
+            anyhow::bail!("unsupported plugin git URL scheme {scheme:?}");
+        }
         let authority_start = scheme_end + 3;
         let authority_end = source[authority_start..]
             .find(['/', '?', '#'])
@@ -845,18 +857,70 @@ fn installed_name(
     }
 }
 
+fn is_sensitive_env_name(name: &str) -> bool {
+    let name = name.to_ascii_uppercase();
+    name.contains("TOKEN")
+        || name.contains("PASSWORD")
+        || name.contains("SECRET")
+        || name.contains("PRIVATE_KEY")
+        || name == "API_KEY"
+        || name.ends_with("_API_KEY")
+        || name == "AUTHORIZATION"
+}
+
+fn scrub_plugin_build_environment(command: &mut Command) {
+    for (key, _) in std::env::vars_os() {
+        if is_sensitive_env_name(&key.to_string_lossy()) {
+            command.env_remove(key);
+        }
+    }
+}
+
+fn kill_plugin_build_process(child: &mut Child) {
+    #[cfg(unix)]
+    {
+        if let Ok(group) = libc::pid_t::try_from(child.id()) {
+            // The build runs in its own process group, so a timeout also
+            // removes descendants such as package-manager subprocesses.
+            // SAFETY: this is the process group created for this child.
+            unsafe {
+                libc::kill(-group, libc::SIGKILL);
+            }
+        }
+    }
+    let _ = child.kill();
+}
+
+fn run_plugin_build_command(command: &mut Command, timeout: Duration) -> anyhow::Result<()> {
+    let mut child = command.spawn()?;
+    let deadline = Instant::now() + timeout;
+    loop {
+        if let Some(status) = child.try_wait()? {
+            if !status.success() {
+                anyhow::bail!("build command failed with status {status}");
+            }
+            return Ok(());
+        }
+        if Instant::now() >= deadline {
+            kill_plugin_build_process(&mut child);
+            let _ = child.wait();
+            anyhow::bail!("build command timed out after {:.1} seconds", timeout.as_secs_f64());
+        }
+        thread::sleep(Duration::from_millis(100));
+    }
+}
+
 fn run_build_if_needed(manifest: &PluginManifest, dir: &Path) -> anyhow::Result<()> {
     let Some(build) = &manifest.build else { return Ok(()) };
-    let status = Command::new(&build.command[0])
-        .args(&build.command[1..])
-        .current_dir(dir)
-        .stdout(Stdio::null())
-        .stderr(Stdio::null())
-        .status()?;
-    if !status.success() {
-        anyhow::bail!("build command failed with status {status}");
+    let mut command = Command::new(&build.command[0]);
+    command.args(&build.command[1..]).current_dir(dir).stdout(Stdio::null()).stderr(Stdio::null());
+    #[cfg(unix)]
+    {
+        use std::os::unix::process::CommandExt;
+        command.process_group(0);
     }
-    Ok(())
+    scrub_plugin_build_environment(&mut command);
+    run_plugin_build_command(&mut command, PLUGIN_BUILD_TIMEOUT)
 }
 
 fn resolved_run_command(manifest: &PluginManifest, dir: &Path) -> anyhow::Result<Vec<String>> {
@@ -901,7 +965,24 @@ fn run_git<const N: usize>(
     current_dir: Option<&Path>,
 ) -> anyhow::Result<()> {
     let mut command = Command::new("git");
-    command.args(["-c", "protocol.file.allow=always"]).args(args);
+    command
+        .args([
+            "-c",
+            "protocol.allow=never",
+            "-c",
+            "protocol.ext.allow=never",
+            "-c",
+            "protocol.file.allow=always",
+            "-c",
+            "protocol.ssh.allow=always",
+            "-c",
+            "protocol.git.allow=always",
+            "-c",
+            "protocol.http.allow=always",
+            "-c",
+            "protocol.https.allow=always",
+        ])
+        .args(args);
     if let Some(path) = final_arg_path {
         command.arg(path);
     }
@@ -1842,6 +1923,18 @@ mod tests {
     #[test]
     fn plugin_build_timeout_is_finite_and_positive() {
         assert!(PLUGIN_BUILD_TIMEOUT.as_nanos() > 0);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn plugin_build_command_terminates_after_timeout() {
+        let mut command = Command::new("sh");
+        command.args(["-c", "while :; do :; done"]);
+        let started = Instant::now();
+        let error = run_plugin_build_command(&mut command, Duration::from_millis(20))
+            .expect_err("a busy build must time out");
+        assert!(started.elapsed() < Duration::from_secs(2));
+        assert!(error.to_string().contains("timed out"));
     }
 
     #[test]
