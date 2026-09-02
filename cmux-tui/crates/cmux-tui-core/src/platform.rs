@@ -1215,13 +1215,16 @@ mod tests {
         let _lock = RUNTIME_ENV_LOCK.lock().unwrap();
         let old_temp = std::env::var_os("TEMP");
         let old_tmp = std::env::var_os("TMP");
+        let old_userprofile = std::env::var_os("USERPROFILE");
         let temp = OsString::from(r"C:\cmux-preferred-temp");
         let tmp = OsString::from(r"D:\cmux-secondary-temp");
+        let userprofile = OsString::from(r"E:\cmux-user-profile");
 
         // SAFETY: this test serializes its process-global environment changes.
         unsafe {
             std::env::set_var("TEMP", &temp);
             std::env::set_var("TMP", &tmp);
+            std::env::set_var("USERPROFILE", &userprofile);
         }
         let path = invalid_runtime_dir();
         // SAFETY: this test serializes its process-global environment changes.
@@ -1234,9 +1237,13 @@ mod tests {
                 Some(value) => std::env::set_var("TMP", value),
                 None => std::env::remove_var("TMP"),
             }
+            match old_userprofile {
+                Some(value) => std::env::set_var("USERPROFILE", value),
+                None => std::env::remove_var("USERPROFILE"),
+            }
         }
 
-        assert_eq!(path.parent(), Some(Path::new(r"C:\cmux-preferred-temp")));
+        assert_eq!(path.parent(), Some(Path::new(r"D:\cmux-secondary-temp")));
     }
 
     #[cfg(windows)]
@@ -1266,6 +1273,41 @@ mod tests {
         }
 
         assert_eq!(path.parent(), Some(Path::new(r"D:\cmux-secondary-temp")));
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn invalid_runtime_dir_falls_back_to_userprofile_when_temp_is_unset() {
+        let _lock = RUNTIME_ENV_LOCK.lock().unwrap();
+        let old_temp = std::env::var_os("TEMP");
+        let old_tmp = std::env::var_os("TMP");
+        let old_userprofile = std::env::var_os("USERPROFILE");
+        let userprofile = OsString::from(r"E:\cmux-user-profile");
+
+        // SAFETY: this test serializes its process-global environment changes.
+        unsafe {
+            std::env::remove_var("TEMP");
+            std::env::remove_var("TMP");
+            std::env::set_var("USERPROFILE", &userprofile);
+        }
+        let path = invalid_runtime_dir();
+        // SAFETY: this test serializes its process-global environment changes.
+        unsafe {
+            match old_temp {
+                Some(value) => std::env::set_var("TEMP", value),
+                None => std::env::remove_var("TEMP"),
+            }
+            match old_tmp {
+                Some(value) => std::env::set_var("TMP", value),
+                None => std::env::remove_var("TMP"),
+            }
+            match old_userprofile {
+                Some(value) => std::env::set_var("USERPROFILE", value),
+                None => std::env::remove_var("USERPROFILE"),
+            }
+        }
+
+        assert_eq!(path.parent(), Some(Path::new(r"E:\cmux-user-profile")));
     }
 
     #[test]
