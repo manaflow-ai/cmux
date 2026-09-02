@@ -432,8 +432,7 @@ impl AgentRoster {
                 if event_name != "state.changed" && event_name != "session.ended" {
                     return Vec::new();
                 }
-                let updated_at_ms =
-                    event.plugin_observed_at_ms().unwrap_or(event.committed_at_ms);
+                let updated_at_ms = event.plugin_observed_at_ms().unwrap_or(event.committed_at_ms);
                 let producer_generation = event
                     .normalized("plugin_generation")
                     .and_then(|value| value.parse::<u64>().ok())

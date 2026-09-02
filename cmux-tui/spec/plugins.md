@@ -220,6 +220,11 @@ hook blocks a plugin observation for 30 seconds. The plugin remains a normal
 journal producer, so replay, remote clients, and durable projections use the
 same event stream.
 
+The reducer clamps `normalized.observed_at_ms` to the journal commit time when
+the plugin clock is ahead. Older observation times remain unchanged, so a
+delayed append cannot become fresh evidence merely because it arrived late.
+This keeps hook precedence bounded by a host-controlled clock.
+
 `session.journal.producer.list` returns userland producer manifests only. The
 reserved cmux hook manifest is kept in the daemon's internal producer table,
 but is omitted from this operation because its legacy `agent` namespace is not
