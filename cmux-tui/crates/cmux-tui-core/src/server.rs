@@ -4896,6 +4896,15 @@ pub struct SocketStartLock {
     _file: std::fs::File,
 }
 
+const SOCKET_START_LOCK_RETRY_INTERVAL: Duration = Duration::from_millis(25);
+
+/// Return the next retry wait without extending the caller's deadline.
+/// `try_lock` remains non-blocking; only this retry delay is bounded.
+fn socket_start_lock_retry_delay(now: Instant, deadline: Instant) -> Option<Duration> {
+    let remaining = deadline.checked_duration_since(now)?;
+    (!remaining.is_zero()).then_some(SOCKET_START_LOCK_RETRY_INTERVAL.min(remaining))
+}
+
 impl SocketStartLock {
     pub fn acquire(socket: &Path, deadline: Instant) -> std::io::Result<Self> {
         let mut name = socket.file_name().unwrap_or_default().to_os_string();
@@ -4948,13 +4957,13 @@ impl SocketStartLock {
                 Err(fs4::TryLockError::WouldBlock) => {}
                 Err(fs4::TryLockError::Error(error)) => return Err(error),
             }
-            if Instant::now() >= deadline {
+            let Some(retry_delay) = socket_start_lock_retry_delay(Instant::now(), deadline) else {
                 return Err(std::io::Error::new(
                     std::io::ErrorKind::TimedOut,
                     "timed out waiting for a concurrent session-server start",
                 ));
-            }
-            std::thread::sleep(Duration::from_millis(25));
+            };
+            std::thread::sleep(retry_delay);
         }
     }
 }
