@@ -5,8 +5,9 @@
 //! `7b675f42af35508eab66ac42fe1598628597a893` (Apache-2.0). The strict Pi
 //! bundled-launcher suffixes also incorporate herdr commit
 //! `b1ff4582e9688f52ffb943cfa8bee4871ae122e4` (Apache-2.0). The plugin keeps
-//! this platform code outside cmux core, adds bounded traversal, and resolves
-//! names through the replaceable manifest set instead of a closed agent enum.
+//! this platform code outside cmux core, adds bounded traversal and precise
+//! attached-versus-separate runtime option boundaries, and resolves names
+//! through the replaceable manifest set instead of a closed agent enum.
 
 use cmux::ProcessInfoResult;
 
@@ -269,6 +270,12 @@ fn shell_wrapped_agent(runtime: &str, argv: &[String]) -> Option<String> {
                 index = index.saturating_add(2);
                 continue;
             }
+            if shell_option_has_attached_value(runtime, flag) {
+                // The value is already part of this option. Do not consume
+                // the following token, which may be the script.
+                index += 1;
+                continue;
+            }
             if shell_option_reads_stdin(runtime, flag) {
                 reads_stdin = true;
                 index += 1;
@@ -473,9 +480,10 @@ fn shell_option_exits(runtime: &str, flag: &str) -> bool {
 fn shell_option_takes_value(runtime: &str, flag: &str) -> bool {
     match runtime {
         "bash" => {
+            // This predicate means that the option consumes the *next*
+            // argv element. `--rcfile=value` already carries its value and
+            // must leave the following script visible.
             matches!(flag, "-o" | "-O" | "--rcfile" | "--init-file")
-                || long_option_with_value(flag, "--rcfile")
-                || long_option_with_value(flag, "--init-file")
         }
         "zsh" => matches!(flag, "-o" | "+o"),
         "fish" => {
@@ -489,14 +497,28 @@ fn shell_option_takes_value(runtime: &str, flag: &str) -> bool {
                         | "--profile"
                         | "--profile-startup"
                 )
-                || long_option_with_value(flag, "--debug")
-                || long_option_with_value(flag, "--debug-output")
-                || long_option_with_value(flag, "--features")
-                || long_option_with_value(flag, "--init-command")
-                || long_option_with_value(flag, "--profile")
-                || long_option_with_value(flag, "--profile-startup")
         }
         "sh" => flag == "-o",
+        _ => false,
+    }
+}
+
+fn shell_option_has_attached_value(runtime: &str, flag: &str) -> bool {
+    match runtime {
+        "bash" => {
+            long_option_with_attached_value(flag, "--rcfile")
+                || long_option_with_attached_value(flag, "--init-file")
+        }
+        "fish" => [
+            "--debug",
+            "--debug-output",
+            "--features",
+            "--init-command",
+            "--profile",
+            "--profile-startup",
+        ]
+        .iter()
+        .any(|option| long_option_with_attached_value(flag, option)),
         _ => false,
     }
 }
@@ -521,7 +543,7 @@ fn shell_option_reads_stdin(runtime: &str, flag: &str) -> bool {
     saw_stdin_mode
 }
 
-fn long_option_with_value(flag: &str, option: &str) -> bool {
+fn long_option_with_attached_value(flag: &str, option: &str) -> bool {
     flag.strip_prefix(option).is_some_and(|value| value.starts_with('='))
 }
 
@@ -674,8 +696,10 @@ fn runtime_option_takes_value(runtime: &str, argument: &str) -> bool {
         name if is_python_runtime(name) => {
             // `-S` is a boolean site-import switch. `-L` and `-o` are kept
             // for alternate Python runtimes that document those options.
+            // This predicate only describes options that consume the next
+            // argv element. An attached `--check-hash-based-pycs=value`
+            // already contains its value and must leave the script visible.
             matches!(argument, "-m" | "-W" | "-X" | "-L" | "-o" | "--check-hash-based-pycs")
-                || long_option_with_value(argument, "--check-hash-based-pycs")
         }
         _ => false,
     }
@@ -1906,6 +1930,8 @@ mod tests {
                 vec!["python3.12", "--check-hash-based-pycs=always", "/tmp/codex"],
                 "codex",
             ),
+            ("python3.12", vec!["python3.12", "-Xutf8", "/tmp/claude"], "claude"),
+            ("python3.12", vec!["python3.12", "-Wignore", "/tmp/pi"], "pi"),
             ("bash", vec!["bash", "--rcfile=/tmp/config", "/tmp/claude"], "claude"),
             ("bash", vec!["bash", "--init-file=/tmp/config", "/tmp/pi"], "pi"),
             ("fish", vec!["fish", "--debug=3", "/tmp/codex"], "codex"),

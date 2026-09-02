@@ -84,8 +84,9 @@ derived herdr material.
 bounded traversal and `/proc` streaming, safer path candidates, attached
 runtime-mode parsing, positional-argument boundaries, direct shell-script and
 shell-word parsing, runtime-specific shell invocation-mode checks, Python
-boolean/exit/value option boundaries, and an explicit Linux child-group
-fallback. The Python option distinctions are a local correctness improvement:
+boolean/exit/value option boundaries, attached-versus-separate option handling,
+and an explicit Linux child-group fallback. The Python option distinctions are
+a local correctness improvement:
 `-S` does not consume the script, documented help aliases (`-?`, `-VV`)
 terminate, and help/version/hash options cannot expose following tokens as
 agent executables. Its strict Pi package-entrypoint check includes herdr's

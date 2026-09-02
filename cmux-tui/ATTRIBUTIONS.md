@@ -41,7 +41,8 @@ Derived material and vendored material:
   candidate filtering, attached runtime-mode parsing, positional-argument
   boundaries, direct shell-script parsing, shell-word unescaping, runtime-specific
   shell invocation-mode checks, Python boolean/exit/value option boundaries,
-  and bounded `/proc` streaming added by manaflow. The Python distinctions are
+  attached-versus-separate option handling, and bounded `/proc` streaming added
+  by manaflow. The Python distinctions are
   a local correctness improvement over the inherited option list: `-S` is
   boolean, documented help aliases (`-?`, `-VV`) terminate, and
   help/version/hash options cannot expose following tokens as agent

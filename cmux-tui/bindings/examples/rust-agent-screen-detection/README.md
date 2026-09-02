@@ -44,8 +44,9 @@ process evidence. Runtime parsing handles attached eval and module flags and
 stops at the first positional script. Shell parsing handles direct script
 arguments and escaped command words. Command flags follow the grammar of the
 specific shell, including fish's separate and inline `--command` forms, while
-value-taking, no-exec, exit-only, and unknown shell modes fail closed. A
-package-shaped path inside eval text cannot claim an agent identity.
+value-taking, no-exec, exit-only, and unknown shell modes fail closed. Attached
+option values stay with their option, so they cannot hide the following script.
+A package-shaped path inside eval text cannot claim an agent identity.
 
 When cmux supervises the process, the scanner copies
 `CMUX_PLUGIN_GENERATION` into each event. This lets the core retire an old
