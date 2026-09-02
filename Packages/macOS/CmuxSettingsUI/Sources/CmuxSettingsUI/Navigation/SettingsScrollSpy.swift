@@ -9,10 +9,13 @@ enum SettingsScrollSpy {
     /// reported relative to it.
     static let coordinateSpace = "settingsDetailScroll"
 
-    /// A section becomes "current" once its top scrolls to within this many
-    /// points of the viewport top. Sits below the detail's top padding so the
-    /// first section is selected at rest.
-    static let activationLine: CGFloat = 96
+    /// A section becomes "current" once its top scrolls up to within this many
+    /// points of the viewport top — i.e. when its header essentially reaches the
+    /// top edge. Aligned with the detail's 20pt top padding so the section
+    /// sitting at the top is the highlighted one, and the first section is
+    /// selected at rest. Keep this small: larger values switch the highlight
+    /// while the next section's header is still well below the top (too early).
+    static let activationLine: CGFloat = 20
 
     /// Picks the active section from the reported top offsets.
     ///
