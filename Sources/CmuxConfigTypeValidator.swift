@@ -166,7 +166,7 @@ struct CmuxConfigTypeValidator: Sendable {
                 issues.append(issue(path: "\(path).restart", key: "invalidValue", arguments: []))
             }
         }
-        if let value = entry["confirm"], !isNull(value), !(value is Bool) {
+        if let value = entry["confirm"], !isNull(value), !isJSONBoolean(value) {
             issues.append(issue(path: "\(path).confirm", key: "invalidField", arguments: [phrase("boolean", defaultValue: "a boolean")]))
         }
     }
@@ -314,7 +314,7 @@ struct CmuxConfigTypeValidator: Sendable {
                     continue
                 }
             }
-            if let value = surface["focus"], !isNull(value), !(value is Bool) {
+            if let value = surface["focus"], !isNull(value), !isJSONBoolean(value) {
                 issues.append(issue(path: "\(surfacePath).focus", key: "invalidField", arguments: [phrase("boolean", defaultValue: "a boolean")]))
             }
         }
@@ -347,6 +347,14 @@ struct CmuxConfigTypeValidator: Sendable {
         guard let number = value as? NSNumber else { return false }
         let type = String(cString: number.objCType)
         return type != "c" && type != "B"
+    }
+
+    private func isJSONBoolean(_ value: Any) -> Bool {
+        // JSONSerialization bridges both booleans and numbers to NSNumber;
+        // objCType is the reliable discriminator for JSON's strict Bool type.
+        guard let number = value as? NSNumber else { return false }
+        let type = String(cString: number.objCType)
+        return type == "c" || type == "B"
     }
 
     private func phrase(_ key: String, defaultValue: String) -> String {

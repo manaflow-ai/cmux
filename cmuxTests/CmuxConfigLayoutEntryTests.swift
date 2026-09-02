@@ -154,6 +154,17 @@ struct CmuxConfigLayoutEntryTests {
         #expect(issues.contains { $0.path == "commands[0].layout.split" })
     }
 
+    @Test func typeValidatorRejectsNumericBooleanFields() throws {
+        let data = Data(#"{"commands":[{"name":"command","command":"echo","confirm":1},{"name":"layout","layout":{"pane":{"surfaces":[{"type":"terminal","focus":0}]}}}]}"#.utf8)
+        let object = try JSONSerialization.jsonObject(with: data)
+        let paths = Set(CmuxConfigTypeValidator().issues(in: object).map(\.path))
+        #expect(paths.contains("commands[0].confirm"))
+        #expect(paths.contains("commands[1].layout.pane.surfaces[0].focus"))
+        let config = try decode(String(decoding: data, as: UTF8.self))
+        #expect(config.commands.isEmpty)
+        #expect(config.commandDecodingIssues.count == 2)
+    }
+
     @Test func typeValidatorMatchesRuntimeColorNormalization() throws {
         let object = try JSONSerialization.jsonObject(
             with: Data(#"{"commands":[{"name":"layout","color":"  #336699  ","layout":{"pane":{"surfaces":[{"type":"terminal"}]}}}]}"#.utf8)
