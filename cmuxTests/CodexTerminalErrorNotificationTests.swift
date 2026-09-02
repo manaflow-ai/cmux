@@ -6,6 +6,50 @@ private final class CodexTerminalErrorBundleMarker: NSObject {}
 
 @Suite("Codex terminal error notifications", .serialized)
 struct CodexTerminalErrorNotificationTests {
+    private func runStopBanner(_ banner: String) throws -> (result: CodexTerminalErrorProcess.Result, commands: [String]) {
+        let root = URL(
+            fileURLWithPath: "/tmp/cmux-cterr-banner-\(UUID().uuidString.prefix(8))",
+            isDirectory: true
+        )
+        let socketPath = root.appendingPathComponent("c.sock").path
+        let workspaceID = "11111111-1111-1111-1111-111111111111"
+        let surfaceID = "22222222-2222-2222-2222-222222222222"
+        let sessionID = "codex-session-banner"
+
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let server = try CodexTerminalErrorSocketServer(
+            socketPath: socketPath,
+            workspaceID: workspaceID,
+            surfaceID: surfaceID
+        )
+        server.start()
+        defer { server.stop() }
+
+        var environment = ProcessInfo.processInfo.environment
+        environment["CMUX_SOCKET_PATH"] = socketPath
+        environment["CMUX_WORKSPACE_ID"] = workspaceID
+        environment["CMUX_SURFACE_ID"] = surfaceID
+        environment["CMUX_AGENT_HOOK_STATE_DIR"] = root.path
+        environment["HOME"] = root.path
+        environment["CFFIXED_USER_HOME"] = root.path
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+
+        let hookInput = #"{"session_id":"\#(sessionID)","cwd":"\#(root.path)","hook_event_name":"Stop","model":"gpt-5.5","permission_mode":"default","stop_hook_active":false,"last_assistant_message":"\#(banner)"}"#
+        let cliPath = try BundledCLITestSupport.bundledCLIPath(
+            for: CodexTerminalErrorBundleMarker.self
+        )
+        let result = CodexTerminalErrorProcess().run(
+            executablePath: cliPath,
+            arguments: ["hooks", "codex", "stop"],
+            environment: environment,
+            standardInput: hookInput,
+            timeout: 5
+        )
+        return (result, server.commands)
+    }
+
     @Test("A persisted terminal error wins over partial assistant output")
     func nestedTurnCompleteErrorNotifies() throws {
         let root = URL(
@@ -27,10 +71,12 @@ struct CodexTerminalErrorNotificationTests {
         {"timestamp":"2026-07-15T07:55:29.500Z","type":"event_msg","payload":{"type":"task_started","turn_id":"\(turnID)","started_at":1784102129}}
         {"timestamp":"2026-07-15T07:55:29.600Z","type":"response_item","payload":{"type":"message","role":"assistant","content":[{"type":"output_text","text":"Partial response"}]}}
         {"timestamp":"2026-07-15T07:55:29.804Z","type":"event_msg","payload":{"type":"task_complete","turn_id":"\(turnID)","last_agent_message":"Partial response","error":{"message":"Selected model is at capacity. Please try a different model.","codex_error_info":"server_overloaded"}}}
+        {"timestamp":"2026-07-15T07:55:29.900Z","type":"response_item","payload":{"type":"message","role":"assistant","turn_id":"turn-later-unrelated","content":[{"type":"output_text","text":"Later unrelated turn"}]}}
         """.write(to: transcriptURL, atomically: true, encoding: .utf8)
 
         let server = try CodexTerminalErrorSocketServer(
             socketPath: socketPath,
+            workspaceID: workspaceID,
             surfaceID: surfaceID
         )
         server.start()
@@ -41,6 +87,8 @@ struct CodexTerminalErrorNotificationTests {
         environment["CMUX_WORKSPACE_ID"] = workspaceID
         environment["CMUX_SURFACE_ID"] = surfaceID
         environment["CMUX_AGENT_HOOK_STATE_DIR"] = root.path
+        environment["HOME"] = root.path
+        environment["CFFIXED_USER_HOME"] = root.path
         environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
 
         let hookInput = """
@@ -62,7 +110,7 @@ struct CodexTerminalErrorNotificationTests {
         #expect(
             server.commands.contains { command in
                 command.contains(
-                    "notify_target \(workspaceID) \(surfaceID) Codex|Error|Selected model is at capacity. Please try a different model."
+                    "notify_target_async \(workspaceID) \(surfaceID) Codex|Error|Selected model is at capacity. Please try a different model."
                 )
             },
             "Expected the nested terminal error to notify, saw \(server.commands)"
@@ -77,10 +125,126 @@ struct CodexTerminalErrorNotificationTests {
             "Expected the nested terminal error to set error status, saw \(server.commands)"
         )
     }
+
+    @Test("A request-timeout banner in the Stop payload notifies")
+    func requestTimeoutBannerNotifies() throws {
+        let (result, commands) = try runStopBanner("■ request timed out")
+
+        #expect(!result.timedOut, "\(result.stderr)")
+        #expect(result.status == 0, "\(result.stderr)")
+        let notification = commands.first { command in
+            command.contains("Codex|Request timed out|")
+        }
+        #expect(
+            notification != nil,
+            "Expected the request-timeout banner to notify, saw \(commands)"
+        )
+        #expect(notification?.contains("■ request timed out") == false)
+        #expect(notification?.contains("Try again") == true)
+        #expect(
+            commands.allSatisfy { !$0.contains("c=turn-complete") },
+            "A request timeout must not use the suppressible completion category, saw \(commands)"
+        )
+    }
+
+    @Test("A request-timeout banner in an agent_message transcript notifies")
+    func transcriptAgentMessageTimeoutNotifies() throws {
+        let root = URL(
+            fileURLWithPath: "/tmp/cmux-cterr-transcript-timeout-\(UUID().uuidString.prefix(8))",
+            isDirectory: true
+        )
+        let socketPath = root.appendingPathComponent("c.sock").path
+        let transcriptURL = root.appendingPathComponent("rollout.jsonl")
+        let workspaceID = "11111111-1111-1111-1111-111111111111"
+        let surfaceID = "22222222-2222-2222-2222-222222222222"
+        let sessionID = "codex-session-transcript-timeout"
+        let turnID = "turn-transcript-timeout"
+
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        try """
+        {"timestamp":"2026-07-15T07:55:29.462Z","type":"session_meta","payload":{"id":"\(sessionID)","cwd":"\(root.path)"}}
+        {"timestamp":"2026-07-15T07:55:29.500Z","type":"event_msg","payload":{"type":"task_started","turn_id":"\(turnID)"}}
+        {"timestamp":"2026-07-15T07:55:29.700Z","type":"event_msg","payload":{"type":"agent_message","turn_id":"\(turnID)","message":"■ request timed out","phase":"final_answer"}}
+        {"timestamp":"2026-07-15T07:55:29.804Z","type":"event_msg","payload":{"type":"task_complete","turn_id":"\(turnID)"}}
+        """.write(to: transcriptURL, atomically: true, encoding: .utf8)
+
+        let server = try CodexTerminalErrorSocketServer(
+            socketPath: socketPath,
+            workspaceID: workspaceID,
+            surfaceID: surfaceID
+        )
+        server.start()
+        defer { server.stop() }
+
+        var environment = ProcessInfo.processInfo.environment
+        environment["CMUX_SOCKET_PATH"] = socketPath
+        environment["CMUX_WORKSPACE_ID"] = workspaceID
+        environment["CMUX_SURFACE_ID"] = surfaceID
+        environment["CMUX_AGENT_HOOK_STATE_DIR"] = root.path
+        environment["HOME"] = root.path
+        environment["CFFIXED_USER_HOME"] = root.path
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+
+        let hookInput = """
+        {"session_id":"\(sessionID)","turn_id":"\(turnID)","transcript_path":"\(transcriptURL.path)","cwd":"\(root.path)","hook_event_name":"Stop","model":"gpt-5.5","permission_mode":"default","stop_hook_active":false}
+        """
+        let cliPath = try BundledCLITestSupport.bundledCLIPath(
+            for: CodexTerminalErrorBundleMarker.self
+        )
+        let result = CodexTerminalErrorProcess().run(
+            executablePath: cliPath,
+            arguments: ["hooks", "codex", "stop"],
+            environment: environment,
+            standardInput: hookInput,
+            timeout: 5
+        )
+
+        #expect(!result.timedOut, "\(result.stderr)")
+        #expect(result.status == 0, "\(result.stderr)")
+        let notification = server.commands.first { command in
+            command.contains("Codex|Request timed out|")
+        }
+        #expect(
+            notification != nil,
+            "Expected the transcript timeout banner to notify, saw \(server.commands)"
+        )
+        #expect(notification?.contains("■ request timed out") == false)
+        #expect(notification?.contains("Try again") == true)
+    }
+
+    @Test("Capacity, quota, and rate-limit banners notify")
+    func capacityQuotaAndRateLimitBannersNotify() throws {
+        let cases = [
+            ("Selected model is at capacity. Please try a different model.", "Model at capacity"),
+            ("server overloaded", "Model at capacity"),
+            ("quota exceeded", "Quota exhausted"),
+            ("429 Too Many Requests: rate limit exceeded", "Rate limited"),
+        ]
+        for (banner, subtitle) in cases {
+            let (result, commands) = try runStopBanner(banner)
+            #expect(!result.timedOut, "\(result.stderr)")
+            #expect(result.status == 0, "\(result.stderr)")
+            let notification = commands.first { command in
+                command.contains("Codex|\(subtitle)|")
+            }
+            #expect(
+                notification != nil,
+                "Expected \(banner) to notify, saw \(commands)"
+            )
+            #expect(notification?.contains(banner) == false)
+            #expect(notification?.contains("Try again") == true)
+            #expect(
+                commands.allSatisfy { !$0.contains("c=turn-complete") },
+                "An abnormal stop must not use the completion category, saw \(commands)"
+            )
+        }
+    }
 }
 
 private final class CodexTerminalErrorSocketServer: @unchecked Sendable {
     private let listenerFD: Int32
+    private let workspaceID: String
     private let surfaceID: String
     private let lock = NSLock()
     private var recordedCommands: [String] = []
@@ -90,7 +254,11 @@ private final class CodexTerminalErrorSocketServer: @unchecked Sendable {
         lock.withLock { recordedCommands }
     }
 
-    init(socketPath: String, surfaceID: String) throws {
+    init(
+        socketPath: String,
+        workspaceID: String,
+        surfaceID: String
+    ) throws {
         unlink(socketPath)
         let listenerFD = Darwin.socket(AF_UNIX, SOCK_STREAM, 0)
         guard listenerFD >= 0 else { throw Self.posixError("socket") }
@@ -125,6 +293,7 @@ private final class CodexTerminalErrorSocketServer: @unchecked Sendable {
             throw Self.posixError("bind/listen")
         }
         self.listenerFD = listenerFD
+        self.workspaceID = workspaceID
         self.surfaceID = surfaceID
     }
 
@@ -173,8 +342,22 @@ private final class CodexTerminalErrorSocketServer: @unchecked Sendable {
     private func response(for line: String) -> String {
         guard let data = line.data(using: .utf8),
               let payload = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-              let id = payload["id"] as? String else {
+              let id = payload["id"] as? String,
+              let method = payload["method"] as? String else {
             return "OK"
+        }
+        if method == "agent.resolve_delivery_target" {
+            let params = payload["params"] as? [String: Any] ?? [:]
+            let source = params["surface_id"] == nil ? "pid" : "surface"
+            var result: [String: Any] = [
+                "source": source,
+                "workspace_id": workspaceID,
+                "surface_id": surfaceID,
+            ]
+            if source == "pid" {
+                result["pid_resolution"] = "corroborated"
+            }
+            return Self.v2Response(id: id, result: result)
         }
         let response: [String: Any] = [
             "id": id,
@@ -183,6 +366,19 @@ private final class CodexTerminalErrorSocketServer: @unchecked Sendable {
         ]
         let responseData = try? JSONSerialization.data(withJSONObject: response)
         return String(data: responseData ?? Data("{}".utf8), encoding: .utf8) ?? "{}"
+    }
+
+    private static func v2Response(id: String, result: [String: Any]) -> String {
+        let response: [String: Any] = [
+            "id": id,
+            "ok": true,
+            "result": result,
+        ]
+        guard let data = try? JSONSerialization.data(withJSONObject: response),
+              let encoded = String(data: data, encoding: .utf8) else {
+            return "{}"
+        }
+        return encoded
     }
 
     private static func writeAll(_ string: String, to fd: Int32) -> Bool {
@@ -238,6 +434,11 @@ private struct CodexTerminalErrorProcess {
         process.standardOutput = stdout
         process.standardError = stderr
 
+        // Install the handler before launch so an immediately exiting child
+        // cannot race registration and leave the test waiting for a timeout.
+        let finished = DispatchSemaphore(value: 0)
+        process.terminationHandler = { _ in finished.signal() }
+
         do {
             try process.run()
         } catch {
@@ -246,11 +447,10 @@ private struct CodexTerminalErrorProcess {
         stdin.fileHandleForWriting.write(Data(standardInput.utf8))
         try? stdin.fileHandleForWriting.close()
 
-        let finished = DispatchSemaphore(value: 0)
-        DispatchQueue.global(qos: .userInitiated).async {
-            process.waitUntilExit()
-            finished.signal()
-        }
+        // Avoid consuming a global queue worker for waitUntilExit(). Under
+        // parallel test load the worker can be delayed even after Process has
+        // exited, making a successful hook look like a timeout. Process calls
+        // the termination handler when the child actually terminates.
         let timedOut = finished.wait(timeout: .now() + timeout) == .timedOut
         if timedOut {
             process.terminate()

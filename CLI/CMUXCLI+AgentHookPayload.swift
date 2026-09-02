@@ -75,8 +75,8 @@ extension CMUXCLI {
 
         for key in [
             "tool_name", "toolName", "turn_id", "turnId", "conversation_id", "conversationId", "transcript_path", "transcriptPath",
-            "last_assistant_message", "lastAssistantMessage", "assistantPreamble", "assistant_preamble", "assistant_response", "assistantResponse",
-            "event", "event_name", "hook_event_name", "hookEventName", "type", "kind", "notification_type", "matcher", "reason", "source", "terminationReason",
+            "last_assistant_message", "lastAssistantMessage", "last_agent_message", "lastAgentMessage", "assistantPreamble", "assistant_preamble", "assistant_response", "assistantResponse",
+            "event", "event_name", "hook_event_name", "hookEventName", "type", "kind", "notification_type", "matcher", "reason", "stop_reason", "stopReason", "source", "terminationReason", "termination_reason",
             "title", "summary", "message", "body", "text", "prompt", "error", "codex_error_info", "codexErrorInfo",
             "additional_details", "additionalDetails", "description",
             "campfire_event_type", "campfireEventType", "display_name", "displayName", "capability",
@@ -134,11 +134,12 @@ extension CMUXCLI {
             }
         }
 
-        for key in ["notification", "data"] {
+        for key in ["notification", "data", "payload"] {
             guard let nested = object[key] as? [String: Any] else { continue }
             var compactNested: [String: Any] = [:]
             for nestedKey in [
-                "type", "kind", "reason", "title", "summary", "message", "body", "text", "prompt", "error", "conversation_id", "conversationId", "transcript_path", "transcriptPath",
+                "type", "kind", "reason", "stop_reason", "stopReason", "terminationReason", "termination_reason", "title", "summary", "message", "body", "text", "prompt", "error", "conversation_id", "conversationId", "transcript_path", "transcriptPath",
+                "last_assistant_message", "lastAssistantMessage", "last_agent_message", "lastAgentMessage", "assistantPreamble", "assistant_preamble", "assistant_response", "assistantResponse",
                 "codex_error_info", "codexErrorInfo", "additional_details", "additionalDetails", "description",
             ] {
                 if let value = compactClaudeHookValue(nested[nestedKey], key: nestedKey) {
@@ -153,8 +154,8 @@ extension CMUXCLI {
         if let extra = object["extra"] as? [String: Any] {
             var compactExtra: [String: Any] = [:]
             for extraKey in [
-                "assistant_response", "assistantResponse", "last_assistant_message", "lastAssistantMessage",
-                "assistantPreamble", "assistant_preamble", "user_message", "userMessage",
+                "assistant_response", "assistantResponse", "last_assistant_message", "lastAssistantMessage", "last_agent_message", "lastAgentMessage",
+                "assistantPreamble", "assistant_preamble", "user_message", "userMessage", "reason", "stop_reason", "stopReason", "terminationReason", "termination_reason",
                 "title", "command", "description", "pattern_key", "patternKey",
                 "surface", "choice", "message", "body", "text", "prompt", "summary", "error",
                 "campfire_event_type", "campfireEventType", "display_name", "displayName", "capability",
@@ -173,11 +174,13 @@ extension CMUXCLI {
 
     private func claudeHookCompactFieldLimit(for key: String) -> Int {
         switch key {
-        case "tool_name", "toolName", "turn_id", "turnId", "conversation_id", "conversationId", "event", "event_name", "hook_event_name", "hookEventName", "type", "kind", "notification_type", "matcher", "reason", "source", "campfire_event_type", "campfireEventType", "capability":
+        case "tool_name", "toolName", "turn_id", "turnId", "conversation_id", "conversationId", "event", "event_name", "hook_event_name", "hookEventName", "type", "kind", "notification_type", "matcher", "source", "campfire_event_type", "campfireEventType", "capability":
             return 80
+        case "reason", "stop_reason", "stopReason", "terminationReason", "termination_reason":
+            return 240
         case "transcript_path", "transcriptPath":
             return 240
-        case "last_assistant_message", "lastAssistantMessage", "assistantPreamble", "assistant_preamble", "assistant_response", "assistantResponse", "title", "summary", "message", "body", "text", "prompt", "error", "codex_error_info", "codexErrorInfo", "additional_details", "additionalDetails", "description", "terminationReason", "user_message", "userMessage", "command":
+        case "last_assistant_message", "lastAssistantMessage", "last_agent_message", "lastAgentMessage", "assistantPreamble", "assistant_preamble", "assistant_response", "assistantResponse", "title", "summary", "message", "body", "text", "prompt", "error", "codex_error_info", "codexErrorInfo", "additional_details", "additionalDetails", "description", "user_message", "userMessage", "command":
             return 240
         case "display_name", "displayName":
             return 120
@@ -264,6 +267,10 @@ extension CMUXCLI {
            let id = firstString(in: nested, keys: sessionIDKeys) {
             return id
         }
+        if let nested = object["payload"] as? [String: Any],
+           let id = firstString(in: nested, keys: sessionIDKeys) {
+            return id
+        }
         if let session = object["session"] as? [String: Any],
            let id = firstString(in: session, keys: ["id"] + sessionIDKeys) {
             return id
@@ -285,6 +292,10 @@ extension CMUXCLI {
             return transcriptPath
         }
         if let nested = object["data"] as? [String: Any],
+           let transcriptPath = firstString(in: nested, keys: transcriptPathKeys) {
+            return transcriptPath
+        }
+        if let nested = object["payload"] as? [String: Any],
            let transcriptPath = firstString(in: nested, keys: transcriptPathKeys) {
             return transcriptPath
         }
@@ -316,6 +327,14 @@ extension CMUXCLI {
             return cwd
         }
         if let nested = object["data"] as? [String: Any],
+           let cwd = firstWorkspacePath(in: nested) {
+            return cwd
+        }
+        if let nested = object["payload"] as? [String: Any],
+           let cwd = firstString(in: nested, keys: cwdKeys) {
+            return cwd
+        }
+        if let nested = object["payload"] as? [String: Any],
            let cwd = firstWorkspacePath(in: nested) {
             return cwd
         }

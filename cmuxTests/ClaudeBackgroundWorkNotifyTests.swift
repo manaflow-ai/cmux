@@ -33,7 +33,7 @@ struct ClaudeBackgroundWorkNotifyTests {
         name: String,
         sessionId: String,
         stdin: String
-    ) throws -> (snapshot: [String], cachedPending: Bool?) {
+    ) throws -> (snapshot: [String], cachedPending: Bool?, lifecycle: String?) {
         let harness = ClaudeHookSurfaceResolutionSwiftTests()
         let context = try harness.makeClaudeHookContext(name: name)
         let storeURL = context.root.appendingPathComponent("claude-hook-sessions.json")
@@ -61,8 +61,9 @@ struct ClaudeBackgroundWorkNotifyTests {
         let snapshot = context.state.snapshot()
         // Read the cached flag from the store BEFORE cleanup deletes the temp dir.
         let cached = cachedPending(storeURL, sessionId: sessionId)
+        let lifecycle = cachedLifecycle(storeURL, sessionId: sessionId)
         context.cleanup()
-        return (snapshot, cached)
+        return (snapshot, cached, lifecycle)
     }
 
     private func cachedPending(_ storeURL: URL, sessionId: String) -> Bool? {
@@ -73,17 +74,26 @@ struct ClaudeBackgroundWorkNotifyTests {
         return record["hadPendingBackgroundWorkAtStop"] as? Bool
     }
 
+    private func cachedLifecycle(_ storeURL: URL, sessionId: String) -> String? {
+        guard let data = try? Data(contentsOf: storeURL),
+              let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let sessions = obj["sessions"] as? [String: Any],
+              let record = sessions[sessionId] as? [String: Any] else { return nil }
+        return record["agentLifecycle"] as? String
+    }
+
     @Test func stopWithRunningBackgroundTaskTagsPendingAndCaches() throws {
         let session = "bg-running-session"
         let stdin = #"""
         {"session_id":"\#(session)","cwd":"/tmp/x","hook_event_name":"Stop","last_assistant_message":"ok","background_tasks":[{"id":"t1","type":"shell","status":"running","description":"build","command":"sleep 1"}],"session_crons":[]}
         """#
-        let (snapshot, cached) = try runStopHook(name: "bg-run", sessionId: session, stdin: stdin)
+        let (snapshot, cached, lifecycle) = try runStopHook(name: "bg-run", sessionId: session, stdin: stdin)
         #expect(
             notifyLine(snapshot, containing: "c=turn-complete;p=1") != nil,
             "Stop with a running background task must tag the done-ping pending; saw \(snapshot)"
         )
         #expect(cached == true)
+        #expect(lifecycle == "running")
         // Sidebar pill must not say "Idle" while background work is live.
         #expect(statusLine(snapshot, value: "Running") != nil,
                 "Pending stop must show a Running pill, not Idle; saw \(snapshot)")
@@ -101,7 +111,7 @@ struct ClaudeBackgroundWorkNotifyTests {
         let stdin = #"""
         {"session_id":"\#(session)","cwd":"/tmp/x","hook_event_name":"Stop","last_assistant_message":"ok","background_tasks":[],"session_crons":[]}
         """#
-        let (snapshot, cached) = try runStopHook(name: "bg-empty", sessionId: session, stdin: stdin)
+        let (snapshot, cached, _) = try runStopHook(name: "bg-empty", sessionId: session, stdin: stdin)
         #expect(notifyLine(snapshot, containing: "c=turn-complete;p=0") != nil,
                 "Truly-idle stop must tag pending=0; saw \(snapshot)")
         #expect(cached == false)
@@ -114,12 +124,34 @@ struct ClaudeBackgroundWorkNotifyTests {
                 "Truly-idle stop must journal a non-pending turn completion; saw \(snapshot)")
     }
 
+    @Test func providerErrorWithRunningBackgroundTaskStaysRunning() throws {
+        let session = "bg-provider-error-session"
+        let stdin = #"""
+        {"session_id":"bg-provider-error-session","cwd":"/tmp/x","hook_event_name":"Stop","last_assistant_message":"API Error: 529 overloaded_error: Overloaded","background_tasks":[{"id":"t1","type":"shell","status":"running","description":"build"}],"session_crons":[]}
+        """#
+        let (snapshot, cached, lifecycle) = try runStopHook(
+            name: "bg-provider-error",
+            sessionId: session,
+            stdin: stdin
+        )
+
+        #expect(
+            notifyLine(snapshot, containing: "|Model at capacity|") != nil,
+            "A provider error with live background work must still notify"
+        )
+        #expect(cached == true)
+        #expect(
+            lifecycle == "running",
+            "Live background work must keep the persisted lifecycle running after an error"
+        )
+    }
+
     @Test func stopWithPendingCronTagsPending() throws {
         let session = "bg-cron-session"
         let stdin = #"""
         {"session_id":"\#(session)","cwd":"/tmp/x","hook_event_name":"Stop","last_assistant_message":"ok","background_tasks":[],"session_crons":[{"id":"c1"}]}
         """#
-        let (snapshot, _) = try runStopHook(name: "bg-cron", sessionId: session, stdin: stdin)
+        let (snapshot, _, _) = try runStopHook(name: "bg-cron", sessionId: session, stdin: stdin)
         #expect(notifyLine(snapshot, containing: "c=turn-complete;p=1") != nil,
                 "A pending scheduled wakeup must tag pending=1; saw \(snapshot)")
     }
@@ -130,7 +162,7 @@ struct ClaudeBackgroundWorkNotifyTests {
         let stdin = #"""
         {"session_id":"\#(session)","cwd":"/tmp/x","hook_event_name":"Stop","last_assistant_message":"ok"}
         """#
-        let (snapshot, cached) = try runStopHook(name: "bg-old", sessionId: session, stdin: stdin)
+        let (snapshot, cached, _) = try runStopHook(name: "bg-old", sessionId: session, stdin: stdin)
         #expect(notifyLine(snapshot, containing: "c=turn-complete;p=0") != nil,
                 "Absent arrays (old client) must behave as not-pending; saw \(snapshot)")
         #expect(cached == false)
@@ -295,5 +327,58 @@ struct ClaudeBackgroundWorkNotifyTests {
                 "Idle idle_prompt must still set the Needs input pill; saw \(snapshot)")
         #expect(journalEvent(snapshot, kind: "agent.question.requested") != nil,
                 "Idle idle_prompt must journal a needs-input question; saw \(snapshot)")
+    }
+
+    @Test func providerCapacityAndQuotaStopsUseUngatedErrorNotifications() throws {
+        let cases = [
+            ("claude-capacity", "API Error: 529 overloaded_error: Overloaded", "Model at capacity"),
+            ("claude-quota", "You've hit your usage limit. Please try again later.", "Quota exhausted"),
+            ("claude-timeout", "■ request timed out", "Request timed out"),
+        ]
+
+        for (name, banner, subtitle) in cases {
+            let session = "\(name)-session"
+            let stdin = #"{"session_id":"\#(session)","cwd":"/tmp/x","hook_event_name":"Stop","last_assistant_message":"\#(banner)","background_tasks":[],"session_crons":[]}"#
+            let (snapshot, _, _) = try runStopHook(name: name, sessionId: session, stdin: stdin)
+
+            let notification = notifyLine(snapshot, containing: "|\(subtitle)|")
+            #expect(
+                notification != nil,
+                "\(name) must publish an error-class notification, saw \(snapshot)"
+            )
+            #expect(
+                notification?.contains(banner) == false,
+                "\(name) must not expose the upstream banner in the notification, saw \(notification ?? "nil")"
+            )
+            #expect(
+                notifyLine(snapshot, containing: "c=turn-complete") == nil,
+                "\(name) must not route a provider failure through the suppressible completion gate, saw \(snapshot)"
+            )
+        }
+    }
+
+    @Test func userInterruptStopDoesNotBecomeAnAbnormalErrorNotification() throws {
+        let session = "claude-user-interrupt-session"
+        let stdin = #"{"session_id":"\#(session)","cwd":"/tmp/x","hook_event_name":"Stop","last_assistant_message":"Interrupted by user (Ctrl+C)","background_tasks":[],"session_crons":[]}"#
+        let (snapshot, _, _) = try runStopHook(name: "claude-interrupt", sessionId: session, stdin: stdin)
+
+        let abnormalSubtitles = [
+            "Model at capacity",
+            "Quota exhausted",
+            "Rate limited",
+            "Request timed out",
+            "Authentication error",
+            "Network error",
+            "Error",
+        ]
+        let notifications = snapshot.filter { $0.hasPrefix("notify_target_async ") }
+        #expect(
+            notifications.allSatisfy { line in
+                abnormalSubtitles.allSatisfy { subtitle in
+                    !line.contains("|\(subtitle)|")
+                }
+            },
+            "A user interrupt must not produce an abnormal provider-error notification, saw \(snapshot)"
+        )
     }
 }

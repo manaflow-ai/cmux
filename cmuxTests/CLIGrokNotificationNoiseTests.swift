@@ -1,5 +1,6 @@
 import XCTest
 import Darwin
+import Foundation
 
 extension CLINotifyProcessIntegrationRegressionTests {
     func testGrokRepeatedWaitingNotificationsDedupe() throws {
@@ -44,6 +45,98 @@ extension CLINotifyProcessIntegrationRegressionTests {
         XCTAssertTrue(
             notifications.first?.contains(";s=needsInput") == true,
             "Fallback re-notification should carry the sound alert type, saw \(notifications)"
+        )
+    }
+
+    func testGrokStopReasonWithoutMessageNotifies() throws {
+        let context = try makeGrokNoiseContext(name: "grok-stop-reason")
+        defer { context.cleanup() }
+
+        // Exercise the snake_case alias and nested payload shape used by some
+        // hook adapters. Both fields must survive compaction before the shared
+        // abnormal-stop classifier sees the structured reason.
+        let payload = #"{"hookEventName":"Stop","sessionId":"\#(context.sessionId)","cwd":"\#(context.root.path)","payload":{"termination_reason":"rate limit"}}"#
+        try runGrokNoiseHook(context, "stop", payload: payload)
+
+        let notifications = notifyCommands(in: context.state.snapshot())
+        XCTAssertEqual(notifications.count, 1, "A structured stop reason must produce one notification, saw \(notifications)")
+        XCTAssertTrue(
+            notifications.first?.contains("Grok|Rate limited|") == true,
+            "A rate-limit termination reason without a message should classify as rate limited, saw \(notifications)"
+        )
+        XCTAssertTrue(
+            AgentJournalAppendCapture.contains(
+                context.state.snapshot(),
+                kind: "agent.error.reported",
+                agentKey: "grok",
+                sessionId: context.sessionId
+            ),
+            "A classified generic stop must journal an error boundary, saw \(context.state.snapshot())"
+        )
+        XCTAssertFalse(
+            AgentJournalAppendCapture.contains(
+                context.state.snapshot(),
+                kind: "agent.turn.completed",
+                agentKey: "grok",
+                sessionId: context.sessionId
+            ),
+            "A classified generic stop must not journal a completion boundary, saw \(context.state.snapshot())"
+        )
+    }
+
+    func testGrokUserRequestedReasonSuppressesStaleProviderBanner() throws {
+        let context = try makeGrokNoiseContext(name: "grok-user-requested-stop")
+        defer { context.cleanup() }
+
+        let providerBanner = "Selected model is at capacity. Please try a different model."
+        let payload = #"{"hookEventName":"Stop","sessionId":"\#(context.sessionId)","cwd":"\#(context.root.path)","payload":{"terminationReason":"user_requested","last_assistant_message":"\#(providerBanner)"}}"#
+        try runGrokNoiseHook(context, "stop", payload: payload)
+
+        let snapshot = context.state.snapshot()
+        XCTAssertFalse(
+            notifyCommands(in: snapshot).contains { $0.contains("Model at capacity") },
+            "A user_requested reason must suppress a stale provider banner, saw \(snapshot)"
+        )
+        XCTAssertTrue(
+            AgentJournalAppendCapture.contains(
+                snapshot,
+                kind: "agent.turn.completed",
+                agentKey: "grok",
+                sessionId: context.sessionId
+            ),
+            "A user-requested stop must remain a completion boundary, saw \(snapshot)"
+        )
+        XCTAssertFalse(
+            AgentJournalAppendCapture.contains(
+                snapshot,
+                kind: "agent.error.reported",
+                agentKey: "grok",
+                sessionId: context.sessionId
+            ),
+            "A user-requested stop must not journal an error boundary, saw \(snapshot)"
+        )
+    }
+
+    func testGrokLongTerminationReasonRetainsProviderFailureMarker() throws {
+        let context = try makeGrokNoiseContext(name: "grok-long-stop-reason")
+        defer { context.cleanup() }
+
+        let reason = String(repeating: "provider context ", count: 8)
+            + "API Error: 529 overloaded_error"
+        let payloadObject: [String: Any] = [
+            "hookEventName": "Stop",
+            "sessionId": context.sessionId,
+            "cwd": context.root.path,
+            "payload": ["terminationReason": reason],
+        ]
+        let data = try JSONSerialization.data(withJSONObject: payloadObject)
+        let payload = try XCTUnwrap(String(data: data, encoding: .utf8))
+        try runGrokNoiseHook(context, "stop", payload: payload)
+
+        let snapshot = context.state.snapshot()
+        XCTAssertTrue(
+            notifyCommands(in: snapshot).contains { $0.contains("Grok|Model at capacity|") },
+            "A provider marker beyond the old short reason bound must still classify, saw \(snapshot)"
         )
     }
 
