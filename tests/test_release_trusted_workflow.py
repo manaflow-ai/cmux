@@ -9,6 +9,7 @@ protected default branch.
 from __future__ import annotations
 
 import base64
+import json
 import pathlib
 import re
 import subprocess
@@ -82,6 +83,7 @@ def run_guard_fixture(
     source_content: str | None = None,
     main_content: str | None = None,
     tag_target_sha: str | None = None,
+    tag_name: str = "v1.2.3",
 ) -> subprocess.CompletedProcess[str]:
     """Exercise the real guard with a tag-controlled workflow mutation.
 
@@ -104,10 +106,12 @@ def run_guard_fixture(
     source_content_b64 = base64.b64encode(source_content.encode()).decode()
     main_content_b64 = base64.b64encode(main_content.encode()).decode()
     tag_target_sha = tag_target_sha or source_sha
+    tag_name_literal = json.dumps(tag_name)
     harness = f"""
+const outputs = {{}};
 const core = {{
   setFailed(message) {{ throw new Error(message); }},
-  setOutput() {{}},
+  setOutput(name, value) {{ outputs[name] = value; }},
   notice() {{}},
 }};
 const context = {{
@@ -122,7 +126,7 @@ const context = {{
     event: 'push',
     status: 'completed',
     conclusion: 'success',
-    head_branch: 'v1.2.3',
+    head_branch: {tag_name_literal},
     head_sha: '{source_sha}',
     head_repository: {{ full_name: 'manaflow-ai/cmux' }},
   }} }},
@@ -157,6 +161,7 @@ process.env.WORKFLOW_RUN_JSON = JSON.stringify(context.payload.workflow_run);
 (async () => {{
   try {{
 {script}
+    process.stdout.write(JSON.stringify(outputs));
   }} catch (error) {{
     console.error(error.message);
     process.exitCode = 1;
@@ -281,7 +286,8 @@ class ReleaseTrustedWorkflowTests(unittest.TestCase):
         self.assertIn("gh api", r2_recheck["run"])
         self.assertIn("skip_r2_upload", r2_recheck["if"])
         r2_upload = next(step for step in sign_steps if step.get("name") == "Upload release appcast to R2")
-        self.assertIn('RELEASE_TAG" == *-*', r2_upload["run"])
+        self.assertIn('[[ "$IS_PRERELEASE" == true ]]', r2_upload["run"])
+        self.assertNotIn('RELEASE_TAG" == *-*', r2_upload["run"])
 
         release_upload = next(step for step in sign_steps if step.get("name") == "Upload release asset")
         self.assertEqual(
@@ -298,6 +304,50 @@ class ReleaseTrustedWorkflowTests(unittest.TestCase):
         self.assertIn("gh release list --limit 1000", r2_upload["run"])
         self.assertIn("latest_sha", r2_upload["run"])
         self.assertIn("EXPECTED_SHA", r2_upload["run"])
+
+        self.assertEqual(
+            document["jobs"]["build-sign-notarize"]["env"]["IS_PRERELEASE"],
+            "${{ needs.validate-source.outputs.is_prerelease }}",
+        )
+
+    def test_signing_certificate_tempfile_is_private_and_symlink_safe(self) -> None:
+        document = load()
+        sign_steps = document["jobs"]["build-sign-notarize"]["steps"]
+        import_step = next(step for step in sign_steps if step.get("name") == "Import signing cert")
+        import_run = import_step["run"]
+        for required in (
+            "umask 077",
+            'runner_temp="${RUNNER_TEMP:?RUNNER_TEMP is required}"',
+            '[[ -d "$runner_temp" && ! -L "$runner_temp" ]]',
+            'cert_path="$(mktemp "$runner_temp/cmux-signing-cert.',
+            '[[ -f "$cert_path" && ! -L "$cert_path" ]]',
+            "trap 'rm -f -- \"$cert_path\"' EXIT",
+            'chmod 600 "$cert_path"',
+        ):
+            self.assertIn(required, import_run)
+        self.assertNotIn("/tmp/cert.p12", import_run)
+
+    def test_keychain_search_list_is_restored_and_cleanup_is_fail_closed(self) -> None:
+        document = load()
+        sign_steps = document["jobs"]["build-sign-notarize"]["steps"]
+        import_step = next(step for step in sign_steps if step.get("name") == "Import signing cert")
+        cleanup_step = next(step for step in sign_steps if step.get("name") == "Cleanup keychain")
+        import_run = import_step["run"]
+        cleanup_run = cleanup_step["run"]
+        self.assertIn('keychain_list_backup="$(mktemp "$runner_temp/cmux-keychain-list.', import_run)
+        self.assertIn('[[ -f "$keychain_list_backup" && ! -L "$keychain_list_backup" ]]', import_run)
+        self.assertIn('security list-keychains -d user > "$keychain_list_backup"', import_run)
+        self.assertIn("CMUX_KEYCHAIN_LIST_BACKUP", import_run)
+        self.assertEqual(cleanup_step["if"], "always()")
+        for required in (
+            'backup="${CMUX_KEYCHAIN_LIST_BACKUP:-}"',
+            '[[ -n "$backup" && -f "$backup" && ! -L "$backup" ]]',
+            "security list-keychains -d user -s",
+            'rm -f -- "$backup"',
+            "Failed to restore the keychain search list",
+        ):
+            self.assertIn(required, cleanup_run)
+        self.assertIn("CMUX_KEYCHAIN_CREATED", cleanup_run)
 
         # A reused self-hosted workspace must never delete another process's
         # lock. The pre-checkout cleanup is intentionally duplicated in each
@@ -367,6 +417,34 @@ class ReleaseTrustedWorkflowTests(unittest.TestCase):
         )
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("moved", result.stderr.lower())
+
+    def test_build_metadata_hyphen_is_not_a_prerelease(self) -> None:
+        document = load()
+        script = script_for(document["jobs"]["validate-source"])
+        result = run_guard_fixture(
+            script,
+            wrapper_blob="same-protected-blob",
+            main_blob="same-protected-blob",
+            source_content=OBSERVER_CONTENT,
+            main_content=OBSERVER_CONTENT,
+            tag_name="v1.2.3+build-1",
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn('"is_prerelease":"false"', result.stdout)
+
+    def test_leading_zero_semver_core_is_rejected(self) -> None:
+        document = load()
+        script = script_for(document["jobs"]["validate-source"])
+        result = run_guard_fixture(
+            script,
+            wrapper_blob="same-protected-blob",
+            main_blob="same-protected-blob",
+            source_content=OBSERVER_CONTENT,
+            main_content=OBSERVER_CONTENT,
+            tag_name="v01.2.3",
+        )
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("semantic version", result.stderr.lower())
 
 
 if __name__ == "__main__":
