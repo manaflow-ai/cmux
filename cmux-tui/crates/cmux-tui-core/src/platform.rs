@@ -923,16 +923,41 @@ pub fn spawn_cwd_to_local_path(value: &str) -> Option<PathBuf> {
     if !value.get(..5).is_some_and(|prefix| prefix.eq_ignore_ascii_case("file:")) {
         return Some(PathBuf::from(value));
     }
-    terminal_pwd_to_local_path(value)
+    if value.starts_with("cmux-tui:spawn-cwd:") {
+        return None;
+    }
+    // Legacy daemons serialized the authenticated spawn path directly.
+    // Snapshot data is received over the owner-token authenticated host
+    // channel, so preserve that format for backward compatibility.
+    spawn_cwd_to_local_path(value)
 }
 
-pub const SNAPSHOT_SPAWN_CWD_PREFIX: &str = "cmux-tui:spawn-cwd:";
+/// Versioned, host-authenticated provenance for a spawn CWD fallback. The
+/// capability token prevents a shell's OSC 7 payload from impersonating this
+/// value when a daemon adopts the host later.
+pub const SNAPSHOT_SPAWN_CWD_PREFIX: &str = "cmux-tui:spawn-cwd:v1:";
 
-pub fn snapshot_cwd_to_local_path(value: &str) -> Option<PathBuf> {
-    if let Some(path) = value.strip_prefix(SNAPSHOT_SPAWN_CWD_PREFIX) {
+pub fn snapshot_cwd_to_local_path(value: &str, owner_token: Option<&str>) -> Option<PathBuf> {
+    if let Some(payload) = value.strip_prefix(SNAPSHOT_SPAWN_CWD_PREFIX) {
+        let (token, path) = payload.split_once(':')?;
+        let expected = owner_token?;
+        if !constant_time_equal(token.as_bytes(), expected.as_bytes()) {
+            return None;
+        }
         return (!path.is_empty() && !path.contains('\0')).then(|| PathBuf::from(path));
     }
     terminal_pwd_to_local_path(value)
+}
+
+fn constant_time_equal(left: &[u8], right: &[u8]) -> bool {
+    if left.len() != right.len() {
+        return false;
+    }
+    let mut difference = 0_u8;
+    for (left, right) in left.iter().zip(right) {
+        difference |= left ^ right;
+    }
+    difference == 0
 }
 
 fn terminal_pwd_path_is_safe(path: &Path) -> bool {
@@ -1468,10 +1493,7 @@ mod tests {
     #[test]
     fn spawn_cwd_preserves_trusted_relative_paths() {
         assert_eq!(spawn_cwd_to_local_path("subdir"), Some(PathBuf::from("subdir")));
-        assert_eq!(
-            spawn_cwd_to_local_path("build:debug"),
-            Some(PathBuf::from("build:debug"))
-        );
+        assert_eq!(spawn_cwd_to_local_path("build:debug"), Some(PathBuf::from("build:debug")));
         assert_eq!(
             spawn_cwd_to_local_path(r"C:\Users\alice\src"),
             Some(PathBuf::from(r"C:\Users\alice\src"))
@@ -1482,7 +1504,10 @@ mod tests {
         );
         assert_eq!(spawn_cwd_to_local_path("file:///tmp/hostless"), None);
         assert_eq!(
-            snapshot_cwd_to_local_path("cmux-tui:spawn-cwd:subdir"),
+            snapshot_cwd_to_local_path(
+                "cmux-tui:spawn-cwd:v1:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef:subdir",
+                Some("0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"),
+            ),
             Some(PathBuf::from("subdir"))
         );
     }
@@ -1490,7 +1515,14 @@ mod tests {
     #[test]
     fn snapshot_cwd_rejects_forged_spawn_marker_from_osc7() {
         assert_eq!(
-            snapshot_cwd_to_local_path("cmux-tui:spawn-cwd:/tmp/attacker-controlled"),
+            snapshot_cwd_to_local_path("cmux-tui:spawn-cwd:/tmp/attacker-controlled", None),
+            None
+        );
+        assert_eq!(
+            snapshot_cwd_to_local_path(
+                "cmux-tui:spawn-cwd:v1:bad-token:/tmp/attacker-controlled",
+                Some("0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"),
+            ),
             None
         );
     }
