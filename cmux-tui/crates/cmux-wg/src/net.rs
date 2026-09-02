@@ -734,6 +734,10 @@ impl Driver {
         remote: SocketAddr,
         reply: oneshot::Sender<Result<WgStream, WgError>>,
     ) {
+        if !self.config.routes_contain(remote.ip()) {
+            let _ = reply.send(Err(WgError::RouteNotAllowed(remote.ip())));
+            return;
+        }
         let Some(local_ip) = self.config.local_address_for(remote.ip()) else {
             let _ = reply.send(Err(WgError::NoTunnelAddress(remote.ip())));
             return;
