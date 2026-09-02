@@ -1229,21 +1229,146 @@ final class DockSplitStore: BonsplitDelegate, FilePreviewTabMetadataHost {
         (existingTab.hasCustomTitle ? nil : metadata.title, nil)
     }
 
+    /// Returns the Codex lifecycle that controls one Dock terminal tab.
+    private func dockCodexTabLifecycle(panelId: UUID) -> CodexTabTitleLifecycle? {
+        guard let raw = agentRuntimeByPanelId[panelId]?
+            .agentLifecycleStates["codex"] else {
+            return nil
+        }
+        switch raw {
+        case .running: return .running
+        case .idle: return .idle
+        case .needsInput: return .needsInput
+        case .unknown: return .unknown
+        }
+    }
+
+    /// Resolves the stable title beneath a Dock tab's transient Codex marker.
+    ///
+    /// Terminal titles and transferred custom-title provenance remain the
+    /// source of truth so transient markers never leak into persistence or a
+    /// later move back to a workspace.
+    func stableDockTerminalTabTitle(
+        panelId: UUID,
+        fallback: String? = nil,
+        transferOverride: Workspace.DetachedSurfaceTransfer? = nil
+    ) -> (title: String, hasUserOwnedTitle: Bool)? {
+        guard let terminal = panels[panelId] as? TerminalPanel,
+              let tabId = surfaceId(forPanelId: panelId),
+              let existing = bonsplitController.tab(tabId) else {
+            return nil
+        }
+        let transfer = transferOverride ?? detachedSurfaceTransfersByPanelId[panelId]
+        let composer = CodexTabTitleComposer()
+
+        if existing.hasCustomTitle {
+            if let transferredTitle = transfer?.customTitle,
+               transfer?.customTitleSource == .auto {
+                let lifecycles: [CodexTabTitleLifecycle?] = [
+                    nil,
+                    .running,
+                    .idle,
+                    .needsInput,
+                    .unknown,
+                ]
+                let isTransferredAutoTitle = lifecycles.contains { lifecycle in
+                    composer.presentation(
+                        baseTitle: transferredTitle,
+                        lifecycle: lifecycle,
+                        hasUserOwnedTitle: false
+                    ).title == existing.title
+                }
+                if isTransferredAutoTitle {
+                    return (transferredTitle, false)
+                }
+            }
+            return (existing.title, true)
+        }
+
+        if let fallback {
+            return (fallback, false)
+        }
+
+        if transfer?.isRemoteTerminal != true,
+           let lifecycle = dockCodexTabLifecycle(panelId: panelId) {
+            let marker = composer.presentation(
+                baseTitle: "",
+                lifecycle: lifecycle,
+                hasUserOwnedTitle: false
+            ).title
+            let hasProjectedMarker = switch lifecycle {
+            case .running:
+                existing.isLoading && !marker.isEmpty && existing.title.hasPrefix(marker)
+            case .idle:
+                !marker.isEmpty && existing.title.hasPrefix(marker)
+            case .needsInput, .unknown:
+                false
+            }
+            if hasProjectedMarker {
+                return (String(existing.title.dropFirst(marker.count)), false)
+            }
+        }
+
+        if restoredPanelTitleBoundariesByPanelId[panelId] != nil {
+            return (
+                transfer?.cachedTitle ?? transfer?.title ?? existing.title,
+                false
+            )
+        }
+        return (terminal.displayTitle, false)
+    }
+
+    /// Projects Codex lifecycle state onto one Dock terminal tab.
+    @discardableResult
+    func reconcileCodexTabTitlePresentation(
+        panelId: UUID,
+        fallback: String? = nil
+    ) -> Bool {
+        guard let tabId = surfaceId(forPanelId: panelId),
+              let existing = bonsplitController.tab(tabId),
+              let stable = stableDockTerminalTabTitle(
+                  panelId: panelId,
+                  fallback: fallback
+              ) else {
+            return false
+        }
+        let presentation: CodexTabTitlePresentation
+        if detachedSurfaceTransfersByPanelId[panelId]?.isRemoteTerminal == true {
+            presentation = CodexTabTitlePresentation(
+                title: stable.title,
+                isAnimating: false
+            )
+        } else {
+            presentation = CodexTabTitleComposer().presentation(
+                baseTitle: stable.title,
+                lifecycle: dockCodexTabLifecycle(panelId: panelId),
+                hasUserOwnedTitle: stable.hasUserOwnedTitle
+            )
+        }
+        let titleUpdate = existing.title == presentation.title
+            ? nil
+            : presentation.title
+        let loadingUpdate = existing.isLoading == presentation.isAnimating
+            ? nil
+            : presentation.isAnimating
+        guard titleUpdate != nil || loadingUpdate != nil else { return false }
+        bonsplitController.updateTab(
+            tabId,
+            title: titleUpdate,
+            isLoading: loadingUpdate
+        )
+        return true
+    }
+
     /// Keeps the live terminal model and its non-custom Bonsplit tab on one
     /// title mutation path. Callers that synchronously adopt a Ghostty title
     /// invoke this directly; the publisher remains the fallback for other
     /// terminal title writers.
     private func synchronizeTerminalTabTitle(_ terminal: TerminalPanel) {
-        guard let tabId = surfaceId(forPanelId: terminal.id),
-              let existing = bonsplitController.tab(tabId) else {
-            return
-        }
-        let resolvedTitle = terminal.displayTitle
-        guard !existing.hasCustomTitle,
-              existing.title != resolvedTitle else {
-            return
-        }
-        bonsplitController.updateTab(tabId, title: resolvedTitle)
+        _ = reconcileCodexTabTitlePresentation(
+            panelId: terminal.id,
+            fallback: terminal.displayTitle
+        )
     }
 
     /// Applies an admitted Dock terminal title to the model and its tab in the

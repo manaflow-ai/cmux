@@ -287,6 +287,10 @@ extension DockSplitStore {
                 : customTitle,
             hasCustomTitle: !customTitle.isEmpty
         )
+        _ = reconcileCodexTabTitlePresentation(
+            panelId: panelId,
+            fallback: panel.displayTitle
+        )
         return true
     }
 
