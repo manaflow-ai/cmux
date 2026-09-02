@@ -40,5 +40,12 @@ active_binary=/tmp/0000000000000000000000000000000000000001/cmux-tui
 active_lsof_output="n$active_binary"
 active_artifact_paths="$(printf '%s\n' "$active_lsof_output" | sed -n 's/^n//p')"
 printf '%s\n' "$active_artifact_paths" | grep -F -x -q -- "$active_binary"
+lsof_status=1
+lsof_stderr='lsof: status error on missing artifact'
+if (( lsof_status == 1 )) && [[ -n "$lsof_stderr" ]]; then
+  :
+else
+  exit 1
+fi
 rm -f "$preview"
 echo 'hosted retention token behavior passed'

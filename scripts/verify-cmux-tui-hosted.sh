@@ -476,11 +476,12 @@ if ((${#cleanup_dirs[@]} > 0)); then
     [[ -f "$candidate_binary" ]] && lsof_candidates+=("$candidate_binary")
   done
   if ((${#lsof_candidates[@]} > 0)); then
+    lsof_stderr_file="$temp_dir/lsof.stderr"
     set +e
-    active_artifact_paths="$(lsof -Fn -- "${lsof_candidates[@]}" 2>/dev/null)"
+    active_artifact_paths="$(lsof -Fn -- "${lsof_candidates[@]}" 2>"$lsof_stderr_file")"
     lsof_status=$?
     set -e
-    if (( lsof_status > 1 )); then
+    if (( lsof_status != 0 )) && [[ -s "$lsof_stderr_file" ]]; then
       echo "error: cannot determine whether hosted artifacts are active" >&2
       exit 2
     fi
