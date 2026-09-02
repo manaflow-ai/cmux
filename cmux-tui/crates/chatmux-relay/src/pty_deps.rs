@@ -47,6 +47,43 @@ fn reserve_write_bytes(queued: &AtomicU64, len: usize) -> bool {
         })
         .is_ok()
 }
+
+fn release_write_bytes(queued: &AtomicU64, len: usize) {
+    let len = len as u64;
+    let _ = queued.fetch_update(Ordering::AcqRel, Ordering::Acquire, |current| {
+        Some(current.saturating_sub(len))
+    });
+}
+
+fn discard_write_queue(
+    receiver: mpsc::Receiver<Vec<u8>>,
+    queued: &AtomicU64,
+    in_flight_len: usize,
+) {
+    release_write_bytes(queued, in_flight_len);
+    while let Ok(data) = receiver.try_recv() {
+        release_write_bytes(queued, data.len());
+    }
+    drop(receiver);
+    // Senders can race the receiver shutdown. Reset after dropping the
+    // receiver; failed sends use saturating release and cannot underflow it.
+    queued.store(0, Ordering::Release);
+}
+
+fn write_queue_loop<W: Write>(
+    mut writer: W,
+    receiver: mpsc::Receiver<Vec<u8>>,
+    queued: Arc<AtomicU64>,
+) {
+    while let Ok(data) = receiver.recv() {
+        let len = data.len();
+        if writer.write_all(&data).is_err() || writer.flush().is_err() {
+            discard_write_queue(receiver, &queued, len);
+            return;
+        }
+        release_write_bytes(&queued, len);
+    }
+}
 // `lifecycle_ready` was added to the cmux-tui control protocol at version 12.
 // This is distinct from the relay's lower-level CONTROL_MIN_PROTOCOL floor.
 const DAEMON_LIFECYCLE_PROTOCOL_MIN: u64 = 12;
@@ -592,7 +629,7 @@ impl PtyControl for MasterControl {
             return false;
         }
         if self.writer_tx.try_send(data.to_vec()).is_err() {
-            self.writer_bytes.fetch_sub(data.len() as u64, Ordering::AcqRel);
+            release_write_bytes(&self.writer_bytes, data.len());
             return false;
         }
         true
@@ -642,7 +679,7 @@ impl PtyControl for PipeControl {
                 return false;
             }
             if stdin_tx.try_send(data.to_vec()).is_err() {
-                self.stdin_bytes.fetch_sub(data.len() as u64, Ordering::AcqRel);
+                release_write_bytes(&self.stdin_bytes, data.len());
                 return false;
             }
             return true;
@@ -728,15 +765,7 @@ fn spawn_real_pty(spec: &SpawnSpec) -> anyhow::Result<PtyHandle> {
     let writer_bytes = Arc::new(AtomicU64::new(0));
     let writer_bytes_for_thread = Arc::clone(&writer_bytes);
     std::thread::spawn(move || {
-        let mut writer = writer;
-        while let Ok(data) = writer_rx.recv() {
-            let len = data.len() as u64;
-            if writer.write_all(&data).is_err() || writer.flush().is_err() {
-                writer_bytes_for_thread.fetch_sub(len, Ordering::AcqRel);
-                break;
-            }
-            writer_bytes_for_thread.fetch_sub(len, Ordering::AcqRel);
-        }
+        write_queue_loop(writer, writer_rx, writer_bytes_for_thread);
     });
     let killer = child_cleanup.child().clone_killer();
     let pid = child_cleanup.child().process_id().unwrap_or(0) as libc::pid_t;
@@ -879,14 +908,7 @@ fn spawn_pipe_mode(spec: &SpawnSpec, reason: impl std::fmt::Display) -> PtyHandl
                     let (tx, rx) = mpsc::sync_channel::<Vec<u8>>(PTY_WRITE_QUEUE_ITEMS);
                     let stdin_bytes_for_thread = Arc::clone(&stdin_bytes);
                     std::thread::spawn(move || {
-                        while let Ok(data) = rx.recv() {
-                            let len = data.len() as u64;
-                            if stdin.write_all(&data).is_err() || stdin.flush().is_err() {
-                                stdin_bytes_for_thread.fetch_sub(len, Ordering::AcqRel);
-                                break;
-                            }
-                            stdin_bytes_for_thread.fetch_sub(len, Ordering::AcqRel);
-                        }
+                        write_queue_loop(stdin, rx, stdin_bytes_for_thread);
                     });
                     Some(tx)
                 }
