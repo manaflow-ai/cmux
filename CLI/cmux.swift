@@ -5080,6 +5080,7 @@ struct CMUXCLI {
         if command == "vm-pty-connect" { try runVMPtyConnect(commandArgs: commandArgs); return }
         if command == "docs" { try runDocsCommand(commandArgs: commandArgs, jsonOutput: jsonOutput); return }
         if command == "welcome" { printWelcome(); return }
+        if command == WelcomeLogoAnimator.detachedCommand { runWelcomeAnimateHelper(commandArgs: commandArgs); return }
         if command == "sessions" || command == "session-debug" { try runSessionsCommand(commandArgs: command == "session-debug" ? ["debug"] + commandArgs : commandArgs, jsonOutput: jsonOutput, processEnv: processEnv); return }
         if command == "__sigpipe-probe" { try runSIGPIPEProbe(commandArgs: commandArgs); return }
         if command == "__sigpipe-stdin-pipe-probe" { try runSIGPIPEStdinPipeProbe(); return }
@@ -40300,17 +40301,8 @@ export default CMUXSessionRestore;
         }
 
         let isDark = UserDefaults.standard.string(forKey: "AppleInterfaceStyle") == "Dark"
-
-        let tagline: String
-        let subdued: String
-
-        if isDark {
-            tagline = trueColor(130, 130, 140)
-            subdued = "\u{001B}[2m"
-        } else {
-            tagline = trueColor(90, 90, 98)
-            subdued = trueColor(100, 100, 108)
-        }
+        let tagline = welcomeTaglineColor()
+        let subdued = isDark ? "\u{001B}[2m" : trueColor(100, 100, 108)
 
         let renderer = WelcomeLogoFrameRenderer(taglineColor: tagline)
         let logo = renderer.rows(frameIndex: 0).joined(separator: "\n")
@@ -40370,9 +40362,44 @@ export default CMUXSessionRestore;
             linesAboveCursor: linesAboveCursor
         ) else { return }
 
+        // Preferred: hand the ripple to a detached helper so this process exits
+        // and the shell prompt appears at once. Needs the cursor row (absolute
+        // addressing survives the prompt being printed below the logo) and room
+        // so the prompt cannot scroll the logo.
+        if let terminalRows,
+           let cursorRow = WelcomeLogoAnimator.queryCursorRow(),
+           case .absolute(let topRow)? = WelcomeLogoAnimator.detachedPlacement(
+               cursorRow: cursorRow,
+               linesAboveCursor: linesAboveCursor,
+               terminalRows: terminalRows
+           ),
+           let executablePath = resolvedExecutableURL()?.path,
+           WelcomeLogoAnimator.spawnDetached(executablePath: executablePath, topRow: topRow) {
+            return
+        }
+
+        // Fallback: animate in-process from a render thread while this process
+        // still owns the cursor.
         WelcomeLogoAnimator(
             renderer: renderer,
-            configuration: .init(linesAboveCursor: linesAboveCursor)
+            configuration: .init(placement: .relative(linesAboveCursor: linesAboveCursor))
+        ).runOnStdout()
+    }
+
+    /// Tagline color for the welcome logo, matching the system appearance.
+    private func welcomeTaglineColor() -> String {
+        let isDark = UserDefaults.standard.string(forKey: "AppleInterfaceStyle") == "Dark"
+        return isDark ? "\u{001B}[38;2;130;130;140m" : "\u{001B}[38;2;90;90;98m"
+    }
+
+    /// `cmux __welcome-animate <topRow>`: detached helper spawned by `cmux welcome`.
+    /// Repaints the logo at absolute rows on the inherited stdout, then exits.
+    private func runWelcomeAnimateHelper(commandArgs: [String]) {
+        guard let first = commandArgs.first, let topRow = Int(first), topRow >= 1 else { return }
+        guard isatty(STDOUT_FILENO) == 1 else { return }
+        WelcomeLogoAnimator(
+            renderer: WelcomeLogoFrameRenderer(taglineColor: welcomeTaglineColor()),
+            configuration: .init(placement: .absolute(topRow: topRow))
         ).runOnStdout()
     }
 
