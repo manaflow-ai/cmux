@@ -58,7 +58,7 @@ EXPECTED_GUARD_WORKFLOW_DIGEST = "a312d68f40313a8b8cbc639e135281f2c89b1633ce78c0
 # The guard workflow remains pinned to its reviewed immutable bytes. The CLA
 # policy itself is validated structurally, then authorized by an exact-head
 # trusted review.
-EXPECTED_GUARD_SCRIPT_DIGEST = "70e38239a68c37ce5a2b23d7f54700069e65847089968f4467710ed5061cc713"
+EXPECTED_GUARD_SCRIPT_DIGEST = "8a4f149a2b84ba1e7fbbe92270b8b28e79a45b89521df5ea6e3265548a75647b"
 # Migration marker for the base v2 guard validator. That validator requires
 # the literal EXPECTED_WORKFLOW_DIGEST while it checks this candidate. The v3
 # validator does not use this inert marker for policy authorization.
@@ -68,6 +68,22 @@ EXPECTED_GUARD_SCRIPT_DIGEST = "70e38239a68c37ce5a2b23d7f54700069e65847089968f44
 # and the candidate must pass every v3 check below.
 LEGACY_CLA_WORKFLOW_DIGEST = "22f4f8c4b7fb879514a5b072505877843fd94dc32b279f2aceb8fc216adde65f"
 LEGACY_CLA_RERUN_DIGEST = "f4f1fa51bb05b062ebf3f60cc949d8d5b4b501e7849cb065e9a07d7a34030840"
+LEGACY_CLA_HELPER_PATH = ".github/scripts/rerun-failed-cla.sh".freeze
+LEGACY_B4D3_CLA_WORKFLOW_DIGEST = "e03fa7a1d41eb5d59843807bf3a3bd153f5f7ab343f78e521d1d43cbecc43891"
+LEGACY_B4D3_CLA_REFRESH_DIGEST = "580ea1130f9745be686e428e45aa39c93ad290ca48736330c429e3206d9211ec"
+LEGACY_B4D3_CLA_HELPER_PATH = ".github/scripts/refresh-cla-check.sh".freeze
+CLA_ACTION_LEGACY_BASES = {
+  CLA_ACTION_LEGACY_REFS.fetch(0) => {
+    workflow_digest: LEGACY_CLA_WORKFLOW_DIGEST,
+    helper_digest: LEGACY_CLA_RERUN_DIGEST,
+    helper_path: LEGACY_CLA_HELPER_PATH
+  }.freeze,
+  CLA_ACTION_LEGACY_REFS.fetch(1) => {
+    workflow_digest: LEGACY_B4D3_CLA_WORKFLOW_DIGEST,
+    helper_digest: LEGACY_B4D3_CLA_REFRESH_DIGEST,
+    helper_path: LEGACY_B4D3_CLA_HELPER_PATH
+  }.freeze
+}.freeze
 # Current organization administrators who may approve a trusted control-plane
 # update. IDs are used instead of names, and the review must target the exact
 # PR head. This is the human path for intentional policy maintenance.
@@ -668,9 +684,25 @@ def run_yaml_regression_matrix!
   puts "PASS: bounded YAML regression matrix (#{cases.length + 1} cases)"
 end
 
+def legacy_action_base?(base_ref:, base_workflow_digest:, base_script_digest:, base_script_path:)
+  expected = CLA_ACTION_LEGACY_BASES[base_ref]
+  expected &&
+    expected[:workflow_digest] == base_workflow_digest &&
+    expected[:helper_digest] == base_script_digest &&
+    expected[:helper_path] == base_script_path
+end
+
+def legacy_helper_path(action_ref)
+  CLA_ACTION_LEGACY_BASES[action_ref]&.fetch(:helper_path, nil) || LEGACY_CLA_HELPER_PATH
+end
+
 def legacy_v2_base?(base_workflow_digest:, base_script_digest:)
-  base_workflow_digest == LEGACY_CLA_WORKFLOW_DIGEST &&
-    base_script_digest == LEGACY_CLA_RERUN_DIGEST
+  legacy_action_base?(
+    base_ref: CLA_ACTION_LEGACY_REFS.fetch(0),
+    base_workflow_digest: base_workflow_digest,
+    base_script_digest: base_script_digest,
+    base_script_path: LEGACY_CLA_HELPER_PATH
+  )
 end
 
 def cla_action_reference(raw, name)
@@ -687,16 +719,18 @@ def cla_action_reference(raw, name)
   references.first
 end
 
-def assert_cla_action_transition!(base_ref:, candidate_ref:, base_workflow_digest:, base_script_digest:, policy_changed:)
+def assert_cla_action_transition!(base_ref:, candidate_ref:, base_workflow_digest:, base_script_digest:, base_script_path:, policy_changed:)
   fail!("base CLA action reference is not a reviewed immutable revision") unless
     CLA_ACTION_LEGACY_REFS.include?(base_ref) || base_ref == CLA_ACTION_FINAL
   fail!("candidate CLA action reference is not the maintained final revision") unless
     candidate_ref == CLA_ACTION_FINAL || CLA_ACTION_LEGACY_REFS.include?(candidate_ref)
 
   legacy_base = CLA_ACTION_LEGACY_REFS.include?(base_ref) &&
-    legacy_v2_base?(
+    legacy_action_base?(
+      base_ref: base_ref,
       base_workflow_digest: base_workflow_digest,
-      base_script_digest: base_script_digest
+      base_script_digest: base_script_digest,
+      base_script_path: base_script_path
     )
   if policy_changed
     if CLA_ACTION_LEGACY_REFS.include?(base_ref)
@@ -2286,10 +2320,15 @@ def validate_guard_script(raw)
     "collect_latest_trusted_review!",
     "def workflow_digest",
     "CLA_ACTION_LEGACY_REFS",
+    "CLA_ACTION_LEGACY_BASES",
     "CLA_ACTION_FINAL",
     "def cla_action_reference",
     "def assert_cla_action_transition!",
     "run_action_transition_regression_matrix!",
+    "def legacy_action_base?",
+    "def legacy_helper_path",
+    "LEGACY_CLA_HELPER_PATH",
+    "LEGACY_B4D3_CLA_HELPER_PATH",
     "Digest::SHA256.hexdigest(raw)",
     "literal on trigger key",
     "def legacy_v2_base?",
@@ -2430,18 +2469,23 @@ begin
 
   base_cla = fetch_file(repository, base_sha, CLA_DOCUMENT_PATH)
   head_cla = fetch_file(repository, head_sha, CLA_DOCUMENT_PATH)
-  base_script = fetch_file(repository, base_sha, ".github/scripts/rerun-failed-cla.sh", allow_missing: true)
-  head_script = fetch_file(repository, head_sha, ".github/scripts/rerun-failed-cla.sh", allow_missing: true)
-  policy_changed = base_workflow != head_workflow || base_script != head_script
-  base_workflow_digest = Digest::SHA256.hexdigest(base_workflow)
-  base_script_digest = Digest::SHA256.hexdigest(base_script.to_s)
   base_action_ref = cla_action_reference(base_workflow, "base CLA workflow")
   head_action_ref = cla_action_reference(head_workflow, "proposed CLA workflow")
+  base_script_path = legacy_helper_path(base_action_ref)
+  head_script_path = legacy_helper_path(head_action_ref)
+  base_script = fetch_file(repository, base_sha, base_script_path, allow_missing: true)
+  head_script = fetch_file(repository, head_sha, head_script_path, allow_missing: true)
+  policy_changed = base_workflow != head_workflow ||
+    base_script_path != head_script_path ||
+    base_script != head_script
+  base_workflow_digest = Digest::SHA256.hexdigest(base_workflow)
+  base_script_digest = Digest::SHA256.hexdigest(base_script.to_s)
   assert_cla_action_transition!(
     base_ref: base_action_ref,
     candidate_ref: head_action_ref,
     base_workflow_digest: base_workflow_digest,
     base_script_digest: base_script_digest,
+    base_script_path: base_script_path,
     policy_changed: policy_changed
   )
   document_changed = Digest::SHA256.hexdigest(base_cla) != Digest::SHA256.hexdigest(head_cla)
@@ -2480,15 +2524,22 @@ begin
   if base_script && head_script.nil?
     fail!("the pull-request revision deletes the rerun helper used by the base workflow")
   end
-  if base_workflow == head_workflow && base_script != head_script &&
-      base_workflow_digest == LEGACY_CLA_WORKFLOW_DIGEST &&
-      base_script_digest == LEGACY_CLA_RERUN_DIGEST
-    fail!("the legacy v2 CLA workflow must migrate to v3 before its helper changes")
+  if base_workflow == head_workflow &&
+      (base_script_path != head_script_path || base_script != head_script) &&
+      legacy_action_base?(
+        base_ref: base_action_ref,
+        base_workflow_digest: base_workflow_digest,
+        base_script_digest: base_script_digest,
+        base_script_path: base_script_path
+      )
+    fail!("the legacy CLA workflow must migrate to v3 before its helper changes")
   end
   if base_workflow == head_workflow &&
-      !legacy_v2_base?(
+      !legacy_action_base?(
+        base_ref: base_action_ref,
         base_workflow_digest: base_workflow_digest,
-        base_script_digest: base_script_digest
+        base_script_digest: base_script_digest,
+        base_script_path: base_script_path
       )
     # A guard-only change still has to prove that the policy already running
     # on main is a reviewed v3 policy. The exact legacy v2 pair is the one
@@ -2497,13 +2548,15 @@ begin
     validate_workflow(head_workflow)
   end
   if base_workflow != head_workflow
-    fail!("CLA rerun helper is missing from the changed workflow revision") if head_script.nil?
-    base_document = parse_workflow(base_workflow)
-    if base_document["name"] == "CLA Assistant v2" && !legacy_v2_base?(
+    fail!("CLA helper is missing from the changed workflow revision") if head_script.nil?
+    parse_workflow(base_workflow)
+    if CLA_ACTION_LEGACY_REFS.include?(base_action_ref) && !legacy_action_base?(
+      base_ref: base_action_ref,
       base_workflow_digest: base_workflow_digest,
-      base_script_digest: base_script_digest
+      base_script_digest: base_script_digest,
+      base_script_path: base_script_path
     )
-      fail!("the legacy v2 CLA base is not the exact reviewed transition state")
+      fail!("the legacy CLA base is not the exact reviewed transition state")
     end
     validate_workflow(head_workflow)
   end
@@ -2517,7 +2570,7 @@ begin
   unless candidate_dir.empty?
     FileUtils.mkdir_p(candidate_dir)
     File.binwrite(File.join(candidate_dir, "cla.yml"), head_workflow) if head_workflow
-    File.binwrite(File.join(candidate_dir, "rerun-failed-cla.sh"), head_script) if head_script
+    File.binwrite(File.join(candidate_dir, File.basename(head_script_path)), head_script) if head_script
   end
   puts "PASS: base-controlled CLA policy validation for #{head_sha}"
 rescue PolicyError
