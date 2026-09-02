@@ -4885,6 +4885,10 @@ fn cleanup_unclaimed_listener(listener: transport::Listener, path: &Path) {
     let _ = std::fs::remove_file(path);
 }
 
+fn connect_error_proves_stale(error: &std::io::Error) -> bool {
+    matches!(error.kind(), std::io::ErrorKind::ConnectionRefused | std::io::ErrorKind::NotFound)
+}
+
 /// Remove a stale socket only when the path still names the observed socket.
 fn remove_stale_socket_if_unchanged(
     path: &Path,
@@ -14069,6 +14073,42 @@ mod tests {
         drop(stale);
         drop(replacement);
         std::fs::remove_file(&path).unwrap();
+    }
+
+    #[test]
+    fn stale_socket_cleanup_only_accepts_definitive_connect_failures() {
+        assert!(connect_error_proves_stale(&std::io::Error::new(
+            std::io::ErrorKind::ConnectionRefused,
+            "refused",
+        )));
+        assert!(connect_error_proves_stale(&std::io::Error::new(
+            std::io::ErrorKind::NotFound,
+            "missing",
+        )));
+        for kind in [
+            std::io::ErrorKind::PermissionDenied,
+            std::io::ErrorKind::WouldBlock,
+            std::io::ErrorKind::ResourceBusy,
+            std::io::ErrorKind::TimedOut,
+            std::io::ErrorKind::Other,
+        ] {
+            assert!(
+                !connect_error_proves_stale(&std::io::Error::new(kind, "not definitive")),
+                "{kind:?} must not trigger stale-socket removal"
+            );
+        }
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn bound_listener_claim_fails_closed_without_identity_support() {
+        let dir = TestSocketDir::create("windows-claim-without-identity");
+        let path = dir.path().join("mux.sock");
+        let listener = transport::listen(&path).unwrap();
+
+        assert!(ServedSocketLease::claim_bound(path.clone(), &listener).is_err());
+        drop(listener);
+        std::fs::remove_file(path).unwrap();
     }
 
     #[cfg(unix)]
