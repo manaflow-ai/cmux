@@ -62,6 +62,36 @@ struct ControlCommandCoordinatorWorkspaceTests {
         #expect(row["has_custom_title"] == .bool(true))
     }
 
+    @Test func asyncFeedJumpUsesTheAsyncResolutionSeam() async throws {
+        let context = FakeWorkspaceControlCommandContext(feedJumpMatch: true)
+        let result = await ControlCommandCoordinator().handleSocketWorkerFeedAsync(
+            request("feed.jump", ["workstream_id": .string("known")]),
+            context: context
+        )
+
+        guard case .ok(.object(let payload)) = result,
+              payload["workstream_id"] == .string("known"),
+              payload["matched"] == .bool(true) else {
+            Issue.record("unexpected async feed.jump result")
+            return
+        }
+    }
+
+    @Test func syncFeedJumpUsesTheSynchronousResolutionSeam() throws {
+        let context = FakeWorkspaceControlCommandContext(feedJumpMatch: true)
+        let result = ControlCommandCoordinator().handleSocketWorkerFeed(
+            request("feed.jump", ["workstream_id": .string("known")]),
+            context: context
+        )
+
+        guard case .ok(.object(let payload)) = result,
+              payload["workstream_id"] == .string("known"),
+              payload["matched"] == .bool(true) else {
+            Issue.record("unexpected sync feed.jump result")
+            return
+        }
+    }
+
     @Test func workspaceCurrentExposesMissingCustomTitleState() throws {
         let (coordinator, context) = coordinator()
         let workspaceID = UUID()

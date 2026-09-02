@@ -83,6 +83,9 @@ public enum ControlCommandExecutionPolicy: Sendable, Equatable {
         "auth.begin_sign_in",
         "auth.sign_out",
         "feedback.submit",
+        // `feed.jump` awaits its actor-owned hook-session lookup while the
+        // socket worker waits for the response.
+        "feed.jump",
         "feed.push",
         "feed.permission.reply",
         "feed.question.reply",
@@ -131,6 +134,10 @@ public enum ControlCommandExecutionPolicy: Sendable, Equatable {
         // never runs inline on the main thread, and no in-process main-thread
         // caller needs it.
         "surface.read_text",
+        // Selection providers own AppKit/WebKit state on the main actor, then
+        // return one immutable snapshot for response shaping on this worker.
+        // The async bridge must never be entered inline by a main-thread caller.
+        "surface.read_selection",
         // The surface catalog verbs await main-actor catalog work that can sit on the
         // network (a cloud provider materializing a pane); like `vm.*` they park the
         // worker instead of holding the main actor.

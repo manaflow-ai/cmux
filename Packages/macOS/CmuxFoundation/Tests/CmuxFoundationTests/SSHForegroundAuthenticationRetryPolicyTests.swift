@@ -293,10 +293,7 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
                 .trimmingCharacters(in: .whitespacesAndNewlines)
         ))
         defer { Darwin.kill(leafPID, SIGKILL) }
-        let exitDeadline = Date.now.addingTimeInterval(1)
-        while processLiveness(leafPID) == true, Date.now < exitDeadline {
-            Thread.sleep(forTimeInterval: 0.01)
-        }
+        waitForProcessesToExit([leafPID])
 
         #expect(process.terminationStatus == 0)
         #expect(try String(contentsOf: signalLog, encoding: .utf8) == "term\n")
@@ -354,6 +351,7 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
             .appendingPathComponent("cmux-ssh-auth-deadline-\(UUID().uuidString)", isDirectory: true)
         let chainScript = root.appendingPathComponent("chain.sh")
         let readyMarker = root.appendingPathComponent("ready")
+        let cleanupStartedMarker = root.appendingPathComponent("cleanup-started")
         let pidLog = root.appendingPathComponent("pids")
         try fileManager.createDirectory(at: root, withIntermediateDirectories: true)
         defer { try? fileManager.removeItem(at: root) }
@@ -408,6 +406,7 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
         else
           ulimit -u 100 2>/dev/null || true
         fi
+        : > "$CMUX_TEST_CLEANUP_STARTED_MARKER"
         # Exercise the event-enabled path without publishing an event. The
         # helper must reserve a force pass instead of rolling back after the
         # bounded FIFO wait.
@@ -420,6 +419,7 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
         process.arguments = ["-c", command]
         process.environment = ProcessInfo.processInfo.environment.merging([
             "CMUX_TEST_CHAIN_SCRIPT": chainScript.path,
+            "CMUX_TEST_CLEANUP_STARTED_MARKER": cleanupStartedMarker.path,
             "CMUX_TEST_READY_MARKER": readyMarker.path,
             "CMUX_TEST_PID_LOG": pidLog.path,
         ]) { _, override in override }
@@ -429,18 +429,22 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
         defer { removeStandardErrorCapture(stderrCapture) }
         process.standardError = stderrCapture.handle
 
-        let startedAt = Date.now
         try process.run()
+        let startDeadline = Date.now.addingTimeInterval(5)
+        while !fileManager.fileExists(atPath: cleanupStartedMarker.path),
+              process.isRunning,
+              Date.now < startDeadline {
+            Thread.sleep(forTimeInterval: 0.01)
+        }
+        try #require(fileManager.fileExists(atPath: cleanupStartedMarker.path))
+        let startedAt = Date.now
         try waitForExit(process, stderrCapture: stderrCapture, timeout: 10)
         let elapsed = Date.now.timeIntervalSince(startedAt)
 
         let processIDs = try String(contentsOf: pidLog, encoding: .utf8)
             .split(separator: "\n")
             .compactMap { Int32($0) }
-        let exitDeadline = Date.now.addingTimeInterval(1)
-        while processIDs.contains(where: { processLiveness($0) == true }), Date.now < exitDeadline {
-            Thread.sleep(forTimeInterval: 0.01)
-        }
+        waitForProcessesToExit(processIDs)
 
         #expect(process.terminationStatus == 0)
         #expect(processIDs.count == 25)
@@ -554,10 +558,7 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
                 .trimmingCharacters(in: .whitespacesAndNewlines)
         ))
         defer { Darwin.kill(replacementPID, SIGKILL) }
-        let exitDeadline = Date.now.addingTimeInterval(1)
-        while processLiveness(replacementPID) == true, Date.now < exitDeadline {
-            Thread.sleep(forTimeInterval: 0.01)
-        }
+        waitForProcessesToExit([replacementPID])
 
         #expect(process.terminationStatus == 0)
         #expect(processLiveness(replacementPID) == false)
@@ -814,5 +815,16 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
             return false
         }
         return nil
+    }
+
+    /// Wait for process exit or zombie reaping after the helper returns. This
+    /// scheduler-only allowance is separate from the helper's measured cleanup
+    /// deadline and prevents a loaded runner from making liveness assertions
+    /// race delayed reaping.
+    private func waitForProcessesToExit(_ processIDs: [Int32], timeout: TimeInterval = 5) {
+        let deadline = Date.now.addingTimeInterval(timeout)
+        while processIDs.contains(where: { processLiveness($0) == true }), Date.now < deadline {
+            Thread.sleep(forTimeInterval: 0.01)
+        }
     }
 }
