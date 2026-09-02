@@ -357,11 +357,33 @@ impl JournalPluginRuntime {
     /// Starts supervision after the local socket has been bound. This ordering
     /// gives the plugin an authoritative socket path and avoids a startup race.
     pub fn start(&self, socket: PathBuf, session: String) {
+        self.start_inner(socket, session, None);
+    }
+
+    /// Starts supervision with a generation reserved by the durable session
+    /// registry. The seed is applied only before the first supervisor start;
+    /// later child restarts continue to use the in-memory increment.
+    pub(crate) fn start_with_generation_seed(
+        &self,
+        socket: PathBuf,
+        session: String,
+        generation_seed: u64,
+    ) {
+        self.start_inner(socket, session, Some(generation_seed));
+    }
+
+    fn start_inner(&self, socket: PathBuf, session: String, generation_seed: Option<u64>) {
         let (lock, changed) = &*self.state;
         let mut state = lock.lock().unwrap_or_else(|error| error.into_inner());
         state.socket = Some(socket);
         state.session = Some(session);
         if !state.started {
+            if let Some(seed) = generation_seed {
+                // `configure` may have advanced the local counter before the
+                // socket was bound. Never move it backwards when applying the
+                // durable seed.
+                state.generation = state.generation.max(seed.saturating_sub(1));
+            }
             state.started = true;
             let shared = Arc::clone(&self.state);
             let handle = thread::Builder::new()

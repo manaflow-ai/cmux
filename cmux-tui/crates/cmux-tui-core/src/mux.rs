@@ -9949,7 +9949,20 @@ impl Mux {
 
     /// Start the configured journal plugin against the bound local socket.
     pub fn start_journal_plugin(&self, socket: std::path::PathBuf) {
-        self.journal_plugin.start(socket, self.session.clone());
+        let generation = match self.workspace_registry.lock() {
+            Ok(registry) => registry.reserve_journal_plugin_generation(),
+            Err(_) => Err(anyhow::anyhow!("workspace registry mutex is poisoned")),
+        };
+        match generation {
+            Ok(generation) => self.journal_plugin.start_with_generation_seed(
+                socket,
+                self.session.clone(),
+                generation,
+            ),
+            Err(error) => eprintln!(
+                "cmux-tui: journal plugin not started because its generation could not be reserved: {error}"
+            ),
+        }
     }
 
     /// Journal a supervisor-observed plugin exit. The roster reducer removes

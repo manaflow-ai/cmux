@@ -122,6 +122,7 @@ const RESOURCE_EFFECT_PEPPER_FILE: &str = "resource-effect-pepper";
 const RESOURCE_EFFECT_PEPPER_LOCK_FILE: &str = "resource-effect-pepper.lock";
 const RESOURCE_EFFECT_PEPPER_META_KEY: &str = "resource_effect_pepper_id";
 const RESOURCE_EFFECT_PEPPER_CLEANUP_META_KEY: &str = "resource_effect_pepper_cleanup_pending";
+const JOURNAL_PLUGIN_GENERATION_META_KEY: &str = "journal_plugin_generation";
 const RESOURCE_EFFECT_PEPPER_ID_DOMAIN: &[u8] = b"cmux.resource-effect-pepper-id.v1";
 const RESOURCE_INPUT_RECEIPT_DOMAIN: &[u8] = b"cmux.resource-input-receipt.v2";
 const WORKSPACE_REGISTRY_FILE: &str = "workspace-registry.sqlite3";
