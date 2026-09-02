@@ -331,6 +331,7 @@ impl TreeView {
             [workspace_index, screen_index, pane_index, tab_index],
             title,
         )
+        .is_some()
     }
 
     pub(crate) fn update_surface_title_at(
@@ -338,7 +339,7 @@ impl TreeView {
         id: SurfaceId,
         [workspace_index, screen_index, pane_index, tab_index]: [usize; 4],
         title: String,
-    ) -> bool {
+    ) -> Option<bool> {
         let Some(tab) = self
             .workspaces
             .get_mut(workspace_index)
@@ -346,13 +347,14 @@ impl TreeView {
             .and_then(|screen| screen.panes.get_mut(pane_index))
             .and_then(|pane| pane.tabs.get_mut(tab_index))
         else {
-            return false;
+            return None;
         };
         if tab.surface != id {
-            return false;
+            return None;
         }
+        let changed = tab.title != title;
         tab.title = title;
-        true
+        Some(changed)
     }
 
     /// Resolve the stable public terminal identity to the current internal

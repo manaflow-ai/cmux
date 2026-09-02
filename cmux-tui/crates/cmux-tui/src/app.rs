@@ -12940,18 +12940,11 @@ impl App {
             else {
                 continue;
             };
-            let Some(tab) = self
+            if self
                 .tree
-                .workspaces_mut()
-                .get_mut(workspace)
-                .and_then(|workspace| workspace.screens.get_mut(screen))
-                .and_then(|screen| screen.panes.get_mut(pane))
-                .and_then(|pane| pane.tabs.get_mut(tab))
-            else {
-                continue;
-            };
-            if tab.title.as_str() != title.as_ref() {
-                tab.title = title.to_string();
+                .update_surface_title_at(surface, [workspace, screen, pane, tab], title.to_string())
+                .is_some_and(|changed| changed)
+            {
                 changed = true;
             }
         }
