@@ -80,7 +80,8 @@ cmux_hosted_retention_run() (
     exit $?
   fi
 
-  local artifact_root="$1"
+  local current_artifact_dir="$1"
+  local artifact_root
   local current_commit="$2"
   local retention_count="${CMUX_TUI_HOSTED_RETENTION_COUNT:-}"
   local retention_dry_run="${CMUX_TUI_HOSTED_RETENTION_DRY_RUN:-0}"
@@ -150,21 +151,24 @@ cmux_hosted_retention_run() (
     cmux_hosted_retention_error "current commit is not a lowercase 40-character SHA"
     exit $?
   fi
-  if [[ ! -d "$artifact_root" ]]; then
-    cmux_hosted_retention_error "artifact root does not exist"
+  if [[ ! -d "$current_artifact_dir" || -L "$current_artifact_dir" ]]; then
+    cmux_hosted_retention_error "current artifact directory is missing or is a symbolic link"
     exit $?
   fi
-  if ! artifact_root="$(cd "$artifact_root" && pwd -P)"; then
+  if ! current_artifact_dir="$(cd "$current_artifact_dir" && pwd -P)"; then
+    cmux_hosted_retention_error "cannot resolve current artifact directory"
+    exit $?
+  fi
+  if [[ "${current_artifact_dir##*/}" != "$current_commit" || ! -O "$current_artifact_dir" ]]; then
+    cmux_hosted_retention_error "current artifact directory does not match the current commit"
+    exit $?
+  fi
+  if ! artifact_root="$(cd "$current_artifact_dir/.." && pwd -P)"; then
     cmux_hosted_retention_error "cannot resolve artifact root"
     exit $?
   fi
-  if [[ ! -O "$artifact_root" ]]; then
+  if [[ ! -d "$artifact_root" || ! -O "$artifact_root" ]]; then
     cmux_hosted_retention_error "artifact root is not owned by the current user"
-    exit $?
-  fi
-  if [[ ! -d "$artifact_root/$current_commit" || -L "$artifact_root/$current_commit" || \
-    ! -O "$artifact_root/$current_commit" ]]; then
-    cmux_hosted_retention_error "current artifact is missing or is not owned by the current user"
     exit $?
   fi
   if ! uid="$(id -u)"; then
@@ -352,11 +356,13 @@ cmux_hosted_retention_run() (
 
   lsof_targets=()
   for candidate_commit in "${cleanup_commits[@]}"; do
-    candidate_dir="$artifact_root/$candidate_commit/cmux-tui"
-    if [[ -f "$candidate_dir" ]]; then
-      lsof_targets+=("$candidate_dir")
-      lsof_target_count=$((lsof_target_count + 1))
+    candidate_binary="$artifact_root/$candidate_commit/cmux-tui"
+    if [[ ! -f "$candidate_binary" || -L "$candidate_binary" ]]; then
+      cmux_hosted_retention_error "artifact binary changed before activity check"
+      exit $?
     fi
+    lsof_targets+=("$candidate_binary")
+    lsof_target_count=$((lsof_target_count + 1))
   done
 
   active_commits_file="$scratch_dir/active-commits"
