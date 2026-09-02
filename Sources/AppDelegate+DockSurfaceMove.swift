@@ -134,9 +134,7 @@ extension AppDelegate {
 
         // Reuse the Dock focus transaction so global and workspace-scoped Docks
         // publish ownership to their respective focus domains.
-        let destinationDockWindow = dockReferenceTabManager(for: destinationDock)
-            .flatMap { windowId(for: $0) }
-            .flatMap { mainWindow(for: $0) }
+        let destinationDockWindow = destinationDock.dockInteractionWindow()
         destinationDock.focusPanelFromDockInteraction(
             detached.panelId,
             window: destinationDockWindow ?? NSApp.keyWindow ?? NSApp.mainWindow

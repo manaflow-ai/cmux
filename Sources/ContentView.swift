@@ -8307,7 +8307,11 @@ struct ContentView: View {
                   let app = AppDelegate.shared else {
                 return observedWindow
             }
-            return observedWindow
+            // The Dock store carries its owning window identity. Resolve it
+            // directly so palette commands remain scoped during a TabManager
+            // rebuild or a transient context replacement.
+            return dockSurfaceTarget.dock.dockInteractionWindow()
+                ?? observedWindow
                 ?? app.dockReferenceTabManager(for: dockSurfaceTarget.dock)
                     .flatMap { app.windowId(for: $0) }
                     .flatMap { app.mainWindow(for: $0) }
