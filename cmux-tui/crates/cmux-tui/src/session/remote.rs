@@ -3657,6 +3657,7 @@ fn private_dump_file(directory: &fs::File, name: &str) -> io::Result<fs::File> {
             name.as_ptr(),
             libc::O_WRONLY
                 | libc::O_CREAT
+                | libc::O_EXCL
                 | libc::O_NOFOLLOW
                 | libc::O_NONBLOCK
                 | libc::O_CLOEXEC,
@@ -3677,9 +3678,9 @@ fn private_dump_file(directory: &fs::File, name: &str) -> io::Result<fs::File> {
             "dump target is not a private user-owned regular file",
         ));
     }
-    // Truncate only after validating the opened descriptor, so a hard link
-    // cannot cause data loss in another file.
-    file.set_len(0)?;
+    // Exclusive creation means an existing hard link or symlink is never
+    // opened, and no previously existing file is truncated. A repeated dump
+    // is skipped when its deterministic name already exists.
     file.set_permissions(fs::Permissions::from_mode(0o600))?;
     Ok(file)
 }
