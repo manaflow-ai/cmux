@@ -491,7 +491,9 @@ struct MachinesPanelView: View {
                 // pretending the fleet is empty. A server-rejected session and
                 // a plan gate each get their real fix; only transient-shaped
                 // failures keep the retry-first "unreachable" copy.
-                switch viewModel.listProblem ?? .unreachable {
+                // A missing classification must not claim the network is down;
+                // the conservative fallback is a service-side error.
+                switch viewModel.listProblem ?? .serverError {
                 case .sessionRejected:
                     sessionRejectedState
                 case .requiresPro:

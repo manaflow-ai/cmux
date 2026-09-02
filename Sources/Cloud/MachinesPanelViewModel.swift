@@ -731,7 +731,10 @@ final class MachinesPanelViewModel: ObservableObject {
             listProblem = Self.classifyListFailure(error)
         } catch {
             lastErrorDescription = String(describing: error)
-            listProblem = .unreachable
+            // An unknown error proves neither a transport failure nor an auth
+            // rejection. Keep the UI honest and treat it as a service error
+            // until a typed client error tells us otherwise.
+            listProblem = .serverError
         }
         isLoading = false
         hasLoadedOnce = true
