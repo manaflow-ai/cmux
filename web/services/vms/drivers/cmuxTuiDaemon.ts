@@ -309,7 +309,9 @@ function cmuxTuiSupervisedDaemonInvocation(
     .map((mount) => `! mountpoint -q ${mount} 2>/dev/null`)
     .join(" || ");
   const pollLoops = watchedMounts.map((mount, index) => [
-    `( while :; do findmnt --poll=umount,move,remount --first-only --mountpoint ${mount} >/dev/null 2>&1 || true;`,
+    // A poll error is not a mount event. Fail closed and let the provider restart
+    // the named process instead of retrying in a tight loop at full CPU.
+    `( trap 'exit 143' TERM INT HUP; while :; do if findmnt --poll=umount,move,remount --first-only --mountpoint ${mount} >/dev/null 2>&1; then :; else ${signalViewLost}; break; fi;`,
     `if ${anyMissing}; then ${signalViewLost}; break; fi; done ) & ${pollPids[index]}=$!;`,
   ].join(" ")).join(" ");
   const pollCleanup = pollPids.length > 0

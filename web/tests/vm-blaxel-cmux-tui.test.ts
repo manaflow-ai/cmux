@@ -221,7 +221,7 @@ describe("cmux-tui install and daemon commands", () => {
       "#!/bin/sh",
       "case \"$1\" in",
       "  --help) printf '%s\\n' '--poll'; exit 0 ;;",
-      "  --poll=*) exit 1 ;;",
+      "  --poll=*) while [ ! -e \"$CMUX_TEST_STATE/daemon-ready\" ]; do sleep 0.01; done; exit 1 ;;",
       "esac",
       "exit 1",
       "",
