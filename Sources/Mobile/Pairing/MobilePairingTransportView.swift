@@ -497,9 +497,7 @@ private struct MobilePairingIrohContent: View {
             alignment: presentation.isLeading ? .leading : .center,
             spacing: presentation.isCompact ? 9 : 13
         ) {
-            Image(systemName: reachable ? "lock.shield.fill" : "lock.slash")
-                .cmuxFont(size: presentation.isCompact ? 26 : 34)
-                .foregroundStyle(reachable ? Color.green : Color.orange)
+            MobilePairingAppBadge(compact: presentation.isCompact)
 
             Text(String(
                 localized: "mobile.pairing.iroh.title",
@@ -543,8 +541,6 @@ private struct MobilePairingIrohContent: View {
                     onSelect: onSelectIOSAppTarget
                 )
             }
-
-            MobilePairingAppBadge(compact: presentation.isCompact)
         }
         .frame(
             maxWidth: .infinity,
@@ -903,6 +899,7 @@ private struct MobilePairingManualEntry: View {
                         }
                     }
                     .padding(.top, 5)
+                    .frame(maxWidth: .infinity, alignment: .leading)
                 },
                 label: {
                     Text(String(
