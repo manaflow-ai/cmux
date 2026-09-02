@@ -340,15 +340,43 @@ gh run download \
   --dir "$temp_dir"
 
 downloaded_binary="$(find "$temp_dir" -type f -name cmux-tui-aarch64-apple-darwin -print | sed -n '1p')"
-if [[ -z "$downloaded_binary" ]]; then
+if [[ -z "$downloaded_binary" || -L "$downloaded_binary" || ! -f "$downloaded_binary" ]]; then
   echo "error: the macOS arm64 artifact did not contain cmux-tui" >&2
   exit 1
 fi
 
 artifact_dir="cmux-tui/target/hosted/$commit"
 artifact_binary="$artifact_dir/cmux-tui"
-mkdir -p "$artifact_dir"
-install -m 0755 "$downloaded_binary" "$artifact_binary"
+artifact_root="cmux-tui/target/hosted"
+if [[ -L "$artifact_root" || ! -d "$artifact_root" || ! -O "$artifact_root" ]]; then
+  echo "error: hosted artifact root is missing, symbolic, or not owned by this user" >&2
+  exit 2
+fi
+if [[ -e "$artifact_dir" || -L "$artifact_dir" ]]; then
+  if [[ -L "$artifact_dir" || ! -d "$artifact_dir" || ! -O "$artifact_dir" ]]; then
+    echo "error: hosted artifact directory is not a user-owned directory" >&2
+    exit 2
+  fi
+else
+  mkdir "$artifact_dir"
+fi
+if [[ -e "$artifact_binary" || -L "$artifact_binary" ]]; then
+  if [[ -L "$artifact_binary" || ! -f "$artifact_binary" || ! -O "$artifact_binary" ]]; then
+    echo "error: hosted artifact destination is not a user-owned regular file" >&2
+    exit 2
+  fi
+fi
+staged_binary="$(mktemp "$artifact_dir/.cmux-tui.XXXXXX")"
+if ! install -m 0755 "$downloaded_binary" "$staged_binary"; then
+  rm -f -- "$staged_binary"
+  echo "error: could not stage the hosted TUI artifact" >&2
+  exit 1
+fi
+if ! mv -f -- "$staged_binary" "$artifact_binary"; then
+  rm -f -- "$staged_binary"
+  echo "error: could not publish the hosted TUI artifact" >&2
+  exit 1
+fi
 
 cmux_hosted_retention_run "$artifact_dir" "$commit"
 
