@@ -4662,6 +4662,21 @@ mod tests {
 
     #[cfg(unix)]
     #[test]
+    fn private_dump_directory_prunes_stale_temporary_dumps() {
+        let root = tempfile::tempdir().unwrap();
+        let dump_path = root.path().join("dumps");
+        let stale_path = dump_path.join(".mirror-1.txt.tmp-123-1");
+        let directory = private_dump_directory(&dump_path).unwrap();
+        drop(directory);
+        fs::write(&stale_path, b"partial secret").unwrap();
+
+        let _directory = private_dump_directory(&dump_path).unwrap();
+
+        assert!(!stale_path.exists());
+    }
+
+    #[cfg(unix)]
+    #[test]
     fn private_dump_write_failure_preserves_previous_dump_and_cleans_temp() {
         let root = tempfile::tempdir().unwrap();
         let dump_path = root.path().join("dumps");
