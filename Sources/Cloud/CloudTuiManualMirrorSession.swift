@@ -185,6 +185,9 @@ final class CloudTuiManualMirrorSession {
             if hasReceivedRemoteReplay {
                 replayNeedsReset = true
             }
+            readWatchdogTask?.cancel()
+            readWatchdogTask = nil
+            cancelAllRequestWatchdogs()
             connectTask?.cancel()
             eventTask?.cancel()
             connection?.close()
@@ -236,6 +239,9 @@ final class CloudTuiManualMirrorSession {
             replayNeedsReset = true
         }
         self.socketPath = socketPath
+        readWatchdogTask?.cancel()
+        readWatchdogTask = nil
+        cancelAllRequestWatchdogs()
         connectTask?.cancel()
         eventTask?.cancel()
         connection?.close()
