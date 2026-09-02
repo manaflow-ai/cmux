@@ -435,7 +435,9 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
         observation: CloudVMStateObservation = .current
     ) {
         var pool: [SurfaceResource] = []
-        if CmuxTuiSnapshotParser.machineHasDesktop(image: summary.image) {
+        // The control plane's resolved kind is authoritative. Freestyle snapshot
+        // ids are opaque and cannot tell us whether the machine has a desktop.
+        if summary.resolvedKind.hasDesktop {
             pool.append(CmuxTuiSnapshotParser.display(machine: machine))
         }
         var resources = CmuxTuiSnapshotParser.mergingDisplays(
