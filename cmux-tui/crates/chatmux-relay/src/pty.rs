@@ -1933,11 +1933,10 @@ struct ControlTerminalControl {
 impl PtyControl for ControlTerminalControl {
     fn write(&self, data: &[u8]) -> bool {
         self.control
-            .send("send", json!({ "surface": self.surface_id, "bytes": BASE64.encode(data) }));
-        true
+            .send("send", json!({ "surface": self.surface_id, "bytes": BASE64.encode(data) }))
     }
     fn resize(&self, cols: u16, rows: u16) {
-        self.control.send(
+        let _ = self.control.send(
             "resize-surface",
             json!({ "surface": self.surface_id, "cols": cols, "rows": rows }),
         );
@@ -3237,7 +3236,9 @@ mod tests {
             };
             Box::pin(async move { response })
         }
-        fn send(&self, _cmd: &str, _params: Value) {}
+        fn send(&self, _cmd: &str, _params: Value) -> bool {
+            false
+        }
         fn on_event(&self, _handler: EventHandler) {}
         fn on_close(&self, _handler: CloseHandler) {}
         fn pause(&self) {}
