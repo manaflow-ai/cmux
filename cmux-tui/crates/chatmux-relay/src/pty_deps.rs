@@ -1828,6 +1828,18 @@ mod tests {
         assert_eq!(child.wait().expect("reap child").code(), Some(23));
     }
 
+    #[tokio::test]
+    async fn cancelled_spawn_wins_when_worker_is_already_ready() {
+        let cancellation = CancellationToken::new();
+        cancellation.cancel();
+        let mut worker = tokio::spawn(async { 23_u8 });
+
+        let result = await_spawn_or_cancel(&mut worker, &cancellation).await;
+
+        assert!(result.is_err(), "cancellation must win over a ready worker");
+        worker.abort();
+    }
+
     #[test]
     fn failed_pipe_wait_thread_spawn_reaps_child() {
         let child = std::process::Command::new("/bin/sh")
