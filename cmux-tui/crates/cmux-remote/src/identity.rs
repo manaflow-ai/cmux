@@ -3944,6 +3944,22 @@ mod tests {
         assert!(matches!(error, IdentityError::Invalid(message) if message.contains("unique")));
     }
 
+    #[test]
+    fn credential_free_route_hints_deduplicate_without_reordering() {
+        let routes = vec![
+            "unix:///tmp/first".to_string(),
+            "unix:///tmp/second".to_string(),
+            "unix:///tmp/first".to_string(),
+        ];
+
+        let sanitized = credential_free_route_hints(routes).unwrap();
+
+        assert_eq!(
+            sanitized,
+            vec!["unix:///tmp/first".to_string(), "unix:///tmp/second".to_string()]
+        );
+    }
+
     #[tokio::test]
     async fn pending_enrollment_notification_cannot_be_lost_between_check_and_wait() {
         let temp = tempfile::tempdir().unwrap();
