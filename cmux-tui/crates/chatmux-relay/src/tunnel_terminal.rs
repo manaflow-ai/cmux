@@ -393,7 +393,10 @@ impl Connection {
             trust: "supervised".to_owned(),
             local_roots: None,
             owner_user_id: None,
-            live_auth: Arc::new(|| ("supervised".to_owned(), None)),
+            live_auth: Arc::new(|| crate::pty::LiveAuth {
+                trust: "supervised".to_owned(),
+                ..Default::default()
+            }),
             transport_id: Some(self.pty_id.clone()),
             cancellation: self.done.clone(),
         }

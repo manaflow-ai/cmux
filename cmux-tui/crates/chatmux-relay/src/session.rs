@@ -95,6 +95,7 @@ struct AuthSnapshot {
     trust: String,
     roots: Option<Vec<String>>,
     owner: Option<String>,
+    version: u64,
 }
 
 pub(crate) struct OutboundFrame {
@@ -587,7 +588,12 @@ fn make_context(
         owner_user_id: auth.owner.clone(),
         live_auth: Arc::new(move || {
             let snapshot = live_auth.lock().expect("auth lock");
-            (snapshot.trust.clone(), snapshot.owner.clone())
+            crate::pty::LiveAuth {
+                trust: snapshot.trust.clone(),
+                roots: snapshot.roots.clone(),
+                owner_user_id: snapshot.owner.clone(),
+                version: snapshot.version,
+            }
         }),
         transport_id: Some(transport_id.to_owned()),
         cancellation: cancellation.clone(),
@@ -975,6 +981,7 @@ async fn relay_session(
                             snapshot.trust = effective_trust;
                             snapshot.roots = local_roots.clone();
                             snapshot.owner = config.owner_user_id.clone();
+                            snapshot.version = snapshot.version.wrapping_add(1);
                             workspace.set_local_observe(local_observe);
                         }
                         let cadence = Duration::from_millis(hello.heartbeat_interval_ms);
@@ -1034,7 +1041,9 @@ async fn relay_session(
                         if !state.managed {
                             save(config, config_path);
                         }
-                        auth.lock().expect("auth lock").trust = ack.as_str().to_owned();
+                        let mut auth = auth.lock().expect("auth lock");
+                        auth.trust = ack.as_str().to_owned();
+                        auth.version = auth.version.wrapping_add(1);
                         workspace.set_local_observe(ack == Trust::Observe);
                         println!("Trust level set to {ack}.");
                     }
