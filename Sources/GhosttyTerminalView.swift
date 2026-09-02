@@ -10448,6 +10448,19 @@ final class GhosttySurfaceScrollView: NSView {
         surfaceView.terminalSurface?.forceRefresh(reason: reason)
     }
 
+    /// Resolves the renderer frame during a deferred resize, rejecting a
+    /// degenerate committed size so an early pre-layout pass cannot collapse
+    /// the terminal during a scrollbar-style update.
+    private func resolvedDeferredRendererSize(deferred: Bool, fallback: CGSize) -> CGSize {
+        guard deferred,
+              let committedRendererSize,
+              committedRendererSize.width > 0,
+              committedRendererSize.height > 0 else {
+            return fallback
+        }
+        return committedRendererSize
+    }
+
     /// Synchronizes pane overlays, viewport geometry, and the renderer frame;
     /// live window resize keeps the renderer on its committed inner size.
     @discardableResult
@@ -10483,15 +10496,10 @@ final class GhosttySurfaceScrollView: NSView {
 #if DEBUG
         logLayoutDuringActiveDrag(targetSize: targetSize)
 #endif
-        let rendererSize: CGSize = {
-            guard deferRendererResize else { return targetSize }
-            guard let committedRendererSize,
-                  committedRendererSize.width > 0,
-                  committedRendererSize.height > 0 else {
-                return targetSize
-            }
-            return committedRendererSize
-        }()
+        let rendererSize = resolvedDeferredRendererSize(
+            deferred: deferRendererResize,
+            fallback: targetSize
+        )
         let targetSurfaceFrame = CGRect(origin: surfaceView.frame.origin, size: rendererSize)
         _ = setFrameIfNeeded(surfaceView, to: targetSurfaceFrame)
         let targetDocumentFrame = CGRect(
@@ -10543,15 +10551,10 @@ final class GhosttySurfaceScrollView: NSView {
         // otherwise a child can briefly grow to the live pane size before the
         // clipping boundary gets a chance to contain it.
         let settledTargetSize = scrollView.bounds.size
-        let settledRendererSize: CGSize = {
-            guard deferRendererResize else { return settledTargetSize }
-            guard let committedRendererSize,
-                  committedRendererSize.width > 0,
-                  committedRendererSize.height > 0 else {
-                return settledTargetSize
-            }
-            return committedRendererSize
-        }()
+        let settledRendererSize = resolvedDeferredRendererSize(
+            deferred: deferRendererResize,
+            fallback: settledTargetSize
+        )
         let committedRendererFrame = CGRect(origin: surfaceView.frame.origin, size: settledRendererSize)
         _ = setFrameIfNeeded(surfaceView, to: committedRendererFrame)
         updateNotificationRingPath()
@@ -13300,7 +13303,10 @@ final class GhosttySurfaceScrollView: NSView {
         scrollView.layoutSubtreeIfNeeded()
         let targetSize = scrollView.contentView.bounds.size
         let deferRendererResize = windowLiveResizeActive
-        let rendererSize = deferRendererResize ? (committedRendererSize ?? targetSize) : targetSize
+        let rendererSize = resolvedDeferredRendererSize(
+            deferred: deferRendererResize,
+            fallback: targetSize
+        )
         let targetSurfaceFrame = CGRect(origin: surfaceView.frame.origin, size: rendererSize)
         _ = setFrameIfNeeded(surfaceView, to: targetSurfaceFrame)
         let targetDocumentFrame = CGRect(
