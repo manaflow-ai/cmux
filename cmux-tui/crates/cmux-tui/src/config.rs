@@ -149,11 +149,11 @@ use cmux_tui_core::{DEFAULT_SCROLLBACK_LIMIT_BYTES, SurfaceOptions};
 
 const MAX_SCROLLBACK_LIMIT_BYTES: usize = 1_000_000_000;
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+use ratatui::buffer::CellWidth;
 use ratatui::style::Color;
 use serde::{Deserialize, Deserializer};
 use serde_json::{Value, json};
 use unicode_segmentation::UnicodeSegmentation;
-use unicode_width::UnicodeWidthStr;
 use wait_timeout::ChildExt;
 
 use crate::localization::catalog;
@@ -3209,7 +3209,7 @@ fn resolve_status_segments(raw: Vec<RawStatusSegment>, side: &str) -> Vec<Status
                 let mut width = 0;
                 let mut scalar_count = 0;
                 for grapheme in text.graphemes(true) {
-                    let grapheme_width = grapheme.width();
+                    let grapheme_width = usize::from(grapheme.cell_width());
                     let grapheme_scalars = grapheme.chars().count();
                     if width.saturating_add(grapheme_width) > MAX_STATUS_SEGMENT_TEXT
                         || scalar_count.saturating_add(grapheme_scalars) > MAX_STATUS_SEGMENT_TEXT
@@ -3422,7 +3422,7 @@ pub fn load() -> Config {
     if let Some(glyph) = raw.sidebar.rail_glyph {
         if glyph.eq_ignore_ascii_case("none") {
             config.sidebar.rail_glyph = String::new();
-        } else if glyph.chars().count() == 1 && glyph.width() == 1 {
+        } else if glyph.chars().count() == 1 && glyph.cell_width() == 1 {
             // The renderer reserves exactly one cell for the glyph.
             config.sidebar.rail_glyph = glyph;
         } else {
@@ -5884,8 +5884,8 @@ fn overlay_ghostty_defaults(defaults: &mut DefaultColors, overrides: DefaultColo
 #[cfg(test)]
 mod tests {
     use super::*;
+    use ratatui::buffer::CellWidth;
     use std::cell::{Cell, RefCell};
-    use unicode_width::UnicodeWidthStr;
 
     #[test]
     fn config_diagnostics_do_not_echo_parser_details() {
@@ -9122,7 +9122,7 @@ mod tests {
         let StatusSegmentContent::Text(text) = &resolved[0].content else {
             panic!("literal status text did not resolve as text");
         };
-        assert_eq!(text.width(), MAX_STATUS_SEGMENT_TEXT);
+        assert_eq!(usize::from(text.cell_width()), MAX_STATUS_SEGMENT_TEXT);
         assert_eq!(text, &"界".repeat(MAX_STATUS_SEGMENT_TEXT / 2));
     }
 
