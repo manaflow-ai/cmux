@@ -531,8 +531,22 @@ async fn serve_connection(stream: TcpStream, manager: Arc<PtyManager>, parent: C
             });
             if admitted_open {
                 // Once admitted, let OPEN finish so a remote attach receives
-                // its lease and can run ordered cancellation cleanup.
-                let _ = (&mut operation).await;
+                // its lease and can run ordered cancellation cleanup. Bound
+                // the handoff so a wedged control socket cannot block shutdown.
+                tokio::select! {
+                    _ = (&mut operation) => {}
+                    _ = dispatch_done.cancelled() => {
+                        let _ = tokio::time::timeout(
+                            Duration::from_millis(crate::control::CONTROL_TIMEOUT_MS + 500),
+                            &mut operation,
+                        ).await;
+                        if !operation.is_finished() {
+                            operation.abort();
+                            let _ = (&mut operation).await;
+                        }
+                        break;
+                    }
+                }
             } else {
                 tokio::select! {
                     biased;
