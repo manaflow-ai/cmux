@@ -222,6 +222,12 @@ export type SetManualPlanGrantInput = {
   /** A grantable plan id, or null to remove the manual grant. */
   readonly plan: AdminGrantablePlanId | null;
   readonly admin: { readonly id: string; readonly primaryEmail?: string | null };
+  /**
+   * Only write when the user's current override and audit record match this
+   * grant. Used when unwinding a pending email grant so an unrelated manual
+   * grant on the same account is left alone.
+   */
+  readonly onlyIfCurrent?: { readonly plan: string; readonly byUserId: string };
   readonly now?: () => Date;
   readonly app?: AdminStackApp;
   readonly withFreshUser?: FreshAdminUserMutation;
@@ -254,6 +260,16 @@ export async function setManualPlanGrant(
   try {
     mutated = await withFreshUser(input.targetUserId, async (user, lease) => {
       if (user.isAnonymous) throw new AdminUserNotFoundError(input.targetUserId);
+      if (input.onlyIfCurrent) {
+        const currentPlan = manualVmPlanOverride(user.clientReadOnlyMetadata);
+        const audit = grantRecordFromServerMetadata(user.serverMetadata);
+        if (
+          currentPlan !== input.onlyIfCurrent.plan.toLowerCase() ||
+          audit?.byUserId !== input.onlyIfCurrent.byUserId
+        ) {
+          return user;
+        }
+      }
       await lease.refresh();
       const client = metadataRecord(user.clientReadOnlyMetadata);
       if (input.plan === null) {
@@ -640,8 +656,13 @@ export const ADMIN_GRANT_CLAIM_TTL_MS = 10 * 60 * 1000;
 /**
  * Revokes an open grant. If a sign-in had claimed the row but never finalized
  * it (process or database failure after the metadata write), the claimer's
- * manual grant is removed as well, so a revoked row never leaves access
- * behind. Removing an absent override is a no-op.
+ * manual grant is removed as well, but only when that grant is the one this
+ * row produced (same plan, same granting admin in the audit record), so an
+ * unrelated manual grant on the account is left alone.
+ *
+ * The row is revoked first so an in-flight apply cannot finalize it. If the
+ * metadata clear then fails, the revoke is undone (best effort) and the
+ * error propagates, so the row stays open and the admin can retry.
  */
 export async function revokePendingEmailGrant(input: {
   readonly grantId: string;
@@ -662,6 +683,7 @@ export async function revokePendingEmailGrant(input: {
     )
     .returning({
       id: adminPlanGrants.id,
+      plan: adminPlanGrants.plan,
       appliedUserId: adminPlanGrants.appliedUserId,
       grantedByUserId: adminPlanGrants.grantedByUserId,
       grantedByEmail: adminPlanGrants.grantedByEmail,
@@ -669,14 +691,23 @@ export async function revokePendingEmailGrant(input: {
   const row = rows[0];
   if (!row) return { revoked: false, clearedUserId: null };
   if (!row.appliedUserId) return { revoked: true, clearedUserId: null };
-  await (input.grant ?? setManualPlanGrant)({
-    targetUserId: row.appliedUserId,
-    plan: null,
-    admin: input.admin ?? { id: row.grantedByUserId, primaryEmail: row.grantedByEmail },
-  }).catch((error: unknown) => {
-    if (error instanceof AdminUserNotFoundError) return;
-    throw error;
-  });
+  try {
+    await (input.grant ?? setManualPlanGrant)({
+      targetUserId: row.appliedUserId,
+      plan: null,
+      admin: input.admin ?? { id: row.grantedByUserId, primaryEmail: row.grantedByEmail },
+      onlyIfCurrent: { plan: row.plan, byUserId: row.grantedByUserId },
+    });
+  } catch (error) {
+    if (!(error instanceof AdminUserNotFoundError)) {
+      await db
+        .update(adminPlanGrants)
+        .set({ revokedAt: null })
+        .where(and(eq(adminPlanGrants.id, row.id), isNull(adminPlanGrants.appliedAt)))
+        .catch(() => undefined);
+      throw error;
+    }
+  }
   return { revoked: true, clearedUserId: row.appliedUserId };
 }
 

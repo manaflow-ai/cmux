@@ -25,6 +25,7 @@ import {
   setManualPlanGrant,
   setTeamManualPlanGrant,
   type AdminGrantsDb,
+  type SetManualPlanGrantInput,
   type AdminStackApp,
   type AdminStackTeam,
   type AdminStackUser,
@@ -560,7 +561,8 @@ function fakeGrantsDb(rows: GrantRow[]): AdminGrantsDb {
           const predicate = matches(condition);
           const isClaim = "appliedUserId" in values && values.appliedUserId !== null && !("appliedAt" in values);
           const isFinalize = "appliedAt" in values && values.appliedAt !== null;
-          const isRevoke = "revokedAt" in values;
+          const isRevoke = "revokedAt" in values && values.revokedAt !== null;
+          const isUnrevoke = "revokedAt" in values && values.revokedAt === null;
           const claimant = isClaim ? String(values.appliedUserId) : null;
           const claimStale = (row: GrantRow) => {
             const cutoff = boundParams(condition).find((value): value is Date => value instanceof Date);
@@ -570,7 +572,8 @@ function fakeGrantsDb(rows: GrantRow[]): AdminGrantsDb {
             predicate(row) &&
             (!isClaim || (isOpen(row) && (row.appliedUserId === null || row.appliedUserId === claimant || claimStale(row)))) &&
             (!isFinalize || row.revokedAt === null) &&
-            (!isRevoke || (row.appliedAt === null && row.revokedAt === null)));
+            (!isRevoke || (row.appliedAt === null && row.revokedAt === null)) &&
+            (!isUnrevoke || row.appliedAt === null));
           const run = async () => {
             for (const row of hit) Object.assign(row, values);
             return hit.map((row) => ({ ...row }));
@@ -738,6 +741,55 @@ describe("pending email grants", () => {
     expect(result).toEqual({ revoked: true, clearedUserId: "u9" });
     expect(calls).toEqual([{ target: "u9", plan: null }]);
     expect(await revokePendingEmailGrant({ grantId: "g1", db, grant: async () => undefined })).toEqual({ revoked: false, clearedUserId: null });
+  });
+
+  test("revoke only clears the claimer's override when it is the one this grant produced", async () => {
+    const rows: GrantRow[] = [];
+    const db = fakeGrantsDb(rows);
+    await createPendingEmailGrant({ email: "pat@example.com", plan: "pro", admin, db });
+    rows[0]!.appliedUserId = "u9";
+    rows[0]!.claimedAt = new Date();
+    const seen: SetManualPlanGrantInput[] = [];
+    await revokePendingEmailGrant({ grantId: "g1", db, admin, grant: async (input) => { seen.push(input); } });
+    expect(seen[0]?.onlyIfCurrent).toEqual({ plan: "pro", byUserId: "admin-1" });
+
+    // The real writer honors onlyIfCurrent: an unrelated founders grant by
+    // another admin is left untouched, a matching pro grant is cleared.
+    const other = fakeUser({
+      id: "u9",
+      clientReadOnlyMetadata: { cmuxVmPlan: "founders" },
+      serverMetadata: { cmuxAdminPlanGrant: { plan: "founders", byUserId: "admin-2", byEmail: null, at: "2026-09-02T00:00:00.000Z" } },
+    });
+    const app = fakeApp([other]);
+    await setManualPlanGrant({
+      targetUserId: "u9", plan: null, admin, app, withFreshUser: directMutation(app),
+      stripeBillingStatus: async () => noStripe, onlyIfCurrent: { plan: "pro", byUserId: "admin-1" },
+    });
+    expect(other.updates).toEqual([]);
+    const mine = fakeUser({
+      id: "u8",
+      clientReadOnlyMetadata: { cmuxVmPlan: "pro" },
+      serverMetadata: { cmuxAdminPlanGrant: { plan: "pro", byUserId: "admin-1", byEmail: null, at: "2026-09-02T00:00:00.000Z" } },
+    });
+    const app2 = fakeApp([mine]);
+    await setManualPlanGrant({
+      targetUserId: "u8", plan: null, admin, app: app2, withFreshUser: directMutation(app2),
+      stripeBillingStatus: async () => noStripe, onlyIfCurrent: { plan: "pro", byUserId: "admin-1" },
+    });
+    expect(mine.clientReadOnlyMetadata).toEqual({});
+  });
+
+  test("revoke is retry-safe: a failed metadata clear reopens the row", async () => {
+    const rows: GrantRow[] = [];
+    const db = fakeGrantsDb(rows);
+    await createPendingEmailGrant({ email: "pat@example.com", plan: "pro", admin, db });
+    rows[0]!.appliedUserId = "u9";
+    rows[0]!.claimedAt = new Date();
+    await expect(
+      revokePendingEmailGrant({ grantId: "g1", db, admin, grant: async () => { throw new AdminGrantConflictError("u9"); } }),
+    ).rejects.toBeInstanceOf(AdminGrantConflictError);
+    expect(rows[0]!.revokedAt).toBeNull();
+    expect((await listPendingEmailGrants("pat", { db })).length).toBe(1);
   });
 
   test("applyPendingEmailGrants ignores users without an email", async () => {
