@@ -564,7 +564,11 @@ struct CLICodexHookTimeoutRegressionTests {
         let sleepPID = try #require(Int32(sleepPIDText))
         defer { _ = Darwin.kill(sleepPID, SIGKILL) }
         #expect(
-            waitForConditionBlocking(timeout: 1) {
+            // The detached hook and its supervisor are separate processes;
+            // hosted macOS can defer the final reaping turn under a cold app
+            // test launch. Keep this well below the 30-second watchdog
+            // deadline so a genuinely orphaned timer still fails promptly.
+            waitForConditionBlocking(timeout: 5) {
                 Darwin.kill(sleepPID, 0) == -1 && errno == ESRCH
             },
             "The watchdog timer process \(sleepPID) outlived its completed hook invocation"
