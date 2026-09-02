@@ -3,6 +3,8 @@ import { describe, expect, test } from "bun:test";
 import {
   isValidScanCursor,
   listAllPendingEmailGrants,
+  mapWithConcurrency,
+  PRO_LIST_MAX_ROWS,
   listStripeProSubscribers,
   listStripeTeamSubscriptions,
   scanManualTeamGrants,
@@ -67,7 +69,8 @@ describe("Pro roster", () => {
       { userId: "u1", subscriptionId: "sub_old", status: "past_due", cancelAtPeriodEnd: true, currentPeriodEnd: new Date("2026-09-01T00:00:00Z"), email: "pat@example.com" },
       { userId: "u2", subscriptionId: "sub_2", status: "trialing", cancelAtPeriodEnd: false, currentPeriodEnd: null, email: null },
     ]]]));
-    const rows = await listStripeProSubscribers({ db });
+    const { rows, truncated } = await listStripeProSubscribers({ db });
+    expect(truncated).toBe(false);
     expect(rows).toEqual([
       { userId: "u1", email: "pat@example.com", subscriptionId: "sub_new", status: "active", cancelAtPeriodEnd: false, currentPeriodEnd: "2026-10-01T00:00:00.000Z" },
       { userId: "u2", email: null, subscriptionId: "sub_2", status: "trialing", cancelAtPeriodEnd: false, currentPeriodEnd: null },
@@ -81,7 +84,7 @@ describe("Pro roster", () => {
       { teamId: "t9", subscriptionId: "sub_t9", status: "active", seats: null, cancelAtPeriodEnd: true, currentPeriodEnd: null },
     ]]]));
     const app = fakeApp({ teams: [{ id: "t1", displayName: "Acme" }] });
-    const rows = await listStripeTeamSubscriptions({ db, app });
+    const { rows } = await listStripeTeamSubscriptions({ db, app });
     expect(rows.map((row) => [row.teamId, row.displayName, row.seats, row.cancelAtPeriodEnd])).toEqual([
       ["t1", "Acme", 5, false],
       ["t9", null, null, true],
@@ -92,9 +95,12 @@ describe("Pro roster", () => {
     const db = fakeDb(new Map([[adminPlanGrants, [
       { id: "g1", email: "a@example.com", plan: "pro", grantedByEmail: "lawrence@manaflow.ai", createdAt: new Date("2026-09-02T00:00:00Z") },
     ]]]));
-    expect(await listAllPendingEmailGrants({ db })).toEqual([
-      { id: "g1", email: "a@example.com", plan: "pro", grantedByEmail: "lawrence@manaflow.ai", createdAt: "2026-09-02T00:00:00.000Z" },
-    ]);
+    expect(await listAllPendingEmailGrants({ db })).toEqual({
+      truncated: false,
+      rows: [
+        { id: "g1", email: "a@example.com", plan: "pro", grantedByEmail: "lawrence@manaflow.ai", createdAt: "2026-09-02T00:00:00.000Z" },
+      ],
+    });
   });
 
   test("scans the user directory page by page and keeps only paid manual overrides", async () => {
@@ -128,6 +134,36 @@ describe("Pro roster", () => {
     const page = await scanManualTeamGrants(null, { app });
     expect(page.rows.map((row) => [row.teamId, row.plan])).toEqual([["t1", "team"]]);
     expect(page.nextCursor).toBeNull();
+  });
+
+  test("reports truncation when a source exceeds the row cap", async () => {
+    const many = Array.from({ length: PRO_LIST_MAX_ROWS + 1 }, (_, i) => ({
+      userId: `u${i}`, subscriptionId: `sub_${i}`, status: "active", cancelAtPeriodEnd: false, currentPeriodEnd: null, email: null,
+    }));
+    const { rows, truncated } = await listStripeProSubscribers({ db: fakeDb(new Map([[stripeSubscriptions, many]])) });
+    expect(truncated).toBe(true);
+    expect(rows).toHaveLength(PRO_LIST_MAX_ROWS);
+  });
+
+  test("team name lookups run with bounded concurrency", async () => {
+    const subs = Array.from({ length: 20 }, (_, i) => ({
+      teamId: `t${i}`, subscriptionId: `sub_${i}`, status: "active", seats: 1, cancelAtPeriodEnd: false, currentPeriodEnd: null,
+    }));
+    let inFlight = 0; let peak = 0;
+    const app: ProListStackApp = {
+      async getTeam(teamId) {
+        inFlight += 1; peak = Math.max(peak, inFlight);
+        await new Promise((resolve) => setTimeout(resolve, 2));
+        inFlight -= 1;
+        return { id: teamId, displayName: `Team ${teamId}` };
+      },
+      listUsers: async () => Object.assign([], { nextCursor: null }) as never,
+      listTeams: async () => Object.assign([], { nextCursor: null }) as never,
+    };
+    const { rows } = await listStripeTeamSubscriptions({ db: fakeDb(new Map([[stripeSubscriptions, subs]])), app, concurrency: 4 });
+    expect(rows.map((row) => row.displayName)).toEqual(subs.map((sub) => `Team ${sub.teamId}`));
+    expect(peak).toBeLessThanOrEqual(4);
+    expect(await mapWithConcurrency([], 3, async () => 1)).toEqual([]);
   });
 
   test("isValidScanCursor accepts opaque tokens and rejects junk", () => {

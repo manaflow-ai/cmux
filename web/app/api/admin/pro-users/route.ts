@@ -24,11 +24,20 @@ export async function GET(request: NextRequest) {
       listStripeProSubscribers(),
       listStripeTeamSubscriptions(),
       listAllPendingEmailGrants().catch((error: unknown) => {
-        if (isMissingGrantsTableError(error)) return [];
+        if (isMissingGrantsTableError(error)) return { rows: [], truncated: false };
         throw error;
       }),
     ]);
-    snapshot = { subscribers, teamSubscriptions, pendingGrants };
+    snapshot = {
+      subscribers: subscribers.rows,
+      teamSubscriptions: teamSubscriptions.rows,
+      pendingGrants: pendingGrants.rows,
+      truncated: {
+        subscribers: subscribers.truncated,
+        teamSubscriptions: teamSubscriptions.truncated,
+        pendingGrants: pendingGrants.truncated,
+      },
+    };
   } catch (error) {
     if (error instanceof Error && /DATABASE_URL is required/.test(error.message)) {
       return adminJsonResponse({ error: "database_unavailable" }, 503);
