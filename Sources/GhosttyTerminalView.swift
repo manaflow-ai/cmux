@@ -3960,6 +3960,11 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     /// pass. The parent portal owns this phase and re-enables updates once the
     /// final pane frame is installed.
     private var defersSurfaceSizeDuringWindowLiveResize = false
+    /// A portal explicitly owns the live-resize phase for hosted views. Keep
+    /// that state separate from AppKit's native signal so the portal can
+    /// release its final pass before AppKit clears `inLiveResize`, while
+    /// standalone Ghostty views still use the native fallback.
+    private var portalWindowLiveResizeState: Bool?
     private var deferredSurfaceSizeRetryQueued = false, needsSurfaceSizeRetryAfterMetalLayerRealizes = false
     private var deferredSurfaceSizeNonMetalRetryCount = 0
     private var lastDrawableSize: CGSize = .zero
@@ -4027,10 +4032,17 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     /// window resize. The view frame may move with its pane, but Ghostty must
     /// not publish a surface for a size that no longer matches that frame.
     fileprivate func setWindowLiveResizeActive(_ active: Bool) {
+        portalWindowLiveResizeState = active
         defersSurfaceSizeDuringWindowLiveResize = active
         terminalSurface?.setSurfaceSizeUpdatesDeferred(active)
         clipsToBounds = true
         layer?.masksToBounds = true
+    }
+
+    fileprivate func clearWindowLiveResizeStateForPortal() {
+        portalWindowLiveResizeState = nil
+        defersSurfaceSizeDuringWindowLiveResize = false
+        terminalSurface?.setSurfaceSizeUpdatesDeferred(false)
     }
 
     override init(frame frameRect: NSRect) {
@@ -5047,9 +5059,10 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     }
 
     /// Whether the portal has propagated the window live-resize phase to this
-    /// surface view.
+    /// surface view. Standalone views retain AppKit's native fallback.
     private var isWindowLiveResizeActive: Bool {
-        defersSurfaceSizeDuringWindowLiveResize
+        portalWindowLiveResizeState
+            ?? (inLiveResize || window?.inLiveResize == true)
     }
 
     /// Schedules one retry when AppKit has not realized a usable terminal
@@ -9950,6 +9963,11 @@ final class GhosttySurfaceScrollView: NSView {
         layer?.masksToBounds = true
         surfaceView.clipsToBounds = true
         surfaceView.layer?.masksToBounds = true
+    }
+
+    func clearWindowLiveResizeStateForPortal() {
+        windowLiveResizeActive = false
+        surfaceView.clearWindowLiveResizeStateForPortal()
     }
 
     /// Creates the pane host around a Ghostty surface view.

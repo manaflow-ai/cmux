@@ -797,6 +797,21 @@ final class WindowTerminalPortal: NSObject {
 
         let center = NotificationCenter.default
         geometryObservers.append(center.addObserver(
+            forName: NSWindow.willStartLiveResizeNotification,
+            object: window,
+            queue: .main
+        ) { [weak self] _ in
+            MainActor.assumeIsolated {
+                guard let self, self.selfFrameWriteDepth == 0 else { return }
+                // A new drag is the only authoritative way to replace an end
+                // marker. A late didResize callback after didEnd must leave
+                // the marker intact until its queued final pass runs.
+                self.liveResizeEndPending = false
+                self.liveResizePhaseActive = true
+                self.setHostedViewsWindowLiveResizeActive(true)
+            }
+        })
+        geometryObservers.append(center.addObserver(
             forName: NSWindow.didResizeNotification,
             object: window,
             queue: nil
@@ -834,11 +849,10 @@ final class WindowTerminalPortal: NSObject {
 #endif
                 guard let self, self.selfFrameWriteDepth == 0 else { return }
                 if self.isWindowLiveResizeActive {
-                    // A rapid second drag can begin before the queued
-                    // didEndLiveResize pass runs. The new active tick is the
-                    // authoritative begin boundary, so do not let the old
-                    // end marker release the renderer gate mid-drag.
-                    self.liveResizeEndPending = false
+                    // A rapid second drag clears the old end marker in the
+                    // willStartLiveResize observer above. A frame callback
+                    // that arrives after didEnd while AppKit still reports
+                    // inLiveResize must not cancel that pending final pass.
                     self.liveResizePhaseActive = true
                     self.setHostedViewsWindowLiveResizeActive(true)
                     // Live resize: run the pass INSIDE this tick so hosted
@@ -1559,6 +1573,7 @@ final class WindowTerminalPortal: NSObject {
             if let restoredMask = preAdoptionAutoresizingMaskByHostedId.removeValue(forKey: hostedId) {
                 hostedView.autoresizingMask = restoredMask
             }
+            hostedView.clearWindowLiveResizeStateForPortal()
             if hostedView.superview === hostView {
                 hostedView.removeFromSuperview()
             }
