@@ -87,6 +87,13 @@ extension DockSplitStore {
     func focusPanelFromDockInteraction(_ panelId: UUID, window: NSWindow?) {
         noteKeyboardFocusIntent(window: window)
         focusPanel(panelId, window: window, claimKeyboardFocus: false)
+        if panels[panelId] is DeferredBrowserPanel {
+            _ = requestDeferredBrowserMaterialization(
+                panelId: panelId,
+                isVisibleInUI: true,
+                reason: "dock.explicitFocus"
+            )
+        }
         _ = reassertDockPanelInputFocus(panelId)
         scheduleDockPortalReconcile(reason: "dock.explicitFocus")
         guard let appDelegate = AppDelegate.shared,
