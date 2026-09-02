@@ -15,6 +15,13 @@ const PROVIDER_CREDENTIAL_KEYS = {
   freestyle: ["FREESTYLE_API_KEY"],
 };
 
+// Runtime kill switches are fail-open when unset, but an explicit false value
+// disables the provider. Keep this mapping beside the credential mapping so a
+// new default provider cannot pass the audit while its create path is off.
+const PROVIDER_ENABLED_KEYS = {
+  freestyle: "CMUX_VM_FREESTYLE_ENABLED",
+};
+
 // Mirrors defaultProviderId() in services/vms/drivers/index.ts. Freestyle is
 // the only provider, and shipped CLIs hardcode its image ids (cmux.swift
 // cloudVMDesktopImage / cloudVMBaseImage), so it must stay provisionable in
@@ -33,7 +40,7 @@ const SENSITIVE_PLACEHOLDER = "[SENSITIVE]";
  * @param {string} provider
  * @param {Record<string, string | undefined>} env deployed runtime env values
  * @param {{ images: Array<{ provider: string, version: string, imageId: string, envVar: string, validationStatus: string }> }} manifest
- * @returns {{ provider: string, envVar: string | null, image: string | null, problems: string[] }}
+ * @returns {{ provider: string, envVar: string | null, image: string | null, imageSource: string | null, problems: string[] }}
  */
 export function auditProviderReadiness(provider, env, manifest) {
   const problems = [];
@@ -43,34 +50,38 @@ export function auditProviderReadiness(provider, env, manifest) {
       `provider ${provider} has no entries in the image manifest; ` +
       "every imageless create will fail closed in deployed runtimes",
     );
-    return { provider, envVar: null, image: null, problems };
+    return { provider, envVar: null, image: null, imageSource: null, problems };
   }
 
+  // The checked-in manifest is the only source of truth for images: deployed
+  // runtimes serve the entry flagged defaultForKind (services/vms/images/
+  // resolver.ts). No env var selects an image any more; a lingering selector
+  // is stale configuration that would mislead whoever reads the deployment.
   const envVar = entries[0].envVar;
-  const image = env[envVar]?.trim() || null;
-  if (!image) {
+  const kindDefaults = entries.filter((entry) => entry.defaultForKind === true);
+  for (const entry of kindDefaults.filter((entry) => entry.validationStatus !== "passed")) {
     problems.push(
-      `${envVar} is not set; deployed runtimes fail closed on imageless ` +
-      `creates for provider ${provider}`,
+      `manifest default ${entry.version} (${entry.kind ?? "base"}) for ${provider} has ` +
+      `validationStatus ${entry.validationStatus}, not passed`,
     );
-  } else if (image === SENSITIVE_PLACEHOLDER) {
+  }
+  // Only a validated default counts as the served image: an unvalidated one
+  // is already reported above and must not be echoed back as the selection.
+  const baseDefault = kindDefaults.find(
+    (entry) => (entry.kind ?? "base") === "base" && entry.validationStatus === "passed",
+  );
+  const image = baseDefault?.imageId ?? null;
+  if (!baseDefault) {
     problems.push(
-      `${envVar} is stored as a Sensitive env var, so its value cannot be audited; ` +
-      "store it as a plain env var (image ids are configuration, not secrets)",
+      `the manifest has no validated base default for ${provider} (no entry flagged ` +
+      "defaultForKind); deployed runtimes fail closed on imageless creates",
     );
-  } else {
-    const entry = entries.find((candidate) => candidate.imageId === image || candidate.version === image);
-    if (!entry) {
-      problems.push(
-        `${envVar}=${image} is not listed in the image manifest for ${provider}; ` +
-        "deployed runtimes will reject it with vm_image_config_error",
-      );
-    } else if (entry.validationStatus !== "passed") {
-      problems.push(
-        `${envVar} selects manifest entry ${entry.version} whose validationStatus is ` +
-        `${entry.validationStatus}, not passed`,
-      );
-    }
+  }
+  if (envVar && env[envVar] !== undefined) {
+    problems.push(
+      `${envVar} is set but ignored: the manifest is the source of truth for images; ` +
+      "remove it from the deployment",
+    );
   }
 
   const credentialKeys = PROVIDER_CREDENTIAL_KEYS[provider];
@@ -88,7 +99,23 @@ export function auditProviderReadiness(provider, env, manifest) {
     }
   }
 
-  return { provider, envVar, image, problems };
+  const enabledKey = PROVIDER_ENABLED_KEYS[provider];
+  const enabledValue = enabledKey ? env[enabledKey]?.trim() : undefined;
+  if (enabledKey && enabledValue === SENSITIVE_PLACEHOLDER) {
+    problems.push(
+      `${enabledKey} is stored as a Sensitive env var, so its value cannot be audited; ` +
+      "store it as a plain env var (provider switches are configuration, not secrets)",
+    );
+  } else if (enabledKey && isFalseFlag(enabledValue)) {
+    problems.push(`${enabledKey} disables provider ${provider}, so the selected default cannot create VMs`);
+  }
+
+  return { provider, envVar, image, imageSource: "manifest", problems };
+}
+
+function isFalseFlag(value) {
+  if (!value) return false;
+  return ["0", "false", "no", "off", "disabled"].includes(value.toLowerCase());
 }
 
 /**

@@ -189,7 +189,7 @@ export default async function PricingPage({
               name={t("pro.name")}
               price={
                 <PricingIntervalValue
-                  monthly={t("pro.price")}
+                  monthly={`$${PRO_PRICING_USD.month.billedAmount}`}
                   annual={`$${PRO_PRICING_USD.year.monthlyEquivalent}`}
                 />
               }
@@ -232,7 +232,7 @@ export default async function PricingPage({
               name={t("team.name")}
               price={
                 <PricingIntervalValue
-                  monthly={t("team.price")}
+                  monthly={`$${TEAM_PRICING_USD.month.billedAmount}`}
                   annual={`$${TEAM_PRICING_USD.year.monthlyEquivalent}`}
                 />
               }
@@ -286,7 +286,7 @@ export default async function PricingPage({
                 free: t("free.price"),
                 pro: (
                   <PricingIntervalValue
-                    monthly={`${t("pro.price")} ${t("perMonth")}`}
+                    monthly={`$${PRO_PRICING_USD.month.billedAmount} ${t("perMonth")}`}
                     annual={annualComparePrice}
                   />
                 ),

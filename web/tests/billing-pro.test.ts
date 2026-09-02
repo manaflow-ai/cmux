@@ -73,8 +73,8 @@ describe("syncProPlanMetadata", () => {
     expect(user.updates).toEqual([]);
   });
 
-  test("preserves a verified Founder marker during Stripe metadata sync", async () => {
-    const user = metadataUser({ cmuxPlan: "founders" });
+  test("preserves an operator Founder grant during Stripe metadata sync", async () => {
+    const user = metadataUser({ cmuxVmPlan: "founders", cmuxPlan: PRO_PLAN_ID });
     await syncProPlanMetadata(user, true, mutationLease());
     await syncProPlanMetadata(user, false, mutationLease());
     expect(user.updates).toEqual([]);
@@ -144,10 +144,10 @@ describe("normalizePersonalPlan", () => {
     });
   });
 
-  test("treats a blank VM override as absent when a Founder marker remains", () => {
+  test("recognizes a normalized Pro mirror when a Founder grant remains", () => {
     expect(
       normalizePersonalPlan(
-        { cmuxVmPlan: " ", cmuxPlan: "founders" },
+        { cmuxVmPlan: "founders", cmuxPlan: PRO_PLAN_ID },
         false,
       ),
     ).toEqual({
@@ -311,8 +311,11 @@ describe("resolveProPlanStatus", () => {
     expect(user.updates).toEqual([]);
   });
 
-  test("keeps the fallback Founder marker across Stripe active and lapse reads", async () => {
-    const user = metadataUser({ cmuxPlan: "founders" }, "user-founder-fallback");
+  test("keeps a normalized Pro mirror while an operator Founder grant remains", async () => {
+    const user = metadataUser(
+      { cmuxVmPlan: "founders", cmuxPlan: PRO_PLAN_ID },
+      "user-founder-normalized",
+    );
 
     await expect(
       resolveProPlanStatus(user, {
@@ -463,6 +466,52 @@ describe("resolveProPlanStatus", () => {
       isPro: false,
       billingManagement: "stripe",
     });
+  });
+
+  test("clears a stale non-pro paid mirror when no Stripe Pro row backs it", async () => {
+    for (const stale of ["founders", "team", "PRO"]) {
+      const user = metadataUser({ cmuxPlan: stale }, "user-stale");
+      const status = await resolveProPlanStatus(user, {
+        hasActiveStripeSubscription: async () => false,
+        hasStripeCustomer: async () => false,
+        withFreshMetadataUser: async (_userId, operation) => operation(user, mutationLease()),
+      });
+      expect(status.isPro).toBe(false);
+      expect(status.metadataChanged).toBe(true);
+      expect(user.updates).toEqual([{}]);
+    }
+  });
+
+  test("reports Pro from a paid manual override without a Stripe subscription", async () => {
+    for (const override of ["pro", "founders", "Team"]) {
+      const user = metadataUser({ cmuxVmPlan: override }, "user-granted");
+      await expect(
+        resolveProPlanStatus(user, {
+          hasActiveStripeSubscription: async () => false,
+          hasStripeCustomer: async () => false,
+        }),
+      ).resolves.toEqual({
+        planId: PRO_PLAN_ID,
+        isPro: true,
+        billingManagement: "none",
+        metadataPlanId: null,
+        hasManualVmPlanOverride: true,
+        metadataChanged: false,
+      });
+      expect(user.updates).toEqual([]);
+    }
+  });
+
+  test("a free or unknown manual override does not grant Pro", async () => {
+    for (const override of ["free", "enterprise"]) {
+      const user = metadataUser({ cmuxVmPlan: override }, "user-not-granted");
+      const status = await resolveProPlanStatus(user, {
+        hasActiveStripeSubscription: async () => false,
+        hasStripeCustomer: async () => false,
+      });
+      expect(status.isPro).toBe(false);
+      expect(status.planId).toBe(FREE_PLAN_ID);
+    }
   });
 
   test("does not mutate metadata when a manual VM plan override exists", async () => {

@@ -12,6 +12,7 @@ import {
   validatedNativeCallbackScheme,
 } from "../../lib/native-callback";
 import { appPricingNativeReturnURL } from "../../lib/billing";
+import { requestOrigin } from "../../lib/request-origin";
 import {
   isCmuxCheckoutSession,
   isActiveStripeSubscriptionStatus,
@@ -106,7 +107,7 @@ export default async function BillingSuccessPage({
   const email = purchaseEmail(session) ?? "";
   const { locale, messages } = await billingSuccessMessages(requestHeaders);
   const openCmuxHref = appPricingNativeReturnURL(
-    new URL("/handler/after-sign-in", request.nextUrl.origin),
+    new URL("/handler/after-sign-in", requestOrigin(request)),
     nativeCallbackHrefForScheme(scheme),
     sessionId,
   );
@@ -200,12 +201,16 @@ export default async function BillingSuccessPage({
         </section>
 
         <div className="flex flex-wrap gap-x-6 gap-y-3 border-x border-b border-[#d6ccbc] bg-[#ebe4d8] px-6 py-4 sm:px-10">
+          {/* Billing portal creates a session via a full document navigation. */}
+          {/* eslint-disable-next-line @next/next/no-html-link-for-pages */}
           <a
             className="inline-flex py-1 text-sm font-medium text-[#655c52] underline decoration-[#b7a895] underline-offset-4 hover:text-[#241f1a]"
             href="/api/billing/portal"
           >
             {messages.manageBilling}
           </a>
+          {/* Account settings owns a server-side handoff and also needs a full navigation. */}
+          {/* eslint-disable-next-line @next/next/no-html-link-for-pages */}
           <a
             className="inline-flex py-1 text-sm font-medium text-[#655c52] underline decoration-[#b7a895] underline-offset-4 hover:text-[#241f1a]"
             href="/handler/account-settings"

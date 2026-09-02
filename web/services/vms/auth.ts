@@ -10,6 +10,7 @@ import {
 } from "../account/deletionLock";
 import {
   billingPlanIdFromMetadata,
+  billingSeatsFromMetadata,
   billingTeamFromUnknown,
   resolveBillingTeam,
   type BillingTeamLike,
@@ -29,6 +30,8 @@ export type AuthedUser = {
   /** Whether cmuxVmPlan is explicitly operator-controlled for this user. */
   userHasManualVmPlanOverride?: boolean;
   billingPlanId: string | null;
+  /** Paid seats on the resolved billing team; null for user billing or unknown. */
+  billingSeats: number | null;
   resolveSubrouterPermissions: (
     teamId: string,
   ) => Promise<SubrouterPermissions>;
@@ -38,6 +41,7 @@ export type AuthedTeam = {
   id: string;
   displayName: string | null;
   billingPlanId: string | null;
+  billingSeats: number | null;
 };
 
 export type SubrouterPermissions = {
@@ -549,6 +553,7 @@ async function authedUserFromStackUser(
     user.clientReadOnlyMetadata,
   );
   const billingPlanId = billingPlanIdFromMetadata(billingTeam?.clientReadOnlyMetadata) ?? userBillingPlanId;
+  const billingSeats = billingSeatsFromMetadata(billingTeam?.clientReadOnlyMetadata);
   const rawTeams = new Map<string, unknown>();
   if (selectedTeam) rawTeams.set(selectedTeam.id, selectedTeamRaw);
   for (const raw of listedTeamRaw) {
@@ -563,6 +568,7 @@ async function authedUserFromStackUser(
     id: team.id,
     displayName: team.displayName,
     billingPlanId: billingPlanIdFromMetadata(team.clientReadOnlyMetadata),
+    billingSeats: billingSeatsFromMetadata(team.clientReadOnlyMetadata),
   }));
   const subrouterPermissionCache = new Map<
     string,
@@ -581,6 +587,7 @@ async function authedUserFromStackUser(
     userBillingPlanId,
     userHasManualVmPlanOverride,
     billingPlanId,
+    billingSeats,
     resolveSubrouterPermissions: async (teamId) => {
       const cached = subrouterPermissionCache.get(teamId);
       if (cached) return cached;
