@@ -2563,7 +2563,7 @@ impl RemoteSession {
                     // overflow) ends the byte feed without ending the
                     // terminal. The relay reports a lost connection so its
                     // embedder respawns and resyncs from a fresh replay.
-                    self.pipe_io_forward(id, || PipeIoEvent::TransportLost);
+                    self.signal_pipe_io_event(Some(id), None, PipeIoEvent::TransportLost);
                     self.surfaces.lock().unwrap().remove(&id);
                     self.emit(MuxEvent::SurfaceOutput(id));
                 }
@@ -2607,7 +2607,7 @@ impl RemoteSession {
             }
             Some("surface-exited") => {
                 if let Some(id) = surface_id() {
-                    self.pipe_io_forward(id, || PipeIoEvent::SurfaceExited);
+                    self.signal_pipe_io_event(Some(id), None, PipeIoEvent::SurfaceExited);
                     // Retire the mirror immediately. The authoritative tree
                     // refresh may lag this event, but input and reattach must
                     // already fail closed for a known-exited surface.
@@ -3271,16 +3271,16 @@ impl RemoteSession {
     /// policy; never wedge the session reader thread).
     fn pipe_io_forward(&self, surface: SurfaceId, event: impl FnOnce() -> PipeIoEvent) -> bool {
         use crossbeam_channel::TrySendError;
-        let event = event();
-        if matches!(&event, PipeIoEvent::SurfaceExited | PipeIoEvent::TransportLost) {
-            return self.signal_pipe_io_event(Some(surface), None, event);
-        }
         let (stalled_token, pipe_io_owned) = {
             let tap = self.pipe_io_tap.lock().unwrap();
             let Some(tap) = tap.as_ref() else { return false };
             if tap.surface != surface {
                 return false;
             }
+            // Resolve ownership before invoking the closure. Output and
+            // replay call sites capture a payload clone in the closure, and
+            // sessions without a matching tap must not pay that allocation.
+            let event = event();
             let retained_bytes = event.retained_bytes();
             if !tap.byte_budget.try_reserve(retained_bytes) {
                 (Some(tap.token.clone()), true)
