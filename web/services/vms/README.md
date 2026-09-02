@@ -58,6 +58,11 @@ The auth regression tests live in `web/tests/vm-route-auth.test.ts`. They verify
 
 - `cloud_vms` owns VM lifecycle state, provider ids, image ids, billing team/plan ids, and per-user idempotency keys.
 - `cloud_vm_leases` stores hashed PTY/RPC/SSH lease tokens, provider identity handles, session ids, expiry, and revocation timestamps.
+- `cmux-remote` lease rows are account-scoped and are marked revoked on sign-out.
+  Freestyle daemon enrollment records are device-scoped and are not revoked yet,
+  because the lease row does not store the claimed device id. The follow-up must
+  persist that id and issue one exact `remote enroll revoke` command per device;
+  revoking all devices would disconnect other team members.
 - `cloud_vm_usage_events` records lifecycle, attach, SSH, and exec events with billing team/plan ids for billing and audit rollups.
 - `cloud_vm_networks` records the one provider private network per (user, provider).
 - `cloud_vm_tunnels` records each computer's WireGuard tunnel: provider tunnel id, device

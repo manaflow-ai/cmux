@@ -146,6 +146,16 @@ behind a local workspace. A persisted surface projection keeps its exact
 unambiguous placement can be proved. Otherwise it leaves the local edit intact
 and reports the remote action as unavailable.
 
+Binding is reconciled by the projection lifecycle, not by one UI entry point.
+After a pane is recorded, restored, or moved, the catalog can fill a missing
+binding only when all identity-bearing cloud panes point to one
+`(machine, remote_workspace_id)` and the local workspace has no local pane.
+Cloud displays, port browsers, and pool terminals with no workspace placement
+are neutral. A local pane, an ambiguous placement, or two remote workspaces
+leaves the workspace unbound. An explicit `workspace.cloud_vm_bind` value stays
+authoritative through disconnects and temporary absence of rows. This prevents
+an existing-target open, a restore, or a pane move from losing the rename target.
+
 The process-wide `CloudRenameCoordinator` serializes pending writes by
 `(machine, scope, remote ID)` across windows. Workspace renames use a daemon
 revision compare-and-set. `tab rename` changes one tab placement. The explicit
@@ -190,7 +200,11 @@ reachable only when the owner's WireGuard tunnel is active.
   enrollment are separate from the short-lived provider lease.
 - After first enrollment the device key lives in the Mac's client state and
   reattach needs only a fresh route and a valid device key. Revocation removes
-  the device enrollment and revokes the provider lease.
+  the control-plane lease row. Freestyle does not yet revoke the daemon device
+  record because the lease ledger does not persist the claimed device id. This
+  is an explicit security follow-up: persist the returned fingerprint/device id
+  per lease, then call `remote enroll revoke <device-id>` for exactly those rows.
+  Never revoke every device on a team VM when one member signs out.
 
 Per-VM daemon identity plus per-user device keys give cloud attach the same
 model as every other cmux-tui remote (ssh, iroh, relay), which is what makes
@@ -284,7 +298,7 @@ Socket methods (the CLI, the sidebar tree, and agents all go through them):
 
 | Method | Params | Result |
 | --- | --- | --- |
-| `vm.tree` | `{id?, refresh?}` | JSON catalog with `cloud_states` and freshness cursors. Each terminal carries exact `remote_views: [{workspace_id, tab_id, focused}]`; workspaces remain present when empty. |
+| `vm.tree` | `{id?, refresh?}` | JSON catalog with `cloud_states` and freshness cursors. Each terminal carries exact `remote_views: [{tab_id, workspace: {id, name, index, focused}, screen_id?, pane_id?, name?, index?, focused?}]`; workspaces remain present when empty. |
 | `vm.terminal_open` | `{id, terminal_id, remote_workspace_id?, remote_tab_id?, workspace_id?, placement?, focus?}` | `{surface_id, workspace_id, reused}` — exact remote placement is preserved; an existing pane with the same IDs is focused instead of duplicated |
 | `vm.terminal_new` | `{id, workspace_id?: ws_…, command?: [string], cwd?, name?, open?}` | `{terminal_id, workspace_id, surface_id?}` — a detached terminal in the machine's session |
 | `vm.desktop_open` | `{id, workspace_id?, focus?}` | `{surface_id, url}` |

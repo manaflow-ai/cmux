@@ -57,6 +57,12 @@ browsers, and agents. The macOS app must not create a second remote graph.
 - Remote events reconcile every local projection that stores the exact remote
   workspace and tab IDs. Local write-through uses the same mutation path and
   never echoes a daemon-originated update back to the daemon.
+- Projection lifecycle reconciliation fills a missing local workspace binding
+  after record, restore, or move only when all identity-bearing cloud panes
+  agree on one `(machine, remote_workspace_id)` and no local pane is present.
+  Identity-less cloud displays, ports, and pool terminals are neutral; mixed or
+  ambiguous workspaces stay unbound. Explicit `workspace.cloud_vm_bind` values
+  remain authoritative across disconnects.
 - Rename intents are serialized by `(machine, scope, remote_id)` in one
   process-wide coordinator, so two local windows cannot send the same remote
   tab or workspace out of order. A local binding or projection stores the
@@ -107,6 +113,14 @@ operator-visible warning when the event stream remains incompatible.
   manifest and local dogfood environment.
 - [x] Verify Freestyle create/attach, `cmux-remote` session state, and tab/workspace
   rename persistence against a live sandbox.
+- [x] Verify local-to-cloud workspace and exact tab rename write-through from the
+  catalog projection lifecycle, including restore and existing-target opens.
+- [ ] Persist the claimed cmux-tui device fingerprint/device id in each lease and
+  revoke only those device records on sign-out. Freestyle currently revokes the
+  control-plane lease rows, but not daemon enrollment records.
+- [ ] Make missing Freestyle VPC member-rule repair a visible degraded create
+  result or a retried provider operation. The current attach path is best-effort
+  and can leave a private VM unreachable when the provider rejects the rule.
 - [ ] Run authenticated preview and staging create/attach/browser-proxy smoke
   after the next deployment.
 - [ ] Decide whether provider create needs an asynchronous status flow after

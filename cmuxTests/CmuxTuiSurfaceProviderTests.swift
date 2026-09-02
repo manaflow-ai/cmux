@@ -223,6 +223,78 @@ import Testing
         #expect(CloudWorkspaceRenameWriteThrough.remoteName(fromLocalTitle: "   ", machine: Self.machine) == nil)
     }
 
+    @Test func inferredWorkspaceBindingRequiresOneCloudIdentity() throws {
+        let resources = CmuxTuiSnapshotParser.terminals(fromSnapshot: Self.sessionSnapshot, machine: Self.machine)
+        let shell = try #require(resources.first { $0.id.key == "term_shell" })
+        let build = try #require(resources.first { $0.id.key == "term_build" })
+        let workspaceID = UUID()
+
+        let exact = SurfaceProjection(
+            resource: shell.id,
+            workspaceID: workspaceID,
+            panelID: UUID(),
+            remoteWorkspaceID: "ws_api",
+            remoteTabID: "tab_2"
+        )
+        #expect(
+            CloudWorkspaceRenameWriteThrough.inferredRemoteWorkspaceTarget(
+                projections: [exact],
+                resources: resources
+            )?.remoteWorkspaceID == "ws_api"
+        )
+
+        // A legacy projection can infer its workspace only when the resource has one view.
+        let legacy = SurfaceProjection(
+            resource: shell.id,
+            workspaceID: workspaceID,
+            panelID: UUID()
+        )
+        #expect(
+            CloudWorkspaceRenameWriteThrough.inferredRemoteWorkspaceTarget(
+                projections: [legacy],
+                resources: resources
+            )?.remoteWorkspaceID == "ws_api"
+        )
+
+        // A mixed local workspace and a terminal shown in two remote workspaces are both
+        // intentionally unbound, because neither has one honest workspace owner.
+        let local = SurfaceResource(
+            id: SurfaceResourceID(machine: .local, kind: .terminal, key: "local"),
+            title: "local",
+            detail: nil,
+            lifecycle: .running,
+            agent: nil,
+            remoteWorkspace: nil,
+            remoteViews: nil,
+            port: nil,
+            url: nil
+        )
+        let localProjection = SurfaceProjection(
+            resource: local.id,
+            workspaceID: workspaceID,
+            panelID: UUID()
+        )
+        #expect(
+            CloudWorkspaceRenameWriteThrough.inferredRemoteWorkspaceTarget(
+                projections: [exact, localProjection],
+                resources: resources + [local]
+            ) == nil
+        )
+        let multiView = SurfaceProjection(
+            resource: build.id,
+            workspaceID: workspaceID,
+            panelID: UUID(),
+            remoteWorkspaceID: "ws_main",
+            remoteTabID: "tab_1"
+        )
+        #expect(
+            CloudWorkspaceRenameWriteThrough.inferredRemoteWorkspaceTarget(
+                projections: [exact, multiView],
+                resources: resources
+            ) == nil
+        )
+    }
+
     @Test func cloudVMBindingSnapshotCarriesTheRemoteWorkspace() throws {
         // Legacy snapshots (no remote id) still decode and restore machine-only bindings.
         let legacy = try JSONDecoder().decode(SessionCloudVMBindingSnapshot.self, from: Data(#"{"vmID":"vivid-newt","isBase":false}"#.utf8))

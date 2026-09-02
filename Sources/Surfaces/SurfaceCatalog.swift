@@ -986,6 +986,10 @@ final class SurfaceCatalog {
     /// existing pane such as a local terminal the app created on its own).
     func record(_ projection: SurfaceProjection) {
         insertSupersedingLocalPlaceholder(projection)
+        CloudWorkspaceRenameWriteThrough.reconcileBinding(
+            localWorkspaceID: projection.workspaceID,
+            catalog: self
+        )
         notifyChange()
     }
 
@@ -1001,6 +1005,10 @@ final class SurfaceCatalog {
         updated.remoteWorkspaceID = view.workspace.id
         updated.remoteTabID = view.tabID
         projections.insert(updated)
+        CloudWorkspaceRenameWriteThrough.reconcileBinding(
+            localWorkspaceID: updated.workspaceID,
+            catalog: self
+        )
         notifyChange()
         return updated
     }
@@ -1039,6 +1047,10 @@ final class SurfaceCatalog {
             projection.workspaceID = workspaceID
             projections.insert(projection)
         }
+        CloudWorkspaceRenameWriteThrough.reconcileBinding(
+            localWorkspaceID: workspaceID,
+            catalog: self
+        )
         notifyChange()
     }
 
@@ -1113,6 +1125,10 @@ final class SurfaceCatalog {
                 pendingRestoredProjections[record] = workspaceID
             }
         }
+        CloudWorkspaceRenameWriteThrough.reconcileBinding(
+            localWorkspaceID: workspaceID,
+            catalog: self
+        )
         notifyChange()
     }
 
@@ -1141,6 +1157,7 @@ final class SurfaceCatalog {
     }
 
     private func resolvePendingRestoredProjections(on machine: SurfaceMachineID) {
+        var resolvedWorkspaceIDs = Set<UUID>()
         for (record, workspaceID) in pendingRestoredProjections where record.resource.machine == machine {
             guard resources[record.resource] != nil else { continue }
             insertSupersedingLocalPlaceholder(SurfaceProjection(
@@ -1151,6 +1168,13 @@ final class SurfaceCatalog {
                 remoteTabID: record.remoteTabID
             ))
             pendingRestoredProjections[record] = nil
+            resolvedWorkspaceIDs.insert(workspaceID)
+        }
+        for workspaceID in resolvedWorkspaceIDs {
+            CloudWorkspaceRenameWriteThrough.reconcileBinding(
+                localWorkspaceID: workspaceID,
+                catalog: self
+            )
         }
     }
 

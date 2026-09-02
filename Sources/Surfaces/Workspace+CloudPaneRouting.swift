@@ -133,7 +133,84 @@ extension Workspace {
 /// stands for, so the name persists on that daemon and reaches every attached client.
 /// The pane leg lives in `Workspace.setPanelCustomTitle`; this type carries the
 /// workspace leg plus the pure target/name rules both legs and the tests share.
+struct CloudWorkspaceRemoteIdentity: Hashable, Sendable {
+    let machine: SurfaceMachineID
+    let workspaceID: String
+}
+
 enum CloudWorkspaceRenameWriteThrough {
+    /// A local workspace can be automatically associated with a remote workspace only
+    /// when all identity-bearing panes prove the same cloud identity and no local pane
+    /// is present. A mixed local/cloud workspace is intentionally left unbound: there
+    /// is no honest remote owner for its title, and guessing would rename the wrong VM.
+    static func inferredRemoteWorkspaceTarget(
+        projections: [SurfaceProjection],
+        resources: [SurfaceResource]
+    ) -> (machine: SurfaceMachineID, remoteWorkspaceID: String)? {
+        guard !projections.isEmpty else { return nil }
+        let resourcesByID = Dictionary(
+            resources.map { ($0.id, $0) },
+            uniquingKeysWith: { first, _ in first }
+        )
+        var targets = Set<CloudWorkspaceRemoteIdentity>()
+        for projection in projections {
+            guard !projection.resource.machine.isLocal,
+                  let resource = resourcesByID[projection.resource] else { return nil }
+            let remoteID: String?
+            if let explicit = projection.remoteWorkspaceID?.trimmingCharacters(in: .whitespacesAndNewlines),
+               !explicit.isEmpty {
+                remoteID = explicit
+            } else if resource.remoteWorkspaces.isEmpty {
+                // A cloud display, port browser, or pool terminal may be projected
+                // without a daemon-workspace placement. It cannot establish a target,
+                // but it also cannot contradict an exact terminal/workspace anchor.
+                continue
+            } else {
+                let candidates = Set(resource.remoteWorkspaces.map(\.id))
+                guard candidates.count == 1 else { return nil }
+                remoteID = candidates.first
+            }
+            guard let remoteID, !remoteID.isEmpty else { return nil }
+            targets.insert(CloudWorkspaceRemoteIdentity(
+                machine: projection.resource.machine,
+                workspaceID: remoteID
+            ))
+        }
+        guard targets.count == 1, let target = targets.first else { return nil }
+        return (target.machine, target.workspaceID)
+    }
+
+    /// Fills a missing remote workspace id after any projection lifecycle operation.
+    /// An existing non-empty binding remains authoritative because it may be an explicit
+    /// `workspace.cloud_vm_bind` choice. This helper only adds information; it never
+    /// replaces a deliberate binding or clears state during a temporary disconnect.
+    @MainActor
+    static func reconcileBinding(
+        localWorkspaceID: UUID,
+        catalog: SurfaceCatalog = .shared
+    ) {
+        guard let workspace = AppDelegate.shared?.workspaceFor(tabId: localWorkspaceID) else { return }
+        if let remoteWorkspaceID = workspace.cloudVMBinding?.remoteWorkspaceID,
+           !remoteWorkspaceID.isEmpty {
+            return
+        }
+        let snapshot = catalog.snapshot
+        let projections = snapshot.projections.filter { $0.workspaceID == localWorkspaceID }
+        guard let target = inferredRemoteWorkspaceTarget(
+            projections: projections,
+            resources: snapshot.resources
+        ) else { return }
+        if let binding = workspace.cloudVMBinding,
+           binding.vmID != target.machine.cloudMachineID {
+            return
+        }
+        bind(
+            localWorkspaceID: localWorkspaceID,
+            machine: target.machine,
+            remoteWorkspaceID: target.remoteWorkspaceID
+        )
+    }
+
     /// The one remote cmux-tui workspace a local workspace stands for. The persisted
     /// binding wins; otherwise the projected cloud resources decide, but only when
     /// every view agrees on a single remote workspace — a local workspace composing
@@ -182,13 +259,27 @@ enum CloudWorkspaceRenameWriteThrough {
         // A persisted binding is authoritative. Avoid scanning and sorting every
         // projection on the common bound path; the projection fallback is only for
         // legacy workspaces that predate the binding id.
-        let projected: [SurfaceResource]
-        if workspace.cloudVMBinding?.remoteWorkspaceID != nil {
-            projected = []
+        let snapshot = catalog.snapshot
+        let projected = snapshot.projections.filter { $0.workspaceID == workspace.id }
+        let target: (machine: SurfaceMachineID, remoteWorkspaceID: String)?
+        if let bindingTarget = remoteTarget(binding: workspace.cloudVMBinding, projectedResources: []) {
+            target = bindingTarget
+        } else if let inferred = inferredRemoteWorkspaceTarget(
+            projections: projected,
+            resources: snapshot.resources
+        ) {
+            target = inferred
+        } else if projected.isEmpty {
+            // A pre-catalog session may still have no projection records. Keep the
+            // historical resource-only fallback for that narrow legacy case.
+            target = remoteTarget(
+                binding: workspace.cloudVMBinding,
+                projectedResources: catalog.resourcesProjected(inWorkspace: workspace.id)
+            )
         } else {
-            projected = catalog.resourcesProjected(inWorkspace: workspace.id)
+            target = nil
         }
-        guard let target = remoteTarget(binding: workspace.cloudVMBinding, projectedResources: projected),
+        guard let target,
               let name = remoteName(
                   fromLocalTitle: localTitle,
                   machine: target.machine,
