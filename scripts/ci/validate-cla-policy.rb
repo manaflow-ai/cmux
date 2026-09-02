@@ -431,8 +431,19 @@ def collect_latest_trusted_review!(latest, seen_review_ids, review)
   latest[reviewer_id] = [order, review] if previous.nil? || (order <=> previous[0]).positive?
 end
 
-def require_trusted_review!(repository, pr_number, head_sha)
+def trusted_review_approves_head?(review, head_sha, pr_author_id)
+  # The opener cannot provide the independent control-plane approval, even if
+  # the opener is one of the designated maintainers.
+  review["state"] == "APPROVED" &&
+    review["commit_id"] == head_sha &&
+    review.fetch("dismissed_at", nil).nil? &&
+    review.dig("user", "id") != pr_author_id
+end
+
+def require_trusted_review!(repository, pr_number, head_sha, pr_author_id)
   fail!("pull-request head SHA is malformed") unless head_sha.is_a?(String) && head_sha.match?(SHA)
+  fail!("pull-request author ID is malformed") unless
+    pr_author_id.is_a?(Integer) && pr_author_id.positive? && pr_author_id <= MAX_REVIEW_ID
   latest = {}
   seen_review_ids = {}
   1.upto(MAX_REVIEW_PAGES) do |page|
@@ -449,9 +460,7 @@ def require_trusted_review!(repository, pr_number, head_sha)
     fail!("pull-request review history is too large") if page == MAX_REVIEW_PAGES
   end
   approved = latest.values.any? do |_order, review|
-    review["state"] == "APPROVED" &&
-      review["commit_id"] == head_sha &&
-      review.fetch("dismissed_at", nil).nil?
+    trusted_review_approves_head?(review, head_sha, pr_author_id)
   end
   fail!("trusted approval for this control-plane update is required") unless approved
 end
@@ -1721,6 +1730,12 @@ def run_trusted_review_regression_matrix!
   collect_latest_trusted_review!(latest, seen, review.call(10, "APPROVED", "2026-01-05T00:00:00Z", head, 67667005))
   fail!("Aziz trusted review regression failed") unless latest.fetch("67667005")[1]["state"] == "APPROVED"
 
+  self_review = review.call(13, "APPROVED", "2026-01-05T00:00:01Z", head, 38676809)
+  fail!("trusted reviewer self-approval regression failed") if
+    trusted_review_approves_head?(self_review, head, 38676809)
+  fail!("trusted independent approval regression failed") unless
+    trusted_review_approves_head?(self_review, head, 67667005)
+
   latest = {}
   seen = {}
   collect_latest_trusted_review!(latest, seen, review.call(7, "APPROVED", "2026-01-06T00:00:00Z", head, 12345))
@@ -1749,7 +1764,7 @@ def run_trusted_review_regression_matrix!
     duplicate_failed = true
   end
   fail!("duplicate review regression failed") unless duplicate_failed
-  puts "PASS: trusted review state regression matrix (9 cases)"
+  puts "PASS: trusted review state regression matrix (11 cases)"
 end
 
 def validate_workflow(raw)
@@ -2053,7 +2068,7 @@ def validate_script(raw)
   end
 end
 
-def validate_guard_workflow(raw, authorize: true)
+def validate_guard_workflow(raw, authorize: true, pr_author_id: nil)
   document = parse_workflow(raw)
   digest = workflow_digest(raw)
   fail!("guard workflow name is not the reviewed context") unless document["name"] == GUARD_WORKFLOW_NAME
@@ -2122,16 +2137,20 @@ def validate_guard_workflow(raw, authorize: true)
     fail!("guard workflow uses an unapproved action") unless reference == "actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd"
   end
   if authorize && digest != EXPECTED_GUARD_WORKFLOW_DIGEST
-    require_trusted_review!(ENV.fetch("GH_REPO"), ENV.fetch("PR_NUMBER"), ENV.fetch("HEAD_SHA"))
+    require_trusted_review!(
+      ENV.fetch("GH_REPO"), ENV.fetch("PR_NUMBER"), ENV.fetch("HEAD_SHA"), pr_author_id
+    )
   end
 rescue Psych::Exception
   fail!("guard workflow YAML is invalid")
 end
 
-def validate_guard_script(raw)
+def validate_guard_script(raw, pr_author_id: nil)
   fail!("guard script is missing a Ruby shebang") unless raw.start_with?("#!/usr/bin/env ruby")
   if guard_script_digest(raw) != EXPECTED_GUARD_SCRIPT_DIGEST
-    require_trusted_review!(ENV.fetch("GH_REPO"), ENV.fetch("PR_NUMBER"), ENV.fetch("HEAD_SHA"))
+    require_trusted_review!(
+      ENV.fetch("GH_REPO"), ENV.fetch("PR_NUMBER"), ENV.fetch("HEAD_SHA"), pr_author_id
+    )
   end
   [
     "def parse_workflow",
@@ -2214,9 +2233,12 @@ def validate_guard_script(raw)
     "GITHUB_CONTEXT_IN_RUN",
     "TOKEN_ENV_IN_RUN",
     "TRUSTED_REVIEW_STATES",
+    "trusted_review_approves_head?",
+    "pr_author_id",
+    "pull-request author ID is malformed",
     "base_workflow_digest",
     "validate_workflow(head_workflow)",
-    "require_trusted_review!(repository, pr_number, head_sha) if policy_changed",
+    "require_trusted_review!(repository, pr_number, head_sha, pr_author_id) if policy_changed",
     "def validate_workflow",
     "signer-preflight",
     "CLALedgerWriter",
@@ -2262,6 +2284,7 @@ begin
   live_head = live_pr["head"]
   live_base_repo = live_base.is_a?(Hash) ? live_base["repo"] : nil
   live_head_repo = live_head.is_a?(Hash) ? live_head["repo"] : nil
+  live_author = live_pr["user"]
   fail!("pull request metadata changed while validating") unless
     live_pr["number"].to_s == pr_number &&
     live_pr["state"] == "open" &&
@@ -2280,6 +2303,9 @@ begin
     !live_head_repo["full_name"].empty? &&
     live_head_repo["id"].is_a?(Integer) &&
     live_head_repo["id"].positive?
+  fail!("pull request author metadata is malformed") unless
+    live_author.is_a?(Hash) && live_author["id"].is_a?(Integer) && live_author["id"].positive?
+  pr_author_id = live_author["id"]
   head_repository = live_head_repo["full_name"].to_s
   fail!("pull request head repository name is malformed") unless head_repository.match?(REPOSITORY)
 
@@ -2324,8 +2350,8 @@ begin
   if guard_changed
     fail!("guard workflow cannot be deleted") if head_guard_workflow.nil?
     fail!("guard validator cannot be deleted") if head_guard_script.nil?
-    validate_guard_workflow(head_guard_workflow)
-    validate_guard_script(head_guard_script)
+    validate_guard_workflow(head_guard_workflow, pr_author_id: pr_author_id)
+    validate_guard_script(head_guard_script, pr_author_id: pr_author_id)
   end
 
   if base_workflow == head_workflow && base_script == head_script
@@ -2369,7 +2395,7 @@ begin
   # Policy changes always need a current, exact-head trusted approval. The
   # legacy digest bridge only identifies the permitted v2 base bytes. It never
   # skips this review or any strict v3 candidate validation.
-  require_trusted_review!(repository, pr_number, head_sha) if policy_changed
+  require_trusted_review!(repository, pr_number, head_sha, pr_author_id) if policy_changed
 
   candidate_dir = ENV["CANDIDATE_DIR"].to_s
   unless candidate_dir.empty?
