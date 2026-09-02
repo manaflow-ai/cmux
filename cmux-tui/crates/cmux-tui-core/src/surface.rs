@@ -1291,7 +1291,6 @@ struct ReaderCompletion {
 }
 
 impl ReaderCompletion {
-    #[cfg(test)]
     fn reset(&self) {
         *self.finished.lock().unwrap() = false;
     }
@@ -2614,18 +2613,20 @@ impl Surface {
         // so final output is visible before the mux observes completion.
         let reaper_completion =
             surface.as_pty().expect("local PTY surface owns its reaper").reaper_completion.clone();
-        let surface_ref = Arc::downgrade(&surface);
+        reaper_completion.reset();
+        // Keep the surface alive with the join handle until the child wait
+        // completes. This prevents a deadline timeout from detaching a live
+        // reaper when teardown drops the last external surface reference.
+        let reaper_surface = surface.clone();
         let reaper_thread =
             match std::thread::Builder::new().name(format!("surface-{id}-wait")).spawn(move || {
                 let _reaper_completion = ReaderCompletionGuard(reaper_completion);
                 let exit = child.wait_for_exit();
-                if let Some(surface) = surface_ref.upgrade() {
-                    if let Some(pty) = surface.as_pty() {
-                        *pty.exit.lock().unwrap() = Some(exit);
-                    }
-                    close_local_terminal_master_after_exit(&surface);
-                    publish_local_exit_if_ready(&surface);
+                if let Some(pty) = reaper_surface.as_pty() {
+                    *pty.exit.lock().unwrap() = Some(exit);
                 }
+                close_local_terminal_master_after_exit(&reaper_surface);
+                publish_local_exit_if_ready(&reaper_surface);
             }) {
                 Ok(reaper_thread) => reaper_thread,
                 Err(error) => {
@@ -7035,6 +7036,36 @@ mod tests {
 
         release_tx.send(()).unwrap();
         assert!(pty.reaper_completion.wait_until(Instant::now() + Duration::from_secs(1)));
+        surface.finish_terminal_reader(Instant::now() + Duration::from_secs(1));
+        assert!(pty.reaper_thread.lock().unwrap().is_none());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn local_surface_reaper_timeout_retains_production_handle() {
+        let mux = Mux::new_for_test("production-reaper-timeout", SurfaceOptions::default());
+        let surface = Surface::spawn(
+            2,
+            SurfaceOptions {
+                command: Some(vec!["/bin/sh".into(), "-c".into(), "read _".into()]),
+                ..SurfaceOptions::default()
+            },
+            Arc::downgrade(&mux),
+        )
+        .expect("local PTY should spawn");
+        let pty = surface.as_pty().expect("spawned surface should be a PTY");
+
+        surface.finish_terminal_reader(Instant::now());
+        assert!(
+            pty.reaper_thread.lock().unwrap().is_some(),
+            "a live production child-reaper handle must remain owned after timeout"
+        );
+
+        surface.kill();
+        assert!(
+            pty.reaper_completion.wait_until(Instant::now() + Duration::from_secs(1)),
+            "killing the local PTY must release the production reaper"
+        );
         surface.finish_terminal_reader(Instant::now() + Duration::from_secs(1));
         assert!(pty.reaper_thread.lock().unwrap().is_none());
     }
