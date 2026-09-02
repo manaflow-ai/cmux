@@ -45,6 +45,7 @@ const MAX_RUNTIME_ENVIRONMENT_BYTES: usize = 256_000;
 const MAX_RUNTIME_FILES: usize = 8;
 pub(crate) const MAX_BLOCKING_FILE_ACTIONS: usize = 8;
 const MAX_LIVE_PROCESSES: usize = 8;
+const MAX_WAIT_RETRIES: u32 = 50;
 
 // ---------------------------------------------------------------------------
 // Path policy (pure)
@@ -1234,6 +1235,7 @@ async fn run_spec(
     let mut drain_deadline: Option<std::pin::Pin<Box<tokio::time::Sleep>>> = None;
     let mut final_wait_deadline: Option<std::pin::Pin<Box<tokio::time::Sleep>>> = None;
     let mut wait_retry_deadline: Option<std::pin::Pin<Box<tokio::time::Sleep>>> = None;
+    let mut wait_retries = 0_u32;
     loop {
         // A timed-out process group still needs its escalation pass even when
         // the shell leader has already exited. Otherwise closing inherited
@@ -1308,29 +1310,39 @@ async fn run_spec(
                 match status {
                     Ok(status) => {
                         exited = Some(status.code().map(i64::from).unwrap_or(1));
-                        // `wait` has reaped the leader. Disarm before any
-                        // subsequent cancellation can target a reused PID.
-                        #[cfg(unix)]
-                        {
-                            process_group_guard.armed = false;
-                        }
+                        wait_retries = 0;
                     }
                     Err(error) => {
                         #[cfg(unix)]
-                        if error.raw_os_error() == Some(libc::ECHILD) {
-                            exited = Some(1);
-                            process_group_guard.armed = false;
-                        } else {
-                            wait_retry_deadline = Some(Box::pin(tokio::time::sleep(
-                                std::time::Duration::from_millis(10),
-                            )));
+                        match WaitState::from_wait_error(
+                            error.raw_os_error() == Some(libc::ECHILD),
+                        ) {
+                            WaitState::AlreadyReaped => {
+                                exited = Some(1);
+                                wait_retries = 0;
+                            }
+                            WaitState::Retry => {
+                                wait_retries = wait_retries.saturating_add(1);
+                                if wait_retries >= MAX_WAIT_RETRIES {
+                                    exited = Some(1);
+                                } else {
+                                    wait_retry_deadline = Some(Box::pin(tokio::time::sleep(
+                                        std::time::Duration::from_millis(10),
+                                    )));
+                                }
+                            }
                         }
                         #[cfg(not(unix))]
                         {
                             let _ = error;
-                            wait_retry_deadline = Some(Box::pin(tokio::time::sleep(
-                                std::time::Duration::from_millis(10),
-                            )));
+                            wait_retries = wait_retries.saturating_add(1);
+                            if wait_retries >= MAX_WAIT_RETRIES {
+                                exited = Some(1);
+                            } else {
+                                wait_retry_deadline = Some(Box::pin(tokio::time::sleep(
+                                    std::time::Duration::from_millis(10),
+                                )));
+                            }
                         }
                     }
                 }
@@ -1341,7 +1353,9 @@ async fn run_spec(
                 // inherited stdout/stderr. Kill the whole POSIX process group
                 // so the supervisor gets its EXIT cleanup, then enforce a
                 // hard bound for processes that ignore TERM.
-                if exited.is_none() {
+                if exited.is_some() {
+                    signal_process_group(pid, false);
+                } else {
                     // The process group is the authoritative target. If the
                     // group disappeared before we could signal it, use the
                     // live Child handle instead of the numeric PID. A PID
@@ -1376,7 +1390,9 @@ async fn run_spec(
                     None => std::future::pending().await,
                 }
             }, if kill_deadline.is_some() => {
-                if exited.is_none() {
+                if exited.is_some() {
+                    signal_process_group(pid, true);
+                } else {
                     // See the timeout branch above: never fall back to a
                     // numeric PID after a process-group signal fails.
                     #[cfg(unix)]
