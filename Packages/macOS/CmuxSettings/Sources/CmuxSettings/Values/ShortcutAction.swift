@@ -16,6 +16,8 @@ public enum ShortcutAction: String, CaseIterable, Sendable, Hashable, SettingCod
     case closeWindow
     case toggleFullScreen
     case quit
+    /// Starts/stops voice dictation into the focused pane.
+    case toggleVoiceDictation
 
     // MARK: Workspace
     case toggleSidebar

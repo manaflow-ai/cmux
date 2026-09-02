@@ -71,6 +71,7 @@ extension KeyboardShortcutSettings.Action {
         case .openSettings, .reloadConfiguration,
              .showHideAllWindows, .globalSearch,
              .newWindow, .closeWindow, .toggleFullScreen, .quit,
+             .toggleVoiceDictation,
              .toggleSidebar, .newTab, .newBrowserWorkspace,
              .saveLayoutTemplate, .openFolder,
              .reopenPreviousSession, .goToWorkspace,

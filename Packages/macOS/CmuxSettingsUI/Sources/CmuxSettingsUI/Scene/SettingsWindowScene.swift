@@ -485,6 +485,10 @@ public struct SettingsWindowRoot: View {
 
         BetaFeaturesSection(defaultsStore: defaultsStore, catalog: catalog)
             .id(anchorID(for: .betaFeatures))
+
+        VoiceSection(defaultsStore: defaultsStore, catalog: catalog)
+            .id(anchorID(for: .voice))
+
         AutomationSection(
             defaultsStore: defaultsStore,
             jsonStore: jsonStore,

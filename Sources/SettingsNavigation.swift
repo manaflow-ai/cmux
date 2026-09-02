@@ -13,6 +13,7 @@ enum SettingsNavigationTarget: String, CaseIterable, Identifiable {
     case customSidebars
     case betaFeatures
     case automation
+    case voice
     case computerUse
     case browser
     case browserImport
@@ -52,6 +53,8 @@ enum SettingsNavigationTarget: String, CaseIterable, Identifiable {
             return String(localized: "settings.section.betaFeatures", defaultValue: "Beta Features")
         case .automation:
             return String(localized: "settings.section.automation", defaultValue: "Automation")
+        case .voice:
+            return String(localized: "settings.section.voice", defaultValue: "Voice")
         case .computerUse:
             return String(localized: "settings.section.computerUse", defaultValue: "Computer Use")
         case .browser:
@@ -97,6 +100,8 @@ enum SettingsNavigationTarget: String, CaseIterable, Identifiable {
             return "exclamationmark.triangle"
         case .automation:
             return "wand.and.sparkles"
+        case .voice:
+            return "mic"
         case .computerUse:
             return "cursorarrow.rays"
         case .browser:
@@ -142,6 +147,8 @@ enum SettingsNavigationTarget: String, CaseIterable, Identifiable {
             return "\(title) beta experimental unstable feed dock right sidebar"
         case .automation:
             return "\(title) socket integrations hooks ports claude cursor gemini kiro naming auto naming workspace tabs"
+        case .voice:
+            return "\(title) voice dictation speech microphone speak transcribe transcription on-device language"
         case .computerUse:
             return "\(title) computer use cua accessibility screen recording permissions cursor mcp agents driver menu bar onboarding"
         case .browser:
@@ -455,6 +462,8 @@ enum SettingsSearchIndex {
         setting(.betaFeatures, "cloudMachines", String(localized: "settings.betaFeatures.cloudMachines", defaultValue: "Cloud Machines"), "cloud machines vm right sidebar beta virtual machine persistent computer"),
         setting(.betaFeatures, "workspace-todo-controls", String(localized: "settings.betaFeatures.workspaceTodoControls", defaultValue: "Workspace Todo Controls"), "workspace todo todos task status checklist add item controls beta"),
         setting(.betaFeatures, "workspace-todos-checklist-style", String(localized: "settings.betaFeatures.workspaceTodosChecklistStyle", defaultValue: "Checklist Style"), "workspace todo todos task status checklist popover inline presentation style beta"),
+        setting(.voice, "dictationEnabled", String(localized: "settings.voice.dictationEnabled", defaultValue: "Voice Dictation"), "voice dictation speech microphone speak transcribe on-device shortcut"),
+        setting(.voice, "dictationLanguage", String(localized: "settings.voice.dictationLanguage", defaultValue: "Dictation Language"), "voice dictation language locale speech recognition model"),
         setting(.automation, "socket-mode", String(localized: "settings.automation.socketMode", defaultValue: "Socket Control Mode"), "unix socket api access password auth"),
         setting(.automation, "socket-password", String(localized: "settings.automation.socketPassword", defaultValue: "Socket Password"), "socket auth credential"),
         setting(.automation, "claude-code", String(localized: "settings.automation.claudeCode", defaultValue: "Claude Code Integration"), "agent hooks notifications"),
@@ -520,6 +529,8 @@ enum SettingsSearchIndex {
     private static let settingsPathAnchorIDs: [String: String] = [
         "rightSidebar.beta.feed.enabled": settingID(for: .betaFeatures, idSuffix: "feed"),
         "rightSidebar.beta.dock.enabled": settingID(for: .betaFeatures, idSuffix: "dock"),
+        "voice.dictationEnabled": settingID(for: .voice, idSuffix: "dictationEnabled"),
+        "voice.dictationLanguage": settingID(for: .voice, idSuffix: "dictationLanguage"),
         "app.language": settingID(for: .app, idSuffix: "language"),
         "app.appearance": settingID(for: .app, idSuffix: "appearance"),
         "app.appIcon": settingID(for: .app, idSuffix: "app-icon"),

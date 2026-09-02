@@ -123,6 +123,69 @@ import Testing
         #expect(model.effective(for: .reopenClosedBrowserPanel) == nil)
     }
 
+    @Test func legacyBindingDisplacesVoiceDictationDefault() throws {
+        let voiceDefault = try #require(ShortcutAction.toggleVoiceDictation.defaultShortcut)
+        let existingAction = ShortcutAction.toggleSidebar
+        let (defaultsStore, suiteName) = try makeDefaultsStore(
+            legacyBindings: [existingAction: voiceDefault]
+        )
+        defer { UserDefaults(suiteName: suiteName)?.removePersistentDomain(forName: suiteName) }
+
+        let model = ShortcutListModel(
+            jsonStore: makeJSONStore(),
+            userDefaultsStore: defaultsStore,
+            catalog: SettingCatalog(),
+            errorLog: SettingsErrorLog()
+        )
+
+        #expect(model.effective(for: existingAction) == voiceDefault)
+        #expect(
+            model.effective(for: .toggleVoiceDictation) == nil,
+            "Settings must not advertise a newly introduced default over an existing binding"
+        )
+    }
+
+    @Test func explicitVoiceBindingRemainsAuthoritativeOverLegacyCollision() throws {
+        let voiceDefault = try #require(ShortcutAction.toggleVoiceDictation.defaultShortcut)
+        let existingAction = ShortcutAction.toggleSidebar
+        let (defaultsStore, suiteName) = try makeDefaultsStore(
+            legacyBindings: [
+                existingAction: voiceDefault,
+                .toggleVoiceDictation: voiceDefault,
+            ]
+        )
+        defer { UserDefaults(suiteName: suiteName)?.removePersistentDomain(forName: suiteName) }
+
+        let model = ShortcutListModel(
+            jsonStore: makeJSONStore(),
+            userDefaultsStore: defaultsStore,
+            catalog: SettingCatalog(),
+            errorLog: SettingsErrorLog()
+        )
+
+        #expect(model.effective(for: .toggleVoiceDictation) == voiceDefault)
+    }
+
+    @Test func prioritySidebarBindingDoesNotDisplaceVoiceDefault() throws {
+        let voiceDefault = try #require(ShortcutAction.toggleVoiceDictation.defaultShortcut)
+        let (defaultsStore, suiteName) = try makeDefaultsStore(
+            legacyBindings: [.switchRightSidebarToDock: voiceDefault]
+        )
+        defer { UserDefaults(suiteName: suiteName)?.removePersistentDomain(forName: suiteName) }
+
+        let model = ShortcutListModel(
+            jsonStore: makeJSONStore(),
+            userDefaultsStore: defaultsStore,
+            catalog: SettingCatalog(),
+            errorLog: SettingsErrorLog()
+        )
+
+        #expect(
+            model.effective(for: .toggleVoiceDictation) == voiceDefault,
+            "A priority-routed sidebar binding coexists with voice outside sidebar focus"
+        )
+    }
+
     @Test func jsonWorkspaceUnbindingDisplacesReopenLastClosedDefault() async throws {
         let action = ShortcutAction.reopenClosedWorkspace
         let (defaultsStore, suiteName) = try makeDefaultsStore(legacyBindings: [:])

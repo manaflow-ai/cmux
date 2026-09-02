@@ -833,6 +833,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     /// `ContentView` environment so `@LiveSetting` can resolve the stores it
     /// observes inside the sidebar.
     var settingsRuntime: SettingsRuntime?
+    /// Injected voice-dictation action. The runtime itself is owned by the
+    /// SwiftUI composition root; AppDelegate only forwards the shortcut.
+    private var voiceDictationToggleAction: (@MainActor () -> Bool)?
     private var computerUseRuntimeService: ComputerUseRuntimeService?
     weak var fileExplorerState: FileExplorerState?
     weak var fullscreenControlsViewModel: TitlebarControlsViewModel?
@@ -2400,7 +2403,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         sidebarState: SidebarState,
         settingsRuntime: SettingsRuntime,
         auth: MacAuthComposition,
-        computerUseRuntimeService: ComputerUseRuntimeService
+        computerUseRuntimeService: ComputerUseRuntimeService,
+        voiceDictationToggleAction: @escaping @MainActor () -> Bool
     ) {
         captureSessionLaunchStateIfNeeded()
         self.tabManager = tabManager
@@ -2419,6 +2423,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         self.sidebarState = sidebarState
         self.auth = auth
         self.computerUseRuntimeService = computerUseRuntimeService
+        self.voiceDictationToggleAction = voiceDictationToggleAction
         (settingsRuntime.hostActions as? HostSettingsActions)?.setRunComputerUseOnboardingAction { [weak self] startingPoint in
             self?.computerUseUXCoordinator.presentOnboarding(startingAt: startingPoint)
         }
@@ -15051,6 +15056,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 #endif
             // Only consume when a focused terminal actually performed the clear.
             return handled
+        }
+
+        if matchConfiguredShortcut(event: event, action: .toggleVoiceDictation) {
+            // Only consume when dictation is enabled in Settings.
+            return voiceDictationToggleAction?() ?? false
         }
 
         // Workspace navigation: Cmd+Ctrl+] / Cmd+Ctrl+[

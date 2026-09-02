@@ -12,6 +12,8 @@ extension ShortcutAction {
         case .closeWindow: return "Close Window"
         case .toggleFullScreen: return "Toggle Full Screen"
         case .quit: return "Quit cmux"
+        case .toggleVoiceDictation:
+            return String(localized: "shortcut.toggleVoiceDictation.label", defaultValue: "Toggle Voice Dictation")
         case .toggleSidebar: return "Toggle Left Sidebar"
         case .newTab: return "New Workspace"
         case .newBrowserWorkspace:

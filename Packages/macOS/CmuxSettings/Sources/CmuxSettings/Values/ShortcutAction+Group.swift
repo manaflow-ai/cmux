@@ -3,7 +3,7 @@ extension ShortcutAction {
     public var group: Group {
         switch self {
         case .openSettings, .reloadConfiguration, .showHideAllWindows, .globalSearch,
-             .newWindow, .closeWindow, .toggleFullScreen, .quit:
+             .newWindow, .closeWindow, .toggleFullScreen, .quit, .toggleVoiceDictation:
             return .app
         case .toggleSidebar, .newTab, .newBrowserWorkspace, .saveLayoutTemplate, .openFolder, .reopenPreviousSession, .goToWorkspace,
              .commandPalette, .commandPaletteNext, .commandPalettePrevious, .sendFeedback,

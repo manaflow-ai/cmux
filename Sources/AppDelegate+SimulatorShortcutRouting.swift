@@ -49,6 +49,7 @@ extension AppDelegate {
         action != .showHideAllWindows
             && action != .globalSearch
             && action != .clearScreenKeepScrollback
+            && action != .toggleVoiceDictation
             && action != .increaseWorkspaceTerminalFontSize
             && action != .decreaseWorkspaceTerminalFontSize
             && action != .resetWorkspaceTerminalFontSize

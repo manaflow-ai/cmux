@@ -48,6 +48,8 @@ public struct SettingCatalog: SettingCatalogSection {
     /// Settings for custom (user/agent-authored) sidebars (the `customSidebars.*` keys).
     public let customSidebars = CustomSidebarsCatalogSection()
     public let shortcuts = KeyboardShortcutsCatalogSection()
+    /// Settings for voice dictation (the `voice.*` keys).
+    public let voice = VoiceCatalogSection()
     public let integrations = IntegrationsCatalogSection()
     public let account = AccountCatalogSection()
 

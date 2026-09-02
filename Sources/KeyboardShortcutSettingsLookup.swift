@@ -3,6 +3,12 @@ import CmuxSettingsUI
 import Foundation
 
 extension KeyboardShortcutSettings {
+    private static let legacyDefaultResolutionCache = KeyboardShortcutLegacyResolutionCache()
+
+    static func invalidateLegacyDefaultResolutionCache() {
+        legacyDefaultResolutionCache.invalidate()
+    }
+
     static func shortcutIfBound(for action: Action) -> StoredShortcut? {
         #if DEBUG
         shortcutLookupObserver?(action)
@@ -16,9 +22,22 @@ extension KeyboardShortcutSettings {
             managedBySettingsFile: managedBySettingsFile
         )
 
-        if action == .reopenClosedBrowserPanel,
+        // These defaults were introduced after older user settings could have
+        // claimed their strokes. Route both through the shared resolver so an
+        // existing explicit binding retains upgrade precedence.
+        if action == .reopenClosedBrowserPanel
+            || (action == .toggleVoiceDictation && !hasExplicitShortcutOverride(for: action)),
            resolvedShortcut == action.defaultShortcut,
            configuredShortcut != resolvedShortcut {
+            if action == .toggleVoiceDictation {
+                let isSuppressed = legacyDefaultResolutionCache.value {
+                    defaultShortcutResolvingLegacyConflicts(
+                        for: action,
+                        explicitlyConfiguredShortcut: explicitlyConfiguredShortcut(for:)
+                    ) == nil
+                }
+                return isSuppressed ? nil : resolvedShortcut
+            }
             return defaultShortcutResolvingLegacyConflicts(
                 for: action,
                 explicitlyConfiguredShortcut: explicitlyConfiguredShortcut(for:)
