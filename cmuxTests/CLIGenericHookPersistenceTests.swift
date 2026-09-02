@@ -663,6 +663,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
         XCTAssertEqual(session["lastSubtitle"] as? String, "Permission")
         XCTAssertEqual(session["lastBody"] as? String, "recursive delete: rm -rf build")
         XCTAssertEqual(session["lastNotificationStatus"] as? String, "needsInput")
+        XCTAssertEqual(session["hookEventName"] as? String, "pre_approval_request")
 
         let responseCommandStart = state.commands.count
         let response = runHermesHook(
@@ -705,6 +706,14 @@ extension CLINotifyProcessIntegrationRegressionTests {
         )
         XCTAssertFalse(prompt.timedOut, prompt.stderr)
         XCTAssertEqual(prompt.status, 0, prompt.stderr)
+
+        // A new prompt is an explicit summary boundary. It must clear the
+        // prior approval text instead of leaving stale values in the store,
+        // and it records the hook discriminator for lifecycle readers.
+        let promptSession = try storedHermesSession()
+        XCTAssertNil(promptSession["lastSubtitle"])
+        XCTAssertNil(promptSession["lastBody"])
+        XCTAssertEqual(promptSession["hookEventName"] as? String, "pre_llm_call")
 
         let smartApprovalCommandStart = state.commands.count
         let smartApproval = runHermesHook(
