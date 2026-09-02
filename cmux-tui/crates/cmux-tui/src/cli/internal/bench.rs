@@ -639,4 +639,35 @@ mod tests {
         assert!(event_references_surface(&value, 99));
         assert!(!event_references_surface(&value, 98));
     }
+
+    #[test]
+    fn same_connection_probe_is_submitted_before_response_drain() {
+        let submissions = same_connection_submission_plan(3, 2);
+        assert_eq!(
+            submissions,
+            vec![
+                SubmissionKind::Create { index: 0, kind: 0 },
+                SubmissionKind::Create { index: 1, kind: 1 },
+                SubmissionKind::Create { index: 2, kind: 2 },
+                SubmissionKind::TypingSame { probe: 0 },
+                SubmissionKind::TypingSame { probe: 1 },
+            ]
+        );
+    }
+
+    #[test]
+    fn first_frame_requires_the_requested_surface() {
+        assert!(!is_first_frame_for_surface(
+            &json!({"event":"render-state","surface":41}),
+            42
+        ));
+        assert!(is_first_frame_for_surface(
+            &json!({"event":"render-state","surface":42}),
+            42
+        ));
+        assert!(!is_first_frame_for_surface(
+            &json!({"event":"render-delta","surface":42}),
+            42
+        ));
+    }
 }
