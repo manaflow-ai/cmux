@@ -412,9 +412,17 @@ final class TuiManualIOPump {
             maxPendingChunks: 512,
             maxPendingBytes: 8 * 1024 * 1024,
             onOverflow: { [weak self] in
-                // The surface stopped consuming; treat like a dead relay so
-                // a respawn resyncs from a bounded replay.
-                self?.handleRelayExit(generation: spawnGeneration, forcedExit: .daemonLost)
+                // The reader invokes this callback from its descriptor
+                // queue. Hop explicitly to the pump's actor and fence the
+                // callback against a newer generation before mutating state.
+                Task { @MainActor [weak self] in
+                    guard let self,
+                          self.generation == spawnGeneration,
+                          !self.stopped else { return }
+                    // The surface stopped consuming; treat like a dead relay
+                    // so a respawn resyncs from a bounded replay.
+                    self.handleRelayExit(generation: spawnGeneration, forcedExit: .daemonLost)
+                }
             }
         )
         stdoutReader?.close()
