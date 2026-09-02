@@ -63,6 +63,7 @@ pub enum PipeIoExitReason {
     TerminalEnded,
     DaemonLost,
     ParentClosed,
+    SetupFailed,
 }
 
 impl PipeIoExitReason {
@@ -71,12 +72,13 @@ impl PipeIoExitReason {
             Self::TerminalEnded => "terminal-ended",
             Self::DaemonLost => "daemon-lost",
             Self::ParentClosed => "parent-closed",
+            Self::SetupFailed => "setup-failed",
         }
     }
 
     pub fn exit_code(self) -> i32 {
         match self {
-            Self::TerminalEnded | Self::ParentClosed => EXIT_DO_NOT_RESPAWN,
+            Self::TerminalEnded | Self::ParentClosed | Self::SetupFailed => EXIT_DO_NOT_RESPAWN,
             Self::DaemonLost => EXIT_DAEMON_LOST,
         }
     }
@@ -215,7 +217,17 @@ pub fn run(
         // retired terminal or reconnect after a lost daemon transport.
         return Ok(attach_failure_exit_reason(&error, surface));
     }
-    spawn_stdin_pump(handle, lifecycle_sender);
+    let _stdin_pump = match spawn_stdin_pump(handle, lifecycle_sender) {
+        Ok(pump) => pump,
+        Err(error) => {
+            eprintln!(
+                "{}",
+                serde_json::json!({"diag": {"stdin-pump": {"error": error.to_string()}}})
+            );
+            drop(tap_guard);
+            return Ok(PipeIoExitReason::SetupFailed);
+        }
+    };
     let reason = pump_events_to_stdout(
         &receiver,
         &lifecycle_receiver,
@@ -264,13 +276,15 @@ impl Drop for PipeIoTapGuard<'_> {
 
 fn attach_failure_exit_reason(error: &anyhow::Error, surface: SurfaceId) -> PipeIoExitReason {
     // A rejected attach naming this exact surface means the terminal ended
-    // between the tree lookup and the attach request. Every other failure is
-    // reported as retryable daemon loss so the embedder receives the normal
-    // final JSON record and exit code.
+    // between the tree lookup and the attach request. Only confirmed
+    // transport failures are retryable; capability and protocol failures
+    // must stop without asking the embedder to respawn forever.
     if is_remote_surface_unavailable(error, surface) {
         PipeIoExitReason::TerminalEnded
-    } else {
+    } else if crate::session::is_pipe_io_retryable_error(error) {
         PipeIoExitReason::DaemonLost
+    } else {
+        PipeIoExitReason::SetupFailed
     }
 }
 
@@ -333,7 +347,10 @@ fn read_pipe_io_line(reader: &mut impl BufRead, line: &mut String) -> std::io::R
 
 /// Forwards embedder requests from stdin until EOF, then reports the closed
 /// parent through the shared event queue.
-fn spawn_stdin_pump(handle: PipeIoSurfaceHandle, lifecycle_sender: Sender<PipeIoEvent>) {
+fn spawn_stdin_pump(
+    handle: PipeIoSurfaceHandle,
+    lifecycle_sender: Sender<PipeIoEvent>,
+) -> std::io::Result<std::thread::JoinHandle<()>> {
     let remote = Arc::downgrade(&handle.remote);
     let surface = handle.surface;
     std::thread::Builder::new()
@@ -343,7 +360,7 @@ fn spawn_stdin_pump(handle: PipeIoSurfaceHandle, lifecycle_sender: Sender<PipeIo
             let mut reader = stdin.lock();
             run_stdin_pump(&mut reader, &remote, surface, &lifecycle_sender);
         })
-        .expect("spawn pipe-io stdin pump");
+        .map_err(|error| std::io::Error::other(format!("spawn pipe-io stdin pump: {error}")))
 }
 
 fn run_stdin_pump(
@@ -576,10 +593,12 @@ mod tests {
     fn exit_reasons_map_to_the_respawn_contract() {
         assert_eq!(PipeIoExitReason::TerminalEnded.exit_code(), EXIT_DO_NOT_RESPAWN);
         assert_eq!(PipeIoExitReason::ParentClosed.exit_code(), EXIT_DO_NOT_RESPAWN);
+        assert_eq!(PipeIoExitReason::SetupFailed.exit_code(), EXIT_DO_NOT_RESPAWN);
         assert_eq!(PipeIoExitReason::DaemonLost.exit_code(), EXIT_DAEMON_LOST);
         assert_eq!(PipeIoExitReason::TerminalEnded.as_str(), "terminal-ended");
         assert_eq!(PipeIoExitReason::DaemonLost.as_str(), "daemon-lost");
         assert_eq!(PipeIoExitReason::ParentClosed.as_str(), "parent-closed");
+        assert_eq!(PipeIoExitReason::SetupFailed.as_str(), "setup-failed");
     }
 
     #[test]
