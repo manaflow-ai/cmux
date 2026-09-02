@@ -16,7 +16,6 @@ use crate::session::ReceivedFrame;
 
 const MAX_OPEN_STREAMS: usize = 256;
 const REPLAY_FRAMES_PER_LANE: usize = 4_096;
-const DELIVERY_FRAMES_PER_LANE: usize = 64;
 // Tombstones track stream IDs, not queued frames. Keep one ID per replay
 // budget on every lane, including generation-scoped Tunnel, preserving the
 // protocol's bounded aggregate replay window while allowing delayed frames.
@@ -2718,7 +2717,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn delayed_tunnel_frame_survives_delivery_tombstone_churn() {
+    async fn delayed_tunnel_frame_survives_tombstone_churn() {
         let (client_endpoint, daemon_endpoint) = endpoint_pair();
         let client = ServiceMultiplexer::new(client_endpoint, EndpointRole::Client);
         let daemon = ServiceMultiplexer::new(daemon_endpoint.clone(), EndpointRole::Daemon);
@@ -2733,7 +2732,7 @@ mod tests {
         assert!(client_stream.receive().await.unwrap().is_none());
 
         let mut closed = client.closed.lock().await;
-        for id in 100_000..100_000 + DELIVERY_FRAMES_PER_LANE as u64 + 1 {
+        for id in 100_000..100_000 + TOMBSTONES_PER_LANE as u64 + 1 {
             closed.insert_on(id * 2 + 1, LANE_TUNNEL_BIT);
         }
         assert!(!closed.contains_on(stream_id, Lane::Tunnel));
