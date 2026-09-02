@@ -114,6 +114,76 @@ enum Handoff {
     TimedOut,
 }
 
+/// Own a spawned helper while setup can still fail.
+/// `std::process::Child` does not terminate or reap itself when dropped, so
+/// this guard synchronously terminates and waits for a child on those error
+/// paths. After a successful handoff, `settle_detached_child` explicitly
+/// releases a still-running child because this one-shot process is about to
+/// return and cannot host a reaper thread.
+struct DetachedChildGuard(Option<std::process::Child>);
+
+impl DetachedChildGuard {
+    fn new(child: std::process::Child) -> Self {
+        Self(Some(child))
+    }
+
+    fn child_mut(&mut self) -> &mut std::process::Child {
+        self.0.as_mut().expect("detached child guard is occupied")
+    }
+
+    /// Release the process handle without waiting. The detached child owns
+    /// its remaining bounded receipt attempt; on Unix a parent that exits
+    /// reparents it for eventual collection, and on Windows closing this
+    /// handle releases the parent's ownership of the process object.
+    fn release(mut self) {
+        drop(self.0.take());
+    }
+}
+
+impl Drop for DetachedChildGuard {
+    fn drop(&mut self) {
+        let Some(mut child) = self.0.take() else {
+            return;
+        };
+        let _ = child.kill();
+        let _ = child.wait();
+    }
+}
+
+/// Settle the parent-side ownership before the provider-facing process
+/// returns. A child that already exited is reaped and its stdout reader is
+/// joined. A child that is still running must continue waiting for its receipt,
+/// so its process handle and reader are explicitly released instead of being
+/// handed to a thread that would die with this one-shot process. The child has
+/// its own `SOCKET_TIMEOUT` deadline; the OS owns its eventual orphaned
+/// lifetime after this process exits.
+fn settle_detached_child(mut child: DetachedChildGuard, reader: std::thread::JoinHandle<()>) {
+    let status = child.child_mut().try_wait();
+    match status {
+        Ok(Some(_)) => {
+            child.release();
+            // `is_finished` keeps the provider-facing path non-blocking even
+            // if a platform leaves the pipe reader briefly behind the child.
+            if reader.is_finished() {
+                let _ = reader.join();
+            } else {
+                drop(reader);
+            }
+        }
+        Ok(None) => {
+            drop(reader);
+            child.release();
+        }
+        Err(_) => {
+            // A status-query error cannot justify an unbounded wait on the
+            // provider path. Release both handles; this one-shot parent exits
+            // immediately, while the child keeps its own bounded attempt.
+            drop(reader);
+            child.release();
+        }
+    }
+}
+
 fn handoff_wait(source: &str, native_event: &str) -> Duration {
     if source == "codex" && native_event == "SessionEnd" {
         CODEX_SESSION_END_HANDOFF_WAIT
@@ -429,7 +499,7 @@ fn read_before(
     }
 }
 
-#[cfg(unix)]
+#[cfg(any())]
 mod detach {
     use std::io;
     use std::os::fd::{AsRawFd, FromRawFd, OwnedFd};
@@ -548,6 +618,69 @@ mod detach {
     }
 }
 
+#[cfg(unix)]
+mod detach {
+    use super::{DETACHED_MODE_ARG, Handoff};
+    use anyhow::Context;
+    use std::io::{Read, Write};
+    use std::path::Path;
+    use std::process::{Command, Stdio};
+    use std::sync::mpsc;
+    use std::time::Duration;
+
+    /// Spawn performs the platform fork+exec transition. The child does not
+    /// run Rust code before exec, avoiding the POSIX post-fork restrictions.
+    pub(super) fn append_detached(
+        socket: &Path,
+        request_id: &str,
+        encoded: &[u8],
+        handoff_wait: Duration,
+    ) -> anyhow::Result<Handoff> {
+        use std::os::unix::process::CommandExt;
+        let exe = std::env::current_exe().context("locate hook helper")?;
+        let mut command = Command::new(exe);
+        command
+            .arg(DETACHED_MODE_ARG)
+            .env("CMUX_TUI_SOCKET", socket)
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::null());
+        // `pre_exec` runs in the child after fork and is therefore unsafe to
+        // call unless the closure is limited to async-signal-safe operations.
+        unsafe {
+            command.pre_exec(|| {
+                if unsafe { libc::setsid() } < 0 {
+                    return Err(std::io::Error::last_os_error());
+                }
+                Ok(())
+            });
+        }
+        let mut child =
+            super::DetachedChildGuard::new(command.spawn().context("spawn detached hook child")?);
+        let mut stdin =
+            child.child_mut().stdin.take().context("detached hook child has no stdin")?;
+        stdin.write_all(request_id.as_bytes())?;
+        stdin.write_all(b"\n")?;
+        stdin.write_all(encoded)?;
+        stdin.flush()?;
+        drop(stdin);
+        let mut stdout =
+            child.child_mut().stdout.take().context("detached hook child has no stdout")?;
+        let (sender, receiver) = mpsc::channel();
+        let reader = std::thread::spawn(move || {
+            let mut byte = [0_u8; 1];
+            let outcome = match stdout.read(&mut byte) {
+                Ok(1) => Handoff::Sent,
+                _ => Handoff::ChildExited,
+            };
+            let _ = sender.send(outcome);
+        });
+        let outcome = receiver.recv_timeout(handoff_wait).unwrap_or(Handoff::TimedOut);
+        super::settle_detached_child(child, reader);
+        Ok(outcome)
+    }
+}
+
 #[cfg(not(unix))]
 mod detach {
     use std::io::{Read, Write};
@@ -574,17 +707,21 @@ mod detach {
         const DETACHED_PROCESS: u32 = 0x0000_0008;
         const CREATE_NEW_PROCESS_GROUP: u32 = 0x0000_0200;
         let exe = std::env::current_exe().context("locate hook helper")?;
-        let mut child = Command::new(exe)
-            .arg(DETACHED_MODE_ARG)
-            .env("CMUX_TUI_SOCKET", socket)
-            .stdin(Stdio::piped())
-            .stdout(Stdio::piped())
-            .stderr(Stdio::null())
-            .creation_flags(DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP)
-            .spawn()
-            .context("spawn detached hook child")?;
-        let mut stdin = child.stdin.take().context("detached hook child has no stdin")?;
-        let mut stdout = child.stdout.take().context("detached hook child has no stdout")?;
+        let mut child = super::DetachedChildGuard::new(
+            Command::new(exe)
+                .arg(DETACHED_MODE_ARG)
+                .env("CMUX_TUI_SOCKET", socket)
+                .stdin(Stdio::piped())
+                .stdout(Stdio::piped())
+                .stderr(Stdio::null())
+                .creation_flags(DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP)
+                .spawn()
+                .context("spawn detached hook child")?,
+        );
+        let mut stdin =
+            child.child_mut().stdin.take().context("detached hook child has no stdin")?;
+        let mut stdout =
+            child.child_mut().stdout.take().context("detached hook child has no stdout")?;
         stdin.write_all(request_id.as_bytes())?;
         stdin.write_all(b"\n")?;
         stdin.write_all(encoded)?;
@@ -593,7 +730,7 @@ mod detach {
         // Pipe reads have no timeout on Windows; a reader thread plus a
         // bounded channel wait gives the same absolute deadline as poll(2).
         let (sender, receiver) = mpsc::channel();
-        std::thread::spawn(move || {
+        let reader = std::thread::spawn(move || {
             let mut byte = [0_u8; 1];
             let outcome = match stdout.read(&mut byte) {
                 Ok(1) => Handoff::Sent,
@@ -601,7 +738,9 @@ mod detach {
             };
             let _ = sender.send(outcome);
         });
-        Ok(receiver.recv_timeout(handoff_wait).unwrap_or(Handoff::TimedOut))
+        let outcome = receiver.recv_timeout(handoff_wait).unwrap_or(Handoff::TimedOut);
+        super::settle_detached_child(child, reader);
+        Ok(outcome)
     }
 }
 
