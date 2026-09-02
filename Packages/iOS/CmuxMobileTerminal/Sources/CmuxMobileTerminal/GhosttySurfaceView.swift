@@ -971,7 +971,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     /// while a toolbar docked inside the surface (its edges already flush with
     /// the terminal's) resolves to zero instead of re-applying the terminal's
     /// window offset. `nil` (not yet hosted) falls back to the window bounds.
-    static func accessoryLayoutInsets(
+    nonisolated static func accessoryLayoutInsets(
         terminalFrame: CGRect,
         toolbarFrame: CGRect?,
         windowBounds: CGRect
