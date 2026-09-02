@@ -12,6 +12,8 @@ import SwiftUI
 /// drag whose drop projects the row as a pane in the main view.
 struct CloudTreeOutlineView: NSViewRepresentable {
     let machines: [MachineSnapshot]
+    /// Creates still running or failed, shown as pending rows above the fleet.
+    var pendingCreates: [MachineCreateOperation] = []
     let snapshot: SurfaceCatalogSnapshot
     let localWorkspaces: [CloudTreeLocalWorkspace]
     let machineActions: MachineRowActions
@@ -49,7 +51,12 @@ struct CloudTreeOutlineView: NSViewRepresentable {
         context.coordinator.nodeActions = nodeActions
         context.coordinator.onDragStateChange = onDragStateChange
         context.coordinator.apply(style: style)
-        context.coordinator.apply(nodes: CloudTreeNodeBuilder.nodes(machines: machines, snapshot: snapshot, localWorkspaces: localWorkspaces))
+        context.coordinator.apply(nodes: CloudTreeNodeBuilder.nodes(
+            machines: machines,
+            pendingCreates: pendingCreates,
+            snapshot: snapshot,
+            localWorkspaces: localWorkspaces
+        ))
     }
 
     // MARK: - Coordinator
@@ -330,7 +337,7 @@ struct CloudTreeOutlineView: NSViewRepresentable {
             case .machine(let machine, _):
                 let hasStats = machine.stats.flatMap(CloudTreeMachineRowContent.statsLine) != nil
                 return GlobalFontMagnification.scaledSize(style.machineRowHeight(hasStats: hasStats))
-            case .localMachine:
+            case .localMachine, .pendingMachine:
                 return GlobalFontMagnification.scaledSize(style.machineRowHeight(hasStats: false))
             case .terminalsPool, .displaysPool, .workspacesGroup, .portsGroup, .browsersGroup, .workspace, .localWorkspace, .terminal, .display, .browser, .port, .placeholder:
                 return GlobalFontMagnification.scaledSize(style.rowHeight)
@@ -401,6 +408,12 @@ struct CloudTreeOutlineView: NSViewRepresentable {
                 }
             case .localMachine, .terminalsPool, .displaysPool, .workspacesGroup, .portsGroup, .browsersGroup:
                 toggle(node)
+            case .pendingMachine(let operation):
+                // Nothing to open yet. A failed create's click shows why (the
+                // CLI transcript); a running one has nothing to say beyond its row.
+                if !operation.isRunning {
+                    machineActions.create.showFailure(operation.id)
+                }
             case .workspace(let machine, let workspace, _, let openIn):
                 // Open-or-focus (D13). Already showing in a local workspace -> go there
                 // instead of opening a second copy; a
@@ -543,6 +556,8 @@ struct CloudTreeOutlineView: NSViewRepresentable {
             switch node.kind {
             case .machine(let machine, _):
                 return machineMenuItems(machine)
+            case .pendingMachine(let operation):
+                return pendingMachineMenuItems(operation)
             case .localMachine:
                 return [
                     item(String(localized: "cloudTree.menu.newTerminal", defaultValue: "New Terminal")) { [nodeActions] in nodeActions.newTerminal(.local, nil) },
@@ -684,6 +699,27 @@ struct CloudTreeOutlineView: NSViewRepresentable {
             }
             items.append(.separator())
             items.append(item(String(localized: "machines.menu.delete", defaultValue: "Delete…")) { actions.confirmDelete(id) })
+            return items
+        }
+
+        /// A running create offers nothing but Refresh; a failed one offers the
+        /// same verbs as its hover buttons plus the transcript.
+        private func pendingMachineMenuItems(_ operation: MachineCreateOperation) -> [NSMenuItem] {
+            let create = machineActions.create
+            let nodeActions = nodeActions
+            let id = operation.id
+            var items: [NSMenuItem] = []
+            if !operation.isRunning {
+                items.append(item(String(localized: "machines.pending.retry", defaultValue: "Retry Create")) { create.retry(id) })
+                items.append(item(String(localized: "machines.pending.showError", defaultValue: "Show Error\u{2026}")) { create.showFailure(id) })
+                items.append(item(String(localized: "machines.pending.copyError", defaultValue: "Copy Error")) { create.copyFailure(id) })
+                items.append(.separator())
+            }
+            items.append(item(String(localized: "cloudTree.menu.refresh", defaultValue: "Refresh")) { nodeActions.refresh() })
+            if !operation.isRunning {
+                items.append(.separator())
+                items.append(item(String(localized: "machines.pending.dismiss", defaultValue: "Dismiss")) { create.dismiss(id) })
+            }
             return items
         }
 

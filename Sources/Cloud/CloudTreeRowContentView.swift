@@ -60,7 +60,7 @@ struct CloudTreeRowContentView: View {
     /// draw the ledger hairline.
     private var showsSeparator: Bool {
         switch kind {
-        case .machine, .localMachine, .placeholder: return false
+        case .machine, .pendingMachine, .localMachine, .placeholder: return false
         default: return true
         }
     }
@@ -70,6 +70,8 @@ struct CloudTreeRowContentView: View {
         switch kind {
         case .machine(let machine, _):
             CloudTreeMachineRowContent(machine: machine, style: style)
+        case .pendingMachine(let operation):
+            CloudTreePendingMachineRowContent(operation: operation, style: style)
         case .localMachine(let row):
             CloudTreeLocalMachineRowContent(row: row, style: style)
         case .terminalsPool(_, let count):
@@ -728,6 +730,21 @@ struct CloudTreeRowHoverButtons: View {
             ) {
                 machineActions.confirmDelete(machine.id)
             }
+        case .pendingMachine(let operation):
+            // A failed create can be retried or dropped from the row itself; a
+            // running one has no verb (the CLI is still working).
+            HStack(spacing: 4) {
+                MachinesChromeIconButton(
+                    symbolName: "arrow.counterclockwise",
+                    accessibilityLabel: String(localized: "machines.pending.retry", defaultValue: "Retry Create"),
+                    isBusy: false
+                ) {
+                    machineActions.create.retry(operation.id)
+                }
+                xmark(String(localized: "machines.pending.dismiss", defaultValue: "Dismiss")) {
+                    machineActions.create.dismiss(operation.id)
+                }
+            }
         case .localMachine:
             plus(String(localized: "cloudTree.menu.newTerminal", defaultValue: "New Terminal")) {
                 nodeActions.newTerminal(.local, nil)
@@ -773,6 +790,8 @@ struct CloudTreeRowHoverButtons: View {
         switch kind {
         case .machine, .localMachine, .terminalsPool, .displaysPool, .workspacesGroup, .workspace:
             return true
+        case .pendingMachine(let operation):
+            return !operation.isRunning
         case .terminal(let row):
             return !row.resource.machine.isLocal
         default:
