@@ -438,6 +438,42 @@ struct AuthEnvironmentTests {
         #expect(debugLoopback.absoluteString == "http://localhost:4347")
     }
 
+    @Test("debug app session handoff accepts the tagged Tailscale Serve origin")
+    func debugAppSessionHandoffAcceptsTaggedTailscaleOrigin() {
+        let environment = [
+            "CMUX_WWW_ORIGIN": "https://cmux-dev-backend-1.tail137216.ts.net:3916/",
+            "CMUX_DEV_BACKEND_TRANSPORT": "direct",
+            "CMUX_DEV_BACKEND_TAILSCALE_HOST": "cmux-dev-backend-1.tail137216.ts.net",
+        ]
+        let origin = AuthEnvironment.resolvedAppSessionHandoffOrigin(
+            environment: environment,
+            isDebugBuild: true
+        )
+        #expect(origin.absoluteString == environment["CMUX_WWW_ORIGIN"])
+    }
+
+    @Test("debug app session handoff rejects an untrusted Tailscale host or port")
+    func debugAppSessionHandoffRejectsUntrustedTailscaleHostOrPort() {
+        let baseEnvironment = [
+            "CMUX_WWW_ORIGIN": "https://cmux-dev-backend-1.tail137216.ts.net:3916/",
+            "CMUX_DEV_BACKEND_TRANSPORT": "direct",
+            "CMUX_DEV_BACKEND_TAILSCALE_HOST": "cmux-dev-backend-1.tail137216.ts.net",
+        ]
+        var wrongHost = baseEnvironment
+        wrongHost["CMUX_WWW_ORIGIN"] = "https://other.tail137216.ts.net:3916/"
+        #expect(AuthEnvironment.resolvedAppSessionHandoffOrigin(
+            environment: wrongHost,
+            isDebugBuild: true
+        ).absoluteString == "https://cmux.com")
+
+        var wrongPort = baseEnvironment
+        wrongPort["CMUX_WWW_ORIGIN"] = "https://cmux-dev-backend-1.tail137216.ts.net:8443/"
+        #expect(AuthEnvironment.resolvedAppSessionHandoffOrigin(
+            environment: wrongPort,
+            isDebugBuild: true
+        ).absoluteString == "https://cmux.com")
+    }
+
     @Test("Pro upgrade workspace reuse keeps a live tracked workspace")
     func proUpgradeWorkspaceReuseKeepsLiveTrackedWorkspace() {
         var state = ProUpgradeWorkspaceReuseState()

@@ -354,12 +354,6 @@ final class WindowDecorationsController {
                     tabManager: context.tabManager,
                     debugSource: "titlebar.minimalSidebarControl"
                 )
-            case .cloudVM:
-                guard let anchorView else { return }
-                _ = appDelegate.showNewWorkspaceContextMenu(
-                    anchorView: anchorView,
-                    debugSource: "titlebar.minimalSidebar.cloudMenu"
-                )
             case .focusHistoryBack:
                 guard context.tabManager.canNavigateBack else { return }
                 context.tabManager.navigateBack()

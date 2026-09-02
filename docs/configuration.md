@@ -78,29 +78,6 @@ Values: `right`, `left`, `top`, `bottom`, `newTab`, `newWorkspace`.
 
 Default: `right`.
 
-## `ui.newWorkspace.menuSectionOrder`
-
-Controls the section order in the titlebar `+` button menu. The Cloud VM section is built in; the custom section comes from `ui.newWorkspace.contextMenu`.
-
-Values: `customFirst`, `cloudFirst`.
-
-Default: `cloudFirst`.
-
-```json
-{
-  "ui": {
-    "newWorkspace": {
-      "menuSectionOrder": "customFirst",
-      "contextMenu": [
-        "newWorkspace"
-      ]
-    }
-  }
-}
-```
-
-`sectionOrder` is accepted as an alias. Project-local `.cmux/cmux.json` values override the global setting.
-
 ## `terminal.agentHibernation`
 
 Routine Agent Hibernation is opt-in. cmux hibernates idle background agent
