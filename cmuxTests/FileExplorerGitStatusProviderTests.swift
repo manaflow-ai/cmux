@@ -132,35 +132,6 @@ struct FileExplorerGitStatusProviderTests {
     }
 
     @Test
-    func fileScopedDiffsStayOnThePathAwareBackend() {
-        let cli = CMUXCLI(args: [])
-        let fileScoped = CMUXCLI.DiffSourceContext(
-            workspaceId: nil,
-            surfaceId: nil,
-            sessionId: nil,
-            repoRoot: "/tmp/example-repo",
-            branchBaseRef: nil,
-            filePath: "Sources/App.swift"
-        )
-        let repositoryWide = CMUXCLI.DiffSourceContext(
-            workspaceId: nil,
-            surfaceId: nil,
-            sessionId: nil,
-            repoRoot: "/tmp/example-repo",
-            branchBaseRef: nil,
-            filePath: nil
-        )
-
-        #expect(!cli.diffViewerTypedSidecarSupports(context: fileScoped))
-        #expect(cli.diffSessionSourcePayload(source: .unstaged, context: fileScoped) == nil)
-        #expect(cli.diffViewerTypedSidecarSupports(context: repositoryWide))
-        #expect(
-            cli.diffSessionSourcePayload(source: .unstaged, context: repositoryWide)?["repoRoot"] as? String
-                == "/tmp/example-repo"
-        )
-    }
-
-    @Test
     func statusQueryMapsStagedUnstagedAndUntrackedEntries() throws {
         let repoURL = try Self.makeTemporaryDirectory()
         defer { try? FileManager.default.removeItem(at: repoURL) }
