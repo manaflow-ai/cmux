@@ -1,22 +1,34 @@
 /**
  * The cmux-owned desktop wrapper: the URL a person actually sees and keeps.
  *
- * Blaxel's gateway owns the `bl_preview_token` query parameter — it cannot be
- * renamed at their edge — so instead the raw tokened preview URL stops being
+ * A desktop preview gateway owns its own token query parameter and cannot be
+ * asked to rename it, so instead the raw tokened preview URL stops being
  * user-visible at all. `openUrl` for a port open points at
  * `/vm/desktop/<machine>?cmux_token=…` on our origin; that page validates the
  * upstream host and token, then sends the pane to the noVNC page top-level with
  * the gateway's own parameter. It must be a top-level navigation, not an iframe:
- * the gateway answers the tokened request with a `bl_preview_token` cookie that
- * every later asset, and the websockify upgrade, must carry, and WebKit refuses
+ * the gateway answers the tokened request with a matching cookie that every
+ * later asset, and the websockify upgrade, must carry, and WebKit refuses
  * third-party cookies inside a cross-site frame — an iframed desktop rendered as
  * unstyled noVNC HTML with a dead Connect button. The wrapper also knows the
  * token's expiry, so a lapsed pane shows an honest "reopen from cmux" screen
  * instead of a silent white one.
+ *
+ * DORMANT: no driver implements `openPort`, so nothing produces an upstream URL
+ * for this wrapper today. It is kept as the seam for Freestyle desktop support
+ * (public Freestyle serves arbitrary ports through a TLS rule on a verified
+ * domain). Whoever wires that up sets DESKTOP_UPSTREAM_TOKEN_PARAM and the host
+ * suffix to whatever that edge actually uses.
  */
 
-/** Hosts the wrapper will agree to send a pane to: Blaxel previews, branded or not. */
-const ALLOWED_UPSTREAM_SUFFIXES = [".vm.cmux.sh", ".preview.bl.run"] as const;
+/** Hosts the wrapper will agree to send a pane to: the cmux-branded machine domain. */
+const ALLOWED_UPSTREAM_SUFFIXES = [".vm.cmux.sh"] as const;
+
+/**
+ * The upstream gateway's own token parameter. Still carries the retired
+ * gateway's name because no replacement edge has been chosen yet.
+ */
+const DESKTOP_UPSTREAM_TOKEN_PARAM = "bl_preview_token";
 
 export function isAllowedDesktopUpstreamHost(host: string | null | undefined): boolean {
   const normalized = host?.trim().toLowerCase();
@@ -75,7 +87,7 @@ export function desktopUpstreamUrl(input: {
   const token = input.token.trim();
   if (!token || !/^[A-Za-z0-9_-]{8,512}$/.test(token)) return null;
   const url = new URL(`https://${input.host.trim().toLowerCase()}/`);
-  url.searchParams.set("bl_preview_token", token);
+  url.searchParams.set(DESKTOP_UPSTREAM_TOKEN_PARAM, token);
   for (const key of FORWARDED_DISPLAY_PARAMS) {
     const value = input.params[key];
     const single = Array.isArray(value) ? value[0] : value;

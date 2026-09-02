@@ -28,10 +28,9 @@ export default async function DashboardLayout({
       <StackProvider app={getStackServerApp()}>
         <StackTheme>
           <DashboardQueryProvider>
-            {/* Keep the current tab mounted while fresh page data resolves.
-                A nested full-page Suspense fallback makes rapid tab switches
-                flash the dashboard skeleton. The dashboard loading boundary
-                above still covers first entry into the dashboard. */}
+            {/* This shared-layout boundary covers a cold dashboard entry. It is
+                above the work that reruns between sibling tabs, and the route
+                has no loading.tsx, so navigation keeps the current tab visible. */}
             <DashboardShell vaultEnabled={isVaultEnabled()}>
               {children}
             </DashboardShell>
