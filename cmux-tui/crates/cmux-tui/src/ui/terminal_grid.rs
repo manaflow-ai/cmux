@@ -144,14 +144,17 @@ fn draw_render_frame_with_catalog(
 /// Return whether a grid cell is selected, treating both columns of a wide
 /// grapheme as one selectable unit. Selection ranges are normally normalized
 /// to the lead cell, but checking the paired coordinate also keeps rendering
-/// correct for callers that still provide a raw spacer-tail endpoint.
+/// correct for callers that still provide a raw spacer-tail endpoint. A
+/// wrapped grapheme's spacer head is a non-text continuation cell, so it must
+/// never receive independent selection styling.
 fn selected_cell(
     cells: &[VtCell],
     source_col: usize,
     row: usize,
     selected: &impl Fn(u16, u16) -> bool,
 ) -> bool {
-    let selected_here = selected(source_col as u16, row as u16);
+    let selected_here =
+        cells[source_col].width != CellWidth::SpacerHead && selected(source_col as u16, row as u16);
     let paired_col = match cells[source_col].width {
         CellWidth::Wide
             if cells

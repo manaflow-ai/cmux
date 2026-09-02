@@ -17103,6 +17103,18 @@ impl App {
         Some(SelectionPoint { column: cell.0, row: u32::try_from(cell.1).ok()? })
     }
 
+    fn canonical_selection_cell(&self, surface: SurfaceId, cell: (u16, u64)) -> (u16, u64) {
+        let Some(point) = Self::selection_point(cell) else { return cell };
+        self.session
+            .surface(surface)
+            .and_then(|handle| {
+                handle.with_terminal(|terminal| terminal.normalize_selection_point_screen(point))
+            })
+            .flatten()
+            .map(|point| (point.column, u64::from(point.row)))
+            .unwrap_or(cell)
+    }
+
     fn selection_from_range(surface: SurfaceId, range: SelectionRange) -> Selection {
         Selection {
             surface,
@@ -17118,19 +17130,27 @@ impl App {
         mode: SelectionMode,
     ) -> Option<Selection> {
         if mode == SelectionMode::Cell {
+            let cell = self.canonical_selection_cell(surface, cell);
             return Some(Selection { surface, anchor: cell, head: cell });
         }
         let point = Self::selection_point(cell)?;
         let handle = self.session.surface(surface)?;
         let range = handle
-            .with_terminal(|terminal| match mode {
-                SelectionMode::Word => terminal.select_word_screen(point).ok().flatten(),
-                SelectionMode::Line => terminal
-                    .select_line_screen(point)
-                    .ok()
-                    .flatten()
-                    .or_else(|| terminal.select_line_screen_untrimmed(point).ok().flatten()),
-                SelectionMode::Cell => None,
+            .with_terminal(|terminal| {
+                let point = if mode == SelectionMode::Word {
+                    terminal.normalize_selection_point_screen(point)?
+                } else {
+                    point
+                };
+                Some(match mode {
+                    SelectionMode::Word => terminal.select_word_screen(point).ok().flatten(),
+                    SelectionMode::Line => terminal
+                        .select_line_screen(point)
+                        .ok()
+                        .flatten()
+                        .or_else(|| terminal.select_line_screen_untrimmed(point).ok().flatten()),
+                    SelectionMode::Cell => None,
+                })
             })
             .flatten()?;
         Some(Self::selection_from_range(surface, range))
@@ -17311,6 +17331,23 @@ impl App {
             return;
         };
         let Some(handle) = self.session.surface(surface) else {
+            self.clear_selection_for_semantic_gesture(surface, mode);
+            self.semantic_selection_cache = None;
+            return;
+        };
+        let Some((anchor_point, current_point)) = handle
+            .with_terminal(|terminal| {
+                if mode == SelectionMode::Word {
+                    Some((
+                        terminal.normalize_selection_point_screen(anchor_point)?,
+                        terminal.normalize_selection_point_screen(current_point)?,
+                    ))
+                } else {
+                    Some((anchor_point, current_point))
+                }
+            })
+            .flatten()
+        else {
             self.clear_selection_for_semantic_gesture(surface, mode);
             self.semantic_selection_cache = None;
             return;
@@ -17521,11 +17558,16 @@ impl App {
         let moved = surface.scroll_delta(dir as isize).unwrap_or(false);
         let edge_row = if dir < 0 { 0 } else { content.height.saturating_sub(1) };
         let offset = self.surface_scroll_offset(surface_id);
-        let edge_cell = (
+        let raw_edge_cell = (
             col.min(content.width.saturating_sub(1).saturating_add(source_x)),
             offset + edge_row as u64,
         );
         self.mark_selection_dragged(surface_id);
+        let edge_cell = if self.selection_mode == SelectionMode::Line {
+            raw_edge_cell
+        } else {
+            self.canonical_selection_cell(surface_id, raw_edge_cell)
+        };
         if self.selection_mode != SelectionMode::Cell
             && self.selection_mode_surface == Some(surface_id)
         {
@@ -17533,6 +17575,7 @@ impl App {
         } else {
             let selection = self.selection.or_else(|| {
                 let anchor = self.selection_anchor_cell(surface_id)?;
+                let anchor = self.canonical_selection_cell(surface_id, anchor);
                 Some(Selection { surface: surface_id, anchor, head: edge_cell })
             });
             if let Some(mut selection) = selection {
@@ -22693,7 +22736,7 @@ impl App {
                 let offset = selection_surface
                     .map(|surface| self.surface_scroll_offset(surface))
                     .unwrap_or(0);
-                let current = (col, offset + (cy - content.y) as u64);
+                let raw_current = (col, offset + (cy - content.y) as u64);
                 if let Some(surface) = selection_surface {
                     self.mark_selection_dragged(surface);
                 }
@@ -22706,10 +22749,18 @@ impl App {
                             .map(|sequence| sequence.mode)
                     })
                     .unwrap_or(SelectionMode::Cell);
+                let current = if mode == SelectionMode::Line {
+                    raw_current
+                } else {
+                    selection_surface
+                        .map(|surface| self.canonical_selection_cell(surface, raw_current))
+                        .unwrap_or(raw_current)
+                };
                 if mode == SelectionMode::Cell {
                     let selection = self.selection.or_else(|| {
                         let surface = selection_surface?;
                         let anchor = self.selection_anchor_cell(surface)?;
+                        let anchor = self.canonical_selection_cell(surface, anchor);
                         Some(Selection { surface, anchor, head: current })
                     });
                     if let Some(mut selection) = selection {
