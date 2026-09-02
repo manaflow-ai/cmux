@@ -4219,6 +4219,13 @@ struct PaneSizeLease {
     content_size: (u16, u16),
 }
 
+fn first_pane_by_id(panes: &[PaneView]) -> HashMap<PaneId, &PaneView> {
+    panes.iter().fold(HashMap::with_capacity(panes.len()), |mut index, pane| {
+        index.entry(pane.id).or_insert(pane);
+        index
+    })
+}
+
 impl PaneArea {
     pub(crate) fn logical_rect(&self) -> Rect {
         Rect {
@@ -14664,8 +14671,13 @@ impl App {
         // Keep inactive tabs attached for instant rendering, but give only
         // active tabs in the swept viewport a sizing lease. The settling draw
         // releases panes outside the final viewport.
+        // `ScreenView::pane` performs a linear scan. Build an index once for
+        // this active screen so one lease per pane does not turn this loop
+        // into quadratic work. `or_insert` preserves `pane`'s first-match
+        // behavior if malformed input contains duplicate pane IDs.
+        let panes_by_id = first_pane_by_id(&screen.panes);
         for lease in size_leases {
-            let Some(pane) = screen.pane(lease.pane) else { continue };
+            let Some(pane) = panes_by_id.get(&lease.pane).copied() else { continue };
             let content_size = lease.content_size;
             for tab in &pane.tabs {
                 if self.surface_only.is_some_and(|surface| surface != tab.surface) {
@@ -24690,7 +24702,7 @@ mod tests {
         canonical_terminal_content, catch_renderer_panic, clamp_split_ratio_for_tab_bars,
         client_menu_item, clip_horizontal_rect, content_size_for_rect,
         disable_host_keyboard_protocol, enable_host_keyboard_protocol, expand_status_tokens,
-        forward_host_input, forward_mux_event, forward_mux_events,
+        first_pane_by_id, forward_host_input, forward_mux_event, forward_mux_events,
         host_mouse_capture_escape_if_changed, host_startup_input_modes,
         initial_applied_outer_cursor, initial_host_mouse_capture, keyboard_protocol_accepts,
         layout_undo_error_completion, negotiate_host_keyboard_protocol_with, outer_cursor_escape,
@@ -28574,6 +28586,24 @@ mod tests {
         motion.retarget(10, false, now + VIEWPORT_ANIMATION_DURATION);
         assert_eq!(motion.offset(), 10);
         assert!(!motion.animating());
+    }
+
+    #[test]
+    fn first_pane_index_preserves_screen_pane_lookup_semantics() {
+        let pane = |name| PaneView {
+            id: 7,
+            resource_id: None,
+            short_id: name.to_string(),
+            name: Some(name.to_string()),
+            tabs: Vec::new(),
+            active_tab: 0,
+            focused_at: 0,
+        };
+        let panes = vec![pane("first"), pane("duplicate")];
+
+        let indexed = first_pane_by_id(&panes);
+
+        assert_eq!(indexed.get(&7).and_then(|pane| pane.name.as_deref()), Some("first"));
     }
 
     #[test]
