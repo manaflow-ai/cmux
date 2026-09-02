@@ -18,14 +18,17 @@ import {
   type VmCreateCreditReservation,
   type VmBillingGatewayShape,
 } from "./billingGateway";
+import { vmCreateDisabledReason } from "./config";
 import {
   VmBillingError,
   VmAccountDeletionIdentityRevocationError,
   VmAttachTransportUnsupportedError,
+  VmCreateDisabledError,
   VmCreateFailedError,
   VmCreateInProgressError,
   VmFreeAccessExpiredError,
   VmNotFoundError,
+  VmOperationUnsupportedError,
   VmProviderOperationError,
   VmSnapshotNotFoundError,
   isVmCreateCreditsInsufficientError,
@@ -53,6 +56,21 @@ import {
   type VmRepositoryShape,
 } from "./repository";
 import { measureVmEffect, type VmTimingSink } from "./timings";
+
+export {
+  homeVolumeNameForUser,
+  homeVolumeTemplateForUser,
+  isMachineOwnedHomeVolumeName,
+} from "./volumeNaming";
+export { reapVmResources } from "./reaper";
+export type {
+  VmReaperOptions,
+  VmReaperSummary,
+} from "./reaper";
+import {
+  homeVolumeNameForUser,
+  homeVolumeTemplateForUser,
+} from "./volumeNaming";
 
 export type VmEntry = {
   readonly providerVmId: string;
@@ -213,21 +231,6 @@ export function reconcileVmProviderStatuses(input: {
       skippedNoGetStatus: false,
     };
   });
-}
-
-/** Stable per-user home volume name; the volume, not the sandbox, is the durable machine. */
-export function homeVolumeNameForUser(userId: string): string {
-  const digest = createHash("sha256").update(userId).digest("hex").slice(0, 12);
-  return `cmux-home-${digest}`;
-}
-
-/**
- * Per-machine home volume template. The driver substitutes the generated
- * machine name for `{machine}` once the name is final, so every fresh machine
- * gets its own durable home instead of contending for the single user volume.
- */
-export function homeVolumeTemplateForUser(userId: string): string {
-  return `${homeVolumeNameForUser(userId)}-{machine}`;
 }
 
 /**
@@ -705,10 +708,9 @@ export function snapshotVm(input: {
     const vm = yield* requireUserVm(input);
     const snapshot = yield* (providers.snapshot
       ? providers.snapshot(vm.provider, vm.providerVmId ?? input.providerVmId, input.name)
-      : Effect.fail(new VmProviderOperationError({
+      : Effect.fail(new VmOperationUnsupportedError({
         provider: vm.provider,
         operation: "snapshot",
-        cause: new Error("Cloud VM snapshots are not supported by this provider gateway"),
       })));
     yield* repo.recordUsageEvent({
       userId: vm.userId,
@@ -779,6 +781,17 @@ export function forkVm(input: {
     const providers = yield* VmProviderGateway;
     const billing = yield* VmBillingGateway;
     const source = yield* requireUserVm(input);
+    // Kill-switch parity with POST /api/vm: fork provisions a brand-new
+    // machine on the source VM's provider and spends the same provider money.
+    // The check lives here rather than in the route because the provider is
+    // only known once the source VM row is loaded.
+    const createDisabledReason = vmCreateDisabledReason(source.provider);
+    if (createDisabledReason) {
+      return yield* Effect.fail(new VmCreateDisabledError({
+        provider: source.provider,
+        reason: createDisabledReason,
+      }));
+    }
     yield* preflightResumeIfSuspended(repo, providers, source, input.providerVmId, "fork");
 
     if (source.provider === "freestyle" && providers.fork) {
@@ -981,6 +994,7 @@ function beginCreateWithLazyProviderRefresh(
   );
 }
 
+/** Refresh live provider state before retrying an active-VM limit conflict. */
 function refreshActiveLimitProviderStatuses(
   repo: VmRepositoryShape,
   providers: VmProviderGatewayShape,
@@ -996,14 +1010,27 @@ function refreshActiveLimitProviderStatuses(
     const candidates = yield* repo.activeLimitCandidates({
       userId: input.userId,
       billingTeamId: input.billingTeamId,
+      // Keep the synchronous retry bounded. If an account has more rows than
+      // this, the database remains conservative until the background reconcile
+      // catches up; we never create above the recorded active limit.
+      limit: VM_STATUS_RECONCILE_BATCH_LIMIT,
     });
-    yield* Effect.forEach(candidates, (vm) => {
+    // The repository applies the limit in SQL. Keep a second boundary here so
+    // alternate repository implementations cannot turn this request path into
+    // an unbounded provider sweep.
+    yield* Effect.forEach(candidates.slice(0, VM_STATUS_RECONCILE_BATCH_LIMIT), (vm) => {
       const providerVmId = vm.providerVmId;
-      if (vm.provider !== "freestyle" || !providerVmId) return Effect.void;
+      if (!providerVmId) return Effect.void;
+      // Provider-agnostic on purpose: the cron reconcile path already refreshes
+      // every provider, and this lazy refresh used to skip everything except
+      // Freestyle, so a stale `running` row blocked Blaxel creates for up to a
+      // full cron interval. Candidates are `running` rows only, so the
+      // gateway's "running" fallback for a driver without getStatus is a
+      // harmless no-op rather than a wrong transition.
       return reconcileObservedProviderStatus(repo, getStatus, vm, "provider_status_refresh").pipe(
         Effect.asVoid,
       );
-    }, { concurrency: "unbounded", discard: true });
+    }, { concurrency: 10, discard: true });
   });
 }
 
@@ -1606,6 +1633,7 @@ export function execVm(input: {
     );
     const result = yield* providers.exec(vm.provider, input.providerVmId, input.command, {
       timeoutMs: input.timeoutMs,
+      providerMetadata: vm.providerMetadata,
     });
     yield* repo.recordUsageEvent({
       userId: input.userId,
@@ -1800,7 +1828,9 @@ export function approveVmCmuxRemoteEnrollment(input: {
         }),
       );
     }
-    return yield* providers.approveCmuxRemoteEnrollment(vm.provider, input.providerVmId, input.invitationId);
+    return yield* providers.approveCmuxRemoteEnrollment(vm.provider, input.providerVmId, input.invitationId, {
+      providerMetadata: vm.providerMetadata,
+    });
   });
 }
 

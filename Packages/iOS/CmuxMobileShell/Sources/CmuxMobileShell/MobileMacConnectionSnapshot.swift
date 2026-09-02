@@ -1,5 +1,5 @@
 internal import CmuxMobilePairedMac
-internal import CMUXMobileCore
+public import CMUXMobileCore
 
 /// Read-only status for one live connection in the iOS per-Mac pool.
 public struct MobileMacConnectionSnapshot: Identifiable, Equatable, Sendable {
@@ -20,13 +20,17 @@ public struct MobileMacConnectionSnapshot: Identifiable, Equatable, Sendable {
     public let instanceTag: String?
     /// The control or focused role owned by this connection.
     public let role: MobileMacConnectionRole
+    /// The transport this connection's client actually dialed. Per-connection
+    /// because each Mac connects with its own configured method.
+    public let routeKind: CmxAttachTransportKind?
 
     /// Creates one immutable connection status snapshot.
     public init(
         macDeviceID: String,
         displayName: String,
         instanceTag: String?,
-        role: MobileMacConnectionRole
+        role: MobileMacConnectionRole,
+        routeKind: CmxAttachTransportKind? = nil
     ) {
         let identity = CmxMacAppInstanceIdentity(
             macDeviceID: macDeviceID,
@@ -36,5 +40,6 @@ public struct MobileMacConnectionSnapshot: Identifiable, Equatable, Sendable {
         self.displayName = displayName
         self.instanceTag = identity.instanceTag
         self.role = role
+        self.routeKind = routeKind
     }
 }

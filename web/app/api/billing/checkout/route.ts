@@ -14,7 +14,12 @@ import {
 } from "../../../lib/billing";
 import { cloudDb } from "../../../../db/client";
 import { stripeCustomers } from "../../../../db/schema";
-import { resolveProPlanStatus } from "../../../../services/billing/pro";
+import {
+  isStripePortalRecoverable,
+  resolveProPlanStatus,
+  stripeBillingStatusForTeam,
+  stripeBillingStatusForUser,
+} from "../../../../services/billing/pro";
 import { captureBillingError } from "../../../../services/errors";
 import {
   isStripeBillingConfigured,
@@ -146,7 +151,16 @@ async function stripeProCheckout(
     // Keep that id as the source of truth for Stripe and checkout analytics.
     const stackUserId = checkoutPrincipalId(user.id, "user");
 
-    const status = await resolveProPlanStatus(user);
+    const stripeBillingStatus = await stripeBillingStatusForUser(stackUserId);
+    const status = await resolveProPlanStatus(user, { stripeBillingStatus });
+    // Keep stale Upgrade links from opening a second subscription. Any
+    // currently active row (even behind a newer canceled one) means the portal
+    // is the right destination; the portal also recovers past-due/unpaid and
+    // cancel-at-period-end states, but it cannot start a new subscription
+    // after a terminal cancellation.
+    if (stripeBillingStatus.hasActiveSubscription || isStripePortalRecoverable(stripeBillingStatus)) {
+      return NextResponse.redirect(new URL("/api/billing/portal", request.url));
+    }
     if (status.isPro) {
       return NextResponse.redirect(new URL("/pricing?welcome=active", request.url));
     }
@@ -175,7 +189,12 @@ async function stripeProCheckout(
       client_reference_id: stackUserId,
       metadata,
       subscription_data: { metadata },
-      customer_email: !user.isAnonymous && user.primaryEmail ? user.primaryEmail : undefined,
+      customer: stripeBillingStatus.customerId ?? undefined,
+      customer_email: stripeBillingStatus.customerId
+        ? undefined
+        : !user.isAnonymous && user.primaryEmail
+          ? user.primaryEmail
+          : undefined,
       allow_promotion_codes: true,
       success_url: successUrl,
       cancel_url: cancelUrl.toString(),
@@ -219,6 +238,15 @@ async function stripeTeamCheckout(
     const resolvedTeamId = checkoutPrincipalId(team.id, "team");
     teamId = resolvedTeamId;
 
+    const stripeBillingStatus = await stripeBillingStatusForTeam(resolvedTeamId);
+    // Same rule as personal checkout: an already-paying team manages billing
+    // in the portal; checkout would create a duplicate subscription.
+    if (stripeBillingStatus.hasActiveSubscription || isStripePortalRecoverable(stripeBillingStatus)) {
+      const portalURL = new URL("/api/billing/portal", request.url);
+      portalURL.searchParams.set("scope", "team");
+      return NextResponse.redirect(portalURL);
+    }
+
     const successUrl =
       `${request.nextUrl.origin}/api/billing/complete` +
       `?session_id={CHECKOUT_SESSION_ID}&cmux_scheme=${encodeURIComponent(callbackScheme)}`;
@@ -232,7 +260,8 @@ async function stripeTeamCheckout(
       nativeCallbackScheme: callbackScheme,
     };
 
-    const customerId = await stripeCustomerForTeam(team, stackUserId);
+    const customerId =
+      stripeBillingStatus.customerId ?? await stripeCustomerForTeam(team, stackUserId);
     const session = await stripe().checkout.sessions.create({
       mode: "subscription",
       line_items: [

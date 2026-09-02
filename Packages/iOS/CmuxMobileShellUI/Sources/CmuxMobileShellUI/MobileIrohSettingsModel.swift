@@ -64,9 +64,19 @@ final class MobileIrohSettingsModel {
         self.diagnosticLog = diagnosticLog
     }
 
-    func observe() async {
-        diagnosticLog?.recordAppEvent(.irohSettingsOpened)
-        defer { diagnosticLog?.recordAppEvent(.irohSettingsClosed) }
+    /// Loads the snapshot and follows controller updates until cancelled.
+    /// `recordingScreenEvents` is true only for the Networking screen itself;
+    /// embedded hosts (computer detail, top-level Diagnostics) must not fake
+    /// a Networking-screen visit in the diagnostic timeline.
+    func observe(recordingScreenEvents: Bool = true) async {
+        if recordingScreenEvents {
+            diagnosticLog?.recordAppEvent(.irohSettingsOpened)
+        }
+        defer {
+            if recordingScreenEvents {
+                diagnosticLog?.recordAppEvent(.irohSettingsClosed)
+            }
+        }
         snapshot = await controller.irohSettingsSnapshot()
         await reloadDiagnostics()
         for await next in controller.irohSettingsUpdates() {

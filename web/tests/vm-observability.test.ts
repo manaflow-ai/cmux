@@ -189,6 +189,34 @@ describe("cloud_vm_provision capture", () => {
     expect(properties.operator_fault).toBe(true);
   });
 
+  test("fork and restore failures carry their operation", () => {
+    for (const operation of ["fork", "restore"] as const) {
+      const seen: { body: Record<string, unknown> | null } = { body: null };
+      const fakeFetch = ((input: string | URL | Request, init?: RequestInit) => {
+        void input;
+        seen.body = JSON.parse(String(init?.body)) as Record<string, unknown>;
+        return Promise.resolve(new Response("ok"));
+      }) as typeof fetch;
+      captureVmProvisionOutcome(
+        {
+          userId: "user-1",
+          operation,
+          response: vmErrorResponse({
+            error: "vm_create_failed",
+            status: 500,
+            message: "boom",
+            action: "retry",
+            phase: "create",
+          }),
+        },
+        { fetch: fakeFetch, env: { CMUX_VM_ANALYTICS_FORCE: "1" } },
+      );
+      const properties = seen.body?.properties as Record<string, unknown>;
+      expect(properties.operation).toBe(operation);
+      expect(properties.operator_fault).toBe(true);
+    }
+  });
+
   test("capture is disabled outside production unless forced", () => {
     let called = false;
     const fakeFetch = (() => {

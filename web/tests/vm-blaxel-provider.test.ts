@@ -7,10 +7,14 @@ import {
   hostnameSetupCommand,
   parseMachineStats,
   BLAXEL_MAX_HOME_VOLUME_MB,
+  CMUX_CLOUD_USER_SETUP_COMMAND,
+  CMUX_HOME_BINDFS_COMMAND,
   CMUX_PROVISION_AGENT_PACKAGES,
   CMUX_PROVISION_COMMAND,
   CMUX_PROVISION_SCRIPT,
   CMUX_PROVISION_SCRIPT_PATH,
+  CMUX_SUDO_INSTALL_COMMAND,
+  userExecCommand,
   defaultHomeVolumeMbForMemory,
   resolveBlaxelMemoryMb,
   resolveHomeVolumeMb,
@@ -95,6 +99,116 @@ describe("BlaxelProvider session transport", () => {
     expect(sandboxEnvs({ LANG: "en_US.UTF-8" })).toEqual([{ name: "LANG", value: "C.UTF-8" }]);
   });
 
+  test("uses persisted home metadata when the sandbox omits its volume list", async () => {
+    const previousKey = process.env.BL_API_KEY;
+    const previousWorkspace = process.env.BL_WORKSPACE;
+    process.env.BL_API_KEY = "test-key";
+    process.env.BL_WORKSPACE = "cmux";
+    const originalFetch = globalThis.fetch;
+    const processBodies: string[] = [];
+    globalThis.fetch = (async (input: string | URL | Request, init?: RequestInit) => {
+      const url = typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
+      const method = init?.method ?? "GET";
+      if (method === "GET" && url.endsWith("/sandboxes/machine-with-hidden-volume")) {
+        // Some provider responses omit spec.volumes even though the VM row still
+        // has the authoritative volume marker from create.
+        return new Response(JSON.stringify({
+          status: "DEPLOYED",
+          metadata: { url: "https://sandbox-api.test" },
+          spec: { runtime: { image: "sandbox/cmux-devbox:latest" } },
+        }), { status: 200 });
+      }
+      if (method === "POST" && url === "https://sandbox-api.test/process") {
+        processBodies.push(typeof init?.body === "string" ? JSON.parse(init.body).command : "");
+        return new Response(JSON.stringify({ status: "completed", exitCode: 0, stdout: "ok", stderr: "" }), { status: 200 });
+      }
+      return new Response(JSON.stringify({ error: `unexpected ${method} ${url}` }), { status: 500 });
+    }) as typeof fetch;
+    try {
+      const result = await new BlaxelProvider().exec(
+        "machine-with-hidden-volume",
+        "printf ok",
+        { timeoutMs: 1000, providerMetadata: { homeVolume: "cmux-home-machine-with-hidden-volume" } },
+      );
+      expect(result).toEqual({ exitCode: 0, stdout: "ok", stderr: "" });
+      expect(processBodies).toHaveLength(1);
+      expect(processBodies[0]).toContain("if ! mountpoint -q /root");
+      expect(processBodies[0]).toContain("exit 75");
+      expect(processBodies[0]).not.toContain("else cd /home/cmux 2>/dev/null; exec env HOME=/home/cmux");
+    } finally {
+      globalThis.fetch = originalFetch;
+      if (previousKey === undefined) delete process.env.BL_API_KEY;
+      else process.env.BL_API_KEY = previousKey;
+      if (previousWorkspace === undefined) delete process.env.BL_WORKSPACE;
+      else process.env.BL_WORKSPACE = previousWorkspace;
+    }
+  });
+
+  test("uses persisted home metadata during enrollment approval", async () => {
+    const previousKey = process.env.BL_API_KEY;
+    const previousWorkspace = process.env.BL_WORKSPACE;
+    process.env.BL_API_KEY = "test-key";
+    process.env.BL_WORKSPACE = "cmux";
+    const originalFetch = globalThis.fetch;
+    const processBodies: string[] = [];
+    globalThis.fetch = (async (input: string | URL | Request, init?: RequestInit) => {
+      const url = typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
+      const method = init?.method ?? "GET";
+      if (method === "GET" && url.endsWith("/sandboxes/machine-approval-hidden-volume")) {
+        return new Response(JSON.stringify({
+          status: "DEPLOYED",
+          metadata: { url: "https://sandbox-api.test" },
+          spec: { runtime: { image: "sandbox/cmux-devbox:latest" } },
+        }), { status: 200 });
+      }
+      if (method === "POST" && url === "https://sandbox-api.test/process") {
+        const command = typeof init?.body === "string" ? JSON.parse(init.body).command : "";
+        processBodies.push(command);
+        if (command.includes("remote enroll pending")) {
+          return new Response(JSON.stringify({
+            status: "completed",
+            exitCode: 0,
+            stdout: JSON.stringify([{ invitation_id: "invite-1", device_fingerprint: "device-1" }]),
+            stderr: "",
+          }), { status: 200 });
+        }
+        if (command.includes("remote enroll approve")) {
+          return new Response(JSON.stringify({
+            status: "completed",
+            exitCode: 0,
+            stdout: JSON.stringify({ fingerprint: "device-1" }),
+            stderr: "",
+          }), { status: 200 });
+        }
+      }
+      return new Response(JSON.stringify({ error: `unexpected ${method} ${url}` }), { status: 500 });
+    }) as typeof fetch;
+    try {
+      const provider = new BlaxelProvider();
+      // Reflect.apply lets the test exercise the optional argument before the
+      // implementation commit adds it to the shared driver contract.
+      const result = await Reflect.apply(
+        provider.approveCmuxRemoteEnrollment,
+        provider,
+        ["machine-approval-hidden-volume", "invite-1", {
+          providerMetadata: { homeVolume: "cmux-home-machine-approval-hidden-volume" },
+        }],
+      );
+      expect(result).toEqual({ approved: true, state: "approved", deviceFingerprint: "device-1" });
+      expect(processBodies).toHaveLength(2);
+      for (const body of processBodies) {
+        expect(body).toContain("if ! mountpoint -q /root");
+        expect(body).toContain("exit 75");
+      }
+    } finally {
+      globalThis.fetch = originalFetch;
+      if (previousKey === undefined) delete process.env.BL_API_KEY;
+      else process.env.BL_API_KEY = previousKey;
+      if (previousWorkspace === undefined) delete process.env.BL_WORKSPACE;
+      else process.env.BL_WORKSPACE = previousWorkspace;
+    }
+  });
+
   test("the smart-sleep watcher only knows the cmux-tui daemon", () => {
     expect(SMART_SLEEP_SCRIPT).toContain("pidof cmux-tui");
     expect(SMART_SLEEP_SCRIPT).toContain("0539");
@@ -138,6 +252,9 @@ describe("BlaxelProvider SSH surface", () => {
       if (url.endsWith("/sandboxes/machine-a")) {
         return new Response(JSON.stringify({ metadata: { url: "https://sandbox-api.test" } }), { status: 200 });
       }
+      if (url === "https://sandbox-api.test/process/cmux-tui-daemon") {
+        return new Response(JSON.stringify({ message: "stopped" }), { status: 200 });
+      }
       if (url === "https://sandbox-api.test/process") {
         return new Response(JSON.stringify({ exitCode: 0, status: "completed" }), { status: 200 });
       }
@@ -160,7 +277,8 @@ describe("BlaxelProvider SSH surface", () => {
       expect(processCall?.body).toContain("server start");
       expect(processCall?.body).not.toContain("cmuxd");
       expect(processCall?.body).not.toContain("attach-pty-lease.json");
-      expect(calls.filter((call) => call.method === "DELETE")).toHaveLength(3);
+      expect(calls.filter((call) => call.method === "DELETE")).toHaveLength(4);
+      expect(calls.some((call) => call.url === "https://sandbox-api.test/process/cmux-tui-daemon")).toBe(true);
     } finally {
       globalThis.fetch = originalFetch;
       if (previousKey === undefined) delete process.env.BL_API_KEY;
@@ -450,9 +568,122 @@ describe("background provisioning", () => {
     }
     expect(CMUX_PROVISION_SCRIPT).toContain("cua-computer-server");
     // Persistent-home placement: npm globals and bun survive sandbox resurrection.
-    expect(CMUX_PROVISION_SCRIPT).toContain("npm config set prefix /root/.npm-global");
-    expect(CMUX_PROVISION_SCRIPT).toContain("/root/.bun/bin/bun");
+    // A failed bindfs mount selects the durable backing path instead of disposable
+    // /home/cmux, while the normal path remains the identity-mapped home.
+    expect(CMUX_PROVISION_SCRIPT).toContain("if mountpoint -q /cmux/home 2>/dev/null && ! mountpoint -q /home/cmux 2>/dev/null");
+    expect(CMUX_PROVISION_SCRIPT).toContain('export HOME=/cmux/home');
+    expect(CMUX_PROVISION_SCRIPT).toContain('export HOME=/home/cmux');
+    expect(CMUX_PROVISION_SCRIPT).toContain('npm config set prefix "$HOME/.npm-global"');
+    expect(CMUX_PROVISION_SCRIPT).toContain('"$HOME/.bun/bin/bun"');
+    expect(CMUX_PROVISION_SCRIPT).not.toContain("/root/.npm-global");
+    expect(CMUX_PROVISION_SCRIPT).not.toContain("/root/.bun");
+    // A persistent home shadows the image's /home/cmux/.bashrc. The generated
+    // profile must source both shared fragments so volume-backed panes keep the
+    // prompt, ble.sh setup, and coderouter agent environment.
+    expect(CMUX_PROVISION_SCRIPT).toContain("[ -f /etc/cmux/bashrc ] && . /etc/cmux/bashrc");
+    expect(CMUX_PROVISION_SCRIPT).toContain("[ -f /etc/cmux/agent-config.sh ] && . /etc/cmux/agent-config.sh");
+    // Legacy sandboxes (volume still at /root) were provisioned by the old driver;
+    // the script is a no-op there instead of writing tools to disposable rootfs.
+    expect(CMUX_PROVISION_SCRIPT).toContain("mountpoint -q /root 2>/dev/null && exit 0");
+    // The stock-image path installs sudo too (baked images already ship it).
+    expect(CMUX_PROVISION_SCRIPT).toMatch(/apt-get install[^\n]*\n[^\n]*\bsudo\b/);
+    expect(CMUX_PROVISION_SCRIPT).toMatch(/apk add[^\n]*\bsudo\b/);
+    // Root-run provisioning hands what it wrote in the home to the work user —
+    // but only on rootfs homes: through a mounted view chown is a no-op and the
+    // walk over a grown persistent home would be pure wasted disk work.
+    expect(CMUX_PROVISION_SCRIPT).toContain("mountpoint -q /home/cmux 2>/dev/null && return 0");
+    expect(CMUX_PROVISION_SCRIPT).toContain("mountpoint -q /cmux/home 2>/dev/null && return 0");
+    expect(CMUX_PROVISION_SCRIPT).toContain('chown -R cmux:cmux "$HOME/.bun" "$HOME/.npm-global" "$HOME/.local"');
+    expect(CMUX_PROVISION_SCRIPT).toContain("distro_packages_unlocked()");
+    expect(CMUX_PROVISION_SCRIPT).toContain("mkdir /etc/cmux/package-install.lock.d");
+    // When util-linux is not present yet, the directory gate remains held while
+    // the first transaction installs it. Once flock exists, the same body runs
+    // under the file lock after the transition gate is released.
+    expect(CMUX_PROVISION_SCRIPT).toContain("else distro_packages_unlocked; fi ) 9>/etc/cmux/package-install.lock");
     expect(CMUX_PROVISION_SCRIPT).toContain("/tmp/cmux/provision.log");
+  });
+});
+
+describe("cloud work user setup", () => {
+  test("creates the cmux user idempotently with passwordless sudo policy", () => {
+    // uid 1001 keeps volume ownership stable across image generations; busybox
+    // adduser is the Alpine fallback; reruns are no-ops thanks to the id guard.
+    expect(CMUX_CLOUD_USER_SETUP_COMMAND).toContain("id -u cmux >/dev/null 2>&1 || useradd -m -u 1001 -s /bin/bash cmux");
+    expect(CMUX_CLOUD_USER_SETUP_COMMAND).toContain("|| adduser -D -u 1001 -s /bin/bash cmux");
+    // Every fallback keeps the same uid; an auto-assigned uid would break the
+    // persistent-volume identity contract on older Alpine images.
+    expect((CMUX_CLOUD_USER_SETUP_COMMAND.match(/-u 1001/g) ?? [])).toHaveLength(4);
+    expect(CMUX_CLOUD_USER_SETUP_COMMAND).toContain('[ "$(id -u cmux 2>/dev/null || echo -1)" = "1001" ] || exit 1');
+    expect(CMUX_CLOUD_USER_SETUP_COMMAND).toContain("printf 'cmux ALL=(ALL) NOPASSWD:ALL\\n' > /etc/sudoers.d/90-cmux-nopasswd");
+    expect(CMUX_CLOUD_USER_SETUP_COMMAND).toContain("chmod 0440 /etc/sudoers.d/90-cmux-nopasswd");
+    // Alpine has no runuser in busybox; without it the daemon would silently run root.
+    expect(CMUX_CLOUD_USER_SETUP_COMMAND).toContain("apk add --no-cache runuser");
+  });
+
+  test("presents the root-squashing volume as cmux-owned through the bindfs view", () => {
+    // The Blaxel volume is virtiofs that squashes every guest identity to root
+    // (chown no-ops; a cmux-created file comes back root-owned and unwritable), so
+    // the home the user sees is a bindfs map over the backing mount: everything
+    // shown as cmux, real I/O done as root.
+    expect(CMUX_HOME_BINDFS_COMMAND).toContain("bindfs -o allow_other");
+    expect(CMUX_HOME_BINDFS_COMMAND).toContain("--force-user=cmux --force-group=cmux");
+    expect(CMUX_HOME_BINDFS_COMMAND).toContain("--create-for-user=root --create-for-group=root");
+    expect(CMUX_HOME_BINDFS_COMMAND).toContain("/cmux/home /home/cmux");
+    // The view mounts only when this machine has a volume, once, and bindfs is
+    // installed on demand for images that predate it being baked in.
+    expect(CMUX_CLOUD_USER_SETUP_COMMAND).toContain(CMUX_HOME_BINDFS_COMMAND);
+    expect(CMUX_CLOUD_USER_SETUP_COMMAND).toContain("if mountpoint -q /cmux/home 2>/dev/null && ! mountpoint -q /home/cmux 2>/dev/null");
+    // The whole view setup (mount check, junk clean, mount) shares the package
+    // gate and flock, so it cannot race sudo/provision installs or junk-clean a mounted home.
+    expect(CMUX_CLOUD_USER_SETUP_COMMAND).toContain("/etc/cmux/package-install.lock.d/owner");
+    expect(CMUX_CLOUD_USER_SETUP_COMMAND).toContain("flock -w 300 9 || exit 1");
+    expect(CMUX_CLOUD_USER_SETUP_COMMAND).toContain("sleep 1; cmux_package_lock_wait=$((cmux_package_lock_wait + 1))");
+    expect(CMUX_CLOUD_USER_SETUP_COMMAND).toContain(") 9>/etc/cmux/package-install.lock");
+    expect(CMUX_CLOUD_USER_SETUP_COMMAND).toContain("apt-get install -y -qq --no-install-recommends bindfs");
+    // Curl or wget is prepared under this same gate. The daemon installer does
+    // not start an unlocked apk transaction on a stock Alpine image.
+    expect(CMUX_CLOUD_USER_SETUP_COMMAND).toContain("apk add --no-cache bash");
+    expect(CMUX_CLOUD_USER_SETUP_COMMAND).toContain("apk add --no-cache curl");
+    expect(CMUX_CLOUD_USER_SETUP_COMMAND).toContain("apt-get install -y -qq --no-install-recommends util-linux curl");
+  });
+
+  test("sudo heal covers stock and stamped images before the daemon starts", () => {
+    // The bounded heal runs synchronously for every image, including stock images
+    // with no image stamp, so the daemon never starts before sudo is available.
+    expect(CMUX_SUDO_INSTALL_COMMAND).not.toContain("image-stamp");
+    expect(CMUX_SUDO_INSTALL_COMMAND).toContain("command -v sudo >/dev/null 2>&1");
+    expect(CMUX_SUDO_INSTALL_COMMAND).toContain("apt-get install -y -qq --no-install-recommends sudo");
+    expect(CMUX_SUDO_INSTALL_COMMAND).toContain("apk add --no-cache sudo");
+    // A failed install is exposed (breadcrumb + nonzero exit), not swallowed; the
+    // next bootstrap or daemon restart retries automatically.
+    expect(CMUX_SUDO_INSTALL_COMMAND).toContain("sudo-install-failed");
+    expect(CMUX_SUDO_INSTALL_COMMAND).toContain("exit 1");
+  });
+
+  test("user-facing exec runs as the work user, root only via legacy volume, missing view, or sudo", () => {
+    const wrapped = userExecCommand("echo 'hi there'");
+    expect(wrapped).toContain("runuser -u cmux -- env HOME=/home/cmux USER=cmux LOGNAME=cmux sh -c 'echo '\\''hi there'\\'''");
+    // Legacy sandboxes (volume at /root) keep the historical root exec.
+    expect(wrapped).toContain("if mountpoint -q /root 2>/dev/null; then cd /root 2>/dev/null || exit 75; exec env HOME=/root sh -c");
+    // Volume mounted but the view missing: root exec homed on the persistent
+    // backing path, matching where the daemon fail-over puts sessions.
+    expect(wrapped).toContain(
+      "elif mountpoint -q /cmux/home 2>/dev/null && ! mountpoint -q /home/cmux 2>/dev/null; then if mountpoint -q /cmux/home 2>/dev/null; then cd /cmux/home 2>/dev/null || exit 75; exec env HOME=/cmux/home sh -c",
+    );
+    // No user/runuser: fall back to root, keeping state on the mounted volume
+    // when one exists and using the rootfs home only without a volume.
+    expect(wrapped).toContain(
+      "elif mountpoint -q /cmux/home 2>/dev/null; then if mountpoint -q /cmux/home 2>/dev/null; then cd /cmux/home 2>/dev/null || exit 75; exec env HOME=/cmux/home sh -c",
+    );
+    expect(wrapped).toContain("else cd /home/cmux 2>/dev/null || exit 75; exec env HOME=/home/cmux sh -c");
+
+    // The provider marks volume-backed sandboxes from the Blaxel spec. If the
+    // mount is late or gone, exec must fail closed instead of writing to the
+    // disposable rootfs home.
+    const guarded = userExecCommand("echo 'hi there'", { persistentVolumeExpected: true });
+    expect(guarded).toContain("if ! mountpoint -q /root 2>/dev/null && ! mountpoint -q /cmux/home 2>/dev/null; then exit 75; fi");
+    expect(guarded).toContain("else exit 75; fi");
+    expect(guarded).not.toContain("else cd /home/cmux 2>/dev/null; exec env HOME=/home/cmux sh -c");
   });
 });
 

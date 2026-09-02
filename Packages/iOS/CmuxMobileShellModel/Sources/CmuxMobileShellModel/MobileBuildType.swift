@@ -1,4 +1,4 @@
-import Foundation
+public import Foundation
 
 /// The distribution channel the running iOS app was built for.
 ///
@@ -50,6 +50,44 @@ public enum MobileBuildType: String, Equatable, Sendable {
         }
     }
 
+    /// Resolve the running app's build type from this binary's compile
+    /// configuration plus the live bundle identifier.
+    ///
+    /// Mirrors `MobileIOSBuildScope.current(infoDictionary:bundleIdentifier:)`:
+    /// the default argument reads `Bundle.main` so any module can gate
+    /// presentation on the running distribution channel, while tests inject an
+    /// explicit identifier (under tests this compiles DEBUG, so injection only
+    /// varies the Release channels through ``resolve(isDebugBuild:bundleIdentifier:)``).
+    public static func current(
+        bundleIdentifier: String? = Bundle.main.bundleIdentifier
+    ) -> MobileBuildType {
+        #if DEBUG
+        let isDebugBuild = true
+        #else
+        let isDebugBuild = false
+        #endif
+        return resolve(isDebugBuild: isDebugBuild, bundleIdentifier: bundleIdentifier)
+    }
+
+    /// Whether UI rendered by this build may name internal distribution lanes
+    /// (DEV, BETA, INTERNAL, tag grants, TestFlight).
+    ///
+    /// The public App Store app must describe Mac compatibility in product
+    /// terms only: App Review rejected the app under Guideline 2.2 for
+    /// beta-lane vocabulary in production UI. Unknown Release bundle ids
+    /// resolve to ``prod``, so they fail closed to the neutral copy, and demo
+    /// builds face external audiences so they use it too. Team-distributed
+    /// builds keep the precise internal wording because their users choose
+    /// between exactly those lanes.
+    public var usesInternalBuildVocabulary: Bool {
+        switch self {
+        case .dev, .beta, .internal:
+            return true
+        case .demo, .prod:
+            return false
+        }
+    }
+
     /// A short, stable, lowercase token for machine-readable stamps.
     public var token: String { rawValue }
 
@@ -84,4 +122,3 @@ public enum MobileBuildType: String, Equatable, Sendable {
         }
     }
 }
-import Foundation

@@ -542,6 +542,18 @@ final class CmuxSettingsFileStore {
                 logInvalid("notifications.sound", sourcePath: sourcePath)
             }
         }
+        if let raw = section["soundOverrides"] {
+            if let data = NotificationSoundOverrides.boundedJSONData(
+                fromJSONObject: raw
+            ),
+               let overrides = try? NotificationSoundOverrides(jsonData: data) {
+                snapshot.managedUserDefaults[
+                    NotificationsCatalogSection().soundOverrides.userDefaultsKey
+                ] = .string(overrides.jsonString)
+            } else {
+                logInvalid("notifications.soundOverrides", sourcePath: sourcePath)
+            }
+        }
         applyStringSettings(NotificationSettingsFileMapping.stringSettings, from: section, snapshot: &snapshot)
         if section.keys.contains("paneFlashColor") {
             if let value = parseNullableHex(
@@ -1316,6 +1328,14 @@ final class CmuxSettingsFileStore {
             guard defaults.object(forKey: defaultsKey) != nil else { return .absent }
             return .double(defaults.double(forKey: defaultsKey))
         case .string, .nullableString:
+            // `browserExternalOpenPatterns` was persisted as an array by
+            // older releases. Preserve the raw array in the backup instead
+            // of routing it through the bounded runtime matcher; the catalog
+            // still decodes that array as a newline string when it is active.
+            if defaultsKey == BrowserExternalURLPolicy.userDefaultsKey,
+               let legacyArray = defaults.array(forKey: defaultsKey) as? [String] {
+                return .stringArray(legacyArray)
+            }
             guard let value = defaults.string(forKey: defaultsKey) else { return .absent }
             return .string(value)
         case .stringArray:

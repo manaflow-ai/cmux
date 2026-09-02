@@ -173,6 +173,7 @@ extension Workspace {
             customDescription: customDescription,
             customColor: customColor,
             isPinned: isPinned,
+            isMuted: isMuted,
             groupId: groupId,
             isManuallyUnread: isWorkspaceManuallyUnread,
             hasUnreadIndicator: hasWorkspaceUnreadIndicator,
@@ -319,6 +320,7 @@ extension Workspace {
         setCustomDescription(snapshot.customDescription)
         setCustomColor(snapshot.customColor)
         isPinned = snapshot.isPinned
+        isMuted = snapshot.isMuted ?? false
         groupId = snapshot.groupId
         restoreTodoState(from: snapshot)
 
@@ -2541,6 +2543,11 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
     }
 
     @Published var isPinned: Bool = false
+    /// Suppresses notification history/recording, unread badges, sound,
+    /// desktop banners, pane flashes, phone forwarding, command hooks, and
+    /// reorder effects for this workspace. Persisted in the session manifest
+    /// so an intentional mute survives relaunch.
+    @Published var isMuted: Bool = false
     /// Identifier of the WorkspaceGroup this workspace belongs to, or nil if ungrouped.
     /// The group entity itself lives in `TabManager.workspaceGroups`.
     @Published var groupId: UUID?
@@ -8571,6 +8578,16 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
             ) ?? false
             return routed ? .routedToRemote : .failed
         }
+        // A split next to a pane projecting a cloud resource creates the terminal ON
+        // that machine and projects it back (Workspace+CloudPaneRouting). Only plain
+        // requests route: an explicit command, cwd, PTY session, or restore scaffold
+        // is a local-terminal request by construction (including the attach panes the
+        // routed create itself materializes, whose initialCommand is the attach argv).
+        if initialCommand == nil, tmuxStartCommand == nil, remotePTYSessionID == nil,
+           workingDirectory == nil, !suppressWorkspaceRemoteStartupCommand,
+           routeCloudPaneTerminalSplit(from: panelId, orientation: orientation, insertFirst: insertFirst, focus: focus) {
+            return .routedToRemote
+        }
         guard let panel = newTerminalSplitLocal(
             from: panelId,
             orientation: orientation,
@@ -8882,6 +8899,17 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
                     focus: focus ?? (bonsplitController.focusedPaneId == paneId)
                 ) ?? false
             return routed ? .routedToRemote : .failed
+        }
+        // A new tab in a pane whose selected tab projects a cloud resource creates the
+        // terminal ON that machine (Workspace+CloudPaneRouting). Only plain requests
+        // route; an explicit command, cwd, input, restore payload, or PTY session is a
+        // local-terminal request by construction (including the attach panes the routed
+        // create itself materializes, whose initialCommand is the attach argv).
+        if initialCommand == nil, tmuxStartCommand == nil, remotePTYSessionID == nil,
+           workingDirectory == nil, initialInput == nil, startupRestoreAgent == nil,
+           restoredSurfaceId == nil, !suppressWorkspaceRemoteStartupCommand,
+           routeCloudPaneTerminalTab(inPane: paneId, focus: focus ?? (bonsplitController.focusedPaneId == paneId)) {
+            return .routedToRemote
         }
         guard let panel = newTerminalSurfaceLocal(
             inPane: paneId,
@@ -12542,12 +12570,16 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
                 targetIndex: index
             ).isEmpty
         case .split(let paneId, let orientation, let insertFirst):
-            return splitPaneWithFileSurface(
+            guard let panel = splitPaneWithFileSurface(
                 targetPane: paneId,
                 orientation: orientation,
                 insertFirst: insertFirst,
                 filePath: entry.filePath
-            ) != nil
+            ) else {
+                return false
+            }
+            handKeyboardFocusFromRightSidebarAfterFileOpen(to: panel)
+            return true
         }
     }
 
@@ -12564,6 +12596,8 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
 
         switch request.destination {
         case .insert(let paneId, let index):
+            // openFileSurfaces(focus: true) performs the sidebar focus
+            // handoff itself.
             return !openFileSurfaces(
                 inPane: paneId,
                 filePaths: entries.map(\.filePath),
@@ -12588,8 +12622,25 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
                 filePaths: entries.dropFirst().map(\.filePath),
                 focus: true
             )
+            handKeyboardFocusFromRightSidebarAfterFileOpen(to: firstPanel)
             return true
         }
+    }
+
+    /// A sidebar-initiated open (click on a file row, or a drag whose
+    /// mouse-down made the sidebar first responder) never resigns the
+    /// sidebar's keyboard focus by itself, and a freshly created panel's
+    /// view may not be mounted yet when activation asks it to take first
+    /// responder. Without this handoff the find/shortcut router keeps
+    /// targeting the sidebar (Cmd+F lands in its file search instead of the
+    /// just-opened document). Hand keyboard focus to the opened panel the
+    /// same way the text-drop path does; the call is a no-op when the
+    /// sidebar does not own focus (opens from Finder, the CLI, or between
+    /// panes).
+    func handKeyboardFocusFromRightSidebarAfterFileOpen(to panel: any Panel) {
+        _ = AppDelegate.shared?.restoreMainPanelKeyboardFocusFromRightSidebar(
+            in: activationWindow(for: panel)
+        )
     }
 
     @discardableResult
@@ -14260,6 +14311,15 @@ extension Workspace: BonsplitDelegate {
         // (or fall back to defaults) instead of leaving an empty selector pane.
         let sourceTabId = controller.selectedTab(inPane: originalPane)?.id
         let sourcePanelId = sourceTabId.flatMap { panelIdFromSurfaceId($0) }
+
+        // Same rule as Cmd+D: a UI split next to a cloud-projected pane continues on that
+        // machine (Workspace+CloudPaneRouting). The new pane already exists and is empty;
+        // the machine's terminal arrives as its first tab when the projection materializes.
+        if let sourcePanelId,
+           routeCloudPaneUISplit(from: sourcePanelId, into: newPane) {
+            scheduleTerminalGeometryReconcile()
+            return
+        }
 
 #if DEBUG
         cmuxDebugLog(

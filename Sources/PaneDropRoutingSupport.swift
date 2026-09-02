@@ -4,7 +4,10 @@ import Foundation
 
 @MainActor
 extension AppDelegate {
-    /// Ends the originating Bonsplit drag after a destination accepts it.
+    /// Revokes Bonsplit routing after a destination accepts the drop.
+    ///
+    /// The native source remains retained until AppKit delivers its terminal
+    /// `endedAt` callback; this call must not release that source early.
     func finishAcceptedBonsplitTabDrop(
         from pasteboard: NSPasteboard = NSPasteboard(name: .drag)
     ) {

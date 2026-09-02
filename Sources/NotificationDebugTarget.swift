@@ -1,10 +1,25 @@
 import Foundation
 import UserNotifications
+import CmuxSettings
 
 #if DEBUG
 struct NotificationDebugTarget: Sendable {
     let workspaceId: UUID
     let surfaceId: UUID?
+    /// Debug callers may name an agent so the matrix can be exercised without
+    /// pretending every synthetic event came from Claude. The default keeps
+    /// existing debug commands source-compatible.
+    let agentID: String
+
+    init?(workspaceId: UUID, surfaceId: UUID?, agentID: String = "claude") {
+        self.workspaceId = workspaceId
+        self.surfaceId = surfaceId
+        let normalized = agentID.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard NotificationSoundOverrideContext.isValidAgentID(normalized) else {
+            return nil
+        }
+        self.agentID = normalized
+    }
 }
 
 /// DEBUG-only socket adapters for `debug.notification.*` verbs, kept out of
@@ -15,15 +30,47 @@ struct NotificationDebugTarget: Sendable {
 @MainActor
 extension TerminalController {
     func notificationDebugCallerTarget(params: [String: Any]) -> NotificationDebugTarget? {
+        let preferredWorkspaceId = v2UUID(params, "preferred_workspace_id")
+        let preferredSurfaceId = v2UUID(params, "preferred_surface_id")
+        let callerTTY = notificationDebugStringParam(params, "caller_tty")
+        let hasCallerSelector = [
+            "preferred_workspace_id",
+            "preferred_surface_id",
+            "caller_tty",
+        ].contains { key in
+            guard let value = params[key] else { return false }
+            return !(value is NSNull)
+        }
+        // Keep the long-standing synthetic-debug default explicit and outside
+        // the production caller resolver. A real caller request with any
+        // selector still fails closed when that selector cannot be proven.
+        guard hasCallerSelector else {
+            return NotificationDebugEmitter.shared.defaultTargetForDebugEmission()
+        }
+        // A non-null selector is an assertion about caller identity. If it is
+        // malformed (or an unknown handle), reject the request rather than
+        // treating it as selector-free and borrowing the focused surface.
+        guard !v2HasNonNullParam(params, "preferred_workspace_id") || preferredWorkspaceId != nil,
+              !v2HasNonNullParam(params, "preferred_surface_id") || preferredSurfaceId != nil,
+              !v2HasNonNullParam(params, "caller_tty") || callerTTY != nil
+        else { return nil }
         guard let target = resolvedCallerNotificationTarget(
-            preferredWorkspaceId: v2UUID(params, "preferred_workspace_id"),
-            preferredSurfaceId: v2UUID(params, "preferred_surface_id"),
-            callerTTY: notificationDebugStringParam(params, "caller_tty"),
-            preferTTY: notificationDebugBoolParam(params, "prefer_tty") ?? false
+            preferredWorkspaceId: preferredWorkspaceId,
+            preferredSurfaceId: preferredSurfaceId,
+            callerTTY: callerTTY,
+            preferTTY: notificationDebugBoolParam(params, "prefer_tty") ?? false,
+            preferredWorkspaceIsExplicit: true
         ) else { return nil }
+        let agentID: String
+        if params.keys.contains("agent_id") {
+            agentID = (params["agent_id"] as? String) ?? ""
+        } else {
+            agentID = "claude"
+        }
         return NotificationDebugTarget(
             workspaceId: target.workspaceId,
-            surfaceId: target.surfaceId
+            surfaceId: target.surfaceId,
+            agentID: agentID
         )
     }
 

@@ -166,6 +166,32 @@ import Testing
             == ["--socket", "/tmp/s.sock", "--json", "workspace", "ws_1", "close"])
     }
 
+    @Test func headlessTerminalIOArgvFollowsTheCLIGrammar() {
+        // Verified live against a machine: `write --text` types as-is (no newline),
+        // `keys` takes bare key names, `screen read` / `screen wait --pattern` read back.
+        #expect(CloudTuiCommandLine.writeArguments(socketPath: "/tmp/s.sock", terminalID: "term_1", text: "echo hi $((6*7))")
+            == ["--socket", "/tmp/s.sock", "--json", "terminal", "term_1", "write", "--text", "echo hi $((6*7))"])
+        #expect(CloudTuiCommandLine.keysArguments(socketPath: "/tmp/s.sock", terminalID: "term_1", keys: ["ctrl+c", "enter"])
+            == ["--socket", "/tmp/s.sock", "--json", "terminal", "term_1", "keys", "ctrl+c", "enter"])
+        #expect(CloudTuiCommandLine.screenReadArguments(socketPath: "/tmp/s.sock", terminalID: "term_1")
+            == ["--socket", "/tmp/s.sock", "--json", "terminal", "term_1", "screen", "read"])
+        #expect(CloudTuiCommandLine.screenWaitArguments(socketPath: "/tmp/s.sock", terminalID: "term_1", pattern: "pass|fail", timeoutMs: 5000)
+            == ["--socket", "/tmp/s.sock", "--json", "terminal", "term_1", "screen", "wait", "--pattern", "pass|fail", "--timeout-ms", "5000"])
+        // No timeout (or a non-positive one) leaves the daemon default in charge.
+        #expect(CloudTuiCommandLine.screenWaitArguments(socketPath: "/tmp/s.sock", terminalID: "term_1", pattern: "λ", timeoutMs: nil).contains("--timeout-ms") == false)
+        #expect(CloudTuiCommandLine.screenWaitArguments(socketPath: "/tmp/s.sock", terminalID: "term_1", pattern: "λ", timeoutMs: 0).contains("--timeout-ms") == false)
+    }
+
+    @Test @MainActor func waitTimeoutNormalizesToTheDaemonDefaultAndClamps() {
+        // The link headroom is computed from the same value the daemon uses, so a
+        // non-positive request cannot cut the link off before the daemon's default.
+        #expect(CmuxTuiSurfaceProvider.clampedWaitTimeoutMs(nil) == CmuxTuiSurfaceProvider.defaultWaitTimeoutMs)
+        #expect(CmuxTuiSurfaceProvider.clampedWaitTimeoutMs(0) == CmuxTuiSurfaceProvider.defaultWaitTimeoutMs)
+        #expect(CmuxTuiSurfaceProvider.clampedWaitTimeoutMs(-5) == CmuxTuiSurfaceProvider.defaultWaitTimeoutMs)
+        #expect(CmuxTuiSurfaceProvider.clampedWaitTimeoutMs(1) == 1)
+        #expect(CmuxTuiSurfaceProvider.clampedWaitTimeoutMs(Int.max) == CmuxTuiSurfaceProvider.maxWaitTimeoutMs)
+    }
+
     @Test func emptyAndMalformedSnapshotsProduceNothing() {
         #expect(CmuxTuiSnapshotParser.terminals(fromSnapshot: [:], machine: Self.machine).isEmpty)
         #expect(CmuxTuiSnapshotParser.terminals(fromSnapshot: ["workspaces": [["name": "no id"]]], machine: Self.machine).isEmpty)
@@ -232,6 +258,14 @@ import Testing
         // Rename takes the name via --name (verified live; positional is usage.invalid).
         #expect(CloudTuiCommandLine.renameWorkspaceArguments(socketPath: "/k.sock", workspaceID: "ws_main", name: "backend work") ==
             ["--socket", "/k.sock", "--json", "workspace", "ws_main", "rename", "--name", "backend work"])
+        // Verified live: the flat `set-default-colors` verb is `usage.invalid` in the v2
+        // resource CLI; the session-scoped form below is the one machines accept.
+        #expect(CloudTuiCommandLine.setDefaultColorsArguments(socketPath: "/k.sock", foreground: "#d8dee9", background: "#171b2e") ==
+            ["--socket", "/k.sock", "--json", "session", "current", "terminal", "defaults", "set", "--foreground", "#d8dee9", "--background", "#171b2e"])
+        #expect(CloudTuiCommandLine.setDefaultColorsArguments(socketPath: "/k.sock", foreground: nil, background: "#171b2e") ==
+            ["--socket", "/k.sock", "--json", "session", "current", "terminal", "defaults", "set", "--background", "#171b2e"])
+        // No colors, no command: pushing an empty defaults update would be a no-op round trip.
+        #expect(CloudTuiCommandLine.setDefaultColorsArguments(socketPath: "/k.sock", foreground: nil, background: nil) == nil)
     }
 
     @Test func clientPathsMirrorTheCLI() throws {
@@ -276,7 +310,9 @@ import Testing
         #expect(failed.contains("Couldn’t open &lt;m&gt;:3000"))
         #expect(failed.contains("HTTP 503 &lt;vm_image_unavailable&gt; &amp; more"))
         #expect(!failed.contains("<vm_image_unavailable>"))
-        #expect(!failed.contains("spinner"))
+        // No spinner ELEMENT in the failed state; the shared stylesheet still declares
+        // `.spinner`, so a bare substring check would always fail.
+        #expect(!failed.contains("class=\"spinner\""))
         #expect(failed.contains("open it again from the sidebar"))
         #expect(SurfaceBrowserPlaceholder.escape("a\"b'c") == "a&quot;b&#39;c")
     }
@@ -316,5 +352,28 @@ import Testing
         let eof = CloudLinkFirstValue<String>()
         eof.resolve(nil)
         #expect(await eof.result == nil, "finished without a value reads as nil")
+    }
+
+    @Test func displayTabsPointWorkspacesAtTheMachineScreen() throws {
+        var snapshot = Self.sessionSnapshot
+        var tabs = snapshot["tabs"] as! [[String: Any]]
+        tabs.append(["id": "tab_desk", "pane_id": "pane_2", "content_kind": "display", "content_id": "display:1"])
+        snapshot["tabs"] = tabs
+        let resources = CmuxTuiSnapshotParser.terminals(fromSnapshot: snapshot, machine: Self.machine)
+        let display = try #require(resources.first { $0.kind == .display })
+        #expect(display.id.key == "display:1", "the pool's own id, so the pointer and the pool entry are one resource")
+        #expect(display.remoteWorkspaces.map(\.id) == ["ws_api"])
+        #expect(display.remoteViews?.map(\.tabID) == ["tab_desk"])
+        #expect(display.port == CmuxTuiSnapshotParser.desktopPort)
+        // Closing the pointer closes its tab (a display has no process to end).
+        #expect(CmuxTuiSnapshotParser.tabByTerminal(fromSnapshot: snapshot)["display:1"] == "tab_desk")
+        // The pool entry yields to the pointed one; a machine nobody points at keeps the bare entry.
+        let pool = [CmuxTuiSnapshotParser.display(machine: Self.machine)]
+        let merged = CmuxTuiSnapshotParser.mergingDisplays(pool: pool, parsed: resources)
+        #expect(merged.filter { $0.kind == .display }.count == 1)
+        #expect(merged.first { $0.kind == .display }?.remoteViews?.isEmpty == false)
+        let untouched = CmuxTuiSnapshotParser.mergingDisplays(pool: pool, parsed: resources.filter { $0.kind != .display })
+        #expect(untouched.filter { $0.kind == .display }.count == 1)
+        #expect(untouched.first { $0.kind == .display }?.remoteViews == nil)
     }
 }

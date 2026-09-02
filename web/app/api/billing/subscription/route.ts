@@ -19,6 +19,7 @@ import {
   resolveBillingTeam,
   type BillingTeamUserLike,
 } from "../../../../services/billing/teamResolution";
+import { claimPendingProBilling } from "../../../../services/billing/purchase";
 import { captureBillingError } from "../../../../services/errors";
 import { browserMutationOriginAllowed } from "../../../../services/vms/routeHelpers";
 
@@ -59,6 +60,19 @@ export async function POST(request: NextRequest) {
 
     if (!isStripeBillingConfigured()) {
       throw new Error("Billing subscription management is not configured");
+    }
+
+    if (
+      user.isAnonymous !== true &&
+      user.isRestricted !== true &&
+      user.primaryEmailVerified === true &&
+      user.primaryEmail
+    ) {
+      try {
+        await claimPendingProBilling(user);
+      } catch {
+        // Keep the existing action path available; the next read retries.
+      }
     }
 
     const subscription = scope === "team"

@@ -7,19 +7,19 @@ public import Foundation
 ///
 /// `establish` supplies the admitted (connection, control-lane) pair: the Mac
 /// wraps an already-admitted session; the iOS side dials through its peer
-/// engine. `closeCode` attributes the QUIC close when the app layer closes
-/// this transport (`explicit-redial` on iOS keeps the engine's auto-redial
-/// armed for the replacement client; a denial would park it instead).
+/// engine. `closeCode` is retained in the construction API for callers that
+/// classify lane teardown, but this lane never closes the shared QUIC session.
+/// Session ownership belongs to ``IrxPeerEngine``.
 public actor IrxControlByteTransport: CmxByteTransport {
     public typealias Establish = @Sendable () async throws -> (IrxConnection, IrxLaneStream)
 
     private let establish: Establish
-    private let closeCode: IrxCloseCode
     private var pair: (IrxConnection, IrxLaneStream)?
     private var connectInFlight: Task<(IrxConnection, IrxLaneStream), any Error>?
+    private var isClosed = false
 
     public init(closeCode: IrxCloseCode, establish: @escaping Establish) {
-        self.closeCode = closeCode
+        _ = closeCode
         self.establish = establish
     }
 
@@ -43,13 +43,21 @@ public actor IrxControlByteTransport: CmxByteTransport {
     }
 
     public func close() async {
-        guard let (connection, lane) = pair else { return }
+        isClosed = true
+        connectInFlight?.cancel()
+        connectInFlight = nil
+        guard let (_, lane) = pair else { return }
         pair = nil
+        // This is an RPC-lane teardown, not a session teardown. The QUIC
+        // connection is owned by IrxPeerEngine and may still carry the
+        // keepalive, event, and terminal lanes. Closing it here made a
+        // retiring RPC client look like a peer death to the engine.
         await lane.writer.finish()
-        await connection.close(code: closeCode, origin: .local)
+        await lane.reader.stop()
     }
 
     private func establishedPair() async throws -> (IrxConnection, IrxLaneStream) {
+        guard !isClosed else { throw IrxConnectionError.closed(nil) }
         if let pair, await !pair.0.isClosed {
             return pair
         }
@@ -62,6 +70,10 @@ public actor IrxControlByteTransport: CmxByteTransport {
         connectInFlight = task
         defer { connectInFlight = nil }
         let established = try await task.value
+        guard !isClosed else {
+            await established.1.close()
+            throw IrxConnectionError.closed(nil)
+        }
         pair = established
         return established
     }

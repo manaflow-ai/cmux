@@ -2,7 +2,7 @@ import { BlaxelProvider } from "./blaxel";
 import { DaytonaProvider } from "./daytona";
 import { E2BProvider } from "./e2b";
 import { FreestyleProvider } from "./freestyle";
-import { isProviderId, type ProviderId, type VMProvider } from "./types";
+import { isProviderId, type ProviderId, type VmCapabilities, type VMProvider } from "./types";
 
 export * from "./types";
 export { BlaxelProvider, DaytonaProvider, E2BProvider, FreestyleProvider };
@@ -32,4 +32,16 @@ export function defaultProviderId(): ProviderId {
   // as explicit overrides (or an explicitly configured deployment rollback), but
   // a bare `cmux vm new` must never silently fall back to Freestyle SSH.
   return "blaxel";
+}
+
+/** The provider's capability set with defaults applied: an absent flag means supported,
+ *  and `fork` follows the method's existence unless declared. */
+export function vmCapabilitiesFor(id: ProviderId): VmCapabilities {
+  const provider = getProvider(id);
+  const declared = provider.capabilities ?? {};
+  return {
+    snapshot: declared.snapshot ?? true,
+    restore: declared.restore ?? true,
+    fork: declared.fork ?? typeof provider.fork === "function",
+  };
 }

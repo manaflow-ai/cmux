@@ -13,12 +13,16 @@ import {
   requireEnvKeys,
 } from "./projects.mjs";
 
-const usage = "Usage: smoke-vm-api.mjs [web-dir] <staging|production> [--create] [--provider e2b|freestyle|daytona|blaxel|default] [--image <manifest image id or version>] [--url https://preview.example] [--vercel-curl] [--skip-attach]";
+const usage = "Usage: smoke-vm-api.mjs [web-dir] <staging|production> [--create] [--provider e2b|freestyle|daytona|blaxel|default] [--image <manifest image id or version>] [--url https://preview.example] [--vercel-curl] [--skip-attach] [--paid]";
 const args = process.argv.slice(2);
 const { webDir, target, project, rest } = parseWebDirAndTarget(args, usage);
 const shouldCreate = rest.includes("--create");
 const useVercelCurl = rest.includes("--vercel-curl");
 const skipAttach = rest.includes("--skip-attach");
+// --paid marks the throwaway smoke user as a paid plan via the billing
+// metadata key the entitlements layer reads (cmuxVmPlan). Required to
+// exercise provisioning now that free plans are gated (vm_requires_pro).
+const paid = rest.includes("--paid");
 const provider = optionValue(rest, "--provider") ?? "e2b";
 const image = optionValue(rest, "--image");
 const targetUrl = optionValue(rest, "--url") ?? project.url;
@@ -132,6 +136,9 @@ try {
     displayName: `cmux ${project.stackLabel} smoke`,
   });
 
+  if (paid) {
+    await user.update({ clientReadOnlyMetadata: { cmuxVmPlan: "pro" } });
+  }
   const session = await user.createSession({ expiresInMillis: 20 * 60 * 1000, isImpersonation: true });
   const tokens = await session.getTokens();
   if (!tokens.accessToken || !tokens.refreshToken) throw new Error("Stack did not return smoke session tokens");

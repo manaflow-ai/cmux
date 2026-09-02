@@ -96,7 +96,7 @@ struct CmxIrohHostRuntimeTests {
         let broker = TestIrohHostBroker(
             registrationBinding: fixture.binding,
             discovery: fixture.discovery,
-            registrationError: .connectivity
+            registrationError: .connectivity(nil)
         )
         let runtime = CmxIrohHostRuntime(
             factory: TestIrohEndpointFactory(
@@ -220,7 +220,7 @@ struct CmxIrohHostRuntimeTests {
         let broker = TestIrohHostBroker(
             registrationBinding: fixture.binding,
             discovery: fixture.discovery,
-            registrationError: .connectivity
+            registrationError: .connectivity(nil)
         )
         let runtime = CmxIrohHostRuntime(
             factory: TestIrohEndpointFactory(
@@ -263,7 +263,7 @@ struct CmxIrohHostRuntimeTests {
         let broker = TestIrohHostBroker(
             registrationBinding: fixture.binding,
             discovery: fixture.discovery,
-            registrationError: .connectivity
+            registrationError: .connectivity(nil)
         )
         let runtime = CmxIrohHostRuntime(
             factory: TestIrohEndpointFactory(endpoints: [endpoint]),
@@ -311,7 +311,7 @@ struct CmxIrohHostRuntimeTests {
         let broker = TestIrohHostBroker(
             registrationBinding: fixture.binding,
             discovery: fixture.discovery,
-            revokeError: .connectivity
+            revokeError: .connectivity(nil)
         )
         let runtime = CmxIrohHostRuntime(
             factory: TestIrohEndpointFactory(
@@ -323,7 +323,7 @@ struct CmxIrohHostRuntimeTests {
             handleTransport: { session, _ in await session.close() }
         )
 
-        await #expect(throws: CmxIrohTrustBrokerClientError.connectivity) {
+        await #expect(throws: CmxIrohTrustBrokerClientError.connectivity(nil)) {
             try await runtime.start()
         }
 
