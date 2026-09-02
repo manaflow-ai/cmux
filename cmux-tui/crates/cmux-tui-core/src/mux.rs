@@ -29333,7 +29333,7 @@ mod tests {
 }
 #[test]
 fn initial_bootstrap_lock_serializes_concurrent_callers() {
-    use std::sync::{mpsc, Arc, Barrier};
+    use std::sync::{Arc, Barrier, mpsc};
     use std::thread;
 
     let mux = Mux::new("bootstrap-lock-test", SurfaceOptions::default());
