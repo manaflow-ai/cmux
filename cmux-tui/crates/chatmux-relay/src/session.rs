@@ -711,10 +711,17 @@ async fn relay_session(
                 let snapshot = auth.lock().expect("auth lock").clone();
                 let context =
                     make_context(&out, &pending, &snapshot, &auth, &transport, &connection_token);
-                tokio::select! {
-                    biased;
-                    _ = connection_token.cancelled() => break,
-                    _ = manager.handle_frame(&frame, &context) => {}
+                // An admitted open may already have queued a remote attach.
+                // Let it finish so its lease cleanup can run; cancellation
+                // still interrupts all later mutations.
+                if frame.get("type").and_then(Value::as_str) == Some("pty_open") {
+                    manager.handle_frame(&frame, &context).await;
+                } else {
+                    tokio::select! {
+                        biased;
+                        _ = connection_token.cancelled() => break,
+                        _ = manager.handle_frame(&frame, &context) => {}
+                    }
                 }
             }
         });
