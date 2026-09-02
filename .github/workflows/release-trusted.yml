@@ -1,0 +1,845 @@
+name: Release macOS app
+
+# GitHub resolves workflow_run workflows from the default branch. Keep this
+# file on protected main so a tag-controlled workflow can never supply the
+# privileged release definition.
+on:
+  workflow_run:
+    workflows: ["Release macOS app trigger"]
+    types: [completed]
+
+permissions: {}
+
+env:
+  CREATE_DMG_VERSION: 8.0.0
+
+jobs:
+  # This job is the only code path that receives the workflow-run event. It
+  # validates the untrusted observer run before any source checkout or secret.
+  validate-source:
+    runs-on: ubuntu-24.04 # github-hosted-required: source trust gate requires an isolated runner
+    timeout-minutes: 10
+    permissions:
+      actions: read
+      contents: read
+    outputs:
+      source_sha: ${{ steps.source.outputs.source_sha }}
+      tag_name: ${{ steps.source.outputs.tag_name }}
+      observer_run_id: ${{ steps.source.outputs.observer_run_id }}
+    steps:
+      - name: Validate protected dispatcher source
+        id: source
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
+        env:
+          REPOSITORY: ${{ github.repository }}
+          EVENT_NAME: ${{ github.event_name }}
+          EVENT_REF: ${{ github.ref }}
+          EVENT_REF_TYPE: ${{ github.ref_type }}
+          EVENT_SHA: ${{ github.sha }}
+          WORKFLOW_SHA: ${{ github.workflow_sha }}
+          WORKFLOW_REF: ${{ github.workflow_ref }}
+          WORKFLOW_REPOSITORY: ${{ github.repository }}
+          REF_PROTECTED: ${{ github.ref_protected }}
+          WORKFLOW_RUN_JSON: ${{ toJSON(github.event.workflow_run) }}
+        with:
+          script: |
+            const { owner, repo } = context.repo;
+            const shaPattern = /^[0-9a-f]{40}$/;
+            const tagPattern = /^v\d+\.\d+\.\d+(?:-[0-9A-Za-z][0-9A-Za-z.-]*)?(?:\+[0-9A-Za-z][0-9A-Za-z.-]*)?$/;
+            const fail = (message) => {
+              core.setFailed(message);
+              throw new Error(message);
+            };
+            const expectedRepository = 'manaflow-ai/cmux';
+            const expectedObserverName = 'Release macOS app trigger';
+            const observerPath = '.github/workflows/release.yml';
+            const trustedPath = '.github/workflows/release-trusted.yml';
+            const repository = process.env.REPOSITORY;
+            const eventName = process.env.EVENT_NAME;
+            const eventRef = process.env.EVENT_REF;
+            const eventRefType = process.env.EVENT_REF_TYPE;
+            const eventSha = process.env.EVENT_SHA;
+            const workflowSha = process.env.WORKFLOW_SHA;
+            const workflowRef = process.env.WORKFLOW_REF;
+            const workflowRepository = process.env.WORKFLOW_REPOSITORY;
+            const refProtected = process.env.REF_PROTECTED === 'true';
+            const eventRun = JSON.parse(process.env.WORKFLOW_RUN_JSON || '{}');
+
+            const requireSha = (label, value) => {
+              if (!shaPattern.test(value || '')) fail(`${label} is not a 40-character commit SHA`);
+            };
+            const requireText = (label, actual, expected) => {
+              if (actual !== expected) fail(`${label} ${actual || '<missing>'} does not match ${expected}`);
+            };
+            const requireFile = (label, response) => {
+              if (!response || Array.isArray(response.data) || response.data.type !== 'file') {
+                fail(`${label} is missing or is not a file`);
+              }
+              return response.data;
+            };
+            const decodeFile = (file) => {
+              if (file.encoding !== 'base64' || typeof file.content !== 'string') {
+                fail('Dispatcher source workflow content is not base64 encoded');
+              }
+              return Buffer.from(file.content.replace(/\s/g, ''), 'base64').toString('utf8');
+            };
+            const assertObserverContract = (content) => {
+              if (content.length > 2048) fail('Release trigger workflow is larger than the observer contract');
+              const requiredLines = [
+                /^name:\s*Release macOS app trigger\s*$/m,
+                /^on:\s*$/m,
+                /^\s+push:\s*$/m,
+                /^\s+tags:\s*$/m,
+                /^\s+-\s+["']v\*["']\s*$/m,
+                /^permissions:\s*\{\s*\}\s*$/m,
+                /^jobs:\s*$/m,
+                /^\s+announce:\s*$/m,
+                /^\s+runs-on:\s+ubuntu-24\.04\s*$/m,
+                /^\s+permissions:\s*\{\s*\}\s*$/m,
+                /^\s+steps:\s*$/m,
+                /^\s+-\s+name:\s+Emit queued release event\s*$/m,
+                /^\s+run:\s+\|\s*$/m,
+                /echo ["']Tag event queued for trusted protected-main release dispatcher: \$\{GITHUB_REF_NAME\}["']/,
+              ];
+              for (const line of requiredLines) if (!line.test(content)) {
+                fail('Release trigger workflow is not the minimal unprivileged observer');
+              }
+              if (/workflow_dispatch|workflow_call|repository_dispatch|actions\/|uses:\s|secrets\.|GITHUB_TOKEN|github\.token|contents:\s*(?:write|read-write)|id-token|attestations|environment\s*:|with\s*:/m.test(content)) {
+                fail('Release trigger workflow is not the minimal unprivileged observer');
+              }
+              const permissionLines = content.match(/^\s*permissions\s*:[^\n]*$/gm) || [];
+              if (permissionLines.some((line) => !/:\s*\{\s*\}\s*$/.test(line))) {
+                fail('Release trigger workflow grants token permissions');
+              }
+              const runBlocks = content.match(/^\s+run:\s+\|\s*$/gm) || [];
+              if (runBlocks.length !== 1) fail('Release trigger workflow must have one completion step');
+            };
+
+            requireText('Release dispatcher repository', repository, expectedRepository);
+            requireText('Release dispatcher context repository', `${owner}/${repo}`, expectedRepository);
+            requireText('Release dispatcher event', eventName, 'workflow_run');
+            requireText('Release dispatcher ref', eventRef, 'refs/heads/main');
+            requireText('Release dispatcher ref type', eventRefType, 'branch');
+            if (!refProtected) fail('Release dispatcher must run on protected main');
+            requireSha('Dispatcher event SHA', eventSha);
+            requireSha('Dispatcher workflow SHA', workflowSha);
+            requireText('Release dispatcher workflow repository', workflowRepository, expectedRepository);
+            requireText(
+              'Release dispatcher workflow identity',
+              workflowRef,
+              `${expectedRepository}/${trustedPath}@refs/heads/main`,
+            );
+
+            const runId = Number(eventRun.id);
+            if (!Number.isSafeInteger(runId) || runId <= 0) fail('workflow_run.id is invalid');
+            const run = (await github.rest.actions.getWorkflowRun({
+              owner,
+              repo,
+              run_id: runId,
+            })).data;
+            const observerWorkflow = (await github.rest.actions.getWorkflow({
+              owner,
+              repo,
+              workflow_id: run.workflow_id,
+            })).data;
+            requireText('Observer workflow name', run.name, expectedObserverName);
+            requireText('Observer workflow path', run.path, observerPath);
+            requireText('Observer workflow API identity', observerWorkflow.name, expectedObserverName);
+            requireText('Observer workflow API path', observerWorkflow.path, observerPath);
+            requireText('Observer run repository', run.repository?.full_name, expectedRepository);
+            requireText('Observer source repository', run.head_repository?.full_name, expectedRepository);
+            requireText('Observer run event', run.event, 'push');
+            requireText('Observer run status', run.status, 'completed');
+            requireText('Observer run conclusion', run.conclusion, 'success');
+            if (run.id !== runId || eventRun.id !== runId) fail('workflow_run identity changed while reading the API');
+            requireText('Observer source branch', run.head_branch, eventRun.head_branch);
+            if (!tagPattern.test(run.head_branch || '')) fail(`Release source is not a semantic version tag: ${run.head_branch}`);
+            requireSha('Observer source SHA', run.head_sha);
+            requireText('Observer source SHA', run.head_sha, eventRun.head_sha);
+            const tagName = run.head_branch;
+
+            const mainBranch = (await github.rest.repos.getBranch({
+              owner,
+              repo,
+              branch: 'main',
+            })).data;
+            if (mainBranch.protected !== true) fail('Protected main branch policy is not active');
+            const mainSha = mainBranch.commit?.sha;
+            requireSha('Protected main SHA', mainSha);
+            const trustedLineage = await github.rest.repos.compareCommits({
+              owner,
+              repo,
+              base: workflowSha,
+              head: mainSha,
+            });
+            if (!['ahead', 'identical'].includes(trustedLineage.data.status)) {
+              fail(`Trusted dispatcher ${workflowSha} is not an ancestor of protected main ${mainSha}`);
+            }
+            const sourceLineage = await github.rest.repos.compareCommits({
+              owner,
+              repo,
+              base: run.head_sha,
+              head: mainSha,
+            });
+            if (!['ahead', 'identical'].includes(sourceLineage.data.status)) {
+              fail(`Release tag ${tagName} does not point to a commit on protected main`);
+            }
+
+            const trustedAtWorkflow = requireFile(
+              'Trusted dispatcher definition',
+              await github.rest.repos.getContent({ owner, repo, path: trustedPath, ref: workflowSha }),
+            );
+            const trustedAtMain = requireFile(
+              'Protected-main dispatcher definition',
+              await github.rest.repos.getContent({ owner, repo, path: trustedPath, ref: mainSha }),
+            );
+            if (trustedAtWorkflow.sha !== trustedAtMain.sha) {
+              fail('Trusted dispatcher definition changed after the workflow was resolved');
+            }
+
+            const observerAtSource = requireFile(
+              'Dispatcher source workflow',
+              await github.rest.repos.getContent({ owner, repo, path: observerPath, ref: run.head_sha }),
+            );
+            const observerAtMain = requireFile(
+              'Protected-main source workflow',
+              await github.rest.repos.getContent({ owner, repo, path: observerPath, ref: mainSha }),
+            );
+            if (observerAtSource.sha !== observerAtMain.sha) {
+              fail('Dispatcher source workflow changed between the tag and protected main');
+            }
+            assertObserverContract(decodeFile(observerAtSource));
+            const tagRef = await github.rest.git.getRef({ owner, repo, ref: `tags/${tagName}` });
+            let tagSha = tagRef.data.object?.sha;
+            if (tagRef.data.object?.type === 'tag') {
+              tagSha = (await github.rest.git.getTag({ owner, repo, tag_sha: tagSha })).data.object?.sha;
+            }
+            requireSha('Release tag target SHA', tagSha);
+            if (tagSha !== run.head_sha) fail(`Release tag ${tagName} moved after the observer run completed`);
+
+            core.setOutput('source_sha', run.head_sha);
+            core.setOutput('tag_name', tagName);
+            core.setOutput('observer_run_id', String(runId));
+            core.notice(`Validated protected-main release source ${run.head_sha} for ${tagName}`);
+
+  build-ghostty-cli-helper:
+    needs: validate-source
+    if: needs.validate-source.result == 'success'
+    permissions:
+      contents: read
+    env:
+      RELEASE_TAG: ${{ needs.validate-source.outputs.tag_name }}
+    runs-on: ${{ vars.MACOS_RUNNER_15 || 'blacksmith-6vcpu-macos-15' }}
+    timeout-minutes: 20
+    steps:
+      - name: Clear stale git locks (self-hosted reused workspace)
+        shell: bash
+        run: |
+          # Self-hosted macOS runners reuse the workspace. A job cancelled or
+          # killed mid-checkout can leave a stale .git/modules/*/index.lock that
+          # fails every later submodule checkout (e.g. ghostty). Clear them first.
+          ws="${GITHUB_WORKSPACE:-$PWD}"
+          rm -f "$ws/.git/index.lock" 2>/dev/null || true
+          if [ -d "$ws/.git/modules" ]; then
+            find "$ws/.git/modules" -type f -name "*.lock" -delete 2>/dev/null || true
+          fi
+
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ needs.validate-source.outputs.source_sha }}
+          persist-credentials: false
+          submodules: recursive
+
+      - name: Verify immutable checkout
+        env:
+          EXPECTED_SHA: ${{ needs.validate-source.outputs.source_sha }}
+        run: |
+          set -euo pipefail
+          actual_sha="$(git rev-parse HEAD)"
+          [[ "$actual_sha" == "$EXPECTED_SHA" ]] || {
+            echo "Checkout $actual_sha does not match validated source $EXPECTED_SHA" >&2
+            exit 1
+          }
+
+      - name: Install zig
+        run: ./scripts/install-zig-ci.sh
+
+      - name: Cache Zig packages
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: ~/.cache/zig
+          key: zig-packages-${{ hashFiles('ghostty/build.zig.zon', 'ghostty/build.zig.zon.json') }}
+          restore-keys: zig-packages-
+
+      - name: Build universal Ghostty CLI helper
+        run: |
+          set -euo pipefail
+          mkdir -p ghostty-cli-helper
+          ./scripts/build-ghostty-cli-helper.sh --universal --output ghostty-cli-helper/ghostty
+          lipo ghostty-cli-helper/ghostty -verify_arch arm64 x86_64
+
+      - name: Upload universal Ghostty CLI helper
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: cmux-ghostty-cli-helper
+          path: ghostty-cli-helper/ghostty
+          if-no-files-found: error
+          retention-days: 3
+
+  build-sign-notarize:
+    needs: [validate-source, build-ghostty-cli-helper]
+    if: needs.validate-source.result == 'success'
+    permissions:
+      contents: write
+      attestations: write
+      id-token: write
+    env:
+      RELEASE_TAG: ${{ needs.validate-source.outputs.tag_name }}
+    # Build the app on macOS 26 so SDK-gated SwiftUI Liquid Glass code compiles
+    # into stable releases. The real universal Ghostty CLI helper is built on
+    # macOS 15 above because Zig 0.15.2 cannot link it on macOS 26.
+    # Import the Apple Developer ID intermediate chain into the build keychain
+    # below so signing does not depend on mutable runner login-keychain state.
+    runs-on: ${{ vars.MACOS_RUNNER_26 || 'blacksmith-6vcpu-macos-26' }}
+    # Notarization wait times vary on Apple's side. The standalone Computer Use
+    # helper starts as soon as the unsigned app exists and overlaps the remaining
+    # release preparation; the outer app and final DMG still serialize afterward.
+    timeout-minutes: 60
+    steps:
+      - name: Clear stale git locks (self-hosted reused workspace)
+        shell: bash
+        run: |
+          # Self-hosted macOS runners reuse the workspace. A job cancelled or
+          # killed mid-checkout can leave a stale .git/modules/*/index.lock that
+          # fails every later submodule checkout (e.g. ghostty). Clear them first.
+          ws="${GITHUB_WORKSPACE:-$PWD}"
+          rm -f "$ws/.git/index.lock" 2>/dev/null || true
+          if [ -d "$ws/.git/modules" ]; then
+            find "$ws/.git/modules" -type f -name "*.lock" -delete 2>/dev/null || true
+          fi
+
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ needs.validate-source.outputs.source_sha }}
+          persist-credentials: false
+          submodules: recursive
+
+      - name: Verify immutable checkout
+        env:
+          EXPECTED_SHA: ${{ needs.validate-source.outputs.source_sha }}
+        run: |
+          set -euo pipefail
+          actual_sha="$(git rev-parse HEAD)"
+          [[ "$actual_sha" == "$EXPECTED_SHA" ]] || {
+            echo "Checkout $actual_sha does not match validated source $EXPECTED_SHA" >&2
+            exit 1
+          }
+
+      - name: Validate Sparkle build number is monotonic
+        run: ./tests/test_ci_sparkle_build_monotonic.sh
+
+      - name: Guard immutable release assets
+        id: guard_release_assets
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
+        env:
+          RELEASE_TAG: ${{ needs.validate-source.outputs.tag_name }}
+        with:
+          script: |
+            const { evaluateReleaseAssetGuard } = require('./scripts/release_asset_guard');
+            const tag = process.env.RELEASE_TAG;
+            core.setOutput('skip_all', 'false');
+            core.setOutput('skip_upload', 'false');
+            core.setOutput('release_state', 'clear');
+            if (!tag) {
+              core.setFailed('Release asset guard did not receive the validated release tag');
+              return;
+            }
+            try {
+              const release = await github.rest.repos.getReleaseByTag({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                tag,
+              });
+              const existingAssetNames = (release.data.assets || []).map((asset) => asset.name);
+              const {
+                conflicts,
+                missingImmutableAssets,
+                guardState,
+                hasPartialConflict,
+                shouldSkipBuildAndUpload,
+              } = evaluateReleaseAssetGuard({ existingAssetNames });
+
+              core.setOutput('release_state', guardState);
+
+              if (hasPartialConflict) {
+                core.setFailed(
+                  `Release ${tag} has a partial immutable asset state. Existing immutable assets: ` +
+                  `${conflicts.join(', ')}. Missing immutable assets: ${missingImmutableAssets.join(', ')}. ` +
+                  'Resolve release assets manually before rerunning.'
+                );
+                return;
+              }
+
+              if (shouldSkipBuildAndUpload) {
+                core.notice(
+                  `Release ${tag} already contains immutable assets (${conflicts.join(', ')}). ` +
+                  'Skipping build, notarization, and upload to preserve existing signed artifacts.'
+                );
+                core.setOutput('skip_all', 'true');
+                core.setOutput('skip_upload', 'true');
+                return;
+              }
+
+              core.notice(`Release ${tag} exists but has no immutable release assets yet; continuing.`);
+            } catch (error) {
+              if (error.status === 404) {
+                core.notice(`Release ${tag} does not exist yet; safe to build and publish assets.`);
+                return;
+              }
+              throw error;
+            }
+
+      - name: Select Xcode
+        if: steps.guard_release_assets.outputs.skip_all != 'true'
+        run: |
+          set -euo pipefail
+          if [ -d "/Applications/Xcode.app/Contents/Developer" ]; then
+            XCODE_DIR="/Applications/Xcode.app/Contents/Developer"
+          else
+            XCODE_APP="$(
+              find /Applications -maxdepth 1 -name 'Xcode*.app' -print 2>/dev/null \
+                | sort \
+                | tail -n 1 \
+                || true
+            )"
+            if [ -n "$XCODE_APP" ]; then
+              XCODE_DIR="$XCODE_APP/Contents/Developer"
+            else
+              echo "No Xcode.app found under /Applications" >&2
+              exit 1
+            fi
+          fi
+          echo "DEVELOPER_DIR=$XCODE_DIR" >> "$GITHUB_ENV"
+          export DEVELOPER_DIR="$XCODE_DIR"
+          xcodebuild -version
+          xcrun --sdk macosx --show-sdk-path
+
+      # Same self-sufficiency as nightly: a self-hosted macOS runner may lack npm
+      # on PATH, which breaks the pinned create-dmg install below. setup-node
+      # guarantees node/npm regardless of which runner picks up the job.
+      - name: Set up Node
+        if: steps.guard_release_assets.outputs.skip_all != 'true'
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        with:
+          node-version: "20"
+
+      - name: Setup Bun
+        if: steps.guard_release_assets.outputs.skip_all != 'true'
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+
+      - name: Install build deps
+        if: steps.guard_release_assets.outputs.skip_all != 'true'
+        run: |
+          ./scripts/install-rust-ci.sh
+          CMUX_NODE_BIN="$(command -v node)"
+          export npm_config_prefix="$RUNNER_TEMP/npm-global"
+          mkdir -p "$npm_config_prefix"
+          npm install --global "create-dmg@${CREATE_DMG_VERSION}"
+          wrapper_dir="$RUNNER_TEMP/create-dmg-wrapper"
+          mkdir -p "$wrapper_dir"
+          cat > "$wrapper_dir/create-dmg" <<EOF
+          #!/usr/bin/env bash
+          exec "$CMUX_NODE_BIN" "$npm_config_prefix/lib/node_modules/create-dmg/cli.js" "\$@"
+          EOF
+          chmod +x "$wrapper_dir/create-dmg"
+          echo "$wrapper_dir" >> "$GITHUB_PATH"
+
+      - name: Download pre-built GhosttyKit.xcframework
+        if: steps.guard_release_assets.outputs.skip_all != 'true'
+        run: |
+          ./scripts/download-prebuilt-ghosttykit.sh
+
+      - name: Cache Swift packages
+        if: steps.guard_release_assets.outputs.skip_all != 'true'
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: .spm-cache
+          key: spm-${{ hashFiles('cmux.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved') }}
+          restore-keys: spm-
+
+      - name: Sanitize Swift package cache
+        if: steps.guard_release_assets.outputs.skip_all != 'true'
+        run: python3 scripts/ci/sanitize-xcode-source-packages-cache.py .spm-cache
+
+      - name: Setup Go
+        if: steps.guard_release_assets.outputs.skip_all != 'true'
+        uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6.4.0
+        with:
+          go-version-file: daemon/remote/go.mod
+          cache-dependency-path: daemon/remote/go.sum
+
+      - name: Derive Sparkle public key from private key
+        if: steps.guard_release_assets.outputs.skip_all != 'true'
+        env:
+          SPARKLE_PRIVATE_KEY: ${{ secrets.SPARKLE_PRIVATE_KEY }}
+        run: |
+          if [ -z "$SPARKLE_PRIVATE_KEY" ]; then
+            echo "Missing SPARKLE_PRIVATE_KEY secret" >&2
+            exit 1
+          fi
+          DERIVED_PUBLIC_KEY=$(swift scripts/derive_sparkle_public_key.swift "$SPARKLE_PRIVATE_KEY")
+          echo "Derived Sparkle public key: $DERIVED_PUBLIC_KEY"
+          echo "SPARKLE_PUBLIC_KEY=$DERIVED_PUBLIC_KEY" >> "$GITHUB_ENV"
+
+      - name: Build universal app (Release)
+        if: steps.guard_release_assets.outputs.skip_all != 'true'
+        run: |
+          CMUX_SKIP_ZIG_BUILD=1 xcodebuild -scheme cmux -configuration Release -derivedDataPath build-universal \
+            -destination 'generic/platform=macOS' \
+            -clonedSourcePackagesDirPath .spm-cache \
+            ARCHS="arm64 x86_64" \
+            ONLY_ACTIVE_ARCH=NO \
+            CODE_SIGNING_ALLOWED=NO build
+
+      - name: Import signing cert
+        if: steps.guard_release_assets.outputs.skip_all != 'true'
+        env:
+          APPLE_CERTIFICATE_BASE64: ${{ secrets.APPLE_CERTIFICATE_BASE64 }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+        run: |
+          if [ -z "$APPLE_CERTIFICATE_BASE64" ]; then
+            echo "Missing APPLE_CERTIFICATE_BASE64 secret" >&2
+            exit 1
+          fi
+          if [ -z "$APPLE_CERTIFICATE_PASSWORD" ]; then
+            echo "Missing APPLE_CERTIFICATE_PASSWORD secret" >&2
+            exit 1
+          fi
+          KEYCHAIN_PASSWORD="$(uuidgen)"
+          echo "$APPLE_CERTIFICATE_BASE64" | base64 --decode > /tmp/cert.p12
+          security delete-keychain build.keychain >/dev/null 2>&1 || true
+          security create-keychain -p "$KEYCHAIN_PASSWORD" build.keychain
+          security set-keychain-settings -lut 21600 build.keychain
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" build.keychain
+          security import /tmp/cert.p12 -k build.keychain -P "$APPLE_CERTIFICATE_PASSWORD" -T /usr/bin/codesign -T /usr/bin/security
+          ./scripts/import-apple-developer-id-intermediates.sh build.keychain
+          security set-key-partition-list -S apple-tool:,apple: -s -k "$KEYCHAIN_PASSWORD" build.keychain
+          security list-keychains -d user -s build.keychain
+
+      - name: Start Computer Use helper notarization
+        if: steps.guard_release_assets.outputs.skip_all != 'true'
+        env:
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+        run: |
+          state="$RUNNER_TEMP/cmux-computer-use-notarization.state"
+          rm -f "$state"
+          ./scripts/ci/notarize-computer-use-helper.sh \
+            --start "$state" \
+            "build-universal/Build/Products/Release/cmux.app" \
+            cmux.release.entitlements \
+            "$APPLE_SIGNING_IDENTITY"
+
+      - name: Download universal Ghostty CLI helper
+        if: steps.guard_release_assets.outputs.skip_all != 'true'
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          name: cmux-ghostty-cli-helper
+          path: ghostty-cli-helper
+
+      - name: Install universal Ghostty CLI helper
+        if: steps.guard_release_assets.outputs.skip_all != 'true'
+        run: |
+          set -euo pipefail
+          ./scripts/install-prebuilt-ghostty-cli-helper.sh \
+            ghostty-cli-helper/ghostty \
+            build-universal/Build/Products/Release/cmux.app
+          ./scripts/install-cmux-tui-client.sh build-universal/Build/Products/Release/cmux.app
+
+      - name: Verify binary architectures
+        if: steps.guard_release_assets.outputs.skip_all != 'true'
+        run: |
+          set -euo pipefail
+          APP_BINARY="build-universal/Build/Products/Release/cmux.app/Contents/MacOS/cmux"
+          CLI_BINARY="build-universal/Build/Products/Release/cmux.app/Contents/Resources/bin/cmux"
+          HELPER_BINARY="build-universal/Build/Products/Release/cmux.app/Contents/Resources/bin/ghostty"
+          DIFF_SIDECAR="build-universal/Build/Products/Release/cmux.app/Contents/Resources/bin/cmux-diff-sidecar"
+          APP_ARCHS="$(lipo -archs "$APP_BINARY")"
+          CLI_ARCHS="$(lipo -archs "$CLI_BINARY")"
+          HELPER_ARCHS="$(lipo -archs "$HELPER_BINARY")"
+          SDK_VERSION="$(otool -l "$APP_BINARY" | awk '/LC_BUILD_VERSION/ { in_version=1; next } in_version && /sdk / { print $2; exit }')"
+          echo "App binary architectures: $APP_ARCHS"
+          echo "CLI binary architectures: $CLI_ARCHS"
+          echo "Ghostty helper architectures: $HELPER_ARCHS"
+          echo "App SDK version: $SDK_VERSION"
+          [[ "$APP_ARCHS" == *arm64* && "$APP_ARCHS" == *x86_64* ]]
+          [[ "$CLI_ARCHS" == *arm64* && "$CLI_ARCHS" == *x86_64* ]]
+          [[ "$HELPER_ARCHS" == *arm64* && "$HELPER_ARCHS" == *x86_64* ]]
+          ./scripts/verify-diff-sidecar-artifact.sh "$DIFF_SIDECAR"
+          [[ "$SDK_VERSION" == 26.* ]]
+
+      - name: Build remote daemon release assets and inject manifest
+        if: steps.guard_release_assets.outputs.skip_all != 'true'
+        run: |
+          set -euo pipefail
+          APP_PLIST="build-universal/Build/Products/Release/cmux.app/Contents/Info.plist"
+          APP_VERSION=$(/usr/libexec/PlistBuddy -c "Print :CFBundleShortVersionString" "$APP_PLIST")
+          ./scripts/build_remote_daemon_release_assets.sh \
+            --version "$APP_VERSION" \
+            --release-tag "$RELEASE_TAG" \
+            --repo "manaflow-ai/cmux" \
+            --output-dir "remote-daemon-assets"
+          MANIFEST_JSON="$(python3 -c 'import json,sys; print(json.dumps(json.load(open(sys.argv[1], encoding="utf-8")), separators=(",",":")))' remote-daemon-assets/cmuxd-remote-manifest.json)"
+          plutil -remove CMUXRemoteDaemonManifestJSON "$APP_PLIST" >/dev/null 2>&1 || true
+          plutil -insert CMUXRemoteDaemonManifestJSON -string "$MANIFEST_JSON" "$APP_PLIST"
+
+      - name: Run CLI version memory guard regression
+        if: steps.guard_release_assets.outputs.skip_all != 'true'
+        run: |
+          set -euo pipefail
+          CLI_BINARY="build-universal/Build/Products/Release/cmux.app/Contents/Resources/bin/cmux"
+          [ -x "$CLI_BINARY" ] || { echo "cmux CLI binary not found at $CLI_BINARY" >&2; exit 1; }
+          CMUX_CLI_BIN="$CLI_BINARY" python3 tests/test_cli_version_memory_guard.py
+
+      - name: Verify bundled Ghostty theme picker helper
+        if: steps.guard_release_assets.outputs.skip_all != 'true'
+        run: |
+          set -euo pipefail
+          HELPER_BINARY="build-universal/Build/Products/Release/cmux.app/Contents/Resources/bin/ghostty"
+          [ -x "$HELPER_BINARY" ] || { echo "Ghostty theme picker helper not found at $HELPER_BINARY" >&2; exit 1; }
+
+      - name: Inject Sparkle keys into Info.plist
+        if: steps.guard_release_assets.outputs.skip_all != 'true'
+        run: |
+          APP_PLIST="build-universal/Build/Products/Release/cmux.app/Contents/Info.plist"
+          /usr/libexec/PlistBuddy -c "Delete :SUPublicEDKey" "$APP_PLIST" >/dev/null 2>&1 || true
+          /usr/libexec/PlistBuddy -c "Delete :SUFeedURL" "$APP_PLIST" >/dev/null 2>&1 || true
+          echo "Adding SUPublicEDKey to Info.plist..."
+          /usr/libexec/PlistBuddy -c "Add :SUPublicEDKey string ${SPARKLE_PUBLIC_KEY}" "$APP_PLIST"
+          echo "Adding SUFeedURL to Info.plist..."
+          /usr/libexec/PlistBuddy -c "Add :SUFeedURL string https://github.com/manaflow-ai/cmux/releases/latest/download/appcast.xml" "$APP_PLIST"
+          echo "Verifying:"
+          /usr/libexec/PlistBuddy -c "Print :SUPublicEDKey" "$APP_PLIST"
+          /usr/libexec/PlistBuddy -c "Print :SUFeedURL" "$APP_PLIST"
+
+      - name: Embed release provisioning profile
+        if: steps.guard_release_assets.outputs.skip_all != 'true'
+        env:
+          APPLE_RELEASE_PROVISIONING_PROFILE_BASE64: ${{ secrets.APPLE_RELEASE_PROVISIONING_PROFILE_BASE64 }}
+        run: |
+          if [ -z "$APPLE_RELEASE_PROVISIONING_PROFILE_BASE64" ]; then
+            echo "Missing APPLE_RELEASE_PROVISIONING_PROFILE_BASE64 secret" >&2
+            exit 1
+          fi
+          APP_PATH="build-universal/Build/Products/Release/cmux.app"
+          PROFILE_PATH="$APP_PATH/Contents/embedded.provisionprofile"
+          TMP_PROFILE="$(mktemp /tmp/cmux-release-profile.XXXXXX)"
+          TMP_PLIST="$(mktemp /tmp/cmux-release-profile.XXXXXX.plist)"
+          trap 'rm -f "$TMP_PROFILE" "$TMP_PLIST"' EXIT
+          echo "$APPLE_RELEASE_PROVISIONING_PROFILE_BASE64" | base64 --decode > "$TMP_PROFILE"
+          security cms -D -i "$TMP_PROFILE" > "$TMP_PLIST"
+          APP_ID="$(/usr/libexec/PlistBuddy -c "Print :Entitlements:com.apple.application-identifier" "$TMP_PLIST")"
+          if [ "$APP_ID" != "7WLXT3NR37.com.cmuxterm.app" ]; then
+            echo "Release provisioning profile targets unexpected app ID: $APP_ID" >&2
+            exit 1
+          fi
+          WEBAUTHN_ENTITLEMENT="$(/usr/libexec/PlistBuddy -c "Print :Entitlements:com.apple.developer.web-browser.public-key-credential" "$TMP_PLIST")"
+          if [ "$WEBAUTHN_ENTITLEMENT" != "true" ]; then
+            echo "Release provisioning profile missing WebAuthn browser entitlement" >&2
+            exit 1
+          fi
+          PROVISIONS_ALL_DEVICES="$(/usr/libexec/PlistBuddy -c "Print :ProvisionsAllDevices" "$TMP_PLIST")"
+          if [ "$PROVISIONS_ALL_DEVICES" != "true" ]; then
+            echo "Release provisioning profile is not a Developer ID all-devices profile" >&2
+            exit 1
+          fi
+          cp "$TMP_PROFILE" "$PROFILE_PATH"
+
+      - name: Strip release binaries
+        if: steps.guard_release_assets.outputs.skip_all != 'true'
+        run: ./scripts/strip-release-bundle.sh "build-universal/Build/Products/Release/cmux.app"
+
+      - name: Codesign app
+        if: steps.guard_release_assets.outputs.skip_all != 'true'
+        env:
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+        run: |
+          if [ -z "$APPLE_SIGNING_IDENTITY" ]; then
+            echo "Missing APPLE_SIGNING_IDENTITY secret" >&2
+            exit 1
+          fi
+          APP_PATH="build-universal/Build/Products/Release/cmux.app"
+          CMUX_SIGN_MODE=all-except-computer-use \
+            ./scripts/sign-cmux-bundle.sh \
+            "$APP_PATH" \
+            cmux.release.entitlements \
+            "$APPLE_SIGNING_IDENTITY"
+
+      - name: Notarize app
+        if: steps.guard_release_assets.outputs.skip_all != 'true'
+        env:
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+        run: |
+          if [ -z "$APPLE_ID" ] || [ -z "$APPLE_APP_SPECIFIC_PASSWORD" ] || [ -z "$APPLE_TEAM_ID" ]; then
+            echo "Missing notarization secrets (APPLE_ID, APPLE_APP_SPECIFIC_PASSWORD, APPLE_TEAM_ID)" >&2
+            exit 1
+          fi
+          APP_PATH="build-universal/Build/Products/Release/cmux.app"
+          ZIP_SUBMIT="cmux-notary.zip"
+          DMG_RELEASE="cmux-macos.dmg"
+          ./scripts/ci/notarize-computer-use-helper.sh \
+            --finish "$RUNNER_TEMP/cmux-computer-use-notarization.state" \
+            "$APP_PATH" \
+            cmux.release.entitlements \
+            "$APPLE_SIGNING_IDENTITY"
+          ditto -c -k --sequesterRsrc --keepParent "$APP_PATH" "$ZIP_SUBMIT"
+          APP_SUBMIT_JSON="$(xcrun notarytool submit "$ZIP_SUBMIT" --apple-id "$APPLE_ID" --team-id "$APPLE_TEAM_ID" --password "$APPLE_APP_SPECIFIC_PASSWORD" --wait --output-format json)"
+          APP_SUBMIT_ID="$(python3 -c 'import json,sys; print(json.load(sys.stdin)["id"])' <<<"$APP_SUBMIT_JSON")"
+          APP_STATUS="$(python3 -c 'import json,sys; print(json.load(sys.stdin)["status"])' <<<"$APP_SUBMIT_JSON")"
+          if [ "$APP_STATUS" != "Accepted" ]; then
+            echo "App notarization failed with status: $APP_STATUS" >&2
+            xcrun notarytool log "$APP_SUBMIT_ID" --apple-id "$APPLE_ID" --team-id "$APPLE_TEAM_ID" --password "$APPLE_APP_SPECIFIC_PASSWORD" || true
+            exit 1
+          fi
+          xcrun stapler staple "$APP_PATH"
+          xcrun stapler validate "$APP_PATH"
+          spctl -a -vv --type execute "$APP_PATH"
+          CMUX_SMOKE_ALLOW_UNSUPPORTED_GUI=1 CMUX_SMOKE_DEBUG_LOGS=1 ./scripts/smoke-launch-macos-app.sh "$APP_PATH"
+          CMUX_SMOKE_DIRECT_EXEC=1 CMUX_SMOKE_DEBUG_LOGS=1 ./scripts/smoke-launch-macos-app.sh "$APP_PATH"
+          ./scripts/verify-app-bundle-channel-metadata.sh "$APP_PATH" stable
+          ./scripts/verify-app-bundle-licenses.sh "$APP_PATH"
+          rm -f "$ZIP_SUBMIT"
+          # create-dmg generates a styled drag-to-install DMG
+          create-dmg \
+            --no-code-sign \
+            "$APP_PATH" \
+            ./
+          mv ./cmux*.dmg "$DMG_RELEASE"
+          /usr/bin/codesign --force --timestamp --keychain build.keychain \
+            --sign "$APPLE_SIGNING_IDENTITY" \
+            "$DMG_RELEASE"
+          /usr/bin/codesign --verify --verbose=2 "$DMG_RELEASE"
+          DMG_SUBMIT_JSON="$(xcrun notarytool submit "$DMG_RELEASE" --apple-id "$APPLE_ID" --team-id "$APPLE_TEAM_ID" --password "$APPLE_APP_SPECIFIC_PASSWORD" --wait --output-format json)"
+          DMG_SUBMIT_ID="$(python3 -c 'import json,sys; print(json.load(sys.stdin)["id"])' <<<"$DMG_SUBMIT_JSON")"
+          DMG_STATUS="$(python3 -c 'import json,sys; print(json.load(sys.stdin)["status"])' <<<"$DMG_SUBMIT_JSON")"
+          if [ "$DMG_STATUS" != "Accepted" ]; then
+            echo "DMG notarization failed with status: $DMG_STATUS" >&2
+            xcrun notarytool log "$DMG_SUBMIT_ID" --apple-id "$APPLE_ID" --team-id "$APPLE_TEAM_ID" --password "$APPLE_APP_SPECIFIC_PASSWORD" || true
+            exit 1
+          fi
+          xcrun stapler staple "$DMG_RELEASE"
+          xcrun stapler validate "$DMG_RELEASE"
+
+      - name: Upload dSYMs to Sentry
+        if: steps.guard_release_assets.outputs.skip_all != 'true'
+        env:
+          SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
+          SENTRY_ORG: manaflow
+          SENTRY_PROJECT: cmuxterm-macos
+        run: |
+          if [ -z "$SENTRY_AUTH_TOKEN" ]; then
+            echo "SENTRY_AUTH_TOKEN not set, skipping dSYM upload"
+            exit 0
+          fi
+          SENTRY_CLI="$(./scripts/ensure-sentry-cli.sh)"
+          "$SENTRY_CLI" debug-files upload --include-sources build-universal/Build/Products/Release/
+
+      - name: Generate Sparkle appcast
+        if: steps.guard_release_assets.outputs.skip_all != 'true'
+        env:
+          SPARKLE_PRIVATE_KEY: ${{ secrets.SPARKLE_PRIVATE_KEY }}
+        run: |
+          if [ -z "$SPARKLE_PRIVATE_KEY" ]; then
+            echo "Missing SPARKLE_PRIVATE_KEY secret" >&2
+            exit 1
+          fi
+          ./scripts/sparkle_generate_appcast.sh cmux-macos.dmg "$RELEASE_TAG" appcast.xml
+
+      - name: Attest remote daemon release assets
+        id: attest-remote-daemon-release-assets
+        if: steps.guard_release_assets.outputs.skip_all != 'true'
+        continue-on-error: true
+        uses: actions/attest-build-provenance@a2bbfa25375fe432b6a289bc6b6cd05ecd0c4c32 # v4.1.0
+        with:
+          subject-path: |
+            remote-daemon-assets/cmuxd-remote-darwin-arm64
+            remote-daemon-assets/cmuxd-remote-darwin-amd64
+            remote-daemon-assets/cmuxd-remote-linux-arm64
+            remote-daemon-assets/cmuxd-remote-linux-amd64
+            remote-daemon-assets/cmuxd-remote-checksums.txt
+            remote-daemon-assets/cmuxd-remote-manifest.json
+
+      - name: Retry remote daemon release asset attestation
+        if: steps.guard_release_assets.outputs.skip_all != 'true' && steps.attest-remote-daemon-release-assets.outcome == 'failure'
+        uses: actions/attest-build-provenance@a2bbfa25375fe432b6a289bc6b6cd05ecd0c4c32 # v4.1.0
+        with:
+          subject-path: |
+            remote-daemon-assets/cmuxd-remote-darwin-arm64
+            remote-daemon-assets/cmuxd-remote-darwin-amd64
+            remote-daemon-assets/cmuxd-remote-linux-arm64
+            remote-daemon-assets/cmuxd-remote-linux-amd64
+            remote-daemon-assets/cmuxd-remote-checksums.txt
+            remote-daemon-assets/cmuxd-remote-manifest.json
+
+      - name: Upload release asset
+        if: steps.guard_release_assets.outputs.skip_upload != 'true'
+        uses: softprops/action-gh-release@b4309332981a82ec1c5618f44dd2e27cc8bfbfda # v3.0.0
+        with:
+          files: |
+            cmux-macos.dmg
+            appcast.xml
+            remote-daemon-assets/cmuxd-remote-darwin-arm64
+            remote-daemon-assets/cmuxd-remote-darwin-amd64
+            remote-daemon-assets/cmuxd-remote-linux-arm64
+            remote-daemon-assets/cmuxd-remote-linux-amd64
+            remote-daemon-assets/cmuxd-remote-checksums.txt
+            remote-daemon-assets/cmuxd-remote-manifest.json
+          generate_release_notes: true
+          overwrite_files: false
+          tag_name: ${{ needs.validate-source.outputs.tag_name }}
+
+      - name: Upload release appcast to R2
+        if: steps.guard_release_assets.outputs.skip_upload != 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          AWS_ACCESS_KEY_ID: ${{ secrets.CF_R2_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.CF_R2_SECRET_ACCESS_KEY }}
+          AWS_DEFAULT_REGION: auto
+          R2_ENDPOINT: "https://${{ secrets.CF_R2_ACCOUNT_ID }}.r2.cloudflarestorage.com"
+        run: |
+          set -euo pipefail
+
+          # Guard: only upload if this tag is the highest semver release.
+          # Prevents a backport tag (e.g. v0.62.1 after v0.63.1) from
+          # overwriting the stable appcast with an older version.
+          LATEST=$(gh release list --exclude-drafts --exclude-pre-releases \
+            --json tagName -q '.[].tagName' | sort -V | tail -1)
+          if [ -n "$LATEST" ] && [ "$LATEST" != "$RELEASE_TAG" ]; then
+            echo "Skipping R2 stable upload: $RELEASE_TAG is not the latest release ($LATEST)"
+            exit 0
+          fi
+
+          # Upload after GitHub Release publish so the appcast never references
+          # a DMG that doesn't exist yet. R2 PutObject is atomic, so the appcast
+          # is either the old version or the new one, never missing.
+          python3 scripts/ci/upload-r2-object.py \
+            --file appcast.xml \
+            --endpoint-url "$R2_ENDPOINT" \
+            --bucket cmux-binaries \
+            --key stable/appcast.xml \
+            --cache-control "no-cache, no-store, must-revalidate"
+
+          echo "R2 appcast upload complete: https://files.cmux.com/stable/appcast.xml"
+
+      - name: Cleanup keychain
+        if: always()
+        run: |
+          security delete-keychain build.keychain >/dev/null 2>&1 || true
+          rm -f /tmp/cert.p12

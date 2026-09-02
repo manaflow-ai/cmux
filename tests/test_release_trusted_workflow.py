@@ -93,13 +93,16 @@ const context = {{
   }} }},
 }};
 const github = {{ rest: {{
-  actions: {{ getWorkflowRun: async () => ({{ data: context.payload.workflow_run }}) }},
+  actions: {{
+    getWorkflowRun: async () => ({{ data: {{ ...context.payload.workflow_run, workflow_id: 77, repository: {{ full_name: 'manaflow-ai/cmux' }} }} }}),
+    getWorkflow: async () => ({{ data: {{ name: 'Release macOS app trigger', path: '{TRIGGER_PATH}' }} }}),
+  }},
   repos: {{
     getBranch: async () => ({{ data: {{ protected: true, commit: {{ sha: '{main_sha}' }} }} }}),
     compareCommits: async () => ({{ data: {{ status: 'ahead' }} }}),
     getContent: async ({{ path, ref }}) => {{
-      if (path === '{TRIGGER_PATH}') return {{ data: {{ type: 'file', sha: ref === '{main_sha}' ? '{main_blob}' : '{wrapper_blob}', content: ref === '{main_sha}' ? '{main_content}' : '{wrapper_content}' }} }};
-      return {{ data: {{ type: 'file', sha: 'trusted-workflow-blob', content: '' }} }};
+      if (path === '{TRIGGER_PATH}') return {{ data: {{ type: 'file', sha: ref === '{main_sha}' ? '{main_blob}' : '{wrapper_blob}', encoding: 'base64', content: ref === '{main_sha}' ? '{main_content}' : '{wrapper_content}' }} }};
+      return {{ data: {{ type: 'file', sha: 'trusted-workflow-blob', encoding: 'base64', content: '' }} }};
     }},
   }},
   git: {{
@@ -115,6 +118,7 @@ process.env.WORKFLOW_SHA = '{main_sha}';
 process.env.WORKFLOW_REF = 'manaflow-ai/cmux/{WORKFLOW_PATH}@refs/heads/main';
 process.env.REF_PROTECTED = 'true';
 process.env.WORKFLOW_REPOSITORY = 'manaflow-ai/cmux';
+process.env.WORKFLOW_RUN_JSON = JSON.stringify(context.payload.workflow_run);
 (async () => {{
   try {{
 {script}
@@ -158,8 +162,8 @@ class ReleaseTrustedWorkflowTests(unittest.TestCase):
             "compareCommits",
             "getRef",
             "getTag",
-            "workflowAtSource",
-            "workflowAtMain",
+            "trustedAtWorkflow",
+            "trustedAtMain",
             "protected",
             "source_sha",
             "tag_name",
@@ -206,7 +210,7 @@ class ReleaseTrustedWorkflowTests(unittest.TestCase):
         self.assertNotEqual(result.returncode, 0)
         self.assertRegex(
             result.stderr,
-            r"(?:minimal unprivileged observer|dispatcher source workflow changed|workflow definition)",
+            r"(?i)(?:minimal unprivileged observer|dispatcher source workflow changed|workflow definition)",
         )
 
 
