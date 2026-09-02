@@ -3006,7 +3006,11 @@ mod tests {
         std::fs::create_dir(&directory).unwrap();
         std::fs::set_permissions(&directory, std::fs::Permissions::from_mode(0o111)).unwrap();
 
-        open_pinned_directory(&directory).expect("O_EXEC|O_DIRECTORY must open search-only cwd");
+        // `open_pinned_directory` intentionally rejects symlink components.
+        // Canonicalize the temporary path because macOS commonly exposes /var
+        // through a symlink, while preserving the execute-only target.
+        let canonical = std::fs::canonicalize(&directory).unwrap();
+        open_pinned_directory(&canonical).expect("O_EXEC|O_DIRECTORY must open search-only cwd");
     }
 
     #[cfg(target_os = "macos")]
