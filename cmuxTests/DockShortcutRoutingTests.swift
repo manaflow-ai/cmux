@@ -473,6 +473,35 @@ struct DockShortcutRoutingTests {
         }
     }
 
+    @Test("A single Dock browser can move from its web context menu to a workspace")
+    @MainActor
+    func singleDockBrowserWebContextMenuMovesToWorkspace() async throws {
+        try await AppContextSerialGate.withExclusiveAppContext {
+            try await Self.withHarness { harness in
+                let browserId = try #require(
+                    harness.dock.newSurface(
+                        kind: .browser,
+                        inPane: harness.rootPane,
+                        focus: true
+                    )
+                )
+                let browser = try #require(harness.dock.browserPanel(for: browserId))
+                let webView = try #require(browser.webView as? CmuxWebView)
+                let workspaceCountBefore = harness.tabManager.tabs.count
+
+                #expect(webView.contextMenuCanMoveTabToNewWorkspace?() == true)
+                #expect(webView.contextMenuMoveTabToNewWorkspace?() == true)
+                #expect(!harness.dock.containsPanel(browserId))
+                #expect(harness.tabManager.tabs.count == workspaceCountBefore + 1)
+                #expect(
+                    harness.tabManager.tabs.contains {
+                        $0.browserPanel(for: browserId) === browser
+                    }
+                )
+            }
+        }
+    }
+
     @Test("Browser actions remain scoped to their captured Dock host")
     @MainActor
     func browserActionsRemainScopedToCapturedDockHost() async throws {
