@@ -35,7 +35,7 @@ const HANDOFF_WAIT: Duration = Duration::from_secs(5);
 /// codex kills SessionEnd hooks at 3s (its hard cap). The provider-facing
 /// process must report an unconfirmed handoff before that instead of being
 /// killed; the detached child keeps trying to deliver the event regardless.
-const CODEX_SESSION_END_HANDOFF_WAIT: Duration = Duration::from_secs(2);
+const CODEX_SESSION_END_HANDOFF_WAIT: Duration = Duration::from_millis(2_500);
 /// Hidden mode: the detached child on platforms without `fork`. The request id
 /// arrives as the first stdin line and the encoded request follows.
 const DETACHED_MODE_ARG: &str = "__detached-append";
@@ -47,6 +47,7 @@ struct Args {
 }
 
 fn main() -> ExitCode {
+    let started = Instant::now();
     let arguments = env::args().skip(1).collect::<Vec<_>>();
     if arguments.len() == 1 && arguments[0] == DETACHED_MODE_ARG {
         return match detached_child_from_stdin() {
@@ -61,7 +62,7 @@ fn main() -> ExitCode {
         println!("Usage: cmux-tui-hook <agent> <native-event>");
         return ExitCode::SUCCESS;
     }
-    match parse_args(arguments).and_then(run) {
+    match parse_args(arguments).and_then(|args| run(args, started)) {
         Ok(()) => ExitCode::SUCCESS,
         Err(error) => {
             eprintln!("cmux-tui-hook: {error:#}");
@@ -70,7 +71,7 @@ fn main() -> ExitCode {
     }
 }
 
-fn run(args: Args) -> anyhow::Result<()> {
+fn run(args: Args, started: Instant) -> anyhow::Result<()> {
     if shadowed_by_grok(&args.source, env::var_os("GROK_HOOK_EVENT").as_deref()) {
         drain_native_payload()?;
         return Ok(());
@@ -92,12 +93,18 @@ fn run(args: Args) -> anyhow::Result<()> {
     )?;
     let event = serde_json::to_value(ingress)?;
     let (request_id, encoded) = encode_request(event)?;
-    let handoff = handoff_wait(&args.source, &args.native_event);
-    match detach::append_detached(&socket, &request_id, &encoded, handoff)? {
+    let deadline = (args.source == "codex" && args.native_event == "SessionEnd")
+        .then(|| started + handoff_budget(&args.source, &args.native_event));
+    match detach::append_detached(&socket, &request_id, &encoded, deadline)? {
         Handoff::Sent => Ok(()),
         Handoff::ChildExited => bail!("hook child gave up before writing the journal request"),
         Handoff::TimedOut => {
-            bail!("journal request handoff was not confirmed within {} ms", handoff.as_millis())
+            bail!(
+                "journal request handoff was not confirmed before its deadline ({} ms remaining)",
+                deadline.map_or(0, |deadline| deadline
+                    .saturating_duration_since(Instant::now())
+                    .as_millis())
+            )
         }
     }
 }
@@ -184,7 +191,15 @@ fn settle_detached_child(mut child: DetachedChildGuard, reader: std::thread::Joi
     }
 }
 
-fn handoff_wait(source: &str, native_event: &str) -> Duration {
+fn handoff_wait_from(started: Instant, now: Instant, source: &str, native_event: &str) -> Duration {
+    if source == "codex" && native_event == "SessionEnd" {
+        (started + CODEX_SESSION_END_HANDOFF_WAIT).saturating_duration_since(now)
+    } else {
+        HANDOFF_WAIT
+    }
+}
+
+fn handoff_budget(source: &str, native_event: &str) -> Duration {
     if source == "codex" && native_event == "SessionEnd" {
         CODEX_SESSION_END_HANDOFF_WAIT
     } else {
@@ -634,7 +649,7 @@ mod detach {
         socket: &Path,
         request_id: &str,
         encoded: &[u8],
-        handoff_wait: Duration,
+        deadline: Option<std::time::Instant>,
     ) -> anyhow::Result<Handoff> {
         use std::os::unix::process::CommandExt;
         let exe = std::env::current_exe().context("locate hook helper")?;
@@ -659,17 +674,46 @@ mod detach {
         unsafe {
             command.pre_exec(detach_session);
         }
-        let mut child =
-            super::DetachedChildGuard::new(command.spawn().context("spawn detached hook child")?);
-        let mut stdin =
-            child.child_mut().stdin.take().context("detached hook child has no stdin")?;
-        stdin.write_all(request_id.as_bytes())?;
-        stdin.write_all(b"\n")?;
-        stdin.write_all(encoded)?;
-        stdin.flush()?;
-        drop(stdin);
-        let mut stdout =
-            child.child_mut().stdout.take().context("detached hook child has no stdout")?;
+        let (sender, receiver) = mpsc::sync_channel(1);
+        let request_id = request_id.to_owned();
+        let encoded = encoded.to_owned();
+        std::thread::spawn(move || {
+            let result =
+                (|| -> anyhow::Result<(super::DetachedChildGuard, std::process::ChildStdout)> {
+                    let mut child = super::DetachedChildGuard::new(
+                        command.spawn().context("spawn detached hook child")?,
+                    );
+                    let mut stdin = child
+                        .child_mut()
+                        .stdin
+                        .take()
+                        .context("detached hook child has no stdin")?;
+                    stdin.write_all(request_id.as_bytes())?;
+                    stdin.write_all(b"\n")?;
+                    stdin.write_all(&encoded)?;
+                    stdin.flush()?;
+                    drop(stdin);
+                    let stdout = child
+                        .child_mut()
+                        .stdout
+                        .take()
+                        .context("detached hook child has no stdout")?;
+                    Ok((child, stdout))
+                })();
+            let _ = sender.send(result);
+        });
+        let setup = || {
+            deadline.map_or(None, |deadline| {
+                Some(deadline.saturating_duration_since(std::time::Instant::now()))
+            })
+        };
+        let (mut child, mut stdout) = match match setup() {
+            Some(remaining) => receiver.recv_timeout(remaining).map_err(|_| ()),
+            None => receiver.recv().map_err(|_| ()),
+        } {
+            Ok(result) => result?,
+            Err(_) => return Ok(Handoff::TimedOut),
+        };
         let (sender, receiver) = mpsc::channel();
         let reader = std::thread::spawn(move || {
             let mut byte = [0_u8; 1];
@@ -679,7 +723,11 @@ mod detach {
             };
             let _ = sender.send(outcome);
         });
-        let outcome = receiver.recv_timeout(handoff_wait).unwrap_or(Handoff::TimedOut);
+        let outcome = receiver
+            .recv_timeout(deadline.map_or(Duration::from_secs(5), |deadline| {
+                deadline.saturating_duration_since(std::time::Instant::now())
+            }))
+            .unwrap_or(Handoff::TimedOut);
         super::settle_detached_child(child, reader);
         Ok(outcome)
     }
@@ -705,32 +753,58 @@ mod detach {
         socket: &Path,
         request_id: &str,
         encoded: &[u8],
-        handoff_wait: Duration,
+        deadline: Option<std::time::Instant>,
     ) -> anyhow::Result<Handoff> {
         use std::os::windows::process::CommandExt;
         const DETACHED_PROCESS: u32 = 0x0000_0008;
         const CREATE_NEW_PROCESS_GROUP: u32 = 0x0000_0200;
         let exe = std::env::current_exe().context("locate hook helper")?;
-        let mut child = super::DetachedChildGuard::new(
-            Command::new(exe)
-                .arg(DETACHED_MODE_ARG)
-                .env("CMUX_TUI_SOCKET", socket)
-                .stdin(Stdio::piped())
-                .stdout(Stdio::piped())
-                .stderr(Stdio::null())
-                .creation_flags(DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP)
-                .spawn()
-                .context("spawn detached hook child")?,
-        );
-        let mut stdin =
-            child.child_mut().stdin.take().context("detached hook child has no stdin")?;
-        let mut stdout =
-            child.child_mut().stdout.take().context("detached hook child has no stdout")?;
-        stdin.write_all(request_id.as_bytes())?;
-        stdin.write_all(b"\n")?;
-        stdin.write_all(encoded)?;
-        stdin.flush()?;
-        drop(stdin);
+        let mut command = Command::new(exe);
+        command
+            .arg(DETACHED_MODE_ARG)
+            .env("CMUX_TUI_SOCKET", socket)
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::null());
+        command.creation_flags(DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP);
+        let (sender, receiver) = mpsc::sync_channel(1);
+        let request_id = request_id.to_owned();
+        let encoded = encoded.to_owned();
+        std::thread::spawn(move || {
+            let result =
+                (|| -> anyhow::Result<(super::DetachedChildGuard, std::process::ChildStdout)> {
+                    let mut child = super::DetachedChildGuard::new(
+                        command.spawn().context("spawn detached hook child")?,
+                    );
+                    let mut stdin = child
+                        .child_mut()
+                        .stdin
+                        .take()
+                        .context("detached hook child has no stdin")?;
+                    stdin.write_all(request_id.as_bytes())?;
+                    stdin.write_all(b"\n")?;
+                    stdin.write_all(&encoded)?;
+                    stdin.flush()?;
+                    drop(stdin);
+                    let stdout = child
+                        .child_mut()
+                        .stdout
+                        .take()
+                        .context("detached hook child has no stdout")?;
+                    Ok((child, stdout))
+                })();
+            let _ = sender.send(result);
+        });
+        let setup = match deadline {
+            Some(deadline) => receiver
+                .recv_timeout(deadline.saturating_duration_since(std::time::Instant::now()))
+                .map_err(|_| ()),
+            None => receiver.recv().map_err(|_| ()),
+        };
+        let (mut child, mut stdout) = match setup {
+            Ok(result) => result?,
+            Err(_) => return Ok(Handoff::TimedOut),
+        };
         // Pipe reads have no timeout on Windows; a reader thread plus a
         // bounded channel wait gives the same absolute deadline as poll(2).
         let (sender, receiver) = mpsc::channel();
@@ -742,7 +816,14 @@ mod detach {
             };
             let _ = sender.send(outcome);
         });
-        let outcome = receiver.recv_timeout(handoff_wait).unwrap_or(Handoff::TimedOut);
+        let outcome = deadline.map_or_else(
+            || receiver.recv_timeout(Duration::from_secs(5)).unwrap_or(Handoff::TimedOut),
+            |deadline| {
+                receiver
+                    .recv_timeout(deadline.saturating_duration_since(std::time::Instant::now()))
+                    .unwrap_or(Handoff::TimedOut)
+            },
+        );
         super::settle_detached_child(child, reader);
         Ok(outcome)
     }
@@ -766,9 +847,27 @@ mod tests {
 
     #[test]
     fn codex_session_end_handoff_stays_below_the_codex_hook_cap() {
-        assert!(handoff_wait("codex", "SessionEnd") < Duration::from_secs(3));
-        assert!(handoff_wait("codex", "Stop") > SOCKET_TIMEOUT);
-        assert!(handoff_wait("claude", "SessionEnd") > SOCKET_TIMEOUT);
+        let started = Instant::now();
+        assert_eq!(
+            handoff_wait_from(started, started + Duration::from_millis(100), "codex", "SessionEnd",),
+            Duration::from_millis(2_400),
+        );
+        assert_eq!(handoff_wait_from(started, started, "codex", "Stop"), HANDOFF_WAIT,);
+        assert_eq!(handoff_wait_from(started, started, "claude", "SessionEnd"), HANDOFF_WAIT,);
+    }
+
+    #[test]
+    fn codex_session_end_handoff_deadline_starts_at_hook_launch() {
+        let started = Instant::now();
+        assert_eq!(
+            handoff_wait_from(
+                started,
+                started + Duration::from_millis(2_600),
+                "codex",
+                "SessionEnd",
+            ),
+            Duration::ZERO,
+        );
     }
 
     #[test]
