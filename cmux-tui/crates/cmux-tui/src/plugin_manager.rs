@@ -467,12 +467,13 @@ fn validate_git_source(source: &str) -> anyhow::Result<()> {
         if suffix.contains(['?', '#']) {
             anyhow::bail!("plugin git URL must not contain a query or fragment");
         }
-        if let Some((userinfo, _host)) = authority.rsplit_once('@')
-            && (scheme.eq_ignore_ascii_case("http")
-                || scheme.eq_ignore_ascii_case("https")
-                || userinfo.contains([':', '%']))
-        {
-            anyhow::bail!("plugin git URL must not contain embedded credentials");
+        if let Some((userinfo, _host)) = authority.rsplit_once('@') {
+            // Only a plain SSH username is permitted. Every other URL
+            // userinfo form can carry credentials and would leak via argv or
+            // Git diagnostics.
+            if !scheme.eq_ignore_ascii_case("ssh") || userinfo.contains([':', '%']) {
+                anyhow::bail!("plugin git URL must not contain embedded credentials");
+            }
         }
     } else if let Some(at) = source.find('@') {
         // Also cover scp-like sources such as `user:password@host:path`.
