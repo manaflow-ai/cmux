@@ -404,6 +404,8 @@ extension TerminalController {
             return socketWorkerVMTerminalWaitResponse(id: id, params: params)
         case "vm.terminal_rename":
             return socketWorkerVMTerminalRenameResponse(id: id, params: params)
+        case "vm.tab_rename":
+            return socketWorkerVMTabRenameResponse(id: id, params: params)
         default:
             return v2Error(id: id, code: "method_not_found", message: "Unknown method")
         }

@@ -13,6 +13,9 @@ protocol SurfaceProvider: AnyObject {
     /// Create the pane that shows `resource` at `destination` and return the panel it created
     /// (or reused). The catalog records the projection.
     func materialize(_ resource: SurfaceResource, at destination: SurfaceDestination, focus: Bool) async throws -> SurfaceProjection
+    /// Same operation with an exact remote placement. A terminal can appear in several
+    /// daemon tabs, so callers that came from a workspace pointer pass that tab here.
+    func materialize(_ resource: SurfaceResource, remoteView: SurfaceRemoteView?, at destination: SurfaceDestination, focus: Bool) async throws -> SurfaceProjection
     /// Create a new terminal on this machine (remote providers create it in the cmux-tui
     /// session; the local provider spawns a shell) and return its resource.
     func createTerminal(command: [String]?, cwd: String?, name: String?, remoteWorkspaceID: String?) async throws -> SurfaceResource
@@ -31,8 +34,11 @@ protocol SurfaceProvider: AnyObject {
     func closeRemoteWorkspace(id: String) async throws
     /// Rename a remote workspace.
     func renameRemoteWorkspace(id: String, name: String) async throws
-    /// Rename a remote terminal: set the user label on its daemon tab view(s), which the
-    /// daemon persists and every client shows in place of the PTY title.
+    /// Rename one remote tab placement. Tab names are placement-local even when several
+    /// tabs point at the same terminal.
+    func renameRemoteTab(id: String, name: String) async throws
+    /// Compatibility operation that explicitly renames every tab placement of a terminal.
+    /// New UI paths must use `renameRemoteTab` when they have a placement reference.
     func renameTerminal(_ id: SurfaceResourceID, name: String) async throws
     /// Close a projection's pane: a materialization that lost a race with an existing
     /// projection, or a URL-backed pane whose machine was unregistered. The default
@@ -44,6 +50,10 @@ protocol SurfaceProvider: AnyObject {
 }
 
 extension SurfaceProvider {
+    func materialize(_ resource: SurfaceResource, remoteView: SurfaceRemoteView?, at destination: SurfaceDestination, focus: Bool) async throws -> SurfaceProjection {
+        try await materialize(resource, at: destination, focus: focus)
+    }
+
     func closeTerminal(_ id: SurfaceResourceID) async throws {
         throw SurfaceCatalogError.unsupported("closing terminals on \(machine)")
     }
@@ -55,6 +65,9 @@ extension SurfaceProvider {
     }
     func renameRemoteWorkspace(id: String, name: String) async throws {
         throw SurfaceCatalogError.unsupported("workspaces on \(machine)")
+    }
+    func renameRemoteTab(id: String, name: String) async throws {
+        throw SurfaceCatalogError.unsupported("renaming tabs on \(machine)")
     }
     func renameTerminal(_ id: SurfaceResourceID, name: String) async throws {
         throw SurfaceCatalogError.unsupported("renaming terminals on \(machine)")
@@ -77,6 +90,16 @@ extension SurfaceProvider {
 @MainActor
 @Observable
 final class SurfaceCatalog {
+    /// A terminal identity is not enough while a remote terminal has several
+    /// placement-local tabs. An explicit tab therefore gets its own single-flight
+    /// lane. The nil lane preserves the legacy resource-wide open behavior.
+    private struct MaterializationKey: Hashable {
+        let resource: SurfaceResourceID
+        let remoteTabID: String?
+
+        var machine: SurfaceMachineID { resource.machine }
+    }
+
     static let shared = SurfaceCatalog()
 
     /// A provider call with no remaining caller must not occupy a resource forever when the
@@ -95,10 +118,18 @@ final class SurfaceCatalog {
     private(set) var machines: [SurfaceMachineID: SurfaceMachineInfo] = [:]
     private(set) var resources: [SurfaceResourceID: SurfaceResource] = [:]
     private(set) var projections: Set<SurfaceProjection> = []
+    /// The last accepted, revisioned graph for each cloud machine. Resource rows
+    /// are derived from this state by the provider; keeping it here makes the
+    /// complete state available to socket and agent callers without another cache.
+    private(set) var cloudStates: [SurfaceMachineID: CloudVMState] = [:]
+    /// Whether each retained graph was observed on a live link. This is separate
+    /// from `CloudVMState` because freshness is local observation metadata, not
+    /// part of the daemon document or its cursor.
+    private(set) var cloudStateObservations: [SurfaceMachineID: CloudVMStateObservation] = [:]
     private var providers: [SurfaceMachineID: any SurfaceProvider] = [:]
     /// Materializations are asynchronous, so actor reentrancy can otherwise let two callers
     /// pass the reuse check before either provider has returned a projection.
-    private var inFlightProjects: [SurfaceResourceID: SurfaceProjectionMaterialization] = [:]
+    private var inFlightProjects: [MaterializationKey: SurfaceProjectionMaterialization] = [:]
     /// Tokens for operations that can still report after the catalog moved on. The provider is
     /// held by the provider task itself and passed to the late-result callback, so these sets do
     /// not keep disconnected providers alive. Every token has one bounded eviction task.
@@ -141,9 +172,9 @@ final class SurfaceCatalog {
 
     func register(_ provider: any SurfaceProvider) {
         if let previous = providers[provider.machine], previous !== provider {
-            let inFlightIDs = inFlightProjects.keys.filter { $0.machine == provider.machine }
-            for id in inFlightIDs {
-                cancelInFlightProject(id, error: SurfaceCatalogError.unknownResource(id))
+            let inFlightKeys = inFlightProjects.keys.filter { $0.machine == provider.machine }
+            for key in inFlightKeys {
+                cancelInFlightProject(key, error: SurfaceCatalogError.unknownResource(key.resource))
             }
         }
         providers[provider.machine] = provider
@@ -152,9 +183,9 @@ final class SurfaceCatalog {
     }
 
     func unregister(machine: SurfaceMachineID) {
-        let inFlightIDs = inFlightProjects.keys.filter { $0.machine == machine }
-        for id in inFlightIDs {
-            cancelInFlightProject(id, error: SurfaceCatalogError.unknownResource(id))
+        let inFlightKeys = inFlightProjects.keys.filter { $0.machine == machine }
+        for key in inFlightKeys {
+            cancelInFlightProject(key, error: SurfaceCatalogError.unknownResource(key.resource))
         }
         // A machine that is gone (deleted, or access ended) takes its URL-backed
         // panes with it: a display or browser pane holds a tokened gateway URL
@@ -171,8 +202,10 @@ final class SurfaceCatalog {
         }
         providers[machine] = nil
         machines[machine] = nil
-        let gone = resources.keys.filter { $0.machine == machine }
+        let gone = Array(resources.keys.filter { $0.machine == machine })
         for id in gone { resources[id] = nil }
+        cloudStates[machine] = nil
+        cloudStateObservations[machine] = nil
         projections = projections.filter { $0.resource.machine != machine }
         notifyChange()
     }
@@ -193,7 +226,7 @@ final class SurfaceCatalog {
     /// disappeared are kept only if the pane still exists (the pane shows an exited/unknown
     /// terminal until it is closed); the caller prunes dead panes through `endProjection`.
     func replaceResources(_ list: [SurfaceResource], on machine: SurfaceMachineID, info: SurfaceMachineInfo? = nil) {
-        for id in resources.keys where id.machine == machine {
+        for id in Array(resources.keys.filter { $0.machine == machine }) {
             resources[id] = nil
         }
         for resource in list {
@@ -221,6 +254,87 @@ final class SurfaceCatalog {
         notifyChange()
     }
 
+    /// Retains the last accepted graph while recording that the transport no
+    /// longer proves it current. This is used when the fleet summary reports a
+    /// sleeping machine before the provider's next full refresh.
+    func markCloudStateStale(
+        on machine: SurfaceMachineID,
+        reason: String? = nil,
+        info: SurfaceMachineInfo? = nil
+    ) {
+        guard cloudStates[machine] != nil else {
+            if let info { machines[machine] = info }
+            notifyChange()
+            return
+        }
+        cloudStateObservations[machine] = .stale(reason: reason)
+        if let info {
+            precondition(info.id == machine, "machine info and stale machine disagree")
+            machines[machine] = info
+        }
+        notifyChange()
+    }
+
+    /// Installs one complete cloud graph and all of its derived resource rows as
+    /// one catalog transaction. Observers can never see a new cursor paired with
+    /// resource rows from the previous revision.
+    func replaceCloudState(
+        _ state: CloudVMState,
+        resources list: [SurfaceResource],
+        info: SurfaceMachineInfo,
+        observation: CloudVMStateObservation = .current
+    ) {
+        guard case .cloud = state.machine else { return }
+        precondition(info.id == state.machine, "cloud state and machine info disagree")
+        for id in Array(resources.keys.filter { $0.machine == state.machine }) {
+            resources[id] = nil
+        }
+        for resource in list {
+            precondition(resource.machine == state.machine, "resource \(resource.id) reported by the wrong cloud state")
+            resources[resource.id] = resource
+        }
+        cloudStates[state.machine] = state
+        cloudStateObservations[state.machine] = observation
+        machines[state.machine] = info
+        resolvePendingRestoredProjections(on: state.machine)
+        notifyChange()
+    }
+
+    func clearCloudState(on machine: SurfaceMachineID) {
+        let removedState = cloudStates.removeValue(forKey: machine) != nil
+        let removedObservation = cloudStateObservations.removeValue(forKey: machine) != nil
+        guard removedState || removedObservation else { return }
+        notifyChange()
+    }
+
+    /// Atomically publishes the machine's reachable capability rows while its
+    /// daemon graph is unavailable. The last accepted graph is retained and
+    /// marked stale. A separate `clearCloudState` followed by `replaceResources`
+    /// would destroy useful diagnosis state and expose two transitions, which
+    /// lets an agent read a half-updated VM.
+    func replaceUnavailableCloudState(
+        on machine: SurfaceMachineID,
+        resources list: [SurfaceResource],
+        info: SurfaceMachineInfo
+    ) {
+        precondition(info.id == machine, "machine info and unavailable machine disagree")
+        if cloudStates[machine] != nil {
+            cloudStateObservations[machine] = .stale(reason: info.linkError ?? info.linkState.rawValue)
+        } else {
+            cloudStateObservations[machine] = nil
+        }
+        for id in Array(resources.keys.filter { $0.machine == machine }) {
+            resources[id] = nil
+        }
+        for resource in list {
+            precondition(resource.machine == machine, "resource (resource.id) reported by the wrong machine")
+            resources[resource.id] = resource
+        }
+        machines[machine] = info
+        resolvePendingRestoredProjections(on: machine)
+        notifyChange()
+    }
+
     // MARK: Projections
 
     /// The only open path. Reuses an existing projection when `reuseExisting` is set and one
@@ -232,12 +346,44 @@ final class SurfaceCatalog {
     /// Desktop row uses this so "open this workspace's screen" never teleports to a
     /// different workspace's VNC pane. Nil keeps the global open-or-focus jump.
     @discardableResult
-    func project(_ id: SurfaceResourceID, into destination: SurfaceDestination, focus: Bool = true, reuseExisting: Bool = true, reuseInWorkspace: UUID? = nil) async throws -> (projection: SurfaceProjection, reused: Bool) {
+    func project(_ id: SurfaceResourceID, into destination: SurfaceDestination, focus: Bool = true, reuseExisting: Bool = true, reuseInWorkspace: UUID? = nil, remoteView: SurfaceRemoteView? = nil) async throws -> (projection: SurfaceProjection, reused: Bool) {
         guard let resource = resources[id] else { throw SurfaceCatalogError.unknownResource(id) }
-        if reuseExisting, let existing = projections.first(where: { $0.resource == id && (reuseInWorkspace == nil || $0.workspaceID == reuseInWorkspace) }) {
-            try claimCompletedMaterializationIfNeeded(id, projection: existing)
-            if focus { focusProjection?(existing) }
-            return (existing, true)
+        // Resolve the opaque tab id against the current graph before any async
+        // provider work. A stale view must fail, never silently attach to a
+        // different placement after a concurrent daemon update.
+        let resolvedRemoteView: SurfaceRemoteView?
+        if let remoteView {
+            guard let current = resource.remoteViews?.first(where: { $0.tabID == remoteView.tabID }) else {
+                throw SurfaceCatalogError.unavailable(
+                    id,
+                    reason: "remote tab \(remoteView.tabID) is no longer present"
+                )
+            }
+            guard current.workspace.id == remoteView.workspace.id else {
+                throw SurfaceCatalogError.unavailable(
+                    id,
+                    reason: "remote tab \(remoteView.tabID) moved to workspace \(current.workspace.id)"
+                )
+            }
+            resolvedRemoteView = current
+        } else {
+            resolvedRemoteView = nil
+        }
+        let materializationKey = MaterializationKey(resource: id, remoteTabID: resolvedRemoteView?.tabID)
+        if reuseExisting, let existing = projections.first(where: {
+            guard $0.resource == id, reuseInWorkspace == nil || $0.workspaceID == reuseInWorkspace else { return false }
+            // An explicit remote view is a placement identity. Reusing a pane
+            // attached to a different tab would make a later rename hit the
+            // wrong daemon object.
+            // An explicit placement must match an explicit projection. A legacy
+            // projection with no tab id is not safe to reuse because it may be
+            // showing another tab of the same terminal.
+            return resolvedRemoteView == nil || $0.remoteTabID == resolvedRemoteView?.tabID
+        }) {
+            try claimCompletedMaterializationIfNeeded(materializationKey, projection: existing)
+            let resolved = attachRemoteView(resolvedRemoteView, to: existing)
+            if focus { focusProjection?(resolved) }
+            return (resolved, true)
         }
         guard let provider = providers[id.machine] else { throw SurfaceCatalogError.noProvider(id.machine) }
 
@@ -248,8 +394,10 @@ final class SurfaceCatalog {
             let waiterID = UUID()
             let result = try await withTaskCancellationHandler {
                 try await awaitMaterialization(
+                    key: materializationKey,
                     id: id,
                     resource: resource,
+                    remoteView: resolvedRemoteView,
                     provider: provider,
                     destination: destination,
                     focus: focus,
@@ -258,10 +406,11 @@ final class SurfaceCatalog {
             } onCancel: { [weak self] in
                 guard let self else { return }
                 Task { @MainActor in
-                    self.cancelInFlightProjectWaiter(id, waiterID: waiterID)
+                    self.cancelInFlightProjectWaiter(materializationKey, waiterID: waiterID)
                 }
             }
             return try finalizeMaterializationWaiter(
+                key: materializationKey,
                 id: id,
                 waiterID: waiterID,
                 result: result,
@@ -269,14 +418,16 @@ final class SurfaceCatalog {
             )
         }
 
-        let projection = try await provider.materialize(resource, at: destination, focus: focus)
+        let projection = try await provider.materialize(resource, remoteView: resolvedRemoteView, at: destination, focus: focus)
         record(projection)
         return (projection, false)
     }
 
     private func awaitMaterialization(
+        key: MaterializationKey,
         id: SurfaceResourceID,
         resource: SurfaceResource,
+        remoteView: SurfaceRemoteView?,
         provider: any SurfaceProvider,
         destination: SurfaceDestination,
         focus: Bool,
@@ -288,22 +439,22 @@ final class SurfaceCatalog {
                 return
             }
 
-            if let inFlight = inFlightProjects[id], let completedProjection = inFlight.completedProjection {
+            if let inFlight = inFlightProjects[key], let completedProjection = inFlight.completedProjection {
                 var completed = inFlight
                 completed.pendingAcknowledgements.insert(waiterID)
-                inFlightProjects[id] = completed
+                inFlightProjects[key] = completed
                 continuation.resume(returning: (projection: completedProjection, reused: true))
                 return
             }
-            if let inFlight = inFlightProjects[id], inFlight.provider !== provider {
-                cancelInFlightProject(id, error: SurfaceCatalogError.unknownResource(id))
+            if let inFlight = inFlightProjects[key], inFlight.provider !== provider {
+                cancelInFlightProject(key, error: SurfaceCatalogError.unknownResource(id))
             }
-            if var inFlight = inFlightProjects[id] {
+            if var inFlight = inFlightProjects[key] {
                 inFlight.abandoned = false
                 inFlight.abandonmentDeadlineTask?.cancel()
                 inFlight.abandonmentDeadlineTask = nil
                 inFlight.waiters[waiterID] = (reused: true, continuation: continuation)
-                inFlightProjects[id] = inFlight
+                inFlightProjects[key] = inFlight
                 return
             }
 
@@ -316,13 +467,13 @@ final class SurfaceCatalog {
             trackMaterialization(token, for: provider)
             let task = Task { @MainActor [weak self] in
                 do {
-                    let projection = try await provider.materialize(resource, at: destination, focus: focus)
-                    self?.finishInFlightProject(id, token: token, provider: provider, result: .success(projection))
+                    let projection = try await provider.materialize(resource, remoteView: remoteView, at: destination, focus: focus)
+                    self?.finishInFlightProject(key, token: token, provider: provider, result: .success(projection))
                 } catch {
-                    self?.finishInFlightProject(id, token: token, provider: provider, result: .failure(error))
+                    self?.finishInFlightProject(key, token: token, provider: provider, result: .failure(error))
                 }
             }
-            inFlightProjects[id] = SurfaceProjectionMaterialization(
+            inFlightProjects[key] = SurfaceProjectionMaterialization(
                 token: token,
                 provider: provider,
                 task: task,
@@ -337,12 +488,13 @@ final class SurfaceCatalog {
     }
 
     private func finishInFlightProject(
-        _ id: SurfaceResourceID,
+        _ key: MaterializationKey,
         token: UUID,
         provider: any SurfaceProvider,
         result: Result<SurfaceProjection, any Error>
     ) {
-        guard var inFlight = inFlightProjects[id], inFlight.token == token else {
+        let id = key.resource
+        guard var inFlight = inFlightProjects[key], inFlight.token == token else {
             releaseTrackedMaterialization(token)
             if retiredMaterializationTokens.remove(token) != nil {
                 retiredMaterializationEvictionTasks.removeValue(forKey: token)?.cancel()
@@ -358,19 +510,22 @@ final class SurfaceCatalog {
         switch result {
         case .success(let projection):
             guard !inFlight.abandoned else {
-                inFlightProjects[id] = nil
+                inFlightProjects[key] = nil
                 cleanupMaterialization(projection, from: inFlight.provider)
                 return
             }
             guard resources[id] != nil else {
-                inFlightProjects[id] = nil
+                inFlightProjects[key] = nil
                 cleanupMaterialization(projection, from: inFlight.provider)
                 resume(inFlight.waiters, throwing: SurfaceCatalogError.unknownResource(id))
                 return
             }
             let returnedProjection: SurfaceProjection
             let ownsProjection: Bool
-            if let existing = projections.first(where: { $0.resource == id }) {
+            if let existing = projections.first(where: {
+                $0.resource == id
+                    && (key.remoteTabID == nil || $0.remoteTabID == key.remoteTabID)
+            }) {
                 if existing.panelID != projection.panelID {
                     cleanupMaterialization(projection, from: inFlight.provider)
                 }
@@ -386,18 +541,18 @@ final class SurfaceCatalog {
             inFlight.completedProjection = returnedProjection
             inFlight.completionOwnsProjection = ownsProjection
             inFlight.pendingAcknowledgements = Set(waiters.keys)
-            inFlight.completionCleanupTask = completedMaterializationCleanupTask(id: id, token: token)
-            inFlightProjects[id] = inFlight
+            inFlight.completionCleanupTask = completedMaterializationCleanupTask(key: key, token: token)
+            inFlightProjects[key] = inFlight
             for waiter in waiters.values {
                 waiter.continuation.resume(
                     returning: (projection: returnedProjection, reused: ownsProjection ? waiter.reused : true)
                 )
             }
             if waiters.isEmpty {
-                discardUnclaimedMaterializationIfEmpty(id)
+                discardUnclaimedMaterializationIfEmpty(key)
             }
         case .failure(let error):
-            inFlightProjects[id] = nil
+            inFlightProjects[key] = nil
             resume(inFlight.waiters, throwing: error)
         }
     }
@@ -406,79 +561,80 @@ final class SurfaceCatalog {
     /// The cancellation check and acknowledgement share the same turn, so cancellation cannot
     /// leave a newly recorded pane ownerless between those two actions.
     private func finalizeMaterializationWaiter(
+        key: MaterializationKey,
         id: SurfaceResourceID,
         waiterID: UUID,
         result: SurfaceProjectionMaterialization.Result,
         focus: Bool
     ) throws -> SurfaceProjectionMaterialization.Result {
         guard !Task.isCancelled else {
-            cancelCompletedMaterialization(id, waiterID: waiterID)
+            cancelCompletedMaterialization(key, waiterID: waiterID)
             throw CancellationError()
         }
         guard resources[id] != nil else {
-            cancelCompletedMaterialization(id, waiterID: waiterID)
+            cancelCompletedMaterialization(key, waiterID: waiterID)
             throw SurfaceCatalogError.unknownResource(id)
         }
         guard projections.contains(result.projection) else {
-            cancelCompletedMaterialization(id, waiterID: waiterID)
+            cancelCompletedMaterialization(key, waiterID: waiterID)
             throw SurfaceCatalogError.unavailable(id, reason: "projection closed while opening")
         }
-        acknowledgeMaterialization(id, waiterID: waiterID)
+        acknowledgeMaterialization(key, waiterID: waiterID)
         if result.reused, focus { focusProjection?(result.projection) }
         return result
     }
 
-    private func acknowledgeMaterialization(_ id: SurfaceResourceID, waiterID: UUID) {
-        guard let inFlight = inFlightProjects[id], inFlight.completedProjection != nil,
+    private func acknowledgeMaterialization(_ key: MaterializationKey, waiterID: UUID) {
+        guard let inFlight = inFlightProjects[key], inFlight.completedProjection != nil,
               inFlight.pendingAcknowledgements.contains(waiterID) else { return }
         // One accepted result gives the pane an owner. The other resumed callers no longer need
         // bookkeeping because their later cancellation must not close a pane this caller owns.
         inFlight.completionCleanupTask?.cancel()
-        inFlightProjects[id] = nil
+        inFlightProjects[key] = nil
     }
 
     private func claimCompletedMaterializationIfNeeded(
-        _ id: SurfaceResourceID,
+        _ key: MaterializationKey,
         projection: SurfaceProjection
     ) throws {
-        guard let inFlight = inFlightProjects[id],
+        guard let inFlight = inFlightProjects[key],
               let completedProjection = inFlight.completedProjection,
               completedProjection.resource == projection.resource,
               completedProjection.panelID == projection.panelID else { return }
         guard !Task.isCancelled else { throw CancellationError() }
         inFlight.completionCleanupTask?.cancel()
-        inFlightProjects[id] = nil
+        inFlightProjects[key] = nil
     }
 
-    private func cancelCompletedMaterialization(_ id: SurfaceResourceID, waiterID: UUID) {
-        guard var inFlight = inFlightProjects[id],
+    private func cancelCompletedMaterialization(_ key: MaterializationKey, waiterID: UUID) {
+        guard var inFlight = inFlightProjects[key],
               inFlight.completedProjection != nil,
               inFlight.pendingAcknowledgements.remove(waiterID) != nil else { return }
         if inFlight.pendingAcknowledgements.isEmpty {
-            inFlightProjects[id] = nil
+            inFlightProjects[key] = nil
             inFlight.completionCleanupTask?.cancel()
             if inFlight.completionOwnsProjection {
                 cleanupRecordedMaterialization(inFlight)
             }
         } else {
-            inFlightProjects[id] = inFlight
+            inFlightProjects[key] = inFlight
         }
     }
 
     /// Handles the defensive empty-set case without retaining a completed operation. Normal
     /// provider completions always have at least one waiter unless every caller cancelled first.
-    private func discardUnclaimedMaterializationIfEmpty(_ id: SurfaceResourceID) {
-        guard let inFlight = inFlightProjects[id],
+    private func discardUnclaimedMaterializationIfEmpty(_ key: MaterializationKey) {
+        guard let inFlight = inFlightProjects[key],
               inFlight.completedProjection != nil,
               inFlight.pendingAcknowledgements.isEmpty else { return }
-        inFlightProjects[id] = nil
+        inFlightProjects[key] = nil
         inFlight.completionCleanupTask?.cancel()
         if inFlight.completionOwnsProjection {
             cleanupRecordedMaterialization(inFlight)
         }
     }
 
-    private func completedMaterializationCleanupTask(id: SurfaceResourceID, token: UUID) -> Task<Void, Never> {
+    private func completedMaterializationCleanupTask(key: MaterializationKey, token: UUID) -> Task<Void, Never> {
         let timeout = completedMaterializationRetention
         let clock = materializationClock
         return Task { @MainActor [weak self, clock] in
@@ -488,19 +644,19 @@ final class SurfaceCatalog {
                 return
             }
             guard !Task.isCancelled else { return }
-            self?.expireCompletedMaterialization(id, token: token)
+            self?.expireCompletedMaterialization(key, token: token)
         }
     }
 
     /// A caller can be dropped without cancellation, so completion bookkeeping needs a bounded
     /// recovery path. An acknowledged result is removed before this deadline; otherwise the
     /// operation is treated as unclaimed and any pane owned by it is discarded.
-    private func expireCompletedMaterialization(_ id: SurfaceResourceID, token: UUID) {
-        guard let inFlight = inFlightProjects[id],
+    private func expireCompletedMaterialization(_ key: MaterializationKey, token: UUID) {
+        guard let inFlight = inFlightProjects[key],
               inFlight.token == token,
               inFlight.completedProjection != nil,
               !inFlight.pendingAcknowledgements.isEmpty else { return }
-        inFlightProjects[id] = nil
+        inFlightProjects[key] = nil
         inFlight.completionCleanupTask?.cancel()
         if inFlight.completionOwnsProjection {
             cleanupRecordedMaterialization(inFlight)
@@ -551,10 +707,10 @@ final class SurfaceCatalog {
         }
     }
 
-    private func cancelInFlightProjectWaiter(_ id: SurfaceResourceID, waiterID: UUID) {
-        guard let current = inFlightProjects[id] else { return }
+    private func cancelInFlightProjectWaiter(_ key: MaterializationKey, waiterID: UUID) {
+        guard let current = inFlightProjects[key] else { return }
         if current.completedProjection != nil {
-            cancelCompletedMaterialization(id, waiterID: waiterID)
+            cancelCompletedMaterialization(key, waiterID: waiterID)
             return
         }
         var inFlight = current
@@ -576,22 +732,22 @@ final class SurfaceCatalog {
                     return
                 }
                 guard !Task.isCancelled else { return }
-                self?.expireAbandonedMaterialization(id, token: token)
+                self?.expireAbandonedMaterialization(key, token: token)
             }
         }
-        inFlightProjects[id] = inFlight
+        inFlightProjects[key] = inFlight
         waiter.continuation.resume(throwing: CancellationError())
     }
 
     /// Retire a detached provider operation after its bounded recovery window. New callers can
     /// start a fresh operation immediately while the old task drains cooperatively.
-    private func expireAbandonedMaterialization(_ id: SurfaceResourceID, token: UUID) {
-        guard let inFlight = inFlightProjects[id],
+    private func expireAbandonedMaterialization(_ key: MaterializationKey, token: UUID) {
+        guard let inFlight = inFlightProjects[key],
               inFlight.token == token,
               inFlight.completedProjection == nil,
               inFlight.abandoned,
               inFlight.waiters.isEmpty else { return }
-        inFlightProjects[id] = nil
+        inFlightProjects[key] = nil
         inFlight.abandonmentDeadlineTask?.cancel()
         retireMaterialization(token)
         inFlight.task.cancel()
@@ -630,9 +786,9 @@ final class SurfaceCatalog {
         releaseTrackedMaterialization(token)
     }
 
-    private func cancelInFlightProject(_ id: SurfaceResourceID, error: any Error) {
-        guard let current = inFlightProjects[id], current.completedProjection == nil,
-              let inFlight = inFlightProjects.removeValue(forKey: id) else { return }
+    private func cancelInFlightProject(_ key: MaterializationKey, error: any Error) {
+        guard let current = inFlightProjects[key], current.completedProjection == nil,
+              let inFlight = inFlightProjects.removeValue(forKey: key) else { return }
         inFlight.abandonmentDeadlineTask?.cancel()
         retireMaterialization(inFlight.token)
         inFlight.task.cancel()
@@ -654,6 +810,22 @@ final class SurfaceCatalog {
     func record(_ projection: SurfaceProjection) {
         insertSupersedingLocalPlaceholder(projection)
         notifyChange()
+    }
+
+    /// Fills a legacy projection's missing remote coordinates, or replaces a
+    /// stale coordinate only when the caller explicitly supplied the same tab.
+    /// The set remains the single owner of projection identity.
+    @discardableResult
+    private func attachRemoteView(_ view: SurfaceRemoteView?, to projection: SurfaceProjection) -> SurfaceProjection {
+        guard let view,
+              projection.remoteTabID == nil || projection.remoteTabID == view.tabID else { return projection }
+        projections.remove(projection)
+        var updated = projection
+        updated.remoteWorkspaceID = view.workspace.id
+        updated.remoteTabID = view.tabID
+        projections.insert(updated)
+        notifyChange()
+        return updated
     }
 
     /// A pane can show one resource. When a remote resource is projected into a pane the
@@ -697,6 +869,41 @@ final class SurfaceCatalog {
         projections.filter { $0.resource == id }.sorted { $0.panelID.uuidString < $1.panelID.uuidString }
     }
 
+    /// Resolves an agent-provided remote placement against the latest accepted
+    /// graph. A workspace id alone is valid only when it identifies one view;
+    /// callers that need a particular tab must provide `tabID`.
+    func remoteView(
+        for id: SurfaceResourceID,
+        tabID: String? = nil,
+        workspaceID: String? = nil
+    ) throws -> SurfaceRemoteView? {
+        guard let resource = resources[id] else { throw SurfaceCatalogError.unknownResource(id) }
+        guard let views = resource.remoteViews else {
+            if tabID != nil || workspaceID != nil {
+                throw SurfaceCatalogError.unavailable(id, reason: "remote placement data is unavailable")
+            }
+            return nil
+        }
+        if let tabID {
+            guard let view = views.first(where: { $0.tabID == tabID }) else {
+                throw SurfaceCatalogError.unavailable(id, reason: "remote tab \(tabID) is no longer present")
+            }
+            if let workspaceID, view.workspace.id != workspaceID {
+                throw SurfaceCatalogError.unavailable(id, reason: "remote tab \(tabID) is not in workspace \(workspaceID)")
+            }
+            return view
+        }
+        guard let workspaceID else { return nil }
+        let matches = views.filter { $0.workspace.id == workspaceID }
+        guard matches.count <= 1 else {
+            throw SurfaceCatalogError.ambiguousRemotePlacement(id, workspaceID: workspaceID)
+        }
+        guard let view = matches.first else {
+            throw SurfaceCatalogError.unavailable(id, reason: "remote workspace \(workspaceID) has no view of this resource")
+        }
+        return view
+    }
+
     func projection(forPanel panelID: UUID) -> SurfaceProjection? {
         projections.first { $0.panelID == panelID }
     }
@@ -714,7 +921,13 @@ final class SurfaceCatalog {
     func restore(_ records: [SurfaceProjectionRecord], workspaceID: UUID) {
         for record in records {
             if resources[record.resource] != nil {
-                insertSupersedingLocalPlaceholder(SurfaceProjection(resource: record.resource, workspaceID: workspaceID, panelID: record.panelID))
+                insertSupersedingLocalPlaceholder(SurfaceProjection(
+                    resource: record.resource,
+                    workspaceID: workspaceID,
+                    panelID: record.panelID,
+                    remoteWorkspaceID: record.remoteWorkspaceID,
+                    remoteTabID: record.remoteTabID
+                ))
             } else {
                 pendingRestoredProjections[record] = workspaceID
             }
@@ -725,7 +938,14 @@ final class SurfaceCatalog {
     func projectionRecords(forWorkspace workspaceID: UUID) -> [SurfaceProjectionRecord] {
         projections
             .filter { $0.workspaceID == workspaceID }
-            .map { SurfaceProjectionRecord(panelID: $0.panelID, resource: $0.resource) }
+            .map {
+                SurfaceProjectionRecord(
+                    panelID: $0.panelID,
+                    resource: $0.resource,
+                    remoteWorkspaceID: $0.remoteWorkspaceID,
+                    remoteTabID: $0.remoteTabID
+                )
+            }
             .sorted { $0.panelID.uuidString < $1.panelID.uuidString }
     }
 
@@ -742,7 +962,13 @@ final class SurfaceCatalog {
     private func resolvePendingRestoredProjections(on machine: SurfaceMachineID) {
         for (record, workspaceID) in pendingRestoredProjections where record.resource.machine == machine {
             guard resources[record.resource] != nil else { continue }
-            insertSupersedingLocalPlaceholder(SurfaceProjection(resource: record.resource, workspaceID: workspaceID, panelID: record.panelID))
+            insertSupersedingLocalPlaceholder(SurfaceProjection(
+                resource: record.resource,
+                workspaceID: workspaceID,
+                panelID: record.panelID,
+                remoteWorkspaceID: record.remoteWorkspaceID,
+                remoteTabID: record.remoteTabID
+            ))
             pendingRestoredProjections[record] = nil
         }
     }
@@ -765,6 +991,18 @@ final class SurfaceCatalog {
             machines: orderedMachines,
             resources: orderedResources,
             projections: projections.sorted { $0.panelID.uuidString < $1.panelID.uuidString }
+        )
+    }
+
+    /// Complete export for the local control socket. This is separate from
+    /// `snapshot` because sidebar redraws do not need to copy or hash the full
+    /// remote daemon documents.
+    var export: SurfaceCatalogExport {
+        let retainedObservations = cloudStateObservations.filter { cloudStates[$0.key] != nil }
+        SurfaceCatalogExport(
+            catalog: snapshot,
+            cloudStates: cloudStates.values.sorted { $0.machine.rawValue < $1.machine.rawValue },
+            cloudStateObservations: retainedObservations
         )
     }
 

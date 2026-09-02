@@ -102,12 +102,13 @@ struct CloudTreeRowContentView: View {
             )
         case .terminal(let row):
             CloudTreeTerminalRowContent(row: row, style: style)
-        case .display(let resource, _):
+        case .display(let resource, _, let remoteView):
             CloudTreeLeafRow(
                 style: style,
                 icon: "display",
                 tint: CloudTreeIconPalette.display,
-                title: resource.title.isEmpty ? String(localized: "cloudTree.node.desktop", defaultValue: "Desktop") : resource.title,
+                title: remoteView?.name?.trimmingCharacters(in: .whitespacesAndNewlines).flatMap { $0.isEmpty ? nil : $0 }
+                    ?? (resource.title.isEmpty ? String(localized: "cloudTree.node.desktop", defaultValue: "Desktop") : resource.title),
                 detail: String(localized: "cloudTree.node.desktop.detail", defaultValue: "noVNC")
             )
         case .browsersGroup:
@@ -376,7 +377,7 @@ struct CloudTreeTerminalRowContent: View {
             style: style,
             icon: glyph,
             tint: CloudTreeIconPalette.terminal,
-            title: terminal.title.isEmpty ? String(localized: "cloudTree.terminal.untitled", defaultValue: "terminal") : terminal.title,
+            title: row.displayTitle.isEmpty ? String(localized: "cloudTree.terminal.untitled", defaultValue: "terminal") : row.displayTitle,
             titleDimmed: terminal.lifecycle == .exited,
             detail: terminal.detail.flatMap { $0.isEmpty ? nil : Self.abbreviated($0) }
         ) {

@@ -6,7 +6,8 @@ extension TabManager {
     /// discarded by an older completion.
     func enqueueCloudRename(
         key: String,
-        operation: @escaping @MainActor () async -> Void
+        operation: @escaping @MainActor () async -> Void,
+        onFinished: @escaping @MainActor () -> Void = {}
     ) {
         let generation = (cloudRenameGenerations[key] ?? 0) &+ 1
         cloudRenameGenerations[key] = generation
@@ -15,8 +16,12 @@ extension TabManager {
             if let previous {
                 await previous.value
             }
-            guard !Task.isCancelled else { return }
+            guard !Task.isCancelled else {
+                onFinished()
+                return
+            }
             await operation()
+            onFinished()
             guard let self, self.cloudRenameGenerations[key] == generation else { return }
             self.cloudRenameTasks[key] = nil
             self.cloudRenameGenerations[key] = nil

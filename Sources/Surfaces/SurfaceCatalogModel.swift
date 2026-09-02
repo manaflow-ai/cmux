@@ -98,6 +98,366 @@ struct SurfaceAgentBadge: Hashable, Codable, Sendable {
     var source: String?
 }
 
+/// The daemon's monotonic position for one complete remote session state.
+///
+/// `revision` is encoded as a string because that is the cmux-tui wire form. The
+/// decoder accepts both strings and JSON numbers so a client can read snapshots
+/// from older daemon builds. A revision is meaningful only inside its generation.
+struct CloudVMCursor: Hashable, Codable, Sendable {
+    var generation: String
+    var revision: UInt64
+
+    init(generation: String, revision: UInt64) {
+        self.generation = generation
+        self.revision = revision
+    }
+
+    init?(snapshot: [String: Any]) {
+        guard let cursor = snapshot["cursor"] as? [String: Any],
+              let generation = (cursor["generation"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !generation.isEmpty,
+              let revision = Self.revision(cursor["revision"])
+        else { return nil }
+        self.init(generation: generation, revision: revision)
+    }
+
+    init?(wire: [String: Any]) {
+        guard let generation = (wire["generation"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !generation.isEmpty,
+              let revision = Self.revision(wire["revision"])
+        else { return nil }
+        self.init(generation: generation, revision: revision)
+    }
+
+    private static func revision(_ raw: Any?) -> UInt64? {
+        CloudWireNumber.unsigned(raw)
+    }
+
+    /// Returns true only when both cursors belong to the same daemon
+    /// generation. Generations are opaque identifiers, so callers must never
+    /// impose an ordering across them.
+    func isNewer(than other: CloudVMCursor?) -> Bool {
+        guard let other else { return true }
+        return generation == other.generation && revision > other.revision
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case generation
+        case revision
+    }
+
+    init(from decoder: any Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        let generation = try container.decode(String.self, forKey: .generation)
+        if let revision = try? container.decode(UInt64.self, forKey: .revision) {
+            self.init(generation: generation, revision: revision)
+        } else {
+            let revision = try container.decode(String.self, forKey: .revision)
+            guard let value = UInt64(revision) else {
+                throw DecodingError.dataCorruptedError(forKey: .revision, in: container, debugDescription: "revision is not an unsigned integer")
+            }
+            self.init(generation: generation, revision: value)
+        }
+    }
+
+    func encode(to encoder: any Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(generation, forKey: .generation)
+        try container.encode(String(revision), forKey: .revision)
+    }
+}
+
+/// Strictly decodes the integer forms used by the cmux-tui wire protocol.
+/// JSONSerialization represents both booleans and numbers as NSNumber on some
+/// paths. Coercing that value with intValue would turn `true`, fractions, and
+/// overflowing values into a different cursor or index, which can make a delta
+/// look contiguous when it is not.
+enum CloudWireNumber {
+    static func unsigned(_ raw: Any?) -> UInt64? {
+        if raw is Bool { return nil }
+        if let number = raw as? NSNumber {
+            guard CFGetTypeID(number) != CFBooleanGetTypeID() else { return nil }
+            guard number.doubleValue.isFinite,
+                  number.doubleValue.rounded() == number.doubleValue,
+                  number.doubleValue >= 0 else { return nil }
+            if let value = raw as? UInt64 { return value }
+            return UInt64(number.stringValue)
+        }
+        if let value = raw as? UInt64 { return value }
+        if let value = raw as? Int, value >= 0 { return UInt64(value) }
+        if let value = raw as? String { return UInt64(value.trimmingCharacters(in: .whitespacesAndNewlines)) }
+        return nil
+    }
+
+    static func signed(_ raw: Any?) -> Int? {
+        if raw is Bool { return nil }
+        if let number = raw as? NSNumber {
+            guard CFGetTypeID(number) != CFBooleanGetTypeID() else { return nil }
+            guard number.doubleValue.isFinite,
+                  number.doubleValue.rounded() == number.doubleValue else { return nil }
+            return Int(number.stringValue)
+        }
+        if let value = raw as? Int { return value }
+        if let value = raw as? String { return Int(value.trimmingCharacters(in: .whitespacesAndNewlines)) }
+        return nil
+    }
+}
+
+/// A daemon entity not yet modeled by the desktop. Its exact JSON is retained so
+/// an agent or a future renderer can inspect it without waiting for a schema bump.
+struct CloudVMEntity: Hashable, Codable, Sendable {
+    var kind: String
+    var id: String?
+    var payload: Data
+}
+
+/// A typed index of the cmux-tui session graph. The raw snapshot remains the
+/// authority; these values are immutable indexes used by the tree and agents.
+struct CloudVMWorkspaceState: Hashable, Codable, Sendable {
+    var id: String
+    var name: String
+    var index: Int
+    var focused: Bool
+}
+
+struct CloudVMScreenState: Hashable, Codable, Sendable {
+    var id: String
+    var workspaceID: String
+    var name: String?
+    var index: Int
+    var focused: Bool
+    /// The daemon layout document, kept opaque because its schema can evolve.
+    var layout: Data?
+}
+
+struct CloudVMPaneState: Hashable, Codable, Sendable {
+    var id: String
+    var screenID: String
+    var name: String?
+    var focused: Bool
+    var zoomed: Bool
+    var tabIDs: [String]
+}
+
+struct CloudVMTabState: Hashable, Codable, Sendable {
+    var id: String
+    var paneID: String
+    var name: String?
+    var index: Int
+    var focused: Bool
+    var contentKind: String
+    var contentID: String
+}
+
+struct CloudVMTerminalState: Hashable, Codable, Sendable {
+    var id: String
+    var tabIDs: [String]
+    var title: String
+    var cwd: String?
+    var lifecycle: String
+    var cols: Int?
+    var rows: Int?
+    var running: Bool?
+}
+
+struct CloudVMBrowserState: Hashable, Codable, Sendable {
+    var id: String
+    var tabID: String
+    var url: String
+    var title: String
+    var status: String
+}
+
+struct CloudVMAgentState: Hashable, Codable, Sendable {
+    var id: String?
+    var terminalID: String
+    var state: String
+    var source: String?
+}
+
+/// Complete state for one remote cmux-tui session.
+///
+/// `rawSnapshot` preserves fields that this app does not understand yet. The
+/// typed graph is derived from the same bytes and is never updated independently.
+/// This gives the agent a stable graph today and an accretive escape hatch for new
+/// daemon resources tomorrow.
+struct CloudVMState: Hashable, Codable, Sendable {
+    var machine: SurfaceMachineID
+    var cursor: CloudVMCursor
+    var rawSnapshot: Data
+    var workspaces: [CloudVMWorkspaceState]
+    var screens: [CloudVMScreenState]
+    var panes: [CloudVMPaneState]
+    var tabs: [CloudVMTabState]
+    var terminals: [CloudVMTerminalState]
+    var browsers: [CloudVMBrowserState]
+    var agents: [CloudVMAgentState]
+    var otherEntities: [CloudVMEntity]
+
+    var workspaceIDs: Set<String> { Set(workspaces.map(\.id)) }
+
+    func entity(kind: String, id: String) -> CloudVMEntity? {
+        entities(kind: kind).first { $0.id == id }
+    }
+
+    /// Unified read access for agents and future features. Known typed kinds
+    /// and opaque kinds use the same plural snapshot-key vocabulary; singular
+    /// daemon resource names are accepted as aliases.
+    func entities(kind: String) -> [CloudVMEntity] {
+        let key = Self.snapshotKey(for: kind)
+        guard key != "cursor" else { return [] }
+        guard let snapshot = snapshotObject(), let value = snapshot[key] else {
+            return otherEntities.filter { $0.kind == kind }
+        }
+        let objects: [[String: Any]]
+        if let object = value as? [String: Any] {
+            objects = [object]
+        } else if let array = value as? [[String: Any]] {
+            objects = array
+        } else {
+            return []
+        }
+        return objects.compactMap { object in
+            guard let payload = try? JSONSerialization.data(withJSONObject: object, options: [.sortedKeys]) else {
+                return nil
+            }
+            return CloudVMEntity(kind: key, id: object["id"] as? String, payload: payload)
+        }
+    }
+
+    func snapshotObject() -> [String: Any]? {
+        try? JSONSerialization.jsonObject(with: rawSnapshot) as? [String: Any]
+    }
+
+    private static func snapshotKey(for kind: String) -> String {
+        switch kind {
+        case "machine", "machines": return "machine"
+        case "session", "sessions": return "session"
+        case "workspace", "workspaces": return "workspaces"
+        case "screen", "screens": return "screens"
+        case "pane", "panes": return "panes"
+        case "tab", "tabs": return "tabs"
+        case "terminal", "terminals": return "terminals"
+        case "browser", "browsers": return "browsers"
+        case "client", "clients": return "clients"
+        case "notification", "notifications": return "notifications"
+        case "agent", "agents": return "agents"
+        case "pairing_request", "pairing_requests": return "pairing_requests"
+        case "frontend_projection", "frontend_projections": return "frontend_projections"
+        case "sidebar_view", "sidebar_views": return "sidebar_views"
+        default: return kind
+        }
+    }
+
+    /// Returns the complete document for an agent read, with credential-like
+    /// fields redacted. Synchronization still uses rawSnapshot; this boundary
+    /// only protects the local control socket from leaking pairing or renderer
+    /// secrets.
+    func agentSnapshotObject() -> [String: Any]? {
+        guard let snapshot = snapshotObject() else { return nil }
+        return Self.redact(snapshot, context: []) as? [String: Any]
+    }
+
+    func agentEntityObject(_ entity: CloudVMEntity) -> Any {
+        guard let object = try? JSONSerialization.jsonObject(with: entity.payload) else {
+            return NSNull()
+        }
+        return Self.redact(object, context: [entity.kind])
+    }
+
+    private static func redact(_ value: Any, context: [String]) -> Any {
+        if let dictionary = value as? [String: Any] {
+            var result: [String: Any] = [:]
+            for (childKey, childValue) in dictionary {
+                if isSensitiveKey(childKey, context: context) {
+                    result[childKey] = "[REDACTED]"
+                } else {
+                    result[childKey] = redact(childValue, context: context + [childKey])
+                }
+            }
+            return result
+        }
+        if let array = value as? [Any] {
+            return array.map { redact($0, context: context) }
+        }
+        return value
+    }
+
+    private static func isSensitiveKey(_ key: String, context: [String]) -> Bool {
+        let normalized = key
+            .lowercased()
+            .replacingOccurrences(of: "-", with: "_")
+        if normalized == "code", context.contains("pairing_requests") {
+            return true
+        }
+        let exact = Set([
+            "token", "secret", "password", "credential", "private_key",
+            "authorization", "access_key", "client_secret"
+        ])
+        return exact.contains(normalized)
+            || normalized.hasSuffix("_token")
+            || normalized.hasSuffix("_secret")
+            || normalized.hasSuffix("_password")
+            || normalized.hasSuffix("_credential")
+            || normalized.hasSuffix("_private_key")
+    }
+}
+
+/// Freshness of an accepted document is separate from the document itself.
+/// A sleeping or disconnected VM can still have useful last-known state, but
+/// that state must never be mistaken for a permission to mutate the VM.
+enum CloudVMStateFreshness: String, Codable, Sendable {
+    case current
+    case stale
+}
+
+struct CloudVMStateObservation: Hashable, Codable, Sendable {
+    var freshness: CloudVMStateFreshness
+    var reason: String?
+
+    static let current = CloudVMStateObservation(freshness: .current, reason: nil)
+
+    static func stale(reason: String? = nil) -> Self {
+        Self(freshness: .stale, reason: reason)
+    }
+}
+
+/// The stream can carry a delta that the desktop does not understand, or it can
+/// end because its journal window overflowed. Both cases require a new snapshot.
+enum CloudVMStateSyncDecision: Equatable, Sendable {
+    case ignoreStale
+    case installSnapshot
+    case fetchSnapshot
+
+    /// Decide whether one stream item can advance the installed graph.
+    ///
+    /// A revision has meaning only inside its generation. A new generation is a
+    /// new daemon session and therefore accepts a snapshot even when its numeric
+    /// revision is lower. A delta must join the exact cursor already installed;
+    /// accepting a non-contiguous delta would silently lose an entity update.
+    static func forSnapshot(
+        incoming: CloudVMCursor,
+        current: CloudVMCursor?
+    ) -> Self {
+        guard let current else { return .installSnapshot }
+        guard incoming.generation == current.generation else { return .installSnapshot }
+        return incoming.revision > current.revision ? .installSnapshot : .ignoreStale
+    }
+
+    static func forDelta(
+        generation: String,
+        previousRevision: UInt64,
+        revision: UInt64,
+        current: CloudVMCursor?
+    ) -> Self {
+        guard let current,
+              generation == current.generation else { return .fetchSnapshot }
+        guard revision > current.revision else { return .ignoreStale }
+        guard previousRevision == current.revision else { return .fetchSnapshot }
+        return .installSnapshot
+    }
+}
+
 /// The cmux-tui workspace a remote resource belongs to (nil for local resources).
 struct SurfaceRemoteWorkspace: Hashable, Codable, Sendable {
     var id: String
@@ -111,6 +471,13 @@ struct SurfaceRemoteWorkspace: Hashable, Codable, Sendable {
 struct SurfaceRemoteView: Hashable, Codable, Sendable {
     var tabID: String
     var workspace: SurfaceRemoteWorkspace
+    /// Exact graph coordinates. They make a local pane's rename target stable even
+    /// when the same terminal is present in several workspaces.
+    var screenID: String? = nil
+    var paneID: String? = nil
+    var name: String? = nil
+    var index: Int? = nil
+    var focused: Bool? = nil
 }
 
 struct SurfaceResource: Identifiable, Hashable, Codable, Sendable {
@@ -157,6 +524,11 @@ struct SurfaceProjection: Hashable, Codable, Sendable {
     var resource: SurfaceResourceID
     var workspaceID: UUID
     var panelID: UUID
+    /// The remote placement represented by this local pane, if it came from a
+    /// cloud graph. A terminal id alone is not enough because tab names are
+    /// placement-local.
+    var remoteWorkspaceID: String? = nil
+    var remoteTabID: String? = nil
 }
 
 enum SurfaceSplitDirection: String, Codable, Sendable {
@@ -239,6 +611,20 @@ struct SurfaceCatalogSnapshot: Hashable, Codable, Sendable {
     func isOpen(_ resource: SurfaceResourceID) -> Bool {
         projections.contains { $0.resource == resource }
     }
+
+}
+
+/// One atomic export for agent and socket readers. The sidebar consumes only
+/// `catalog`; the complete daemon graphs stay out of its high-frequency value.
+/// Both halves are captured in the same main-actor turn, so their cursors and
+/// derived resource rows always describe one accepted state.
+struct SurfaceCatalogExport: Sendable {
+    var catalog: SurfaceCatalogSnapshot
+    var cloudStates: [CloudVMState]
+    /// Observation metadata is kept beside, not inside, the daemon document.
+    /// This preserves cursor/raw-snapshot equality while making offline state
+    /// explicit to agents.
+    var cloudStateObservations: [SurfaceMachineID: CloudVMStateObservation] = [:]
 }
 
 /// Persisted with the session: which resource each pane projected, so a restored pane
@@ -246,12 +632,15 @@ struct SurfaceCatalogSnapshot: Hashable, Codable, Sendable {
 struct SurfaceProjectionRecord: Hashable, Codable, Sendable {
     var panelID: UUID
     var resource: SurfaceResourceID
+    var remoteWorkspaceID: String? = nil
+    var remoteTabID: String? = nil
 }
 
 enum SurfaceCatalogError: Error, LocalizedError, Equatable {
     case unknownResource(SurfaceResourceID)
     case noProvider(SurfaceMachineID)
     case unavailable(SurfaceResourceID, reason: String)
+    case ambiguousRemotePlacement(SurfaceResourceID, workspaceID: String)
     case destinationNotFound(String)
     case unsupported(String)
 
@@ -260,6 +649,8 @@ enum SurfaceCatalogError: Error, LocalizedError, Equatable {
         case .unknownResource(let id): return "Unknown surface \(id)."
         case .noProvider(let machine): return "No provider for machine \(machine)."
         case .unavailable(let id, let reason): return "\(id) is unavailable: \(reason)"
+        case .ambiguousRemotePlacement(let id, let workspaceID):
+            return "\(id) has more than one tab in remote workspace \(workspaceID); provide the tab id."
         case .destinationNotFound(let what): return "Destination not found: \(what)."
         case .unsupported(let what): return "Unsupported: \(what)."
         }

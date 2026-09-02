@@ -10,6 +10,18 @@ import Foundation
 /// or until it exits on its own (machine slept, route expired), which flips the state
 /// and ends the `changes` stream so the owner can re-link on demand.
 actor CloudMachineLink {
+    /// One notification from the daemon session stream. The provider validates
+    /// its cursor before it can replace the installed `CloudVMState`.
+    enum Change: Sendable, Equatable {
+        case connected
+        case snapshot(cursor: CloudVMCursor, resetReason: String?, payload: Data)
+        case delta(cursor: CloudVMCursor, previousRevision: UInt64, revision: UInt64, payload: Data)
+        case streamEnded(reason: String, cursor: CloudVMCursor?)
+        /// An unknown item is a synchronization barrier. Ignoring it could make
+        /// the following known delta appear valid after a state change was lost.
+        case unknown(cursor: CloudVMCursor?)
+    }
+
     struct Connected: Sendable, Equatable {
         let socketPath: String
         let session: String
@@ -66,19 +78,22 @@ actor CloudMachineLink {
     // back into the actor through a Task, so nothing else touches them.
     private var process: Process?
     private var eventsProcess: Process?
+    private var eventsSubscriptionID: UUID?
+    private var eventsReaderTask: Task<Void, Never>?
+    private var eventsCursor: CloudVMCursor?
     private var inviteFileURL: URL?
     private var stderrTail: [String] = []
 
-    /// One tick per daemon-side change (from `session current events`) or link state
-    /// change; ends when the link dies.
-    let changes: AsyncStream<Void>
-    private let changesContinuation: AsyncStream<Void>.Continuation
+    /// The newest change is buffered. If pressure drops an earlier delta, the next
+    /// `previous_revision` check detects the gap and forces a complete snapshot.
+    let changes: AsyncStream<Change>
+    private let changesContinuation: AsyncStream<Change>.Continuation
 
     init(machineID: String, clientURL: URL, paths: CloudTuiClientPaths) {
         self.machineID = machineID
         self.clientURL = clientURL
         self.paths = paths
-        (changes, changesContinuation) = AsyncStream<Void>.makeStream(bufferingPolicy: .bufferingNewest(1))
+        (changes, changesContinuation) = AsyncStream<Change>.makeStream(bufferingPolicy: .bufferingNewest(1))
     }
 
     var isConnected: Bool { connected != nil && state == .connected }
@@ -86,6 +101,7 @@ actor CloudMachineLink {
     /// Spawns the headless client against `route` and waits for its local socket.
     func connect(route: String, session: String, invitationURI: String?, timeout: Duration = .seconds(60)) async throws -> Connected {
         if let connected, state == .connected { return connected }
+        eventsCursor = nil
         try paths.ensureStateDir()
         var inviteFilePath: String?
         if let invitationURI, !invitationURI.isEmpty {
@@ -160,12 +176,15 @@ actor CloudMachineLink {
         let connected = Connected(socketPath: socketPath, session: session)
         self.connected = connected
         state = .connected
-        startEventsSubscription(socketPath: socketPath)
-        changesContinuation.yield()
+        startEventsSubscription(socketPath: socketPath, cursor: nil)
+        changesContinuation.yield(.connected)
         return connected
     }
 
     func disconnect() {
+        eventsSubscriptionID = nil
+        eventsReaderTask?.cancel()
+        eventsReaderTask = nil
         eventsProcess?.terminate()
         eventsProcess = nil
         process?.terminate()
@@ -174,6 +193,34 @@ actor CloudMachineLink {
         state = .unavailable
         removeInviteFile()
         changesContinuation.finish()
+    }
+
+    /// Records a cursor only after the owner has accepted the corresponding
+    /// snapshot or delta. The transport must not advance this value while it
+    /// is merely decoding a line: a malformed or dropped event is not state.
+    func setEventsCursor(_ cursor: CloudVMCursor?) {
+        guard let cursor else { return }
+        if let current = eventsCursor,
+           current.generation == cursor.generation,
+           current.revision >= cursor.revision {
+            return
+        }
+        eventsCursor = cursor
+    }
+
+    /// Replaces the resume point exactly at a recovery boundary. Unlike
+    /// `setEventsCursor`, this also accepts nil and a lower revision because a
+    /// new generation or an explicit snapshot is authoritative.
+    private func replaceEventsCursor(_ cursor: CloudVMCursor?) {
+        eventsCursor = cursor
+    }
+
+    /// Reopens the event reader from the last accepted cursor. A stream can end
+    /// on journal overflow, daemon restart, or a transient local socket close.
+    func restartEventsSubscription(from cursor: CloudVMCursor? = nil) {
+        guard state == .connected, let socketPath = connected?.socketPath else { return }
+        replaceEventsCursor(cursor ?? eventsCursor)
+        startEventsSubscription(socketPath: socketPath, cursor: eventsCursor)
     }
 
     /// Runs one cmux-tui command against the link's socket and returns its stdout.
@@ -220,10 +267,18 @@ actor CloudMachineLink {
 
     // MARK: - internals
 
-    private func startEventsSubscription(socketPath: String) {
+    private func startEventsSubscription(socketPath: String, cursor: CloudVMCursor?) {
+        guard !socketPath.isEmpty else { return }
+        eventsSubscriptionID = nil
+        eventsReaderTask?.cancel()
+        eventsReaderTask = nil
+        eventsProcess?.terminate()
+        eventsProcess = nil
+        let subscriptionID = UUID()
+        eventsSubscriptionID = subscriptionID
         let process = Process()
         process.executableURL = clientURL
-        process.arguments = CloudTuiCommandLine.eventsArguments(socketPath: socketPath)
+        process.arguments = CloudTuiCommandLine.eventsArguments(socketPath: socketPath, cursor: cursor)
         process.standardInput = FileHandle.nullDevice
         process.standardError = FileHandle.nullDevice
         let stdout = Pipe()
@@ -231,16 +286,52 @@ actor CloudMachineLink {
         do {
             try process.run()
         } catch {
+            eventsSubscriptionID = nil
+            changesContinuation.yield(.streamEnded(reason: "events_spawn_failed", cursor: eventsCursor))
             return
         }
         eventsProcess = process
-        let continuation = changesContinuation
         let lines = CloudLinkPipe.lines(from: stdout.fileHandleForReading)
-        Task.detached {
+        eventsReaderTask = Task.detached { [weak self] in
+            var receivedStreamEnd = false
             for await line in lines where !line.isEmpty {
-                continuation.yield()
+                let change = Self.parseChangeLine(line)
+                if case .streamEnded = change { receivedStreamEnd = true }
+                await self?.eventChange(change, subscriptionID: subscriptionID)
             }
-            // The link's own exit handler reports the state change.
+            await self?.eventReaderDidEnd(subscriptionID: subscriptionID, receivedStreamEnd: receivedStreamEnd)
+        }
+    }
+
+    private func eventChange(_ change: Change, subscriptionID: UUID) {
+        guard eventsSubscriptionID == subscriptionID else { return }
+        switch change {
+        case .snapshot, .delta:
+            // The provider decides whether the payload is valid and contiguous.
+            // It calls `setEventsCursor` after installing the derived state.
+            break
+        case .streamEnded(let reason, let cursor):
+            // A stream-end cursor is only a transport observation. Advancing to
+            // it here could skip journal entries when recovery is required.
+            changesContinuation.yield(.streamEnded(reason: reason, cursor: cursor))
+            return
+        case .unknown:
+            // Unknown data is a barrier. Its cursor cannot be trusted because the
+            // missing item may itself have changed the graph.
+            break
+        case .connected:
+            break
+        }
+        changesContinuation.yield(change)
+    }
+
+    private func eventReaderDidEnd(subscriptionID: UUID, receivedStreamEnd: Bool) {
+        guard eventsSubscriptionID == subscriptionID else { return }
+        eventsSubscriptionID = nil
+        eventsReaderTask = nil
+        eventsProcess = nil
+        if !receivedStreamEnd {
+            changesContinuation.yield(.streamEnded(reason: "eof", cursor: eventsCursor))
         }
     }
 
@@ -259,6 +350,9 @@ actor CloudMachineLink {
     }
 
     private func linkProcessDidExit(status: Int32) {
+        eventsSubscriptionID = nil
+        eventsReaderTask?.cancel()
+        eventsReaderTask = nil
         eventsProcess?.terminate()
         eventsProcess = nil
         process = nil
@@ -268,8 +362,67 @@ actor CloudMachineLink {
             state = status == 0 ? .unavailable : .error
             lastError = status == 0 ? nil : LinkError.exited(status: status, output: stderrTail.joined(separator: "\n")).errorDescription
         }
-        changesContinuation.yield()
+        changesContinuation.yield(.streamEnded(reason: "link_exit", cursor: nil))
         changesContinuation.finish()
+    }
+
+    /// Parses the public `session current events --jsonl` envelope. Complete
+    /// snapshot and delta items are retained as canonical JSON so new daemon fields
+    /// survive until this app learns their typed form.
+    nonisolated static func parseChangeLine(_ line: String) -> Change {
+        guard let data = line.data(using: .utf8),
+              let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
+        else { return .unknown(cursor: nil) }
+
+        if (root["type"] as? String) == "stream_end" {
+            let cursor = (root["cursor"] as? [String: Any]).flatMap(CloudVMCursor.init(wire:))
+            return .streamEnded(reason: (root["reason"] as? String) ?? "unknown", cursor: cursor)
+        }
+
+        // The documented form wraps the event in `item`. Older JSONL clients
+        // emitted the inner item, so accepting both preserves wire compatibility.
+        let item = (root["item"] as? [String: Any]) ?? root
+        let cursor = (item["cursor"] as? [String: Any]).flatMap(CloudVMCursor.init(wire:))
+            ?? (root["cursor"] as? [String: Any]).flatMap(CloudVMCursor.init(wire:))
+        guard let kind = item["kind"] as? String else { return .unknown(cursor: cursor) }
+
+        switch kind {
+        case "snapshot":
+            guard var snapshot = item["snapshot"] as? [String: Any],
+                  let cursor else { return .unknown(cursor: cursor) }
+            // Some client versions put the cursor only on the event envelope.
+            // Materialize it into the snapshot bytes so the state parser sees
+            // one self-describing document.
+            if snapshot["cursor"] == nil {
+                snapshot["cursor"] = [
+                    "generation": cursor.generation,
+                    "revision": String(cursor.revision),
+                ] as [String: Any]
+            }
+            guard let payload = canonicalJSONData(snapshot) else {
+                return .unknown(cursor: cursor)
+            }
+            return .snapshot(cursor: cursor, resetReason: item["reset_reason"] as? String, payload: payload)
+        case "delta":
+            guard let cursor,
+                  let previousRevision = decimal(item["previous_revision"]),
+                  let revision = decimal(item["revision"]),
+                  item["changes"] is [[String: Any]],
+                  let payload = canonicalJSONData(item)
+            else { return .unknown(cursor: cursor) }
+            return .delta(cursor: cursor, previousRevision: previousRevision, revision: revision, payload: payload)
+        default:
+            return .unknown(cursor: cursor)
+        }
+    }
+
+    private nonisolated static func decimal(_ raw: Any?) -> UInt64? {
+        CloudWireNumber.unsigned(raw)
+    }
+
+    private nonisolated static func canonicalJSONData(_ object: Any) -> Data? {
+        guard JSONSerialization.isValidJSONObject(object) else { return nil }
+        return try? JSONSerialization.data(withJSONObject: object, options: [.sortedKeys])
     }
 
     private func removeInviteFile() {

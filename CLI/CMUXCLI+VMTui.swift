@@ -830,6 +830,16 @@ extension CMUXCLI {
         A typical headless loop: `send … 'bun test' --keys enter`, `wait … --pattern 'pass|fail'`, `read …`.
         """
 
+    static let vmTabUsage = """
+        Usage:
+          cmux vm tab rename <machine> <tab-id> <name>
+                                                              Rename exactly one daemon tab placement.
+                                                              Use the tab id from `cmux vm tree --json`.
+
+        Tab names are local to a placement. Use `vm terminal rename` only when you
+        explicitly want the same name on every view of one terminal.
+        """
+
     /// `--timeout` for `vm terminal wait`, in seconds: finite, at least one millisecond,
     /// at most an hour (the daemon/link cap) — out of range is an error, not a silent
     /// clamp, so the contract reads the same at every entrypoint. nil is the 30 s default.
@@ -1077,6 +1087,38 @@ extension CMUXCLI {
             print("OK renamed terminal \(terminalID) to \"\(name)\" on \(machine)")
         default:
             throw CLIError(message: "vm terminal: unknown verb '\(verb)'\n\n\(Self.vmTerminalUsage)")
+        }
+    }
+
+    /// The unambiguous placement-local rename path. A terminal can occur in more
+    /// than one daemon tab, so this command requires the tab id.
+    func runVMTabCommand(rest: [String], client: SocketClient, jsonOutput: Bool) throws {
+        if rest.contains("--help") || rest.contains("-h") || rest.isEmpty {
+            print(Self.vmTabUsage)
+            return
+        }
+        let args = rest.filter { $0 != "--json" }
+        if let unknown = args.first(where: { $0.hasPrefix("-") }) {
+            throw CLIError(message: "vm tab: unknown flag '\(unknown)'\n\n\(Self.vmTabUsage)")
+        }
+        guard args.count == 4, args[0] == "rename" else {
+            throw CLIError(message: Self.vmTabUsage)
+        }
+        let machine = args[1]
+        let tabID = args[2]
+        let name = args[3].trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !machine.isEmpty, !tabID.isEmpty, !name.isEmpty else {
+            throw CLIError(message: Self.vmTabUsage)
+        }
+        let response = try client.sendV2(
+            method: "vm.tab_rename",
+            params: ["id": machine, "tab_id": tabID, "name": name],
+            responseTimeout: 120
+        )
+        if jsonOutput {
+            print(jsonString(response))
+        } else {
+            print("OK renamed tab \(tabID) to \"\(name)\" on \(machine)")
         }
     }
 
@@ -1384,8 +1426,24 @@ extension CMUXCLI {
             }
         case .port(let machine, let port):
             try openVMPort(vmId: machine, port: port, printOnly: printOnly, workspaceRaw: workspaceRaw, client: client, jsonOutput: jsonOutput)
-        case .terminal(let machine, _, let terminal):
-            try openVMTerminal(machine: machine, terminalId: terminal, workspaceRaw: workspaceRaw, focus: focus, client: client, jsonOutput: jsonOutput)
+        case .terminal(let machine, let remoteWorkspace, let terminal):
+            // The path contains a remote workspace selector. Resolve it before
+            // opening so the catalog can retain the exact placement instead of
+            // choosing an arbitrary view of a multi-view terminal.
+            let catalog = try client.sendV2(method: "surface.catalog", params: ["machine": machine], responseTimeout: 120)
+            let remoteWorkspaceID = ((catalog["machines"] as? [[String: Any]]) ?? [])
+                .flatMap { ($0["remote_workspaces"] as? [[String: Any]]) ?? [] }
+                .first { ($0["id"] as? String) == remoteWorkspace || ($0["name"] as? String) == remoteWorkspace }
+                .flatMap { $0["id"] as? String }
+            try openVMTerminal(
+                machine: machine,
+                terminalId: terminal,
+                remoteWorkspaceID: remoteWorkspaceID ?? remoteWorkspace,
+                workspaceRaw: workspaceRaw,
+                focus: focus,
+                client: client,
+                jsonOutput: jsonOutput
+            )
         case .workspace(let machine, let workspace):
             let catalog = try client.sendV2(method: "surface.catalog", params: ["machine": machine], responseTimeout: 120)
             let resources = (catalog["resources"] as? [[String: Any]]) ?? []
@@ -1429,6 +1487,7 @@ extension CMUXCLI {
     func openVMTerminal(
         machine: String,
         terminalId: String,
+        remoteWorkspaceID: String? = nil,
         workspaceRaw: String?,
         focus: Bool?,
         client: SocketClient,
@@ -1438,6 +1497,7 @@ extension CMUXCLI {
         // pane already showing it (the catalog's default) instead of opening a second one.
         var params: [String: Any] = ["resource": "\(machine)/terminal/\(terminalId)"]
         if let workspaceRaw { params["workspace_id"] = workspaceRaw }
+        if let remoteWorkspaceID { params["remote_workspace_id"] = remoteWorkspaceID }
         if let focus { params["focus"] = focus }
         let response = try client.sendV2(method: "surface.project", params: params, responseTimeout: 180)
         if jsonOutput {

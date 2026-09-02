@@ -5293,8 +5293,8 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
 
     /// Sets, replaces, or clears (empty/nil `title`) a panel custom title.
     ///
-    /// `.auto` writes are rejected when a user-set title exists, and `.auto`
-    /// never clears. Returns whether the write landed.
+    /// `.auto` writes are rejected when a user or remote title exists, and
+    /// `.auto` never clears. Returns whether the write landed.
     @discardableResult
     func setPanelCustomTitle(
         panelId: UUID,
@@ -5314,25 +5314,32 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         let previous = panelCustomTitles[panelId]
         if source == .auto {
             guard !trimmed.isEmpty else { return false }
-            if previous != nil, (panelCustomTitleSources[panelId] ?? .user) == .user { return false }
+            if previous != nil, (panelCustomTitleSources[panelId] ?? .user) != .auto { return false }
         }
+        var sameText = false
         if trimmed.isEmpty {
             guard previous != nil else { return false }
             panelCustomTitles.removeValue(forKey: panelId)
             panelCustomTitleSources.removeValue(forKey: panelId)
         } else {
-            guard previous != trimmed else {
-                // Same text: a user write still claims ownership so a later
-                // auto write cannot replace a title the user re-confirmed.
-                if source == .user { panelCustomTitleSources[panelId] = .user }
-                applyFocusedPanelTitle(panelId: panelId)
-                return true
+            if previous == trimmed {
+                // Same text still updates provenance. A remote observation must
+                // be able to turn a just-confirmed local intent into settled
+                // daemon-owned state without changing the visible tab twice.
+                panelCustomTitleSources[panelId] = source
+                sameText = true
+            } else {
+                panelCustomTitles[panelId] = trimmed
+                panelCustomTitleSources[panelId] = source
             }
-            panelCustomTitles[panelId] = trimmed
-            panelCustomTitleSources[panelId] = source
         }
 
         applyFocusedPanelTitle(panelId: panelId)
+
+        // A repeated remote or automatic observation only changes provenance.
+        // A repeated USER edit remains an idempotent intent and must still reach
+        // the daemon, because the earlier request may have failed or been lost.
+        if sameText, source != .user { return true }
 
         guard let panel = panels[panelId], let tabId = surfaceIdFromPanelId(panelId) else { return true }
         let baseTitle = panelTitles[panelId] ?? panel.displayTitle

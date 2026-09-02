@@ -22,11 +22,15 @@ struct CloudTuiCommandLine: Sendable {
         ["--socket", socketPath, "--json", "session", "current", "snapshot"]
     }
 
-    /// Live delta stream (`session current events`, `--jsonl`): one JSON line per
-    /// session transaction. The app only uses it as a change signal and re-reads the
-    /// snapshot, so the delta body is never interpreted.
-    static func eventsArguments(socketPath: String) -> [String] {
-        ["--socket", socketPath, "--jsonl", "session", "current", "events"]
+    /// Live delta stream (`session current events`, `--jsonl`). A cursor lets a
+    /// restarted reader resume from the last accepted revision instead of
+    /// creating a blind polling gap.
+    static func eventsArguments(socketPath: String, cursor: CloudVMCursor? = nil) -> [String] {
+        var arguments = ["--socket", socketPath, "--jsonl", "session", "current", "events"]
+        if let cursor {
+            arguments += ["--generation", cursor.generation, "--revision", String(cursor.revision)]
+        }
+        return arguments
     }
 
     /// `workspace <ws_id> run -- <argv…>`: a new terminal in that cmux-tui workspace
@@ -89,8 +93,16 @@ struct CloudTuiCommandLine: Sendable {
 
     /// `workspace <ws_id> rename --name <name>` (verified live: the positional
     /// form is `usage.invalid`; the name rides the `--name` flag).
-    static func renameWorkspaceArguments(socketPath: String, workspaceID: String, name: String) -> [String] {
-        ["--socket", socketPath, "--json", "workspace", workspaceID, "rename", "--name", name]
+    static func renameWorkspaceArguments(
+        socketPath: String,
+        workspaceID: String,
+        name: String,
+        expectedRevision: UInt64? = nil
+    ) -> [String] {
+        var arguments = ["--socket", socketPath, "--json"]
+        if let expectedRevision { arguments += ["--expected-revision", String(expectedRevision)] }
+        arguments += ["workspace", workspaceID, "rename", "--name", name]
+        return arguments
     }
 
     /// `terminal <term_id> write --text <text>` (spec `terminal.input.write`): the bytes
@@ -126,8 +138,16 @@ struct CloudTuiCommandLine: Sendable {
     /// terminal (spec `tab.rename`). The daemon persists it in its registry and
     /// broadcasts `tab-renamed`, so every attached client sees it. An empty string
     /// clears the optional label, which is used when compensating a partial rename.
-    static func renameTabArguments(socketPath: String, tabID: String, name: String?) -> [String] {
-        ["--socket", socketPath, "--json", "tab", tabID, "rename", "--name", name ?? ""]
+    static func renameTabArguments(
+        socketPath: String,
+        tabID: String,
+        name: String?,
+        expectedRevision: UInt64? = nil
+    ) -> [String] {
+        var arguments = ["--socket", socketPath, "--json"]
+        if let expectedRevision { arguments += ["--expected-revision", String(expectedRevision)] }
+        arguments += ["tab", tabID, "rename", "--name", name ?? ""]
+        return arguments
     }
 
     /// `attach --terminal <term_id>`: render exactly one remote terminal into this tty.

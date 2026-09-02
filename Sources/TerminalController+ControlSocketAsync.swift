@@ -70,6 +70,9 @@ extension TerminalController {
                     if authorizedRequest.method == "vm.terminal_rename" {
                         return await self.socketWorkerVMTerminalRenameResponseAsync(authorizedRequest)
                     }
+                    if authorizedRequest.method == "vm.tab_rename" {
+                        return await self.socketWorkerVMTabRenameResponseAsync(authorizedRequest)
+                    }
                     return await self.socketWorkerV2ResponseAsync(authorizedRequest)
                 }
                 return await self.processParsedV2CommandAsync(authorizedRequest)

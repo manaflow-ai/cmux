@@ -61297,6 +61297,40 @@
         }
       }
     },
+    "cloudTree.error.renameWorkspaceEmptyName": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A workspace name cannot be empty."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ワークスペース名を空にすることはできません。"
+          }
+        }
+      }
+    },
+    "cloudTree.error.renameWorkspaceNotFound": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This remote workspace is no longer available."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このリモートワークスペースは利用できません。"
+          }
+        }
+      }
+    },
     "cloudTree.error.renameTerminalUnavailable": {
       "extractionState": "manual",
       "localizations": {

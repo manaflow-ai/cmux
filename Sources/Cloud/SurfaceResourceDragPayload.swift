@@ -36,7 +36,12 @@ struct SurfaceResourceDragPayload {
         )) else {
             return nil
         }
-        let record = SurfaceResourceDragPasteboardRecord(dragID: dragID, resources: group.resources.map(\.rawValue), title: group.title)
+        let record = SurfaceResourceDragPasteboardRecord(
+            dragID: dragID,
+            resources: group.resources.map(\.rawValue),
+            title: group.title,
+            placements: group.placements
+        )
         if let data = try? JSONEncoder().encode(record) {
             registration.pasteboardItem.setData(data, forType: Self.pasteboardType)
         }
@@ -52,6 +57,26 @@ struct SurfaceResourceDragPasteboardRecord: Codable, Equatable {
     /// `SurfaceResourceID.rawValue`s (`<machine>/<kind>/<key>`), in open order.
     let resources: [String]
     let title: String
+    /// Placement-aware records preserve the exact daemon tab for each member.
+    /// It is optional so pasteboards written by older cmux builds still decode.
+    let placements: [SurfaceResourcePlacement]?
+
+    init(
+        dragID: UUID,
+        resources: [String],
+        title: String,
+        placements: [SurfaceResourcePlacement]? = nil
+    ) {
+        self.dragID = dragID
+        self.resources = resources
+        self.title = title
+        self.placements = placements
+    }
 
     var resourceIDs: [SurfaceResourceID] { resources.compactMap(SurfaceResourceID.init(rawValue:)) }
+
+    /// The typed group members, with an id-only compatibility fallback.
+    var placementValues: [SurfaceResourcePlacement] {
+        placements ?? resourceIDs.map { SurfaceResourcePlacement(resource: $0) }
+    }
 }

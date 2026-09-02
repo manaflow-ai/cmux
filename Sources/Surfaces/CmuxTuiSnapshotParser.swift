@@ -94,6 +94,213 @@ struct CmuxTuiSnapshotParser: Sendable {
         return nil
     }
 
+    /// Builds the one lossless state value consumed by every cloud projection.
+    /// A missing cursor is accepted by the legacy resource helpers, but never
+    /// becomes a synchronizable state because it cannot be ordered against an
+    /// event stream.
+    static func state(fromSnapshot snapshot: [String: Any], machine: SurfaceMachineID) -> CloudVMState? {
+        guard let cursor = CloudVMCursor(snapshot: snapshot),
+              let rawSnapshot = canonicalJSONData(snapshot)
+        else { return nil }
+
+        let workspaces = ((snapshot["workspaces"] as? [[String: Any]]) ?? []).enumerated().compactMap { index, raw -> CloudVMWorkspaceState? in
+            guard let id = nonEmptyString(raw["id"]) else { return nil }
+            return CloudVMWorkspaceState(
+                id: id,
+                name: nonEmptyString(raw["name"]) ?? id,
+                index: integer(raw["index"]) ?? index,
+                focused: raw["focused"] as? Bool ?? false
+            )
+        }
+        let screens = ((snapshot["screens"] as? [[String: Any]]) ?? []).enumerated().compactMap { index, raw -> CloudVMScreenState? in
+            guard let id = nonEmptyString(raw["id"]), let workspaceID = nonEmptyString(raw["workspace_id"]) else { return nil }
+            return CloudVMScreenState(
+                id: id,
+                workspaceID: workspaceID,
+                name: nonEmptyString(raw["name"]),
+                index: integer(raw["index"]) ?? index,
+                focused: raw["focused"] as? Bool ?? false,
+                layout: raw["layout"].flatMap(canonicalJSONData)
+            )
+        }
+        let tabs = ((snapshot["tabs"] as? [[String: Any]]) ?? []).enumerated().compactMap { index, raw -> CloudVMTabState? in
+            guard let id = nonEmptyString(raw["id"]), let paneID = nonEmptyString(raw["pane_id"]) else { return nil }
+            guard let contentKind = nonEmptyString(raw["content_kind"]), let contentID = nonEmptyString(raw["content_id"]) else { return nil }
+            let name = nonEmptyString(raw["name"])
+            return CloudVMTabState(
+                id: id,
+                paneID: paneID,
+                name: name,
+                index: integer(raw["index"]) ?? index,
+                focused: raw["focused"] as? Bool ?? false,
+                contentKind: contentKind,
+                contentID: contentID
+            )
+        }
+        // The public daemon schema puts the relationship on `tabs[].pane_id`.
+        // `panes[].tab_ids` is not part of that schema, so reading it would make
+        // every typed pane appear empty and would create a false second source of
+        // placement truth. Derive the index from the already parsed tabs instead.
+        var tabIDsByPane: [String: [String]] = [:]
+        for tab in tabs {
+            tabIDsByPane[tab.paneID, default: []].append(tab.id)
+        }
+        let panes = ((snapshot["panes"] as? [[String: Any]]) ?? []).compactMap { raw -> CloudVMPaneState? in
+            guard let id = nonEmptyString(raw["id"]), let screenID = nonEmptyString(raw["screen_id"]) else { return nil }
+            return CloudVMPaneState(
+                id: id,
+                screenID: screenID,
+                name: nonEmptyString(raw["name"]),
+                focused: raw["focused"] as? Bool ?? false,
+                zoomed: raw["zoomed"] as? Bool ?? false,
+                tabIDs: tabIDsByPane[id] ?? []
+            )
+        }
+        let terminals = ((snapshot["terminals"] as? [[String: Any]]) ?? []).compactMap { raw -> CloudVMTerminalState? in
+            guard let id = nonEmptyString(raw["id"]) else { return nil }
+            var tabIDs = (raw["tab_ids"] as? [String]) ?? []
+            if tabIDs.isEmpty, let tabID = nonEmptyString(raw["tab_id"]) { tabIDs = [tabID] }
+            return CloudVMTerminalState(
+                id: id,
+                tabIDs: tabIDs,
+                title: (raw["title"] as? String) ?? "",
+                cwd: nonEmptyString(raw["cwd"]),
+                lifecycle: (raw["lifecycle"] as? String) ?? ((raw["running"] as? Bool) == true ? "running" : "exited"),
+                cols: integer(raw["cols"]),
+                rows: integer(raw["rows"]),
+                running: raw["running"] as? Bool
+            )
+        }
+        let browsers = ((snapshot["browsers"] as? [[String: Any]]) ?? []).compactMap { raw -> CloudVMBrowserState? in
+            guard let id = nonEmptyString(raw["id"]), let tabID = nonEmptyString(raw["tab_id"]) else { return nil }
+            return CloudVMBrowserState(
+                id: id,
+                tabID: tabID,
+                url: (raw["url"] as? String) ?? "",
+                title: (raw["title"] as? String) ?? "",
+                status: (raw["status"] as? String) ?? ""
+            )
+        }
+        let agents = ((snapshot["agents"] as? [[String: Any]]) ?? []).compactMap { raw -> CloudVMAgentState? in
+            guard let terminalID = nonEmptyString(raw["terminal_id"]), let state = nonEmptyString(raw["state"]) else { return nil }
+            return CloudVMAgentState(id: nonEmptyString(raw["id"]), terminalID: terminalID, state: state, source: nonEmptyString(raw["source"]))
+        }
+
+        let typedKinds: Set<String> = ["workspaces", "screens", "panes", "tabs", "terminals", "browsers", "agents"]
+        // `cursor` orders the document; it is metadata, not an entity. Keeping
+        // it in `otherEntities` would expose a nil-id pseudo-resource and make
+        // an agent treat the ordering token as mutable VM state.
+        let metadataKinds: Set<String> = ["cursor"]
+        var otherEntities: [CloudVMEntity] = []
+        for (kind, value) in snapshot {
+            guard !typedKinds.contains(kind), !metadataKinds.contains(kind) else { continue }
+            if let object = value as? [String: Any] {
+                otherEntities.append(contentsOf: entityValues(kind: kind, objects: [object]))
+            } else if let objects = value as? [[String: Any]] {
+                otherEntities.append(contentsOf: entityValues(kind: kind, objects: objects))
+            }
+        }
+        // JSON object enumeration is intentionally unordered. Keep the opaque
+        // index stable so an agent can diff two exports without noise.
+        otherEntities.sort {
+            if $0.kind != $1.kind { return $0.kind < $1.kind }
+            let leftID = $0.id ?? ""
+            let rightID = $1.id ?? ""
+            if leftID != rightID { return leftID < rightID }
+            return $0.payload.lexicographicallyPrecedes($1.payload)
+        }
+
+        return CloudVMState(
+            machine: machine,
+            cursor: cursor,
+            rawSnapshot: rawSnapshot,
+            workspaces: workspaces,
+            screens: screens,
+            panes: panes,
+            tabs: tabs,
+            terminals: terminals,
+            browsers: browsers,
+            agents: agents,
+            otherEntities: otherEntities
+        )
+    }
+
+    /// Re-derives the compatibility resources from the exact state bytes. No
+    /// resource mutation path is allowed to maintain a second remote graph.
+    static func resources(from state: CloudVMState) -> [SurfaceResource] {
+        guard let snapshot = state.snapshotObject() else { return [] }
+        return resources(fromSnapshot: snapshot, machine: state.machine)
+    }
+
+    /// Applies one contiguous `session.delta` batch to the complete raw graph,
+    /// then rebuilds every typed index from that one result. Upserts replace an
+    /// entity in place, deletes remove it, and unknown resource kinds refuse the
+    /// batch so the caller can fetch a fresh snapshot.
+    static func applying(
+        deltaPayload: Data,
+        cursor: CloudVMCursor,
+        to state: CloudVMState
+    ) -> CloudVMState? {
+        guard var snapshot = state.snapshotObject(),
+              let delta = try? JSONSerialization.jsonObject(with: deltaPayload) as? [String: Any],
+              let changes = delta["changes"] as? [[String: Any]]
+        else { return nil }
+
+        for change in changes {
+            guard let kind = nonEmptyString(change["kind"]),
+                  let resource = nonEmptyString(change["resource"]),
+                  let id = nonEmptyString(change["id"]),
+                  let storage = deltaStorage(for: resource)
+            else { return nil }
+
+            switch kind {
+            case "upsert":
+                guard let value = change["value"] as? [String: Any],
+                      nonEmptyString(value["id"]) == id else { return nil }
+                switch storage {
+                case .single(let key):
+                    snapshot[key] = value
+                case .collection(let key):
+                    var values = (snapshot[key] as? [[String: Any]]) ?? []
+                    if let index = values.firstIndex(where: { nonEmptyString($0["id"]) == id }) {
+                        values[index] = value
+                    } else {
+                        values.append(value)
+                    }
+                    snapshot[key] = values
+                }
+            case "delete":
+                switch storage {
+                case .single(let key):
+                    // machine and session are required roots of a resource
+                    // snapshot. Their deletion ends the document, so applying
+                    // an NSNull tombstone would create a fake, partially valid
+                    // graph. Force a full snapshot instead.
+                    guard key != "machine", key != "session" else { return nil }
+                    if let value = snapshot[key] as? [String: Any], nonEmptyString(value["id"]) == id {
+                        snapshot[key] = NSNull()
+                    }
+                case .collection(let key):
+                    var values = (snapshot[key] as? [[String: Any]]) ?? []
+                    values.removeAll { nonEmptyString($0["id"]) == id }
+                    snapshot[key] = values
+                }
+            default:
+                return nil
+            }
+        }
+        snapshot["cursor"] = [
+            "generation": cursor.generation,
+            "revision": String(cursor.revision),
+        ]
+        return Self.state(fromSnapshot: snapshot, machine: state.machine)
+    }
+
+    /// Legacy entry point retained for callers that only have a one-shot snapshot.
+    static func terminals(fromSnapshot snapshot: [String: Any], machine: SurfaceMachineID) -> [SurfaceResource] {
+        resources(fromSnapshot: snapshot, machine: machine)
+    }
+
     /// Decodes the snapshot used by a detached-terminal projection away from
     /// the UI actor. The returned revision is the same cursor that guards the
     /// subsequent topology mutation.
@@ -116,7 +323,7 @@ struct CmuxTuiSnapshotParser: Sendable {
     /// (`tab_ids` joined through tabs → panes → screens → workspaces). A terminal with no
     /// resolvable view keeps an empty view list: it is alive in the machine's pool, not
     /// attributed to a workspace it is not in.
-    static func terminals(fromSnapshot snapshot: [String: Any], machine: SurfaceMachineID) -> [SurfaceResource] {
+    private static func resources(fromSnapshot snapshot: [String: Any], machine: SurfaceMachineID) -> [SurfaceResource] {
         let screensRaw = (snapshot["screens"] as? [[String: Any]]) ?? []
         let panesRaw = (snapshot["panes"] as? [[String: Any]]) ?? []
         let tabsRaw = (snapshot["tabs"] as? [[String: Any]]) ?? []
@@ -137,6 +344,8 @@ struct CmuxTuiSnapshotParser: Sendable {
         }
         var paneOfTab: [String: String] = [:]
         var nameOfTab: [String: String] = [:]
+        var indexOfTab: [String: Int] = [:]
+        var focusedOfTab: [String: Bool] = [:]
         for tab in tabsRaw {
             guard let id = tab["id"] as? String else { continue }
             if let paneID = tab["pane_id"] as? String {
@@ -145,6 +354,8 @@ struct CmuxTuiSnapshotParser: Sendable {
             if let name = (tab["name"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines), !name.isEmpty {
                 nameOfTab[id] = name
             }
+            indexOfTab[id] = integer(tab["index"])
+            focusedOfTab[id] = tab["focused"] as? Bool
         }
         var agentByTerminal: [String: SurfaceAgentBadge] = [:]
         for agent in agentsRaw {
@@ -178,7 +389,15 @@ struct CmuxTuiSnapshotParser: Sendable {
                       let screenID = screenOfPane[paneID],
                       let workspaceID = workspaceOfScreen[screenID],
                       let workspace = workspaceByID[workspaceID] else { return nil }
-                return SurfaceRemoteView(tabID: tabID, workspace: workspace)
+                return SurfaceRemoteView(
+                    tabID: tabID,
+                    workspace: workspace,
+                    screenID: screenID,
+                    paneID: paneID,
+                    name: nameOfTab[tabID],
+                    index: indexOfTab[tabID],
+                    focused: focusedOfTab[tabID]
+                )
             }
             terminal.remoteWorkspace = terminal.remoteViews?.first?.workspace
             resources.append(terminal)
@@ -196,7 +415,15 @@ struct CmuxTuiSnapshotParser: Sendable {
                let screenID = screenOfPane[paneID],
                let workspaceID = workspaceOfScreen[screenID],
                let workspace = workspaceByID[workspaceID] {
-                views = [SurfaceRemoteView(tabID: tabID, workspace: workspace)]
+                views = [SurfaceRemoteView(
+                    tabID: tabID,
+                    workspace: workspace,
+                    screenID: screenID,
+                    paneID: paneID,
+                    name: nameOfTab[tabID],
+                    index: indexOfTab[tabID],
+                    focused: focusedOfTab[tabID]
+                )]
             }
             var browser = SurfaceResource(
                 id: SurfaceResourceID(machine: machine, kind: .browser, key: id),
@@ -226,7 +453,15 @@ struct CmuxTuiSnapshotParser: Sendable {
                   let workspaceID = workspaceOfScreen[screenID],
                   let workspace = workspaceByID[workspaceID] else { continue }
             if displayViews[contentID] == nil { displayOrder.append(contentID) }
-            displayViews[contentID, default: []].append(SurfaceRemoteView(tabID: tabID, workspace: workspace))
+            displayViews[contentID, default: []].append(SurfaceRemoteView(
+                tabID: tabID,
+                workspace: workspace,
+                screenID: screenID,
+                paneID: paneID,
+                name: nameOfTab[tabID],
+                index: indexOfTab[tabID],
+                focused: focusedOfTab[tabID]
+            ))
         }
         for contentID in displayOrder {
             var display = Self.display(machine: machine, key: contentID)
@@ -234,11 +469,10 @@ struct CmuxTuiSnapshotParser: Sendable {
             display.remoteWorkspace = displayViews[contentID]?.first?.workspace
             resources.append(display)
         }
-        // Workspace order first; zero-view terminals (the pool) trail.
-        return resources.sorted { lhs, rhs in
-            let li = lhs.remoteWorkspace?.index ?? Int.max, ri = rhs.remoteWorkspace?.index ?? Int.max
-            return li != ri ? li < ri : false
-        }
+        // Workspace order first; zero-view resources (the pool) trail. Every
+        // tie has an explicit key. Returning false for equal workspace indexes
+        // would make sorting depend on dictionary/JSON arrival order.
+        return resources.sorted(by: resourceComesBefore)
     }
 
     /// The machine-local port a daemon browser's URL points at, when it does —
@@ -329,13 +563,30 @@ struct CmuxTuiSnapshotParser: Sendable {
         )
     }
 
-    /// The terminal a `workspace <ws> run` / `tab create terminal` mutation created:
-    /// `MutationResult<CreatedTerminalPath>` prints as `{value: {terminal_id, workspace_id, …}}`
-    /// under `--json`; a bare `CreatedTerminalPath` is accepted too.
-    static func createdTerminal(fromRunResult result: [String: Any]) -> (terminalID: String, workspaceID: String?)? {
+    struct CreatedTerminalPath: Equatable, Sendable {
+        let terminalID: String
+        let workspaceID: String?
+        let screenID: String?
+        let paneID: String?
+        let tabID: String?
+    }
+
+    /// The exact path a `workspace <ws> run` / `tab create terminal` mutation
+    /// created. The committed result is a read-your-write placement receipt, so
+    /// callers do not need to guess a tab while the next snapshot is in flight.
+    static func createdTerminal(fromRunResult result: [String: Any]) -> CreatedTerminalPath? {
         let path = (result["value"] as? [String: Any]) ?? result
         guard let terminalID = path["terminal_id"] as? String, !terminalID.isEmpty else { return nil }
-        return (terminalID, path["workspace_id"] as? String)
+        func optionalID(_ key: String) -> String? {
+            (path[key] as? String).flatMap { $0.isEmpty ? nil : $0 }
+        }
+        return CreatedTerminalPath(
+            terminalID: terminalID,
+            workspaceID: optionalID("workspace_id"),
+            screenID: optionalID("screen_id"),
+            paneID: optionalID("pane_id"),
+            tabID: optionalID("tab_id")
+        )
     }
 
     /// The workspace a `workspace create` mutation created.
@@ -433,5 +684,75 @@ struct CmuxTuiSnapshotParser: Sendable {
     /// reconnect after a sleep.
     static func desktopURL(openURL: String) -> String {
         openURL + "&autoconnect=1&resize=remote&reconnect=1&reconnect_delay=2000"
+    }
+
+    // MARK: - Lossless state helpers
+
+    private static func nonEmptyString(_ raw: Any?) -> String? {
+        guard let value = raw as? String else { return nil }
+        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? nil : trimmed
+    }
+
+    private static func integer(_ raw: Any?) -> Int? {
+        CloudWireNumber.signed(raw)
+    }
+
+    private static func canonicalJSONData(_ object: Any) -> Data? {
+        guard JSONSerialization.isValidJSONObject(object) else { return nil }
+        return try? JSONSerialization.data(withJSONObject: object, options: [.sortedKeys])
+    }
+
+    private static func resourceComesBefore(_ lhs: SurfaceResource, _ rhs: SurfaceResource) -> Bool {
+        let leftView = lhs.remoteViews?.first
+        let rightView = rhs.remoteViews?.first
+        let leftWorkspace = leftView?.workspace ?? lhs.remoteWorkspace
+        let rightWorkspace = rightView?.workspace ?? rhs.remoteWorkspace
+        let leftWorkspaceIndex = leftWorkspace?.index ?? Int.max
+        let rightWorkspaceIndex = rightWorkspace?.index ?? Int.max
+        if leftWorkspaceIndex != rightWorkspaceIndex { return leftWorkspaceIndex < rightWorkspaceIndex }
+        let leftWorkspaceID = leftWorkspace?.id ?? "~"
+        let rightWorkspaceID = rightWorkspace?.id ?? "~"
+        if leftWorkspaceID != rightWorkspaceID { return leftWorkspaceID < rightWorkspaceID }
+        let leftTabIndex = leftView?.index ?? Int.max
+        let rightTabIndex = rightView?.index ?? Int.max
+        if leftTabIndex != rightTabIndex { return leftTabIndex < rightTabIndex }
+        let leftTabID = leftView?.tabID ?? "~"
+        let rightTabID = rightView?.tabID ?? "~"
+        if leftTabID != rightTabID { return leftTabID < rightTabID }
+        if lhs.kind.rawValue != rhs.kind.rawValue { return lhs.kind.rawValue < rhs.kind.rawValue }
+        return lhs.id.key < rhs.id.key
+    }
+
+    private static func entityValues(kind: String, objects: [[String: Any]]) -> [CloudVMEntity] {
+        objects.compactMap { object in
+            guard let payload = canonicalJSONData(object) else { return nil }
+            return CloudVMEntity(kind: kind, id: nonEmptyString(object["id"]), payload: payload)
+        }
+    }
+
+    private enum DeltaStorage {
+        case single(String)
+        case collection(String)
+    }
+
+    private static func deltaStorage(for resource: String) -> DeltaStorage? {
+        switch resource {
+        case "machine": return .single("machine")
+        case "session": return .single("session")
+        case "workspace": return .collection("workspaces")
+        case "screen": return .collection("screens")
+        case "pane": return .collection("panes")
+        case "tab": return .collection("tabs")
+        case "terminal": return .collection("terminals")
+        case "browser": return .collection("browsers")
+        case "client": return .collection("clients")
+        case "notification": return .collection("notifications")
+        case "agent": return .collection("agents")
+        case "pairing_request": return .collection("pairing_requests")
+        case "frontend_projection": return .collection("frontend_projections")
+        case "sidebar_view": return .collection("sidebar_views")
+        default: return nil
+        }
     }
 }
