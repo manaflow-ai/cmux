@@ -1838,6 +1838,10 @@ final class WindowTerminalPortal: NSObject {
                     reason: "portal.deferredFullSync", syncLayout: false
                 )
             }
+            // Deferred full reconciliation is also the bind path's settle
+            // boundary. It runs after the portal's own frame writes, so the
+            // latest pending terminal size can now be applied safely.
+            self.finishVisibleEntryGeometrySettlements()
         }
     }
 
