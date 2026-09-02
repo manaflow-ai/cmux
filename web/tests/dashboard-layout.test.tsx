@@ -1,35 +1,39 @@
-import { expect, mock, test } from "bun:test";
+import { beforeEach, expect, mock, test } from "bun:test";
 import { renderToStaticMarkup } from "react-dom/server";
 import type React from "react";
 
-const pendingProvider = new Promise<never>(() => {});
-let stackProviderPending = true;
-let dashboardChildren: React.ReactNode;
+type DashboardUser = {
+  readonly id: string;
+  readonly isAnonymous: boolean;
+};
+
+let currentUser: DashboardUser | null = {
+  id: "user-1",
+  isAnonymous: false,
+};
+let dashboardShellRenderCount = 0;
+const getUser = mock(async () => currentUser);
 
 mock.module("@stackframe/stack", () => ({
-  StackProvider: ({ children }: React.PropsWithChildren) => {
-    if (stackProviderPending) {
-      void children;
-      throw pendingProvider;
-    }
-    return children;
-  },
+  StackProvider: ({ children }: React.PropsWithChildren) => children,
   StackTheme: ({ children }: React.PropsWithChildren) => children,
 }));
 
+mock.module("next/navigation", () => ({
+  redirect: (target: string) => {
+    throw new Error(`redirect:${target}`);
+  },
+}));
+
 mock.module("@/app/lib/stack", () => ({
-  getStackServerApp: () => ({}),
+  getStackServerApp: () => ({ getUser }),
   isStackConfigured: () => true,
 }));
 
-mock.module(
-  "../app/[locale]/dashboard/components/dashboard-skeleton",
-  () => ({
-    DashboardSkeleton: () => (
-      <p data-testid="dashboard-suspense-fallback">Loading dashboard</p>
-    ),
-  }),
-);
+mock.module("@/app/lib/vault-auth", () => ({
+  localizedVaultPath: (locale: string, path: string) => `/${locale}${path}`,
+  vaultSignInHref: (returnPath: string) => `/sign-in?after=${returnPath}`,
+}));
 
 mock.module(
   "../app/[locale]/dashboard/components/query-provider",
@@ -40,7 +44,7 @@ mock.module(
 
 mock.module("../app/[locale]/dashboard/dashboard-shell", () => ({
   DashboardShell: ({ children }: React.PropsWithChildren) => {
-    dashboardChildren = children;
+    dashboardShellRenderCount += 1;
     return children;
   },
 }));
@@ -49,35 +53,41 @@ const { default: DashboardLayout } = await import(
   "../app/[locale]/dashboard/layout"
 );
 
-test("keeps a cold Stack provider load inside the dashboard fallback", async () => {
-  stackProviderPending = true;
+beforeEach(() => {
+  currentUser = { id: "user-1", isAnonymous: false };
+  dashboardShellRenderCount = 0;
+  getUser.mockClear();
+});
+
+for (const unauthenticatedUser of [
+  null,
+  { id: "anonymous-1", isAnonymous: true },
+] as const) {
+  test(`redirects ${unauthenticatedUser ? "anonymous" : "missing"} users before rendering the dashboard shell`, async () => {
+    currentUser = unauthenticatedUser;
+
+    await expect(
+      DashboardLayout({
+        children: <main>Private dashboard content</main>,
+        params: Promise.resolve({ locale: "en" }),
+      }),
+    ).rejects.toThrow("redirect:/sign-in?after=/en/dashboard");
+
+    expect(getUser).toHaveBeenCalledTimes(1);
+    expect(dashboardShellRenderCount).toBe(0);
+  });
+}
+
+test("renders the dashboard shell only after server authentication succeeds", async () => {
+  const content = <main>Private dashboard content</main>;
   const html = renderToStaticMarkup(
     await DashboardLayout({
-      children: <main>Dashboard content</main>,
+      children: content,
       params: Promise.resolve({ locale: "en" }),
     }),
   );
 
-  expect(html).toContain('data-testid="dashboard-suspense-fallback"');
-  expect(html).not.toContain("Dashboard content");
-});
-
-test("passes page content directly to the shared dashboard shell", async () => {
-  stackProviderPending = false;
-  const content = <main>Dashboard content</main>;
-
-  try {
-    const html = renderToStaticMarkup(
-      await DashboardLayout({
-        children: content,
-        params: Promise.resolve({ locale: "en" }),
-      }),
-    );
-
-    expect(dashboardChildren).toBe(content);
-    expect(html).toContain("Dashboard content");
-  } finally {
-    stackProviderPending = true;
-    dashboardChildren = undefined;
-  }
+  expect(getUser).toHaveBeenCalledTimes(1);
+  expect(dashboardShellRenderCount).toBe(1);
+  expect(html).toContain("Private dashboard content");
 });

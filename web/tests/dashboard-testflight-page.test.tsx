@@ -9,10 +9,12 @@ import {
 
 let stackConfigured = true;
 let currentUser: ReturnType<typeof createTestflightUser> | null = null;
+let userPending = false;
 let ascConfigured = true;
 let status = { enrolled: false } as { enrolled: boolean; state?: string };
 
-const getUser = mock(async () => currentUser);
+const pendingUser = new Promise<never>(() => {});
+const getUser = mock(async () => userPending ? pendingUser : currentUser);
 const isTestflightEligible = mock(async (user: unknown) =>
   testflightUserEligibility(user) ?? false,
 );
@@ -69,6 +71,15 @@ mock.module("../app/lib/stack", () => ({
   stackServerApp: stackConfigured ? { getUser } : null,
 }));
 
+mock.module(
+  "../app/[locale]/dashboard/components/dashboard-page-headers",
+  () => ({
+    TestflightPageHeader: () => (
+      <h1 data-testid="testflight-page-header">iOS TestFlight</h1>
+    ),
+  }),
+);
+
 mock.module("../services/asc/client", () => ({
   AscApiError: class AscApiError extends Error {},
   AscConfigurationError: class AscConfigurationError extends Error {},
@@ -88,7 +99,7 @@ mock.module("@/services/billing/pro", () => ({
 }));
 
 const { PRO_TESTFLIGHT_GROUP_ID } = await import("../services/asc/testflight");
-const { DashboardTestflightContent } = await import(
+const { default: DashboardTestflightPage, DashboardTestflightContent } = await import(
   "../app/[locale]/dashboard/testflight/page"
 );
 
@@ -96,6 +107,7 @@ describe("dashboard TestFlight page", () => {
   beforeEach(() => {
     stackConfigured = true;
     currentUser = createTestflightUser();
+    userPending = false;
     ascConfigured = true;
     status = { enrolled: false };
     getUser.mockClear();
@@ -104,12 +116,26 @@ describe("dashboard TestFlight page", () => {
     captureAscError.mockClear();
   });
 
+  test("keeps the page header hidden until the private page content is ready", () => {
+    userPending = true;
+
+    const html = renderToStaticMarkup(
+      <DashboardTestflightPage
+        params={Promise.resolve({ locale: "en" })}
+        searchParams={Promise.resolve({})}
+      />,
+    );
+
+    expect(html).not.toContain('data-testid="testflight-page-header"');
+  });
+
   test("renders not eligible state with pricing link", async () => {
     currentUser = createTestflightUser({ eligible: false });
 
     const html = await renderTestflightPage();
 
     expect(html).toContain("Subscription required");
+    expect(html).toContain('data-testid="testflight-page-header"');
     expect(html).toContain("active personal Pro subscribers");
     expect(html).toContain('href="/pricing"');
     expect(html).not.toContain("/api/testflight");

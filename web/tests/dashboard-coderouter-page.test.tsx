@@ -3,7 +3,9 @@ import { renderToStaticMarkup } from "react-dom/server";
 import enMessages from "../messages/en.json";
 
 const authorizationFailure = new Error("Stack authorization deadline exceeded");
+const pendingAuthorization = new Promise<never>(() => {});
 let authorizationAvailable = false;
+let authorizationPending = false;
 let authJsonAvailable = true;
 let cutoverReady = true;
 let hostedControlConfigured = true;
@@ -74,12 +76,22 @@ mock.module("../app/lib/stack", () => ({
   }),
 }));
 
+mock.module(
+  "../app/[locale]/dashboard/components/dashboard-page-headers",
+  () => ({
+    CoderouterPageHeader: () => (
+      <h1 data-testid="coderouter-page-header">coderouter</h1>
+    ),
+  }),
+);
+
 class TestSubrouterAuthorizationUnavailableError extends Error {}
 
 mock.module("../services/vms/auth", () => ({
   withSubrouterAuthorizationDeadline: async (
     operation: (signal: AbortSignal) => Promise<unknown>,
   ) => {
+    if (authorizationPending) return pendingAuthorization;
     if (!authorizationAvailable) throw authorizationFailure;
     return await operation(new AbortController().signal);
   },
@@ -148,13 +160,14 @@ mock.module("../app/[locale]/dashboard/components/ai-account-forms", () => ({
   DeleteAiAccountButton: () => null,
 }));
 
-const { CoderouterOverviewContent } = await import(
+const { default: CoderouterOverviewPage, CoderouterOverviewContent } = await import(
   "../app/[locale]/dashboard/coderouter/page"
 );
 
 describe("coderouter dashboard", () => {
   beforeEach(() => {
     authorizationAvailable = false;
+    authorizationPending = false;
     authJsonAvailable = true;
     cutoverReady = true;
     hostedControlConfigured = true;
@@ -170,6 +183,19 @@ describe("coderouter dashboard", () => {
     }];
   });
 
+  test("keeps the page header hidden until the private page content is ready", () => {
+    authorizationPending = true;
+
+    const html = renderToStaticMarkup(
+      <CoderouterOverviewPage
+        params={Promise.resolve({ locale: "en" })}
+        searchParams={Promise.resolve({})}
+      />,
+    );
+
+    expect(html).not.toContain('data-testid="coderouter-page-header"');
+  });
+
   test("renders recovery UI when Stack authorization is unavailable", async () => {
     const page = await CoderouterOverviewContent({
       params: Promise.resolve({ locale: "en" }),
@@ -178,6 +204,7 @@ describe("coderouter dashboard", () => {
     const html = renderToStaticMarkup(page);
 
     expect(html).toContain("Accounts could not load");
+    expect(html).toContain('data-testid="coderouter-page-header"');
     expect(html).toContain(
       "The account service could not be reached. Try again shortly.",
     );
