@@ -741,4 +741,18 @@ mod tests {
         assert_eq!(lines, vec!["界界", "界"]);
         assert!(lines.iter().all(|line| line.width() <= 4));
     }
+
+    #[test]
+    #[allow(clippy::unicode_not_nfc)]
+    fn wrapping_trims_whitespace_graphemes_without_orphaning_marks() {
+        let lines = wrapped_message_lines("a \u{301}b", 2, 2);
+        assert_eq!(lines, vec!["a", "b"]);
+    }
+
+    #[test]
+    #[allow(clippy::unicode_not_nfc)]
+    fn wrapping_uses_terminal_cell_width_for_halfwidth_dakuten() {
+        let lines = wrapped_message_lines("界ﾞ界ﾞ", 5, 2);
+        assert_eq!(lines, vec!["界ﾞ", "界ﾞ"]);
+    }
 }

@@ -837,6 +837,16 @@ mod tests {
     }
 
     #[test]
+    #[allow(clippy::unicode_not_nfc)]
+    fn human_tables_pad_halfwidth_dakuten_by_terminal_width() {
+        let output = human_text(&json!([
+            {"name":"ｶﾞ","value":"a"},
+            {"name":"x","value":"ｶﾞ"}
+        ]));
+        assert_eq!(output, "NAME  VALUE\nｶﾞ    a\nx     ｶﾞ\n");
+    }
+
+    #[test]
     fn human_single_array_wrappers_use_the_same_table() {
         let output = human_text(&json!({
             "workspaces": [

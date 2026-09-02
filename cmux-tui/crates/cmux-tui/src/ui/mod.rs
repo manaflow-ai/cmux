@@ -814,6 +814,13 @@ mod tests {
     }
 
     #[test]
+    #[allow(clippy::unicode_not_nfc)]
+    fn truncation_uses_terminal_cell_width_for_halfwidth_dakuten() {
+        assert_eq!(middle_truncate("界ﾞ界ﾞ", 5), "...");
+        assert_eq!(truncate("界ﾞ界ﾞ", 5), "界ﾞ…");
+    }
+
+    #[test]
     fn truncation_uses_terminal_cell_width_and_preserves_graphemes() {
         assert_eq!(truncate("復元失敗", 5), "復元…");
         assert_eq!(truncate("e\u{301}clair", 2), "e\u{301}…");

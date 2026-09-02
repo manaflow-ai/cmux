@@ -9127,6 +9127,20 @@ mod tests {
     }
 
     #[test]
+    #[allow(clippy::unicode_not_nfc)]
+    fn status_text_cap_uses_terminal_cells_for_halfwidth_dakuten() {
+        let raw = vec![RawStatusSegment {
+            text: Some("界ﾞ".repeat(100)),
+            ..RawStatusSegment::default()
+        }];
+        let resolved = resolve_status_segments(raw, "left");
+        let StatusSegmentContent::Text(text) = &resolved[0].content else {
+            panic!("literal status text did not resolve as text");
+        };
+        assert_eq!(text, &"界ﾞ".repeat(85));
+    }
+
+    #[test]
     fn chip_styles_and_separators_parse() {
         let raw: RawConfig = serde_json::from_value(json!({
             "tabs": {"style": "pill"},
