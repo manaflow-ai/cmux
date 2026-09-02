@@ -653,7 +653,7 @@ extension TerminalController: ControlWorkspaceTaskQueueContext {
             userInfo: ["workspaceId": displayedWorkspace.id]
         )
         return .revealed(
-            queueItem(
+            item: queueItem(
                 item,
                 workspace: workspace,
                 windowID: app.windowId(for: workspaceManager),
