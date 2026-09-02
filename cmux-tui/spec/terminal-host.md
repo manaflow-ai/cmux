@@ -76,10 +76,12 @@ it may publish the snapshot or send input.
 | `HostHello`, 40 bytes | `selected_version:u16, reserved:u16=0, granted_rights:u32, terminal_id:[u8;16], incarnation:[u8;16]` |
 
 `ClientHello.sequence` is zero. Its permitted flags are
-`FLAG_VIEWER_SIZE_ACKS` and `FLAG_SMART_RENDERER`. The host echoes viewer-size
-acknowledgements only when `RESIZE` was granted, and echoes smart mode only for
-renderer or admin roles negotiating protocol v3 or newer. Daemon adoption
-applies a two-second read and write handshake timeout.
+`FLAG_VIEWER_SIZE_ACKS`, `FLAG_SMART_RENDERER`, and
+`FLAG_TERMINAL_METADATA`. The host echoes viewer-size acknowledgements only
+when `RESIZE` was granted, and echoes smart mode only for renderer or admin
+roles negotiating protocol v3 or newer. A v4 host echoes terminal metadata
+only when the client requests it. Daemon adoption applies a two-second read
+and write handshake timeout.
 
 For a newly launched v4 host, the first authenticated owner `HostHello` also
 sets `FLAG_LAUNCH_ACTIVATION_REQUIRED`. The PTY reader remains behind a launch
@@ -204,7 +206,13 @@ kitty_replay_state:KittyReplayState
 PID zero means absent. Snapshot `argc` may be zero. Protocol v2 appends a
 Kitty image-alias table and cell pixel width and height. Protocol v3 appends
 Kitty graphics limits, the replay cursor offset, and the primary and alternate
-image-id cursors. Protocol v4 keeps the v3 snapshot payload unchanged.
+image-id cursors. Protocol v4 keeps the v3 snapshot payload unchanged unless
+`FLAG_TERMINAL_METADATA` was negotiated. A negotiated v4 snapshot then
+appends `osc_progress:string`, a bounded OSC 9 progress value with at most 256
+Unicode characters and no control characters. The value is captured while
+the host's authoritative VT parser is at the same snapshot boundary. A client
+that does not negotiate the flag receives the original v4 bytes and must
+reject an unnegotiated trailing field.
 
 Legacy `Resized` producer payload:
 
@@ -300,6 +308,11 @@ size and local scroll viewport.
 `HostHello` sent to the first authenticated launch owner. `Activate` has zero
 flags, request id zero, sequence zero, and an empty payload.
 
+`FLAG_TERMINAL_METADATA` is bit 4 and is valid only in protocol-v4
+`ClientHello` and `HostHello`. It negotiates the optional `Snapshot` metadata
+tail described above. The metadata is a generic terminal primitive. It does
+not identify agents or select plugin policy.
+
 ## Ordering and recovery
 
 A renderer applies every live sequence exactly once. A gap, duplicate, flagged frame without the required next `Colors`, or invalid flag is fatal. The renderer disconnects and obtains a new `Snapshot`; continuing from a damaged sequence would corrupt its mirror.
@@ -380,11 +393,13 @@ rights, malformed control payload, unknown flags, invalid sequence, or queue
 overflow closes or rejects the connection. A client reconnects, authenticates
 again, and consumes a fresh `Snapshot` plus same-boundary `Colors`.
 
-Discovery records use JSON `record_version:4`. Terminal and incarnation are
-32-character lowercase UUIDv4 hex, owner token and process nonce are
-64-character lowercase hex, the Unix-socket path is canonical, and the host
-PID is nonzero. Record directories are mode `0700`; records and sockets are
-mode `0600`.
+Discovery records use JSON `record_version:4`. A host that supports the
+optional snapshot tail advertises `supports_terminal_metadata:true`; records
+from older hosts omit the field and default it to false. Terminal and
+incarnation are 32-character lowercase UUIDv4 hex, owner token and process
+nonce are 64-character lowercase hex, the Unix-socket path is canonical, and
+the host PID is nonzero. Record directories are mode `0700`; records and
+sockets are mode `0600`.
 
 ## Durability boundary
 
@@ -404,6 +419,7 @@ across an unplanned no-tap interval until a durable host spool exists.
 Protocol v1 carries the base snapshot and legacy replay stream. Protocol v2
 adds Kitty image aliases and cell-pixel metrics. Protocol v3 adds Kitty replay
 state, Kitty quota controls, and the smart raw-byte stream. Protocol v4 adds
-the launch activation barrier. A v4 client may negotiate v1 or v2 only in
+the launch activation barrier and the optional negotiated terminal metadata
+snapshot tail. A v4 client may negotiate v1 or v2 only in
 legacy mode; smart renderers require v3 and restart their handshake on any gap
 or `ResyncRequired` frame.

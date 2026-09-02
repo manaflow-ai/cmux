@@ -8,7 +8,7 @@
 //! terminal primitive. It has no agent names, manifests, or roster policy.
 
 const MAX_OSC_BODY_BYTES: usize = 4096;
-const MAX_PROGRESS_CHARS: usize = 256;
+pub(crate) const MAX_PROGRESS_CHARS: usize = 256;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 enum OscState {
@@ -214,6 +214,18 @@ impl TerminalMetadata {
 
     pub(crate) fn osc_progress(&self) -> &str {
         &self.progress
+    }
+
+    /// Restore a progress value carried by an authenticated terminal-host
+    /// snapshot. Reject malformed values instead of silently changing the
+    /// host's state at a reconnect boundary.
+    pub(crate) fn set_osc_progress(&mut self, progress: &str) -> bool {
+        if progress.chars().count() > MAX_PROGRESS_CHARS || progress.chars().any(char::is_control) {
+            return false;
+        }
+        self.progress.clear();
+        self.progress.push_str(progress);
+        true
     }
 }
 

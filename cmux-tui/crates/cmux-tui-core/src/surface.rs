@@ -2794,6 +2794,11 @@ impl Surface {
         let title_changed = Arc::new(AtomicBool::new(false));
         let callbacks = hosted_terminal_callbacks(id, mux.clone(), title_changed.clone());
         let mut term = Terminal::new(snapshot.cols, snapshot.rows, opts.scrollback, callbacks)?;
+        let mut terminal_metadata = crate::terminal_metadata::TerminalMetadata::default();
+        anyhow::ensure!(
+            terminal_metadata.set_osc_progress(&snapshot.osc_progress),
+            "terminal host returned invalid OSC progress metadata"
+        );
         term.resize(
             snapshot.cols,
             snapshot.rows,
@@ -2859,7 +2864,7 @@ impl Surface {
                 reader_completion: Arc::new(ReaderCompletion::default()),
                 term: Mutex::new(Box::new(term)),
                 stream_progress: Box::new(TerminalStreamProgress::default()),
-                terminal_metadata: Mutex::new(Default::default()),
+                terminal_metadata: Mutex::new(terminal_metadata),
                 mouse_encoders: Mutex::new(Box::new(mouse_encoders)),
                 runtime: Mutex::new(PtyRuntime::Hosted(Box::new(attachment))),
                 lifetime,
@@ -3525,12 +3530,23 @@ impl Surface {
                         if !color_delta.is_empty() {
                             replacement_term.vt_write(&color_delta);
                         }
+                        let mut replacement_metadata =
+                            crate::terminal_metadata::TerminalMetadata::default();
+                        if !replacement_metadata
+                            .set_osc_progress(&replacement_snapshot.osc_progress)
+                        {
+                            if !retry.wait_or_fail(pty) {
+                                return;
+                            }
+                            continue;
+                        }
                         title_changed.store(false, Ordering::Relaxed);
                         let title = replacement_term.title().unwrap_or_default();
                         let pwd = replacement_term.pwd();
                         let generation = {
                             let mut term = pty.term.lock().unwrap();
                             **term = replacement_term;
+                            *pty.terminal_metadata.lock().unwrap() = replacement_metadata;
                             pty.mouse_encoders.lock().unwrap().sync_from_terminal(&term);
                             *geometry = next_geometry;
                             *pty.title.lock().unwrap() = title.clone();
