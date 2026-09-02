@@ -8703,6 +8703,39 @@ mod tests {
     }
 
     #[test]
+    fn key_dispatch_refreshes_after_rebinding_and_keeps_modeless_fallback() {
+        let mut keys = Keys::default();
+        assert_eq!(
+            keys.action_for(&KeyEvent::new(KeyCode::Char('g'), KeyModifiers::NONE)),
+            Some(Action::NewPaneRight)
+        );
+        assert_eq!(
+            keys.modeless_action_for(&KeyEvent::new(KeyCode::Char('t'), KeyModifiers::ALT)),
+            Some(Action::NewTab)
+        );
+
+        keys.apply(&HashMap::from([
+            ("new-tab".to_string(), Value::String("g".to_string())),
+            ("new-pane-right".to_string(), Value::String("alt+h".to_string())),
+        ]));
+
+        // Rebinding steals the ordinary chord while preserving modeless
+        // fallback lookup for the newly configured Alt chord.
+        assert_eq!(
+            keys.action_for(&KeyEvent::new(KeyCode::Char('g'), KeyModifiers::NONE)),
+            Some(Action::NewTab)
+        );
+        assert_eq!(
+            keys.modeless_action_for(&KeyEvent::new(KeyCode::Char('h'), KeyModifiers::ALT)),
+            Some(Action::NewPaneRight)
+        );
+        assert_eq!(
+            keys.modeless_action_for(&KeyEvent::new(KeyCode::Char('t'), KeyModifiers::ALT)),
+            None
+        );
+    }
+
+    #[test]
     fn shifted_character_chords_match_enhanced_base_key_events() {
         let shifted_letter = parse_chord("super+shift+d").unwrap();
         assert!(shifted_letter.matches(&KeyEvent::new(
