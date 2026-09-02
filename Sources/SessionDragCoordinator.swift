@@ -33,7 +33,11 @@ final class SessionDragCoordinator {
 
     init(
         startDraggingSession: @escaping StartDraggingSession = { sourceView, item, event, source in
-            sourceView.beginDraggingSession(with: [item], event: event, source: source)
+            sourceView.beginDraggingSession(
+                with: [item],
+                event: event,
+                source: source
+            )
         }
     ) {
         self.startDraggingSession = startDraggingSession
@@ -48,13 +52,14 @@ final class SessionDragCoordinator {
         frame: NSRect,
         image: NSImage
     ) -> Bool {
-        guard case .idle = sessionPhase,
-              frame.width > 0,
-              frame.height > 0 else {
+        guard frame.width > 0, frame.height > 0 else {
             return false
         }
 
-        let dragID = registry.register(entry)
+        // Prepare the replacement capability before touching an existing
+        // native source. A failed registration must leave the live drag and
+        // its process-local registry untouched.
+        let dragID = UUID()
         guard let transferRegistration = SessionDragPayload(
             entry: entry,
             dragID: dragID
@@ -62,6 +67,21 @@ final class SessionDragCoordinator {
             registry.discard(id: dragID)
             return false
         }
+
+        if case .dragging(_, let source) = sessionPhase {
+            // Reaching this new threshold-crossing event proves AppKit has
+            // left the previous native drag loop, even if its source omitted
+            // `endedAt`. Retire only that superseded source after the
+            // replacement capability has been prepared.
+            source.finishAfterNativeBoundary()
+            sessionPhase = .idle
+        }
+        guard case .idle = sessionPhase else {
+            tabDragTransferRegistry.end(transferRegistration)
+            registry.discard(id: dragID)
+            return false
+        }
+        _ = registry.register(entry, id: dragID)
         let dragPasteboard = NSPasteboard(name: .drag)
         dragPasteboard.clearContents()
         guard transferRegistration.write(to: dragPasteboard) else {
@@ -92,6 +112,10 @@ final class SessionDragCoordinator {
         )
 #endif
         startDraggingSession(sourceView, item, event, source)
+        // Binding is an invariant of the coordinator, not of the default
+        // starter closure. Injected starters used by tests and alternate
+        // AppKit hosts must retain the exact source view as well.
+        source.bind(sourceView: sourceView)
         return true
     }
 

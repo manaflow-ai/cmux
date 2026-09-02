@@ -23,6 +23,18 @@ public struct MobileRootAuthGate {
         stackAuthenticated || attachTicketAuthenticated
     }
 
+    /// Whether the root should remain on the sign-in surface while Stack auth
+    /// is absent or its cached session is still being validated. A live attach
+    /// ticket is an explicit exception because it must proceed directly to the
+    /// shell to complete the attach flow.
+    public static func shouldShowSignIn(
+        stackAuthenticated: Bool,
+        attachTicketAuthenticated: Bool = false,
+        isRestoringSession: Bool
+    ) -> Bool {
+        (!stackAuthenticated || isRestoringSession) && !attachTicketAuthenticated
+    }
+
     /// Whether the restoring-session UI should be shown.
     /// - Parameters:
     ///   - stackAuthenticated: Whether Stack auth is established.

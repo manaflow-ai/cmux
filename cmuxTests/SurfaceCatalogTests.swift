@@ -122,6 +122,27 @@ struct SurfaceCatalogTests {
             SurfaceResource(id: SurfaceResourceID(machine: machine, kind: .terminal, key: "term_new"), title: name ?? "shell", detail: cwd, lifecycle: .launching, agent: nil, remoteWorkspace: nil, port: nil, url: nil)
         }
 
+        var closedTerminals: [SurfaceResourceID] = []
+        var closedRemoteWorkspaces: [String] = []
+        var renamedRemoteWorkspaces: [(id: String, name: String)] = []
+        /// Interleaved order of the remote mutations, so tests can assert terminals
+        /// die BEFORE their workspace closes (the delete contract).
+        var remoteMutationLog: [String] = []
+
+        func closeTerminal(_ id: SurfaceResourceID) async throws {
+            closedTerminals.append(id)
+            remoteMutationLog.append("terminal:\(id.key)")
+        }
+
+        func closeRemoteWorkspace(id: String) async throws {
+            closedRemoteWorkspaces.append(id)
+            remoteMutationLog.append("workspace:\(id)")
+        }
+
+        func renameRemoteWorkspace(id: String, name: String) async throws {
+            renamedRemoteWorkspaces.append((id: id, name: name))
+        }
+
         func projectionDidEnd(_ projection: SurfaceProjection) { ended.append(projection) }
 
         @discardableResult
@@ -172,6 +193,40 @@ struct SurfaceCatalogTests {
         let third = try await catalog.project(term.id, into: .workspace(id: ws, placement: .split), reuseExisting: false)
         #expect(!third.reused)
         #expect(catalog.projections(of: term.id).count == 2)
+    }
+
+    @Test func `Workspace-scoped reuse ignores panes in other workspaces`() async throws {
+        let catalog = SurfaceCatalog()
+        let provider = FakeProvider(machine: .cloud("vivid-newt"))
+        catalog.register(provider)
+        let term = terminal(.cloud("vivid-newt"), "display_like")
+        catalog.replaceResources([term], on: .cloud("vivid-newt"))
+        var focused: [SurfaceProjection] = []
+        catalog.focusProjection = { focused.append($0) }
+
+        let wsA = UUID()
+        let wsB = UUID()
+        let a = try await catalog.project(term.id, into: .workspace(id: wsA, placement: .split), reuseInWorkspace: wsA)
+        #expect(!a.reused)
+
+        // A pane in wsA neither satisfies wsB's scoped open nor steals focus:
+        // the resource materializes in wsB (the workspace-Desktop-row bug).
+        let b = try await catalog.project(term.id, into: .workspace(id: wsB, placement: .split), reuseInWorkspace: wsB)
+        #expect(!b.reused)
+        #expect(b.projection.workspaceID == wsB)
+        #expect(provider.materialized.count == 2)
+        #expect(focused.isEmpty, "no jump to the other workspace's pane")
+
+        // Scoped reuse still reuses within its own workspace…
+        let again = try await catalog.project(term.id, into: .workspace(id: wsB, placement: .split), reuseInWorkspace: wsB)
+        #expect(again.reused)
+        #expect(again.projection == b.projection)
+        #expect(focused == [b.projection])
+
+        // …and an unscoped call keeps the global open-or-focus jump.
+        let global = try await catalog.project(term.id, into: .workspace(id: UUID(), placement: .tab))
+        #expect(global.reused)
+        #expect(provider.materialized.count == 2)
     }
 
     @Test func `Concurrent reuse waits for the in-flight materialization`() async throws {
@@ -769,5 +824,54 @@ struct SurfaceCatalogTests {
         #expect(Set(provider.discardInvocations.map(\.panelID)) == [displayProjection.panelID, browserProjection.panelID])
         #expect(!provider.discardInvocations.map(\.panelID).contains(termProjection.panelID))
         #expect(catalog.snapshot.projections.isEmpty)
+    }
+
+    private func workspaceTerminal(_ machine: SurfaceMachineID, _ key: String, workspace: SurfaceRemoteWorkspace?) -> SurfaceResource {
+        SurfaceResource(id: SurfaceResourceID(machine: machine, kind: .terminal, key: key), title: key, detail: "/root", lifecycle: .running, agent: nil, remoteWorkspace: workspace, port: nil, url: nil)
+    }
+
+    @Test func `Delete workspace kills its viewed terminals first, spares the rest`() async throws {
+        let machine = SurfaceMachineID.cloud("vivid-newt")
+        let catalog = SurfaceCatalog()
+        let provider = FakeProvider(machine: machine)
+        catalog.register(provider)
+        let doomedWorkspace = SurfaceRemoteWorkspace(id: "ws_1", name: "build", index: 0, focused: false)
+        let otherWorkspace = SurfaceRemoteWorkspace(id: "ws_2", name: "main", index: 1, focused: true)
+        catalog.replaceResources([
+            workspaceTerminal(machine, "term_a", workspace: doomedWorkspace),
+            workspaceTerminal(machine, "term_b", workspace: doomedWorkspace),
+            workspaceTerminal(machine, "term_c", workspace: otherWorkspace),
+            workspaceTerminal(machine, "term_pool", workspace: nil),
+        ], on: machine)
+
+        let closed = try await CloudTreeNodeActions.deleteWorkspaceAndTerminals(
+            machine: machine, provider: provider, catalog: catalog, workspaceID: "ws_1"
+        )
+
+        // The delete contract, identical for the sidebar row and `vm.workspace_delete`:
+        // every terminal viewed in the workspace dies, terminals elsewhere and pool
+        // terminals survive, and the workspace closes only after its terminals.
+        #expect(closed == 2)
+        #expect(Set(provider.closedTerminals.map(\.key)) == ["term_a", "term_b"])
+        #expect(provider.closedRemoteWorkspaces == ["ws_1"])
+        #expect(provider.remoteMutationLog.last == "workspace:ws_1")
+    }
+
+    @Test func `Delete of an empty workspace closes it and kills nothing`() async throws {
+        let machine = SurfaceMachineID.cloud("vivid-newt")
+        let catalog = SurfaceCatalog()
+        let provider = FakeProvider(machine: machine)
+        catalog.register(provider)
+        catalog.replaceResources([
+            workspaceTerminal(machine, "term_c", workspace: SurfaceRemoteWorkspace(id: "ws_2", name: "main", index: 0, focused: true)),
+        ], on: machine)
+
+        let closed = try await CloudTreeNodeActions.deleteWorkspaceAndTerminals(
+            machine: machine, provider: provider, catalog: catalog, workspaceID: "ws_empty"
+        )
+
+        #expect(closed == 0)
+        #expect(provider.closedTerminals.isEmpty)
+        #expect(provider.closedRemoteWorkspaces == ["ws_empty"])
     }
 }
