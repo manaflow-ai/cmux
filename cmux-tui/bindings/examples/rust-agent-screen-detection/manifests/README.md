@@ -12,8 +12,9 @@ The local patch version is `2026.07.16.2.1`. `github-copilot.toml` carries one
 cmux rule for its background-agent waiting row and uses local patch version
 `2026.07.07.1.1`. The cmux package adapts their
 semantics in the separately attributed Rust engine. Do not fetch herdr's
-manifest update endpoint. Refresh files from the exact snapshot commit and
-reapply the Grok correction when changing this pin.
+manifest update endpoint. Refresh the 18 unchanged files from the exact
+snapshot commit, take Claude from its stated upstream correction commit, and
+reapply both the Grok and Copilot local corrections when changing this pin.
 
 SHA256SUMS records the bytes embedded by the plugin. The provenance test
 checks this record before the bundled set is compiled, so an accidental edit

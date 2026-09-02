@@ -17,13 +17,14 @@
 
 Derived material and vendored material:
 
-- `bindings/examples/rust-agent-screen-detection/manifests/*.toml`: 19
+- `bindings/examples/rust-agent-screen-detection/manifests/*.toml`: 18
   manifests are unchanged from the manifest snapshot's
   `src/detect/manifests/`; `claude.toml` is byte-identical to upstream commit
-  `987b070fbfa187e85009b45cd7e208fc6175ff6a`, and `grok.toml` carries a
-  documented cmux precedence correction. Never refresh them from herdr's
-  update endpoint. Re-vendor the 19 files from the exact snapshot, Claude from
-  its stated commit, and reapply the Grok patch when changing the pin.
+  `987b070fbfa187e85009b45cd7e208fc6175ff6a`. `grok.toml` and
+  `github-copilot.toml` carry documented cmux corrections. Never refresh them
+  from herdr's update endpoint. Re-vendor the 18 files from the exact
+  snapshot, Claude from its stated commit, and reapply both local patches when
+  changing the pin.
 - `bindings/examples/rust-agent-screen-detection/src/manifest.rs`: the
   manifest engine (rule grammar, region extraction, gate evaluation,
   validation limits), ported from `src/detect/manifest.rs`.
