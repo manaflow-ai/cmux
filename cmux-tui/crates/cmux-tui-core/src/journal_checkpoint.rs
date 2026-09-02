@@ -298,8 +298,8 @@ impl RestoreReducer {
 
     pub(crate) fn finish(mut self, head_sequence: u64) -> anyhow::Result<Value> {
         anyhow::ensure!(
-            head_sequence >= self.last_sequence,
-            "restore preview head precedes the last reduced record"
+            head_sequence == self.last_sequence,
+            "restore preview did not reduce the exact journal tail"
         );
         let snapshot = self
             .state
@@ -829,7 +829,10 @@ mod tests {
             checkpoint_id: "checkpoint_test".into(),
             source_sequence: 3,
             reducer_version: JOURNAL_REDUCER_VERSION,
-            state: json!({"session_snapshot":{"cursor":{}},"journal_extensions":{"producers":[],"hooks":[]}}),
+            state: json!({
+                "session_snapshot":{"cursor":{}},
+                "journal_extensions":{"producers":[],"hooks":[]}
+            }),
             content_refs: vec![],
             sha256: "00".repeat(32),
             created_at_ms: 1,
@@ -859,6 +862,41 @@ mod tests {
         let mut gapped = record;
         gapped.sequence = 5;
         assert!(restore_preview(&checkpoint, &[gapped], 5).is_err());
+    }
+
+    #[test]
+    fn reducer_rejects_a_partial_tail() {
+        let checkpoint = JournalCheckpoint {
+            checkpoint_id: "checkpoint_test".into(),
+            source_sequence: 3,
+            reducer_version: JOURNAL_REDUCER_VERSION,
+            state: json!({"session_snapshot":{"cursor":{}},"journal_extensions":{"producers":[],"hooks":[]}}),
+            content_refs: vec![],
+            sha256: "00".repeat(32),
+            created_at_ms: 1,
+        };
+        let record = SessionJournalRecord {
+            sequence: 4,
+            event_id: "event_4".into(),
+            schema_version: 1,
+            kind: "unknown".into(),
+            class: JournalClass::State,
+            replay: JournalReplayPolicy::Ignored,
+            occurred_at_ms: 1,
+            committed_at_ms: 1,
+            producer: JournalProducer { kind: "test".into(), id: "test".into() },
+            authority: None,
+            causation_id: None,
+            correlation_id: None,
+            causation_depth: 0,
+            subjects: vec![],
+            sensitivity: JournalSensitivity::Sensitive,
+            payload: json!({}),
+            resource_revision: None,
+            previous_resource_revision: None,
+            terminal_output: None,
+        };
+        assert!(restore_preview(&checkpoint, &[record], 5).is_err());
     }
 
     #[test]
