@@ -400,7 +400,7 @@ while IFS= read -r -d '' candidate_dir; do
     exit 2
   fi
   hosted_artifact_order+=("$candidate_mtime	$candidate_commit	$candidate_dir")
-done < <(find "$hosted_artifact_root" -mindepth 1 -maxdepth 1 -type d -user "$(id -u)" -print0)
+done < <(find "$hosted_artifact_root" -mindepth 1 -maxdepth 1 -type d -uid "$(id -u)" -print0)
 if ((${#hosted_artifact_order[@]} > 0)); then
   while IFS=$'\t' read -r _ candidate_commit candidate_dir; do
     hosted_artifact_dirs+=("$candidate_dir")
@@ -422,27 +422,42 @@ for candidate_dir in "${hosted_artifact_dirs[@]}"; do
 done
 
 active_artifact_paths=""
+lsof_candidates=()
 if ((${#cleanup_dirs[@]} > 0)); then
   if [[ "$lsof_available" != true ]]; then
     echo "error: cannot prove artifact is inactive because lsof is unavailable" >&2
     exit 2
   fi
-  lsof_candidates=()
   for candidate_dir in "${cleanup_dirs[@]}"; do
     candidate_binary="$candidate_dir/cmux-tui"
     [[ -f "$candidate_binary" ]] && lsof_candidates+=("$candidate_binary")
   done
   if ((${#lsof_candidates[@]} > 0)); then
-    lsof_stderr_file="$temp_dir/lsof.stderr"
-    set +e
-    active_artifact_paths="$(lsof -Fn -- "${lsof_candidates[@]}" 2>"$lsof_stderr_file")"
-    lsof_status=$?
-    set -e
-    if (( lsof_status != 0 )) && [[ -s "$lsof_stderr_file" ]]; then
-      echo "error: cannot determine whether hosted artifacts are active" >&2
-      exit 2
-    fi
-    active_artifact_paths="$(printf '%s\n' "$active_artifact_paths" | sed -n 's/^n//p')"
+    collect_active_artifacts() {
+      local stderr_file="$1"
+      local paths_file="$temp_dir/lsof.paths"
+      local batch_size=100
+      local batch_start=0
+      local batch_output=""
+      local lsof_status=0
+      : > "$stderr_file"
+      : > "$paths_file"
+      while ((batch_start < ${#lsof_candidates[@]})); do
+        batch=("${lsof_candidates[@]:batch_start:batch_size}")
+        set +e
+        batch_output="$(lsof -Fn -- "${batch[@]}" 2>>"$stderr_file")"
+        lsof_status=$?
+        set -e
+        if (( lsof_status != 0 )) && [[ -s "$stderr_file" ]]; then
+          echo "error: cannot determine whether hosted artifacts are active" >&2
+          exit 2
+        fi
+        printf '%s\n' "$batch_output" >> "$paths_file"
+        batch_start=$((batch_start + batch_size))
+      done
+      active_artifact_paths="$(sed -n 's/^n//p' "$paths_file" | sort -u)"
+    }
+    collect_active_artifacts "$temp_dir/lsof.stderr"
   fi
 fi
 
@@ -527,6 +542,15 @@ else
   sed '$d' "$preview_file" > "$preview_plan_file"
   if ! cmp -s "$retention_plan_file" "$preview_plan_file"; then
     echo "error: retention preview does not match the current cleanup plan" >&2
+    exit 2
+  fi
+fi
+
+if ((${#lsof_candidates[@]} > 0)); then
+  active_artifact_paths_before="$active_artifact_paths"
+  collect_active_artifacts "$temp_dir/lsof-recheck.stderr"
+  if [[ "$active_artifact_paths" != "$active_artifact_paths_before" ]]; then
+    echo "error: hosted artifact activity changed before cleanup; run a new dry run" >&2
     exit 2
   fi
 fi
