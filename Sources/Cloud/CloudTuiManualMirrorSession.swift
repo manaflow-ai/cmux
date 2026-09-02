@@ -381,10 +381,11 @@ final class CloudTuiManualMirrorSession {
             guard let self,
                   self.connection === connection,
                   self.phase != .stopped else { return }
-            self.connection = nil
-            self.inputRouter.setConnection(nil)
-            self.phase = .disconnected
-            self.onNeedsReconnect()
+            // EOF is equivalent to an explicit detach or watchdog failure.
+            // Run the same teardown fence so pending request/read watchdogs
+            // are cancelled and a resize in-flight value cannot survive into
+            // the reconnect callback.
+            self.transitionToDisconnected()
         }
     }
 
