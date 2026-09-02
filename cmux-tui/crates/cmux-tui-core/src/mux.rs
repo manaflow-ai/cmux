@@ -6751,6 +6751,27 @@ impl Mux {
         self.spawn_surface_with(cwd, command, size, Some(workspace_key), Some(reservation))
     }
 
+    fn persist_terminal_cell_pixel_reconcile_failure(
+        &self,
+        terminal_id: &str,
+        incarnation: Option<&str>,
+        error: &anyhow::Error,
+    ) -> anyhow::Result<()> {
+        let detail = format!("{error:#}");
+        eprintln!(
+            "cmux-tui: terminal {terminal_id} cell-pixel reconciliation failed before \
+             publication: {}",
+            detail.escape_debug()
+        );
+        self.persist_terminal_exit(
+            terminal_id,
+            incarnation,
+            &TerminalExit::unknown("cell-pixel-reconcile-failed"),
+        )
+        .context("could not persist terminal exit after cell-pixel reconciliation failed")?;
+        Ok(())
+    }
+
     fn spawn_surface_with(
         self: &Arc<Self>,
         cwd: Option<String>,
@@ -6881,7 +6902,7 @@ impl Mux {
                 surface.kill();
                 anyhow::bail!("terminal host changed registry-reserved identity");
             }
-            let ready_revision = {
+            {
                 let mut registry = self.workspace_registry.lock().unwrap();
                 let ready = commit_terminal_lifecycle(
                     &mut registry,
@@ -6900,21 +6921,18 @@ impl Mux {
                     }
                 };
                 self.emit_terminal_registry_changed(&registry, ready_revision);
-                ready_revision
-            };
+            }
             let cell_pixel_lifecycle =
                 match self.reconcile_surface_cell_pixels_for_publish(&surface) {
                     Ok(lifecycle) => lifecycle,
                     Err(error) => {
-                        let _ = self.persist_terminal_exit(
+                        let persistence = self.persist_terminal_cell_pixel_reconcile_failure(
                             &terminal_hex,
                             Some(&identity.incarnation),
-                            &TerminalExit::unknown(format!(
-                                "cell-pixel-reconcile-failed at terminal revision \
-                                 {ready_revision}: {error}"
-                            )),
+                            &error,
                         );
                         surface.kill();
+                        persistence?;
                         return Err(error);
                     }
                 };
@@ -7026,12 +7044,13 @@ impl Mux {
                 match self.reconcile_surface_cell_pixels_for_publish(&surface) {
                     Ok(lifecycle) => lifecycle,
                     Err(error) => {
-                        let _ = self.persist_terminal_exit(
+                        let persistence = self.persist_terminal_cell_pixel_reconcile_failure(
                             &terminal_hex,
                             Some(&incarnation),
-                            &TerminalExit::unknown(format!("cell-pixel-reconcile-failed: {error}")),
+                            &error,
                         );
                         surface.kill();
+                        persistence?;
                         return Err(error);
                     }
                 };
