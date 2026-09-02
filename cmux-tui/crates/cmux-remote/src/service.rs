@@ -1447,7 +1447,7 @@ fn lane_bit(lane: Lane) -> u8 {
 }
 
 fn tombstone_lane_mask(service: Service, lane: Lane) -> u8 {
-    if service == Service::TcpTunnel { lane_bit(lane) } else { MULTI_LANE_TERMINAL_MASK }
+    if service == Service::MuxControl { MULTI_LANE_TERMINAL_MASK } else { lane_bit(lane) }
 }
 
 fn legal_tombstone_lane_mask(service: Service) -> u8 {
