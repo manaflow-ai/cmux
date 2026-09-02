@@ -981,6 +981,16 @@ enum RunOutcome {
     Failed { message: String },
 }
 
+struct CancelOnDrop(Option<tokio_util::sync::CancellationToken>);
+
+impl Drop for CancelOnDrop {
+    fn drop(&mut self) {
+        if let Some(token) = self.0.take() {
+            token.cancel();
+        }
+    }
+}
+
 #[cfg(unix)]
 struct ProcessGroupGuard {
     pid: Option<u32>,
@@ -1010,6 +1020,7 @@ async fn run_spec(
     cwd_fd: Option<ScopedCwdFd>,
     timeout_ms: u64,
     env: &HashMap<String, String>,
+    cancellation: Option<tokio_util::sync::CancellationToken>,
 ) -> RunOutcome {
     use tokio::io::AsyncReadExt as _;
     let mut command = match &spec {
@@ -1082,6 +1093,7 @@ async fn run_spec(
     let mut stderr = child.stderr.take();
     let mut output: Vec<u8> = Vec::new();
     let mut timed_out = false;
+    let mut cancelled = false;
     let deadline = tokio::time::sleep(std::time::Duration::from_millis(timeout_ms));
     tokio::pin!(deadline);
     let mut stdout_buf = [0_u8; 8_192];
@@ -1105,6 +1117,23 @@ async fn run_spec(
             break;
         }
         tokio::select! {
+            () = async {
+                match cancellation.as_ref() {
+                    Some(token) => token.cancelled().await,
+                    None => std::future::pending().await,
+                }
+            }, if !cancelled => {
+                cancelled = true;
+                #[cfg(unix)]
+                if !signal_process_tree(pid, false) {
+                    let _ = child.start_kill();
+                }
+                #[cfg(not(unix))]
+                signal_process_tree(pid, false);
+                kill_deadline = Some(Box::pin(tokio::time::sleep(
+                    std::time::Duration::from_millis(250),
+                )));
+            }
             read = async {
                 match stdout.as_mut() {
                     Some(stream) => stream.read(&mut stdout_buf).await,
@@ -1259,6 +1288,9 @@ async fn run_spec(
     }
     if timed_out {
         return RunOutcome::TimedOut;
+    }
+    if cancelled {
+        return RunOutcome::Failed { message: "process cancelled".to_owned() };
     }
     let text = String::from_utf8_lossy(&output);
     RunOutcome::Done { exit_code: exited.unwrap_or(0), output: text.into_owned() }
@@ -1789,7 +1821,9 @@ pub async fn perform_action(frame: &Value, context: &ActionContext) -> Value {
             };
             #[cfg(not(unix))]
             let command_cwd_fd = None;
-            let outcome = tokio::spawn(async move {
+            let grep_cancellation = tokio_util::sync::CancellationToken::new();
+            let mut cancel_on_drop = CancelOnDrop(Some(grep_cancellation.clone()));
+            let grep_task = tokio::spawn(async move {
                 let _file_permit = file_permit;
                 #[cfg(unix)]
                 let _path_guard = _path_guard;
@@ -1812,11 +1846,14 @@ pub async fn perform_action(frame: &Value, context: &ActionContext) -> Value {
                     command_cwd_fd,
                     timeout_ms,
                     &env,
+                    Some(grep_cancellation),
                 )
                 .await
-            })
-            .await
-            .unwrap_or(RunOutcome::Failed { message: "process failed to start".to_owned() });
+            });
+            let outcome = grep_task
+                .await
+                .unwrap_or(RunOutcome::Failed { message: "process failed to start".to_owned() });
+            cancel_on_drop.0 = None;
             run_reply(version, &action_id, outcome, args.get("limit"), Some(200), timeout_ms)
         }
         "find" => {
@@ -1886,6 +1923,7 @@ pub async fn perform_action(frame: &Value, context: &ActionContext) -> Value {
                 command_cwd_fd,
                 timeout_ms,
                 &env,
+                None,
             )
             .await;
             run_reply(version, &action_id, outcome, args.get("limit"), Some(500), timeout_ms)
@@ -1927,6 +1965,7 @@ pub async fn perform_action(frame: &Value, context: &ActionContext) -> Value {
                 scoped_cwd_fd,
                 timeout_ms,
                 &env,
+                None,
             )
             .await;
             run_reply(version, &action_id, outcome, None, None, timeout_ms)
@@ -2530,7 +2569,7 @@ mod tests {
         let env = scrubbed_env(&HashMap::from([("PATH".to_owned(), "/usr/bin:/bin".to_owned())]));
         let outcome = tokio::time::timeout(
             std::time::Duration::from_secs(2),
-            run_spec(RunSpec::Shell { command: "sleep 5 &" }, Path::new("/"), None, 20, &env),
+            run_spec(RunSpec::Shell { command: "sleep 5 &" }, Path::new("/"), None, 20, &env, None),
         )
         .await
         .expect("timeout cleanup must not wait for a descendant pipe");
