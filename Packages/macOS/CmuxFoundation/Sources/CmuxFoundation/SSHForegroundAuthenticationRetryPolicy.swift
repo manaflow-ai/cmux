@@ -724,7 +724,7 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
                 > "$cmux_ssh_auth_marker_lsof_output" 2>/dev/null
               cmux_ssh_auth_marker_lsof_status=$?
               case "$cmux_ssh_auth_marker_lsof_status" in
-                0|1) ;;
+                0) ;;
                 *)
                   cmux_ssh_auth_dynamic_discovery_abort
                   return 1
@@ -774,6 +774,13 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
                 ' "$cmux_ssh_auth_marker_lsof_output" > "$cmux_ssh_auth_marker_holders"; then
                 :
               else
+                cmux_ssh_auth_dynamic_discovery_abort
+                return 1
+              fi
+              # A successful scan must prove at least one holder. An empty
+              # result can mean that lsof could not inspect the process table,
+              # so never let it silently authorize an empty lineage.
+              if [ ! -s "$cmux_ssh_auth_marker_holders" ]; then
                 cmux_ssh_auth_dynamic_discovery_abort
                 return 1
               fi
@@ -845,14 +852,40 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
           # the wrapper alive during the post-TERM process-table snapshot. A
           # bounded read keeps plain fixtures and failed wrappers from blocking
           # cleanup.
+          cmux_ssh_auth_wait_for_term_grace() {
+            cmux_ssh_auth_get_remaining_millis || return 0
+            [ -n "$cmux_ssh_auth_perl_command" ] || return 0
+            "$cmux_ssh_auth_perl_command" -e '
+              use strict;
+              use warnings;
+              my ($timeout_millis) = @ARGV;
+              exit 0 unless defined $timeout_millis && $timeout_millis =~ /\A[1-9][0-9]*\z/;
+              select undef, undef, undef, $timeout_millis / 1000;
+            ' "$cmux_ssh_auth_remaining_millis" >/dev/null 2>&1 || true
+          }
+
           cmux_ssh_auth_wait_for_term_event() {
-            [ "$cmux_ssh_auth_wait_for_term_event_enabled" = 1 ] || return 0
-            [ -n "$cmux_ssh_auth_event_token" ] || return 0
-            if [ ! -p "$cmux_ssh_auth_term_event_fifo" ]; then return 0; fi
+            if [ "$cmux_ssh_auth_wait_for_term_event_enabled" != 1 ] ||
+               [ -z "$cmux_ssh_auth_event_token" ]; then
+              cmux_ssh_auth_wait_for_term_grace
+              return 0
+            fi
+            if [ ! -p "$cmux_ssh_auth_term_event_fifo" ]; then
+              cmux_ssh_auth_wait_for_term_grace
+              return 0
+            fi
             # Keep both descriptors below 10 because POSIX sh does not
             # require multi-digit redirection operands.
-            if [ ! -p "$cmux_ssh_auth_term_event_ack_fifo" ] || ! exec 8<> "$cmux_ssh_auth_term_event_ack_fifo"; then return 0; fi
-            exec 9<> "$cmux_ssh_auth_term_event_fifo" || return 0
+            if [ ! -p "$cmux_ssh_auth_term_event_ack_fifo" ] ||
+               ! exec 8<> "$cmux_ssh_auth_term_event_ack_fifo"; then
+              cmux_ssh_auth_wait_for_term_grace
+              return 0
+            fi
+            if ! exec 9<> "$cmux_ssh_auth_term_event_fifo"; then
+              exec 8>&-
+              cmux_ssh_auth_wait_for_term_grace
+              return 0
+            fi
             cmux_ssh_auth_term_event_writer=
             # POSIX sh has no portable timed FIFO read. Use one Perl select
             # with the remaining monotonic budget, so process startup and the
@@ -881,6 +914,7 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
               cmux_ssh_auth_term_event_received=1
             else
               exec 9>&-
+              cmux_ssh_auth_wait_for_term_grace
             fi
           }
 
