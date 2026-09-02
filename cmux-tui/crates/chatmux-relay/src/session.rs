@@ -1301,6 +1301,24 @@ mod tests {
 }
 
 #[cfg(test)]
+mod owner_identity_tests {
+    use super::reconcile_owner_user_id;
+    use crate::config::Config;
+
+    #[test]
+    fn reconnect_without_owner_clears_previous_owner() {
+        let mut config = Config {
+            owner_user_id: Some("previous-owner".to_owned()),
+            ..Config::default()
+        };
+
+        reconcile_owner_user_id(&mut config, None);
+
+        assert_eq!(config.owner_user_id, None);
+    }
+}
+
+#[cfg(test)]
 mod liveness_tests {
     use super::{
         PRE_HELLO_READ_DEADLINE, READ_LIVENESS_GRACE, SUSPEND_CLOCK_JUMP, clock_jumped,
