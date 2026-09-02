@@ -1476,6 +1476,7 @@ final class WindowTerminalPortal: NSObject {
         )
 #endif
         if let hostedView = entry.hostedView {
+            hostedView.finishPortalGeometrySettlement()
             if let restoredMask = preAdoptionAutoresizingMaskByHostedId.removeValue(forKey: hostedId) {
                 hostedView.autoresizingMask = restoredMask
             }
@@ -1491,6 +1492,7 @@ final class WindowTerminalPortal: NSObject {
     func hideEntry(forHostedId hostedId: ObjectIdentifier) {
         guard var entry = entriesByHostedId[hostedId] else { return }
         entry.visibleInUI = false
+        if entry.awaitingGeometrySettlement { entry.hostedView?.finishPortalGeometrySettlement() }
         entry.awaitingGeometrySettlement = false
         entry.transientRecoveryRetriesRemaining = 0
         entriesByHostedId[hostedId] = entry
