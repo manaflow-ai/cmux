@@ -62,8 +62,8 @@ use crate::terminal_host_runtime::TerminalHostLiveness;
 use crate::workspace_registry::{
     AgentHookPendingFailure, FrontendProjection, ProjectionCommit,
     RESOURCE_API_FRONTEND_PROJECTION_SCHEMA_VERSION, RegistryBrowser, RegistryBrowserReconnect,
-    RegistryCommit, RegistryLayoutNode, RegistrySnapshot, RegistryTab, RegistryTerminal,
-    RegistryViewport, RegistryWorkspace, ResourceChange, ResourceEffectOutcome,
+    RegistryCommit, RegistryLayoutNode, RegistryPane, RegistrySnapshot, RegistryTab,
+    RegistryTerminal, RegistryViewport, RegistryWorkspace, ResourceChange, ResourceEffectOutcome,
     ResourceEffectPreparation, ResourcePatch, ResourcePatchCommit, ResourceTopologySnapshot,
     ResourceWorkspaceLedger, TerminalLifecycle, TerminalOnExit, TerminalRegistrySnapshot,
     WorkspaceMutation, WorkspaceRegistry,
