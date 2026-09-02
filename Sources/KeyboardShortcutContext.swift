@@ -445,6 +445,8 @@ extension AppDelegate {
                 guard let windowDock = existingWindowDock(
                     forWindowId: context.windowId
                 ),
+                context.fileExplorerState?.isVisible == true,
+                windowDock.isVisibleInUI,
                 let focusedPanelId = windowDock.focusedPanelId else {
                     return nil
                 }
@@ -470,6 +472,8 @@ extension AppDelegate {
                   in: window
               ) == .dock,
               let dock = existingWindowDock(forWindowId: context.windowId),
+              context.fileExplorerState?.isVisible == true,
+              dock.isVisibleInUI,
               let panelId = dock.focusedPanelId else {
             return nil
         }

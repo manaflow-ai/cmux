@@ -345,7 +345,11 @@ final class MainWindowFocusController {
         if terminalFocusRequest(for: responder) != nil {
             return nil
         }
-        if selectedFocusedPanelRequest(owning: responder) != nil {
+        // The coordinator's main-panel intent is the other explicit owner. It
+        // is cheaper and more reliable than walking every panel on this
+        // per-keystroke path, and prevents an unknown accessory responder from
+        // inheriting a stale Dock route after a real main-panel interaction.
+        if case .mainPanel = intent {
             return nil
         }
         guard let ghosttyView = responder.cmuxStrictOwningGhosttyView(),
