@@ -284,6 +284,9 @@ struct ClaudeHookSessionRecord: Codable {
     var lastPermissionMode: String?
     var isRestorable: Bool?
     var agentLifecycle: AgentHibernationLifecycleState?
+    /// The hook event that most recently established the persisted lifecycle.
+    /// Optional so records written by older builds continue to decode.
+    var hookEventName: String? = nil
     var lastSubtitle: String?
     var lastBody: String?
     var lastNotificationStatus: AgentHookNotificationStatus?
@@ -619,6 +622,7 @@ final class ClaudeHookSessionStore {
         pid: Int? = nil,
         launchCommand: AgentHookLaunchCommandRecord? = nil,
         toolUseId: String? = nil,
+        hookEventName: String? = nil,
         deadline: Date? = nil,
         failureWasError: Bool = false
     ) throws -> CursorShellApprovalResolution {
@@ -746,6 +750,7 @@ final class ClaudeHookSessionStore {
                 launchCommand: launchCommand,
                 isRestorable: nil,
                 agentLifecycle: lifecycle,
+                hookEventName: hookEventName,
                 lastSubtitle: nil,
                 lastBody: nil,
                 lastNotificationStatus: notificationStatus,
@@ -1173,6 +1178,7 @@ final class ClaudeHookSessionStore {
         pid: Int?,
         launchCommand: AgentHookLaunchCommandRecord?,
         agentLifecycle: AgentHibernationLifecycleState? = nil,
+        hookEventName: String? = nil,
         runtimeStatus: AgentHookRuntimeStatus? = nil,
         updateRuntimeStatus: Bool = false,
         autoNameMessages: [AutoNamingTranscriptMessage] = [],
@@ -1205,8 +1211,10 @@ final class ClaudeHookSessionStore {
                 launchCommand: launchCommand,
                 isRestorable: nil,
                 agentLifecycle: agentLifecycle,
+                hookEventName: hookEventName,
                 lastSubtitle: nil,
                 lastBody: nil,
+                updateLastSummary: true,
                 lastNotificationStatus: nil,
                 updateLastNotificationStatus: false,
                 runtimeStatus: runtimeStatus,
@@ -1279,6 +1287,7 @@ final class ClaudeHookSessionStore {
         pid: Int?,
         launchCommand: AgentHookLaunchCommandRecord?,
         agentLifecycle: AgentHibernationLifecycleState? = nil,
+        hookEventName: String? = nil,
         lastSubtitle: String?,
         lastBody: String?,
         lastNotificationStatus: AgentHookNotificationStatus? = nil,
@@ -1310,6 +1319,7 @@ final class ClaudeHookSessionStore {
                 launchCommand: launchCommand,
                 isRestorable: nil,
                 agentLifecycle: depthAfterStop == 0 ? agentLifecycle : .running,
+                hookEventName: hookEventName,
                 lastSubtitle: lastSubtitle,
                 lastBody: lastBody,
                 lastNotificationStatus: lastNotificationStatus,
@@ -1427,8 +1437,11 @@ final class ClaudeHookSessionStore {
         launchCommand: AgentHookLaunchCommandRecord? = nil,
         isRestorable: Bool? = nil,
         agentLifecycle: AgentHibernationLifecycleState? = nil,
+        hookEventName: String? = nil,
         lastSubtitle: String? = nil,
         lastBody: String? = nil,
+        /// When true, nil summary fields explicitly clear their persisted values.
+        updateLastSummary: Bool = false,
         lastNotificationStatus: AgentHookNotificationStatus? = nil,
         updateLastNotificationStatus: Bool = false,
         runtimeStatus: AgentHookRuntimeStatus? = nil,
@@ -1482,8 +1495,10 @@ final class ClaudeHookSessionStore {
                 launchCommand: launchCommand,
                 isRestorable: isRestorable,
                 agentLifecycle: agentLifecycle,
+                hookEventName: hookEventName,
                 lastSubtitle: lastSubtitle,
                 lastBody: lastBody,
+                updateLastSummary: updateLastSummary,
                 lastNotificationStatus: lastNotificationStatus,
                 updateLastNotificationStatus: updateLastNotificationStatus,
                 runtimeStatus: runtimeStatus,
@@ -1548,6 +1563,7 @@ final class ClaudeHookSessionStore {
         transcriptPath: String? = nil,
         pid: Int? = nil,
         launchCommand: AgentHookLaunchCommandRecord? = nil,
+        hookEventName: String? = nil,
         turnId: String? = nil
     ) throws -> Bool {
         let normalizedSessionId = normalizeSessionId(sessionId)
@@ -1592,6 +1608,7 @@ final class ClaudeHookSessionStore {
                 launchCommand: launchCommand,
                 isRestorable: false,
                 agentLifecycle: .running,
+                hookEventName: hookEventName,
                 lastSubtitle: nil,
                 lastBody: nil,
                 lastNotificationStatus: nil,
@@ -1634,6 +1651,7 @@ final class ClaudeHookSessionStore {
         pid: Int? = nil,
         launchCommand: AgentHookLaunchCommandRecord? = nil,
         agentLifecycle: AgentHibernationLifecycleState? = nil,
+        hookEventName: String? = nil,
         runtimeStatus: AgentHookRuntimeStatus? = nil,
         updateRuntimeStatus: Bool = false
     ) throws -> Bool {
@@ -1662,6 +1680,7 @@ final class ClaudeHookSessionStore {
                 launchCommand: launchCommand,
                 isRestorable: nil,
                 agentLifecycle: agentLifecycle,
+                hookEventName: hookEventName,
                 lastSubtitle: nil,
                 lastBody: nil,
                 lastNotificationStatus: nil,
@@ -1684,7 +1703,8 @@ final class ClaudeHookSessionStore {
         transcriptPath: String? = nil,
         turnId: String? = nil,
         pid: Int? = nil,
-        launchCommand: AgentHookLaunchCommandRecord? = nil
+        launchCommand: AgentHookLaunchCommandRecord? = nil,
+        hookEventName: String? = nil
     ) throws -> Bool {
         let normalized = normalizeSessionId(sessionId)
         guard !normalized.isEmpty else { return false }
@@ -1711,6 +1731,7 @@ final class ClaudeHookSessionStore {
                 launchCommand: launchCommand,
                 isRestorable: nil,
                 agentLifecycle: .running,
+                hookEventName: hookEventName,
                 lastSubtitle: nil,
                 lastBody: nil,
                 lastNotificationStatus: nil,
@@ -1968,8 +1989,10 @@ final class ClaudeHookSessionStore {
         launchCommand: AgentHookLaunchCommandRecord?,
         isRestorable: Bool?,
         agentLifecycle: AgentHibernationLifecycleState?,
+        hookEventName: String? = nil,
         lastSubtitle: String?,
         lastBody: String?,
+        updateLastSummary: Bool = false,
         lastNotificationStatus: AgentHookNotificationStatus?,
         updateLastNotificationStatus: Bool,
         runtimeStatus: AgentHookRuntimeStatus?,
@@ -2028,11 +2051,19 @@ final class ClaudeHookSessionStore {
         if let agentLifecycle {
             record.agentLifecycle = agentLifecycle
         }
-        if let subtitle = normalizeOptional(lastSubtitle) {
-            record.lastSubtitle = subtitle
+        if let hookEventName = normalizeOptional(hookEventName) {
+            record.hookEventName = hookEventName
         }
-        if let body = normalizeOptional(lastBody) {
-            record.lastBody = body
+        if updateLastSummary {
+            record.lastSubtitle = normalizeOptional(lastSubtitle)
+            record.lastBody = normalizeOptional(lastBody)
+        } else {
+            if let subtitle = normalizeOptional(lastSubtitle) {
+                record.lastSubtitle = subtitle
+            }
+            if let body = normalizeOptional(lastBody) {
+                record.lastBody = body
+            }
         }
         if updateLastNotificationStatus {
             record.lastNotificationStatus = lastNotificationStatus
@@ -27425,6 +27456,7 @@ struct CMUXCLI {
                     transcriptPath: parsedInput.transcriptPath,
                     pid: claudePid,
                     launchCommand: launchCommand,
+                    hookEventName: reportedHookEventName(from: parsedInput) ?? "SessionStart",
                     turnId: parsedInput.turnId
                 )) == true
                 return accepted ? sessionId : nil
@@ -27613,6 +27645,7 @@ struct CMUXCLI {
                         // hibernatable .idle state so the planner cannot SIGTERM
                         // a live task (mirrors the antigravity fullyIdle flip).
                         agentLifecycle: hasPendingBackgroundWork ? .running : .idle,
+                        hookEventName: reportedHookEventName(from: parsedInput) ?? "Stop",
                         lastSubtitle: completion?.subtitle,
                         lastBody: completion?.body,
                         hadPendingBackgroundWorkAtStop: hasPendingBackgroundWork,
@@ -27805,6 +27838,8 @@ struct CMUXCLI {
                     launchCommand: firstSightingLaunchCommand,
                     isRestorable: true,
                     agentLifecycle: .running,
+                    hookEventName: reportedHookEventName(from: parsedInput) ?? "UserPromptSubmit",
+                    updateLastSummary: true,
                     markActive: true,
                     turnId: parsedInput.turnId
                 )
@@ -28109,6 +28144,7 @@ struct CMUXCLI {
                     cwd: parsedInput.cwd,
                     transcriptPath: parsedInput.transcriptPath,
                     agentLifecycle: .needsInput,
+                    hookEventName: reportedHookEventName(from: parsedInput) ?? "Notification",
                     lastSubtitle: summary.subtitle,
                     lastBody: summary.body
                 )
@@ -28371,6 +28407,7 @@ struct CMUXCLI {
                     cwd: parsedInput.cwd,
                     transcriptPath: parsedInput.transcriptPath,
                     agentLifecycle: .needsInput,
+                    hookEventName: reportedHookEventName(from: parsedInput) ?? "PreToolUse",
                     lastSubtitle: waitingSubtitle,
                     lastBody: needsInputBody
                 )
@@ -28445,7 +28482,9 @@ struct CMUXCLI {
                     surfaceId: surfaceId,
                     cwd: parsedInput.cwd,
                     transcriptPath: parsedInput.transcriptPath,
-                    agentLifecycle: .running
+                    agentLifecycle: .running,
+                    hookEventName: reportedHookEventName(from: parsedInput) ?? "PreToolUse",
+                    updateLastSummary: true
                 )
             }
             _ = try? sendV1Command("clear_notifications --tab=\(workspaceId)\(socketPanelOption(surfaceId))", client: client)
@@ -33667,6 +33706,8 @@ export default CMUXSessionRestore;
             ?? String(data: FileHandle.standardInput.readDataToEndOfFile(), encoding: .utf8)
             ?? ""
         let input = parseClaudeHookInput(rawInput: rawInput)
+        let persistedHookEventName = reportedHookEventName(from: input)
+            ?? Self.feedEventName(forClaudeSubcommand: subcommand)
 
         let store = ClaudeHookSessionStore(
             processEnv: env.merging(
@@ -34593,6 +34634,7 @@ export default CMUXSessionRestore;
                 pid: pid,
                 launchCommand: resumeLaunchCommand,
                 toolUseId: cursorShellToolUseId(from: input),
+                hookEventName: persistedHookEventName,
                 deadline: cursorShellDeadline,
                 failureWasError: failed && !failureRestoresRunning
             )
@@ -34814,6 +34856,7 @@ export default CMUXSessionRestore;
                         pid: pid,
                         launchCommand: resumeLaunchCommand,
                         agentLifecycle: .unknown,
+                        hookEventName: persistedHookEventName,
                         runtimeStatus: suppressVisibleMutations ? nil : .running,
                         updateRuntimeStatus: !suppressVisibleMutations
                     )) ?? false
@@ -34829,6 +34872,7 @@ export default CMUXSessionRestore;
                         agentLifecycle: .unknown,
                         runtimeStatus: suppressVisibleMutations ? nil : .running,
                         updateRuntimeStatus: !suppressVisibleMutations,
+                        hookEventName: persistedHookEventName,
                         supersedesSameProcessSession: def.name == "omp"
                     )) ?? []
                     acceptedSessionStart = true
@@ -35137,6 +35181,7 @@ export default CMUXSessionRestore;
                         pid: pid,
                         launchCommand: resumeLaunchCommand,
                         agentLifecycle: .running,
+                        hookEventName: persistedHookEventName,
                         autoNameMessages: autoNamingMessages(
                             for: def,
                             parsedInput: input,
@@ -35585,6 +35630,7 @@ export default CMUXSessionRestore;
                     pid: pid,
                     launchCommand: resumeLaunchCommand,
                     agentLifecycle: lifecycleAfterStop,
+                    hookEventName: persistedHookEventName,
                     lastSubtitle: nil,
                     lastBody: nil,
                     autoNameMessages: autoNamingMessages(
@@ -35703,11 +35749,12 @@ export default CMUXSessionRestore;
 
             if !sessionId.isEmpty, !suppressVisibleMutations {
                 _ = try? store.upsert(sessionId: sessionId, workspaceId: workspaceId, surfaceId: surfaceId, cwd: cwd,
-                                  transcriptPath: input.transcriptPath ?? mapped?.transcriptPath,
-                                  pid: pid,
-                                  launchCommand: resumeLaunchCommand,
-                                  agentLifecycle: lifecycleAfterStop,
-                                  lastSubtitle: (def.name == "codex" && codexHasActiveBackgroundWork) ? nil : subtitle,
+                    transcriptPath: input.transcriptPath ?? mapped?.transcriptPath,
+                    pid: pid,
+                    launchCommand: resumeLaunchCommand,
+                    agentLifecycle: lifecycleAfterStop,
+                    hookEventName: persistedHookEventName,
+                    lastSubtitle: (def.name == "codex" && codexHasActiveBackgroundWork) ? nil : subtitle,
                                   lastBody: (def.name == "codex" && codexHasActiveBackgroundWork) ? nil : body,
                                   lastNotificationStatus: (def.name == "codex" && codexHasActiveBackgroundWork) ? nil : stopNotificationStatus,
                                   updateLastNotificationStatus: true,
@@ -36280,6 +36327,7 @@ export default CMUXSessionRestore;
                         pid: pid,
                         launchCommand: launchCommand,
                         agentLifecycle: lifecycle,
+                        hookEventName: persistedHookEventName,
                         lastSubtitle: summary.subtitle,
                         lastBody: summary.body,
                         lastNotificationStatus: summary.status,
@@ -36303,6 +36351,7 @@ export default CMUXSessionRestore;
                         pid: pid,
                         launchCommand: launchCommand,
                         agentLifecycle: lifecycle,
+                        hookEventName: persistedHookEventName,
                         lastSubtitle: summary.subtitle,
                         lastBody: summary.body,
                         lastNotificationStatus: summary.status,
