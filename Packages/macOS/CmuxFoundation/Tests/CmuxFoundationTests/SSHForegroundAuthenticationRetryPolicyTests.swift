@@ -480,12 +480,6 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
         try """
         #!/usr/bin/perl
         use POSIX qw(setsid);
-        my $child = fork();
-        defined $child or exit 124;
-        if ($child) {
-            waitpid($child, 0);
-            exit($? >> 8);
-        }
         setsid() or exit 125;
         exec @ARGV or exit 126;
         """.write(to: setIDLauncher, atomically: true, encoding: .utf8)
