@@ -210,7 +210,8 @@
               "id": {
                 "type": "string",
                 "pattern": "^[A-Za-z0-9._-]+$",
-                "description": "Stable lowercase-ish identifier used in Vault persistence, for example pi."
+                "maxLength": 64,
+                "description": "Stable case-preserving ASCII identifier used in Vault persistence, for example pi."
               },
               "name": {
                 "type": "string",
@@ -969,6 +970,33 @@
           "type": "string",
           "default": "",
           "description": "Local path to the custom notification sound file."
+        },
+        "soundOverrides": {
+          "type": "object",
+          "default": {},
+          "maxProperties": 256,
+          "descriptionKey": "schemaDescriptions.notifications.soundOverrides",
+          "description": "Sparse per-agent and per-alert-type notification sound overrides. Missing cells use notifications.sound.",
+          "propertyNames": {
+            "allOf": [
+              { "pattern": "^[A-Za-z0-9._-]+$" },
+              { "maxLength": 64 },
+              { "not": { "enum": [".", ".."] } }
+            ]
+          },
+          "patternProperties": {
+            "^[A-Za-z0-9._-]+$": {
+              "type": "object",
+              "maxProperties": 3,
+              "additionalProperties": false,
+              "properties": {
+                "turnDone": { "$ref": "#/$defs/notificationSoundOverride" },
+                "needsInput": { "$ref": "#/$defs/notificationSoundOverride" },
+                "errorStalled": { "$ref": "#/$defs/notificationSoundOverride" }
+              }
+            }
+          },
+          "additionalProperties": false
         },
         "command": {
           "type": "string",
@@ -1862,6 +1890,36 @@
           "type": "null"
         }
       ]
+    },
+    "notificationSoundOverride": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["sound"],
+          "properties": {
+            "sound": {
+              "type": "string",
+              "enum": ["default", "Basso", "Blow", "Bottle", "Frog", "Funk", "Glass", "Hero", "Morse", "Ping", "Pop", "Purr", "Sosumi", "Submarine", "Tink", "none"]
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["sound", "customSoundFilePath"],
+          "properties": {
+            "sound": { "const": "custom_file" },
+            "customSoundFilePath": {
+              "type": "string",
+              "minLength": 1,
+              "pattern": ".*\\S.*"
+            }
+          }
+        }
+      ],
+      "descriptionKey": "schemaDescriptions.notifications.soundOverride",
+      "description": "A notification sound override. `default` uses notifications.sound, `none` disables playback, and the remaining values select a built-in or custom sound."
     },
     "shortcutBinding": {
       "oneOf": [
