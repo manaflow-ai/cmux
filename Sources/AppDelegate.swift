@@ -839,7 +839,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     /// delegate retains only that scoped dependency so AppKit-created windows
     /// can request an immutable presentation snapshot without introducing a
     /// second process-wide palette store.
-    private(set) var chromePaletteRuntimeCoordinator: ChromePaletteRuntimeCoordinator?
+    var chromePaletteRuntimeCoordinator: ChromePaletteRuntimeCoordinator?
     private var computerUseRuntimeService: ComputerUseRuntimeService?
     weak var fileExplorerState: FileExplorerState?
     weak var fullscreenControlsViewModel: TitlebarControlsViewModel?
