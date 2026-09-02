@@ -1896,15 +1896,33 @@ impl Inner {
             return;
         }
         let _delivery = attachment.delivery_gate.lock().expect("attachment delivery lock");
+        let exit_live = Arc::new(AtomicBool::new(true));
         let removed = {
-            Self::revoke_publication(&attachment);
-            attachment.closing.store(true, Ordering::Release);
             let _state = self.tunnel_state.lock().expect("tunnel state lock");
             let mut attachments = self.attachments.lock().expect("attach lock");
             let same = attachments.get(pty_id).is_some_and(|current| {
                 Arc::ptr_eq(&current.operation_gate, &attachment.operation_gate)
             });
-            if same { attachments.remove(pty_id).is_some() } else { false }
+            if !same {
+                false
+            } else {
+                // Queue the exit while this attachment still owns pty_id.
+                // The state and map locks serialize this enqueue with a
+                // replacement open, so the old exit cannot target the new
+                // generation. send_live is a bounded, non-blocking enqueue.
+                (auth.send_live)(
+                    json!({
+                        "version": PTY_PROTOCOL_VERSION,
+                        "type": "pty_exit",
+                        "ptyId": pty_id,
+                        "code": code,
+                    }),
+                    Arc::clone(&exit_live),
+                );
+                Self::revoke_publication(&attachment);
+                attachment.closing.store(true, Ordering::Release);
+                attachments.remove(pty_id).is_some()
+            }
         };
         if !removed {
             return;
@@ -1914,15 +1932,6 @@ impl Inner {
         drop(_delivery);
         drop(_operation);
         drop(_publication);
-        (auth.send_live)(
-            json!({
-                "version": PTY_PROTOCOL_VERSION,
-                "type": "pty_exit",
-                "ptyId": pty_id,
-                "code": code,
-            }),
-            Arc::new(AtomicBool::new(true)),
-        );
     }
 
     /// Detach, NOT kill: idempotent, unknown ptyId tolerated.
