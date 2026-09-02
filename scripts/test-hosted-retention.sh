@@ -70,6 +70,24 @@ exit 1
 EOF
 chmod 0755 "$fake_lsof"
 
+fake_find="$tmp/find"
+cat > "$fake_find" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+
+printf '%s\n' "$*" >> "$CMUX_TEST_FIND_ARGS_FILE"
+for argument in "$@"; do
+  case "$argument" in
+    -mindepth|-maxdepth)
+      echo "simulated BSD find rejected GNU depth predicate: $argument" >&2
+      exit 2
+      ;;
+  esac
+done
+exec /usr/bin/find "$@"
+EOF
+chmod 0755 "$fake_find"
+
 fake_stat="$tmp/stat"
 cat > "$fake_stat" <<'EOF'
 #!/usr/bin/env bash
@@ -116,6 +134,7 @@ write_stat_map() {
 }
 
 run_retention() {
+  PATH="$tmp:$PATH" \
   CMUX_TUI_HOSTED_RETENTION_COUNT="$test_count" \
   CMUX_TUI_HOSTED_RETENTION_DRY_RUN="$test_dry_run" \
   CMUX_TUI_HOSTED_RETENTION_CONFIRM="$test_confirm" \
@@ -128,6 +147,7 @@ run_retention() {
   CMUX_TEST_RACE_BINARY="${test_race_binary:-}" \
   CMUX_TEST_RACE_COMMIT="${test_race_commit:-}" \
   CMUX_TEST_RACE_PID_FILE="$tmp/race-pid" \
+  CMUX_TEST_FIND_ARGS_FILE="$tmp/find-args" \
   CMUX_TEST_STAT_MODE="${test_stat_mode:-gnu}" \
   cmux_hosted_retention_run "$test_root/$test_current_commit" "$test_current_commit"
 }
@@ -190,6 +210,16 @@ make_baseline() {
   test_race_binary=""
   test_race_commit=""
 }
+
+# The scan uses only the POSIX direct-child expression. BSD find does not
+# accept GNU's -mindepth or -maxdepth predicates.
+make_baseline
+expect_success
+[[ -s "$tmp/find-args" ]] || { echo "portable scan did not invoke find" >&2; exit 1; }
+if grep -Eq '(^|[[:space:]])-(mindepth|maxdepth)([[:space:]]|$)' "$tmp/find-args"; then
+  echo "portable scan passed GNU-only depth predicates" >&2
+  exit 1
+fi
 
 # A dry run creates the preview. A destructive run with the same plan removes
 # only the inactive tail, while retaining the current and newest prior item.
@@ -330,6 +360,50 @@ assert_missing "$old_commit"
 make_baseline
 expect_success
 mkdir "$test_root/.retention.lock"
+test_dry_run=0
+test_confirm=1
+expect_failure 2
+assert_exists "$active_commit"
+assert_exists "$old_commit"
+
+# A dead owner lock older than the recovery age is reclaimed before cleanup.
+make_baseline
+expect_success
+(
+  exit 0
+) &
+dead_lock_pid=$!
+wait "$dead_lock_pid"
+mkdir "$test_root/.retention.lock"
+printf '%s\t%s\tstale-owner\n' "$dead_lock_pid" "$(( $(date +%s) - 90000 ))" > "$test_root/.retention.lock/owner"
+test_dry_run=0
+test_confirm=1
+expect_success
+assert_missing "$active_commit"
+assert_missing "$old_commit"
+assert_missing .retention.lock
+
+# A live owner remains exclusive even when its lock is old.
+make_baseline
+expect_success
+mkdir "$test_root/.retention.lock"
+printf '%s\t%s\tlive-owner\n' "$$" "$(( $(date +%s) - 90000 ))" > "$test_root/.retention.lock/owner"
+test_dry_run=0
+test_confirm=1
+expect_failure 2
+assert_exists "$active_commit"
+assert_exists "$old_commit"
+
+# A dead but recent owner is not reclaimed before the recovery age.
+make_baseline
+expect_success
+(
+  exit 0
+) &
+dead_lock_pid=$!
+wait "$dead_lock_pid"
+mkdir "$test_root/.retention.lock"
+printf '%s\t%s\trecent-owner\n' "$dead_lock_pid" "$(date +%s)" > "$test_root/.retention.lock/owner"
 test_dry_run=0
 test_confirm=1
 expect_failure 2
