@@ -6,7 +6,8 @@ export type VmEntitlements = {
   readonly planId: string;
   readonly billingCustomerType: BillingCustomerType;
   readonly billingTeamId: string;
-  readonly maxActiveVms: number;
+  /** Active-machine ceiling for the plan; null when the plan has no cap. */
+  readonly maxActiveVms: number | null;
 };
 
 export type VmEntitlementOptions = {
@@ -114,7 +115,7 @@ function resolveBillingContext(
 }
 
 /**
- * Machine sizes a person can pick, as memory in MB. Blaxel scales vCPUs with
+ * Machine sizes a person can pick, as memory in MB. Providers scale vCPUs with
  * memory (a 4 GB machine reports 2 cpus), so memory is the whole size story.
  */
 export const VM_MEMORY_OPTIONS_MB: readonly number[] = [2048, 4096, 8192, 16384, 24576, 32768];
@@ -153,10 +154,15 @@ export function defaultMemoryMbForPlan(
   return Math.min(raw, maxMemoryMbForPlan(planId, env));
 }
 
+/**
+ * Active-machine ceiling for a plan, or null when there is none. Paid plans
+ * are uncapped: the subscription is the paywall and machine count is not a
+ * quota. Free plans stay capped (zero unless free provisioning is allowed).
+ */
 export function maxActiveVmsForPlan(
   planId: string | null | undefined,
   env: Record<string, string | undefined> = process.env,
-): number {
+): number | null {
   return activeVmLimitForPlan(normalizedPlanId(planId ?? ""), env);
 }
 
@@ -280,7 +286,7 @@ function isVmFalseFlag(value: string | undefined): boolean {
   }
 }
 
-function activeVmLimitForPlan(planId: string, env: Record<string, string | undefined>): number {
+function activeVmLimitForPlan(planId: string, env: Record<string, string | undefined>): number | null {
   const planKey = planId.replace(/[^a-zA-Z0-9]/g, "_").toUpperCase();
   if (!isPaidVmPlan(planId)) {
     // Cloud machines are a paid feature. Keep every non-paid/unknown plan at
@@ -293,9 +299,11 @@ function activeVmLimitForPlan(planId: string, env: Record<string, string | undef
     return nonNegativeInteger(env.CMUX_VM_FREE_MAX_ACTIVE_VMS ?? "0", "CMUX_VM_FREE_MAX_ACTIVE_VMS");
   }
 
+  // Paid plans have no machine cap. A plan-specific env override remains as an
+  // operator-only brake for an incident; unset means unlimited.
   const specific = env[`CMUX_VM_PLAN_${planKey}_MAX_ACTIVE_VMS`];
   if (specific?.trim()) return positiveInteger(specific, `CMUX_VM_PLAN_${planKey}_MAX_ACTIVE_VMS`);
-  return positiveInteger(env.CMUX_VM_PAID_MAX_ACTIVE_VMS ?? "5", "CMUX_VM_PAID_MAX_ACTIVE_VMS");
+  return null;
 }
 
 function normalizedPlanId(planId: string): string {
