@@ -318,6 +318,7 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
             [ "$cmux_ssh_auth_wait_for_term_event_enabled" = 1 ] || return 0
             [ -n "$cmux_ssh_auth_event_token" ] || return 0
             if [ ! -p "$cmux_ssh_auth_term_event_fifo" ]; then return 0; fi
+            if [ ! -p "$cmux_ssh_auth_term_event_ack_fifo" ] || ! exec 10<> "$cmux_ssh_auth_term_event_ack_fifo"; then return 0; fi
             exec 9<> "$cmux_ssh_auth_term_event_fifo" || return 0
             cmux_ssh_auth_term_event_writer=
             # macOS /bin/sh accepts only an integer read timeout. One-second
@@ -486,9 +487,7 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
              [ -n "$cmux_ssh_auth_event_token" ] &&
              /bin/mkdir "$cmux_ssh_auth_term_event_dir" 2>/dev/null; then
             if /usr/bin/mkfifo "$cmux_ssh_auth_term_event_fifo" 2>/dev/null && \
-               /usr/bin/mkfifo "$cmux_ssh_auth_term_event_ack_fifo" 2>/dev/null && \
-               exec 9<> "$cmux_ssh_auth_term_event_fifo" 2>/dev/null && \
-               exec 10<> "$cmux_ssh_auth_term_event_ack_fifo" 2>/dev/null; then
+               /usr/bin/mkfifo "$cmux_ssh_auth_term_event_ack_fifo" 2>/dev/null; then
               cmux_ssh_auth_term_event_owned=1
             else
               exec 9>&- 2>/dev/null || true
@@ -788,10 +787,13 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
             "case \"$cmux_ssh_auth_event_token\" in ''|*[!A-Za-z0-9_-]*) cmux_ssh_auth_event_token= ;; esac",
             "cmux_ssh_auth_term_event_fifo=; cmux_ssh_auth_term_event_ack_fifo=; cmux_ssh_auth_marker_path=; cmux_ssh_auth_marker_owned=0",
             "if [ -n \"$cmux_ssh_auth_event_token\" ]; then cmux_ssh_auth_term_event_fifo=\"${TMPDIR:-/tmp}/cmux-ssh-auth-term.$cmux_ssh_auth_event_token/done\"; cmux_ssh_auth_term_event_ack_fifo=\"${TMPDIR:-/tmp}/cmux-ssh-auth-term.$cmux_ssh_auth_event_token/ack\"; cmux_ssh_auth_marker_path=\"${TMPDIR:-/tmp}/cmux-ssh-auth-marker.$cmux_ssh_auth_event_token\"; if ( set -C; : > \"$cmux_ssh_auth_marker_path\" ) 2>/dev/null; then if exec 7<> \"$cmux_ssh_auth_marker_path\" 2>/dev/null; then cmux_ssh_auth_marker_owned=1; else /bin/rm -f -- \"$cmux_ssh_auth_marker_path\" 2>/dev/null || true; fi; fi; fi",
-            // Notify the cleanup helper after forwarding TERM, then wait for
-            // its ACK. The helper uses this pause to snapshot replacements
-            // before the command handler can orphan them.
-            "cmux_ssh_auth_signal_completion() { if [ -n \"$cmux_ssh_auth_event_token\" ] && [ -p \"$cmux_ssh_auth_term_event_fifo\" ]; then if exec 8<> \"$cmux_ssh_auth_term_event_fifo\" 2>/dev/null; then printf '%s\\n' \"$cmux_ssh_auth_event_token\" >&8 2>/dev/null || true; exec 8>&-; fi; if [ -p \"$cmux_ssh_auth_term_event_ack_fifo\" ] && exec 8<> \"$cmux_ssh_auth_term_event_ack_fifo\" 2>/dev/null; then cmux_ssh_auth_completion_ack=; IFS= read -r -t 2 cmux_ssh_auth_completion_ack <&8 || true; exec 8>&-; fi; fi; }",
+            // Open both FIFO endpoints before waiting for the command. The
+            // helper can then enter a bounded read without blocking on FIFO
+            // setup, while the completion payload still has a happens-before
+            // edge after the TERM handler exits.
+            "cmux_ssh_auth_completion_fds_open=0",
+            "cmux_ssh_auth_prepare_signal_completion() { cmux_ssh_auth_completion_fds_open=0; if [ -n \"$cmux_ssh_auth_event_token\" ] && [ -p \"$cmux_ssh_auth_term_event_fifo\" ] && [ -p \"$cmux_ssh_auth_term_event_ack_fifo\" ] && exec 8<> \"$cmux_ssh_auth_term_event_fifo\" 2>/dev/null && exec 10<> \"$cmux_ssh_auth_term_event_ack_fifo\" 2>/dev/null; then cmux_ssh_auth_completion_fds_open=1; else exec 8>&- 2>/dev/null || true; exec 10>&- 2>/dev/null || true; fi; }",
+            "cmux_ssh_auth_signal_completion() { if [ \"$cmux_ssh_auth_completion_fds_open\" = 1 ]; then printf '%s\\n' \"$cmux_ssh_auth_event_token\" >&8 2>/dev/null || true; cmux_ssh_auth_completion_ack=; IFS= read -r -t 2 cmux_ssh_auth_completion_ack <&10 || true; fi; exec 8>&- 2>/dev/null || true; exec 10>&- 2>/dev/null || true; cmux_ssh_auth_completion_fds_open=0; }",
             "cmux_ssh_auth_capture_cleanup() {",
             "  if [ -n \"${cmux_ssh_auth_classifier_guard_fd:-}\" ]; then",
             "    exec {cmux_ssh_auth_classifier_guard_fd}>&-",
@@ -812,6 +814,7 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
             "  trap - EXIT HUP INT TERM",
             "  if [ -n \"${cmux_ssh_auth_command_pid:-}\" ]; then",
             "    /bin/kill -\"$cmux_ssh_auth_capture_signal_name\" \"$cmux_ssh_auth_command_pid\" >/dev/null 2>&1 || true",
+            "    cmux_ssh_auth_prepare_signal_completion",
             "    wait \"$cmux_ssh_auth_command_pid\" 2>/dev/null || true",
             "    cmux_ssh_auth_command_pid=",
             "    cmux_ssh_auth_signal_completion",
