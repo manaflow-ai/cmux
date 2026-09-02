@@ -563,6 +563,24 @@ struct CLICodexHookTimeoutRegressionTests {
             .trimmingCharacters(in: .whitespacesAndNewlines)
         let sleepPID = try #require(Int32(sleepPIDText))
         defer { _ = Darwin.kill(sleepPID, SIGKILL) }
+        let processSnapshot: () -> String = {
+            let process = Process()
+            let output = Pipe()
+            process.executableURL = URL(fileURLWithPath: "/bin/ps")
+            process.arguments = ["-o", "pid=,ppid=,pgid=,state=,command=", "-p", sleepPIDText]
+            process.standardOutput = output
+            process.standardError = FileHandle.nullDevice
+            do {
+                try process.run()
+                process.waitUntilExit()
+                return String(
+                    data: output.fileHandleForReading.readDataToEndOfFile(),
+                    encoding: .utf8
+                )?.trimmingCharacters(in: .whitespacesAndNewlines) ?? "<no ps output>"
+            } catch {
+                return "<ps failed: \(error)>"
+            }
+        }
         #expect(
             // The detached hook and its supervisor are separate processes;
             // hosted macOS can defer the final reaping turn under a cold app
@@ -571,7 +589,7 @@ struct CLICodexHookTimeoutRegressionTests {
             waitForConditionBlocking(timeout: 5) {
                 Darwin.kill(sleepPID, 0) == -1 && errno == ESRCH
             },
-            "The watchdog timer process \(sleepPID) outlived its completed hook invocation"
+            "The watchdog timer process \(sleepPID) outlived its completed hook invocation (ps: \(processSnapshot()))"
         )
     }
 
