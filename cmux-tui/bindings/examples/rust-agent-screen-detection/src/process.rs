@@ -243,25 +243,31 @@ fn wrapped_agent_from_argv(runtime: &str, argv: &[String]) -> Option<String> {
 fn shell_wrapped_agent(runtime: &str, argv: &[String]) -> Option<String> {
     let mut index = 1;
     while let Some(argument) = argv.get(index) {
-        let flag = normalized_flag(argument);
-        if argument == "--" {
+        // Shell option letters are case-sensitive. Keep the raw spelling for
+        // this parser; `normalized_flag` is reserved for the case-insensitive
+        // Windows and PowerShell wrappers below.
+        let flag = shell_flag(argument);
+        if flag == "--" {
             return argv
                 .get(index + 1)
                 .and_then(|script| path_candidates(script).into_iter().next());
         }
-        if is_shell_command_flag(&flag) {
+        if is_shell_command_flag(flag) {
             // A command flag consumes the next argv element as shell text.
             // `None` is also the safe result when the value is missing.
             return argv
                 .get(index + 1)
                 .and_then(|command| command_first_path_candidate(&shell_words(command)));
         }
-        if argument.starts_with('-') || (runtime == "zsh" && argument.starts_with('+')) {
-            if shell_option_takes_value(runtime, &flag) {
+        if flag.starts_with('-') || (runtime == "zsh" && flag.starts_with('+')) {
+            if shell_option_exits(runtime, flag) {
+                return None;
+            }
+            if shell_option_takes_value(runtime, flag) {
                 index = index.saturating_add(2);
                 continue;
             }
-            if shell_option_without_value(runtime, &flag) {
+            if shell_option_without_value(runtime, flag) {
                 index += 1;
                 continue;
             }
@@ -336,6 +342,21 @@ fn is_shell_command_flag(flag: &str) -> bool {
             && flag.ends_with('c'))
 }
 
+fn shell_option_exits(runtime: &str, flag: &str) -> bool {
+    match runtime {
+        "bash" | "sh" => matches!(
+            flag,
+            "--dump-po-strings" | "--dump-strings" | "--help" | "--pretty-print" | "--version"
+        ),
+        "zsh" => matches!(flag, "--help" | "--version"),
+        "fish" => matches!(
+            flag,
+            "--help" | "--print-debug-categories" | "--print-rusage-self" | "--version"
+        ),
+        _ => false,
+    }
+}
+
 fn shell_option_takes_value(runtime: &str, flag: &str) -> bool {
     match runtime {
         "bash" => matches!(flag, "-o" | "-O" | "--rcfile" | "--init-file"),
@@ -372,35 +393,27 @@ fn shell_option_without_value(runtime: &str, flag: &str) -> bool {
     }
 
     // These are the portable short shell switches that do not consume the
-    // next argument. `-o` and `-O` are deliberately excluded because they
-    // take a value in bash, zsh, and POSIX sh.
+    // next argument. `-o`, `-O`, and the stdin/no-exec modes are deliberately
+    // excluded because they either consume a value or mean that a following
+    // positional word is not a script file.
     let Some(characters) = flag.strip_prefix('-').filter(|value| !value.is_empty()) else {
         return false;
     };
-    if characters.chars().any(|character| matches!(character, 'o' | 'c')) {
+    if characters.chars().any(|character| matches!(character, 'o' | 'c' | 'n' | 's' | 't')) {
         return false;
     }
     match runtime {
-        "bash" | "zsh" | "sh" => characters.chars().all(|character| {
-            matches!(
-                character,
-                'a' | 'b'
-                    | 'e'
-                    | 'f'
-                    | 'h'
-                    | 'i'
-                    | 'l'
-                    | 'm'
-                    | 'n'
-                    | 'p'
-                    | 'r'
-                    | 's'
-                    | 't'
-                    | 'u'
-                    | 'v'
-                    | 'x'
-            )
-        }),
+        "bash" | "zsh" | "sh" => {
+            if matches!(flag, "-C") && runtime != "zsh" {
+                return true;
+            }
+            characters.chars().all(|character| {
+                matches!(
+                    character,
+                    'a' | 'b' | 'e' | 'f' | 'h' | 'i' | 'l' | 'm' | 'p' | 'r' | 'u' | 'v' | 'x'
+                )
+            })
+        }
         "fish" => characters
             .chars()
             .all(|character| matches!(character, 'h' | 'i' | 'l' | 'n' | 'p' | 'q' | 'v')),
@@ -751,6 +764,10 @@ fn shell_words(input: &str) -> Vec<String> {
 
 fn normalized_flag(argument: &str) -> String {
     argument.trim_matches('"').to_ascii_lowercase()
+}
+
+fn shell_flag(argument: &str) -> &str {
+    argument.trim_matches(|character| matches!(character, '\'' | '"'))
 }
 
 fn normalized_name(name: &str) -> String {
