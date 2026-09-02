@@ -2,8 +2,6 @@ use std::fmt;
 
 use serde::{Deserialize, Serialize};
 
-use crate::Lane;
-
 /// Maximum carrier message accepted by relay implementations that batch
 /// several encrypted remote frames into one WebSocket message.
 pub const MAX_RELAY_BATCH_BYTES: usize = 1024 * 1024;
