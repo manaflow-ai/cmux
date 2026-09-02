@@ -36,8 +36,10 @@ Process identity uses executable and wrapper arguments before reading
 fallback for wrappers that hide their executable, which keeps normal scans
 cheap and avoids treating a globally inherited hint as stronger than visible
 process evidence. Runtime parsing handles attached eval and module flags and
-stops at the first positional script. A package-shaped path inside eval text
-cannot claim an agent identity.
+stops at the first positional script. Shell parsing handles direct script
+arguments and escaped command words, while stdin, no-exec, exit-only, and
+unknown shell modes fail closed. A package-shaped path inside eval text cannot
+claim an agent identity.
 
 When cmux supervises the process, the scanner copies
 `CMUX_PLUGIN_GENERATION` into each event. This lets the core retire an old
