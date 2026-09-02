@@ -3,11 +3,9 @@ use base64::Engine;
 use flate2::read::GzDecoder;
 use rusqlite::Row;
 use std::borrow::Cow;
-use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet, VecDeque};
+use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::io::Read;
 use std::sync::Arc;
-#[cfg(test)]
-use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 const JOURNAL_RECORD_SCHEMA_VERSION: u32 = 1;
@@ -166,37 +164,17 @@ pub(crate) struct JournalRestoreCursor {
     connection: Connection,
     source_sequence: u64,
     target_head: u64,
-    segments: VecDeque<String>,
+    next_segment_start: i64,
+    segments_exhausted: bool,
     decoded_segment: Option<DecodedJournalSegment>,
     record_offset: usize,
     active_sequence: u64,
     previous_segment_end: Option<u64>,
     finished: bool,
-}
-
-#[cfg(test)]
-static JOURNAL_SEGMENT_DECODE_COUNT: AtomicUsize = AtomicUsize::new(0);
-#[cfg(test)]
-static JOURNAL_SEGMENT_CONTENT_LOAD_COUNT: AtomicUsize = AtomicUsize::new(0);
-
-#[cfg(test)]
-fn reset_journal_segment_decode_count() {
-    JOURNAL_SEGMENT_DECODE_COUNT.store(0, Ordering::Relaxed);
-}
-
-#[cfg(test)]
-fn journal_segment_decode_count() -> usize {
-    JOURNAL_SEGMENT_DECODE_COUNT.load(Ordering::Relaxed)
-}
-
-#[cfg(test)]
-fn reset_journal_segment_content_load_count() {
-    JOURNAL_SEGMENT_CONTENT_LOAD_COUNT.store(0, Ordering::Relaxed);
-}
-
-#[cfg(test)]
-fn journal_segment_content_load_count() -> usize {
-    JOURNAL_SEGMENT_CONTENT_LOAD_COUNT.load(Ordering::Relaxed)
+    #[cfg(test)]
+    segment_decode_count: usize,
+    #[cfg(test)]
+    segment_content_load_count: usize,
 }
 
 impl SessionJournalReader {
@@ -234,26 +212,21 @@ impl SessionJournalReader {
             source_sequence <= target_head,
             "cursor.invalid: journal sequence {source_sequence} is ahead of {target_head}"
         );
-        let mut statement = self.connection.prepare(
-            "SELECT segment_id
-             FROM journal_segments
-             WHERE end_sequence > ?1
-             ORDER BY start_sequence ASC",
-        )?;
-        let segments = statement
-            .query_map([i64::try_from(source_sequence)?], |row| row.get(0))?
-            .collect::<Result<VecDeque<_>, _>>()?;
-        drop(statement);
         Ok(JournalRestoreCursor {
             connection: self.connection,
             source_sequence,
             target_head,
-            segments,
+            next_segment_start: -1,
+            segments_exhausted: false,
             decoded_segment: None,
             record_offset: 0,
             active_sequence: source_sequence,
             previous_segment_end: None,
             finished: false,
+            #[cfg(test)]
+            segment_decode_count: 0,
+            #[cfg(test)]
+            segment_content_load_count: 0,
         })
     }
 }
@@ -286,9 +259,11 @@ impl JournalRestoreCursor {
                 continue;
             }
 
-            let Some(segment_id) = self.segments.pop_front() else {
+            let Some(segment_id) = self.next_segment()? else {
                 break;
             };
+            #[cfg(test)]
+            self.segment_decode_count += 1;
             let decoded = decode_journal_segment(self.load_segment(&segment_id)?)?;
             if let Some(previous_end) = self.previous_segment_end {
                 anyhow::ensure!(
@@ -344,7 +319,37 @@ impl JournalRestoreCursor {
         Ok(SessionJournalPage { head_sequence: self.target_head, records })
     }
 
-    fn load_segment(&self, segment_id: &str) -> anyhow::Result<JournalSegmentRow> {
+    fn next_segment(&mut self) -> anyhow::Result<Option<String>> {
+        if self.segments_exhausted {
+            return Ok(None);
+        }
+        let mut statement = self.connection.prepare(
+            "SELECT segment_id, start_sequence
+             FROM journal_segments
+             WHERE end_sequence > ?1 AND start_sequence > ?2
+             ORDER BY start_sequence ASC
+             LIMIT 1",
+        )?;
+        let segment = statement
+            .query_row(
+                params![
+                    i64::try_from(self.source_sequence)?,
+                    self.next_segment_start,
+                ],
+                |row| Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)?)),
+            )
+            .optional()?;
+        let Some((segment_id, start_sequence)) = segment else {
+            self.segments_exhausted = true;
+            return Ok(None);
+        };
+        self.next_segment_start = start_sequence;
+        Ok(Some(segment_id))
+    }
+
+    fn load_segment(&mut self, segment_id: &str) -> anyhow::Result<JournalSegmentRow> {
+        #[cfg(test)]
+        self.segment_content_load_count += 1;
         let mut statement = self.connection.prepare(
             "SELECT segment_id, start_sequence, end_sequence, record_count, codec,
                     content, uncompressed_bytes, sha256
@@ -1386,8 +1391,6 @@ fn query_session_journal_after_subjects(
 type JournalSegmentRow = (String, i64, i64, i64, String, Vec<u8>, i64, Vec<u8>);
 
 fn journal_segment_row(row: &Row<'_>) -> rusqlite::Result<JournalSegmentRow> {
-    #[cfg(test)]
-    JOURNAL_SEGMENT_CONTENT_LOAD_COUNT.fetch_add(1, Ordering::Relaxed);
     Ok((
         row.get(0)?,
         row.get(1)?,
@@ -1407,8 +1410,6 @@ struct DecodedJournalSegment {
 }
 
 fn decode_journal_segment(row: JournalSegmentRow) -> anyhow::Result<DecodedJournalSegment> {
-    #[cfg(test)]
-    JOURNAL_SEGMENT_DECODE_COUNT.fetch_add(1, Ordering::Relaxed);
     let (
         segment_id,
         start_sequence,
@@ -2337,11 +2338,9 @@ mod tests {
 
         let reader =
             SessionJournalReader::open(&registry.session_journal_database_path().unwrap()).unwrap();
-        reset_journal_segment_decode_count();
-        reset_journal_segment_content_load_count();
         let mut cursor = reader.restore_cursor(0).unwrap();
-        assert!(cursor.segments.is_empty());
-        assert_eq!(journal_segment_content_load_count(), 0);
+        assert!(!cursor.segments_exhausted);
+        assert_eq!(cursor.segment_content_load_count, 0);
         let mut replayed = Vec::new();
         loop {
             let page = cursor.next_page(1).unwrap();
@@ -2351,10 +2350,10 @@ mod tests {
             }
             replayed.extend(page.records.into_iter().map(|record| record.sequence));
         }
+        assert_eq!(cursor.segment_decode_count, 1);
+        assert_eq!(cursor.segment_content_load_count, 1);
         cursor.finish().unwrap();
         assert_eq!(replayed, [1, 2, 3, 4]);
-        assert_eq!(journal_segment_decode_count(), 1);
-        assert_eq!(journal_segment_content_load_count(), 1);
 
         drop(registry);
         fs::remove_dir_all(root).unwrap();
