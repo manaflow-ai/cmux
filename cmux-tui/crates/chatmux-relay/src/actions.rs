@@ -1418,6 +1418,10 @@ async fn run_spec(
                     kill_deadline = Some(Box::pin(tokio::time::sleep(
                         std::time::Duration::from_millis(250),
                     )));
+                } else if exited.is_none() && phase == ProcessPhase::WaitUncertain {
+                    // The process-group identity is no longer trusted after
+                    // a wait error. Kill only through the owned Child handle.
+                    let _ = child.start_kill();
                 }
                 #[cfg(windows)]
                 if let Some(job) = job.as_ref() {
