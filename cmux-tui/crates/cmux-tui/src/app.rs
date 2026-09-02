@@ -24604,6 +24604,7 @@ mod tests {
         swept_viewport_size_leases, thumb_geometry, with_panic_stdout_lock,
         workspace_creation_selection,
     };
+    use crate::sidebar_projection::ProjectionRowsCache;
     use cmux_tui_core::{FrontendFocusTarget, FrontendJournalEvent};
     use crossbeam_channel::Receiver;
     use serde_json::Value;
