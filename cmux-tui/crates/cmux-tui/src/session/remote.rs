@@ -7509,11 +7509,20 @@ mod tests {
         assert!(session.cached_agents().is_empty());
 
         // A stale topology response can briefly show the exited surface again.
-        // The event seen before exit must not resurrect its agent row.
+        // A stale agent snapshot must not resurrect the exited agent row.
         let mut cache = session.tree.lock().unwrap();
         let title_generation = cache.title_generation();
         cache.replace(tree(), title_generation);
-        cache.replace_agents(Vec::new(), 0);
+        cache.replace_agents(
+            vec![AgentInfo {
+                surface: 7,
+                state: "working".into(),
+                source: "hook".into(),
+                session: Some("review".into()),
+                updated_at_ms: 41,
+            }],
+            0,
+        );
         assert!(cache.agents.is_empty());
     }
 
