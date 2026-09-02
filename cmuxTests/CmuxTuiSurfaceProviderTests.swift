@@ -250,6 +250,51 @@ import Testing
         ) == .unavailable, "an exact terminal selector still requires a tab id")
     }
 
+    @Test func vmOpenWorkspaceSkipsAmbiguousAndExitedTerminalsWhenSafeCandidateExists() {
+        let resources: [[String: Any]] = [
+            [
+                "id": "vivid-newt/terminal/term_ambiguous",
+                "machine": "vivid-newt",
+                "kind": "terminal",
+                "key": "term_ambiguous",
+                "lifecycle": "running",
+                "remote_views": [
+                    ["tab_id": "tab_a", "workspace": ["id": "ws_main"], "focused": false],
+                    ["tab_id": "tab_b", "workspace": ["id": "ws_main"], "focused": false],
+                ],
+            ],
+            [
+                // An exited row must not block opening the workspace, even when its
+                // stale placement is ambiguous.
+                "id": "vivid-newt/terminal/term_exited",
+                "machine": "vivid-newt",
+                "kind": "terminal",
+                "key": "term_exited",
+                "lifecycle": "exited",
+                "remote_views": [
+                    ["tab_id": "tab_c", "workspace": ["id": "ws_main"], "focused": false],
+                    ["tab_id": "tab_d", "workspace": ["id": "ws_main"], "focused": false],
+                ],
+            ],
+            [
+                "id": "vivid-newt/terminal/term_safe",
+                "machine": "vivid-newt",
+                "kind": "terminal",
+                "key": "term_safe",
+                "lifecycle": "running",
+                "remote_views": [
+                    ["tab_id": "tab_safe", "workspace": ["id": "ws_main"], "focused": true],
+                ],
+            ],
+        ]
+
+        #expect(CMUXCLI.resolveVMRemoteWorkspaceTerminal(
+            resources,
+            machine: "vivid-newt",
+            workspaceID: "ws_main"
+        ) == .resolved(terminalID: "term_safe", tabID: "tab_safe"))
+    }
+
     @Test func cloudRenameWriteThroughTargetsAndNames() throws {
         // The persisted binding wins over projections.
         let bound = CloudWorkspaceRenameWriteThrough.remoteTarget(
