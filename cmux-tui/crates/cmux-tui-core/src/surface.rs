@@ -4343,6 +4343,21 @@ impl Surface {
         Some(result)
     }
 
+    /// Run `f` with exclusive access to the terminal and its content generation.
+    /// The generation is captured while the terminal lock is held, so the
+    /// callback cannot pair a semantic result with a different terminal state.
+    pub fn with_terminal_and_generation<R>(
+        &self,
+        f: impl FnOnce(&mut Terminal, u64) -> R,
+    ) -> Option<R> {
+        let pty = self.as_pty()?;
+        let mut term = pty.term.lock().unwrap();
+        let generation = pty.render_generation.load(Ordering::Acquire);
+        let result = f(&mut term, generation);
+        pty.mouse_encoders.lock().unwrap().sync_from_terminal(&term);
+        Some(result)
+    }
+
     fn configure_terminal_kitty_graphics_limits(
         terminal: &mut Terminal,
         limits: KittyGraphicsLimits,

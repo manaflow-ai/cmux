@@ -2246,6 +2246,23 @@ impl SurfaceHandle {
         }
     }
 
+    pub fn with_terminal_and_generation<R>(
+        &self,
+        f: impl FnOnce(&mut Terminal, u64) -> R,
+    ) -> Option<R> {
+        match self {
+            SurfaceHandle::Local(surface, _) => surface.with_terminal_and_generation(f),
+            SurfaceHandle::Remote(surface, _) if surface.kind == SurfaceKind::Pty => {
+                let mut terminal = surface.term.lock().unwrap();
+                let generation = surface.content_generation.load(Ordering::Acquire);
+                let result = f(&mut terminal, generation);
+                surface.sync_mouse_encoders(&terminal);
+                Some(result)
+            }
+            SurfaceHandle::Remote(_, _) | SurfaceHandle::RemoteBrowserUnsupported => None,
+        }
+    }
+
     pub fn encode_mouse(
         &self,
         input: MouseInput,
