@@ -111,6 +111,10 @@ fn terminal_screen_read(
     request: &ParsedResourceRequest,
 ) -> Result<Value, ResourceError> {
     let (_, surface) = resolve_terminal_surface(mux, &request.selectors)?;
+    // Capture the watermark first. Output that arrives after this point is
+    // newer than the returned snapshot, so a client waiting on `revision`
+    // cannot skip an intervening frame.
+    let revision = surface.terminal_stream_revision().unwrap_or_default();
     let (text, cols, rows, cursor_col, cursor_row, cursor_visible) = surface
         .try_with_terminal(|terminal| {
             let text = terminal.viewport_text()?;
@@ -126,7 +130,6 @@ fn terminal_screen_read(
         })
         .map_err(resource_operation_error)?
         .map_err(|error| resource_operation_error(error.into()))?;
-    let revision = surface.terminal_stream_revision().unwrap_or_default();
     let osc_progress = surface.terminal_osc_progress().unwrap_or_default();
     Ok(json!({
         "text":text,
