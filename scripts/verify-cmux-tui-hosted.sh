@@ -348,6 +348,14 @@ fi
 artifact_dir="cmux-tui/target/hosted/$commit"
 artifact_binary="$artifact_dir/cmux-tui"
 artifact_root="cmux-tui/target/hosted"
+artifact_parent="cmux-tui/target"
+if [[ -L "$artifact_parent" || ! -d "$artifact_parent" || ! -O "$artifact_parent" ]]; then
+  echo "error: hosted artifact parent is missing, symbolic, or not owned by this user" >&2
+  exit 2
+fi
+if [[ ! -e "$artifact_root" ]]; then
+  mkdir "$artifact_root"
+fi
 if [[ -L "$artifact_root" || ! -d "$artifact_root" || ! -O "$artifact_root" ]]; then
   echo "error: hosted artifact root is missing, symbolic, or not owned by this user" >&2
   exit 2
