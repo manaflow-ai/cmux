@@ -5812,6 +5812,27 @@ impl Mux {
             .journal_checkpoint(selector)?
             .with_context(|| format!("journal checkpoint {selector:?} does not exist"))?;
         let mut reducer = crate::journal_checkpoint::RestoreReducer::new(&checkpoint)?;
+
+        if let Some(database_path) =
+            self.workspace_registry.lock().unwrap().session_journal_database_path()
+        {
+            let reader = crate::workspace_registry::SessionJournalReader::open(&database_path)?;
+            let mut cursor = reader.restore_cursor(checkpoint.source_sequence)?;
+            let head_sequence = loop {
+                let page = cursor.next_page(1024)?;
+                let head = page.head_sequence;
+                let empty = page.records.is_empty();
+                for record in page.records {
+                    reducer.apply(&record)?;
+                }
+                if empty {
+                    break head;
+                }
+            };
+            cursor.finish()?;
+            return reducer.finish(head_sequence);
+        }
+
         let mut sequence = checkpoint.source_sequence;
         let mut target_head = None;
         let head_sequence = loop {
