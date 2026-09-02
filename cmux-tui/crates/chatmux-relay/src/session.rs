@@ -97,6 +97,13 @@ struct AuthSnapshot {
     owner: Option<String>,
 }
 
+/// Replace the persisted owner with the identity from the latest hello.
+/// An omitted owner is an explicit absence, so retaining a prior value would
+/// carry authority across reconnects.
+fn reconcile_owner_user_id(config: &mut Config, owner_user_id: Option<String>) {
+    config.owner_user_id = owner_user_id;
+}
+
 pub(crate) struct OutboundFrame {
     pub(crate) text: String,
     pub(crate) live: Option<Arc<AtomicBool>>,
@@ -888,9 +895,7 @@ async fn relay_session(
                             config.pending_trust = Some(local_trust.as_str().to_owned());
                             save(config, config_path);
                         }
-                        if let Some(owner) = hello.owner_user_id {
-                            config.owner_user_id = Some(owner);
-                        }
+                        reconcile_owner_user_id(config, hello.owner_user_id);
                         if state.managed {
                             match hello
                                 .managed_session_token
