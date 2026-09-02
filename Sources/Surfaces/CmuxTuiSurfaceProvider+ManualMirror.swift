@@ -399,7 +399,21 @@ extension CmuxTuiSurfaceProvider {
         return results
     }
 
-    nonisolated private static func isExplicitUnsupportedResolverError(_ error: Error) -> Bool {
+    /// Whether the daemon's answer means "this resolver cannot serve me",
+    /// which sends the caller to the compatibility tree instead of failing
+    /// closed.
+    ///
+    /// Two answers qualify. `operation.unsupported` is a daemon that predates
+    /// the resolver. `invalid_terminal_id` is an id-space mismatch:
+    /// `resolve-terminal` takes a *terminal host* id (UUIDv4 hex, per
+    /// spec/sdk-schema.json), while everything the app holds is a public
+    /// `term_…` resource id whose hex is not a UUIDv4 and which no command maps
+    /// to a host id. So the modern resolver can never answer for the ids this
+    /// app has, and treating that as a hard failure made every cloud terminal
+    /// fail with "cmux-tui did not report the new terminal". The compatibility
+    /// tree does carry the mapping (`terminal_resource_id` beside `surface`),
+    /// so the fallback is the path that actually resolves.
+    nonisolated static func isExplicitUnsupportedResolverError(_ error: Error) -> Bool {
         guard case let CloudMachineLink.LinkError.exited(_, output) = error else { return false }
         let lines = output.split(whereSeparator: \.isNewline)
         for line in lines {
@@ -408,6 +422,11 @@ extension CmuxTuiSurfaceProvider {
             else { continue }
             if object["code"] as? String == "operation.unsupported"
                 || object["error_code"] as? String == "operation.unsupported" {
+                return true
+            }
+            let detailError = (object["details"] as? [String: Any])?["error"] as? String
+            if object["message"] as? String == "invalid_terminal_id"
+                || detailError == "invalid_terminal_id" {
                 return true
             }
         }
