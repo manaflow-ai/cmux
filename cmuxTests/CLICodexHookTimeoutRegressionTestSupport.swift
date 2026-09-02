@@ -184,6 +184,20 @@ func codexHookMockSocketResponse(for line: String, surfaceId: String) -> String 
             result: ["surfaces": [["id": surfaceId, "ref": surfaceId, "focused": true]]]
         )
     }
+    if payload["method"] as? String == "agent.resolve_delivery_target",
+       let params = payload["params"] as? [String: Any],
+       let workspaceId = params["workspace_id"] as? String,
+       let requestedSurfaceId = params["surface_id"] as? String {
+        return codexHookV2Response(
+            id: id,
+            ok: true,
+            result: [
+                "source": "surface",
+                "workspace_id": workspaceId,
+                "surface_id": requestedSurfaceId == surfaceId ? surfaceId : requestedSurfaceId,
+            ]
+        )
+    }
     return codexHookV2Response(id: id, ok: true, result: [:])
 }
 

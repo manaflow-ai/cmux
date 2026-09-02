@@ -82,7 +82,13 @@ struct AgentNotificationMeta {
                 guard known == .needsPermission else { return nil }
                 approvalID = parsedApprovalID
             } else {
-                guard Self.isValidAgentKindTag(value) else { return nil }
+                // A value shaped like an approval id but failing its strict
+                // lowercase-hex grammar must not be reinterpreted as an agent
+                // slug. That would turn malformed correlated metadata into a
+                // seemingly valid notification and defeat exact clearing.
+                guard !Self.looksLikeApprovalID(value), Self.isValidAgentKindTag(value) else {
+                    return nil
+                }
                 agentKind = value
             }
             index += 1
@@ -142,6 +148,11 @@ struct AgentNotificationMeta {
 
     static func isValidCorrelationKey(_ value: String) -> Bool {
         UUID(uuidString: value) != nil
+    }
+
+    private static func looksLikeApprovalID(_ value: String) -> Bool {
+        let pieces = value.split(separator: ".", omittingEmptySubsequences: false)
+        return pieces.count == 2 && pieces.allSatisfy { $0.utf8.count == 24 }
     }
 }
 
