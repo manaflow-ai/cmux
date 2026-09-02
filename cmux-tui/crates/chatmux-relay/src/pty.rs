@@ -496,25 +496,31 @@ struct DeferredDetach {
 }
 
 const DEFERRED_DETACH_QUEUE: usize = 256;
+const DEFERRED_DETACH_WORKERS: usize = 4;
 static DEFERRED_DETACH_TX: OnceLock<std::sync::mpsc::SyncSender<DeferredDetach>> = OnceLock::new();
 
 fn enqueue_off_runtime_detach(task: DeferredDetach) -> Result<(), DeferredDetach> {
     let sender = DEFERRED_DETACH_TX.get_or_init(|| {
         let (sender, receiver) = std::sync::mpsc::sync_channel(DEFERRED_DETACH_QUEUE);
-        let _ = std::thread::Builder::new().name("cmux-relay-detach".to_owned()).spawn(move || {
-            let Ok(runtime) = tokio::runtime::Builder::new_current_thread().enable_all().build()
-            else {
-                while let Ok(task) = receiver.recv() {
-                    let _ = task.control.send("detach-attached-view", task.params);
-                    task.lease.finish_count();
-                }
-                return;
-            };
-            while let Ok(task) = receiver.recv() {
-                let _ = runtime.block_on(detach_control_with_deadline(&task.control, task.params));
-                task.lease.finish_count();
-            }
-        });
+        let receiver = Arc::new(Mutex::new(receiver));
+        for worker_id in 0..DEFERRED_DETACH_WORKERS {
+            let receiver = Arc::clone(&receiver);
+            let _ = std::thread::Builder::new()
+                .name(format!("cmux-relay-detach-{worker_id}"))
+                .spawn(move || {
+                    let runtime =
+                        tokio::runtime::Builder::new_current_thread().enable_all().build();
+                    while let Ok(task) = receiver.lock().expect("detach queue lock").recv() {
+                        if let Ok(runtime) = &runtime {
+                            let _ = runtime
+                                .block_on(detach_control_with_deadline(&task.control, task.params));
+                        } else {
+                            let _ = task.control.send("detach-attached-view", task.params);
+                        }
+                        task.lease.finish_count();
+                    }
+                });
+        }
         // A failed spawn drops the receiver with its closure, so enqueue
         // reports failure and the caller retires ownership synchronously.
         sender
