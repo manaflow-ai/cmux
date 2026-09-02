@@ -17,6 +17,10 @@ use crate::session::ReceivedFrame;
 const MAX_OPEN_STREAMS: usize = 256;
 const REPLAY_FRAMES_PER_LANE: usize = 4_096;
 const DELIVERY_FRAMES_PER_LANE: usize = 64;
+// Tombstones track stream IDs, not queued frames. Keep one ID per replay
+// budget on every lane, including generation-scoped Tunnel, preserving the
+// protocol's bounded aggregate replay window while allowing delayed frames.
+const TOMBSTONES_PER_LANE: usize = REPLAY_FRAMES_PER_LANE;
 const MAX_BUFFERED_STREAM_BYTES: usize = 32 * 1024 * 1024;
 const MAX_BUFFERED_NON_INTERACTIVE_BYTES: usize = 28 * 1024 * 1024;
 const MAX_BUFFERED_BULK_TUNNEL_BYTES: usize = 24 * 1024 * 1024;
@@ -174,12 +178,7 @@ impl ClosedStreams {
             }
             let queue = &mut self.order[lane as usize];
             queue.push_back(stream);
-            let limit = if lane.replays_across_generations() {
-                REPLAY_FRAMES_PER_LANE
-            } else {
-                DELIVERY_FRAMES_PER_LANE
-            };
-            while queue.len() > limit {
+            while queue.len() > TOMBSTONES_PER_LANE {
                 let Some(expired) = queue.pop_front() else { break };
                 if let Some(mask) = self.lanes.get_mut(&expired) {
                     *mask &= !bit;
