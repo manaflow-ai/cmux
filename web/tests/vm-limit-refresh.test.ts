@@ -17,7 +17,7 @@ function row(overrides: Partial<CloudVmRow>): CloudVmRow {
     userId: "user-limit-refresh",
     billingTeamId: "team-limit-refresh",
     billingPlanId: "pro",
-    provider: "e2b",
+    provider: "freestyle",
     providerVmId: null,
     displayName: null,
     imageId: "snapshot-test",
@@ -49,8 +49,8 @@ describe("lazy active-limit provider refresh", () => {
     });
     const staleE2b = row({
       id: "00000000-0000-4000-8000-000000000103",
-      provider: "e2b",
-      providerVmId: "provider-vm-stale-e2b",
+      provider: "freestyle",
+      providerVmId: "provider-vm-stale",
       status: "running",
     });
     const staleFreestyle = row({
@@ -103,7 +103,7 @@ describe("lazy active-limit provider refresh", () => {
 
     const providers = {
       create: () => Effect.succeed({
-        provider: "e2b" as const,
+        provider: "freestyle" as const,
         providerVmId: "provider-vm-limit-refresh-new",
         status: "running" as const,
         image: "snapshot-test",
@@ -133,7 +133,7 @@ describe("lazy active-limit provider refresh", () => {
         billingTeamId: "team-limit-refresh",
         billingPlanId: "pro",
         maxActiveVms: 5,
-        provider: "e2b",
+        provider: "freestyle",
         image: "snapshot-test",
       }).pipe(Effect.provide(layer)),
     );
@@ -143,11 +143,11 @@ describe("lazy active-limit provider refresh", () => {
     expect(candidateLimit).toBe(200);
     expect(statusCalls).toHaveLength(200);
     // The refresh must probe BOTH stale rows; before the fix it skipped non-freestyle.
-    expect(statusCalls).toContainEqual(["e2b", "provider-vm-stale-e2b"]);
+    expect(statusCalls).toContainEqual(["freestyle", "provider-vm-stale"]);
     expect(statusCalls).toContainEqual(["freestyle", "provider-vm-stale-freestyle"]);
     // And must durably record what the provider said so the recount can pass.
     const observedIds = observed.map((u) => u.providerVmId).sort();
-    expect(observedIds).toContain("provider-vm-stale-e2b");
+    expect(observedIds).toContain("provider-vm-stale");
     expect(observedIds).toContain("provider-vm-stale-freestyle");
     expect(observedIds).toHaveLength(200);
     expect(new Set(observed.map((u) => u.status))).toEqual(new Set(["destroyed"]));

@@ -10,10 +10,9 @@ import {
 // (docs/cloud-cmux-tui-daemon.md). This module carries everything about it
 // that is not provider-specific: the pinned-manifest source resolution, the
 // sha256-verified install command, the daemon command, and the enrollment
-// flows, all parameterized over a provider exec so freestyle.ts (VM exec API),
-// e2b.ts (commands.run as root), and daytona.ts (toolbox exec) share one
-// implementation. Providers keep only their transport mechanics: how the
-// daemon process is supervised and how port 1337 is reached from outside.
+// flows, parameterized over a provider exec so freestyle.ts keeps only its
+// transport mechanics: how the daemon process is supervised and how port 1337
+// is reached from outside.
 
 export function shellQuote(value: string): string {
   return `'${value.replace(/'/g, `'\\''`)}'`;
@@ -451,9 +450,9 @@ function cmuxTuiBackingDaemonInvocation(
  * default).
  *
  * Without a layout the daemon (and so every terminal pane it spawns) runs as root
- * with HOME=/root — the model every current driver uses (E2B, Daytona,
- * Freestyle). With a layout the daemon drops to the layout user via
- * runuser, so panes are non-root shells with passwordless sudo. Two guards keep
+ * with HOME=/root — the model the Freestyle driver uses. With a layout the
+ * daemon drops to the layout user via runuser, so panes are non-root shells
+ * with passwordless sudo. Two guards keep
  * old machines working:
  *  - A sandbox from before the layout change mounts its persistent volume at
  *    /root (mountpoint -q /root); its data and daemon state live there, so it
@@ -598,7 +597,7 @@ export function parseJsonArray(text: string): Array<Record<string, unknown>> {
 /**
  * Runs `cmux-tui <args>` inside the VM as the daemon's own user and HOME (the
  * daemon's state home). Each provider supplies its own transport: Freestyle's
- * VM exec API, E2B's commands.run, Daytona's toolbox exec.
+ * VM exec API.
  */
 export type CmuxTuiInvoke = (args: string, timeoutMs?: number) => Promise<ExecResult>;
 

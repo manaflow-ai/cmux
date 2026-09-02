@@ -295,7 +295,7 @@ export function createVm(input: {
   readonly billingCustomerType: BillingCustomerType;
   readonly billingTeamId: string;
   readonly billingPlanId: string;
-  readonly maxActiveVms: number;
+  readonly maxActiveVms: number | null;
   readonly provider: ProviderId;
   readonly image: string;
   readonly imageVersion?: string | null;
@@ -434,7 +434,7 @@ export function openBaseVm(input: {
   readonly billingCustomerType: BillingCustomerType;
   readonly billingTeamId: string;
   readonly billingPlanId: string;
-  readonly maxActiveVms: number;
+  readonly maxActiveVms: number | null;
   readonly provider: ProviderId;
   readonly image: string;
   readonly imageVersion?: string | null;
@@ -459,7 +459,7 @@ export function resetBaseVm(input: {
   readonly billingCustomerType: BillingCustomerType;
   readonly billingTeamId: string;
   readonly billingPlanId: string;
-  readonly maxActiveVms: number;
+  readonly maxActiveVms: number | null;
   readonly provider: ProviderId;
   readonly image: string;
   readonly imageVersion?: string | null;
@@ -489,7 +489,7 @@ function finishBaseCreate(
     readonly billingCustomerType: BillingCustomerType;
     readonly billingTeamId: string;
     readonly billingPlanId: string;
-    readonly maxActiveVms: number;
+    readonly maxActiveVms: number | null;
     readonly provider: ProviderId;
     readonly image: string;
     readonly imageVersion?: string | null;
@@ -725,7 +725,7 @@ export function restoreVm(input: {
   readonly billingCustomerType: BillingCustomerType;
   readonly billingTeamId: string;
   readonly billingPlanId: string;
-  readonly maxActiveVms: number;
+  readonly maxActiveVms: number | null;
   readonly provider: ProviderId;
   readonly snapshotId: string;
   readonly idempotencyKey?: string;
@@ -763,7 +763,7 @@ export function forkVm(input: {
   readonly billingTeamId: string;
   readonly teamIds?: readonly string[];
   readonly billingPlanId: string;
-  readonly maxActiveVms: number;
+  readonly maxActiveVms: number | null;
   readonly providerVmId: string;
   readonly name?: string;
   readonly idempotencyKey?: string;

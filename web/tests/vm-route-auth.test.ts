@@ -20,14 +20,11 @@ const snapshotVm = mock(() => ({ workflow: "snapshot" }));
 const revokeUserVmAccess = mock(() => ({ workflow: "revoke-access" }));
 const VM_ENV_KEYS = [
   "CMUX_VM_CREATE_ENABLED",
-  "CMUX_VM_E2B_ENABLED",
   "CMUX_VM_FREESTYLE_ENABLED",
   "CMUX_VM_ALLOWED_ORIGINS",
   "CMUX_VM_ALLOW_UNMANIFESTED_IMAGES",
-  "E2B_CMUXD_WS_TEMPLATE",
   "FREESTYLE_SANDBOX_SNAPSHOT",
   "CMUX_VM_FREE_MAX_ACTIVE_VMS",
-  "CMUX_VM_PAID_MAX_ACTIVE_VMS",
   "CMUX_VM_PLAN_PRO_MAX_ACTIVE_VMS",
   "CMUX_VM_FREE_MAX_MEMORY_MB",
   "CMUX_VM_PAID_MAX_MEMORY_MB",
@@ -408,7 +405,7 @@ describe("VM REST auth", () => {
       billingCustomerType: "team",
       billingTeamId: "team-1",
       billingPlanId: "pro",
-      maxActiveVms: 5,
+      maxActiveVms: null,
       provider: "freestyle",
       image: "snapshot-test",
       imageVersion: null,
@@ -524,8 +521,8 @@ describe("VM REST auth", () => {
     process.env.FREESTYLE_SANDBOX_SNAPSHOT = "sh-fb3dcf7b47894114889b10186626af5b";
     getUser.mockResolvedValue(authedStackUser());
     runVmWorkflow.mockResolvedValue([
-      { providerVmId: "devbox", provider: "e2b", image: "cmux-devbox:devbox-20260828b", imageVersion: "v", status: "running", createdAt: 1_777_000_000_000 },
-      { providerVmId: "base", provider: "e2b", image: "cmuxd-ws:tooling-20260509f", imageVersion: null, status: "running", createdAt: 1_777_000_000_000 },
+      { providerVmId: "devbox", provider: "freestyle", image: "sh-unlisted-shell", imageVersion: "v", status: "running", createdAt: 1_777_000_000_000 },
+      { providerVmId: "base", provider: "freestyle", image: "sh-fb3dcf7b47894114889b10186626af5b", imageVersion: null, status: "running", createdAt: 1_777_000_000_000 },
     ]);
 
     const response = await GET(new Request("https://cmux.test/api/vm"));
@@ -1393,7 +1390,7 @@ describe("VM REST auth", () => {
       billingCustomerType: "team",
       billingTeamId: "team-2",
       billingPlanId: "team",
-      maxActiveVms: 5,
+      maxActiveVms: null,
     }));
     expect(runVmWorkflow).toHaveBeenCalled();
   });
@@ -1451,7 +1448,7 @@ describe("VM REST auth", () => {
     });
     runVmWorkflow.mockResolvedValue([{
       providerVmId: "provider-vm-team-2",
-      provider: "e2b",
+      provider: "freestyle",
       image: "cmuxd-ws:test",
       imageVersion: "test-version",
       status: "paused",
@@ -1472,7 +1469,7 @@ describe("VM REST auth", () => {
     expect(listUserVms).toHaveBeenCalledWith("user-1", "team-2");
     expect(listTeams).toHaveBeenCalledTimes(1);
     expect(await response.json()).toMatchObject({
-      vms: [{ id: "provider-vm-team-2", provider: "e2b", status: "paused" }],
+      vms: [{ id: "provider-vm-team-2", provider: "freestyle", status: "paused" }],
     });
   });
 
@@ -2167,14 +2164,14 @@ describe("VM REST auth", () => {
   });
 
   test("blocks provider kill switch before workflow", async () => {
-    process.env.CMUX_VM_E2B_ENABLED = "false";
+    process.env.CMUX_VM_FREESTYLE_ENABLED = "false";
     getUser.mockResolvedValue(authedStackUser());
 
     const response = await POST(
       new Request("https://cmux.test/api/vm", {
         method: "POST",
         headers: { origin: "https://cmux.test" },
-        body: JSON.stringify({ provider: "e2b", image: "cmuxd-ws:proxy-20260424a" }),
+        body: JSON.stringify({ provider: "freestyle", image: "sh-fb3dcf7b47894114889b10186626af5b" }),
       }),
     );
 
@@ -2209,14 +2206,14 @@ describe("VM REST auth", () => {
   });
 
   test("blocks provider kill switch on restore before workflow", async () => {
-    process.env.CMUX_VM_E2B_ENABLED = "false";
+    process.env.CMUX_VM_FREESTYLE_ENABLED = "false";
     getUser.mockResolvedValue(authedStackUser());
 
     const response = await restoreRoute.POST(
       new Request("https://cmux.test/api/vm/restore", {
         method: "POST",
         headers: { origin: "https://cmux.test" },
-        body: JSON.stringify({ snapshotId: "snap-1", provider: "e2b" }),
+        body: JSON.stringify({ snapshotId: "snap-1", provider: "freestyle" }),
       }),
     );
 
@@ -2337,49 +2334,16 @@ describe("VM REST auth", () => {
     }));
   });
 
-  test("explicit manifest image resolves its own provider when the deployment default disagrees", async () => {
-    // Regression for the 2026-08-26 outage: a client sends one provider's image
-    // ids with no provider override while the deployment default names another,
-    // so the image was looked up under the wrong provider and every create 503ed.
-    process.env.VERCEL = "1";
-    process.env.VERCEL_ENV = "preview";
-    process.env.CMUX_VM_DEFAULT_PROVIDER = "freestyle";
-    process.env.FREESTYLE_SANDBOX_SNAPSHOT = "sh-fb3dcf7b47894114889b10186626af5b";
-    getUser.mockResolvedValue(authedStackUser());
-    runVmWorkflow.mockResolvedValue({
-      providerVmId: "provider-vm-e2b",
-      provider: "e2b",
-      image: "cmux-devbox:devbox-20260828b",
-      imageVersion: "e2b-devbox-20260828b",
-      createdAt: 1_777_000_000_000,
-    });
-
-    const response = await POST(
-      new Request("https://cmux.test/api/vm", {
-        method: "POST",
-        headers: { origin: "https://cmux.test" },
-        body: JSON.stringify({ image: "cmux-devbox:devbox-20260828b" }),
-      }),
-    );
-
-    expect(response.status).toBe(200);
-    expect(createVm).toHaveBeenCalledWith(expect.objectContaining({
-      provider: "e2b",
-      image: "cmux-devbox:devbox-20260828b",
-      imageVersion: "e2b-devbox-20260828b",
-    }));
-  });
-
   test("the shell-only base image the CLI sends for `vm new --base` is manifest-listed", async () => {
     process.env.VERCEL = "1";
     process.env.VERCEL_ENV = "preview";
     process.env.CMUX_VM_DEFAULT_PROVIDER = "freestyle";
     getUser.mockResolvedValue(authedStackUser());
     runVmWorkflow.mockResolvedValue({
-      providerVmId: "provider-vm-e2b-base",
-      provider: "e2b",
-      image: "cmuxd-ws:tooling-20260509f",
-      imageVersion: "e2b-tooling-20260509f",
+      providerVmId: "provider-vm-freestyle-base",
+      provider: "freestyle",
+      image: "sh-fb3dcf7b47894114889b10186626af5b",
+      imageVersion: "freestyle-cmux-devbox-beta1",
       createdAt: 1_777_000_000_000,
     });
 
@@ -2387,14 +2351,14 @@ describe("VM REST auth", () => {
       new Request("https://cmux.test/api/vm", {
         method: "POST",
         headers: { origin: "https://cmux.test" },
-        body: JSON.stringify({ image: "cmuxd-ws:tooling-20260509f" }),
+        body: JSON.stringify({ image: "sh-fb3dcf7b47894114889b10186626af5b" }),
       }),
     );
 
     expect(response.status).toBe(200);
     expect(createVm).toHaveBeenCalledWith(expect.objectContaining({
-      provider: "e2b",
-      image: "cmuxd-ws:tooling-20260509f",
+      provider: "freestyle",
+      image: "sh-fb3dcf7b47894114889b10186626af5b",
     }));
   });
 });

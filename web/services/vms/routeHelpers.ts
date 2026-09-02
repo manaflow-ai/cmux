@@ -10,7 +10,6 @@ import {
   isPaidVmPlan,
   isVmBillingTeamResolutionError,
   isVmProGateBlocked,
-  maxActiveVmsForPlan,
   resolveVmEntitlements,
   type VmEntitlements,
 } from "./entitlements";
@@ -391,12 +390,11 @@ export function vmActiveLimitExceededResponse(input: {
   if (input.limit <= 0) {
     // Free plans have no allowance at all: this is the subscribe gate, not a
     // "free a slot" situation.
-    const proLimit = maxActiveVmsForPlan("pro");
     return vmErrorResponse({
       error: "vm_active_limit_exceeded",
       status: 402,
       message: "Cloud VMs require a cmux Pro subscription.",
-      action: `Subscribe to cmux Pro at ${VM_UPGRADE_URL} to get access to Cloud VMs (up to ${proLimit} active machines).`,
+      action: `Subscribe to cmux Pro at ${VM_UPGRADE_URL} to get access to Cloud VMs.`,
       extra: { limit: input.limit, upgradeRequired: true, upgradeUrl: VM_UPGRADE_URL },
       details: { limit: input.limit, upgradeRequired: true },
       ...(input.phase ? { phase: input.phase } : {}),
@@ -823,7 +821,6 @@ function sanitizedProviderMessage(message: string): string {
   if (/not found|deleted/i.test(normalized)) return "VM not found";
   return normalized
     .replace(/freestyle/gi, "Cloud VM")
-    .replace(/e2b/gi, "Cloud VM")
     .slice(0, 240);
 }
 
