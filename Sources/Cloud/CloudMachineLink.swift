@@ -288,6 +288,23 @@ actor CloudMachineLink {
         _ = startEventsSubscription(socketPath: socketPath, cursor: eventsCursor)
     }
 
+    /// Stops the journal reader when the daemon only provides an unversioned
+    /// snapshot. The command socket remains usable for reads, while the missing
+    /// cursor prevents safe delta ordering and compare-and-swap mutations. A
+    /// later versioned snapshot can call `resumeEventsSubscription` to re-enable
+    /// the feed and reset the recovery budget.
+    func suspendEventsSubscription() {
+        eventsSubscriptionID = nil
+        eventsReaderTask?.cancel()
+        eventsReaderTask = nil
+        eventsProcess?.terminate()
+        eventsProcess = nil
+        eventsRecoveryTask?.cancel()
+        eventsRecoveryTask = nil
+        eventsRecoveryAttempt = 0
+        eventsRecoveryExhausted = true
+    }
+
     /// Runs one cmux-tui command against the link's socket and returns its stdout.
     func run(arguments: [String], timeout: Duration = .seconds(30)) async throws -> Data {
         let process = Process()

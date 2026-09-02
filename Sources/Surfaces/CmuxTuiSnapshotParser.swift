@@ -109,12 +109,18 @@ struct CmuxTuiSnapshotParser: Sendable {
     }
 
     /// Builds the one lossless state value consumed by every cloud projection.
-    /// A missing cursor is accepted by the legacy resource helpers, but never
-    /// becomes a synchronizable state because it cannot be ordered against an
-    /// event stream.
+    /// A missing or explicit-null cursor is a legacy snapshot-only state. A
+    /// present cursor must be valid, because accepting a malformed ordering token
+    /// would make later deltas target the wrong graph.
     static func state(fromSnapshot snapshot: [String: Any], machine: SurfaceMachineID) -> CloudVMState? {
-        guard let cursor = CloudVMCursor(snapshot: snapshot),
-              let rawSnapshot = canonicalJSONData(snapshot),
+        let cursor: CloudVMCursor?
+        if let rawCursor = snapshot["cursor"], !(rawCursor is NSNull) {
+            guard let parsed = CloudVMCursor(snapshot: snapshot) else { return nil }
+            cursor = parsed
+        } else {
+            cursor = nil
+        }
+        guard let rawSnapshot = canonicalJSONData(snapshot),
               identityCollectionsAreUnique(in: snapshot)
         else { return nil }
 
@@ -341,13 +347,14 @@ struct CmuxTuiSnapshotParser: Sendable {
         cursor: CloudVMCursor,
         to state: CloudVMState
     ) -> CloudVMStateDeltaApplication? {
-        guard var snapshot = state.snapshotObject(),
+        guard let currentCursor = state.cursor,
+              var snapshot = state.snapshotObject(),
               let delta = try? JSONSerialization.jsonObject(with: deltaPayload) as? [String: Any],
               let changes = delta["changes"] as? [[String: Any]],
-              state.cursor.generation == cursor.generation,
-              state.cursor.revision < UInt64.max,
-              cursor.revision == state.cursor.revision + 1,
-              deltaEnvelopeMatches(delta, cursor: cursor, previousRevision: state.cursor.revision),
+              currentCursor.generation == cursor.generation,
+              currentCursor.revision < UInt64.max,
+              cursor.revision == currentCursor.revision + 1,
+              deltaEnvelopeMatches(delta, cursor: cursor, previousRevision: currentCursor.revision),
               deltaSequencesAreValid(changes)
         else { return nil }
 

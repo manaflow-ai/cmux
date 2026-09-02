@@ -889,9 +889,14 @@ extension TerminalController {
     ) -> [String: Any] {
         func optional(_ value: String?) -> Any { value ?? NSNull() }
         let snapshot: Any = state.agentSnapshotObject() ?? NSNull()
+        let cursor: Any = state.cursor.map { [
+            "generation": $0.generation,
+            "revision": String($0.revision),
+        ] as [String: Any] } ?? NSNull()
         return [
             "machine": state.machine.rawValue,
-            "cursor": ["generation": state.cursor.generation, "revision": String(state.cursor.revision)] as [String: Any],
+            "cursor": cursor,
+            "sync_mode": state.syncMode.rawValue,
             "freshness": observation.freshness.rawValue,
             "stale_reason": observation.reason ?? NSNull(),
             "workspaces": state.workspaces.map { [

@@ -146,6 +146,7 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
         case noWorkspaceOnMachine(String)
         case terminalNotCreated(String)
         case invalidSnapshot(String)
+        case snapshotOnly(String)
         case badURL(String)
 
         var errorDescription: String? {
@@ -160,6 +161,11 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
                 return "cmux-tui did not report the new terminal: \(detail)"
             case .invalidSnapshot(let id):
                 return "cmux-tui returned an unversioned or malformed session snapshot for \(id)."
+            case .snapshotOnly(let id):
+                return String(
+                    localized: "cloudTree.error.snapshotOnly",
+                    defaultValue: "\(id) uses an older cmux-tui protocol. Refresh it to enable live sync and rename operations."
+                )
             case .badURL(let url):
                 return "The control plane returned an unusable URL: \(url)"
             }
@@ -343,7 +349,13 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
             let authoritative = cloudState?.snapshotObject() ?? object
             tabByTerminal = CmuxTuiSnapshotParser.tabByTerminal(fromSnapshot: authoritative)
             tabNameByID = CmuxTuiSnapshotParser.tabNames(fromSnapshot: authoritative)
-            await link.setEventsCursor(cloudState?.cursor)
+            if cloudState?.cursor == nil {
+                // Keep legacy VMs readable, but do not consume an event stream
+                // whose items cannot be ordered against the installed snapshot.
+                await link.suspendEventsSubscription()
+            } else {
+                await link.setEventsCursor(cloudState?.cursor)
+            }
             let needsSurfaceIDRefresh = !manualMirrorSessions.isEmpty
                 && (manualMirrorSurfaceIDsSocketPath != connected.socketPath
                     || manualMirrorSessions.values.contains { $0.phase == .disconnected })
@@ -377,7 +389,9 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
             where reconnectableSessionIDs.contains(ObjectIdentifier(session)) {
                 session.reconnect(socketPath: connected.socketPath)
             }
-            await link.resumeEventsSubscription(from: cloudState?.cursor)
+            if cloudState?.cursor != nil {
+                await link.resumeEventsSubscription(from: cloudState?.cursor)
+            }
             currentPorts = await ports(client: client, force: force)
         } catch {
             let status = await links.status(machineID: machineID)
@@ -434,7 +448,9 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
             return false
         case .installSnapshot:
             if let current = cloudState,
-               current.cursor.generation != incoming.cursor.generation,
+               let currentCursor = current.cursor,
+               let incomingCursor = incoming.cursor,
+               currentCursor.generation != incomingCursor.generation,
                let requestVersion,
                requestVersion != cloudStateInstallVersion {
                 return false
@@ -843,6 +859,9 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
                 String(localized: "cloudTree.error.renameWorkspaceNotFound", defaultValue: "This remote workspace is no longer available.")
             )
         }
+        guard let observedCursor = observed.cursor else {
+            throw ProviderError.snapshotOnly(machineID)
+        }
         let connected = try await links.connected(machineID: machineID)
         guard let link = await links.link(machineID: machineID) else { throw ProviderError.machineAsleep(machineID) }
         do {
@@ -850,7 +869,7 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
                 socketPath: connected.socketPath,
                 workspaceID: id,
                 name: normalizedName,
-                expectedRevision: observed.cursor.revision
+                expectedRevision: observedCursor.revision
             ))
         } catch {
             // A revision can advance for an unrelated event. Retry once only
@@ -860,6 +879,7 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
                   await refresh(force: true),
                   let latest = cloudState,
                   let current = latest.workspaces.first(where: { $0.id == id }),
+                  let latestCursor = latest.cursor,
                   current.name == previous.name else { throw error }
             let retryConnected = try await links.connected(machineID: machineID)
             guard let retryLink = await links.link(machineID: machineID) else { throw error }
@@ -867,7 +887,7 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
                 socketPath: retryConnected.socketPath,
                 workspaceID: id,
                 name: normalizedName,
-                expectedRevision: latest.cursor.revision
+                expectedRevision: latestCursor.revision
             ))
         }
         // The command response is not the source of truth. Wait for the next
@@ -894,15 +914,19 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
                 String(localized: "cloudTree.error.renameTerminalNoView", defaultValue: "This terminal is not open in a remote workspace.")
             )
         }
+        guard let observedCursor = observed.cursor else {
+            throw ProviderError.snapshotOnly(machineID)
+        }
         do {
-            try await sendRenameTab(id: id, name: normalizedName, expectedRevision: observed.cursor.revision)
+            try await sendRenameTab(id: id, name: normalizedName, expectedRevision: observedCursor.revision)
         } catch {
             guard Self.isRevisionConflict(error),
                   await refresh(force: true),
                   let latest = cloudState,
                   let current = latest.tabs.first(where: { $0.id == id }),
+                  let latestCursor = latest.cursor,
                   (current.name ?? "") == (previous.name ?? "") else { throw error }
-            try await sendRenameTab(id: id, name: normalizedName, expectedRevision: latest.cursor.revision)
+            try await sendRenameTab(id: id, name: normalizedName, expectedRevision: latestCursor.revision)
         }
         // The daemon event normally installs this before the command exits. The
         // explicit read is the barrier for older clients that do not stream deltas.
@@ -928,6 +952,9 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
                 String(localized: "cloudTree.error.renameTerminalNoView", defaultValue: "This terminal is not open in a remote workspace.")
             )
         }
+        guard let observedCursor = observed.cursor else {
+            throw ProviderError.snapshotOnly(machineID)
+        }
 
         // The daemon's tab name is placement-local. Keep one target per exact
         // tab id, and use the fresh typed state for the old value. A malformed
@@ -951,7 +978,7 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
         let pendingTargets = targets.filter { $0.previousName != normalizedName }
         if pendingTargets.isEmpty { return }
 
-        var lastCommitRevision = observed.cursor.revision
+        var lastCommitRevision = observedCursor.revision
         var renamedTabs: [(tabID: String, previousName: String, commitRevision: UInt64)] = []
         var mutationOutcomeUncertain = false
         do {
@@ -990,13 +1017,14 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
             if !renamedTabs.isEmpty, !mutationOutcomeUncertain,
                await refresh(force: true),
                let latest = cloudState,
-               latest.cursor.generation == observed.cursor.generation,
-               latest.cursor.revision == lastCommitRevision,
+               let latestCursor = latest.cursor,
+               latestCursor.generation == observedCursor.generation,
+               latestCursor.revision == lastCommitRevision,
                renamedTabs.allSatisfy({ entry in
                    latest.tabs.first(where: { $0.id == entry.tabID })?.name == normalizedName
                }) {
                 compensated = true
-                var compensationRevision = latest.cursor.revision
+                var compensationRevision = latestCursor.revision
                 for entry in renamedTabs.reversed() {
                     do {
                         let revision = try await sendRenameTab(

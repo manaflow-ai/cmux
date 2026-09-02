@@ -61484,6 +61484,23 @@
         }
       }
     },
+    "cloudTree.error.snapshotOnly": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ uses an older cmux-tui protocol. Refresh it to enable live sync and rename operations."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ は古い cmux-tui プロトコルを使用しています。更新してライブ同期と名前変更を有効にしてください。"
+          }
+        }
+      }
+    },
     "cloudTree.rename.confirm": {
       "extractionState": "manual",
       "localizations": {

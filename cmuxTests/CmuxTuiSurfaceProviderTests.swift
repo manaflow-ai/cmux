@@ -806,6 +806,21 @@ import Testing
         #expect(!application.impact.requiresFullResourceRebuild)
     }
 
+    @Test func legacySnapshotRemainsReadableButIsSnapshotOnly() throws {
+        var snapshot = Self.sessionSnapshot
+        snapshot.removeValue(forKey: "cursor")
+        let state = try #require(CmuxTuiSnapshotParser.state(fromSnapshot: snapshot, machine: Self.machine))
+
+        #expect(state.cursor == nil)
+        #expect(state.syncMode == .snapshotOnly)
+        #expect(state.workspaces.map(\.id) == ["ws_api"])
+        #expect(CmuxTuiSnapshotParser.resources(from: state).contains { $0.id.key == "term_build" })
+
+        var malformed = snapshot
+        malformed["cursor"] = ["generation": "daemon-a", "revision": "not-a-number"]
+        #expect(CmuxTuiSnapshotParser.state(fromSnapshot: malformed, machine: Self.machine) == nil)
+    }
+
     @Test func legacyAgentDeltaUsesTerminalRelationshipIdentity() throws {
         var snapshot = Self.sessionSnapshot
         snapshot["cursor"] = ["generation": "daemon-a", "revision": "7"]
@@ -876,6 +891,8 @@ import Testing
         #expect(CloudVMStateSyncDecision.forDelta(generation: "daemon-a", previousRevision: 7, revision: 8, current: current) == .installSnapshot)
         #expect(CloudVMStateSyncDecision.forDelta(generation: "daemon-a", previousRevision: 7, revision: 9, current: current) == .fetchSnapshot)
         #expect(CloudVMStateSyncDecision.forDelta(generation: "daemon-b", previousRevision: 7, revision: 8, current: current) == .fetchSnapshot)
+        #expect(CloudVMStateSyncDecision.forSnapshot(incoming: nil, current: nil) == .installSnapshot)
+        #expect(CloudVMStateSyncDecision.forSnapshot(incoming: nil, current: current) == .ignoreStale)
     }
 
     @Test func eventRecoveryUsesPositiveCappedBackoff() {
@@ -911,6 +928,7 @@ import Testing
         #expect(payload["freshness"] as? String == "stale")
         #expect(payload["stale_reason"] as? String == "asleep")
         #expect((payload["cursor"] as? [String: Any])?["revision"] as? String == "3")
+        #expect(payload["sync_mode"] as? String == "journaled")
         let exportedSnapshot = try #require(payload["snapshot"] as? [String: Any])
         let pairing = try #require((exportedSnapshot["pairing_requests"] as? [[String: Any]])?.first)
         #expect(pairing["code"] as? String == "[REDACTED]")

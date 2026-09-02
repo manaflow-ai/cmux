@@ -41,9 +41,12 @@ browsers, and agents. The macOS app must not create a second remote graph.
 
 - `CloudMachineLink` owns one authenticated subscription per VM, its cursor,
   reconnect policy, and bounded recovery.
-- `CloudVMState` is one immutable graph with a `(generation, revision)` cursor.
-  `SurfaceCatalog` installs that graph and its derived rows in one main-actor
-  transaction, so UI, CLI, and restored projections read the same version.
+- `CloudVMState` is one immutable graph with an explicit synchronization mode.
+  `journaled` state has a `(generation, revision)` cursor. A legacy
+  `snapshot_only` state has a null cursor but keeps the complete graph for
+  inspection and agent export. `SurfaceCatalog` installs that graph and its
+  derived rows in one main-actor transaction, so UI, CLI, and restored
+  projections read the same version.
 - Full snapshots are authoritative. A delta is accepted only when it is
   contiguous and complete. Unknown or malformed events are barriers, trigger a
   coalesced snapshot repair, and stop after five barriers with an explicit
@@ -76,6 +79,10 @@ browsers, and agents. The macOS app must not create a second remote graph.
 - Freshness is explicit: `current`, `stale`, and `unavailable` are distinct
   states. A cached graph may be displayed as stale, but it may not authorize a
   new placement or rename.
+- Snapshot-only compatibility is explicit. The app suspends the event reader for
+  an unversioned Freestyle daemon, keeps all rows visible, and rejects workspace
+  and tab rename writes until the daemon is upgraded. A malformed non-null
+  cursor is rejected rather than treated as legacy.
 - Freestyle route selection reads the canonical `vpcs` addresses when that
   field is present, uses the deprecated `networks` alias only when `vpcs` is
   absent, and uses public IPv6 only for a machine with no private address list.
@@ -115,6 +122,8 @@ operator-visible warning when the event stream remains incompatible.
   rename persistence against a live sandbox.
 - [x] Verify local-to-cloud workspace and exact tab rename write-through from the
   catalog projection lifecycle, including restore and existing-target opens.
+- [x] Preserve complete state from legacy Freestyle snapshots without a cursor;
+  expose `snapshot_only` to agents and fail revision-fenced writes clearly.
 - [ ] Persist the claimed cmux-tui device fingerprint/device id in each lease and
   revoke only those device records on sign-out. Freestyle currently revokes the
   control-plane lease rows, but not daemon enrollment records.

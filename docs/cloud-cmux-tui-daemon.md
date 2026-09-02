@@ -125,13 +125,22 @@ are indexes derived from those bytes. `SurfaceCatalog` stores that state with
 the derived surface rows in one main-actor transaction. No sidebar, CLI, or
 pane keeps a second remote graph.
 
-The cursor is `(generation, revision)`. A generation change means a daemon
-restart or replacement, so revision numbers are never compared across
+The state has an explicit synchronization mode. Current daemons use `journaled`
+mode and publish a `(generation, revision)` cursor. A generation change means a
+daemon restart or replacement, so revision numbers are never compared across
 generations. A delta is accepted only when its generation matches, its
 `previous_revision` is the installed revision, its revision is exactly one
 higher, and its changes have a complete sequence. Any unknown, malformed, or
 out-of-order event triggers one coalesced snapshot repair. Recovery has a finite
 budget and exposes an error state when the feed remains incompatible.
+
+Older daemons may return the same complete graph without a cursor. The app
+keeps that graph in `snapshot_only` mode, exports it to agents, and suspends the
+event reader. It does not apply deltas or send revision-fenced workspace or tab
+renames because their ordering cannot be proven. The machine reports the
+upgrade requirement instead of silently losing rows or sending an unsafe write.
+An explicit `null` cursor has the same meaning as an omitted cursor. A malformed
+non-null cursor rejects the document.
 
 Derived-row work follows an explicit boundary. A title, lifecycle, agent badge,
 focus, index, or same-placement tab-name change rebuilds only the affected
@@ -291,14 +300,16 @@ unknown event. Desktop and ports are Mac-owned nodes backed by
 The remote graph is keyed by stable daemon IDs. A resource may have several
 `remote_views`, so a terminal shown in two tabs is represented twice with
 `workspace_id` and `tab_id`, while the terminal identity stays one resource.
-The catalog exports its cursor and freshness state. A stale graph can be
-rendered for diagnosis but cannot authorize a new open or rename.
+The catalog exports its cursor, `sync_mode`, and freshness state. A stale graph
+can be rendered for diagnosis but cannot authorize a new open or rename. A
+`snapshot_only` graph can be opened for inspection, but rename commands return
+an upgrade error until a journaled daemon snapshot is available.
 
 Socket methods (the CLI, the sidebar tree, and agents all go through them):
 
 | Method | Params | Result |
 | --- | --- | --- |
-| `vm.tree` | `{id?, refresh?}` | JSON catalog with `cloud_states` and freshness cursors. Each terminal carries exact `remote_views: [{tab_id, workspace: {id, name, index, focused}, screen_id?, pane_id?, name?, index?, focused?}]`; workspaces remain present when empty. |
+| `vm.tree` | `{id?, refresh?}` | JSON catalog with `cloud_states`, `sync_mode` (`journaled` or `snapshot_only`), nullable freshness cursors, and observations. Each terminal carries exact `remote_views: [{tab_id, workspace: {id, name, index, focused}, screen_id?, pane_id?, name?, index?, focused?}]`; workspaces remain present when empty. |
 | `vm.terminal_open` | `{id, terminal_id, remote_workspace_id?, remote_tab_id?, workspace_id?, placement?, focus?}` | `{surface_id, workspace_id, reused}` — exact remote placement is preserved; an existing pane with the same IDs is focused instead of duplicated |
 | `vm.terminal_new` | `{id, workspace_id?: ws_…, command?: [string], cwd?, name?, open?}` | `{terminal_id, workspace_id, surface_id?}` — a detached terminal in the machine's session |
 | `vm.desktop_open` | `{id, workspace_id?, focus?}` | `{surface_id, url}` |

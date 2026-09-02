@@ -57,6 +57,14 @@ The auth regression tests live in `web/tests/vm-route-auth.test.ts`. They verify
 ## State model
 
 - `cloud_vms` owns VM lifecycle state, provider ids, image ids, billing team/plan ids, and per-user idempotency keys.
+- The Freestyle cmux-tui daemon owns the complete remote graph. The macOS
+  catalog stores one lossless snapshot plus typed indexes, never a second
+  provider-specific graph. A cursor `(generation, revision)` marks `journaled`
+  state. A missing or null cursor marks `snapshot_only` legacy state.
+- Snapshot-only state stays readable and agent-visible, but the client pauses
+  event consumption and rejects revision-fenced workspace and tab renames until
+  the daemon is upgraded. This preserves old VM visibility without claiming
+  ordering that the old protocol cannot provide.
 - `cloud_vm_leases` stores hashed PTY/RPC/SSH lease tokens, provider identity handles, session ids, expiry, and revocation timestamps.
 - `cmux-remote` lease rows are account-scoped and are marked revoked on sign-out.
   Freestyle daemon enrollment records are device-scoped and are not revoked yet,

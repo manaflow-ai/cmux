@@ -275,15 +275,28 @@ struct CloudVMAgentState: Hashable, Codable, Sendable {
     var source: String?
 }
 
+/// How a remote session can be synchronized.
+///
+/// Current cmux-tui daemons publish a generation and revision, so the desktop can
+/// apply contiguous deltas and fence mutations with compare-and-swap. Older
+/// daemons publish the same graph without a cursor. Their snapshot is still useful
+/// for display and inspection, but it cannot prove ordering or authorize a
+/// revision-fenced mutation.
+enum CloudVMStateSyncMode: String, Codable, Sendable {
+    case journaled
+    case snapshotOnly = "snapshot_only"
+}
+
 /// Complete state for one remote cmux-tui session.
 ///
 /// `rawSnapshot` preserves fields that this app does not understand yet. The
 /// typed graph is derived from the same bytes and is never updated independently.
 /// This gives the agent a stable graph today and an accretive escape hatch for new
-/// daemon resources tomorrow.
+/// daemon resources tomorrow. A nil cursor is an explicit legacy snapshot-only
+/// mode, not an invalid or partially parsed graph.
 struct CloudVMState: Hashable, Codable, Sendable {
     var machine: SurfaceMachineID
-    var cursor: CloudVMCursor
+    var cursor: CloudVMCursor?
     var rawSnapshot: Data
     var workspaces: [CloudVMWorkspaceState]
     var screens: [CloudVMScreenState]
@@ -293,6 +306,10 @@ struct CloudVMState: Hashable, Codable, Sendable {
     var browsers: [CloudVMBrowserState]
     var agents: [CloudVMAgentState]
     var otherEntities: [CloudVMEntity]
+
+    var syncMode: CloudVMStateSyncMode {
+        cursor == nil ? .snapshotOnly : .journaled
+    }
 
     var workspaceIDs: Set<String> { Set(workspaces.map(\.id)) }
 
@@ -436,9 +453,15 @@ enum CloudVMStateSyncDecision: Equatable, Sendable {
     /// revision is lower. A delta must join the exact cursor already installed;
     /// accepting a non-contiguous delta would silently lose an entity update.
     static func forSnapshot(
-        incoming: CloudVMCursor,
+        incoming: CloudVMCursor?,
         current: CloudVMCursor?
     ) -> Self {
+        // A snapshot without a cursor is a legacy, snapshot-only document. It has
+        // no ordering information, so it may initialize an empty slot but must
+        // never replace an already journaled graph.
+        guard let incoming else {
+            return current == nil ? .installSnapshot : .ignoreStale
+        }
         guard let current else { return .installSnapshot }
         guard incoming.generation == current.generation else { return .installSnapshot }
         return incoming.revision > current.revision ? .installSnapshot : .ignoreStale
