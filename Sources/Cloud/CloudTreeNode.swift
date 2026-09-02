@@ -447,10 +447,14 @@ enum CloudTreeNodeBuilder {
                 tabID: remoteView.tabID
             )
             if openPlacements.contains(identity) { return true }
-            return workspaceOnly[RemoteWorkspaceIdentity(
+            if workspaceOnly[RemoteWorkspaceIdentity(
                 resource: resource,
                 workspaceID: remoteView.workspace.id
-            )] != nil
+            )] != nil { return true }
+            // The oldest session records have neither remote coordinate. The
+            // initializer keeps them only when this resource has exactly one
+            // projection and one current view, so this fallback is unambiguous.
+            return legacy[resource] != nil
         }
 
         func localWorkspaceShowing(
