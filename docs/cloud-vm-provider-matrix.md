@@ -16,20 +16,20 @@ Freestyle machines support cmux-tui session operations, including `vm tree`, `vm
 
 Request `cmux-remote` from `POST /api/vm/:id/attach-endpoint`. The response contains the daemon route, lease token, session name, optional daemon build, and an enrollment invitation when the client device is not enrolled.
 
-Requests for the removed `websocket` and `ssh` attach transports fail with `409 vm_attach_transport_unsupported`. The response lists `details.supportedTransports: ["cmux-remote"]`. `cmux vm attach`, `cmux vm shell`, `cmux vm new`, `cmux vm base open`, and the Machines panel all use this path. `cmux vm ssh` is a user-facing alias for the same managed workspace path, not an SSH gateway. `cmux vm ssh-info` has no endpoint to print.
+Legacy attach requests with no transport, or with `transport: "websocket"`, fail with `409 vm_attach_transport_unsupported`; the response lists `details.supportedTransports: ["cmux-remote"]`. An explicit `transport: "ssh"` is rejected earlier as an unknown request transport (`400`). `cmux vm attach`, `cmux vm shell`, `cmux vm new`, `cmux vm base open`, and the Machines panel all use this path. `cmux vm ssh` is a user-facing alias for the same managed workspace path, not an SSH gateway. `cmux vm ssh-info` remains a CLI/debug verb, but the current Freestyle backend has no SSH endpoint to print.
 
 ## Image behavior
 
 The checked-in image manifest is the source of truth for images that current cmux can create. Clients normally request a machine kind and let the server select that kind's default manifest entry. A client-requested image must also be in the manifest unless a local development override explicitly permits an unlisted image.
 
-The manifest retains old image entries for rollback and audit history. An old entry made for `cmuxd-remote` does not gain `cmux-remote` support because it is listed. Current create and restore workflows install and start cmux-tui. A machine made by a removed legacy driver cannot serve the current transport and must be recreated.
+The manifest retains old image entries for rollback and audit history. Listing an image does not change its guest contents, so a legacy snapshot without cmux-tui cannot serve the current transport and should be recreated from a current manifest entry. Current create relies on the baked image and supervisor; attach installs or heals cmux-tui when needed. Restore starts from the snapshot and best-effort heals the daemon.
 
 ## Capability and error guidance
 
 1. Run `cmux vm ls --json`. Treat each machine's `capabilities` object as the server answer for snapshot, restore, and fork operations.
 2. Use `cmux-remote` for every attach. Do not retry a rejected SSH or legacy WebSocket transport against the same machine.
 3. `vm_attach_transport_unsupported` means the requested session transport is not supported. Follow `details.supportedTransports`.
-4. `vm_operation_unsupported` means the provider cannot perform the requested checkpoint operation. Preserve the machine and use an operation whose capability is true.
+4. `vm_operation_unsupported` means the provider cannot perform the requested operation. Preserve the machine and use an operation whose capability is true, or follow the deployment-specific action in the error.
 5. If `vm tree` returns no workspaces or terminals after create, inspect daemon installation, enrollment, routing, and health. Do not switch to a retired transport or change the provider registry from the client.
 
 ## Sources of truth
