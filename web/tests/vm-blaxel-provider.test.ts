@@ -144,6 +144,71 @@ describe("BlaxelProvider session transport", () => {
     }
   });
 
+  test("uses persisted home metadata during enrollment approval", async () => {
+    const previousKey = process.env.BL_API_KEY;
+    const previousWorkspace = process.env.BL_WORKSPACE;
+    process.env.BL_API_KEY = "test-key";
+    process.env.BL_WORKSPACE = "cmux";
+    const originalFetch = globalThis.fetch;
+    const processBodies: string[] = [];
+    globalThis.fetch = (async (input: string | URL | Request, init?: RequestInit) => {
+      const url = typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
+      const method = init?.method ?? "GET";
+      if (method === "GET" && url.endsWith("/sandboxes/machine-approval-hidden-volume")) {
+        return new Response(JSON.stringify({
+          status: "DEPLOYED",
+          metadata: { url: "https://sandbox-api.test" },
+          spec: { runtime: { image: "sandbox/cmux-devbox:latest" } },
+        }), { status: 200 });
+      }
+      if (method === "POST" && url === "https://sandbox-api.test/process") {
+        const command = typeof init?.body === "string" ? JSON.parse(init.body).command : "";
+        processBodies.push(command);
+        if (command.includes("remote enroll pending")) {
+          return new Response(JSON.stringify({
+            status: "completed",
+            exitCode: 0,
+            stdout: JSON.stringify([{ invitation_id: "invite-1", device_fingerprint: "device-1" }]),
+            stderr: "",
+          }), { status: 200 });
+        }
+        if (command.includes("remote enroll approve")) {
+          return new Response(JSON.stringify({
+            status: "completed",
+            exitCode: 0,
+            stdout: JSON.stringify({ fingerprint: "device-1" }),
+            stderr: "",
+          }), { status: 200 });
+        }
+      }
+      return new Response(JSON.stringify({ error: `unexpected ${method} ${url}` }), { status: 500 });
+    }) as typeof fetch;
+    try {
+      const provider = new BlaxelProvider();
+      // Reflect.apply lets the test exercise the optional argument before the
+      // implementation commit adds it to the shared driver contract.
+      const result = await Reflect.apply(
+        provider.approveCmuxRemoteEnrollment,
+        provider,
+        ["machine-approval-hidden-volume", "invite-1", {
+          providerMetadata: { homeVolume: "cmux-home-machine-approval-hidden-volume" },
+        }],
+      );
+      expect(result).toEqual({ approved: true, state: "approved", deviceFingerprint: "device-1" });
+      expect(processBodies).toHaveLength(2);
+      for (const body of processBodies) {
+        expect(body).toContain("if ! mountpoint -q /root");
+        expect(body).toContain("exit 75");
+      }
+    } finally {
+      globalThis.fetch = originalFetch;
+      if (previousKey === undefined) delete process.env.BL_API_KEY;
+      else process.env.BL_API_KEY = previousKey;
+      if (previousWorkspace === undefined) delete process.env.BL_WORKSPACE;
+      else process.env.BL_WORKSPACE = previousWorkspace;
+    }
+  });
+
   test("the smart-sleep watcher only knows the cmux-tui daemon", () => {
     expect(SMART_SLEEP_SCRIPT).toContain("pidof cmux-tui");
     expect(SMART_SLEEP_SCRIPT).toContain("0539");
