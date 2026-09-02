@@ -6,7 +6,7 @@
 // the account falls back to its real Stripe state. Who granted what is kept in
 // `serverMetadata.cmuxAdminPlanGrant`, which end users cannot read.
 
-import { and, desc, eq, ilike, inArray, isNull, lt, or } from "drizzle-orm";
+import { and, desc, eq, ilike, inArray, isNotNull, isNull, lt, or } from "drizzle-orm";
 
 import { cloudDb } from "../../db/client";
 import { adminPlanGrants } from "../../db/schema";
@@ -574,6 +574,7 @@ export async function createPendingEmailGrant(input: {
   readonly plan: AdminGrantablePlanId;
   readonly admin: { readonly id: string; readonly primaryEmail?: string | null };
   readonly db?: AdminGrantsDb;
+  readonly grant?: (input: SetManualPlanGrantInput) => Promise<unknown>;
 }): Promise<AdminPendingGrantRow> {
   if (!isPlausibleEmail(input.email)) {
     throw new AdminInvalidEmailError(input.email);
@@ -582,9 +583,28 @@ export async function createPendingEmailGrant(input: {
   const email = canonicalizeEmailForMatching(input.email);
   // One open grant per email: a new grant supersedes any earlier open one, so
   // sign-in never has more than one row to apply and the newest plan wins.
-  // Supersede and insert commit together, and the partial unique index on
-  // open emails makes a concurrent second grant fail instead of leaving two
-  // open rows.
+  // A row that a sign-in claimed but never finalized may already have written
+  // metadata, so it is unwound through the revoke path (which clears exactly
+  // the grant it produced and stays retryable) instead of being revoked
+  // blindly. Unclaimed rows never wrote anything and are superseded in the
+  // same transaction as the insert; the partial unique index on open emails
+  // makes a concurrent second grant fail instead of leaving two open rows.
+  const claimedOpen = await db
+    .select({ id: adminPlanGrants.id })
+    .from(adminPlanGrants)
+    .where(
+      and(
+        eq(adminPlanGrants.email, email),
+        isNull(adminPlanGrants.appliedAt),
+        isNull(adminPlanGrants.revokedAt),
+        isNotNull(adminPlanGrants.appliedUserId),
+      ),
+    )
+    .orderBy(desc(adminPlanGrants.createdAt))
+    .limit(ADMIN_USER_SEARCH_LIMIT);
+  for (const claimedRow of claimedOpen) {
+    await revokePendingEmailGrant({ grantId: claimedRow.id, db, admin: input.admin, grant: input.grant });
+  }
   const row = await db.transaction(async (tx) => {
     await tx
       .update(adminPlanGrants)
@@ -594,6 +614,7 @@ export async function createPendingEmailGrant(input: {
           eq(adminPlanGrants.email, email),
           isNull(adminPlanGrants.appliedAt),
           isNull(adminPlanGrants.revokedAt),
+          isNull(adminPlanGrants.appliedUserId),
         ),
       );
     const [inserted] = await tx

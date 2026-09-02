@@ -500,6 +500,9 @@ function boundParams(node: unknown, out: unknown[] = []): unknown[] {
       if (Array.isArray(record.value)) out.push(...record.value);
       else out.push(record.value);
     }
+    if (record.constructor?.name === "StringChunk" && Array.isArray(record.value)) {
+      out.push(...record.value.map((text) => `sql:${String(text)}`));
+    }
     if (Array.isArray(record.queryChunks)) for (const chunk of record.queryChunks) boundParams(chunk, out);
   }
   return out;
@@ -510,10 +513,12 @@ function fakeGrantsDb(rows: GrantRow[]): AdminGrantsDb {
   const isOpen = (row: GrantRow) => !row.appliedAt && !row.revokedAt;
   const matches = (condition: unknown) => {
     const params = boundParams(condition).filter((value): value is string => typeof value === "string");
+    const requireClaimed = params.some((value) => value.startsWith("sql:") && value.includes("is not null"));
     const like = params.find((value) => value.startsWith("%") && value.endsWith("%"));
     const email = params.find((value) => value.includes("@") && !value.startsWith("%")) ?? null;
     const ids = new Set(params.filter((value) => /^g\d+$/.test(value)));
     return (row: GrantRow) =>
+      (!requireClaimed || row.appliedUserId !== null) &&
       (ids.size === 0 || ids.has(row.id)) &&
       (email === null || row.email === email) &&
       (like === undefined || row.email.includes(like.slice(1, -1).replace(/\\(.)/g, "$1"))) &&
@@ -777,6 +782,22 @@ describe("pending email grants", () => {
       stripeBillingStatus: async () => noStripe, onlyIfCurrent: { plan: "pro", byUserId: "admin-1" },
     });
     expect(mine.clientReadOnlyMetadata).toEqual({});
+  });
+
+  test("superseding a claimed row unwinds the claimer's grant instead of revoking blindly", async () => {
+    const rows: GrantRow[] = [];
+    const db = fakeGrantsDb(rows);
+    await createPendingEmailGrant({ email: "pat@example.com", plan: "pro", admin, db });
+    rows[0]!.appliedUserId = "u9";
+    rows[0]!.claimedAt = new Date();
+    const seen: SetManualPlanGrantInput[] = [];
+    const created = await createPendingEmailGrant({ email: "pat@example.com", plan: "founders", admin, db, grant: async (input) => { seen.push(input); } });
+    expect(seen).toEqual([
+      expect.objectContaining({ targetUserId: "u9", plan: null, onlyIfCurrent: { plan: "pro", byUserId: "admin-1" } }),
+    ]);
+    expect(rows[0]!.revokedAt).toBeInstanceOf(Date);
+    expect(created.plan).toBe("founders");
+    expect((await listPendingEmailGrants("pat", { db })).map((row) => row.plan)).toEqual(["founders"]);
   });
 
   test("revoke is retry-safe: a failed metadata clear reopens the row", async () => {
