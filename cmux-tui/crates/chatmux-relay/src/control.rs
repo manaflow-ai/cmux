@@ -13,7 +13,9 @@ const MAX_CONTROL_LINE_BYTES: usize = 1_048_576;
 const MAX_WRITER_QUEUE: usize = 256;
 const MAX_PENDING_REQUESTS: usize = 256;
 const MAX_EVENT_QUEUE: usize = 1_024;
-const MAX_EVENT_QUEUE_BYTES: usize = MAX_CONTROL_LINE_BYTES;
+// Keep the per-line parser cap separate from the total event budget. A short
+// burst of large events must not consume the entire queue after one frame.
+const MAX_EVENT_QUEUE_BYTES: usize = 4 * MAX_CONTROL_LINE_BYTES;
 
 pub type EventHandler = Box<dyn Fn(&Value) + Send + Sync>;
 pub type CloseHandler = Box<dyn Fn() + Send + Sync>;
@@ -46,7 +48,7 @@ mod unix {
     use super::*;
     use std::collections::HashMap;
     use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
-    use std::sync::{Arc, Condvar, Mutex};
+    use std::sync::{Arc, Mutex};
     use std::time::Duration;
 
     use tokio::io::{AsyncReadExt as _, AsyncWriteExt as _};
@@ -78,10 +80,7 @@ mod unix {
         dispatch_tx: std::sync::mpsc::SyncSender<Dispatch>,
         close_signal_tx: std::sync::mpsc::SyncSender<()>,
         queued_event_bytes: AtomicUsize,
-        pending_events: Mutex<usize>,
-        event_drain: Condvar,
         worker_done: AtomicBool,
-        worker_thread: Mutex<Option<std::thread::ThreadId>>,
     }
 
     enum Dispatch {
@@ -149,41 +148,8 @@ mod unix {
             }
         }
 
-        fn start_event(&self) -> bool {
-            let mut pending = self.pending_events.lock().expect("control event drain lock");
-            if self.closed.load(Ordering::Acquire) {
-                return false;
-            }
-            *pending += 1;
-            true
-        }
-
-        fn finish_event(&self) {
-            let mut pending = self.pending_events.lock().expect("control event drain lock");
-            *pending = pending.checked_sub(1).expect("control event pending count");
-            if *pending == 0 {
-                self.event_drain.notify_all();
-            }
-        }
-
-        fn wait_for_event_drain(&self) {
-            let mut pending = self.pending_events.lock().expect("control event drain lock");
-            while *pending != 0 && !self.worker_done.load(Ordering::Acquire) {
-                pending = self.event_drain.wait(pending).expect("control event drain wait");
-            }
-        }
-
-        fn on_worker_thread(&self) -> bool {
-            self.worker_thread
-                .lock()
-                .expect("control worker thread lock")
-                .is_some_and(|worker| worker == std::thread::current().id())
-        }
-
         fn finish_worker(&self) {
-            let _pending = self.pending_events.lock().expect("control event drain lock");
             self.worker_done.store(true, Ordering::Release);
-            self.event_drain.notify_all();
         }
     }
 
@@ -235,21 +201,15 @@ mod unix {
             dispatch_tx,
             close_signal_tx,
             queued_event_bytes: AtomicUsize::new(0),
-            pending_events: Mutex::new(0),
-            event_drain: Condvar::new(),
             worker_done: AtomicBool::new(false),
-            worker_thread: Mutex::new(None),
         });
         let worker_shared = Arc::clone(&shared);
         std::thread::Builder::new()
             .name("chatmux-relay-control-events".to_owned())
             .spawn(move || {
                 let shared = worker_shared;
-                *shared.worker_thread.lock().expect("control worker thread lock") =
-                    Some(std::thread::current().id());
                 let deliver_event = |shared: &Arc<Shared>, event: Value, bytes: usize| {
                     if !shared.release_event_bytes(bytes) {
-                        shared.finish_event();
                         shared.settle_closed();
                         return false;
                     }
@@ -257,7 +217,6 @@ mod unix {
                     if let Some(handler) = handler {
                         handler(&event);
                     }
-                    shared.finish_event();
                     true
                 };
                 let invoke_close = |shared: &Arc<Shared>| {
@@ -284,6 +243,7 @@ mod unix {
                     match dispatch {
                         Dispatch::Event { value: event, bytes } => {
                             if !deliver_event(&shared, event, bytes) {
+                                invoke_close(&shared);
                                 break;
                             }
                         }
@@ -451,16 +411,11 @@ mod unix {
                         shared.settle_closed();
                         break 'read_loop;
                     }
-                    if !shared.start_event() {
-                        let _ = shared.release_event_bytes(bytes);
-                        break 'read_loop;
-                    }
                     if shared
                         .dispatch_tx
                         .try_send(Dispatch::Event { value: parsed, bytes })
                         .is_err()
                     {
-                        shared.finish_event();
                         let _ = shared.release_event_bytes(bytes);
                         shared.settle_closed();
                         break 'read_loop;
@@ -918,22 +873,29 @@ mod tests {
             .await
             .expect("connect late-order socket");
         accepted_rx.await.expect("wait for control late-order server");
-        let entered = Arc::new(std::sync::Barrier::new(2));
+        let (entered_tx, entered_rx) = oneshot::channel();
+        let entered_tx = Arc::new(Mutex::new(Some(entered_tx)));
         let release = Arc::new(std::sync::Barrier::new(2));
         let seen = Arc::new(Mutex::new(Vec::new()));
-        let entered_for_handler = Arc::clone(&entered);
+        let entered_for_handler = Arc::clone(&entered_tx);
         let release_for_handler = Arc::clone(&release);
         let seen_for_event = Arc::clone(&seen);
         control.on_event(Box::new(move |_| {
             seen_for_event.lock().expect("event order lock").push("event");
-            entered_for_handler.wait();
+            if let Some(entered_tx) = entered_for_handler.lock().expect("entry signal lock").take()
+            {
+                let _ = entered_tx.send(());
+            }
             release_for_handler.wait();
         }));
         let control_for_reader = Arc::clone(&control);
         let reader_done = tokio::spawn(async move { control_for_reader.wait_reader_done().await });
         tokio::task::yield_now().await;
         start_tx.send(()).expect("start late-order event");
-        entered.wait();
+        tokio::time::timeout(Duration::from_secs(1), entered_rx)
+            .await
+            .expect("event callback entered")
+            .expect("entry signal");
         tokio::time::timeout(Duration::from_secs(1), reader_done)
             .await
             .expect("reader sees peer close")

@@ -64,6 +64,7 @@ const MAX_PTY_INGRESS_FRAMES: usize = 64;
 const MAX_INBOUND_FRAME_BYTES: usize = 4 << 20;
 const CONNECTION_TASK_SHUTDOWN_TIMEOUT: Duration = Duration::from_secs(2);
 const CONNECTION_TASK_ABORT_TIMEOUT: Duration = Duration::from_secs(1);
+const PTY_DETACH_TIMEOUT: Duration = Duration::from_secs(2);
 /// One suspend/read-liveness sample per period while a socket is open.
 const LIVENESS_CHECK_INTERVAL: Duration = Duration::from_secs(5);
 /// Wall clock moving more than this relative to the monotonic clock between
@@ -1289,7 +1290,12 @@ async fn relay_session(
     // managed tunnel listener's attachments are another transport's — a
     // reconnect must never detach them (docs/TERMINAL.md).
     #[cfg(unix)]
-    runtime.pty.detach_transport_async(&transport_id).await;
+    if timeout(PTY_DETACH_TIMEOUT, runtime.pty.detach_transport_async(&transport_id)).await.is_err()
+    {
+        eprintln!(
+            "PTY transport cleanup exceeded its safety deadline; some attachments may remain."
+        );
+    }
     result
 }
 
