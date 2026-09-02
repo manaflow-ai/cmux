@@ -856,6 +856,18 @@ def test_agent_session_web_resources_runs_only_for_agent_session_web_area() -> N
     assert "if: ${{ needs.changes.outputs.agent_session_web == 'true' }}" in block
 
 
+def test_legacy_ci_status_context_is_preserved_during_gate_migration() -> None:
+    advisory = workflow_job_block("ci-status-advisory")
+    compatibility = workflow_job_block("ci-status")
+
+    assert "ci-status-validator-canary" not in advisory
+    assert "if: ${{ always() }}" in compatibility
+    assert "needs: ci-status-advisory" in compatibility
+    assert "timeout-minutes: 5" in compatibility
+    assert "ADVISORY_RESULT" in compatibility
+    assert "exit 1" in compatibility
+
+
 def test_perf_activation_workflow_keeps_required_status_while_gating_benchmark() -> None:
     result, outputs = run_detect_step_for_paths(["docs/ci-runners.md"], PERF_ACTIVATION_WORKFLOW)
 

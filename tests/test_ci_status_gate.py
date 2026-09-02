@@ -20,6 +20,7 @@ spec.loader.exec_module(module)
 
 
 HEAD_SHA = "a" * 40
+BASE_SHA = "c" * 40
 
 
 def check(
@@ -82,7 +83,12 @@ class FakeAPI:
                 "number": 1,
                 "state": "open",
                 "changed_files": 1,
-                "base": {"ref": "main", "repo": {"full_name": self.repository}},
+                "user": {"login": "contributor"},
+                "base": {
+                    "ref": "main",
+                    "sha": BASE_SHA,
+                    "repo": {"full_name": self.repository},
+                },
                 "head": {"sha": HEAD_SHA},
             }
         if "/actions/runs?event=" in endpoint:
@@ -112,6 +118,10 @@ class FakeAPI:
             return [{"jobs": jobs}]
         if "/commits/" in endpoint and "/check-runs" in endpoint:
             return [{"check_runs": self.checks}]
+        if "/contents/.github/workflows/ci.yml?ref=" in endpoint:
+            return {"sha": BASE_SHA}
+        if endpoint.endswith("/pulls/1/reviews?per_page=100"):
+            return []
         if endpoint.endswith("/pulls/1/files?per_page=100"):
             return [{"files": [{"filename": "README.md"}]}]
         raise AssertionError(f"unexpected API endpoint: {endpoint}")
@@ -224,6 +234,35 @@ def test_gate_queries_exact_head_and_ci_run_jobs() -> None:
         for request in api.requests
     )
     assert "CI status gate passed." in stdout.getvalue()
+
+
+def test_workflow_definition_mismatch_requires_trusted_review() -> None:
+    class WorkflowAPI(FakeAPI):
+        def __init__(self, *, approved: bool) -> None:
+            super().__init__(complete_checks())
+            self.approved = approved
+
+        def get(self, endpoint: str, *, paginate: bool = False) -> object:
+            if "/contents/.github/workflows/ci.yml?ref=" in endpoint:
+                return {"sha": BASE_SHA if f"ref={BASE_SHA}" in endpoint else "d" * 40}
+            if endpoint.endswith("/pulls/1/reviews?per_page=100"):
+                return (
+                    [{"user": {"login": "austinywang"}, "state": "APPROVED", "commit_id": HEAD_SHA}]
+                    if self.approved
+                    else []
+                )
+            return super().get(endpoint, paginate=paginate)
+
+    unapproved = WorkflowAPI(approved=False)
+    pull = {"number": 1, "user": {"login": "contributor"}, "base": {"sha": BASE_SHA}}
+    try:
+        module.verify_ci_workflow_revision(unapproved, pull, HEAD_SHA)
+    except module.GateError as error:
+        assert "workflow definition" in str(error)
+    else:
+        raise AssertionError("unreviewed workflow change was accepted")
+
+    module.verify_ci_workflow_revision(WorkflowAPI(approved=True), pull, HEAD_SHA)
 
 
 if __name__ == "__main__":
