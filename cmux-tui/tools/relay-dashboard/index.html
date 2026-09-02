@@ -1,0 +1,271 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>cmux relay dashboard</title>
+<style>
+  :root {
+    --bg: #0f1115; --panel: #161a22; --line: #262c38; --fg: #d7dbe3; --dim: #8791a3;
+    --ok: #3ddc84; --warn: #ffbd2e; --bad: #ff5f56; --accent: #6ea8fe;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { height: 100%; background: var(--bg); color: var(--fg);
+    font: 13px/1.4 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
+  body { display: grid; grid-template-columns: 300px 1fr; grid-template-rows: 100%; }
+  aside { background: var(--panel); border-right: 1px solid var(--line); display: flex; flex-direction: column; min-height: 0; }
+  aside h1 { font-size: 13px; font-weight: 600; letter-spacing: .3px; padding: 12px 14px; border-bottom: 1px solid var(--line); display: flex; align-items: center; gap: 8px; }
+  aside h1 span { color: var(--dim); font-weight: 400; margin-left: auto; }
+  .section { padding: 10px 14px 4px; color: var(--dim); font-size: 11px; text-transform: uppercase; letter-spacing: .6px; }
+  .list { overflow: auto; }
+  .machine { padding: 10px 14px; border-bottom: 1px solid var(--line); cursor: pointer; }
+  .machine:hover { background: #1c2230; }
+  .machine .name { font-weight: 600; display: flex; align-items: center; gap: 8px; }
+  .machine .meta { color: var(--dim); font-size: 11.5px; margin-top: 3px; word-break: break-all; }
+  .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--dim); flex: none; }
+  .dot.ok { background: var(--ok); } .dot.bad { background: var(--bad); } .dot.warn { background: var(--warn); animation: pulse 1s infinite; }
+  @keyframes pulse { 50% { opacity: .4; } }
+  .shards { padding: 6px 14px 12px; display: flex; flex-direction: column; gap: 6px; }
+  .shard { display: flex; align-items: center; gap: 8px; font-size: 12px; }
+  .shard code { color: var(--dim); font-size: 11px; flex: 1; }
+  button { background: #222938; color: var(--fg); border: 1px solid var(--line); border-radius: 5px; padding: 3px 8px; font-size: 11.5px; cursor: pointer; }
+  button:hover { border-color: var(--accent); }
+  button:disabled { opacity: .4; cursor: default; }
+  main { display: flex; flex-direction: column; min-width: 0; min-height: 0; }
+  .tabs { display: flex; align-items: stretch; background: var(--panel); border-bottom: 1px solid var(--line); overflow-x: auto; }
+  .tab { padding: 8px 14px; border-right: 1px solid var(--line); cursor: pointer; display: flex; align-items: center; gap: 8px; white-space: nowrap; color: var(--dim); }
+  .tab.active { color: var(--fg); background: var(--bg); }
+  .tab .x { color: var(--dim); padding: 0 2px; } .tab .x:hover { color: var(--bad); }
+  .empty { flex: 1; display: grid; place-items: center; color: var(--dim); text-align: center; line-height: 1.7; }
+  .term { flex: 1; min-height: 0; padding: 8px; display: none; }
+  .term.active { display: block; }
+  .term canvas { display: block; }
+  .status { border-top: 1px solid var(--line); background: var(--panel); padding: 6px 14px; display: flex; gap: 18px; font-size: 11.5px; color: var(--dim); font-family: ui-monospace, Menlo, monospace; }
+  .status b { color: var(--fg); font-weight: 500; }
+  .log { max-height: 120px; overflow: auto; border-top: 1px solid var(--line); padding: 6px 14px; font: 11px ui-monospace, Menlo, monospace; color: var(--dim); }
+  .log .t { color: #5b6478; }
+  kbd { background: #222938; border: 1px solid var(--line); border-radius: 3px; padding: 0 4px; font-size: 11px; }
+</style>
+</head>
+<body>
+<aside>
+  <h1>cmux relay dashboard <span id="renderer">atlas</span></h1>
+  <div class="section">relay shards</div>
+  <div class="shards" id="shards"></div>
+  <div class="section">machines</div>
+  <div class="list" id="machines"></div>
+</aside>
+<main>
+  <div class="tabs" id="tabs"></div>
+  <div class="empty" id="empty">
+    Pick a machine on the left to open a PTY through the relay.<br />
+    Drain a shard while typing: the session must keep working through the other shard.
+  </div>
+  <div class="status" id="status"><span>no session</span></div>
+  <div class="log" id="log"></div>
+</main>
+<script type="module">
+  import { init, Terminal, FitAddon } from '/dist/ghostty-web.js';
+
+  const params = new URLSearchParams(location.search);
+  const rendererKind = params.get('renderer') === 'canvas' ? 'canvas' : 'atlas';
+  document.getElementById('renderer').textContent = rendererKind;
+
+  await init();
+  let atlas = null;
+  if (rendererKind === 'atlas') {
+    try { atlas = await Terminal.loadAtlas('/atlas/menlo-12-dpr2-v2'); }
+    catch (error) { log('atlas bundle failed to load, falling back to canvas: ' + error.message); }
+  }
+
+  const $ = (id) => document.getElementById(id);
+  const sessions = new Map(); // id -> { term, fit, ws, el, tab, machine }
+  let active = null;
+
+  function log(text) {
+    const line = document.createElement('div');
+    line.innerHTML = `<span class="t">${new Date().toLocaleTimeString()}</span> ${escapeHtml(text)}`;
+    $('log').prepend(line);
+  }
+  function escapeHtml(s) { return String(s).replace(/[&<>]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c])); }
+
+  // ---------- sidebar --------------------------------------------------------
+
+  async function refreshSidebar() {
+    let data;
+    try { data = await (await fetch('/api/machines', { cache: 'no-store' })).json(); }
+    catch (error) { log('machine list failed: ' + error.message); return; }
+    renderShards(data.shards || []);
+    renderMachines(data.machines || []);
+  }
+
+  function renderShards(shards) {
+    const box = $('shards');
+    box.replaceChildren(...shards.map((s) => {
+      const row = document.createElement('div'); row.className = 'shard';
+      const dot = document.createElement('span'); dot.className = 'dot ' + (s.ready === 200 ? 'ok' : s.ready === 503 ? 'warn' : 'bad');
+      const name = document.createElement('span'); name.textContent = s.id;
+      const route = document.createElement('code'); route.textContent = s.route;
+      row.append(dot, name, route);
+      if (s.controllable) {
+        const btn = document.createElement('button');
+        btn.textContent = s.ready === 200 ? 'drain' : 'start';
+        btn.onclick = async () => {
+          btn.disabled = true;
+          const verb = s.ready === 200 ? 'drain' : 'start';
+          log(`${verb} shard ${s.id}`);
+          await fetch(`/api/shards/${encodeURIComponent(s.id)}/${verb}`, { method: 'POST' });
+          await refreshSidebar();
+        };
+        row.append(btn);
+      }
+      return row;
+    }));
+  }
+
+  function renderMachines(machines) {
+    const box = $('machines');
+    box.replaceChildren(...machines.map((m) => {
+      const row = document.createElement('div'); row.className = 'machine';
+      const name = document.createElement('div'); name.className = 'name';
+      const dot = document.createElement('span'); dot.className = 'dot ' + (m.status === 'online' ? 'ok' : m.status === 'unknown' ? 'warn' : 'bad');
+      name.append(dot, document.createTextNode(m.name));
+      const meta = document.createElement('div'); meta.className = 'meta';
+      meta.textContent = `${m.source} · ${m.routes.join('  ')}`;
+      row.append(name, meta);
+      row.onclick = () => openSession(m);
+      return row;
+    }));
+    if (!machines.length) {
+      const none = document.createElement('div'); none.className = 'machine'; none.textContent = 'no machines registered';
+      box.append(none);
+    }
+  }
+
+  // ---------- sessions -------------------------------------------------------
+
+  async function openSession(machine) {
+    const id = `${machine.id}#${Date.now().toString(36)}`;
+    const el = document.createElement('div'); el.className = 'term'; el.id = 'term-' + id;
+    $('empty').after(el);
+
+    const term = new Terminal({
+      cols: 100, rows: 30, scrollback: 10000, cursorBlink: true,
+      fontFamily: 'JetBrains Mono, Menlo, monospace', fontSize: 13,
+      theme: { background: '#0f1115', foreground: '#d7dbe3' },
+      ...(atlas ? { renderer: 'atlas', atlas } : {}),
+    });
+    const fit = new FitAddon();
+    term.loadAddon(fit);
+
+    const tab = document.createElement('div'); tab.className = 'tab';
+    const label = document.createElement('span'); label.textContent = machine.name;
+    const x = document.createElement('span'); x.className = 'x'; x.textContent = '✕';
+    x.onclick = (event) => { event.stopPropagation(); closeSession(id); };
+    tab.append(label, x);
+    tab.onclick = () => activate(id);
+    $('tabs').append(tab);
+
+    const session = { term, fit, ws: null, el, tab, machine, snapshot: null };
+    sessions.set(id, session);
+    activate(id);
+
+    term.open(el);
+    if (term.atlasReady) await term.atlasReady;
+    fit.fit();
+    fit.observeResize();
+    term.focus();
+
+    connect(id);
+    term.onData((data) => { if (session.ws?.readyState === WebSocket.OPEN) session.ws.send(data); });
+    term.onResize(({ cols, rows }) => {
+      if (session.ws?.readyState === WebSocket.OPEN) session.ws.send(JSON.stringify({ type: 'resize', cols, rows }));
+    });
+  }
+
+  function connect(id) {
+    const session = sessions.get(id);
+    if (!session) return;
+    const { term, machine } = session;
+    const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
+    const q = new URLSearchParams({ machine: machine.id, cols: String(term.cols), rows: String(term.rows) });
+    const ws = new WebSocket(`${proto}//${location.host}/ws?${q}`);
+    ws.binaryType = 'arraybuffer';
+    session.ws = ws;
+    setDot(session, 'warn');
+    ws.onopen = () => { log(`${machine.name}: connecting through the relay`); };
+    ws.onmessage = (event) => {
+      if (typeof event.data === 'string') {
+        try {
+          const msg = JSON.parse(event.data);
+          if (msg.type === 'snapshot') { session.snapshot = msg; setDot(session, msg.state === 'connected' ? 'ok' : 'warn'); renderStatus(); return; }
+          if (msg.type === 'notice') { log(`${machine.name}: ${msg.text}`); return; }
+        } catch { /* plain text output */ }
+        term.write(event.data);
+      } else {
+        term.write(new Uint8Array(event.data));
+      }
+    };
+    ws.onclose = (event) => {
+      setDot(session, 'bad');
+      log(`${machine.name}: bridge closed (${event.code}${event.reason ? ' ' + event.reason : ''})`);
+      term.write('\r\n\x1b[31m[bridge closed]\x1b[0m\r\n');
+    };
+    ws.onerror = () => setDot(session, 'bad');
+  }
+
+  function setDot(session, state) { session.dotState = state; renderStatus(); }
+
+  function activate(id) {
+    active = id;
+    for (const [sid, s] of sessions) {
+      s.el.classList.toggle('active', sid === id);
+      s.tab.classList.toggle('active', sid === id);
+    }
+    $('empty').style.display = sessions.size ? 'none' : 'grid';
+    const s = sessions.get(id);
+    if (s) { s.fit.fit(); s.term.focus(); }
+    renderStatus();
+  }
+
+  function closeSession(id) {
+    const s = sessions.get(id);
+    if (!s) return;
+    s.ws?.close();
+    s.fit.dispose(); s.term.dispose();
+    s.el.remove(); s.tab.remove();
+    sessions.delete(id);
+    if (active === id) activate(sessions.keys().next().value ?? null);
+  }
+
+  function renderStatus() {
+    const s = sessions.get(active);
+    const box = $('status');
+    if (!s) { box.innerHTML = '<span>no session</span>'; return; }
+    const snap = s.snapshot;
+    const parts = [
+      `<span>machine <b>${escapeHtml(s.machine.name)}</b></span>`,
+      `<span>bridge <b>${escapeHtml(s.dotState ?? 'idle')}</b></span>`,
+    ];
+    if (snap) {
+      parts.push(`<span>state <b>${escapeHtml(snap.state)}</b></span>`,
+        `<span>generation <b>${snap.generation}</b></span>`,
+        `<span>route <b>${escapeHtml(snap.route)}</b></span>`,
+        `<span>links <b>${snap.links}</b></span>`);
+    }
+    box.innerHTML = parts.join('');
+  }
+
+  await refreshSidebar();
+  setInterval(refreshSidebar, 3000);
+  // ?open=<machine id> deep-links straight into a PTY on that machine.
+  const openId = params.get('open');
+  if (openId) {
+    const data = await (await fetch('/api/machines', { cache: 'no-store' })).json();
+    const target = (data.machines || []).find((m) => m.id === openId);
+    if (target) openSession(target); else log(`no machine with id ${openId}`);
+  }
+  window.addEventListener('resize', () => { const s = sessions.get(active); if (s) s.fit.fit(); });
+</script>
+</body>
+</html>

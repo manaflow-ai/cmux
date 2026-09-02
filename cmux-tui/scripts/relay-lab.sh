@@ -5,6 +5,7 @@
 #
 #   scripts/relay-lab.sh up            build if needed, start, enroll, check
 #   scripts/relay-lab.sh check         rerun the matrix against a running lab
+#   scripts/relay-lab.sh dashboard     browser dashboard: machines, PTYs (ghostty-web), shard drain buttons
 #   scripts/relay-lab.sh attach        interactive TUI over shard a, fallback b
 #   scripts/relay-lab.sh watch         live JSON: route, generation, state
 #   scripts/relay-lab.sh forward PORT  loopback URL for a local server through the relay
@@ -437,6 +438,7 @@ cmd_cheatsheet() {
   daemon    session $SESSION, admin $LAB/admin.sock
   fixture   http://127.0.0.1:$HTTP_PORT (the "server on port 3000" stand-in)
 
+  $0 dashboard         browser UI at http://127.0.0.1:8790 (ghostty-web PTYs, drain buttons)
   $0 attach            interactive TUI through shard a; type fast, then in another terminal:
   $0 drain a           the TUI keeps working through shard b (watch it with: $0 watch)
   $0 start a           bring shard a back
@@ -447,6 +449,13 @@ EOF
 }
 
 cmd_check() { load_env; ensure_binaries; start_http; run_checks; }
+
+cmd_dashboard() {
+  load_env
+  command -v bun >/dev/null || fail "bun is required for the dashboard (https://bun.sh)"
+  info "dashboard: pick the machine, type, then press drain on the shard shown in the status bar"
+  CMUX_RELAY_LAB_DIR="$LAB" CMUX_TUI_BIN="$TUI" exec bun "$tui_root/tools/relay-dashboard/server.ts"
+}
 
 cmd_attach() {
   load_env
@@ -535,6 +544,7 @@ cmd_down() {
 case "${1:-}" in
   up) cmd_up ;;
   check) cmd_check ;;
+  dashboard) cmd_dashboard ;;
   attach) cmd_attach "${2:-a}" ;;
   watch) cmd_watch "${2:-a}" ;;
   forward) shift; cmd_forward "$@" ;;
