@@ -33,7 +33,8 @@ use tokio_tungstenite::tungstenite::{Error as TungsteniteError, Message};
 use tokio_util::sync::CancellationToken;
 
 use crate::actions::{
-    ActionContext, MAX_BLOCKING_FILE_ACTIONS, perform_action, process_env_snapshot, scrubbed_env,
+    ActionContext, MAX_BLOCKING_FILE_ACTIONS, ProcessSupervisor, perform_action,
+    process_env_snapshot, scrubbed_env,
 };
 use crate::config::{Config, save_config};
 use crate::error::RelayError;
@@ -325,6 +326,7 @@ pub struct SessionRuntime {
     home: PathBuf,
     base_env: HashMap<String, String>,
     file_action_slots: Arc<Semaphore>,
+    pub(crate) process_supervisor: Arc<ProcessSupervisor>,
     pub(crate) workspace: Arc<crate::workspace::SharedRuntime>,
     #[cfg(unix)]
     pty: Arc<PtyManager>,
@@ -347,6 +349,7 @@ impl SessionRuntime {
             home,
             base_env,
             file_action_slots: Arc::new(Semaphore::new(MAX_BLOCKING_FILE_ACTIONS)),
+            process_supervisor: Arc::new(ProcessSupervisor::new()),
             workspace: Arc::new(crate::workspace::SharedRuntime::new(local_roots)),
             #[cfg(unix)]
             pty,
@@ -474,9 +477,9 @@ pub async fn stay_online(
         }
     }
     let mut attempt: u32 = 0;
-    loop {
+    let result = loop {
         if cancellation.is_cancelled() {
-            return Ok(());
+            break Ok(());
         }
         match relay_session(&mut config, config_path, &mut state, &runtime, &cancellation).await {
             Ok(was_connected) => {
@@ -485,7 +488,7 @@ pub async fn stay_online(
                 }
             }
             Err(RelayError::Fatal { message, exit_code }) => {
-                return Err(RelayError::Fatal { message, exit_code });
+                break Err(RelayError::Fatal { message, exit_code });
             }
             Err(RelayError::WakeRedial { message }) => {
                 // The socket died silently (host suspend, or a peer that
@@ -501,15 +504,17 @@ pub async fn stay_online(
             }
         }
         if cancellation.is_cancelled() {
-            return Ok(());
+            break Ok(());
         }
         let ceiling = 500_u64.saturating_mul(1_u64 << attempt.min(10)).min(30_000);
         attempt = attempt.saturating_add(1);
         let delay = (ceiling as f64 * jitter()).round().max(0.0) as u64;
         if !wait_for_reconnect(&cancellation, Duration::from_millis(delay)).await {
-            return Ok(());
+            break Ok(());
         }
-    }
+    };
+    runtime.process_supervisor.shutdown().await;
+    result
 }
 
 fn save(config: &Config, config_path: &Path) {
@@ -1045,6 +1050,7 @@ async fn relay_session(
                             home: runtime.home.clone(),
                             env: scrubbed_env(&runtime.base_env),
                             file_slots: Arc::clone(&runtime.file_action_slots),
+                            process_supervisor: Arc::clone(&runtime.process_supervisor),
                             #[cfg(test)]
                             test_file_operation_barrier: None,
                         };
