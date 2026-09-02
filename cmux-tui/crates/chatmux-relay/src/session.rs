@@ -16,6 +16,7 @@
 //! the server-directed backpressure the JS relay read from `ws.bufferedAmount`.
 
 use std::collections::{HashMap, HashSet, VecDeque};
+use std::future::Future;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
@@ -1290,13 +1291,40 @@ async fn relay_session(
     // managed tunnel listener's attachments are another transport's — a
     // reconnect must never detach them (docs/TERMINAL.md).
     #[cfg(unix)]
-    if timeout(PTY_DETACH_TIMEOUT, runtime.pty.detach_transport_async(&transport_id)).await.is_err()
     {
-        eprintln!(
-            "PTY transport cleanup exceeded its safety deadline; some attachments may remain."
-        );
+        let manager = Arc::clone(&runtime.pty);
+        let transport = transport_id.clone();
+        if !run_owned_cleanup(
+            async move { manager.detach_transport_async(&transport).await },
+            PTY_DETACH_TIMEOUT,
+        )
+        .await
+        {
+            eprintln!(
+                "PTY transport cleanup exceeded its safety deadline; cleanup continues in the background."
+            );
+        }
     }
     result
+}
+
+/// Run teardown in an owned task. A timeout only limits how long connection
+/// shutdown waits. Dropping a Tokio JoinHandle does not cancel its task, so a
+/// publication gate or control operation that finishes later can still
+/// release its attachment and capacity slot.
+async fn run_owned_cleanup<F>(cleanup: F, deadline: Duration) -> bool
+where
+    F: Future<Output = ()> + Send + 'static,
+{
+    let task = tokio::spawn(cleanup);
+    match timeout(deadline, task).await {
+        Ok(Ok(())) => true,
+        Ok(Err(error)) => {
+            eprintln!("Owned PTY cleanup task failed: {error}");
+            false
+        }
+        Err(_) => false,
+    }
 }
 
 #[cfg(all(test, not(unix)))]
@@ -1385,7 +1413,9 @@ mod liveness_tests {
 
 #[cfg(test)]
 mod cancellation_tests {
-    use super::{send_socket_text, shutdown_connection_tasks, wait_for_reconnect};
+    use super::{
+        run_owned_cleanup, send_socket_text, shutdown_connection_tasks, wait_for_reconnect,
+    };
     use futures_util::Sink;
     use std::pin::Pin;
     use std::sync::Arc;
@@ -1502,6 +1532,24 @@ mod cancellation_tests {
         process_cancellation.cancel();
         assert!(send.await.expect("send task joined").is_err());
         assert!(!connection_cancellation.is_cancelled());
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn timed_out_cleanup_continues_and_completes_late() {
+        let completed = Arc::new(AtomicBool::new(false));
+        let task_completed = Arc::clone(&completed);
+        assert!(
+            !run_owned_cleanup(
+                async move {
+                    tokio::time::sleep(Duration::from_millis(20)).await;
+                    task_completed.store(true, Ordering::Release);
+                },
+                Duration::from_millis(1),
+            )
+            .await
+        );
+        tokio::time::sleep(Duration::from_millis(40)).await;
+        assert!(completed.load(Ordering::Acquire));
     }
 }
 
