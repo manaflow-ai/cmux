@@ -361,14 +361,21 @@ else
 fi
 
 hosted_artifact_dirs=()
+hosted_artifact_order=()
 while IFS= read -r -d '' candidate_dir; do
   candidate_commit="${candidate_dir##*/}"
   [[ "$candidate_commit" =~ ^[0-9a-f]{40}$ ]] || continue
-  hosted_artifact_dirs+=("$candidate_dir")
+  if stat -f '%m' "$candidate_dir" >/dev/null 2>&1; then
+    candidate_mtime="$(stat -f '%m' "$candidate_dir")"
+  else
+    candidate_mtime="$(stat -c '%Y' "$candidate_dir")"
+  fi
+  hosted_artifact_order+=("$candidate_mtime	$candidate_commit	$candidate_dir")
 done < <(find cmux-tui/target/hosted -mindepth 1 -maxdepth 1 -type d -user "$(id -u)" -print0)
-if ((${#hosted_artifact_dirs[@]} > 1)); then
-  IFS=$'\n' hosted_artifact_dirs=($(printf '%s\n' "${hosted_artifact_dirs[@]}" | sort -r))
-  unset IFS
+if ((${#hosted_artifact_order[@]} > 0)); then
+  while IFS=$'\t' read -r _ candidate_commit candidate_dir; do
+    hosted_artifact_dirs+=("$candidate_dir")
+  done < <(printf '%s\n' "${hosted_artifact_order[@]}" | sort -t $'\t' -k1,1nr -k2,2r)
 fi
 retained=0
 for candidate_dir in "${hosted_artifact_dirs[@]}"; do
