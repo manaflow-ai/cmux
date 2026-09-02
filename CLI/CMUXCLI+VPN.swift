@@ -1,3 +1,4 @@
+import Darwin
 import Foundation
 
 /// `cmux vpn` — the WireGuard tunnel between this Mac and the user's private
@@ -79,7 +80,7 @@ extension CMUXCLI {
             }
             print(String(localized: "cli.vpn.bringingUp", defaultValue: "Bringing the tunnel up (sudo will prompt for your password)…"))
         }
-        let status = Self.runInteractiveProcess(
+        let status = runInteractiveProcess(
             executablePath: "/usr/bin/sudo",
             arguments: [wgQuick, "up", configPath]
         )
@@ -117,7 +118,7 @@ extension CMUXCLI {
         guard let wgQuick = Self.firstExecutable(Self.wgQuickCandidates) else {
             throw CLIError(message: "wg-quick is not installed. Install with: brew install wireguard-tools")
         }
-        let status = Self.runInteractiveProcess(
+        let status = runInteractiveProcess(
             executablePath: "/usr/bin/sudo",
             arguments: [wgQuick, "down", configPath]
         )
@@ -168,7 +169,7 @@ extension CMUXCLI {
         if (status?["interface_up"] as? Bool) == true,
            let configPath = status?["config_path"] as? String,
            let wgQuick = Self.firstExecutable(Self.wgQuickCandidates) {
-            _ = Self.runInteractiveProcess(
+            _ = runInteractiveProcess(
                 executablePath: "/usr/bin/sudo",
                 arguments: [wgQuick, "down", configPath]
             )
@@ -199,18 +200,41 @@ extension CMUXCLI {
 
     /// Run a subprocess on the caller's own tty (sudo needs it for its
     /// password prompt; wg-quick's output is the user's feedback).
-    static func runInteractiveProcess(executablePath: String, arguments: [String]) -> Int32 {
+    ///
+    /// Foundation's `Process` puts the child in its own process group, so a
+    /// child that reads the tty (sudo's password prompt) is stopped with
+    /// SIGTTIN and the command looks hung. Foreground the child's group for
+    /// its lifetime and restore ours after — the same dance the feed TUI does.
+    func runInteractiveProcess(executablePath: String, arguments: [String]) -> Int32 {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: executablePath)
         process.arguments = arguments
         process.standardInput = FileHandle.standardInput
         process.standardOutput = FileHandle.standardOutput
         process.standardError = FileHandle.standardError
+        let originalForegroundProcessGroup = tcgetpgrp(STDIN_FILENO)
+        var didForegroundChild = false
         do {
             try process.run()
         } catch {
             FileHandle.standardError.write(Data("could not run \(executablePath): \(error.localizedDescription)\n".utf8))
             return 1
+        }
+        if originalForegroundProcessGroup > 0 {
+            let childProcessGroup = getpgid(process.processIdentifier)
+            if childProcessGroup > 0 && childProcessGroup != originalForegroundProcessGroup {
+                if (try? setTerminalForegroundProcessGroup(childProcessGroup)) != nil {
+                    // The child may already have stopped on SIGTTIN before we
+                    // foregrounded it; wake it so the prompt appears.
+                    _ = Darwin.kill(-childProcessGroup, SIGCONT)
+                    didForegroundChild = true
+                }
+            }
+        }
+        defer {
+            if didForegroundChild {
+                try? setTerminalForegroundProcessGroup(originalForegroundProcessGroup)
+            }
         }
         process.waitUntilExit()
         return process.terminationStatus
