@@ -4700,6 +4700,21 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn creator_detach_then_last_viewer_cleans_created_shell() {
+        let h = harness(None, None);
+        h.open("p1", "main", Value::Null, "supervised", h.owner.clone()).await;
+        let pty = h.spawned()[0].clone();
+        h.open("p2", "main", Value::Null, "supervised", h.owner.clone()).await;
+
+        h.frame(serde_json::json!({ "type": "pty_close", "ptyId": "p1" })).await;
+        assert_eq!(h.manager.inner.shell_sessions.lock().unwrap().len(), 1);
+        h.frame(serde_json::json!({ "type": "pty_close", "ptyId": "p2" })).await;
+
+        assert!(h.manager.inner.shell_sessions.lock().unwrap().is_empty());
+        assert!(pty.state.lock().unwrap().killed);
+    }
+
+    #[tokio::test]
     async fn zero_byte_chunks_never_become_output_frames() {
         let h = harness(None, None);
         h.open("p1", "main", Value::Null, "supervised", h.owner.clone()).await;
