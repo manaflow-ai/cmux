@@ -161,7 +161,9 @@ export async function GET(request: Request): Promise<Response> {
           ),
           // Kinds a client may request (and the image each resolves to) for the
           // default provider, so a "new machine" dialog offers only kinds that work.
-          imageKinds: listVmImageKinds(defaultProviderId()),
+          imageKinds: listVmImageKinds(defaultProviderId(), process.env, {
+            memoryMb: defaultMemoryMbForPlan(listEntitlements.planId, process.env),
+          }),
         }
         : undefined;
       return jsonResponse({ vms, limits });
@@ -396,7 +398,9 @@ export async function POST(request: Request): Promise<Response> {
         let imageSelection;
         try {
           assertVmCreateEnabled(provider);
-          imageSelection = resolveVmImage(provider, body.image, process.env, { kind: body.kind });
+          // The plan's memory picks the snapshot size (one snapshot per size on
+          // Freestyle), so the machine boots at its shape with nothing to resize.
+          imageSelection = resolveVmImage(provider, body.image, process.env, { kind: body.kind, memoryMb });
         } catch (err) {
           if (isVmCreateDisabledError(err)) {
             return vmErrorResponse({
@@ -523,6 +527,7 @@ export async function POST(request: Request): Promise<Response> {
           image: created.image,
           imageVersion: created.imageVersion,
           kind: imageSelection.kind,
+          ...(imageSelection.size ? { size: imageSelection.size } : {}),
           createdAt: created.createdAt,
         });
       }
