@@ -11,7 +11,7 @@ struct CloudTuiLegacySnapshotParser: Sendable {
     /// Finds a numeric surface in the result of the private
     /// `resolve-terminal` command. A null surface means the terminal has no
     /// current placement and callers should fall back to the legacy tree.
-    static func resolvedSurfaceID(from data: Data) -> UInt64? {
+    func resolvedSurfaceID(from data: Data) -> UInt64? {
         guard let root = try? JSONSerialization.jsonObject(with: data),
               let object = root as? [String: Any] else {
             return nil
@@ -20,7 +20,7 @@ struct CloudTuiLegacySnapshotParser: Sendable {
     }
 
     /// Finds the numeric surface backing `terminalID` in a legacy tree payload.
-    static func surfaceID(from data: Data, terminalID: String) -> UInt64? {
+    func surfaceID(from data: Data, terminalID: String) -> UInt64? {
         guard let root = try? JSONSerialization.jsonObject(with: data),
               let object = (root as? [String: Any])?["data"] as? [String: Any]
                   ?? root as? [String: Any] else {
@@ -30,7 +30,7 @@ struct CloudTuiLegacySnapshotParser: Sendable {
     }
 
     /// Finds the numeric surface backing `terminalID` in an already-decoded tree.
-    static func surfaceID(from object: [String: Any], terminalID: String) -> UInt64? {
+    func surfaceID(from object: [String: Any], terminalID: String) -> UInt64? {
         let workspaces = object["workspaces"] as? [[String: Any]] ?? []
         for workspace in workspaces {
             let screens = workspace["screens"] as? [[String: Any]] ?? []
@@ -52,7 +52,7 @@ struct CloudTuiLegacySnapshotParser: Sendable {
         return nil
     }
 
-    private static func number(from value: Any?) -> UInt64? {
+    private func number(from value: Any?) -> UInt64? {
         if let number = value as? NSNumber {
             guard number.int64Value > 0 else { return nil }
             return number.uint64Value

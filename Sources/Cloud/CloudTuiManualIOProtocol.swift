@@ -111,22 +111,31 @@ struct CloudTuiManualIOFrameDecoder: Sendable {
 ///
 /// These commands are transport operations only. They never ask cmux-tui to
 /// render a viewport; the host consumes the resulting raw PTY bytes.
-enum CloudTuiManualIOCommand {
+struct CloudTuiManualIOCommand: Sendable {
     /// cmux-tui's terminal geometry clamp (the protocol's uint16 values are
     /// additionally bounded to keep pathological panes from exhausting the
     /// remote PTY).
-    static let maximumGridDimension = 10_000
+    let maximumGridDimension: Int
+
+    /// Creates a command builder with the daemon's documented grid bound.
+    ///
+    /// - Parameter maximumGridDimension: Upper bound used when validating
+    ///   caller-provided cell dimensions. Tests may inject a smaller bound to
+    ///   exercise rejection without opening a socket.
+    init(maximumGridDimension: Int = 10_000) {
+        self.maximumGridDimension = max(1, maximumGridDimension)
+    }
     /// The capability understood by protocol-v9+ servers that returns a
     /// connection-owned lease for each byte attachment.
-    static let viewAttachmentLeaseCapability = "view-attachment-lease-v1"
+    let viewAttachmentLeaseCapability = "view-attachment-lease-v1"
 
     /// The capability understood by protocol-v9+ servers that allows a
     /// client to retire one attachment without dropping the whole socket.
-    static let viewAttachmentDetachCapability = "view-attachment-detach-v1"
+    let viewAttachmentDetachCapability = "view-attachment-detach-v1"
 
     /// Begins the protocol handshake so optional attach fields are sent only
     /// when the daemon advertises the matching capability.
-    static func identify(requestID: UInt64 = 1) -> [String: Any] {
+    func identify(requestID: UInt64 = 1) -> [String: Any] {
         [
             "id": requestID,
             "cmd": "identify",
@@ -136,7 +145,7 @@ enum CloudTuiManualIOCommand {
     /// Advertises this connection as the native Ghostty mirror.  The server
     /// only adds capabilities it recognizes, so sending these to an older
     /// daemon is safe and leaves the byte attach fallback available.
-    static func setClientInfo(
+    func setClientInfo(
         name: String,
         kind: String,
         requestID: UInt64 = 1
@@ -159,7 +168,7 @@ enum CloudTuiManualIOCommand {
     /// requires a reported size before it can promote a client, and the
     /// explicit claim is what makes a native pane's grid authoritative rather
     /// than merely a passive viewport hint.
-    static func claimGeometry(surfaceID: UInt64, requestID: UInt64 = 1) -> [String: Any] {
+    func claimGeometry(surfaceID: UInt64, requestID: UInt64 = 1) -> [String: Any] {
         [
             "id": requestID,
             "cmd": "set-client-sizing",
@@ -170,7 +179,7 @@ enum CloudTuiManualIOCommand {
     }
 
     /// Opens a byte attach stream for one numeric cmux-tui surface.
-    static func attach(
+    func attach(
         surfaceID: UInt64,
         columns: Int? = nil,
         rows: Int? = nil,
@@ -197,7 +206,7 @@ enum CloudTuiManualIOCommand {
     }
 
     /// Writes raw input bytes to the remote PTY.
-    static func input(surfaceID: UInt64, bytes: Data, requestID: UInt64 = 1) -> [String: Any] {
+    func input(surfaceID: UInt64, bytes: Data, requestID: UInt64 = 1) -> [String: Any] {
         [
             "id": requestID,
             "cmd": "send",
@@ -207,7 +216,7 @@ enum CloudTuiManualIOCommand {
     }
 
     /// Sends one semantic key chord through the remote terminal's key encoder.
-    static func namedKey(surfaceID: UInt64, key: String, requestID: UInt64 = 1) -> [String: Any] {
+    func namedKey(surfaceID: UInt64, key: String, requestID: UInt64 = 1) -> [String: Any] {
         [
             "id": requestID,
             "cmd": "send-key",
@@ -217,7 +226,7 @@ enum CloudTuiManualIOCommand {
     }
 
     /// Reports the native pane's current cell grid to the remote PTY.
-    static func resize(surfaceID: UInt64, columns: Int, rows: Int, requestID: UInt64 = 1) -> [String: Any] {
+    func resize(surfaceID: UInt64, columns: Int, rows: Int, requestID: UInt64 = 1) -> [String: Any] {
         [
             "id": requestID,
             "cmd": "resize-surface",
@@ -229,7 +238,7 @@ enum CloudTuiManualIOCommand {
 
     /// Reports a grid for this exact leased attach stream. Lease fencing keeps a
     /// delayed resize from changing a replacement view after reconnect.
-    static func resizeAttachedView(
+    func resizeAttachedView(
         surfaceID: UInt64,
         lease: String,
         columns: Int,
@@ -254,7 +263,7 @@ enum CloudTuiManualIOCommand {
     /// Releases this connection's terminal-size report while the native pane
     /// is hidden. The remote PTY keeps its last authoritative grid frozen
     /// until a visible client claims it again.
-    static func releaseSizing(surfaceID: UInt64, requestID: UInt64 = 0) -> [String: Any] {
+    func releaseSizing(surfaceID: UInt64, requestID: UInt64 = 0) -> [String: Any] {
         [
             "id": requestID,
             "cmd": "release-surface-size",
@@ -265,7 +274,7 @@ enum CloudTuiManualIOCommand {
     /// Removes this exact attach stream's size contribution while retaining
     /// the stream for cached output. The server treats a repeated release as
     /// an idempotent no-op for the same lease.
-    static func releaseAttachedViewSize(
+    func releaseAttachedViewSize(
         surfaceID: UInt64,
         lease: String,
         requestID: UInt64 = 0
@@ -281,7 +290,7 @@ enum CloudTuiManualIOCommand {
 
     /// Explicitly detaches one legacy attachment. Closing the connection is the
     /// fallback for older servers; this command is useful for protocol fixtures.
-    static func detach(surfaceID: UInt64, requestID: UInt64 = 1) -> [String: Any] {
+    func detach(surfaceID: UInt64, requestID: UInt64 = 1) -> [String: Any] {
         [
             "id": requestID,
             "cmd": "detach-surface",
@@ -291,7 +300,7 @@ enum CloudTuiManualIOCommand {
 
     /// Retires a capability-negotiated attachment while keeping the control
     /// socket usable for any other future view.
-    static func detachAttachedView(
+    func detachAttachedView(
         surfaceID: UInt64,
         lease: String,
         requestID: UInt64 = 1
@@ -305,7 +314,7 @@ enum CloudTuiManualIOCommand {
     }
 
     /// Serializes a command as one newline-delimited protocol message.
-    static func line(_ command: [String: Any]) -> Data? {
+    func line(_ command: [String: Any]) -> Data? {
         guard let data = try? JSONSerialization.data(withJSONObject: command) else { return nil }
         return data + Data([0x0A])
     }

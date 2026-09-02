@@ -119,16 +119,17 @@ extension CmuxTuiSurfaceProvider {
         socketPath: String,
         link: CloudMachineLink
     ) async -> UInt64? {
+        let parser = CloudTuiLegacySnapshotParser()
         if let arguments = CloudTuiCommandLine.resolveTerminalArguments(
             socketPath: socketPath,
             terminalID: terminalID
         ), let resolved = try? await link.run(arguments: arguments),
-           let surfaceID = CloudTuiLegacySnapshotParser.resolvedSurfaceID(from: resolved) {
+           let surfaceID = parser.resolvedSurfaceID(from: resolved) {
             return surfaceID
         }
         guard let tree = try? await link.run(
             arguments: CloudTuiCommandLine.legacyListWorkspacesArguments(socketPath: socketPath)
         ) else { return nil }
-        return CloudTuiLegacySnapshotParser.surfaceID(from: tree, terminalID: terminalID)
+        return parser.surfaceID(from: tree, terminalID: terminalID)
     }
 }

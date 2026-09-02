@@ -15,6 +15,7 @@ final class CloudTuiManualIOConnection: @unchecked Sendable {
 
     private let socketPath: String
     private let queue: DispatchQueue
+    private let commandBuilder: CloudTuiManualIOCommand
     let events: AsyncStream<CloudTuiManualIOFrame>
     private let eventsContinuation: AsyncStream<CloudTuiManualIOFrame>.Continuation
     private var descriptor: Int32 = -1
@@ -33,10 +34,12 @@ final class CloudTuiManualIOConnection: @unchecked Sendable {
         queue: DispatchQueue = DispatchQueue(
             label: "com.cmux.cloud-manual-io",
             qos: .userInitiated
-        )
+        ),
+        commandBuilder: CloudTuiManualIOCommand = CloudTuiManualIOCommand()
     ) {
         self.socketPath = socketPath
         self.queue = queue
+        self.commandBuilder = commandBuilder
         // A stalled Ghostty parser must not let a remote output burst grow an
         // unbounded in-memory queue. Dropping a frame would corrupt the VT
         // stream, so the bounded overflow edge closes this attachment and lets
@@ -70,7 +73,7 @@ final class CloudTuiManualIOConnection: @unchecked Sendable {
 
     /// Enqueues one JSON command. Commands are serialized with incoming lines.
     func send(_ command: [String: Any]) {
-        guard let line = CloudTuiManualIOCommand.line(command) else { return }
+        guard let line = commandBuilder.line(command) else { return }
         send(line: line)
     }
 
