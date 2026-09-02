@@ -17,9 +17,28 @@ extension TerminalController {
 #if DEBUG
         cmuxDebugLog("browser.chromium.\(operation).failed error=\(String(describing: error))")
 #endif
+        let messageKey: String
+        let fallback: String
+        switch operation {
+        case "screenshot":
+            messageKey = "cli.browser.error.screenshotFailed"
+            fallback = "Browser screenshot failed"
+        case "navigation":
+            messageKey = "cli.browser.error.navigationFailed"
+            fallback = "Browser navigation failed"
+        case "cookie_read":
+            messageKey = "cli.browser.error.cookieReadFailed"
+            fallback = "Could not read browser cookies"
+        case "cookie_write":
+            messageKey = "cli.browser.error.cookieWriteFailed"
+            fallback = "Could not write browser cookies"
+        default:
+            messageKey = "cli.browser.error.operationFailed"
+            fallback = "Browser operation failed"
+        }
         return String(
-            localized: "cli.browser.error.operationFailed",
-            defaultValue: "Browser operation failed"
+            localized: messageKey,
+            defaultValue: fallback
         )
     }
 

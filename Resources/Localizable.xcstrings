@@ -35622,6 +35622,34 @@
         }
       }
     },
+    "cli.browser.error.screenshotFailed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Browser screenshot failed" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "ブラウザのスクリーンショットに失敗しました" } }
+      }
+    },
+    "cli.browser.error.navigationFailed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Browser navigation failed" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "ブラウザのナビゲーションに失敗しました" } }
+      }
+    },
+    "cli.browser.error.cookieReadFailed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Could not read browser cookies" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "ブラウザのCookieを読み取れませんでした" } }
+      }
+    },
+    "cli.browser.error.cookieWriteFailed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Could not write browser cookies" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "ブラウザのCookieを書き込めませんでした" } }
+      }
+    },
     "cli.browser.cookies.clearRequiresScope": {
       "extractionState": "manual",
       "localizations": {
