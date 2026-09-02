@@ -3853,6 +3853,132 @@
         }
       }
     },
+    "mobile.cloud.empty": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "No cloud machines yet. Create one from cmux on your Mac or the web app." } }
+      }
+    },
+    "mobile.cloud.error.controlPlane": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "The cloud service could not be reached. Try again in a moment." } }
+      }
+    },
+    "mobile.cloud.error.identity": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "This device is locked. Unlock it and try again." } }
+      }
+    },
+    "mobile.cloud.error.link": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Could not reach this machine's terminal service." } }
+      }
+    },
+    "mobile.cloud.error.other": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Something went wrong. Try again." } }
+      }
+    },
+    "mobile.cloud.error.signedOut": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Your session expired. Sign in again to reach your cloud machines." } }
+      }
+    },
+    "mobile.cloud.error.tunnel": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Could not join your private network. Check your connection and try again." } }
+      }
+    },
+    "mobile.cloud.machines.header": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Machines" } }
+      }
+    },
+    "mobile.cloud.machines.loading": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Loading machines" } }
+      }
+    },
+    "mobile.cloud.retry": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Retry" } }
+      }
+    },
+    "mobile.cloud.terminal.ended.body": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "This terminal's process has exited." } }
+      }
+    },
+    "mobile.cloud.terminal.ended.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Session ended" } }
+      }
+    },
+    "mobile.cloud.terminal.rendererFailed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Terminal renderer failed to start." } }
+      }
+    },
+    "mobile.cloud.terminals.empty": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "No terminals yet. Create one below." } }
+      }
+    },
+    "mobile.cloud.terminals.header": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Terminals" } }
+      }
+    },
+    "mobile.cloud.terminals.loading": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Connecting" } }
+      }
+    },
+    "mobile.cloud.terminals.new": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "New terminal" } }
+      }
+    },
+    "mobile.cloud.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Cloud" } }
+      }
+    },
+    "mobile.cloud.tunnel.connecting": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Connecting to your private network" } }
+      }
+    },
+    "mobile.cloud.unavailable.body": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "The private network is not up yet. Go back and try again." } }
+      }
+    },
+    "mobile.cloud.unavailable.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Not connected" } }
+      }
+    },
     "mobile.simulatorStream.appSwitcher": {
       "extractionState": "manual",
       "localizations": {
