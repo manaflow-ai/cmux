@@ -24,7 +24,7 @@
 use std::borrow::Cow;
 use std::io::{BufRead, Write};
 use std::path::Path;
-use std::sync::{Arc, Mutex, Weak};
+use std::sync::{Arc, Weak};
 use std::time::{Duration, Instant};
 
 use base64::Engine as _;
@@ -57,29 +57,6 @@ const MAX_PIPE_IO_LINE_BYTES: usize = MAX_PIPE_IO_BASE64_BYTES + 128;
 /// top of the embedder's previous terminal state.
 const REPLAY_RESET: &[u8] = b"\x1bc\x1b[3J";
 const DAEMON_LOSS_PROBE_TIMEOUT: Duration = Duration::from_millis(500);
-
-/// Serializes diagnostics with the final exit record. The stdin pump can be
-/// blocked in a read when the relay ends, so joining it is not a safe way to
-/// establish ordering. Closing this gate makes later diagnostics no-ops while
-/// allowing an in-flight diagnostic to finish before the final record is
-/// written by the parent.
-#[derive(Default)]
-struct StderrGate(Mutex<bool>);
-
-impl StderrGate {
-    fn close(&self) {
-        *self.0.lock().unwrap_or_else(|poisoned| poisoned.into_inner()) = true;
-    }
-
-    fn diag(&self, value: serde_json::Value) {
-        let closed = self.0.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
-        if *closed {
-            return;
-        }
-        eprintln!("{value}");
-        let _ = std::io::stderr().flush();
-    }
-}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PipeIoExitReason {
@@ -229,7 +206,7 @@ pub fn run(
     // client (the full TUI client claims this for its active surface). The
     // relay is the embedder's only viewer of this terminal, so claim the
     // authority or every embedder resize is recorded but never applied.
-    if let Err(error) = remote.notify_claim_terminal_geometry(surface) {
+    if let Err(error) = remote.claim_terminal_geometry(surface) {
         eprintln!(
             "{}",
             serde_json::json!({"diag": {"claim-terminal-geometry": {"error": error.to_string()}}})
@@ -248,8 +225,7 @@ pub fn run(
             return Ok(attach_failure_exit_reason(&error, surface));
         }
     }
-    let stderr_gate = Arc::new(StderrGate::default());
-    let _stdin_pump = match spawn_stdin_pump(handle, lifecycle_sender, stderr_gate.clone()) {
+    let _stdin_pump = match spawn_stdin_pump(handle, lifecycle_sender) {
         Ok(pump) => pump,
         Err(error) => {
             eprintln!(
@@ -266,10 +242,6 @@ pub fn run(
         &byte_budget,
         &mut std::io::stdout().lock(),
     )?;
-    // The stdin pump may still be blocked in read(2). Close the diagnostic
-    // gate before returning so the parent can write the final exit record
-    // without a late resize/claim diagnostic racing it.
-    stderr_gate.close();
     // Stop forwarding while the daemon probe runs. The probe has its own
     // request path, and events for the finished relay must not fill the data
     // queue or tear down a replacement transport.
@@ -386,7 +358,6 @@ fn read_pipe_io_line(reader: &mut impl BufRead, line: &mut String) -> std::io::R
 fn spawn_stdin_pump(
     handle: PipeIoSurfaceHandle,
     lifecycle_sender: Sender<PipeIoEvent>,
-    stderr_gate: Arc<StderrGate>,
 ) -> std::io::Result<std::thread::JoinHandle<()>> {
     let remote = Arc::downgrade(&handle.remote);
     let surface = handle.surface;
@@ -395,7 +366,7 @@ fn spawn_stdin_pump(
         .spawn(move || {
             let stdin = std::io::stdin();
             let mut reader = stdin.lock();
-            run_stdin_pump(&mut reader, &remote, surface, &lifecycle_sender, &stderr_gate);
+            run_stdin_pump(&mut reader, &remote, surface, &lifecycle_sender);
         })
         .map_err(|error| std::io::Error::other(format!("spawn pipe-io stdin pump: {error}")))
 }
@@ -405,7 +376,6 @@ fn run_stdin_pump(
     remote: &Weak<RemoteSession>,
     surface: SurfaceId,
     lifecycle_sender: &Sender<PipeIoEvent>,
-    stderr_gate: &StderrGate,
 ) {
     let mut line = String::new();
     let mut stop_event = None;
@@ -446,12 +416,8 @@ fn run_stdin_pump(
                 // Diagnostics only; the exit JSON stays the final stderr line
                 // and embedders skip lines without an "exit" key.
                 match handle.resize(cols, rows) {
-                    Ok(accepted) => stderr_gate.diag(serde_json::json!({
-                        "diag": {"resize": {"cols": cols, "rows": rows, "accepted": accepted}}
-                    })),
-                    Err(error) => stderr_gate.diag(serde_json::json!({
-                        "diag": {"resize": {"cols": cols, "rows": rows, "error": error.to_string()}}
-                    })),
+                    Ok(_accepted) => {}
+                    Err(_error) => {}
                 }
             }
             Ok(PipeIoRequest::ClaimGeometry) => {
@@ -464,12 +430,8 @@ fn run_stdin_pump(
                 // keystroke that follows it, and avoid a new blocking thread
                 // for every claim.
                 match remote.notify_claim_terminal_geometry(surface) {
-                    Ok(()) => {
-                        stderr_gate.diag(serde_json::json!({"diag": {"claim": {"accepted": true}}}))
-                    }
-                    Err(error) => stderr_gate.diag(serde_json::json!({
-                        "diag": {"claim": {"error": error.to_string()}}
-                    })),
+                    Ok(()) => (),
+                    Err(_error) => (),
                 }
             }
             Ok(PipeIoRequest::Unknown) => {}
@@ -747,9 +709,8 @@ mod tests {
     fn stdin_pump_stops_without_retaining_a_gone_remote_session() {
         let (lifecycle_sender, lifecycle_receiver) = crossbeam_channel::bounded(1);
         let mut input = Cursor::new(b"{\"input\":\"aGk=\"}\n".to_vec());
-        let stderr_gate = StderrGate::default();
 
-        run_stdin_pump(&mut input, &Weak::new(), 7, &lifecycle_sender, &stderr_gate);
+        run_stdin_pump(&mut input, &Weak::new(), 7, &lifecycle_sender);
 
         assert_eq!(lifecycle_receiver.recv().unwrap(), PipeIoEvent::TransportLost);
     }
@@ -761,8 +722,7 @@ mod tests {
         for input in inputs {
             let (lifecycle_sender, lifecycle_receiver) = crossbeam_channel::bounded(1);
             let mut input = Cursor::new(input.to_vec());
-            let stderr_gate = StderrGate::default();
-            run_stdin_pump(&mut input, &Weak::new(), 7, &lifecycle_sender, &stderr_gate);
+            run_stdin_pump(&mut input, &Weak::new(), 7, &lifecycle_sender);
             assert_eq!(lifecycle_receiver.recv().unwrap(), PipeIoEvent::StdinError);
         }
     }
