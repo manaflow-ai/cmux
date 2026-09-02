@@ -18,6 +18,7 @@ on:
       - tests/test_cla_rerun_workflow.sh
       - tests/test_cla_lock_workflow.sh
       - tests/test_cla_trigger_gate.sh
+      - tests/test_ci_status.py
   workflow_dispatch:
 
 permissions:
@@ -324,6 +325,9 @@ jobs:
 
       - name: Validate CI change area filter
         run: python3 tests/test_ci_change_areas.py
+
+      - name: Validate CI status contract
+        run: python3 tests/test_ci_status.py
 
       - name: Validate release attestation retry guard
         run: ./tests/test_ci_attestation_retry.sh
