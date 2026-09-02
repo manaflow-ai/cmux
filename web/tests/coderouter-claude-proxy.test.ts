@@ -551,6 +551,31 @@ describe("bedrock helpers", () => {
     });
   });
 
+  test("invoke body drops context_management, which Bedrock rejects as an extra input", () => {
+    // Claude Code 2.1.x sends `context_management` under the
+    // context-management-2025-06-27 beta; Bedrock's Anthropic Messages API
+    // answers 400 "context_management: Extra inputs are not permitted" and
+    // every Claude Code turn on a Bedrock team fails. The edit is a
+    // client-side optimization, so dropping it keeps the request valid.
+    const invoke = bedrockInvokeBody({
+      model: "claude-haiku-4-5-20251001",
+      stream: true,
+      max_tokens: 32000,
+      thinking: { type: "enabled", budget_tokens: 31999, display: "omitted" },
+      metadata: { user_id: "device" },
+      context_management: { edits: [{ type: "clear_thinking_20251015", keep: "all" }] },
+      messages: [],
+    });
+    expect(invoke.body).not.toHaveProperty("context_management");
+    expect(invoke.body).toEqual({
+      max_tokens: 32000,
+      thinking: { type: "enabled", budget_tokens: 31999, display: "omitted" },
+      metadata: { user_id: "device" },
+      messages: [],
+      anthropic_version: "bedrock-2023-05-31",
+    });
+  });
+
   test("event-stream decoder parses headers and payload", async () => {
     const frame = encodeAwsEventStreamMessage({ ":event-type": "chunk", ":message-type": "event" }, new Uint8Array([1, 2, 3]));
     const stream = new ReadableStream<Uint8Array>({
