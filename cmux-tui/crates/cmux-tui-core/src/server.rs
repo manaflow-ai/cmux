@@ -4851,7 +4851,9 @@ fn windows_socket_identity(path: &Path) -> std::io::Result<(u32, u64)> {
         .share_mode(FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE)
         .custom_flags(FILE_FLAG_OPEN_REPARSE_POINT)
         .open(path)?;
-    let mut information = BY_HANDLE_FILE_INFORMATION::default();
+    // `windows-sys` exposes this FFI struct without a `Default` impl.
+    // Zero-initialization is the documented Windows API input pattern.
+    let mut information: BY_HANDLE_FILE_INFORMATION = unsafe { std::mem::zeroed() };
     // SAFETY: `file` owns a valid Windows handle and `information` points to
     // writable storage for the fixed-size API result.
     if unsafe { GetFileInformationByHandle(file.as_raw_handle(), &mut information) } == 0 {
@@ -4930,6 +4932,11 @@ impl ServedSocketLease {
             return Ok(());
         }
 
+        // A lease performs at most one bounded cleanup attempt. Mark it as
+        // handled before waiting so Drop cannot repeat the deadline after an
+        // acquisition or identity error.
+        self.linked = false;
+
         let _start_lock =
             match SocketStartLock::acquire(&self.path, Instant::now() + SOCKET_CLEANUP_DEADLINE) {
                 Ok(lock) => lock,
@@ -4950,7 +4957,6 @@ impl ServedSocketLease {
                 Err(error) => return Err(error),
             }
         }
-        self.linked = false;
         Ok(())
     }
 

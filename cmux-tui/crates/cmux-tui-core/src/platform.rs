@@ -76,7 +76,7 @@ pub mod transport {
         use std::os::unix::net::{UnixListener, UnixStream};
         use std::path::Path;
         use std::sync::{Arc, Mutex};
-        use std::time::Duration;
+        use std::time::{Duration, Instant};
 
         use super::Stream;
 
@@ -169,8 +169,10 @@ pub mod transport {
             }
 
             pub(super) fn wait(&self, timeout: Duration) -> io::Result<bool> {
-                let timeout_ms = timeout.as_millis().min(i32::MAX as u128) as i32;
+                let deadline = Instant::now() + timeout;
                 loop {
+                    let remaining = deadline.saturating_duration_since(Instant::now());
+                    let timeout_ms = remaining.as_millis().min(i32::MAX as u128) as i32;
                     let mut descriptor = libc::pollfd {
                         fd: self.inner.reader.as_raw_fd(),
                         events: libc::POLLIN,
@@ -216,7 +218,7 @@ pub mod transport {
         use std::os::windows::io::AsRawSocket;
         use std::path::Path;
         use std::sync::{Arc, Mutex};
-        use std::time::Duration;
+        use std::time::{Duration, Instant};
 
         use super::Stream;
         use uds_windows::{UnixListener, UnixStream};
@@ -309,8 +311,10 @@ pub mod transport {
             }
 
             pub(super) fn wait(&self, timeout: Duration) -> io::Result<bool> {
-                let timeout_ms = timeout.as_millis().min(i32::MAX as u128) as i32;
+                let deadline = Instant::now() + timeout;
                 loop {
+                    let remaining = deadline.saturating_duration_since(Instant::now());
+                    let timeout_ms = remaining.as_millis().min(i32::MAX as u128) as i32;
                     let mut descriptor = WSAPOLLFD {
                         fd: self.inner.reader.as_raw_socket(),
                         events: POLLIN,
