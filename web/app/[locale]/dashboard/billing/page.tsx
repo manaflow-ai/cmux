@@ -31,7 +31,6 @@ import {
 } from "@/services/billing/pro";
 import { resolveBillingTeam, type BillingTeamLike } from "@/services/billing/teamResolution";
 import {
-  LEGACY_PRO_YEARLY_LOOKUP_KEY,
   PRO_PRICING_USD,
   TEAM_PRICING_USD,
   proBillingInterval,
@@ -319,7 +318,7 @@ function FreePlanUpsell({
               name={pricingT("pro.name")}
               price={
                 <PricingIntervalValue
-                  monthly={pricingT("pro.price")}
+                  monthly={`$${PRO_PRICING_USD.month.billedAmount}`}
                   annual={`$${PRO_PRICING_USD.year.monthlyEquivalent}`}
                 />
               }
@@ -344,7 +343,7 @@ function FreePlanUpsell({
               name={pricingT("team.name")}
               price={
                 <PricingIntervalValue
-                  monthly={pricingT("team.price")}
+                  monthly={`$${TEAM_PRICING_USD.month.billedAmount}`}
                   annual={`$${TEAM_PRICING_USD.year.monthlyEquivalent}`}
                 />
               }
@@ -394,7 +393,7 @@ function StripePlan({
   subscription: StripeSubscriptionRow;
   canManageBilling: boolean;
 }) {
-  const price = priceCopy(subscription, t);
+  const price = priceCopy(subscription, t, "pro");
   const periodDate = subscription.currentPeriodEnd
     ? formatBillingDate(subscription.currentPeriodEnd, locale)
     : t("dates.unknown");
@@ -486,9 +485,7 @@ function TeamPlan({
     ? formatBillingDate(subscription.currentPeriodEnd, locale)
     : t("dates.unknown");
   const seats = String(subscription.seats ?? 1);
-  const price = isAnnualTeamSubscription(subscription)
-    ? t("team.annualPrice")
-    : t("team.price");
+  const price = priceCopy(subscription, t, "team");
 
   return (
     <section className="mt-3 border border-border p-3">
@@ -505,7 +502,7 @@ function TeamPlan({
           value={periodDate}
         />
         <BillingMetric label={t("details.seats")} value={seats} />
-        <BillingMetric label={t("details.price")} value={price} />
+        {price ? <BillingMetric label={t("details.price")} value={price} /> : null}
       </div>
 
       <div className="mt-4 flex flex-wrap items-start gap-2">
@@ -580,21 +577,44 @@ function billingBanner(value: string | undefined) {
     : null;
 }
 
+/**
+ * What this subscription actually charges, read from its Stripe price. Amounts
+ * are immutable per Price, so grandfathered rows ($30/mo, $240/yr, $288/yr,
+ * and the Stack-era prices with no lookup key) render their own figure without
+ * a per-key copy table that has to grow on every price change.
+ */
 function priceCopy(
   subscription: StripeSubscriptionRow,
   t: Awaited<ReturnType<typeof getTranslations>>,
+  plan: "pro" | "team",
 ): string | null {
-  const lookupKey = priceLookupKey(subscription) ?? subscription.priceId;
-  if (lookupKey === PRO_PRICING_USD.month.lookupKey) {
-    return t("pro.monthlyPrice");
+  const price = stripePrice(subscription);
+  const unitAmount = price?.unit_amount;
+  const interval = priceRecurringInterval(subscription);
+  // unit_amount is in the currency's minor unit; only USD is formatted here.
+  // A non-USD row (possible only for an operator-managed subscription) shows
+  // no figure rather than a false dollar amount.
+  if (
+    price?.currency !== "usd" ||
+    typeof unitAmount !== "number" ||
+    !Number.isFinite(unitAmount) ||
+    !interval
+  ) {
+    return null;
   }
-  if (lookupKey === LEGACY_PRO_YEARLY_LOOKUP_KEY) {
-    return t("pro.legacyAnnualPrice");
+  const dollars = unitAmount / 100;
+  if (interval === "month") {
+    return t(plan === "pro" ? "pro.monthlyPrice" : "team.price", {
+      amount: formatUsd(dollars),
+    });
   }
-  if (lookupKey === PRO_PRICING_USD.year.lookupKey) {
-    return t("pro.annualPrice");
-  }
-  return null;
+  return t(plan === "pro" ? "pro.annualPrice" : "team.annualPrice", {
+    monthly: formatUsd(dollars / 12),
+  });
+}
+
+function formatUsd(amount: number): string {
+  return Number.isInteger(amount) ? String(amount) : amount.toFixed(2);
 }
 
 function stripePrice(
@@ -614,11 +634,6 @@ function stripePrice(
     : null;
 }
 
-function priceLookupKey(subscription: StripeSubscriptionRow): string | null {
-  const lookupKey = stripePrice(subscription)?.lookup_key;
-  return typeof lookupKey === "string" ? lookupKey : null;
-}
-
 function priceRecurringInterval(
   subscription: StripeSubscriptionRow,
 ): "month" | "year" | null {
@@ -627,13 +642,6 @@ function priceRecurringInterval(
     ? (recurring as { interval?: unknown }).interval
     : null;
   return interval === "month" || interval === "year" ? interval : null;
-}
-
-function isAnnualTeamSubscription(subscription: StripeSubscriptionRow): boolean {
-  const lookupKey = priceLookupKey(subscription);
-  if (lookupKey === TEAM_PRICING_USD.year.lookupKey) return true;
-  if (lookupKey === TEAM_PRICING_USD.month.lookupKey) return false;
-  return priceRecurringInterval(subscription) === "year";
 }
 
 function formatBillingDate(date: Date, locale: string): string {
