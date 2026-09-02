@@ -158,6 +158,47 @@ struct WorkstreamTaskToolTodoTests {
         #expect(store.ownedTaskIds(forWorkstream: "s1").isEmpty)
     }
 
+    @Test("A failed explicit-ID create retires its checklist row")
+    func failedExplicitIDCreateRemovesRow() {
+        let store = WorkstreamStore(ringCapacity: 50)
+        store.ingest(toolEvent(
+            sessionId: "s1",
+            tool: "TaskCreate",
+            input: #"{"id":"explicit-1","subject":"will fail"}"#,
+            requestId: "create-explicit"
+        ))
+        store.ingest(toolEvent(
+            sessionId: "s1",
+            hook: .postToolUseFailure,
+            tool: "TaskCreate",
+            input: #"{"id":"explicit-1","subject":"will fail"}"#,
+            requestId: "create-explicit"
+        ))
+
+        #expect(latestTodos(store)?.isEmpty == true)
+        #expect(store.ownedTaskIds(forWorkstream: "s1").isEmpty)
+    }
+
+    @Test("An explicit-ID create marked failed on PreToolUse does not publish a row")
+    func failedExplicitIDPreToolUseDoesNotPublishRow() {
+        let store = WorkstreamStore(ringCapacity: 50)
+        store.ingest(toolEvent(
+            sessionId: "s1",
+            tool: "TaskCreate",
+            input: #"{"id":"explicit-pre-failure","subject":"must not appear"}"#,
+            requestId: "create-explicit-pre-failure",
+            isError: true
+        ))
+
+        #expect(latestTodos(store) == nil)
+        #expect(store.ownedTaskIds(forWorkstream: "s1").isEmpty)
+        guard case .toolResult(_, _, let isError) = store.items.last?.payload else {
+            Issue.record("failed PreToolUse must remain error telemetry")
+            return
+        }
+        #expect(isError)
+    }
+
     @Test("Late PreToolUse does not duplicate an authoritative create")
     func postThenPreCreateIsDeduplicated() {
         let store = WorkstreamStore(ringCapacity: 50)
