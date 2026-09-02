@@ -572,14 +572,11 @@ mod unix {
                 if self.shared.deliberate.load(Ordering::SeqCst) {
                     return;
                 }
-                if self.shared.on_worker_thread()
-                    && !self.shared.worker_done.load(Ordering::Acquire)
-                {
+                if !self.shared.worker_done.load(Ordering::Acquire) {
                     *slot = Some(handler);
                     return;
                 }
                 drop(slot);
-                self.shared.wait_for_event_drain();
                 handler();
             } else {
                 *slot = Some(handler);
@@ -776,18 +773,25 @@ mod tests {
             .await
             .expect("connect overflow socket");
         accepted_rx.await.expect("wait for control overflow server");
-        let (entered_tx, entered_rx) = std::sync::mpsc::sync_channel(1);
+        let (entered_tx, entered_rx) = oneshot::channel();
+        let entered_tx = Arc::new(Mutex::new(Some(entered_tx)));
         let (release_tx, release_rx) = std::sync::mpsc::sync_channel(1);
         let closed = Arc::new(Notify::new());
         let closed_for_handler = Arc::clone(&closed);
+        let entered_for_handler = Arc::clone(&entered_tx);
         control.on_event(Box::new(move |_| {
-            if entered_tx.try_send(()).is_ok() {
+            if let Some(entered_tx) = entered_for_handler.lock().expect("entry signal lock").take()
+            {
+                let _ = entered_tx.send(());
                 release_rx.recv().expect("release first event callback");
             }
         }));
         control.on_close(Box::new(move || closed_for_handler.notify_waiters()));
         start_tx.send(()).expect("start control event overflow");
-        entered_rx.recv_timeout(std::time::Duration::from_secs(1)).expect("first callback entered");
+        tokio::time::timeout(Duration::from_secs(1), entered_rx)
+            .await
+            .expect("first callback entered")
+            .expect("entry signal");
 
         let closed_wait = closed.notified();
         tokio::pin!(closed_wait);
@@ -816,7 +820,7 @@ mod tests {
             accepted_tx.send(()).expect("tell client that socket is accepted");
             start_rx.await.expect("wait for event handler");
             let payload = "x".repeat(MAX_CONTROL_LINE_BYTES / 2);
-            for _ in 0..3 {
+            for _ in 0..=MAX_EVENT_QUEUE_BYTES / (MAX_CONTROL_LINE_BYTES / 2) {
                 let line = format!("{{\"event\":\"{payload}\"}}\n");
                 stream.write_all(line.as_bytes()).await.expect("write byte-limited event");
             }
@@ -826,18 +830,25 @@ mod tests {
             .await
             .expect("connect byte-limited socket");
         accepted_rx.await.expect("wait for control byte server");
-        let (entered_tx, entered_rx) = std::sync::mpsc::sync_channel(1);
+        let (entered_tx, entered_rx) = oneshot::channel();
+        let entered_tx = Arc::new(Mutex::new(Some(entered_tx)));
         let (release_tx, release_rx) = std::sync::mpsc::sync_channel(1);
         let closed = Arc::new(Notify::new());
         let closed_for_handler = Arc::clone(&closed);
+        let entered_for_handler = Arc::clone(&entered_tx);
         control.on_event(Box::new(move |_| {
-            if entered_tx.try_send(()).is_ok() {
+            if let Some(entered_tx) = entered_for_handler.lock().expect("entry signal lock").take()
+            {
+                let _ = entered_tx.send(());
                 release_rx.recv().expect("release first byte callback");
             }
         }));
         control.on_close(Box::new(move || closed_for_handler.notify_waiters()));
         start_tx.send(()).expect("start control byte overflow");
-        entered_rx.recv_timeout(Duration::from_secs(1)).expect("first byte callback entered");
+        tokio::time::timeout(Duration::from_secs(1), entered_rx)
+            .await
+            .expect("first byte callback entered")
+            .expect("entry signal");
 
         let closed_wait = closed.notified();
         tokio::pin!(closed_wait);
@@ -868,9 +879,14 @@ mod tests {
             .await
             .expect("connect late-close socket");
         accepted_rx.await.expect("wait for control late-close server");
-        let reader_done = control.arm_reader_waiting();
+        let reader_control = Arc::clone(&control);
+        let reader_done = tokio::spawn(async move { reader_control.wait_reader_done().await });
+        tokio::task::yield_now().await;
         start_tx.send(()).expect("start late close");
-        reader_done.await.expect("reader observed late close");
+        tokio::time::timeout(Duration::from_secs(1), reader_done)
+            .await
+            .expect("reader observed late close")
+            .expect("reader waiter task");
         let closed = Arc::new(Notify::new());
         let closed_for_handler = Arc::clone(&closed);
         control.on_close(Box::new(move || closed_for_handler.notify_waiters()));
