@@ -729,13 +729,46 @@ describe("pending email grants", () => {
       },
     );
     expect(applied).toBe(0);
-    // The revoke clears the claimer's grant itself and releases the claim
-    // marker, so finalization sees nothing left to compensate.
-    expect(calls).toEqual([{ plan: "pro" }, { plan: null }]);
+    // The revoke's own conditional clear runs (a no-op if the write had not
+    // landed yet), and finalization compensates again because the row was
+    // revoked, without relying on the claim marker the revoke cleared.
+    expect(calls).toEqual([{ plan: "pro" }, { plan: null }, { plan: null }]);
     const row = rows[0]!;
     expect(row.revokedAt).toBeInstanceOf(Date);
     expect(row.appliedAt).toBeNull();
     expect(row.appliedUserId).toBeNull();
+  });
+
+  test("a revoke between claim and write is still compensated, and a failed compensation restores the marker", async () => {
+    const rows: GrantRow[] = [];
+    const db = fakeGrantsDb(rows);
+    await createPendingEmailGrant({ email: "pat@example.com", plan: "pro", admin, db });
+    let writes = 0;
+    await expect(
+      applyPendingEmailGrants(
+        { id: "u9", primaryEmail: "pat@example.com" },
+        {
+          db,
+          grant: async (input) => {
+            if (input.plan !== null) {
+              // Admin revokes while the claim is held but before the write lands.
+              await revokePendingEmailGrant({ grantId: "g1", db, grant: async () => undefined });
+              writes += 1;
+              return;
+            }
+            throw new AdminGrantConflictError("u9");
+          },
+        },
+      ),
+    ).rejects.toBeInstanceOf(AdminGrantConflictError);
+    expect(writes).toBe(1);
+    // Marker restored so the durable cleanup retries at the next sign-in.
+    expect(rows[0]!.revokedAt).toBeInstanceOf(Date);
+    expect(rows[0]!.appliedUserId).toBe("u9");
+    const seen: SetManualPlanGrantInput[] = [];
+    await applyPendingEmailGrants({ id: "u9", primaryEmail: "pat@example.com" }, { db, grant: async (input) => { seen.push(input); } });
+    expect(seen.map((input) => input.plan)).toEqual([null]);
+    expect(rows[0]!.appliedUserId).toBeNull();
   });
 
   test("a fresh claim by another sign-in is not claimed twice, a stale one is", async () => {

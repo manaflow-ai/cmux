@@ -941,17 +941,27 @@ export async function applyPendingEmailGrants(
     )
     .returning({ id: adminPlanGrants.id });
   const finalized = new Set(done.map((row) => row.id));
-  if (plan !== null && !finalized.has(newest.id) && await wasRevokedWhileOwned(db, newest.id, user.id)) {
-    // Revoked while the write was in flight: the revoke wins. The row stays
-    // revoked with applied_user_id set until this clear succeeds, and
-    // retryRevokedGrantCleanup retries it at the user's next sign-in.
-    await grant({
-      targetUserId: user.id,
-      plan: null,
-      admin: { id: newest.grantedByUserId, primaryEmail: newest.grantedByEmail },
-      onlyIfCurrent: { plan: newest.plan, byUserId: newest.grantedByUserId },
-      supersedePending: false,
-    });
+  if (plan !== null && !finalized.has(newest.id) && await wasRevoked(db, newest.id)) {
+    // Revoked while the write was in flight: the revoke wins. This does not
+    // depend on the claim marker, which a concurrent revoke may already have
+    // cleared before our write landed. If the clear fails, the marker is put
+    // back so retryRevokedGrantCleanup retries at the user's next sign-in.
+    try {
+      await grant({
+        targetUserId: user.id,
+        plan: null,
+        admin: { id: newest.grantedByUserId, primaryEmail: newest.grantedByEmail },
+        onlyIfCurrent: { plan: newest.plan, byUserId: newest.grantedByUserId },
+        supersedePending: false,
+      });
+    } catch (error) {
+      await db
+        .update(adminPlanGrants)
+        .set({ appliedUserId: user.id, claimedAt: now() })
+        .where(and(eq(adminPlanGrants.id, newest.id), isNull(adminPlanGrants.appliedAt)))
+        .catch(() => undefined);
+      throw error;
+    }
     await db
       .update(adminPlanGrants)
       .set({ appliedUserId: null, claimedAt: null })
@@ -960,14 +970,13 @@ export async function applyPendingEmailGrants(
   return finalized.size;
 }
 
-async function wasRevokedWhileOwned(db: AdminGrantsDb, grantId: string, userId: string): Promise<boolean> {
+async function wasRevoked(db: AdminGrantsDb, grantId: string): Promise<boolean> {
   const rows = await db
     .select({ id: adminPlanGrants.id })
     .from(adminPlanGrants)
     .where(
       and(
         eq(adminPlanGrants.id, grantId),
-        eq(adminPlanGrants.appliedUserId, userId),
         isNull(adminPlanGrants.appliedAt),
         isNotNull(adminPlanGrants.revokedAt),
       ),
