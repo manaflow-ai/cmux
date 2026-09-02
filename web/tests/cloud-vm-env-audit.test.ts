@@ -90,28 +90,6 @@ describe("cloud VM provider coherence audit", () => {
     expect(result.problems).toEqual([]);
   });
 
-  test("the rebaked E2B and Daytona base images pass readiness", () => {
-    const cases = [
-      {
-        provider: "e2b",
-        env: {
-          E2B_CMUXD_WS_TEMPLATE: "cmux-devbox:devbox-20260902-r3a",
-          E2B_API_KEY: "x",
-        },
-      },
-      {
-        provider: "daytona",
-        env: {
-          DAYTONA_SANDBOX_SNAPSHOT: "cmux-devbox-20260902-r3a",
-          DAYTONA_API_KEY: "x",
-        },
-      },
-    ] as const;
-    for (const { provider, env } of cases) {
-      expect(auditProviderReadiness(provider, env, realManifest).problems).toEqual([]);
-    }
-  });
-
   test("the retired beta-api freestyle snapshot is still not deployable", () => {
     // That entry was baked against beta-api.freestyle.sh and keeps
     // validationStatus "unknown"; pointing the env at it must stay red so
@@ -126,25 +104,6 @@ describe("cloud VM provider coherence audit", () => {
     ) as Coherence;
     expect(result.selected?.provider).toBe("freestyle");
     expect(result.problems.join("\n")).toContain("validationStatus");
-  });
-
-  test("a coherent e2b rollback passes only with the code default still provisionable", () => {
-    const rollbackEnv = {
-      CMUX_VM_DEFAULT_PROVIDER: "e2b",
-      E2B_CMUXD_WS_TEMPLATE: "cmuxd-ws:tooling-20260509f",
-      E2B_API_KEY: "x",
-      FREESTYLE_SANDBOX_SNAPSHOT: "sh-fb3dcf7b47894114889b10186626af5b",
-      FREESTYLE_API_KEY: "x",
-    };
-    const result = auditCloudVmProviderCoherence(rollbackEnv, realManifest) as Coherence;
-    expect(result.codeDefault?.provider).toBe("freestyle");
-    // Not clean: the code default points at the unvalidated beta-api snapshot.
-    expect(result.problems.join("\n")).toContain("validationStatus");
-    const clean = auditCloudVmProviderCoherence(
-      { ...rollbackEnv, FREESTYLE_SANDBOX_SNAPSHOT: "sh-08be343bf2b54b4bb0e5226b97eaa6c4" },
-      realManifest,
-    ) as Coherence;
-    expect(clean.problems).toEqual([]);
   });
 
   test("an image value outside the manifest is a problem", () => {

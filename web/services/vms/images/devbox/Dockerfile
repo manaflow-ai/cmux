@@ -12,9 +12,7 @@
 # (web/services/vms/drivers/cmuxTuiDaemon.ts). The image ships only
 # /usr/local/bin/cmux-devbox-boot, the supervisor that waits for the binary
 # and restarts the daemon. The Freestyle public-platform bake runs it from a
-# systemd unit. Other provider drivers own their lifecycle: Daytona registers
-# it as the snapshot entrypoint, while E2B leaves it inert because pause/resume
-# preserves processes and its driver starts the daemon directly.
+# systemd unit.
 #
 # Portability rules the Freestyle replay depends on (originally imposed by a
 # remote builder's restricted Dockerfile parser): no backslash escape

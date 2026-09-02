@@ -21,25 +21,11 @@ time and heals pin drift on attach
 `cmux-devbox-boot`, the supervisor that waits for the binary and restarts the
 daemon.
 
-Provider lifecycle and route details are:
-
-- e2b: no start command; the driver starts the daemon as a root background
-  command (E2B pause/resume preserves processes) and heals on attach. The
-  route is the sandbox's public port host (`wss://1337-<id>.e2b.app/v1/link`);
-  the E2B proxy's only request auth is a header the cmux-tui dialer cannot
-  send, so sandboxes are created with public port traffic and the daemon's
-  Noise device enrollment gates sessions.
-- daytona: `cmux-devbox-boot` is the registered snapshot entrypoint. Stop
-  kills processes while the disk (binary, daemon identity under /root)
-  persists; start re-runs the entrypoint. The route is the preview proxy
-  with its token as the `DAYTONA_SANDBOX_AUTH_KEY` query parameter, minted
-  fresh per attach.
-- freestyle (public platform, `freestyle` npm package): the baked
-  `cmux-tui-daemon` systemd unit runs the supervisor with
-  `CMUX_TUI_REMOTE_WS_BIND=[::]:1337`. The public API does not provide an
-  authenticated HTTP proxy for arbitrary ports, so the route uses the VM's
-  stable public IPv6 directly (`ws://[ipv6]:1337/v1/link`, with Noise
-  enrollment as the session gate). The listener must be dual-stack.
+The baked `cmux-tui-daemon` systemd unit runs that supervisor with
+`CMUX_TUI_REMOTE_WS_BIND=[::]:1337`. The public API does not provide an
+authenticated HTTP proxy for arbitrary ports, so the route is the VM's stable
+public IPv6 straight to the daemon (`ws://[ipv6]:1337/v1/link`, Noise
+enrollment as the session gate). The listener must therefore be dual-stack.
 
 Shells spawned by the daemon run as root with HOME=/root and get the bash
 devshell (ble.sh ghost text, half-life prompt, seeded history) through the
@@ -55,7 +41,6 @@ and no daemon build are needed.
 FREESTYLE_API_KEY=... bun scripts/build-devbox-freestyle.ts cmux-devbox-<tag>
 ```
 
-Daytona snapshot names are immutable: always a fresh versioned name.
 Freestyle public-platform auth is `FREESTYLE_API_KEY`, or
 `FREESTYLE_STACK_ACCESS_TOKEN` + `FREESTYLE_TEAM_ID`; the argument is the
 snapshot slug (falls back to slugless on a collision) and the printed

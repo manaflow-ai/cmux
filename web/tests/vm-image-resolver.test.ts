@@ -62,7 +62,7 @@ describe("VM image resolver: request by kind", () => {
     }
   });
 
-  test("freestyle resolves only through its env selector, like every other provider", () => {
+  test("freestyle resolves only through its explicit env selector", () => {
     // The validated public-platform devbox entry is neither a kind default
     // nor a local-dev default, so a deployment must set
     // FREESTYLE_SANDBOX_SNAPSHOT explicitly; nothing is served silently.
@@ -89,37 +89,6 @@ describe("VM image resolver: request by kind", () => {
     expect(listVmImageKinds("freestyle", env)).toEqual([
       { kind: "base", image: "sh-08be343bf2b54b4bb0e5226b97eaa6c4" },
     ]);
-  });
-
-  test("the rebaked base snapshots resolve for every provider", () => {
-    const cases = [
-      {
-        provider: "e2b" as const,
-        env: { ...deployed, E2B_CMUXD_WS_TEMPLATE: "cmux-devbox:devbox-20260902-r3a" },
-        image: "cmux-devbox:devbox-20260902-r3a",
-        version: "e2b-devbox-20260902-r3a",
-      },
-      {
-        provider: "daytona" as const,
-        env: { ...deployed, DAYTONA_SANDBOX_SNAPSHOT: "cmux-devbox-20260902-r3a" },
-        image: "cmux-devbox-20260902-r3a",
-        version: "daytona-cmux-devbox-20260902-r3a",
-      },
-      {
-        provider: "freestyle" as const,
-        env: { ...deployed, FREESTYLE_SANDBOX_SNAPSHOT: "sh-08be343bf2b54b4bb0e5226b97eaa6c4" },
-        image: "sh-08be343bf2b54b4bb0e5226b97eaa6c4",
-        version: "freestyle-cmux-devbox-20260902a",
-      },
-    ];
-    for (const { provider, env, image, version } of cases) {
-      expect(resolveVmImage(provider, undefined, env, { kind: "base" })).toMatchObject({
-        provider,
-        image,
-        imageVersion: version,
-        kind: "base",
-      });
-    }
   });
 
   test("an operator-set freestyle snapshot still resolves, so a re-bake is env-only", () => {
