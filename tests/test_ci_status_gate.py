@@ -436,6 +436,9 @@ def test_check_publisher_updates_only_our_exact_head_run() -> None:
                                 "name": "ci-status-gate",
                                 "head_sha": HEAD_SHA,
                                 "app": {"id": module.ACTIONS_APP_ID},
+                                "external_id": module._publisher_external_id(
+                                    "ci-status-gate", HEAD_SHA
+                                ),
                             }
                         ]
                     }
@@ -450,6 +453,7 @@ def test_check_publisher_updates_only_our_exact_head_run() -> None:
                 "name": payload["name"],
                 "head_sha": payload["head_sha"],
                 "app": {"id": module.ACTIONS_APP_ID},
+                "external_id": payload["external_id"],
             }
 
     api = CheckAPI()
@@ -460,6 +464,58 @@ def test_check_publisher_updates_only_our_exact_head_run() -> None:
     api.publish_check("ci-status-gate", HEAD_SHA, "failure", "bad")
     assert api.writes[1][0] == "PATCH"
     assert api.writes[1][1].endswith("/check-runs/77")
+
+
+def test_check_publisher_ignores_foreign_producer_and_rejects_race() -> None:
+    class ForeignCheckAPI(module.GitHubAPI):
+        def __init__(self, response_external_id: str | None = None) -> None:
+            super().__init__("manaflow-ai/cmux", token="test")
+            self.response_external_id = response_external_id
+            self.writes: list[tuple[str, str, dict[str, object]]] = []
+
+        def get(self, endpoint: str, *, paginate: bool = False) -> object:
+            return [
+                {
+                    "check_runs": [
+                        {
+                            "id": 78,
+                            "name": "ci-status-gate",
+                            "head_sha": HEAD_SHA,
+                            "app": {"id": module.ACTIONS_APP_ID},
+                            "external_id": "legacy-or-foreign-producer",
+                        }
+                    ]
+                }
+            ]
+
+        def write(
+            self, method: str, endpoint: str, payload: dict[str, object]
+        ) -> object:
+            self.writes.append((method, endpoint, payload))
+            return {
+                "name": payload["name"],
+                "head_sha": payload["head_sha"],
+                "app": {"id": module.ACTIONS_APP_ID},
+                "external_id": self.response_external_id
+                if self.response_external_id is not None
+                else payload["external_id"],
+            }
+
+    api = ForeignCheckAPI()
+    api.publish_check("ci-status-gate", HEAD_SHA, "success", "ok")
+    assert api.writes[0][0] == "POST"
+    assert api.writes[0][1].endswith("/check-runs")
+    assert api.writes[0][2]["external_id"] == module._publisher_external_id(
+        "ci-status-gate", HEAD_SHA
+    )
+
+    raced = ForeignCheckAPI(response_external_id="legacy-or-foreign-producer")
+    try:
+        raced.publish_check("ci-status-gate", HEAD_SHA, "success", "ok")
+    except module.GateError as error:
+        assert "external ID" in str(error)
+    else:
+        raise AssertionError("publisher accepted a foreign response after a race")
 
 
 def test_pr_file_pagination_accepts_slurped_array_pages() -> None:
