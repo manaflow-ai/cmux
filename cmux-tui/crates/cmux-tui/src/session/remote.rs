@@ -4581,6 +4581,21 @@ mod tests {
 
     #[cfg(unix)]
     #[test]
+    fn private_dump_directory_rejects_writable_ancestor_without_sticky_bit() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let root = tempfile::tempdir().unwrap();
+        fs::set_permissions(root.path(), fs::Permissions::from_mode(0o777)).unwrap();
+        let path = root.path().join("dumps");
+
+        let error = private_dump_directory(&path).unwrap_err();
+
+        assert_eq!(error.kind(), io::ErrorKind::PermissionDenied);
+        assert!(!path.exists());
+    }
+
+    #[cfg(unix)]
+    #[test]
     fn private_dump_write_failure_preserves_previous_dump_and_cleans_temp() {
         let root = tempfile::tempdir().unwrap();
         let directory = private_dump_directory(root.path()).unwrap();
@@ -4615,6 +4630,44 @@ mod tests {
 
         assert_eq!(fs::read(&final_path).unwrap(), b"replacement");
         assert_eq!(fs::read(&linked_path).unwrap(), b"previous");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn private_dump_file_rejects_existing_hard_link_without_truncation() {
+        let root = tempfile::tempdir().unwrap();
+        let directory = private_dump_directory(root.path()).unwrap();
+        let final_path = root.path().join("mirror.txt");
+        let linked_path = root.path().join("mirror-backup.txt");
+        fs::write(&final_path, b"previous").unwrap();
+        fs::hard_link(&final_path, &linked_path).unwrap();
+
+        let error = private_dump_file(&directory, "mirror.txt").unwrap_err();
+
+        assert_eq!(error.kind(), io::ErrorKind::AlreadyExists);
+        assert_eq!(fs::read(&final_path).unwrap(), b"previous");
+        assert_eq!(fs::read(&linked_path).unwrap(), b"previous");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn private_dump_rename_failure_preserves_previous_directory_and_cleans_temp() {
+        let root = tempfile::tempdir().unwrap();
+        let directory = private_dump_directory(root.path()).unwrap();
+        let final_path = root.path().join("mirror.txt");
+        fs::create_dir(&final_path).unwrap();
+
+        let error = write_private_dump(&directory, "mirror.txt", |file| {
+            file.write_all(b"replacement")
+        })
+        .unwrap_err();
+
+        assert!(matches!(error.raw_os_error(), Some(libc::EISDIR) | Some(libc::ENOTEMPTY)));
+        assert!(final_path.is_dir());
+        assert!(fs::read_dir(root.path())
+            .unwrap()
+            .filter_map(Result::ok)
+            .all(|entry| entry.file_name() == "mirror.txt"));
     }
 
     #[test]
