@@ -290,48 +290,101 @@
     "admin": {
       "eyebrow": "admin",
       "title": "pro access",
-      "description": "grant or remove Pro for any account. only verified {domains} accounts can open this page.",
+      "description": "grant or remove Pro for any account, team, or email, and downgrade paying customers. only verified {domains} accounts can open this page.",
       "search": {
-        "label": "Find a user",
-        "placeholder": "email, name, or user id",
+        "label": "Find a user, team, or email",
+        "placeholder": "email, name, team, or id",
         "button": "Search",
         "searching": "Searching…",
-        "hint": "Matches primary email, display name, or exact user id. Up to 25 results."
+        "hint": "Matches primary email, display name, team name, or exact id. Up to 25 results each. Every change asks for confirmation."
+      },
+      "sections": {
+        "users": "Users ({count})",
+        "teams": "Teams ({count})",
+        "pending": "Pending email grants ({count})"
       },
       "results": {
         "user": "User",
+        "team": "Team",
+        "email": "Email",
+        "plan": "Plan",
         "access": "Access",
         "stripe": "Stripe",
         "grant": "Manual grant",
         "actions": "Actions",
-        "empty": "No users matched.",
+        "empty": "No users, teams, or pending grants matched.",
         "noEmail": "no email",
         "verified": "verified",
         "unverified": "unverified",
+        "members": "{count, plural, =1 {1 member} other {# members}}",
         "noSubscription": "no subscription",
         "cancelling": "cancels at period end"
       },
       "access": {
         "pro": "Pro",
+        "team": "Team",
         "free": "Free"
+      },
+      "plans": {
+        "pro": "Pro",
+        "founders": "Founders",
+        "team": "Team"
       },
       "grant": {
         "none": "none",
         "current": "{plan}",
-        "by": "{who} · {when}",
-        "stripeNote": "Pro comes from an active Stripe subscription. Removing it means cancelling in Stripe."
+        "by": "{who} · {when}"
+      },
+      "pending": {
+        "waiting": "applies at first verified sign-in"
+      },
+      "emailGrant": {
+        "title": "No account with this email yet",
+        "body": "Grant Pro to {email} now. It applies automatically the first time that email signs in with a verified mailbox."
       },
       "actions": {
         "grantPro": "Grant Pro",
         "grantFounders": "Grant Founders",
+        "grantTeam": "Grant Team",
         "removeGrant": "Remove grant",
+        "downgrade": "Downgrade",
+        "resumeSubscription": "Resume subscription",
+        "revokePending": "Revoke",
         "saving": "Saving…"
+      },
+      "confirm": {
+        "cancel": "Cancel",
+        "grant": "Confirm grant",
+        "grantTitle": "Grant {plan}?",
+        "grantUserBody": "This account gets {plan} access everywhere without a subscription. It stays until an admin removes the grant.",
+        "grantTeamBody": "{count, plural, =1 {1 member gets} other {All # members get}} Team access without a subscription. It stays until an admin removes the grant.",
+        "grantEmailBody": "The grant is stored now and applied at that email's first verified sign-in. Revoke it here before then if needed.",
+        "removeGrantTitle": "Remove the manual grant?",
+        "removeGrantBody": "Access drops to Free immediately.",
+        "removeTeamGrantBody": "Every member loses Team access immediately.",
+        "removeGrantBodyStripe": "The active Stripe subscription still grants access. Use Downgrade to end that too.",
+        "downgradeTitle": "Downgrade this paying customer?",
+        "downgradeBody": "The Stripe subscription cancels at the end of the current period. Access continues until then and no refund is issued.",
+        "downgradeTeamBody": "The team's Stripe subscription cancels at the end of the current period. All members keep access until then and no refund is issued.",
+        "resumeTitle": "Resume the subscription?",
+        "resumeBody": "The scheduled cancellation is removed and the subscription renews normally.",
+        "revokePendingTitle": "Revoke this pending grant?",
+        "revokePendingBody": "Nothing is applied when this email signs in."
+      },
+      "notices": {
+        "granted": "{plan} granted to {target}.",
+        "grantRemoved": "Manual grant removed from {target}.",
+        "downgraded": "{target} cancels at the end of the current period.",
+        "resumed": "Subscription for {target} resumed.",
+        "emailGranted": "{plan} will apply to {target} at first verified sign-in.",
+        "pendingRevoked": "Pending grant for {target} revoked."
       },
       "errors": {
         "network": "Network error. Try again.",
         "forbidden": "Your account is not an admin. Sign in with a verified cmux.com, manaflow.ai, or manaflow.com email.",
-        "notFound": "That user no longer exists.",
-        "conflict": "Another change to this account is in progress. Try again shortly.",
+        "notFound": "No matching account or subscription.",
+        "conflict": "Another change to this account is in progress, or the email matches several accounts.",
+        "billing": "Billing is not available right now.",
         "generic": "The request failed. Try again shortly."
       }
     },

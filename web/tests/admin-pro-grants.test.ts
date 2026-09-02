@@ -8,13 +8,25 @@ import {
 import { AccountMetadataUserUnavailableError } from "../services/account/metadataMutation";
 import {
   AdminGrantConflictError,
+  AdminInvalidEmailError,
+  AdminTeamNotFoundError,
   AdminUserNotFoundError,
   adminUserRow,
+  applyPendingEmailGrants,
+  createPendingEmailGrant,
   grantRecordFromServerMetadata,
   isAdminGrantablePlanId,
+  isMissingGrantsTableError,
+  isPlausibleEmail,
+  listPendingEmailGrants,
+  revokePendingEmailGrant,
+  searchAdminTeams,
   searchAdminUsers,
   setManualPlanGrant,
+  setTeamManualPlanGrant,
+  type AdminGrantsDb,
   type AdminStackApp,
+  type AdminStackTeam,
   type AdminStackUser,
 } from "../services/admin/proGrants";
 import type { StripeBillingStatus } from "../services/billing/pro";
@@ -51,7 +63,43 @@ function fakeUser(
   return user as FakeUser;
 }
 
-function fakeApp(users: readonly AdminStackUser[]): AdminStackApp & {
+type FakeTeam = AdminStackTeam & {
+  readonly updates: Array<{ clientReadOnlyMetadata?: unknown; serverMetadata?: unknown }>;
+};
+
+function fakeTeam(
+  overrides: Partial<Omit<AdminStackTeam, "update" | "listUsers">> & { id: string; members?: number },
+): FakeTeam {
+  const updates: FakeTeam["updates"] = [];
+  const { members = 0, ...rest } = overrides;
+  const team = {
+    displayName: `Team ${overrides.id}`,
+    createdAt: new Date("2026-02-03T04:05:06.000Z"),
+    clientReadOnlyMetadata: {},
+    serverMetadata: {},
+    ...rest,
+    updates,
+    async listUsers() {
+      return Array.from({ length: members }, (_, index) => ({ id: `m${index}` }));
+    },
+    async update(options: { clientReadOnlyMetadata?: unknown; serverMetadata?: unknown }) {
+      updates.push(options);
+      if ("clientReadOnlyMetadata" in options) {
+        (team as { clientReadOnlyMetadata: unknown }).clientReadOnlyMetadata =
+          options.clientReadOnlyMetadata;
+      }
+      if ("serverMetadata" in options) {
+        (team as { serverMetadata: unknown }).serverMetadata = options.serverMetadata;
+      }
+    },
+  };
+  return team as FakeTeam;
+}
+
+function fakeApp(
+  users: readonly AdminStackUser[],
+  teams: readonly AdminStackTeam[] = [],
+): AdminStackApp & {
   readonly listCalls: unknown[];
 } {
   const listCalls: unknown[] = [];
@@ -67,6 +115,15 @@ function fakeApp(users: readonly AdminStackUser[]): AdminStackApp & {
         user.id === query ||
         (user.primaryEmail ?? "").toLowerCase().includes(query) ||
         (user.displayName ?? "").toLowerCase().includes(query),
+      );
+    },
+    async getTeam(teamId) {
+      return teams.find((team) => team.id === teamId) ?? null;
+    },
+    async listTeams(options) {
+      const query = (options.query ?? "").toLowerCase();
+      return teams.filter((team) =>
+        team.id === query || team.displayName.toLowerCase().includes(query),
       );
     },
   };
@@ -301,5 +358,229 @@ describe("setManualPlanGrant", () => {
         }),
       ).rejects.toBeInstanceOf(AdminGrantConflictError);
     }
+  });
+});
+
+describe("teams", () => {
+  test("searchAdminTeams reports Team access from Stripe or a manual grant", async () => {
+    const app = fakeApp([], [
+      fakeTeam({ id: "t1", displayName: "Acme", members: 3, clientReadOnlyMetadata: { cmuxVmPlan: "team" } }),
+      fakeTeam({ id: "t2", displayName: "Acme Labs", members: 1 }),
+      fakeTeam({ id: "t3", displayName: "Other" }),
+    ]);
+    const rows = await searchAdminTeams("acme", {
+      app,
+      stripeBillingStatus: async (teamId) => (teamId === "t2" ? activeStripe : noStripe),
+    });
+    expect(rows.map((row) => [row.id, row.isTeam, row.manualPlanId, row.memberCount])).toEqual([
+      ["t1", true, "team", 3],
+      ["t2", true, null, 1],
+    ]);
+  });
+
+  test("setTeamManualPlanGrant writes and clears the team override with an audit record", async () => {
+    const team = fakeTeam({ id: "t1", members: 2, clientReadOnlyMetadata: { cmuxPlan: "team" } });
+    const app = fakeApp([], [team]);
+    const granted = await setTeamManualPlanGrant({
+      teamId: "t1",
+      plan: "team",
+      admin,
+      app,
+      now: () => new Date("2026-09-02T10:00:00.000Z"),
+      stripeBillingStatus: async () => noStripe,
+    });
+    expect(team.updates[0]).toEqual({
+      clientReadOnlyMetadata: { cmuxPlan: "team", cmuxVmPlan: "team" },
+      serverMetadata: {
+        cmuxAdminPlanGrant: {
+          plan: "team",
+          byUserId: "admin-1",
+          byEmail: "lawrence@manaflow.ai",
+          at: "2026-09-02T10:00:00.000Z",
+        },
+      },
+    });
+    expect(granted.isTeam).toBe(true);
+    expect(granted.manualPlanId).toBe("team");
+
+    const removed = await setTeamManualPlanGrant({
+      teamId: "t1",
+      plan: null,
+      admin,
+      app,
+      stripeBillingStatus: async () => noStripe,
+    });
+    expect(team.clientReadOnlyMetadata).toEqual({ cmuxPlan: "team" });
+    expect(removed.manualPlanId).toBeNull();
+    expect(removed.lastGrant?.plan).toBeNull();
+  });
+
+  test("setTeamManualPlanGrant rejects unknown teams", async () => {
+    await expect(
+      setTeamManualPlanGrant({ teamId: "missing", plan: "team", admin, app: fakeApp([]) }),
+    ).rejects.toBeInstanceOf(AdminTeamNotFoundError);
+  });
+});
+
+type GrantRow = {
+  id: string;
+  email: string;
+  plan: string;
+  grantedByUserId: string;
+  grantedByEmail: string | null;
+  appliedUserId: string | null;
+  appliedAt: Date | null;
+  revokedAt: Date | null;
+  createdAt: Date;
+};
+
+/** Collects bound parameter values from a drizzle SQL condition. */
+function boundParams(node: unknown, out: unknown[] = []): unknown[] {
+  if (node && typeof node === "object") {
+    const record = node as { value?: unknown; queryChunks?: unknown[]; constructor?: { name?: string } };
+    if (record.constructor?.name === "Param") out.push(record.value);
+    if (Array.isArray(record.queryChunks)) for (const chunk of record.queryChunks) boundParams(chunk, out);
+  }
+  return out;
+}
+
+/** Minimal in-memory double for the admin_plan_grants queries the service issues. */
+function fakeGrantsDb(rows: GrantRow[]): AdminGrantsDb {
+  const isOpen = (row: GrantRow) => !row.appliedAt && !row.revokedAt;
+  return {
+    select: () => ({
+      from: () => ({
+        where: (condition: unknown) => {
+          const params = boundParams(condition).filter((value): value is string => typeof value === "string");
+          const email = params.find((value) => value.includes("@")) ?? null;
+          return {
+            orderBy: () => ({
+              limit: async () =>
+                rows
+                  .filter((row) => isOpen(row) && (email === null || row.email === email))
+                  .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime()),
+            }),
+          };
+        },
+      }),
+    }),
+    insert: () => ({
+      values: (values: Partial<GrantRow>) => ({
+        returning: async () => {
+          const row: GrantRow = {
+            id: `g${rows.length + 1}`,
+            email: values.email!,
+            plan: values.plan!,
+            grantedByUserId: values.grantedByUserId!,
+            grantedByEmail: values.grantedByEmail ?? null,
+            appliedUserId: null,
+            appliedAt: null,
+            revokedAt: null,
+            createdAt: new Date(2026, 8, 2, 0, rows.length),
+          };
+          rows.push(row);
+          return [row];
+        },
+      }),
+    }),
+    update: () => ({
+      set: (values: Partial<GrantRow>) => ({
+        where: async (condition: unknown) => {
+          const ids = new Set(boundParams(condition));
+          for (const row of rows) {
+            if (ids.has(row.id)) Object.assign(row, values);
+          }
+        },
+      }),
+    }),
+  } as unknown as AdminGrantsDb;
+}
+
+describe("pending email grants", () => {
+  test("isPlausibleEmail", () => {
+    expect(isPlausibleEmail("pat@example.com")).toBe(true);
+    expect(isPlausibleEmail("Pat.Smith+x@sub.example.co.uk")).toBe(true);
+    expect(isPlausibleEmail("pat")).toBe(false);
+    expect(isPlausibleEmail("pat@")).toBe(false);
+    expect(isPlausibleEmail("@example.com")).toBe(false);
+    expect(isPlausibleEmail("pat@localhost")).toBe(false);
+    expect(isPlausibleEmail("pat @example.com")).toBe(false);
+  });
+
+  test("createPendingEmailGrant canonicalizes the email and rejects junk", async () => {
+    const rows: GrantRow[] = [];
+    const db = fakeGrantsDb(rows);
+    const created = await createPendingEmailGrant({ email: "  New.Person@Example.com ", plan: "pro", admin, db });
+    expect(created.email).toBe("new.person@example.com");
+    expect(created.plan).toBe("pro");
+    expect(created.grantedByEmail).toBe("lawrence@manaflow.ai");
+    await expect(createPendingEmailGrant({ email: "nope", plan: "pro", admin, db })).rejects.toBeInstanceOf(
+      AdminInvalidEmailError,
+    );
+  });
+
+  test("listPendingEmailGrants filters open rows by substring", async () => {
+    const rows: GrantRow[] = [];
+    const db = fakeGrantsDb(rows);
+    await createPendingEmailGrant({ email: "a@example.com", plan: "pro", admin, db });
+    await createPendingEmailGrant({ email: "b@other.org", plan: "founders", admin, db });
+    await createPendingEmailGrant({ email: "c@example.com", plan: "pro", admin, db });
+    await revokePendingEmailGrant({ grantId: "g3", db });
+    const listed = await listPendingEmailGrants("example", { db });
+    expect(listed.map((row) => row.email)).toEqual(["a@example.com"]);
+  });
+
+  test("applyPendingEmailGrants applies the newest open grant and closes all of them", async () => {
+    const rows: GrantRow[] = [];
+    const db = fakeGrantsDb(rows);
+    await createPendingEmailGrant({ email: "pat@example.com", plan: "pro", admin, db });
+    await createPendingEmailGrant({ email: "pat@example.com", plan: "founders", admin, db });
+    await createPendingEmailGrant({ email: "other@example.com", plan: "pro", admin, db });
+    const grants: unknown[] = [];
+    const applied = await applyPendingEmailGrants(
+      { id: "u9", primaryEmail: "Pat@Example.com" },
+      { db, grant: async (input) => { grants.push(input); return undefined; } },
+    );
+    expect(applied).toBe(2);
+    expect(grants).toEqual([
+      { targetUserId: "u9", plan: "founders", admin: { id: "admin-1", primaryEmail: "lawrence@manaflow.ai" } },
+    ]);
+    expect(rows.filter((row) => row.email === "pat@example.com").every((row) => row.appliedUserId === "u9")).toBe(true);
+    expect(rows.find((row) => row.email === "other@example.com")?.appliedAt).toBeNull();
+    // Second sign-in finds nothing open.
+    expect(await applyPendingEmailGrants({ id: "u9", primaryEmail: "pat@example.com" }, { db, grant: async () => undefined })).toBe(0);
+  });
+
+  test("applyPendingEmailGrants ignores users without an email", async () => {
+    expect(await applyPendingEmailGrants({ id: "u1", primaryEmail: null }, { db: fakeGrantsDb([]) })).toBe(0);
+  });
+});
+
+describe("isMissingGrantsTableError", () => {
+  test("recognizes pg 42P01 directly and through a drizzle cause chain", () => {
+    expect(isMissingGrantsTableError(Object.assign(new Error("x"), { code: "42P01" }))).toBe(true);
+    const wrapped = new Error("Failed query");
+    (wrapped as { cause?: unknown }).cause = Object.assign(new Error("relation \"admin_plan_grants\" does not exist"), { code: "42P01" });
+    expect(isMissingGrantsTableError(wrapped)).toBe(true);
+    expect(isMissingGrantsTableError(new Error('relation "admin_plan_grants" does not exist'))).toBe(true);
+    expect(isMissingGrantsTableError(new Error("connection refused"))).toBe(false);
+    expect(isMissingGrantsTableError(null)).toBe(false);
+  });
+
+  test("applyPendingEmailGrants treats a missing table as nothing to apply", async () => {
+    const db = {
+      select: () => ({
+        from: () => ({
+          where: () => ({
+            orderBy: () => ({
+              limit: async () => {
+                throw Object.assign(new Error("Failed query"), { cause: { code: "42P01" } });
+              },
+            }),
+          }),
+        }),
+      }),
+    } as unknown as AdminGrantsDb;
+    expect(await applyPendingEmailGrants({ id: "u1", primaryEmail: "a@example.com" }, { db })).toBe(0);
   });
 });

@@ -1,45 +1,40 @@
 import { NextRequest } from "next/server";
 
-import { getStackServerApp, isStackConfigured } from "../../../lib/stack";
-import { isAdminUser } from "../../../../services/admin/access";
 import {
   ADMIN_USER_SEARCH_MIN_QUERY_LENGTH,
   AdminGrantConflictError,
   AdminUserNotFoundError,
   isAdminGrantablePlanId,
+  isMissingGrantsTableError,
+  listPendingEmailGrants,
+  searchAdminTeams,
   searchAdminUsers,
   setManualPlanGrant,
 } from "../../../../services/admin/proGrants";
-import { authProviderErrorResponse } from "../../../../services/vms/authErrors";
 import {
-  enforceBrowserMutationProtection,
-  jsonResponse,
-  parseBearer,
-} from "../../../../services/vms/routeHelpers";
+  adminJsonResponse,
+  readJsonBody,
+  requireAdmin,
+} from "../../../../services/admin/routeAuth";
+import { enforceBrowserMutationProtection } from "../../../../services/vms/routeHelpers";
 
-const ANONYMOUS_IF_EXISTS = "anonymous-if-exists[deprecated]" as const;
 const MAX_QUERY_LENGTH = 200;
 
-type AdminPrincipal = {
-  readonly id: string;
-  readonly primaryEmail: string | null;
-};
-
-type AdminGate =
-  | { readonly ok: true; readonly admin: AdminPrincipal }
-  | { readonly ok: false; readonly response: Response };
-
-/** GET /api/admin/users?q=<email or name> — admin-only user search. */
+/** GET /api/admin/users?q=<email, name, or id> — users, teams, and pending email grants. */
 export async function GET(request: NextRequest) {
   const gate = await requireAdmin(request);
   if (!gate.ok) return gate.response;
 
   const query = (request.nextUrl.searchParams.get("q") ?? "").trim();
   if (query.length < ADMIN_USER_SEARCH_MIN_QUERY_LENGTH || query.length > MAX_QUERY_LENGTH) {
-    return jsonResponse({ error: "invalid_query" }, 400);
+    return adminJsonResponse({ error: "invalid_query" }, 400);
   }
-  const users = await searchAdminUsers(query);
-  return adminJsonResponse({ users });
+  const [users, teams, pendingGrants] = await Promise.all([
+    searchAdminUsers(query),
+    searchAdminTeams(query),
+    listPendingEmailGrantsSafely(query),
+  ]);
+  return adminJsonResponse({ users, teams, pendingGrants });
 }
 
 /** POST /api/admin/users { userId, plan: "pro" | "founders" | null } */
@@ -49,14 +44,8 @@ export async function POST(request: NextRequest) {
   const gate = await requireAdmin(request);
   if (!gate.ok) return gate.response;
 
-  let body: unknown;
-  try {
-    body = await request.json();
-  } catch {
-    return jsonResponse({ error: "invalid_body" }, 400);
-  }
-  const parsed = parseGrantBody(body);
-  if (!parsed) return jsonResponse({ error: "invalid_body" }, 400);
+  const parsed = parseGrantBody(await readJsonBody(request));
+  if (!parsed) return adminJsonResponse({ error: "invalid_body" }, 400);
 
   try {
     const user = await setManualPlanGrant({
@@ -67,52 +56,29 @@ export async function POST(request: NextRequest) {
     return adminJsonResponse({ user });
   } catch (error) {
     if (error instanceof AdminUserNotFoundError) {
-      return jsonResponse({ error: "user_not_found" }, 404);
+      return adminJsonResponse({ error: "user_not_found" }, 404);
     }
     if (error instanceof AdminGrantConflictError) {
-      return jsonResponse({ error: "mutation_in_progress" }, 409);
+      return adminJsonResponse({ error: "mutation_in_progress" }, 409);
     }
     throw error;
   }
 }
 
-/** Admin user data must never land in a shared or browser cache. */
-function adminJsonResponse(data: unknown, status = 200): Response {
-  const response = jsonResponse(data, status);
-  response.headers.set("cache-control", "no-store");
-  return response;
-}
-
-async function requireAdmin(request: NextRequest): Promise<AdminGate> {
-  if (!isStackConfigured()) {
-    return { ok: false, response: jsonResponse({ error: "unavailable" }, 503) };
-  }
-  const stackServerApp = getStackServerApp();
-  const bearer = parseBearer(request);
-  const loadUser = () => bearer
-    ? stackServerApp.getUser({
-        tokenStore: {
-          accessToken: bearer.accessToken,
-          refreshToken: bearer.refreshToken,
-        },
-      })
-    : stackServerApp.getUser({
-        or: ANONYMOUS_IF_EXISTS,
-        tokenStore: request as unknown as { headers: { get(name: string): string | null } },
-      });
-  let user: Awaited<ReturnType<typeof loadUser>>;
+// Pending grants live in Postgres; a deployment without a database, or one
+// that has not run the admin_plan_grants migration yet, still serves user and
+// team search.
+async function listPendingEmailGrantsSafely(query: string) {
   try {
-    user = await loadUser();
+    return await listPendingEmailGrants(query);
   } catch (error) {
-    return { ok: false, response: authProviderErrorResponse(error, "admin.users.auth") };
+    if (error instanceof Error && /DATABASE_URL is required/.test(error.message)) return [];
+    if (isMissingGrantsTableError(error)) {
+      console.error("admin.pending_grants.table_missing", { hint: "run the admin_plan_grants migration" });
+      return [];
+    }
+    throw error;
   }
-  if (!user || user.isAnonymous) {
-    return { ok: false, response: jsonResponse({ error: "unauthorized" }, 401) };
-  }
-  if (!isAdminUser(user)) {
-    return { ok: false, response: jsonResponse({ error: "forbidden" }, 403) };
-  }
-  return { ok: true, admin: { id: user.id, primaryEmail: user.primaryEmail ?? null } };
 }
 
 function parseGrantBody(

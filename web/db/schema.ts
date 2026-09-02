@@ -720,6 +720,28 @@ export const billingEmailVerificationDeliveries = pgTable(
   ],
 );
 
+// Operator Pro grants addressed to an email that may not have a Stack user
+// yet. Applied to the account at its next verified sign-in (like billing email
+// claims), then marked applied. Revoked rows are never applied.
+export const adminPlanGrants = pgTable(
+  "admin_plan_grants",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    /** Canonicalized email (services/billing/emailMatching). */
+    email: text("email").notNull(),
+    plan: text("plan").notNull(),
+    grantedByUserId: text("granted_by_user_id").notNull(),
+    grantedByEmail: text("granted_by_email"),
+    appliedUserId: text("applied_user_id"),
+    appliedAt: timestamp("applied_at", { withTimezone: true }),
+    revokedAt: timestamp("revoked_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    index("admin_plan_grants_email_idx").on(table.email),
+  ],
+);
+
 export const billingEmailClaims = pgTable(
   "billing_email_claims",
   {
