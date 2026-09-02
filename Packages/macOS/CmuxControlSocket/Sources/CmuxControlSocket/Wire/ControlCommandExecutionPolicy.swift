@@ -169,6 +169,14 @@ public enum ControlCommandExecutionPolicy: Sendable, Equatable {
         "remote.tmux.detach",
         "remote.tmux.state",
         "remote.tmux.mirror", "remote.tmux.pane_grids", "remote.tmux.pane_surfaces",
+        "remote.herdr.sessions",
+        "remote.herdr.attach",
+        "remote.herdr.mirror",
+        "remote.herdr.window",
+        "remote.herdr.detach",
+        "remote.herdr.state",
+        "remote.herdr.pane_surfaces",
+        "remote.herdr.pane_grids",
         "sidebar.custom.validate",
         "sidebar.custom.reload",
         "sidebar.custom.select",
@@ -305,6 +313,14 @@ public enum ControlCommandExecutionPolicy: Sendable, Equatable {
         "pane.surfaces",
         "system.identify",
         "system.tree",
+        // Nested topology read projection (PR4) and capability-gated focus
+        // (PR5): hop to the attachment coordinator actor / provider client on
+        // the worker. Not mainThreadCallable — the actor await and provider
+        // I/O must not run inline on the main actor via handleSocketLine.
+        // Nested focus is NOT focus-intent for cmux workspaces/surfaces; it
+        // only forwards a typed provider RPC for virtual descendants.
+        "nested.topology.list",
+        "nested.node.focus",
         // The v2 send lane (tranche E of issue #5757): text/key parsing and
         // reply shaping run on the worker; the narrow hop resolves the target,
         // injects the input on main (Ghostty surface input is main-bound

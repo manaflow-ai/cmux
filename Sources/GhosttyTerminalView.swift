@@ -3628,6 +3628,8 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     }
 
     weak var terminalSurface: TerminalSurface?
+    /// Owned async Herdr pane-split work started from the sync split menu path.
+    private var remoteHerdrSplitTask: Task<Void, Never>?
     /// View-scoped ingress keeps title churn independent across terminal surfaces.
     fileprivate let titleUpdateIngress = GhosttyTitleUpdateIngress()
     /// Retained independently because the weak surface can clear before view teardown.
@@ -8668,6 +8670,9 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         if AppDelegate.shared?.remoteTmuxController.isMirrorPaneSurface(surfaceId) == true {
             return true
         }
+        if AppDelegate.shared?.remoteHerdrController.isMirrorPaneSurface(surfaceId) == true {
+            return true
+        }
         guard let tabId,
               let app = AppDelegate.shared,
               let manager = app.tabManagerFor(tabId: tabId) ?? app.tabManager,
@@ -8678,11 +8683,37 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     }
 
     @objc private func splitHorizontally(_ sender: Any?) {
-        _ = splitCurrentSurface(direction: .down)
+        performSplitCurrentSurface(direction: .down)
     }
 
     @objc private func splitVertically(_ sender: Any?) {
-        _ = splitCurrentSurface(direction: .right)
+        performSplitCurrentSurface(direction: .right)
+    }
+
+    /// Menu/key path. Sync tmux/local splits report failure immediately.
+    /// Herdr pane.split is async: own the Task, cancel prior work, beep on false.
+    private func performSplitCurrentSurface(direction: SplitDirection) {
+        guard let surfaceId = terminalSurface?.id else {
+            NSSound.beep()
+            return
+        }
+        if let herdr = AppDelegate.shared?.remoteHerdrController,
+           herdr.isMirrorPaneSurface(surfaceId) {
+            remoteHerdrSplitTask?.cancel()
+            remoteHerdrSplitTask = Task { @MainActor [weak self] in
+                let ok = await herdr.handleMirrorSplitRequested(
+                    surfaceId: surfaceId,
+                    vertical: !direction.isHorizontal
+                )
+                guard let self, !Task.isCancelled else { return }
+                if !ok { NSSound.beep() }
+                self.remoteHerdrSplitTask = nil
+            }
+            return
+        }
+        if !splitCurrentSurface(direction: direction) {
+            NSSound.beep()
+        }
     }
 
     @discardableResult
@@ -8919,6 +8950,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     }
 
     deinit {
+        remoteHerdrSplitTask?.cancel()
         discardPendingExplicitKeyDownEvents()
         discardPendingPasteAfterSurfaceReady()
         keyboardCopyModeRenderedFrameDemandRelease?()

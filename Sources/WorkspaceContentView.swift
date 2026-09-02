@@ -295,6 +295,27 @@ struct WorkspaceContentView: View {
                     .onTapGesture {
                         workspace.focusRemoteTmuxContainerPaneIfNeeded(paneId)
                     }
+                } else if let herdrMirror = workspace.remoteHerdrWindowMirror(forPanelId: panel.id) {
+                    RemoteHerdrWindowMirrorSplitView(
+                        mirror: herdrMirror,
+                        appearance: appearance,
+                        isOuterFocused: isFocused,
+                        isVisibleInUI: isVisibleInUI,
+                        portalPriority: workspacePortalPriority,
+                        onOuterFocus: { workspace.focusRemoteTmuxContainerPaneIfNeeded(paneId) },
+                        unreadSurfaceIDs: Set(
+                            herdrMirror.surfaceIDsInLayoutOrder.lazy
+                                .filter {
+                                    notificationStore.hasVisibleNotificationIndicator(
+                                        forTabId: workspace.id,
+                                        surfaceId: $0
+                                    )
+                                }
+                        )
+                    )
+                    .onTapGesture {
+                        workspace.focusRemoteTmuxContainerPaneIfNeeded(paneId)
+                    }
                 } else {
                     WorkspacePanelContentHostView(
                         workspace: workspace,

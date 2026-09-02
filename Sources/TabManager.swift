@@ -2395,6 +2395,9 @@ class TabManager: ObservableObject {
         if workspace.isRemoteTmuxMirror {
             AppDelegate.shared?.remoteTmuxController.detachMirrorWorkspaceKeptOpenLocally(workspaceId: workspace.id)
         }
+        if workspace.isRemoteHerdrMirror {
+            AppDelegate.shared?.remoteHerdrController.detachMirrorWorkspaceKeptOpenLocally(workspaceId: workspace.id)
+        }
         if recordHistory,
            workspace.isRestorableInSessionSnapshot,
            let index = tabs.firstIndex(where: { $0.id == workspace.id }) {

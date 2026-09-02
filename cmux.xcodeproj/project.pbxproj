@@ -868,6 +868,8 @@
 		C54860010000000000000001 /* CmuxNavigationTargetResolver.swift in Sources */ = {isa = PBXBuildFile; fileRef = C54860010000000000000002 /* CmuxNavigationTargetResolver.swift */; };
 		C54860030000000000000001 /* CmuxNavigationTargetResolverTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C54860030000000000000002 /* CmuxNavigationTargetResolverTests.swift */; };
 		C54860130000000000000001 /* CmuxNavigationWorkspaceDescriptor.swift in Sources */ = {isa = PBXBuildFile; fileRef = C54860130000000000000002 /* CmuxNavigationWorkspaceDescriptor.swift */; };
+		C750N3000000000000000A3 /* CmuxNestedTopology in Frameworks */ = {isa = PBXBuildFile; productRef = C750N3000000000000000A2 /* CmuxNestedTopology */; };
+		C750N3000000000000000A4 /* CmuxNestedTopology in Frameworks */ = {isa = PBXBuildFile; productRef = C750N3000000000000000A2 /* CmuxNestedTopology */; };
 		468110000000000000000001 /* CmuxNotificationHookCache.swift in Sources */ = {isa = PBXBuildFile; fileRef = 468110000000000000000002 /* CmuxNotificationHookCache.swift */; };
 		468140000000000000000005 /* CmuxNotificationHookCacheEntry.swift in Sources */ = {isa = PBXBuildFile; fileRef = 468140000000000000000006 /* CmuxNotificationHookCacheEntry.swift */; };
 		468140000000000000000001 /* CmuxNotificationHookCacheKey.swift in Sources */ = {isa = PBXBuildFile; fileRef = 468140000000000000000002 /* CmuxNotificationHookCacheKey.swift */; };
@@ -1662,6 +1664,10 @@
 		596100000000000000000001 /* NativeNotificationFallbackCommandTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 596100000000000000000002 /* NativeNotificationFallbackCommandTests.swift */; };
 		A6AC72030000000000000001 /* NativeSpinner.swift in Sources */ = {isa = PBXBuildFile; fileRef = A6AC72030000000000000002 /* NativeSpinner.swift */; };
 		A1002000000000000000000F /* NativeTextSurfaceSelectionReader.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10020000000000000000010 /* NativeTextSurfaceSelectionReader.swift */; };
+		BD02A4A1E51236230ADAB64C /* NestedSidebarSubtreeView.swift in Sources */ = {isa = PBXBuildFile; fileRef = EF26E0915F2062EFC4CBE962 /* NestedSidebarSubtreeView.swift */; };
+		6564808223B9A5ED8E0ED8D8 /* NestedTopologyCapabilitiesTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = AD3AA14B5C0493B87AC5DA4F /* NestedTopologyCapabilitiesTests.swift */; };
+		FCC87625D11097C386831B7E /* NestedTopologyController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 68D1BA7A1504F9476EE1034B /* NestedTopologyController.swift */; };
+		C750N6RSTR0000000000002 /* NestedTopologyRestoreSessionSnapshotTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C750N6RSTR0000000000001 /* NestedTopologyRestoreSessionSnapshotTests.swift */; };
 		8B1B2AB6EC6ACDB2CD39A9BB /* NewBrowserWorkspaceShortcutUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 04698069140539D8495D6B9B /* NewBrowserWorkspaceShortcutUITests.swift */; };
 		5CA1AFB486DF86FAF22509F2 /* NewMachineModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 751BACEC44FF7CFC02CE9A57 /* NewMachineModel.swift */; };
 		D5EB22366F37AB2B52CD4B2A /* NewMachineModelTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5130177E80C2A18E09DBBBC4 /* NewMachineModelTests.swift */; };
@@ -1845,6 +1851,17 @@
 		791100030000000000000001 /* RemoteDisconnectLifecycleTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 791100040000000000000001 /* RemoteDisconnectLifecycleTests.swift */; };
 		791102010000000000000001 /* RemoteDisconnectPreparationService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 791102020000000000000001 /* RemoteDisconnectPreparationService.swift */; };
 		E30780000000000000000016 /* RemoteDropUploadError+LocalizedError.swift in Sources */ = {isa = PBXBuildFile; fileRef = E30780000000000000000015 /* RemoteDropUploadError+LocalizedError.swift */; };
+		RH10000100000000000000002 /* RemoteHerdrController+Attach.swift in Sources */ = {isa = PBXBuildFile; fileRef = RH10000100000000000000001 /* RemoteHerdrController+Attach.swift */; };
+		RH10000000000000000000002 /* RemoteHerdrController.swift in Sources */ = {isa = PBXBuildFile; fileRef = RH10000000000000000000001 /* RemoteHerdrController.swift */; };
+		RH10000200000000000000002 /* RemoteHerdrSessionHost.swift in Sources */ = {isa = PBXBuildFile; fileRef = RH10000200000000000000001 /* RemoteHerdrSessionHost.swift */; };
+		RH10000400000000000000002 /* RemoteHerdrWindowMirrorHost+Bonsplit.swift in Sources */ = {isa = PBXBuildFile; fileRef = RH10000400000000000000001 /* RemoteHerdrWindowMirrorHost+Bonsplit.swift */; };
+		RH10000B00000000000000002 /* RemoteHerdrWindowMirrorHost+Configuration.swift in Sources */ = {isa = PBXBuildFile; fileRef = RH10000B00000000000000001 /* RemoteHerdrWindowMirrorHost+Configuration.swift */; };
+		RH10000900000000000000002 /* RemoteHerdrWindowMirrorHost+ControlMutations.swift in Sources */ = {isa = PBXBuildFile; fileRef = RH10000900000000000000001 /* RemoteHerdrWindowMirrorHost+ControlMutations.swift */; };
+		RH10000800000000000000002 /* RemoteHerdrWindowMirrorHost+DividerSizing.swift in Sources */ = {isa = PBXBuildFile; fileRef = RH10000800000000000000001 /* RemoteHerdrWindowMirrorHost+DividerSizing.swift */; };
+		RH10000700000000000000002 /* RemoteHerdrWindowMirrorHost+FocusNavigation.swift in Sources */ = {isa = PBXBuildFile; fileRef = RH10000700000000000000001 /* RemoteHerdrWindowMirrorHost+FocusNavigation.swift */; };
+		RH10000A00000000000000002 /* RemoteHerdrWindowMirrorHost+Sizing.swift in Sources */ = {isa = PBXBuildFile; fileRef = RH10000A00000000000000001 /* RemoteHerdrWindowMirrorHost+Sizing.swift */; };
+		RH10000300000000000000002 /* RemoteHerdrWindowMirrorHost.swift in Sources */ = {isa = PBXBuildFile; fileRef = RH10000300000000000000001 /* RemoteHerdrWindowMirrorHost.swift */; };
+		RH10000500000000000000002 /* RemoteHerdrWindowMirrorSplitView.swift in Sources */ = {isa = PBXBuildFile; fileRef = RH10000500000000000000001 /* RemoteHerdrWindowMirrorSplitView.swift */; };
 		835000000000000000000001 /* RemoteInitialCommandBootstrap.swift in Sources */ = {isa = PBXBuildFile; fileRef = 835000000000000000000003 /* RemoteInitialCommandBootstrap.swift */; };
 		835000000000000000000002 /* RemoteInitialCommandBootstrap.swift in Sources */ = {isa = PBXBuildFile; fileRef = 835000000000000000000003 /* RemoteInitialCommandBootstrap.swift */; };
 		835000000000000000000006 /* RemoteInitialCommandBootstrapFailureTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 835000000000000000000007 /* RemoteInitialCommandBootstrapFailureTests.swift */; };
@@ -2577,6 +2594,8 @@
 		D1FF00010000000000000002 /* TerminalController+MobileWorkspaceChanges.swift in Sources */ = {isa = PBXBuildFile; fileRef = D1FF00010000000000000001 /* TerminalController+MobileWorkspaceChanges.swift */; };
 		C7A50B000000000000000012 /* TerminalController+MobileWorkspaceList.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7A50B000000000000000011 /* TerminalController+MobileWorkspaceList.swift */; };
 		D7AB0000000000000000000B /* TerminalController+MoveTabToNewWorkspace.swift in Sources */ = {isa = PBXBuildFile; fileRef = D7AB0000000000000000000C /* TerminalController+MoveTabToNewWorkspace.swift */; };
+		DA82DDF456E38785CE92CEFF /* TerminalController+NestedTopology.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5814AB3D95071B3476D35AB9 /* TerminalController+NestedTopology.swift */; };
+		RH10000600000000000000002 /* TerminalController+RemoteHerdr.swift in Sources */ = {isa = PBXBuildFile; fileRef = RH10000600000000000000001 /* TerminalController+RemoteHerdr.swift */; };
 		A19F4C0D0000000000000002 /* TerminalController+RemoteRelayAuthorization.swift in Sources */ = {isa = PBXBuildFile; fileRef = A19F4C0D0000000000000001 /* TerminalController+RemoteRelayAuthorization.swift */; };
 		812600000000000000000009 /* TerminalController+RemoteTerminalTransportErrors.swift in Sources */ = {isa = PBXBuildFile; fileRef = 81260000000000000000000A /* TerminalController+RemoteTerminalTransportErrors.swift */; };
 		A31B24551C6E01E86D76B07E /* TerminalController+RemoteTmux.swift in Sources */ = {isa = PBXBuildFile; fileRef = 95B11974CF8937E165A3FAEE /* TerminalController+RemoteTmux.swift */; };
@@ -4708,6 +4727,10 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 		596100000000000000000002 /* NativeNotificationFallbackCommandTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeNotificationFallbackCommandTests.swift; sourceTree = "<group>"; };
 		A6AC72030000000000000002 /* NativeSpinner.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeSpinner.swift; sourceTree = "<group>"; };
 		A10020000000000000000010 /* NativeTextSurfaceSelectionReader.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/NativeTextSurfaceSelectionReader.swift; sourceTree = "<group>"; };
+		EF26E0915F2062EFC4CBE962 /* NestedSidebarSubtreeView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NestedSidebarSubtreeView.swift; sourceTree = "<group>"; };
+		AD3AA14B5C0493B87AC5DA4F /* NestedTopologyCapabilitiesTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NestedTopologyCapabilitiesTests.swift; sourceTree = "<group>"; };
+		68D1BA7A1504F9476EE1034B /* NestedTopologyController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NestedTopologyController.swift; sourceTree = "<group>"; };
+		C750N6RSTR0000000000001 /* NestedTopologyRestoreSessionSnapshotTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NestedTopologyRestoreSessionSnapshotTests.swift; sourceTree = "<group>"; };
 		04698069140539D8495D6B9B /* NewBrowserWorkspaceShortcutUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NewBrowserWorkspaceShortcutUITests.swift; sourceTree = "<group>"; };
 		751BACEC44FF7CFC02CE9A57 /* NewMachineModel.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = NewMachineModel.swift; sourceTree = "<group>"; };
 		5130177E80C2A18E09DBBBC4 /* NewMachineModelTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = NewMachineModelTests.swift; sourceTree = "<group>"; };
@@ -4890,6 +4913,17 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 		791100040000000000000001 /* RemoteDisconnectLifecycleTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemoteDisconnectLifecycleTests.swift; sourceTree = "<group>"; };
 		791102020000000000000001 /* RemoteDisconnectPreparationService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemoteDisconnectPreparationService.swift; sourceTree = "<group>"; };
 		E30780000000000000000015 /* RemoteDropUploadError+LocalizedError.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "RemoteDropUploadError+LocalizedError.swift"; sourceTree = "<group>"; };
+		RH10000100000000000000001 /* RemoteHerdrController+Attach.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemoteHerdrController+Attach.swift; sourceTree = "<group>"; };
+		RH10000000000000000000001 /* RemoteHerdrController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemoteHerdrController.swift; sourceTree = "<group>"; };
+		RH10000200000000000000001 /* RemoteHerdrSessionHost.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemoteHerdrSessionHost.swift; sourceTree = "<group>"; };
+		RH10000400000000000000001 /* RemoteHerdrWindowMirrorHost+Bonsplit.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemoteHerdrWindowMirrorHost+Bonsplit.swift; sourceTree = "<group>"; };
+		RH10000B00000000000000001 /* RemoteHerdrWindowMirrorHost+Configuration.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "RemoteHerdrWindowMirrorHost+Configuration.swift"; sourceTree = "<group>"; };
+		RH10000900000000000000001 /* RemoteHerdrWindowMirrorHost+ControlMutations.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "RemoteHerdrWindowMirrorHost+ControlMutations.swift"; sourceTree = "<group>"; };
+		RH10000800000000000000001 /* RemoteHerdrWindowMirrorHost+DividerSizing.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "RemoteHerdrWindowMirrorHost+DividerSizing.swift"; sourceTree = "<group>"; };
+		RH10000700000000000000001 /* RemoteHerdrWindowMirrorHost+FocusNavigation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "RemoteHerdrWindowMirrorHost+FocusNavigation.swift"; sourceTree = "<group>"; };
+		RH10000A00000000000000001 /* RemoteHerdrWindowMirrorHost+Sizing.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "RemoteHerdrWindowMirrorHost+Sizing.swift"; sourceTree = "<group>"; };
+		RH10000300000000000000001 /* RemoteHerdrWindowMirrorHost.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemoteHerdrWindowMirrorHost.swift; sourceTree = "<group>"; };
+		RH10000500000000000000001 /* RemoteHerdrWindowMirrorSplitView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemoteHerdrWindowMirrorSplitView.swift; sourceTree = "<group>"; };
 		835000000000000000000003 /* RemoteInitialCommandBootstrap.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemoteInitialCommandBootstrap.swift; sourceTree = "<group>"; };
 		835000000000000000000007 /* RemoteInitialCommandBootstrapFailureTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemoteInitialCommandBootstrapFailureTests.swift; sourceTree = "<group>"; };
 		835000000000000000000005 /* RemoteInitialCommandBootstrapTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemoteInitialCommandBootstrapTests.swift; sourceTree = "<group>"; };
@@ -5610,6 +5644,8 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 		D1FF00010000000000000001 /* TerminalController+MobileWorkspaceChanges.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TerminalController+MobileWorkspaceChanges.swift"; sourceTree = "<group>"; };
 		C7A50B000000000000000011 /* TerminalController+MobileWorkspaceList.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TerminalController+MobileWorkspaceList.swift"; sourceTree = "<group>"; };
 		D7AB0000000000000000000C /* TerminalController+MoveTabToNewWorkspace.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TerminalController+MoveTabToNewWorkspace.swift"; sourceTree = "<group>"; };
+		5814AB3D95071B3476D35AB9 /* TerminalController+NestedTopology.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalController+NestedTopology.swift; sourceTree = "<group>"; };
+		RH10000600000000000000001 /* TerminalController+RemoteHerdr.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalController+RemoteHerdr.swift; sourceTree = "<group>"; };
 		A19F4C0D0000000000000001 /* TerminalController+RemoteRelayAuthorization.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TerminalController+RemoteRelayAuthorization.swift"; sourceTree = "<group>"; };
 		81260000000000000000000A /* TerminalController+RemoteTerminalTransportErrors.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TerminalController+RemoteTerminalTransportErrors.swift"; sourceTree = "<group>"; };
 		95B11974CF8937E165A3FAEE /* TerminalController+RemoteTmux.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TerminalController+RemoteTmux.swift"; sourceTree = "<group>"; };
@@ -6127,6 +6163,7 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 				1A0B0C0D0E0F101112132113 /* CmuxIrxTransport in Frameworks */,
 				799F1BEF876006EEB8CD1035 /* CMUXMobileCore in Frameworks */,
 				1A0B0C0D0E0F101112132003 /* CmuxMobileTransport in Frameworks */,
+				C750N3000000000000000A3 /* CmuxNestedTopology in Frameworks */,
 				E3B7A30000000000000000D3 /* CmuxNotifications in Frameworks */,
 				E3B7A30000000000000000F3 /* CmuxPanes in Frameworks */,
 				F0C0A1000000000000000003 /* CmuxPhonePush in Frameworks */,
@@ -6218,6 +6255,7 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 				EFB18E3C0000000000000001 /* CMUXMobileCore in Frameworks */,
 				C1A072000000000000000003 /* CmuxMobileRPC in Frameworks */,
 				1A0B0C0D0E0F101112132004 /* CmuxMobileTransport in Frameworks */,
+				C750N3000000000000000A4 /* CmuxNestedTopology in Frameworks */,
 				F0C0A1000000000000000004 /* CmuxPhonePush in Frameworks */,
 				C0DE4A000000000000000005 /* CmuxSidebarProviderKit in Frameworks */,
 				730600040000000000000001 /* CmuxWindowing in Frameworks */,
@@ -8085,6 +8123,18 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 					74060000000000000000001A /* BonsplitConfiguration+RemoteTmuxEmbedded.swift */,
 					4AFCBA6217C0EB912342F0A5 /* RemoteTmuxWindowMirrorSizingSnapshot.swift */,
 					740600000000000000000007 /* RemoteTmuxWindowMirrorSplitView.swift */,
+					RH10000600000000000000001 /* TerminalController+RemoteHerdr.swift */,
+					RH10000500000000000000001 /* RemoteHerdrWindowMirrorSplitView.swift */,
+					RH10000B00000000000000001 /* RemoteHerdrWindowMirrorHost+Configuration.swift */,
+					RH10000A00000000000000001 /* RemoteHerdrWindowMirrorHost+Sizing.swift */,
+					RH10000900000000000000001 /* RemoteHerdrWindowMirrorHost+ControlMutations.swift */,
+					RH10000800000000000000001 /* RemoteHerdrWindowMirrorHost+DividerSizing.swift */,
+					RH10000700000000000000001 /* RemoteHerdrWindowMirrorHost+FocusNavigation.swift */,
+					RH10000400000000000000001 /* RemoteHerdrWindowMirrorHost+Bonsplit.swift */,
+					RH10000300000000000000001 /* RemoteHerdrWindowMirrorHost.swift */,
+					RH10000200000000000000001 /* RemoteHerdrSessionHost.swift */,
+					RH10000100000000000000001 /* RemoteHerdrController+Attach.swift */,
+					RH10000000000000000000001 /* RemoteHerdrController.swift */,
 					F2A6C8E40D5B17293C8F6A42 /* TerminalPanelCreationOutcome.swift */,
 					D7D5CC45BBE157F3EF880936 /* RemoteTmuxSessionMirror.swift */,
 					7F023A000000000000007023 /* RemoteTmuxSessionMirror+Helpers.swift */,
@@ -8141,6 +8191,9 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 					793800000000000000000005 /* TerminalWindowPortal+DebugDiagnostics.swift */,
 					793800000000000000000007 /* GhosttyTerminalView+Sizing.swift */,
 					50FE16F529BD6FBA4FBDECFC /* RemoteTmuxController.swift */,
+					68D1BA7A1504F9476EE1034B /* NestedTopologyController.swift */,
+					5814AB3D95071B3476D35AB9 /* TerminalController+NestedTopology.swift */,
+					EF26E0915F2062EFC4CBE962 /* NestedSidebarSubtreeView.swift */,
 					740600000000000000000001 /* RemoteTmuxController+Attach.swift */,
 					740600000000000000000010 /* RemoteTmuxAttachWindowTarget.swift */,
 					736200000000000000000001 /* RemoteTmuxController+Decisions.swift */,
@@ -9063,6 +9116,8 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 				7368BEEF7368BEEF7368B001 /* RemoteTmuxMissingTmuxTests.swift */,
 				0C7D0CDD0C7D0CDD0C7D0001 /* RemoteTmuxNewWindowCwdTests.swift */,
 				5F5553CA5553CA5553CA0002 /* RemoteTmuxCapabilitiesTests.swift */,
+				C750N6RSTR0000000000001 /* NestedTopologyRestoreSessionSnapshotTests.swift */,
+				AD3AA14B5C0493B87AC5DA4F /* NestedTopologyCapabilitiesTests.swift */,
 				C57570010000000000000001 /* RightSidebarPanelViewTestSupport.swift */,
 				5F5553CB5553CB5553CB0002 /* RightSidebarRemoteCommandTests.swift */,
 				5FAC71D5AC71D5AC71D50002 /* AgentChatChildRunTests.swift */,
@@ -9370,6 +9425,7 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 				A500D013A1B2C3D4E5F60718 /* CMUXDebugLog */,
 				CC0033E15A1B2C3D4E5F0011 /* CmuxDiffComments */,
 				CD0CFE5200000000CD0CFE52 /* CmuxSettings */,
+				C750N3000000000000000A2 /* CmuxNestedTopology */,
 				CFF12E0000000000000000A2 /* CmuxTestSupport */,
 				CD0CFE5500000000CD0CFE55 /* CmuxSettingsUI */,
 				CDFEED0200000000CDFEED02 /* CmuxUpdater */,
@@ -9406,6 +9462,7 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 				A5B00002A1B2C3D4E5F60718 /* CMUXAgentLaunch */,
 				A77A0002A1B2C3D4E5F60001 /* CmuxAgentJournal */,
 				C750100000000000000000A2 /* CmuxControlSocket */,
+				C750N3000000000000000A2 /* CmuxNestedTopology */,
 				C5A1FED000000000000000C3 /* CmuxSwiftRender */,
 				C5A1FED100000000000000D3 /* CmuxSwiftRenderUI */,
 				C5A1FED200000000000000E3 /* CmuxSidebarInterpreterClient */,
@@ -9474,6 +9531,7 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 				A5B00002A1B2C3D4E5F60718 /* CMUXAgentLaunch */,
 				A77A0002A1B2C3D4E5F60001 /* CmuxAgentJournal */,
 				C750100000000000000000A2 /* CmuxControlSocket */,
+				C750N3000000000000000A2 /* CmuxNestedTopology */,
 				1A0B0C0D0E0F101112132012 /* CmuxIrohTransport */,
 				1A0B0C0D0E0F101112132112 /* CmuxIrxTransport */,
 				C1A072000000000000000002 /* CmuxMobileRPC */,
@@ -9570,6 +9628,7 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 				E3B7A30000000000000000F1 /* XCLocalSwiftPackageReference "CmuxPanes" */,
 				E3B7A3000000000000000101 /* XCLocalSwiftPackageReference "CmuxWorkspaces" */,
 				C750100000000000000000A1 /* XCLocalSwiftPackageReference "CmuxControlSocket" */,
+				C750N3000000000000000A1 /* XCLocalSwiftPackageReference "CmuxNestedTopology" */,
 				C9A2B00000000000000000B1 /* XCLocalSwiftPackageReference "CmuxAppKitSupportUI" */,
 				C9A2C00000000000000000C1 /* XCLocalSwiftPackageReference "CmuxFeedback" */,
 				C750200000000000000000A1 /* XCLocalSwiftPackageReference "CmuxTerminalCore" */,
@@ -10779,6 +10838,8 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 				596100000000000000000003 /* NativeNotificationDeliveryHooks.swift in Sources */,
 					A6AC72030000000000000001 /* NativeSpinner.swift in Sources */,
 				A1002000000000000000000F /* NativeTextSurfaceSelectionReader.swift in Sources */,
+				BD02A4A1E51236230ADAB64C /* NestedSidebarSubtreeView.swift in Sources */,
+				FCC87625D11097C386831B7E /* NestedTopologyController.swift in Sources */,
 				5CA1AFB486DF86FAF22509F2 /* NewMachineModel.swift in Sources */,
 				DD3322FE8D4021EB0FAFE7F6 /* NewMachineSheet.swift in Sources */,
 				548D90758DB3CF890BFDC603 /* NewMachineSheetPresenter.swift in Sources */,
@@ -10912,6 +10973,17 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 				EE30D5000000000000000002 /* RemoteDaemonStrings+App.swift in Sources */,
 				791102010000000000000001 /* RemoteDisconnectPreparationService.swift in Sources */,
 				E30780000000000000000016 /* RemoteDropUploadError+LocalizedError.swift in Sources */,
+				RH10000100000000000000002 /* RemoteHerdrController+Attach.swift in Sources */,
+				RH10000000000000000000002 /* RemoteHerdrController.swift in Sources */,
+				RH10000200000000000000002 /* RemoteHerdrSessionHost.swift in Sources */,
+				RH10000400000000000000002 /* RemoteHerdrWindowMirrorHost+Bonsplit.swift in Sources */,
+				RH10000B00000000000000002 /* RemoteHerdrWindowMirrorHost+Configuration.swift in Sources */,
+				RH10000900000000000000002 /* RemoteHerdrWindowMirrorHost+ControlMutations.swift in Sources */,
+				RH10000800000000000000002 /* RemoteHerdrWindowMirrorHost+DividerSizing.swift in Sources */,
+				RH10000700000000000000002 /* RemoteHerdrWindowMirrorHost+FocusNavigation.swift in Sources */,
+				RH10000A00000000000000002 /* RemoteHerdrWindowMirrorHost+Sizing.swift in Sources */,
+				RH10000300000000000000002 /* RemoteHerdrWindowMirrorHost.swift in Sources */,
+				RH10000500000000000000002 /* RemoteHerdrWindowMirrorSplitView.swift in Sources */,
 				835000000000000000000001 /* RemoteInitialCommandBootstrap.swift in Sources */,
 				A5001643 /* RemoteInteractiveShellBootstrapBuilder.swift in Sources */,
 				D0C0D0C0D0C0D0C0D0C00003 /* RemoteLoopbackRuntimeBridge.swift in Sources */,
@@ -11412,6 +11484,8 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 				D1FF00010000000000000002 /* TerminalController+MobileWorkspaceChanges.swift in Sources */,
 				C7A50B000000000000000012 /* TerminalController+MobileWorkspaceList.swift in Sources */,
 				D7AB0000000000000000000B /* TerminalController+MoveTabToNewWorkspace.swift in Sources */,
+				DA82DDF456E38785CE92CEFF /* TerminalController+NestedTopology.swift in Sources */,
+				RH10000600000000000000002 /* TerminalController+RemoteHerdr.swift in Sources */,
 				A19F4C0D0000000000000002 /* TerminalController+RemoteRelayAuthorization.swift in Sources */,
 				812600000000000000000009 /* TerminalController+RemoteTerminalTransportErrors.swift in Sources */,
 				A31B24551C6E01E86D76B07E /* TerminalController+RemoteTmux.swift in Sources */,
@@ -12418,6 +12492,8 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 				F6448F377504F33956E7E03B /* MobileWorkspaceListFidelityTests.swift in Sources */,
 				13AB1A2E5DA6AD02DCAE971D /* MockBridgeInputCapture.swift in Sources */,
 				596100000000000000000001 /* NativeNotificationFallbackCommandTests.swift in Sources */,
+				6564808223B9A5ED8E0ED8D8 /* NestedTopologyCapabilitiesTests.swift in Sources */,
+				C750N6RSTR0000000000002 /* NestedTopologyRestoreSessionSnapshotTests.swift in Sources */,
 				D5EB22366F37AB2B52CD4B2A /* NewMachineModelTests.swift in Sources */,
 				EBEEFD57F5B44FD3D569C2A7 /* NewMachineModelUncappedPlanTests.swift in Sources */,
 				A5FB1400 /* NewWorkspaceMenuModelTests.swift in Sources */,
@@ -13377,6 +13453,10 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 			isa = XCLocalSwiftPackageReference;
 			relativePath = Packages/Shared/CmuxSentryTelemetry;
 		};
+		C750N3000000000000000A1 /* XCLocalSwiftPackageReference "CmuxNestedTopology" */ = {
+			isa = XCLocalSwiftPackageReference;
+			relativePath = Packages/macOS/CmuxNestedTopology;
+		};
 /* End XCLocalSwiftPackageReference section */
 
 /* Begin XCRemoteSwiftPackageReference section */
@@ -13748,6 +13828,11 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 			isa = XCSwiftPackageProductDependency;
 			package = C1A072000000000000000001 /* XCLocalSwiftPackageReference "CmuxMobileRPC" */;
 			productName = CmuxMobileRPC;
+		};
+		C750N3000000000000000A2 /* CmuxNestedTopology */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = C750N3000000000000000A1 /* XCLocalSwiftPackageReference "CmuxNestedTopology" */;
+			productName = CmuxNestedTopology;
 		};
 /* End XCSwiftPackageProductDependency section */
 	};

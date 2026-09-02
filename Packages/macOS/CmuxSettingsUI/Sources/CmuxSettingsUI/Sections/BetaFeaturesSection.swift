@@ -13,6 +13,8 @@ public struct BetaFeaturesSection: View {
     @State private var extensions: DefaultsValueModel<Bool>
     @State private var customSidebars: DefaultsValueModel<Bool>
     @State private var remoteTmux: DefaultsValueModel<Bool>
+    @State private var nestedTopology: DefaultsValueModel<Bool>
+    @State private var remoteHerdrMirror: DefaultsValueModel<Bool>
     @State private var workspaceTodoControls: DefaultsValueModel<Bool>
     @State private var workspaceTodosChecklistStyle: DefaultsValueModel<WorkspaceTodoChecklistStyle>
 
@@ -23,6 +25,8 @@ public struct BetaFeaturesSection: View {
         _extensions = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.betaFeatures.extensions))
         _customSidebars = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.betaFeatures.customSidebars))
         _remoteTmux = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.betaFeatures.remoteTmux))
+        _nestedTopology = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.betaFeatures.nestedTopology))
+        _remoteHerdrMirror = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.betaFeatures.remoteHerdrMirror))
         _workspaceTodoControls = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.betaFeatures.workspaceTodoControls))
         _workspaceTodosChecklistStyle = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.betaFeatures.workspaceTodosChecklistStyle))
     }
@@ -47,6 +51,10 @@ public struct BetaFeaturesSection: View {
                 SettingsCardDivider()
                 remoteTmuxRow
                 SettingsCardDivider()
+                nestedTopologyRow
+                SettingsCardDivider()
+                remoteHerdrMirrorRow
+                SettingsCardDivider()
                 workspaceTodoControlsRow
                 SettingsCardDivider()
                 workspaceTodosChecklistStyleRow
@@ -63,6 +71,8 @@ public struct BetaFeaturesSection: View {
             extensions,
             customSidebars,
             remoteTmux,
+            nestedTopology,
+            remoteHerdrMirror,
             workspaceTodoControls,
             workspaceTodosChecklistStyle,
         ]
@@ -209,6 +219,40 @@ public struct BetaFeaturesSection: View {
                 .labelsHidden()
                 .controlSize(.small)
                 .accessibilityIdentifier("SettingsBetaRemoteTmuxToggle")
+        }
+    }
+
+    @ViewBuilder
+    private var nestedTopologyRow: some View {
+        SettingsCardRow(
+            configurationReview: .settingsOnly,
+            searchAnchorID: "setting:betaFeatures:nestedTopology",
+            String(localized: "settings.betaFeatures.nestedTopology", defaultValue: "Nested Topology"),
+            subtitle: nestedTopology.current
+                ? String(localized: "settings.betaFeatures.nestedTopology.subtitleOn", defaultValue: "Shows Herdr nested workspaces/tabs/panes/agents as virtual descendants under the host terminal surface. Supports capability-gated focus; does not create cmux panes.")
+                : String(localized: "settings.betaFeatures.nestedTopology.subtitleOff", defaultValue: "Hides nested topology reads, focus, and sidebar subtrees until you enable them here.")
+        ) {
+            Toggle("", isOn: Binding(get: { nestedTopology.current }, set: { nestedTopology.set($0) }))
+                .labelsHidden()
+                .controlSize(.small)
+                .accessibilityIdentifier("SettingsBetaNestedTopologyToggle")
+        }
+    }
+
+    @ViewBuilder
+    private var remoteHerdrMirrorRow: some View {
+        SettingsCardRow(
+            configurationReview: .settingsOnly,
+            searchAnchorID: "setting:betaFeatures:remoteHerdrMirror",
+            String(localized: "settings.betaFeatures.remoteHerdrMirror", defaultValue: "Remote Herdr Mirror"),
+            subtitle: remoteHerdrMirror.current
+                ? String(localized: "settings.betaFeatures.remoteHerdrMirror.subtitleOn", defaultValue: "Mirrors a Herdr Unix socket into cmux tabs and Bonsplit panes (native ssh-tmux parity). Closing cmux detaches without stopping the Herdr server.")
+                : String(localized: "settings.betaFeatures.remoteHerdrMirror.subtitleOff", defaultValue: "Hides native Herdr mirroring until you enable it here (or Nested Topology).")
+        ) {
+            Toggle("", isOn: Binding(get: { remoteHerdrMirror.current }, set: { remoteHerdrMirror.set($0) }))
+                .labelsHidden()
+                .controlSize(.small)
+                .accessibilityIdentifier("SettingsBetaRemoteHerdrMirrorToggle")
         }
     }
 

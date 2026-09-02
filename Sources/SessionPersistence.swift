@@ -1,6 +1,7 @@
 import CoreGraphics
 import CmuxBrowser
 import CmuxCore
+import CmuxNestedTopology
 import Foundation
 import Bonsplit
 import CmuxWorkspaces
@@ -1738,6 +1739,9 @@ struct SessionPanelSnapshot: Codable, Sendable {
     var project: SessionProjectPanelSnapshot?
     var workspaceTodo: SessionWorkspaceTodoPanelSnapshot? = nil
     var notificationsPanel: SessionNotificationsPanelSnapshot? = nil
+    /// Nested provider attachment *intent* only (PR 6). Optional so older snapshots decode.
+    /// Never stores nested nodes, output, tokens, credentials, or association state.
+    var nestedAttachmentIntent: NestedAttachmentIntentDescriptor? = nil
 }
 extension SessionPanelSnapshot: WorkspaceSessionRemoteRestorePanelSnapshot {}
 

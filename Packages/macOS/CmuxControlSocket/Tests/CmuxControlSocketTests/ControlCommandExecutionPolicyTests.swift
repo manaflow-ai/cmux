@@ -107,6 +107,20 @@ struct ControlCommandExecutionPolicyTests {
         }
     }
 
+    @Test func nestedTopologyListRunsOnTheWorkerAndIsNotMainThreadCallable() {
+        // Nested topology reads await the attachment coordinator actor, so they
+        // stay on the worker lane like remote.tmux.* (not inline on main).
+        let policy = ControlCommandExecutionPolicy(forMethod: "nested.topology.list")
+        #expect(policy == .socketWorker(mainThreadCallable: false))
+    }
+
+    @Test func nestedNodeFocusRunsOnTheWorkerAndIsNotMainThreadCallable() {
+        // Nested focus forwards a provider RPC via the attachment coordinator;
+        // it must not steal macOS/cmux focus and must not run inline on main.
+        let policy = ControlCommandExecutionPolicy(forMethod: "nested.node.focus")
+        #expect(policy == .socketWorker(mainThreadCallable: false))
+    }
+
     @Test func v1ResolutionReadsRunOnTheWorkerAndAreMainThreadCallable() {
         for command in [
             "list_windows", "current_window", "list_workspaces",

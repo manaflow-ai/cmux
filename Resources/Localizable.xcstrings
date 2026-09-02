@@ -176837,6 +176837,381 @@
         }
       }
     },
+    "settings.betaFeatures.nestedTopology": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nested Topology"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ネストトポロジ"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nested Topology"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nested Topology"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nested Topology"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nested Topology"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nested Topology"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nested Topology"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nested Topology"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nested Topology"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nested Topology"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nested Topology"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nested Topology"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nested Topology"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nested Topology"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nested Topology"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nested Topology"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nested Topology"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nested Topology"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nested Topology"
+          }
+        }
+      }
+    },
+    "settings.betaFeatures.nestedTopology.subtitleOff": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hides nested topology reads, focus, and sidebar subtrees until you enable them here."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ここで有効化するまで、ネストトポロジの読み取り・フォーカス・サイドバーのサブツリーを非表示にします。"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hides nested topology reads, focus, and sidebar subtrees until you enable them here."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hides nested topology reads, focus, and sidebar subtrees until you enable them here."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hides nested topology reads, focus, and sidebar subtrees until you enable them here."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hides nested topology reads, focus, and sidebar subtrees until you enable them here."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hides nested topology reads, focus, and sidebar subtrees until you enable them here."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hides nested topology reads, focus, and sidebar subtrees until you enable them here."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hides nested topology reads, focus, and sidebar subtrees until you enable them here."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hides nested topology reads, focus, and sidebar subtrees until you enable them here."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hides nested topology reads, focus, and sidebar subtrees until you enable them here."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hides nested topology reads, focus, and sidebar subtrees until you enable them here."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hides nested topology reads, focus, and sidebar subtrees until you enable them here."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hides nested topology reads, focus, and sidebar subtrees until you enable them here."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hides nested topology reads, focus, and sidebar subtrees until you enable them here."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hides nested topology reads, focus, and sidebar subtrees until you enable them here."
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hides nested topology reads, focus, and sidebar subtrees until you enable them here."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hides nested topology reads, focus, and sidebar subtrees until you enable them here."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hides nested topology reads, focus, and sidebar subtrees until you enable them here."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hides nested topology reads, focus, and sidebar subtrees until you enable them here."
+          }
+        }
+      }
+    },
+    "settings.betaFeatures.nestedTopology.subtitleOn": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Shows Herdr nested workspaces/tabs/panes/agents as virtual descendants under the host terminal surface. Supports capability-gated focus; does not create cmux panes."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ホスト端末サーフェス配下に Herdr のネストされたワークスペース/タブ/ペイン/エージェントを仮想子孫として表示します。ケイパビリティで制御されたフォーカスに対応し、cmux ペインは作成しません。"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Shows Herdr nested workspaces/tabs/panes/agents as virtual descendants under the host terminal surface. Supports capability-gated focus; does not create cmux panes."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Shows Herdr nested workspaces/tabs/panes/agents as virtual descendants under the host terminal surface. Supports capability-gated focus; does not create cmux panes."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Shows Herdr nested workspaces/tabs/panes/agents as virtual descendants under the host terminal surface. Supports capability-gated focus; does not create cmux panes."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Shows Herdr nested workspaces/tabs/panes/agents as virtual descendants under the host terminal surface. Supports capability-gated focus; does not create cmux panes."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Shows Herdr nested workspaces/tabs/panes/agents as virtual descendants under the host terminal surface. Supports capability-gated focus; does not create cmux panes."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Shows Herdr nested workspaces/tabs/panes/agents as virtual descendants under the host terminal surface. Supports capability-gated focus; does not create cmux panes."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Shows Herdr nested workspaces/tabs/panes/agents as virtual descendants under the host terminal surface. Supports capability-gated focus; does not create cmux panes."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Shows Herdr nested workspaces/tabs/panes/agents as virtual descendants under the host terminal surface. Supports capability-gated focus; does not create cmux panes."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Shows Herdr nested workspaces/tabs/panes/agents as virtual descendants under the host terminal surface. Supports capability-gated focus; does not create cmux panes."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Shows Herdr nested workspaces/tabs/panes/agents as virtual descendants under the host terminal surface. Supports capability-gated focus; does not create cmux panes."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Shows Herdr nested workspaces/tabs/panes/agents as virtual descendants under the host terminal surface. Supports capability-gated focus; does not create cmux panes."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Shows Herdr nested workspaces/tabs/panes/agents as virtual descendants under the host terminal surface. Supports capability-gated focus; does not create cmux panes."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Shows Herdr nested workspaces/tabs/panes/agents as virtual descendants under the host terminal surface. Supports capability-gated focus; does not create cmux panes."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Shows Herdr nested workspaces/tabs/panes/agents as virtual descendants under the host terminal surface. Supports capability-gated focus; does not create cmux panes."
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Shows Herdr nested workspaces/tabs/panes/agents as virtual descendants under the host terminal surface. Supports capability-gated focus; does not create cmux panes."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Shows Herdr nested workspaces/tabs/panes/agents as virtual descendants under the host terminal surface. Supports capability-gated focus; does not create cmux panes."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Shows Herdr nested workspaces/tabs/panes/agents as virtual descendants under the host terminal surface. Supports capability-gated focus; does not create cmux panes."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Shows Herdr nested workspaces/tabs/panes/agents as virtual descendants under the host terminal surface. Supports capability-gated focus; does not create cmux panes."
+          }
+        }
+      }
+    },
     "settings.betaFeatures.remoteTmux": {
       "extractionState": "manual",
       "localizations": {
