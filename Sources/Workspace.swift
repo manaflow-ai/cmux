@@ -8929,7 +8929,8 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         // create itself materializes, whose initialCommand is the attach argv).
         if initialCommand == nil, tmuxStartCommand == nil, remotePTYSessionID == nil,
            workingDirectory == nil, initialInput == nil, startupRestoreAgent == nil,
-           restoredSurfaceId == nil, !suppressWorkspaceRemoteStartupCommand,
+           restoredSurfaceId == nil, cloudTuiManualIOAttach == nil,
+           !suppressWorkspaceRemoteStartupCommand,
            routeCloudPaneTerminalTab(inPane: paneId, focus: focus ?? (bonsplitController.focusedPaneId == paneId)) {
             return .routedToRemote
         }
