@@ -8,6 +8,30 @@ extension TerminalController {
         localized: "socket.terminal.readText.failed",
         defaultValue: "Failed to read terminal text"
     )
+    nonisolated static let terminalTextInvalidLinesMessage = String(
+        localized: "socket.terminal.readText.invalidLines",
+        defaultValue: "lines must be greater than 0"
+    )
+    nonisolated static let terminalTextTabManagerUnavailableMessage = String(
+        localized: "socket.workspace.reorderMany.tabManagerUnavailable",
+        defaultValue: "TabManager not available"
+    )
+    nonisolated static let terminalTextSurfaceNotFoundMessage = String(
+        localized: "rpc.v2.surface.respawn.surfaceNotFoundForId",
+        defaultValue: "Surface not found for the given surface_id"
+    )
+    nonisolated static let terminalTextNoFocusedSurfaceMessage = String(
+        localized: "rpc.v2.surface.respawn.noFocusedSurface",
+        defaultValue: "No focused surface"
+    )
+    nonisolated static let terminalTextSurfaceNotTerminalMessage = String(
+        localized: "rpc.v2.surface.respawn.surfaceNotTerminal",
+        defaultValue: "Surface is not a terminal"
+    )
+    nonisolated static let terminalTextWorkspaceNotFoundMessage = String(
+        localized: "rpc.v2.surface.respawn.workspaceNotFound",
+        defaultValue: "Workspace not found"
+    )
 
     struct TerminalTextRawSnapshot: Sendable {
         var viewport: String?
@@ -162,13 +186,13 @@ extension TerminalController {
         guard let tabManager = resolveTabManager(routing: routing) else {
             return .finished(ReadTextCaptureError(
                 code: "unavailable",
-                message: "TabManager not available"
+                message: Self.terminalTextTabManagerUnavailableMessage
             ))
         }
         if let lineLimit, lineLimit <= 0 {
             return .finished(ReadTextCaptureError(
                 code: "invalid_params",
-                message: "lines must be greater than 0"
+                message: Self.terminalTextInvalidLinesMessage
             ))
         }
         // The former witness resolved the explicit `surface_id` param only
@@ -192,19 +216,19 @@ extension TerminalController {
             if target.invalidSurfaceID {
                 return .finished(ReadTextCaptureError(
                     code: "not_found",
-                    message: "Surface not found for the given surface_id"
+                    message: Self.terminalTextSurfaceNotFoundMessage
                 ))
             }
             guard let dockSurfaceId = target.surfaceID else {
                 return .finished(ReadTextCaptureError(
                     code: "not_found",
-                    message: "No focused surface"
+                    message: Self.terminalTextNoFocusedSurfaceMessage
                 ))
             }
             guard target.terminalPanel != nil else {
                 return .finished(ReadTextCaptureError(
                     code: "invalid_params",
-                    message: "Surface is not a terminal",
+                    message: Self.terminalTextSurfaceNotTerminalMessage,
                     data: ["surface_id": dockSurfaceId.uuidString]
                 ))
             }
@@ -223,20 +247,20 @@ extension TerminalController {
             guard let ws = resolveSurfaceWorkspace(routing: routing, tabManager: tabManager) else {
                 return .finished(ReadTextCaptureError(
                     code: "not_found",
-                    message: "Workspace not found"
+                    message: Self.terminalTextWorkspaceNotFoundMessage
                 ))
             }
             if hasSurfaceIDParam {
                 guard let id = explicitSurfaceID else {
                     return .finished(ReadTextCaptureError(
                         code: "not_found",
-                        message: "Surface not found for the given surface_id"
+                        message: Self.terminalTextSurfaceNotFoundMessage
                     ))
                 }
                 guard ws.controlTerminalTarget(for: id) != nil else {
                     return .finished(ReadTextCaptureError(
                         code: "invalid_params",
-                        message: "Surface is not a terminal",
+                        message: Self.terminalTextSurfaceNotTerminalMessage,
                         data: ["surface_id": id.uuidString]
                     ))
                 }
@@ -253,7 +277,7 @@ extension TerminalController {
                 guard let focused = ws.controlDefaultTerminalTarget(paneID: routing.paneID) else {
                     return .finished(ReadTextCaptureError(
                         code: "not_found",
-                        message: "No focused surface"
+                        message: Self.terminalTextNoFocusedSurfaceMessage
                     ))
                 }
                 guard let target = ws.controlSocketTerminalTarget(for: focused) else {

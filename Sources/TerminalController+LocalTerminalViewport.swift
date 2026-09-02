@@ -372,7 +372,10 @@ extension TerminalController {
             let projected = textPayload.text.projectedTerminalText(
                 columns: viewport.columns,
                 rows: viewport.rows,
-                keepAllRows: capture.includeScrollback
+                keepAllRows: capture.includeScrollback,
+                maximumLines: capture.includeScrollback
+                    ? MobileTerminalRenderGridFrame.maximumProjectedScrollbackLines
+                    : nil
             )
             payload["text"] = projected
             payload["base64"] = Data(projected.utf8).base64EncodedString()

@@ -245794,6 +245794,23 @@
         }
       }
     },
+    "socket.terminal.readText.invalidLines": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "lines must be greater than 0"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "lines は 0 より大きい値である必要があります"
+          }
+        }
+      }
+    },
     "socket.terminal.viewport.surfaceNotFound": {
       "extractionState": "manual",
       "localizations": {

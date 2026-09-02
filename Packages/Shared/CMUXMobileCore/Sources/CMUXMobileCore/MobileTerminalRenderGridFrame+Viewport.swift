@@ -365,10 +365,15 @@ extension String {
     /// Wraps terminal text to a client-local width and optionally keeps only
     /// the newest viewport rows. This is used when a render-grid export is not
     /// available and a socket read falls back to VT text.
+    ///
+    /// - Parameter maximumLines: Optional hard cap on the newest projected
+    ///   lines. Callers serving unbounded scrollback should provide the same
+    ///   budget used by ``MobileTerminalRenderGridFrame/projectedViewport``.
     public func projectedTerminalText(
         columns: Int,
         rows: Int,
-        keepAllRows: Bool
+        keepAllRows: Bool,
+        maximumLines: Int? = nil
     ) -> String {
         guard columns > 0, rows > 0 else { return self }
         let sourceLines = replacingOccurrences(of: "\r\n", with: "\n")
@@ -402,6 +407,9 @@ extension String {
         }
         if !keepAllRows, projected.count > rows {
             projected = Array(projected.suffix(rows))
+        }
+        if let maximumLines, maximumLines > 0, projected.count > maximumLines {
+            projected = Array(projected.suffix(maximumLines))
         }
         return projected.joined(separator: "\n")
     }

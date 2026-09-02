@@ -84,6 +84,25 @@ import Testing
     #expect(projected.plainRows() == ["e"])
 }
 
+@Test func textProjectionBoundsUnboundedScrollbackExpansion() {
+    let source = String(
+        repeating: "x",
+        count: MobileTerminalRenderGridFrame.maximumProjectedScrollbackLines + 3
+    )
+
+    let projected = source.projectedTerminalText(
+        columns: 1,
+        rows: 1,
+        keepAllRows: true,
+        maximumLines: MobileTerminalRenderGridFrame.maximumProjectedScrollbackLines
+    )
+
+    let lines = projected.split(separator: "\n", omittingEmptySubsequences: false)
+    #expect(lines.count == MobileTerminalRenderGridFrame.maximumProjectedScrollbackLines)
+    #expect(lines.first == "x")
+    #expect(lines.last == "x")
+}
+
 @Test func viewportProjectionHonorsExplicitSpanWidthsAndWideGlyphs() throws {
     let style = MobileTerminalRenderGridFrame.Style(id: 1, bold: true)
     let frame = try MobileTerminalRenderGridFrame(
