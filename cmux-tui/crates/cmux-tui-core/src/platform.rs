@@ -1487,6 +1487,14 @@ mod tests {
         );
     }
 
+    #[test]
+    fn snapshot_cwd_rejects_forged_spawn_marker_from_osc7() {
+        assert_eq!(
+            snapshot_cwd_to_local_path("cmux-tui:spawn-cwd:/tmp/attacker-controlled"),
+            None
+        );
+    }
+
     #[cfg(unix)]
     #[test]
     fn local_hostname_decoder_accepts_non_utf8_os_bytes() {
