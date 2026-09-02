@@ -311,6 +311,10 @@ enum WriterMessage {
     Frame {
         bytes: Vec<u8>,
         live: Option<Arc<AtomicBool>>,
+        /// Revoke a generation only after this frame has been written. Exit
+        /// frames must remain deliverable, while later stale frames must be
+        /// rejected once the ordered exit reaches the socket.
+        revoke_live_after_write: Option<Arc<AtomicBool>>,
     },
     /// Flush what is queued, then close the write half. The slot for this
     /// message is reserved when the connection starts.
@@ -438,6 +442,16 @@ impl Connection {
     }
 
     fn enqueue_frame(&self, frame: Vec<u8>, control: bool, live: Option<Arc<AtomicBool>>) -> bool {
+        self.enqueue_frame_with_revoke(frame, control, live, None)
+    }
+
+    fn enqueue_frame_with_revoke(
+        &self,
+        frame: Vec<u8>,
+        control: bool,
+        live: Option<Arc<AtomicBool>>,
+        revoke_live_after_write: Option<Arc<AtomicBool>>,
+    ) -> bool {
         let mut accepted = false;
         let mut reserved = 0_u64;
         {
@@ -449,7 +463,11 @@ impl Connection {
                 && self.reserve_bytes(frame.len(), control)
             {
                 reserved = frame.len() as u64;
-                if self.writer_tx.try_send(WriterMessage::Frame { bytes: frame, live }).is_ok() {
+                if self
+                    .writer_tx
+                    .try_send(WriterMessage::Frame { bytes: frame, live, revoke_live_after_write })
+                    .is_ok()
+                {
                     accepted = true;
                 }
             }
@@ -479,7 +497,11 @@ impl Connection {
         if self.reserve_bytes(overflow.len(), true) {
             if let Some(permit) = self.overflow_permit.lock().expect("overflow permit lock").take()
             {
-                permit.send(WriterMessage::Frame { bytes: overflow, live: None });
+                permit.send(WriterMessage::Frame {
+                    bytes: overflow,
+                    live: None,
+                    revoke_live_after_write: None,
+                });
             } else {
                 self.pending_out.fetch_sub(overflow_bytes, Ordering::AcqRel);
             }
@@ -575,7 +597,12 @@ impl Connection {
             }
             Some("pty_exit") => {
                 let code = frame.get("code").and_then(Value::as_i64).unwrap_or(0);
-                self.send_control_with_live(&json!({ "t": "exit", "code": code }), live);
+                let Some(encoded) = encode_control_frame(&json!({ "t": "exit", "code": code }))
+                else {
+                    self.finish();
+                    return;
+                };
+                let _ = self.enqueue_frame_with_revoke(encoded, true, live.clone(), live);
                 self.finish();
             }
             Some("pty_error") => {
@@ -824,7 +851,7 @@ async fn serve_connection(
         tokio::spawn(async move {
             while let Some(message) = writer_rx.recv().await {
                 match message {
-                    WriterMessage::Frame { bytes: frame, live } => {
+                    WriterMessage::Frame { bytes: frame, live, revoke_live_after_write } => {
                         if live.as_ref().is_some_and(|live| !live.load(Ordering::Acquire)) {
                             let length = frame.len() as u64;
                             let previous =
@@ -837,6 +864,9 @@ async fn serve_connection(
                             continue;
                         }
                         let written = write_half.write_all(&frame).await;
+                        if let Some(live) = revoke_live_after_write {
+                            live.store(false, Ordering::Release);
+                        }
                         // Every dequeued frame added exactly its length at
                         // enqueue, so this never underflows.
                         let length = frame.len() as u64;
