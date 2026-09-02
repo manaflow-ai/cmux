@@ -121,11 +121,6 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
           cmux_ssh_auth_cleanup_has_time() {
             [ "${SECONDS:-0}" -lt 2 ]
           }
-          cmux_ssh_auth_term_wait_has_time() {
-            # Keep at least one second for the force-freeze and KILL passes.
-            [ "${SECONDS:-0}" -lt 1 ]
-          }
-
           umask 077
           cmux_ssh_auth_state_dir=$(/usr/bin/mktemp -d "${TMPDIR:-/tmp}/cmux-ssh-auth-tree.XXXXXX") || exit 0
           cmux_ssh_auth_snapshot="$cmux_ssh_auth_state_dir/snapshot"
@@ -321,19 +316,19 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
             if [ ! -p "$cmux_ssh_auth_term_event_ack_fifo" ] || ! exec 10<> "$cmux_ssh_auth_term_event_ack_fifo"; then return 0; fi
             exec 9<> "$cmux_ssh_auth_term_event_fifo" || return 0
             cmux_ssh_auth_term_event_writer=
-            # macOS /bin/sh accepts only an integer read timeout. One-second
-            # waits are bounded by the same overall cleanup deadline.
-            while cmux_ssh_auth_term_wait_has_time; do
-              if IFS= read -r -t 1 cmux_ssh_auth_term_event_writer <&9; then
-                # The FIFO directory and payload both carry the random,
-                # per-attempt nonce. Process ownership is established by the
-                # marker FD journal, not by a PID that can be reused.
-                if [ "$cmux_ssh_auth_term_event_writer" = "$cmux_ssh_auth_event_token" ]; then
-                  cmux_ssh_auth_term_event_received=1
-                  break
-                fi
+            # macOS /bin/sh accepts only an integer read timeout. The read is
+            # intentionally anchored to TERM delivery rather than the setup
+            # clock: process-table validation can consume the first second on
+            # a fork-starved runner, but the handler still needs one complete
+            # scheduling window to publish its completion event.
+            if IFS= read -r -t 1 cmux_ssh_auth_term_event_writer <&9; then
+              # The FIFO directory and payload both carry the random,
+              # per-attempt nonce. Process ownership is established by the
+              # marker FD journal, not by a PID that can be reused.
+              if [ "$cmux_ssh_auth_term_event_writer" = "$cmux_ssh_auth_event_token" ]; then
+                cmux_ssh_auth_term_event_received=1
               fi
-            done
+            fi
             if [ "$cmux_ssh_auth_term_event_received" != 1 ]; then
               exec 9>&-
             fi
