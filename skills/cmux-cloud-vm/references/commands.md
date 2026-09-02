@@ -148,7 +148,7 @@ cmux vm tui <id>                       # the FULL cmux-tui client in a pane (its
 
 ```bash
 cmux vm snapshot <id> [--name <name>]  # checkpoint; prints the snapshot id (alias: checkpoint)
-cmux vm fork <id> [--name <n>] [--detach]      # clone for a parallel experiment
+cmux vm fork <id> [--name <n>] [--detach]      # provider-dependent; unsupported by current Freestyle
 cmux vm restore <snapshot-id> [--detach]       # snapshot -> new tracked machine
 cmux vm promote-template <id>          # template-named snapshot for reuse
 ```
@@ -156,8 +156,8 @@ cmux vm promote-template <id>          # template-named snapshot for reuse
 ## SSH (provider-dependent)
 
 ```bash
-cmux vm ssh <id>                       # cmux-managed SSH workspace (not on every provider)
+cmux vm ssh <id>                       # legacy SSH workspace; unsupported by current Freestyle
 cmux vm ssh-info <id>                  # raw SSH endpoint details when available
 ```
 
-The default cmux Cloud provider attaches through the cmux-tui remote daemon, not SSH — when `ssh` errors, use `exec`, `agent`, or `open` instead.
+The default cmux Cloud provider attaches through the cmux-tui remote daemon, not SSH. When `ssh` or `ssh-info` errors, use `shell`, `attach`, `tui`, or `open` instead.

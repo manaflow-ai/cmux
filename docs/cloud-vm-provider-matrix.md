@@ -16,7 +16,7 @@ Freestyle machines support cmux-tui session operations, including `vm tree`, `vm
 
 Request `cmux-remote` from `POST /api/vm/:id/attach-endpoint`. The response contains the daemon route, lease token, session name, optional daemon build, and an enrollment invitation when the client device is not enrolled.
 
-Legacy attach requests with no transport, or with `transport: "websocket"`, fail with `409 vm_attach_transport_unsupported`; the response lists `details.supportedTransports: ["cmux-remote"]`. An explicit `transport: "ssh"` is rejected earlier as an unknown request transport (`400`). `cmux vm attach`, `cmux vm shell`, `cmux vm new`, `cmux vm base open`, and the Machines panel all use this path. `cmux vm ssh` is a user-facing alias for the same managed workspace path, not an SSH gateway. `cmux vm ssh-info` remains a CLI/debug verb, but the current Freestyle backend has no SSH endpoint to print.
+Legacy attach requests with no transport, or with `transport: "websocket"`, fail with `409 vm_attach_transport_unsupported`; the response lists `details.supportedTransports: ["cmux-remote"]`. An explicit `transport: "ssh"` is rejected earlier as an unknown request transport (`400`). `cmux vm attach`, `cmux vm shell`, `cmux vm new`, `cmux vm base open`, and the Machines panel all use this path. `cmux vm ssh` remains a legacy SSH command and fails for current Freestyle because the backend has no SSH endpoint; use `cmux vm shell`, `cmux vm attach`, `cmux vm tui`, or `cmux vm open` for cmux-remote. `cmux vm ssh-info` remains a CLI/debug verb, but the current Freestyle backend has no SSH endpoint to print.
 
 ## Image behavior
 

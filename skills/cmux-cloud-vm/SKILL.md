@@ -22,7 +22,7 @@ Everything the Cloud sidebar can do, from the CLI — plus agent-only primitives
 | **Base** | The one pinned persistent machine (`cmux vm base open`) — use it for the user's ongoing work. |
 | **Pool** | Machines the router provisioned for agent work (`agent-pool` in `vm ls`). `vm run`/`vm agent` only draft these; hand-made machines need `--machine <id>`. |
 | **Plan meter** | `cmux vm ls` prints `N of M machines`. Free plans get **1 machine and a 7-day cloud window**; `vm ls --json` carries `limits.freeAccessExpiresAt`. At the cap, creates fail with an upgrade action — never delete machines to make room without asking. |
-| **Checkpoint / fork** | `snapshot` mints a restorable checkpoint; `fork` clones a machine for a parallel experiment. |
+| **Checkpoint / fork** | `snapshot` mints a restorable checkpoint; `fork` is provider-dependent and is unavailable on the current Freestyle provider. |
 
 ## Decide: cloud or local?
 
