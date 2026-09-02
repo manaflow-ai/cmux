@@ -237,7 +237,15 @@ actor CloudMachineLinkManager {
             } catch {
                 return
             }
-            guard let approval = try? await client.approveCmuxRemoteEnrollment(id: machineID, invitationId: invitationID) else {
+            let approval: VMCmuxRemoteApproval
+            do {
+                approval = try await client.approveCmuxRemoteEnrollment(id: machineID, invitationId: invitationID)
+            } catch VMClientError.httpStatus(404, _) {
+                // The machine was destroyed while this loop was waiting; it
+                // cannot come back under this id, so retrying only floods the
+                // control plane until the deadline.
+                return
+            } catch {
                 continue
             }
             if approval.state == "approved" {

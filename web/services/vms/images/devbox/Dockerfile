@@ -1,42 +1,37 @@
-# cmux Cloud devbox image, shared by the E2B template and the Daytona
-# snapshot (web/scripts/build-devbox-e2b.ts and build-devbox-daytona.ts;
-# build-devbox-freestyle.ts replays the same steps over Freestyle exec).
+# cmux Cloud devbox image (web/scripts/build-devbox-freestyle.ts replays
+# these steps over Freestyle exec; its build API has no COPY).
 # Parity target is the chatmux devbox (chatmux repo,
-# infra/sandbox-images/Dockerfile) and the Blaxel cmux-devbox template
-# (../blaxel/Dockerfile): same devtools, mise toolchains, pinned coding
+# infra/sandbox-images/Dockerfile): same devtools, mise toolchains, pinned coding
 # agents, ble.sh ghost text, half-life prompt, seeded history, and the
 # coderouter agent-config generator.
 #
 # Session daemon: cmux-tui, the machine's only session daemon
-# (docs/cloud-cmux-tui-daemon.md), exactly as on Blaxel. The binary is NOT
+# (docs/cloud-cmux-tui-daemon.md). The binary is NOT
 # baked: each driver installs the pinned files.cmux.com build
 # (sha256-verified) onto the machine at create time and heals it on attach
 # (web/services/vms/drivers/cmuxTuiDaemon.ts). The image ships only
 # /usr/local/bin/cmux-devbox-boot, the supervisor that waits for the binary
-# and restarts the daemon: Daytona registers it as the snapshot entrypoint
-# (stop kills processes, start re-runs it), the Freestyle beta bake runs it
-# from a systemd unit, and E2B leaves it inert (pause/resume preserves
-# processes; the driver starts the daemon directly).
+# and restarts the daemon. The Freestyle public-platform bake runs it from a
+# systemd unit.
 #
-# E2B translates this Dockerfile to template steps with a restricted parser:
-# no backslash escape sequences inside RUN strings (printf '\n' corrupts; use
-# one echo per line), ARG behaves like ENV, ENTRYPOINT would override the
-# template start command (so there is none; provider boot commands come from
-# the build scripts), and PATH must be a literal value.
+# Portability rules the Freestyle replay depends on (originally imposed by a
+# remote builder's restricted Dockerfile parser): no backslash escape
+# sequences inside RUN strings (printf '\n' corrupts; use one echo per line),
+# ARG behaves like ENV, no ENTRYPOINT (boot commands come from the build
+# script), and PATH must be a literal value.
 
 FROM debian:bookworm-slim
 
 # Cache-buster: bump the date to force remote builders past stale layer
-# caches (Daytona's cache served stale layers for chatmux on 2026-08-21 and
-# 2026-08-25; E2B skips cache by default).
-ENV CMUX_IMAGE_EPOCH=2026-08-31-r2
+# caches (a remote builder served stale layers for chatmux on 2026-08-21 and
+# 2026-08-25).
+ENV CMUX_IMAGE_EPOCH=2026-09-01-r3
 
 ENV LANG=C.UTF-8 \
     DEBIAN_FRONTEND=noninteractive
 
-# Devtools (chatmux devbox apt list) plus vim (Blaxel parity), sudo for
-# non-root provider exec users (E2B), and procps for the drivers' daemon
-# process discovery (pgrep).
+# Devtools (chatmux devbox apt list) plus vim, sudo for non-root provider
+# exec users, and procps for the driver's daemon process discovery (pgrep).
 RUN apt-get update && apt-get install -y --no-install-recommends \
     git \
     ripgrep \
@@ -62,6 +57,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     nano \
     vim \
     sudo \
+    util-linux \
   && rm -rf /var/lib/apt/lists/* \
   && ln -s "$(command -v fdfind)" /usr/local/bin/fd \
   && echo 'LANG=C.UTF-8' > /etc/default/locale \
@@ -76,8 +72,8 @@ RUN curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg -o 
   && gh --version
 
 # mise system-wide: data in /opt/mise, global config in /etc/mise, shims first
-# on a HARDCODED PATH (no $PATH expansion; E2B's Dockerfile-to-template
-# translation must see a literal value). /etc/profile.d covers login shells.
+# on a HARDCODED PATH (no $PATH expansion; the replay must see a literal
+# value). /etc/profile.d covers login shells.
 ENV MISE_DATA_DIR=/opt/mise \
     MISE_CACHE_DIR=/opt/mise/cache \
     MISE_GLOBAL_CONFIG_FILE=/etc/mise/config.toml \
@@ -129,19 +125,19 @@ RUN jq -e '.DefaultSearchProviderSearchURL | test("duckduckgo")' /etc/opt/chrome
 # cua computer-use driver, pinned (dormant until an X display exists).
 ENV CUA_DRIVER_RS_HOME=/opt/cua-driver
 RUN curl -fsSL https://cua.ai/driver/install.sh -o /tmp/cua-install.sh \
-  && CUA_DRIVER_RS_VERSION=0.19.3 CUA_DRIVER_BIN_DIR=/usr/local/bin CUA_DRIVER_NO_MODIFY_PATH=1 bash /tmp/cua-install.sh \
+  && CUA_DRIVER_RS_VERSION=0.23.2 CUA_DRIVER_BIN_DIR=/usr/local/bin CUA_DRIVER_NO_MODIFY_PATH=1 bash /tmp/cua-install.sh \
   && rm -f /tmp/cua-install.sh \
   && chmod -R a+rX /opt/cua-driver \
   && cua-driver --version
 
 # Coding agents, pinned at bake time (bump with the image epoch; keep in
-# lockstep with ../blaxel/Dockerfile). Installed on the mise node so they
+# lockstep with the chatmux devbox). Installed on the mise node so they
 # ride the same toolchain users get.
-ARG CMUX_IMAGE_CLAUDE_CODE_VERSION=2.1.246
-ARG CMUX_IMAGE_CODEX_VERSION=0.150.0
-ARG CMUX_IMAGE_OPENCODE_VERSION=1.18.23
-ARG CMUX_IMAGE_PI_VERSION=0.84.3
-ARG CMUX_IMAGE_AGENT_BROWSER_VERSION=0.35.1
+ARG CMUX_IMAGE_CLAUDE_CODE_VERSION=2.1.252
+ARG CMUX_IMAGE_CODEX_VERSION=0.151.0
+ARG CMUX_IMAGE_OPENCODE_VERSION=1.18.25
+ARG CMUX_IMAGE_PI_VERSION=0.84.4
+ARG CMUX_IMAGE_AGENT_BROWSER_VERSION=0.35.2
 RUN npm install -g --foreground-scripts \
     "@anthropic-ai/claude-code@${CMUX_IMAGE_CLAUDE_CODE_VERSION}" \
     "@openai/codex@${CMUX_IMAGE_CODEX_VERSION}" \
@@ -156,12 +152,12 @@ RUN mkdir -p /etc/claude-code \
   && echo '{ "cleanupPeriodDays": 99999 }' > /etc/claude-code/managed-settings.json \
   && node -e 'JSON.parse(require("fs").readFileSync("/etc/claude-code/managed-settings.json","utf8"))'
 
-# E2B creates a `user` account for its default exec user; give it sudo so a
-# person shelling in through the provider's own surfaces can still administer
+# Some images ship a `user` account as the default exec user; give it sudo so
+# a person shelling in through the provider's own surfaces can still administer
 # the machine (cmux sessions run as root via the cmux-tui daemon).
 RUN if id -u user >/dev/null 2>&1; then echo 'user ALL=(ALL) NOPASSWD:ALL' > /etc/sudoers.d/91-user-nopasswd && chmod 0440 /etc/sudoers.d/91-user-nopasswd; fi
 
-# Interactive shell polish: bash IS the shell (Blaxel/chatmux parity); it
+# Interactive shell polish: bash IS the shell (chatmux parity); it
 # borrows the oh-my-zsh half-life theme colors and ble.sh supplies
 # zsh-autosuggestions-style ghost text from history, seeded with the
 # claude/codex launch commands. The build-time `bash -ic` check runs without
@@ -181,6 +177,30 @@ RUN bash -n /etc/cmux/bashrc \
   && echo 'set -g default-shell /bin/bash' >> /etc/tmux.conf \
   && bash -ic 'head -2 /root/.bash_history'
 
+# Seed ble.sh tput caches for the TERMs cmux uses, exactly as the chatmux
+# template does (its Dockerfile carries the full rationale): without them the
+# FIRST shell on a machine prints "ble/term.sh: updating tput cache ... done"
+# into the pane before its first prompt. Both cache homes are seeded: the
+# XDG seed copied by cmux-bashrc from /etc/cmux/blesh-cache-seed, and
+# <blesh>/cache.d for uid 0 plus the provider-created uid-1000 user (numeric
+# chown: the provider's name for that user is not guaranteed).
+RUN mkdir -p /etc/cmux/blesh-cache-seed \
+  && for term in xterm-256color screen-256color tmux-256color linux; do \
+       echo exit | TERM="$term" HOME=/tmp/blesh-seed-home XDG_CACHE_HOME=/etc/cmux/blesh-cache-seed \
+         script -qec 'bash -i' /dev/null >/dev/null 2>&1 || true; \
+     done \
+  && rm -rf /tmp/blesh-seed-home \
+  && test -s /etc/cmux/blesh-cache-seed/blesh/*/term.xterm-256color \
+  && test -s /etc/cmux/blesh-cache-seed/blesh/*/term.screen-256color \
+  && test -s /etc/cmux/blesh-cache-seed/blesh/*/term.tmux-256color \
+  && test -s /etc/cmux/blesh-cache-seed/blesh/*/term.linux \
+  && mkdir -p /usr/local/share/blesh/cache.d/0 /usr/local/share/blesh/cache.d/1000 \
+  && chmod a+rwxt /usr/local/share/blesh/cache.d \
+  && cp /etc/cmux/blesh-cache-seed/blesh/*/term.* /usr/local/share/blesh/cache.d/0/ \
+  && cp /etc/cmux/blesh-cache-seed/blesh/*/term.* /usr/local/share/blesh/cache.d/1000/ \
+  && chmod 700 /usr/local/share/blesh/cache.d/0 /usr/local/share/blesh/cache.d/1000 \
+  && chown -R 1000:1000 /usr/local/share/blesh/cache.d/1000
+
 # Agent harness config: every shell materializes per-harness model-proxy
 # configs from the machine boot env (the coderouter model-plane vars minted
 # at VM create) and persists that env 0600 for shells that boot without it.
@@ -198,6 +218,7 @@ RUN bash -n /etc/cmux/agent-config.sh \
   && grep -q 'model_provider = "cmux"' /tmp/agent-config-check/.codex/config.toml \
   && grep -q 'base_url = "https://example.invalid/v1"' /tmp/agent-config-check/.codex/config.toml \
   && grep -q 'wire_api = "responses"' /tmp/agent-config-check/.codex/config.toml \
+  && grep -q 'supports_websockets = false' /tmp/agent-config-check/.codex/config.toml \
   && grep -q 'persistence = "save-all"' /tmp/agent-config-check/.codex/config.toml \
   && grep -q "export OPENAI_API_KEY='crt_check'" /tmp/agent-config-check/.config/cmux/model-plane.env \
   && [ "$(stat -c %a /tmp/agent-config-check/.config/cmux/model-plane.env)" = "600" ] \

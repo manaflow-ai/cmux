@@ -77,6 +77,7 @@ import {
 import {
   destroyVm,
   listUserVms,
+  deletePrivateNetworkingForAccountDeletion,
   revokeUserIdentityLeasesForAccountDeletion,
   runVmWorkflow,
 } from "../../../services/vms/workflows";
@@ -291,6 +292,17 @@ export async function DELETE(request: Request): Promise<Response> {
       }
       throw error;
     }
+    // After the machines: the provider refuses to delete a network that
+    // still has attached VMs, so this must follow destroyPersonalCloudVms.
+    // Tunnel deletion revokes every enrolled computer's WireGuard access.
+    try {
+      const networking = await runVmWorkflow(deletePrivateNetworkingForAccountDeletion(userId));
+      if (networking.tunnels > 0 || networking.networks > 0) destructiveCleanupStarted = true;
+    } catch (error) {
+      logAccountDeleteError("account.delete.private_network_cleanup_failed", error);
+      throw error;
+    }
+    await refreshAccountDeletionTombstoneLease(userId);
     await deleteVaultRowsAndObjectsForAccount(userId, {
       beforeObjectDeletion: () => {
         destructiveCleanupStarted = true;

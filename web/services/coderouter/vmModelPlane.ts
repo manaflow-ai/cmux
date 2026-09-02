@@ -9,7 +9,7 @@
 //
 // The baked image's /etc/cmux/agent-config.sh materializes harness configs
 // from these vars at first shell and persists them on the machine's durable
-// home volume, because Blaxel create-time envs do not survive a resurrect.
+// home volume, because provider create-time envs do not survive a resurrect.
 // Minting is best-effort by design: a coderouter outage or an entitlement
 // block must never fail a VM create, it only ships an unwired machine.
 import { coderouterEntitlement } from "./entitlement";

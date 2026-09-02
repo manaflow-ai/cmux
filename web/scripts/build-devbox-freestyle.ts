@@ -1,17 +1,17 @@
 #!/usr/bin/env bun
 /**
- * Build the cmux Cloud devbox Freestyle snapshot on the BETA platform
- * (freestyle@0.2.0-beta.7 via the freestyle-beta alias; beta-api.freestyle.sh)
- * by replaying web/services/vms/images/devbox/Dockerfile as exec steps on a
- * builder VM, mirroring chatmux infra/sandbox-images/build-freestyle.ts.
+ * Build the cmux Cloud devbox Freestyle snapshot on the public platform
+ * (freestyle@0.2.9; api.freestyle.sh) by replaying
+ * web/services/vms/images/devbox/Dockerfile as exec steps on a builder VM,
+ * mirroring chatmux infra/sandbox-images/build-freestyle.ts.
  * The exec API has no COPY; small repo files travel as base64 embeds.
  *
  * Usage:
  *   bun scripts/build-devbox-freestyle.ts <snapshot-slug>
  *
- * Auth: FREESTYLE_API_KEY (permanent key from beta-dashboard.freestyle.sh),
- * or FREESTYLE_STACK_ACCESS_TOKEN + FREESTYLE_TEAM_ID for interactive use
- * (mint via `npx freestyle@beta login`).
+ * Auth: FREESTYLE_API_KEY (permanent key from the Freestyle dashboard), or
+ * FREESTYLE_STACK_ACCESS_TOKEN + FREESTYLE_TEAM_ID for interactive use
+ * (mint via `npx freestyle login`). FREESTYLE_API_URL overrides the edge.
  *
  * Freestyle snapshot slugs are unique per account and creation does not
  * reassign, so pass a fresh versioned slug per rebuild (cmux-devbox-<tag>);
@@ -23,15 +23,14 @@
  * cmux-tui-daemon systemd unit runs /usr/local/bin/cmux-devbox-boot, which
  * waits for /root/.cmux/bin/cmux-tui and supervises the daemon once a driver
  * installs the pinned build at create time. The unit binds the listener
- * dual-stack (CMUX_TUI_REMOTE_WS_BIND=[::]:1337) because the beta driver arm
- * (web/services/vms/drivers/freestyleBeta.ts) routes attaches to the VM's
- * stable public IPv6; the legacy (0.1.51) driver arm cannot boot these
- * snapshots — the manifest marks them features.freestylePlatform: "beta".
+ * dual-stack (CMUX_TUI_REMOTE_WS_BIND=[::]:1337) because the driver
+ * (web/services/vms/drivers/freestyle.ts) routes attaches to the VM's stable
+ * public IPv6.
  *
  * Builder VM: freestyle/ubuntu-sm, outbound-only firewall, deleted whatever
  * happens.
  */
-import { Freestyle } from "freestyle-beta";
+import { Freestyle } from "freestyle";
 import { fileURLToPath } from "node:url";
 import {
   bakeMetadata,
@@ -44,9 +43,10 @@ import {
 const apiKey = process.env.FREESTYLE_API_KEY;
 const stackToken = process.env.FREESTYLE_STACK_ACCESS_TOKEN;
 const teamId = process.env.FREESTYLE_TEAM_ID;
+const baseUrl = process.env.FREESTYLE_API_URL?.trim() || undefined;
 const fs = (() => {
-  if (apiKey) return new Freestyle({ apiKey });
-  if (stackToken && teamId) return new Freestyle({ stackAccessToken: stackToken, teamId });
+  if (apiKey) return new Freestyle({ apiKey, baseUrl });
+  if (stackToken && teamId) return new Freestyle({ stackAccessToken: stackToken, teamId, baseUrl });
   throw new Error("set FREESTYLE_API_KEY, or FREESTYLE_STACK_ACCESS_TOKEN + FREESTYLE_TEAM_ID");
 })();
 
@@ -57,10 +57,10 @@ if (!slug || slug.startsWith("--")) {
 
 const preflight = bakePreflight();
 
-// The beta exec API caps timeoutMs at 300000 (5 minutes per step).
+// The exec API caps timeoutMs at 300000 (5 minutes per step).
 const STEP_TIMEOUT_MS = 300_000;
 
-// Per-exec env (the beta API replays it into every step): the Dockerfile's
+// Per-exec env (the API replays it into every step): the Dockerfile's
 // ENV block, PATH literal included.
 const BUILD_ENV = {
   MISE_DATA_DIR: "/opt/mise",
@@ -89,6 +89,9 @@ async function step(label: string, command: string): Promise<void> {
     command: `${HOME_PREFIX} && ${command}`,
     env: BUILD_ENV,
     timeoutMs: STEP_TIMEOUT_MS,
+    // The 0.2 API's default guest user is uid 1000, not root. Every build step
+    // writes to /opt, /usr/local and /etc, so the bake must run as root.
+    linuxUser: "root",
   });
   const secs = ((Date.now() - t0) / 1000).toFixed(1);
   const exitCode = r.statusCode ?? 124;
@@ -108,7 +111,7 @@ const installFile = (source: string, target: string): string =>
 
 await step(
   "apt-devtools",
-  "apt-get update -q && apt-get install -y --no-install-recommends git ripgrep build-essential curl ca-certificates unzip zip xz-utils zstd procps openssh-client pkg-config jq fd-find fzf sqlite3 tmux less rsync file tree nano vim sudo && rm -rf /var/lib/apt/lists/* && ln -sf $(command -v fdfind) /usr/local/bin/fd && echo 'LANG=C.UTF-8' > /etc/default/locale && fd --version && jq --version && fzf --version && sqlite3 --version && tmux -V",
+  "apt-get update -q && apt-get install -y --no-install-recommends git ripgrep build-essential curl ca-certificates unzip zip xz-utils zstd procps openssh-client pkg-config jq fd-find fzf sqlite3 tmux less rsync file tree nano vim sudo util-linux && rm -rf /var/lib/apt/lists/* && ln -sf $(command -v fdfind) /usr/local/bin/fd && echo 'LANG=C.UTF-8' > /etc/default/locale && fd --version && jq --version && fzf --version && sqlite3 --version && tmux -V",
 );
 
 await step(
@@ -148,7 +151,7 @@ await step(
 
 await step(
   "cua-driver",
-  "curl -fsSL https://cua.ai/driver/install.sh -o /tmp/cua-install.sh && CUA_DRIVER_RS_HOME=/opt/cua-driver CUA_DRIVER_RS_VERSION=0.19.3 CUA_DRIVER_BIN_DIR=/usr/local/bin CUA_DRIVER_NO_MODIFY_PATH=1 bash /tmp/cua-install.sh && rm -f /tmp/cua-install.sh && chmod -R a+rX /opt/cua-driver && cua-driver --version",
+  "curl -fsSL https://cua.ai/driver/install.sh -o /tmp/cua-install.sh && CUA_DRIVER_RS_HOME=/opt/cua-driver CUA_DRIVER_RS_VERSION=0.23.2 CUA_DRIVER_BIN_DIR=/usr/local/bin CUA_DRIVER_NO_MODIFY_PATH=1 bash /tmp/cua-install.sh && rm -f /tmp/cua-install.sh && chmod -R a+rX /opt/cua-driver && cua-driver --version",
 );
 
 const pins = devboxAgentPins();
@@ -162,14 +165,16 @@ await step(
   `mkdir -p /etc/claude-code && echo '{ "cleanupPeriodDays": 99999 }' > /etc/claude-code/managed-settings.json && node -e 'JSON.parse(require("fs").readFileSync("/etc/claude-code/managed-settings.json","utf8"))'`,
 );
 
+// devshell replays the Dockerfile devshell + ble.sh tput cache bake (same
+// echo-fed seed shells and test -s guards; see ../services/vms/images/devbox/Dockerfile).
 await step(
   "devshell",
-  `curl -fsSL https://github.com/akinomyoga/ble.sh/releases/download/nightly/ble-nightly.tar.xz -o /tmp/ble.tar.xz && tar xJf /tmp/ble.tar.xz -C /tmp && rm -rf /usr/local/share/blesh && mv /tmp/ble-nightly /usr/local/share/blesh && rm -f /tmp/ble.tar.xz && test -f /usr/local/share/blesh/ble.sh && mkdir -p /etc/cmux /etc/skel && ${installFile("cmux-bashrc", "/etc/cmux/bashrc")} && bash -n /etc/cmux/bashrc && ${installFile("seed-history", "/etc/cmux/seed-history")} && echo '[ -f /etc/cmux/bashrc ] && . /etc/cmux/bashrc' >> /etc/bash.bashrc && echo '[ -f /etc/cmux/bashrc ] && . /etc/cmux/bashrc' >> /etc/skel/.bashrc && echo '[ -f /etc/cmux/bashrc ] && . /etc/cmux/bashrc' >> /root/.bashrc && echo 'set -g default-shell /bin/bash' >> /etc/tmux.conf && bash -ic 'head -2 $HOME/.bash_history'`,
+  `curl -fsSL https://github.com/akinomyoga/ble.sh/releases/download/nightly/ble-nightly.tar.xz -o /tmp/ble.tar.xz && tar xJf /tmp/ble.tar.xz -C /tmp && rm -rf /usr/local/share/blesh && mv /tmp/ble-nightly /usr/local/share/blesh && rm -f /tmp/ble.tar.xz && test -f /usr/local/share/blesh/ble.sh && mkdir -p /etc/cmux /etc/skel && ${installFile("cmux-bashrc", "/etc/cmux/bashrc")} && bash -n /etc/cmux/bashrc && ${installFile("seed-history", "/etc/cmux/seed-history")} && echo '[ -f /etc/cmux/bashrc ] && . /etc/cmux/bashrc' >> /etc/bash.bashrc && echo '[ -f /etc/cmux/bashrc ] && . /etc/cmux/bashrc' >> /etc/skel/.bashrc && echo '[ -f /etc/cmux/bashrc ] && . /etc/cmux/bashrc' >> /root/.bashrc && echo 'set -g default-shell /bin/bash' >> /etc/tmux.conf && bash -ic 'head -2 $HOME/.bash_history' && mkdir -p /etc/cmux/blesh-cache-seed && for term in xterm-256color screen-256color tmux-256color linux; do echo exit | TERM="$term" HOME=/tmp/blesh-seed-home XDG_CACHE_HOME=/etc/cmux/blesh-cache-seed script -qec 'bash -i' /dev/null >/dev/null 2>&1 || true; done && rm -rf /tmp/blesh-seed-home && test -s /etc/cmux/blesh-cache-seed/blesh/*/term.xterm-256color && test -s /etc/cmux/blesh-cache-seed/blesh/*/term.screen-256color && test -s /etc/cmux/blesh-cache-seed/blesh/*/term.tmux-256color && test -s /etc/cmux/blesh-cache-seed/blesh/*/term.linux && mkdir -p /usr/local/share/blesh/cache.d/0 /usr/local/share/blesh/cache.d/1000 && chmod a+rwxt /usr/local/share/blesh/cache.d && cp /etc/cmux/blesh-cache-seed/blesh/*/term.* /usr/local/share/blesh/cache.d/0/ && cp /etc/cmux/blesh-cache-seed/blesh/*/term.* /usr/local/share/blesh/cache.d/1000/ && chmod 700 /usr/local/share/blesh/cache.d/0 /usr/local/share/blesh/cache.d/1000 && chown -R 1000:1000 /usr/local/share/blesh/cache.d/1000`,
 );
 
 await step(
   "agent-config",
-  `${installFile("agent-config.sh", "/etc/cmux/agent-config.sh")} && bash -n /etc/cmux/agent-config.sh && echo '[ -f /etc/cmux/agent-config.sh ] && . /etc/cmux/agent-config.sh' > /etc/profile.d/cmux-agents.sh && echo '[ -f /etc/cmux/agent-config.sh ] && . /etc/cmux/agent-config.sh' >> /etc/bash.bashrc && echo '[ -f /etc/cmux/agent-config.sh ] && . /etc/cmux/agent-config.sh' >> /etc/skel/.bashrc && echo '[ -f /etc/cmux/agent-config.sh ] && . /etc/cmux/agent-config.sh' >> /root/.bashrc && mkdir -p /tmp/agent-config-check && env HOME=/tmp/agent-config-check OPENAI_BASE_URL=https://example.invalid/v1 OPENAI_API_KEY=crt_check CMUX_CODEROUTER_URL=https://example.invalid bash -lc 'true' && grep -q 'model_provider = "cmux"' /tmp/agent-config-check/.codex/config.toml && grep -q 'wire_api = "responses"' /tmp/agent-config-check/.codex/config.toml && grep -q "export OPENAI_API_KEY='crt_check'" /tmp/agent-config-check/.config/cmux/model-plane.env && [ "$(stat -c %a /tmp/agent-config-check/.config/cmux/model-plane.env)" = "600" ] && grep -qF '"x-coderouter-route-token": "$OPENAI_API_KEY"' /tmp/agent-config-check/.pi/agent/models.json && ! grep -q crt_check /tmp/agent-config-check/.pi/agent/models.json && test ! -e /tmp/agent-config-check/.config/opencode/opencode.json && rm -rf /tmp/agent-config-check && test ! -e /root/.codex/config.toml && test ! -e /root/.pi/agent/models.json && test ! -e /root/.config/opencode/opencode.json`,
+  `${installFile("agent-config.sh", "/etc/cmux/agent-config.sh")} && bash -n /etc/cmux/agent-config.sh && echo '[ -f /etc/cmux/agent-config.sh ] && . /etc/cmux/agent-config.sh' > /etc/profile.d/cmux-agents.sh && echo '[ -f /etc/cmux/agent-config.sh ] && . /etc/cmux/agent-config.sh' >> /etc/bash.bashrc && echo '[ -f /etc/cmux/agent-config.sh ] && . /etc/cmux/agent-config.sh' >> /etc/skel/.bashrc && echo '[ -f /etc/cmux/agent-config.sh ] && . /etc/cmux/agent-config.sh' >> /root/.bashrc && mkdir -p /tmp/agent-config-check && env HOME=/tmp/agent-config-check OPENAI_BASE_URL=https://example.invalid/v1 OPENAI_API_KEY=crt_check CMUX_CODEROUTER_URL=https://example.invalid bash -lc 'true' && grep -q 'model_provider = "cmux"' /tmp/agent-config-check/.codex/config.toml && grep -q 'wire_api = "responses"' /tmp/agent-config-check/.codex/config.toml && grep -q 'supports_websockets = false' /tmp/agent-config-check/.codex/config.toml && grep -q "export OPENAI_API_KEY='crt_check'" /tmp/agent-config-check/.config/cmux/model-plane.env && [ "$(stat -c %a /tmp/agent-config-check/.config/cmux/model-plane.env)" = "600" ] && grep -qF '"x-coderouter-route-token": "$OPENAI_API_KEY"' /tmp/agent-config-check/.pi/agent/models.json && ! grep -q crt_check /tmp/agent-config-check/.pi/agent/models.json && test ! -e /tmp/agent-config-check/.config/opencode/opencode.json && rm -rf /tmp/agent-config-check && test ! -e /root/.codex/config.toml && test ! -e /root/.pi/agent/models.json && test ! -e /root/.config/opencode/opencode.json`,
 );
 
 // The cmux-tui daemon supervisor + its systemd unit. No binary is baked; the
@@ -182,7 +187,7 @@ const service = [
   "[Service]",
   "Type=simple",
   "User=root",
-  // Freestyle beta machines are reached at their stable public IPv6, so the
+  // Freestyle machines are reached at their stable public IPv6, so the
   // daemon listens dual-stack ([::] accepts IPv4 too). cmux-devbox-boot
   // defaults to 0.0.0.0 for the container providers, whose runtimes may have
   // IPv6 disabled entirely.
@@ -234,7 +239,7 @@ console.log(
         snapshotId,
         "FREESTYLE_SANDBOX_SNAPSHOT",
         metadata,
-        "Shared devbox exec-replay on the Freestyle BETA platform; cmux-tui transport; requires the beta-SDK driver (do not pin for the legacy driver).",
+        "Shared devbox exec-replay on the Freestyle public platform (api.freestyle.sh); cmux-tui transport.",
       ),
       next: `bun scripts/verify-devbox-image.ts freestyle ${snapshotId}`,
     },
