@@ -467,12 +467,13 @@ jobs:
           if [ -d "/Applications/Xcode.app/Contents/Developer" ]; then
             XCODE_DIR="/Applications/Xcode.app/Contents/Developer"
           else
-            XCODE_APP="$(
-              find /Applications -maxdepth 1 -name 'Xcode*.app' -print 2>/dev/null \
-                | sort \
-                | tail -n 1 \
-                || true
-            )"
+            XCODE_APP=""
+            for candidate in /Applications/Xcode*.app; do
+              [[ -d "$candidate/Contents/Developer" ]] || continue
+              if [[ -z "$XCODE_APP" || "$candidate" > "$XCODE_APP" ]]; then
+                XCODE_APP="$candidate"
+              fi
+            done
             if [ -n "$XCODE_APP" ]; then
               XCODE_DIR="$XCODE_APP/Contents/Developer"
             else
@@ -731,15 +732,30 @@ jobs:
         env:
           APPLE_RELEASE_PROVISIONING_PROFILE_BASE64: ${{ secrets.APPLE_RELEASE_PROVISIONING_PROFILE_BASE64 }}
         run: |
+          set -euo pipefail
           if [ -z "$APPLE_RELEASE_PROVISIONING_PROFILE_BASE64" ]; then
             echo "Missing APPLE_RELEASE_PROVISIONING_PROFILE_BASE64 secret" >&2
             exit 1
           fi
+          umask 077
+          runner_temp="${RUNNER_TEMP:?RUNNER_TEMP is required}"
+          [[ -d "$runner_temp" && ! -L "$runner_temp" ]] || {
+            echo "RUNNER_TEMP must be a real directory" >&2
+            exit 1
+          }
           APP_PATH="build-universal/Build/Products/Release/cmux.app"
           PROFILE_PATH="$APP_PATH/Contents/embedded.provisionprofile"
-          TMP_PROFILE="$(mktemp /tmp/cmux-release-profile.XXXXXX)"
-          TMP_PLIST="$(mktemp /tmp/cmux-release-profile.XXXXXX.plist)"
-          trap 'rm -f "$TMP_PROFILE" "$TMP_PLIST"' EXIT
+          TMP_PROFILE="$(mktemp "$runner_temp/cmux-release-profile.XXXXXX")"
+          TMP_PLIST="$(mktemp "$runner_temp/cmux-release-plist.XXXXXX")"
+          [[ -f "$TMP_PROFILE" && ! -L "$TMP_PROFILE" ]] || {
+            echo "mktemp did not create a regular provisioning profile file" >&2
+            exit 1
+          }
+          [[ -f "$TMP_PLIST" && ! -L "$TMP_PLIST" ]] || {
+            echo "mktemp did not create a regular provisioning plist file" >&2
+            exit 1
+          }
+          trap 'rm -f -- "$TMP_PROFILE" "$TMP_PLIST"' EXIT
           echo "$APPLE_RELEASE_PROVISIONING_PROFILE_BASE64" | base64 -D > "$TMP_PROFILE"
           security cms -D -i "$TMP_PROFILE" > "$TMP_PLIST"
           APP_ID="$(/usr/libexec/PlistBuddy -c "Print :Entitlements:com.apple.application-identifier" "$TMP_PLIST")"
