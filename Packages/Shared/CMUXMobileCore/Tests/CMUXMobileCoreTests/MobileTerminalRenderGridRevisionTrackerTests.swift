@@ -110,6 +110,24 @@ private struct RenderGridRevisionFixture {
     #expect(replay == first)
 }
 
+@Test func observingAfterAnEmissionDoesNotReuseItsEmissionIdentity() throws {
+    let frame = try MobileTerminalRenderGridFrame.fromPlainRows(
+        surfaceID: "surface-a",
+        stateSeq: 1,
+        columns: 8,
+        rows: 1,
+        text: "visible"
+    )
+    var tracker = MobileTerminalRenderGridRevisionTracker(renderEpoch: "epoch-1")
+
+    let emitted = tracker.record(fullFrame: frame)
+    let observed = tracker.observe(fullFrame: frame)
+
+    #expect(emitted.emissionRevision == 1)
+    #expect(observed.renderRevision == emitted.renderRevision)
+    #expect(observed.emissionRevision == 0)
+}
+
 @Test func resizeAdvancesContentRevision() throws {
     var fixture = RenderGridRevisionFixture()
     let baseline = try fixture.record(text: "size", columns: 12, rows: 2)

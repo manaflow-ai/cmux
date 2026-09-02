@@ -100,7 +100,14 @@ public struct MobileTerminalRenderGridRevisionTracker: Sendable {
             }
             lastContent = renderedContent
         }
-        return currentIdentity
+        // Observation is deliberately not an emission. Returning the current
+        // emission counter here would let a request/response projection reuse
+        // an unrelated live-frame identity as a delta baseline.
+        return Identity(
+            renderEpoch: renderEpoch,
+            renderRevision: renderRevision,
+            emissionRevision: 0
+        )
     }
 
 }
