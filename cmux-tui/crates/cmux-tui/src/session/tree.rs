@@ -684,6 +684,30 @@ mod tests {
         assert_eq!(pane.active_tab, 1);
     }
 
+    #[test]
+    fn parser_reindexes_active_screen_after_dropping_malformed_screens() {
+        let tree = parse_tree(&json!({
+            "workspaces": [{
+                "id": 1,
+                "active": true,
+                "screens": [
+                    {"active": false},
+                    {
+                        "id": 2,
+                        "active": true,
+                        "active_pane": 3,
+                        "layout": {"type": "leaf", "pane": 3},
+                        "panes": []
+                    }
+                ]
+            }]
+        }));
+
+        assert_eq!(tree.workspaces[0].screens.len(), 1);
+        assert_eq!(tree.workspaces[0].active_screen, 0);
+        assert_eq!(tree.active_screen().map(|screen| screen.id), Some(2));
+    }
+
     fn tree_with_tabs(active_tab: usize, surfaces: &[SurfaceId]) -> TreeView {
         let tabs = surfaces
             .iter()
