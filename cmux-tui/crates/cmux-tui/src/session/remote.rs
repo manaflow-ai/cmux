@@ -296,9 +296,6 @@ struct RemoteTreeCache {
     title_updates: HashMap<SurfaceId, TitleUpdate>,
     agent_generation: u64,
     agent_updates: HashMap<SurfaceId, AgentUpdate>,
-    // Surface IDs are monotonic. Keep a tombstone so a stale roster snapshot
-    // received after retirement cannot restore the agent row.
-    retired_agents: HashSet<SurfaceId>,
 }
 
 #[derive(Clone, Copy)]
@@ -386,13 +383,17 @@ impl RemoteTreeCache {
         self.title_generation
     }
 
-    fn replace_agents(&mut self, agents: Vec<AgentInfo>, refresh_generation: u64) {
-        let retired_agents = &self.retired_agents;
+    fn replace_agents(
+        &mut self,
+        agents: Vec<AgentInfo>,
+        refresh_generation: u64,
+        retired_surfaces: &HashSet<SurfaceId>,
+    ) {
         self.agents =
-            agents.into_iter().filter(|agent| !retired_agents.contains(&agent.surface)).collect();
+            agents.into_iter().filter(|agent| !retired_surfaces.contains(&agent.surface)).collect();
         let updates = std::mem::take(&mut self.agent_updates);
         for (surface, update) in updates {
-            if self.retired_agents.contains(&surface) {
+            if retired_surfaces.contains(&surface) {
                 continue;
             }
             if self.surface_tabs.contains_key(&surface) {
@@ -415,8 +416,8 @@ impl RemoteTreeCache {
         }
     }
 
-    fn update_agent(&mut self, agent: AgentInfo) {
-        if self.retired_agents.contains(&agent.surface) {
+    fn update_agent(&mut self, agent: AgentInfo, retired_surfaces: &HashSet<SurfaceId>) {
+        if retired_surfaces.contains(&agent.surface) {
             return;
         }
         self.agent_generation = self.agent_generation.saturating_add(1);
@@ -436,7 +437,6 @@ impl RemoteTreeCache {
     }
 
     fn remove_agent(&mut self, surface: SurfaceId) {
-        self.retired_agents.insert(surface);
         self.agents.retain(|agent| agent.surface != surface);
         self.agent_updates.remove(&surface);
     }
@@ -2382,7 +2382,7 @@ impl RemoteSession {
                     if retired_surfaces.contains(&surface) {
                         return;
                     }
-                    self.tree.lock().unwrap().update_agent(agent);
+                    self.tree.lock().unwrap().update_agent(agent, &retired_surfaces);
                 }
                 self.emit(event);
             }
@@ -3476,10 +3476,7 @@ impl RemoteSession {
             let mut cache = self.tree.lock().unwrap();
             tree.retain_not_retired(&retired_surfaces);
             cache.replace(tree, title_refresh_generation);
-            cache.replace_agents(agents, agent_refresh_generation);
-            for &surface in retired_surfaces.iter() {
-                cache.remove_agent(surface);
-            }
+            cache.replace_agents(agents, agent_refresh_generation, &retired_surfaces);
             cache.view.clone()
         };
         drop(retired_surfaces);
@@ -7620,13 +7617,9 @@ mod tests {
         let agents = (0..4096_u64).map(agent).collect::<Vec<_>>();
         for surface in 0..4096_u64 {
             let agent = agents[surface as usize].clone();
-            cache.agent_updates.insert(
-                surface,
-                AgentUpdate {
-                    generation: surface,
-                    agent,
-                },
-            );
+            cache
+                .agent_updates
+                .insert(surface, AgentUpdate { generation: surface.saturating_add(1), agent });
         }
         let retired = (0..4096_u64).step_by(2).collect::<HashSet<_>>();
 
@@ -7907,18 +7900,22 @@ mod tests {
         }));
         let mut cache = RemoteTreeCache::default();
         cache.replace(tree, 0);
+        let retired = HashSet::new();
         let refresh_generation = cache.agent_generation();
-        cache.update_agent(AgentInfo {
-            surface: 4,
-            state: "working".into(),
-            source: "hook".into(),
-            session: Some("review".into()),
-            updated_at_ms: 41,
-        });
+        cache.update_agent(
+            AgentInfo {
+                surface: 4,
+                state: "working".into(),
+                source: "hook".into(),
+                session: Some("review".into()),
+                updated_at_ms: 41,
+            },
+            &retired,
+        );
 
         let title_generation = cache.title_generation();
         cache.replace(TreeView::default(), title_generation);
-        cache.replace_agents(Vec::new(), refresh_generation);
+        cache.replace_agents(Vec::new(), refresh_generation, &retired);
 
         assert!(cache.agents.is_empty());
     }
@@ -7940,25 +7937,29 @@ mod tests {
         }));
         let mut cache = RemoteTreeCache::default();
         cache.replace(tree.clone(), 0);
+        let retired = HashSet::new();
 
         // The event races the first refresh and is retained while the
         // topology omits the surface.
         let refresh_generation = cache.agent_generation();
-        cache.update_agent(AgentInfo {
-            surface: 4,
-            state: "working".into(),
-            source: "hook".into(),
-            session: Some("review".into()),
-            updated_at_ms: 41,
-        });
+        cache.update_agent(
+            AgentInfo {
+                surface: 4,
+                state: "working".into(),
+                source: "hook".into(),
+                session: Some("review".into()),
+                updated_at_ms: 41,
+            },
+            &retired,
+        );
         cache.replace(TreeView::default(), cache.title_generation());
-        cache.replace_agents(Vec::new(), refresh_generation);
+        cache.replace_agents(Vec::new(), refresh_generation, &retired);
 
         // A later refresh confirms the agent is absent. A stale topology may
         // briefly show the surface again, but the old event must not return.
         let confirmed_generation = cache.agent_generation();
         cache.replace(tree, cache.title_generation());
-        cache.replace_agents(Vec::new(), confirmed_generation);
+        cache.replace_agents(Vec::new(), confirmed_generation, &retired);
 
         assert!(cache.agents.is_empty());
         assert!(cache.agent_updates.is_empty());
@@ -7981,6 +7982,7 @@ mod tests {
         }));
         let mut cache = RemoteTreeCache::default();
         cache.replace(tree.clone(), 0);
+        let retired = HashSet::new();
         let refresh_generation = cache.agent_generation();
         let update = AgentInfo {
             surface: 4,
@@ -7989,17 +7991,17 @@ mod tests {
             session: Some("review".into()),
             updated_at_ms: 41,
         };
-        cache.update_agent(update.clone());
+        cache.update_agent(update.clone(), &retired);
 
         // The tree response can lag the event stream and omit a live surface.
         cache.replace(TreeView::default(), cache.title_generation());
-        cache.replace_agents(Vec::new(), refresh_generation);
+        cache.replace_agents(Vec::new(), refresh_generation, &retired);
 
         assert_eq!(cache.agent_updates.get(&4).map(|pending| &pending.agent), Some(&update));
 
         // A later topology response makes the pending event visible again.
         cache.replace(tree, cache.title_generation());
-        cache.replace_agents(Vec::new(), refresh_generation);
+        cache.replace_agents(Vec::new(), refresh_generation, &retired);
 
         assert_eq!(cache.agents, vec![update]);
     }
