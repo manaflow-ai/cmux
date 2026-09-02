@@ -31,6 +31,9 @@ CHECK_NAME_ALIASES = {"GhosttyKit release check": "ghosttykit-release-check"}
 ADVISORY_CHECKS = {"ci-status", "ci-status-advisory", "ci-status-validator-canary"}
 ROUTE_NAMES = contract.ROUTE_NAMES
 PUBLISHED_CHECKS = ("ci-status-gate", "ci-status")
+# Bump this whenever ownership or semantics of a published context change.
+# The generation prevents a migration from updating an older producer's run.
+PUBLISHER_GENERATION = "v2"
 TRUSTED_REVIEWER_IDS = {
     38676809: "austinywang",
     67667005: "azooz2003-bit",
@@ -216,6 +219,7 @@ class GitHubAPI:
             raise GateError("published check conclusion is malformed")
         if not isinstance(summary, str) or not summary:
             raise GateError("published check summary is malformed")
+        external_id = _publisher_external_id(name, head_sha)
         payload = self.get(
             f"repos/{self.repository}/commits/{head_sha}/check-runs?check_name={name}&per_page=100",
             paginate=True,
@@ -226,6 +230,7 @@ class GitHubAPI:
             for row in rows
             if row.get("name") == name
             and row.get("head_sha") == head_sha
+            and row.get("external_id") == external_id
             and isinstance(row.get("app"), Mapping)
             and row["app"].get("id") == ACTIONS_APP_ID
             and isinstance(row.get("id"), int)
@@ -246,7 +251,7 @@ class GitHubAPI:
                 "head_sha": head_sha,
                 "status": "completed",
                 "conclusion": conclusion,
-                "external_id": f"cmux-{name}-{head_sha}",
+                "external_id": external_id,
                 "output": {"title": name, "summary": summary},
             },
         )
@@ -254,9 +259,20 @@ class GitHubAPI:
             raise GateError("GitHub returned a malformed published check")
         if response.get("name") != name or response.get("head_sha") != head_sha:
             raise GateError("published check does not target the exact PR head")
+        if response.get("external_id") != external_id:
+            raise GateError("published check has an unexpected external ID")
         app = response.get("app")
         if not isinstance(app, Mapping) or app.get("id") != ACTIONS_APP_ID:
             raise GateError("published check was created by an unexpected app")
+
+
+def _publisher_external_id(name: str, head_sha: str) -> str:
+    """Build the stable identity for this generation's check producer."""
+
+    if name not in PUBLISHED_CHECKS:
+        raise GateError("unsupported published check name")
+    head_sha = _as_sha(head_sha, "published check head SHA")
+    return f"cmux-ci-status-{PUBLISHER_GENERATION}-{name}-{head_sha}"
 
 
 def _workflow_blob_sha(api: GitHubAPI, revision: str) -> str:

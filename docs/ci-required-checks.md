@@ -14,6 +14,11 @@ or update `ci-status-gate` and `ci-status` check runs on that exact head. No
 repository contents are written. Missing, stale, pending, failed, or
 unexpected CI jobs fail closed.
 
+Each published run has a deterministic `external_id` with generation `v2`,
+the check name, and the head SHA. The gate updates only a run with that exact
+identity and refuses a response from another producer. A future migration
+must use a new generation instead of reusing old check runs.
+
 The `pull_request` workflow remains untrusted. Its `ci-status-advisory` job
 and `ci-status-validator-canary` job are diagnostic only and must not be added
 to branch protection. The advisory jobs may execute pull-request code, but
