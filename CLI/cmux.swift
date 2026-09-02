@@ -4113,6 +4113,11 @@ final class SocketClient {
             )
             let line = try readStreamLine(deadline: deadline)
             if SocketAuthenticationChallenge.isRequired(line) {
+                // The challenge establishes the route's password-required mode
+                // before the auth command can return a successful response.
+                // Otherwise that auth response could be mistaken for a
+                // credential-free stream and suppress later one-way auth.
+                authenticationModeCoordinator.recordPasswordRequired()
                 guard !didRetryAuthentication,
                       !authenticationInProgress,
                       !authenticationPasswordResolutionAttempted,
