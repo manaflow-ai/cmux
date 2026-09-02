@@ -26,27 +26,6 @@ if [[ -z "$cmux_extra_secret_file" && -f "$HOME/.secrets/cmux.env" ]]; then
   cmux_extra_secret_file="$HOME/.secrets/cmux.env"
 fi
 
-# Blaxel keeps its control-plane pair in a separate file on some developer
-# machines. Load it after the general provider file so the dedicated file is
-# authoritative when both files contain a provider value. This lets the
-# documented local `bun dev` command reach the same VM service without a manual
-# `source`.
-# An explicit path is strict; the default path is optional for machines that do
-# not use Blaxel.
-cmux_blaxel_secret_file="${CMUX_BLAXEL_ENV_FILE:-}"
-if [[ -z "$cmux_blaxel_secret_file" && -f "$HOME/.secrets/blaxel.env" ]]; then
-  cmux_blaxel_secret_file="$HOME/.secrets/blaxel.env"
-fi
-if [[ -n "$cmux_blaxel_secret_file" && ! -f "$cmux_blaxel_secret_file" ]]; then
-  echo "Missing Blaxel provider secrets: $cmux_blaxel_secret_file" >&2
-  return 1 2>/dev/null || exit 1
-fi
-
-cmux_existing_bl_api_key_set="${BL_API_KEY+x}"
-cmux_existing_bl_api_key="${BL_API_KEY-}"
-cmux_existing_bl_workspace_set="${BL_WORKSPACE+x}"
-cmux_existing_bl_workspace="${BL_WORKSPACE-}"
-
 cmux_secret_file="${CMUXTERM_ENV_FILE:-${CMUX_WEB_ENV_FILE:-}}"
 if [[ -z "$cmux_secret_file" ]]; then
   if [[ -f "$HOME/.secrets/cmuxterm-dev.env" ]]; then
@@ -71,28 +50,11 @@ if [[ -n "$cmux_extra_secret_file" ]]; then
   # shellcheck disable=SC1090
   source "$cmux_extra_secret_file"
 fi
-if [[ -n "$cmux_blaxel_secret_file" ]]; then
-  # shellcheck disable=SC1090
-  source "$cmux_blaxel_secret_file"
-fi
 # shellcheck disable=SC1090
 source "$cmux_secret_file"
 set +a
 if ! grep -q '^STACK_SUPER_SECRET_ADMIN_KEY=' "$cmux_secret_file"; then
   unset STACK_SUPER_SECRET_ADMIN_KEY
-fi
-
-# Older local files used BLAXEL_API_KEY. The driver uses the provider's
-# canonical BL_API_KEY name, so accept the old spelling only when the canonical
-# value is absent. Explicit process values always win over files.
-if [[ -z "${BL_API_KEY:-}" && -n "${BLAXEL_API_KEY:-}" ]]; then
-  export BL_API_KEY="$BLAXEL_API_KEY"
-fi
-if [[ -n "$cmux_existing_bl_api_key_set" ]]; then
-  export BL_API_KEY="$cmux_existing_bl_api_key"
-fi
-if [[ -n "$cmux_existing_bl_workspace_set" ]]; then
-  export BL_WORKSPACE="$cmux_existing_bl_workspace"
 fi
 
 # Vercel intentionally redacts sensitive values when an environment is pulled.

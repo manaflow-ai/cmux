@@ -19,8 +19,8 @@ function sourceDevEnv({
   const home = mkdtempSync(path.join(tmpdir(), "cmux-load-dev-env-"));
   const secrets = path.join(home, ".secrets");
   const envFile = path.join(secrets, "cmuxterm-dev.env");
-  const providerFile = path.join(secrets, "blaxel.env");
-  const extraFile = path.join(secrets, "cmux.env");
+  const providerFile = path.join(secrets, "cmux.env");
+  const extraFile = path.join(secrets, "extra.env");
   const keyFile = path.join(
     secrets,
     "cmux-staging-relay-policy-2026-08.pem",
@@ -48,7 +48,7 @@ function sourceDevEnv({
       "bash",
       [
         "-c",
-        `source "$1"; printf '%s\\0%s\\0%s\\0%s' "\${CMUX_RELAY_POLICY_KEY_ID-}" "\${CMUX_RELAY_POLICY_PRIVATE_KEY_PEM-}" "\${BL_API_KEY-}" "\${BL_WORKSPACE-}"`,
+        `source "$1"; printf '%s\\0%s\\0%s\\0%s\\0%s' "\${CMUX_RELAY_POLICY_KEY_ID-}" "\${CMUX_RELAY_POLICY_PRIVATE_KEY_PEM-}" "\${FREESTYLE_API_KEY-}" "\${FREESTYLE_SANDBOX_SNAPSHOT-}" "\${CMUX_VM_DEFAULT_PROVIDER-}"`,
         "bash",
         scriptPath,
       ],
@@ -61,7 +61,7 @@ function sourceDevEnv({
           CMUX_RELAY_POLICY_KEY_ID: "",
           CMUX_RELAY_POLICY_PRIVATE_KEY_PEM: "",
           CMUX_RELAY_POLICY_LOCAL_KEY_ID: localKeyID,
-          CMUX_BLAXEL_ENV_FILE: providerFileContents ? providerFile : "",
+          CMUX_VM_DEFAULT_PROVIDER: "",
           CMUXTERM_EXTRA_ENV_FILE: extraFileContents ? extraFile : "",
         },
       },
@@ -116,20 +116,21 @@ test("custom local fallback key id remains coupled to its private key", () => {
   assert.equal(loadedPrivateKey, privateKey);
 });
 
-test("loads the canonical Blaxel pair from the optional provider file", () => {
-  const [, , apiKey, workspace] = sourceDevEnv({
-    providerFileContents: "BL_API_KEY=local-blaxel-key\nBL_WORKSPACE=cmux\n",
+test("loads Freestyle credentials from the generic provider file", () => {
+  const [, , apiKey, snapshot, provider] = sourceDevEnv({
+    providerFileContents: "FREESTYLE_API_KEY=local-freestyle-key\nFREESTYLE_SANDBOX_SNAPSHOT=sh-local\n",
   });
 
-  assert.equal(apiKey, "local-blaxel-key");
-  assert.equal(workspace, "cmux");
+  assert.equal(apiKey, "local-freestyle-key");
+  assert.equal(snapshot, "sh-local");
+  assert.equal(provider, "freestyle");
 });
 
-test("maps the legacy Blaxel key spelling from the general provider file", () => {
-  const [, , apiKey, workspace] = sourceDevEnv({
-    extraFileContents: "BLAXEL_API_KEY=legacy-blaxel-key\nBL_WORKSPACE=legacy\n",
+test("loads an explicitly selected provider from the extra environment file", () => {
+  const [, , apiKey, , provider] = sourceDevEnv({
+    extraFileContents: "FREESTYLE_API_KEY=explicit-freestyle-key\nCMUX_VM_DEFAULT_PROVIDER=e2b\n",
   });
 
-  assert.equal(apiKey, "legacy-blaxel-key");
-  assert.equal(workspace, "legacy");
+  assert.equal(apiKey, "explicit-freestyle-key");
+  assert.equal(provider, "e2b");
 });

@@ -10,11 +10,8 @@ bun install
 bun dev
 ```
 
-`bun dev` sources provider secrets from `~/.secrets/cmux.env` when present, then the optional
-`~/.secrets/blaxel.env` file, and then sources Stack/web secrets from
-`~/.secrets/cmuxterm-dev.env`. Set `CMUX_BLAXEL_ENV_FILE` to use another Blaxel file. The loader
-accepts the legacy `BLAXEL_API_KEY` spelling and exports the driver's canonical `BL_API_KEY` name.
-It derives local database URLs from `CMUX_PORT`,
+`bun dev` sources provider secrets from `~/.secrets/cmux.env` when present, then sources
+Stack/web secrets from `~/.secrets/cmuxterm-dev.env`. It derives local database URLs from `CMUX_PORT`,
 starts this worktree's Docker Postgres, applies Drizzle migrations, then starts Next.js.
 It listens on `CMUX_PORT` when it is set, otherwise `PORT`, otherwise `3777`.
 When `bun dev` exits or is interrupted, it stops the matching Docker Postgres container and
@@ -24,8 +21,7 @@ The committed `.envrc` uses the same loader for direnv. Run `direnv allow` once 
 want shells opened there to automatically get the same local dev environment.
 
 `web/.env.local` is not used for local development. Keep Stack/web runtime secrets in
-`~/.secrets/cmuxterm-dev.env` and Cloud VM provider secrets in `~/.secrets/cmux.env` or
-`~/.secrets/blaxel.env` (`BL_API_KEY` and `BL_WORKSPACE`).
+`~/.secrets/cmuxterm-dev.env` and Cloud VM provider secrets in `~/.secrets/cmux.env`.
 `~/.secret/cmuxterm.env` and `~/.secrets/cmuxterm.env` are accepted as legacy fallbacks for the
 Stack/web file.
 

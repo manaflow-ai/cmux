@@ -335,10 +335,8 @@ Use `CMUX_PORT` to run multiple isolated web and database environments on one ma
 CMUX_PORT=10180 bun dev
 ```
 
-`bun dev` sources the provider files `~/.secrets/cmux.env` and, when present,
-`~/.secrets/blaxel.env` (or the path in `CMUX_BLAXEL_ENV_FILE`), then sources
-`~/.secrets/cmuxterm-dev.env` (falling back to the legacy secret files). The loader maps the
-legacy `BLAXEL_API_KEY` spelling to the driver's canonical `BL_API_KEY` name. It derives the local
+`bun dev` sources provider values from `~/.secrets/cmux.env`, then sources
+`~/.secrets/cmuxterm-dev.env` (falling back to the legacy secret files). It derives the local
 database URL from `CMUX_PORT`, starts this worktree's Docker Postgres, applies Drizzle migrations,
 then starts Next.js. When it exits or is interrupted, it stops the matching Docker container and
 network while preserving the Postgres volume.
