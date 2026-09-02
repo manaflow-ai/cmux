@@ -47,7 +47,7 @@ unknown ownership signal rejects the action instead of selecting either route.
 
 ## Required vNext primitives
 
-The implemented v10 inventory is complete as a description of current wire behavior. The machine-readable `secondary_protocols.terminal_host_v1` key remains a stable legacy alias for the terminal-host-v4 daemon message catalog. The protocol-domain row and [`terminal-host.md`](terminal-host.md) describe that daemon v4 contract; the current cross-language renderer is v3. Renderer attach to a newly launched host is not a supported route until renderer v4 support or explicit mutually supported version negotiation exists. The following primitives are required before the affected feature family can claim portable automation completeness.
+The implemented v12 inventory is complete as a description of current wire behavior. The machine-readable `secondary_protocols.terminal_host_v1` key remains a stable legacy alias for the terminal-host-v4 daemon message catalog. The protocol-domain row and [`terminal-host.md`](terminal-host.md) describe that daemon v4 contract; the current cross-language renderer is v3. Renderer attach to a newly launched host is not a supported route until renderer v4 support or explicit mutually supported version negotiation exists. The following primitives are required before the affected feature family can claim portable automation completeness.
 
 | Feature family | Current route | Required addition |
 | --- | --- | --- |
