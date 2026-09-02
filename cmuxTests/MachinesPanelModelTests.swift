@@ -971,6 +971,35 @@ struct MachinesPanelListProblemTests {
     }
 }
 
+@Suite("Cloud machines client bootstrap")
+struct MachinesPanelClientBootstrapTests {
+    @Test("A missing client retries only through the bounded bootstrap budget")
+    func missingClientUsesBoundedRetryBudget() async {
+        var attempts = 0
+
+        let loaded = await CloudClientBootstrapRetry.run(maxRetries: 3) {
+            attempts += 1
+            return false
+        }
+
+        #expect(!loaded)
+        #expect(attempts == 4)
+    }
+
+    @Test("A client that appears during bootstrap completes immediately")
+    func clientAppearsDuringBootstrap() async {
+        var attempts = 0
+
+        let loaded = await CloudClientBootstrapRetry.run(maxRetries: 3) {
+            attempts += 1
+            return attempts == 3
+        }
+
+        #expect(loaded)
+        #expect(attempts == 3)
+    }
+}
+
 @Suite("Cloud machines paid-plan classification")
 struct MachinesPanelPaidPlanTests {
     @Test("Only plans the backend accepts for provisioning are paid", arguments: [
