@@ -621,7 +621,7 @@ printf '<%s>\\n' "${{keychains[@]}}"
             tag_name="v1.2.3-01",
         )
         self.assertNotEqual(result.returncode, 0)
-        self.assertIn("semantic version", result.stderr.lower())
+        self.assertRegex(result.stderr.lower(), r"semantic version|leading zero")
 
 
 if __name__ == "__main__":

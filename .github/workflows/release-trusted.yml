@@ -153,6 +153,14 @@ jobs:
             requireText('Observer source branch', run.head_branch, eventRun.head_branch);
             const tagMatch = tagPattern.exec(run.head_branch || '');
             if (!tagMatch) fail(`Release source is not a semantic version tag: ${run.head_branch}`);
+            const invalidPrereleaseIdentifier = (tagMatch[4] || '')
+              .split('.')
+              .find((identifier) => /^[0-9]+$/.test(identifier) && identifier.length > 1 && identifier.startsWith('0'));
+            if (invalidPrereleaseIdentifier) {
+              fail(
+                `Release source has a numeric prerelease identifier with a leading zero: ${invalidPrereleaseIdentifier}`,
+              );
+            }
             const isPrerelease = Boolean(tagMatch[4]);
             requireSha('Observer source SHA', run.head_sha);
             requireText('Observer source SHA', run.head_sha, eventRun.head_sha);
@@ -938,8 +946,19 @@ jobs:
             const tag = process.env.RELEASE_TAG;
             const expectedSha = process.env.EXPECTED_SHA;
             const shaPattern = /^[0-9a-f]{40}$/;
-            if (!/^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(?:-([0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*))?(?:\+([0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*))?$/.test(tag || '')) {
+            const tagPattern = /^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(?:-([0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*))?(?:\+([0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*))?$/;
+            const tagMatch = tagPattern.exec(tag || '');
+            if (!tagMatch) {
               core.setFailed(`Invalid validated release tag: ${tag}`);
+              return;
+            }
+            const invalidPrereleaseIdentifier = (tagMatch[4] || '')
+              .split('.')
+              .find((identifier) => /^[0-9]+$/.test(identifier) && identifier.length > 1 && identifier.startsWith('0'));
+            if (invalidPrereleaseIdentifier) {
+              core.setFailed(
+                `Validated release tag has a numeric prerelease identifier with a leading zero: ${invalidPrereleaseIdentifier}`,
+              );
               return;
             }
             if (!shaPattern.test(expectedSha || '')) {
