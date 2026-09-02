@@ -51,5 +51,10 @@ public final class LocalTerminalViewportSession {
         overridesBySurfaceID.isEmpty
     }
 
-    deinit {}
+    deinit {
+        // The handler owns the session for exactly one accepted socket
+        // lifetime. Clear the map at destruction so a disconnect cannot leave
+        // a surface override reachable through a retained reference.
+        overridesBySurfaceID.removeAll(keepingCapacity: false)
+    }
 }
