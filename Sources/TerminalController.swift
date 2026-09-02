@@ -1200,7 +1200,10 @@ class TerminalController {
                         ) else {
                         return .err(
                             code: "method_not_found",
-                            message: "Unknown method",
+                            message: String(
+                                localized: "socket.error.unknownMethod",
+                                defaultValue: "Unknown method"
+                            ),
                             data: nil
                         )
                     }
@@ -1215,6 +1218,12 @@ class TerminalController {
                         )
                     }
                 }
+            }
+            if let feedResult = controlCommandCoordinator.handleSocketWorkerFeed(
+                parsedRequest,
+                context: self
+            ) {
+                return Self.v2Encoder.response(id: parsedRequest.id, feedResult)
             }
             // Coordinator-owned worker-lane bodies (the tranche-D resolution
             // reads): nonisolated coordinator code runs on this worker thread
@@ -12905,6 +12914,13 @@ class TerminalController {
                 subtitle: subtitle,
                 body: body,
                 replyShape: TerminalNotificationReplyShape.forAgentCategory(wire: meta?.category.rawValue),
+                agent: AgentNotificationDelivery.agentContext(
+                    category: meta?.category,
+                    pending: meta?.pending ?? false,
+                    agentKind: meta?.agentKind,
+                    isSubagent: meta?.isSubagent
+                ),
+                soundContext: meta?.soundContext,
                 correlationKey: meta?.correlationKey
             )
             return "OK"
@@ -12943,6 +12959,13 @@ class TerminalController {
                 subtitle: subtitle,
                 body: body,
                 replyShape: TerminalNotificationReplyShape.forAgentCategory(wire: meta?.category.rawValue),
+                agent: AgentNotificationDelivery.agentContext(
+                    category: meta?.category,
+                    pending: meta?.pending ?? false,
+                    agentKind: meta?.agentKind,
+                    isSubagent: meta?.isSubagent
+                ),
+                soundContext: meta?.soundContext,
                 correlationKey: meta?.correlationKey
             )
             return "OK"
@@ -12997,6 +13020,7 @@ class TerminalController {
                         agentKind: meta?.agentKind,
                         isSubagent: meta?.isSubagent
                     ),
+                    soundContext: meta?.soundContext,
                     correlationKey: meta?.correlationKey
                 )
                 return "OK"
@@ -13028,6 +13052,7 @@ class TerminalController {
                     agentKind: meta?.agentKind,
                     isSubagent: meta?.isSubagent
                 ),
+                soundContext: meta?.soundContext,
                 correlationKey: meta?.correlationKey
             )
             return "OK"
@@ -13071,6 +13096,7 @@ class TerminalController {
             body: body,
             category: meta?.category,
             pending: meta?.pending ?? false,
+            soundContext: meta?.soundContext,
             agentKind: meta?.agentKind,
             isSubagent: meta?.isSubagent,
             correlationKey: meta?.correlationKey

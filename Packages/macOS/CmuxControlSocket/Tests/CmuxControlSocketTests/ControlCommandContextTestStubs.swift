@@ -37,7 +37,17 @@ extension ControlAppFocusContext {
 }
 
 extension ControlFeedContext {
-    func controlFeedResolvePossibleSurface(workstreamID: String) -> Bool { false }
+    nonisolated func controlFeedInvalidJumpMessage() -> String {
+        "feed.jump requires workstream_id"
+    }
+
+    nonisolated func controlFeedResolvePossibleSurfaceAsync(
+        workstreamID: String
+    ) async -> Bool { false }
+    nonisolated func controlFeedResolvePossibleSurface(
+        workstreamID: String
+    ) -> Bool { false }
+    @MainActor
     func controlFeedSnapshotItems(pendingOnly: Bool) -> [JSONValue] { [] }
 }
 
@@ -176,6 +186,24 @@ extension ControlNotificationContext {
     func controlNotificationOpen(id: UUID) -> ControlNotificationOpenResolution { .notificationNotFound }
     func controlNotificationJumpToUnread() -> ControlNotificationSnapshot? { nil }
     func controlNotificationClear() {}
+    func controlNotificationClear(
+        routing: ControlRoutingSelectors,
+        workspaceID: UUID,
+        surfaceID: UUID?
+    ) -> ControlNotificationClearResolution {
+        .cleared(workspaceID: workspaceID, surfaceID: surfaceID)
+    }
+    func controlNotificationClearForCaller(
+        preferredWorkspaceID: UUID?,
+        preferredSurfaceID: UUID?,
+        callerTTY: String?,
+        preferTTY: Bool
+    ) -> ControlNotificationClearResolution {
+        guard let preferredWorkspaceID else {
+            return .workspaceNotFound(workspaceID: nil)
+        }
+        return .cleared(workspaceID: preferredWorkspaceID, surfaceID: preferredSurfaceID)
+    }
 
     var notificationStrings: ControlNotificationStrings {
         ControlNotificationStrings(
@@ -185,7 +213,17 @@ extension ControlNotificationContext {
             markReadSelectorRequired: "",
             surfaceIDInvalid: "",
             surfaceIDRequiresWorkspace: "",
-            targetNotFound: ""
+            targetNotFound: "",
+            clearCallerInvalid: "Missing or invalid caller",
+            clearCallerSelectorsRequireCaller: "caller-only selectors require caller=true",
+            clearCallerScopeConflict: "",
+            clearPreferredWorkspaceIDInvalid: "",
+            clearPreferredSurfaceIDInvalid: "",
+            clearSurfaceIDRequiresWorkspace: "",
+            clearWorkspaceIDInvalid: "",
+            workspaceNotFound: "Workspace not found",
+            surfaceNotFound: "Surface not found",
+            clearUnavailable: "Notifications are unavailable. Try again."
         )
     }
 }
