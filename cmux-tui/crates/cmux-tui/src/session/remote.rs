@@ -3630,7 +3630,13 @@ impl Drop for RemoteSession {
 fn private_dump_directory(path: &Path) -> io::Result<fs::File> {
     use std::ffi::CString;
     use std::os::unix::ffi::OsStrExt;
-    use std::os::unix::fs::{MetadataExt, OpenOptionsExt, PermissionsExt};
+    use std::os::unix::fs::{MetadataExt, OpenOptionsExt};
+
+    // Validate existing ancestors before create_dir_all follows them, then
+    // validate again after creation to catch newly created components. A
+    // writable non-sticky ancestor permits another user to replace the dump
+    // directory between path operations and redirect secret-bearing output.
+    validate_dump_ancestors(path)?;
 
     let existed = match fs::symlink_metadata(path) {
         Ok(metadata) if metadata.is_dir() => true,
@@ -3644,10 +3650,7 @@ fn private_dump_directory(path: &Path) -> io::Result<fs::File> {
         Err(error) => return Err(error),
     };
     if !existed {
-        if let Some(parent) = path
-            .parent()
-            .filter(|parent| !parent.as_os_str().is_empty())
-        {
+        if let Some(parent) = path.parent().filter(|parent| !parent.as_os_str().is_empty()) {
             fs::create_dir_all(parent)?;
         }
         let path = CString::new(path.as_os_str().as_bytes()).map_err(|_| {
@@ -3661,6 +3664,7 @@ fn private_dump_directory(path: &Path) -> io::Result<fs::File> {
             }
         }
     }
+    validate_dump_ancestors(path)?;
     let directory = fs::OpenOptions::new()
         .read(true)
         .custom_flags(libc::O_DIRECTORY | libc::O_NOFOLLOW | libc::O_CLOEXEC)
@@ -3672,57 +3676,121 @@ fn private_dump_directory(path: &Path) -> io::Result<fs::File> {
             format!("dump directory is not private and user-owned: {}", path.display()),
         ));
     }
+    reject_extended_acl(&directory)?;
     if metadata.mode() & 0o077 != 0 {
         return Err(io::Error::new(
             io::ErrorKind::PermissionDenied,
             format!("dump directory is not private: {}", path.display()),
         ));
     }
-    reject_extended_acl(&directory)?;
     Ok(directory)
+}
+
+#[cfg(unix)]
+fn validate_dump_ancestors(path: &Path) -> io::Result<()> {
+    use std::os::unix::fs::{MetadataExt, OpenOptionsExt};
+
+    let mut ancestor = path.parent();
+    while let Some(candidate) = ancestor {
+        if candidate.as_os_str().is_empty() {
+            break;
+        }
+        match fs::symlink_metadata(candidate) {
+            Ok(metadata) => {
+                let resolved = if metadata.file_type().is_symlink() {
+                    if metadata.uid() != unsafe { libc::geteuid() } && metadata.uid() != 0 {
+                        return Err(io::Error::new(
+                            io::ErrorKind::PermissionDenied,
+                            format!(
+                                "dump directory ancestor is not trusted: {}",
+                                candidate.display()
+                            ),
+                        ));
+                    }
+                    let resolved = fs::canonicalize(candidate)?;
+                    validate_dump_ancestors(&resolved)?;
+                    resolved
+                } else {
+                    candidate.to_path_buf()
+                };
+                let metadata = fs::symlink_metadata(&resolved)?;
+                if !metadata.is_dir() {
+                    return Err(io::Error::new(
+                        io::ErrorKind::InvalidInput,
+                        format!(
+                            "dump directory ancestor is not a directory: {}",
+                            candidate.display()
+                        ),
+                    ));
+                }
+                if metadata.uid() != unsafe { libc::geteuid() } && metadata.uid() != 0 {
+                    return Err(io::Error::new(
+                        io::ErrorKind::PermissionDenied,
+                        format!("dump directory ancestor is not trusted: {}", candidate.display()),
+                    ));
+                }
+                let mode = metadata.mode();
+                let sticky = mode & 0o1000 != 0;
+                if mode & 0o022 != 0 && !sticky {
+                    return Err(io::Error::new(
+                        io::ErrorKind::PermissionDenied,
+                        format!(
+                            "dump directory ancestor is writable without private protection: {}",
+                            candidate.display()
+                        ),
+                    ));
+                }
+                let directory = fs::OpenOptions::new()
+                    .read(true)
+                    .custom_flags(libc::O_DIRECTORY | libc::O_NOFOLLOW | libc::O_CLOEXEC)
+                    .open(&resolved)?;
+                reject_extended_acl(&directory)?;
+            }
+            Err(error) if error.kind() == io::ErrorKind::NotFound => {}
+            Err(error) => return Err(error),
+        }
+        let next = candidate.parent();
+        if next == Some(candidate) {
+            break;
+        }
+        ancestor = next;
+    }
+    Ok(())
 }
 
 #[cfg(target_os = "macos")]
 fn reject_extended_acl(directory: &fs::File) -> io::Result<()> {
     use std::os::fd::AsRawFd;
-    use std::ptr;
 
-    // Any extended ACL can carry non-owner grants or inheritance. Reject the
-    // directory instead of trying to interpret ACE ordering and masks.
-    let descriptor = directory.as_raw_fd();
-    let size = unsafe { libc::flistxattr(descriptor, ptr::null_mut(), 0, 0) };
-    if size < 0 {
+    // `acl_get_fd_np` reads the effective macOS ACL from the opened
+    // descriptor, including inherited ACEs that are not exposed by the mode
+    // bits. Reject any extended ACL instead of attempting to interpret ACE
+    // ordering, principals, and inheritance flags here.
+    unsafe extern "C" {
+        fn acl_get_fd_np(fd: libc::c_int, acl_type: libc::c_int) -> *mut libc::c_void;
+        fn acl_free(object: *mut libc::c_void) -> libc::c_int;
+    }
+
+    const ACL_TYPE_EXTENDED: libc::c_int = 0x0000_0100;
+    let acl = unsafe { acl_get_fd_np(directory.as_raw_fd(), ACL_TYPE_EXTENDED) };
+    if acl.is_null() {
         let error = io::Error::last_os_error();
-        if matches!(error.raw_os_error(), Some(libc::ENOTSUP) | Some(libc::ENOSYS)) {
+        if matches!(
+            error.raw_os_error(),
+            Some(libc::ENOENT)
+                | Some(libc::ENOATTR)
+                | Some(libc::ENOTSUP)
+                | Some(libc::EOPNOTSUPP)
+                | Some(libc::ENOSYS)
+        ) {
             return Ok(());
         }
         return Err(error);
     }
-    if size == 0 {
-        return Ok(());
+    unsafe {
+        acl_free(acl);
     }
-    let mut names = vec![0_u8; size as usize];
-    let size = unsafe {
-        libc::flistxattr(
-            descriptor,
-            names.as_mut_ptr().cast(),
-            names.len(),
-            0,
-        )
-    };
-    if size < 0 {
-        return Err(io::Error::last_os_error());
-    }
-    if names[..size as usize]
-        .split(|byte| *byte == 0)
-        .any(|name| name == b"com.apple.acl.text")
-    {
-        return Err(io::Error::new(
-            io::ErrorKind::PermissionDenied,
-            "dump directory has an extended ACL",
-        ));
-    }
-    Ok(())
+    Err(io::Error::new(io::ErrorKind::PermissionDenied, "dump directory has an extended ACL"))
 }
 
 #[cfg(not(target_os = "macos"))]
@@ -3756,9 +3824,7 @@ fn private_dump_file(directory: &fs::File, name: &str) -> io::Result<fs::File> {
     }
     let file = unsafe { fs::File::from_raw_fd(descriptor) };
     let metadata = file.metadata()?;
-    if !metadata.is_file()
-        || metadata.uid() != unsafe { libc::geteuid() }
-        || metadata.nlink() != 1
+    if !metadata.is_file() || metadata.uid() != unsafe { libc::geteuid() } || metadata.nlink() != 1
     {
         return Err(io::Error::new(
             io::ErrorKind::PermissionDenied,
@@ -4697,8 +4763,9 @@ mod tests {
     #[test]
     fn private_dump_write_failure_preserves_previous_dump_and_cleans_temp() {
         let root = tempfile::tempdir().unwrap();
-        let directory = private_dump_directory(root.path()).unwrap();
-        let final_path = root.path().join("mirror.txt");
+        let dump_path = root.path().join("dumps");
+        let directory = private_dump_directory(&dump_path).unwrap();
+        let final_path = dump_path.join("mirror.txt");
         fs::write(&final_path, b"previous").unwrap();
 
         let error = write_private_dump(&directory, "mirror.txt", |_file| {
@@ -4708,19 +4775,22 @@ mod tests {
 
         assert_eq!(error.kind(), io::ErrorKind::Other);
         assert_eq!(fs::read(&final_path).unwrap(), b"previous");
-        assert!(fs::read_dir(root.path())
-            .unwrap()
-            .filter_map(Result::ok)
-            .all(|entry| entry.file_name() == "mirror.txt"));
+        assert!(
+            fs::read_dir(&dump_path)
+                .unwrap()
+                .filter_map(Result::ok)
+                .all(|entry| entry.file_name() == "mirror.txt")
+        );
     }
 
     #[cfg(unix)]
     #[test]
     fn private_dump_replacement_does_not_modify_hard_linked_previous_dump() {
         let root = tempfile::tempdir().unwrap();
-        let directory = private_dump_directory(root.path()).unwrap();
-        let final_path = root.path().join("mirror.txt");
-        let linked_path = root.path().join("mirror-backup.txt");
+        let dump_path = root.path().join("dumps");
+        let directory = private_dump_directory(&dump_path).unwrap();
+        let final_path = dump_path.join("mirror.txt");
+        let linked_path = dump_path.join("mirror-backup.txt");
         fs::write(&final_path, b"previous").unwrap();
         fs::hard_link(&final_path, &linked_path).unwrap();
 
@@ -4735,9 +4805,10 @@ mod tests {
     #[test]
     fn private_dump_file_rejects_existing_hard_link_without_truncation() {
         let root = tempfile::tempdir().unwrap();
-        let directory = private_dump_directory(root.path()).unwrap();
-        let final_path = root.path().join("mirror.txt");
-        let linked_path = root.path().join("mirror-backup.txt");
+        let dump_path = root.path().join("dumps");
+        let directory = private_dump_directory(&dump_path).unwrap();
+        let final_path = dump_path.join("mirror.txt");
+        let linked_path = dump_path.join("mirror-backup.txt");
         fs::write(&final_path, b"previous").unwrap();
         fs::hard_link(&final_path, &linked_path).unwrap();
 
@@ -4752,21 +4823,23 @@ mod tests {
     #[test]
     fn private_dump_rename_failure_preserves_previous_directory_and_cleans_temp() {
         let root = tempfile::tempdir().unwrap();
-        let directory = private_dump_directory(root.path()).unwrap();
-        let final_path = root.path().join("mirror.txt");
+        let dump_path = root.path().join("dumps");
+        let directory = private_dump_directory(&dump_path).unwrap();
+        let final_path = dump_path.join("mirror.txt");
         fs::create_dir(&final_path).unwrap();
 
-        let error = write_private_dump(&directory, "mirror.txt", |file| {
-            file.write_all(b"replacement")
-        })
-        .unwrap_err();
+        let error =
+            write_private_dump(&directory, "mirror.txt", |file| file.write_all(b"replacement"))
+                .unwrap_err();
 
         assert!(matches!(error.raw_os_error(), Some(libc::EISDIR) | Some(libc::ENOTEMPTY)));
         assert!(final_path.is_dir());
-        assert!(fs::read_dir(root.path())
-            .unwrap()
-            .filter_map(Result::ok)
-            .all(|entry| entry.file_name() == "mirror.txt"));
+        assert!(
+            fs::read_dir(&dump_path)
+                .unwrap()
+                .filter_map(Result::ok)
+                .all(|entry| entry.file_name() == "mirror.txt")
+        );
     }
 
     #[test]
