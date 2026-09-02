@@ -1051,6 +1051,7 @@ final class WindowTerminalPortal: NSObject {
     }
 
     private var lastHierarchySyncSignature: ExternalGeometrySignature?
+    private var geometrySettlementPassesRemaining = 4
 
     @discardableResult
     private func synchronizeHostFrameToReference() -> Bool {
@@ -1131,7 +1132,12 @@ final class WindowTerminalPortal: NSObject {
         if hierarchyWasAlreadySettled {
             finishVisibleEntryGeometrySettlements()
         } else if entriesByHostedId.values.contains(where: { $0.visibleInUI && $0.awaitingGeometrySettlement }) {
-            scheduleExternalGeometrySynchronize(forceImmediate: false)
+            if geometrySettlementPassesRemaining > 0 {
+                geometrySettlementPassesRemaining -= 1
+                scheduleExternalGeometrySynchronize(forceImmediate: false)
+            } else {
+                finishVisibleEntryGeometrySettlements()
+            }
         }
     }
 
@@ -1517,6 +1523,7 @@ final class WindowTerminalPortal: NSObject {
         entry.visibleInUI = visibleInUI
         if becameVisible {
             lastHierarchySyncSignature = nil
+            geometrySettlementPassesRemaining = 4
             entry.awaitingGeometrySettlement = true
             entry.hostedView?.beginPortalGeometrySettlement()
         } else if !visibleInUI {
@@ -1649,6 +1656,7 @@ final class WindowTerminalPortal: NSObject {
         let becameVisible = (previousEntry?.visibleInUI ?? false) == false && visibleInUI
         if becameVisible {
             lastHierarchySyncSignature = nil
+            geometrySettlementPassesRemaining = 4
             hostedView.beginPortalGeometrySettlement()
         }
         let priorityIncreased = zPriority > (previousEntry?.zPriority ?? Int.min)
@@ -1856,7 +1864,12 @@ final class WindowTerminalPortal: NSObject {
             if hierarchyWasAlreadySettled {
                 self.finishVisibleEntryGeometrySettlements()
             } else if self.entriesByHostedId.values.contains(where: { $0.visibleInUI && $0.awaitingGeometrySettlement }) {
-                self.scheduleExternalGeometrySynchronize(forceImmediate: false)
+                if self.geometrySettlementPassesRemaining > 0 {
+                    self.geometrySettlementPassesRemaining -= 1
+                    self.scheduleExternalGeometrySynchronize(forceImmediate: false)
+                } else {
+                    self.finishVisibleEntryGeometrySettlements()
+                }
             }
         }
     }
