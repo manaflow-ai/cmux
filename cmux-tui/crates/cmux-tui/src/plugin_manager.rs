@@ -1531,6 +1531,22 @@ mod tests {
     }
 
     #[test]
+    fn bounded_plugin_text_reader_rejects_oversized_files() {
+        let root = std::env::temp_dir().join(format!(
+            "cmux-plugin-text-limit-{}-{}",
+            std::process::id(),
+            now_nanos()
+        ));
+        fs::create_dir_all(&root).unwrap();
+        let path = root.join("plugin.json");
+        fs::write(&path, b"four").unwrap();
+        let error = read_bounded_plugin_text(&path, 3).unwrap_err();
+        assert_eq!(error.kind(), std::io::ErrorKind::InvalidData);
+        assert!(error.to_string().contains("3-byte limit"), "{error}");
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
     fn plugin_registry_rejects_an_unbounded_entry_count() {
         let root = std::env::temp_dir().join(format!(
             "cmux-plugin-registry-entry-limit-{}-{}",
