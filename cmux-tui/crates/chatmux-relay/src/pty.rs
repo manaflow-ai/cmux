@@ -1129,21 +1129,51 @@ impl Inner {
         generation: u64,
         publication_gate: &Arc<Mutex<()>>,
     ) {
-        let auth = Self::auth_snapshot(context);
-        if self
-            .authorize_snapshot_for_generation(pty_id, &auth, context, "exit", generation)
-            .is_none()
-        {
-            return;
-        }
-        self.emit_terminal_for_generation(pty_id, generation, publication_gate, || {
+        let gate = {
+            let attachments = self.attachments.lock().expect("attach lock");
+            let Some(current) = attachments.get(pty_id) else { return };
+            if current.generation != generation
+                || !Arc::ptr_eq(&current.publication_gate, publication_gate)
+            {
+                return;
+            }
+            Arc::clone(&current.publication_gate)
+        };
+        let _publication = gate.lock().expect("attachment publication lock");
+        let (attachment, authorized) = {
+            let attachments = self.attachments.lock().expect("attach lock");
+            let Some(current) = attachments.get(pty_id) else { return };
+            if current.generation != generation
+                || !Arc::ptr_eq(&current.publication_gate, publication_gate)
+                || current.closing.load(Ordering::SeqCst)
+            {
+                return;
+            }
+            let attachment = current.clone();
+            let authorized = (context.live_authorized)(&current.actor_id);
+            current.closing.store(true, Ordering::SeqCst);
+            (attachment, authorized)
+        };
+        if !authorized {
+            send_pty_error(context, pty_id, "trust_revoked", "PTY exit refused after trust change");
+        } else {
             (context.send)(json!({
-            "version": PTY_PROTOCOL_VERSION,
-            "type": "pty_exit",
-            "ptyId": pty_id,
-            "code": code,
+                "version": PTY_PROTOCOL_VERSION,
+                "type": "pty_exit",
+                "ptyId": pty_id,
+                "code": code,
             }));
-        });
+        }
+        let mut attachments = self.attachments.lock().expect("attach lock");
+        if attachments.get(pty_id).is_some_and(|current| {
+            current.generation == generation
+                && Arc::ptr_eq(&current.publication_gate, publication_gate)
+        }) {
+            attachments.remove(pty_id);
+        }
+        drop(attachments);
+        drop(_publication);
+        attachment.control.kill();
     }
 
     fn emit_error_for_generation(
