@@ -2186,9 +2186,10 @@ pub fn credential_free_route_hint(route: &str) -> Result<String, IdentityError> 
 
 fn credential_free_route_hints(routes: Vec<String>) -> Result<Vec<String>, IdentityError> {
     let mut sanitized = Vec::with_capacity(routes.len());
+    let mut seen = HashSet::with_capacity(routes.len());
     for route in routes {
         let route = credential_free_route_hint(&route)?;
-        if !sanitized.contains(&route) {
+        if seen.insert(route.clone()) {
             sanitized.push(route);
         }
     }
@@ -2197,9 +2198,10 @@ fn credential_free_route_hints(routes: Vec<String>) -> Result<Vec<String>, Ident
 
 fn credential_free_route_hints_lossy(routes: &[String]) -> Vec<String> {
     let mut sanitized = Vec::with_capacity(routes.len());
+    let mut seen = HashSet::with_capacity(routes.len());
     for route in routes {
         if let Ok(route) = credential_free_route_hint(route)
-            && !sanitized.contains(&route)
+            && seen.insert(route.clone())
         {
             sanitized.push(route);
         }
