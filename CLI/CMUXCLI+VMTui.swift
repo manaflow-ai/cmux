@@ -752,14 +752,18 @@ extension CMUXCLI {
 
     enum VMRemoteViewResolution {
         case resolved([String: Any])
+        /// A legacy resource identifies one workspace but has no tab id. Whole
+        /// workspace opens may use that relationship; exact terminal selectors
+        /// must still fail closed.
+        case legacy
         case notFound
         case ambiguous
         case unavailable
     }
 
     /// Resolve a resource's exact view in one remote workspace. A view row is required for
-    /// focused/tab placement. The legacy single-workspace field is retained only to identify
-    /// the workspace; without a tab id it is unavailable for an exact open.
+    /// focused/tab placement. A legacy single-workspace resource is returned as `.legacy` so
+    /// workspace opens can preserve the terminal-id fallback while exact selectors fail.
     static func resolveVMRemoteView(
         in resource: [String: Any],
         workspaceID: String
@@ -794,7 +798,7 @@ extension CMUXCLI {
               (workspace["id"] as? String) == workspaceID else {
             return .notFound
         }
-        return .unavailable
+        return .legacy
     }
 
     /// Find a resource's exact view in one remote workspace. The view row is
@@ -861,6 +865,9 @@ extension CMUXCLI {
                 return .unavailable
             }
             tabID = value
+        case .legacy:
+            // An exact terminal selector cannot safely invent a tab id.
+            return .unavailable
         case .notFound:
             return .notFound
         case .ambiguous:
@@ -1753,6 +1760,12 @@ extension CMUXCLI {
                     inWorkspace.append((terminal, view))
                 case .notFound:
                     continue
+                case .legacy:
+                    // Older snapshot-only daemons expose the terminal's
+                    // workspace but no tab id. The workspace operation still
+                    // has a safe terminal/workspace target, and the project
+                    // path will choose the daemon's legacy placement.
+                    inWorkspace.append((terminal, nil))
                 case .ambiguous:
                     let selector = (terminal["key"] as? String) ?? (terminal["id"] as? String) ?? "?"
                     throw Self.vmTerminalPlacementResolutionError(
