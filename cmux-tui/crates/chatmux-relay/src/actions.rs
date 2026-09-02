@@ -1969,6 +1969,20 @@ mod tests {
     }
 
     #[cfg(unix)]
+    fn process_exists(pid_file: &Path) -> bool {
+        let Some(pid) = std::fs::read_to_string(pid_file)
+            .ok()
+            .and_then(|value| value.trim().parse::<libc::pid_t>().ok())
+        else {
+            return false;
+        };
+        // SAFETY: kill(pid, 0) only probes process existence and sends no
+        // signal.
+        let result = unsafe { libc::kill(pid, 0) };
+        result == 0 || std::io::Error::last_os_error().raw_os_error() != Some(libc::ESRCH)
+    }
+
+    #[cfg(unix)]
     #[test]
     fn process_group_failure_does_not_fallback_to_numeric_pid() {
         let mut targets = Vec::new();
@@ -2379,6 +2393,65 @@ mod tests {
 
         assert_eq!(grep["ok"], false);
         assert_eq!(grep["code"], "busy");
+        std::fs::remove_dir_all(&root).ok();
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn cancelled_grep_reaps_child_before_releasing_capacity() {
+        let root = scratch("grep-cancel");
+        let bin = root.join("bin");
+        std::fs::create_dir(&bin).unwrap();
+        let grep = bin.join("grep");
+        std::fs::write(
+            &grep,
+            "#!/bin/sh\ntrap '' TERM INT HUP\n/bin/sh -c 'trap \"\" TERM INT HUP; while :; do sleep 1; done' &\nprintf '%s' \"$!\" > \"$CMUX_GREP_DESCENDANT_PID\"\n: > \"$CMUX_GREP_STARTED\"\nwhile :; do sleep 1; done\n",
+        )
+        .unwrap();
+        use std::os::unix::fs::PermissionsExt as _;
+        std::fs::set_permissions(&grep, std::fs::Permissions::from_mode(0o755)).unwrap();
+        let started = root.join("started");
+        let descendant_pid = root.join("descendant-pid");
+        let roots = vec![root.display().to_string()];
+        let mut context = ctx("supervised", Some(roots.clone()), root.clone());
+        context.env = HashMap::from([
+            ("PATH".to_owned(), format!("{}:/bin:/usr/bin", bin.display())),
+            ("CMUX_GREP_STARTED".to_owned(), started.display().to_string()),
+            (
+                "CMUX_GREP_DESCENDANT_PID".to_owned(),
+                descendant_pid.display().to_string(),
+            ),
+        ]);
+        let frame = json!({ "verb": "grep", "actionId": "grep-cancel", "allowedRoots": roots,
+                            "args": { "path": ".", "pattern": "needle" }, "timeoutMs": 10000 });
+        let file_slots = Arc::clone(&context.file_slots);
+        let action = tokio::spawn(async move { perform_action(&frame, &context).await });
+        tokio::time::timeout(std::time::Duration::from_secs(1), async {
+            while !started.exists() { tokio::task::yield_now().await; }
+        }).await.expect("grep child must start");
+        tokio::time::timeout(std::time::Duration::from_secs(1), async {
+            while !process_exists(&descendant_pid) { tokio::task::yield_now().await; }
+        })
+        .await
+        .expect("grep descendant must start");
+        assert_eq!(file_slots.available_permits(), MAX_BLOCKING_FILE_ACTIONS - 1);
+        action.abort();
+        let join = action.await;
+        assert!(join.is_err(), "aborted action must not complete normally");
+        tokio::time::timeout(std::time::Duration::from_secs(1), async {
+            while file_slots.available_permits() != MAX_BLOCKING_FILE_ACTIONS {
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .expect("cancelled grep must reap its child before releasing capacity");
+        tokio::time::timeout(std::time::Duration::from_secs(1), async {
+            while process_exists(&descendant_pid) {
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .expect("cancelled grep descendant must be gone");
         std::fs::remove_dir_all(&root).ok();
     }
 
