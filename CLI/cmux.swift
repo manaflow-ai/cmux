@@ -5091,6 +5091,7 @@ struct CMUXCLI {
         if command == "vm-pty-connect" { try runVMPtyConnect(commandArgs: commandArgs); return }
         if command == "docs" { try runDocsCommand(commandArgs: commandArgs, jsonOutput: jsonOutput); return }
         if command == "welcome" { printWelcome(); return }
+        if command == WelcomeLogoAnimator.detachedCommand { runWelcomeAnimateHelper(commandArgs: commandArgs); return }
         if command == "sessions" || command == "session-debug" { try runSessionsCommand(commandArgs: command == "session-debug" ? ["debug"] + commandArgs : commandArgs, jsonOutput: jsonOutput, processEnv: processEnv); return }
         if command == "__sigpipe-probe" { try runSIGPIPEProbe(commandArgs: commandArgs); return }
         if command == "__sigpipe-stdin-pipe-probe" { try runSIGPIPEStdinPipeProbe(); return }
@@ -40493,35 +40494,11 @@ export default CMUXSessionRestore;
         }
 
         let isDark = UserDefaults.standard.string(forKey: "AppleInterfaceStyle") == "Dark"
+        let tagline = welcomeTaglineColor()
+        let subdued = isDark ? "\u{001B}[2m" : trueColor(100, 100, 108)
 
-        let c1 = trueColor(0, 212, 255)
-        let c2 = trueColor(24, 181, 250)
-        let c3 = trueColor(48, 150, 245)
-        let c4 = trueColor(72, 119, 241)
-        let c5 = trueColor(96, 88, 239)
-        let c6 = trueColor(110, 73, 238)
-        let c7 = trueColor(124, 58, 237)
-
-        let tagline: String
-        let subdued: String
-
-        if isDark {
-            tagline = trueColor(130, 130, 140)
-            subdued = "\u{001B}[2m"
-        } else {
-            tagline = trueColor(90, 90, 98)
-            subdued = trueColor(100, 100, 108)
-        }
-
-        let logo = """
-        \(c1)  ::\(reset)
-        \(c2)    ::::\(reset)              \(c1)c\(c2)m\(c3)u\(c7)x\(reset)
-        \(c3)      ::::::\(reset)
-        \(c4)        ::::::\(reset)        \(tagline)the open source terminal\(reset)
-        \(c5)      ::::::\(reset)          \(tagline)built for coding agents\(reset)
-        \(c6)    ::::\(reset)
-        \(c7)  ::\(reset)
-        """
+        let renderer = WelcomeLogoFrameRenderer(taglineColor: tagline)
+        let logo = renderer.rows(frameIndex: 0).joined(separator: "\n")
 
         let shortcuts = """
           \(bold)Shortcuts\(reset)
@@ -40540,20 +40517,83 @@ export default CMUXSessionRestore;
           \(bold)\u{2325}\u{2318}U\(reset)\(subdued)                 Toggle unread\(reset)
         """
 
-        print()
-        print(logo)
-        print()
-        print(shortcuts)
-        print()
-        print("  \(bold)Docs\(reset)\(subdued)                https://cmux.com/docs\(reset)")
-        print("  \(bold)Discord\(reset)\(subdued)             https://discord.gg/xsgFEVrWCZ\(reset)")
-        print("  \(bold)GitHub\(reset)\(subdued)              https://github.com/manaflow-ai/cmux (please leave a star ⭐)\(reset)")
-        print("  \(bold)Email\(reset)\(subdued)               founders@manaflow.com\(reset)")
-        print()
-        print("  \(subdued)Run \(reset)\(bold)cmux --help\(reset)\(subdued) for all commands.\(reset)")
-        print("  \(subdued)Run \(reset)\(bold)cmux shortcuts\(reset)\(subdued) to edit shortcuts.\(reset)")
-        print("  \(subdued)Run \(reset)\(bold)cmux feedback\(reset)\(subdued) to report a bug.\(reset)")
-        print()
+        // Everything after the logo's first row, so the animator knows how many
+        // rows the cursor ends up below the logo.
+        let belowLogo = """
+
+        \(shortcuts)
+
+          \(bold)Docs\(reset)\(subdued)                https://cmux.com/docs\(reset)
+          \(bold)Discord\(reset)\(subdued)             https://discord.gg/xsgFEVrWCZ\(reset)
+          \(bold)GitHub\(reset)\(subdued)              https://github.com/manaflow-ai/cmux (please leave a star ⭐)\(reset)
+          \(bold)Email\(reset)\(subdued)               founders@manaflow.com\(reset)
+
+          \(subdued)Run \(reset)\(bold)cmux --help\(reset)\(subdued) for all commands.\(reset)
+          \(subdued)Run \(reset)\(bold)cmux shortcuts\(reset)\(subdued) to edit shortcuts.\(reset)
+          \(subdued)Run \(reset)\(bold)cmux feedback\(reset)\(subdued) to report a bug.\(reset)
+
+
+        """
+
+        let screen = "\n" + logo + "\n" + belowLogo
+        print(screen, terminator: "")
+        fflush(stdout)
+
+        // Number of rows from the logo's first row down to the cursor row.
+        let linesAboveCursor = (logo + "\n" + belowLogo).reduce(into: 0) { count, character in
+            if character == "\n" { count += 1 }
+        }
+        let isTTY = isatty(STDOUT_FILENO) == 1
+        var size = winsize()
+        let terminalRows: Int? = (isTTY && ioctl(STDOUT_FILENO, TIOCGWINSZ, &size) == 0 && size.ws_row > 0)
+            ? Int(size.ws_row)
+            : nil
+        guard WelcomeLogoAnimator.shouldAnimate(
+            environment: ProcessInfo.processInfo.environment,
+            isTTY: isTTY,
+            terminalRows: terminalRows,
+            linesAboveCursor: linesAboveCursor
+        ) else { return }
+
+        // Preferred: hand the ripple to a detached helper so this process exits
+        // and the shell prompt appears at once. Needs the cursor row (absolute
+        // addressing survives the prompt being printed below the logo) and room
+        // so the prompt cannot scroll the logo.
+        if let terminalRows,
+           let cursorRow = WelcomeLogoAnimator.queryCursorRow(),
+           case .absolute(let topRow)? = WelcomeLogoAnimator.detachedPlacement(
+               cursorRow: cursorRow,
+               linesAboveCursor: linesAboveCursor,
+               terminalRows: terminalRows
+           ),
+           let executablePath = resolvedExecutableURL()?.path,
+           WelcomeLogoAnimator.spawnDetached(executablePath: executablePath, topRow: topRow) {
+            return
+        }
+
+        // Fallback: animate in-process from a render thread while this process
+        // still owns the cursor.
+        WelcomeLogoAnimator(
+            renderer: renderer,
+            configuration: .init(placement: .relative(linesAboveCursor: linesAboveCursor))
+        ).runOnStdout()
+    }
+
+    /// Tagline color for the welcome logo, matching the system appearance.
+    private func welcomeTaglineColor() -> String {
+        let isDark = UserDefaults.standard.string(forKey: "AppleInterfaceStyle") == "Dark"
+        return isDark ? "\u{001B}[38;2;130;130;140m" : "\u{001B}[38;2;90;90;98m"
+    }
+
+    /// `cmux __welcome-animate <topRow>`: detached helper spawned by `cmux welcome`.
+    /// Repaints the logo at absolute rows on the inherited stdout, then exits.
+    private func runWelcomeAnimateHelper(commandArgs: [String]) {
+        guard let first = commandArgs.first, let topRow = Int(first), topRow >= 1 else { return }
+        guard isatty(STDOUT_FILENO) == 1 else { return }
+        WelcomeLogoAnimator(
+            renderer: WelcomeLogoFrameRenderer(taglineColor: welcomeTaglineColor()),
+            configuration: .init(placement: .absolute(topRow: topRow))
+        ).runOnStdout()
     }
 
     private func resolvedVersionInfo() -> [String: String] {
