@@ -1014,6 +1014,8 @@ mod tests {
                 "custom Git transport must be rejected: {source}"
             );
         }
+        assert!(validate_git_source("/tmp/plugin:variant@repo").is_ok());
+        assert!(validate_git_source("C:\\tmp\\plugin:variant@repo").is_ok());
         assert!(validate_git_source("https://[2001:db8::1]/team/plugin.git").is_ok());
         assert!(validate_git_source("ssh://git@[::1]/team/plugin.git").is_ok());
     }
