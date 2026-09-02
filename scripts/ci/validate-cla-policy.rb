@@ -49,7 +49,7 @@ EXPECTED_GUARD_WORKFLOW_DIGEST = "9fa2952791cfd01c5a74ca92640a9e1827fe5c98b78071
 # The guard workflow remains pinned to its reviewed immutable bytes. The CLA
 # policy itself is validated structurally, then authorized by an exact-head
 # trusted review.
-EXPECTED_GUARD_SCRIPT_DIGEST = "da5e363f8af080cf461d11354fba6939dffc6d6eee61da89ee0e2f5aa904bfba"
+EXPECTED_GUARD_SCRIPT_DIGEST = "bcfd1d53cc15e6f041f186b00466bcdeea8e74eb99a6860af9e3a96905f588f9"
 # Migration marker for the base v2 guard validator. That validator requires
 # the literal EXPECTED_WORKFLOW_DIGEST while it checks this candidate. The v3
 # validator does not use this inert marker for policy authorization.
@@ -59,10 +59,11 @@ EXPECTED_GUARD_SCRIPT_DIGEST = "da5e363f8af080cf461d11354fba6939dffc6d6eee61da89
 # and the candidate must pass every v3 check below.
 LEGACY_CLA_WORKFLOW_DIGEST = "22f4f8c4b7fb879514a5b072505877843fd94dc32b279f2aceb8fc216adde65f"
 LEGACY_CLA_RERUN_DIGEST = "f4f1fa51bb05b062ebf3f60cc949d8d5b4b501e7849cb065e9a07d7a34030840"
-# Current organization administrators who may approve a trusted control-plane
-# update. IDs are used instead of names, and the review must target the exact
-# PR head. This is the human path for intentional policy maintenance.
-TRUSTED_REVIEWER_IDS = %w[54008264 38676809 67667005].freeze
+# Designated maintainers who may approve a trusted control-plane update. The
+# PR author is deliberately excluded, even when they are an administrator, so
+# the validator cannot turn self-approval into a policy-change bypass. IDs are
+# used instead of names, and the review must target the exact PR head.
+TRUSTED_REVIEWER_IDS = %w[38676809 67667005].freeze
 TRUSTED_REVIEW_STATES = %w[APPROVED COMMENTED CHANGES_REQUESTED DISMISSED PENDING].freeze
 TRUSTED_REVIEW_DECISION_STATES = %w[APPROVED CHANGES_REQUESTED DISMISSED].freeze
 MAX_REVIEW_PAGES = 3
@@ -1686,7 +1687,7 @@ end
 
 def run_trusted_review_regression_matrix!
   head = "a" * 40
-  review = lambda do |id, state, at, commit = head, user = 54008264, dismissed = nil|
+  review = lambda do |id, state, at, commit = head, user = 38676809, dismissed = nil|
     {
       "id" => id,
       "user" => { "id" => user, "type" => "User" },
@@ -1700,14 +1701,14 @@ def run_trusted_review_regression_matrix!
   seen = {}
   collect_latest_trusted_review!(latest, seen, review.call(2, "COMMENTED", "2026-01-02T00:00:00Z"))
   collect_latest_trusted_review!(latest, seen, review.call(1, "APPROVED", "2026-01-01T00:00:00Z"))
-  fail!("trusted review ordering regression failed") unless latest.fetch("54008264")[1]["state"] == "APPROVED"
+  fail!("trusted review ordering regression failed") unless latest.fetch("38676809")[1]["state"] == "APPROVED"
 
   latest = {}
   seen = {}
   timestamp = "2026-01-03T00:00:00Z"
   collect_latest_trusted_review!(latest, seen, review.call(4, "COMMENTED", timestamp))
   collect_latest_trusted_review!(latest, seen, review.call(3, "APPROVED", timestamp))
-  fail!("trusted review ID tie-break regression failed") unless latest.fetch("54008264")[1]["id"] == 3
+  fail!("trusted review ID tie-break regression failed") unless latest.fetch("38676809")[1]["id"] == 3
 
   latest = {}
   seen = {}
