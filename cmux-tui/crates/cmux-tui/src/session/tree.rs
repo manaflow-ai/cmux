@@ -28,8 +28,8 @@ pub struct TreeView {
 
 #[derive(Clone, Default)]
 pub(crate) struct TreeLocationIndex {
-    panes: HashMap<PaneId, (usize, usize, usize)>,
-    surfaces: HashMap<SurfaceId, (usize, usize, usize, usize)>,
+    panes: HashMap<PaneId, (usize, usize, usize, usize, usize, usize)>,
+    surfaces: HashMap<SurfaceId, (usize, usize, usize, usize, usize, usize, usize, usize)>,
 }
 
 impl TreeLocationIndex {
@@ -42,6 +42,9 @@ impl TreeLocationIndex {
                         workspace_index,
                         screen_index,
                         pane_index,
+                        tree.workspaces.len(),
+                        workspace.screens.len(),
+                        screen.panes.len(),
                     ));
                     for (tab_index, tab) in pane.tabs.iter().enumerate() {
                         // The previous scans selected the first duplicate in tree order.
@@ -50,6 +53,10 @@ impl TreeLocationIndex {
                             screen_index,
                             pane_index,
                             tab_index,
+                            tree.workspaces.len(),
+                            workspace.screens.len(),
+                            screen.panes.len(),
+                            pane.tabs.len(),
                         ));
                     }
                 }
@@ -213,8 +220,7 @@ impl TreeView {
     }
 
     pub fn pane(&self, id: PaneId) -> Option<&PaneView> {
-        let (workspace_index, screen_index, pane_index) =
-            self.location_index().panes.get(&id).copied()?;
+        let (workspace_index, screen_index, pane_index) = self.pane_location(id)?;
         self.workspaces
             .get(workspace_index)?
             .screens
@@ -234,8 +240,7 @@ impl TreeView {
     }
 
     pub fn surface(&self, id: SurfaceId) -> Option<&TabView> {
-        let (workspace_index, screen_index, pane_index, tab_index) =
-            self.location_index().surfaces.get(&id).copied()?;
+        let (workspace_index, screen_index, pane_index, tab_index) = self.surface_location(id)?;
         self.workspaces
             .get(workspace_index)?
             .screens
@@ -263,8 +268,9 @@ impl TreeView {
     /// Single-surface clients reapply this to every remote tree snapshot so
     /// unrelated focus changes cannot move them to another terminal.
     pub fn select_surface(&mut self, id: SurfaceId) -> bool {
-        let location = self.location_index().surfaces.get(&id).copied();
-        let Some((workspace_index, screen_index, pane_index, tab_index)) = location else {
+        let Some((workspace_index, screen_index, pane_index, tab_index)) =
+            self.surface_location(id)
+        else {
             return false;
         };
         self.active_workspace = workspace_index;
@@ -288,6 +294,59 @@ impl TreeView {
 
     fn location_index(&self) -> &TreeLocationIndex {
         self.location_index.get_or_init(|| TreeLocationIndex::build(self))
+    }
+
+    fn pane_location(&self, id: PaneId) -> Option<(usize, usize, usize)> {
+        let &(workspace_index, screen_index, pane_index, workspace_count, screen_count, pane_count) =
+            self.location_index().panes.get(&id)?;
+        if self.workspaces.len() != workspace_count {
+            return None;
+        }
+        let workspace = self.workspaces.get(workspace_index)?;
+        if workspace.screens.len() != screen_count {
+            return None;
+        }
+        let screen = workspace.screens.get(screen_index)?;
+        if screen.panes.len() != pane_count {
+            return None;
+        }
+        screen
+            .panes
+            .get(pane_index)
+            .filter(|pane| pane.id == id)
+            .map(|_| (workspace_index, screen_index, pane_index))
+    }
+
+    fn surface_location(&self, id: SurfaceId) -> Option<(usize, usize, usize, usize)> {
+        let &(
+            workspace_index,
+            screen_index,
+            pane_index,
+            tab_index,
+            workspace_count,
+            screen_count,
+            pane_count,
+            tab_count,
+        ) = self.location_index().surfaces.get(&id)?;
+        if self.workspaces.len() != workspace_count {
+            return None;
+        }
+        let workspace = self.workspaces.get(workspace_index)?;
+        if workspace.screens.len() != screen_count {
+            return None;
+        }
+        let screen = workspace.screens.get(screen_index)?;
+        if screen.panes.len() != pane_count {
+            return None;
+        }
+        let pane = screen.panes.get(pane_index)?;
+        if pane.tabs.len() != tab_count {
+            return None;
+        }
+        pane.tabs
+            .get(tab_index)
+            .filter(|tab| tab.surface == id)
+            .map(|_| (workspace_index, screen_index, pane_index, tab_index))
     }
 
     pub(crate) fn invalidate_location_index(&mut self) {
@@ -1021,6 +1080,11 @@ mod tests {
                 }]
             }]
         }));
+
+        assert_eq!(tree.pane(3).map(|pane| pane.tabs[0].surface), Some(7));
+        let duplicate_pane = tree.workspaces[0].screens[0].panes[0].clone();
+        tree.workspaces[0].screens[0].panes.push(duplicate_pane);
+        assert!(tree.pane(3).is_none());
 
         assert_eq!(tree.surface(8).map(|tab| tab.title.as_str()), Some("retained"));
         let duplicate = tree.workspaces[0].screens[0].panes[0].tabs[1].clone();
