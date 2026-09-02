@@ -1228,6 +1228,18 @@ final class SystemWideHotkeyController {
 
     private init() {}
 
+    /// Rebuilds the Carbon registration after the current notification turn.
+    /// UserDefaults and settings-file notifications can be posted while the
+    /// shortcut store is still installing a new snapshot; resolving the
+    /// system-wide candidate synchronously from that callback re-enters the
+    /// store's lazy initialization path. Enqueueing on the MainActor keeps
+    /// registration and snapshot reads ordered without a dispatch-once cycle.
+    private func scheduleRegistrationRefresh() {
+        Task { @MainActor [weak self] in
+            self?.refreshRegistration()
+        }
+    }
+
     func start() {
         guard defaultsObserver == nil else { return }
 
@@ -1238,21 +1250,21 @@ final class SystemWideHotkeyController {
             object: nil,
             queue: .main
         ) { [weak self] _ in
-            self?.refreshRegistration()
+            self?.scheduleRegistrationRefresh()
         }
         shortcutObserver = NotificationCenter.default.addObserver(
             forName: KeyboardShortcutSettings.didChangeNotification,
             object: nil,
             queue: .main
         ) { [weak self] _ in
-            self?.refreshRegistration()
+            self?.scheduleRegistrationRefresh()
         }
         recorderObserver = NotificationCenter.default.addObserver(
             forName: KeyboardShortcutRecorderActivity.didChangeNotification,
             object: nil,
             queue: .main
         ) { [weak self] _ in
-            self?.refreshRegistration()
+            self?.scheduleRegistrationRefresh()
         }
         // The live Settings UI uses the CmuxSettingsUI package recorder, which signals
         // arm/disarm through its own notification (it cannot post the app-target
@@ -1264,14 +1276,14 @@ final class SystemWideHotkeyController {
             object: nil,
             queue: .main
         ) { [weak self] _ in
-            self?.refreshRegistration()
+            self?.scheduleRegistrationRefresh()
         }
         inputSourceObserver = DistributedNotificationCenter.default().addObserver(
             forName: Notification.Name(rawValue: kTISNotifySelectedKeyboardInputSourceChanged as String),
             object: nil,
             queue: .main
         ) { [weak self] _ in
-            self?.refreshRegistration()
+            self?.scheduleRegistrationRefresh()
         }
         appHideObserver = NotificationCenter.default.addObserver(
             forName: NSApplication.willHideNotification,
