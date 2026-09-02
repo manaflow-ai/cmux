@@ -654,6 +654,10 @@ async fn serve_connection(stream: TcpStream, manager: Arc<PtyManager>, parent: C
                                             break 'reader;
                                         }
                                         _ = connection.done.cancelled() => break 'reader,
+                                        _ = &mut open_deadline, if !connection.opened_seen.load(Ordering::SeqCst) => {
+                                            connection.protocol_error("bad_request", "open timed out");
+                                            break 'reader;
+                                        }
                                         result = dispatch_tx.send(frame) => {
                                             if result.is_err() {
                                                 connection.finish();
