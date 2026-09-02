@@ -221,6 +221,25 @@ def test_event_payload_parser_rejects_invalid_json() -> None:
         raise AssertionError("invalid event payload was accepted")
 
 
+def test_workflow_run_with_multiple_pull_requests_fails_closed() -> None:
+    class AmbiguousAPI(FakeAPI):
+        def get(self, endpoint: str, *, paginate: bool = False) -> object:
+            if endpoint.endswith("/actions/runs/900"):
+                return {"pull_requests": [{"number": 1}, {"number": 2}]}
+            return super().get(endpoint, paginate=paginate)
+
+    try:
+        module._event_target(
+            AmbiguousAPI(complete_checks()),
+            "workflow_run",
+            {"workflow_run": {"id": 900, "head_sha": HEAD_SHA}},
+        )
+    except module.GateError as error:
+        assert "multiple pull requests" in str(error)
+    else:
+        raise AssertionError("ambiguous workflow run was accepted")
+
+
 def test_gate_queries_exact_head_and_ci_run_jobs() -> None:
     api = FakeAPI(complete_checks())
     stdout = StringIO()
@@ -283,6 +302,17 @@ def test_workflow_definition_mismatch_requires_trusted_review() -> None:
         raise AssertionError("unreviewed workflow change was accepted")
 
     module.verify_ci_workflow_revision(WorkflowAPI(approved=True), pull, HEAD_SHA)
+
+    self_authored = {
+        **pull,
+        "user": {"id": 38676809, "login": "austinywang"},
+    }
+    try:
+        module.verify_ci_workflow_revision(WorkflowAPI(approved=True), self_authored, HEAD_SHA)
+    except module.GateError as error:
+        assert "workflow definition" in str(error)
+    else:
+        raise AssertionError("self-approval was accepted")
 
 
 if __name__ == "__main__":
