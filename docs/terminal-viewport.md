@@ -51,10 +51,12 @@ report `viewport_override:false` when a render-grid frame is unavailable.
 ## `terminal.render_grid` revisions
 
 `render_grid.render_revision` is a content polling token. It advances when the
-rendered grid, cursor/style state, active screen, scrollback payload, or grid
-size changes. It does not advance for transport sequence/state metadata,
-non-visual mode metadata, or an unchanged replay/re-emission. A replay returns
-the same content revision it re-emits.
+canonical rendered grid, cursor/style state, active screen, retained-history
+position, or grid size changes. It does not advance for transport
+sequence/state metadata, non-visual mode metadata, an unchanged
+replay/re-emission, or a replay that merely asks for a different scrollback
+depth. This keeps request-specific history budgets from making a polling
+client appear dirty. A replay returns the same content revision it re-emits.
 
 `render_grid.emission_revision` is the separate exact-emission identity. It
 advances for every emitted frame, including unchanged replays, and is used only
