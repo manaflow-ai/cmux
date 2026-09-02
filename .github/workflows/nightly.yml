@@ -553,13 +553,13 @@ jobs:
             /usr/libexec/PlistBuddy -c "Set :CFBundleName cmux NIGHTLY" "$app_plist"
             /usr/libexec/PlistBuddy -c "Set :CFBundleDisplayName cmux NIGHTLY" "$app_plist"
             /usr/libexec/PlistBuddy -c "Set :CFBundleIdentifier ${bundle_id}" "$app_plist"
-            local url_type_name
-            url_type_name="$(/usr/libexec/PlistBuddy -c "Print :CFBundleURLTypes:1:CFBundleURLName" "$app_plist")"
-            if [[ "$url_type_name" != *.auth ]]; then
-              echo "Expected CFBundleURLTypes[1] to be the auth URL type, found: $url_type_name" >&2
-              exit 1
-            fi
-            /usr/libexec/PlistBuddy -c "Set :CFBundleURLTypes:1:CFBundleURLSchemes:0 cmux-nightly" "$app_plist"
+            # Resolve the auth URL type by its semantic name/scheme. Xcode can
+            # reorder CFBundleURLTypes, so a numeric index silently changing
+            # the web or SSH scheme would strand the browser sign-in handoff.
+            python3 ./scripts/ci/set-nightly-auth-callback-scheme.py \
+              "$app_plist" \
+              cmux-nightly \
+              --base-scheme cmux
             /usr/libexec/PlistBuddy -c "Delete :SUPublicEDKey" "$app_plist" >/dev/null 2>&1 || true
             /usr/libexec/PlistBuddy -c "Delete :SUFeedURL" "$app_plist" >/dev/null 2>&1 || true
             /usr/libexec/PlistBuddy -c "Add :SUPublicEDKey string ${SPARKLE_PUBLIC_KEY}" "$app_plist"

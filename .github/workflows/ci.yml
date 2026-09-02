@@ -293,6 +293,9 @@ jobs:
       - name: Validate universal nightly workflow
         run: bash ./tests/test_nightly_universal_build.sh
 
+      - name: Validate nightly auth callback plist rewrite
+        run: python3 tests/test_nightly_auth_callback_scheme.py
+
       - name: Validate nightly notarization behavior
         run: ./tests/test_notarize_nightly_dmg.sh
 
