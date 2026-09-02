@@ -170,7 +170,7 @@ struct MachinesPanelView: View {
         // catalog previously left a blank panel for a signed-in account with
         // no machines, because the catalog's This Mac entry counted as a row
         // the tree never drew.
-        if CloudTreeNodeBuilder.isEmpty(machines: viewModel.machines, snapshot: viewModel.catalog) {
+        if CloudTreeNodeBuilder.isEmpty(machines: viewModel.machines, pendingCreates: viewModel.pendingCreates, snapshot: viewModel.catalog) {
             emptyState
         } else {
             machinesList
@@ -405,18 +405,15 @@ struct MachinesPanelView: View {
     /// ＋ on a free plan at its ceiling is the upgrade moment: open the Pro flow
     /// instead of launching a create that the backend would only paywall.
     /// Otherwise the New Machine sheet collects name, kind, and size, and its
-    /// Create runs the same `cmux vm new` path the CLI and palette use.
+    /// Create runs the same `cmux vm new` path the CLI and palette use. The
+    /// create itself shows up here as a pending row (`viewModel.pendingCreates`),
+    /// never as panel chrome tied to this view's lifetime.
     private func requestNewMachine() {
         NewMachineSheetPresenter.shared.presentNewMachine(
             plan: viewModel.plan,
             imageKinds: viewModel.imageKinds,
             preferredWindow: NSApp.keyWindow ?? NSApp.mainWindow,
-            operationDidBegin: { [weak viewModel] in
-                viewModel?.beginOperation(String(localized: "machines.operation.create", defaultValue: "Creating a new machine\u{2026}"))
-            },
-            operationDidEnd: { [weak viewModel] in
-                viewModel?.endOperation()
-            }
+            coordinator: viewModel.createCoordinator
         )
     }
 
@@ -425,10 +422,11 @@ struct MachinesPanelView: View {
     /// underneath. Both closure bundles are bound here, above the outline; rows
     /// never see the store.
     private var machinesList: some View {
-        let machineActions = MachineRowActions.bound(
+        var machineActions = MachineRowActions.bound(
             onWillMutate: { [weak viewModel] label in viewModel?.beginOperation(label) },
             onDidMutate: { [weak viewModel] in viewModel?.endOperation() }
         )
+        machineActions.create = MachineCreateRowActions.bound(coordinator: viewModel.createCoordinator)
         let nodeActions = CloudTreeNodeActions.bound(
             catalog: { SurfaceCatalog.shared },
             selectedWorkspaceID: { AppDelegate.shared?.tabManager?.selectedTabId },
@@ -442,6 +440,7 @@ struct MachinesPanelView: View {
         )
         return CloudTreeOutlineView(
             machines: viewModel.machines,
+            pendingCreates: viewModel.pendingCreates,
             snapshot: viewModel.catalog,
             localWorkspaces: viewModel.localWorkspaces,
             machineActions: machineActions,
@@ -706,6 +705,8 @@ struct MachineRowActions {
     /// A locked (free-window-expired) machine routes here instead of a doomed
     /// connect; the backend enforces the same boundary with 402s.
     let promptUpgrade: @MainActor () -> Void
+    /// Verbs of the pending rows (creates still running or failed).
+    var create: MachineCreateRowActions = .inert
 
     static func bound(
         onWillMutate: @escaping @MainActor (String) -> Void = { _ in },
