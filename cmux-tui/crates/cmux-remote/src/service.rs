@@ -15,9 +15,8 @@ use crate::daemon::{DaemonError, ServerConnection};
 use crate::session::ReceivedFrame;
 
 const MAX_OPEN_STREAMS: usize = 256;
-// Covers the default aggregate replay window (4,096 frames on each of four
-// lanes), so a resumed slow lane cannot outlive the closed-stream memory.
-const MAX_CLOSED_STREAM_TOMBSTONES: usize = 16 * 1024;
+const REPLAY_FRAMES_PER_LANE: usize = 4_096;
+const DELIVERY_FRAMES_PER_LANE: usize = 64;
 const MAX_BUFFERED_STREAM_BYTES: usize = 32 * 1024 * 1024;
 const MAX_BUFFERED_NON_INTERACTIVE_BYTES: usize = 28 * 1024 * 1024;
 const MAX_BUFFERED_BULK_TUNNEL_BYTES: usize = 24 * 1024 * 1024;
@@ -131,21 +130,67 @@ pub struct ServiceMultiplexer {
     cleanup: Arc<TerminalCleanup>,
 }
 
-#[derive(Default)]
 struct ClosedStreams {
     ids: HashSet<u64>,
-    order: VecDeque<u64>,
+    lanes: HashMap<u64, u8>,
+    order: [VecDeque<u64>; 4],
+}
+
+impl Default for ClosedStreams {
+    fn default() -> Self {
+        Self {
+            ids: HashSet::new(),
+            lanes: HashMap::new(),
+            order: std::array::from_fn(|_| VecDeque::new()),
+        }
+    }
 }
 
 impl ClosedStreams {
     fn insert(&mut self, stream: u64) -> bool {
-        if !self.ids.insert(stream) {
+        self.insert_on(
+            stream,
+            LANE_INTERACTIVE_BIT | LANE_CONTROL_BIT | LANE_BULK_BIT | LANE_TUNNEL_BIT,
+        )
+    }
+
+    fn insert_on(&mut self, stream: u64, lane_mask: u8) -> bool {
+        if lane_mask == 0 {
             return false;
         }
-        self.order.push_back(stream);
-        while self.order.len() > MAX_CLOSED_STREAM_TOMBSTONES {
-            if let Some(expired) = self.order.pop_front() {
-                self.ids.remove(&expired);
+        let previous = match self.lanes.get(&stream) {
+            Some(previous) => *previous,
+            None => {
+                self.ids.insert(stream);
+                0
+            }
+        };
+        let new_lanes = lane_mask & !previous;
+        if new_lanes == 0 {
+            return false;
+        }
+        self.lanes.insert(stream, previous | new_lanes);
+        for lane in Lane::ALL {
+            let bit = lane_bit(lane);
+            if new_lanes & bit == 0 {
+                continue;
+            }
+            let queue = &mut self.order[lane as usize];
+            queue.push_back(stream);
+            let limit = if lane.replays_across_generations() {
+                REPLAY_FRAMES_PER_LANE
+            } else {
+                DELIVERY_FRAMES_PER_LANE
+            };
+            while queue.len() > limit {
+                let Some(expired) = queue.pop_front() else { break };
+                if let Some(mask) = self.lanes.get_mut(&expired) {
+                    *mask &= !bit;
+                    if *mask == 0 {
+                        self.lanes.remove(&expired);
+                        self.ids.remove(&expired);
+                    }
+                }
             }
         }
         true
@@ -2610,26 +2655,26 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn delayed_frame_for_evicted_tombstone_is_fatal() {
+    async fn delayed_frame_survives_cross_lane_tombstone_churn() {
         let (client_endpoint, daemon_endpoint) = endpoint_pair();
         let client = ServiceMultiplexer::new(client_endpoint, EndpointRole::Client);
-        let stream = client.open(Service::WorkspaceRpc, BTreeMap::new()).await.unwrap();
+        let stream = client.open(Service::ProcessStream, BTreeMap::new()).await.unwrap();
         let stream_id = stream.id();
         stream.close().await.unwrap();
 
-        // Model a stalled lane whose frame is delayed while other lanes churn
-        // through the global ID-counted tombstone window.
+        // Model a stalled lane whose frame is delayed while another lane churns
+        // through its bounded tombstone window.
         let mut closed = client.closed.lock().await;
-        for id in 100_000..100_000 + MAX_CLOSED_STREAM_TOMBSTONES as u64 {
-            closed.insert(id * 2 + 1);
+        for id in 100_000..100_000 + REPLAY_FRAMES_PER_LANE as u64 {
+            closed.insert_on(id * 2 + 1, LANE_CONTROL_BIT);
         }
-        assert!(!closed.ids.contains(&stream_id));
+        assert!(closed.ids.contains(&stream_id));
         drop(closed);
 
         daemon_endpoint
             .send_frame(
                 None,
-                Lane::Control,
+                Lane::Interactive,
                 stream_id,
                 Bytes::from_static(b"delayed"),
                 FrameFlags::empty(),
@@ -2638,10 +2683,8 @@ mod tests {
             .unwrap();
 
         let mut fatal = client.subscribe_fatal();
-        tokio::time::timeout(Duration::from_secs(1), fatal.changed()).await.unwrap().unwrap();
-        assert!(
-            fatal.borrow().as_deref().is_some_and(|message| message.contains("unknown stream"))
-        );
+        assert!(tokio::time::timeout(Duration::from_millis(25), fatal.changed()).await.is_err());
+        assert!(fatal.borrow().is_none());
         client.shutdown().await;
     }
 
