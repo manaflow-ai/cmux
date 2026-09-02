@@ -3741,6 +3741,69 @@ mod tests {
         fn end(&self) {}
     }
 
+    struct StalledControl {
+        entered: Arc<tokio::sync::Notify>,
+        ended: Arc<AtomicBool>,
+    }
+
+    impl ControlHandle for StalledControl {
+        fn request(
+            &self,
+            _cmd: &str,
+            _params: Value,
+        ) -> std::pin::Pin<Box<dyn Future<Output = Option<Value>> + Send + '_>> {
+            self.entered.notify_one();
+            Box::pin(std::future::pending())
+        }
+        fn send(&self, _cmd: &str, _params: Value) {}
+        fn on_event(&self, _handler: EventHandler) {}
+        fn on_close(&self, _handler: CloseHandler) {}
+        fn pause(&self) {}
+        fn resume(&self) {}
+        fn end(&self) {
+            self.ended.store(true, Ordering::SeqCst);
+        }
+    }
+
+    #[tokio::test]
+    async fn cancelling_scoped_open_releases_stalled_control_reservation() {
+        let cmux = CmuxTui { file: "/opt/cmux-tui".to_owned(), prefix: Vec::new() };
+        let entered = Arc::new(tokio::sync::Notify::new());
+        let ended = Arc::new(AtomicBool::new(false));
+        let control = Arc::new(StalledControl {
+            entered: Arc::clone(&entered),
+            ended: Arc::clone(&ended),
+        });
+        let h = harness_with_control(
+            Some(cmux),
+            None,
+            None,
+            Some(Arc::clone(&control) as Arc<dyn ControlHandle>),
+        );
+        let context = h.context("supervised", h.owner.clone());
+        let cancellation = context.cancellation.clone();
+        let frame = serde_json::json!({
+            "version": 4,
+            "type": "pty_open",
+            "ptyId": "p1",
+            "session": "main",
+            "cols": 80,
+            "rows": 24,
+            "actorId": "user_owner",
+            "allowedRoots": [h.home.to_string_lossy()],
+        });
+        let manager = PtyManager { inner: Arc::clone(&h.manager.inner) };
+        let open = tokio::spawn(async move { manager.handle_frame(&frame, &context).await });
+        entered.notified().await;
+        cancellation.cancel();
+        tokio::time::timeout(std::time::Duration::from_millis(100), open)
+            .await
+            .expect("cancelling a stalled control request must finish open")
+            .expect("open task must not panic");
+        assert!(ended.load(Ordering::SeqCst));
+        assert_eq!(h.manager.opening_count(), 0);
+    }
+
     #[tokio::test]
     async fn missing_surface_refuses_with_typed_terminal_gone() {
         let cmux = CmuxTui { file: "/opt/cmux-tui".to_owned(), prefix: Vec::new() };
