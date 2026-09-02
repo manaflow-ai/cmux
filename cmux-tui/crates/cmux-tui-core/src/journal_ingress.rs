@@ -1274,7 +1274,11 @@ mod tests {
             assert_eq!(delay.as_millis(), expected);
             delay = next_journal_retry_delay(delay);
         }
-        assert_eq!(JOURNAL_NONRETRYABLE_RETRY_DELAY, Duration::from_millis(10));
+        let mut nonretryable_delay = JOURNAL_NONRETRYABLE_RETRY_DELAY;
+        for expected in [10, 20, 40, 80, 160, 320, 640, 1000, 1000] {
+            assert_eq!(nonretryable_delay.as_millis(), expected);
+            nonretryable_delay = next_nonretryable_retry_delay(nonretryable_delay);
+        }
         assert_eq!(next_journal_retry_delay(Duration::MAX), JOURNAL_RETRY_MAX_DELAY);
         let remaining = Duration::from_millis(3);
         assert_eq!(JOURNAL_NONRETRYABLE_RETRY_DELAY.min(remaining), remaining);
