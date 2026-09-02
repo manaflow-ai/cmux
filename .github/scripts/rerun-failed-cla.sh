@@ -66,7 +66,7 @@ readonly MAX_LEDGER_RAW_BYTES=2000000
 # is different: the historical writer may have completed successfully with
 # cla_passed=false before the signer recorded the new ledger entry. A
 # failed-jobs rerun would reuse that successful, stale writer result, so
-# signing events rerun the complete trusted CLA workflow below.
+# signing and recheck events rerun the complete trusted CLA workflow below.
 readonly CLA_ASSISTANT_JOB='CLA Assistant v3'
 readonly CLA_WRITER_JOB='CLA ledger writer'
 readonly CLA_COMPATIBILITY_JOB='CLA Assistant'
@@ -1496,11 +1496,13 @@ final_job_json="$(gh_api_bounded "repos/${GH_REPO}/actions/jobs/${job_id}" 2>/de
 validate_exact_job_payload "${final_job_json}" || fail "The selected CLA job changed before rerun"
 validate_failed_check_binding "${run_id}" "${job_id}" "${target_job_name}"
 
-if [[ "${COMMENT_BODY}" == "I have read the CLA Document v2.2 and I hereby sign the CLA" ]]; then
+if [[ "${COMMENT_BODY}" == "I have read the CLA Document v2.2 and I hereby sign the CLA" ||
+      "${COMMENT_BODY}" == "recheck" ]]; then
   # The writer can be successful while cla_passed=false in the selected
   # pull_request_target run. Re-run the whole small, trusted CLA workflow so
-  # the writer reads the signature just recorded before the required result
-  # and compatibility jobs evaluate its outputs.
+  # the writer reads the current ledger before the required result and
+  # compatibility jobs evaluate its outputs. A job-only rerun would reuse
+  # the stale successful writer output.
   rerun_endpoint="repos/${GH_REPO}/actions/runs/${run_id}/rerun"
   rerun_description="CLA workflow run ${run_id} (refresh writer and result jobs)"
 elif [[ "${RERUN_FAILED_JOBS}" == true ]]; then

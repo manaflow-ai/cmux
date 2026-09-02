@@ -646,27 +646,27 @@ run_case() {
   echo "PASS: $mode"
 }
 
-run_case run-association 0 "Requested rerun for CLA job 500 in workflow run 400" 1
+run_case run-association 0 "Requested rerun for CLA workflow run 400 (refresh writer and result jobs)" 1
 run_case oversized-api-response 1 "Could not query the issue" 0
 run_case minimal-run-association 0 "No failed CLA run exists for this pull request head" 0
-run_case fork-current 0 "Requested rerun for CLA job 500 in workflow run 400" 1
-run_case association-not-found 0 "Requested rerun for CLA job 500 in workflow run 400" 1
-run_case association-validation-error 0 "Requested rerun for CLA job 500 in workflow run 400" 1
-run_case association-stderr-not-found 0 "Requested rerun for CLA job 500 in workflow run 400" 1
-run_case association-stderr-validation-error 0 "Requested rerun for CLA job 500 in workflow run 400" 1
+run_case fork-current 0 "Requested rerun for CLA workflow run 400 (refresh writer and result jobs)" 1
+run_case association-not-found 0 "Requested rerun for CLA workflow run 400 (refresh writer and result jobs)" 1
+run_case association-validation-error 0 "Requested rerun for CLA workflow run 400 (refresh writer and result jobs)" 1
+run_case association-stderr-not-found 0 "Requested rerun for CLA workflow run 400 (refresh writer and result jobs)" 1
+run_case association-stderr-validation-error 0 "Requested rerun for CLA workflow run 400 (refresh writer and result jobs)" 1
 run_case association-api-failure 1 "Could not query pull request associations" 0
-run_case empty-run-association 0 "Requested rerun for CLA job 500 in workflow run 400" 1
+run_case empty-run-association 0 "Requested rerun for CLA workflow run 400 (refresh writer and result jobs)" 1
 run_case same-repo-empty 1 "no pull request association with complete source metadata" 0
 run_case association-overflow 1 "Too many pull request associations" 0
-run_case paginated-associations 0 "Requested rerun for CLA job 500 in workflow run 400" 1
-run_case paginated-open-prs 0 "Requested rerun for CLA job 500 in workflow run 400" 1
-run_case paginated-workflows 0 "Requested rerun for CLA job 500 in workflow run 400" 1
-run_case paginated-runs 0 "Requested rerun for CLA job 500 in workflow run 400" 1
-run_case full-run-window 0 "Requested rerun for CLA job 500 in workflow run 400" 1
+run_case paginated-associations 0 "Requested rerun for CLA workflow run 400 (refresh writer and result jobs)" 1
+run_case paginated-open-prs 0 "Requested rerun for CLA workflow run 400 (refresh writer and result jobs)" 1
+run_case paginated-workflows 0 "Requested rerun for CLA workflow run 400 (refresh writer and result jobs)" 1
+run_case paginated-runs 0 "Requested rerun for CLA workflow run 400 (refresh writer and result jobs)" 1
+run_case full-run-window 0 "Requested rerun for CLA workflow run 400 (refresh writer and result jobs)" 1
 run_case full-run-window-no-match 1 "workflow-run result window is full" 0
-run_case paginated-jobs 0 "Requested rerun for CLA job 500 in workflow run 400" 1
+run_case paginated-jobs 0 "Requested rerun for CLA workflow run 400 (refresh writer and result jobs)" 1
 run_case empty-different-execution-associated 1 "No failed CLA check is bound to the exact pull request source head" 0 "" 1
-run_case empty-different-execution-source-bound 0 "Requested rerun for CLA job 500 in workflow run 400" 1 "" 2
+run_case empty-different-execution-source-bound 0 "Requested rerun for CLA workflow run 400 (refresh writer and result jobs)" 1 "" 2
 run_case empty-different-execution-source-mismatch 1 "live head is associated with a different pull request" 0
 run_case empty-different-execution-check-bound 1 "No failed CLA check is bound to the exact pull request source head" 0 "" 1
 run_case empty-different-execution-check-mismatch 1 "No failed CLA check is bound to the exact pull request source head" 0 "" 1
@@ -684,19 +684,19 @@ run_case wrong-run-association 0 "No failed CLA run exists for this pull request
 run_case malformed-run-association 1 "malformed pull request associations" 0
 run_case invalid-run-association 1 "malformed pull request associations" 0
 run_case stale-marker 1 "older workflow generation" 0
-run_case unrelated-main-commit 0 "Requested rerun for CLA job 500 in workflow run 400" 1
+run_case unrelated-main-commit 0 "Requested rerun for CLA workflow run 400 (refresh writer and result jobs)" 1
 run_case wrong-head-repo 1 "no pull request association with complete source metadata" 0
 run_case closed-pr 1 "The issue is not an open pull request" 0
 run_case retargeted-pr 1 "The live pull request is not valid" 0
 run_case ambiguous-association 1 "Expected exactly one open pull request for this head" 0
 run_case untrusted-recheck 1 "Only the pull request author or a trusted repository participant" 0
-run_case recheck-unset-output 0 "Requested rerun for CLA job 500 in workflow run 400" 1
+run_case recheck-unset-output 0 "Requested rerun for CLA workflow run 400 (refresh writer and result jobs)" 1
 run_case suffixed-path 0 "No failed CLA run exists for this pull request head" 0
 run_case wrong-workflow-name 0 "No failed CLA run exists for this pull request head" 0
 run_case stale-base-association 1 "outdated or malformed pull request base SHA" 0
 run_case alternate-generation 1 "Unexpected CLA generation marker" 0
 run_case malformed-comment-login 1 "Comment author is malformed" 0
-run_case late-ambiguous 0 "Requested rerun for CLA job 500 in workflow run 400" 1
+run_case late-ambiguous 0 "Requested rerun for CLA workflow run 400 (refresh writer and result jobs)" 1
 run_case external-signer 0 "Requested rerun for CLA workflow run 400 (refresh writer and result jobs)" 1 \
   "repos/manaflow-ai/cmux/actions/runs/400/rerun"
 run_case signing-stale-writer 0 "Requested rerun for CLA workflow run 400 (refresh writer and result jobs)" 1 \
@@ -705,21 +705,21 @@ run_case recheck-stale-writer 0 "Requested rerun for CLA workflow run 400 (refre
   "repos/manaflow-ai/cmux/actions/runs/400/rerun"
 run_case unrecorded-signer 1 "did not result in a persisted signature" 0
 run_case unbound-signer 1 "signing comment was not the signature persisted" 0
-run_case duplicate-runs 0 "Requested rerun for CLA job 501 in workflow run 401" 1 \
-  "repos/manaflow-ai/cmux/actions/jobs/501/rerun"
-run_case binding-mode-newer 0 "Requested rerun for CLA job 501 in workflow run 401" 1 \
-  "repos/manaflow-ai/cmux/actions/jobs/501/rerun"
+run_case duplicate-runs 0 "Requested rerun for CLA workflow run 401 (refresh writer and result jobs)" 1 \
+  "repos/manaflow-ai/cmux/actions/runs/401/rerun"
+run_case binding-mode-newer 0 "Requested rerun for CLA workflow run 401 (refresh writer and result jobs)" 1 \
+  "repos/manaflow-ai/cmux/actions/runs/401/rerun"
 run_case stale-comment-association 1 "Only the pull request author or a trusted repository participant" 0
-run_case job-missing-head-repository 0 "Requested rerun for CLA job 500 in workflow run 400" 1
+run_case job-missing-head-repository 0 "Requested rerun for CLA workflow run 400 (refresh writer and result jobs)" 1
 run_case wrapped-ledger 0 "Requested rerun for CLA workflow run 400 (refresh writer and result jobs)" 1 \
   "repos/manaflow-ai/cmux/actions/runs/400/rerun"
 run_case oversized-ledger 1 "exceeds the 1 MB limit" 0
 run_case malformed-ledger 1 "not valid base64" 0
-run_case compatibility-failed 0 "Requested rerun for failed CLA result jobs (writer, v3, and compatibility) in workflow run 400" 1 \
-  "repos/manaflow-ai/cmux/actions/runs/400/rerun-failed-jobs"
-run_case writer-failed 0 "Requested rerun for failed CLA result jobs (writer, v3, and compatibility) in workflow run 400" 1 \
-  "repos/manaflow-ai/cmux/actions/runs/400/rerun-failed-jobs"
-run_case writer-only-failed 0 "Requested rerun for failed CLA result jobs (writer, v3, and compatibility) in workflow run 400" 1 \
-  "repos/manaflow-ai/cmux/actions/runs/400/rerun-failed-jobs"
+run_case compatibility-failed 0 "Requested rerun for CLA workflow run 400 (refresh writer and result jobs)" 1 \
+  "repos/manaflow-ai/cmux/actions/runs/400/rerun"
+run_case writer-failed 0 "Requested rerun for CLA workflow run 400 (refresh writer and result jobs)" 1 \
+  "repos/manaflow-ai/cmux/actions/runs/400/rerun"
+run_case writer-only-failed 0 "Requested rerun for CLA workflow run 400 (refresh writer and result jobs)" 1 \
+  "repos/manaflow-ai/cmux/actions/runs/400/rerun"
 run_case unexpected-failure 1 "unexpected failed job" 0
 run_case cancelled-job 1 "cancelled or non-failure job" 0
