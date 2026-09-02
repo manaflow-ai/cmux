@@ -4271,6 +4271,17 @@ struct CMUXCLI {
     let initialSIGPIPEInspectionPayload: [String: Any]?
     let simulatorOwnedCommandRunner: any SimulatorOwnedCommandRunning
 
+    private enum NotifyTargetResolution {
+        case surface(
+            rawSurface: String,
+            workspaceID: String?,
+            resolvedSurfaceID: String?,
+            useTargetedDelivery: Bool
+        )
+        case workspace(String)
+        case caller([String: Any])
+    }
+
     private static let vmCreateIdempotencyTTLSeconds: TimeInterval = 10 * 60
     // Internal (not private): `vm run` in CMUXCLI+VMTransfer.swift provisions
     // pool machines with the same create timeout.
@@ -5855,7 +5866,7 @@ struct CMUXCLI {
                 } else {
                     throw CLIError(message: """
                         Usage:
-                          cmux vm base open [--desktop|--base] [--workspace <workspace-id>] [--window <id|ref|index>] [--detach|-d]
+                          cmux vm base open [--desktop|--base] [--workspace <workspace-id>] [--window <id|ref|index>] [--focus <true|false>] [--detach|-d]
                           cmux vm base reset [--desktop|--base] [--reason <text>] [--workspace <workspace-id>] [--window <id|ref|index>] [--detach|-d]
 
                         Base is your persistent cloud workspace. Opening it reuses the
@@ -5868,7 +5879,12 @@ struct CMUXCLI {
                 let (providerOpt, rem1) = parseOption(rem0, name: "--provider")
                 let (targetWorkspaceOpt, rem1a) = parseOption(rem1, name: "--workspace")
                 let (nameOpt, rem1b) = parseOption(rem1a, name: "--name")
-                let (windowOpt, rem2) = parseOption(rem1b, name: "--window")
+                let (windowOpt, rem1c) = parseOption(rem1b, name: "--window")
+                let (focusOpt, rem2) = parseOption(rem1c, name: "--focus")
+                // `--focus false` opens the machine in the background: its workspace is
+                // created and bound but never selected, so a create the person walked
+                // away from (the New Machine sheet) does not yank them back when it lands.
+                let focus = try parseCloudVMFocusOption(focusOpt, command: "vm new")
                 let detach = hasFlag(rem2, name: "--detach") || hasFlag(rem2, name: "-d")
                 // No provider ships a desktop image right now, so a bare `vm new`
                 // asks for a shell-only machine; requesting `--desktop` anyway fails
@@ -5911,6 +5927,7 @@ struct CMUXCLI {
                           --image <image-id>  explicit image override (normally omit)
                           --provider <provider>
                           --workspace <workspace-id>
+                          --focus <true|false>  false opens the machine without selecting its workspace
                           --detach, -d
 
                         Try:
@@ -6047,6 +6064,10 @@ struct CMUXCLI {
                     id
                 )
                 print(createdMessage)
+                // Stable machine-readable marker alongside the localized line: the app
+                // (`CloudVMActionLauncher`) classifies "created but opening failed" from
+                // this token, never from display text that follows the user's locale.
+                print("OK machine=\(id)")
                 // The machine exists now. Clear the retry key here, not after the attach:
                 // a failed attach must not make the next `vm new` replay this create and
                 // "create" the same machine again.
@@ -6061,6 +6082,7 @@ struct CMUXCLI {
                     // as Base made "Open Base" and the sidebar cloud button target the
                     // most recently created machine instead of Base.
                     shouldPinWorkspaceToTop: false,
+                    focus: focus,
                     client: client,
                     jsonOutput: jsonOutput,
                     idFormat: idFormat
@@ -6072,7 +6094,9 @@ struct CMUXCLI {
                         vmId: id,
                         client: client,
                         workspaceId: createdWorkspace?.workspaceId,
-                        terminalSurfaceId: createdWorkspace?.terminalSurfaceId
+                        // Re-focusing the shell would select its workspace; a background
+                        // open leaves the person where they are.
+                        terminalSurfaceId: focus ? createdWorkspace?.terminalSurfaceId : nil
                     )
                 }
 
@@ -7468,84 +7492,114 @@ struct CMUXCLI {
             let windowRaw = windowFromArgsOrOverride(commandArgs, windowOverride: windowId)
             let windowHandle = try normalizeWindowHandle(windowRaw, client: client)
             let preferTTYFallback = windowRaw == nil && ProcessInfo.processInfo.environment["TMUX"] != nil
-            let explicitSurfaceArg = optionValue(commandArgs, name: "--surface"), env = ProcessInfo.processInfo.environment
-            let hasExplicitHandle = [explicitWorkspaceArg, explicitSurfaceArg].compactMap { $0 }.contains { !isUUID($0) }
-            if hasExplicitHandle && explicitSurfaceArg != nil {
-                let targetWorkspace: String
-                let targetSurface: String
-                if let windowHandle, explicitWorkspaceArg == nil, let explicitSurfaceArg {
-                    let target = try resolveSurfaceTargetInWindow(
-                        explicitSurfaceArg,
-                        windowHandle: windowHandle,
-                        client: client
-                    )
-                    targetWorkspace = target.workspaceId
-                    targetSurface = target.surfaceId
-                } else {
-                    let workspaceRaw = explicitWorkspaceArg
-                        ?? (windowRaw == nil ? env["CMUX_WORKSPACE_ID"] : nil)
-                    targetWorkspace = try (explicitWorkspaceArg == nil
-                        ? resolveWorkspaceIdAllowingFallback(workspaceRaw, client: client)
-                        : resolveWorkspaceId(workspaceRaw, client: client, windowHandle: windowHandle))
-                    targetSurface = try explicitSurfaceArg.map { try resolveSurfaceId($0, workspaceId: targetWorkspace, client: client) }
-                        ?? resolveSurfaceId(nil, workspaceId: targetWorkspace, client: client)
-                }
-                if allowsReply {
-                    let payload = try client.sendV2(method: "notification.create_for_target", params: [
-                        "workspace_id": targetWorkspace,
-                        "surface_id": targetSurface,
-                        "title": title,
-                        "subtitle": subtitle,
-                        "body": body,
-                        "reply_shape": "text",
+            let explicitSurfaceArg = optionValue(commandArgs, name: "--surface")
+            let env = ProcessInfo.processInfo.environment
+            let clearing = hasFlag(commandArgs, name: "--clear")
+            let okText = String(localized: "common.ok", defaultValue: "OK")
+            let target = try resolveNotifyTarget(
+                explicitWorkspaceArg: explicitWorkspaceArg,
+                explicitSurfaceArg: explicitSurfaceArg,
+                windowRaw: windowRaw,
+                windowHandle: windowHandle,
+                preferTTYFallback: preferTTYFallback,
+                environment: env,
+                client: client,
+                resolveExplicitSurface: clearing
+            )
+
+            if clearing {
+                switch target {
+                case let .surface(_, workspaceID?, resolvedSurfaceID?, _):
+                    let payload = try client.sendV2(method: "notification.clear", params: [
+                        "workspace_id": workspaceID,
+                        "surface_id": resolvedSurfaceID,
                     ])
-                    printV2Payload(payload, jsonOutput: jsonOutput, idFormat: idFormat, fallbackText: "OK")
-                } else {
-                    let payload = notificationPayload(title: title, subtitle: subtitle, body: body)
-                    let response = try sendV1Command("notify_target \(targetWorkspace) \(targetSurface) \(payload)", client: client)
-                    print(response)
+                    printV2Payload(payload, jsonOutput: jsonOutput, idFormat: idFormat, fallbackText: okText)
+                case .surface(_, _, _, _):
+                    throw CLIError(message: String(
+                        localized: "cli.error.notifyClearSurfaceRequiresTarget",
+                        defaultValue: "notify --clear --surface requires workspace or window context; specify --workspace or --window"
+                    ))
+                case let .workspace(workspaceID):
+                    let payload = try client.sendV2(method: "notification.clear", params: [
+                        "workspace_id": workspaceID,
+                    ])
+                    printV2Payload(payload, jsonOutput: jsonOutput, idFormat: idFormat, fallbackText: okText)
+                case let .caller(params):
+                    let payload = try client.sendV2(method: "notification.clear", params: params)
+                    printV2Payload(payload, jsonOutput: jsonOutput, idFormat: idFormat, fallbackText: okText)
                 }
                 return
             }
-            var params: [String: Any] = ["title": title, "subtitle": subtitle, "body": body]
-            if allowsReply { params["reply_shape"] = "text" }
-            let method: String
-            if explicitSurfaceArg != nil {
-                method = "notification.create"
+
+            switch target {
+            case let .surface(_, workspaceID?, resolvedSurfaceID?, true):
+                let targetWorkspace = workspaceID
+                let targetSurface = resolvedSurfaceID
+                var params: [String: Any] = [
+                    "workspace_id": targetWorkspace,
+                    "surface_id": targetSurface,
+                    "title": title,
+                    "subtitle": subtitle,
+                    "body": body,
+                ]
+                if allowsReply { params["reply_shape"] = "text" }
+                let payload = try client.sendV2(method: "notification.create_for_target", params: params)
+                printV2Payload(
+                    payload,
+                    jsonOutput: jsonOutput,
+                    idFormat: idFormat,
+                    fallbackText: v2NotificationSummary(payload, idFormat: idFormat)
+                )
+            case let .surface(rawSurface, workspaceID, _, _):
+                var params: [String: Any] = [
+                    "title": title,
+                    "subtitle": subtitle,
+                    "body": body,
+                    "surface_id": rawSurface,
+                ]
                 if let windowHandle { params["window_id"] = windowHandle }
-                if let explicitWorkspaceArg {
-                    params["workspace_id"] = try resolveWorkspaceId(explicitWorkspaceArg, client: client, windowHandle: windowHandle)
-                }
-                if let explicitSurfaceArg { params["surface_id"] = explicitSurfaceArg }
-            } else {
-                if let windowHandle {
-                    method = "notification.create"
-                    params["window_id"] = windowHandle
-                    if let explicitWorkspaceArg {
-                        params["workspace_id"] = try resolveWorkspaceId(explicitWorkspaceArg, client: client, windowHandle: windowHandle)
-                    } else {
-                        params["workspace_id"] = try requireCurrentWorkspaceId(
-                            windowHandle: windowHandle,
-                            client: client,
-                            command: "notify"
-                        )
-                    }
-                } else {
-                    method = "notification.create_for_caller"
-                    params["prefer_tty"] = preferTTYFallback && explicitWorkspaceArg == nil
-                    let workspaceArg = explicitWorkspaceArg ?? (windowRaw == nil ? env["CMUX_WORKSPACE_ID"] : nil)
-                    if let workspaceArg, isUUID(workspaceArg) || explicitWorkspaceArg != nil {
-                        params["preferred_workspace_id"] = isUUID(workspaceArg) ? workspaceArg : try resolveWorkspaceId(workspaceArg, client: client)
-                        params["preferred_workspace_is_explicit"] = explicitWorkspaceArg != nil
-                    }
-                    if windowRaw == nil, let surfaceId = env["CMUX_SURFACE_ID"], isUUID(surfaceId) {
-                        params["preferred_surface_id"] = surfaceId
-                    }
-                    if let callerTTY = resolveCallerTTYName() { params["caller_tty"] = callerTTY }
-                }
+                if let workspaceID { params["workspace_id"] = workspaceID }
+                if allowsReply { params["reply_shape"] = "text" }
+                let payload = try client.sendV2(method: "notification.create", params: params)
+                printV2Payload(
+                    payload,
+                    jsonOutput: jsonOutput,
+                    idFormat: idFormat,
+                    fallbackText: v2NotificationSummary(payload, idFormat: idFormat)
+                )
+            case let .workspace(workspaceID):
+                var params: [String: Any] = [
+                    "title": title,
+                    "subtitle": subtitle,
+                    "body": body,
+                    "workspace_id": workspaceID,
+                ]
+                if let windowHandle { params["window_id"] = windowHandle }
+                if allowsReply { params["reply_shape"] = "text" }
+                let payload = try client.sendV2(method: "notification.create", params: params)
+                printV2Payload(
+                    payload,
+                    jsonOutput: jsonOutput,
+                    idFormat: idFormat,
+                    fallbackText: v2NotificationSummary(payload, idFormat: idFormat)
+                )
+            case let .caller(callerParams):
+                var params: [String: Any] = [
+                    "title": title,
+                    "subtitle": subtitle,
+                    "body": body,
+                ]
+                for (key, value) in callerParams { params[key] = value }
+                if allowsReply { params["reply_shape"] = "text" }
+                let payload = try client.sendV2(method: "notification.create_for_caller", params: params)
+                printV2Payload(
+                    payload,
+                    jsonOutput: jsonOutput,
+                    idFormat: idFormat,
+                    fallbackText: v2NotificationSummary(payload, idFormat: idFormat)
+                )
             }
-            let payload = try client.sendV2(method: method, params: params)
-            printV2Payload(payload, jsonOutput: jsonOutput, idFormat: idFormat, fallbackText: "OK")
         case "list-notifications":
             let response = try sendV1Command("list_notifications", client: client)
             if jsonOutput {
@@ -7570,7 +7624,7 @@ struct CMUXCLI {
             }
 
         case "dismiss-notification":
-            let id = optionValue(commandArgs, name: "--id")
+            let id = optionValue(commandArgs, name: "--id").map(normalizedNotificationIDArgument)
             let allRead = hasFlag(commandArgs, name: "--all-read")
             let okText = String(localized: "common.ok", defaultValue: "OK")
             guard (id != nil) != allRead else {
@@ -7585,7 +7639,7 @@ struct CMUXCLI {
             }
 
         case "mark-notification-read":
-            let id = optionValue(commandArgs, name: "--id")
+            let id = optionValue(commandArgs, name: "--id").map(normalizedNotificationIDArgument)
             let workspaceArg = optionValue(commandArgs, name: "--workspace")
             let surfaceArg = optionValue(commandArgs, name: "--surface")
             let windowHandle = try normalizeWindowHandle(windowFromArgsOrOverride(commandArgs, windowOverride: windowId), client: client)
@@ -7615,7 +7669,7 @@ struct CMUXCLI {
             printV2Payload(payload, jsonOutput: jsonOutput, idFormat: idFormat, fallbackText: okText)
 
         case "open-notification":
-            guard let id = optionValue(commandArgs, name: "--id") else {
+            guard let id = optionValue(commandArgs, name: "--id").map(normalizedNotificationIDArgument) else {
                 throw CLIError(message: String(localized: "cli.error.openNotificationRequiresId", defaultValue: "open-notification requires --id"))
             }
             let payload = try client.sendV2(method: "notification.open", params: ["id": id])
@@ -7629,9 +7683,12 @@ struct CMUXCLI {
             var socketCmd = "clear_notifications"
             let windowRaw = windowFromArgsOrOverride(commandArgs, windowOverride: windowId)
             let windowHandle = try normalizeWindowHandle(windowRaw, client: client)
+            let surfaceFlag = optionValue(commandArgs, name: "--surface")
+            var resolvedWorkspaceID: String?
             if let wsFlag = optionValue(commandArgs, name: "--workspace") {
                 let wsId = try resolveWorkspaceId(wsFlag, client: client, windowHandle: windowHandle)
                 socketCmd += " --tab=\(wsId)"
+                resolvedWorkspaceID = wsId
             } else if let windowHandle {
                 let wsId = try requireCurrentWorkspaceId(
                     windowHandle: windowHandle,
@@ -7639,10 +7696,26 @@ struct CMUXCLI {
                     command: "clear-notifications"
                 )
                 socketCmd += " --tab=\(wsId)"
+                resolvedWorkspaceID = wsId
             } else if windowRaw == nil,
                       let envWs = ProcessInfo.processInfo.environment["CMUX_WORKSPACE_ID"],
                       let wsId = try? resolveWorkspaceId(envWs, client: client) {
                 socketCmd += " --tab=\(wsId)"
+                resolvedWorkspaceID = wsId
+            }
+            if let surfaceFlag {
+                guard let workspaceID = resolvedWorkspaceID else {
+                    throw CLIError(message: String(
+                        localized: "cli.error.clearNotificationsSurfaceRequiresTarget",
+                        defaultValue: "clear-notifications --surface requires a workspace or window context"
+                    ))
+                }
+                let surfaceID = try resolveSurfaceId(
+                    surfaceFlag,
+                    workspaceId: workspaceID,
+                    client: client
+                )
+                socketCmd += " --panel=\(surfaceID)"
             }
             let response = try sendV1Command(socketCmd, client: client)
             print(response)
@@ -12866,6 +12939,7 @@ struct CMUXCLI {
         targetWorkspaceId: String? = nil,
         forceSSH: Bool,
         shouldPinWorkspaceToTop: Bool,
+        focus: Bool = true,
         client: SocketClient,
         jsonOutput: Bool,
         idFormat: CLIIDFormat
@@ -12884,7 +12958,8 @@ struct CMUXCLI {
                 windowRaw: windowRaw,
                 client: client,
                 remoteRelayPort: generateRemoteRelayPort(),
-                pinWorkspaceToTop: shouldPinWorkspaceToTop
+                pinWorkspaceToTop: shouldPinWorkspaceToTop,
+                focus: focus
             )
             let relayID = UUID().uuidString.lowercased()
             let relayToken = try randomHex(byteCount: 32)
@@ -12912,7 +12987,8 @@ struct CMUXCLI {
             options: VMTuiOpenOptions(
                 workspaceName: workspaceName,
                 targetWorkspaceId: targetWorkspaceId,
-                pinAsBase: shouldPinWorkspaceToTop
+                pinAsBase: shouldPinWorkspaceToTop,
+                focus: focus
             ),
             client: client
         ) {
@@ -13001,6 +13077,7 @@ struct CMUXCLI {
                 windowRaw: windowRaw,
                 targetWorkspaceId: targetWorkspaceId,
                 shouldPinWorkspaceToTop: shouldPinWorkspaceToTop,
+                focus: focus,
                 client: client,
                 jsonOutput: jsonOutput,
                 idFormat: idFormat
@@ -13013,7 +13090,8 @@ struct CMUXCLI {
             windowRaw: windowRaw,
             client: client,
             remoteRelayPort: generateRemoteRelayPort(),
-            pinWorkspaceToTop: shouldPinWorkspaceToTop
+            pinWorkspaceToTop: shouldPinWorkspaceToTop,
+            focus: focus
         )
         let relayID = UUID().uuidString.lowercased()
         let relayToken = try randomHex(byteCount: 32)
@@ -13037,7 +13115,9 @@ struct CMUXCLI {
         windowId: String?
     ) throws {
         let (targetWorkspaceOpt, rem0) = parseOption(args, name: "--workspace")
-        let (windowOpt, rem1) = parseOption(rem0, name: "--window")
+        let (windowOpt, rem0a) = parseOption(rem0, name: "--window")
+        let (focusOpt, rem1) = parseOption(rem0a, name: "--focus")
+        let focus = try parseCloudVMFocusOption(focusOpt, command: "vm base open")
         let detach = hasFlag(rem1, name: "--detach") || hasFlag(rem1, name: "-d")
         let baseKind = Self.parseCloudVMKindFlags(rem1)
         let remaining = rem1.filter { !["--detach", "-d", "--desktop", "--base"].contains($0) }
@@ -13050,6 +13130,7 @@ struct CMUXCLI {
                   --window <id|ref|index>
                   --base            shell-only Base (first open only; default is a desktop)
                   --desktop
+                  --focus <true|false>  false opens Base without selecting its workspace
                   --detach, -d
                 """)
         }
@@ -13110,10 +13191,22 @@ struct CMUXCLI {
             targetWorkspaceId: targetWorkspaceOpt,
             forceSSH: false,
             shouldPinWorkspaceToTop: true,
+            focus: focus,
             client: client,
             jsonOutput: jsonOutput,
             idFormat: idFormat
         )
+    }
+
+    /// `--focus true|false` on the create/open verbs. Nil (flag absent) keeps the
+    /// foreground behavior every script relies on; anything else is a usage error.
+    /// Accepts the same spellings as every other boolean flag (`parseBoolString`).
+    func parseCloudVMFocusOption(_ raw: String?, command: String) throws -> Bool {
+        guard let raw else { return true }
+        guard let value = parseBoolString(raw) else {
+            throw CLIError(message: "\(command): --focus takes true or false")
+        }
+        return value
     }
 
     private func runPersistentBaseResetCommand(
@@ -13222,7 +13315,8 @@ struct CMUXCLI {
         windowRaw: String?,
         client: SocketClient,
         remoteRelayPort: Int,
-        pinWorkspaceToTop: Bool = false
+        pinWorkspaceToTop: Bool = false,
+        focus: Bool = true
     ) throws -> SSHCommandOptions {
         guard (response["transport"] as? String) == "ssh",
               let host = response["host"] as? String,
@@ -13312,7 +13406,7 @@ struct CMUXCLI {
             identityFile: nil,
             workspaceName: workspaceName,
             windowRaw: windowRaw,
-            noFocus: false,
+            noFocus: !focus,
             sshOptions: sshOptionStrings,
             extraArguments: [],
             passwordCredential: token,
@@ -13979,6 +14073,7 @@ struct CMUXCLI {
         windowRaw: String?,
         targetWorkspaceId: String? = nil,
         shouldPinWorkspaceToTop: Bool,
+        focus: Bool = true,
         client: SocketClient,
         jsonOutput: Bool,
         idFormat: CLIIDFormat
@@ -14078,7 +14173,7 @@ struct CMUXCLI {
                     params: [
                         "workspace_id": workspaceId,
                         "initial_command": initialStartupCommand,
-                        "focus": true,
+                        "focus": focus || isWorkspaceCurrentlySelected(workspaceId, windowRaw: windowRaw, client: client),
                     ]
                 )
                 logVMTiming(
@@ -14090,21 +14185,23 @@ struct CMUXCLI {
                 )
             }
 
-            var selectParams: [String: Any] = ["workspace_id": workspaceId]
-            if let workspaceWindowId = (workspaceCreate["window_id"] as? String)?
-                .trimmingCharacters(in: .whitespacesAndNewlines),
-               !workspaceWindowId.isEmpty {
-                selectParams["window_id"] = workspaceWindowId
+            if focus {
+                var selectParams: [String: Any] = ["workspace_id": workspaceId]
+                if let workspaceWindowId = (workspaceCreate["window_id"] as? String)?
+                    .trimmingCharacters(in: .whitespacesAndNewlines),
+                   !workspaceWindowId.isEmpty {
+                    selectParams["window_id"] = workspaceWindowId
+                }
+                let selectStartedAt = Date()
+                _ = try client.sendV2(method: "workspace.select", params: selectParams)
+                logVMTiming(
+                    "workspace.select",
+                    vmID: id,
+                    transport: "websocket",
+                    startedAt: selectStartedAt,
+                    extra: "workspace=\(String(workspaceId.prefix(8)))"
+                )
             }
-            let selectStartedAt = Date()
-            _ = try client.sendV2(method: "workspace.select", params: selectParams)
-            logVMTiming(
-                "workspace.select",
-                vmID: id,
-                transport: "websocket",
-                startedAt: selectStartedAt,
-                extra: "workspace=\(String(workspaceId.prefix(8)))"
-            )
         } catch {
             if didCreateWorkspace {
                 do {
@@ -18072,6 +18169,104 @@ struct CMUXCLI {
         throw CLIError(message: "Couldn't resolve a surface ID. Pass --surface or run 'cmux list-pane-surfaces' to list surfaces.")
     }
 
+    /// Resolves the target shared by `notify` creation and `notify --clear`.
+    ///
+    /// Explicit non-UUID handles are resolved to a concrete workspace/surface
+    /// pair for targeted delivery. UUID surfaces retain the create command's
+    /// existing pass-through behavior, while clear mode asks for the concrete
+    /// pair so it cannot accidentally clear a different scope.
+    private func resolveNotifyTarget(
+        explicitWorkspaceArg: String?,
+        explicitSurfaceArg: String?,
+        windowRaw: String?,
+        windowHandle: String?,
+        preferTTYFallback: Bool,
+        environment: [String: String],
+        client: SocketClient,
+        resolveExplicitSurface: Bool
+    ) throws -> NotifyTargetResolution {
+        let hasExplicitHandle = [explicitWorkspaceArg, explicitSurfaceArg]
+            .compactMap { $0 }
+            .contains { !isUUID($0) }
+
+        if let explicitSurfaceArg {
+            let explicitWorkspaceID = try explicitWorkspaceArg.map {
+                try resolveWorkspaceId($0, client: client, windowHandle: windowHandle)
+            }
+            if resolveExplicitSurface || hasExplicitHandle {
+                let target: (workspaceId: String, surfaceId: String)
+                if let windowHandle, explicitWorkspaceArg == nil {
+                    target = try resolveSurfaceTargetInWindow(
+                        explicitSurfaceArg,
+                        windowHandle: windowHandle,
+                        client: client
+                    )
+                } else {
+                    if resolveExplicitSurface, explicitWorkspaceArg == nil, windowHandle == nil {
+                        throw CLIError(message: String(
+                            localized: "cli.error.notifyClearSurfaceRequiresTarget",
+                            defaultValue: "notify --clear --surface requires workspace or window context; specify --workspace or --window"
+                        ))
+                    }
+                    let workspaceRaw = explicitWorkspaceArg
+                        ?? (windowRaw == nil ? environment["CMUX_WORKSPACE_ID"] : nil)
+                    let workspaceID = if let explicitWorkspaceID {
+                        explicitWorkspaceID
+                    } else {
+                        try resolveWorkspaceIdAllowingFallback(workspaceRaw, client: client)
+                    }
+                    let surfaceID = try resolveSurfaceId(
+                        explicitSurfaceArg,
+                        workspaceId: workspaceID,
+                        client: client
+                    )
+                    target = (workspaceID, surfaceID)
+                }
+                return .surface(
+                    rawSurface: explicitSurfaceArg,
+                    workspaceID: target.workspaceId,
+                    resolvedSurfaceID: target.surfaceId,
+                    useTargetedDelivery: hasExplicitHandle
+                )
+            }
+            return .surface(
+                rawSurface: explicitSurfaceArg,
+                workspaceID: explicitWorkspaceID,
+                resolvedSurfaceID: nil,
+                useTargetedDelivery: false
+            )
+        }
+
+        if let windowHandle {
+            let workspaceID = try explicitWorkspaceArg.map {
+                try resolveWorkspaceId($0, client: client, windowHandle: windowHandle)
+            } ?? requireCurrentWorkspaceId(
+                windowHandle: windowHandle,
+                client: client,
+                command: "notify"
+            )
+            return .workspace(workspaceID)
+        }
+
+        var callerParams: [String: Any] = [
+            "caller": true,
+            "prefer_tty": preferTTYFallback && explicitWorkspaceArg == nil,
+        ]
+        let workspaceArg = explicitWorkspaceArg ?? environment["CMUX_WORKSPACE_ID"]
+        if let workspaceArg, isUUID(workspaceArg) || explicitWorkspaceArg != nil {
+            callerParams["preferred_workspace_id"] = isUUID(workspaceArg)
+                ? workspaceArg
+                : try resolveWorkspaceId(workspaceArg, client: client)
+        }
+        if let surfaceID = environment["CMUX_SURFACE_ID"], isUUID(surfaceID) {
+            callerParams["preferred_surface_id"] = surfaceID
+        }
+        if let callerTTY = resolveCallerTTYName() {
+            callerParams["caller_tty"] = callerTTY
+        }
+        return .caller(callerParams)
+    }
+
     private func resolveSurfaceTargetInWindow(
         _ raw: String,
         windowHandle: String,
@@ -18319,19 +18514,24 @@ struct CMUXCLI {
                                         forwarded ports — each with the address
                                         `vm open` / `surface open` accepts.
               status <id>                Print provider, status, and image.
-              base open [--desktop|--base] [--workspace <id>] [--window <id|ref|index>] [--detach|-d]
+              base open [--desktop|--base] [--workspace <id>] [--window <id|ref|index>] [--focus <true|false>] [--detach|-d]
                                         Open Base, your persistent cloud workspace.
                                         Reuses the same VM every time. The first
                                         open picks the kind (desktop by default).
+                                        --focus false opens it without switching
+                                        to its workspace.
               base reset [--desktop|--base] [--reason <text>] [--workspace <id>] [--window <id|ref|index>] [--detach|-d]
                                         Create a new Base generation. The previous
                                         VM is retained so accidental resets are
                                         recoverable.
-              new [--desktop|--base] [--size <2g|4g|8g|16g|24g|32g>] [--name <label>] [--provider <provider>] [--window <id|ref|index>] [--detach|-d]
+              new [--desktop|--base] [--size <2g|4g|8g|16g|24g|32g>] [--name <label>] [--provider <provider>] [--window <id|ref|index>] [--focus <true|false>] [--detach|-d]
                                         Create a new machine by kind (desktop by
                                         default; --base for shell-only). The server
                                         picks the image for the kind; --image <id>
                                         is an explicit override you normally omit.
+                                        --focus false opens the machine without
+                                        switching to its workspace (what the New
+                                        Machine sheet does).
               snapshot <id> [--name <name>]
                                         Create a provider snapshot/checkpoint and print its id.
                                         Alias: `checkpoint`.
@@ -19862,29 +20062,31 @@ struct CMUXCLI {
               cmux send-key-panel --panel surface:2 ctrl+c
             """
         case "notify":
-            let replyHelp = String(
-                localized: "cli.help.notify.reply",
-                defaultValue: "--reply                Allow a free-text inline reply"
-            )
-            return """
-            Usage: cmux notify [flags]
+            return String(localized: "cli.help.notify", defaultValue: """
+                Usage: cmux notify [flags]
 
-            Send a notification to a workspace/surface.
+                Send a notification to a workspace/surface, or clear that resolved target with --clear.
 
-            Flags:
-              --title <text>         Notification title (default: "Notification")
-              --subtitle <text>      Notification subtitle
-              --body <text>          Notification body
-              \(replyHelp)
-              --workspace <id|ref|index>   Target workspace, except explicit surface UUIDs resolve globally
-              --surface <id|ref|index>     Target surface (refs/indexes use workspace/window context)
-              --window <id|ref|index>      Window context for workspace/surface refs and indexes
+                Flags:
+                  --title <text>         Notification title (default: "Notification")
+                  --subtitle <text>      Notification subtitle
+                  --body <text>          Notification body
+                  --reply                Allow a free-text inline reply
+                  --clear                Clear notifications for the resolved caller/target instead of posting
+                  --workspace <id|ref|index>   Target workspace, except explicit surface UUIDs resolve globally
+                  --surface <id|ref|index>     Target surface (refs/indexes use workspace/window context)
+                  --window <id|ref|index>      Window context for workspace/surface refs and indexes
+                  --json                 Print the response payload as JSON
+                  --id-format <mode>     refs, uuids, or both for human-readable ids
 
-            Example:
-              cmux notify --title "Build done" --body "All tests passed"
-              cmux notify --title "Error" --subtitle "test.swift" --body "Line 42: syntax error"
-              cmux notify --surface <uuid> --title "Build done"
-            """
+                The response includes the created notification id. Use cmux dismiss-notification --id <uuid|notification:<uuid>>, cmux list-notifications, or cmux clear-notifications to manage notifications.
+
+                Example:
+                  cmux notify --title "Build done" --body "All tests passed"
+                  cmux notify --title "Error" --subtitle "test.swift" --body "Line 42: syntax error"
+                  cmux notify --surface <uuid> --title "Build done"
+                  cmux notify --clear
+                """)
         case "list-notifications":
             return """
             Usage: cmux list-notifications
@@ -19898,7 +20100,7 @@ struct CMUXCLI {
             Remove one notification, or remove every already-read notification.
 
             Flags:
-              --id <uuid>           Notification id to remove
+              --id <uuid|notification:<uuid>>  Notification id or notify handle to remove
               --all-read            Remove every already-read notification
               --json                Print JSON
               --id-format <mode>    refs, uuids, or both
@@ -19940,11 +20142,16 @@ struct CMUXCLI {
               --id-format <mode>    refs, uuids, or both
             """)
         case "clear-notifications":
-            return """
-            Usage: cmux clear-notifications [--workspace <id|ref|index>] [--window <id|ref|index>]
+            return String(localized: "cli.help.clearNotifications", defaultValue: """
+            Usage: cmux clear-notifications [--workspace <id|ref|index>] [--surface <id|ref|index>] [--window <id|ref|index>]
 
-            Clear all queued notifications, or only the selected/targeted workspace when --window or --workspace is set.
-            """
+            Clear all queued notifications, or scope the clear to a workspace and surface.
+
+            Flags:
+              --workspace <id|ref|index>   Workspace to clear
+              --surface <id|ref|index>     Narrow the clear to one surface
+              --window <id|ref|index>      Window context for workspace/surface refs
+            """)
         case "set-status":
             return String(localized: "cli.help.setStatus", defaultValue: """
             Usage: cmux set-status <key> <value> [flags]
@@ -20964,6 +21171,34 @@ struct CMUXCLI {
             }
         }
         return parts.joined(separator: " ")
+    }
+
+    /// Human-readable result for notification creation. Notifications do not
+    /// participate in the workspace/surface handle registry, so their default
+    /// ref-shaped display is the explicit `notification:<uuid>` handle while
+    /// JSON retains the additive `id` field unchanged.
+    func v2NotificationSummary(_ payload: [String: Any], idFormat: CLIIDFormat) -> String {
+        let okText = String(localized: "common.ok", defaultValue: "OK")
+        guard let id = payload["id"] as? String, !id.isEmpty else { return okText }
+        let ref = (payload["notification_ref"] as? String) ?? "notification:\(id)"
+        let handle: String
+        switch idFormat {
+        case .refs:
+            handle = ref
+        case .uuids:
+            handle = id
+        case .both:
+            handle = "\(ref) (\(id))"
+        }
+        return "\(okText) \(handle)"
+    }
+
+    /// Accept the human ref-shaped notification handle emitted by `notify` in
+    /// addition to the UUID accepted by the socket protocol.
+    private func normalizedNotificationIDArgument(_ raw: String) -> String {
+        let prefix = "notification:"
+        guard raw.lowercased().hasPrefix(prefix) else { return raw }
+        return String(raw.dropFirst(prefix.count))
     }
 
     /// Summary for send verbs: annotates delivery that was queued behind a
@@ -40709,13 +40944,13 @@ export default CMUXSessionRestore;
           send-key [--workspace <id|ref|index>] [--surface <id|ref|index>] [--window <id|ref|index>] <key>
           send-panel --panel <id|ref|index> [--workspace <id|ref|index>] [--window <id|ref|index>] <text>
           send-key-panel --panel <id|ref|index> [--workspace <id|ref|index>] [--window <id|ref|index>] <key>
-          notify --title <text> [--subtitle <text>] [--body <text>] [--reply] [--workspace <id|ref|index>] [--surface <id|ref|index>] [--window <id|ref|index>]
+          notify [--title <text>] [--subtitle <text>] [--body <text>] [--reply] [--clear] [--workspace <id|ref|index>] [--surface <id|ref|index>] [--window <id|ref|index>]
           list-notifications
           dismiss-notification (--id <uuid> | --all-read)
           mark-notification-read (--id <uuid> | --workspace <id|ref|index> [--surface <id|ref|index>] [--window <id|ref|index>] | --all)
           open-notification --id <uuid>
           jump-to-unread
-          clear-notifications [--workspace <id|ref|index>] [--window <id|ref|index>]
+          clear-notifications [--workspace <id|ref|index>] [--surface <id|ref|index>] [--window <id|ref|index>]
           right-sidebar <toggle|show|hide|focus|set|mode|files|find|vault|sessions|feed|dock|cloud> [--workspace <id|ref|index>] [--window <id|ref|index>] [--no-focus]
           sidebar <validate|reload|select|open> [name]
           set-status <key> <value> [--workspace <id|ref|index>] [--window <id|ref|index>] [--icon <name>] [--color <#hex>] [--priority <n>]

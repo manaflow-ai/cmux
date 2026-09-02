@@ -24,7 +24,7 @@ extension ControlCommandCoordinator {
         case "notification.list":
             return notificationList()
         case "notification.clear":
-            return notificationClear()
+            return notificationClear(request.params)
         case "notification.dismiss":
             return notificationDismiss(request.params)
         case "notification.mark_read":
@@ -58,18 +58,20 @@ extension ControlCommandCoordinator {
         case .tabManagerUnavailable:
             return .err(code: "unavailable", message: "TabManager not available", data: nil)
         case .workspaceNotFound:
-            return .err(code: "not_found", message: "Workspace not found", data: nil)
+            return .err(code: "not_found", message: notificationWorkspaceNotFoundMessage, data: nil)
         case .surfaceNotFound(let surfaceID):
             return .err(
                 code: "not_found",
-                message: "Surface not found",
+                message: notificationSurfaceNotFoundMessage,
                 data: .object(["surface_id": .string(surfaceID.uuidString)])
             )
-        case .delivered(let workspaceID, let surfaceID):
-            return .ok(.object([
+        case .delivered(let workspaceID, let surfaceID, let notificationID):
+            let result: [String: JSONValue] = [
                 "workspace_id": .string(workspaceID.uuidString),
                 "surface_id": orNull(surfaceID?.uuidString),
-            ]))
+                "id": orNull(notificationID?.uuidString),
+            ]
+            return .ok(.object(result))
         }
     }
 
@@ -126,14 +128,14 @@ extension ControlCommandCoordinator {
             return .err(code: "unavailable", message: "TabManager not available", data: nil)
         case .workspaceNotFound(let workspaceID):
             let data: JSONValue? = workspaceID.map { .object(["workspace_id": .string($0.uuidString)]) }
-            return .err(code: "not_found", message: "Workspace not found", data: data)
+            return .err(code: "not_found", message: notificationWorkspaceNotFoundMessage, data: data)
         case .surfaceNotFound(let surfaceID):
             return .err(
                 code: "not_found",
-                message: "Surface not found",
+                message: notificationSurfaceNotFoundMessage,
                 data: .object(["surface_id": .string(surfaceID.uuidString)])
             )
-        case .delivered(let workspaceID, let surfaceID, let windowID):
+        case .delivered(let workspaceID, let surfaceID, let windowID, let notificationID):
             return .ok(.object([
                 "workspace_id": .string(workspaceID.uuidString),
                 "workspace_ref": ref(.workspace, workspaceID),
@@ -141,6 +143,7 @@ extension ControlCommandCoordinator {
                 "surface_ref": ref(.surface, surfaceID),
                 "window_id": orNull(windowID?.uuidString),
                 "window_ref": ref(.window, windowID),
+                "id": orNull(notificationID?.uuidString),
             ]))
         }
     }
@@ -155,10 +158,144 @@ extension ControlCommandCoordinator {
         return .ok(.object(["notifications": .array(items)]))
     }
 
-    /// `notification.clear` — enqueue clearing all notifications.
-    func notificationClear() -> ControlCallResult {
+    /// `notification.clear` — clear all notifications, or a workspace/surface
+    /// scope. The no-parameter form retains the legacy global-clear payload.
+    /// A `caller=true` request uses the same target resolver as
+    /// `notification.create_for_caller` for ergonomic script cleanup.
+    func notificationClear(_ params: [String: JSONValue]) -> ControlCallResult {
+        let callerValue = bool(params, "caller")
+        guard !hasNonNull(params, "caller") || callerValue != nil else {
+            return .err(
+                code: "invalid_params",
+                message: notificationClearCallerInvalidMessage,
+                data: nil
+            )
+        }
+        let caller = callerValue ?? false
+        let hasCallerOnlySelectors = [
+            "preferred_workspace_id",
+            "preferred_surface_id",
+            "caller_tty",
+            "prefer_tty",
+        ].contains { hasNonNull(params, $0) }
+        guard caller || !hasCallerOnlySelectors else {
+            return .err(
+                code: "invalid_params",
+                message: notificationClearCallerSelectorsRequireCallerMessage,
+                data: nil
+            )
+        }
+        let hasWorkspaceSelector = hasNonNull(params, "workspace_id") || hasNonNull(params, "tab_id")
+        let hasSurfaceSelector = hasNonNull(params, "surface_id")
+
+        if caller {
+            guard !hasWorkspaceSelector, !hasSurfaceSelector else {
+                return .err(
+                    code: "invalid_params",
+                    message: notificationClearCallerScopeConflictMessage,
+                    data: nil
+                )
+            }
+            if hasNonNull(params, "preferred_workspace_id"),
+               uuid(params, "preferred_workspace_id") == nil {
+                return .err(
+                    code: "invalid_params",
+                    message: notificationClearPreferredWorkspaceIDInvalidMessage,
+                    data: nil
+                )
+            }
+            if hasNonNull(params, "preferred_surface_id"),
+               uuid(params, "preferred_surface_id") == nil {
+                return .err(
+                    code: "invalid_params",
+                    message: notificationClearPreferredSurfaceIDInvalidMessage,
+                    data: nil
+                )
+            }
+            let resolution = context?.controlNotificationClearForCaller(
+                preferredWorkspaceID: uuid(params, "preferred_workspace_id"),
+                preferredSurfaceID: uuid(params, "preferred_surface_id"),
+                callerTTY: rawString(params, "caller_tty"),
+                preferTTY: bool(params, "prefer_tty") ?? false
+            ) ?? .tabManagerUnavailable
+            return scopedClearResult(resolution)
+        }
+
+        guard !hasSurfaceSelector || hasWorkspaceSelector else {
+            return .err(
+                code: "invalid_params",
+                message: notificationClearSurfaceIDRequiresWorkspaceMessage,
+                data: nil
+            )
+        }
+
+        guard !hasWorkspaceSelector, !hasSurfaceSelector else {
+            let workspaceID: UUID?
+            if hasNonNull(params, "workspace_id") {
+                workspaceID = uuid(params, "workspace_id")
+            } else {
+                workspaceID = uuid(params, "tab_id")
+            }
+            guard let workspaceID else {
+                return .err(
+                    code: "invalid_params",
+                    message: notificationClearWorkspaceIDInvalidMessage,
+                    data: nil
+                )
+            }
+            if hasSurfaceSelector, uuid(params, "surface_id") == nil {
+                return .err(
+                    code: "invalid_params",
+                    message: notificationSurfaceIDInvalidMessage,
+                    data: nil
+                )
+            }
+            let resolution = context?.controlNotificationClear(
+                routing: routingSelectors(params),
+                workspaceID: workspaceID,
+                surfaceID: uuid(params, "surface_id")
+            ) ?? .tabManagerUnavailable
+            return scopedClearResult(resolution)
+        }
+
         context?.controlNotificationClear()
         return .ok(.object([:]))
+    }
+
+    /// Shapes a scoped clear resolution while keeping the legacy unscoped
+    /// `notification.clear` response untouched.
+    private func scopedClearResult(
+        _ resolution: ControlNotificationClearResolution
+    ) -> ControlCallResult {
+        switch resolution {
+        case .tabManagerUnavailable:
+            return .err(code: "unavailable", message: notificationClearUnavailableMessage, data: nil)
+        case .workspaceNotFound(let workspaceID):
+            let data: JSONValue? = workspaceID.map {
+                .object(["workspace_id": .string($0.uuidString)])
+            }
+            return .err(code: "not_found", message: notificationWorkspaceNotFoundMessage, data: data)
+        case .surfaceNotFound(let surfaceID):
+            return .err(
+                code: "not_found",
+                message: notificationSurfaceNotFoundMessage,
+                data: .object(["surface_id": .string(surfaceID.uuidString)])
+            )
+        case .cleared(let workspaceID, let surfaceID):
+            var payload: [String: JSONValue] = [
+                "cleared": .bool(true),
+                "workspace_id": .string(workspaceID.uuidString),
+                "workspace_ref": ref(.workspace, workspaceID),
+            ]
+            if let surfaceID {
+                payload["surface_id"] = .string(surfaceID.uuidString)
+                payload["surface_ref"] = ref(.surface, surfaceID)
+            } else {
+                payload["surface_id"] = .null
+                payload["surface_ref"] = .null
+            }
+            return .ok(.object(payload))
+        }
     }
 
     // MARK: - Dismiss
@@ -371,7 +508,17 @@ extension ControlCommandCoordinator {
             markReadSelectorRequired: "Select exactly one of id, tab_id, or all",
             surfaceIDInvalid: "Missing or invalid surface_id",
             surfaceIDRequiresWorkspace: "surface_id requires tab_id or workspace_id",
-            targetNotFound: "Notification target not found"
+            targetNotFound: "Notification target not found",
+            clearCallerInvalid: "Missing or invalid caller",
+            clearCallerSelectorsRequireCaller: "caller-only selectors require caller=true",
+            clearCallerScopeConflict: "caller clear cannot be combined with workspace_id, tab_id, or surface_id",
+            clearPreferredWorkspaceIDInvalid: "Missing or invalid preferred_workspace_id",
+            clearPreferredSurfaceIDInvalid: "Missing or invalid preferred_surface_id",
+            clearSurfaceIDRequiresWorkspace: "surface_id requires workspace_id",
+            clearWorkspaceIDInvalid: "Missing or invalid workspace_id",
+            workspaceNotFound: "Workspace not found",
+            surfaceNotFound: "Surface not found",
+            clearUnavailable: "Notifications are unavailable. Try again."
         )
     }
 
@@ -401,5 +548,45 @@ extension ControlCommandCoordinator {
 
     private var notificationTargetNotFoundMessage: String {
         notificationStrings.targetNotFound
+    }
+
+    private var notificationClearCallerInvalidMessage: String {
+        notificationStrings.clearCallerInvalid
+    }
+
+    private var notificationClearCallerSelectorsRequireCallerMessage: String {
+        notificationStrings.clearCallerSelectorsRequireCaller
+    }
+
+    private var notificationClearCallerScopeConflictMessage: String {
+        notificationStrings.clearCallerScopeConflict
+    }
+
+    private var notificationClearPreferredWorkspaceIDInvalidMessage: String {
+        notificationStrings.clearPreferredWorkspaceIDInvalid
+    }
+
+    private var notificationClearPreferredSurfaceIDInvalidMessage: String {
+        notificationStrings.clearPreferredSurfaceIDInvalid
+    }
+
+    private var notificationClearSurfaceIDRequiresWorkspaceMessage: String {
+        notificationStrings.clearSurfaceIDRequiresWorkspace
+    }
+
+    private var notificationClearWorkspaceIDInvalidMessage: String {
+        notificationStrings.clearWorkspaceIDInvalid
+    }
+
+    private var notificationWorkspaceNotFoundMessage: String {
+        notificationStrings.workspaceNotFound
+    }
+
+    private var notificationSurfaceNotFoundMessage: String {
+        notificationStrings.surfaceNotFound
+    }
+
+    private var notificationClearUnavailableMessage: String {
+        notificationStrings.clearUnavailable
     }
 }
