@@ -81,6 +81,39 @@ import Foundation
         #expect(recorded?.tabId == workspace.id)
     }
 
+    /// The built-in scp transport captures scp's stderr and used to replace it
+    /// with a generic "check that the remote host is reachable", which actively
+    /// misdirects for the common case: a host whose 2FA this transport cannot
+    /// answer, where the host is perfectly reachable.
+    @Test func theBuiltInTransportKeepsScpsReason() throws {
+        let session = DetectedSSHSession(
+            destination: "localhost",
+            port: nil,
+            identityFile: nil,
+            configFile: nil,
+            jumpHost: nil,
+            controlPath: nil,
+            useIPv4: false,
+            useIPv6: false,
+            forwardAgent: false,
+            compressionEnabled: false,
+            sshOptions: ["HostName=host1.example.com"]
+        )
+        DetectedSSHSession.runProcessOverrideForTesting = { _, _, _, _ in
+            (status: 255, stdout: "", stderr: "host1.example.com: Permission denied (keyboard-interactive).")
+        }
+        defer { DetectedSSHSession.runProcessOverrideForTesting = nil }
+
+        do {
+            _ = try session.uploadDroppedFilesSyncForTesting([URL(fileURLWithPath: "/tmp/a.png")])
+            Issue.record("a non-zero scp must fail")
+        } catch {
+            let detail = TerminalUploadFailureNotification.detail(for: error)
+            #expect(detail?.contains("Permission denied (keyboard-interactive)") == true)
+            #expect(detail?.contains("reachable") == false)
+        }
+    }
+
     /// Cancelling is the user's own doing; reporting it back to them is noise,
     /// and nothing may be posted for it.
     @Test func cancellationIsNotWorthANotification() {

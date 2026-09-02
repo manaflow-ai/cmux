@@ -110,11 +110,30 @@ struct DetectedSSHSession: Equatable {
                     operation: operation
                 )
                 guard result.status == 0 else {
-                    throw NSError(domain: "cmux.detected-ssh.drop", code: 2, userInfo: [
-                        NSLocalizedDescriptionKey: String(
+                    // scp's own stderr is the only thing that says WHY, and it is
+                    // often the whole answer — "Permission denied
+                    // (keyboard-interactive)" for a host whose 2FA this transport
+                    // cannot answer, say, which the generic "check the host is
+                    // reachable" actively misdirects away from. It is already
+                    // captured, so carry it.
+                    let detail = result.stderr.trimmingCharacters(in: .whitespacesAndNewlines)
+                    let message: String
+                    if detail.isEmpty {
+                        message = String(
                             localized: "detectedSSH.fileDrop.error.uploadFailed",
                             defaultValue: "Couldn't upload the file to the remote session. Check that the remote host is reachable, then try again."
-                        ),
+                        )
+                    } else {
+                        message = String.localizedStringWithFormat(
+                            String(
+                                localized: "detectedSSH.fileDrop.error.uploadFailedWithDetail",
+                                defaultValue: "Couldn't upload the file to the remote session: %@"
+                            ),
+                            detail
+                        )
+                    }
+                    throw NSError(domain: "cmux.detected-ssh.drop", code: 2, userInfo: [
+                        NSLocalizedDescriptionKey: message,
                     ])
                 }
 

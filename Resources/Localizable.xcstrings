@@ -93836,6 +93836,23 @@
         }
       }
     },
+    "detectedSSH.fileDrop.error.uploadFailedWithDetail": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Couldn't upload the file to the remote session: %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "リモートセッションにファイルをアップロードできませんでした: %@"
+          }
+        }
+      }
+    },
     "dialog.closeAnchor.message.lone": {
       "extractionState": "manual",
       "localizations": {
