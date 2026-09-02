@@ -173,7 +173,12 @@ describe("Pro roster", () => {
   test("the page-render load is bounded by a timeout and passes the same budget to the reads", async () => {
     const snapshot = { subscribers: [], teamSubscriptions: [], pendingGrants: [], truncated: { subscribers: false, teamSubscriptions: false, pendingGrants: false } };
     const budgets: number[] = [];
-    expect(await loadProListSnapshotWithin(1000, async (budget) => { budgets.push(budget); return snapshot; })).toBe(snapshot);
+    const before = Date.now();
+    expect(await loadProListSnapshotWithin(1000, async (budget) => {
+      budgets.push(budget.statementTimeoutMs);
+      expect(budget.deadlineMs).toBeGreaterThanOrEqual(before + 1000);
+      return snapshot;
+    })).toBe(snapshot);
     expect(budgets).toEqual([1000]);
     await expect(
       loadProListSnapshotWithin(5, () => new Promise(() => undefined)),
@@ -194,12 +199,51 @@ describe("Pro roster", () => {
         }),
     };
     const snapshot = await loadProListSnapshot({ db, app: fakeApp({}), statementTimeoutMs: 8000 });
-    expect(executed).toEqual(["set local statement_timeout = 8000"]);
+    // One short transaction per read, so an optional read that fails aborts only its own.
+    expect(executed).toEqual(Array(3).fill("set local statement_timeout = 8000"));
     expect(snapshot.subscribers).toEqual([]);
     // No transaction support, or no budget: reads run directly.
     expect(await withStatementTimeout(base, 8000, async () => "direct")).toBe("direct");
     expect(await withStatementTimeout(db, undefined, async () => "direct")).toBe("direct");
-    expect(executed).toHaveLength(1);
+    expect(executed).toHaveLength(3);
+  });
+
+  test("a missing grants table inside a transaction still yields an empty pending list", async () => {
+    const base = fakeDb(new Map());
+    let committed = 0;
+    const db: ProListDb = {
+      ...base,
+      transaction: async (operation) => {
+        const result = await operation({
+          select: ((...args: unknown[]) => {
+            const chain = (base.select as (...a: unknown[]) => { from: (t: unknown) => unknown })(...args);
+            return {
+              from: (table: unknown) => {
+                if (table === adminPlanGrants) {
+                  const failing = { leftJoin: () => failing, where: () => failing, orderBy: () => failing, limit: async () => { throw Object.assign(new Error("Failed query"), { cause: { code: "42P01" } }); } };
+                  return failing;
+                }
+                return chain.from(table);
+              },
+            };
+          }) as never,
+          execute: (async () => undefined) as never,
+        });
+        committed += 1;
+        return result;
+      },
+    };
+    const snapshot = await loadProListSnapshot({ db, app: fakeApp({}), statementTimeoutMs: 100 });
+    expect(snapshot.pendingGrants).toEqual([]);
+    // The two healthy reads committed; the failing one never reached commit.
+    expect(committed).toBe(2);
+  });
+
+  test("no read starts after the deadline has passed", async () => {
+    const base = fakeDb(new Map());
+    await expect(
+      loadProListSnapshot({ db: base, app: fakeApp({}), deadlineMs: Date.now() - 1 }),
+    ).rejects.toBeInstanceOf(ProListTimeoutError);
   });
 
   test("isValidScanCursor accepts opaque tokens and rejects junk", () => {

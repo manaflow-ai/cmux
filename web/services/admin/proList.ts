@@ -375,24 +375,42 @@ export async function loadProListSnapshot(
   options: {
     readonly db?: ProListDb;
     readonly app?: ProListStackApp;
-    /** Server-side cancel budget for the reads; see withStatementTimeout. */
+    /** Server-side cancel budget per read; see withStatementTimeout. */
     readonly statementTimeoutMs?: number;
+    /**
+     * Absolute time (ms since epoch) after which no further read starts.
+     * Combined with the statement timeout this bounds the work left behind
+     * when the caller stops waiting: at most one in-flight statement.
+     */
+    readonly deadlineMs?: number;
   } = {},
 ): Promise<ProListSnapshot> {
+  const db = options.db ?? cloudDb();
+  const budget = options.statementTimeoutMs;
+  const guard = () => {
+    if (options.deadlineMs !== undefined && Date.now() > options.deadlineMs) {
+      throw new ProListTimeoutError(Math.max(0, options.deadlineMs - Date.now()));
+    }
+  };
   try {
-    const db = options.db ?? cloudDb();
-    const [subscribers, teamSubscriptions, pendingGrants] = await withStatementTimeout(
-      db,
-      options.statementTimeoutMs,
-      async (scoped) => await Promise.all([
-        listStripeProSubscribers({ db: scoped }),
-        listStripeTeamSubscriptions({ db: scoped, app: options.app }),
-        listAllPendingEmailGrants({ db: scoped }).catch((error: unknown) => {
-          if (isMissingGrantsTableError(error)) return { rows: [], truncated: false };
-          throw error;
-        }),
-      ]),
-    );
+    // Each read gets its own short transaction, so a failed optional read
+    // (missing admin_plan_grants table) aborts only its own transaction and
+    // the catch below still yields an empty pending list.
+    const subscribers = await withStatementTimeout(db, budget, async (scoped) => {
+      guard();
+      return await listStripeProSubscribers({ db: scoped });
+    });
+    const teamSubscriptions = await withStatementTimeout(db, budget, async (scoped) => {
+      guard();
+      return await listStripeTeamSubscriptions({ db: scoped, app: options.app });
+    });
+    const pendingGrants = await withStatementTimeout(db, budget, async (scoped) => {
+      guard();
+      return await listAllPendingEmailGrants({ db: scoped });
+    }).catch((error: unknown) => {
+      if (isMissingGrantsTableError(error)) return { rows: [], truncated: false };
+      throw error;
+    });
     return {
       subscribers: subscribers.rows,
       teamSubscriptions: teamSubscriptions.rows,
@@ -429,15 +447,19 @@ export const PRO_LIST_RENDER_TIMEOUT_MS = 8_000;
  */
 export async function loadProListSnapshotWithin(
   timeoutMs: number = PRO_LIST_RENDER_TIMEOUT_MS,
-  load: (statementTimeoutMs: number) => Promise<ProListSnapshot> =
-    (statementTimeoutMs) => loadProListSnapshot({ statementTimeoutMs }),
+  load: (budget: { statementTimeoutMs: number; deadlineMs: number }) => Promise<ProListSnapshot> =
+    (budget) => loadProListSnapshot(budget),
 ): Promise<ProListSnapshot> {
+  const deadlineMs = Date.now() + timeoutMs;
   let timer: ReturnType<typeof setTimeout> | undefined;
   const timeout = new Promise<never>((_, reject) => {
     timer = setTimeout(() => reject(new ProListTimeoutError(timeoutMs)), timeoutMs);
   });
   try {
-    return await Promise.race([load(timeoutMs), timeout]);
+    // When the timer wins, the load is not awaited further; the deadline stops
+    // it from starting any new read and the statement timeout ends the one in
+    // flight, so at most one bounded statement outlives this call.
+    return await Promise.race([load({ statementTimeoutMs: timeoutMs, deadlineMs }), timeout]);
   } finally {
     if (timer) clearTimeout(timer);
   }
