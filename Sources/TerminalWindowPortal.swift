@@ -834,6 +834,11 @@ final class WindowTerminalPortal: NSObject {
 #endif
                 guard let self, self.selfFrameWriteDepth == 0 else { return }
                 if self.isWindowLiveResizeActive {
+                    // A rapid second drag can begin before the queued
+                    // didEndLiveResize pass runs. The new active tick is the
+                    // authoritative begin boundary, so do not let the old
+                    // end marker release the renderer gate mid-drag.
+                    self.liveResizeEndPending = false
                     self.liveResizePhaseActive = true
                     self.setHostedViewsWindowLiveResizeActive(true)
                     // Live resize: run the pass INSIDE this tick so hosted
