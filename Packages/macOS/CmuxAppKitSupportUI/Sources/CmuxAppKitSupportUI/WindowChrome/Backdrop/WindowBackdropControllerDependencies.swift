@@ -9,6 +9,9 @@ public protocol WindowBackdropControllerDependencies: AnyObject {
     /// Resets compositor blur for a window number.
     func resetCompositorBackgroundBlur(windowNumber: Int)
 
+    /// Sets the compositor blur radius, in points, for a window number.
+    func setCompositorBackgroundBlur(windowNumber: Int, radius: Int)
+
     /// Applies Ghostty's compositor blur to a transparent window when needed.
     func applyGhosttyCompositorBlurIfNeeded(to window: NSWindow)
 }

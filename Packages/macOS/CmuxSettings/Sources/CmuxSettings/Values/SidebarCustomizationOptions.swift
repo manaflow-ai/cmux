@@ -17,3 +17,11 @@ public enum SidebarRowDensity: String, CaseIterable, Sendable, SettingCodable {
     case cozy
     case spacious
 }
+
+/// How the selected workspace row is highlighted.
+public enum SidebarSelectionAccent: String, CaseIterable, Sendable, SettingCodable {
+    /// The app accent colour as a solid pill.
+    case blue
+    /// A translucent grey pill that reads as a lighter patch of the glass.
+    case glass
+}

@@ -70,13 +70,20 @@ extension ContentView {
 
     /// Zero-sized anchor owning the child panel window that floats the card
     /// above the terminal. Mounted from `contentAndSidebarLayout`.
-    @ViewBuilder
     var sidebarPeekPanelHost: some View {
-        SidebarWidthReader(layout: sidebarLayout) { width in
+        let appearance = windowAppearanceSnapshot
+        return SidebarWidthReader(layout: sidebarLayout) { width in
             SidebarPeekPanelBridge(
                 contentWidth: width,
                 metrics: sidebarPeekPanelMetrics,
                 acceptsMouse: sidebarPanelCardIsRevealed,
+                // The card's own window gets the same compositor blur as the
+                // docked ground, so floating and docked glass match exactly.
+                // Never while docked: the panel then sits over the docked
+                // pane's rows and would blur them as they slide in.
+                glassBlurRadius: appearance.usesCompositorGlass && !sidebarState.occupiesLayout
+                    ? appearance.sidebarSettings.effectiveCompositorBlurRadius
+                    : nil,
                 content: AnyView(sidebarPeekCard(width: width))
             )
         }
@@ -96,12 +103,14 @@ extension ContentView {
         // as one surface in two positions. The tint-opacity slider moves
         // both together through this single resolution.
         var panelTint = Color(nsColor: .windowBackgroundColor).opacity(0.52)
-        var panelGlassMaterial = NSVisualEffectView.Material.popover
+        var panelGlassMaterial: NSVisualEffectView.Material? = .popover
+        var panelGlassOpacity = 1.0
         if case let .sidebarMaterial(materialPolicy) = appearance.policy(for: .leftSidebar) {
             panelTint = Color(nsColor: materialPolicy.tintColor)
-            if let material = materialPolicy.material {
-                panelGlassMaterial = material
-            }
+            // A nil material is the compositor-glass path: the card's window
+            // is blurred by the compositor, so no effect view is drawn.
+            panelGlassMaterial = materialPolicy.material
+            panelGlassOpacity = materialPolicy.opacity
         }
         // `isPresented: true` keeps the panel's list live even while hidden:
         // suspending it on dismissal blanks the rows the moment the slide-out
@@ -120,6 +129,7 @@ extension ContentView {
                 dismissesInstantly: sidebarState.occupiesLayout,
                 panelTint: panelTint,
                 panelGlassMaterial: panelGlassMaterial,
+                panelGlassOpacity: panelGlassOpacity,
                 panelMetrics: sidebarPeekPanelMetrics,
                 onPanelHoverChange: { isInside in
                     if isInside {

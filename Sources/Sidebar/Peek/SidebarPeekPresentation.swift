@@ -30,8 +30,12 @@ struct SidebarPeekPresentation: ViewModifier {
     /// The card's legibility tint (alpha included), resolved from the same
     /// appearance policy that paints the docked ground.
     var panelTint: Color = Color(nsColor: .windowBackgroundColor).opacity(0.52)
-    /// The card's glass material, matching the docked ground's.
-    var panelGlassMaterial: NSVisualEffectView.Material = .popover
+    /// The card's glass material, matching the docked ground's. Nil when the
+    /// card's window is blurred by the compositor instead.
+    var panelGlassMaterial: NSVisualEffectView.Material? = .popover
+    /// The material's alpha, matching the docked ground's frost thickness so
+    /// the floating card is exactly as see-through as the docked pane.
+    var panelGlassOpacity: Double = 1.0
     /// Card geometry for floating mode.
     let panelMetrics: SidebarPeekPanelMetrics
     /// Acquires and releases the pointer hold as the pointer crosses the panel.
@@ -48,7 +52,8 @@ struct SidebarPeekPresentation: ViewModifier {
             SidebarPeekPanelChrome(
                 metrics: panelMetrics,
                 tint: panelTint,
-                glassMaterial: panelGlassMaterial
+                glassMaterial: panelGlassMaterial,
+                glassOpacity: panelGlassOpacity
             ) {
                 content.frame(width: width, alignment: .leading)
             }

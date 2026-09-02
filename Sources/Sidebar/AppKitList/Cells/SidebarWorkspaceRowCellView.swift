@@ -343,6 +343,7 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
         closeButton.setAccessibilityIdentifier("sidebarWorkspaceCloseButton")
         closeButton.setAccessibilityElement(false)
         closeButton.concealImmediately()
+        closeButton.highlightsOnHover = true
         contentContainer.addSubview(closeButton)
 
         contentContainer.addSubview(descriptionView)

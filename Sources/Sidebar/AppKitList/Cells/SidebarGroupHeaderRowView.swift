@@ -689,14 +689,57 @@ final class SidebarGroupHeaderTableCellView: NSTableCellView {
     }
 }
 
+/// Button cell that centres its image on the bounds exactly. AppKit's default
+/// image rect for a borderless button sits a point off, which shows the
+/// moment a hover circle is drawn around the glyph.
+@MainActor
+final class SidebarCenteredGlyphButtonCell: NSButtonCell {
+    override func imageRect(forBounds rect: NSRect) -> NSRect {
+        guard let image else { return super.imageRect(forBounds: rect) }
+        let size = image.size
+        return NSRect(
+            x: rect.midX - size.width / 2,
+            y: rect.midY - size.height / 2,
+            width: size.width,
+            height: size.height
+        )
+    }
+}
+
 /// Borderless glyph button used for the header chevron and plus controls.
 @MainActor
 final class SidebarHeaderGlyphButton: NSButton {
+    override class var cellClass: AnyClass? {
+        get { SidebarCenteredGlyphButtonCell.self }
+        set {}
+    }
+
     var onClick: (() -> Void)?
     var menuProvider: (() -> NSMenu?)?
 
+    /// Opt-in pointer feedback: a soft circle behind the glyph and the glyph
+    /// lifted to the full label colour while the pointer is on it.
+    var highlightsOnHover = false {
+        didSet { if !highlightsOnHover { setHovering(false) } }
+    }
+
     var glyphImage: NSImage? {
         didSet { image = glyphImage }
+    }
+
+    /// The tint the owner asked for; hover lifts the glyph away from it and
+    /// must come back to exactly this, not to whatever it lifted to.
+    private var restingTintColor: NSColor?
+    private var isApplyingHoverTint = false
+    private var isHovering = false
+    private var hoverTrackingArea: NSTrackingArea?
+
+    override var contentTintColor: NSColor? {
+        didSet {
+            guard !isApplyingHoverTint else { return }
+            restingTintColor = contentTintColor
+            if isHovering { applyHoverAppearance() }
+        }
     }
 
     init() {
@@ -715,6 +758,60 @@ final class SidebarHeaderGlyphButton: NSButton {
 
     @objc private func didClick() {
         onClick?()
+    }
+
+    override func updateTrackingAreas() {
+        super.updateTrackingAreas()
+        if let hoverTrackingArea {
+            removeTrackingArea(hoverTrackingArea)
+        }
+        let area = NSTrackingArea(
+            rect: .zero,
+            options: [.mouseEnteredAndExited, .activeInActiveApp, .inVisibleRect],
+            owner: self,
+            userInfo: nil
+        )
+        addTrackingArea(area)
+        hoverTrackingArea = area
+    }
+
+    override func mouseEntered(with event: NSEvent) {
+        super.mouseEntered(with: event)
+        guard highlightsOnHover, isEnabled else { return }
+        setHovering(true)
+    }
+
+    override func mouseExited(with event: NSEvent) {
+        super.mouseExited(with: event)
+        setHovering(false)
+    }
+
+    override func layout() {
+        super.layout()
+        if highlightsOnHover {
+            layer?.cornerRadius = min(bounds.width, bounds.height) / 2
+        }
+    }
+
+    private func setHovering(_ hovering: Bool) {
+        guard hovering != isHovering else { return }
+        isHovering = hovering
+        applyHoverAppearance()
+    }
+
+    private func applyHoverAppearance() {
+        wantsLayer = true
+        layer?.cornerRadius = min(bounds.width, bounds.height) / 2
+        // Dynamic colours resolve against the drawing appearance, so the
+        // circle and glyph pick up the sidebar's own light/dark scheme.
+        effectiveAppearance.performAsCurrentDrawingAppearance {
+            layer?.backgroundColor = isHovering
+                ? NSColor.labelColor.withAlphaComponent(0.14).cgColor
+                : NSColor.clear.cgColor
+        }
+        isApplyingHoverTint = true
+        contentTintColor = isHovering ? .labelColor : restingTintColor
+        isApplyingHoverTint = false
     }
 
     override func menu(for event: NSEvent) -> NSMenu? {

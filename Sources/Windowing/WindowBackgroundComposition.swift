@@ -2,8 +2,8 @@ import AppKit
 import CmuxWorkspaces
 
 /// App-side `UserDefaults`-backed conformance to the window-background settings
-/// seam. The default values match the legacy god-file reads byte-for-byte:
-/// `sidebarBlendMode` -> `"withinWindow"`, `bgGlassEnabled` -> `false`.
+/// seam. Fork defaults: `sidebarBlendMode` -> `"behindWindow"` and
+/// `bgGlassEnabled` -> `true`, so the glass look holds on a fresh domain.
 struct UserDefaultsWindowBackgroundSettings: WindowBackgroundSettingsReading {
     // `UserDefaults` accessors are documented as thread-safe; the seam requires
     // `Sendable`, so suppress the non-Sendable stored-property check here rather
@@ -15,7 +15,7 @@ struct UserDefaultsWindowBackgroundSettings: WindowBackgroundSettingsReading {
     }
 
     var sidebarBlendModeRawValue: String {
-        defaults.string(forKey: "sidebarBlendMode") ?? "withinWindow"
+        defaults.string(forKey: "sidebarBlendMode") ?? "behindWindow"
     }
 
     var isBackgroundGlassEnabled: Bool {

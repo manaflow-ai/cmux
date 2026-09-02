@@ -9,7 +9,9 @@ public struct SidebarSection: View {
     private let rightSidebarWidthSettings = RightSidebarWidthSettings()
     @State private var sidebarFont: SettingsFontSize
     @State private var fontSaveFailed = false
-    @State private var tasks = MainActorTaskStore<String>()
+    // Not `private`: the customization rows debounce their slider writes
+    // through the same store.
+    @State var tasks = MainActorTaskStore<String>()
     @State private var matchTerminal: DefaultsValueModel<Bool>
     @State var hideAll: DefaultsValueModel<Bool>
     @State private var wrapTitles: DefaultsValueModel<Bool>
@@ -39,10 +41,16 @@ public struct SidebarSection: View {
     @State private var rightMaxWidth: DefaultsValueModel<Double>
     @State private var rememberedRightMaxWidth: DefaultsValueModel<Double>
     @State var glassTint: DefaultsValueModel<Double>
+    @State var glassBlur: DefaultsValueModel<Double>
+    /// In-flight slider values while the thumb is moving. The stored value
+    /// is written debounced, so the window is not re-rendered per pixel.
+    @State var glassTintDraft: Double?
+    @State var glassBlurDraft: Double?
     @State var peekReveal: DefaultsValueModel<SidebarPeekRevealPreset>
     @State var peekDisabled: DefaultsValueModel<Bool>
     @State var rowDensity: DefaultsValueModel<SidebarRowDensity>
     @State var dragSwitchDisabled: DefaultsValueModel<Bool>
+    @State var selectionAccent: DefaultsValueModel<SidebarSelectionAccent>
     public init(defaultsStore: UserDefaultsSettingsStore, catalog: SettingCatalog, hostActions: SettingsHostActions) {
         self.catalog = catalog
         self.hostActions = hostActions
@@ -77,10 +85,12 @@ public struct SidebarSection: View {
         _rightMaxWidth = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.sidebar.rightMaxWidth))
         _rememberedRightMaxWidth = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.sidebar.rememberedRightMaxWidth))
         _glassTint = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.sidebarAppearance.tintOpacity))
+        _glassBlur = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.sidebarAppearance.glassBlurRadius))
         _peekReveal = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.sidebar.peekReveal))
         _peekDisabled = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.sidebar.peekDisabled))
         _rowDensity = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.sidebar.rowDensity))
         _dragSwitchDisabled = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.sidebar.dragSwitchDisabled))
+        _selectionAccent = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.sidebar.selectionAccent))
     }
     /// The rendered sidebar settings section.
     public var body: some View {
@@ -121,10 +131,12 @@ public struct SidebarSection: View {
             rightMaxWidth,
             rememberedRightMaxWidth,
             glassTint,
+            glassBlur,
             peekReveal,
             peekDisabled,
             rowDensity,
             dragSwitchDisabled,
+            selectionAccent,
         ]
         models.forEach { $0.startObserving() }
     }

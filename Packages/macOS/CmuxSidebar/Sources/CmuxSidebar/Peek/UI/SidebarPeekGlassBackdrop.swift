@@ -13,11 +13,19 @@ public struct SidebarPeekGlassBackdrop: NSViewRepresentable {
     public let cornerRadius: CGFloat
     /// The material to blur with, matching the docked ground's.
     public let material: NSVisualEffectView.Material
+    /// The material's alpha. Below 1.0 the raw backdrop shows through the
+    /// frost, matching the docked pane's see-through glass.
+    public let materialOpacity: Double
 
     /// Creates the backdrop.
-    public init(cornerRadius: CGFloat, material: NSVisualEffectView.Material = .popover) {
+    public init(
+        cornerRadius: CGFloat,
+        material: NSVisualEffectView.Material = .popover,
+        materialOpacity: Double = 1.0
+    ) {
         self.cornerRadius = cornerRadius
         self.material = material
+        self.materialOpacity = materialOpacity
     }
 
     public func makeNSView(context: Context) -> NSVisualEffectView {
@@ -25,6 +33,7 @@ public struct SidebarPeekGlassBackdrop: NSViewRepresentable {
         view.blendingMode = .behindWindow
         view.material = material
         view.state = .active
+        view.alphaValue = max(0.0, min(1.0, materialOpacity))
         view.wantsLayer = true
         view.layer?.cornerRadius = cornerRadius
         view.layer?.cornerCurve = .continuous
@@ -34,6 +43,7 @@ public struct SidebarPeekGlassBackdrop: NSViewRepresentable {
 
     public func updateNSView(_ view: NSVisualEffectView, context: Context) {
         view.material = material
+        view.alphaValue = max(0.0, min(1.0, materialOpacity))
         view.layer?.cornerRadius = cornerRadius
     }
 }

@@ -151,8 +151,6 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
         }
         previewBailoutTask?.cancel()
     }
-<<<<<<< HEAD
-
     private func clearPendingWorkspaceDragWriters(
         preserving preservedWriter: SidebarWorkspaceDragPasteboardWriter? = nil
     ) {

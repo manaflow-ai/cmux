@@ -473,17 +473,12 @@ struct cmuxApp: App {
             approximatelyEqual(blurOpacity, 0.79) &&
             approximatelyEqual(cornerRadius, 0.0)
 
-        if usesLegacyDefaults {
-            let preset = SidebarPresetOption.nativeSidebar
-            defaults.set(preset.rawValue, forKey: "sidebarPreset")
-            defaults.set(preset.material.rawValue, forKey: "sidebarMaterial")
-            defaults.set(preset.blendMode.rawValue, forKey: "sidebarBlendMode")
-            defaults.set(preset.state.rawValue, forKey: "sidebarState")
-            defaults.set(preset.tintHex, forKey: "sidebarTintHex")
-            defaults.set(preset.tintOpacity, forKey: "sidebarTintOpacity")
-            defaults.set(preset.blurOpacity, forKey: "sidebarBlurOpacity")
-            defaults.set(preset.cornerRadius, forKey: "sidebarCornerRadius")
-        }
+        // Fork: upstream stamped the nativeSidebar preset here, which stores
+        // sidebarBlendMode = withinWindow and tintOpacity = 0 into every fresh
+        // defaults domain. Stored values beat the code defaults, so that stamp
+        // silently killed the fork's behind-window glass on first launch.
+        // Legacy-default users now simply stay on the code defaults.
+        _ = usesLegacyDefaults
 
         defaults.set(targetVersion, forKey: migrationKey)
     }
@@ -1769,11 +1764,11 @@ private enum DebugWindowConfigSnapshot {
     static func combinedPayload(defaults: UserDefaults = .standard) -> String {
         let sidebarPayload = """
         sidebarPreset=\(stringValue(defaults, key: "sidebarPreset", fallback: SidebarPresetOption.nativeSidebar.rawValue))
-        sidebarMaterial=\(stringValue(defaults, key: "sidebarMaterial", fallback: SidebarMaterialOption.sidebar.rawValue))
-        sidebarBlendMode=\(stringValue(defaults, key: "sidebarBlendMode", fallback: SidebarBlendModeOption.withinWindow.rawValue))
-        sidebarState=\(stringValue(defaults, key: "sidebarState", fallback: SidebarStateOption.followWindow.rawValue))
+        sidebarMaterial=\(stringValue(defaults, key: "sidebarMaterial", fallback: SidebarMaterialOption.hudWindow.rawValue))
+        sidebarBlendMode=\(stringValue(defaults, key: "sidebarBlendMode", fallback: SidebarBlendModeOption.behindWindow.rawValue))
+        sidebarState=\(stringValue(defaults, key: "sidebarState", fallback: SidebarStateOption.active.rawValue))
         sidebarBlurOpacity=\(String(format: "%.2f", doubleValue(defaults, key: "sidebarBlurOpacity", fallback: 1.0)))
-        sidebarTintHex=\(stringValue(defaults, key: "sidebarTintHex", fallback: "#000000"))
+        sidebarTintHex=\(stringValue(defaults, key: "sidebarTintHex", fallback: SidebarTintDefaults().hex))
         sidebarTintHexLight=\(stringValue(defaults, key: "sidebarTintHexLight", fallback: "(nil)"))
         sidebarTintHexDark=\(stringValue(defaults, key: "sidebarTintHexDark", fallback: "(nil)"))
         sidebarTintOpacity=\(String(format: "%.2f", doubleValue(defaults, key: "sidebarTintOpacity", fallback: 0.18)))
@@ -3415,9 +3410,9 @@ private struct SidebarDebugView: View {
     @AppStorage("sidebarTintHex") private var sidebarTintHex = SidebarTintDefaults().hex
     @AppStorage("sidebarTintHexLight") private var sidebarTintHexLight: String?
     @AppStorage("sidebarTintHexDark") private var sidebarTintHexDark: String?
-    @AppStorage("sidebarMaterial") private var sidebarMaterial = SidebarMaterialOption.sidebar.rawValue
-    @AppStorage("sidebarBlendMode") private var sidebarBlendMode = SidebarBlendModeOption.withinWindow.rawValue
-    @AppStorage("sidebarState") private var sidebarState = SidebarStateOption.followWindow.rawValue
+    @AppStorage("sidebarMaterial") private var sidebarMaterial = SidebarMaterialOption.hudWindow.rawValue
+    @AppStorage("sidebarBlendMode") private var sidebarBlendMode = SidebarBlendModeOption.behindWindow.rawValue
+    @AppStorage("sidebarState") private var sidebarState = SidebarStateOption.active.rawValue
     @AppStorage("sidebarCornerRadius") private var sidebarCornerRadius = 0.0
     @AppStorage("sidebarBlurOpacity") private var sidebarBlurOpacity = 1.0
     @AppStorage(SidebarCatalogSection().branchVerticalLayout.userDefaultsKey)
@@ -3575,9 +3570,9 @@ private struct SidebarDebugView: View {
                     }
                     Button("Reset Blur") {
                         sidebarMaterial = SidebarMaterialOption.hudWindow.rawValue
-                        sidebarBlendMode = SidebarBlendModeOption.withinWindow.rawValue
+                        sidebarBlendMode = SidebarBlendModeOption.behindWindow.rawValue
                         sidebarState = SidebarStateOption.active.rawValue
-                        sidebarBlurOpacity = 0.98
+                        sidebarBlurOpacity = 1.0
                     }
                     Button("Reset Shape") {
                         sidebarCornerRadius = 0.0

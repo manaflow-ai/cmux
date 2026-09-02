@@ -10,7 +10,7 @@ public struct SidebarAppearanceCatalogSection: SettingCatalogSection {
 
     public let tintColorHex = DefaultsKey<String>(
         id: "sidebarAppearance.tintColor",
-        defaultValue: "#000000",
+        defaultValue: "#2a2e35",
         userDefaultsKey: "sidebarTintHex"
     )
 
@@ -28,7 +28,7 @@ public struct SidebarAppearanceCatalogSection: SettingCatalogSection {
 
     public let tintOpacity = DefaultsKey<Double>(
         id: "sidebarAppearance.tintOpacity",
-        defaultValue: 0.18,
+        defaultValue: 0.44,
         userDefaultsKey: "sidebarTintOpacity"
     )
 
@@ -37,6 +37,24 @@ public struct SidebarAppearanceCatalogSection: SettingCatalogSection {
         defaultValue: 1.0,
         userDefaultsKey: "sidebarBlurOpacity"
     )
+
+    public let compositorGlass = DefaultsKey<Bool>(
+        id: "sidebarAppearance.compositorGlass",
+        defaultValue: true,
+        userDefaultsKey: "sidebarCompositorGlass"
+    )
+
+    public let glassBlurRadius = DefaultsKey<Double>(
+        id: "sidebarAppearance.glassBlurRadius",
+        defaultValue: Self.glassBlurRadiusRange.lowerBound,
+        userDefaultsKey: "sidebarGlassBlurRadius"
+    )
+
+    /// Compositor blur radius bounds in points. The floor keeps the sidebar
+    /// reading as glass (a crisp pane is not the look); the ceiling is where
+    /// blur stops reading as glass and just smears. Mirrored by the clamp in
+    /// `SidebarBackdropSettingsSnapshot`, which cannot import this module.
+    public static let glassBlurRadiusRange: ClosedRange<Double> = 12...60
 
     public let cornerRadius = DefaultsKey<Double>(
         id: "sidebarAppearance.cornerRadius",
@@ -52,19 +70,19 @@ public struct SidebarAppearanceCatalogSection: SettingCatalogSection {
 
     public let material = DefaultsKey<SidebarMaterialOption>(
         id: "sidebarAppearance.material",
-        defaultValue: .sidebar,
+        defaultValue: .hudWindow,
         userDefaultsKey: "sidebarMaterial"
     )
 
     public let blendMode = DefaultsKey<SidebarBlendModeOption>(
         id: "sidebarAppearance.blendMode",
-        defaultValue: .withinWindow,
+        defaultValue: .behindWindow,
         userDefaultsKey: "sidebarBlendMode"
     )
 
     public let state = DefaultsKey<SidebarStateOption>(
         id: "sidebarAppearance.state",
-        defaultValue: .followWindow,
+        defaultValue: .active,
         userDefaultsKey: "sidebarState"
     )
 

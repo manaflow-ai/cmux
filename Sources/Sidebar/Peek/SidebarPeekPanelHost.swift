@@ -62,6 +62,11 @@ final class SidebarPeekPanelWindowController {
     /// false still lands so the exit animation runs.
     private var lastRevealed = false
     private var hasPushedContent = false
+    /// Compositor blur radius last pushed to the panel window, so the CGS
+    /// call only fires when the value (or the panel) changes.
+    private var appliedBlurRadius: Int?
+    /// Pending blur removal after the card hides; see `syncCompositorBlur`.
+    private var blurResetTask: Task<Void, Never>?
     /// Trailing-edge coalescing for content pushes. ContentView can evaluate
     /// its body many times inside one runloop turn (worst during a workspace
     /// switch); the first push of a turn lands synchronously so clicks
@@ -102,6 +107,7 @@ final class SidebarPeekPanelWindowController {
         contentWidth: CGFloat,
         metrics: SidebarPeekPanelMetrics,
         acceptsMouse: Bool,
+        glassBlurRadius: Int?,
         content: AnyView
     ) {
         guard let parent, parent.isVisible else {
@@ -112,6 +118,7 @@ final class SidebarPeekPanelWindowController {
         lastMetrics = metrics
         ensurePanel(parent: parent)
         guard let panel, let hostingView else { return }
+        syncCompositorBlur(glassBlurRadius, revealed: acceptsMouse, panel: panel)
         // Push content only while the card shows (or on the hide transition,
         // which the slide-out animation needs). Pushing on every ContentView
         // update while hidden re-diffed the whole sidebar subtree during
@@ -147,6 +154,44 @@ final class SidebarPeekPanelWindowController {
             parent.resetCursorRects()
         }
         layoutPanel()
+    }
+
+    /// Mirrors the docked ground's compositor blur onto the card's own window,
+    /// but only while the card is showing. The panel stays attached over the
+    /// leading column even when hidden, and a transparent window with a blur
+    /// radius blurs everything beneath it: with the card away that would be
+    /// the docked sidebar's own rows. Removal waits for the exit slide so the
+    /// card does not go clear mid-flight.
+    private func syncCompositorBlur(_ radius: Int?, revealed: Bool, panel: NSWindow) {
+        if radius == nil {
+            // No blur wanted at all (docked, or glass off): drop it now rather
+            // than after the exit delay, or the docked rows underneath start
+            // out blurred.
+            blurResetTask?.cancel()
+            blurResetTask = nil
+            applyCompositorBlur(nil, to: panel)
+        } else if revealed {
+            blurResetTask?.cancel()
+            blurResetTask = nil
+            applyCompositorBlur(radius, to: panel)
+        } else if appliedBlurRadius != nil, blurResetTask == nil {
+            blurResetTask = Task { @MainActor [weak self] in
+                guard (try? await Task.sleep(for: .milliseconds(320))) != nil else { return }
+                guard let self, let panel = self.panel else { return }
+                self.blurResetTask = nil
+                self.applyCompositorBlur(nil, to: panel)
+            }
+        }
+    }
+
+    private func applyCompositorBlur(_ radius: Int?, to panel: NSWindow) {
+        guard radius != appliedBlurRadius else { return }
+        guard panel.windowNumber > 0 else { return }
+        WindowBackgroundComposition.blurController.setBackgroundBlur(
+            windowNumber: panel.windowNumber,
+            radius: radius ?? 0
+        )
+        appliedBlurRadius = radius
     }
 
     private func ensurePanel(parent: NSWindow) {
@@ -234,6 +279,9 @@ final class SidebarPeekPanelWindowController {
         panel = nil
         hostingView = nil
         parentWindow = nil
+        appliedBlurRadius = nil
+        blurResetTask?.cancel()
+        blurResetTask = nil
     }
 }
 
@@ -289,6 +337,9 @@ struct SidebarPeekPanelBridge: NSViewRepresentable {
     let contentWidth: CGFloat
     let metrics: SidebarPeekPanelMetrics
     let acceptsMouse: Bool
+    /// Compositor blur for the card's window; nil when the card blurs
+    /// through its own material instead.
+    let glassBlurRadius: Int?
     let content: AnyView
 
     @MainActor
@@ -318,6 +369,7 @@ struct SidebarPeekPanelBridge: NSViewRepresentable {
         let contentWidth = contentWidth
         let metrics = metrics
         let acceptsMouse = acceptsMouse
+        let glassBlurRadius = glassBlurRadius
         let content = content
         let push: @MainActor () -> Void = { [weak view] in
             controller.update(
@@ -325,6 +377,7 @@ struct SidebarPeekPanelBridge: NSViewRepresentable {
                 contentWidth: contentWidth,
                 metrics: metrics,
                 acceptsMouse: acceptsMouse,
+                glassBlurRadius: glassBlurRadius,
                 content: content
             )
         }

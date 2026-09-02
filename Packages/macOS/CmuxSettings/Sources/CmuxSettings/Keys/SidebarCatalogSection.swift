@@ -257,5 +257,13 @@ public struct SidebarCatalogSection: SettingCatalogSection {
         userDefaultsKey: "sidebarDragSwitchDisabled"
     )
 
+    /// Highlight style for the selected workspace row. A custom selection
+    /// colour (`workspaceColors.selectionColor`) still wins when set.
+    public let selectionAccent = DefaultsKey<SidebarSelectionAccent>(
+        id: "sidebar.selectionAccent",
+        defaultValue: .blue,
+        userDefaultsKey: "sidebarSelectionAccent"
+    )
+
     public init() {}
 }

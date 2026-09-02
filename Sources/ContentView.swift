@@ -2048,10 +2048,14 @@ struct ContentView: View {
     @AppStorage("sidebarTintHex") private var sidebarTintHex = SidebarTintDefaults().hex
     @AppStorage("sidebarTintHexLight") private var sidebarTintHexLight: String?
     @AppStorage("sidebarTintHexDark") private var sidebarTintHexDark: String?
-    @AppStorage("sidebarMaterial") private var sidebarMaterial = SidebarMaterialOption.sidebar.rawValue
-    @AppStorage("sidebarState") private var sidebarStateSetting = SidebarStateOption.followWindow.rawValue
+    @AppStorage("sidebarMaterial") private var sidebarMaterial = SidebarMaterialOption.hudWindow.rawValue
+    @AppStorage("sidebarState") private var sidebarStateSetting = SidebarStateOption.active.rawValue
     @AppStorage("sidebarCornerRadius") private var sidebarCornerRadius = 0.0
     @AppStorage("sidebarBlurOpacity") private var sidebarBlurOpacity = 1.0
+    // Fork glass: clear window ground + compositor blur, so the blur radius is
+    // a real slider instead of whatever an AppKit material bakes in.
+    @AppStorage("sidebarCompositorGlass") private var sidebarCompositorGlass = true
+    @AppStorage("sidebarGlassBlurRadius") private var sidebarGlassBlurRadius = SidebarAppearanceCatalogSection.glassBlurRadiusRange.lowerBound
 
     // Background glass settings
     @AppStorage("bgGlassTintHex") private var bgGlassTintHex = "#000000"
@@ -2062,6 +2066,13 @@ struct ContentView: View {
     // the material's flat frost).
     @AppStorage("bgGlassEnabled") private var bgGlassEnabled = true
     @State private var titlebarLeadingInset: CGFloat = 12
+    /// Toggle-hover pre-reveals are ignored until this instant. Set when the
+    /// sidebar hides: the toggle button re-fires its hover as it re-renders
+    /// under the stationary pointer, which would pop the peek card over the
+    /// closing pane. A time window rather than a wait-for-exit latch, because
+    /// SwiftUI's onHover can drop the exit event across that re-render and a
+    /// latch would then never clear.
+    @State private var sidebarToggleHoverSuppressedUntil: Date?
     private var windowIdentifier: String { "cmux.main.\(windowId.uuidString)" }
     // Not `private`: the peek panel card in `ContentView+SidebarPeek` derives
     // its content colour scheme from the same snapshot the docked sidebar uses.
@@ -2083,6 +2094,8 @@ struct ContentView: View {
                 bgGlassEnabled: bgGlassEnabled,
                 bgGlassTintHex: bgGlassTintHex,
                 bgGlassTintOpacity: bgGlassTintOpacity,
+                sidebarCompositorGlass: sidebarCompositorGlass,
+                sidebarGlassBlurRadius: sidebarGlassBlurRadius,
                 reduceTransparency: displayAccessibility.reduceTransparency
             )
         )
@@ -2645,10 +2658,24 @@ struct ContentView: View {
                     guard observedWindow?.isKeyWindow == true else { return }
                     guard !sidebarState.isVisible, sidebarPeek.policy.isEnabled else { return }
                     if hovering {
+                        // A hover re-fired by the hide click itself is not a
+                        // request to show; only an arrival after the window
+                        // pre-reveals.
+                        if let until = sidebarToggleHoverSuppressedUntil, Date() < until {
+                            return
+                        }
                         sidebarPeek.pointerEnteredActivationControl()
                     } else {
                         sidebarPeek.pointerExitedEdge()
                     }
+                }
+                .onChange(of: sidebarState.isVisible) { visible in
+                    guard !visible else { return }
+                    // Hiding retires any peek in flight and opens the hover
+                    // suppression window, so the card cannot flash over the
+                    // closing pane. The show direction is untouched.
+                    sidebarPeek.sidebarCollapsed()
+                    sidebarToggleHoverSuppressedUntil = Date().addingTimeInterval(0.3)
                 }
                 .background(
                     // Zero-sized anchor that owns the floating card's child

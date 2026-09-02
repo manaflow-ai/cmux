@@ -32,8 +32,10 @@ public struct WindowAppearanceResolver {
                 cornerRadius: settings.sidebarCornerRadius,
                 blurOpacity: settings.sidebarBlurOpacity,
                 // The snapshot initializer replaces this compatibility value
-                // with the resolved sidebar scheme.
-                colorScheme: settings.colorScheme
+                // with the terminal authority below.
+                colorScheme: settings.colorScheme,
+                compositorGlass: settings.sidebarCompositorGlass,
+                compositorBlurRadius: settings.sidebarGlassBlurRadius
             ),
             windowGlassSettings: WindowGlassSettingsSnapshot(
                 sidebarBlendModeRawValue: settings.sidebarBlendMode,
@@ -77,9 +79,9 @@ public struct WindowAppearanceResolver {
             unifySurfaceBackdrops: defaults.object(forKey: "sidebarMatchTerminalBackground") as? Bool
                 ?? WindowChromeSidebarTintDefaults.matchesTerminalBackground,
             colorScheme: ambientScheme,
-            sidebarMaterial: defaults.string(forKey: "sidebarMaterial") ?? WindowChromeSidebarMaterialOption.sidebar.rawValue,
-            sidebarBlendMode: defaults.string(forKey: "sidebarBlendMode") ?? WindowChromeSidebarBlendModeOption.withinWindow.rawValue,
-            sidebarState: defaults.string(forKey: "sidebarState") ?? WindowChromeSidebarStateOption.followWindow.rawValue,
+            sidebarMaterial: defaults.string(forKey: "sidebarMaterial") ?? WindowChromeSidebarMaterialOption.hudWindow.rawValue,
+            sidebarBlendMode: defaults.string(forKey: "sidebarBlendMode") ?? WindowChromeSidebarBlendModeOption.behindWindow.rawValue,
+            sidebarState: defaults.string(forKey: "sidebarState") ?? WindowChromeSidebarStateOption.active.rawValue,
             sidebarTintHex: defaults.string(forKey: "sidebarTintHex") ?? tintDefaults.hex,
             sidebarTintHexLight: defaults.string(forKey: "sidebarTintHexLight"),
             sidebarTintHexDark: defaults.string(forKey: "sidebarTintHexDark"),
@@ -89,6 +91,9 @@ public struct WindowAppearanceResolver {
             bgGlassEnabled: defaults.object(forKey: "bgGlassEnabled") as? Bool ?? true,
             bgGlassTintHex: defaults.string(forKey: "bgGlassTintHex") ?? "#000000",
             bgGlassTintOpacity: defaults.object(forKey: "bgGlassTintOpacity") as? Double ?? 0.03,
+            sidebarCompositorGlass: defaults.object(forKey: "sidebarCompositorGlass") as? Bool ?? true,
+            sidebarGlassBlurRadius: defaults.object(forKey: "sidebarGlassBlurRadius") as? Double
+                ?? SidebarBackdropSettingsSnapshot.compositorBlurRadiusRange.lowerBound,
             reduceTransparency: reduceTransparency
         ))
     }

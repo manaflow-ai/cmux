@@ -17,7 +17,10 @@ public struct SidebarPeekPanelChrome<Content: View>: View {
     /// so the floating card and the docked pane wear the exact same wash.
     public let tint: Color
     /// The AppKit material behind the tint, matching the docked ground's.
-    public let glassMaterial: NSVisualEffectView.Material
+    /// Nil draws no effect view: the host window supplies the blur itself.
+    public let glassMaterial: NSVisualEffectView.Material?
+    /// The material's alpha, matching the docked ground's frost thickness.
+    public let glassOpacity: Double
     /// The panel's contents.
     @ViewBuilder public let content: () -> Content
 
@@ -33,13 +36,15 @@ public struct SidebarPeekPanelChrome<Content: View>: View {
         metrics: SidebarPeekPanelMetrics = .default,
         material: Material = .regularMaterial,
         tint: Color = Color(nsColor: .windowBackgroundColor).opacity(0.52),
-        glassMaterial: NSVisualEffectView.Material = .popover,
+        glassMaterial: NSVisualEffectView.Material? = .popover,
+        glassOpacity: Double = 1.0,
         @ViewBuilder content: @escaping () -> Content
     ) {
         self.metrics = metrics
         self.material = material
         self.tint = tint
         self.glassMaterial = glassMaterial
+        self.glassOpacity = glassOpacity
         self.content = content
     }
 
@@ -68,10 +73,13 @@ public struct SidebarPeekPanelChrome<Content: View>: View {
     /// without going opaque, which is the whole glassmorphism effect.
     private var surface: some View {
         ZStack {
-            SidebarPeekGlassBackdrop(
-                cornerRadius: metrics.cornerRadius,
-                material: glassMaterial
-            )
+            if let glassMaterial {
+                SidebarPeekGlassBackdrop(
+                    cornerRadius: metrics.cornerRadius,
+                    material: glassMaterial,
+                    materialOpacity: glassOpacity
+                )
+            }
             shape.fill(tint)
         }
     }
