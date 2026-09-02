@@ -14876,6 +14876,15 @@ struct VerticalTabsSidebar: View, Equatable {
                     notificationStore.clearLatestNotification(forTabId: workspaceId)
                 }
             },
+            currentNotificationsMuted: { workspaceIds in
+                notificationStore.allWorkspaceNotificationsMuted(forTabIds: workspaceIds)
+            },
+            setNotificationsMuted: { workspaceIds, muted in
+                _ = notificationStore.setWorkspaceNotificationsMuted(
+                    muted,
+                    forTabIds: workspaceIds
+                )
+            },
             openNotification: { notification in
                 if AppDelegate.shared?.openTerminalNotification(notification) != true {
                     NSSound.beep()
@@ -15730,6 +15739,12 @@ struct TabItemView: View, Equatable {
                         .safeHelp(protectedWorkspaceTooltip)
                 }
 
+                if workspaceSnapshot.isMuted {
+                    CmuxSystemSymbolImage(magnified: "bell.slash.fill", pointSize: scaledFontSize(9), weight: .semibold)
+                        .foregroundColor(activeSecondaryColor(0.8))
+                        .safeHelp(String(localized: "sidebar.mutedWorkspace.tooltip", defaultValue: "Notifications muted for this workspace"))
+                }
+
                 // Chrome-style media-activity glyphs: a noisy or capturing
                 // background browser pane is surfaced on its workspace row,
                 // styled like the pin indicator. Audio is the must-have signal;
@@ -15787,6 +15802,7 @@ struct TabItemView: View, Equatable {
                         },
                         onCancel: { isEditing = false }
                     )
+                    .opacity(workspaceSnapshot.isMuted ? 0.6 : 1)
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .alignmentGuide(.sidebarTitleFirstLineCenter) { _ in titleFirstLineCenter }
                     .layoutPriority(1)
@@ -15794,6 +15810,7 @@ struct TabItemView: View, Equatable {
                     Text(displayedTitle)
                         .font(magnifiedFont(scaledFontSize(12.5), weight: titleFontWeight))
                         .foregroundColor(activePrimaryTextColor)
+                        .opacity(workspaceSnapshot.isMuted ? 0.6 : 1)
                         .lineLimit(titleLineLimit)
                         .truncationMode(.tail)
                         .fixedSize(horizontal: false, vertical: true)
