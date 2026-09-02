@@ -45,6 +45,10 @@ struct MachineSnapshot: Equatable, Identifiable {
     var freeAccess: FreeAccessState = .unrestricted
     /// Latest activity reading; nil until the first sample lands.
     var stats: VMStats?
+    /// The machine's address on its owner's private network; nil for machines
+    /// created before private networking. v4 preferred for copy (pasteable
+    /// anywhere), v6 is the fallback.
+    var privateAddress: String?
 
     var displayName: String { label?.isEmpty == false ? label! : id }
 
@@ -176,7 +180,8 @@ enum MachineSnapshotBuilder {
             createdAt: createdAt,
             label: summary.displayName,
             freeAccess: freeAccess,
-            stats: nil
+            stats: nil,
+            privateAddress: summary.preferredPrivateAddress
         )
     }
 

@@ -127435,6 +127435,23 @@
         }
       }
     },
+    "machines.menu.copyIPAddress": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Copy IP Address"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "IPアドレスをコピー"
+          }
+        }
+      }
+    },
     "machines.menu.delete": {
       "extractionState": "manual",
       "localizations": {

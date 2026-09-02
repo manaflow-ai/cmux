@@ -655,6 +655,9 @@ struct CloudTreeOutlineView: NSViewRepresentable {
             items.append(item(String(localized: "cloudTree.menu.refresh", defaultValue: "Refresh")) { nodeActions.refresh() })
             items.append(.separator())
             items.append(item(String(localized: "machines.menu.rename", defaultValue: "Rename\u{2026}")) { actions.promptRename(id, machine.label) })
+            if let address = machine.privateAddress {
+                items.append(item(String(localized: "machines.menu.copyIPAddress", defaultValue: "Copy IP Address")) { [nodeActions] in nodeActions.copyToPasteboard(address) })
+            }
             items.append(item(String(localized: "machines.menu.status", defaultValue: "Status")) { actions.runCommand(id, ["vm", "status"]) })
             // Only verbs this provider can honor: a Checkpoint that answers 502 is not a verb.
             if machine.capabilities.snapshot {

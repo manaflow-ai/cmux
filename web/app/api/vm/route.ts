@@ -136,6 +136,10 @@ export async function GET(request: Request): Promise<Response> {
         capabilities: vmCapabilitiesFor(entry.provider),
         createdAt: entry.createdAt,
         displayName: entry.displayName,
+        // The machine's address on its owner's private network (reachable over
+        // the WireGuard tunnel); null for machines created before private
+        // networking. Clients surface it as "Copy IP Address".
+        address: { ipv4: entry.addressIpv4, ipv6: entry.addressIpv6 },
         // Server-authoritative expiry of the free access window for this machine
         // (epoch ms); null on paid plans or when the window is disabled. Clients
         // render countdowns from this instead of re-deriving the policy.
