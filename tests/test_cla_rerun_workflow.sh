@@ -156,6 +156,7 @@ gh() {
   local run_path=.github/workflows/cla.yml
   local run_name='CLA Assistant v3'
   local check_app_id=15368
+  local fetched_comment_association="${FAKE_COMMENT_ASSOCIATION:-${COMMENT_AUTHOR_ASSOCIATION}}"
   local run_prs='[{"number":123,"base":{"ref":"main","sha":"cccccccccccccccccccccccccccccccccccccccc","repo":{"id":100,"full_name":"manaflow-ai/cmux"}},"head":{"ref":"feature","sha":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","repo":{"id":200,"full_name":"contributor/cmux"}}}]'
   local ledger_id=400
   local ledger_login=coauthor
@@ -201,6 +202,8 @@ gh() {
       ;;
     stale-empty-execution) run_prs='[]'; run_sha=bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb ;;
     empty-mismatched-newer) run_prs='[]' ;;
+    binding-mode-newer) run_sha=cccccccccccccccccccccccccccccccccccccccc ;;
+    stale-comment-association) fetched_comment_association=NONE ;;
     unbound-signer) ledger_id=401; ledger_login=other-signer; ledger_comment_id=901 ;;
     minimal-run-association) run_prs='[{"number":123,"base":{"ref":"main","repo":{"id":100}},"head":{"ref":"feature","sha":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","repo":{"id":200}}}]' ;;
     wrong-run-association) run_prs='[{"number":124,"base":{"ref":"main","repo":{"id":100,"full_name":"manaflow-ai/cmux"}},"head":{"ref":"feature","sha":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","repo":{"id":200,"full_name":"contributor/cmux"}}}]' ;;
@@ -233,8 +236,9 @@ gh() {
         --argjson author_id "${COMMENT_AUTHOR_ID}" \
         --arg author_login "${COMMENT_AUTHOR_LOGIN}" \
         --arg author_type "${COMMENT_AUTHOR_TYPE}" \
+        --arg author_association "${fetched_comment_association}" \
         --arg created_at "${COMMENT_CREATED_AT}" \
-        '{issue_url:"https://api.github.com/repos/manaflow-ai/cmux/issues/123",body:$body,user:{id:$author_id,login:$author_login,type:$author_type},created_at:$created_at,updated_at:$created_at}'
+        '{issue_url:"https://api.github.com/repos/manaflow-ai/cmux/issues/123",body:$body,user:{id:$author_id,login:$author_login,type:$author_type},author_association:$author_association,created_at:$created_at,updated_at:$created_at}'
       ;;
     repos/manaflow-ai/cmux/pulls/123)
       jq -nc --arg state "$live_state" --arg base "$live_base" --arg base_sha "$live_base_sha" --arg head_repo "$live_head_repo" --argjson head_repo_id "$live_head_repo_id" \
@@ -340,6 +344,9 @@ gh() {
       local check_prefix=repos/manaflow-ai/cmux/commits/
       check_sha="${endpoint#"${check_prefix}"}"
       check_sha="${check_sha%/check-runs}"
+      if [[ "${FAKE_MODE}" == binding-mode-newer ]]; then
+        check_details="https://github.com/manaflow-ai/cmux/actions/runs/401/job/501"
+      fi
       if [[ -n "${FAKE_CHECK_CALL_FILE:-}" ]]; then
         if [[ -s "${FAKE_CHECK_CALL_FILE}" ]]; then
           read -r check_call <"${FAKE_CHECK_CALL_FILE}"
@@ -397,6 +404,11 @@ gh() {
           {id:400,workflow_id:300,name:$name,path:".github/workflows/cla.yml",event:"pull_request_target",status:"completed",conclusion:"failure",head_sha:"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",head_branch:"feature",head_repository:{id:200,full_name:"contributor/cmux"},pull_requests:[],created_at:"2026-08-31T07:00:00Z"},
           {id:401,workflow_id:300,name:$name,path:".github/workflows/cla.yml",event:"pull_request_target",status:"completed",conclusion:"failure",head_sha:"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",head_branch:"feature",head_repository:{id:200,full_name:"contributor/cmux"},pull_requests:[],created_at:"2026-08-31T07:30:00Z"}
         ]}'
+      elif [[ "${FAKE_MODE}" == binding-mode-newer ]]; then
+        jq -nc --arg name "$run_name" --arg run_sha "$run_sha" --argjson run_prs "$run_prs" '{workflow_runs:[
+          {id:400,workflow_id:300,name:$name,path:".github/workflows/cla.yml",event:"pull_request_target",status:"completed",conclusion:"failure",head_sha:$run_sha,head_branch:"feature",head_repository:{id:200,full_name:"contributor/cmux"},pull_requests:$run_prs,created_at:"2026-08-31T07:00:00Z"},
+          {id:401,workflow_id:300,name:$name,path:".github/workflows/cla.yml",event:"pull_request_target",status:"completed",conclusion:"failure",head_sha:$run_sha,head_branch:"feature",head_repository:{id:200,full_name:"contributor/cmux"},pull_requests:[],created_at:"2026-08-31T07:30:00Z"}
+        ]}'
       elif [[ "${FAKE_MODE}" == duplicate-runs ]]; then
         jq -nc --arg head_repo "$run_head_repo" --argjson head_repo_id "$run_head_repo_id" --argjson head_repo_null "$run_head_repository_null" --arg run_sha "$run_sha" --arg path "$run_path" --arg name "$run_name" --argjson run_prs "$run_prs" \
           '{workflow_runs:[
@@ -416,10 +428,14 @@ gh() {
         created_at=2026-08-31T07:30:00Z
       fi
       local detail_sha="$run_sha"
+      local detail_prs="$run_prs"
       if [[ "${FAKE_MODE}" == empty-mismatched-newer ]]; then
         if [[ "$run_id" == 400 ]]; then detail_sha=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa; else detail_sha=bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb; fi
       fi
-      jq -nc --argjson run_id "$run_id" --arg created_at "$created_at" --arg head_repo "$run_head_repo" --argjson head_repo_id "$run_head_repo_id" --argjson head_repo_null "$run_head_repository_null" --arg run_sha "$detail_sha" --arg path "$run_path" --arg name "$run_name" --argjson run_prs "$run_prs" \
+      if [[ "${FAKE_MODE}" == binding-mode-newer && "$run_id" == 401 ]]; then
+        detail_prs='[]'
+      fi
+      jq -nc --argjson run_id "$run_id" --arg created_at "$created_at" --arg head_repo "$run_head_repo" --argjson head_repo_id "$run_head_repo_id" --argjson head_repo_null "$run_head_repository_null" --arg run_sha "$detail_sha" --arg path "$run_path" --arg name "$run_name" --argjson run_prs "$detail_prs" \
         '{id:$run_id,workflow_id:300,name:$name,path:$path,event:"pull_request_target",status:"completed",conclusion:"failure",head_sha:$run_sha,head_branch:"feature",head_repository:(if $head_repo_null then null else {id:$head_repo_id,full_name:$head_repo} end),pull_requests:$run_prs,created_at:$created_at}'
       ;;
     repos/manaflow-ai/cmux/actions/runs/400/jobs|repos/manaflow-ai/cmux/actions/runs/401/jobs)
@@ -500,7 +516,7 @@ run_case() {
   local expected_posts="$4"
   local expected_post="${5:-}"
   local expected_checks="${6:-}"
-  local output status posts comment_author=contributor comment_author_id=300 comment_type=User comment_association=NONE comment_body=recheck signature_recorded=false generation="${CLA_GENERATION}"
+  local output status posts comment_author=contributor comment_author_id=300 comment_type=User comment_association=NONE fetched_comment_association=NONE comment_body=recheck signature_recorded=false generation="${CLA_GENERATION}"
   if [[ -n "${ONLY_MODE:-}" && "${ONLY_MODE}" != "${mode}" ]]; then
     return 0
   fi
@@ -530,6 +546,11 @@ run_case() {
     generation=v2.2-action-deadbeef
   elif [[ "$mode" == malformed-comment-login ]]; then
     comment_author=$'contributor\nattacker'
+  elif [[ "$mode" == stale-comment-association ]]; then
+    comment_author=untrusted-user
+    comment_author_id=301
+    comment_association=OWNER
+    fetched_comment_association=NONE
   fi
   : >"$work/posts-$mode"
   printf '0\n' >"$work/association-$mode"
@@ -545,6 +566,7 @@ run_case() {
     COMMENT_AUTHOR_LOGIN="$comment_author" \
     COMMENT_AUTHOR_TYPE="$comment_type" \
     COMMENT_AUTHOR_ASSOCIATION="$comment_association" \
+    FAKE_COMMENT_ASSOCIATION="$fetched_comment_association" \
     SIGNATURE_RECORDED="$signature_recorded" \
     CLA_GENERATION="$generation" \
     bash "$rerun_script" 2>&1
@@ -640,6 +662,9 @@ run_case unrecorded-signer 1 "did not result in a persisted signature" 0
 run_case unbound-signer 1 "signing comment was not the signature persisted" 0
 run_case duplicate-runs 0 "Requested rerun for CLA job 501 in workflow run 401" 1 \
   "repos/manaflow-ai/cmux/actions/jobs/501/rerun"
+run_case binding-mode-newer 0 "Requested rerun for CLA job 501 in workflow run 401" 1 \
+  "repos/manaflow-ai/cmux/actions/jobs/501/rerun"
+run_case stale-comment-association 1 "Only the pull request author or a trusted repository participant" 0
 run_case job-missing-head-repository 0 "Requested rerun for CLA job 500 in workflow run 400" 1
 run_case wrapped-ledger 0 "Requested rerun for CLA job 500 in workflow run 400" 1
 run_case oversized-ledger 1 "exceeds the 1 MB limit" 0

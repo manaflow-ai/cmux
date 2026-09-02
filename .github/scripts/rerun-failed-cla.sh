@@ -186,8 +186,18 @@ jq -e \
    (.user.id | tostring) == $author_id and
    .user.login == $author_login and
    .user.type == $author_type and
+   (.author_association | type == "string") and
    .created_at == $created_at and
    .updated_at == $created_at' <<<"${comment_json}" >/dev/null || fail "The triggering CLA comment was edited, deleted, or moved"
+
+# The event's author_association is a historical snapshot. Re-authorize a
+# privileged recheck from the freshly fetched comment, so a contributor who
+# lost repository access cannot keep using an old trusted event payload.
+current_comment_author_association="$(jq -r '.author_association' <<<"${comment_json}")"
+case "${current_comment_author_association}" in
+  OWNER|MEMBER|COLLABORATOR|CONTRIBUTOR|FIRST_TIME_CONTRIBUTOR|FIRST_TIMER|NONE) ;;
+  *) fail "The triggering comment author association is invalid" ;;
+esac
 
 pr_json="$(gh_api_bounded "repos/${GH_REPO}/pulls/${PR_NUMBER}" 2>/dev/null)" || fail "Could not query the pull request"
 jq -e --arg repo "${GH_REPO}" --argjson number "${PR_NUMBER}" --arg base "${TARGET_BASE_REF}" '
@@ -228,7 +238,7 @@ fi
 # commenter must be a trusted repository participant, which limits
 # unauthenticated users to the harmless no-op path.
 if [[ "${COMMENT_BODY}" == "recheck" && "${COMMENT_AUTHOR_ID}" != "${pr_author_id}" ]]; then
-  case "${COMMENT_AUTHOR_ASSOCIATION}" in
+  case "${current_comment_author_association}" in
     OWNER|MEMBER|COLLABORATOR) ;;
     *) fail "Only the pull request author or a trusted repository participant may request a CLA rerun" ;;
   esac
@@ -616,13 +626,16 @@ if ! candidate_list_json="$(jq -c \
             run_binds_to_pr
           )
       ]
+      # Recency is the selection contract. Binding mode is only a tie-breaker,
+      # because a newer base-bound fallback is safer to retry than an older
+      # populated association that may belong to a stale workflow generation.
       | sort_by([
+          .created_at,
+          .id,
           if ((.pull_requests | type) == "array" and (.pull_requests | length) > 0) then 3
           elif (.head_repository | type) == "object" and .head_sha == $base_sha then 2
           elif .head_sha == $sha then 1
-          else 0 end,
-          .created_at,
-          .id
+          else 0 end
         ])
     ' <<<"${runs_json}")"; then
   fail "Could not validate CLA workflow run data"
