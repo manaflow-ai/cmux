@@ -65,7 +65,7 @@ const UNICODE_CORPUS: &[CorpusCase] = &[
         id: "emoji-variation-selector",
         category: "variation-selector",
         text: "☕️",
-        width: WidthExpectation::Policy,
+        width: WidthExpectation::Wide,
     },
     CorpusCase {
         id: "regional-indicator-flag",
@@ -257,7 +257,9 @@ fn unicode_corpus_preserves_text_and_cell_geometry() {
         let frame = corpus_case_frame(case, TEST_COLUMNS);
         let row = frame.styled_row(0).unwrap();
         assert_eq!(row.len(), usize::from(TEST_COLUMNS), "case {} changed viewport width", case.id);
-        assert_eq!(row_text(row), case.text, "case {} changed grapheme text", case.id);
+        let occupied: Vec<&Cell> = row.iter().filter(|cell| !cell.text.is_empty()).collect();
+        assert_eq!(occupied.len(), 1, "case {} split grapheme text across cells", case.id);
+        assert_eq!(occupied[0].text, case.text, "case {} changed grapheme text", case.id);
         assert!(
             row.iter().all(|cell| !cell.text.contains('\u{FFFD}')),
             "case {} introduced U+FFFD in rendered cells",
