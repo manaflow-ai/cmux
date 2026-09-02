@@ -679,6 +679,84 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn close_callback_survives_event_queue_byte_overflow() {
+        let socket_path = std::env::temp_dir()
+            .join(format!("chatmux-relay-control-event-bytes-{}.sock", std::process::id()));
+        let _ = std::fs::remove_file(&socket_path);
+        let listener = UnixListener::bind(&socket_path).expect("bind control byte socket");
+        let (accepted_tx, accepted_rx) = oneshot::channel();
+        let (start_tx, start_rx) = oneshot::channel();
+        let server = tokio::spawn(async move {
+            let (mut stream, _) = listener.accept().await.expect("accept control byte socket");
+            accepted_tx.send(()).expect("tell client that socket is accepted");
+            start_rx.await.expect("wait for event handler");
+            let payload = "x".repeat(MAX_CONTROL_LINE_BYTES / 2);
+            for _ in 0..3 {
+                let line = format!("{{\"event\":\"{payload}\"}}\n");
+                stream.write_all(line.as_bytes()).await.expect("write byte-limited event");
+            }
+        });
+
+        let control = unix::connect_control_for_test(&socket_path, 3_000)
+            .await
+            .expect("connect byte-limited socket");
+        accepted_rx.await.expect("wait for control byte server");
+        let (entered_tx, entered_rx) = std::sync::mpsc::sync_channel(1);
+        let (release_tx, release_rx) = std::sync::mpsc::sync_channel(1);
+        let closed = Arc::new(Notify::new());
+        let closed_for_handler = Arc::clone(&closed);
+        control.on_event(Box::new(move |_| {
+            if entered_tx.try_send(()).is_ok() {
+                release_rx.recv().expect("release first byte callback");
+            }
+        }));
+        control.on_close(Box::new(move || closed_for_handler.notify_waiters()));
+        start_tx.send(()).expect("start control byte overflow");
+        entered_rx.recv_timeout(Duration::from_secs(1)).expect("first byte callback entered");
+
+        let closed_wait = closed.notified();
+        tokio::pin!(closed_wait);
+        release_tx.send(()).expect("release first byte callback");
+        tokio::time::timeout(Duration::from_secs(2), &mut closed_wait)
+            .await
+            .expect("close callback survives byte overflow");
+        server.await.expect("join control byte server");
+        let _ = std::fs::remove_file(socket_path);
+    }
+
+    #[tokio::test]
+    async fn late_close_registration_invokes_callback() {
+        let socket_path = std::env::temp_dir()
+            .join(format!("chatmux-relay-control-late-close-{}.sock", std::process::id()));
+        let _ = std::fs::remove_file(&socket_path);
+        let listener = UnixListener::bind(&socket_path).expect("bind control late-close socket");
+        let (accepted_tx, accepted_rx) = oneshot::channel();
+        let (start_tx, start_rx) = oneshot::channel();
+        let server = tokio::spawn(async move {
+            let (stream, _) = listener.accept().await.expect("accept control late-close socket");
+            accepted_tx.send(()).expect("tell client that socket is accepted");
+            start_rx.await.expect("wait for reader arm");
+            drop(stream);
+        });
+
+        let control = unix::connect_control_for_test(&socket_path, 3_000)
+            .await
+            .expect("connect late-close socket");
+        accepted_rx.await.expect("wait for control late-close server");
+        let reader_done = control.arm_reader_waiting();
+        start_tx.send(()).expect("start late close");
+        reader_done.await.expect("reader observed late close");
+        let closed = Arc::new(Notify::new());
+        let closed_for_handler = Arc::clone(&closed);
+        control.on_close(Box::new(move || closed_for_handler.notify_waiters()));
+        tokio::time::timeout(Duration::from_secs(1), closed.notified())
+            .await
+            .expect("late close registration invokes callback");
+        server.await.expect("join control late-close server");
+        let _ = std::fs::remove_file(socket_path);
+    }
+
+    #[tokio::test]
     async fn writer_queue_preserves_complete_fifo_lines() {
         let socket_path =
             std::env::temp_dir().join(format!("chatmux-relay-control-{}.sock", std::process::id()));
