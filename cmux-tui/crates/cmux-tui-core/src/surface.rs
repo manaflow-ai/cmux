@@ -8344,19 +8344,14 @@ mod tests {
     #[test]
     fn kitty_limit_generation_stays_paired_with_terminal_mutation() {
         let mux = Mux::new_for_test("kitty-limit-generation", SurfaceOptions::default());
-        let surface = Surface::spawn_for_test(
-            1,
-            SurfaceOptions::default(),
-            Arc::downgrade(&mux),
-        )
-        .unwrap();
+        let surface =
+            Surface::spawn_for_test(1, SurfaceOptions::default(), Arc::downgrade(&mux)).unwrap();
         let (probe_tx, probe_rx) = std::sync::mpsc::channel();
         let weak_surface = Arc::downgrade(&surface);
         surface.as_pty().unwrap().kitty_limits_test_hook.lock().unwrap().replace(Arc::new(
             move || {
-                let probe = weak_surface
-                    .upgrade()
-                    .and_then(|surface| surface.try_pointer_snapshot());
+                let probe =
+                    weak_surface.upgrade().and_then(|surface| surface.try_pointer_snapshot());
                 probe_tx.send(probe).unwrap();
             },
         ));
