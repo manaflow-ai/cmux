@@ -44,11 +44,13 @@ extension CLINotifyProcessIntegrationRegressionTests {
         XCTAssertEqual(running.status, 0, running.stderr)
         let runningCommands = Array(context.state.snapshot().dropFirst(beforeRunning))
         XCTAssertTrue(
-            runningCommands.contains {
-                $0.hasPrefix("set_agent_lifecycle amp running --tab=\(context.workspaceId)")
-                    && $0.contains("--panel=\(context.surfaceId)")
-            },
-            "Amp running state did not use the generic lifecycle path: \(runningCommands)"
+            AgentJournalAppendCapture.contains(
+                runningCommands,
+                kind: "agent.turn.started",
+                agentKey: "amp",
+                sessionId: sessionID
+            ),
+            "Amp running state did not use the generic journal lifecycle path: \(runningCommands)"
         )
         XCTAssertTrue(
             runningCommands.contains { $0.hasPrefix("set_status amp ") && $0.contains("--icon=bolt.fill") },
@@ -76,10 +78,13 @@ extension CLINotifyProcessIntegrationRegressionTests {
         XCTAssertEqual(approval.status, 0, approval.stderr)
         let approvalCommands = Array(context.state.snapshot().dropFirst(beforeApproval))
         XCTAssertTrue(
-            approvalCommands.contains {
-                $0.hasPrefix("set_agent_lifecycle amp needsInput --tab=\(context.workspaceId)")
-            },
-            "Amp approval did not become needs-input: \(approvalCommands)"
+            AgentJournalAppendCapture.contains(
+                approvalCommands,
+                kind: "agent.approval.requested",
+                agentKey: "amp",
+                sessionId: sessionID
+            ),
+            "Amp approval did not use the generic journal needs-input path: \(approvalCommands)"
         )
         XCTAssertTrue(
             approvalCommands.contains { $0.hasPrefix("set_status amp ") && $0.contains("--icon=bell.fill") },
@@ -109,17 +114,20 @@ extension CLINotifyProcessIntegrationRegressionTests {
         XCTAssertEqual(completion.status, 0, completion.stderr)
         let completionCommands = Array(context.state.snapshot().dropFirst(beforeCompletion))
         XCTAssertTrue(
+            AgentJournalAppendCapture.contains(
+                completionCommands,
+                kind: "agent.turn.completed",
+                agentKey: "amp",
+                sessionId: sessionID
+            ),
+            "Amp completion did not use the generic journal lifecycle path: \(completionCommands)"
+        )
+        XCTAssertTrue(
             completionCommands.contains {
                 $0.hasPrefix("notify_target_async \(context.workspaceId) \(context.surfaceId) Amp|")
                     && $0.contains("Completed Amp work")
             },
             "Amp completion did not use the generic turn-complete notification path: \(completionCommands)"
-        )
-        XCTAssertTrue(
-            completionCommands.contains {
-                $0.hasPrefix("set_agent_lifecycle amp idle --tab=\(context.workspaceId)")
-            },
-            "Amp completion did not reconcile to idle: \(completionCommands)"
         )
 
         let errorTurnID = "amp-error-turn"
@@ -270,10 +278,13 @@ extension CLINotifyProcessIntegrationRegressionTests {
         XCTAssertEqual(cancellation.status, 0, cancellation.stderr)
         let cancellationCommands = Array(context.state.snapshot().dropFirst(beforeCancellation))
         XCTAssertTrue(
-            cancellationCommands.contains {
-                $0.hasPrefix("set_agent_lifecycle amp idle --tab=\(context.workspaceId)")
-            },
-            "Amp cancellation did not reconcile to idle: \(cancellationCommands)"
+            AgentJournalAppendCapture.contains(
+                cancellationCommands,
+                kind: "agent.turn.completed",
+                agentKey: "amp",
+                sessionId: sessionID
+            ),
+            "Amp cancellation did not journal the settled turn: \(cancellationCommands)"
         )
         XCTAssertFalse(
             cancellationCommands.contains { $0.hasPrefix("notify_target_async ") },
@@ -318,6 +329,12 @@ extension CLINotifyProcessIntegrationRegressionTests {
                         || command.hasPrefix("notify_target_async ")
                 },
                 "Dead Amp process published \(state) state: \(commands)"
+            )
+            XCTAssertFalse(
+                AgentJournalAppendCapture.captures(in: commands).contains { capture in
+                    capture.agentKey == "amp" && capture.sessionId == "T-dead-\(state)"
+                },
+                "Dead Amp process published a journal lifecycle event for \(state): \(commands)"
             )
         }
     }
