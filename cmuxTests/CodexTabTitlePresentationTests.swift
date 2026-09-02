@@ -166,4 +166,100 @@ struct CodexTabTitlePresentationTests {
         #expect(tab.title == "some-name")
         #expect(!tab.isLoading)
     }
+
+    @Test("Codex lifecycle presentation survives a Dock round trip")
+    func lifecyclePresentationSurvivesDockRoundTrip() throws {
+        let source = Workspace()
+        let destination = Workspace()
+        let dock = DockSplitStore(
+            workspaceId: UUID(),
+            baseDirectoryProvider: { nil }
+        )
+        defer {
+            dock.closeAllPanels()
+            source.teardownAllPanels()
+            destination.teardownAllPanels()
+        }
+        let panelId = try #require(source.focusedPanelId)
+        let terminal = try #require(source.panels[panelId] as? TerminalPanel)
+        terminal.updateTitle("some-name")
+        #expect(source.updatePanelTitle(panelId: panelId, title: "some-name"))
+        source.setAgentLifecycle(key: "codex", panelId: panelId, lifecycle: .running)
+
+        let transfer = try #require(source.detachSurface(panelId: panelId))
+        let dockPane = try #require(dock.bonsplitController.allPaneIds.first)
+        #expect(dock.attachDetachedSurface(transfer, inPane: dockPane, focus: false) == panelId)
+
+        let dockTabId = try #require(dock.surfaceId(forPanelId: panelId))
+        let dockTab = try #require(dock.bonsplitController.tab(dockTabId))
+        #expect(dockTab.title == "◐ some-name")
+        #expect(dockTab.isLoading)
+
+        let roundTripped = try #require(dock.detachSurface(panelId: panelId))
+        #expect(roundTripped.title == "some-name")
+        #expect(roundTripped.cachedTitle == "some-name")
+
+        let destinationPane = try #require(
+            destination.bonsplitController.allPaneIds.first
+        )
+        #expect(
+            destination.attachDetachedSurface(
+                roundTripped,
+                inPane: destinationPane,
+                focus: false
+            ) == panelId
+        )
+        let destinationTabId = try #require(
+            destination.surfaceIdFromPanelId(panelId)
+        )
+        let destinationTab = try #require(
+            destination.bonsplitController.tab(destinationTabId)
+        )
+        #expect(destinationTab.title == "◐ some-name")
+        #expect(destinationTab.isLoading)
+        #expect(destination.panelTitles[panelId] == "some-name")
+    }
+
+    @Test("Dock lifecycle, title, and custom-title changes share one presentation path")
+    func dockLifecycleAndTitleChangesReconcilePresentation() throws {
+        let source = Workspace()
+        let dock = DockSplitStore(
+            workspaceId: UUID(),
+            baseDirectoryProvider: { nil }
+        )
+        defer {
+            dock.closeAllPanels()
+            source.teardownAllPanels()
+        }
+        let panelId = try #require(source.focusedPanelId)
+        let terminal = try #require(source.panels[panelId] as? TerminalPanel)
+        terminal.updateTitle("first-name")
+        #expect(source.updatePanelTitle(panelId: panelId, title: "first-name"))
+
+        let transfer = try #require(source.detachSurface(panelId: panelId))
+        let dockPane = try #require(dock.bonsplitController.allPaneIds.first)
+        #expect(dock.attachDetachedSurface(transfer, inPane: dockPane, focus: false) == panelId)
+        let tabId = try #require(dock.surfaceId(forPanelId: panelId))
+
+        dock.setAgentLifecycle(key: "codex", panelId: panelId, lifecycle: .running)
+        #expect(dock.bonsplitController.tab(tabId)?.title == "◐ first-name")
+        #expect(dock.bonsplitController.tab(tabId)?.isLoading == true)
+
+        dock.applyResolvedTerminalTitle("second-name", to: terminal)
+        #expect(dock.bonsplitController.tab(tabId)?.title == "◐ second-name")
+        #expect(dock.bonsplitController.tab(tabId)?.isLoading == true)
+
+        #expect(dock.setDockPanelCustomTitle(panelId: panelId, title: "Pinned lane"))
+        dock.setAgentLifecycle(key: "codex", panelId: panelId, lifecycle: .idle)
+        #expect(dock.bonsplitController.tab(tabId)?.title == "Pinned lane")
+        #expect(dock.bonsplitController.tab(tabId)?.isLoading == false)
+
+        dock.setAgentLifecycle(key: "codex", panelId: panelId, lifecycle: .running)
+        #expect(dock.bonsplitController.tab(tabId)?.title == "Pinned lane")
+        #expect(dock.bonsplitController.tab(tabId)?.isLoading == true)
+
+        #expect(dock.clearAgentLifecycle(key: "codex", panelId: panelId))
+        #expect(dock.bonsplitController.tab(tabId)?.title == "Pinned lane")
+        #expect(dock.bonsplitController.tab(tabId)?.isLoading == false)
+    }
 }
