@@ -1288,6 +1288,36 @@ mod tests {
         rig.shutdown().await;
     }
 
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn peer_eof_closes_when_dispatch_queue_is_full() {
+        let (mut rig, spawn_started, _gate, spawn_dropped, spawn_completed) =
+            rig_with_blocked_spawn().await;
+        let stream = connect(&rig).await;
+        let (mut read, mut write) = stream.into_split();
+        let open = encode_control_frame(&json!({ "t": "open", "cols": 80, "rows": 24 }));
+        write.write_all(&open).await.unwrap();
+        tokio::time::timeout(Duration::from_secs(1), spawn_started.notified())
+            .await
+            .expect("open reached the blocked PTY spawn");
+
+        // Keep the dispatcher occupied with the blocked open and fill its
+        // bounded queue. The next frame exercises the full-channel path.
+        let resize = encode_control_frame(&json!({ "t": "resize", "cols": 80, "rows": 24 }));
+        for _ in 0..(TUNNEL_DISPATCH_QUEUE_ITEMS + 1) {
+            write.write_all(&resize).await.unwrap();
+        }
+        drop(write);
+
+        tokio::time::timeout(Duration::from_secs(1), read_eof(&mut read))
+            .await
+            .expect("peer EOF must close a full dispatch queue promptly");
+        assert!(spawn_dropped.load(Ordering::Acquire), "blocked open task must be dropped");
+        assert!(!spawn_completed.load(Ordering::Acquire), "peer EOF must precede spawn completion");
+        assert_eq!(rig.manager.opening_count(), 0, "open reservation must be released");
+        assert_eq!(rig.manager.attachment_count(), 0);
+        rig.shutdown().await;
+    }
+
     #[tokio::test]
     async fn bytes_before_open_are_a_protocol_error() {
         let mut rig = rig().await;
