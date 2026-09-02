@@ -6,7 +6,7 @@ on:
   # and the policy it protects in the same pull request.
   pull_request_target:
     branches: [main]
-    types: [opened,edited,reopened,synchronize]
+    types: [opened,edited,reopened,synchronize,ready_for_review]
 permissions: {}
 
 jobs:
@@ -22,6 +22,10 @@ jobs:
       contents: read
       pull-requests: read
     steps:
+      # The immutable sparse checkout precedes this identity check during the
+      # staged migration. It is pinned, reads only the base validator, passes
+      # no token, and disables persisted credentials. A future compatibility
+      # update may move the check before checkout without widening this guard.
       - name: Checkout immutable guard revision
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
@@ -31,6 +35,13 @@ jobs:
           persist-credentials: false
           sparse-checkout: scripts/ci/validate-cla-policy.rb
           sparse-checkout-cone-mode: false
+
+      - name: Require GitHub-hosted runner
+        if: runner.environment != 'github-hosted'
+        run: |
+          set -euo pipefail
+          echo "::error::CLA policy requires a GitHub-hosted runner"
+          exit 1
 
       - name: Verify trusted checkout
         env:
