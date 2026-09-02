@@ -578,7 +578,7 @@
       "featuresLead": "Everything in Free, plus:",
       "features": [
         "Cloud agents on Cloud VMs in isolated remote sandboxes",
-        "Up to 5 active Cloud VMs at a time",
+        "Unlimited active Cloud VMs",
         "The cmux iOS app and email support"
       ],
       "vaultFeatures": [
@@ -671,8 +671,8 @@
         {
           "label": "Concurrent Cloud VMs",
           "free": "false",
-          "pro": "Up to 5",
-          "team": "Up to 5",
+          "pro": "Unlimited",
+          "team": "Unlimited",
           "enterprise": "Custom"
         },
         {
@@ -744,7 +744,7 @@
         },
         {
           "q": "What are Cloud VMs?",
-          "a": "Persistent Linux machines in the cloud: pets, not cattle. Following the Zen of cmux, a machine is a primitive, not a managed solution: it keeps its files, installed tools, and state, and what you build on it is yours. Agents clone repositories, run commands, and open pull requests there without touching your Mac. Pro and Team include up to 5 active machines."
+          "a": "Persistent Linux machines in the cloud: pets, not cattle. Following the Zen of cmux, a machine is a primitive, not a managed solution: it keeps its files, installed tools, and state, and what you build on it is yours. Agents clone repositories, run commands, and open pull requests there without touching your Mac. Pro and Team include unlimited active machines."
         },
         {
           "q": "What is cmux Vault?",
@@ -757,7 +757,7 @@
         },
         {
           "q": "How does billing work?",
-          "a": "Pro is $30/mo, or $24/mo when billed annually (a 20% savings). Team is $35/user/mo, or $28/user/mo when billed annually. Paid plans include up to 5 active Cloud VMs, with no metering or overages. The terminal and local agents stay free."
+          "a": "Pro is $30/mo, or $24/mo when billed annually (a 20% savings). Team is $35/user/mo, or $28/user/mo when billed annually. Paid plans include unlimited active Cloud VMs, with no metering or overages. The terminal and local agents stay free."
         },
         {
           "q": "Can I self-host the cloud?",

@@ -135,13 +135,21 @@ final class NewMachineModel {
     }
 
     /// "1 of 1 machine" from the panel's meter; nil when the plan is unknown.
+    /// Uncapped plans read "2 machines in use".
     var planMeterText: String? {
         guard let plan else { return nil }
+        guard let maxActiveVms = plan.maxActiveVms else {
+            if plan.activeCount == 1 {
+                return String(localized: "machines.new.plan.unlimited.single", defaultValue: "1 machine in use")
+            }
+            let format = String(localized: "machines.new.plan.unlimited", defaultValue: "%1$d machines in use")
+            return String(format: format, plan.activeCount)
+        }
         // The new machine counts toward the ceiling once it exists.
         let format = plan.isSingleMachinePlan
             ? String(localized: "machines.new.plan.single", defaultValue: "%1$d of 1 machine in use")
             : String(localized: "machines.new.plan.multi", defaultValue: "%1$d of %2$d machines in use")
-        return String(format: format, plan.activeCount, plan.maxActiveVms)
+        return String(format: format, plan.activeCount, maxActiveVms)
     }
 
     /// The free plan's access window, so nobody is surprised a week later.
