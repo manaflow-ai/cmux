@@ -607,7 +607,13 @@ extension TerminalController: ControlWorkspaceTaskQueueContext {
             toWorkspace: createdID,
             agent: target.agentName,
             at: Date()
-        ) else { return .notFound }
+        ) else {
+            // Workspace creation and checklist binding are separate mutations.
+            // If the source row changed between them, remove the unowned
+            // target so a retry cannot create duplicate agent workspaces.
+            _ = Self.rollbackTaskDispatchWorkspace(id: createdID, in: sourceManager)
+            return .notFound
+        }
         FeedCoordinator.shared.registerDispatchedTask(
             itemID: itemID,
             sourceWorkspaceID: source.id,
@@ -625,6 +631,16 @@ extension TerminalController: ControlWorkspaceTaskQueueContext {
             createdWorkspaceID: createdID,
             windowID: app.windowId(for: owner)
         )
+    }
+
+    /// Removes a target created for a task when its source binding cannot be
+    /// committed. This keeps failed dispatches atomic from the user's view.
+    @MainActor
+    static func rollbackTaskDispatchWorkspace(id: UUID, in tabManager: TabManager) -> Bool {
+        guard let workspace = tabManager.tabs.first(where: { $0.id == id }) else {
+            return false
+        }
+        return tabManager.closeWorkspaceNonInteractively(workspace, allowPinned: true)
     }
 
     func controlWorkspaceTaskQueueReveal(
