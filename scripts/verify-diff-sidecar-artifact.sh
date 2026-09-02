@@ -37,7 +37,10 @@ if (( SIZE_BYTES > MAX_BYTES )); then
 fi
 
 for arch in $ARCHS; do
-  lipo "$BINARY" -verify_arch "$arch"
+  if ! lipo "$BINARY" -verify_arch "$arch"; then
+    echo "error: diff sidecar lacks the $arch slice (has: $(lipo -archs "$BINARY"))" >&2
+    exit 1
+  fi
   MINOS="$(otool -arch "$arch" -l "$BINARY" | awk '/LC_BUILD_VERSION/{found=1; next} found && /minos / && !printed {print $2; printed=1}')"
   if [[ "$MINOS" != "14.0" ]]; then
     echo "error: $arch diff sidecar has macOS minimum $MINOS, expected 14.0" >&2
