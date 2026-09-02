@@ -13309,6 +13309,30 @@ mod tests {
         assert_eq!(error.raw_os_error(), Some(libc::ELOOP));
     }
 
+    #[test]
+    fn socket_start_lock_retry_delay_never_exceeds_remaining_deadline() {
+        let now = Instant::now();
+        let short_deadline = now + Duration::from_millis(10);
+        let delay = socket_start_lock_retry_delay(now, short_deadline)
+            .expect("a future deadline should permit a retry");
+        assert_eq!(delay, Duration::from_millis(10));
+        assert!(delay <= short_deadline.duration_since(now));
+
+        let long_deadline = now + Duration::from_secs(1);
+        assert_eq!(
+            socket_start_lock_retry_delay(now, long_deadline),
+            Some(Duration::from_millis(25))
+        );
+        assert_eq!(socket_start_lock_retry_delay(short_deadline, short_deadline), None);
+        assert_eq!(
+            socket_start_lock_retry_delay(
+                short_deadline + Duration::from_millis(1),
+                short_deadline
+            ),
+            None
+        );
+    }
+
     #[cfg(unix)]
     #[test]
     fn socket_start_lock_rejects_a_fifo_without_blocking() {
