@@ -247,6 +247,26 @@ struct AppDelegateRenameShortcutContextTests {
     @Test func focusedWindowDockBrowserCmdRUsesReloadShortcut() throws {
         try withIsolatedShortcutSettings {
             let appDelegate = try #require(AppDelegate.shared)
+            let defaults = UserDefaults.standard
+            let previousDockEnabled = defaults.object(
+                forKey: RightSidebarBetaFeatureSettings.dockEnabledKey
+            )
+            defaults.set(
+                true,
+                forKey: RightSidebarBetaFeatureSettings.dockEnabledKey
+            )
+            defer {
+                if let previousDockEnabled {
+                    defaults.set(
+                        previousDockEnabled,
+                        forKey: RightSidebarBetaFeatureSettings.dockEnabledKey
+                    )
+                } else {
+                    defaults.removeObject(
+                        forKey: RightSidebarBetaFeatureSettings.dockEnabledKey
+                    )
+                }
+            }
             let wasBrowserDisabled = BrowserAvailabilitySettings.isDisabled()
             BrowserAvailabilitySettings.setDisabled(false)
             defer { BrowserAvailabilitySettings.setDisabled(wasBrowserDisabled) }
@@ -259,6 +279,8 @@ struct AppDelegateRenameShortcutContextTests {
             let fileExplorerState = try #require(
                 appDelegate.contextForMainWindow(window)?.fileExplorerState
             )
+            let previousSidebarMode = fileExplorerState.mode
+            let previousSidebarVisibility = fileExplorerState.isVisible
             // Model the mounted right-sidebar Dock that production shortcut
             // routing requires. A store created for a hidden sidebar must be
             // rejected so commands cannot mutate an invisible Dock.
@@ -267,7 +289,8 @@ struct AppDelegateRenameShortcutContextTests {
             dock.setVisibleInUI(true)
             defer {
                 dock.setVisibleInUI(false)
-                fileExplorerState.setVisible(false)
+                fileExplorerState.mode = previousSidebarMode
+                fileExplorerState.setVisible(previousSidebarVisibility)
             }
             let pane = try #require(dock.resolvePane(requestedPaneID: nil))
             let browserPanelId = try #require(dock.newSurface(kind: .browser, inPane: pane, focus: true))
@@ -317,6 +340,26 @@ struct AppDelegateRenameShortcutContextTests {
     @Test func dockTabSelectionFeedsSharedSurfaceRouting() throws {
         try withIsolatedShortcutSettings {
             let appDelegate = try #require(AppDelegate.shared)
+            let defaults = UserDefaults.standard
+            let previousDockEnabled = defaults.object(
+                forKey: RightSidebarBetaFeatureSettings.dockEnabledKey
+            )
+            defaults.set(
+                true,
+                forKey: RightSidebarBetaFeatureSettings.dockEnabledKey
+            )
+            defer {
+                if let previousDockEnabled {
+                    defaults.set(
+                        previousDockEnabled,
+                        forKey: RightSidebarBetaFeatureSettings.dockEnabledKey
+                    )
+                } else {
+                    defaults.removeObject(
+                        forKey: RightSidebarBetaFeatureSettings.dockEnabledKey
+                    )
+                }
+            }
             let windowId = appDelegate.createMainWindow()
             defer { closeWindow(withId: windowId) }
 
@@ -328,12 +371,15 @@ struct AppDelegateRenameShortcutContextTests {
             let fileExplorerState = try #require(
                 appDelegate.contextForMainWindow(window)?.fileExplorerState
             )
+            let previousSidebarMode = fileExplorerState.mode
+            let previousSidebarVisibility = fileExplorerState.isVisible
             fileExplorerState.mode = .dock
             fileExplorerState.setVisible(true)
             dock.setVisibleInUI(true)
             defer {
                 dock.setVisibleInUI(false)
-                fileExplorerState.setVisible(false)
+                fileExplorerState.mode = previousSidebarMode
+                fileExplorerState.setVisible(previousSidebarVisibility)
             }
             let pane = try #require(dock.resolvePane(requestedPaneID: nil))
             _ = try #require(dock.newSurface(kind: .terminal, inPane: pane, focus: false))
