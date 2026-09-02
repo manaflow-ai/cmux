@@ -343,16 +343,29 @@ enum CloudTreeNodeBuilder {
         let tabID: String?
     }
 
+    private struct RemoteWorkspaceIdentity: Hashable {
+        let resource: SurfaceResourceID
+        let workspaceID: String
+    }
+
     /// Indexes local projections by their complete remote placement and by
     /// open-state identity. The cloud tree is rebuilt often, so neither
     /// `localWorkspaceShowing` nor leaf rows should rescan every projection.
     private struct LocalProjectionIndex {
         private var exact: [RemotePlacementIdentity: [UUID]] = [:]
+        /// A projection from a provider that does not model tabs. This is only
+        /// used when the current resource also has no view metadata, so it
+        /// cannot claim an arbitrary tab in a multi-view resource.
+        private var workspaceOnly: [RemoteWorkspaceIdentity: [UUID]] = [:]
         private var legacy: [SurfaceResourceID: [UUID]] = [:]
         private var openResources: Set<SurfaceResourceID> = []
         private var openPlacements: Set<RemotePlacementIdentity> = []
 
         init(snapshot: SurfaceCatalogSnapshot) {
+            let resourceByID = Dictionary(
+                snapshot.resources.map { ($0.id, $0) },
+                uniquingKeysWith: { first, _ in first }
+            )
             var projectionCountByResource: [SurfaceResourceID: Int] = [:]
             for projection in snapshot.projections {
                 projectionCountByResource[projection.resource, default: 0] += 1
@@ -366,10 +379,52 @@ enum CloudTreeNodeBuilder {
             for projection in snapshot.projections {
                 openResources.insert(projection.resource)
                 if let remoteWorkspaceID = projection.remoteWorkspaceID {
+                    if let remoteTabID = projection.remoteTabID, !remoteTabID.isEmpty {
+                        let identity = RemotePlacementIdentity(
+                            resource: projection.resource,
+                            workspaceID: remoteWorkspaceID,
+                            tabID: remoteTabID
+                        )
+                        openPlacements.insert(identity)
+                        exact[identity, default: []].append(projection.workspaceID)
+                    } else if let views = resourceByID[projection.resource]?.remoteViews {
+                        // Intermediate builds persisted the workspace id before
+                        // they persisted tab ids. Recover the tab only when the
+                        // current graph has one unambiguous view in that
+                        // workspace. Multiple views fail closed.
+                        let matchingViews = views.filter {
+                            $0.workspace.id == remoteWorkspaceID && !$0.tabID.isEmpty
+                        }
+                        if matchingViews.count == 1, let view = matchingViews.first {
+                            let identity = RemotePlacementIdentity(
+                                resource: projection.resource,
+                                workspaceID: remoteWorkspaceID,
+                                tabID: view.tabID
+                            )
+                            openPlacements.insert(identity)
+                            exact[identity, default: []].append(projection.workspaceID)
+                        }
+                    } else if projection.remoteTabID == nil {
+                        // A provider with no view model can still identify the
+                        // remote workspace. Keep this weaker identity separate
+                        // from exact tab identities and use it only for that
+                        // same workspace.
+                        let identity = RemoteWorkspaceIdentity(
+                            resource: projection.resource,
+                            workspaceID: remoteWorkspaceID
+                        )
+                        workspaceOnly[identity, default: []].append(projection.workspaceID)
+                    }
+                } else if let remoteTabID = projection.remoteTabID,
+                          !remoteTabID.isEmpty,
+                          let view = resourceByID[projection.resource]?.remoteViews?.first(where: { $0.tabID == remoteTabID }) {
+                    // A short-lived archive can contain a tab id without its
+                    // workspace id. The current view supplies that missing
+                    // coordinate when the tab id is unique.
                     let identity = RemotePlacementIdentity(
                         resource: projection.resource,
-                        workspaceID: remoteWorkspaceID,
-                        tabID: projection.remoteTabID
+                        workspaceID: view.workspace.id,
+                        tabID: remoteTabID
                     )
                     openPlacements.insert(identity)
                     exact[identity, default: []].append(projection.workspaceID)
@@ -386,11 +441,16 @@ enum CloudTreeNodeBuilder {
 
         func isOpen(_ resource: SurfaceResourceID, remoteView: SurfaceRemoteView?) -> Bool {
             guard let remoteView else { return openResources.contains(resource) }
-            return openPlacements.contains(RemotePlacementIdentity(
+            let identity = RemotePlacementIdentity(
                 resource: resource,
                 workspaceID: remoteView.workspace.id,
                 tabID: remoteView.tabID
-            ))
+            )
+            if openPlacements.contains(identity) { return true }
+            return workspaceOnly[RemoteWorkspaceIdentity(
+                resource: resource,
+                workspaceID: remoteView.workspace.id
+            )] != nil
         }
 
         func localWorkspaceShowing(
@@ -415,6 +475,14 @@ enum CloudTreeNodeBuilder {
             for identity in wanted {
                 for workspaceID in exact[identity] ?? [] {
                     counts[workspaceID, default: 0] += 1
+                }
+                if placementCountByResource[identity.resource] == 1 {
+                    for workspaceID in workspaceOnly[RemoteWorkspaceIdentity(
+                        resource: identity.resource,
+                        workspaceID: identity.workspaceID
+                    )] ?? [] {
+                        counts[workspaceID, default: 0] += 1
+                    }
                 }
                 // A pre-placement record has no coordinates. The initializer
                 // has proven that the resource has one projection and one
