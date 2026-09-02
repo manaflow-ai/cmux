@@ -184,14 +184,23 @@ struct WorkstreamTaskToolTodoTests {
         let store = WorkstreamStore(ringCapacity: 50)
         store.ingest(toolEvent(
             sessionId: "s1",
+            hook: .todoWrite,
+            tool: "TodoWrite",
+            input: #"{"todos":[]}"#
+        ))
+        #expect(store.isTaskListComplete(forWorkstream: "s1"))
+
+        store.ingest(toolEvent(
+            sessionId: "s1",
             tool: "TaskCreate",
             input: #"{"id":"explicit-pre-failure","subject":"must not appear"}"#,
             requestId: "create-explicit-pre-failure",
             isError: true
         ))
 
-        #expect(latestTodos(store) == nil)
+        #expect(latestTodos(store)?.isEmpty == true)
         #expect(store.ownedTaskIds(forWorkstream: "s1").isEmpty)
+        #expect(store.isTaskListComplete(forWorkstream: "s1") == false)
         guard case .toolResult(_, _, let isError) = store.items.last?.payload else {
             Issue.record("failed PreToolUse must remain error telemetry")
             return
