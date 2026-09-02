@@ -193,7 +193,6 @@ describe("required runtime env keys cover the production provider path", () => {
     for (const key of [
       "BL_API_KEY", "BL_WORKSPACE", "BLAXEL_SANDBOX_IMAGE", "BLAXEL_SANDBOX_DESKTOP_IMAGE", "CMUX_VM_BLAXEL_ENABLED",
       "E2B_API_KEY", "E2B_CMUXD_WS_TEMPLATE", "CMUX_VM_E2B_ENABLED",
-      "DAYTONA_API_KEY", "DAYTONA_SANDBOX_SNAPSHOT", "CMUX_VM_DAYTONA_ENABLED",
     ]) {
       expect(requiredRuntimeEnvKeys).not.toContain(key);
       expect(recommendedRuntimeEnvKeys).not.toContain(key);

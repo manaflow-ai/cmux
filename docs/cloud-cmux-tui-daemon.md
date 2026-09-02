@@ -95,8 +95,8 @@ One artifact replaces `cmuxd-remote-linux-amd64` everywhere:
 `cmux-tui-x86_64-unknown-linux-musl` from the existing package lane, pinned by
 sha256, from the artifacts manifest. Freestyle's delivery mechanism stays what
 it is: a systemd unit in the VM snapshot, with the binary swapped in the unit
-file. (E2B and Daytona had their own rows here — a template-baked binary and a
-snapshot entrypoint respectively — until both providers were removed.)
+file. (Other providers had their own rows here — a template-baked binary and a
+snapshot entrypoint — until they were removed.)
 
 The daemon's remote state dir must live on the persistent volume (the machine's
 home; Freestyle runs the daemon as root with `HOME=/root`, so the

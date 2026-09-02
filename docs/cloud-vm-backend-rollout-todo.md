@@ -2,9 +2,9 @@
 
 This is the scoped todo list for making the Cloud VM backend production-ready with application logic running in the existing Vercel `manaflow/cmux` project.
 
-> **2026-09-02:** Blaxel, E2B and Daytona have all been removed; Freestyle is
-> the only Cloud VM provider. Completed `[x]` items below are kept as a record
-> of what was done at the time and still name those providers.
+> **2026-09-02:** every other Cloud VM provider has been removed; Freestyle is
+> the only one. Completed `[x]` items below are kept as a record of what was
+> done at the time and still name providers that no longer exist.
 
 ## Current State
 

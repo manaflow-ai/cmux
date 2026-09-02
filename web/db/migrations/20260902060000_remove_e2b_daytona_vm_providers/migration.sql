@@ -8,11 +8,11 @@
 -- old type, so a missed column aborts the whole transaction instead of silently
 -- leaving a split schema.
 --
--- Rows still naming an E2B or Daytona machine are rewritten to 'freestyle'
+-- Rows still naming a removed provider are rewritten to 'freestyle'
 -- first. Those machines are unreachable regardless (both drivers are gone);
 -- this keeps history and usage rows readable rather than dropping them, at the
--- cost of mislabelling their provider. Destroy live E2B and Daytona machines
--- BEFORE applying this migration — afterwards nothing in the control plane can
+-- cost of mislabelling their provider. Destroy any live machines on the
+-- removed providers BEFORE applying this migration — afterwards nothing in the control plane can
 -- address them.
 
 UPDATE "cloud_vms" SET "provider" = 'freestyle' WHERE "provider" IN ('e2b', 'daytona');
