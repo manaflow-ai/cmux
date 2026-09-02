@@ -698,6 +698,8 @@ USAGE
 latencies: create request to response, request to the tree delta that makes it
 visible on a separate subscriber, attach to first frame, close to response, and
 one-byte typing latency on both a separate connection and the create connection.
+The same-connection probe is submitted after the create batch and before its
+responses are drained, so head-of-line blocking remains visible.
 With no --socket and no --session it starts and stops a throwaway session. It
 sends only existing commands; it adds no protocol command.
 ";

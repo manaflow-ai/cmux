@@ -56,7 +56,7 @@ Metrics, each reported as `count`, `p50`, `p90`, `p99`, `max` in milliseconds:
 | `close.surface_response_ms` | `close-surface` (view-only close) request to response |
 | `close.terminal_response_ms` | `close-terminal` (process-terminating close) request to response; this is the one that waits on host exit escalation, bounded by `terminal.close_wait` |
 | `typing.separate_conn_ms` | one-byte `send` on a connection that issues no creates, while creates are in flight |
-| `typing.same_conn_ms` | one-byte `send` on the connection that also issues creates, after its creates; a gap between this and the separate-connection number is head-of-line blocking |
+| `typing.same_conn_ms` | one-byte `send` on the connection that also issues creates, submitted after its create batch and before those responses are drained; a gap between this and the separate-connection number is head-of-line blocking |
 
 `--clients N` runs N concurrent create loops on N connections; `--creates K` is
 creates per client; `--typing-probes M` sets the number of typing samples. The
