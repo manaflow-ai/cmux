@@ -136,7 +136,7 @@ describe("localized pricing page", () => {
     }
   });
 
-  test("defaults public pricing to annual billing with compact paid-plan CTAs", async () => {
+  test("defaults public pricing to annual billing; card CTAs are full size, compare-header CTAs compact", async () => {
     const element = await PricingPage({ params: Promise.resolve({ locale: "en" }) });
     const html = renderToStaticMarkup(element);
 
@@ -157,6 +157,14 @@ describe("localized pricing page", () => {
     );
     expect(html).toMatch(
       /href="\/api\/billing\/checkout\?plan=team[^"]*interval=year"[^>]*class="[^"]*px-3 py-1\.5 text-xs[^"]*"[^>]*><span>Get Teams/,
+    );
+    // Every plan card's primary action shares one height (the Team card was
+    // the only compact one).
+    expect(html).toMatch(
+      /href="\/api\/billing\/checkout\?plan=pro[^"]*interval=year"[^>]*class="[^"]*px-5 py-2\.5 text-\[15px\][^"]*"[^>]*><span>Get Pro/,
+    );
+    expect(html).toMatch(
+      /href="\/api\/billing\/checkout\?plan=team[^"]*interval=year"[^>]*class="[^"]*px-5 py-2\.5 text-\[15px\][^"]*"[^>]*><span>Get Teams/,
     );
     expect(html).toContain('<p class="mt-5 text-sm font-medium">Includes:</p>');
     expect(html).not.toContain('style="min-height:4rem"');
@@ -199,6 +207,9 @@ describe("localized pricing page", () => {
     expect(html).toContain('href="/api/billing/portal"');
     expect(html).toContain("Manage billing");
     expect(html).toContain("Current plan");
+    // The badge says "Current plan"; no disabled button repeats it above
+    // Manage billing in the card.
+    expect(html).not.toMatch(/<button[^>]*disabled[^>]*>Current plan<\/button>/);
   });
 
   test("renders the annual price and sends annual checkout intent", async () => {

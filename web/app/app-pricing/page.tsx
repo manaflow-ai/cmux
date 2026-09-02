@@ -187,14 +187,15 @@ export default async function AppPricingPage({
                 }
               >
                 {snapshot.isPro ? (
-                  <div className="space-y-2">
+                  // The badge already says "Current plan"; the one action a
+                  // subscriber has here is billing, unless payments are gated.
+                  appStorePaymentGated ? (
                     <DisabledButton>{pricing.currentPlan}</DisabledButton>
-                    {appStorePaymentGated ? null : (
-                      <SecondaryLink href="/api/billing/portal">
-                        {pricing.manageBilling}
-                      </SecondaryLink>
-                    )}
-                  </div>
+                  ) : (
+                    <SecondaryLink href="/api/billing/portal">
+                      {pricing.manageBilling}
+                    </SecondaryLink>
+                  )
                 ) : appStorePaymentGated ? (
                   <DisabledButton>{pricing.billingUnavailable}</DisabledButton>
                 ) : canManageBilling ? (
