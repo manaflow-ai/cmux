@@ -547,6 +547,9 @@ def _event_target(
         run = api.get(f"repos/{api.repository}/actions/runs/{raw_id}")
         if not isinstance(run, Mapping):
             raise GateError("workflow run API response is not an object")
+        run_head = _as_sha(run.get("head_sha"), "workflow run API head SHA")
+        if run_head != event_head:
+            raise GateError("workflow run head changed after the event; wait for a new run")
         pull_requests = run.get("pull_requests")
         if not isinstance(pull_requests, list):
             raise GateError("workflow run API response is missing pull requests")

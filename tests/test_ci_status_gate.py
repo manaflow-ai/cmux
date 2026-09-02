@@ -241,7 +241,10 @@ def test_workflow_run_with_multiple_pull_requests_fails_closed() -> None:
     class AmbiguousAPI(FakeAPI):
         def get(self, endpoint: str, *, paginate: bool = False) -> object:
             if endpoint.endswith("/actions/runs/900"):
-                return {"pull_requests": [{"number": 1}, {"number": 2}]}
+                return {
+                    "head_sha": HEAD_SHA,
+                    "pull_requests": [{"number": 1}, {"number": 2}],
+                }
             return super().get(endpoint, paginate=paginate)
 
     try:
@@ -260,7 +263,10 @@ def test_workflow_run_duplicate_association_is_deduplicated() -> None:
     class DuplicateAPI(FakeAPI):
         def get(self, endpoint: str, *, paginate: bool = False) -> object:
             if endpoint.endswith("/actions/runs/900"):
-                return {"pull_requests": [{"number": 1}, {"number": 1}]}
+                return {
+                    "head_sha": HEAD_SHA,
+                    "pull_requests": [{"number": 1}, {"number": 1}],
+                }
             return super().get(endpoint, paginate=paginate)
 
     pull, head, number, workflow_run_id = module._event_target(
