@@ -8,11 +8,10 @@ The files under `manifests/` are derived from the herdr project:
 * Manifest snapshot revision: `2290257acb2085ce6842ba5c7e3ca50c3ba64f02`
 * First-acquisition OSC retention: `82e6a80eb3ae39fb3d3ebd4d1fed19389767e605`
 * Included manifest fixes: Claude MCP elicitation `f807b697353cfa00aa912c7cde4830e863001cf5`,
-  Claude background-shell state `987b070fbfa187e85009b45cd7e208fc6175ff6a`,
-  Codex weak-blocker scope `f457cff4f2648eee85d176f8a41861241d4e8428`, and
-  Copilot background-agent activity `2290257acb2085ce6842ba5c7e3ca50c3ba64f02`.
+  Claude background-shell state `987b070fbfa187e85009b45cd7e208fc6175ff6a`, and
+  Codex weak-blocker scope `f457cff4f2648eee85d176f8a41861241d4e8428`.
 * License: Apache-2.0, reproduced in `manifests/LICENSE`
-* Unchanged vendored material: 19 of the 21 `manifests/*.toml` files, copied
+* Unchanged vendored material: 18 of the 21 `manifests/*.toml` files, copied
   from `src/detect/manifests/` at the manifest snapshot revision. `claude.toml`
   is byte-identical to upstream commit `987b070fbfa187e85009b45cd7e208fc6175ff6a`.
   `grok.toml` is the local correction described below.
@@ -20,6 +19,9 @@ The files under `manifests/` are derived from the herdr project:
   masking Grok's idle OSC progress and adds an explicit spinner rule. Its
   numeric patch version is `2026.07.16.2.1`; the upstream file is
   `2026.07.16.2`.
+* Local correction: `manifests/github-copilot.toml` adds the background-agent
+  waiting row and uses local patch version `2026.07.07.1.1`; its upstream
+  version and date remain unchanged.
 * Changes: cmux pins the files locally and validates them with its own
   bounded manifest engine. It does not use herdr's network update path.
 
