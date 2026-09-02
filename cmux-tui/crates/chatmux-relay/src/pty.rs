@@ -1860,26 +1860,25 @@ impl Inner {
             .and_then(Value::as_str)
             .map(str::to_owned);
         if context.cancellation.is_cancelled() {
-            if detach_supported {
-                if let Some(lease) = lease.as_deref() {
-                    let _ = control
-                        .request(
-                            "detach-attached-view",
-                            json!({ "surface": surface_id, "lease": lease }),
-                        )
-                        .await;
-                } else {
-                    // A peer that advertises bilateral leases but omits the
-                    // returned token cannot honor scoped cleanup safely.
-                    control.end();
+            if detach_supported && let Some(lease) = lease.as_deref() {
+                let detached = control
+                    .request(
+                        "detach-attached-view",
+                        json!({ "surface": surface_id, "lease": lease }),
+                    )
+                    .await;
+                if detached
+                    .as_ref()
+                    .and_then(|response| response.get("ok"))
+                    .and_then(Value::as_bool)
+                    == Some(true)
+                {
+                    return Err((RelayPtyErrorCode::Failed, "attach-surface cancelled".to_owned()));
                 }
-            } else {
-                // Older peers have no lease-addressed detach. This control
-                // socket is owned by this opening, so closing it is the only
-                // stream cleanup fence available to that peer.
-                control.end();
+                // Keep the attachment owned by the relay when targeted
+                // cleanup is not confirmed. The caller can retry cleanup via
+                // the live attachment instead of abandoning a remote stream.
             }
-            return Err((RelayPtyErrorCode::Failed, "attach-surface cancelled".to_owned()));
         }
         if attached.as_ref().and_then(|v| v.get("ok")).and_then(Value::as_bool) != Some(true) {
             control.end();
