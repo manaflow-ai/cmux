@@ -523,7 +523,7 @@ async fn serve_connection(stream: TcpStream, manager: Arc<PtyManager>, parent: C
     let mut decoder = TunnelFrameDecoder::new(MAX_TUNNEL_FRAME_BYTES);
     let open_deadline = tokio::time::sleep(OPEN_TIMEOUT);
     tokio::pin!(open_deadline);
-    loop {
+    'reader: loop {
         tokio::select! {
             biased;
             _ = parent.cancelled() => {
@@ -548,7 +548,19 @@ async fn serve_connection(stream: TcpStream, manager: Arc<PtyManager>, parent: C
                 match decoder.push(&buffer[..count]) {
                     Ok(frames) => {
                         for frame in frames {
-                            handle_client_frame(&connection, &context, frame).await;
+                            // An OPEN can wait on an injected or external
+                            // provider. Parent shutdown and connection close
+                            // must cancel that future instead of waiting only
+                            // for the ten-second protocol deadline.
+                            tokio::select! {
+                                biased;
+                                _ = parent.cancelled() => {
+                                    connection.finish();
+                                    break 'reader;
+                                }
+                                _ = connection.done.cancelled() => break 'reader,
+                                _ = handle_client_frame(&connection, &context, frame) => {}
+                            }
                         }
                     }
                     Err(_) => {
