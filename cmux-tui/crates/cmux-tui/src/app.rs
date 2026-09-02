@@ -27946,6 +27946,19 @@ mod tests {
     }
 
     #[test]
+    fn selection_for_click_returns_the_terminal_word_range() {
+        let (app, mux, surface, _) =
+            selection_fixture("selection-for-click-word-range-test", b"alpha beta");
+
+        let selection = app
+            .selection_for_click(surface.id, (1, 0), SelectionMode::Word)
+            .expect("a word click must return the terminal selection range");
+        assert_eq!(selection.range(), ((0, 0), (4, 0)));
+
+        mux.close_surface(surface.id).unwrap();
+    }
+
+    #[test]
     fn a_single_cell_press_does_not_store_a_zero_length_selection() {
         let (mut app, mux, surface, content) =
             selection_fixture("single-cell-press-selection-state-test", b"alpha beta");
