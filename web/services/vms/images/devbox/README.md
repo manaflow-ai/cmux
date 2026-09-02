@@ -56,14 +56,19 @@ daemon as root and exposes no ingress to 6901 (a `style.dev` or
 ## Session daemon: cmux-tui
 
 Machines attach through the cmux-tui remote daemon on port 1337
-(transport `cmux-remote`, docs/cloud-cmux-tui-daemon.md). The binary is NOT
-baked: the driver installs the pinned files.cmux.com build
-(sha256-verified) at create time and heals pin drift on attach
-(`web/services/vms/drivers/cmuxTuiDaemon.ts`). The image ships only
-`cmux-devbox-boot`, the supervisor that waits for the binary and restarts
-the daemon, run by the baked `cmux-tui-daemon` systemd unit with
-`CMUX_TUI_REMOTE_WS_BIND=[::]:1337` (the driver reaches the daemon at the
-VM's IPv6 address, so the listener must be dual-stack).
+(transport `cmux-remote`, docs/cloud-cmux-tui-daemon.md). The Freestyle bake
+installs the pinned files.cmux.com build (sha256-verified, the driver's own
+install command) at `/root/.cmux/bin/cmux-tui`, proves the daemon answers,
+then parks it, because a Freestyle snapshot is a memory image and a live
+daemon would give every machine the builder's Noise identity. The
+`cmux-devbox-boot` supervisor, run by the baked `cmux-tui-daemon` systemd
+unit with `CMUX_TUI_REMOTE_WS_BIND=[::]:1337` (the driver reaches the daemon
+at the VM's IPv6 address, so the listener must be dual-stack), reads the
+platform instance id from the metadata service, wipes the remote identity
+when the machine is a clone, and starts the daemon. The driver runs no
+bootstrap at create; it heals pin drift and a missing listener on attach
+(`web/services/vms/drivers/cmuxTuiDaemon.ts`). The container Dockerfile still
+ships only the supervisor and waits for a driver install.
 
 Shells spawned by the daemon get the bash devshell (ble.sh ghost text,
 half-life prompt, seeded history) through the `/etc/bash.bashrc` chain.
@@ -117,9 +122,10 @@ never from the image.
 Each bake prints a `next` command. The verifier boots one VM from the
 snapshot, asserts the toolchain, the exact agent pins, ghost text
 under a tmux PTY, byte-identical baked files, the work user, and (when
-`/etc/cmux/image-stamp` says `desktop`) the desktop contract, then replays
-the driver's create-time cmux-tui bootstrap and asserts the daemon contract,
-and deletes the sandbox:
+`/etc/cmux/image-stamp` says `desktop`) the desktop contract, then waits for
+the baked daemon to come up on its own, asserts the daemon contract (current
+pin, identity bound to this instance id) and that a second machine from the
+snapshot holds a different daemon identity, and deletes both sandboxes:
 
 ```bash
 bun scripts/verify-devbox-image.ts freestyle <sh-snapshot-id>

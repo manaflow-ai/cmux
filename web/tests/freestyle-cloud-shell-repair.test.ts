@@ -7,7 +7,8 @@ import {
 describe("Freestyle Cloud VM daemon repair", () => {
   test("health checks require the managed daemon and its dual-stack listener", () => {
     expect(freestyleDaemonHealthyCommand()).toBe(
-      "pgrep -f 'cmux-tui server start' >/dev/null 2>&1 && grep -qi ':0539 ' /proc/net/tcp6",
+      // [s]tart keeps the pattern from matching the exec shell that carries it.
+      "pgrep -f 'cmux-tui server [s]tart' >/dev/null 2>&1 && grep -qi ':0539 ' /proc/net/tcp6",
     );
   });
 

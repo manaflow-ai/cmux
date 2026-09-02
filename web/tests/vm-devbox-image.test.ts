@@ -229,9 +229,24 @@ describe("devbox image template", () => {
       cmuxTuiDaemonCommand('"${CMUX_TUI_REMOTE_WS_BIND:-0.0.0.0:1337}"').replace("cd /root && ", ""),
     );
     expect(cmuxTuiDaemonCommand()).toContain("--remote-ws 0.0.0.0:1337");
-    expect(devboxBoot).toContain("if [ -x /root/.cmux/bin/cmux-tui ]");
+    expect(devboxBoot).toContain("BIN=/root/.cmux/bin/cmux-tui");
+    expect(devboxBoot).toContain('if [ -x "$BIN" ]');
     expect(dockerfile).toContain("COPY cmux-devbox-boot /usr/local/bin/cmux-devbox-boot");
-    // No binary is baked and the old cmuxd stack is gone everywhere.
+    // A Freestyle snapshot is a memory image: the supervisor keys the daemon
+    // identity on the platform instance id, wiping cmux-remote's default root
+    // state dir on a clone, and holds the daemon on the builder itself.
+    expect(devboxBoot).toContain("REMOTE_STATE_DIR=/root/.local/state/cmux/remote");
+    expect(devboxBoot).toContain("/latest/meta-data/instance-id");
+    expect(devboxBoot).toContain("BOUND_INSTANCE_FILE=/etc/cmux/daemon-instance-id");
+    expect(devboxBoot).toContain("BAKE_INSTANCE_FILE=/etc/cmux/bake-instance-id");
+    expect(devboxBoot).toContain('rm -rf "$REMOTE_STATE_DIR"');
+    // The Freestyle bake installs the pin with the driver's own install
+    // command, proves the daemon, and parks it before the snapshot.
+    const freestyleBake = readScript("build-devbox-freestyle.ts");
+    expect(freestyleBake).toContain('await step("cmux-tui-install", cmuxTuiInstallCommand(cmuxTuiSource));');
+    expect(freestyleBake).toContain("> /etc/cmux/bake-instance-id");
+    expect(freestyleBake).toContain("daemon-parked-for-clones");
+    // The container image bakes no binary, and the old cmuxd stack is gone everywhere.
     // The image itself carries nothing cmuxd-era, and no bake or verify
     // script installs or launches the old daemon (prose references to the
     // legacy driver are fine).
