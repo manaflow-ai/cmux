@@ -1098,8 +1098,18 @@ mod windows_spool_tests {
         cleanup_stale_spool_files(root.path());
         assert!(root.path().join(format!("{request_id}.req")).exists());
 
-        let guard = super::detach::SpoolFileGuard(path);
+        let guard = super::detach::SpoolFileGuard::new(path);
         drop(guard);
         assert!(!root.path().join(format!("{request_id}.req")).exists());
+    }
+
+    #[test]
+    fn rejects_overlong_spooled_request_id() {
+        let root = tempfile::tempdir().unwrap();
+        let path = root.path().join("oversized.req");
+        let oversized = format!("{}\n{{}}", "r".repeat(1024));
+        std::fs::write(&path, oversized).unwrap();
+
+        assert!(read_spooled_request(&path).is_err());
     }
 }
