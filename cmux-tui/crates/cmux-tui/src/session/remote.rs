@@ -3530,6 +3530,8 @@ impl Drop for RemoteSession {
 
 #[cfg(unix)]
 fn private_dump_directory(path: &Path) -> io::Result<fs::File> {
+    use std::ffi::CString;
+    use std::os::unix::ffi::OsStrExt;
     use std::os::unix::fs::{MetadataExt, OpenOptionsExt, PermissionsExt};
 
     let existed = match fs::symlink_metadata(path) {
@@ -3543,7 +3545,24 @@ fn private_dump_directory(path: &Path) -> io::Result<fs::File> {
         Err(error) if error.kind() == io::ErrorKind::NotFound => false,
         Err(error) => return Err(error),
     };
-    fs::create_dir_all(path)?;
+    if !existed {
+        if let Some(parent) = path
+            .parent()
+            .filter(|parent| !parent.as_os_str().is_empty())
+        {
+            fs::create_dir_all(parent)?;
+        }
+        let path = CString::new(path.as_os_str().as_bytes()).map_err(|_| {
+            io::Error::new(io::ErrorKind::InvalidInput, "invalid dump directory path")
+        })?;
+        let status = unsafe { libc::mkdir(path.as_ptr(), 0o700) };
+        if status != 0 {
+            let error = io::Error::last_os_error();
+            if error.kind() != io::ErrorKind::AlreadyExists {
+                return Err(error);
+            }
+        }
+    }
     let directory = fs::OpenOptions::new()
         .read(true)
         .custom_flags(libc::O_DIRECTORY | libc::O_NOFOLLOW | libc::O_CLOEXEC)
@@ -3555,15 +3574,11 @@ fn private_dump_directory(path: &Path) -> io::Result<fs::File> {
             format!("dump directory is not private and user-owned: {}", path.display()),
         ));
     }
-    if existed {
-        if metadata.mode() & 0o077 != 0 {
-            return Err(io::Error::new(
-                io::ErrorKind::PermissionDenied,
-                format!("dump directory is not private: {}", path.display()),
-            ));
-        }
-    } else {
-        directory.set_permissions(fs::Permissions::from_mode(0o700))?;
+    if metadata.mode() & 0o077 != 0 {
+        return Err(io::Error::new(
+            io::ErrorKind::PermissionDenied,
+            format!("dump directory is not private: {}", path.display()),
+        ));
     }
     Ok(directory)
 }
