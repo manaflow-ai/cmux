@@ -1142,6 +1142,8 @@ impl ProcessSupervisor {
         };
         for task in tasks {
             task.cancellation.cancel();
+        }
+        for task in tasks {
             let _ = task.handle.await;
         }
         self.lifecycle.lock().unwrap_or_else(std::sync::PoisonError::into_inner).state =
@@ -1286,18 +1288,20 @@ async fn run_spec(
                 }
             }, if !cancelled => {
                 cancelled = true;
-                phase = ProcessPhase::StopRequested;
-                if exited.is_none() && phase.may_signal() {
+                let was_live = exited.is_none()
+                    && matches!(phase, ProcessPhase::Running | ProcessPhase::StopRequested);
+                if was_live {
+                    phase = ProcessPhase::StopRequested;
                     #[cfg(unix)]
                     if !signal_process_tree(pid, false) {
                         let _ = child.start_kill();
                     }
                     #[cfg(not(unix))]
                     signal_process_tree(pid, false);
+                    kill_deadline = Some(Box::pin(tokio::time::sleep(
+                        std::time::Duration::from_millis(250),
+                    )));
                 }
-                kill_deadline = Some(Box::pin(tokio::time::sleep(
-                    std::time::Duration::from_millis(250),
-                )));
             }
             read = async {
                 match stdout.as_mut() {
@@ -1377,12 +1381,12 @@ async fn run_spec(
             }
             () = &mut deadline, if !timed_out => {
                 timed_out = true;
-                phase = ProcessPhase::StopRequested;
                 // Commands run below a shell and may have descendants that
                 // inherited stdout/stderr. Kill the whole POSIX process group
                 // so the supervisor gets its EXIT cleanup, then enforce a
                 // hard bound for processes that ignore TERM.
-                if phase.may_signal() {
+                if exited.is_none() && phase.may_signal() {
+                    phase = ProcessPhase::StopRequested;
                     // The process group is the authoritative target. If the
                     // group disappeared before we could signal it, use the
                     // live Child handle instead of the numeric PID. A PID
@@ -1394,6 +1398,9 @@ async fn run_spec(
                     }
                     #[cfg(not(unix))]
                     signal_process_tree(pid, false);
+                    kill_deadline = Some(Box::pin(tokio::time::sleep(
+                        std::time::Duration::from_millis(250),
+                    )));
                 }
                 #[cfg(windows)]
                 if let Some(job) = job.as_ref() {
@@ -1402,9 +1409,6 @@ async fn run_spec(
                 // Keep the escalation timer owned by this invocation. A
                 // detached task could fire after the process exits and its
                 // PID is reused by an unrelated process.
-                kill_deadline = Some(Box::pin(tokio::time::sleep(
-                    std::time::Duration::from_millis(250),
-                )));
                 if exited.is_some() && (stdout_open || stderr_open) && drain_deadline.is_none() {
                     drain_deadline = Some(Box::pin(tokio::time::sleep(
                         std::time::Duration::from_millis(250),
