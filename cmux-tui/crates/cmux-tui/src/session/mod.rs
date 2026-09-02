@@ -700,6 +700,11 @@ impl Session {
     pub fn ensure_initial(&self, size: Option<(u16, u16)>) -> anyhow::Result<()> {
         match self {
             Session::Local(mux) => {
+                // Hold the per-mux bootstrap guard across the snapshot and
+                // mutation.  Without this, concurrent attaches can both
+                // observe a bare session and create duplicate workspaces or
+                // shells before either mutation becomes visible.
+                let _bootstrap = mux.lock_initial_bootstrap();
                 // One snapshot serves both the decision and the target
                 // selection; a second read could disagree with the first
                 // when another mux owner mutates the tree in between.
