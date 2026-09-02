@@ -982,6 +982,7 @@ struct MachinesPanelClientBootstrapTests {
 
         #expect(!model.isLoading)
         #expect(!model.hasLoadedOnce)
+        #expect(model.listProblem == nil)
     }
 }
 
