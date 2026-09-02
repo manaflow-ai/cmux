@@ -3530,7 +3530,7 @@ impl Drop for RemoteSession {
 
 #[cfg(unix)]
 fn private_dump_directory(path: &Path) -> io::Result<fs::File> {
-    use std::os::unix::fs::{MetadataExt, OpenOptionsExt, PermissionsExt};
+    use std::os::unix::fs::{DirBuilderExt, MetadataExt, OpenOptionsExt, PermissionsExt};
 
     let existed = match fs::symlink_metadata(path) {
         Ok(metadata) if metadata.is_dir() => true,
@@ -3543,7 +3543,16 @@ fn private_dump_directory(path: &Path) -> io::Result<fs::File> {
         Err(error) if error.kind() == io::ErrorKind::NotFound => false,
         Err(error) => return Err(error),
     };
-    fs::create_dir_all(path)?;
+    // Set the requested mode in the mkdir operation itself.  A recursive
+    // create followed by chmod would leave a window where another local
+    // process could observe a newly-created directory with umask-derived
+    // permissions.  DirBuilder applies the mode to every missing component;
+    // the descriptor check below still rejects an inherited ACL or any race
+    // that leaves group/other access enabled.
+    let mut builder = fs::DirBuilder::new();
+    builder.recursive(true);
+    builder.mode(0o700);
+    builder.create(path)?;
     let directory = fs::OpenOptions::new()
         .read(true)
         .custom_flags(libc::O_DIRECTORY | libc::O_NOFOLLOW | libc::O_CLOEXEC)
@@ -3562,8 +3571,6 @@ fn private_dump_directory(path: &Path) -> io::Result<fs::File> {
                 format!("dump directory is not private: {}", path.display()),
             ));
         }
-    } else {
-        directory.set_permissions(fs::Permissions::from_mode(0o700))?;
     }
     Ok(directory)
 }
@@ -9306,5 +9313,33 @@ mod tests {
         mirror.vt_write(prompt);
 
         assert_eq!(mirror.plain_text().unwrap(), server_text);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn private_dump_directory_is_private_at_creation() {
+        use std::os::unix::fs::MetadataExt;
+
+        let root = tempfile::tempdir().unwrap();
+        let path = root.path().join("dumps");
+        let directory = private_dump_directory(&path).unwrap();
+        let mode = directory.metadata().unwrap().mode();
+
+        assert_eq!(mode & 0o077, 0, "dump directory grants group/other access");
+        assert_eq!(mode & 0o700, 0o700, "dump directory lost owner access");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn private_dump_directory_rejects_insecure_existing_directory() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let root = tempfile::tempdir().unwrap();
+        let path = root.path().join("dumps");
+        std::fs::create_dir(&path).unwrap();
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o750)).unwrap();
+
+        let error = private_dump_directory(&path).expect_err("insecure directory must fail closed");
+        assert_eq!(error.kind(), std::io::ErrorKind::PermissionDenied);
     }
 }
