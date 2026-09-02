@@ -753,7 +753,10 @@ export async function hasActiveCoderouterSubscription(
   // Auth already resolved this Stack user's authoritative personal plan. Keep
   // the hosted CodeRouter gate on the same Founder-aware source as billing and
   // VM/TestFlight access, including operator grants with no Stripe row.
-  if (isFounderPlanId(userBillingPlanId)) return true;
+  // A Founder id is sufficient only when it came from the explicit operator
+  // override. A bare `cmuxPlan: "founders"` mirror must still be backed by a
+  // durable Founder row, just like any other mirrored plan value.
+  if (isFounderPlanId(userBillingPlanId) && userHasManualVmPlanOverride) return true;
   try {
     const rows = await cloudDb()
       .select({

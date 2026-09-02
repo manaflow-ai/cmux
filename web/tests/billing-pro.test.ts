@@ -164,8 +164,14 @@ describe("normalizePersonalPlan", () => {
 
   test("lets hosted CodeRouter recognize an operator Founder grant without Stripe", async () => {
     await expect(
-      hasActiveCoderouterSubscription("founder-user", "team-1", "founders"),
+      hasActiveCoderouterSubscription("founder-user", "team-1", "founders", true),
     ).resolves.toBe(true);
+  });
+
+  test("does not trust a bare mirrored Founder id without the manual-override bit", async () => {
+    await expect(
+      hasActiveCoderouterSubscription("mirrored-founder", "team-1", "founders", false),
+    ).resolves.toBe(false);
   });
 });
 
