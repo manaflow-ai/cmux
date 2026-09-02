@@ -2821,6 +2821,41 @@ mod tests {
 
     #[cfg(unix)]
     #[tokio::test]
+    async fn timeout_after_leader_reap_kills_descendant_group() {
+        let pid_file =
+            std::env::temp_dir().join(format!("chatmux-timeout-reaped-pid-{}", std::process::id()));
+        std::fs::remove_file(&pid_file).ok();
+        let command = format!("sleep 30 & echo $! > {}; exit 0", pid_file.display());
+        let env = scrubbed_env(&HashMap::from([("PATH".to_owned(), "/usr/bin:/bin".to_owned())]));
+        let worker = tokio::spawn(async move {
+            run_spec(RunSpec::Shell { command: &command }, Path::new("/"), None, 100, &env, None)
+                .await
+        });
+        let pid = tokio::time::timeout(std::time::Duration::from_secs(1), async {
+            loop {
+                if let Some(pid) = std::fs::read_to_string(&pid_file)
+                    .ok()
+                    .and_then(|value| value.trim().parse::<libc::pid_t>().ok())
+                {
+                    break pid;
+                }
+                tokio::time::sleep(std::time::Duration::from_millis(5)).await;
+            }
+        })
+        .await
+        .expect("descendant pid marker");
+        tokio::time::sleep(std::time::Duration::from_millis(150)).await;
+        let outcome = tokio::time::timeout(std::time::Duration::from_secs(2), worker)
+            .await
+            .expect("timeout cleanup must complete")
+            .expect("runner task must join");
+        assert!(matches!(outcome, RunOutcome::TimedOut));
+        assert_ne!(unsafe { libc::kill(pid, 0) }, 0, "timeout must kill reaped leader descendants");
+        std::fs::remove_file(pid_file).ok();
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
     async fn timeout_after_sigkill_reaches_terminal_wait_state() {
         let env = scrubbed_env(&HashMap::from([("PATH".to_owned(), "/usr/bin:/bin".to_owned())]));
         let outcome = tokio::time::timeout(
