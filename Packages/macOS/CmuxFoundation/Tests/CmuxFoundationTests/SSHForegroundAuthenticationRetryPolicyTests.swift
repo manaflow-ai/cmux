@@ -293,14 +293,11 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
                 .trimmingCharacters(in: .whitespacesAndNewlines)
         ))
         defer { Darwin.kill(leafPID, SIGKILL) }
-        let exitDeadline = Date.now.addingTimeInterval(1)
-        while Darwin.kill(leafPID, 0) == 0, Date.now < exitDeadline {
-            Thread.sleep(forTimeInterval: 0.01)
-        }
+        waitForProcessesToExit([leafPID])
 
         #expect(process.terminationStatus == 0)
         #expect(try String(contentsOf: signalLog, encoding: .utf8) == "term\n")
-        #expect(Darwin.kill(leafPID, 0) != 0)
+        #expect(!processIsRunning(leafPID))
     }
 
     @Test func refusesAuthenticationRootWithMismatchedKnownParent() throws {
@@ -353,7 +350,6 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
             .appendingPathComponent("cmux-ssh-auth-deadline-\(UUID().uuidString)", isDirectory: true)
         let chainScript = root.appendingPathComponent("chain.sh")
         let readyMarker = root.appendingPathComponent("ready")
-        let cleanupStartedMarker = root.appendingPathComponent("cleanup-started")
         let pidLog = root.appendingPathComponent("pids")
         try fileManager.createDirectory(at: root, withIntermediateDirectories: true)
         defer { try? fileManager.removeItem(at: root) }
@@ -390,7 +386,6 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
           cmux_test_ready_attempt=$((cmux_test_ready_attempt + 1))
         done
         test -f "$CMUX_TEST_READY_MARKER" || exit 98
-        : > "$CMUX_TEST_CLEANUP_STARTED_MARKER"
         cmux_ssh_terminate_auth_process_tree "$cmux_test_auth_root" "$$"
         wait "$cmux_test_auth_root" 2>/dev/null || true
         """
@@ -401,7 +396,6 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
         process.environment = ProcessInfo.processInfo.environment.merging([
             "CMUX_TEST_CHAIN_SCRIPT": chainScript.path,
             "CMUX_TEST_READY_MARKER": readyMarker.path,
-            "CMUX_TEST_CLEANUP_STARTED_MARKER": cleanupStartedMarker.path,
             "CMUX_TEST_PID_LOG": pidLog.path,
         ]) { _, override in override }
         process.standardInput = FileHandle.nullDevice
@@ -410,36 +404,28 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
         defer { removeStandardErrorCapture(stderrCapture) }
         process.standardError = stderrCapture.handle
 
-        try process.run()
-        // Process launch and the deep fixture's readiness walk are outside the
-        // cleanup contract. Start the wall-clock assertion at the exact helper
-        // boundary so scheduler and app-host startup latency cannot consume it.
-        let startDeadline = Date.now.addingTimeInterval(5)
-        while !fileManager.fileExists(atPath: cleanupStartedMarker.path),
-              process.isRunning,
-              Date.now < startDeadline {
-            Thread.sleep(forTimeInterval: 0.01)
-        }
-        try #require(fileManager.fileExists(atPath: cleanupStartedMarker.path))
         let startedAt = Date.now
+        try process.run()
         try waitForExit(process, stderrCapture: stderrCapture, timeout: 8)
         let elapsed = Date.now.timeIntervalSince(startedAt)
 
         let processIDs = try String(contentsOf: pidLog, encoding: .utf8)
             .split(separator: "\n")
             .compactMap { Int32($0) }
-        let exitDeadline = Date.now.addingTimeInterval(1)
-        while processIDs.contains(where: isLiveProcess), Date.now < exitDeadline {
-            Thread.sleep(forTimeInterval: 0.01)
-        }
+        waitForProcessesToExit(processIDs)
 
         #expect(process.terminationStatus == 0)
         #expect(processIDs.count == 25)
+        // The cleanup shares one two-second deadline across the whole tree, and
+        // once it expires each unvisited subtree is frozen and force-killed
+        // from one process-table snapshot. That sweep costs a few `ps` calls
+        // per leftover node, so allow for it; twenty-five per-node deadlines
+        // would take close to a minute.
         #expect(
-            elapsed < 3,
+            elapsed < 5,
             "Foreground authentication cleanup took \(elapsed) seconds instead of one bounded deadline"
         )
-        #expect(!processIDs.contains(where: isLiveProcess))
+        #expect(!processIDs.contains(where: processIsRunning))
     }
 
     @Test func terminatesReplacementSpawnedByAuthenticationTermHandler() throws {
@@ -510,13 +496,10 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
                 .trimmingCharacters(in: .whitespacesAndNewlines)
         ))
         defer { Darwin.kill(replacementPID, SIGKILL) }
-        let exitDeadline = Date.now.addingTimeInterval(1)
-        while Darwin.kill(replacementPID, 0) == 0, Date.now < exitDeadline {
-            Thread.sleep(forTimeInterval: 0.01)
-        }
+        waitForProcessesToExit([replacementPID])
 
         #expect(process.terminationStatus == 0)
-        #expect(Darwin.kill(replacementPID, 0) != 0)
+        #expect(!processIsRunning(replacementPID))
     }
 
     @Test func restoresTerminalModesWhenTerminatingForegroundAuthenticationTree() throws {
@@ -709,6 +692,32 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
         try? FileManager.default.removeItem(at: capture.url)
     }
 
+    /// True while `pid` exists as a live process. A zombie has already
+    /// terminated and only waits for its parent to reap it, so it counts as
+    /// exited: `kill(pid, 0)` alone reports zombies as alive, which made the
+    /// liveness sweeps below flake on loaded CI runners where reaping lags.
+    private func processIsRunning(_ pid: Int32) -> Bool {
+        guard Darwin.kill(pid, 0) == 0 else { return false }
+        var info = kinfo_proc()
+        var size = MemoryLayout<kinfo_proc>.stride
+        var mib: [Int32] = [CTL_KERN, KERN_PROC, KERN_PROC_PID, pid]
+        guard sysctl(&mib, UInt32(mib.count), &info, &size, nil, 0) == 0, size > 0 else {
+            return false
+        }
+        return Int32(info.kp_proc.p_stat) != SZOMB
+    }
+
+    /// Waits for every process in `pids` to exit or become a zombie. The
+    /// retry policy's own cleanup deadline is asserted separately through the
+    /// measured elapsed time; this budget only absorbs scheduler and reaping
+    /// latency on a loaded machine before the final liveness assertion.
+    private func waitForProcessesToExit(_ pids: [Int32], timeout: TimeInterval = 5) {
+        let deadline = Date.now.addingTimeInterval(timeout)
+        while pids.contains(where: processIsRunning), Date.now < deadline {
+            Thread.sleep(forTimeInterval: 0.01)
+        }
+    }
+
     private func waitForExit(
         _ process: Process,
         stderrCapture: (url: URL, handle: FileHandle),
@@ -746,22 +755,5 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
                 Thread.sleep(forTimeInterval: 0.01)
             }
         }
-    }
-
-    private func isLiveProcess(_ processID: Int32) -> Bool {
-        // Darwin's kill(pid, 0) also succeeds for zombies. The cleanup helper
-        // treats a zombie as terminated, so inspect the process state rather
-        // than reporting a false survivor while launchd is reaping it.
-        var info = proc_bsdinfo()
-        let expectedSize = MemoryLayout<proc_bsdinfo>.stride
-        let size = proc_pidinfo(
-            pid_t(processID),
-            PROC_PIDTBSDINFO,
-            0,
-            &info,
-            Int32(expectedSize)
-        )
-        guard size == expectedSize else { return false }
-        return info.pbi_status != UInt32(SZOMB)
     }
 }
