@@ -372,6 +372,7 @@ if [[ "$retention_dry_run" == false && "$retention_confirmed" != "1" ]]; then
   exit 2
 fi
 preview_file="cmux-tui/target/hosted/.retention-preview"
+hosted_artifact_root="$(cd "cmux-tui/target/hosted" && pwd -P)"
 lsof_available=false
 if command -v lsof >/dev/null 2>&1; then
   lsof_available=true
@@ -394,18 +395,72 @@ while IFS= read -r -d '' candidate_dir; do
     exit 2
   fi
   hosted_artifact_order+=("$candidate_mtime	$candidate_commit	$candidate_dir")
-done < <(find cmux-tui/target/hosted -mindepth 1 -maxdepth 1 -type d -user "$(id -u)" -print0)
+done < <(find "$hosted_artifact_root" -mindepth 1 -maxdepth 1 -type d -user "$(id -u)" -print0)
 if ((${#hosted_artifact_order[@]} > 0)); then
   while IFS=$'\t' read -r _ candidate_commit candidate_dir; do
     hosted_artifact_dirs+=("$candidate_dir")
   done < <(printf '%s\n' "${hosted_artifact_order[@]}" | sort -t $'\t' -k1,1nr -k2,2r)
 fi
+retained=0
+cleanup_dirs=()
+for candidate_dir in "${hosted_artifact_dirs[@]}"; do
+  candidate_commit="${candidate_dir##*/}"
+  candidate_binary="$candidate_dir/cmux-tui"
+  if [[ "$candidate_commit" == "$commit" ]]; then
+    continue
+  fi
+  if (( retained < retention_count )); then
+    retained=$((retained + 1))
+    continue
+  fi
+  cleanup_dirs+=("$candidate_dir")
+done
+
+active_artifact_paths=""
+if ((${#cleanup_dirs[@]} > 0)); then
+  if [[ "$lsof_available" != true ]]; then
+    echo "error: cannot prove artifact is inactive because lsof is unavailable" >&2
+    exit 2
+  fi
+  lsof_candidates=()
+  for candidate_dir in "${cleanup_dirs[@]}"; do
+    candidate_binary="$candidate_dir/cmux-tui"
+    [[ -f "$candidate_binary" ]] && lsof_candidates+=("$candidate_binary")
+  done
+  if ((${#lsof_candidates[@]} > 0)); then
+    lsof_stderr_file="$temp_dir/lsof.stderr"
+    set +e
+    active_artifact_paths="$(lsof -Fn -- "${lsof_candidates[@]}" 2>"$lsof_stderr_file")"
+    lsof_status=$?
+    set -e
+    if (( lsof_status != 0 )) && [[ -s "$lsof_stderr_file" ]]; then
+      echo "error: cannot determine whether hosted artifacts are active" >&2
+      exit 2
+    fi
+    active_artifact_paths="$(printf '%s\n' "$active_artifact_paths" | sed -n 's/^n//p')"
+  fi
+fi
+
+deletion_dirs=()
+for candidate_dir in "${cleanup_dirs[@]}"; do
+  candidate_binary="$candidate_dir/cmux-tui"
+  if [[ -f "$candidate_binary" ]] &&
+    printf '%s\n' "$active_artifact_paths" | grep -F -x -q -- "$candidate_binary"; then
+    echo "Keeping active hosted artifact: $candidate_binary" >&2
+    continue
+  fi
+  deletion_dirs+=("$candidate_dir")
+done
+
 retention_plan_file="$temp_dir/retention-plan"
 {
   printf 'commit\t%s\n' "$commit"
   printf 'retention_count\t%s\n' "$retention_count"
   for candidate_dir in "${hosted_artifact_dirs[@]}"; do
     printf 'candidate\t%s\n' "$candidate_dir"
+  done
+  for candidate_dir in "${deletion_dirs[@]}"; do
+    printf 'delete\t%s\n' "$candidate_dir"
   done
 } > "$retention_plan_file"
 if [[ "$retention_dry_run" == true ]]; then
@@ -449,53 +504,8 @@ else
   fi
 fi
 
-retained=0
-cleanup_dirs=()
-for candidate_dir in "${hosted_artifact_dirs[@]}"; do
-  candidate_commit="${candidate_dir##*/}"
+for candidate_dir in "${deletion_dirs[@]}"; do
   candidate_binary="$candidate_dir/cmux-tui"
-  if [[ "$candidate_commit" == "$commit" ]]; then
-    continue
-  fi
-  if (( retained < retention_count )); then
-    retained=$((retained + 1))
-    continue
-  fi
-  cleanup_dirs+=("$candidate_dir")
-done
-
-active_artifact_paths=""
-if ((${#cleanup_dirs[@]} > 0)); then
-  if [[ "$lsof_available" != true ]]; then
-    echo "error: cannot prove artifact is inactive because lsof is unavailable" >&2
-    exit 2
-  fi
-  lsof_candidates=()
-  for candidate_dir in "${cleanup_dirs[@]}"; do
-    candidate_binary="$candidate_dir/cmux-tui"
-    [[ -f "$candidate_binary" ]] && lsof_candidates+=("$candidate_binary")
-  done
-  if ((${#lsof_candidates[@]} > 0)); then
-    lsof_stderr_file="$temp_dir/lsof.stderr"
-    set +e
-    active_artifact_paths="$(lsof -Fn -- "${lsof_candidates[@]}" 2>"$lsof_stderr_file")"
-    lsof_status=$?
-    set -e
-    if (( lsof_status != 0 )) && [[ -s "$lsof_stderr_file" ]]; then
-      echo "error: cannot determine whether hosted artifacts are active" >&2
-      exit 2
-    fi
-    active_artifact_paths="$(printf '%s\n' "$active_artifact_paths" | sed -n 's/^n//p')"
-  fi
-fi
-
-for candidate_dir in "${cleanup_dirs[@]}"; do
-  candidate_binary="$candidate_dir/cmux-tui"
-  if [[ -f "$candidate_binary" ]] &&
-    printf '%s\n' "$active_artifact_paths" | grep -F -x -q -- "$candidate_binary"; then
-    echo "Keeping active hosted artifact: $candidate_binary" >&2
-    continue
-  fi
   if [[ "$retention_dry_run" == true ]]; then
     echo "Would remove hosted artifact: $candidate_dir" >&2
   else
