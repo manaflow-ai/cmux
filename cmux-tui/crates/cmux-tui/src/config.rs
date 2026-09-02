@@ -3422,7 +3422,10 @@ pub fn load() -> Config {
     if let Some(glyph) = raw.sidebar.rail_glyph {
         if glyph.eq_ignore_ascii_case("none") {
             config.sidebar.rail_glyph = String::new();
-        } else if glyph.chars().count() == 1 && glyph.cell_width() == 1 {
+        } else if glyph.chars().count() == 1
+            && glyph.chars().all(|character| !character.is_control())
+            && glyph.cell_width() == 1
+        {
             // The renderer reserves exactly one cell for the glyph.
             config.sidebar.rail_glyph = glyph;
         } else {
