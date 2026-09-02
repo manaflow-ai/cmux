@@ -67,8 +67,11 @@ final class NewMachineSheetPresenter {
         plan: MachinePlanSnapshot?,
         imageKinds: [VMImageKindOption],
         preferredWindow: NSWindow?,
-        coordinator: MachineCreateCoordinator = .shared
+        coordinator: MachineCreateCoordinator? = nil
     ) {
+        // `.shared` is main-actor-isolated, so it cannot be a default argument
+        // (default values evaluate in a nonisolated context); resolve it here.
+        let coordinator = coordinator ?? .shared
         if let plan, plan.isAtLimit, !plan.isPaidPlan {
             ProUpgradePresenter.present()
             return
