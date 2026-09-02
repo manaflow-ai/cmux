@@ -22,8 +22,8 @@ function captureImageConfigError(fn: () => unknown): VmImageConfigError {
 // cmux's validated public-platform devbox (baked on cmux's Freestyle account):
 // the manifest's base default. The manifest is the only source of truth for
 // images; no env var selects or overrides one.
-const validatedSnapshot = "sh-940ec3bc46224c019e5e8d9a97053293";
-const validatedVersion = "freestyle-cmux-devbox-20260902c";
+const validatedSnapshot = "sh-570d005387b74030ad7d8f51e855f288";
+const validatedVersion = "freestyle-cmux-devbox-20260902d";
 // The desktop devbox from this PR: validated, listed under both kinds with one
 // image id, but baked on another Freestyle account, so not a default until
 // re-promoted under cmux's key.
