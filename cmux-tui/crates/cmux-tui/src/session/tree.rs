@@ -979,6 +979,23 @@ mod tests {
     }
 
     #[test]
+    fn pane_parser_reindexes_active_tab_after_dropping_malformed_tabs() {
+        let pane = parse_pane(&json!({
+            "id": 3,
+            "active_tab": 1,
+            "tabs": [
+                {"title": "malformed"},
+                {"surface": 5, "title": "active"}
+            ]
+        }))
+        .unwrap();
+
+        assert_eq!(pane.tabs.len(), 1);
+        assert_eq!(pane.active_tab, 0);
+        assert_eq!(pane.active_surface(), Some(5));
+    }
+
+    #[test]
     fn tree_parser_defaults_and_preserves_pane_revision() {
         assert_eq!(parse_tree(&json!({"workspaces": []})).pane_revision, None);
         assert_eq!(
