@@ -1552,6 +1552,26 @@ mod tests {
     }
 
     #[test]
+    fn bounded_child_stdout_reader_rejects_oversized_output() {
+        let mut exact = Command::new("sh")
+            .args(["-c", "printf four"])
+            .stdout(Stdio::piped())
+            .stderr(Stdio::null())
+            .spawn()
+            .unwrap();
+        assert_eq!(read_bounded_child_stdout(&mut exact, 4), Some(b"four".to_vec()));
+
+        let mut oversized = Command::new("sh")
+            .args(["-c", "printf four"])
+            .stdout(Stdio::piped())
+            .stderr(Stdio::null())
+            .spawn()
+            .unwrap();
+        assert_eq!(read_bounded_child_stdout(&mut oversized, 3), None);
+        assert!(oversized.try_wait().unwrap().is_some());
+    }
+
+    #[test]
     fn plugin_registry_rejects_an_unbounded_entry_count() {
         let root = std::env::temp_dir().join(format!(
             "cmux-plugin-registry-entry-limit-{}-{}",
