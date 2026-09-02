@@ -290,7 +290,7 @@ impl TreeView {
         self.location_index.get_or_init(|| TreeLocationIndex::build(self))
     }
 
-    fn invalidate_location_index(&mut self) {
+    pub(crate) fn invalidate_location_index(&mut self) {
         self.location_index = OnceLock::new();
     }
 }
