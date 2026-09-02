@@ -2,6 +2,10 @@
 
 This is the scoped todo list for making the Cloud VM backend production-ready with application logic running in the existing Vercel `manaflow/cmux` project.
 
+> **2026-09-02:** every other Cloud VM provider has been removed; Freestyle is
+> the only one. Completed `[x]` items below are kept as a record of what was
+> done at the time and still name providers that no longer exist.
+
 ## Current State
 
 - Vercel project exists: `manaflow/cmux`.
@@ -82,9 +86,7 @@ These are already configured in Vercel for development, preview, and production:
   - Stack user ids
   - Stack org ids later, if org billing exists
 - [ ] Set `CMUX_VM_DEFAULT_PROVIDER` in Vercel development, preview, and production.
-- [ ] Set `E2B_API_KEY` in Vercel preview and production.
 - [ ] Set `FREESTYLE_API_KEY` in Vercel preview and production.
-- [ ] Set `E2B_CMUXD_WS_TEMPLATE` in Vercel preview and production.
 - [ ] Set `FREESTYLE_SANDBOX_SNAPSHOT` in Vercel preview and production.
 - [ ] Set Axiom/OpenTelemetry env in Vercel preview and production:
   - `OTEL_SERVICE_NAME`
@@ -101,9 +103,8 @@ These are already configured in Vercel for development, preview, and production:
 - [ ] Smoke test preview:
   - `cmux auth login`
   - `cmux vm new --provider freestyle`
-  - `cmux vm new --provider e2b`
   - `cmux vm attach <id>`
-  - browser proxy against a simple HTTP server inside each provider VM
+  - browser proxy against a simple HTTP server inside the VM
 - [ ] Redeploy production only after preview smoke tests pass.
 
 ## Phase 2: Local Secret Parity
@@ -119,9 +120,7 @@ These are already configured in Vercel for development, preview, and production:
   - `CMUX_VM_REQUIRE_PRO` (legacy compatibility alias only: `0`/`false`/`no`/`off`/`disabled`
     enables free provisioning **only while** `CMUX_VM_ALLOW_FREE_PROVISIONING` is unset; any set
     value of the new switch wins, and every other legacy value or unset keeps the gate on)
-  - `CMUX_VM_E2B_ENABLED`
   - `CMUX_VM_FREESTYLE_ENABLED`
-  - `E2B_CMUXD_WS_TEMPLATE`
   - `FREESTYLE_SANDBOX_SNAPSHOT`
   - Axiom/OpenTelemetry vars
 - [x] Document the split between `~/.secrets/cmuxterm-dev.env`, `~/.secrets/cmuxterm.env`, and
@@ -164,7 +163,7 @@ Phase 1 should keep exact image IDs in Vercel env vars. This gives simple rollba
   - missing image env fails before provider call
   - unknown image id fails before provider call
   - known manifest image resolves to the expected provider id
-- [ ] Keep old E2B templates and Freestyle snapshots until all active VMs using them are gone.
+- [ ] Keep old Freestyle snapshots until all active VMs using them are gone.
 
 ## Phase 4: Image Build and Promotion Workflow
 
@@ -214,7 +213,7 @@ Phase 1 should keep exact image IDs in Vercel env vars. This gives simple rollba
   - another user cannot `POST /api/vm/:id/exec`
   - another user cannot mint attach or SSH endpoints
 - [x] Remove raw `/api/rivet/*`; there is no raw actor action surface to test.
-- [ ] Add provider API key rotation runbooks for E2B and Freestyle.
+- [ ] Add a provider API key rotation runbook for Freestyle.
 - [ ] Audit logs, spans, JSON responses, and terminal startup commands for secret leakage:
   - provider API keys
   - Stack access/refresh tokens
@@ -260,7 +259,6 @@ This should be a follow-up after the current VM PR unless billing becomes a laun
 - [ ] Add cost rollups by user, provider, and day.
 - [ ] Make cleanup jobs idempotent so orphan cleanup cannot double count usage.
 - [ ] Add provider spend alerts independent of app telemetry:
-  - E2B dashboard/API budget alert
   - Freestyle dashboard/API budget alert
   - Vercel spend alert for function usage
 
@@ -337,7 +335,7 @@ after the Vercel REST handshake. Rivet is only a temporary stateful control-plan
 - [ ] PR checks should run web typecheck and Bun tests.
 - [ ] PR checks should not call paid providers by default.
 - [ ] Provider tests should use a `MockVMProvider` by default.
-- [ ] Staging smoke tests may call real E2B/Freestyle with tiny quotas.
+- [ ] Staging smoke tests may call real Freestyle with tiny quotas.
 - [ ] Vercel preview checks should verify the project root is still `web`.
 - [ ] Add a CI check that required deployed env var names are documented in `web/.env.example` and
   `web/services/vms/README.md`.
