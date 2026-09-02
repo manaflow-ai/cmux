@@ -501,8 +501,22 @@ fn is_sensitive_env_name(name: &str) -> bool {
 }
 
 fn is_safe_plugin_build_env_name(name: &str) -> bool {
-    matches!(name, "PATH" | "HOME" | "TMPDIR" | "LANG" | "LC_ALL" | "LC_CTYPE" | "TERM" | "CI")
-        || name.starts_with("LC_")
+    matches!(
+        name,
+        "PATH"
+            | "HOME"
+            | "TMPDIR"
+            | "LANG"
+            | "LC_ALL"
+            | "LC_CTYPE"
+            | "TERM"
+            | "CI"
+            | "RUSTUP_HOME"
+            | "RUSTUP_TOOLCHAIN"
+            | "CARGO_HOME"
+            | "CARGO_BUILD_TARGET"
+            | "RUSTFLAGS"
+    ) || name.starts_with("LC_")
 }
 
 fn scrub_plugin_build_environment(command: &mut Command) {
@@ -1011,13 +1025,9 @@ mod tests {
         }
         assert!(is_safe_plugin_build_env_name("PATH"));
         assert!(is_safe_plugin_build_env_name("LC_CTYPE"));
-        for name in [
-            "RUSTUP_HOME",
-            "RUSTUP_TOOLCHAIN",
-            "CARGO_HOME",
-            "CARGO_BUILD_TARGET",
-            "RUSTFLAGS",
-        ] {
+        for name in
+            ["RUSTUP_HOME", "RUSTUP_TOOLCHAIN", "CARGO_HOME", "CARGO_BUILD_TARGET", "RUSTFLAGS"]
+        {
             assert!(is_safe_plugin_build_env_name(name), "toolchain environment name: {name}");
         }
     }
