@@ -706,14 +706,6 @@ struct cmuxApp: App {
                     }
                     Button(
                         String(
-                            localized: "debug.menu.splitButtonLayoutDebug",
-                            defaultValue: "Split Button Layout Debug…"
-                        )
-                    ) {
-                        SplitButtonLayoutDebugWindowController.shared.show()
-                    }
-                    Button(
-                        String(
                             localized: "debug.menu.tabBarBackdropLab",
                             defaultValue: "Tab Bar Backdrop Lab…"
                         )
@@ -1548,7 +1540,6 @@ struct cmuxApp: App {
         FeedTextEditorDebugWindowController.shared.show()
         FeedButtonStyleDebugWindowController.shared.show()
         BonsplitTabBarDebugWindowController.shared.show()
-        SplitButtonLayoutDebugWindowController.shared.show()
     }
 #endif
 }
@@ -1586,7 +1577,6 @@ private let cmuxAuxiliaryWindowIdentifiers: Set<String> = [
     "cmux.pdfPreviewChromeDebug",
     "cmux.proBadgeDebug",
     "cmux.recentlyClosedHistory",
-    "cmux.splitButtonLayoutDebug",
     "cmux.tabBarBackdropLab",
     "cmux.taskManager",
     "cmux.aboutTitlebarDebug",
@@ -1830,14 +1820,6 @@ private struct DebugWindowControlsView: View {
                         }
                         Button(
                             String(
-                                localized: "debug.menu.splitButtonLayoutDebug",
-                                defaultValue: "Split Button Layout Debug…"
-                            )
-                        ) {
-                            SplitButtonLayoutDebugWindowController.shared.show()
-                        }
-                        Button(
-                            String(
                                 localized: "debug.menu.feedTextEditorDebug",
                                 defaultValue: "Feed Text Editor Lab…"
                             )
@@ -1858,7 +1840,6 @@ private struct DebugWindowControlsView: View {
                             MenuBarExtraDebugWindowController.shared.show()
                             PDFPreviewChromeDebugWindowController.shared.show()
                             TabBarBackdropLabWindowController.shared.show()
-                            SplitButtonLayoutDebugWindowController.shared.show()
                             FeedTextEditorDebugWindowController.shared.show()
                         }
                     }
@@ -3841,331 +3822,6 @@ private struct MenuBarExtraDebugView: View {
         AppDelegate.shared?.refreshMenuBarExtraForDebug()
     }
 }
-
-#if DEBUG
-// MARK: - Split Button Layout Debug Window
-
-private final class SplitButtonLayoutDebugWindowController: ReleasingWindowController {
-    static let shared = SplitButtonLayoutDebugWindowController()
-
-    override func makeWindow() -> NSWindow {
-        let window = NSPanel(
-            contentRect: NSRect(x: 0, y: 0, width: 420, height: 460),
-            styleMask: [.titled, .closable, .resizable, .utilityWindow],
-            backing: .buffered,
-            defer: false
-        )
-        window.title = String(localized: "debug.splitButtonLayout.windowTitle", defaultValue: "Split Button Layout")
-        window.titleVisibility = .visible
-        window.titlebarAppearsTransparent = false
-        window.isMovableByWindowBackground = true
-        window.identifier = NSUserInterfaceItemIdentifier("cmux.splitButtonLayoutDebug")
-        window.center()
-        window.contentView = NSHostingView(rootView: SplitButtonLayoutDebugView())
-        AppDelegate.shared?.applyWindowDecorations(to: window)
-        return window
-    }
-
-    func show() {
-        showManagedWindow()
-    }
-}
-
-private struct SplitButtonLayoutDebugView: View {
-    @AppStorage("debugFadeColorStyle") private var backdropStyle = 0
-    @AppStorage(TitlebarControlsStyle.storageKey) private var titlebarControlsStyleRawValue = TitlebarControlsStyle.defaultRawValue
-    @AppStorage(TitlebarNewWorkspaceCloudSplitButtonDebugSettings.alwaysHoverKey)
-    private var alwaysHover = TitlebarNewWorkspaceCloudSplitButtonDebugSettings.defaultAlwaysHover
-    @AppStorage(TitlebarNewWorkspaceCloudSplitButtonDebugSettings.forcedHoverSegmentKey)
-    private var forcedHoverSegmentRaw = TitlebarNewWorkspaceCloudSplitButtonDebugSettings.defaultForcedHoverSegment.rawValue
-    @AppStorage(TitlebarNewWorkspaceCloudSplitButtonDebugSettings.plusWidthOffsetKey)
-    private var plusWidthOffset = TitlebarNewWorkspaceCloudSplitButtonDebugSettings.defaultPlusWidthOffset
-    @AppStorage(TitlebarNewWorkspaceCloudSplitButtonDebugSettings.caretWidthOffsetKey)
-    private var caretWidthOffset = TitlebarNewWorkspaceCloudSplitButtonDebugSettings.defaultCaretWidthOffset
-    @AppStorage(TitlebarNewWorkspaceCloudSplitButtonDebugSettings.plusPaddingTopKey)
-    private var plusPaddingTop = TitlebarNewWorkspaceCloudSplitButtonDebugSettings.defaultPadding
-    @AppStorage(TitlebarNewWorkspaceCloudSplitButtonDebugSettings.plusPaddingLeadingKey)
-    private var plusPaddingLeading = TitlebarNewWorkspaceCloudSplitButtonDebugSettings.defaultPadding
-    @AppStorage(TitlebarNewWorkspaceCloudSplitButtonDebugSettings.plusPaddingBottomKey)
-    private var plusPaddingBottom = TitlebarNewWorkspaceCloudSplitButtonDebugSettings.defaultPadding
-    @AppStorage(TitlebarNewWorkspaceCloudSplitButtonDebugSettings.plusPaddingTrailingKey)
-    private var plusPaddingTrailing = TitlebarNewWorkspaceCloudSplitButtonDebugSettings.defaultPlusPaddingTrailing
-    @AppStorage(TitlebarNewWorkspaceCloudSplitButtonDebugSettings.caretPaddingTopKey)
-    private var caretPaddingTop = TitlebarNewWorkspaceCloudSplitButtonDebugSettings.defaultPadding
-    @AppStorage(TitlebarNewWorkspaceCloudSplitButtonDebugSettings.caretPaddingLeadingKey)
-    private var caretPaddingLeading = TitlebarNewWorkspaceCloudSplitButtonDebugSettings.defaultPadding
-    @AppStorage(TitlebarNewWorkspaceCloudSplitButtonDebugSettings.caretPaddingBottomKey)
-    private var caretPaddingBottom = TitlebarNewWorkspaceCloudSplitButtonDebugSettings.defaultPadding
-    @AppStorage(TitlebarNewWorkspaceCloudSplitButtonDebugSettings.caretPaddingTrailingKey)
-    private var caretPaddingTrailing = TitlebarNewWorkspaceCloudSplitButtonDebugSettings.defaultPadding
-    @State private var plusClicks = 0
-
-    private var options: [(Int, String)] {
-        [
-            (0, String(localized: "debug.splitButtonLayout.option.precompositedPane", defaultValue: "Pre-composited paneBackground")),
-            (1, String(localized: "debug.splitButtonLayout.option.rawPane", defaultValue: "Raw paneBackground (opaque)")),
-            (2, String(localized: "debug.splitButtonLayout.option.rawBar", defaultValue: "barBackground (tab chrome)")),
-            (3, String(localized: "debug.splitButtonLayout.option.windowBackground", defaultValue: "windowBackgroundColor")),
-            (4, String(localized: "debug.splitButtonLayout.option.controlBackground", defaultValue: "controlBackgroundColor")),
-            (5, String(localized: "debug.splitButtonLayout.option.precompositedBar", defaultValue: "Pre-composited barBackground")),
-            (6, String(localized: "debug.splitButtonLayout.option.translucentChrome", defaultValue: "Translucent chrome")),
-            (7, String(localized: "debug.splitButtonLayout.option.hidden", defaultValue: "Hidden")),
-        ]
-    }
-
-    private var currentTitlebarControlsStyle: TitlebarControlsStyle {
-        TitlebarControlsStyle.stored(rawValue: titlebarControlsStyleRawValue)
-    }
-
-    private var forcedHoverSegmentOptions: [(TitlebarNewWorkspaceCloudSplitButtonForcedHoverSegment, String)] {
-        [
-            (
-                .newTab,
-                String(localized: "debug.splitButtonLayout.hoverSegment.plus", defaultValue: "Plus")
-            ),
-            (
-                .cloudMenu,
-                String(localized: "debug.splitButtonLayout.hoverSegment.caret", defaultValue: "Caret")
-            ),
-            (
-                .both,
-                String(localized: "debug.splitButtonLayout.hoverSegment.both", defaultValue: "Both")
-            ),
-        ]
-    }
-
-    var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 14) {
-                Text(String(localized: "debug.splitButtonLayout.title", defaultValue: "Button Backdrop Color"))
-                    .cmuxFont(.headline)
-
-                GroupBox(String(localized: "debug.splitButtonLayout.cloudPreview", defaultValue: "Cloud Split Button")) {
-                    VStack(alignment: .leading, spacing: 12) {
-                        ForEach(TitlebarControlsStyle.allCases) { style in
-                            let isCurrentStyle = style == currentTitlebarControlsStyle
-                            HStack(spacing: 12) {
-                                Text(style.menuTitle)
-                                    .cmuxFont(.caption)
-                                    .foregroundColor(.secondary)
-                                    .frame(width: 72, alignment: .leading)
-                                TitlebarNewWorkspaceCloudSplitButton(
-                                    config: style.config,
-                                    foregroundColor: Color(nsColor: titlebarControlForegroundNSColor(opacity: 1.0)),
-                                    onNewTab: { plusClicks += 1 }
-                                )
-                                if isCurrentStyle {
-                                    Text(String(localized: "debug.splitButtonLayout.inUse", defaultValue: "In Use"))
-                                        .cmuxFont(.caption)
-                                        .foregroundColor(.accentColor)
-                                        .padding(.horizontal, 6)
-                                        .padding(.vertical, 2)
-                                        .background(Capsule().fill(Color.accentColor.opacity(0.14)))
-                                }
-                                Spacer(minLength: 0)
-                            }
-                            .frame(height: 28)
-                            .padding(.horizontal, 6)
-                            .background(
-                                RoundedRectangle(cornerRadius: 5, style: .continuous)
-                                    .fill(isCurrentStyle ? Color.accentColor.opacity(0.08) : Color.clear)
-                            )
-                        }
-
-                        HStack(spacing: 8) {
-                            Image(systemName: "plus")
-                            Text(
-                                String(
-                                    format: String(
-                                        localized: "debug.splitButtonLayout.plusClicks",
-                                        defaultValue: "Plus clicks: %d"
-                                    ),
-                                    plusClicks
-                                )
-                            )
-                        }
-                        .cmuxFont(.caption)
-                        .foregroundColor(.secondary)
-                    }
-                    .padding(.vertical, 4)
-
-                    Toggle(
-                        String(
-                            localized: "debug.splitButtonLayout.alwaysHover",
-                            defaultValue: "Always Show Hover State"
-                        ),
-                        isOn: $alwaysHover
-                    )
-
-                    Picker(
-                        String(
-                            localized: "debug.splitButtonLayout.hoverSegment",
-                            defaultValue: "Forced Hover Segment"
-                        ),
-                        selection: $forcedHoverSegmentRaw
-                    ) {
-                        ForEach(forcedHoverSegmentOptions, id: \.0) { segment, label in
-                            Text(label).tag(segment.rawValue)
-                        }
-                    }
-                    .pickerStyle(.segmented)
-                    .disabled(!alwaysHover)
-                    .opacity(alwaysHover ? 1 : 0.55)
-                }
-
-                GroupBox(String(localized: "debug.splitButtonLayout.innerPadding", defaultValue: "Inner Padding and Width")) {
-                    VStack(alignment: .leading, spacing: 12) {
-                        VStack(alignment: .leading, spacing: 8) {
-                            Text(String(localized: "debug.splitButtonLayout.sectionWidth", defaultValue: "Section Width"))
-                                .cmuxFont(.caption)
-                                .foregroundColor(.secondary)
-                            sliderRow(
-                                String(
-                                    localized: "debug.splitButtonLayout.width.plusOffset",
-                                    defaultValue: "Plus Width Offset"
-                                ),
-                                value: $plusWidthOffset,
-                                range: -12...24,
-                                format: "%+.1f"
-                            )
-                            sliderRow(
-                                String(
-                                    localized: "debug.splitButtonLayout.width.caretOffset",
-                                    defaultValue: "Caret Width Offset"
-                                ),
-                                value: $caretWidthOffset,
-                                range: -10...24,
-                                format: "%+.1f"
-                            )
-                        }
-
-                        VStack(alignment: .leading, spacing: 8) {
-                            Text(String(localized: "debug.splitButtonLayout.plusSegment", defaultValue: "Plus Segment"))
-                                .cmuxFont(.caption)
-                                .foregroundColor(.secondary)
-                            sliderRow(
-                                String(localized: "debug.splitButtonLayout.padding.top", defaultValue: "Top"),
-                                value: $plusPaddingTop,
-                                range: -8...8,
-                                format: "%.1f"
-                            )
-                            sliderRow(
-                                String(localized: "debug.splitButtonLayout.padding.leading", defaultValue: "Leading"),
-                                value: $plusPaddingLeading,
-                                range: -8...8,
-                                format: "%.1f"
-                            )
-                            sliderRow(
-                                String(localized: "debug.splitButtonLayout.padding.bottom", defaultValue: "Bottom"),
-                                value: $plusPaddingBottom,
-                                range: -8...8,
-                                format: "%.1f"
-                            )
-                            sliderRow(
-                                String(localized: "debug.splitButtonLayout.padding.trailing", defaultValue: "Trailing"),
-                                value: $plusPaddingTrailing,
-                                range: -8...8,
-                                format: "%.1f"
-                            )
-                        }
-
-                        VStack(alignment: .leading, spacing: 8) {
-                            Text(String(localized: "debug.splitButtonLayout.caretSegment", defaultValue: "Caret Segment"))
-                                .cmuxFont(.caption)
-                                .foregroundColor(.secondary)
-                            sliderRow(
-                                String(localized: "debug.splitButtonLayout.padding.top", defaultValue: "Top"),
-                                value: $caretPaddingTop,
-                                range: -8...8,
-                                format: "%.1f"
-                            )
-                            sliderRow(
-                                String(localized: "debug.splitButtonLayout.padding.leading", defaultValue: "Leading"),
-                                value: $caretPaddingLeading,
-                                range: -8...8,
-                                format: "%.1f"
-                            )
-                            sliderRow(
-                                String(localized: "debug.splitButtonLayout.padding.bottom", defaultValue: "Bottom"),
-                                value: $caretPaddingBottom,
-                                range: -8...8,
-                                format: "%.1f"
-                            )
-                            sliderRow(
-                                String(localized: "debug.splitButtonLayout.padding.trailing", defaultValue: "Trailing"),
-                                value: $caretPaddingTrailing,
-                                range: -8...8,
-                                format: "%.1f"
-                            )
-                        }
-
-                        Button(
-                            String(
-                                localized: "debug.splitButtonLayout.resetPadding",
-                                defaultValue: "Reset Padding and Widths"
-                            )
-                        ) {
-                            resetInnerPadding()
-                        }
-                    }
-                    .padding(.vertical, 4)
-                }
-
-                GroupBox(String(localized: "debug.splitButtonLayout.backdropOptions", defaultValue: "Backdrop Options")) {
-                    VStack(alignment: .leading, spacing: 8) {
-                        ForEach(options, id: \.0) { id, label in
-                            HStack {
-                                Image(systemName: backdropStyle == id ? "checkmark.circle.fill" : "circle")
-                                    .foregroundColor(backdropStyle == id ? .accentColor : .secondary)
-                                Text(label)
-                            }
-                            .contentShape(Rectangle())
-                            .onTapGesture { backdropStyle = id }
-                        }
-                    }
-                    .padding(.vertical, 4)
-                }
-
-                Text(String(localized: "debug.splitButtonLayout.liveNote", defaultValue: "Changes apply live."))
-                    .cmuxFont(.caption)
-                    .foregroundColor(.secondary)
-            }
-            .padding(16)
-            .frame(maxWidth: .infinity, alignment: .topLeading)
-        }
-    }
-
-    private func resetInnerPadding() {
-        let padding = TitlebarNewWorkspaceCloudSplitButtonDebugSettings.defaultPadding
-        plusPaddingTop = padding
-        plusPaddingLeading = padding
-        plusPaddingBottom = padding
-        plusPaddingTrailing = TitlebarNewWorkspaceCloudSplitButtonDebugSettings.defaultPlusPaddingTrailing
-        caretPaddingTop = padding
-        caretPaddingLeading = padding
-        caretPaddingBottom = padding
-        caretPaddingTrailing = padding
-        plusWidthOffset = TitlebarNewWorkspaceCloudSplitButtonDebugSettings.defaultPlusWidthOffset
-        caretWidthOffset = TitlebarNewWorkspaceCloudSplitButtonDebugSettings.defaultCaretWidthOffset
-    }
-
-    private func sliderRow(
-        _ label: String,
-        value: Binding<Double>,
-        range: ClosedRange<Double>,
-        format: String
-    ) -> some View {
-        HStack(spacing: 8) {
-            Text(label)
-            Slider(value: value, in: range)
-            Text(String(format: format, value.wrappedValue))
-                .cmuxFont(.caption)
-                .monospacedDigit()
-                .frame(width: 44, alignment: .trailing)
-        }
-    }
-}
-#endif
 
 // MARK: - Tab Bar Backdrop Lab Window
 

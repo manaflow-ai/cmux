@@ -75,15 +75,13 @@ extension AppDelegate {
         let model = NewWorkspaceMenuModel.build(
             newWorkspaceContextMenuItems: cmuxConfigStore.newWorkspaceContextMenuItems,
             agentChatAction: resolvedBuiltInNewAgentChatAction(cmuxConfigStore: cmuxConfigStore),
-            cloudSectionEnabled: CloudMachinesFeature.isEnabled,
             templateNames: savedLayoutNames(),
             loadedActions: cmuxConfigStore.loadedActions,
             newWorkspaceActionID: cmuxConfigStore.newWorkspaceActionID,
             deletable: { [weak self, weak cmuxConfigStore] action in
                 guard let self, let cmuxConfigStore else { return false }
                 return isDeletableGlobalAction(action, cmuxConfigStore: cmuxConfigStore)
-            },
-            sectionOrder: cmuxConfigStore.newWorkspaceMenuSectionOrder
+            }
         )
         return renderNewWorkspaceContextMenu(
             model: model,

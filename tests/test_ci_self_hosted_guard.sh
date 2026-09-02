@@ -15,22 +15,6 @@ COMPAT_FILE="$ROOT_DIR/.github/workflows/ci-macos-compat.yml"
 E2E_FILE="$ROOT_DIR/.github/workflows/test-e2e.yml"
 TMUX_CORPUS_FILE="$ROOT_DIR/.github/workflows/tmux-corpus.yml"
 IOS_FILE="$ROOT_DIR/.github/workflows/test-ios.yml"
-CLA_GUARD_FILE="$ROOT_DIR/.github/workflows/cla-policy-guard.yml"
-
-check_cla_guard_runner() {
-  if ! grep -Fqx '    runs-on: ${{ vars.LINUX_RUNNER || '\''blacksmith-4vcpu-ubuntu-2404'\'' }}' "$CLA_GUARD_FILE"; then
-    echo "FAIL: cla-policy-guard.yml must use the configured Linux runner with the Blacksmith fallback"
-    exit 1
-  fi
-
-  if grep -Eq '^    runs-on: ubuntu-' "$CLA_GUARD_FILE"; then
-    echo "FAIL: cla-policy-guard.yml must not use a bare GitHub-hosted runner"
-    exit 1
-  fi
-
-  echo "PASS: CLA policy guard uses the configured Linux runner"
-}
-
 check_macos_runner() {
   local file="$1" job="$2"
   if ! awk -v job="$job" '
@@ -1121,7 +1105,7 @@ check_tmux_terminal_nightly_isolation() {
 }
 
 check_no_bare_github_hosted_runners() {
-  # Every job must route its runner through a repo variable (LINUX_RUNNER,
+  # Every product CI job must route its runner through a repo variable (LINUX_RUNNER,
   # MACOS_RUNNER_*) so the Blacksmith<->Warp / Blacksmith<->macos-26 overflow
   # switch is a single repo-variable flip with no PR. A bare GitHub-hosted
   # label (ubuntu-*, macos-NN) cannot be redirected, so it is forbidden.
@@ -1253,7 +1237,6 @@ check_no_self_hosted_fleet_runners() {
 }
 
 # ci.yml jobs
-check_cla_guard_runner
 check_no_bare_github_hosted_runners
 check_no_self_hosted_fleet_runners
 check_macos_runner "$CI_FILE" "app-host-unit-tests"

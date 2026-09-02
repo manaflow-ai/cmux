@@ -1086,11 +1086,12 @@ struct RestorableAgentSessionIndex: Sendable {
     // the bound is exceeded rather than scanning the whole history on autosave.
     private static let maximumStablePanelCandidates = 4
 
-    /// Returns only an entry whose workspace and panel identities both match.
+    /// Returns only the process entry keyed by this exact workspace/panel pair.
     ///
-    /// Security-sensitive callers use this instead of the compatibility lookup
-    /// below so a stale workspace cannot adopt a same-panel entry from another
-    /// restored workspace. Process teardown safety likewise must never borrow a
+    /// Unlike ``entry(workspaceId:panelId:)``, this does not use the panel-ID
+    /// compatibility fallback. Security-sensitive callers must not let a stale
+    /// workspace adopt a same-panel entry from another restored workspace, and
+    /// process teardown safety must never borrow a
     /// live scope from a panel's previous workspace after the surface moves.
     func exactEntry(workspaceId: UUID, panelId: UUID) -> Entry? {
         entriesByPanel[PanelKey(workspaceId: workspaceId, panelId: panelId)]

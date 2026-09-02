@@ -113,6 +113,22 @@ extension TerminalController {
             return await socketSurfaceSelectionResponseAsync(request)
         }
 
+        if request.method == "feed.jump" {
+            guard let result = await controlCommandCoordinator
+                .handleSocketWorkerFeedAsync(request, context: self) else {
+                return Self.v2Encoder.error(
+                    id: request.id,
+                    code: "method_not_found",
+                    message: String(
+                        localized: "socket.error.unknownMethod",
+                        defaultValue: "Unknown method"
+                    ),
+                    data: nil
+                )
+            }
+            return Self.v2Encoder.response(id: request.id, result)
+        }
+
         if ControlCommandExecutionPolicy.servesFromPublishedReadSnapshot(method: request.method),
            let snapshotResult = socketReadSnapshotStore.response(
                 method: request.method,

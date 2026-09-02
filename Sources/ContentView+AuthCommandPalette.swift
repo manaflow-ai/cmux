@@ -62,7 +62,6 @@ extension ContentView {
 }
 
 extension ContentView {
-    static let commandPaletteCloudOpenCommandId = "palette.cloud.open"
     static let commandPaletteCloudForkCommandId = "palette.cloud.fork"
     static let commandPaletteCloudSnapshotCommandId = "palette.cloud.snapshot"
     static let commandPaletteCloudRestoreCommandId = "palette.cloud.restore"
@@ -87,12 +86,6 @@ extension ContentView {
                 title: constant(String(localized: "command.cloudVM.newMachine.title", defaultValue: "New Cloud Machine\u{2026}")),
                 subtitle: subtitle,
                 keywords: ["cloud", "vm", "machine", "new", "create", "desktop", "base"]
-            ),
-            CommandPaletteCommandContribution(
-                commandId: commandPaletteCloudOpenCommandId,
-                title: constant(String(localized: "command.cloudVM.open.title", defaultValue: "Open Base")),
-                subtitle: subtitle,
-                keywords: ["base", "cloud", "vm", "ssh", "sshd", "open", "reconnect"]
             ),
             CommandPaletteCommandContribution(
                 commandId: commandPaletteCloudForkCommandId,
@@ -148,9 +141,6 @@ extension ContentView {
     func registerCloudCommandHandlers(_ registry: inout CommandPaletteHandlerRegistry) {
         registry.register(commandId: Self.commandPaletteCloudNewMachineCommandId) {
             NewMachineSheetPresenter.shared.presentNewMachineFetchingPlan(preferredWindow: NSApp.keyWindow ?? NSApp.mainWindow)
-        }
-        registry.register(commandId: Self.commandPaletteCloudOpenCommandId) {
-            _ = AppDelegate.shared?.performCloudVMAction(debugSource: "palette.cloud.open")
         }
         registry.register(commandId: Self.commandPaletteCloudForkCommandId) {
             _ = AppDelegate.shared?.performCurrentCloudVMCommand(.fork, debugSource: "palette.cloud.fork")
