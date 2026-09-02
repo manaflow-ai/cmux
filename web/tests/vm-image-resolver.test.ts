@@ -20,8 +20,8 @@ function captureImageConfigError(fn: () => unknown): VmImageConfigError {
   throw new Error("expected VmImageConfigError to be thrown");
 }
 
-const validatedSnapshot = "sh-749d7644e9b04ca38c0718b56a9b767b";
-const validatedVersion = "freestyle-cmux-devbox-20260902b";
+const validatedSnapshot = "sh-940ec3bc46224c019e5e8d9a97053293";
+const validatedVersion = "freestyle-cmux-devbox-20260902c";
 
 describe("VM image resolver: request by kind", () => {
   const deployed = { VERCEL: "1", VERCEL_ENV: "production" };
