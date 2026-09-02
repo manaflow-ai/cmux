@@ -3,7 +3,7 @@
 Audit target: https://github.com/manaflow-ai/cmux/pull/10599
 PR branch: `justincrich/cmux:upstream/file-preview-code-view-tokens-gutter`
 Maintainer update remote: `https://github.com/justincrich/cmux.git`
-Audited head: `f4fd1ff5ab3da5662d52c54298bce714484ac67e`
+Audited runtime head: `7cc7044a4f0a61172b416c883ade503bfe02b81a`
 Merged base: `5a453950eac6e765e9d2eeb98fa45a68016f98b9`
 
 ## Merge and compatibility history
@@ -20,6 +20,11 @@ Merged base: `5a453950eac6e765e9d2eeb98fa45a68016f98b9`
 - `d5a2941c78` is the small base-merge compatibility repair that uses
   `hostedView.surfaceView.terminalSurface` for portal teardown identity. It is
   unrelated to the File Preview redesign.
+- `7cc7044a4f` is a Release-build compatibility repair. Swift 6.3's optimizer
+  crashed while compiling the actor-isolated generic `Coordinator` deinit;
+  the styler task now keeps only the highlighting actor across its await, so
+  the styler's own deinitializer can cancel teardown safely without that
+  compiler-crash path.
 - The `Resources/Localizable.xcstrings` merge was resolved semantically. It is
   valid JSON, has no duplicate entries in its top-level `strings` object, and
   contains the union of both parent catalogs (5,577 keys).
@@ -33,7 +38,8 @@ Merged base: `5a453950eac6e765e9d2eeb98fa45a68016f98b9`
 - Syntax requests are actor-isolated and cancellation/generation guarded before
   policy, Highlightr/JSC setup, tokenization, and remapping. Stale queued edits
   are dropped; hidden tabs cancel and visible tabs force a fresh pass. No
-  sleep-based debounce remains.
+  sleep-based debounce remains. The task capture also avoids retaining the
+  styler across the highlighting await, allowing teardown cancellation.
 - `FilePreviewLineIndex` lives in `Packages/macOS/CmuxFilePreviewCore` and uses
   packed separator-aware block treap storage with lazy suffix shifts. UTF-16
   edits, exact boundaries (including CRLF and edits ending at line starts),
@@ -118,6 +124,13 @@ CMUX_SKIP_ZIG_BUILD=1 scripts/reload-cloud.sh --tag pr-10599-review --launch
 
 Cloud runs: `pr-10599-review-8ac6289031ae` (code tree) and
 `pr-10599-review-be7f3171c8ff` (final merged head).
+
+The post-audit Release-compatibility repair was rebuilt and launched under the
+same tag as `pr-10599-review-79f6047e9715`; its Debug build completed in 259s,
+the installed identity and tagged socket were verified, and no launch failure
+was reported. The next PR CI run must confirm the corresponding Release WMO
+compiler path; the prior failure was a Swift frontend crash, not a source
+diagnostic.
 
 The installed and launched identity is `cmux DEV pr-10599-review` with bundle
 identifier `com.cmuxterm.app.debug.pr.10599.review`. The matching tagged debug
