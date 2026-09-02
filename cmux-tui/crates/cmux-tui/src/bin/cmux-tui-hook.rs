@@ -157,6 +157,36 @@ impl Drop for DetachedChildGuard {
     }
 }
 
+type SetupResult = anyhow::Result<(DetachedChildGuard, std::process::ChildStdout)>;
+
+/// Forward setup ownership to the provider-facing path. If that path has
+/// already timed out, recover a successful handoff from `SendError` and
+/// release the child instead of dropping the guard, which would terminate it.
+fn forward_setup_result(sender: std::sync::mpsc::SyncSender<SetupResult>, result: SetupResult) {
+    if let Err(error) = sender.send(result) {
+        if let Ok((child, stdout)) = error.0 {
+            child.release();
+            drop(stdout);
+        }
+    }
+}
+
+/// Run setup on a worker and transfer successful child ownership through a
+/// rendezvous. A timed-out receiver cannot leave a queued guard to be dropped.
+fn setup_handoff<F>(deadline: Option<Instant>, setup: F) -> Option<SetupResult>
+where
+    F: FnOnce() -> SetupResult + Send + 'static,
+{
+    let (sender, receiver) = std::sync::mpsc::sync_channel(0);
+    std::thread::spawn(move || forward_setup_result(sender, setup()));
+    match deadline {
+        Some(deadline) => {
+            receiver.recv_timeout(deadline.saturating_duration_since(Instant::now())).ok()
+        }
+        None => receiver.recv().ok(),
+    }
+}
+
 /// Settle the parent-side ownership before the provider-facing process
 /// returns. A child that already exited is reaped and its stdout reader is
 /// joined. A child that is still running must continue waiting for its receipt,
@@ -674,45 +704,28 @@ mod detach {
         unsafe {
             command.pre_exec(detach_session);
         }
-        let (sender, receiver) = mpsc::sync_channel(1);
         let request_id = request_id.to_owned();
         let encoded = encoded.to_owned();
-        std::thread::spawn(move || {
-            let result =
-                (|| -> anyhow::Result<(super::DetachedChildGuard, std::process::ChildStdout)> {
-                    let mut child = super::DetachedChildGuard::new(
-                        command.spawn().context("spawn detached hook child")?,
-                    );
-                    let mut stdin = child
-                        .child_mut()
-                        .stdin
-                        .take()
-                        .context("detached hook child has no stdin")?;
-                    stdin.write_all(request_id.as_bytes())?;
-                    stdin.write_all(b"\n")?;
-                    stdin.write_all(&encoded)?;
-                    stdin.flush()?;
-                    drop(stdin);
-                    let stdout = child
-                        .child_mut()
-                        .stdout
-                        .take()
-                        .context("detached hook child has no stdout")?;
-                    Ok((child, stdout))
-                })();
-            let _ = sender.send(result);
+        let setup = super::setup_handoff(deadline, move || {
+            (|| -> anyhow::Result<(super::DetachedChildGuard, std::process::ChildStdout)> {
+                let mut child = super::DetachedChildGuard::new(
+                    command.spawn().context("spawn detached hook child")?,
+                );
+                let mut stdin =
+                    child.child_mut().stdin.take().context("detached hook child has no stdin")?;
+                stdin.write_all(request_id.as_bytes())?;
+                stdin.write_all(b"\n")?;
+                stdin.write_all(&encoded)?;
+                stdin.flush()?;
+                drop(stdin);
+                let stdout =
+                    child.child_mut().stdout.take().context("detached hook child has no stdout")?;
+                Ok((child, stdout))
+            })()
         });
-        let setup = || {
-            deadline.map_or(None, |deadline| {
-                Some(deadline.saturating_duration_since(std::time::Instant::now()))
-            })
-        };
-        let (mut child, mut stdout) = match match setup() {
-            Some(remaining) => receiver.recv_timeout(remaining).map_err(|_| ()),
-            None => receiver.recv().map_err(|_| ()),
-        } {
-            Ok(result) => result?,
-            Err(_) => return Ok(Handoff::TimedOut),
+        let (mut child, mut stdout) = match setup {
+            Some(result) => result?,
+            None => return Ok(Handoff::TimedOut),
         };
         let (sender, receiver) = mpsc::channel();
         let reader = std::thread::spawn(move || {
@@ -767,43 +780,28 @@ mod detach {
             .stdout(Stdio::piped())
             .stderr(Stdio::null());
         command.creation_flags(DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP);
-        let (sender, receiver) = mpsc::sync_channel(1);
         let request_id = request_id.to_owned();
         let encoded = encoded.to_owned();
-        std::thread::spawn(move || {
-            let result =
-                (|| -> anyhow::Result<(super::DetachedChildGuard, std::process::ChildStdout)> {
-                    let mut child = super::DetachedChildGuard::new(
-                        command.spawn().context("spawn detached hook child")?,
-                    );
-                    let mut stdin = child
-                        .child_mut()
-                        .stdin
-                        .take()
-                        .context("detached hook child has no stdin")?;
-                    stdin.write_all(request_id.as_bytes())?;
-                    stdin.write_all(b"\n")?;
-                    stdin.write_all(&encoded)?;
-                    stdin.flush()?;
-                    drop(stdin);
-                    let stdout = child
-                        .child_mut()
-                        .stdout
-                        .take()
-                        .context("detached hook child has no stdout")?;
-                    Ok((child, stdout))
-                })();
-            let _ = sender.send(result);
+        let setup = super::setup_handoff(deadline, move || {
+            (|| -> anyhow::Result<(super::DetachedChildGuard, std::process::ChildStdout)> {
+                let mut child = super::DetachedChildGuard::new(
+                    command.spawn().context("spawn detached hook child")?,
+                );
+                let mut stdin =
+                    child.child_mut().stdin.take().context("detached hook child has no stdin")?;
+                stdin.write_all(request_id.as_bytes())?;
+                stdin.write_all(b"\n")?;
+                stdin.write_all(&encoded)?;
+                stdin.flush()?;
+                drop(stdin);
+                let stdout =
+                    child.child_mut().stdout.take().context("detached hook child has no stdout")?;
+                Ok((child, stdout))
+            })()
         });
-        let setup = match deadline {
-            Some(deadline) => receiver
-                .recv_timeout(deadline.saturating_duration_since(std::time::Instant::now()))
-                .map_err(|_| ()),
-            None => receiver.recv().map_err(|_| ()),
-        };
         let (mut child, mut stdout) = match setup {
-            Ok(result) => result?,
-            Err(_) => return Ok(Handoff::TimedOut),
+            Some(result) => result?,
+            None => return Ok(Handoff::TimedOut),
         };
         // Pipe reads have no timeout on Windows; a reader thread plus a
         // bounded channel wait gives the same absolute deadline as poll(2).
@@ -934,5 +932,69 @@ mod tests {
         );
 
         assert!(matches!(result, Err(AppendAttemptError::Fatal(_))));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn setup_send_failure_releases_a_successfully_spawned_child() {
+        use std::process::{Command, Stdio};
+        use std::sync::mpsc;
+
+        let root = tempfile::tempdir().unwrap();
+        let marker = root.path().join("survived");
+        let child = Command::new("/bin/sh")
+            .arg("-c")
+            .arg("sleep 0.1; printf survived > \"$CMUX_TUI_TEST_MARKER\"")
+            .env("CMUX_TUI_TEST_MARKER", &marker)
+            .stdout(Stdio::piped())
+            .spawn()
+            .unwrap();
+        let mut guard = DetachedChildGuard::new(child);
+        let stdout = guard.child_mut().stdout.take().unwrap();
+        let (sender, receiver) = mpsc::sync_channel(0);
+        drop(receiver);
+
+        forward_setup_result(sender, Ok((guard, stdout)));
+
+        let deadline = Instant::now() + Duration::from_secs(2);
+        while !marker.exists() && Instant::now() < deadline {
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        assert_eq!(std::fs::read_to_string(marker).unwrap(), "survived");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn append_detached_setup_timeout_releases_a_late_child() {
+        use std::process::{Command, Stdio};
+        use std::sync::{Arc, Barrier};
+
+        let root = tempfile::tempdir().unwrap();
+        let marker = root.path().join("survived");
+        let child = Command::new("/bin/sh")
+            .arg("-c")
+            .arg("read ignored; printf survived > \"$CMUX_TUI_TEST_MARKER\"")
+            .env("CMUX_TUI_TEST_MARKER", &marker)
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .spawn()
+            .unwrap();
+        let mut guard = DetachedChildGuard::new(child);
+        let stdout = guard.child_mut().stdout.take().unwrap();
+        let barrier = Arc::new(Barrier::new(2));
+        let worker_barrier = barrier.clone();
+
+        let setup = setup_handoff(Some(Instant::now() + Duration::from_millis(20)), move || {
+            worker_barrier.wait();
+            Ok((guard, stdout))
+        });
+        assert!(setup.is_none(), "setup should time out before the worker handoff");
+
+        barrier.wait();
+        let deadline = Instant::now() + Duration::from_secs(2);
+        while !marker.exists() && Instant::now() < deadline {
+            std::thread::yield_now();
+        }
+        assert_eq!(std::fs::read_to_string(marker).unwrap(), "survived");
     }
 }
