@@ -94,7 +94,7 @@ export type VmRepositoryShape = {
     readonly provider: ProviderId;
     readonly image: string;
     readonly imageVersion?: string | null;
-    readonly maxActiveVms: number;
+    readonly maxActiveVms: number | null;
     readonly idempotencyKey?: string;
   }) => Effect.Effect<BeginCreateResult, VmDatabaseError | VmCreateDisabledError | VmAccountDeletionInProgressError | VmLimitExceededError>;
   readonly beginBaseOpen: (input: {
@@ -105,7 +105,7 @@ export type VmRepositoryShape = {
     readonly provider: ProviderId;
     readonly image: string;
     readonly imageVersion?: string | null;
-    readonly maxActiveVms: number;
+    readonly maxActiveVms: number | null;
     readonly baseName?: string;
   }) => Effect.Effect<BeginBaseCreateResult, VmCreateDisabledError | VmAccountDeletionInProgressError | VmDatabaseError | VmLimitExceededError>;
   readonly beginBaseReset: (input: {
@@ -116,7 +116,7 @@ export type VmRepositoryShape = {
     readonly provider: ProviderId;
     readonly image: string;
     readonly imageVersion?: string | null;
-    readonly maxActiveVms: number;
+    readonly maxActiveVms: number | null;
     readonly baseName?: string;
     readonly reason?: string | null;
   }) => Effect.Effect<Extract<BeginBaseCreateResult, { readonly kind: "create" }>, VmCreateDisabledError | VmAccountDeletionInProgressError | VmCreateInProgressError | VmDatabaseError | VmLimitExceededError>;
@@ -149,7 +149,7 @@ export type VmRepositoryShape = {
     readonly userId: string;
     readonly billingTeamId?: string | null;
     readonly providerVmId: string;
-    readonly maxActiveVms: number;
+    readonly maxActiveVms: number | null;
   }) => Effect.Effect<CloudVmRow | null, VmDatabaseError | VmLimitExceededError>;
   readonly reconciliationCandidates: (input: {
     readonly limit: number;
@@ -557,11 +557,12 @@ export const VmRepositoryLive = Layer.succeed(VmRepository, {
                 ),
               );
             const activeCount = Number(active?.total ?? 0);
-            if (activeCount >= input.maxActiveVms) {
+            const limit = input.maxActiveVms;
+            if (limit !== null && activeCount >= limit) {
               throw new VmLimitExceededError({
                 kind: "active_vms",
                 billingTeamId: input.billingTeamId,
-                limit: input.maxActiveVms,
+                limit,
               });
             }
 
@@ -657,11 +658,12 @@ export const VmRepositoryLive = Layer.succeed(VmRepository, {
                 eq(cloudVms.billingTeamId, input.billingTeamId),
               ));
             const activeCount = Number(active?.total ?? 0);
-            if (activeCount >= input.maxActiveVms) {
+            const limit = input.maxActiveVms;
+            if (limit !== null && activeCount >= limit) {
               throw new VmLimitExceededError({
                 kind: "active_vms",
                 billingTeamId: input.billingTeamId,
-                limit: input.maxActiveVms,
+                limit,
               });
             }
 
@@ -860,11 +862,12 @@ export const VmRepositoryLive = Layer.succeed(VmRepository, {
             .from(cloudVms)
             .where(and(...activePredicates));
           const activeCount = Number(active?.total ?? 0);
-          if (activeCount >= input.maxActiveVms) {
+          const limit = input.maxActiveVms;
+          if (limit !== null && activeCount >= limit) {
             throw new VmLimitExceededError({
               kind: "active_vms",
               billingTeamId: input.billingTeamId,
-              limit: input.maxActiveVms,
+              limit,
             });
           }
 
@@ -1158,11 +1161,12 @@ export const VmRepositoryLive = Layer.succeed(VmRepository, {
             .from(cloudVms)
             .where(and(inArray(cloudVms.status, ["provisioning", "running"]), teamScope));
           const activeCount = Number(active?.total ?? 0);
-          if (activeCount >= input.maxActiveVms) {
+          const limit = input.maxActiveVms;
+          if (limit !== null && activeCount >= limit) {
             throw new VmLimitExceededError({
               kind: "active_vms",
               billingTeamId: input.billingTeamId ?? input.userId,
-              limit: input.maxActiveVms,
+              limit,
             });
           }
 
