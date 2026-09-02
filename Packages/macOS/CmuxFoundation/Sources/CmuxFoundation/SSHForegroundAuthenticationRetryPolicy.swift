@@ -92,7 +92,7 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
     /// edges in one pass, and freezes the reachable tree with shell-builtin
     /// signals. Each accepted record carries its PID, parent, process group, and
     /// a host process-start identity. Darwin uses the microsecond kernel start
-    /// token; other Unix hosts use their POSIX `ps` start tuple.
+    /// token; Linux uses the monotonic `/proc` start counter.
     /// A second snapshot must confirm the identity and stopped state before the
     /// helper sends `SIGKILL`. After `SIGTERM`, the helper waits for the
     /// per-attempt completion FIFO emitted by the authentication wrapper, then
@@ -229,30 +229,55 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
                 cmux_ssh_auth_cleanup_needs_root_abort=1
                 return 1
               fi
-              # Older or non-Darwin SSH targets can still provide a POSIX ps
-              # view. Switch the signal backend with the snapshot format so a
-              # failed Darwin probe cannot leave the caller waiting forever.
+              # Linux exposes an exact monotonic process-start counter through
+              # procfs. Do not substitute ps lstart here: its one-second value
+              # is not an identity fence under PID reuse.
               cmux_ssh_auth_signal_backend=portable
             fi
-            cmux_ssh_auth_ps_command=$(command -v ps 2>/dev/null || true)
-            if [ -z "$cmux_ssh_auth_ps_command" ]; then
+            if [ ! -r /proc/1/stat ]; then
               cmux_ssh_auth_cleanup_needs_root_abort=1
               return 1
             fi
-            "$cmux_ssh_auth_ps_command" -axo pid=,ppid=,pgid=,state=,lstart= 2>/dev/null |
-              /usr/bin/awk '
-                NF >= 9 {
-                  # Portable records use the complete ps start tuple as an
-                  # opaque identity. Darwin records use K_<sec>_<usec>.
-                  print $1, $2, $3, $4, "P_" $5 "_" $6 "_" $7 "_" $8 "_" $9, 0, 0, 0, 0
-                }
-              ' > "$cmux_ssh_auth_snapshot"
-            if [ ! -s "$cmux_ssh_auth_snapshot" ]; then
+            cmux_ssh_auth_perl_command=$(command -v perl 2>/dev/null || true)
+            if [ -z "$cmux_ssh_auth_perl_command" ]; then
               cmux_ssh_auth_cleanup_needs_root_abort=1
               return 1
             fi
             if [ -n "$cmux_ssh_auth_snapshot_format" ] &&
                [ "$cmux_ssh_auth_snapshot_format" != portable ]; then
+              cmux_ssh_auth_cleanup_needs_root_abort=1
+              return 1
+            fi
+            if ! "$cmux_ssh_auth_perl_command" -e '
+              use strict;
+              use warnings;
+              opendir my $proc, "/proc" or exit 1;
+              for my $entry (readdir $proc) {
+                next unless $entry =~ /\A[1-9][0-9]*\z/;
+                my $path = "/proc/$entry/stat";
+                open my $input, "<", $path or next;
+                my $line = <$input>;
+                close $input;
+                next unless defined $line;
+                # The command name may contain spaces and closing parens. The
+                # fields after the final close-parenthesis have the stable
+                # procfs layout.
+                next unless $line =~ /\A([1-9][0-9]*) \(.*\) (.*)\z/;
+                my $pid = $1;
+                my @fields = split /\s+/, $2;
+                next unless @fields >= 20;
+                my ($state, $parent, $group, $start) = @fields[0, 1, 2, 19];
+                next unless $state =~ /\A[A-Za-z]\z/ &&
+                  $parent =~ /\A[0-9]+\z/ && $group =~ /\A[1-9][0-9]*\z/ &&
+                  $start =~ /\A[1-9][0-9]*\z/;
+                $state = uc $state;
+                print "$pid $parent $group $state P_${start}_0_0_0_0\n";
+              }
+            ' > "$cmux_ssh_auth_snapshot" 2>/dev/null; then
+              cmux_ssh_auth_cleanup_needs_root_abort=1
+              return 1
+            fi
+            if [ ! -s "$cmux_ssh_auth_snapshot" ]; then
               cmux_ssh_auth_cleanup_needs_root_abort=1
               return 1
             fi
@@ -472,8 +497,8 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
 
           # Validate and signal an identity batch. On Darwin, the shell/awk
           # snapshot is fenced again with the kernel audit token, which carries
-          # the PID version. Other Unix hosts use a fresh POSIX ps snapshot and
-          # the shell's validated signal builtin instead of loading libproc.
+          # the PID version. Linux uses a fresh procfs snapshot and the shell's
+          # validated signal builtin instead of loading libproc.
           # STOP candidates are checked again after the signal and only a
           # confirmed stop enters the ownership journal. TERM and KILL are sent
           # only to a confirmed stopped identity. A stopped process cannot exit
@@ -567,6 +592,8 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
               end
 
               bsd_with_unique_id_flavor = 18
+              # This flavor returns proc_bsdinfo (136 bytes) followed by
+              # proc_uniqidentifierinfo (56 bytes), for a 192-byte record.
               process_info_size = 192
               uint32 = ->(bytes, offset) { bytes.byteslice(offset, 4).unpack1("L<") }
               uint64 = ->(bytes, offset) { bytes.byteslice(offset, 8).unpack1("Q<") }
