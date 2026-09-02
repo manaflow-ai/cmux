@@ -140,4 +140,72 @@ struct VMTunnelManagerTests {
         """.write(to: manager.configURL, atomically: true, encoding: .utf8)
         #expect(manager.wgQuickInterfaceUp() == true)
     }
+
+    @Test
+    func completedConfigAddsPeerKeepaliveOnce() throws {
+        let server = """
+        [Interface]
+        PrivateKey =
+        Address = 100.64.0.1/32
+        MTU = 1380
+
+        [Peer]
+        PublicKey = abc
+        AllowedIPs = 10.0.0.0/8, fd00::/8
+        Endpoint = tun.example:51820
+        """
+        let completed = try VMTunnelManager.completedConfig(server, privateKey: "KEY")
+        let lines = completed.components(separatedBy: "\n").map { $0.trimmingCharacters(in: .whitespaces) }
+        #expect(lines.filter { $0.hasPrefix("PersistentKeepalive") }.count == 1)
+        let peerIndex = try #require(lines.firstIndex(of: "[Peer]"))
+        let keepaliveIndex = try #require(lines.firstIndex(of: "PersistentKeepalive = \(VMTunnelManager.persistentKeepaliveSeconds)"))
+        #expect(keepaliveIndex > peerIndex)
+        // Re-completing an already-complete config does not duplicate it.
+        let again = try VMTunnelManager.completedConfig(completed, privateKey: "KEY")
+        #expect(again.components(separatedBy: "PersistentKeepalive").count == 2)
+    }
+
+    @Test
+    func completedConfigKeepsAServerProvidedKeepalive() throws {
+        let server = """
+        [Interface]
+        PrivateKey =
+        Address = 100.64.0.1/32
+
+        [Peer]
+        PublicKey = abc
+        PersistentKeepalive = 15
+        """
+        let completed = try VMTunnelManager.completedConfig(server, privateKey: "KEY")
+        #expect(completed.contains("PersistentKeepalive = 15"))
+        #expect(!completed.contains("PersistentKeepalive = 25"))
+    }
+
+    @Test
+    func networkMetadataRoundTripsWithRestrictedPermissions() throws {
+        let home = try temporaryHome()
+        defer { try? FileManager.default.removeItem(at: home) }
+        let manager = VMTunnelManager(home: home)
+        #expect(manager.loadNetworkMetadata() == nil)
+        let metadata = VMTunnelManager.NetworkMetadata(
+            tunnelId: "tun-1",
+            addressV4: "10.16.204.2",
+            addressV6: "fd53:9585:5690::2",
+            networkCidr: "10.16.204.0/24",
+            networkCidrV6: "fd53:9585:5690::/64"
+        )
+        try manager.writeNetworkMetadata(metadata)
+        #expect(manager.loadNetworkMetadata() == metadata)
+        #expect(metadata.networkCIDRs == ["10.16.204.0/24", "fd53:9585:5690::/64"])
+        #expect(metadata.machineFacingAddresses == ["fd53:9585:5690::2", "10.16.204.2"])
+        let attributes = try FileManager.default.attributesOfItem(atPath: manager.networkMetadataURL.path)
+        #expect((attributes[.posixPermissions] as? Int) == 0o600)
+    }
+
+    @Test
+    func liveInterfaceAddressesIsEmptyWithoutAConfig() throws {
+        let home = try temporaryHome()
+        defer { try? FileManager.default.removeItem(at: home) }
+        #expect(VMTunnelManager(home: home).liveInterfaceAddresses().isEmpty)
+    }
 }

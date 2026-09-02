@@ -259,6 +259,22 @@ extension TerminalController {
                     "network_extension_available": VMTunnelManager.networkExtensionAvailable(),
                 ]
             }
+        case "vm.host_status":
+            // Read-only: whether this Mac currently accepts notifications from
+            // its Cloud VMs, and why not when it doesn't.
+            return v2VmCall(id: id) {
+                await MainActor.run { VMHostListenerCoordinator.shared.statusPayload() }
+            }
+        case "vm.host_notifications_set":
+            guard let enabled = params["enabled"] as? Bool else {
+                return v2Error(id: id, code: "invalid_params", message: "vm.host_notifications_set requires `enabled` (true|false).")
+            }
+            return v2VmCall(id: id) {
+                await MainActor.run {
+                    VMHostListenerCoordinator.shared.setEnabled(enabled)
+                    return VMHostListenerCoordinator.shared.statusPayload()
+                }
+            }
         case "vm.tunnel_revoke":
             // Unenrolls this Mac server-side and removes the local config so a
             // later `cmux vpn up` re-enrolls from scratch.
@@ -267,6 +283,8 @@ extension TerminalController {
                 let fingerprint = try manager.deviceFingerprint()
                 try await VMClient.shared.revokeTunnel(deviceFingerprint: fingerprint)
                 try? FileManager.default.removeItem(at: manager.configURL)
+                try? FileManager.default.removeItem(at: manager.networkMetadataURL)
+                VMHostListenerCoordinator.tokens.removeAll()
                 return ["revoked": true]
             }
         case "vm.ssh_info":

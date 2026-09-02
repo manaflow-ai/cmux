@@ -44,6 +44,7 @@ public struct SettingCatalog: SettingCatalogSection {
     public let fileEditor = FileEditorCatalogSection()
     /// Settings for Mobile pairing and sync.
     public let mobile = MobileCatalogSection()
+    public let cloudMachines = CloudMachinesCatalogSection()
     public let betaFeatures = BetaFeaturesCatalogSection()
     /// Settings for custom (user/agent-authored) sidebars (the `customSidebars.*` keys).
     public let customSidebars = CustomSidebarsCatalogSection()

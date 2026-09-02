@@ -75,7 +75,7 @@ extension TerminalController {
         "notification.create_for_target",
     ]
 
-    private nonisolated static let remoteRelayWorkspaceSelectorKeys: Set<String> = [
+    nonisolated static let remoteRelayWorkspaceSelectorKeys: Set<String> = [
         "workspace_id",
         "preferred_workspace_id",
         "selected_workspace_id",
@@ -87,9 +87,9 @@ extension TerminalController {
         "_cmux_remote_workspace_id",
     ]
 
-    private nonisolated static let remoteRelayWorkspaceArrayKeys: Set<String> = ["workspace_ids"]
+    nonisolated static let remoteRelayWorkspaceArrayKeys: Set<String> = ["workspace_ids"]
 
-    private nonisolated static let remoteRelaySurfaceSelectorKeys: Set<String> = [
+    nonisolated static let remoteRelaySurfaceSelectorKeys: Set<String> = [
         "panel_id",
         "surface_id",
         "preferred_panel_id",
@@ -104,7 +104,7 @@ extension TerminalController {
         "after_surface_id",
     ]
 
-    private nonisolated static let remoteRelaySurfaceArrayKeys: Set<String> = ["panel_ids", "surface_ids"]
+    nonisolated static let remoteRelaySurfaceArrayKeys: Set<String> = ["panel_ids", "surface_ids"]
 
     /// Authorizes relay metadata before execution-policy routing.  Ordinary
     /// local socket requests have no generic relay MAC and pass through
@@ -271,12 +271,12 @@ extension TerminalController {
         )
     }
 
-    private struct RemoteRelaySelectorValidation {
+    struct RemoteRelaySelectorValidation {
         let code: String
         let message: String
     }
 
-    private nonisolated static func containsTopLevelSelector(
+    nonisolated static func containsTopLevelSelector(
         _ params: [String: Any],
         keys: Set<String>
     ) -> Bool {
@@ -289,6 +289,18 @@ extension TerminalController {
     private nonisolated static func validateRemoteRelaySelectors(
         _ params: [String: Any],
         ownerWorkspaceID: UUID,
+        surfaceIDs: Set<UUID>
+    ) -> RemoteRelaySelectorValidation? {
+        validateRelaySelectors(params, ownerWorkspaceIDs: [ownerWorkspaceID], surfaceIDs: surfaceIDs)
+    }
+
+    /// Every workspace selector must name one of `ownerWorkspaceIDs` and every
+    /// surface selector one of `surfaceIDs`, at any nesting depth. Shared by
+    /// the ssh relay gate (one owner workspace) and the Cloud VM host gate
+    /// (every workspace bound to the calling machine).
+    nonisolated static func validateRelaySelectors(
+        _ params: [String: Any],
+        ownerWorkspaceIDs: Set<UUID>,
         surfaceIDs: Set<UUID>
     ) -> RemoteRelaySelectorValidation? {
         func validate(_ value: Any, key: String?) -> RemoteRelaySelectorValidation? {
@@ -326,7 +338,7 @@ extension TerminalController {
                     message: "Relay selector is invalid"
                 )
             }
-            if remoteRelayWorkspaceSelectorKeys.contains(key), id != ownerWorkspaceID {
+            if remoteRelayWorkspaceSelectorKeys.contains(key), !ownerWorkspaceIDs.contains(id) {
                 return RemoteRelaySelectorValidation(
                     code: "remote_relay_workspace_denied",
                     message: "Relay request targets a different workspace"

@@ -212,6 +212,14 @@ struct CloudTuiCommandLine: Sendable {
             .joined(separator: " ")
     }
 
+    /// `session current journal hook put --manifest-json <json>`: install or
+    /// re-affirm a journal hook on the machine's daemon (spec
+    /// `session.journal.hook.put`). Re-putting an identical manifest is a
+    /// no-op; a changed manifest needs a higher `manifest_version`.
+    static func putJournalHookArguments(socketPath: String, manifestJSON: String) -> [String] {
+        ["--socket", socketPath, "--json", "session", "current", "journal", "hook", "put", "--manifest-json", manifestJSON]
+    }
+
     static func shellQuote(_ value: String) -> String {
         if value.isEmpty { return "''" }
         if value.range(of: "^[A-Za-z0-9_./:@%+=,-]+$", options: .regularExpression) != nil {

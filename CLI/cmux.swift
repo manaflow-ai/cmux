@@ -18469,7 +18469,7 @@ struct CMUXCLI {
             """
         case "vpn":
             return """
-            Usage: cmux vpn <up|down|status|revoke|hosts>
+            Usage: cmux vpn <up|down|status|revoke|hosts|notifications>
 
             The WireGuard tunnel between this Mac and your private Cloud VM
             network. Cloud machines have no public ports, so `cmux vm` attach,
@@ -18479,7 +18479,8 @@ struct CMUXCLI {
                     internal hostnames. Uses wg-quick and prompts for sudo;
                     install with `brew install wireguard-tools`.
             down    Take the tunnel down. Enrollment is kept.
-            status  Show tunnel state, config path, and backend.
+            status  Show tunnel state, config path, backend, and whether
+                    machines may notify this Mac.
             revoke  Take the tunnel down, unenroll this Mac, and clear its
                     internal hostnames. The server deletes its side, so the
                     saved config stops working.
@@ -18488,6 +18489,13 @@ struct CMUXCLI {
                     http://<name>.internal:<port> resolves system-wide.
                     `up` already runs this; call it again after `cmux vm new`
                     to pick up a machine created since.
+            notifications <on|off|status>
+                    Let your machines send notifications, titles, and agent
+                    status to this Mac over the tunnel (default off). While on,
+                    the app listens only on its tunnel addresses, only while
+                    you own at least one machine, and admits only the
+                    notification verbs from machines holding the token it
+                    minted for them.
 
             The cmux app writes the config to ~/.cmuxterm/wireguard/cmux.conf
             with the private key generated on this Mac; the key never leaves it.

@@ -8129,6 +8129,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 source: "bootstrapInitialMainWindow.\(debugSource)"
             )
             MobileHostService.shared.start()
+            VMHostListenerCoordinator.shared.start()
         }
         guard !didBootstrapInitialMainWindow else { return windowId }
 

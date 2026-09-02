@@ -686,6 +686,11 @@ final class MachinesPanelViewModel: ObservableObject {
                 snapshots[index].stats = previous[snapshots[index].id] ?? nil
             }
             machines = snapshots
+            NotificationCenter.default.post(
+                name: .cmuxCloudVMInventoryDidChange,
+                object: nil,
+                userInfo: ["count": snapshots.count]
+            )
             lastLimits = page.limits
             scheduleFreeAccessTransition()
             refreshStats()

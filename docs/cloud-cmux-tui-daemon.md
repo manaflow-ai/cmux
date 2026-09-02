@@ -287,3 +287,42 @@ over the same catalog (`vm.tree` is the catalog restricted to cloud machines;
 `vm.desktop_open` projects `<id>/display/display:1`; `vm.port_open` projects
 `<id>/browser/port:<n>`, registering the port first when the probe has not
 seen it). CLI: `cmux surface ls|open|new-terminal` and `cmux vm tree|open`.
+
+## Machine to Mac notifications (2026-09-02)
+
+Machines have no public ports and, until now, no path back to the Mac: agent
+hooks in a machine wrote to the machine's own cmux-tui journal and nothing on
+the Mac read it. The reverse path reuses the private network the Mac already
+joins over WireGuard (`cmux vpn up`), so it needs no new Freestyle feature and
+no public listener anywhere.
+
+Mac side (`Sources/Cloud/VMHostListener*.swift`, `VMHostAccessPolicy.swift`,
+`TerminalController+VMHostClient.swift`). Off by default; Settings > Cloud
+"Notifications from machines" or `cmux vpn notifications on` turns it on. While
+on, signed in, the tunnel is up, and the account owns at least one machine, the
+app binds a TCP listener on its tunnel addresses only, never a wildcard, so the
+port stops existing when the utun goes away. Every accepted connection must
+come from the network's own CIDRs, carry the per-machine token the Mac minted
+(`_cmux_vm_host_token`, kept in `~/.cmuxterm/vm-host/tokens.json`, 0600, in the
+clear because the Mac re-delivers it on every rebind), call only the notification and status verbs in
+`VMHostAccessPolicy.allowedMethods`, and name only workspaces bound to that
+machine through `workspace.cloud_vm_bind`. The same wire protocol as the local
+control socket; a different gate.
+
+Machine side. When a link connects while the listener is up, the Mac writes
+`/etc/cmux/host.env` into the machine (`CMUX_HOST_ENDPOINT`, `CMUX_HOST_TOKEN`,
+`CMUX_HOST_WORKSPACE_ID`, world-readable because the daemon runs hooks as the
+`cmux` user with an empty environment) and puts a journal hook on the daemon
+over the link (`session current journal hook put`). The hook runs
+`/usr/local/bin/cmux-tui host-forward` once per `agent.*` event listed in
+`VMHostForwardHook.forwardedKinds`. `host-forward` reads the envelope on stdin,
+maps it to `workspace.status.set` (working / needs-attention / review, and
+`auto` when the session ends) plus `notification.create` when the agent
+finished or needs the human, and delivers both to the Mac with the token. Exit 1
+means the Mac was unreachable and the dispatcher retries; a Mac-side error
+response exits 0 because a retry cannot fix it. Turning the feature off rewrites
+the env file with an empty endpoint, which `host-forward` reads as "off".
+
+Not covered yet: OSC 9 terminal notifications from guest processes, surface
+level verbs (the guest does not know Mac surface ids), and a Mac that is offline
+when the event fires (needs the control plane).

@@ -157,6 +157,7 @@ pub fn run(args: &[String], startup_usage: &str) -> i32 {
                 command::run_provider_authority(global, authority)
             }
             CommandPlan::RawCommand(command) => raw::run(global, command),
+            CommandPlan::HostForward(plan) => command::run_host_forward(global, plan),
         },
         Err(failure) => {
             let message = if matches!(failure.output, OutputMode::Quiet | OutputMode::Human) {
@@ -416,6 +417,7 @@ fn scope_help_for(
         "pairing" => Cow::Borrowed(PAIRING_HELP),
         "projection" => Cow::Borrowed(PROJECTION_HELP),
         "provider" => Cow::Borrowed(PROVIDER_HELP),
+        "host-forward" => Cow::Borrowed(HOST_FORWARD_HELP),
         "raw" => Cow::Borrowed(RAW_HELP),
         _ => Cow::Owned(root_help(&catalog.local_server)),
     }
@@ -661,6 +663,23 @@ const PROVIDER_HELP: &str = "\
 USAGE
   cmux --socket <path> provider authority install
     --generation <decimal> --authority-file <root-private-path>
+";
+
+const HOST_FORWARD_HELP: &str = "\
+Usage: cmux host-forward [--env-file <path>] [--print-manifest <guest cmux-tui path>]
+
+Journal hook command for cmux Cloud machines. The Mac that owns this machine
+writes /etc/cmux/host.env (CMUX_HOST_ENDPOINT, CMUX_HOST_TOKEN,
+CMUX_HOST_WORKSPACE_ID) and registers a journal hook whose argv is this
+command. The daemon runs it once per agent.* event with the hook envelope on
+stdin; it forwards the event to the Mac as workspace.status.set and
+notification.create. Exit 0 means delivered or nothing to do; exit 1 means
+the Mac was unreachable and the dispatcher should retry.
+
+  --env-file <path>          Read the endpoint file from <path> instead of
+                             /etc/cmux/host.env.
+  --print-manifest <binary>  Print the journal hook manifest that runs
+                             <binary> host-forward, and exit.
 ";
 
 const RAW_HELP: &str = "\
