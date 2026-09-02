@@ -8322,6 +8322,140 @@ mod tests {
         surface.write_paste(b"must not reach a dead host").unwrap();
     }
 
+    #[cfg(unix)]
+    fn exited_host_surface(name: &str, id: SurfaceId, mux: &Arc<Mux>) -> Arc<Surface> {
+        let identity = crate::terminal_host_runtime::TerminalHostIdentity {
+            terminal_id: crate::terminal_host::TerminalId::random().unwrap().to_hex(),
+            incarnation: crate::terminal_host::HostIncarnation::random().unwrap().to_hex(),
+        };
+        Surface::exited_terminal_placeholder(
+            id,
+            SurfaceOptions { command: Some(vec![name.into()]), ..SurfaceOptions::default() },
+            Arc::downgrade(mux),
+            identity,
+        )
+        .unwrap()
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn exited_host_byte_attach_serves_final_replay() {
+        const MARKER: &str = "exited-byte-final-replay";
+        let mux = Mux::new_for_test("exited-host-byte-attach", SurfaceOptions::default());
+        let surface = exited_host_surface("byte-attach", 92, &mux);
+        surface.with_terminal(|term| term.vt_write(MARKER.as_bytes()));
+
+        let attach = surface.attach_stream().expect("exited terminal must serve byte replay");
+        let mut mirror =
+            Terminal::new(attach.cols, attach.rows, 10_000, Callbacks::default()).unwrap();
+        mirror.vt_write(&attach.replay);
+
+        assert!(mirror.plain_text().unwrap().contains(MARKER));
+        assert!(matches!(attach.stream.try_recv(), Err(TryRecvError::Disconnected)));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn exited_host_render_attach_serves_final_frame() {
+        const MARKER: &str = "exited-render-final-frame";
+        let mux = Mux::new_for_test("exited-host-render-attach", SurfaceOptions::default());
+        let surface = exited_host_surface("render-attach", 93, &mux);
+        surface.with_terminal(|term| term.vt_write(MARKER.as_bytes()));
+
+        let attach =
+            surface.attach_render_stream().expect("exited terminal must serve final render frame");
+        let rendered = attach
+            .initial
+            .frame
+            .styled_rows()
+            .iter()
+            .flat_map(|row| row.iter())
+            .map(|cell| cell.text.as_str())
+            .collect::<String>();
+
+        assert!(rendered.contains(MARKER), "final render frame omitted {MARKER}: {rendered:?}");
+        assert!(matches!(attach.stream.try_recv(), Err(TryRecvError::Disconnected)));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn already_dead_host_publishes_exited_state_before_attach() {
+        let mux = Mux::new_for_test("already-dead-host-attach", SurfaceOptions::default());
+        let surface =
+            Surface::spawn_for_test(94, SurfaceOptions::default(), Arc::downgrade(&mux)).unwrap();
+        let pty = surface.as_pty().unwrap();
+
+        // Another exit observer may enter after the first observer latched
+        // `dead`. It must still publish the final state for later attach.
+        pty.dead.store(true, Ordering::Release);
+        assert_eq!(
+            TerminalHostConnectionState::from_u8(pty.host_connection_state.load(Ordering::Acquire)),
+            TerminalHostConnectionState::Connected
+        );
+
+        pty.finish_hosted_exit();
+
+        assert_eq!(
+            TerminalHostConnectionState::from_u8(pty.host_connection_state.load(Ordering::Acquire)),
+            TerminalHostConnectionState::Exited
+        );
+        surface.attach_stream().expect("an already-dead exited host must serve final replay");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn hosted_exit_and_attach_never_expose_a_dead_connected_gap() {
+        for iteration in 0..64 {
+            let mux = Mux::new_for_test(
+                format!("hosted-exit-attach-race-{iteration}"),
+                SurfaceOptions::default(),
+            );
+            let surface = Surface::spawn_for_test(
+                iteration + 100,
+                SurfaceOptions::default(),
+                Arc::downgrade(&mux),
+            )
+            .unwrap();
+            let start = Arc::new(std::sync::Barrier::new(2));
+
+            std::thread::scope(|scope| {
+                let exit_surface = surface.clone();
+                let exit_start = start.clone();
+                let exit = scope.spawn(move || {
+                    exit_start.wait();
+                    exit_surface.as_pty().unwrap().finish_hosted_exit();
+                });
+
+                start.wait();
+                let during_exit = surface.attach_stream();
+                exit.join().unwrap();
+
+                during_exit.expect("attach racing hosted exit must serve live or final replay");
+                surface.attach_stream().expect("attach after hosted exit must serve final replay");
+            });
+        }
+    }
+
+    #[test]
+    fn rejected_dead_render_attach_releases_the_global_permit() {
+        let mux = Mux::new_for_test("dead-render-attach-permit", SurfaceOptions::default());
+        let dead =
+            Surface::spawn_for_test(200, SurfaceOptions::default(), Arc::downgrade(&mux)).unwrap();
+        dead.as_pty().unwrap().dead.store(true, Ordering::Release);
+
+        for _ in 0..crate::mux::RENDER_ATTACHMENT_LIMIT * 2 {
+            assert!(matches!(dead.attach_render_stream(), Err(ghostty_vt::Error::NoValue)));
+        }
+
+        let live =
+            Surface::spawn_for_test(201, SurfaceOptions::default(), Arc::downgrade(&mux)).unwrap();
+        let mut attachments = Vec::new();
+        for _ in 0..crate::mux::RENDER_ATTACHMENT_LIMIT {
+            attachments.push(live.attach_render_stream().expect("rejected attach leaked a permit"));
+        }
+        assert!(matches!(live.attach_render_stream(), Err(ghostty_vt::Error::OutOfSpace)));
+    }
+
     #[test]
     fn terminal_reconnect_failure_state_never_decodes_as_connected() {
         assert_ne!(TerminalHostConnectionState::from_u8(3), TerminalHostConnectionState::Connected);
