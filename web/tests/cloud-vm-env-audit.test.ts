@@ -56,11 +56,7 @@ describe("cloud VM provider coherence audit", () => {
     // removed, while shipped clients send the code default's image ids. The
     // old key-presence audit passed this env.
     const result = auditCloudVmProviderCoherence(
-      {
-        CMUX_VM_DEFAULT_PROVIDER: "e2b",
-        E2B_CMUXD_WS_TEMPLATE: "cmuxd-ws:tooling-20260509f",
-        E2B_API_KEY: "x",
-      },
+      { CMUX_VM_DEFAULT_PROVIDER: "e2b" },
       realManifest,
     ) as Coherence;
     expect(result.selected?.provider).toBe("e2b");
@@ -70,7 +66,7 @@ describe("cloud VM provider coherence audit", () => {
 
   test("no default provider set means the code default (freestyle) must be ready", () => {
     const result = auditCloudVmProviderCoherence(
-      { E2B_CMUXD_WS_TEMPLATE: "cmuxd-ws:tooling-20260509f", E2B_API_KEY: "x" },
+      {},
       realManifest,
     ) as Coherence;
     expect(result.selected?.provider).toBe("freestyle");

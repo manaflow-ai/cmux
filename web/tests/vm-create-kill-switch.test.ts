@@ -18,8 +18,8 @@ describe("VM create kill switch", () => {
     expect(vmCreateDisabledReason("freestyle", env)).toContain("freestyle");
   });
 
-  test("an unrelated provider flag does not disable creation", () => {
-    expect(vmCreateDisabledReason("freestyle", { CMUX_VM_E2B_ENABLED: "0" })).toBeNull();
+  test("an unrelated env flag does not disable creation", () => {
+    expect(vmCreateDisabledReason("freestyle", { CMUX_VM_SOME_OTHER_FLAG: "0" })).toBeNull();
   });
 
   test("assertVmCreateEnabled throws the typed error", () => {

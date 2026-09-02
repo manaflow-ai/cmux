@@ -1,6 +1,6 @@
 # Cloud VMs service
 
-Backend for `cmux vm new/ls/rm/exec/attach` and the sidebar Cloud VM surface. Stack Auth gates every public route. Provider API keys stay server-side. Every machine — Freestyle, E2B, Daytona — attaches through the cmux-tui remote daemon (transport `cmux-remote`). The legacy `cmuxd-remote` WebSocket PTY and the Freestyle SSH gateway are gone.
+Backend for `cmux vm new/ls/rm/exec/attach` and the sidebar Cloud VM surface. Stack Auth gates every public route. Provider API keys stay server-side. Every machine attaches through the cmux-tui remote daemon (transport `cmux-remote`). The legacy `cmuxd-remote` WebSocket PTY and the Freestyle SSH gateway are gone.
 
 ## Layout
 
@@ -9,7 +9,7 @@ services/vms/
   auth.ts             Stack Auth request verification helpers
   billingGateway.ts   Stack Auth VM create-credit reservations
   entitlements.ts     Team plan and active VM limit resolution
-  drivers/            Provider SDK adapters for Freestyle, E2B, and Daytona
+  drivers/            Provider SDK adapter for Freestyle
   images/             Checked-in known-good provider image manifest
   errors.ts           Typed Effect errors for VM workflows
   config.ts           Runtime kill switches and deployment guards
@@ -67,9 +67,9 @@ the provider, provider image id, cmux image version, build metadata, and validat
 
 Default image policy:
 
-- Production and staging select images with `FREESTYLE_SANDBOX_SNAPSHOT`,
-  `FREESTYLE_SANDBOX_SNAPSHOT`, and `DAYTONA_SANDBOX_SNAPSHOT`. A provider that ships a
-  desktop image also gets a `_DESKTOP_IMAGE` selector; none does today.
+- Production and staging select images with `FREESTYLE_SANDBOX_SNAPSHOT`. A
+  provider that ships a desktop image also gets a `_DESKTOP_IMAGE` selector;
+  Freestyle does not today.
 - Clients request a machine **kind** (`kind: "desktop" | "base"` on `POST /api/vm`,
   `POST /api/vm/base/open`, and `POST /api/vm/base/reset`) rather than pinning an image id. With
   no `image`, the resolver picks the kind's env var, then the manifest entry flagged
@@ -111,15 +111,15 @@ image experiments.
 Rollback is an env-only operation:
 
 1. Choose a previous manifest entry with `validationStatus: "passed"`.
-2. Set `E2B_CMUXD_WS_TEMPLATE` or `FREESTYLE_SANDBOX_SNAPSHOT` back to that entry's `imageId`.
+2. Set `FREESTYLE_SANDBOX_SNAPSHOT` back to that entry's `imageId`.
 3. Redeploy staging, smoke test, then repeat for production.
-4. Keep old provider templates/snapshots until all VMs using them are gone.
+4. Keep old snapshots until all VMs using them are gone.
 
 ## Baked tools and VM-local cmux CLI
 
-The E2B, Daytona, and Freestyle devbox images are defined in
-`web/services/vms/images/devbox/` and baked with `web/scripts/build-devbox-freestyle.ts`,
-`build-devbox-daytona.ts`, and `build-devbox-freestyle.ts` (chatmux devbox
+The Freestyle devbox image is defined in
+`web/services/vms/images/devbox/` and baked with `web/scripts/build-devbox-freestyle.ts`
+(chatmux devbox
 parity: devtools, mise node/python/bun, uv, gh, Chrome + cua-driver, pinned coding
 agents, ble.sh devshell, agent-config generator). The session daemon is cmux-tui,
 installed at create time from the pinned files.cmux.com artifacts manifest by
@@ -204,7 +204,7 @@ Set these Vercel environment variables per production/staging environment:
 - `CMUX_VM_ALLOWED_ORIGINS`, optional comma-separated extra origins allowed for cookie mutations.
 - `FREESTYLE_API_KEY`, Freestyle provider key.
 - `FREESTYLE_SANDBOX_SNAPSHOT`, Freestyle snapshot id.
-- `CMUX_VM_DEFAULT_PROVIDER`, `freestyle`, `e2b`, or `daytona` (defaults to `freestyle`).
+- `CMUX_VM_DEFAULT_PROVIDER`, only `freestyle` (and its default).
 - `CMUX_VM_DEFAULT_PLAN`, optional fallback for accounts without plan metadata. It defaults to `free`;
   paid values are ignored unless `CMUX_VM_ALLOW_FREE_PROVISIONING=1`, so deployment configuration
   cannot silently grant every unclassified account a paid entitlement.
@@ -307,17 +307,17 @@ The dev Postgres port is `CMUX_PORT + 10000`, so `CMUX_PORT=10180` maps to `loca
 
 ## Provider matrix
 
-| Verb                        | Freestyle | E2B | Daytona |
-|-----------------------------|-----------|-----|---------|
-| `cmux vm new`               | yes       | yes | yes |
-| `cmux vm new --workspace`   | yes       | yes | yes |
-| `cmux vm new --detach`      | yes       | yes | yes |
-| `cmux vm attach <id>`       | yes       | yes | yes |
-| `cmux vm ssh <id>`          | yes       | yes | yes |
-| `cmux vm ssh-info <id>`     | no (cmux-remote only) | no (cmux-remote only) | no (cmux-remote only) |
-| `cmux vm exec <id> -- ...`  | yes       | yes | yes |
-| `cmux vm ls / rm`           | yes       | yes | yes |
-| snapshot / restore          | yes       | yes | yes |
+| Verb | Freestyle |
+| --- | --- |
+| `cmux vm new` | yes |
+| `cmux vm new --workspace` | yes |
+| `cmux vm new --detach` | yes |
+| `cmux vm attach <id>` | yes |
+| `cmux vm ssh <id>` | yes |
+| `cmux vm ssh-info <id>` | no (cmux-remote only) |
+| `cmux vm exec <id> -- ...` | yes |
+| `cmux vm ls / rm` | yes |
+| snapshot / restore | yes |
 
 `cmux vm ssh <id>` is the user-facing interactive alias and opens the same managed workspace path
 as `cmux vm attach <id>`. No provider serves an SSH gateway any more, so `cmux vm ssh-info <id>`
