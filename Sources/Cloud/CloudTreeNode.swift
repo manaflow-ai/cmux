@@ -369,6 +369,7 @@ enum CloudTreeNodeBuilder {
 
     static func nodes(
         machines: [MachineSnapshot],
+        pendingCreates: [MachineCreateOperation] = [],
         snapshot: SurfaceCatalogSnapshot,
         localWorkspaces: [CloudTreeLocalWorkspace],
         includeLocalMachine: Bool = CloudTreeNodeBuilder.includesLocalMachine
@@ -376,6 +377,11 @@ enum CloudTreeNodeBuilder {
         var nodes: [CloudTreeNode] = []
         if includeLocalMachine, let local = snapshot.machines.first(where: { $0.id.isLocal }) {
             nodes.append(localMachineNode(info: local, snapshot: snapshot, localWorkspaces: localWorkspaces))
+        }
+        // Creates the person just started go first: they are what the person is
+        // waiting on, and a failed one must not hide below a long fleet.
+        for operation in pendingCreates {
+            nodes.append(CloudTreeNode(id: nodeID(pendingCreate: operation.id), kind: .pendingMachine(operation)))
         }
         let infoByMachine = Dictionary(snapshot.machines.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
         var seen = Set<String>()
@@ -468,14 +474,16 @@ enum CloudTreeNodeBuilder {
     /// outline instead of the empty state.
     static func isEmpty(
         machines: [MachineSnapshot],
+        pendingCreates: [MachineCreateOperation] = [],
         snapshot: SurfaceCatalogSnapshot,
         includeLocalMachine: Bool = CloudTreeNodeBuilder.includesLocalMachine
     ) -> Bool {
-        guard machines.isEmpty else { return false }
+        guard machines.isEmpty, pendingCreates.isEmpty else { return false }
         return !snapshot.machines.contains { includeLocalMachine || !$0.id.isLocal }
     }
 
     static func nodeID(machine: SurfaceMachineID) -> String { "machine:\(machine.rawValue)" }
+    static func nodeID(pendingCreate id: UUID) -> String { "pending-machine:\(id.uuidString)" }
     static func nodeID(terminalsPool machine: SurfaceMachineID) -> String { "machine:\(machine.rawValue)/terminals" }
     static func nodeID(displaysPool machine: SurfaceMachineID) -> String { "machine:\(machine.rawValue)/displays" }
     static func nodeID(workspacesGroup machine: SurfaceMachineID) -> String { "machine:\(machine.rawValue)/workspaces" }
