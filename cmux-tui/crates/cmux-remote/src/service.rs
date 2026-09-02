@@ -147,13 +147,6 @@ impl Default for ClosedStreams {
 }
 
 impl ClosedStreams {
-    fn insert(&mut self, stream: u64) -> bool {
-        self.insert_on(
-            stream,
-            LANE_INTERACTIVE_BIT | LANE_CONTROL_BIT | LANE_BULK_BIT | LANE_TUNNEL_BIT,
-        )
-    }
-
     fn insert_on(&mut self, stream: u64, lane_mask: u8) -> bool {
         if lane_mask == 0 {
             return false;
