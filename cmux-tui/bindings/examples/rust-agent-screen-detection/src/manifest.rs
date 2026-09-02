@@ -1936,6 +1936,67 @@ line_regex = ["^working$", "^missing line$"]
     }
 
     #[test]
+    fn screen_detect_claude_idle_prompt_ignores_background_shells() {
+        let claude = ManifestSet::bundled().identify("claude").unwrap();
+        let idle = claude.detect(input(concat!(
+            "✻ Sautéed for 10s · 1 shell still running\n\n",
+            "──────────────────────────────────────────────────────── WINDOWS ─\n",
+            "❯\n",
+            "────────────────────────────────────────────────────────────────\n",
+            "  ⏵⏵ auto mode on · 1 shell · ← for agents                     /rc\n",
+        )));
+
+        assert_eq!(idle.state, ScreenState::Idle);
+        assert_eq!(idle.matched_rule.as_deref(), Some("live_prompt_box"));
+        assert!(idle.visible_idle);
+        assert!(!idle.visible_working);
+    }
+
+    #[test]
+    fn screen_detect_claude_background_shell_alone_is_idle_fallback() {
+        let claude = ManifestSet::bundled().identify("claude").unwrap();
+        let idle = claude.detect(input("  ⏵⏵ auto mode on · 1 shell · ← for agents\n"));
+
+        assert_eq!(idle.state, ScreenState::Idle);
+        assert!(idle.matched_rule.is_none());
+        assert_eq!(idle.fallback_reason.as_deref(), Some(DEFAULT_KNOWN_AGENT_IDLE_FALLBACK));
+        assert!(!idle.visible_working);
+    }
+
+    #[test]
+    fn screen_detect_claude_live_turn_with_background_shell_stays_working() {
+        let claude = ManifestSet::bundled().identify("claude").unwrap();
+        let working = claude.detect(input(concat!(
+            "────────────────────────────────────────────────────────────────\n",
+            "❯\n",
+            "────────────────────────────────────────────────────────────────\n",
+            "  ⏵⏵ auto mode on · 1 shell · esc to interrupt\n",
+        )));
+
+        assert_eq!(working.state, ScreenState::Working);
+        assert_eq!(working.matched_rule.as_deref(), Some("live_turn_working"));
+        assert!(working.visible_working);
+    }
+
+    #[test]
+    fn screen_detect_claude_blocker_with_background_shell_stays_blocked() {
+        let claude = ManifestSet::bundled().identify("claude").unwrap();
+        let blocked = claude.detect(input(concat!(
+            "do you want to proceed?\n",
+            "bash command: rm -rf /tmp/test\n",
+            "❯ 1. Yes\n",
+            "  2. No\n\n",
+            "Esc to cancel · Tab to amend · ctrl+e to explain\n",
+            "  ⏵⏵ auto mode on · 1 shell · ← for agents\n",
+        )));
+
+        assert_eq!(blocked.state, ScreenState::Blocked);
+        assert_eq!(blocked.matched_rule.as_deref(), Some("bash_permission_prompt"));
+        assert!(blocked.visible_blocker);
+        assert!(!blocked.visible_working);
+    }
+
+    #[test]
     fn screen_detect_imported_codex_weak_blocker_ignores_previous_prompt() {
         let codex = ManifestSet::bundled().identify("codex").unwrap();
         assert_eq!(codex.version().map(ToString::to_string).as_deref(), Some("2026.08.28.1"));
