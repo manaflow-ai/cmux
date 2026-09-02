@@ -373,17 +373,12 @@ fn update_command(
             .map_err(|error| ManagerError::validation(None, error.to_string()))?;
         ensure_manifest_platform_supported(&manifest)
             .map_err(|error| ManagerError::validation(Some("platforms"), error.to_string()))?;
-        let name = installed_name(&manifest, None)
+        validate_update_manifest_name(&plugin, &manifest)
             .map_err(|error| ManagerError::validation(Some("name"), error.to_string()))?;
-        if name != plugin.name {
-            return Err(ManagerError::validation(
-                Some("name"),
-                format!(
-                    "updated plugin changed its manifest name from {:?} to {:?}; reinstall it to rename",
-                    plugin.name, name
-                ),
-            ));
-        }
+        // The directory name is the user's install identity. It can be an
+        // explicit `--name` alias, so an update must keep it even when it
+        // differs from `[plugin].name` in the manifest.
+        let name = plugin.name.clone();
         run_build_if_needed(&manifest, &temp_dir)?;
         let command = resolved_run_command(&manifest, &temp_dir)?;
         verify_executable(&command[0])?;
@@ -843,6 +838,25 @@ fn installed_name(
         }
         None => Ok(manifest.plugin.name.clone()),
     }
+}
+
+/// Keep an install alias stable across updates while refusing a package that
+/// silently changes its declared identity. The previous manifest is the
+/// trusted name recorded by the installed artifact; the directory name may be
+/// a user-selected alias and must not be used for this comparison.
+fn validate_update_manifest_name(
+    installed: &InstalledPlugin,
+    updated: &PluginManifest,
+) -> anyhow::Result<()> {
+    let previous_name = &installed.manifest.plugin.name;
+    if updated.plugin.name != *previous_name {
+        anyhow::bail!(
+            "updated plugin changed its manifest name from {:?} to {:?}; reinstall it to rename",
+            previous_name,
+            updated.plugin.name
+        );
+    }
+    Ok(())
 }
 
 fn run_build_if_needed(manifest: &PluginManifest, dir: &Path) -> anyhow::Result<()> {
