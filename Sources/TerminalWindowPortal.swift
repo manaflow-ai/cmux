@@ -1492,7 +1492,7 @@ final class WindowTerminalPortal: NSObject {
     func hideEntry(forHostedId hostedId: ObjectIdentifier) {
         guard var entry = entriesByHostedId[hostedId] else { return }
         entry.visibleInUI = false
-        if entry.awaitingGeometrySettlement { entry.hostedView?.finishPortalGeometrySettlement() }
+        entry.hostedView?.finishPortalGeometrySettlement()
         entry.awaitingGeometrySettlement = false
         entry.transientRecoveryRetriesRemaining = 0
         entriesByHostedId[hostedId] = entry
@@ -1829,7 +1829,12 @@ final class WindowTerminalPortal: NSObject {
             self.hasDeferredFullSyncScheduled = false
             let reconcileVisible = self.deferredFullSyncIncludesVisibleReconcile
             self.deferredFullSyncIncludesVisibleReconcile = false
-            self.synchronizeAllHostedViews(excluding: nil)
+            // This callback is also the bind path's first settlement pass. Run
+            // the hierarchy once and retain its fingerprint result so an
+            // unstable first pass cannot flush an intermediate PTY size.
+            guard self.ensureInstalled(syncLayout: false) else { return }
+            let hierarchyWasAlreadySettled = self.synchronizeLayoutHierarchy()
+            self.synchronizeAllHostedViews(excluding: nil, syncLayout: false)
             if reconcileVisible {
                 // syncLayout false: this runs off a layout callback during
                 // divider/sidebar drags, where a synchronous display wedges
@@ -1838,10 +1843,11 @@ final class WindowTerminalPortal: NSObject {
                     reason: "portal.deferredFullSync", syncLayout: false
                 )
             }
-            // Deferred full reconciliation is also the bind path's settle
-            // boundary. It runs after the portal's own frame writes, so the
-            // latest pending terminal size can now be applied safely.
-            self.finishVisibleEntryGeometrySettlements()
+            if hierarchyWasAlreadySettled {
+                self.finishVisibleEntryGeometrySettlements()
+            } else if self.entriesByHostedId.values.contains(where: { $0.visibleInUI && $0.awaitingGeometrySettlement }) {
+                self.scheduleExternalGeometrySynchronize(forceImmediate: false)
+            }
         }
     }
 
