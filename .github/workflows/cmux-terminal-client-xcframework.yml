@@ -1,0 +1,176 @@
+# Builds the cmux-terminal-client static library for iOS devices, the iOS
+# simulator, and macOS, bundles them as CmuxTerminalClient.xcframework, and
+# attaches the zip plus its SwiftPM checksum to a GitHub release tagged
+# cmux-terminal-client-v<crate version>[+<short sha>]. Manual dispatch only;
+# the Swift package at Packages/Shared/CmuxTerminalClient pins one release by
+# tag and checksum. Nothing here touches files.cmux.com.
+name: cmux-terminal-client xcframework
+
+on:
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: "Commit or branch to build (defaults to the dispatched ref)"
+        required: false
+        default: ""
+        type: string
+      macos_runner:
+        description: "macOS runner label override"
+        required: false
+        default: ""
+        type: string
+
+concurrency:
+  group: cmux-terminal-client-xcframework-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions: {}
+
+jobs:
+  build:
+    name: build xcframework
+    runs-on: ${{ inputs.macos_runner != '' && inputs.macos_runner || vars.MACOS_RUNNER_15 || 'blacksmith-6vcpu-macos-15' }}
+    timeout-minutes: 90
+    permissions:
+      contents: read
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      tag: ${{ steps.version.outputs.tag }}
+    steps:
+      - name: Checkout dispatched ref
+        if: inputs.ref == ''
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+
+      - name: Checkout requested ref
+        if: inputs.ref != ''
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          ref: ${{ inputs.ref }}
+
+      - name: Init ghostty submodule
+        run: git submodule update --init --depth 1 ghostty
+
+      - name: Resolve Ghostty Zig version
+        id: ghostty-zig-version
+        shell: bash
+        run: |
+          version="$(bash ./scripts/ghostty-zig-version.sh)"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+      - name: Install zig
+        uses: mlugg/setup-zig@8d6198c65fb0feaa111df26e6b467fea8345e46f # v2.0.5
+        with:
+          version: ${{ steps.ghostty-zig-version.outputs.version }}
+
+      - name: Set up pinned Rust
+        uses: ./.github/actions/setup-cmux-tui-rust
+
+      - name: Install Apple targets
+        shell: bash
+        run: rustup target add aarch64-apple-ios aarch64-apple-ios-sim aarch64-apple-darwin
+
+      - name: Resolve version
+        id: version
+        shell: bash
+        run: |
+          set -euo pipefail
+          crate_version="$(python3 - <<'PY'
+          import re, pathlib
+          text = pathlib.Path("cmux-tui/crates/cmux-terminal-client/Cargo.toml").read_text()
+          print(re.search(r'^version\s*=\s*"([^"]+)"', text, re.M).group(1))
+          PY
+          )"
+          short_sha="$(git rev-parse --short=12 HEAD)"
+          if [[ "$(git rev-parse --abbrev-ref HEAD 2>/dev/null || true)" == "main" ]]; then
+            version="$crate_version"
+          else
+            version="${crate_version}+${short_sha}"
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "tag=cmux-terminal-client-v$version" >> "$GITHUB_OUTPUT"
+
+      - name: Build static libraries
+        working-directory: cmux-tui
+        shell: bash
+        run: |
+          set -euo pipefail
+          unset CMUX_GHOSTTY_SRC
+          for target in aarch64-apple-ios aarch64-apple-ios-sim aarch64-apple-darwin; do
+            cargo build -p cmux-terminal-client --release --locked --target "$target"
+            test -f "target/$target/release/libcmux_terminal_client.a"
+          done
+
+      - name: Assemble xcframework
+        shell: bash
+        run: |
+          set -euo pipefail
+          headers="$(mktemp -d)/include"
+          mkdir -p "$headers"
+          cp cmux-tui/crates/cmux-terminal-client/include/cmux_terminal_client.h "$headers/"
+          cat > "$headers/module.modulemap" <<'MAP'
+          module CmuxTerminalClientFFI {
+              header "cmux_terminal_client.h"
+              export *
+          }
+          MAP
+          out="$RUNNER_TEMP/xcframework"
+          mkdir -p "$out"
+          lib=cmux-tui/target
+          xcodebuild -create-xcframework \
+            -library "$lib/aarch64-apple-ios/release/libcmux_terminal_client.a" -headers "$headers" \
+            -library "$lib/aarch64-apple-ios-sim/release/libcmux_terminal_client.a" -headers "$headers" \
+            -library "$lib/aarch64-apple-darwin/release/libcmux_terminal_client.a" -headers "$headers" \
+            -output "$out/CmuxTerminalClient.xcframework"
+          (cd "$out" && ditto -c -k --keepParent CmuxTerminalClient.xcframework CmuxTerminalClient.xcframework.zip)
+          checksum="$(swift package compute-checksum "$out/CmuxTerminalClient.xcframework.zip")"
+          printf '%s\n' "$checksum" > "$out/CmuxTerminalClient.xcframework.zip.sha256"
+          printf '%s  %s\n' "$(shasum -a 256 "$out/CmuxTerminalClient.xcframework.zip" | cut -d' ' -f1)" CmuxTerminalClient.xcframework.zip > "$out/SHA256SUMS"
+          echo "swiftpm checksum: $checksum"
+
+      - name: Upload build artifact
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: CmuxTerminalClient.xcframework
+          path: |
+            ${{ runner.temp }}/xcframework/CmuxTerminalClient.xcframework.zip
+            ${{ runner.temp }}/xcframework/CmuxTerminalClient.xcframework.zip.sha256
+            ${{ runner.temp }}/xcframework/SHA256SUMS
+          if-no-files-found: error
+
+  release:
+    name: publish release
+    needs: build
+    runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    timeout-minutes: 15
+    permissions:
+      contents: write
+    steps:
+      - name: Download build artifact
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: CmuxTerminalClient.xcframework
+          path: assets
+
+      - name: Create or update release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          TAG: ${{ needs.build.outputs.tag }}
+          VERSION: ${{ needs.build.outputs.version }}
+          SOURCE_SHA: ${{ github.sha }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          checksum="$(cat assets/CmuxTerminalClient.xcframework.zip.sha256)"
+          notes="cmux-terminal-client $VERSION as CmuxTerminalClient.xcframework (iOS arm64, iOS simulator arm64, macOS arm64). Source ${SOURCE_SHA}. SwiftPM binaryTarget checksum: ${checksum}"
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release upload "$TAG" assets/CmuxTerminalClient.xcframework.zip assets/CmuxTerminalClient.xcframework.zip.sha256 assets/SHA256SUMS --clobber
+          else
+            gh release create "$TAG" assets/CmuxTerminalClient.xcframework.zip assets/CmuxTerminalClient.xcframework.zip.sha256 assets/SHA256SUMS \
+              --target "$SOURCE_SHA" --title "$TAG" --notes "$notes" --prerelease
+          fi
+          echo "release: https://github.com/$GH_REPO/releases/tag/$TAG"
+          echo "checksum: $checksum"
