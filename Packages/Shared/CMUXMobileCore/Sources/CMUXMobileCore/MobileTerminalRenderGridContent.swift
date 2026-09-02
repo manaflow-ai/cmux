@@ -2,9 +2,9 @@ import Foundation
 
 /// The exact visual state represented by a complete render-grid snapshot.
 ///
-/// This value is the single comparison input for both emission diffing and
-/// stable content-revision tracking. Transport-only fields such as byte
-/// sequence numbers, theme metadata revisions, and non-visual mode flags are
+/// This value is the canonical visual snapshot reused by emission and
+/// content-revision tracking. Transport-only fields such as byte sequence
+/// numbers, theme metadata revisions, and non-visual mode flags are
 /// intentionally absent.
 public struct MobileTerminalRenderGridContent: Equatable, Sendable {
     /// Number of columns in the rendered grid.
