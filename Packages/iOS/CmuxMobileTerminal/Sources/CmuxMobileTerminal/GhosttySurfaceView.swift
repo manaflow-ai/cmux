@@ -935,22 +935,55 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
             guard let self else { return }
             self.delegate?.ghosttySurfaceView(self, didRequestArtifactFilesFrom: sourceView)
         }
-        inputProxy.accessoryLayoutInsetsProvider = { [weak self] in
+        inputProxy.accessoryLayoutInsetsProvider = { [weak self, weak inputProxy] in
             guard let self,
                   let window = self.window else {
                 return .zero
             }
 
-            let terminalFrame = self.convert(self.bounds, to: window)
-            return UIEdgeInsets(
-                top: 0,
-                left: max(0, terminalFrame.minX),
-                bottom: 0,
-                right: max(0, window.bounds.maxX - terminalFrame.maxX)
+            // The docked toolbar lives INSIDE the surface, so its leading edge
+            // already sits at the terminal's leading edge; measure the strip's
+            // insets against the toolbar's own frame, not the window. Window-space
+            // terminal X alone double-counts the horizontal offset whenever the
+            // surface does not start at the window edge (an iPad split-view detail
+            // pane next to a visible sidebar), stranding the whole control row a
+            // sidebar-width from the strip's leading edge.
+            let toolbarFrame: CGRect? = inputProxy.flatMap { proxy in
+                let toolbar = proxy.toolbarView
+                guard let toolbarSuperview = toolbar.superview,
+                      toolbar.window === window else { return nil }
+                return toolbarSuperview.convert(toolbar.frame, to: window)
+            }
+            return Self.accessoryLayoutInsets(
+                terminalFrame: self.convert(self.bounds, to: window),
+                toolbarFrame: toolbarFrame,
+                windowBounds: window.bounds
             )
         }
         return inputProxy
     }()
+
+    /// The accessory-strip insets that align the toolbar's controls with the
+    /// terminal's horizontal span, measured in window space. `toolbarFrame` is
+    /// the hosting bar's own frame: each side insets only by the span of the
+    /// BAR the terminal does not cover, so a window-spanning keyboard accessory
+    /// keeps its historical window-edge math (`toolbarFrame` == window bounds)
+    /// while a toolbar docked inside the surface (its edges already flush with
+    /// the terminal's) resolves to zero instead of re-applying the terminal's
+    /// window offset. `nil` (not yet hosted) falls back to the window bounds.
+    static func accessoryLayoutInsets(
+        terminalFrame: CGRect,
+        toolbarFrame: CGRect?,
+        windowBounds: CGRect
+    ) -> UIEdgeInsets {
+        let reference = toolbarFrame ?? windowBounds
+        return UIEdgeInsets(
+            top: 0,
+            left: max(0, terminalFrame.minX - reference.minX),
+            bottom: 0,
+            right: max(0, reference.maxX - terminalFrame.maxX)
+        )
+    }
 
     /// Creates an embedded surface and applies its colors before the first frame.
     /// - Parameters:
