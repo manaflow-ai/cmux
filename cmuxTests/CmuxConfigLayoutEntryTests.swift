@@ -116,7 +116,7 @@ struct CmuxConfigLayoutEntryTests {
             #"{"commands":[{"name":"bad","workspace":{"layout":{"invalid":true}}}]}"#,
             #"{"commands":[{"name":"bad","workspace":{"layout":{"pane":{"surfaces":[{"type":"invalid"}]}}}}]}"#,
             #"{"commands":[{"name":"bad"}]}"#,
-            #"{"commands":[{"name":"bad","workspace":{"layout":{"pane":{"surfaces":[{"type":"terminal"}]}},"direction":"horizontal"}}]}"#,
+            #"{"commands":[{"name":"bad","workspace":{"layout":{"pane":{"surfaces":[{"type":"terminal"}]},"direction":"horizontal"}}}]}"#,
             #"{"commands":[{"name":"bad","workspace":{"layout":{"direction":"horizontal","children":[{"pane":{"surfaces":[{"type":"terminal"}]}}]}}}]}"#,
             #"{"commands":[{"name":"bad","workspace":{"layout":{"direction":"vertical","children":[{"pane":{"surfaces":[{"type":"terminal"}]}},{"pane":{"surfaces":[{"type":"terminal"}]}},{"pane":{"surfaces":[{"type":"terminal"}]}}]}}}]}"#,
             #"{"commands":[{"name":"bad","workspace":{"layout":{"pane":{"surfaces":[]}}}}]}"#,
