@@ -1622,6 +1622,96 @@ pub struct RemoteSession {
     capabilities: Mutex<HashSet<String>>,
     provider_workspace_authority: Option<BearerToken>,
     provider_workspaces_guarded: AtomicBool,
+    pipe_io_tap: Mutex<Option<PipeIoTap>>,
+}
+
+/// One event on the raw byte stream a `--pipe-io` relay serves to its
+/// embedder. `Replay` REPLACES all prior terminal state (the relay must
+/// emit a full reset before any replay that is not its first output);
+/// `Output` appends live PTY bytes.
+#[derive(Debug, PartialEq, Eq)]
+pub enum PipeIoEvent {
+    Replay { bytes: Vec<u8> },
+    Output(Vec<u8>),
+    SurfaceExited,
+    TransportLost,
+    StdinClosed,
+    StdinError,
+}
+
+impl PipeIoEvent {
+    /// Bytes retained by the relay's bounded data queue. Lifecycle signals
+    /// have a separate one-slot channel and carry no retained payload.
+    pub(crate) fn retained_bytes(&self) -> usize {
+        match self {
+            Self::Replay { bytes } | Self::Output(bytes) => bytes.len(),
+            Self::SurfaceExited | Self::TransportLost | Self::StdinClosed | Self::StdinError => 0,
+        }
+    }
+}
+
+/// Shared byte budget for one pipe-IO relay. A count-only bounded channel can
+/// retain megabytes per event when a replay is large; this budget makes the
+/// memory bound explicit and turns an overrun into the same transport-loss
+/// path as a full channel.
+pub(crate) struct PipeIoByteBudget {
+    retained: AtomicUsize,
+    limit: usize,
+}
+
+impl PipeIoByteBudget {
+    pub(crate) fn new(limit: usize) -> Self {
+        Self { retained: AtomicUsize::new(0), limit: limit.max(1) }
+    }
+
+    pub(crate) fn try_reserve(&self, bytes: usize) -> bool {
+        if bytes == 0 {
+            return true;
+        }
+        let mut current = self.retained.load(Ordering::Acquire);
+        loop {
+            let Some(next) = current.checked_add(bytes) else { return false };
+            if next > self.limit {
+                return false;
+            }
+            match self.retained.compare_exchange_weak(
+                current,
+                next,
+                Ordering::AcqRel,
+                Ordering::Acquire,
+            ) {
+                Ok(_) => return true,
+                Err(observed) => current = observed,
+            }
+        }
+    }
+
+    pub(crate) fn release(&self, bytes: usize) {
+        if bytes == 0 {
+            return;
+        }
+        let mut current = self.retained.load(Ordering::Acquire);
+        loop {
+            let next = current.saturating_sub(bytes);
+            match self.retained.compare_exchange_weak(
+                current,
+                next,
+                Ordering::AcqRel,
+                Ordering::Acquire,
+            ) {
+                Ok(_) => return,
+                Err(observed) => current = observed,
+            }
+        }
+    }
+}
+
+struct PipeIoTap {
+    surface: SurfaceId,
+    sender: EventSender<PipeIoEvent>,
+    lifecycle_sender: EventSender<PipeIoEvent>,
+    byte_budget: Arc<PipeIoByteBudget>,
+    token: Arc<u8>,
 }
 
 pub(super) enum RemoteSurfaceAttach {
