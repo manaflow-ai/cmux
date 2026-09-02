@@ -5090,8 +5090,10 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         pendingSurfaceSize = size
         clipsToBounds = true
         layer?.masksToBounds = true
-        if !bypassLiveResizeCoalescing,
-           defersSurfaceSizeDuringWindowLiveResize {
+        // The portal gate owns publication ordering. The end-live-resize
+        // callback passes bypass=true to disable pixel-only coalescing, but
+        // it must still wait for the portal's final pane geometry commit.
+        if defersSurfaceSizeDuringWindowLiveResize {
 #if DEBUG
             let signature = "windowLiveResize-\(Int(size.width.rounded()))x\(Int(size.height.rounded()))"
             if lastSizeSkipSignature != signature {
