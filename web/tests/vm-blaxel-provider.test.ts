@@ -577,6 +577,11 @@ describe("background provisioning", () => {
     expect(CMUX_PROVISION_SCRIPT).toContain('"$HOME/.bun/bin/bun"');
     expect(CMUX_PROVISION_SCRIPT).not.toContain("/root/.npm-global");
     expect(CMUX_PROVISION_SCRIPT).not.toContain("/root/.bun");
+    // A persistent home shadows the image's /home/cmux/.bashrc. The generated
+    // profile must source both shared fragments so volume-backed panes keep the
+    // prompt, ble.sh setup, and coderouter agent environment.
+    expect(CMUX_PROVISION_SCRIPT).toContain("[ -f /etc/cmux/bashrc ] && . /etc/cmux/bashrc");
+    expect(CMUX_PROVISION_SCRIPT).toContain("[ -f /etc/cmux/agent-config.sh ] && . /etc/cmux/agent-config.sh");
     // Legacy sandboxes (volume still at /root) were provisioned by the old driver;
     // the script is a no-op there instead of writing tools to disposable rootfs.
     expect(CMUX_PROVISION_SCRIPT).toContain("mountpoint -q /root 2>/dev/null && exit 0");
