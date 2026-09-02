@@ -30,9 +30,7 @@ concurrency:
 
 jobs:
   browser-skill:
-    # This docs-only contract intentionally stays on GitHub-hosted infrastructure;
-    # the runner guard recognizes the explicit exemption marker.
-    runs-on: ubuntu-24.04 # github-hosted-required
+    runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 5
     steps:
       - name: Checkout
