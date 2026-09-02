@@ -236,16 +236,21 @@ class ReleaseTrustedWorkflowTests(unittest.TestCase):
         sign_text = "\n".join(str(step) for step in sign_steps)
         for required in (
             "skip_r2_upload",
-            "Restore appcast for a publication retry",
+            "restore_appcast",
+            "repair_appcast_asset",
+            "Restore existing appcast for a publication retry",
+            "Regenerate missing appcast for a publication retry",
             "Revalidate release tag before GitHub publication",
             "Revalidate release tag before R2 publication",
         ):
             self.assertIn(required, sign_text)
-        restore = next(step for step in sign_steps if step.get("name") == "Restore appcast for a publication retry")
+        restore = next(step for step in sign_steps if step.get("name") == "Restore existing appcast for a publication retry")
         self.assertIn("gh release download", restore["run"])
         r2_recheck = next(step for step in sign_steps if step.get("name") == "Revalidate release tag before R2 publication")
         self.assertIn("gh api", r2_recheck["run"])
         self.assertIn("skip_r2_upload", r2_recheck["if"])
+        r2_upload = next(step for step in sign_steps if step.get("name") == "Upload release appcast to R2")
+        self.assertIn('RELEASE_TAG" == *-*', r2_upload["run"])
 
     def test_adversarial_tag_workflow_is_rejected_before_release(self) -> None:
         document = load()

@@ -349,6 +349,8 @@ jobs:
             core.setOutput('skip_all', 'false');
             core.setOutput('skip_upload', 'false');
             core.setOutput('skip_r2_upload', 'false');
+            core.setOutput('restore_appcast', 'false');
+            core.setOutput('repair_appcast_asset', 'false');
             core.setOutput('release_state', 'clear');
             if (!tag) {
               core.setFailed('Release asset guard did not receive the validated release tag');
@@ -371,6 +373,21 @@ jobs:
 
               core.setOutput('release_state', guardState);
 
+              const onlyAppcastIsMissing =
+                missingImmutableAssets.length === 1 && missingImmutableAssets[0] === 'appcast.xml';
+              if (onlyAppcastIsMissing) {
+                core.notice(
+                  `Release ${tag} is missing only appcast.xml. ` +
+                  'The existing signed DMG will be used to regenerate the appcast.'
+                );
+                core.setOutput('skip_all', 'true');
+                core.setOutput('skip_upload', 'true');
+                core.setOutput('skip_r2_upload', 'false');
+                core.setOutput('restore_appcast', 'true');
+                core.setOutput('repair_appcast_asset', 'true');
+                return;
+              }
+
               if (hasPartialConflict) {
                 core.setFailed(
                   `Release ${tag} has a partial immutable asset state. Existing immutable assets: ` +
@@ -391,6 +408,7 @@ jobs:
                 // upload are complete. Keep the mutable R2 appcast lane live
                 // so a transient upload failure can be repaired by rerun.
                 core.setOutput('skip_r2_upload', 'false');
+                core.setOutput('restore_appcast', 'true');
                 return;
               }
 
@@ -403,8 +421,8 @@ jobs:
               throw error;
             }
 
-      - name: Restore appcast for a publication retry
-        if: steps.guard_release_assets.outputs.skip_all == 'true' && steps.guard_release_assets.outputs.skip_r2_upload != 'true'
+      - name: Restore existing appcast for a publication retry
+        if: steps.guard_release_assets.outputs.restore_appcast == 'true' && steps.guard_release_assets.outputs.repair_appcast_asset != 'true'
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
@@ -415,6 +433,26 @@ jobs:
             --pattern appcast.xml \
             --output appcast.xml \
             --clobber
+          test -s appcast.xml
+
+      - name: Regenerate missing appcast for a publication retry
+        if: steps.guard_release_assets.outputs.repair_appcast_asset == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SPARKLE_PRIVATE_KEY: ${{ secrets.SPARKLE_PRIVATE_KEY }}
+        run: |
+          set -euo pipefail
+          if [ -z "$SPARKLE_PRIVATE_KEY" ]; then
+            echo "Missing SPARKLE_PRIVATE_KEY for appcast repair" >&2
+            exit 1
+          fi
+          rm -f cmux-macos.dmg appcast.xml
+          gh release download "$RELEASE_TAG" \
+            --repo manaflow-ai/cmux \
+            --pattern cmux-macos.dmg \
+            --output cmux-macos.dmg \
+            --clobber
+          ./scripts/sparkle_generate_appcast.sh cmux-macos.dmg "$RELEASE_TAG" appcast.xml
           test -s appcast.xml
 
       - name: Select Xcode
@@ -505,7 +543,7 @@ jobs:
             echo "Missing SPARKLE_PRIVATE_KEY secret" >&2
             exit 1
           fi
-          DERIVED_PUBLIC_KEY=$(swift scripts/derive_sparkle_public_key.swift "$SPARKLE_PRIVATE_KEY")
+          DERIVED_PUBLIC_KEY=$(swift scripts/derive_sparkle_public_key.swift --stdin <<<"$SPARKLE_PRIVATE_KEY")
           echo "Derived Sparkle public key: $DERIVED_PUBLIC_KEY"
           echo "SPARKLE_PUBLIC_KEY=$DERIVED_PUBLIC_KEY" >> "$GITHUB_ENV"
 
@@ -806,7 +844,7 @@ jobs:
 
       - name: Revalidate release tag before GitHub publication
         id: revalidate-release-tag
-        if: steps.guard_release_assets.outputs.skip_upload != 'true'
+        if: steps.guard_release_assets.outputs.skip_upload != 'true' || steps.guard_release_assets.outputs.repair_appcast_asset == 'true'
         uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
         env:
           RELEASE_TAG: ${{ needs.validate-source.outputs.tag_name }}
@@ -854,6 +892,14 @@ jobs:
           overwrite_files: false
           tag_name: ${{ needs.validate-source.outputs.tag_name }}
 
+      - name: Upload repaired appcast asset
+        if: steps.guard_release_assets.outputs.repair_appcast_asset == 'true' && steps.revalidate-release-tag.outputs.verified == 'true'
+        uses: softprops/action-gh-release@b4309332981a82ec1c5618f44dd2e27cc8bfbfda # v3.0.0
+        with:
+          files: appcast.xml
+          overwrite_files: false
+          tag_name: ${{ needs.validate-source.outputs.tag_name }}
+
       - name: Revalidate release tag before R2 publication
         id: revalidate-r2-tag
         if: steps.guard_release_assets.outputs.skip_r2_upload != 'true'
@@ -885,6 +931,13 @@ jobs:
           R2_ENDPOINT: "https://${{ secrets.CF_R2_ACCOUNT_ID }}.r2.cloudflarestorage.com"
         run: |
           set -euo pipefail
+
+          # Prerelease artifacts must never replace the stable appcast. The
+          # GitHub release still receives the signed prerelease assets above.
+          if [[ "$RELEASE_TAG" == *-* ]]; then
+            echo "Skipping R2 stable upload for prerelease $RELEASE_TAG"
+            exit 0
+          fi
 
           # Guard: only upload if this tag is the highest semver release.
           # Prevents a backport tag (e.g. v0.62.1 after v0.63.1) from
