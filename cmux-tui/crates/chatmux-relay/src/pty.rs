@@ -1085,6 +1085,10 @@ impl Inner {
                 && (live_auth.owner_user_id.is_none()
                     || Some(actor) != live_auth.owner_user_id.as_deref()))
         {
+            opening.ids.remove(&pty_id);
+            if opening.cancelled.get(&pty_id) == Some(&opening_generation) {
+                opening.cancelled.remove(&pty_id);
+            }
             drop(opening);
             drop(attachments);
             reservation.active = false;
