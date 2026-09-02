@@ -20,7 +20,7 @@ grep -Fq "echo \"CLA generation \${CLA_GENERATION}\"" "$WORKFLOW"
 grep -Fq 'name: "CLA ledger writer"' "$WORKFLOW"
 grep -Fq '      issues: write' "$WORKFLOW"
 grep -Fq 'allowlist-ids: "38676809,67667005"' "$WORKFLOW"
-grep -Fq 'cla_passed: ${{ steps.cla_action.outputs.cla_passed }}' "$WORKFLOW"
+grep -Fq "cla_passed: \${{ steps.cla_action.outputs.cla_passed }}" "$WORKFLOW"
 grep -Fq 'CLA_PASSED:' "$WORKFLOW"
 # shellcheck disable=SC2016
 WORKFLOW="$WORKFLOW" ruby -ryaml -e '
