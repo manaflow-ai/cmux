@@ -3,7 +3,7 @@ import * as Effect from "effect/Effect";
 import type * as Layer from "effect/Layer";
 import { after } from "next/server";
 import { env } from "../../app/env";
-import { unauthorized, verifyRequest, type AuthedUser } from "../vms/auth";
+import { unauthorized, verifyRequestIdentity } from "../vms/auth";
 import { authProviderErrorResponse } from "../vms/authErrors";
 import { enforceBrowserMutationProtection, jsonResponse } from "../vms/routeHelpers";
 import { irohExpectedError } from "./errors";
@@ -28,7 +28,10 @@ export type IrohRouteOperation =
   | "relay_token";
 
 type RouteDependencies = {
-  readonly verify?: typeof verifyRequest;
+  readonly verify?: (
+    request: Request,
+    options: { readonly allowCookie: false },
+  ) => Promise<{ readonly id: string } | null>;
   readonly broker?: IrohTrustBrokerShape;
   readonly runtime?: Layer.Layer<IrohTrustBroker, never, never>;
   readonly publishConnectivityInvalidation?: (
@@ -45,8 +48,10 @@ export async function handleIrohRoute(
   operation: IrohRouteOperation,
   dependencies: RouteDependencies = {},
 ): Promise<Response> {
-  const verify = dependencies.verify ?? verifyRequest;
-  let user: AuthedUser | null;
+  // Identity only: the broker needs the user id, and local token verification
+  // keeps this ~100 req/s route off Stack's per-request API budget.
+  const verify = dependencies.verify ?? verifyRequestIdentity;
+  let user: { readonly id: string } | null;
   try {
     user = await verify(request, { allowCookie: false });
   } catch (error) {

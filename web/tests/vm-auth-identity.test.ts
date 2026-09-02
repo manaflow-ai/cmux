@@ -5,10 +5,6 @@ const getUser = mock(async (): Promise<unknown> => null);
 mock.module("../app/lib/stack", () => ({
   getStackServerApp: () => ({ getUser }),
   isStackConfigured: () => true,
-  stackAccessTokenVerifierConfig: () => ({
-    projectId: "454ecd03-1db2-4050-845e-4ce5b0cd9895",
-    apiBaseURL: "https://api.stack-auth.com",
-  }),
   stackServerApp: { getUser },
 }));
 
