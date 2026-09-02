@@ -190,6 +190,7 @@ RUN mkdir -p /etc/cmux/blesh-cache-seed \
          script -qec 'bash -i' /dev/null >/dev/null 2>&1 || true; \
      done \
   && rm -rf /tmp/blesh-seed-home \
+  && chmod -R a+rX /etc/cmux/blesh-cache-seed \
   && test -s /etc/cmux/blesh-cache-seed/blesh/*/term.xterm-256color \
   && test -s /etc/cmux/blesh-cache-seed/blesh/*/term.screen-256color \
   && test -s /etc/cmux/blesh-cache-seed/blesh/*/term.tmux-256color \
@@ -243,3 +244,14 @@ RUN bash -n /etc/cmux/agent-config.sh \
 COPY cmux-devbox-boot /usr/local/bin/cmux-devbox-boot
 RUN chmod 0755 /usr/local/bin/cmux-devbox-boot \
   && sh -n /usr/local/bin/cmux-devbox-boot
+
+# Login banner (pam_motd on providers that run sshd; inert elsewhere). It
+# reads the versions the bake pinned from /etc/cmux/tool-versions so login
+# never runs a tool to ask.
+COPY cmux-motd /etc/update-motd.d/00-cmux
+RUN chmod 0755 /etc/update-motd.d/00-cmux \
+  && sh -n /etc/update-motd.d/00-cmux \
+  && mkdir -p /etc/cmux \
+  && echo "claude ${CMUX_IMAGE_CLAUDE_CODE_VERSION} · codex ${CMUX_IMAGE_CODEX_VERSION} · opencode ${CMUX_IMAGE_OPENCODE_VERSION} · pi ${CMUX_IMAGE_PI_VERSION}" > /etc/cmux/tool-versions \
+  && echo "node $(node --version) · python $(python3 --version | awk '{print $2}') · bun $(bun --version) · uv $(uv --version | awk '{print $2}') · gh $(gh --version | head -1 | awk '{print $3}')" >> /etc/cmux/tool-versions \
+  && cat /etc/cmux/tool-versions
