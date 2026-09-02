@@ -220,12 +220,21 @@ mod unix {
                     true
                 };
                 let invoke_close = |shared: &Arc<Shared>| {
-                    if !shared.deliberate.load(Ordering::SeqCst) {
-                        let handler =
-                            shared.close_handler.lock().expect("control close lock").take();
-                        if let Some(handler) = handler {
-                            handler();
-                        }
+                    if shared.deliberate.load(Ordering::SeqCst) {
+                        return;
+                    }
+                    let handler = {
+                        let mut slot = shared.close_handler.lock().expect("control close lock");
+                        let handler = slot.take();
+                        // Publish completion before running user code. A
+                        // concurrent on_close registration can then invoke
+                        // its handler directly instead of storing it after
+                        // this worker has already taken the slot.
+                        shared.worker_done.store(true, Ordering::Release);
+                        handler
+                    };
+                    if let Some(handler) = handler {
+                        handler();
                     }
                 };
                 loop {
