@@ -13273,6 +13273,7 @@ impl App {
                 crate::ui::draw(self, frame);
             })
         })??;
+        self.sync_text_input_viewports();
         if self.graphics_host_scene_reset_pending {
             if let Some(writer) = &self.graphics_writer {
                 writer.invalidate_host_scene();
@@ -13301,6 +13302,54 @@ impl App {
             self.host_mouse_capture_applied = Some(desired_mouse_capture);
         }
         Ok(())
+    }
+
+    /// Persist the viewport derived by the immutable text-input renderers
+    /// after a successful frame, so the next input event starts from the
+    /// window the user actually saw.
+    fn sync_text_input_viewports(&mut self) {
+        if let Some(prompt) = self.prompt.as_mut() {
+            let width = prompt.input_rect.width as usize;
+            prompt.input.sync_viewport(width);
+        }
+
+        let omnibar_width = self.omnibar.as_ref().and_then(|state| {
+            self.pane_areas
+                .iter()
+                .find(|area| area.pane == state.pane && area.surface == state.surface)
+                .and_then(|area| area.omnibar)
+                .map(|rect| rect.width as usize)
+        });
+        if let Some(state) = self.omnibar.as_mut() {
+            state.input.sync_viewport(omnibar_width.unwrap_or_default());
+        }
+
+        let menu_search_width = self.menu.as_ref().and_then(|menu| {
+            let search = menu.search.as_ref()?;
+            let level = menu.levels.first()?;
+            let title_width = level.rect.width.saturating_sub(4) as usize;
+            // The literal spaces around the label keep the three segments
+            // separate, so their display widths add without constructing a
+            // temporary prefix string on every frame.
+            let prefix_width = " "
+                .width()
+                .saturating_add(search.label.width())
+                .saturating_add(" · ".width())
+                .min(title_width);
+            Some(title_width.saturating_sub(prefix_width).saturating_sub(1))
+        });
+        if let Some(menu) = self.menu.as_mut()
+            && let Some(search) = menu.search.as_mut()
+        {
+            search.input.sync_viewport(menu_search_width.unwrap_or_default());
+        }
+
+        if self.sidebar_files.filter_mode() {
+            let width = self
+                .workspace_sidebar_area(self.outer_size.1)
+                .map_or(0, |area| area.width.saturating_sub(2) as usize);
+            self.sidebar_files.sync_filter_viewport(width);
+        }
     }
 
     /// Full-TUI clients always capture host mouse input. A scoped attach
@@ -25022,6 +25071,29 @@ mod tests {
         let omnibar = app.omnibar.as_ref().unwrap();
         assert_eq!(omnibar.input.as_str(), text);
         assert!(!omnibar.select_all);
+    }
+
+    #[test]
+    fn prompt_render_persists_text_input_viewport_before_left_movement() {
+        let mux = Mux::new("text-input-viewport-lifecycle-test", SurfaceOptions::default());
+        let mut app = test_app(Session::Local(mux.clone()));
+        app.prompt = Some(Prompt::new(
+            "Rename",
+            "abcdefghijklmnopqrstuvwxyz0123456789".to_string(),
+            PromptTarget::Workspace(1),
+        ));
+        let mut terminal = Terminal::new(TestBackend::new(24, 12)).unwrap();
+
+        app.draw_terminal(&mut terminal, RenderAction::Draw).unwrap();
+
+        let before = app.prompt.as_ref().unwrap().input.visible_text_and_cursor(18);
+        assert!(before.1 > 0);
+        app.handle_prompt_key(KeyEvent::new(KeyCode::Left, KeyModifiers::NONE)).unwrap();
+        let after = app.prompt.as_ref().unwrap().input.visible_text_and_cursor(18);
+
+        assert_eq!(after.0, before.0);
+        assert_eq!(after.1, before.1 - 1);
+        mux.shutdown();
     }
 
     #[test]

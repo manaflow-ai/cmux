@@ -809,15 +809,22 @@ async fn cleanup_daemon(mut child: tokio::process::Child) {
             let _ = libc::kill(-(pid as libc::pid_t), libc::SIGTERM);
         }
     }
-    if tokio::time::timeout(Duration::from_millis(250), child.wait()).await.is_ok() {
-        return;
+    match tokio::time::timeout(Duration::from_millis(250), child.wait()).await {
+        Ok(Ok(_status)) => return,
+        Ok(Err(_)) | Err(_) => {
+            // A timeout completion is not enough. `wait` has its own I/O
+            // result, and a failed reap must still go through escalation.
+        }
     }
     if let Some(pid) = child.id() {
         unsafe {
             let _ = libc::kill(-(pid as libc::pid_t), libc::SIGKILL);
         }
     }
-    let _ = child.kill().await;
+    // `kill` also waits for the child, so using it here would make the
+    // supposedly bounded cleanup unbounded. Send SIGKILL, then bound the
+    // explicit reap below.
+    let _ = child.start_kill();
     let _ = tokio::time::timeout(Duration::from_secs(1), child.wait()).await;
 }
 

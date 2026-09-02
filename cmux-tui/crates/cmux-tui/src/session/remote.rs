@@ -383,10 +383,19 @@ impl RemoteTreeCache {
         self.title_generation
     }
 
-    fn replace_agents(&mut self, agents: Vec<AgentInfo>, refresh_generation: u64) {
-        self.agents = agents;
+    fn replace_agents(
+        &mut self,
+        agents: Vec<AgentInfo>,
+        refresh_generation: u64,
+        retired_surfaces: &HashSet<SurfaceId>,
+    ) {
+        self.agents =
+            agents.into_iter().filter(|agent| !retired_surfaces.contains(&agent.surface)).collect();
         let updates = std::mem::take(&mut self.agent_updates);
         for (surface, update) in updates {
+            if retired_surfaces.contains(&surface) {
+                continue;
+            }
             if self.surface_tabs.contains_key(&surface) {
                 // A pending update may have been observed during an earlier
                 // refresh whose topology omitted this surface. Reapply it
@@ -407,7 +416,10 @@ impl RemoteTreeCache {
         }
     }
 
-    fn update_agent(&mut self, agent: AgentInfo) {
+    fn update_agent(&mut self, agent: AgentInfo, retired_surfaces: &HashSet<SurfaceId>) {
+        if retired_surfaces.contains(&agent.surface) {
+            return;
+        }
         self.agent_generation = self.agent_generation.saturating_add(1);
         self.agent_updates.insert(
             agent.surface,
@@ -422,6 +434,11 @@ impl RemoteTreeCache {
         } else {
             self.agents.push(agent);
         }
+    }
+
+    fn remove_agent(&mut self, surface: SurfaceId) {
+        self.agents.retain(|agent| agent.surface != surface);
+        self.agent_updates.remove(&surface);
     }
 
     fn agent_generation(&self) -> u64 {
@@ -1040,6 +1057,73 @@ struct PendingRemoteRequest {
     attach_surface: Option<SurfaceId>,
 }
 
+#[derive(Default)]
+struct PendingRemoteRequests {
+    requests: HashMap<u64, PendingRemoteRequest>,
+    attach_surface_requests: HashMap<SurfaceId, HashSet<u64>>,
+}
+
+impl PendingRemoteRequests {
+    fn insert(&mut self, id: u64, request: PendingRemoteRequest) {
+        if let Some(surface) = request.attach_surface {
+            self.attach_surface_requests.entry(surface).or_default().insert(id);
+        }
+        self.requests.insert(id, request);
+    }
+
+    fn get(&self, id: &u64) -> Option<&PendingRemoteRequest> {
+        self.requests.get(id)
+    }
+
+    fn remove(&mut self, id: &u64) -> Option<PendingRemoteRequest> {
+        let request = self.requests.remove(id)?;
+        if let Some(surface) = request.attach_surface {
+            let mut remove_surface = false;
+            if let Some(ids) = self.attach_surface_requests.get_mut(&surface) {
+                ids.remove(id);
+                remove_surface = ids.is_empty();
+            }
+            if remove_surface {
+                self.attach_surface_requests.remove(&surface);
+            }
+        }
+        Some(request)
+    }
+
+    fn progress_for_attach_surface(&self, surface: SurfaceId) -> bool {
+        let Some(ids) = self.attach_surface_requests.get(&surface) else { return false };
+        let mut progressed = false;
+        for id in ids {
+            if let Some(request) = self.requests.get(id) {
+                request.progress.fetch_add(1, Ordering::Release);
+                progressed = true;
+            }
+        }
+        progressed
+    }
+
+    fn is_empty(&self) -> bool {
+        self.requests.is_empty()
+    }
+
+    fn len(&self) -> usize {
+        self.requests.len()
+    }
+
+    fn values(&self) -> impl Iterator<Item = &PendingRemoteRequest> {
+        self.requests.values()
+    }
+}
+
+impl IntoIterator for PendingRemoteRequests {
+    type Item = (u64, PendingRemoteRequest);
+    type IntoIter = std::collections::hash_map::IntoIter<u64, PendingRemoteRequest>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        self.requests.into_iter()
+    }
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum RemoteProgressTarget {
     Request(u64),
@@ -1502,7 +1586,7 @@ pub struct RemoteSession {
     /// reader failure so closing our own transport does not report a fake
     /// remote diagnostic.
     disconnect_state: Mutex<DisconnectState>,
-    pending: Mutex<HashMap<u64, PendingRemoteRequest>>,
+    pending: Mutex<PendingRemoteRequests>,
     next_id: AtomicU64,
     attach_progress: AtomicU64,
     shutdown: AtomicBool,
@@ -1510,6 +1594,8 @@ pub struct RemoteSession {
     exited_surfaces: Mutex<ExitedSurfaceState>,
     surface_leases: Mutex<HashMap<SurfaceId, String>>,
     retired_surfaces: Mutex<HashSet<SurfaceId>>,
+    #[cfg(test)]
+    retire_surface_test_marker: Mutex<Option<Sender<SurfaceId>>>,
     tree: Mutex<RemoteTreeCache>,
     browser_sources: Mutex<HashMap<SurfaceId, BrowserSource>>,
     tree_refresh: Mutex<()>,
@@ -1858,7 +1944,7 @@ impl RemoteSession {
         let session = Arc::new(RemoteSession {
             interactive_writer,
             disconnect_state: Mutex::new(DisconnectState::default()),
-            pending: Mutex::new(HashMap::new()),
+            pending: Mutex::new(PendingRemoteRequests::default()),
             next_id: AtomicU64::new(1),
             attach_progress: AtomicU64::new(0),
             shutdown: AtomicBool::new(false),
@@ -1866,6 +1952,8 @@ impl RemoteSession {
             exited_surfaces: Mutex::new(ExitedSurfaceState::default()),
             surface_leases: Mutex::new(HashMap::new()),
             retired_surfaces: Mutex::new(HashSet::new()),
+            #[cfg(test)]
+            retire_surface_test_marker: Mutex::new(None),
             tree: Mutex::new(RemoteTreeCache::default()),
             browser_sources: Mutex::new(HashMap::new()),
             tree_refresh: Mutex::new(()),
@@ -2099,14 +2187,7 @@ impl RemoteSession {
                 }
             }
             RemoteProgressTarget::AttachSurface(surface) => {
-                let mut progressed = false;
-                for request in
-                    pending.values().filter(|request| request.attach_surface == Some(surface))
-                {
-                    request.progress.fetch_add(1, Ordering::Release);
-                    progressed = true;
-                }
-                progressed
+                pending.progress_for_attach_surface(surface)
             }
         };
         drop(pending);
@@ -2356,7 +2437,13 @@ impl RemoteSession {
                     session: agent.session.as_deref().map(Arc::from),
                     updated_at_ms,
                 };
-                self.tree.lock().unwrap().update_agent(agent);
+                {
+                    let retired_surfaces = self.retired_surfaces.lock().unwrap();
+                    if retired_surfaces.contains(&surface) {
+                        return;
+                    }
+                    self.tree.lock().unwrap().update_agent(agent, &retired_surfaces);
+                }
                 self.emit(event);
             }
             Some("layout-changed") => {
@@ -3328,8 +3415,15 @@ impl RemoteSession {
     }
 
     pub fn retire_surface(&self, id: SurfaceId) {
+        let mut retired_surfaces = self.retired_surfaces.lock().unwrap();
+        retired_surfaces.insert(id);
+        #[cfg(test)]
+        if let Some(sender) = self.retire_surface_test_marker.lock().unwrap().clone() {
+            let _ = sender.send(id);
+        }
+        self.tree.lock().unwrap().remove_agent(id);
+        drop(retired_surfaces);
         let _cell_pixel_lifecycle = self.cell_pixel_lifecycle.lock().unwrap();
-        self.retired_surfaces.lock().unwrap().insert(id);
         let surface = self.surfaces.lock().unwrap().remove(&id);
         let mut exited = self.exited_surfaces.lock().unwrap();
         exited.ids.insert(id);
@@ -3437,14 +3531,15 @@ impl RemoteSession {
             .lock()
             .unwrap()
             .retain(|surface_id, _| live_surface_ids.contains(surface_id));
+        let retired_surfaces = self.retired_surfaces.lock().unwrap();
         let tree = {
             let mut cache = self.tree.lock().unwrap();
-            let retired = self.retired_surfaces.lock().unwrap().clone();
-            tree.retain_not_retired(&retired);
+            tree.retain_not_retired(&retired_surfaces);
             cache.replace(tree, title_refresh_generation);
-            cache.replace_agents(agents, agent_refresh_generation);
+            cache.replace_agents(agents, agent_refresh_generation, &retired_surfaces);
             cache.view.clone()
         };
+        drop(retired_surfaces);
         let browser_sources = browser_sources_from_tree(&tree);
         *self.browser_sources.lock().unwrap() = browser_sources.clone();
         let surfaces = self.surfaces.lock().unwrap().clone();
@@ -3816,7 +3911,7 @@ fn test_session_with_writer(
     Arc::new(RemoteSession {
         interactive_writer: InteractiveWriter::spawn(writer, Arc::new(NoopTransportAbort)).unwrap(),
         disconnect_state: Mutex::new(DisconnectState::default()),
-        pending: Mutex::new(HashMap::new()),
+        pending: Mutex::new(PendingRemoteRequests::default()),
         next_id: AtomicU64::new(1),
         attach_progress: AtomicU64::new(0),
         shutdown: AtomicBool::new(false),
@@ -3824,6 +3919,7 @@ fn test_session_with_writer(
         exited_surfaces: Mutex::new(ExitedSurfaceState::default()),
         surface_leases: Mutex::new(HashMap::new()),
         retired_surfaces: Mutex::new(HashSet::new()),
+        retire_surface_test_marker: Mutex::new(None),
         tree: Mutex::new(RemoteTreeCache::default()),
         browser_sources: Mutex::new(HashMap::new()),
         tree_refresh: Mutex::new(()),
@@ -5057,7 +5153,7 @@ mod tests {
         Arc::new(RemoteSession {
             interactive_writer: InteractiveWriter::spawn(writer, abort).unwrap(),
             disconnect_state: Mutex::new(DisconnectState::default()),
-            pending: Mutex::new(HashMap::new()),
+            pending: Mutex::new(PendingRemoteRequests::default()),
             next_id: AtomicU64::new(1),
             attach_progress: AtomicU64::new(0),
             shutdown: AtomicBool::new(false),
@@ -5065,6 +5161,7 @@ mod tests {
             exited_surfaces: Mutex::new(ExitedSurfaceState::default()),
             surface_leases: Mutex::new(HashMap::new()),
             retired_surfaces: Mutex::new(HashSet::new()),
+            retire_surface_test_marker: Mutex::new(None),
             tree: Mutex::new(RemoteTreeCache::default()),
             browser_sources: Mutex::new(HashMap::new()),
             tree_refresh: Mutex::new(()),
@@ -6490,6 +6587,40 @@ mod tests {
         assert_eq!(deadline.next_wait(started + maximum, 3, 3), None);
     }
 
+    #[test]
+    fn attach_progress_reverse_index_tracks_only_live_matching_requests() {
+        let mut pending = PendingRemoteRequests::default();
+        let unrelated_progress = Arc::new(AtomicU64::new(0));
+        for id in 0..1_000 {
+            pending.insert(
+                id,
+                PendingRemoteRequest {
+                    response: channel().0,
+                    progress: unrelated_progress.clone(),
+                    attach_surface: Some(8),
+                },
+            );
+        }
+        let matching_progress = Arc::new(AtomicU64::new(0));
+        pending.insert(
+            1_000,
+            PendingRemoteRequest {
+                response: channel().0,
+                progress: matching_progress.clone(),
+                attach_surface: Some(7),
+            },
+        );
+
+        assert!(pending.progress_for_attach_surface(7));
+        assert_eq!(matching_progress.load(Ordering::Acquire), 1);
+        assert_eq!(unrelated_progress.load(Ordering::Acquire), 0);
+
+        let removed = pending.remove(&1_000).expect("matching request is pending");
+        drop(removed);
+        assert!(!pending.progress_for_attach_surface(7));
+        assert_eq!(matching_progress.load(Ordering::Acquire), 1);
+    }
+
     #[cfg(unix)]
     #[test]
     fn queued_attach_preserves_two_request_wire_order() {
@@ -7445,6 +7576,176 @@ mod tests {
         assert!(events.try_iter().next().is_none());
     }
 
+    #[cfg(unix)]
+    #[test]
+    fn surface_exit_drops_cached_agent_before_a_stale_topology_can_restore_it() {
+        let tree = || {
+            parse_tree(&json!({
+                "workspaces": [{
+                    "id": 1,
+                    "screens": [{
+                        "id": 2,
+                        "layout": {"type": "leaf", "pane": 3},
+                        "panes": [{
+                            "id": 3,
+                            "tabs": [{"surface": 7, "title": "agent terminal"}],
+                        }],
+                    }],
+                }],
+            }))
+        };
+        let (client, _server) = UnixStream::pair().unwrap();
+        let session = socket_test_session(client);
+        session.tree.lock().unwrap().replace(tree(), 0);
+
+        session.handle_line(json!({
+            "event": "agent-changed",
+            "surface": 7,
+            "state": "working",
+            "source": "hook",
+            "session": "review",
+            "updated_at_ms": 41,
+        }));
+        assert_eq!(session.cached_agents().len(), 1);
+
+        session.handle_line(json!({"event": "surface-exited", "surface": 7}));
+        assert!(session.cached_agents().is_empty());
+
+        // A stale topology response can briefly show the exited surface again.
+        // A stale agent snapshot must not resurrect the exited agent row.
+        let retired_surfaces = session.retired_surfaces.lock().unwrap().clone();
+        let mut cache = session.tree.lock().unwrap();
+        let title_generation = cache.title_generation();
+        cache.replace(tree(), title_generation);
+        cache.replace_agents(
+            vec![AgentInfo {
+                surface: 7,
+                state: "working".into(),
+                source: "hook".into(),
+                session: Some("review".into()),
+                updated_at_ms: 41,
+            }],
+            0,
+            &retired_surfaces,
+        );
+        assert!(cache.agents.is_empty());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn surface_exit_serializes_agent_updates_after_retirement_marker() {
+        let tree = || {
+            parse_tree(&json!({
+                "workspaces": [{
+                    "id": 1,
+                    "screens": [{
+                        "id": 2,
+                        "layout": {"type": "leaf", "pane": 3},
+                        "panes": [{
+                            "id": 3,
+                            "tabs": [{"surface": 7, "title": "agent terminal"}],
+                        }],
+                    }],
+                }],
+            }))
+        };
+        let (client, _server) = UnixStream::pair().unwrap();
+        let session = socket_test_session(client);
+        session.tree.lock().unwrap().replace(tree(), 0);
+        session.handle_line(json!({
+            "event": "agent-changed",
+            "surface": 7,
+            "state": "working",
+            "source": "hook",
+            "session": "review",
+            "updated_at_ms": 41,
+        }));
+
+        let (marker_tx, marker_rx) = channel();
+        *session.retire_surface_test_marker.lock().unwrap() = Some(marker_tx);
+
+        // Hold the cache lock. The retirement must publish its marker before
+        // waiting for this lock, so a concurrent agent update cannot slip in.
+        let tree_guard = session.tree.lock().unwrap();
+        let retiring = session.clone();
+        let retire_thread = std::thread::spawn(move || {
+            retiring.handle_line(json!({"event": "surface-exited", "surface": 7}));
+        });
+        if marker_rx.recv_timeout(Duration::from_secs(1)).is_err() {
+            drop(tree_guard);
+            retire_thread.join().unwrap();
+            panic!("surface retirement did not publish its marker before cache cleanup");
+        }
+
+        let updating = session.clone();
+        let update_thread = std::thread::spawn(move || {
+            updating.handle_line(json!({
+                "event": "agent-changed",
+                "surface": 7,
+                "state": "needsInput",
+                "source": "hook",
+                "session": "review",
+                "updated_at_ms": 42,
+            }));
+        });
+        drop(tree_guard);
+        retire_thread.join().unwrap();
+        update_thread.join().unwrap();
+
+        assert!(session.cached_agents().is_empty());
+    }
+
+    #[test]
+    fn agent_refresh_filters_retired_surfaces_in_one_authoritative_pass() {
+        fn agent(surface: SurfaceId) -> AgentInfo {
+            AgentInfo {
+                surface,
+                state: "working".into(),
+                source: "hook".into(),
+                session: Some("review".into()),
+                updated_at_ms: surface,
+            }
+        }
+
+        let mut cache = RemoteTreeCache::default();
+        let agents = (0..4096_u64).map(agent).collect::<Vec<_>>();
+        for surface in 0..4096_u64 {
+            let agent = agents[surface as usize].clone();
+            cache
+                .agent_updates
+                .insert(surface, AgentUpdate { generation: surface.saturating_add(1), agent });
+        }
+        let retired = (0..4096_u64).step_by(2).collect::<HashSet<_>>();
+
+        cache.replace_agents(agents, 0, &retired);
+
+        assert_eq!(cache.agents.len(), 2048);
+        assert!(cache.agents.iter().all(|agent| !retired.contains(&agent.surface)));
+        assert_eq!(cache.agent_updates.len(), 2048);
+        assert!(cache.agent_updates.keys().all(|surface| !retired.contains(surface)));
+        assert!(cache.agents.iter().all(|agent| cache.agent_updates.contains_key(&agent.surface)));
+    }
+
+    #[test]
+    fn agent_cache_does_not_keep_permanent_retirement_tombstones() {
+        let agent = AgentInfo {
+            surface: 7,
+            state: "working".into(),
+            source: "hook".into(),
+            session: Some("review".into()),
+            updated_at_ms: 41,
+        };
+        let mut cache = RemoteTreeCache::default();
+        cache.replace_agent(agent.clone());
+        cache.remove_agent(agent.surface);
+
+        let retired = HashSet::new();
+        cache.update_agent(agent.clone(), &retired);
+
+        assert_eq!(cache.agents, vec![agent]);
+        assert_eq!(cache.agent_updates.len(), 1);
+    }
+
     #[test]
     fn surface_event_scope_filters_before_remote_cache_invalidation() {
         let (session, _requests) = recording_acknowledging_session();
@@ -7693,18 +7994,22 @@ mod tests {
         }));
         let mut cache = RemoteTreeCache::default();
         cache.replace(tree, 0);
+        let retired = HashSet::new();
         let refresh_generation = cache.agent_generation();
-        cache.update_agent(AgentInfo {
-            surface: 4,
-            state: "working".into(),
-            source: "hook".into(),
-            session: Some("review".into()),
-            updated_at_ms: 41,
-        });
+        cache.update_agent(
+            AgentInfo {
+                surface: 4,
+                state: "working".into(),
+                source: "hook".into(),
+                session: Some("review".into()),
+                updated_at_ms: 41,
+            },
+            &retired,
+        );
 
         let title_generation = cache.title_generation();
         cache.replace(TreeView::default(), title_generation);
-        cache.replace_agents(Vec::new(), refresh_generation);
+        cache.replace_agents(Vec::new(), refresh_generation, &retired);
 
         assert!(cache.agents.is_empty());
     }
@@ -7726,26 +8031,29 @@ mod tests {
         }));
         let mut cache = RemoteTreeCache::default();
         cache.replace(tree.clone(), 0);
+        let retired = HashSet::new();
 
         // The event races the first refresh and is retained while the
         // topology omits the surface.
         let refresh_generation = cache.agent_generation();
-        cache.update_agent(AgentInfo {
-            surface: 4,
-            state: "working".into(),
-            source: "hook".into(),
-            session: Some("review".into()),
-            agent: None,
-            updated_at_ms: 41,
-        });
+        cache.update_agent(
+            AgentInfo {
+                surface: 4,
+                state: "working".into(),
+                source: "hook".into(),
+                session: Some("review".into()),
+                updated_at_ms: 41,
+            },
+            &retired,
+        );
         cache.replace(TreeView::default(), cache.title_generation());
-        cache.replace_agents(Vec::new(), refresh_generation);
+        cache.replace_agents(Vec::new(), refresh_generation, &retired);
 
         // A later refresh confirms the agent is absent. A stale topology may
         // briefly show the surface again, but the old event must not return.
         let confirmed_generation = cache.agent_generation();
         cache.replace(tree, cache.title_generation());
-        cache.replace_agents(Vec::new(), confirmed_generation);
+        cache.replace_agents(Vec::new(), confirmed_generation, &retired);
 
         assert!(cache.agents.is_empty());
         assert!(cache.agent_updates.is_empty());
@@ -7768,6 +8076,7 @@ mod tests {
         }));
         let mut cache = RemoteTreeCache::default();
         cache.replace(tree.clone(), 0);
+        let retired = HashSet::new();
         let refresh_generation = cache.agent_generation();
         let update = AgentInfo {
             surface: 4,
@@ -7776,17 +8085,17 @@ mod tests {
             session: Some("review".into()),
             updated_at_ms: 41,
         };
-        cache.update_agent(update.clone());
+        cache.update_agent(update.clone(), &retired);
 
         // The tree response can lag the event stream and omit a live surface.
         cache.replace(TreeView::default(), cache.title_generation());
-        cache.replace_agents(Vec::new(), refresh_generation);
+        cache.replace_agents(Vec::new(), refresh_generation, &retired);
 
         assert_eq!(cache.agent_updates.get(&4).map(|pending| &pending.agent), Some(&update));
 
         // A later topology response makes the pending event visible again.
         cache.replace(tree, cache.title_generation());
-        cache.replace_agents(Vec::new(), refresh_generation);
+        cache.replace_agents(Vec::new(), refresh_generation, &retired);
 
         assert_eq!(cache.agents, vec![update]);
     }
