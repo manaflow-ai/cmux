@@ -1,7 +1,10 @@
 import AppKit
 import SwiftUI
 import Testing
-@_implementationOnly import XCTest
+import class XCTest.XCTestCase
+import func XCTest.XCTAssertEqual
+import func XCTest.XCTAssertNotNil
+import func XCTest.XCTFail
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
