@@ -2299,11 +2299,16 @@ fn drive_handle(
     banner: Option<Vec<u8>>,
     on_data: DataSink,
     on_exit: ExitSink,
+    ready: impl FnOnce(),
 ) {
     if let Some(banner) = banner {
         emit_bounded_bytes(&on_data, Bytes::from(banner));
     }
     output.subscribe(on_data, on_exit);
+    // Signal readiness only after the output source owns both callbacks. A
+    // fast PTY can emit output or exit during subscribe, so signaling before
+    // this point lets the OPEN response race those first events.
+    ready();
 }
 
 fn emit_bounded_bytes(on_data: &DataSink, bytes: Bytes) {
@@ -2462,8 +2467,7 @@ impl Inner {
                 claimed: AtomicBool::new(false),
             }),
             start: Box::new(move |ready| {
-                ready();
-                drive_handle(output, banner, on_data, on_exit);
+                drive_handle(output, banner, on_data, on_exit, ready);
             }),
         })
     }
@@ -3492,6 +3496,8 @@ mod tests {
     struct FakeState {
         on_data: Option<DataSink>,
         on_exit: Option<ExitSink>,
+        subscribe_output: Option<Bytes>,
+        subscribe_exit: Option<i64>,
         written: Vec<Vec<u8>>,
         write_entered: Option<TestArc<Barrier>>,
         write_release: Option<TestArc<Barrier>>,
@@ -3556,9 +3562,18 @@ mod tests {
 
     impl PtyOutput for FakePty {
         fn subscribe(&self, on_data: DataSink, on_exit: ExitSink) {
-            let mut state = self.state.lock().unwrap();
-            state.on_data = Some(on_data);
-            state.on_exit = Some(on_exit);
+            let (subscribe_output, subscribe_exit) = {
+                let mut state = self.state.lock().unwrap();
+                state.on_data = Some(on_data.clone());
+                state.on_exit = Some(on_exit.clone());
+                (state.subscribe_output.take(), state.subscribe_exit.take())
+            };
+            if let Some(output) = subscribe_output {
+                on_data(output);
+            }
+            if let Some(code) = subscribe_exit {
+                on_exit(code);
+            }
         }
     }
 
@@ -3567,6 +3582,8 @@ mod tests {
         spawned: Vec<FakePty>,
         daemons: Vec<(String, PathBuf)>,
         connected: Vec<PathBuf>,
+        subscribe_output: Option<Bytes>,
+        subscribe_exit: Option<i64>,
     }
 
     struct FakeDeps {
@@ -3582,8 +3599,16 @@ mod tests {
     #[async_trait]
     impl PtyDeps for FakeDeps {
         async fn spawn_pty(&self, spec: SpawnSpec) -> PtyHandle {
+            let (subscribe_output, subscribe_exit) = {
+                let mut recorded = self.recorded.lock().unwrap();
+                (recorded.subscribe_output.take(), recorded.subscribe_exit.take())
+            };
             let pty = FakePty {
-                state: Arc::new(StdMutex::new(FakeState::default())),
+                state: Arc::new(StdMutex::new(FakeState {
+                    subscribe_output,
+                    subscribe_exit,
+                    ..FakeState::default()
+                })),
                 spawn_file: spec.file.clone(),
                 spawn_cwd: spec.cwd.path.clone(),
                 spawn_term: spec.env.get("TERM").cloned().unwrap_or_default(),
@@ -3817,6 +3842,13 @@ mod tests {
         }
         fn connected(&self) -> Vec<PathBuf> {
             self.recorded.lock().unwrap().connected.clone()
+        }
+
+        fn configure_subscribe_race(&self, output: Option<&str>, exit: Option<i64>) {
+            let mut recorded = self.recorded.lock().unwrap();
+            recorded.subscribe_output =
+                output.map(|value| Bytes::copy_from_slice(value.as_bytes()));
+            recorded.subscribe_exit = exit;
         }
     }
 
@@ -4436,6 +4468,24 @@ mod tests {
         let viewer = h.spawned()[0].clone();
         h.frame(serde_json::json!({ "type": "pty_close", "ptyId": "p1" })).await;
         assert!(viewer.state.lock().unwrap().killed);
+    }
+
+    #[tokio::test]
+    async fn cmux_open_readiness_waits_for_fast_output_and_exit_subscriptions() {
+        let cmux = CmuxTui { file: "/opt/cmux-tui".to_owned(), prefix: Vec::new() };
+        let h = harness(Some(cmux), None);
+        h.configure_subscribe_race(Some("fast output"), Some(0));
+
+        h.open("p1", "work", Value::Null, "supervised", h.owner.clone()).await;
+
+        let sent = h.sent();
+        assert_eq!(sent.first().map(ty), Some("pty_opened"));
+        assert!(sent.iter().any(|frame| {
+            ty(frame) == "pty_output"
+                && from_b64(frame["dataB64"].as_str().unwrap_or_default()) == "fast output"
+        }));
+        assert!(sent.iter().any(|frame| ty(frame) == "pty_exit" && frame["code"] == 0));
+        assert!(!h.manager.has_attachment("p1"));
     }
 
     #[tokio::test]
