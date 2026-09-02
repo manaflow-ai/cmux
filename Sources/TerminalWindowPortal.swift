@@ -680,6 +680,10 @@ final class WindowTerminalPortal: NSObject {
     /// separate from AppKit's `inLiveResize`, which can remain true briefly
     /// after the end notification and must not relatch the final pass.
     private var liveResizePhaseActive = false
+    /// Prevents a late native `didResize` callback from reopening the phase
+    /// after the portal has committed the end pass but before AppKit clears
+    /// `inLiveResize`. A new `willStartLiveResize` resets this marker.
+    private var liveResizeEndedWhileNativeResize = false
     private var hasExternalGeometrySyncScheduled = false
     private var pendingExternalGeometrySyncRequiresImmediate = false
     /// True while some request since the last executed pass asked for the
@@ -792,10 +796,28 @@ final class WindowTerminalPortal: NSObject {
         return body()
     }
 
+    /// Installs the window and hierarchy observers that drive one portal-owned
+    /// geometry state machine for live resize and ordinary layout changes.
     private func installGeometryObservers(for window: NSWindow) {
         guard geometryObservers.isEmpty else { return }
 
         let center = NotificationCenter.default
+        geometryObservers.append(center.addObserver(
+            forName: NSWindow.willStartLiveResizeNotification,
+            object: window,
+            queue: .main
+        ) { [weak self] _ in
+            MainActor.assumeIsolated {
+                guard let self, self.selfFrameWriteDepth == 0 else { return }
+                // A new drag is the authoritative begin boundary. Clear any
+                // end marker left by a prior transaction before a frame tick
+                // can arrive for this one.
+                self.liveResizeEndPending = false
+                self.liveResizeEndedWhileNativeResize = false
+                self.liveResizePhaseActive = true
+                self.setHostedViewsWindowLiveResizeActive(true)
+            }
+        })
         geometryObservers.append(center.addObserver(
             forName: NSWindow.didResizeNotification,
             object: window,
@@ -834,6 +856,11 @@ final class WindowTerminalPortal: NSObject {
 #endif
                 guard let self, self.selfFrameWriteDepth == 0 else { return }
                 if self.isWindowLiveResizeActive {
+                    // Once an end pass has committed, a late native callback
+                    // belongs to the old transaction. Wait for a new
+                    // willStartLiveResize instead of reopening the renderer
+                    // gate and stranding the next settled geometry.
+                    guard !self.liveResizeEndedWhileNativeResize else { return }
                     self.liveResizePhaseActive = true
                     self.setHostedViewsWindowLiveResizeActive(true)
                     // Live resize: run the pass INSIDE this tick so hosted
@@ -861,6 +888,10 @@ final class WindowTerminalPortal: NSObject {
                 guard let self, self.selfFrameWriteDepth == 0 else { return }
                 self.liveResizeEndPending = true
                 self.liveResizePhaseActive = true
+                // Close the gate immediately. The queued final pass owns the
+                // release, so a view callback cannot publish an intermediate
+                // drawable in the interval between didEnd and that pass.
+                self.setHostedViewsWindowLiveResizeActive(true)
                 self.scheduleExternalGeometrySynchronize()
             }
         })
@@ -1165,7 +1196,21 @@ final class WindowTerminalPortal: NSObject {
         // re-check `inLiveResize` here: AppKit can clear that property one
         // callback later, and waiting for it would leave the renderer gate
         // latched across the final frame.
-        if isWindowLiveResizeActive, !liveResizeEndPending {
+        let nativeResizeActive = isWindowLiveResizeActive
+        if !nativeResizeActive {
+            liveResizeEndedWhileNativeResize = false
+        }
+        // A late native callback can reach this method after the end pass has
+        // already committed. Ignore that old transaction until a new
+        // willStartLiveResize establishes a fresh phase.
+        if nativeResizeActive,
+           liveResizeEndedWhileNativeResize,
+           !liveResizeEndPending {
+            return
+        }
+        if nativeResizeActive,
+           !liveResizeEndPending,
+           !liveResizeEndedWhileNativeResize {
             liveResizePhaseActive = true
         }
         let endingLiveResize = liveResizeEndPending
@@ -1180,6 +1225,8 @@ final class WindowTerminalPortal: NSObject {
             if endingLiveResize {
                 liveResizeEndPending = false
                 liveResizePhaseActive = false
+                liveResizeEndedWhileNativeResize = nativeResizeActive
+                setHostedViewsWindowLiveResizeActive(false)
             }
             return
         }
@@ -1190,6 +1237,7 @@ final class WindowTerminalPortal: NSObject {
             // the per-host pass below applies the final drawable sizes.
             liveResizeEndPending = false
             liveResizePhaseActive = false
+            liveResizeEndedWhileNativeResize = nativeResizeActive
             setHostedViewsWindowLiveResizeActive(false)
         }
         synchronizeAllHostedViews(
@@ -1535,6 +1583,7 @@ final class WindowTerminalPortal: NSObject {
         return frameInHost
     }
 
+    /// Detaches one hosted pane and releases its portal-owned resize phase.
     func detachHostedView(withId hostedId: ObjectIdentifier) {
         guard let entry = entriesByHostedId.removeValue(forKey: hostedId) else { return }
 #if DEBUG
@@ -1554,6 +1603,7 @@ final class WindowTerminalPortal: NSObject {
             if let restoredMask = preAdoptionAutoresizingMaskByHostedId.removeValue(forKey: hostedId) {
                 hostedView.autoresizingMask = restoredMask
             }
+            hostedView.clearWindowLiveResizeStateForPortal()
             if hostedView.superview === hostView {
                 hostedView.removeFromSuperview()
             }
@@ -1803,8 +1853,16 @@ final class WindowTerminalPortal: NSObject {
         // changing, and the end-of-resize sync (windowDidEndLiveResize →
         // scheduleExternalGeometrySynchronize) stays unconditional.
         guard TerminalWindowPortalRegistry.isInteractiveGeometryResizeActive(in: window) else {
-            if isWindowLiveResizeActive {
+            let nativeResizeActive = isWindowLiveResizeActive
+            if !nativeResizeActive {
+                liveResizeEndedWhileNativeResize = false
+            } else if !liveResizeEndPending, !liveResizeEndedWhileNativeResize {
                 liveResizePhaseActive = true
+            }
+            if nativeResizeActive,
+               liveResizeEndedWhileNativeResize,
+               !liveResizeEndPending {
+                return
             }
             if !isRendererResizeDeferred {
                 pruneDeadEntries()
@@ -1926,6 +1984,22 @@ final class WindowTerminalPortal: NSObject {
         }
     }
 
+    /// Moves a refresh queued before a resize began into the resize-held queue
+    /// if its delivery block runs after the phase has opened. Queue admission
+    /// alone is not sufficient: the phase can change between enqueue and
+    /// execution, so delivery must validate the current publication boundary.
+    @discardableResult
+    private func holdDeferredSurfaceRefreshesDuringLiveResizeIfNeeded() -> Bool {
+        guard isRendererResizeDeferred else { return false }
+        for (hostedId, reason) in pendingDeferredSurfaceRefreshes {
+            if pendingLiveResizeSurfaceRefreshes[hostedId] == nil {
+                pendingLiveResizeSurfaceRefreshes[hostedId] = reason
+            }
+        }
+        pendingDeferredSurfaceRefreshes.removeAll()
+        return true
+    }
+
     /// Queues a surface refresh until it is safe to present against committed
     /// pane and drawable geometry.
     private func deferSurfaceRefresh(forHostedId hostedId: ObjectIdentifier, reason: String) {
@@ -1942,6 +2016,9 @@ final class WindowTerminalPortal: NSObject {
         DispatchQueue.main.async { [weak self] in
             guard let self else { return }
             self.hasDeferredSurfaceRefreshScheduled = false
+            if self.holdDeferredSurfaceRefreshesDuringLiveResizeIfNeeded() {
+                return
+            }
             let pending = self.pendingDeferredSurfaceRefreshes
             self.pendingDeferredSurfaceRefreshes = [:]
             for (pendingId, pendingReason) in pending {
@@ -2453,6 +2530,7 @@ final class WindowTerminalPortal: NSObject {
     func tearDown() {
         liveResizeEndPending = false
         liveResizePhaseActive = false
+        liveResizeEndedWhileNativeResize = false
         pendingLiveResizeSurfaceRefreshes.removeAll()
         pendingDeferredSurfaceRefreshes.removeAll()
         setHostedViewsWindowLiveResizeActive(false)

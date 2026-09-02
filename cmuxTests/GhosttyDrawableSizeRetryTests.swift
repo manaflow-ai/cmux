@@ -91,6 +91,8 @@ struct GhosttyDrawableSizeRetryTests {
         #expect(realizedLayer.drawableSize == expectedDrawableSize)
     }
 
+    /// The view-level end callback must not bypass the portal's publication
+    /// gate and advance the drawable before final pane geometry is installed.
     @Test func liveResizeEndBypassDoesNotPublishBeforePortalFinalPass() throws {
         _ = NSApplication.shared
 

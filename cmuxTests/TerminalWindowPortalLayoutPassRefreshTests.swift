@@ -19,9 +19,12 @@ private final class LayoutSyncingAnchorView: NSView {
     }
 }
 
+/// Test window whose native resize phase can be held across notifications.
 private final class LiveResizeProbeWindow: NSWindow {
+    /// Simulates AppKit's native `inLiveResize` value for ordering tests.
     var liveResizeActive = false
 
+    /// Returns the simulated native live-resize state.
     override var inLiveResize: Bool { liveResizeActive }
 }
 

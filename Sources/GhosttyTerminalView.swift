@@ -3960,6 +3960,10 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     /// pass. The parent portal owns this phase and re-enables updates once the
     /// final pane frame is installed.
     private var defersSurfaceSizeDuringWindowLiveResize = false
+    /// A portal-owned phase overrides AppKit's native signal for hosted views.
+    /// `nil` means this view is not currently owned by a portal and should
+    /// retain the native `inLiveResize` fallback used by standalone surfaces.
+    private var portalWindowLiveResizeState: Bool?
     private var deferredSurfaceSizeRetryQueued = false, needsSurfaceSizeRetryAfterMetalLayerRealizes = false
     private var deferredSurfaceSizeNonMetalRetryCount = 0
     private var lastDrawableSize: CGSize = .zero
@@ -4027,10 +4031,19 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     /// window resize. The view frame may move with its pane, but Ghostty must
     /// not publish a surface for a size that no longer matches that frame.
     fileprivate func setWindowLiveResizeActive(_ active: Bool) {
+        portalWindowLiveResizeState = active
         defersSurfaceSizeDuringWindowLiveResize = active
         terminalSurface?.setSurfaceSizeUpdatesDeferred(active)
         clipsToBounds = true
         layer?.masksToBounds = true
+    }
+
+    /// Releases portal ownership so a detached surface can use AppKit's native
+    /// live-resize signal again when it is hosted outside the portal.
+    fileprivate func clearWindowLiveResizeStateForPortal() {
+        portalWindowLiveResizeState = nil
+        defersSurfaceSizeDuringWindowLiveResize = false
+        terminalSurface?.setSurfaceSizeUpdatesDeferred(false)
     }
 
     override init(frame frameRect: NSRect) {
@@ -4421,6 +4434,8 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         removeContextMenuEndObserver()
     }
 
+    /// Attaches the runtime surface and applies the current portal resize phase
+    /// before any initial geometry reconciliation can publish a drawable.
     func attachSurface(_ surface: TerminalSurface) {
         let isSameSurface = terminalSurface === surface
         let isAlreadyAttached = surface.isAttached(to: self)
@@ -4461,6 +4476,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         }
         terminalSurface = surface
         tabId = surface.tabId
+        surface.setSurfaceSizeUpdatesDeferred(defersSurfaceSizeDuringWindowLiveResize)
         if !isAlreadyAttached {
             surface.attachToView(self)
         } else {
@@ -5046,10 +5062,12 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         return Self.shouldDeferSurfaceResizeForActiveDrag(in: window) ? "tabDrag" : nil
     }
 
-    /// Whether the portal has propagated the window live-resize phase to this
-    /// surface view.
+    /// Whether a live window resize is active for this surface. Portal-owned
+    /// views use the explicit propagated state; detached/standalone views keep
+    /// AppKit's native signal as a fallback.
     private var isWindowLiveResizeActive: Bool {
-        defersSurfaceSizeDuringWindowLiveResize
+        portalWindowLiveResizeState
+            ?? (inLiveResize || window?.inLiveResize == true)
     }
 
     /// Schedules one retry when AppKit has not realized a usable terminal
@@ -5090,8 +5108,11 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         pendingSurfaceSize = size
         clipsToBounds = true
         layer?.masksToBounds = true
-        if !bypassLiveResizeCoalescing,
-           defersSurfaceSizeDuringWindowLiveResize {
+        // The portal gate owns publication ordering. The end-live-resize
+        // callback passes bypass=true to disable pixel-only coalescing, but it
+        // must still wait for the portal's final pane geometry commit before
+        // touching the drawable or renderer.
+        if defersSurfaceSizeDuringWindowLiveResize {
 #if DEBUG
             let signature = "windowLiveResize-\(Int(size.width.rounded()))x\(Int(size.height.rounded()))"
             if lastSizeSkipSignature != signature {
@@ -9947,6 +9968,13 @@ final class GhosttySurfaceScrollView: NSView {
         layer?.masksToBounds = true
         surfaceView.clipsToBounds = true
         surfaceView.layer?.masksToBounds = true
+    }
+
+    /// Releases portal ownership when this hosted pane is detached, restoring
+    /// the surface's native live-resize fallback for any later host.
+    func clearWindowLiveResizeStateForPortal() {
+        windowLiveResizeActive = false
+        surfaceView.clearWindowLiveResizeStateForPortal()
     }
 
     /// Creates the pane host around a Ghostty surface view.
