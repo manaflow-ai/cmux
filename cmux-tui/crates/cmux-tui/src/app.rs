@@ -43805,6 +43805,105 @@ mod tests {
     }
 
     #[test]
+    fn projection_rows_scope_agent_revision_to_agent_views() {
+        let (mux, surface) = test_mux("projection-agent-revision-scope-test", None);
+        mux.report_agent(
+            surface.id,
+            AgentState::Working,
+            AgentSource::Hook,
+            Some("agent-session".into()),
+        )
+        .unwrap();
+        let mut app = test_app(Session::Local(mux.clone()));
+        app.config.sidebar.columns.clear();
+        app.config.sidebar.views = vec![
+            SidebarViewSpec {
+                id: "workspace-view".into(),
+                levels: vec![SidebarResourceKind::Workspaces],
+                actions: Vec::new(),
+                actions_position: crate::config::ActionsPosition::Bottom,
+                width: 40,
+                max_width: 0,
+                collapse_priority: 30,
+            },
+            SidebarViewSpec {
+                id: "agent-view".into(),
+                levels: vec![SidebarResourceKind::Agents],
+                actions: Vec::new(),
+                actions_position: crate::config::ActionsPosition::Bottom,
+                width: 40,
+                max_width: 0,
+                collapse_priority: 30,
+            },
+        ];
+        app.config.sidebar.views_explicit = true;
+        app.replace_tree(app.session.tree());
+        app.projection_rows(0);
+        app.projection_rows(1);
+        let workspace_before = app.projection_rows_cache.revision_for("workspace-view").unwrap();
+        let agent_before = app.projection_rows_cache.revision_for("agent-view").unwrap();
+
+        app.bump_agent_generation();
+        app.projection_rows(0);
+        app.projection_rows(1);
+        let workspace_after = app.projection_rows_cache.revision_for("workspace-view").unwrap();
+        let agent_after = app.projection_rows_cache.revision_for("agent-view").unwrap();
+
+        assert_eq!(workspace_before, workspace_after);
+        assert_ne!(agent_before, agent_after);
+
+        mux.close_surface(surface.id).unwrap();
+    }
+
+    #[test]
+    fn projection_rows_scope_collapse_revision_to_its_rail() {
+        let (mux, surface) = test_mux("projection-sidebar-revision-scope-test", None);
+        let mut app = test_app(Session::Local(mux.clone()));
+        app.config.sidebar.columns.clear();
+        app.config.sidebar.views = vec![
+            SidebarViewSpec {
+                id: "first-view".into(),
+                levels: vec![SidebarResourceKind::Workspaces, SidebarResourceKind::Panes],
+                actions: Vec::new(),
+                actions_position: crate::config::ActionsPosition::Bottom,
+                width: 40,
+                max_width: 0,
+                collapse_priority: 30,
+            },
+            SidebarViewSpec {
+                id: "second-view".into(),
+                levels: vec![SidebarResourceKind::Workspaces, SidebarResourceKind::Panes],
+                actions: Vec::new(),
+                actions_position: crate::config::ActionsPosition::Bottom,
+                width: 40,
+                max_width: 0,
+                collapse_priority: 30,
+            },
+        ];
+        app.config.sidebar.views_explicit = true;
+        app.replace_tree(app.session.tree());
+        app.projection_rows(0);
+        app.projection_rows(1);
+        let first_before = app.projection_rows_cache.revision_for("first-view").unwrap();
+        let second_before = app.projection_rows_cache.revision_for("second-view").unwrap();
+        let workspace_id = app.tree.workspaces.first().unwrap().id;
+
+        app.projection_rail_state_mut(0)
+            .collapsed
+            .insert(crate::sidebar_projection::ProjectionBranch::Workspace(workspace_id));
+        app.bump_projection_rows_generation(0);
+        app.projection_rows(0);
+        app.projection_rows(1);
+        let first_after = app.projection_rows_cache.revision_for("first-view").unwrap();
+        let second_after = app.projection_rows_cache.revision_for("second-view").unwrap();
+
+        assert_ne!(first_before, first_after);
+        assert_eq!(second_before, second_after);
+
+        mux.close_surface(surface.id).unwrap();
+    }
+
+    #[test]
     fn projection_stale_action_selection_does_not_retarget_resource_row() {
         let (mux, surface) = test_mux("projection-stale-action-selection-test", None);
         mux.report_agent(

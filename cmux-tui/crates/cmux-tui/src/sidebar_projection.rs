@@ -114,6 +114,11 @@ impl ProjectionRowsCache {
             .insert(view_id.to_string(), CachedProjectionRows { revision, rows: rows.clone() });
         rows
     }
+
+    #[cfg(test)]
+    pub(crate) fn revision_for(&self, view_id: &str) -> Option<ProjectionRevision> {
+        self.entries.get(view_id).map(|entry| entry.revision)
+    }
 }
 
 #[derive(Clone, Copy)]
