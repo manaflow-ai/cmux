@@ -338,6 +338,7 @@ fn append_level(
 mod tests {
     use super::*;
     use cmux_tui_core::{Node, SurfaceKind};
+    use std::sync::Arc;
 
     use crate::session::tree::{PaneView, ScreenView, TabView, WorkspaceView};
 
@@ -514,6 +515,7 @@ mod tests {
         });
 
         assert_eq!(first, second);
+        assert!(Arc::ptr_eq(&first, &second), "cache hits must share owned rows");
         assert_eq!(builds, 1);
 
         let changed = ProjectionRevision { sidebar: 8, ..revision };
