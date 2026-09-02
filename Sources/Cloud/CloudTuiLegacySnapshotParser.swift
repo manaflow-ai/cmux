@@ -33,13 +33,15 @@ struct CloudTuiLegacySnapshotParser: Sendable {
     }
 
     /// Reads the protocol integer from an `identify` response envelope. A
-    /// malformed, failed, fractional, or boolean response returns `nil` so a
-    /// caller cannot infer compatibility from an unreliable value.
+    /// malformed, failed, fractional, or non-boolean response returns `nil` so
+    /// a caller cannot infer compatibility from an unreliable value.
     func protocolVersion(from data: Data) -> Int? {
         guard let root = try? JSONSerialization.jsonObject(with: data),
               let object = root as? [String: Any],
               positiveInteger(from: object["id"]) == 1,
-              (object["ok"] as? Bool) == true,
+              let ok = object["ok"] as? NSNumber,
+              CFGetTypeID(ok) == CFBooleanGetTypeID(),
+              ok.boolValue,
               let data = object["data"] as? [String: Any],
               let number = data["protocol"] as? NSNumber,
               CFGetTypeID(number) != CFBooleanGetTypeID() else {
