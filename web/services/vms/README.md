@@ -97,6 +97,10 @@ Default image policy:
   and must not be selected. When the shared Dockerfile epoch or tool pins change, run
   `web/scripts/build-devbox-freestyle.ts`, verify the new snapshot, and append its id before
   changing `FREESTYLE_SANDBOX_SNAPSHOT`.
+- The current E2B and Daytona base entries are `e2b-devbox-20260902-r3a` and
+  `daytona-cmux-devbox-20260902-r3a`. They use the same `2026-09-01-r3` devbox epoch and
+  agent pins as the Freestyle entry. Their previous `2026-08-28-r1` entries remain available
+  as validated rollback images.
 - Baked agent tools are installed at image-build time. They are not auto-updated on VM startup, so
   startup latency stays bounded and the active image manifest remains the source of truth.
 - To update tool versions, rebuild the provider images and record the new template/snapshot IDs in

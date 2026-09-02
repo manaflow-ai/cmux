@@ -89,6 +89,28 @@ describe("cloud VM provider coherence audit", () => {
     expect(result.problems).toEqual([]);
   });
 
+  test("the rebaked E2B and Daytona base images pass readiness", () => {
+    const cases = [
+      {
+        provider: "e2b",
+        env: {
+          E2B_CMUXD_WS_TEMPLATE: "cmux-devbox:devbox-20260902-r3a",
+          E2B_API_KEY: "x",
+        },
+      },
+      {
+        provider: "daytona",
+        env: {
+          DAYTONA_SANDBOX_SNAPSHOT: "cmux-devbox-20260902-r3a",
+          DAYTONA_API_KEY: "x",
+        },
+      },
+    ] as const;
+    for (const { provider, env } of cases) {
+      expect(auditProviderReadiness(provider, env, realManifest).problems).toEqual([]);
+    }
+  });
+
   test("the retired beta-api freestyle snapshot is still not deployable", () => {
     // That entry was baked against beta-api.freestyle.sh and keeps
     // validationStatus "unknown"; pointing the env at it must stay red so
