@@ -95,7 +95,7 @@ Default image policy:
   public platform (`api.freestyle.sh`) and recorded in the manifest with
   `validationStatus: "passed"`. The retired beta entry remains only as a historical record
   and must not be selected. When the shared Dockerfile epoch or tool pins change, run
-  `scripts/build-devbox-freestyle.ts`, verify the new snapshot, and append its id before
+  `web/scripts/build-devbox-freestyle.ts`, verify the new snapshot, and append its id before
   changing `FREESTYLE_SANDBOX_SNAPSHOT`.
 - Baked agent tools are installed at image-build time. They are not auto-updated on VM startup, so
   startup latency stays bounded and the active image manifest remains the source of truth.
