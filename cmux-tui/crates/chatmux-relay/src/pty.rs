@@ -577,10 +577,6 @@ fn remove_cached_shell_if_same_without_viewers(
     session: &str,
     target: &Arc<ShellSession>,
 ) -> bool {
-    let mut shells = inner.shell_sessions.lock().expect("shell lock");
-    if !shells.get(session).is_some_and(|cached| Arc::ptr_eq(cached, target)) {
-        return false;
-    }
     // Serialize with viewer start. A concurrent opener may have cloned this
     // session but cannot publish its viewer while this dispatch lock is held.
     let _dispatch = target.dispatch_lock.lock().expect("shell dispatch lock");
@@ -589,15 +585,27 @@ fn remove_cached_shell_if_same_without_viewers(
     {
         return false;
     }
+    let mut shells = inner.shell_sessions.lock().expect("shell lock");
+    if !shells.get(session).is_some_and(|cached| Arc::ptr_eq(cached, target)) {
+        return false;
+    }
     shells.remove(session);
     true
 }
 
 fn reserve_cached_shell(inner: &Inner, session: &str) -> Option<Arc<ShellSession>> {
-    let shells = inner.shell_sessions.lock().expect("shell lock");
-    let existing = shells.get(session).cloned()?;
+    let existing = inner.shell_sessions.lock().expect("shell lock").get(session).cloned()?;
     let _dispatch = existing.dispatch_lock.lock().expect("shell dispatch lock");
     if !existing.inner.lock().expect("shell inner lock").alive {
+        return None;
+    }
+    if !inner
+        .shell_sessions
+        .lock()
+        .expect("shell lock")
+        .get(session)
+        .is_some_and(|cached| Arc::ptr_eq(cached, &existing))
+    {
         return None;
     }
     existing.pending_viewers.fetch_add(1, Ordering::AcqRel);
@@ -2843,12 +2851,14 @@ impl Inner {
                         inner.draining_viewers.clear();
                         std::mem::take(&mut inner.viewers)
                     };
-                    let mut shells = manager.shell_sessions.lock().expect("shell lock");
-                    if shells
-                        .get(&session_name)
-                        .is_some_and(|cached| Arc::ptr_eq(cached, &exit_session))
                     {
-                        shells.remove(&session_name);
+                        let mut shells = manager.shell_sessions.lock().expect("shell lock");
+                        if shells
+                            .get(&session_name)
+                            .is_some_and(|cached| Arc::ptr_eq(cached, &exit_session))
+                        {
+                            shells.remove(&session_name);
+                        }
                     }
                     for viewer in viewers {
                         let _delivery = viewer.delivery_lock.lock().expect("viewer delivery lock");
