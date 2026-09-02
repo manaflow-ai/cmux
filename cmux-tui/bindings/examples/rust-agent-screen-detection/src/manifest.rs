@@ -28,7 +28,9 @@ pub const DEFAULT_KNOWN_AGENT_IDLE_FALLBACK: &str = "known_agent_idle_fallback";
 
 pub const MAX_MANIFEST_BYTES: usize = 256 * 1024;
 
-pub(crate) fn read_bounded_utf8_file(path: &Path, max_bytes: usize) -> io::Result<String> {
+/// Read a UTF-8 file with a hard byte bound. The CLI and library share this
+/// helper so diagnostic commands cannot drift from manifest loading rules.
+pub fn read_bounded_utf8_file(path: &Path, max_bytes: usize) -> io::Result<String> {
     read_bounded_utf8(File::open(path)?, max_bytes)
 }
 

@@ -1,6 +1,5 @@
 use std::env;
-use std::fs::File;
-use std::io::{self, Read};
+use std::path::Path;
 use std::process::ExitCode;
 
 const MAX_EXPLAIN_SCREEN_BYTES: usize = 8 * 1024 * 1024;
@@ -132,7 +131,10 @@ fn run_explain(arguments: Vec<String>) -> ExitCode {
     let Some(screen_path) = screen_path else {
         return print_error("usage: cmux-agent-screen-detection explain <process> <screen-file> [--title <text>] [--progress <text>]".into());
     };
-    let screen = match read_bounded_utf8_file(&screen_path, MAX_EXPLAIN_SCREEN_BYTES) {
+    let screen = match cmux_agent_screen_detection::manifest::read_bounded_utf8_file(
+        Path::new(&screen_path),
+        MAX_EXPLAIN_SCREEN_BYTES,
+    ) {
         Ok(screen) => screen,
         Err(error) => return print_error(format!("read screen {screen_path}: {error}")),
     };
@@ -202,20 +204,6 @@ fn print_json(value: &serde_json::Value) -> ExitCode {
 fn print_error(error: String) -> ExitCode {
     eprintln!("cmux-agent-screen-detection: {error}");
     ExitCode::FAILURE
-}
-
-fn read_bounded_utf8_file(path: &str, max_bytes: usize) -> io::Result<String> {
-    let file = File::open(path)?;
-    let mut bytes = Vec::with_capacity(max_bytes.min(8 * 1024));
-    file.take(u64::try_from(max_bytes).unwrap_or(u64::MAX).saturating_add(1))
-        .read_to_end(&mut bytes)?;
-    if bytes.len() > max_bytes {
-        return Err(io::Error::new(
-            io::ErrorKind::InvalidData,
-            format!("file exceeds {max_bytes} bytes"),
-        ));
-    }
-    String::from_utf8(bytes).map_err(|error| io::Error::new(io::ErrorKind::InvalidData, error))
 }
 
 fn print_help() {
