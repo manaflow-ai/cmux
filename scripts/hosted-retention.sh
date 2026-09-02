@@ -79,7 +79,7 @@ cmux_hosted_retention_scan_direct_dirs() {
       exit 1
     fi
     set +e
-    find . -type d \( -name . -o -prune -print \) 2> "$scan_error_file" \
+    find . \( -name . -o -prune -print \) 2> "$scan_error_file" \
       | awk -v limit="$((scan_limit + 1))" \
         'substr($0, 1, 2) == "./" {
            count++
