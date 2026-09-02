@@ -368,7 +368,13 @@ function cmuxTuiSupervisedDaemonInvocation(
     `( sleep ${CMUX_TUI_CHILD_SHUTDOWN_GRACE_SECONDS}; kill -KILL "$cmux_tui_terminate_pid" 2>/dev/null || true ) &`,
     `cmux_tui_killer_pid=$!;`,
     `wait "$cmux_tui_terminate_pid" 2>/dev/null || true;`,
-    `kill -TERM "$cmux_tui_killer_pid" 2>/dev/null || true;`,
+    // KILL, not TERM: dash (Ubuntu /bin/sh) forks the killer with the parent's
+    // TERM trap still inherited and only then resets it, so a TERM that lands
+    // in that window is recorded as a pending trap and dropped. A child that
+    // exits promptly makes the parent reach this line inside that window, and
+    // the killer then sleeps out its whole grace period before the supervisor
+    // can continue. The killer holds nothing but a sleep, so KILL is safe.
+    `kill -KILL "$cmux_tui_killer_pid" 2>/dev/null || true;`,
     `wait "$cmux_tui_killer_pid" 2>/dev/null || true;`,
     `}`,
   ].join(" ");
