@@ -268,7 +268,17 @@ def test_external_fork_workflow_run_fallback_keeps_empty_association() -> None:
                     "pull_requests": [],
                 }
             if endpoint.endswith(f"/commits/{HEAD_SHA}/pulls?per_page=100"):
-                return [{"number": 1}]
+                return [
+                    {
+                        "number": 1,
+                        "state": "open",
+                        "base": {
+                            "ref": "main",
+                            "repo": {"full_name": self.repository},
+                        },
+                        "head": {"sha": HEAD_SHA},
+                    }
+                ]
             return super().get(endpoint, paginate=paginate)
 
     api = ForkRunAPI(complete_checks())
@@ -280,6 +290,87 @@ def test_external_fork_workflow_run_fallback_keeps_empty_association() -> None:
     selected = module._select_ci_run(api, pull, head, workflow_run_id)
     assert number == 1
     assert selected["id"] == 900
+
+
+def _fallback_run_api(rows: object) -> FakeAPI:
+    class FallbackRunAPI(FakeAPI):
+        def get(self, endpoint: str, *, paginate: bool = False) -> object:
+            if endpoint.endswith("/actions/runs/900"):
+                return {
+                    "id": 900,
+                    "path": module.CI_WORKFLOW_PATH,
+                    "event": "pull_request",
+                    "head_sha": HEAD_SHA,
+                    "status": "completed",
+                    "created_at": "2026-09-01T00:00:00Z",
+                    "pull_requests": [],
+                }
+            if endpoint.endswith(f"/commits/{HEAD_SHA}/pulls?per_page=100"):
+                return rows
+            return super().get(endpoint, paginate=paginate)
+
+    return FallbackRunAPI(complete_checks())
+
+
+def _valid_commit_pull(**overrides: object) -> dict[str, object]:
+    value: dict[str, object] = {
+        "number": 1,
+        "state": "open",
+        "base": {"ref": "main", "repo": {"full_name": "manaflow-ai/cmux"}},
+        "head": {"sha": HEAD_SHA},
+    }
+    value.update(overrides)
+    return value
+
+
+def test_empty_workflow_run_fallback_rejects_wrong_base() -> None:
+    api = _fallback_run_api(
+        [_valid_commit_pull(base={"ref": "release", "repo": {"full_name": "manaflow-ai/cmux"}})]
+    )
+    try:
+        module._event_target(
+            api,
+            "workflow_run",
+            {"workflow_run": {"id": 900, "head_sha": HEAD_SHA}},
+        )
+    except module.GateError as error:
+        assert "base" in str(error)
+    else:
+        raise AssertionError("wrong-base commit association was accepted")
+
+
+def test_empty_workflow_run_fallback_rejects_multiple_matches() -> None:
+    api = _fallback_run_api(
+        [_valid_commit_pull(), _valid_commit_pull(number=2)]
+    )
+    try:
+        module._event_target(
+            api,
+            "workflow_run",
+            {"workflow_run": {"id": 900, "head_sha": HEAD_SHA}},
+        )
+    except module.GateError as error:
+        assert "multiple" in str(error) or "exactly one" in str(error)
+    else:
+        raise AssertionError("multiple commit associations were accepted")
+
+
+def test_empty_workflow_run_fallback_rejects_stale_or_closed_match() -> None:
+    for row in (
+        _valid_commit_pull(head={"sha": "b" * 40}),
+        _valid_commit_pull(state="closed"),
+        _valid_commit_pull(base={"ref": "main", "repo": {"full_name": "other/repo"}}),
+    ):
+        api = _fallback_run_api([row])
+        try:
+            module._event_target(
+                api,
+                "workflow_run",
+                {"workflow_run": {"id": 900, "head_sha": HEAD_SHA}},
+            )
+        except module.GateError:
+            continue
+        raise AssertionError("ambiguous commit association was accepted")
 
 
 def test_gate_queries_exact_head_and_ci_run_jobs() -> None:
