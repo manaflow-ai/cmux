@@ -13,6 +13,7 @@ on:
       - tests/test_ci_ghosttykit_release_check.sh
       - .github/workflows/release-trusted.yml
       - tests/test_release_trusted_workflow.py
+      - scripts/ci/select_latest_stable_release.py
       - tests/test_ci_change_areas.py
       - .github/workflows/cla.yml
       - .github/workflows/ci.yml
@@ -153,6 +154,14 @@ jobs:
 
       - name: Validate macOS runner guards
         run: ./tests/test_ci_self_hosted_guard.sh
+
+      - name: Set up Python for release workflow contract tests
+        uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6
+        with:
+          python-version: "3.12"
+
+      - name: Install release workflow contract dependencies
+        run: python3 -m pip install --disable-pip-version-check --no-input PyYAML==6.0.3
 
       - name: Validate protected-main release dispatcher
         run: python3 tests/test_release_trusted_workflow.py

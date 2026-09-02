@@ -153,7 +153,10 @@ jobs:
             requireText('Observer source branch', run.head_branch, eventRun.head_branch);
             const tagMatch = tagPattern.exec(run.head_branch || '');
             if (!tagMatch) fail(`Release source is not a semantic version tag: ${run.head_branch}`);
-            const invalidPrereleaseIdentifier = (tagMatch[4] || '')
+            // Read only the prerelease capture. Build metadata may contain
+            // hyphens and must not change the stable/prerelease decision.
+            const prerelease = tagMatch[4] || '';
+            const invalidPrereleaseIdentifier = prerelease
               .split('.')
               .find((identifier) => /^[0-9]+$/.test(identifier) && identifier.length > 1 && identifier.startsWith('0'));
             if (invalidPrereleaseIdentifier) {
@@ -161,7 +164,7 @@ jobs:
                 `Release source has a numeric prerelease identifier with a leading zero: ${invalidPrereleaseIdentifier}`,
               );
             }
-            const isPrerelease = Boolean(tagMatch[4]);
+            const isPrerelease = prerelease.length > 0;
             requireSha('Observer source SHA', run.head_sha);
             requireText('Observer source SHA', run.head_sha, eventRun.head_sha);
             const tagName = run.head_branch;
@@ -328,7 +331,9 @@ jobs:
 
   build-sign-notarize:
     needs: [validate-source, build-ghostty-cli-helper]
-    if: needs.validate-source.result == 'success'
+    if: >-
+      needs.validate-source.result == 'success' &&
+      needs.build-ghostty-cli-helper.result == 'success'
     # Keep R2 publication serialized across retries and release tags. The
     # latest-release check below is valid only while this lock is held.
     concurrency:
@@ -422,7 +427,7 @@ jobs:
           RELEASE_TAG: ${{ needs.validate-source.outputs.tag_name }}
         with:
           script: |
-            const { evaluateReleaseAssetGuard } = require('./scripts/release_asset_guard');
+            const { evaluateReleaseAssetGuard, RELEASE_ASSET_GUARD_STATE } = require('./scripts/release_asset_guard');
             const tag = process.env.RELEASE_TAG;
             if (!tag) {
               core.setFailed('Release asset guard did not receive the validated release tag');
@@ -438,11 +443,10 @@ jobs:
               const {
                 conflicts,
                 missingImmutableAssets,
-                hasPartialConflict,
-                shouldSkipBuildAndUpload,
+                guardState,
               } = evaluateReleaseAssetGuard({ existingAssetNames });
 
-              if (hasPartialConflict) {
+              if (guardState === RELEASE_ASSET_GUARD_STATE.PARTIAL) {
                 core.setFailed(
                   `Release ${tag} has a partial immutable asset state. Existing immutable assets: ` +
                   `${conflicts.join(', ')}. Missing immutable assets: ${missingImmutableAssets.join(', ')}. ` +
@@ -451,7 +455,7 @@ jobs:
                 return;
               }
 
-              if (shouldSkipBuildAndUpload) {
+              if (guardState === RELEASE_ASSET_GUARD_STATE.COMPLETE) {
                 core.setFailed(
                   `Release ${tag} already contains immutable assets (${conflicts.join(', ')}). ` +
                   'Refusing to trust mutable release assets on a retry. Start a fresh validated build to repair publication.'
@@ -937,7 +941,10 @@ jobs:
               core.setFailed(`Invalid validated release tag: ${tag}`);
               return;
             }
-            const invalidPrereleaseIdentifier = (tagMatch[4] || '')
+            // Build metadata is allowed to contain hyphens. Use only the
+            // semantic-version prerelease capture for validation.
+            const prerelease = tagMatch[4] || '';
+            const invalidPrereleaseIdentifier = prerelease
               .split('.')
               .find((identifier) => /^[0-9]+$/.test(identifier) && identifier.length > 1 && identifier.startsWith('0'));
             if (invalidPrereleaseIdentifier) {
@@ -1025,43 +1032,10 @@ jobs:
           fi
 
           # Guard: only upload if this tag is the highest stable SemVer
-          # release. Python provides the same ordering on every runner,
-          # including macOS where BSD sort has no -V option.
+          # release. The checked-in helper provides the same ordering on every
+          # runner and rejects ambiguous build-metadata precedence.
           LATEST=$(gh release list --limit 1000 --exclude-drafts --exclude-pre-releases \
-            --json tagName -q '.[].tagName' | python3 -c '
-            import re
-            import sys
-
-            pattern = re.compile(
-                r"^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)"
-                r"(?:\+([0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*))?$"
-            )
-            versions_by_core = {}
-            for line in sys.stdin:
-                tag = line.strip()
-                match = pattern.fullmatch(tag)
-                if match:
-                    core = tuple(int(part) for part in match.groups()[:3])
-                    versions_by_core.setdefault(core, []).append(tag)
-            duplicate_core_versions = {
-                core: tags
-                for core, tags in versions_by_core.items()
-                if len(tags) > 1
-            }
-            if duplicate_core_versions:
-                details = "; ".join(
-                    f"{core}: {', '.join(tags)}"
-                    for core, tags in sorted(duplicate_core_versions.items())
-                )
-                print(
-                    "Refusing R2 stable upload: duplicate stable SemVer precedence "
-                    f"({details})",
-                    file=sys.stderr,
-                )
-                raise SystemExit(1)
-            latest_core = max(versions_by_core) if versions_by_core else None
-            print(versions_by_core[latest_core][0] if latest_core is not None else "")
-            ')
+            --json tagName -q '.[].tagName' | python3 scripts/ci/select_latest_stable_release.py)
           if [ -z "$LATEST" ]; then
             echo "Refusing R2 stable upload: no stable release was returned by GitHub" >&2
             exit 1
