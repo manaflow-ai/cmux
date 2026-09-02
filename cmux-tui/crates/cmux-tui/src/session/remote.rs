@@ -7522,6 +7522,7 @@ mod tests {
 
         // A stale topology response can briefly show the exited surface again.
         // A stale agent snapshot must not resurrect the exited agent row.
+        let retired_surfaces = session.retired_surfaces.lock().unwrap().clone();
         let mut cache = session.tree.lock().unwrap();
         let title_generation = cache.title_generation();
         cache.replace(tree(), title_generation);
@@ -7534,6 +7535,7 @@ mod tests {
                 updated_at_ms: 41,
             }],
             0,
+            &retired_surfaces,
         );
         assert!(cache.agents.is_empty());
     }
@@ -7600,6 +7602,61 @@ mod tests {
         update_thread.join().unwrap();
 
         assert!(session.cached_agents().is_empty());
+    }
+
+    #[test]
+    fn agent_refresh_filters_retired_surfaces_in_one_authoritative_pass() {
+        fn agent(surface: SurfaceId) -> AgentInfo {
+            AgentInfo {
+                surface,
+                state: "working".into(),
+                source: "hook".into(),
+                session: Some("review".into()),
+                updated_at_ms: surface,
+            }
+        }
+
+        let mut cache = RemoteTreeCache::default();
+        let agents = (0..4096_u64).map(agent).collect::<Vec<_>>();
+        for surface in 0..4096_u64 {
+            let agent = agents[surface as usize].clone();
+            cache.agent_updates.insert(
+                surface,
+                AgentUpdate {
+                    generation: surface,
+                    agent,
+                },
+            );
+        }
+        let retired = (0..4096_u64).step_by(2).collect::<HashSet<_>>();
+
+        cache.replace_agents(agents, 0, &retired);
+
+        assert_eq!(cache.agents.len(), 2048);
+        assert!(cache.agents.iter().all(|agent| !retired.contains(&agent.surface)));
+        assert_eq!(cache.agent_updates.len(), 2048);
+        assert!(cache.agent_updates.keys().all(|surface| !retired.contains(surface)));
+        assert!(cache.agents.iter().all(|agent| cache.agent_updates.contains_key(&agent.surface)));
+    }
+
+    #[test]
+    fn agent_cache_does_not_keep_permanent_retirement_tombstones() {
+        let agent = AgentInfo {
+            surface: 7,
+            state: "working".into(),
+            source: "hook".into(),
+            session: Some("review".into()),
+            updated_at_ms: 41,
+        };
+        let mut cache = RemoteTreeCache::default();
+        cache.replace_agent(agent.clone());
+        cache.remove_agent(agent.surface);
+
+        let retired = HashSet::new();
+        cache.update_agent(agent.clone(), &retired);
+
+        assert_eq!(cache.agents, vec![agent]);
+        assert_eq!(cache.agent_updates.len(), 1);
     }
 
     #[test]
