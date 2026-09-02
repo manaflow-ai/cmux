@@ -8,7 +8,7 @@ import Testing
 #endif
 
 @Suite struct ClaudeHookSessionStorePersistenceTests {
-    @Test func persistsHookEventAndClearsSummaryAtPromptBoundary() throws {
+    @Test func updatesExistingSessionWithLatestHookEventAndClearsSummary() throws {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-hook-store-(UUID().uuidString)", isDirectory: true)
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
