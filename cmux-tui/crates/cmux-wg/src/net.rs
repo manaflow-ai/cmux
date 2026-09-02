@@ -1020,7 +1020,37 @@ fn packet_source(packet: &[u8]) -> Option<IpAddr> {
 
 #[cfg(test)]
 mod tests {
+    use std::collections::HashSet;
+
     use super::*;
+
+    #[test]
+    fn ephemeral_port_allocator_stays_bounded_under_load() {
+        let mut allocator = PortAllocator::with_next_port(FIRST_EPHEMERAL_PORT);
+        let mut ports = HashSet::with_capacity(8_192);
+        let mut probes = 0;
+        for _ in 0..8_192 {
+            let (port, examined) = allocator.allocate_with_probe_count().expect("port available");
+            assert!(ports.insert(port), "allocator returned a duplicate port");
+            probes += examined;
+        }
+
+        // With an uncontended cursor, each allocation examines one candidate.
+        // This bound catches a regression to scanning every active connection.
+        assert!(probes <= ports.len() * 2, "allocator examined {probes} candidates for {} ports", ports.len());
+
+        let occupied = FIRST_EPHEMERAL_PORT + 8_191;
+        assert!(ports.contains(&occupied));
+        allocator.set_next_port(occupied);
+        let (replacement, examined) = allocator.allocate_with_probe_count().expect("port available");
+        assert_ne!(replacement, occupied);
+        assert_eq!(examined, 2);
+
+        let released = ports.iter().next().copied().expect("ports allocated");
+        allocator.release(released);
+        allocator.set_next_port(released);
+        assert_eq!(allocator.allocate(), Some(released));
+    }
 
     #[test]
     fn packet_source_reads_both_families() {
