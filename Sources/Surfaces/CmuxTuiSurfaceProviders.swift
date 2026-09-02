@@ -392,8 +392,8 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
             where reconnectableSessionIDs.contains(ObjectIdentifier(session)) {
                 session.reconnect(socketPath: connected.socketPath)
             }
-            if cloudState?.cursor != nil {
-                await link.resumeEventsSubscription(from: cloudState?.cursor)
+            if let cursor = cloudState?.cursor {
+                await link.resumeEventsSubscription(from: cursor)
             }
             currentPorts = await ports(client: client, force: force)
         } catch {
@@ -1248,7 +1248,9 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
                 eventsFeedWarning = nil
                 clearStateRecovery()
                 await link.setEventsCursor(incoming.cursor)
-                await link.resumeEventsSubscription(from: incoming.cursor)
+                if let cursor = incoming.cursor {
+                    await link.resumeEventsSubscription(from: cursor)
+                }
                 info.linkState = .connected
                 info.linkError = nil
                 publish(incoming, ports: portsCache?.ports ?? [])

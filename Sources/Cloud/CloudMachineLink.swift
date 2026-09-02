@@ -9,14 +9,20 @@ struct CloudMachineLinkEventsRecoveryPolicy: Sendable, Equatable {
         .seconds(1),
         .seconds(2),
         .seconds(4),
-    ])
+    ], stabilityWindow: .seconds(10))
 
     let delays: [Duration]
+    /// A stream must carry an accepted event for this long before prior failures
+    /// stop counting. This prevents a child that emits one event and exits from
+    /// resetting the bounded recovery budget forever.
+    let stabilityWindow: Duration
 
-    init(delays: [Duration]) {
+    init(delays: [Duration], stabilityWindow: Duration = .seconds(10)) {
         precondition(!delays.isEmpty)
         precondition(delays.allSatisfy { $0 > .zero })
+        precondition(stabilityWindow > .zero)
         self.delays = delays
+        self.stabilityWindow = stabilityWindow
     }
 
     func delay(forAttempt attempt: Int) -> Duration? {
@@ -35,6 +41,16 @@ struct CloudMachineLinkEventsRecoveryPolicy: Sendable, Equatable {
 /// or until it exits on its own (machine slept, route expired), which flips the state
 /// and ends the `changes` stream so the owner can re-link on demand.
 actor CloudMachineLink {
+    /// Recovery state is one phase so an exhausted stream cannot be mistaken for
+    /// a snapshot-only stream or a fresh connection. The attempt is consecutive
+    /// until an accepted stream stays healthy for the policy's stability window.
+    private enum EventsRecoveryPhase: Equatable {
+        case healthy
+        case recovering(attempt: Int)
+        case exhausted
+        case snapshotOnly
+    }
+
     /// One notification from the daemon session stream. The provider validates
     /// its cursor before it can replace the installed `CloudVMState`.
     enum Change: Sendable, Equatable {
@@ -109,8 +125,8 @@ actor CloudMachineLink {
     private let eventsRecoveryClock: any Clock<Duration>
     private let eventsRecoveryPolicy: CloudMachineLinkEventsRecoveryPolicy
     private var eventsRecoveryTask: Task<Void, Never>?
-    private var eventsRecoveryAttempt = 0
-    private(set) var eventsRecoveryExhausted = false
+    private var eventsStabilityTask: Task<Void, Never>?
+    private var eventsRecoveryPhase: EventsRecoveryPhase = .healthy
     private var inviteFileURL: URL?
     private var stderrTail: [String] = []
 
@@ -228,8 +244,8 @@ actor CloudMachineLink {
         eventsProcess = nil
         eventsRecoveryTask?.cancel()
         eventsRecoveryTask = nil
-        eventsRecoveryAttempt = 0
-        eventsRecoveryExhausted = false
+        cancelEventsStabilityReset()
+        eventsRecoveryPhase = .healthy
         process?.terminate()
         process = nil
         connected = nil
@@ -250,11 +266,10 @@ actor CloudMachineLink {
         }
         let acceptedFromActiveStream = eventsSubscriptionID != nil
         eventsCursor = cursor
-        // The owner accepted a valid event. This is the success boundary for recovery.
-        if acceptedFromActiveStream {
-            eventsRecoveryAttempt = 0
-            eventsRecoveryTask?.cancel()
-            eventsRecoveryTask = nil
+        // The owner accepted a valid event. It starts the success window, but one
+        // event is not enough to forgive a repeatedly dying child process.
+        if acceptedFromActiveStream, let subscriptionID = eventsSubscriptionID {
+            scheduleEventsStabilityReset(subscriptionID: subscriptionID)
         }
     }
 
@@ -278,12 +293,19 @@ actor CloudMachineLink {
     /// feed when the previous feed exhausted its recovery budget. A healthy active
     /// feed is left in place, so accepting a normal snapshot does not create a
     /// second reader or lose events between two subscriptions.
-    func resumeEventsSubscription(from cursor: CloudVMCursor?) {
-        resetEventsRecovery()
+    func resumeEventsSubscription(from cursor: CloudVMCursor) {
+        // A versioned snapshot is allowed to leave snapshot-only mode. Routine
+        // refreshes must not reset an exhausted recovery budget, or a broken
+        // daemon would be respawned forever by each refresh.
+        if eventsRecoveryPhase == .snapshotOnly {
+            resetEventsRecovery()
+        }
         replaceEventsCursor(cursor)
         guard state == .connected,
               let socketPath = connected?.socketPath,
-              eventsSubscriptionID == nil
+              eventsSubscriptionID == nil,
+              eventsRecoveryTask == nil,
+              eventsRecoveryPhase == .healthy
         else { return }
         _ = startEventsSubscription(socketPath: socketPath, cursor: eventsCursor)
     }
@@ -292,7 +314,8 @@ actor CloudMachineLink {
     /// snapshot. The command socket remains usable for reads, while the missing
     /// cursor prevents safe delta ordering and compare-and-swap mutations. A
     /// later versioned snapshot can call `resumeEventsSubscription` to re-enable
-    /// the feed and reset the recovery budget.
+    /// the feed. Recovery remains bounded until a stable stream or a new link
+    /// connection establishes a fresh boundary.
     func suspendEventsSubscription() {
         eventsSubscriptionID = nil
         eventsReaderTask?.cancel()
@@ -301,8 +324,8 @@ actor CloudMachineLink {
         eventsProcess = nil
         eventsRecoveryTask?.cancel()
         eventsRecoveryTask = nil
-        eventsRecoveryAttempt = 0
-        eventsRecoveryExhausted = true
+        cancelEventsStabilityReset()
+        eventsRecoveryPhase = .snapshotOnly
     }
 
     /// Runs one cmux-tui command against the link's socket and returns its stdout.
@@ -352,6 +375,7 @@ actor CloudMachineLink {
     @discardableResult
     private func startEventsSubscription(socketPath: String, cursor: CloudVMCursor?) -> Bool {
         guard !socketPath.isEmpty else { return false }
+        cancelEventsStabilityReset()
         eventsSubscriptionID = nil
         eventsReaderTask?.cancel()
         eventsReaderTask = nil
@@ -423,6 +447,7 @@ actor CloudMachineLink {
     /// UUID makes late reader callbacks harmless after a replacement has started.
     private func finishEventsSubscription(subscriptionID: UUID, reason: String?) {
         guard eventsSubscriptionID == subscriptionID else { return }
+        cancelEventsStabilityReset()
         eventsSubscriptionID = nil
         eventsReaderTask = nil
         eventsProcess?.terminate()
@@ -436,24 +461,31 @@ actor CloudMachineLink {
     private func resetEventsRecovery() {
         eventsRecoveryTask?.cancel()
         eventsRecoveryTask = nil
-        eventsRecoveryAttempt = 0
-        eventsRecoveryExhausted = false
+        cancelEventsStabilityReset()
+        eventsRecoveryPhase = .healthy
     }
 
     private func scheduleEventsRecovery() {
         guard state == .connected,
               connected != nil,
               eventsSubscriptionID == nil,
-              !eventsRecoveryExhausted,
+              eventsRecoveryPhase != .exhausted,
+              eventsRecoveryPhase != .snapshotOnly,
               eventsRecoveryTask == nil
         else { return }
 
-        guard let delay = eventsRecoveryPolicy.delay(forAttempt: eventsRecoveryAttempt + 1) else {
-            eventsRecoveryExhausted = true
+        let nextAttempt: Int
+        if case .recovering(let attempt) = eventsRecoveryPhase {
+            nextAttempt = attempt + 1
+        } else {
+            nextAttempt = 1
+        }
+        guard let delay = eventsRecoveryPolicy.delay(forAttempt: nextAttempt) else {
+            eventsRecoveryPhase = .exhausted
             changesContinuation.yield(.streamEnded(reason: "events_recovery_exhausted", cursor: eventsCursor))
             return
         }
-        eventsRecoveryAttempt += 1
+        eventsRecoveryPhase = .recovering(attempt: nextAttempt)
         let clock = eventsRecoveryClock
         let socketPath = connected!.socketPath
         eventsRecoveryTask = Task { [weak self, clock, delay, socketPath] in
@@ -472,9 +504,42 @@ actor CloudMachineLink {
         guard state == .connected,
               connected?.socketPath == socketPath,
               eventsSubscriptionID == nil,
-              !eventsRecoveryExhausted
+              eventsRecoveryPhase != .exhausted,
+              eventsRecoveryPhase != .snapshotOnly
         else { return }
         _ = startEventsSubscription(socketPath: socketPath, cursor: eventsCursor)
+    }
+
+    /// Starts a cancellable healthy-stream window after the owner accepts an
+    /// event. The subscription ID prevents a late timer from forgiving a newer
+    /// stream after this one has ended.
+    private func scheduleEventsStabilityReset(subscriptionID: UUID) {
+        guard eventsStabilityTask == nil,
+              eventsRecoveryPhase != .exhausted,
+              eventsRecoveryPhase != .snapshotOnly
+        else { return }
+        let clock = eventsRecoveryClock
+        let stabilityWindow = eventsRecoveryPolicy.stabilityWindow
+        eventsStabilityTask = Task { [weak self, clock, stabilityWindow, subscriptionID] in
+            do {
+                try await clock.sleep(for: stabilityWindow)
+            } catch {
+                return
+            }
+            guard !Task.isCancelled else { return }
+            await self?.markEventsStable(subscriptionID: subscriptionID)
+        }
+    }
+
+    private func cancelEventsStabilityReset() {
+        eventsStabilityTask?.cancel()
+        eventsStabilityTask = nil
+    }
+
+    private func markEventsStable(subscriptionID: UUID) {
+        guard eventsSubscriptionID == subscriptionID else { return }
+        eventsStabilityTask = nil
+        eventsRecoveryPhase = .healthy
     }
 
     private func drainStderr(_ handle: FileHandle) {
@@ -499,6 +564,8 @@ actor CloudMachineLink {
         eventsProcess = nil
         eventsRecoveryTask?.cancel()
         eventsRecoveryTask = nil
+        cancelEventsStabilityReset()
+        eventsRecoveryPhase = .healthy
         process = nil
         connected = nil
         removeInviteFile()

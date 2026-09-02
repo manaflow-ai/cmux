@@ -900,6 +900,7 @@ import Testing
         #expect(policy.delay(forAttempt: 1) == .milliseconds(250))
         #expect(policy.delay(forAttempt: 5) == .seconds(4))
         #expect(policy.delay(forAttempt: 6) == nil)
+        #expect(policy.stabilityWindow == .seconds(10))
         #expect(policy.delays.allSatisfy { $0 > .zero })
     }
 

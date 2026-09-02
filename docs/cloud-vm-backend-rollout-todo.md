@@ -51,6 +51,10 @@ browsers, and agents. The macOS app must not create a second remote graph.
   contiguous and complete. Unknown or malformed events are barriers, trigger a
   coalesced snapshot repair, and stop after five barriers with an explicit
   warning. Recovery never loops without a bound.
+- Event-feed recovery has one phase model, not independent retry flags. A
+  reconnect keeps its consecutive-failure count until an accepted journaled
+  stream remains healthy for ten seconds or a new authenticated connection is
+  made. Ordinary snapshot refreshes cannot reset an exhausted feed.
 - IDs are identity and names are labels. Resolve an exact ID first. Resolve a
   name only when it is unique. Ambiguous or stale placement fails closed.
 - A tab rename changes one exact tab placement. A terminal rename is an

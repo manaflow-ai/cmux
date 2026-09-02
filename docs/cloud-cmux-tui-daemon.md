@@ -132,7 +132,13 @@ generations. A delta is accepted only when its generation matches, its
 `previous_revision` is the installed revision, its revision is exactly one
 higher, and its changes have a complete sequence. Any unknown, malformed, or
 out-of-order event triggers one coalesced snapshot repair. Recovery has a finite
-budget and exposes an error state when the feed remains incompatible.
+budget and exposes an error state when the feed remains incompatible. The link
+models recovery as one phase, `healthy`, `recovering`, `exhausted`, or
+`snapshot_only`. A valid event does not immediately forgive a failed stream. It
+starts a ten-second stability window; only a stream that remains healthy for the
+whole window resets the consecutive-failure count. A routine snapshot refresh
+cannot reset an exhausted feed, so a dead daemon cannot cause an unbounded spawn
+loop. A new authenticated connection is an explicit reset boundary.
 
 Older daemons may return the same complete graph without a cursor. The app
 keeps that graph in `snapshot_only` mode, exports it to agents, and suspends the
