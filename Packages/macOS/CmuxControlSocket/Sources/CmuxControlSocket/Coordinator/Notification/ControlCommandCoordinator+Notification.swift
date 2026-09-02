@@ -511,7 +511,7 @@ extension ControlCommandCoordinator {
             targetNotFound: "Notification target not found",
             clearCallerInvalid: "Missing or invalid caller",
             clearCallerSelectorsRequireCaller: "caller-only selectors require caller=true",
-            clearCallerScopeConflict: "caller clear cannot be combined with workspace_id or surface_id",
+            clearCallerScopeConflict: "caller clear cannot be combined with workspace_id, tab_id, or surface_id",
             clearPreferredWorkspaceIDInvalid: "Missing or invalid preferred_workspace_id",
             clearPreferredSurfaceIDInvalid: "Missing or invalid preferred_surface_id",
             clearSurfaceIDRequiresWorkspace: "surface_id requires workspace_id",

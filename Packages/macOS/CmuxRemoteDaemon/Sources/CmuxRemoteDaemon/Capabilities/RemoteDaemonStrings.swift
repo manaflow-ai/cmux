@@ -46,7 +46,7 @@ public struct RemoteDaemonStrings: Sendable, Equatable {
         cloudNotificationClearSurfaceInvalid: String,
         cloudNotificationClearCallerInvalid: String = "Missing or invalid caller",
         cloudNotificationClearCallerSelectorsRequireCaller: String = "caller-only selectors require caller=true",
-        cloudNotificationClearCallerScopeConflict: String = "caller clear cannot be combined with workspace_id or surface_id",
+        cloudNotificationClearCallerScopeConflict: String = "caller clear cannot be combined with workspace_id, tab_id, or surface_id",
         cloudNotificationClearEncodingFailed: String = "Failed to encode Cloud CLI request"
     ) {
         self.missingPersistentPTYCapability = missingPersistentPTYCapability

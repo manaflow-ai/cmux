@@ -387,7 +387,7 @@ extension TerminalController: ControlNotificationContext {
             ),
             clearCallerScopeConflict: String(
                 localized: "socket.notification.clear.callerScopeConflict",
-                defaultValue: "caller clear cannot be combined with workspace_id or surface_id"
+                defaultValue: "caller clear cannot be combined with workspace_id, tab_id, or surface_id"
             ),
             clearPreferredWorkspaceIDInvalid: String(
                 localized: "socket.notification.clear.preferredWorkspaceIdInvalid",
