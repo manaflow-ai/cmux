@@ -332,6 +332,7 @@ fn powershell_agent(argv: &[String]) -> Option<String> {
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum ShellOptionKind {
     Safe,
+    NoScript,
     TakesValue,
     NoExecute,
     Exits,
@@ -370,7 +371,10 @@ fn is_shell_command_flag(runtime: &str, flag: &str) -> bool {
         return false;
     }
     characters.all(|character| {
-        matches!(shell_short_option_kind(runtime, character), Some(ShellOptionKind::Safe))
+        matches!(
+            shell_short_option_kind(runtime, character),
+            Some(ShellOptionKind::Safe | ShellOptionKind::NoScript)
+        )
     })
 }
 
@@ -379,8 +383,9 @@ fn shell_short_option_kind(runtime: &str, option: char) -> Option<ShellOptionKin
         // Bash documents these as invocation flags. `-n` and `-D` prevent a
         // command from running, while `-o` and `-O` consume an option name.
         "bash" => match option {
-            'a' | 'b' | 'e' | 'f' | 'h' | 'i' | 'k' | 'l' | 'm' | 'p' | 'r' | 's' | 't' | 'u'
-            | 'v' | 'x' | 'B' | 'C' | 'E' | 'H' | 'P' | 'T' => Some(ShellOptionKind::Safe),
+            'a' | 'b' | 'e' | 'f' | 'h' | 'i' | 'k' | 'l' | 'm' | 'p' | 'r' | 'u' | 'v' | 'x'
+            | 'B' | 'C' | 'E' | 'H' | 'P' | 'T' => Some(ShellOptionKind::Safe),
+            's' | 't' => Some(ShellOptionKind::NoScript),
             'n' => Some(ShellOptionKind::NoExecute),
             'D' => Some(ShellOptionKind::Exits),
             'o' | 'O' => Some(ShellOptionKind::TakesValue),
@@ -389,8 +394,10 @@ fn shell_short_option_kind(runtime: &str, option: char) -> Option<ShellOptionKin
         // Keep the POSIX/common shell switches here. Different `sh`
         // implementations add flags, so unknown switches fail closed.
         "sh" => match option {
-            'a' | 'b' | 'e' | 'f' | 'h' | 'i' | 'k' | 'l' | 'm' | 'p' | 'r' | 's' | 't' | 'u'
-            | 'v' | 'x' => Some(ShellOptionKind::Safe),
+            'a' | 'b' | 'e' | 'f' | 'h' | 'i' | 'k' | 'l' | 'm' | 'p' | 'r' | 'u' | 'v' | 'x' => {
+                Some(ShellOptionKind::Safe)
+            }
+            's' | 't' => Some(ShellOptionKind::NoScript),
             'n' => Some(ShellOptionKind::NoExecute),
             'o' => Some(ShellOptionKind::TakesValue),
             _ => None,
@@ -401,8 +408,9 @@ fn shell_short_option_kind(runtime: &str, option: char) -> Option<ShellOptionKin
         "zsh" => match option {
             'J' | 'N' | 'T' | 'w' | 'E' | 'D' | '9' | 'X' | 'Y' | 'S' | '4' | 'I' | '8' | 'G'
             | 'P' | 'h' | 'g' | 'a' | '0' | 'O' | '7' | 'k' | 'U' | 'Q' | '1' | 'H' | 'L' | 'W'
-            | '6' | 'R' | 'm' | '5' | 'e' | 'v' | 'x' | 'y' | 'i' | 'l' | 'p' | 'r' | 's' | 't'
-            | 'M' | 'Z' | 'b' | 'd' | 'f' => Some(ShellOptionKind::Safe),
+            | '6' | 'R' | 'm' | '5' | 'e' | 'v' | 'x' | 'y' | 'i' | 'l' | 'p' | 'r' | 'M' | 'Z'
+            | 'b' | 'd' | 'f' => Some(ShellOptionKind::Safe),
+            's' | 't' => Some(ShellOptionKind::NoScript),
             'n' => Some(ShellOptionKind::NoExecute),
             'o' => Some(ShellOptionKind::TakesValue),
             _ => None,
