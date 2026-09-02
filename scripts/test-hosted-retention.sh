@@ -177,6 +177,12 @@ if cmux_hosted_retention_validate_no_symlink_ancestors "$test_root" cmux-tui tar
   echo "symlinked artifact ancestor was accepted" >&2
   exit 1
 fi
+linked_root="$(mktemp -d "$tmp/linked-root.XXXXXX")"
+ln -s "$linked_root" "$tmp/base-link"
+if cmux_hosted_retention_validate_no_symlink_ancestors "$tmp/base-link" cmux-tui target hosted; then
+  echo "symlinked artifact base was accepted" >&2
+  exit 1
+fi
 
 write_stat_map() {
   : > "$tmp/stat-map"

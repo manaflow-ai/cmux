@@ -32,8 +32,27 @@ cmux_hosted_retention_command_available() {
 cmux_hosted_retention_validate_no_symlink_ancestors() {
   local base_path="$1"
   shift
+  local normalized_base
+  local path_components
+  local prefix="/"
   local component
-  local current_path="$base_path"
+  local current_path
+
+  [[ -n "$base_path" ]] || return 1
+  if [[ "$base_path" == /* ]]; then
+    normalized_base="$base_path"
+  else
+    normalized_base="$(pwd -P)/$base_path"
+  fi
+  path_components="${normalized_base#/}"
+  IFS='/' read -r -a path_components <<< "$path_components"
+  for component in "${path_components[@]}"; do
+    [[ -n "$component" && "$component" != . && "$component" != .. ]] || continue
+    prefix="$prefix$component"
+    [[ ! -L "$prefix" ]] || return 1
+    prefix="$prefix/"
+  done
+  current_path="$normalized_base"
 
   for component in "$@"; do
     [[ -n "$component" && "$component" != . && "$component" != .. && "$component" != */* ]] || return 1
