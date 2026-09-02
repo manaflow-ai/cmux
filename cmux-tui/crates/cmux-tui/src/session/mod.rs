@@ -35,6 +35,7 @@ use ghostty_vt::{
 use serde::Deserialize;
 use serde_json::{Map, Value, json};
 
+pub(crate) use remote::{PipeIoByteBudget, PipeIoSurfaceAttach, is_pipe_io_retryable_error};
 pub use remote::{
     RemoteMessageReader, RemoteMessageWriter, RemoteSession, RemoteSurface, RemoteTransport,
     RemoteTransportAbort,

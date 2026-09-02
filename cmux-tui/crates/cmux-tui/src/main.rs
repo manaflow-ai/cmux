@@ -1626,6 +1626,26 @@ fn run_terminal_host_process(args: &[String]) -> anyhow::Result<()> {
     cmux_tui_core::terminal_host_runtime::serve_terminal_host_stdio(args, &mut reader, &mut writer)
 }
 
+/// Ends a `--pipe-io` relay: the machine-readable exit reason is the final
+/// stderr line (the embedder localizes what it shows) and the exit code
+/// carries the respawn decision.
+fn exit_pipe_io(reason: pipe_io::PipeIoExitReason) -> ! {
+    {
+        let mut stderr = std::io::stderr().lock();
+        let _ = writeln!(stderr, "{}", serde_json::json!({"exit": {"reason": reason.as_str()}}));
+        let _ = stderr.flush();
+    }
+    client_log::exit(reason.exit_code());
+}
+
+fn pipe_io_startup_exit_reason(error: &anyhow::Error) -> pipe_io::PipeIoExitReason {
+    if session::is_pipe_io_retryable_error(error) {
+        pipe_io::PipeIoExitReason::DaemonLost
+    } else {
+        pipe_io::PipeIoExitReason::SetupFailed
+    }
+}
+
 fn run_attach(args: Args, config: config::StartupConfigSnapshot) -> anyhow::Result<()> {
     let socket_path = match args.socket {
         Some(path) => path,
@@ -1641,20 +1661,54 @@ fn run_attach(args: Args, config: config::StartupConfigSnapshot) -> anyhow::Resu
         })
         .transpose()?;
     let remote = if terminal.is_some() {
-        RemoteSession::connect_for_terminal_attach(&socket_path)?
+        match RemoteSession::connect_for_terminal_attach(&socket_path) {
+            Ok(remote) => remote,
+            // A pipe-io embedder retries daemon-lost forever (a daemon
+            // restart window looks exactly like this) but gives up on
+            // unexplained failures; a connect failure is the former.
+            Err(error) if args.pipe_io => exit_pipe_io(pipe_io_startup_exit_reason(&error)),
+            Err(error) => return Err(error),
+        }
     } else {
         RemoteSession::connect(&socket_path)?
     };
     let surface_only = if let Some(terminal) = terminal.as_ref() {
-        let tree = remote.refresh_tree()?;
-        let surface = tree
-            .resolve_terminal(terminal)
+        let tree = match remote.refresh_tree() {
+            Ok(tree) => tree,
+            Err(error) if args.pipe_io => exit_pipe_io(pipe_io_startup_exit_reason(&error)),
+            Err(error) => return Err(error),
+        };
+        let resolved = tree.resolve_terminal(terminal);
+        // A pipe-io embedder respawns on daemon loss; a terminal that no
+        // longer exists must read as terminal-ended (do not respawn), not
+        // as a startup failure it would retry forever.
+        if args.pipe_io && resolved.is_none() {
+            exit_pipe_io(pipe_io::PipeIoExitReason::TerminalEnded);
+        }
+        let surface = resolved
             .ok_or_else(|| anyhow::anyhow!(messages.unknown_terminal(terminal.as_str())))?;
         if !remote.supports_surface_subscription_filter() {
+            // A pipe-IO embedder needs a machine-readable terminal result for
+            // every startup path. Without the scoped subscription filter, the
+            // relay cannot safely distinguish this surface's bytes, so treat
+            // it as a retryable daemon capability loss instead of returning a
+            // plain CLI error (which would omit the final exit record).
+            if args.pipe_io {
+                exit_pipe_io(pipe_io::PipeIoExitReason::SetupFailed);
+            }
             anyhow::bail!(messages.filtered_subscription_unavailable);
         }
-        remote.scope_events_to_surface(surface)?;
-        let tree = remote.refresh_tree()?;
+        if let Err(error) = remote.scope_events_to_surface(surface) {
+            if args.pipe_io {
+                exit_pipe_io(pipe_io_startup_exit_reason(&error));
+            }
+            return Err(error);
+        }
+        let tree = match remote.refresh_tree() {
+            Ok(tree) => tree,
+            Err(error) if args.pipe_io => exit_pipe_io(pipe_io_startup_exit_reason(&error)),
+            Err(error) => return Err(error),
+        };
         if tree.resolve_terminal(terminal) != Some(surface) {
             anyhow::bail!(messages.unknown_terminal(terminal.as_str()));
         }
