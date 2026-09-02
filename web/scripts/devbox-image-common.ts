@@ -14,6 +14,7 @@ import { createHash } from "node:crypto";
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { vmImageSizeRank, type VmImageSizeName } from "../services/vms/images/sizes";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 export const webRoot = path.resolve(__dirname, "..");
@@ -192,6 +193,12 @@ export function bakeMetadata(
 
 export type DevboxProvider = "freestyle";
 export type DevboxImageKind = "desktop" | "base";
+export type DevboxImageSize = {
+  name: VmImageSizeName;
+  cpu: number;
+  memoryMb: number;
+  storageMb: number;
+};
 
 /** One `images[]` row of services/vms/images/manifest.json, as the bake scripts emit it. */
 export type DevboxManifestEntry = {
@@ -204,6 +211,8 @@ export type DevboxManifestEntry = {
   defaultForLocalDev?: boolean;
   kind?: DevboxImageKind;
   defaultForKind?: boolean;
+  /** The shape this snapshot boots at (Freestyle ladder). Size-less entries are pre-ladder bakes. */
+  size?: DevboxImageSize;
   cmuxdRemoteCommit: string;
   /** The cmux-tui build baked at /root/.cmux/bin/cmux-tui (files.cmux.com manifest pin at bake time). Absent on images that installed it at create time. */
   cmuxTuiCommit?: string;
@@ -301,16 +310,26 @@ export function writeImageManifest(manifest: DevboxImageManifest, file = imageMa
 export type PromoteImageOptions = {
   /** Kinds this image serves. Each gets its own entry flagged `defaultForKind`. */
   readonly kinds: readonly DevboxImageKind[];
+  /**
+   * Sized snapshots derived from the bake (derive-devbox-sizes.ts): one
+   * manifest entry per kind and size, each the default for that kind+size.
+   * Omitted: a single size-less entry per kind (a pre-ladder bake).
+   */
+  readonly sizes?: readonly { readonly imageId: string; readonly size: DevboxImageSize }[];
   /** Human-readable validation summary appended to `notes`. */
   readonly validationNotes?: string;
 };
 
+function sizeKey(entry: Pick<DevboxManifestEntry, "size">): string {
+  return entry.size?.name ?? "";
+}
+
 /**
  * Appends a verified image to the manifest as the default for every kind in
- * `kinds`, demoting the provider's previous defaults for those kinds. Pure:
- * returns a new manifest and never mutates the input. Existing entries are
- * only ever flag-flipped, never removed, so rollback stays a one-line
- * manifest change.
+ * `kinds` (and every size in `sizes`), demoting the provider's previous
+ * defaults for those kind+size pairs. Pure: returns a new manifest and never
+ * mutates the input. Existing entries are only ever flag-flipped, never
+ * removed, so rollback stays a one-line manifest change.
  */
 export function promoteImageManifestEntry(
   manifest: DevboxImageManifest,
@@ -327,32 +346,51 @@ export function promoteImageManifestEntry(
     throw new Error(`refusing to promote ${entry.imageId}: no kinds given`);
   }
   const kinds = [...new Set(options.kinds)];
+  const variants: Array<{ imageId: string; size?: DevboxImageSize }> =
+    options.sizes && options.sizes.length > 0
+      ? [...options.sizes].sort((a, b) => vmImageSizeRank(a.size.name) - vmImageSizeRank(b.size.name))
+      : [{ imageId: entry.imageId }];
   for (const kind of kinds) {
-    const clash = manifest.images.find((candidate) =>
-      candidate.provider === entry.provider &&
-      candidate.imageId === entry.imageId &&
-      (candidate.kind ?? "base") === kind
-    );
-    if (clash) {
-      throw new Error(
-        `refusing to promote ${entry.provider} ${entry.imageId}: already listed as ${clash.version} (${kind})`,
+    for (const variant of variants) {
+      const clash = manifest.images.find((candidate) =>
+        candidate.provider === entry.provider &&
+        candidate.imageId === variant.imageId &&
+        (candidate.kind ?? "base") === kind &&
+        sizeKey(candidate) === (variant.size?.name ?? "")
       );
+      if (clash) {
+        throw new Error(
+          `refusing to promote ${entry.provider} ${variant.imageId}: already listed as ${clash.version} (${kind}${variant.size ? `, ${variant.size.name}` : ""})`,
+        );
+      }
     }
   }
+  const promotedSizes = new Set<string>(variants.map((variant) => variant.size?.name ?? ""));
   const demoted = manifest.images.map((candidate) => {
     if (candidate.provider !== entry.provider) return candidate;
     const next: DevboxManifestEntry = { ...candidate };
-    if (next.defaultForKind && kinds.includes(next.kind ?? "base")) next.defaultForKind = false;
+    // A sized promotion demotes the provider's size-less defaults too: the
+    // ladder replaces the single-shape image, not just one row of it.
+    const sameSize = promotedSizes.has(sizeKey(next)) || (sizeKey(next) === "" && promotedSizes.size > 0);
+    if (next.defaultForKind && kinds.includes(next.kind ?? "base") && sameSize) next.defaultForKind = false;
     return next;
   });
   const notes = [entry.notes, options.validationNotes].filter(Boolean).join(" ");
-  const promoted = kinds.map((kind): DevboxManifestEntry => ({
-    ...entry,
-    version: kinds.length > 1 && kind !== kinds[0] ? `${entry.version}-${kind}` : entry.version,
-    kind,
-    defaultForKind: true,
-    ...(notes ? { notes } : {}),
-  }));
+  const promoted: DevboxManifestEntry[] = [];
+  for (const kind of kinds) {
+    for (const variant of variants) {
+      const suffix = [variant.size ? variant.size.name : "", kind !== kinds[0] ? kind : ""].filter(Boolean).join("-");
+      promoted.push({
+        ...entry,
+        version: suffix ? `${entry.version}-${suffix}` : entry.version,
+        imageId: variant.imageId,
+        kind,
+        defaultForKind: true,
+        ...(variant.size ? { size: variant.size } : {}),
+        ...(notes ? { notes } : {}),
+      });
+    }
+  }
   return { schemaVersion: manifest.schemaVersion, images: [...demoted, ...promoted] };
 }
 
@@ -373,17 +411,33 @@ export function imageManifestProblems(manifest: DevboxImageManifest): string[] {
     if (entry.kind !== undefined && entry.kind !== "desktop" && entry.kind !== "base") {
       problems.push(`${entry.version}: kind ${String(entry.kind)} is not desktop|base`);
     }
+    if (entry.size !== undefined) {
+      const { name, cpu, memoryMb, storageMb } = entry.size;
+      if (vmImageSizeRank(name) < 0) problems.push(`${entry.version}: size ${String(name)} is not on the ladder`);
+      if (![cpu, memoryMb, storageMb].every((n) => Number.isInteger(n) && n > 0)) {
+        problems.push(`${entry.version}: size ${String(name)} needs positive integer cpu/memoryMb/storageMb`);
+      }
+    }
     if (entry.defaultForKind) {
       if (entry.validationStatus !== "passed") {
         problems.push(`${entry.version}: defaultForKind but validationStatus is ${entry.validationStatus}`);
       }
-      const key = `${entry.provider}/${entry.kind ?? "base"}`;
+      const key = `${entry.provider}/${entry.kind ?? "base"}${entry.size ? `/${entry.size.name}` : ""}`;
       defaults.set(key, [...(defaults.get(key) ?? []), entry]);
     }
   }
   const versions = manifest.images.map((entry) => `${entry.provider}/${entry.version}`);
   for (const dup of versions.filter((v, i) => versions.indexOf(v) !== i)) {
     problems.push(`${dup}: version listed more than once`);
+  }
+  const shapesByKind = new Map<string, Set<string>>();
+  for (const entry of manifest.images) {
+    if (!entry.defaultForKind) continue;
+    const key = `${entry.provider}/${entry.kind ?? "base"}`;
+    shapesByKind.set(key, new Set([...(shapesByKind.get(key) ?? []), entry.size ? "sized" : "size-less"]));
+  }
+  for (const [key, shapes] of shapesByKind) {
+    if (shapes.size > 1) problems.push(`${key}: defaults mix sized and size-less entries`);
   }
   for (const [key, entries] of defaults) {
     if (entries.length > 1) {

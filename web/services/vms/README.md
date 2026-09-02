@@ -79,9 +79,12 @@ Image policy:
 
 - Clients request a machine **kind** (`kind: "desktop" | "base"` on `POST /api/vm`,
   `POST /api/vm/base/open`, and `POST /api/vm/base/reset`) rather than pinning an image id. With
-  no `image`, the resolver serves the manifest entry flagged `kind` + `defaultForKind` (a body with
-  neither `image` nor `kind` gets the `base` default) and otherwise fails closed with
-  `vm_image_config_error`. `image` still wins when present, but a client-requested `image` must be
+  no `image`, the resolver serves the manifest entry flagged `kind` + `defaultForKind` at the
+  plan's **size** (a body with neither `image` nor `kind` gets the `base` default) and otherwise
+  fails closed with `vm_image_config_error`. Sizes are Freestyle's ladder (`sm` … `2xl`,
+  `services/vms/images/sizes.ts`): one snapshot per size, and the smallest whose memory covers
+  the plan's `defaultMemoryMbForPlan` is served, so machines boot at their shape and the driver
+  never resizes. Create responses and `limits.imageKinds` carry the `size`. `image` still wins when present, but a client-requested `image` must be
   in the manifest (or `CMUX_VM_ALLOW_UNMANIFESTED_IMAGES=1`, which local dev implies). Responses
   and `GET /api/vm` entries echo `kind`; `GET /api/vm` `limits.imageKinds` lists the kinds the
   default provider can serve and the image each resolves to.
