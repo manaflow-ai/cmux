@@ -1804,6 +1804,7 @@ pub enum PipeIoEvent {
     SurfaceExited,
     TransportLost,
     StdinClosed,
+    StdinError,
 }
 
 impl PipeIoEvent {
@@ -1812,7 +1813,7 @@ impl PipeIoEvent {
     pub(crate) fn retained_bytes(&self) -> usize {
         match self {
             Self::Replay { bytes } | Self::Output(bytes) => bytes.len(),
-            Self::SurfaceExited | Self::TransportLost | Self::StdinClosed => 0,
+            Self::SurfaceExited | Self::TransportLost | Self::StdinClosed | Self::StdinError => 0,
         }
     }
 }
