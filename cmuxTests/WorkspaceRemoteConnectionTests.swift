@@ -643,7 +643,7 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
             terminalStartupCommand: "cmux vm-pty-attach --id abcd1234",
             daemonWebSocketEndpoint: WorkspaceRemoteWebSocketDaemonEndpoint(
                 url: "wss://sandbox.example/rpc",
-                headers: ["e2b-traffic-access-token": "header-a"],
+                headers: ["x-cloud-traffic-token": "header-a"],
                 token: "token-a",
                 sessionId: "sess-a",
                 expiresAtUnix: 1_800_000_000
@@ -664,7 +664,7 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
             terminalStartupCommand: "cmux vm-pty-attach --id abcd1234",
             daemonWebSocketEndpoint: WorkspaceRemoteWebSocketDaemonEndpoint(
                 url: "wss://sandbox.example/rpc",
-                headers: ["e2b-traffic-access-token": "header-b"],
+                headers: ["x-cloud-traffic-token": "header-b"],
                 token: "token-b",
                 sessionId: "sess-b",
                 expiresAtUnix: 1_800_000_100
