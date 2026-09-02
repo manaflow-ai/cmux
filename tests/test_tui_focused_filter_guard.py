@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import subprocess
+import tempfile
 from pathlib import Path
 
 
@@ -26,7 +27,7 @@ def test_workflow_rejects_ignored_only_filter_from_name_difference() -> None:
 
 
 def test_ignored_only_guard_returns_failure() -> None:
-    with __import__("tempfile").TemporaryDirectory() as directory:
+    with tempfile.TemporaryDirectory() as directory:
         root = Path(directory)
         normal_names = root / "normal"
         ignored_names = root / "ignored"
@@ -41,7 +42,16 @@ if [[ ! -s "$3" && -s "$2" ]]; then
 fi
 """
         result = subprocess.run(
-            ["bash", "-eu", "-c", script, "guard", str(normal_names), str(ignored_names), str(runnable_names)],
+            [
+                "bash",
+                "-eu",
+                "-c",
+                script,
+                "guard",
+                str(normal_names),
+                str(ignored_names),
+                str(runnable_names),
+            ],
             check=False,
         )
 
