@@ -1515,6 +1515,8 @@ pub struct RemoteSession {
     exited_surfaces: Mutex<ExitedSurfaceState>,
     surface_leases: Mutex<HashMap<SurfaceId, String>>,
     retired_surfaces: Mutex<HashSet<SurfaceId>>,
+    #[cfg(test)]
+    retire_surface_test_marker: Mutex<Option<Sender<SurfaceId>>>,
     tree: Mutex<RemoteTreeCache>,
     browser_sources: Mutex<HashMap<SurfaceId, BrowserSource>>,
     tree_refresh: Mutex<()>,
@@ -1871,6 +1873,8 @@ impl RemoteSession {
             exited_surfaces: Mutex::new(ExitedSurfaceState::default()),
             surface_leases: Mutex::new(HashMap::new()),
             retired_surfaces: Mutex::new(HashSet::new()),
+            #[cfg(test)]
+            retire_surface_test_marker: Mutex::new(None),
             tree: Mutex::new(RemoteTreeCache::default()),
             browser_sources: Mutex::new(HashMap::new()),
             tree_refresh: Mutex::new(()),
@@ -3334,8 +3338,14 @@ impl RemoteSession {
 
     pub fn retire_surface(&self, id: SurfaceId) {
         self.tree.lock().unwrap().remove_agent(id);
+        let mut retired_surfaces = self.retired_surfaces.lock().unwrap();
+        retired_surfaces.insert(id);
+        #[cfg(test)]
+        if let Some(sender) = self.retire_surface_test_marker.lock().unwrap().clone() {
+            let _ = sender.send(id);
+        }
+        drop(retired_surfaces);
         let _cell_pixel_lifecycle = self.cell_pixel_lifecycle.lock().unwrap();
-        self.retired_surfaces.lock().unwrap().insert(id);
         let surface = self.surfaces.lock().unwrap().remove(&id);
         let mut exited = self.exited_surfaces.lock().unwrap();
         exited.ids.insert(id);
@@ -3830,6 +3840,7 @@ fn test_session_with_writer(
         exited_surfaces: Mutex::new(ExitedSurfaceState::default()),
         surface_leases: Mutex::new(HashMap::new()),
         retired_surfaces: Mutex::new(HashSet::new()),
+        retire_surface_test_marker: Mutex::new(None),
         tree: Mutex::new(RemoteTreeCache::default()),
         browser_sources: Mutex::new(HashMap::new()),
         tree_refresh: Mutex::new(()),
@@ -5071,6 +5082,7 @@ mod tests {
             exited_surfaces: Mutex::new(ExitedSurfaceState::default()),
             surface_leases: Mutex::new(HashMap::new()),
             retired_surfaces: Mutex::new(HashSet::new()),
+            retire_surface_test_marker: Mutex::new(None),
             tree: Mutex::new(RemoteTreeCache::default()),
             browser_sources: Mutex::new(HashMap::new()),
             tree_refresh: Mutex::new(()),
@@ -7493,6 +7505,70 @@ mod tests {
         cache.replace(tree(), title_generation);
         cache.replace_agents(Vec::new(), 0);
         assert!(cache.agents.is_empty());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn surface_exit_serializes_agent_updates_after_retirement_marker() {
+        let tree = || {
+            parse_tree(&json!({
+                "workspaces": [{
+                    "id": 1,
+                    "screens": [{
+                        "id": 2,
+                        "layout": {"type": "leaf", "pane": 3},
+                        "panes": [{
+                            "id": 3,
+                            "tabs": [{"surface": 7, "title": "agent terminal"}],
+                        }],
+                    }],
+                }],
+            }))
+        };
+        let (client, _server) = UnixStream::pair().unwrap();
+        let session = socket_test_session(client);
+        session.tree.lock().unwrap().replace(tree(), 0);
+        session.handle_line(json!({
+            "event": "agent-changed",
+            "surface": 7,
+            "state": "working",
+            "source": "hook",
+            "session": "review",
+            "updated_at_ms": 41,
+        }));
+
+        let (marker_tx, marker_rx) = channel();
+        *session.retire_surface_test_marker.lock().unwrap() = Some(marker_tx);
+
+        // Hold the cache lock. The retirement must publish its marker before
+        // waiting for this lock, so a concurrent agent update cannot slip in.
+        let tree_guard = session.tree.lock().unwrap();
+        let retiring = session.clone();
+        let retire_thread = std::thread::spawn(move || {
+            retiring.handle_line(json!({"event": "surface-exited", "surface": 7}));
+        });
+        if marker_rx.recv_timeout(Duration::from_secs(1)).is_err() {
+            drop(tree_guard);
+            retire_thread.join().unwrap();
+            panic!("surface retirement did not publish its marker before cache cleanup");
+        }
+
+        let updating = session.clone();
+        let update_thread = std::thread::spawn(move || {
+            updating.handle_line(json!({
+                "event": "agent-changed",
+                "surface": 7,
+                "state": "needsInput",
+                "source": "hook",
+                "session": "review",
+                "updated_at_ms": 42,
+            }));
+        });
+        drop(tree_guard);
+        retire_thread.join().unwrap();
+        update_thread.join().unwrap();
+
+        assert!(session.cached_agents().is_empty());
     }
 
     #[test]
