@@ -1890,9 +1890,15 @@ impl RemoteSession {
                 if message.len() > REMOTE_SESSION_MESSAGE_MAX_BYTES {
                     break Some(remote_reader_message_too_large(&mut message));
                 }
-                let value = serde_json::from_str::<Value>(&message);
+                let value = match serde_json::from_str::<Value>(&message) {
+                    Ok(value) => value,
+                    Err(error) => {
+                        let reason = format!("remote JSON decode failed: {error}");
+                        zeroize_string(&mut message);
+                        break Some(reason);
+                    }
+                };
                 zeroize_string(&mut message);
-                let Ok(value) = value else { continue };
                 let Some(session) = reader_session.upgrade() else { break None };
                 session.handle_line(value);
             };
