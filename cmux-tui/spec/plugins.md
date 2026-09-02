@@ -116,7 +116,8 @@ Git sources are passed to `git` as process arguments. HTTP and HTTPS sources
 with embedded user information, query strings, or fragments are rejected so
 tokens do not enter the process table. Use a Git credential helper or an SSH
 key for private repositories; SSH user names, SCP-like sources, and local paths
-remain supported.
+remain supported. Git metadata stdout is capped at 16 KiB before parsing;
+overflow is treated as unavailable.
 
 ## Agent Plugins
 
@@ -237,8 +238,8 @@ arguments and child processes without a daemon schema change. If the host does
 not permit inspection, the plugin must use the one-process fallback.
 
 The reference Linux backend streams `/proc` regular files through a 128 KiB
-bound before parsing. Oversized or invalid process files fail closed, so a
-malformed process cannot force an unbounded allocation in the detector.
+bound before parsing. Oversized process files fail closed, so a malformed
+process cannot force an unbounded allocation in the detector.
 
 ### Manifests and updates
 

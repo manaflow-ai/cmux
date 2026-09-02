@@ -2,7 +2,7 @@ use std::collections::HashSet;
 use std::fs;
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
-use std::process::{Command, Stdio};
+use std::process::{Child, Command, Stdio};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use serde::{Deserialize, Serialize};
@@ -19,6 +19,7 @@ const MAX_PLUGIN_NAME_BYTES: usize = 64;
 const MAX_PLUGIN_COMMAND_ARGS: usize = 256;
 const MAX_PLUGIN_COMMAND_ARG_BYTES: usize = 4096;
 const MAX_PLUGIN_REGISTRY_METADATA_BYTES: usize = 16 * 1024;
+const MAX_PLUGIN_GIT_OUTPUT_BYTES: usize = 16 * 1024;
 /// Bound the number of filesystem entries inspected by one plugin-manager
 /// operation. The registry is user-controlled, so a malicious or stale data
 /// directory must not turn `list` or selector resolution into an unbounded
@@ -1342,19 +1343,48 @@ fn validate_plugin_id(id: &str) -> anyhow::Result<()> {
 }
 
 fn git_text<const N: usize>(dir: &Path, args: [&str; N]) -> Option<String> {
-    let output = Command::new("git")
+    let mut child = Command::new("git")
         .arg("-c")
         .arg("protocol.file.allow=always")
         .args(args)
         .current_dir(dir)
-        .output()
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
+        .spawn()
         .ok()?;
-    if !output.status.success() {
-        return None;
-    }
-    let value = String::from_utf8(output.stdout).ok()?;
+    let value =
+        String::from_utf8(read_bounded_child_stdout(&mut child, MAX_PLUGIN_GIT_OUTPUT_BYTES)?)
+            .ok()?;
     let value = value.trim_end_matches(['\r', '\n']);
     (!value.is_empty()).then(|| value.to_string())
+}
+
+/// Read child stdout with a hard allocation bound. The extra byte detects
+/// overflow, then the child is killed before waiting so it cannot remain
+/// blocked on a full pipe.
+fn read_bounded_child_stdout(child: &mut Child, max_bytes: usize) -> Option<Vec<u8>> {
+    let Some(read_limit) = u64::try_from(max_bytes).ok().and_then(|value| value.checked_add(1))
+    else {
+        let _ = child.kill();
+        let _ = child.wait();
+        return None;
+    };
+    if child.stdout.is_none() {
+        let _ = child.kill();
+        let _ = child.wait();
+        return None;
+    }
+    let mut bytes = Vec::with_capacity(max_bytes.min(8 * 1024));
+    let read_result = {
+        let stdout = child.stdout.as_mut().expect("stdout was checked above");
+        stdout.take(read_limit).read_to_end(&mut bytes)
+    };
+    if read_result.is_err() || bytes.len() > max_bytes {
+        let _ = child.kill();
+        let _ = child.wait();
+        return None;
+    }
+    child.wait().ok()?.success().then_some(bytes)
 }
 
 fn canonical_path(path: &Path) -> anyhow::Result<PathBuf> {

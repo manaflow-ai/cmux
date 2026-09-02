@@ -78,7 +78,7 @@ also enforced by the manifest validator.
 
 The selected plugin configuration is limited to 4 MiB and registry metadata to
 16 KiB before JSON parsing. On Linux, process files are streamed through a
-128 KiB limit before parsing; an oversized or invalid file fails closed and
+128 KiB limit before parsing; an oversized file fails closed and
 leaves name-based detection available when possible.
 
 The plugin manager stages the artifact and selected configuration with a local
@@ -95,7 +95,8 @@ Git install and update sources are passed to `git` as process arguments. The
 manager rejects HTTP and HTTPS user information, query strings, and fragments
 to keep passwords and tokens out of process listings. Use a Git credential
 helper or an SSH key for private repositories. SSH user names, SCP-like sources,
-and local paths remain supported.
+and local paths remain supported. Git metadata output is capped at 16 KiB before
+the manager parses it; overflow is treated as unavailable.
 
 The daemon keeps OSC title and progress as generic terminal metadata and may
 retain them across a process change. The scanner records the output revision at
