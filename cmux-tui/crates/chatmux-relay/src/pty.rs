@@ -2600,9 +2600,11 @@ impl Inner {
             let (banner, replay, alive) = {
                 let mut inner = start_session.inner.lock().expect("shell inner lock");
                 let banner = created.then(|| start_session.banner.clone()).flatten();
-                let replay = (!created && inner.ring_size > 0).then(|| {
-                    inner.ring.iter().flat_map(|c| c.iter().copied()).collect::<Vec<u8>>()
-                });
+                // Clone the retained chunks, not their bytes. `Bytes` clones
+                // share the backing storage, so a large scrollback replay
+                // does not allocate one contiguous buffer before framing.
+                let replay = (!created && inner.ring_size > 0)
+                    .then(|| inner.ring.iter().cloned().collect::<Vec<Bytes>>());
                 if inner.alive && !released.load(Ordering::SeqCst) {
                     inner.viewers.push(ViewerSink {
                         id: viewer_id,
@@ -2619,7 +2621,9 @@ impl Inner {
                 emit_bounded_bytes(&on_data, Bytes::from(banner));
             }
             if let Some(replay) = replay {
-                emit_bounded_bytes(&on_data, Bytes::from(replay));
+                for chunk in replay {
+                    emit_bounded_bytes(&on_data, chunk);
+                }
             }
             if released.load(Ordering::SeqCst) {
                 return;
