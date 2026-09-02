@@ -17142,7 +17142,7 @@ impl App {
                 } else {
                     point
                 };
-                Some(match mode {
+                match mode {
                     SelectionMode::Word => terminal.select_word_screen(point).ok().flatten(),
                     SelectionMode::Line => terminal
                         .select_line_screen(point)
@@ -17150,7 +17150,7 @@ impl App {
                         .flatten()
                         .or_else(|| terminal.select_line_screen_untrimmed(point).ok().flatten()),
                     SelectionMode::Cell => None,
-                })
+                }
             })
             .flatten()?;
         Some(Self::selection_from_range(surface, range))
