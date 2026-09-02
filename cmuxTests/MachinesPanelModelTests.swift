@@ -110,15 +110,6 @@ final class MachinesPanelModelTests: XCTestCase {
         )
         XCTAssertEqual(paid?.isAtLimit, false)
         XCTAssertEqual(paid?.isPaidPlan, true)
-
-        // Paid plans ship uncapped: no count ever reaches the limit.
-        let uncapped = MachineSnapshotBuilder.planSnapshot(
-            activeCount: 400,
-            limits: VMPlanLimits(maxActiveVms: nil, planId: "pro", freeAccessWindowDays: 0)
-        )
-        XCTAssertEqual(uncapped?.isAtLimit, false)
-        XCTAssertNil(uncapped?.maxActiveVms)
-        XCTAssertEqual(uncapped?.isSingleMachinePlan, false)
     }
 
     func testMachinesModeIsRegisteredEverywhere() {
@@ -321,19 +312,6 @@ final class MachinesPanelModelTests: XCTestCase {
         XCTAssertEqual(plural?.isSingleMachinePlan, false)
         XCTAssertEqual(plural?.countLabel, "2 of 5 machines")
         XCTAssertEqual(plural?.freeAccessBanner, MachinePlanSnapshot.FreeAccessBanner.none)
-
-        let unlimited = MachineSnapshotBuilder.planSnapshot(
-            activeCount: 7,
-            limits: VMPlanLimits(maxActiveVms: nil, planId: "pro", freeAccessWindowDays: 0),
-            now: now
-        )
-        XCTAssertEqual(unlimited?.countLabel, "7 machines")
-        let unlimitedSingle = MachineSnapshotBuilder.planSnapshot(
-            activeCount: 1,
-            limits: VMPlanLimits(maxActiveVms: nil, planId: "pro", freeAccessWindowDays: 0),
-            now: now
-        )
-        XCTAssertEqual(unlimitedSingle?.countLabel, "1 machine")
     }
 
     func testPlanSnapshotFallsBackToEarliestLocalExpiry() {
@@ -1022,5 +1000,31 @@ struct MachinesPanelPaidPlanTests {
         let error = VMClientError.httpStatus(402, #"{"error":"vm_requires_pro"}"#)
         #expect(error.description.contains("https://cmux.com/pricing"))
         #expect(error.description.contains("Upgrade to cmux Pro"))
+    }
+}
+
+@Suite("Cloud machines uncapped paid plan")
+struct MachinesPanelUncappedPlanTests {
+    private func snapshot(activeCount: Int) -> MachinePlanSnapshot? {
+        MachineSnapshotBuilder.planSnapshot(
+            activeCount: activeCount,
+            limits: VMPlanLimits(maxActiveVms: nil, planId: "pro", freeAccessWindowDays: 0)
+        )
+    }
+
+    @Test("A nil ceiling never reaches the limit")
+    func nilCeilingIsNeverAtLimit() {
+        let plan = snapshot(activeCount: 400)
+        #expect(plan?.maxActiveVms == nil)
+        #expect(plan?.isAtLimit == false)
+        #expect(plan?.isSingleMachinePlan == false)
+        #expect(plan?.isPaidPlan == true)
+    }
+
+    @Test("The meter drops the 'of N' when there is no ceiling", arguments: [
+        (7, "7 machines"), (1, "1 machine"), (0, "0 machines"),
+    ])
+    func meterReadsPlainCount(activeCount: Int, expected: String) {
+        #expect(snapshot(activeCount: activeCount)?.countLabel == expected)
     }
 }

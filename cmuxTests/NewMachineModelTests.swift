@@ -1,4 +1,5 @@
 import Foundation
+import Testing
 import XCTest
 
 #if canImport(cmux_DEV)
@@ -144,13 +145,6 @@ final class NewMachineModelTests: XCTestCase {
         let (proModel, _) = makeModel(plan: pro)
         XCTAssertEqual(proModel.planMeterText, "2 of 5 machines in use")
         XCTAssertNil(proModel.freeAccessNoteText)
-
-        let uncapped = MachinePlanSnapshot(activeCount: 2, maxActiveVms: nil, planId: "pro", freeAccessWindowDays: 7)
-        let (uncappedModel, _) = makeModel(plan: uncapped)
-        XCTAssertEqual(uncappedModel.planMeterText, "2 machines in use")
-        let uncappedOne = MachinePlanSnapshot(activeCount: 1, maxActiveVms: nil, planId: "pro", freeAccessWindowDays: 7)
-        let (uncappedOneModel, _) = makeModel(plan: uncappedOne)
-        XCTAssertEqual(uncappedOneModel.planMeterText, "1 machine in use")
     }
 
     func testSelectedImageFollowsTheKind() {
@@ -305,5 +299,27 @@ final class NewMachineModelTests: XCTestCase {
         model.create()
         XCTAssertEqual(outcomes, [.cancelled])
         XCTAssertTrue(recorder.value.arguments.isEmpty)
+    }
+}
+
+@Suite("New machine sheet on an uncapped paid plan")
+@MainActor
+struct NewMachineModelUncappedPlanTests {
+    private func makeModel(plan: MachinePlanSnapshot) -> NewMachineModel {
+        NewMachineModel(mode: .newMachine, plan: plan, imageKinds: []) { _, _ in true }
+    }
+
+    @Test("The plan meter reads a plain count when there is no ceiling", arguments: [
+        (2, "2 machines in use"), (1, "1 machine in use"),
+    ])
+    func meterReadsPlainCount(activeCount: Int, expected: String) {
+        let plan = MachinePlanSnapshot(activeCount: activeCount, maxActiveVms: nil, planId: "pro", freeAccessWindowDays: 7)
+        #expect(makeModel(plan: plan).planMeterText == expected)
+    }
+
+    @Test("Paid plans show no free-access note")
+    func noFreeAccessNote() {
+        let plan = MachinePlanSnapshot(activeCount: 2, maxActiveVms: nil, planId: "pro", freeAccessWindowDays: 7)
+        #expect(makeModel(plan: plan).freeAccessNoteText == nil)
     }
 }

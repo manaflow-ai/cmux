@@ -273,6 +273,12 @@ public struct CloudMachinesPlanSummary: Equatable, Sendable {
     public let maxMachines: Int?
     public let isPaidPlan: Bool
 
+    /// Creates a plan summary.
+    /// - Parameters:
+    ///   - planLabel: Display name of the plan, already localized.
+    ///   - activeMachines: Machines currently counted against the plan.
+    ///   - maxMachines: Active-machine ceiling, or nil when the plan has no cap.
+    ///   - isPaidPlan: Whether the plan is one the backend provisions for.
     public init(planLabel: String, activeMachines: Int, maxMachines: Int?, isPaidPlan: Bool) {
         self.planLabel = planLabel
         self.activeMachines = activeMachines
