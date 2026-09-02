@@ -370,6 +370,7 @@ fn run_stdin_pump(
     lifecycle_sender: &Sender<PipeIoEvent>,
 ) {
     let mut line = String::new();
+    let mut stop_event = None;
     loop {
         let Ok(bytes_read) = read_pipe_io_line(reader, &mut line) else { break };
         if bytes_read == 0 {
@@ -380,16 +381,23 @@ fn run_stdin_pump(
         }
         match parse_request(&line) {
             Ok(PipeIoRequest::Input(bytes)) => {
-                let Some(remote) = remote.upgrade() else { break };
+                let Some(remote) = remote.upgrade() else {
+                    stop_event = Some(PipeIoEvent::TransportLost);
+                    break;
+                };
                 let handle = PipeIoSurfaceHandle { remote, surface };
                 if handle.write_bytes(&bytes).is_err() {
                     // The transport owns loss reporting; input can only stop
                     // early.
+                    stop_event = Some(PipeIoEvent::TransportLost);
                     break;
                 }
             }
             Ok(PipeIoRequest::Resize { cols, rows }) => {
-                let Some(remote) = remote.upgrade() else { break };
+                let Some(remote) = remote.upgrade() else {
+                    stop_event = Some(PipeIoEvent::TransportLost);
+                    break;
+                };
                 let handle = PipeIoSurfaceHandle { remote, surface };
                 // Diagnostics only; the exit JSON stays the final stderr line
                 // and embedders skip lines without an "exit" key.
@@ -409,7 +417,10 @@ fn run_stdin_pump(
                 }
             }
             Ok(PipeIoRequest::ClaimGeometry) => {
-                let Some(remote) = remote.upgrade() else { break };
+                let Some(remote) = remote.upgrade() else {
+                    stop_event = Some(PipeIoEvent::TransportLost);
+                    break;
+                };
                 // Claims only establish ownership. Enqueue them on the same
                 // ordered writer as input so a claim cannot overtake the
                 // keystroke that follows it, and avoid a new blocking thread
@@ -429,12 +440,16 @@ fn run_stdin_pump(
             Ok(PipeIoRequest::Unknown) => {}
             // A malformed line means the embedder side is broken; stop
             // consuming rather than misinterpreting input.
-            Err(_) => break,
+            Err(_) => {
+                stop_event = Some(PipeIoEvent::StdinError);
+                break;
+            }
         }
     }
     // Lifecycle has its own one-slot channel, so a full byte queue cannot
-    // delay the parent-close signal.
-    let _ = lifecycle_sender.send(PipeIoEvent::StdinClosed);
+    // delay the parent-close or failure signal. Only actual stdin EOF maps to
+    // StdinClosed; transport and protocol failures keep their own reason.
+    let _ = lifecycle_sender.send(stop_event.unwrap_or(PipeIoEvent::StdinClosed));
 }
 
 fn pump_events_to_stdout(
@@ -480,6 +495,9 @@ fn pump_events_to_stdout(
                                 PipeIoEvent::StdinClosed => {
                                     return Ok(PipeIoExitReason::ParentClosed);
                                 }
+                                PipeIoEvent::StdinError => {
+                                    return Ok(PipeIoExitReason::SetupFailed);
+                                }
                             }
                         }
                         return Ok(PipeIoExitReason::TerminalEnded);
@@ -489,6 +507,9 @@ fn pump_events_to_stdout(
                     }
                     Ok(PipeIoEvent::StdinClosed) => {
                         return Ok(PipeIoExitReason::ParentClosed);
+                    }
+                    Ok(PipeIoEvent::StdinError) => {
+                        return Ok(PipeIoExitReason::SetupFailed);
                     }
                     Ok(PipeIoEvent::Replay { .. } | PipeIoEvent::Output(_)) => {
                         // Lifecycle senders never carry byte events. Ignore a
@@ -513,6 +534,7 @@ fn pump_events_to_stdout(
             PipeIoEvent::SurfaceExited => return Ok(PipeIoExitReason::TerminalEnded),
             PipeIoEvent::TransportLost => return Ok(PipeIoExitReason::DaemonLost),
             PipeIoEvent::StdinClosed => return Ok(PipeIoExitReason::ParentClosed),
+            PipeIoEvent::StdinError => return Ok(PipeIoExitReason::SetupFailed),
         };
         if write_result.is_err() {
             // stdout is the embedder; a failed write means it is gone.
@@ -538,7 +560,10 @@ fn write_pipe_io_data(
             stdout.write_all(bytes)?;
             stdout.flush()?;
         }
-        PipeIoEvent::SurfaceExited | PipeIoEvent::TransportLost | PipeIoEvent::StdinClosed => {
+        PipeIoEvent::SurfaceExited
+        | PipeIoEvent::TransportLost
+        | PipeIoEvent::StdinClosed
+        | PipeIoEvent::StdinError => {
             debug_assert!(false, "lifecycle event passed to byte writer");
         }
     }
@@ -549,7 +574,7 @@ fn write_pipe_io_data(
 #[cfg(test)]
 mod tests {
     use std::io::Cursor;
-    use std::sync::{Weak, mpsc};
+    use std::sync::Weak;
 
     use super::*;
 
@@ -625,6 +650,7 @@ mod tests {
         for (event, expected) in [
             (PipeIoEvent::TransportLost, PipeIoExitReason::DaemonLost),
             (PipeIoEvent::StdinClosed, PipeIoExitReason::ParentClosed),
+            (PipeIoEvent::StdinError, PipeIoExitReason::SetupFailed),
         ] {
             let (sender, receiver) = crossbeam_channel::bounded(8);
             let (_lifecycle_sender, lifecycle_receiver) = crossbeam_channel::bounded(1);
@@ -684,12 +710,12 @@ mod tests {
 
     #[test]
     fn stdin_pump_stops_without_retaining_a_gone_remote_session() {
-        let (lifecycle_sender, lifecycle_receiver) = mpsc::channel();
+        let (lifecycle_sender, lifecycle_receiver) = crossbeam_channel::bounded(1);
         let mut input = Cursor::new(b"{\"input\":\"aGk=\"}\n".to_vec());
 
         run_stdin_pump(&mut input, &Weak::new(), 7, &lifecycle_sender);
 
-        assert_eq!(lifecycle_receiver.recv().unwrap(), PipeIoEvent::StdinClosed);
+        assert_eq!(lifecycle_receiver.recv().unwrap(), PipeIoEvent::TransportLost);
     }
 
     #[test]
@@ -702,6 +728,6 @@ mod tests {
         assert_eq!(attach_failure_exit_reason(&daemon_lost, 7), PipeIoExitReason::DaemonLost);
 
         let unexpected = anyhow::anyhow!("attach capability negotiation failed");
-        assert_eq!(attach_failure_exit_reason(&unexpected, 7), PipeIoExitReason::DaemonLost);
+        assert_eq!(attach_failure_exit_reason(&unexpected, 7), PipeIoExitReason::SetupFailed);
     }
 }
