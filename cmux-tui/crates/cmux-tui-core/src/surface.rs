@@ -8380,6 +8380,36 @@ mod tests {
     }
 
     #[test]
+    fn terminal_generation_snapshot_stays_paired_with_terminal_lock() {
+        let mux = Mux::new_for_test("terminal-generation-snapshot", SurfaceOptions::default());
+        let surface =
+            Surface::spawn_for_test(1, SurfaceOptions::default(), Arc::downgrade(&mux)).unwrap();
+        let (probe_tx, probe_rx) = std::sync::mpsc::channel();
+        let callback_surface = surface.clone();
+
+        let captured_generation = surface
+            .with_terminal_and_generation(|_terminal, generation| {
+                probe_tx.send(callback_surface.try_pointer_snapshot()).unwrap();
+                generation
+            })
+            .expect("test fixture surface must be a PTY");
+
+        assert_eq!(
+            probe_rx.recv_timeout(Duration::from_secs(1)).unwrap(),
+            Some(PointerSnapshotProbe::Contended),
+            "terminal generation callbacks must hold the terminal lock"
+        );
+        let observed_generation = match surface.try_pointer_snapshot() {
+            Some(PointerSnapshotProbe::Ready(snapshot)) => snapshot.content_generation,
+            other => panic!("expected a stable post-callback snapshot, got {other:?}"),
+        };
+        assert_eq!(
+            captured_generation, observed_generation,
+            "the generation callback must match the locked terminal snapshot"
+        );
+    }
+
+    #[test]
     fn geometry_updates_skip_vt_replay_without_byte_attach_subscribers() {
         let mux = Mux::new_for_test("resize-without-byte-attach", SurfaceOptions::default());
         let surface =
