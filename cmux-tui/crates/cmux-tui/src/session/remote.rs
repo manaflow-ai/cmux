@@ -6527,6 +6527,40 @@ mod tests {
         assert_eq!(deadline.next_wait(started + maximum, 3, 3), None);
     }
 
+    #[test]
+    fn attach_progress_reverse_index_tracks_only_live_matching_requests() {
+        let mut pending = PendingRemoteRequests::default();
+        let unrelated_progress = Arc::new(AtomicU64::new(0));
+        for id in 0..1_000 {
+            pending.insert(
+                id,
+                PendingRemoteRequest {
+                    response: channel().0,
+                    progress: unrelated_progress.clone(),
+                    attach_surface: Some(8),
+                },
+            );
+        }
+        let matching_progress = Arc::new(AtomicU64::new(0));
+        pending.insert(
+            1_000,
+            PendingRemoteRequest {
+                response: channel().0,
+                progress: matching_progress.clone(),
+                attach_surface: Some(7),
+            },
+        );
+
+        assert!(pending.progress_for_attach_surface(7));
+        assert_eq!(matching_progress.load(Ordering::Acquire), 1);
+        assert_eq!(unrelated_progress.load(Ordering::Acquire), 0);
+
+        let removed = pending.remove(1_000).expect("matching request is pending");
+        drop(removed);
+        assert!(!pending.progress_for_attach_surface(7));
+        assert_eq!(matching_progress.load(Ordering::Acquire), 1);
+    }
+
     #[cfg(unix)]
     #[test]
     fn queued_attach_preserves_two_request_wire_order() {
