@@ -58,6 +58,16 @@ if [[ "${CMUX_TEST_LSOF_MODE:-inactive}" == race ]]; then
   exit 1
 fi
 
+if [[ "${CMUX_TEST_LSOF_MODE:-inactive}" == partial ]]; then
+  for argument in "$@"; do
+    if [[ "$argument" == *"/${CMUX_TEST_ACTIVE_COMMIT:-}/cmux-tui" ]]; then
+      printf 'n%s\n' "$argument"
+      exit 1
+    fi
+  done
+  exit 1
+fi
+
 [[ "${CMUX_TEST_LSOF_MODE:-inactive}" == active ]] || exit 1
 for argument in "$@"; do
   if [[ "$argument" == /*/cmux-tui ]]; then
@@ -66,7 +76,7 @@ for argument in "$@"; do
     fi
   fi
 done
-exit 1
+exit 0
 EOF
 chmod 0755 "$fake_lsof"
 
@@ -131,6 +141,17 @@ write_stat_map() {
     printf '%s\t%s\n' "${entry%%:*}" "${entry#*:}" >> "$tmp/stat-map"
   done
   export CMUX_TEST_STAT_MAP="$tmp/stat-map"
+}
+
+set_old_mtime() {
+  local path="$1"
+  local old_timestamp
+  if old_timestamp="$(date -v-25H +%m%d%H%M%Y 2>/dev/null)"; then
+    :
+  else
+    old_timestamp="$(date -d '25 hours ago' +%m%d%H%M%Y)"
+  fi
+  touch -t "$old_timestamp" "$path"
 }
 
 run_retention() {
@@ -320,6 +341,18 @@ expect_failure 2
 assert_exists "$active_commit"
 assert_exists "$old_commit"
 
+# A partial lsof result is not a valid inactive decision. Preserve every
+# candidate when lsof emits a name and exits nonzero.
+make_baseline
+expect_success
+test_dry_run=0
+test_confirm=1
+test_lsof_mode=partial
+test_active_commit="$active_commit"
+expect_failure 2
+assert_exists "$active_commit"
+assert_exists "$old_commit"
+
 # Cleanup also fails closed when the activity tool is not available.
 make_baseline
 expect_success
@@ -340,6 +373,17 @@ test_active_commit="$active_commit"
 expect_success
 assert_exists "$active_commit"
 assert_missing "$old_commit"
+
+# A preview path must be a regular file. An owned directory must not receive
+# the temporary preview as a child and report success.
+make_baseline
+mkdir "$test_root/.retention-preview"
+expect_failure 2
+assert_exists .retention-preview
+[[ ! -e "$test_root/.retention-preview/preview" ]] || {
+  echo "preview was written inside a directory" >&2
+  exit 1
+}
 assert_missing .retention.lock
 
 # A process can start using an artifact after the initial batch lsof check.
@@ -376,6 +420,32 @@ dead_lock_pid=$!
 wait "$dead_lock_pid"
 mkdir "$test_root/.retention.lock"
 printf '%s\t%s\tstale-owner\n' "$dead_lock_pid" "$(( $(date +%s) - 90000 ))" > "$test_root/.retention.lock/owner"
+test_dry_run=0
+test_confirm=1
+expect_success
+assert_missing "$active_commit"
+assert_missing "$old_commit"
+assert_missing .retention.lock
+
+# A crash between lock-directory creation and owner-marker publication leaves
+# an empty stale directory. It must be reclaimable by age and ownership.
+make_baseline
+expect_success
+mkdir "$test_root/.retention.lock"
+set_old_mtime "$test_root/.retention.lock"
+test_dry_run=0
+test_confirm=1
+expect_success
+assert_missing "$active_commit"
+assert_missing "$old_commit"
+assert_missing .retention.lock
+
+# A malformed stale marker with no extra lock contents is also recoverable.
+make_baseline
+expect_success
+mkdir "$test_root/.retention.lock"
+printf 'malformed\n' > "$test_root/.retention.lock/owner"
+set_old_mtime "$test_root/.retention.lock"
 test_dry_run=0
 test_confirm=1
 expect_success
