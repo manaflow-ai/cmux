@@ -800,7 +800,7 @@ impl Inner {
         }
 
         // Keep both locks held until the attachment is installed. `close`
-        // takes opening_state first, so it cannot observe a gap between
+        // `close_if_transport` takes opening_state first, so it cannot observe a gap between
         // removing the opening marker and inserting the attachment.
         let mut attachments = self.attachments.lock().expect("attach lock");
         let mut opening = self.opening_state.lock().expect("opening state lock");
