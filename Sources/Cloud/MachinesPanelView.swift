@@ -511,8 +511,17 @@ struct MachinesPanelView: View {
                         .foregroundColor(.secondary.opacity(0.7))
                 }
             } else {
-                ProgressView()
-                    .controlSize(.small)
+                VStack(spacing: 10) {
+                    ProgressView()
+                        .controlSize(.small)
+                    Text(String(
+                        localized: "machines.loading.title",
+                        defaultValue: "Loading Cloud Machines…"
+                    ))
+                    .cmuxFont(size: 13)
+                    .foregroundColor(.secondary)
+                }
+                .accessibilityIdentifier("CloudMachinesLoadingState")
             }
             Spacer()
         }

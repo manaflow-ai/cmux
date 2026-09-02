@@ -127850,6 +127850,23 @@
         }
       }
     },
+    "machines.loading.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Loading Cloud Machines…"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "クラウドマシンを読み込み中…"
+          }
+        }
+      }
+    },
     "machines.unavailable.stale": {
       "extractionState": "manual",
       "localizations": {
