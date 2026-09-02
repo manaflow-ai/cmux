@@ -93,6 +93,22 @@ export type ProListScanPage<Row> = {
 };
 
 type CloudDb = ReturnType<typeof cloudDb>;
+
+/** Clock and scheduler seam so timeout behavior is testable with virtual time. */
+export type ProListClock = {
+  now(): number;
+  /** Schedules `fn` after `ms`; returns a cancel function. */
+  schedule(fn: () => void, ms: number): () => void;
+};
+
+export const realProListClock: ProListClock = {
+  now: () => Date.now(),
+  schedule: (fn, ms) => {
+    const timer = setTimeout(fn, ms);
+    return () => clearTimeout(timer);
+  },
+};
+
 export type ProListDb = Pick<CloudDb, "select"> & {
   /** Present on the real client; the roster uses it to scope a statement timeout. */
   transaction?<Result>(operation: (tx: Pick<CloudDb, "select" | "execute">) => Promise<Result>): Promise<Result>;
@@ -178,23 +194,13 @@ export async function listStripeProSubscribers(
   return { rows: out, truncated };
 }
 
-/**
- * Every team with an active Stripe Team row, with its Stack display name
- * when reachable. Name lookups run a few at a time so a large roster cannot
- * open thousands of Stack requests at once.
- */
-export async function listStripeTeamSubscriptions(
-  options: {
-    readonly db?: ProListDb;
-    readonly app?: ProListStackApp;
-    readonly concurrency?: number;
-    /** No new name lookup starts once this instant (ms since epoch) has passed. */
-    readonly deadlineMs?: number;
-    readonly now?: () => number;
-  } = {},
-): Promise<CappedList<StripeTeamSubscription>> {
+export type StripeTeamSubscriptionRow = Omit<StripeTeamSubscription, "displayName">;
+
+/** The database half of the team roster: active Stripe Team rows, one per team, no Stack calls. */
+export async function listStripeTeamSubscriptionRows(
+  options: { readonly db?: ProListDb } = {},
+): Promise<CappedList<StripeTeamSubscriptionRow>> {
   const db = options.db ?? cloudDb();
-  const app = options.app ?? defaultProListStackApp();
   const fetched = await db
     .select({
       teamId: stripeSubscriptions.stackTeamId,
@@ -216,34 +222,81 @@ export async function listStripeTeamSubscriptions(
     .orderBy(desc(stripeSubscriptions.currentPeriodEnd), desc(stripeSubscriptions.updatedAt))
     .limit(PRO_LIST_MAX_ROWS + 1);
   const truncated = fetched.length > PRO_LIST_MAX_ROWS;
-  const rows = fetched.slice(0, PRO_LIST_MAX_ROWS);
   const seen = new Set<string>();
-  const unique = rows.filter((row) => {
-    if (!row.teamId || seen.has(row.teamId)) return false;
+  const rows: StripeTeamSubscriptionRow[] = [];
+  for (const row of fetched.slice(0, PRO_LIST_MAX_ROWS)) {
+    if (!row.teamId || seen.has(row.teamId)) continue;
     seen.add(row.teamId);
-    return true;
-  });
-  const now = options.now ?? Date.now;
-  const resolved = await mapWithConcurrency(
-    unique,
+    rows.push({
+      teamId: row.teamId,
+      subscriptionId: row.subscriptionId,
+      status: row.status,
+      seats: row.seats ?? null,
+      cancelAtPeriodEnd: Boolean(row.cancelAtPeriodEnd),
+      currentPeriodEnd: row.currentPeriodEnd ? row.currentPeriodEnd.toISOString() : null,
+    });
+  }
+  return { rows, truncated };
+}
+
+export type TeamNameResolveOptions = {
+  readonly app?: ProListStackApp;
+  readonly concurrency?: number;
+  /** No new name lookup starts once this instant (ms since epoch) has passed. */
+  readonly deadlineMs?: number;
+  readonly clock?: ProListClock;
+};
+
+/**
+ * The Stack half of the team roster: display names, resolved OUTSIDE any
+ * database transaction so a slow provider never holds a connection. Lookups
+ * run a few at a time, none starts after the deadline, and one that outlives
+ * the remaining budget is abandoned (its name stays null).
+ */
+export async function resolveStripeTeamNames(
+  rows: readonly StripeTeamSubscriptionRow[],
+  options: TeamNameResolveOptions = {},
+): Promise<StripeTeamSubscription[]> {
+  const app = options.app ?? defaultProListStackApp();
+  const clock = options.clock ?? realProListClock;
+  return await mapWithConcurrency(
+    rows,
     options.concurrency ?? PRO_LIST_TEAM_LOOKUP_CONCURRENCY,
     async (row): Promise<StripeTeamSubscription> => {
-      if (options.deadlineMs !== undefined && now() > options.deadlineMs) {
+      const remaining = options.deadlineMs === undefined ? undefined : options.deadlineMs - clock.now();
+      if (remaining !== undefined && remaining <= 0) {
         throw new ProListTimeoutError(0);
       }
-      const team = await app.getTeam(row.teamId!).catch(() => null);
-      return {
-        teamId: row.teamId!,
-        displayName: team?.displayName ?? null,
-        subscriptionId: row.subscriptionId,
-        status: row.status,
-        seats: row.seats ?? null,
-        cancelAtPeriodEnd: Boolean(row.cancelAtPeriodEnd),
-        currentPeriodEnd: row.currentPeriodEnd ? row.currentPeriodEnd.toISOString() : null,
-      };
+      const team = await raceWithin(app.getTeam(row.teamId).catch(() => null), remaining, clock);
+      return { ...row, displayName: team?.displayName ?? null };
     },
   );
-  return { rows: resolved, truncated };
+}
+
+/** Resolves to null when `promise` has not settled within `ms` (undefined = no limit). */
+async function raceWithin<Value>(
+  promise: Promise<Value | null>,
+  ms: number | undefined,
+  clock: ProListClock,
+): Promise<Value | null> {
+  if (ms === undefined) return await promise;
+  let cancel: (() => void) | undefined;
+  const timeout = new Promise<null>((resolve) => {
+    cancel = clock.schedule(() => resolve(null), ms);
+  });
+  try {
+    return await Promise.race([promise, timeout]);
+  } finally {
+    cancel?.();
+  }
+}
+
+/** Every team with an active Stripe Team row, with its Stack display name when reachable. */
+export async function listStripeTeamSubscriptions(
+  options: { readonly db?: ProListDb } & TeamNameResolveOptions = {},
+): Promise<CappedList<StripeTeamSubscription>> {
+  const { rows, truncated } = await listStripeTeamSubscriptionRows({ db: options.db });
+  return { rows: await resolveStripeTeamNames(rows, options), truncated };
 }
 
 /**
@@ -399,11 +452,12 @@ export async function loadProListSnapshot(
      * when the caller stops waiting: at most one in-flight statement.
      */
     readonly deadlineMs?: number;
-    /** Clock source, injectable for tests. */
-    readonly now?: () => number;
+    /** Clock and scheduler, injectable for tests. */
+    readonly clock?: ProListClock;
   } = {},
 ): Promise<ProListSnapshot> {
-  const now = options.now ?? Date.now;
+  const clock = options.clock ?? realProListClock;
+  const now = () => clock.now();
   const guard = () => {
     if (options.deadlineMs !== undefined && now() > options.deadlineMs) {
       throw new ProListTimeoutError(Math.max(0, options.deadlineMs - now()));
@@ -429,13 +483,19 @@ export async function loadProListSnapshot(
     const subscribers = await withStatementTimeout(db, budgetFor(), async (scoped) =>
       await listStripeProSubscribers({ db: scoped }));
     guard();
-    const teamSubscriptions = await withStatementTimeout(db, budgetFor(), async (scoped) =>
-      await listStripeTeamSubscriptions({
-        db: scoped,
+    // Query inside the timeout scope, names outside it: the transaction ends
+    // before any Stack request starts.
+    const teamRows = await withStatementTimeout(db, budgetFor(), async (scoped) =>
+      await listStripeTeamSubscriptionRows({ db: scoped }));
+    guard();
+    const teamSubscriptions: CappedList<StripeTeamSubscription> = {
+      truncated: teamRows.truncated,
+      rows: await resolveStripeTeamNames(teamRows.rows, {
         app: options.app,
         deadlineMs: options.deadlineMs,
-        now,
-      }));
+        clock,
+      }),
+    };
     guard();
     const pendingGrants = await withStatementTimeout(db, budgetFor(), async (scoped) =>
       await listAllPendingEmailGrants({ db: scoped }),
@@ -477,25 +537,10 @@ export const PRO_LIST_RENDER_TIMEOUT_MS = 8_000;
  * budget is applied as a statement timeout, so the reads are cancelled by
  * Postgres rather than left running after the page gave up on them.
  */
-/** Clock and scheduler seam so timeout behavior is testable with virtual time. */
-export type ProListClock = {
-  now(): number;
-  /** Schedules `fn` after `ms`; returns a cancel function. */
-  schedule(fn: () => void, ms: number): () => void;
-};
-
-export const realProListClock: ProListClock = {
-  now: () => Date.now(),
-  schedule: (fn, ms) => {
-    const timer = setTimeout(fn, ms);
-    return () => clearTimeout(timer);
-  },
-};
-
 export type ProListLoadBudget = {
   readonly statementTimeoutMs: number;
   readonly deadlineMs: number;
-  readonly now: () => number;
+  readonly clock: ProListClock;
 };
 
 export async function loadProListSnapshotWithin(
@@ -514,7 +559,7 @@ export async function loadProListSnapshotWithin(
     // it from starting any new read or name lookup and the statement timeout
     // ends the one in flight, so at most one bounded statement outlives this.
     return await Promise.race([
-      load({ statementTimeoutMs: timeoutMs, deadlineMs, now: () => clock.now() }),
+      load({ statementTimeoutMs: timeoutMs, deadlineMs, clock }),
       timeout,
     ]);
   } finally {

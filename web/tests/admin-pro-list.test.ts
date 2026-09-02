@@ -13,6 +13,7 @@ import {
   PRO_LIST_MAX_ROWS,
   listStripeProSubscribers,
   listStripeTeamSubscriptions,
+  resolveStripeTeamNames,
   scanManualTeamGrants,
   scanManualUserGrants,
   type ProListDb,
@@ -282,7 +283,8 @@ describe("Pro roster", () => {
         return result;
       },
     };
-    await loadProListSnapshot({ db, app: fakeApp({}), statementTimeoutMs: 8000, deadlineMs: now + 8000, now: () => now });
+    const clock: ProListClock = { now: () => now, schedule: () => () => undefined };
+    await loadProListSnapshot({ db, app: fakeApp({}), statementTimeoutMs: 8000, deadlineMs: now + 8000, clock });
     expect(executed).toEqual([
       "set local statement_timeout = 8000",
       "set local statement_timeout = 5000",
@@ -301,11 +303,49 @@ describe("Pro roster", () => {
       listUsers: async () => Object.assign([], { nextCursor: null }) as never,
       listTeams: async () => Object.assign([], { nextCursor: null }) as never,
     };
+    const clock: ProListClock = { now: () => now, schedule: () => () => undefined };
     await expect(
-      listStripeTeamSubscriptions({ db: fakeDb(new Map([[stripeSubscriptions, subs]])), app, concurrency: 1, deadlineMs: 25, now: () => now }),
+      listStripeTeamSubscriptions({ db: fakeDb(new Map([[stripeSubscriptions, subs]])), app, concurrency: 1, deadlineMs: 25, clock }),
     ).rejects.toBeInstanceOf(ProListTimeoutError);
     // Three lookups fit before the deadline (0, 10, 20); the fourth never starts.
     expect(lookups).toBe(3);
+  });
+
+  test("a hung team name lookup is abandoned at the remaining budget", async () => {
+    const { clock, advance } = virtualClock(0);
+    const app: ProListStackApp = {
+      getTeam: () => new Promise(() => undefined),
+      listUsers: async () => Object.assign([], { nextCursor: null }) as never,
+      listTeams: async () => Object.assign([], { nextCursor: null }) as never,
+    };
+    const row = { teamId: "t1", subscriptionId: "sub_1", status: "active", seats: null, cancelAtPeriodEnd: false, currentPeriodEnd: null };
+    const pending = resolveStripeTeamNames([row], { app, deadlineMs: 500, clock });
+    advance(500);
+    expect(await pending).toEqual([{ ...row, displayName: null }]);
+  });
+
+  test("the team query commits before any name lookup starts", async () => {
+    const order: string[] = [];
+    const base = fakeDb(new Map([[stripeSubscriptions, [
+      { teamId: "t1", subscriptionId: "sub_1", status: "active", seats: 1, cancelAtPeriodEnd: false, currentPeriodEnd: null },
+    ]]]));
+    const db: ProListDb = {
+      ...base,
+      transaction: async (operation) => {
+        order.push("begin");
+        const result = await operation({ select: base.select, execute: (async () => undefined) as never });
+        order.push("commit");
+        return result;
+      },
+    };
+    const app: ProListStackApp = {
+      async getTeam(teamId) { order.push(`lookup ${teamId}`); return { id: teamId, displayName: "Acme" }; },
+      listUsers: async () => Object.assign([], { nextCursor: null }) as never,
+      listTeams: async () => Object.assign([], { nextCursor: null }) as never,
+    };
+    const snapshot = await loadProListSnapshot({ db, app, statementTimeoutMs: 1000 });
+    expect(snapshot.teamSubscriptions[0]?.displayName).toBe("Acme");
+    expect(order).toEqual(["begin", "commit", "begin", "commit", "lookup t1", "begin", "commit"]);
   });
 
   test("a missing database config becomes ProListDatabaseUnavailableError, a timeout stays a timeout", async () => {
@@ -314,14 +354,14 @@ describe("Pro roster", () => {
     } as unknown as ProListDb;
     await expect(loadProListSnapshot({ db: noConfig, app: fakeApp({}) })).rejects.toBeInstanceOf(ProListDatabaseUnavailableError);
     await expect(
-      loadProListSnapshot({ db: fakeDb(new Map()), app: fakeApp({}), deadlineMs: 99, now: () => 100 }),
+      loadProListSnapshot({ db: fakeDb(new Map()), app: fakeApp({}), deadlineMs: 99, clock: { now: () => 100, schedule: () => () => undefined } }),
     ).rejects.toBeInstanceOf(ProListTimeoutError);
   });
 
   test("no read starts after the deadline has passed", async () => {
     const base = fakeDb(new Map());
     await expect(
-      loadProListSnapshot({ db: base, app: fakeApp({}), deadlineMs: 99, now: () => 100 }),
+      loadProListSnapshot({ db: base, app: fakeApp({}), deadlineMs: 99, clock: { now: () => 100, schedule: () => () => undefined } }),
     ).rejects.toBeInstanceOf(ProListTimeoutError);
   });
 
