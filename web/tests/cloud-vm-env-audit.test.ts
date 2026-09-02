@@ -81,7 +81,7 @@ describe("cloud VM provider coherence audit", () => {
       {
         CMUX_VM_DEFAULT_PROVIDER: "freestyle",
         CMUX_VM_FREESTYLE_ENABLED: "1",
-        FREESTYLE_SANDBOX_SNAPSHOT: "sh-749d7644e9b04ca38c0718b56a9b767b",
+        FREESTYLE_SANDBOX_SNAPSHOT: "sh-940ec3bc46224c019e5e8d9a97053293",
         FREESTYLE_API_KEY: "x",
       },
       realManifest,
@@ -96,7 +96,7 @@ describe("cloud VM provider coherence audit", () => {
       {
         CMUX_VM_DEFAULT_PROVIDER: "freestyle",
         CMUX_VM_FREESTYLE_ENABLED: "0",
-        FREESTYLE_SANDBOX_SNAPSHOT: "sh-749d7644e9b04ca38c0718b56a9b767b",
+        FREESTYLE_SANDBOX_SNAPSHOT: "sh-940ec3bc46224c019e5e8d9a97053293",
         FREESTYLE_API_KEY: "x",
       },
       realManifest,
