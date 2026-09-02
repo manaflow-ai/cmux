@@ -517,6 +517,9 @@ fn write_pipe_io_data(
 
 #[cfg(test)]
 mod tests {
+    use std::io::Cursor;
+    use std::sync::{Weak, mpsc};
+
     use super::*;
 
     fn replay(bytes: &[u8]) -> PipeIoEvent {
@@ -644,6 +647,16 @@ mod tests {
             pump_events_to_stdout(&receiver, &lifecycle_receiver, &budget, &mut stdout).unwrap();
         assert_eq!(reason, PipeIoExitReason::TerminalEnded);
         assert_eq!(stdout, b"FINAL");
+    }
+
+    #[test]
+    fn stdin_pump_stops_without_retaining_a_gone_remote_session() {
+        let (lifecycle_sender, lifecycle_receiver) = mpsc::channel();
+        let mut input = Cursor::new(br#"{"input":"aGk="}\n"#.to_vec());
+
+        run_stdin_pump(&mut input, &Weak::new(), 7, &lifecycle_sender);
+
+        assert_eq!(lifecycle_receiver.recv().unwrap(), PipeIoEvent::StdinClosed);
     }
 
     #[test]
