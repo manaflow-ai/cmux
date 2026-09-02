@@ -94,6 +94,10 @@ pub(crate) struct ProjectionRowsCache {
 }
 
 impl ProjectionRowsCache {
+    pub(crate) fn invalidate(&mut self) {
+        self.entries.clear();
+    }
+
     pub(crate) fn get_or_build(
         &mut self,
         view_id: &str,
@@ -109,10 +113,6 @@ impl ProjectionRowsCache {
         self.entries
             .insert(view_id.to_string(), CachedProjectionRows { revision, rows: rows.clone() });
         rows
-    }
-
-    pub(crate) fn retain_view_ids(&mut self, view_ids: &HashSet<String>) {
-        self.entries.retain(|view_id, _| view_ids.contains(view_id));
     }
 }
 
