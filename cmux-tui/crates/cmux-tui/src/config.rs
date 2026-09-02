@@ -9211,6 +9211,25 @@ mod tests {
     }
 
     #[test]
+    #[allow(clippy::unicode_not_nfc)]
+    fn rail_glyph_accepts_standalone_halfwidth_sound_marks() {
+        let _guard = CONFIG_ENV_LOCK.lock().unwrap();
+        let old_cmux_tui_config = std::env::var_os("CMUX_TUI_CONFIG");
+        let dir = TestDirectory::new("rail-glyph-halfwidth-sound-marks");
+        let path = dir.path.join("cmux-tui.json");
+        for glyph in ["\u{ff9e}", "\u{ff9f}"] {
+            std::fs::write(&path, format!(r#"{{"sidebar":{{"rail_glyph":"{glyph}"}}}}"#)).unwrap();
+            // SAFETY: env mutation in tests is serialized by CONFIG_ENV_LOCK.
+            unsafe { std::env::set_var("CMUX_TUI_CONFIG", &path) };
+
+            let config = load();
+
+            assert_eq!(config.sidebar.rail_glyph, glyph);
+        }
+        restore_env_var("CMUX_TUI_CONFIG", old_cmux_tui_config);
+    }
+
+    #[test]
     fn plus_buttons_parse_labels_actions_and_menus() {
         let raw: RawConfig = serde_json::from_value(json!({
             "tabs": {"plus": {

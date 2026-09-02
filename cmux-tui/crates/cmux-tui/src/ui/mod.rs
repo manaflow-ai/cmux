@@ -813,6 +813,11 @@ mod tests {
     }
 
     #[test]
+    fn middle_truncation_zero_width_input_respects_zero_budget() {
+        assert_eq!(middle_truncate("\u{200b}", 0), "");
+    }
+
+    #[test]
     fn middle_truncation_respects_graphemes_and_terminal_cells() {
         assert_eq!(middle_truncate("界界界界", 7), "界...界");
         assert_eq!(middle_truncate("e\u{301}clair", 5), "e\u{301}...r");
