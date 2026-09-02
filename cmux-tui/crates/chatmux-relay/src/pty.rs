@@ -409,6 +409,11 @@ struct AuthSnapshot {
     buffered_amount: Arc<dyn Fn() -> u64 + Send + Sync>,
 }
 
+enum NonterminalAuthorizationFailure {
+    Missing,
+    Denied,
+}
+
 /// Scrubbed env for interactive PTYs (actions.mjs base, real TERM).
 pub fn pty_env(base: &HashMap<String, String>) -> HashMap<String, String> {
     let mut env = scrubbed_env(base);
@@ -1545,10 +1550,31 @@ impl Inner {
         context: &FrameContext,
         action: &str,
         generation: u64,
-    ) -> Option<Attachment> {
-        self.authorize_snapshot_for_generation_mode(
-            pty_id, auth, context, action, generation, false,
-        )
+    ) -> Result<Attachment, NonterminalAuthorizationFailure> {
+        let attachment = self
+            .attachments
+            .lock()
+            .expect("attach lock")
+            .get(pty_id)
+            .cloned()
+            .ok_or(NonterminalAuthorizationFailure::Missing)?;
+        if generation != 0 && attachment.generation != generation {
+            return Err(NonterminalAuthorizationFailure::Missing);
+        }
+        if context.transport_id.is_some() && attachment.transport_id != context.transport_id {
+            return Err(NonterminalAuthorizationFailure::Missing);
+        }
+        if Self::auth_allows(auth, &attachment) {
+            Ok(attachment)
+        } else {
+            send_pty_error(
+                context,
+                pty_id,
+                "trust_revoked",
+                &format!("PTY {action} refused after trust change"),
+            );
+            Err(NonterminalAuthorizationFailure::Denied)
+        }
     }
 
     fn authorize_snapshot_for_generation_mode(
@@ -1591,27 +1617,19 @@ impl Inner {
     }
 
     fn close_authorized(&self, pty_id: &str, context: &FrameContext) {
-        // Capture presence before authorization. If this request is denied,
-        // the attachment may be removed and replaced while the error callback
-        // runs; remembering that it targeted a present attachment prevents
-        // the fallback cancellation path from touching that replacement.
-        let had_attachment = self.attachments.lock().expect("attach lock").contains_key(pty_id);
         let auth = Self::auth_snapshot(context);
-        let Some(attachment) =
-            self.authorize_snapshot_for_generation_nonterminal(pty_id, &auth, context, "close", 0)
-        else {
-            // A present attachment may have failed authorization. The
-            // non-terminal error above must not fall through to the opening
-            // cancellation path, which would otherwise let a denied CLOSE
-            // retire the live attachment.
-            if had_attachment {
+        let attachment = match self
+            .authorize_snapshot_for_generation_nonterminal(pty_id, &auth, context, "close", 0)
+        {
+            Ok(attachment) => attachment,
+            Err(NonterminalAuthorizationFailure::Denied) => return,
+            Err(NonterminalAuthorizationFailure::Missing) => {
+                // A close may race the asynchronous open before its attachment
+                // is published. The transport fence ran at frame dispatch, so
+                // this exact owner can cancel the pending reservation now.
+                self.close_if_transport(pty_id, context.transport_id.as_deref(), None);
                 return;
             }
-            // A close may race the asynchronous open before its attachment
-            // is published. The transport fence ran at frame dispatch, so
-            // this exact owner can cancel the pending reservation now.
-            self.close_if_transport(pty_id, context.transport_id.as_deref(), None);
-            return;
         };
         if context.transport_id.is_some() && attachment.transport_id != context.transport_id {
             return;
