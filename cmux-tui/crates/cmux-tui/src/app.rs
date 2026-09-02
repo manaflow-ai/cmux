@@ -10407,12 +10407,12 @@ impl App {
         if !self.prepare_pty_input_before_mutation() {
             return Ok(());
         }
-        let previous_surface = self.tree.active_surface();
+        let previous_focus = self.active_focus_state();
         if !self.tree.select_surface(target.surface) {
             return Ok(());
         }
         self.follow_sidebar_workspace(target.workspace);
-        if previous_surface != Some(target.surface) {
+        if previous_focus != self.active_focus_state() {
             self.bump_sidebar_generation();
         }
         self.pane_focus_history.record(target.pane);
@@ -13052,7 +13052,7 @@ impl App {
         else {
             return;
         };
-        let changed = self.tree.active_surface() != Some(surface);
+        let previous_focus = self.active_focus_state();
         self.tree.active_workspace = workspace_index;
         if !self.tree.set_active_screen(workspace_index, screen_index)
             || !self.tree.set_active_pane(workspace_index, screen_index, pane_id)
@@ -13060,7 +13060,7 @@ impl App {
         {
             return;
         }
-        if changed {
+        if previous_focus != self.active_focus_state() {
             self.bump_sidebar_generation();
         }
         self.pane_focus_history.record(pane_id);
@@ -16746,6 +16746,17 @@ impl App {
 
     fn active_surface(&self) -> Option<SurfaceId> {
         self.tree.active_surface()
+    }
+
+    fn active_focus_state(&self) -> Option<(usize, usize, PaneId, Option<usize>)> {
+        let workspace_index = self.tree.active_workspace;
+        let workspace = self.tree.active_workspace()?;
+        let screen_index = workspace.active_screen;
+        let screen = workspace.screens.get(screen_index)?;
+        let pane_id = screen.active_pane;
+        let pane = screen.panes.iter().find(|pane| pane.id == pane_id)?;
+        let active_tab = pane.tabs.get(pane.active_tab).map(|_| pane.active_tab);
+        Some((workspace_index, screen_index, pane_id, active_tab))
     }
 
     /// Adopt this client's own remembered focus from the mux (or the
@@ -43900,7 +43911,7 @@ mod tests {
         let workspace_before = app.projection_rows_cache.revision_for("workspace-view").unwrap();
         let agent_before = app.projection_rows_cache.revision_for("agent-view").unwrap();
 
-        app.bump_agent_generation();
+        app.bump_agent_generation(surface.id);
         app.projection_rows(0);
         app.projection_rows(1);
         let workspace_after = app.projection_rows_cache.revision_for("workspace-view").unwrap();
@@ -43959,6 +43970,37 @@ mod tests {
         assert_eq!(second_before, second_after);
 
         mux.close_surface(surface.id).unwrap();
+    }
+
+    #[test]
+    fn projection_rows_scope_agent_revision_to_selected_workspace() {
+        let (mux, first_surface) = test_mux("projection-agent-owner-scope-test", None);
+        let second_surface = mux.new_workspace(None, Some((80, 24))).unwrap();
+        let mut app = test_app(Session::Local(mux.clone()));
+        app.config.sidebar.columns.clear();
+        app.config.sidebar.views = vec![SidebarViewSpec {
+            id: "agent-view".into(),
+            levels: vec![SidebarResourceKind::Agents],
+            actions: Vec::new(),
+            actions_position: crate::config::ActionsPosition::Bottom,
+            width: 40,
+            max_width: 0,
+            collapse_priority: 30,
+        }];
+        app.config.sidebar.views_explicit = true;
+        app.replace_tree(app.session.tree());
+        app.sidebar_workspace_selection = 0;
+        app.projection_rows(0);
+        let before = app.projection_rows_cache.revision_for("agent-view").unwrap();
+
+        app.bump_agent_generation(second_surface.id);
+        app.projection_rows(0);
+        let after = app.projection_rows_cache.revision_for("agent-view").unwrap();
+
+        assert_eq!(before, after);
+
+        mux.close_surface(first_surface.id).unwrap();
+        mux.close_surface(second_surface.id).unwrap();
     }
 
     #[test]
