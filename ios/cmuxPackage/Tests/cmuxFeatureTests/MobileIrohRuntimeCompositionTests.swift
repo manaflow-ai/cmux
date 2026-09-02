@@ -22,6 +22,12 @@ struct MobileIrohRuntimeCompositionTests {
     }
 
     @Test
+    func provisioningFailureIsObservableByOwner() async throws {
+        let fixture = try await MobileIrohSignOutFixture.make()
+        #expect(await fixture.composition.provisioningFailure() == nil)
+    }
+
+    @Test
     @MainActor
     func foregroundRevalidatesAuthBeforeConnectionReadinessCompletes() async throws {
         let fixture = try await MobileIrohSignOutFixture.make()
