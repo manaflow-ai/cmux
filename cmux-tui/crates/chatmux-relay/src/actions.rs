@@ -1246,6 +1246,7 @@ async fn run_spec(
     let mut wait_retry_deadline: Option<std::pin::Pin<Box<tokio::time::Sleep>>> = None;
     let mut wait_retries = 0_u32;
     let mut cancelled = false;
+    let mut escalation_pending = false;
     loop {
         // A timed-out process group still needs its escalation pass even when
         // the shell leader has already exited. Otherwise closing inherited
@@ -1255,6 +1256,7 @@ async fn run_spec(
             && !stderr_open
             && kill_deadline.is_none()
             && final_wait_deadline.is_none()
+            && !escalation_pending
         {
             break;
         }
@@ -1267,6 +1269,7 @@ async fn run_spec(
             }, if !cancelled => {
                 cancelled = true;
                 owner.terminate();
+                escalation_pending = true;
                 kill_deadline = Some(Box::pin(tokio::time::sleep(
                     std::time::Duration::from_millis(250),
                 )));
@@ -1330,6 +1333,7 @@ async fn run_spec(
                                 }
                                 WaitRetryAction::Escalate => {
                                     owner.kill();
+                                    escalation_pending = true;
                                     kill_deadline = Some(Box::pin(tokio::time::sleep(
                                         std::time::Duration::from_millis(250),
                                     )));
@@ -1347,6 +1351,7 @@ async fn run_spec(
                                 }
                                 WaitRetryAction::Escalate => {
                                     owner.kill();
+                                    escalation_pending = true;
                                     kill_deadline = Some(Box::pin(tokio::time::sleep(
                                         std::time::Duration::from_millis(250),
                                     )));
@@ -1363,6 +1368,7 @@ async fn run_spec(
                 // so the supervisor gets its EXIT cleanup, then enforce a
                 // hard bound for processes that ignore TERM.
                 owner.terminate();
+                escalation_pending = true;
                 // Keep the escalation timer owned by this invocation. A
                 // detached task could fire after the process exits and its
                 // PID is reused by an unrelated process.
@@ -1383,6 +1389,7 @@ async fn run_spec(
             }, if kill_deadline.is_some() => {
                 owner.kill();
                 kill_deadline = None;
+                escalation_pending = false;
                 if exited.is_none() {
                     final_wait_deadline = Some(Box::pin(tokio::time::sleep(
                         std::time::Duration::from_millis(250),
