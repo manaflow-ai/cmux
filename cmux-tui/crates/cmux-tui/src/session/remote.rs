@@ -6981,6 +6981,25 @@ mod tests {
     }
 
     #[test]
+    fn json_line_reader_preserves_utf8_across_buffer_boundaries() {
+        let input = b"{\"text\":\"\xC3\xA9\"}\n".to_vec();
+        let mut reader = BufReader::with_capacity(1, io::Cursor::new(input));
+        let mut progress = Vec::new();
+
+        let line = read_json_line_with_progress_bounded(
+            &mut reader,
+            &mut |partial| progress.push(partial.to_vec()),
+            64,
+        )
+        .unwrap()
+        .unwrap();
+
+        assert_eq!(line.as_bytes(), b"{\"text\":\"\xC3\xA9\"}");
+        assert!(progress.iter().any(|partial| partial.ends_with(&[0xC3])));
+        assert_eq!(progress.last().unwrap(), b"{\"text\":\"\xC3\xA9\"}");
+    }
+
+    #[test]
     fn remote_reader_end_reason_distinguishes_eof_from_read_failure() {
         let eof: io::Result<Option<String>> = Ok(None);
         assert_eq!(
