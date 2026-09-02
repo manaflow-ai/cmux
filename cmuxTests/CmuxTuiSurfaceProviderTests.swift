@@ -1221,6 +1221,15 @@ import Testing
         #expect(policy.delays.allSatisfy { $0 > .zero })
     }
 
+    @Test func eventRecoveryRestartCannotBypassTheBudget() {
+        #expect(CloudMachineLink.canRestartEventsSubscription(for: .healthy))
+        #expect(CloudMachineLink.canRestartEventsSubscription(for: .recovering(attempt: 3)))
+        #expect(CloudMachineLink.canRestartEventsSubscription(for: .snapshotRecovery))
+        #expect(!CloudMachineLink.canRestartEventsSubscription(for: .exhausted(canResumeFromSnapshot: true)))
+        #expect(!CloudMachineLink.canRestartEventsSubscription(for: .exhausted(canResumeFromSnapshot: false)))
+        #expect(!CloudMachineLink.canRestartEventsSubscription(for: .snapshotOnly))
+    }
+
     @Test func cursorDecodingRejectsBooleanFractionalAndOverflowNumbers() {
         #expect(CloudVMCursor(wire: ["generation": "g1", "revision": NSNumber(value: true)]) == nil)
         #expect(CloudVMCursor(wire: ["generation": "g1", "revision": NSNumber(value: 1.5)]) == nil)

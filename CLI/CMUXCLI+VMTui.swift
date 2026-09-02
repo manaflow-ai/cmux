@@ -887,8 +887,15 @@ extension CMUXCLI {
     /// required and producing `machine/terminal/machine/terminal/key`.
     static func vmTerminalID(in resource: [String: Any], machine: String) -> String? {
         if let key = (resource["key"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines), !key.isEmpty {
+            // `key` is the final path component. A complete resource id would be
+            // prefixed again by callers and route to a different terminal.
+            guard !key.contains("/") else { return vmTerminalIDFromCanonicalID(in: resource, machine: machine) }
             return key
         }
+        return vmTerminalIDFromCanonicalID(in: resource, machine: machine)
+    }
+
+    private static func vmTerminalIDFromCanonicalID(in resource: [String: Any], machine: String) -> String? {
         guard let id = (resource["id"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines), !id.isEmpty else {
             return nil
         }

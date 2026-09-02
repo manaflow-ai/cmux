@@ -44,7 +44,7 @@ actor CloudMachineLink {
     /// Recovery state is one phase so an exhausted stream cannot be mistaken for
     /// a snapshot-only stream or a fresh connection. The attempt is consecutive
     /// until an accepted stream stays healthy for the policy's stability window.
-    private enum EventsRecoveryPhase: Equatable {
+    enum EventsRecoveryPhase: Equatable {
         case healthy
         case recovering(attempt: Int)
         /// The retry budget is spent, but one authoritative full snapshot may
@@ -54,6 +54,18 @@ actor CloudMachineLink {
         /// healthy before another failure can be forgiven.
         case snapshotRecovery
         case snapshotOnly
+    }
+
+    /// A manual reader restart is a transport operation, not a new connection.
+    /// It may preserve a healthy or in-progress recovery phase, but it cannot
+    /// bypass an exhausted budget or resume an unversioned snapshot stream.
+    nonisolated static func canRestartEventsSubscription(for phase: EventsRecoveryPhase) -> Bool {
+        switch phase {
+        case .healthy, .recovering, .snapshotRecovery:
+            return true
+        case .exhausted, .snapshotOnly:
+            return false
+        }
     }
 
     /// One notification from the daemon session stream. The provider validates
@@ -289,7 +301,11 @@ actor CloudMachineLink {
     /// on journal overflow, daemon restart, or a transient local socket close.
     func restartEventsSubscription(from cursor: CloudVMCursor? = nil) {
         guard state == .connected, let socketPath = connected?.socketPath else { return }
-        resetEventsRecovery()
+        guard Self.canRestartEventsSubscription(for: eventsRecoveryPhase) else { return }
+        // Cancel a delayed retry owned by the old reader, but keep its phase and
+        // attempt count. The next failed reader must consume the next budget slot.
+        eventsRecoveryTask?.cancel()
+        eventsRecoveryTask = nil
         replaceEventsCursor(cursor ?? eventsCursor)
         _ = startEventsSubscription(socketPath: socketPath, cursor: eventsCursor)
     }
