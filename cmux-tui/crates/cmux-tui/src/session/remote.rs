@@ -3709,6 +3709,16 @@ fn prune_stale_dump_temps(directory: &fs::File, path: &Path) -> io::Result<()> {
         if !metadata.is_file() || metadata.uid() != uid || metadata.nlink() != 1 {
             continue;
         }
+        let Some(name) = name.to_str() else { continue };
+        let Some((_, suffix)) = name.rsplit_once(".tmp-") else { continue };
+        let Some(pid) = suffix.split('-').next().and_then(|pid| pid.parse().ok()) else {
+            continue;
+        };
+        let process_alive = unsafe { libc::kill(pid, 0) == 0 }
+            || io::Error::last_os_error().raw_os_error() == Some(libc::EPERM);
+        if process_alive {
+            continue;
+        }
         let name = CString::new(name_bytes)
             .map_err(|_| io::Error::new(io::ErrorKind::InvalidInput, "invalid dump file name"))?;
         let status = unsafe { libc::unlinkat(directory.as_raw_fd(), name.as_ptr(), 0) };
@@ -3829,7 +3839,43 @@ fn reject_extended_acl(directory: &fs::File) -> io::Result<()> {
     Err(io::Error::new(io::ErrorKind::PermissionDenied, "dump directory has an extended ACL"))
 }
 
-#[cfg(not(target_os = "macos"))]
+#[cfg(target_os = "linux")]
+fn reject_extended_acl(directory: &fs::File) -> io::Result<()> {
+    use std::os::fd::AsRawFd;
+
+    let size = unsafe { libc::flistxattr(directory.as_raw_fd(), std::ptr::null_mut(), 0) };
+    if size < 0 {
+        return Err(io::Error::last_os_error());
+    }
+    if size == 0 {
+        return Ok(());
+    }
+    let mut names = vec![0u8; size as usize];
+    let read =
+        unsafe { libc::flistxattr(directory.as_raw_fd(), names.as_mut_ptr().cast(), names.len()) };
+    if read < 0 {
+        return Err(io::Error::last_os_error());
+    }
+    for name in names[..read as usize].split(|byte| *byte == 0) {
+        if name == b"system.posix_acl_access" || name == b"system.posix_acl_default" {
+            return Err(io::Error::new(
+                io::ErrorKind::PermissionDenied,
+                "dump directory has a POSIX ACL",
+            ));
+        }
+    }
+    Ok(())
+}
+
+#[cfg(all(unix, not(target_os = "macos"), not(target_os = "linux")))]
+fn reject_extended_acl(_directory: &fs::File) -> io::Result<()> {
+    Err(io::Error::new(
+        io::ErrorKind::PermissionDenied,
+        "cannot validate dump directory ACLs on this Unix target",
+    ))
+}
+
+#[cfg(not(unix))]
 fn reject_extended_acl(_directory: &fs::File) -> io::Result<()> {
     Ok(())
 }
@@ -4800,7 +4846,7 @@ mod tests {
     fn private_dump_directory_prunes_stale_temporary_dumps() {
         let root = tempfile::tempdir().unwrap();
         let dump_path = root.path().join("dumps");
-        let stale_path = dump_path.join(".mirror-1.txt.tmp-123-1");
+        let stale_path = dump_path.join(".mirror-1.txt.tmp-99999999-1");
         let directory = private_dump_directory(&dump_path).unwrap();
         drop(directory);
         fs::write(&stale_path, b"partial secret").unwrap();
