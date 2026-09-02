@@ -2278,9 +2278,18 @@ fn drive_handle(
     on_exit: ExitSink,
 ) {
     if let Some(banner) = banner {
-        on_data(Bytes::from(banner));
+        emit_bounded_bytes(&on_data, Bytes::from(banner));
     }
     output.subscribe(on_data, on_exit);
+}
+
+fn emit_bounded_bytes(on_data: &DataSink, bytes: Bytes) {
+    let mut offset = 0;
+    while offset < bytes.len() {
+        let end = (offset + MAX_OUTPUT_CHUNK_BYTES).min(bytes.len());
+        on_data(bytes.slice(offset..end));
+        offset = end;
+    }
 }
 
 impl Inner {
@@ -2607,10 +2616,10 @@ impl Inner {
             // Subsequent PTY output therefore waits behind replay callbacks.
             ready();
             if let Some(banner) = banner {
-                on_data(Bytes::from(banner));
+                emit_bounded_bytes(&on_data, Bytes::from(banner));
             }
             if let Some(replay) = replay {
-                on_data(Bytes::from(replay));
+                emit_bounded_bytes(&on_data, Bytes::from(replay));
             }
             if released.load(Ordering::SeqCst) {
                 return;
@@ -4232,6 +4241,59 @@ mod tests {
         assert!(replay.len() <= 32 + 20);
         assert!(replay.contains("chunk-9"));
         assert!(!replay.contains("chunk-0"));
+    }
+
+    #[tokio::test]
+    async fn large_scrollback_replay_is_split_into_bounded_frames() {
+        let home = TestDirectory::new("large-scrollback");
+        let home_path = home.path.clone();
+        let env = env_map(&home_path);
+        let recorded = Arc::new(StdMutex::new(Recorded::default()));
+        let deps = Arc::new(FakeDeps {
+            env: env.clone(),
+            recorded: Arc::clone(&recorded),
+            resolve: None,
+            socket_dir: PathBuf::from("/run/cmux-tui-501"),
+            read_dir: None,
+            ensure_socket_path: None,
+            control: None,
+        });
+        let manager = PtyManager::with_limits(
+            deps,
+            home_path.clone(),
+            env,
+            MAX_PTYS,
+            MAX_OUTPUT_CHUNK_BYTES * 2 + 5,
+            OUTPUT_BUFFER_CAP,
+        );
+        let h = Harness {
+            manager,
+            recorded,
+            sent: Arc::new(StdMutex::new(Vec::new())),
+            buffered: Arc::new(AtomicU64::new(0)),
+            owner: Some("user_owner".to_owned()),
+            home: home_path,
+            _home: home,
+        };
+        h.open("p1", "main", Value::Null, "supervised", h.owner.clone()).await;
+        let pty = h.spawned()[0].clone();
+        h.frame(serde_json::json!({ "type": "pty_close", "ptyId": "p1" })).await;
+        pty.emit(&"x".repeat(MAX_OUTPUT_CHUNK_BYTES * 2 + 5));
+        let before = h.sent().len();
+        h.open("p2", "main", Value::Null, "supervised", h.owner.clone()).await;
+        let frames: Vec<Value> = h.sent()[before..]
+            .iter()
+            .filter(|frame| frame["type"] == "pty_output")
+            .cloned()
+            .collect();
+        assert!(frames.len() >= 2);
+        assert!(frames.iter().all(|frame| {
+            BASE64
+                .decode(frame["dataB64"].as_str().unwrap_or_default())
+                .map(|bytes| bytes.len() <= MAX_OUTPUT_CHUNK_BYTES)
+                .unwrap_or(false)
+        }));
+        assert!(!h.sent().iter().any(|frame| frame["code"] == "failed"));
     }
 
     #[tokio::test]
