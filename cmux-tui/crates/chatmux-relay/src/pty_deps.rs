@@ -841,12 +841,12 @@ impl PtyDeps for RealPtyDeps {
         })
     }
 
-    async fn resolve_cmux_tui(&self, cwd: &Path) -> Option<CmuxTui> {
+    async fn resolve_cmux_tui(&self) -> Option<CmuxTui> {
         if let Some(override_path) =
             self.env.get("CHATMUX_RELAY_CMUX_TUI").filter(|value| !value.trim().is_empty())
         {
             let path = Path::new(override_path.trim());
-            return canonical_executable(path, cwd).await.map(|file| CmuxTui {
+            return canonical_executable(path).await.map(|file| CmuxTui {
                 file: file.to_string_lossy().into_owned(),
                 prefix: Vec::new(),
             });
@@ -857,7 +857,7 @@ impl PtyDeps for RealPtyDeps {
                 continue;
             }
             let candidate = Path::new(dir).join("cmux-tui");
-            if let Some(file) = canonical_executable(&candidate, cwd).await {
+            if let Some(file) = canonical_executable(&candidate).await {
                 return Some(CmuxTui {
                     file: file.to_string_lossy().into_owned(),
                     prefix: Vec::new(),
@@ -987,12 +987,15 @@ async fn is_executable(path: &Path) -> bool {
     }
 }
 
-/// Resolve and validate a PATH candidate before handing it to `Command`.
-/// Keeping the canonical absolute path in `CmuxTui` avoids a second PATH
-/// lookup after validation, so a changed PATH cannot select another binary.
-async fn canonical_executable(path: &Path, cwd: &Path) -> Option<PathBuf> {
-    let resolved = if path.is_absolute() { path.to_path_buf() } else { cwd.join(path) };
-    let canonical = tokio::fs::canonicalize(resolved).await.ok()?;
+/// Resolve and validate an operator-selected executable before handing it to
+/// `Command`. Relative sources are rejected because the relay's launch cwd can
+/// be caller-controlled. Keeping the canonical absolute path in `CmuxTui`
+/// avoids a second PATH lookup after validation.
+async fn canonical_executable(path: &Path) -> Option<PathBuf> {
+    if !path.is_absolute() {
+        return None;
+    }
+    let canonical = tokio::fs::canonicalize(path).await.ok()?;
     is_executable(&canonical).await.then_some(canonical)
 }
 
@@ -1055,7 +1058,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn canonical_executable_resolves_relative_path_against_request_cwd() {
+    async fn canonical_executable_rejects_relative_path() {
         use std::os::unix::fs::PermissionsExt;
 
         let root = std::env::temp_dir().join(format!("cmux-relay-cwd-test-{}", std::process::id()));
@@ -1068,8 +1071,8 @@ mod tests {
             .await
             .unwrap();
 
-        let resolved = canonical_executable(Path::new("bin/cmux-tui"), &cwd).await;
-        assert_eq!(resolved, Some(std::fs::canonicalize(&executable).unwrap()));
+        let resolved = canonical_executable(Path::new("bin/cmux-tui")).await;
+        assert_eq!(resolved, None);
         let _ = tokio::fs::remove_dir_all(root).await;
     }
 
@@ -1096,9 +1099,21 @@ mod tests {
         let mut env = HashMap::new();
         env.insert("CHATMUX_RELAY_CMUX_TUI".to_owned(), "bin/cmux-tui".to_owned());
         env.insert("PATH".to_owned(), "bin".to_owned());
-        let deps = RealPtyDeps::new(env);
+        let mut deps = RealPtyDeps::new(env);
 
-        assert!(deps.resolve_cmux_tui(&cwd).await.is_none());
+        assert!(deps.resolve_cmux_tui().await.is_none());
+
+        deps.env.remove("CHATMUX_RELAY_CMUX_TUI");
+        assert!(deps.resolve_cmux_tui().await.is_none());
+
+        deps.env.insert(
+            "CHATMUX_RELAY_CMUX_TUI".to_owned(),
+            executable.to_string_lossy().into_owned(),
+        );
+        assert_eq!(
+            deps.resolve_cmux_tui().await.map(|resolved| resolved.file),
+            Some(std::fs::canonicalize(&executable).unwrap().to_string_lossy().into_owned())
+        );
         let _ = tokio::fs::remove_dir_all(root).await;
     }
 
