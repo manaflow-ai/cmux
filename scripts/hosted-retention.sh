@@ -4,6 +4,13 @@
 # The function runs in a subshell so its EXIT trap cannot change the caller's
 # cleanup policy.
 
+cmux_hosted_retention_cleanup_scratch_dir=""
+cmux_hosted_retention_cleanup_quarantine_root=""
+cmux_hosted_retention_cleanup_lock_dir=""
+cmux_hosted_retention_cleanup_lock_marker=""
+cmux_hosted_retention_cleanup_lock_token=""
+cmux_hosted_retention_cleanup_lock_acquired=0
+
 cmux_hosted_retention_error() {
   echo "error: hosted artifact retention: $*" >&2
   return 2
@@ -74,6 +81,54 @@ cmux_hosted_retention_hash_file() {
   printf '%s\n' "$digest"
 }
 
+cmux_hosted_retention_lsof_state() {
+  local lsof_command="$1"
+  local target_path="$2"
+  local output_file="$3"
+  local error_file="$4"
+  local lsof_status
+  local lsof_record
+  local lsof_name
+  local saw_name=0
+
+  if "$lsof_command" -F n -- "$target_path" > "$output_file" 2> "$error_file"; then
+    lsof_status=0
+  else
+    lsof_status=$?
+  fi
+  if [[ -s "$error_file" || "$lsof_status" -gt 1 ]]; then
+    return 2
+  fi
+
+  while IFS= read -r lsof_record; do
+    case "$lsof_record" in
+      n*)
+        saw_name=1
+        lsof_name="${lsof_record#n}"
+        [[ "$lsof_name" == "$target_path" ]] || return 2
+        ;;
+      p*|f*)
+        # lsof always emits the PID field, and versions 4.88 through 4.93.2
+        # also emit a file-descriptor field even when only names are asked.
+        ;;
+      *)
+        return 2
+        ;;
+    esac
+  done < "$output_file"
+
+  if [[ -s "$output_file" && "$saw_name" -eq 0 ]]; then
+    return 2
+  fi
+  if (( lsof_status == 0 )) && [[ ! -s "$output_file" ]]; then
+    return 2
+  fi
+  if [[ "$saw_name" -eq 1 ]]; then
+    return 0
+  fi
+  return 1
+}
+
 cmux_hosted_retention_run() (
   if [[ $# -ne 2 ]]; then
     cmux_hosted_retention_error "expected current artifact directory and current commit"
@@ -121,6 +176,16 @@ cmux_hosted_retention_run() (
   local decision
   local decision_commit
   local old_umask
+  local candidate_binary
+  local lock_dir=""
+  local lock_marker=""
+  local lock_token=""
+  local quarantine_root=""
+  local quarantine_dir=""
+  local quarantine_binary=""
+  local recheck_output_file
+  local recheck_error_file
+  local recheck_status
 
   # Retention is opt-in. Keep the existing verification path unchanged when
   # no retention count is supplied.
@@ -184,9 +249,26 @@ cmux_hosted_retention_run() (
     exit $?
   fi
   umask "$old_umask"
+  cmux_hosted_retention_cleanup_scratch_dir="$scratch_dir"
+  cmux_hosted_retention_cleanup_quarantine_root=""
+  cmux_hosted_retention_cleanup_lock_dir=""
+  cmux_hosted_retention_cleanup_lock_marker=""
+  cmux_hosted_retention_cleanup_lock_token=""
+  cmux_hosted_retention_cleanup_lock_acquired=0
   # shellcheck disable=SC2329 # invoked by the EXIT trap below
   cmux_hosted_retention_cleanup() {
-    rm -rf -- "$scratch_dir"
+    if [[ -n "$cmux_hosted_retention_cleanup_quarantine_root" && -d "$cmux_hosted_retention_cleanup_quarantine_root" && ! -L "$cmux_hosted_retention_cleanup_quarantine_root" ]]; then
+      rmdir -- "$cmux_hosted_retention_cleanup_quarantine_root" >/dev/null 2>&1 || true
+    fi
+    if [[ "$cmux_hosted_retention_cleanup_lock_acquired" -eq 1 && -n "$cmux_hosted_retention_cleanup_lock_dir" && -d "$cmux_hosted_retention_cleanup_lock_dir" && ! -L "$cmux_hosted_retention_cleanup_lock_dir" && -f "$cmux_hosted_retention_cleanup_lock_marker" && ! -L "$cmux_hosted_retention_cleanup_lock_marker" && -O "$cmux_hosted_retention_cleanup_lock_marker" ]]; then
+      if [[ "$(<"$cmux_hosted_retention_cleanup_lock_marker")" == "$cmux_hosted_retention_cleanup_lock_token" ]]; then
+        rm -f -- "$cmux_hosted_retention_cleanup_lock_marker" >/dev/null 2>&1 || true
+        rmdir -- "$cmux_hosted_retention_cleanup_lock_dir" >/dev/null 2>&1 || true
+      fi
+    fi
+    if [[ -n "$cmux_hosted_retention_cleanup_scratch_dir" ]]; then
+      rm -rf -- "$cmux_hosted_retention_cleanup_scratch_dir"
+    fi
   }
   trap cmux_hosted_retention_cleanup EXIT
 
@@ -354,6 +436,33 @@ cmux_hosted_retention_run() (
     exit $?
   fi
 
+  lock_dir="$artifact_root/.retention.lock"
+  lock_marker="$lock_dir/owner"
+  lock_token="$(printf '%s:%s' "$$" "$scratch_dir")"
+  cmux_hosted_retention_cleanup_lock_dir="$lock_dir"
+  cmux_hosted_retention_cleanup_lock_marker="$lock_marker"
+  cmux_hosted_retention_cleanup_lock_token="$lock_token"
+  if [[ -e "$lock_dir" || -L "$lock_dir" ]] || ! (umask 077 && mkdir "$lock_dir"); then
+    cmux_hosted_retention_error "another retention cleanup is already running"
+    exit $?
+  fi
+  if ! (umask 077 && printf '%s\n' "$lock_token" > "$lock_marker"); then
+    rmdir -- "$lock_dir" >/dev/null 2>&1 || true
+    cmux_hosted_retention_error "cannot initialize the retention cleanup lock"
+    exit $?
+  fi
+  cmux_hosted_retention_cleanup_lock_acquired=1
+
+  if ! quarantine_root="$(umask 077 && mktemp -d "$artifact_root/.retention-quarantine.XXXXXX")"; then
+    cmux_hosted_retention_error "cannot create the retention quarantine"
+    exit $?
+  fi
+  if [[ ! -d "$quarantine_root" || -L "$quarantine_root" || ! -O "$quarantine_root" ]]; then
+    cmux_hosted_retention_error "retention quarantine is not owned by the current user"
+    exit $?
+  fi
+  cmux_hosted_retention_cleanup_quarantine_root="$quarantine_root"
+
   lsof_targets=()
   for candidate_commit in "${cleanup_commits[@]}"; do
     candidate_binary="$artifact_root/$candidate_commit/cmux-tui"
@@ -429,6 +538,8 @@ cmux_hosted_retention_run() (
     exit $?
   fi
 
+  recheck_output_file="$scratch_dir/recheck-output"
+  recheck_error_file="$scratch_dir/recheck-error"
   while IFS=$'\t' read -r decision decision_commit; do
     case "$decision" in
       active)
@@ -436,15 +547,70 @@ cmux_hosted_retention_run() (
         ;;
       inactive)
         candidate_dir="$artifact_root/$decision_commit"
-        if [[ ! -d "$candidate_dir" || -L "$candidate_dir" || ! -O "$candidate_dir" ]]; then
-          cmux_hosted_retention_error "artifact changed before deletion"
+        candidate_binary="$candidate_dir/cmux-tui"
+        if [[ ! -d "$candidate_dir" || -L "$candidate_dir" || ! -O "$candidate_dir" || ! -f "$candidate_binary" || -L "$candidate_binary" || ! -O "$candidate_binary" ]]; then
+          cmux_hosted_retention_error "artifact changed before entering quarantine"
           exit $?
         fi
-        if ! rm -rf -- "$candidate_dir"; then
-          cmux_hosted_retention_error "cannot remove an inactive artifact"
+        quarantine_dir="$quarantine_root/$decision_commit"
+        if [[ -e "$quarantine_dir" || -L "$quarantine_dir" ]]; then
+          cmux_hosted_retention_error "retention quarantine path already exists"
           exit $?
         fi
-        echo "Removed hosted artifact: $candidate_dir" >&2
+        if ! mv -- "$candidate_dir" "$quarantine_dir"; then
+          cmux_hosted_retention_error "cannot quarantine an inactive artifact"
+          exit $?
+        fi
+        quarantine_binary="$quarantine_dir/cmux-tui"
+        if [[ ! -d "$quarantine_dir" || -L "$quarantine_dir" || ! -O "$quarantine_dir" || ! -f "$quarantine_binary" || -L "$quarantine_binary" || ! -O "$quarantine_binary" ]]; then
+          if [[ ! -e "$candidate_dir" && ! -L "$candidate_dir" && -d "$quarantine_dir" && ! -L "$quarantine_dir" ]]; then
+            mv -- "$quarantine_dir" "$candidate_dir" >/dev/null 2>&1 || true
+          fi
+          cmux_hosted_retention_error "artifact changed after entering quarantine"
+          exit $?
+        fi
+
+        if cmux_hosted_retention_lsof_state \
+          "$lsof_command" "$quarantine_binary" "$recheck_output_file" "$recheck_error_file"; then
+          recheck_status=0
+        else
+          recheck_status=$?
+        fi
+        case "$recheck_status" in
+          0)
+            if [[ -e "$candidate_dir" || -L "$candidate_dir" ]]; then
+              cmux_hosted_retention_error "artifact path was recreated while checking activity"
+              exit $?
+            fi
+            if ! mv -- "$quarantine_dir" "$candidate_dir"; then
+              cmux_hosted_retention_error "cannot restore an active artifact"
+              exit $?
+            fi
+            echo "Keeping active hosted artifact: $candidate_dir/cmux-tui" >&2
+            ;;
+          1)
+            if [[ -e "$candidate_dir" || -L "$candidate_dir" ]]; then
+              cmux_hosted_retention_error "artifact path was recreated while checking activity"
+              exit $?
+            fi
+            if [[ ! -d "$quarantine_dir" || -L "$quarantine_dir" || ! -O "$quarantine_dir" || ! -f "$quarantine_binary" || -L "$quarantine_binary" || ! -O "$quarantine_binary" ]]; then
+              cmux_hosted_retention_error "artifact changed after activity check"
+              exit $?
+            fi
+            if ! rm -rf -- "$quarantine_dir"; then
+              cmux_hosted_retention_error "cannot remove an inactive artifact"
+              exit $?
+            fi
+            echo "Removed hosted artifact: $candidate_dir" >&2
+            ;;
+          *)
+            if [[ ! -e "$candidate_dir" && ! -L "$candidate_dir" && -d "$quarantine_dir" && ! -L "$quarantine_dir" && -O "$quarantine_dir" ]]; then
+              mv -- "$quarantine_dir" "$candidate_dir" >/dev/null 2>&1 || true
+            fi
+            cmux_hosted_retention_error "lsof could not establish quarantined artifact activity"
+            exit $?
+            ;;
+        esac
         ;;
       *)
         cmux_hosted_retention_error "activity decision is invalid"
