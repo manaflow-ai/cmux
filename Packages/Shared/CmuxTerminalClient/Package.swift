@@ -12,6 +12,8 @@ import PackageDescription
 //     .github/workflows/cmux-terminal-client-xcframework.yml.
 //
 // Set CMUX_TERMINAL_CLIENT_FORCE_REMOTE_XCFRAMEWORK to ignore a local copy.
+// Set CMUX_TERMINAL_CLIENT_MODEL_ONLY to build and test only the pure Swift
+// model target, for a checkout with no binary available at all.
 let releaseRepository = "manaflow-ai/cmux"
 let releaseTag = "cmux-terminal-client-v0.1.0+PENDING"
 let releaseChecksum = "PENDING"
@@ -33,6 +35,8 @@ let ffiBinary: Target =
             "https://github.com/\(releaseRepository)/releases/download/\(releaseTag)/CmuxTerminalClient.xcframework.zip",
         checksum: releaseChecksum)
 
+let modelOnly = ProcessInfo.processInfo.environment["CMUX_TERMINAL_CLIENT_MODEL_ONLY"] != nil
+
 let swiftSettings: [SwiftSetting] = [
     .swiftLanguageMode(.v6),
     .enableUpcomingFeature("ExistentialAny"),
@@ -45,10 +49,12 @@ let package = Package(
         .iOS(.v18),
         .macOS(.v14),
     ],
-    products: [
-        .library(name: "CmuxTerminalClientKit", targets: ["CmuxTerminalClientKit"]),
-        .library(name: "CmuxTerminalClientModel", targets: ["CmuxTerminalClientModel"]),
-    ],
+    products: modelOnly
+        ? [.library(name: "CmuxTerminalClientModel", targets: ["CmuxTerminalClientModel"])]
+        : [
+            .library(name: "CmuxTerminalClientKit", targets: ["CmuxTerminalClientKit"]),
+            .library(name: "CmuxTerminalClientModel", targets: ["CmuxTerminalClientModel"]),
+        ],
     targets: [
         // Pure Swift: result decoding and request shaping, testable without
         // the binary.
@@ -56,22 +62,25 @@ let package = Package(
             name: "CmuxTerminalClientModel",
             swiftSettings: swiftSettings
         ),
-        // The Swift face of the C ABI.
-        .target(
-            name: "CmuxTerminalClientKit",
-            dependencies: ["CmuxTerminalClientModel", "CmuxTerminalClientFFI"],
-            swiftSettings: swiftSettings,
-            linkerSettings: [
-                .linkedFramework("Security"),
-                .linkedFramework("SystemConfiguration"),
-                .linkedLibrary("resolv"),
-            ]
-        ),
-        ffiBinary,
         .testTarget(
             name: "CmuxTerminalClientModelTests",
             dependencies: ["CmuxTerminalClientModel"],
             swiftSettings: swiftSettings
         ),
-    ]
+    ] + (modelOnly
+        ? []
+        : [
+            // The Swift face of the C ABI.
+            .target(
+                name: "CmuxTerminalClientKit",
+                dependencies: ["CmuxTerminalClientModel", "CmuxTerminalClientFFI"],
+                swiftSettings: swiftSettings,
+                linkerSettings: [
+                    .linkedFramework("Security"),
+                    .linkedFramework("SystemConfiguration"),
+                    .linkedLibrary("resolv"),
+                ]
+            ),
+            ffiBinary,
+        ])
 )
