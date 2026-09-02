@@ -2781,6 +2781,46 @@ mod tests {
 
     #[cfg(unix)]
     #[tokio::test]
+    async fn successful_leader_reap_disarms_process_group_guard_on_abort() {
+        let pid_file =
+            std::env::temp_dir().join(format!("chatmux-success-pid-{}", std::process::id()));
+        std::fs::remove_file(&pid_file).ok();
+        let command = format!("sleep 30 & echo $! > {}; exit 0", pid_file.display());
+        let env = scrubbed_env(&HashMap::from([("PATH".to_owned(), "/usr/bin:/bin".to_owned())]));
+        let worker = tokio::spawn(async move {
+            run_spec(RunSpec::Shell { command: &command }, Path::new("/"), None, 30_000, &env, None)
+                .await
+        });
+
+        let pid = tokio::time::timeout(std::time::Duration::from_secs(1), async {
+            loop {
+                if let Some(pid) = std::fs::read_to_string(&pid_file)
+                    .ok()
+                    .and_then(|value| value.trim().parse::<libc::pid_t>().ok())
+                {
+                    break pid;
+                }
+                tokio::time::sleep(std::time::Duration::from_millis(5)).await;
+            }
+        })
+        .await
+        .expect("descendant pid marker");
+
+        // Give the shell time to exit and child.wait() time to reap it while
+        // the descendant keeps the inherited output pipes open.
+        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+        worker.abort();
+        let _ = worker.await;
+
+        assert_eq!(unsafe { libc::kill(pid, 0) }, 0, "reaped leader must release group ownership");
+        unsafe {
+            libc::kill(pid, libc::SIGKILL);
+        }
+        std::fs::remove_file(pid_file).ok();
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
     async fn cancellation_reports_failure_and_kills_descendant() {
         use tokio_util::sync::CancellationToken;
 
