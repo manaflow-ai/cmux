@@ -1,10 +1,6 @@
 import AppKit
 import SwiftUI
 import Testing
-import class XCTest.XCTestCase
-import func XCTest.XCTAssertEqual
-import func XCTest.XCTAssertNotNil
-import func XCTest.XCTFail
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
@@ -249,13 +245,10 @@ struct TitlebarInteractiveControlTests {
             "Registered SwiftUI titlebar controls must not degrade into hosting-view drag hits."
         )
     }
-}
 
-@MainActor
-final class NewWorkspaceButtonHitAreaTests: XCTestCase {
     /// A click in the transparent portion of the primary segment must invoke
     /// the same action as a click on the painted plus glyph.
-    func testPrimarySegmentUsesWholeFrameAsHitTarget() {
+    @Test func primarySegmentUsesWholeFrameAsHitTarget() {
         _ = NSApplication.shared
 
         let config = TitlebarControlsStyle.classic.config
@@ -285,8 +278,8 @@ final class NewWorkspaceButtonHitAreaTests: XCTestCase {
         window.displayIfNeeded()
 
         let transparentPoint = NSPoint(x: primaryWidth - 2, y: config.buttonSize / 2)
-        XCTAssertNotNil(
-            hostingView.hitTest(transparentPoint),
+        #expect(
+            hostingView.hitTest(transparentPoint) != nil,
             "The transparent portion of the new-workspace segment must be hittable."
         )
 
@@ -311,11 +304,11 @@ final class NewWorkspaceButtonHitAreaTests: XCTestCase {
             clickCount: 1,
             pressure: 1.0
         ) else {
-            XCTFail("Expected to create transparent-segment mouse events")
+            Issue.record("Expected to create transparent-segment mouse events")
             return
         }
         window.sendEvent(down)
         window.sendEvent(up)
-        XCTAssertEqual(actionCount, 1, "A click in the framed transparent area must create a workspace.")
+        #expect(actionCount == 1, "A click in the framed transparent area must create a workspace.")
     }
 }
