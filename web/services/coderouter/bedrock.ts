@@ -65,9 +65,23 @@ export type BedrockInvokeBody = {
   readonly body: Record<string, unknown>;
 };
 
-/** Removes `model` and `stream`, pins `anthropic_version`. */
+/**
+ * Request fields the Bedrock Anthropic Messages API rejects with
+ * `400 <field>: Extra inputs are not permitted` even though api.anthropic.com
+ * accepts them. Claude Code 2.1 always sends `context_management` (the
+ * `context-management-2025-06-27` beta's clear_thinking edit); it is a
+ * client-side context optimization, so the request stays valid without it.
+ * Everything else Claude Code sends (`metadata`, `thinking.display`, tools,
+ * cache_control) is accepted by Bedrock, verified live 2026-09-02.
+ */
+const BEDROCK_REJECTED_TOP_LEVEL_FIELDS = ["context_management"] as const;
+
+/** Removes `model` and `stream`, drops fields Bedrock rejects, pins `anthropic_version`. */
 export function bedrockInvokeBody(value: Record<string, unknown>): BedrockInvokeBody {
   const { model, stream, ...rest } = value;
+  for (const field of BEDROCK_REJECTED_TOP_LEVEL_FIELDS) {
+    delete rest[field];
+  }
   return {
     model: typeof model === "string" ? model : null,
     stream: stream === true,
