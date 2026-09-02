@@ -16,7 +16,11 @@ final class GhosttyTitleChangeSubscription {
             queue: .main
         ) { notification in
             guard let change = GhosttyTitleChange(notification: notification) else { return }
-            Task { @MainActor in
+            // This observer is registered on the main operation queue and its
+            // contract is synchronous delivery to title consumers. The caller
+            // owns the MainActor subscription, so preserve the inline handoff
+            // instead of adding an unstructured task that can lag snapshots.
+            MainActor.assumeIsolated {
                 handler(change)
             }
         }

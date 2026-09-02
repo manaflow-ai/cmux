@@ -620,11 +620,14 @@ class TabManager: ObservableObject {
             object: nil,
             queue: .main
         ) { [weak self] notification in
-            guard let change = GhosttyTitleChange(notification: notification) else {
-                return
-            }
-            Task { @MainActor [weak self] in
+            // NotificationCenter invokes this observer synchronously on the
+            // main operation queue. Keep title ingress inline so snapshot and
+            // transfer boundaries can flush the coalescer before reading the
+            // just-published title; the coalescer remains the only deferred
+            // mutation path.
+            MainActor.assumeIsolated { [weak self] in
                 guard let self else { return }
+                guard let change = GhosttyTitleChange(notification: notification) else { return }
                 if let workspace = workspacesById[change.tabId],
                    workspace.owningTabManager === self {
                     if let terminal = workspace.terminalPanel(for: change.surfaceId) {
