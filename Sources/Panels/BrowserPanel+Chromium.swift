@@ -279,6 +279,11 @@ extension BrowserPanel {
         return browserEngineController.contentView
     }
 
+    /// Returns the view used to render this browser's page content.
+    var browserContentView: NSView? {
+        isChromiumBacked ? chromiumContentView : webView
+    }
+
     /// Returns the window that owns the selected browser content.
     ///
     /// CEF renders in a separate child window. Returning the host view's

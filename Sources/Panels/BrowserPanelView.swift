@@ -2981,7 +2981,14 @@ struct BrowserPanelView: View {
             if panel.isChromiumBacked {
                 setAddressBarFocused(false, reason: "effects.blurToChromium")
                 Task { @MainActor [panel] in
-                    _ = panel.requestExplicitWebViewFocus()
+                    // This handoff is deferred until after the omnibar resigns
+                    // first responder. Re-check the panel and find-bar state
+                    // so a stale task cannot steal focus after a pane switch or
+                    // while browser find is presented.
+                    if let window = panel.browserChromeWindow,
+                       shouldApplyAddressBarExitFallback(in: window) {
+                        _ = panel.requestExplicitWebViewFocus()
+                    }
                     NotificationCenter.default.post(name: .browserDidExitAddressBar, object: panel.id)
                 }
                 return

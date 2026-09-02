@@ -7928,6 +7928,7 @@ extension CMUXCLI {
           --surface <id|ref|index>     Target surface whose pane should receive file tabs (default: $CMUX_SURFACE_ID)
           --pane <id|ref|index>        Target pane for file tabs
           --window <id|ref|index>      Target window
+          --engine <webkit|chromium>   Browser engine for URL targets only
           --focus <true|false>         Focus opened file previews (default: true)
           --no-focus                   Do not focus opened file previews
 
@@ -7936,6 +7937,7 @@ extension CMUXCLI {
           cmux open image-a.png image-b.jpg
           cmux open ~/Downloads/movie.mov --pane pane:1
           cmux open https://example.com
+          cmux open https://example.com --engine chromium
         """
     }
 

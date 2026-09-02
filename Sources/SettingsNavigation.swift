@@ -625,6 +625,8 @@ enum SettingsSearchIndex {
         "automation.portBase": settingID(for: .automation, idSuffix: "port-base"),
         "automation.portRange": settingID(for: .automation, idSuffix: "port-range"),
         "browser.enabled": settingID(for: .browser, idSuffix: "enable-browser"),
+        "browser.defaultEngine": settingID(for: .browser, idSuffix: "default-engine"),
+        "browser.remoteDebuggingPort": settingID(for: .browser, idSuffix: "remote-debugging-port"),
         "browser.defaultSearchEngine": settingID(for: .browser, idSuffix: "search-engine"),
         "browser.customSearchEngineName": settingID(for: .browser, idSuffix: "search-engine"),
         "browser.customSearchEngineURLTemplate": settingID(for: .browser, idSuffix: "search-engine"),

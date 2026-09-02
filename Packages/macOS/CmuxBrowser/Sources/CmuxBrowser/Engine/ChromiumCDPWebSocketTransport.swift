@@ -31,8 +31,9 @@ actor ChromiumCDPWebSocketTransport: ChromiumCDPTransport {
     }
 
     func connect() {
-        guard socket == nil else { return }
-        isClosed = false
+        // `close()` finishes the single message stream, so this transport is
+        // terminal and cannot be safely reopened with a new receive loop.
+        guard socket == nil, !isClosed else { return }
         let task = session.webSocketTask(with: endpoint)
         task.resume()
         socket = task

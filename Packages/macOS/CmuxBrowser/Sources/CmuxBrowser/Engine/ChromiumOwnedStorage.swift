@@ -83,6 +83,9 @@ struct ChromiumOwnedStorage: Sendable {
             }
         }
         let result = String(filtered)
-        return result.isEmpty ? "com.cmuxterm.app" : result
+        if result.isEmpty || result == "." || result == ".." {
+            return "com.cmuxterm.app"
+        }
+        return result
     }
 }
