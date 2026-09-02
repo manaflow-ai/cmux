@@ -17207,8 +17207,8 @@ impl App {
             self.semantic_selection_cache = None;
             return;
         };
-        let content_generation = self.terminal_content_generation(surface);
-        if let Some(generation) = content_generation
+        let cache_generation = self.terminal_content_generation(surface);
+        if let Some(generation) = cache_generation
             && let Some(cache) = self.semantic_selection_cache
             && cache.surface == surface
             && cache.mode == mode
@@ -17223,46 +17223,49 @@ impl App {
             }
             return;
         }
-        let range = handle
-            .with_terminal(|terminal| match mode {
-                SelectionMode::Word => {
-                    // Ghostty's nearest-word lookup is directional. Keep both
-                    // queries paired so reverse drags through whitespace or
-                    // punctuation preserve the outer bounds.
-                    let first = terminal
-                        .select_word_between_screen(anchor_point, current_point)
-                        .ok()
-                        .flatten()?;
-                    let second = terminal
-                        .select_word_between_screen(current_point, anchor_point)
-                        .ok()
-                        .flatten()?;
-                    let current_before_anchor = (current.1, current.0) < (anchor.1, anchor.0);
-                    Some(if current_before_anchor {
-                        SelectionRange { start: second.start, end: first.end }
-                    } else {
-                        SelectionRange { start: first.start, end: second.end }
-                    })
-                }
-                SelectionMode::Line => {
-                    let select_line =
-                        |point| {
+        let (range, content_generation) = handle
+            .with_terminal_and_generation(|terminal, generation| {
+                let range = match mode {
+                    SelectionMode::Word => {
+                        // Ghostty's nearest-word lookup is directional. Keep both
+                        // queries paired so reverse drags through whitespace or
+                        // punctuation preserve the outer bounds.
+                        let first = terminal
+                            .select_word_between_screen(anchor_point, current_point)
+                            .ok()
+                            .flatten()?;
+                        let second = terminal
+                            .select_word_between_screen(current_point, anchor_point)
+                            .ok()
+                            .flatten()?;
+                        let current_before_anchor = (current.1, current.0) < (anchor.1, anchor.0);
+                        Some(if current_before_anchor {
+                            SelectionRange { start: second.start, end: first.end }
+                        } else {
+                            SelectionRange { start: first.start, end: second.end }
+                        })
+                    }
+                    SelectionMode::Line => {
+                        let select_line = |point| {
                             terminal.select_line_screen(point).ok().flatten().or_else(|| {
                                 terminal.select_line_screen_untrimmed(point).ok().flatten()
                             })
                         };
-                    let first = select_line(anchor_point)?;
-                    let second = select_line(current_point)?;
-                    let current_before_anchor = (current.1, current.0) < (anchor.1, anchor.0);
-                    Some(if current_before_anchor {
-                        SelectionRange { start: second.start, end: first.end }
-                    } else {
-                        SelectionRange { start: first.start, end: second.end }
-                    })
-                }
-                SelectionMode::Cell => None,
+                        let first = select_line(anchor_point)?;
+                        let second = select_line(current_point)?;
+                        let current_before_anchor = (current.1, current.0) < (anchor.1, anchor.0);
+                        Some(if current_before_anchor {
+                            SelectionRange { start: second.start, end: first.end }
+                        } else {
+                            SelectionRange { start: first.start, end: second.end }
+                        })
+                    }
+                    SelectionMode::Cell => None,
+                };
+                Some((range, generation))
             })
-            .flatten();
+            .flatten()
+            .map_or((None, None), |(range, generation)| (range.flatten(), Some(generation)));
         let range = range.map(|range| {
             if mode == SelectionMode::Word {
                 self.selection_click_sequence
