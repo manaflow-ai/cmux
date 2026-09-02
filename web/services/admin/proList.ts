@@ -250,8 +250,9 @@ export type TeamNameResolveOptions = {
 /**
  * The Stack half of the team roster: display names, resolved OUTSIDE any
  * database transaction so a slow provider never holds a connection. Lookups
- * run a few at a time, none starts after the deadline, and one that outlives
- * the remaining budget is abandoned (its name stays null).
+ * run a few at a time; none starts after the deadline and one that outlives
+ * the remaining budget is abandoned. Either way the row is kept with a null
+ * name, so a slow provider degrades the roster instead of failing it.
  */
 export async function resolveStripeTeamNames(
   rows: readonly StripeTeamSubscriptionRow[],
@@ -265,7 +266,7 @@ export async function resolveStripeTeamNames(
     async (row): Promise<StripeTeamSubscription> => {
       const remaining = options.deadlineMs === undefined ? undefined : options.deadlineMs - clock.now();
       if (remaining !== undefined && remaining <= 0) {
-        throw new ProListTimeoutError(0);
+        return { ...row, displayName: null };
       }
       const team = await raceWithin(app.getTeam(row.teamId).catch(() => null), remaining, clock);
       return { ...row, displayName: team?.displayName ?? null };

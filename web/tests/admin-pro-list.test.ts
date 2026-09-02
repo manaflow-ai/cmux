@@ -304,11 +304,10 @@ describe("Pro roster", () => {
       listTeams: async () => Object.assign([], { nextCursor: null }) as never,
     };
     const clock: ProListClock = { now: () => now, schedule: () => () => undefined };
-    await expect(
-      listStripeTeamSubscriptions({ db: fakeDb(new Map([[stripeSubscriptions, subs]])), app, concurrency: 1, deadlineMs: 25, clock }),
-    ).rejects.toBeInstanceOf(ProListTimeoutError);
-    // Three lookups fit before the deadline (0, 10, 20); the fourth never starts.
+    const { rows } = await listStripeTeamSubscriptions({ db: fakeDb(new Map([[stripeSubscriptions, subs]])), app, concurrency: 1, deadlineMs: 25, clock });
+    // Three lookups fit before the deadline (0, 10, 20); the rest keep null names.
     expect(lookups).toBe(3);
+    expect(rows.map((row) => row.displayName)).toEqual(["t0", "t1", "t2", null, null, null]);
   });
 
   test("a hung team name lookup is abandoned at the remaining budget", async () => {
