@@ -2601,16 +2601,13 @@ struct DockShortcutRoutingTests {
                 harness.dock.refreshDockMenuCapabilities()
                 #expect(harness.dock.menuCapabilities.canCloseOtherTabs)
 
-                let defaults = UserDefaults.standard
-                let warningKey = "warnBeforeClosingTabShortcut"
-                let previousWarning = defaults.object(forKey: warningKey)
-                defaults.set(false, forKey: warningKey)
+                let warningStore = CloseTabWarningStore(
+                    defaults: harness.tabManager.closeTabWarningDefaults
+                )
+                let previousWarning = warningStore.warnsBeforeClosingTab
+                warningStore.setWarnsBeforeClosingTab(false)
                 defer {
-                    if let previousWarning {
-                        defaults.set(previousWarning, forKey: warningKey)
-                    } else {
-                        defaults.removeObject(forKey: warningKey)
-                    }
+                    warningStore.setWarnsBeforeClosingTab(previousWarning)
                 }
 
                 #expect(
