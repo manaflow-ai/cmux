@@ -1302,9 +1302,37 @@ fn enqueue_worker_reap(
         let (sender, receiver) = std::sync::mpsc::sync_channel::<ReapRequest>(64);
         let Ok(_) =
             std::thread::Builder::new().name("remote-worker-reaper".into()).spawn(move || {
-                while let Ok((handle, completion)) = receiver.recv() {
-                    completion.wait_forever();
-                    let _ = handle.join();
+                let mut pending = Vec::new();
+                loop {
+                    while let Ok(request) = receiver.try_recv() {
+                        pending.push(request);
+                    }
+                    let mut index = pending.len();
+                    while index > 0 {
+                        index -= 1;
+                        if pending[index].1.is_done() {
+                            let (handle, _) = pending.swap_remove(index);
+                            let _ = handle.join();
+                        }
+                    }
+                    if pending.is_empty() {
+                        match receiver.recv() {
+                            Ok(request) => pending.push(request),
+                            Err(_) => break,
+                        }
+                    } else {
+                        match receiver.recv_timeout(Duration::from_millis(50)) {
+                            Ok(request) => pending.push(request),
+                            Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {}
+                            Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
+                                for (handle, completion) in pending.drain(..) {
+                                    completion.wait_forever();
+                                    let _ = handle.join();
+                                }
+                                break;
+                            }
+                        }
+                    }
                 }
             })
         else {
@@ -1507,6 +1535,10 @@ impl InteractiveWriter {
     }
 
     fn join_worker(&self) {
+        self.join_worker_until(Instant::now() + remote_write_timeout());
+    }
+
+    fn join_worker_until(&self, deadline: Instant) {
         let current = std::thread::current().id();
         let handle = {
             let mut worker = self.worker.lock().unwrap_or_else(|poison| poison.into_inner());
@@ -1516,7 +1548,11 @@ impl InteractiveWriter {
             worker.take()
         };
         if let Some(handle) = handle {
-            if self.shared.worker_completion.wait(remote_write_timeout()) {
+            if self
+                .shared
+                .worker_completion
+                .wait(deadline.saturating_duration_since(Instant::now()))
+            {
                 let _ = handle.join();
             } else if let Err(handle) =
                 enqueue_worker_reap(handle, self.shared.worker_completion.clone())
@@ -1552,8 +1588,11 @@ impl InteractiveWriter {
     }
 
     fn close(&self) {
+        self.close_until(Instant::now() + remote_write_timeout());
+    }
+
+    fn close_until(&self, deadline: Instant) {
         self.request_close();
-        let deadline = Instant::now() + remote_write_timeout();
         let mut state = self.shared.state.lock().unwrap_or_else(|poison| poison.into_inner());
         while !state.writer_closed {
             let remaining = deadline.saturating_duration_since(Instant::now());
@@ -3099,6 +3138,10 @@ impl RemoteSession {
     }
 
     pub fn begin_shutdown(&self) {
+        self.begin_shutdown_until(Instant::now() + remote_write_timeout());
+    }
+
+    fn begin_shutdown_until(&self, deadline: Instant) {
         self.shutdown.store(true, Ordering::Release);
         self.provider_workspaces_guarded.store(false, Ordering::Release);
         let pending = std::mem::take(&mut *self.pending.lock().unwrap());
@@ -3106,12 +3149,19 @@ impl RemoteSession {
             let _ = request.response.send(json!({"shutdown": true}));
         }
         if let Ok(Some(sequence)) = self.interactive_writer.last_enqueued_sequence() {
-            let _ = self.wait_for_ordered_write(sequence);
+            let _ = self.wait_for_ordered_write_until(sequence, deadline);
         }
     }
 
     fn wait_for_ordered_write(&self, sequence: u64) -> io::Result<()> {
-        match self.interactive_writer.wait_until_written(sequence, remote_write_timeout()) {
+        self.wait_for_ordered_write_until(sequence, Instant::now() + remote_write_timeout())
+    }
+
+    fn wait_for_ordered_write_until(&self, sequence: u64, deadline: Instant) -> io::Result<()> {
+        match self
+            .interactive_writer
+            .wait_until_written(sequence, deadline.saturating_duration_since(Instant::now()))
+        {
             Ok(()) => Ok(()),
             Err(error) => {
                 if error.kind() == io::ErrorKind::TimedOut {
@@ -3127,6 +3177,7 @@ impl RemoteSession {
     }
 
     pub(super) fn disconnect_transport_with_reason(&self, reason: Option<String>) {
+        let deadline = Instant::now() + remote_write_timeout();
         let mut state = self.disconnect_state.lock().unwrap();
         if matches!(&*state, DisconnectState::Active) {
             *state = match reason {
@@ -3135,14 +3186,18 @@ impl RemoteSession {
             };
         }
         drop(state);
-        self.begin_shutdown();
-        self.interactive_writer.close();
+        self.begin_shutdown_until(deadline);
+        self.interactive_writer.close_until(deadline);
         self.interactive_writer.abort_transport();
-        self.interactive_writer.join_worker();
-        self.join_reader_worker();
+        self.interactive_writer.join_worker_until(deadline);
+        self.join_reader_worker_until(deadline);
     }
 
     fn join_reader_worker(&self) {
+        self.join_reader_worker_until(Instant::now() + remote_write_timeout());
+    }
+
+    fn join_reader_worker_until(&self, deadline: Instant) {
         let current = std::thread::current().id();
         let handle = {
             let mut worker = self.reader_worker.lock().unwrap_or_else(|poison| poison.into_inner());
@@ -3153,7 +3208,7 @@ impl RemoteSession {
             worker.take()
         };
         if let Some(handle) = handle {
-            if self.reader_completion.wait(remote_write_timeout()) {
+            if self.reader_completion.wait(deadline.saturating_duration_since(Instant::now())) {
                 let _ = handle.join();
             } else if let Err(handle) = enqueue_worker_reap(handle, self.reader_completion.clone())
             {
