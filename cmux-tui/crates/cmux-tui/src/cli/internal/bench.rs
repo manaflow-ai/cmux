@@ -223,18 +223,10 @@ enum SubmissionKind {
     TypingSame { probe: usize },
 }
 
-fn same_connection_submission_plan(
-    creates: usize,
-    typing_probes: usize,
-) -> Vec<SubmissionKind> {
+fn same_connection_submission_plan(creates: usize, typing_probes: usize) -> Vec<SubmissionKind> {
     let mut submissions = Vec::with_capacity(creates + typing_probes);
-    submissions.extend((0..creates).map(|index| SubmissionKind::Create {
-        index,
-        kind: index % 3,
-    }));
-    submissions.extend(
-        (0..typing_probes).map(|probe| SubmissionKind::TypingSame { probe }),
-    );
+    submissions.extend((0..creates).map(|index| SubmissionKind::Create { index, kind: index % 3 }));
+    submissions.extend((0..typing_probes).map(|probe| SubmissionKind::TypingSame { probe }));
     submissions
 }
 
@@ -433,20 +425,11 @@ fn run_create_loop(
         return Err(setup_error.unwrap_or_else(|| "create connection unavailable".into()));
     };
 
-    let drain_error = drain_pending(
-        &mut conn,
-        pending,
-        client,
-        socket,
-        events,
-        report,
-    );
+    let drain_error = drain_pending(&mut conn, pending, client, socket, events, report);
     match (setup_error, drain_error) {
         (None, result) => result,
         (Some(setup_error), Ok(())) => Err(setup_error),
-        (Some(setup_error), Err(drain_error)) => {
-            Err(format!("{setup_error}; {drain_error}"))
-        }
+        (Some(setup_error), Err(drain_error)) => Err(format!("{setup_error}; {drain_error}")),
     }
 }
 
@@ -474,21 +457,14 @@ fn drain_pending(
             continue;
         };
         if value.get("ok").and_then(Value::as_bool) != Some(true) {
-            let error = value
-                .get("error")
-                .and_then(Value::as_str)
-                .unwrap_or("command failed");
+            let error = value.get("error").and_then(Value::as_str).unwrap_or("command failed");
             match request.kind {
-                SubmissionKind::Create { kind, .. } => report
-                    .lock()
-                    .unwrap()
-                    .errors
-                    .push(format!("create[{client}:{kind}]: {error}")),
-                SubmissionKind::TypingSame { .. } => report
-                    .lock()
-                    .unwrap()
-                    .errors
-                    .push(format!("typing(same): {error}")),
+                SubmissionKind::Create { kind, .. } => {
+                    report.lock().unwrap().errors.push(format!("create[{client}:{kind}]: {error}"))
+                }
+                SubmissionKind::TypingSame { .. } => {
+                    report.lock().unwrap().errors.push(format!("typing(same): {error}"))
+                }
             }
             continue;
         }
@@ -879,17 +855,8 @@ mod tests {
 
     #[test]
     fn first_frame_requires_the_requested_surface() {
-        assert!(!is_first_frame_for_surface(
-            &json!({"event":"render-state","surface":41}),
-            42
-        ));
-        assert!(is_first_frame_for_surface(
-            &json!({"event":"render-state","surface":42}),
-            42
-        ));
-        assert!(!is_first_frame_for_surface(
-            &json!({"event":"render-delta","surface":42}),
-            42
-        ));
+        assert!(!is_first_frame_for_surface(&json!({"event":"render-state","surface":41}), 42));
+        assert!(is_first_frame_for_surface(&json!({"event":"render-state","surface":42}), 42));
+        assert!(!is_first_frame_for_surface(&json!({"event":"render-delta","surface":42}), 42));
     }
 }
