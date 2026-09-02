@@ -113,11 +113,13 @@ extension ContentView {
             { _ in value }
         }
 
-        // Palette execution resolves through the mode's shortcut action;
-        // customSidebar has none yet (a new cmux-owned shortcut carries the
-        // full settings/config/docs policy), so it stays out of the palette
-        // until that lands. The mode bar, CLI, and socket verb cover it.
-        return RightSidebarMode.availableModes().filter { $0.shortcutAction != nil }.map { mode in
+        // Palette execution resolves through the mode's shortcut action when
+        // one exists. customSidebar stays out until a cmux-owned shortcut lands.
+        // Beads is a built-in rail (#11707) with CLI/mode-bar/socket coverage and
+        // a registered palette handler, so include it even without a shortcut.
+        return RightSidebarMode.availableModes().filter { mode in
+            mode.shortcutAction != nil || mode == .beads
+        }.map { mode in
             let title = mode.shortcutAction?.label ?? mode.label
             return CommandPaletteCommandContribution(
                 commandId: Self.commandPaletteRightSidebarModeCommandID(mode),
