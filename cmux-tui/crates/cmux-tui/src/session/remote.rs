@@ -3689,6 +3689,18 @@ fn private_dump_directory(path: &Path) -> io::Result<fs::File> {
 
 #[cfg(unix)]
 fn prune_stale_dump_temps(directory: &fs::File, path: &Path) -> io::Result<()> {
+    prune_stale_dump_temps_with(directory, path, stale_dump_entry_metadata)
+}
+
+#[cfg(unix)]
+fn prune_stale_dump_temps_with<F>(
+    directory: &fs::File,
+    path: &Path,
+    mut metadata_for_entry: F,
+) -> io::Result<()>
+where
+    F: FnMut(&Path) -> io::Result<Option<fs::Metadata>>,
+{
     use std::ffi::CString;
     use std::os::fd::AsRawFd;
     use std::os::unix::ffi::OsStrExt;
@@ -3705,7 +3717,7 @@ fn prune_stale_dump_temps(directory: &fs::File, path: &Path) -> io::Result<()> {
         if !is_dump_temp {
             continue;
         }
-        let Some(metadata) = stale_dump_entry_metadata(&entry.path())? else {
+        let Some(metadata) = metadata_for_entry(&entry.path())? else {
             continue;
         };
         if !metadata.is_file() || metadata.uid() != uid || metadata.nlink() != 1 {
