@@ -8338,6 +8338,8 @@ struct MachineActionWorker {
     reaper: Option<JoinHandle<()>>,
 }
 
+type MachineActionReceiveHook = Arc<dyn Fn() + Send + Sync>;
+
 #[derive(Debug)]
 enum MachineSubmitError {
     Busy(MachineRequest),
@@ -8346,8 +8348,25 @@ enum MachineSubmitError {
 
 impl MachineActionWorker {
     fn spawn(
+        controller: Box<dyn MachineController>,
+        app_events: SyncSender<AppEvent>,
+    ) -> anyhow::Result<Self> {
+        Self::spawn_inner(controller, app_events, None)
+    }
+
+    #[cfg(test)]
+    fn spawn_with_receive_hook(
+        controller: Box<dyn MachineController>,
+        app_events: SyncSender<AppEvent>,
+        receive_hook: MachineActionReceiveHook,
+    ) -> anyhow::Result<Self> {
+        Self::spawn_inner(controller, app_events, Some(receive_hook))
+    }
+
+    fn spawn_inner(
         mut controller: Box<dyn MachineController>,
         app_events: SyncSender<AppEvent>,
+        receive_hook: Option<MachineActionReceiveHook>,
     ) -> anyhow::Result<Self> {
         let (sender, receiver) = std::sync::mpsc::sync_channel(1);
         let stop = Arc::new(AtomicBool::new(false));
@@ -8364,6 +8383,9 @@ impl MachineActionWorker {
                         Err(RecvTimeoutError::Timeout) => continue,
                         Err(RecvTimeoutError::Disconnected) => break,
                     };
+                    if let Some(receive_hook) = receive_hook.as_ref() {
+                        receive_hook();
+                    }
                     let completion = match command {
                         MachineControllerCommand::Perform { request, preparation } => {
                             if pending_replacement.is_some() {
@@ -43616,6 +43638,31 @@ mod tests {
         }
     }
 
+    struct FirstActionBlockingMachineController {
+        started: std::sync::mpsc::Sender<MachineKey>,
+        release_first: StdReceiver<()>,
+        closed: Option<std::sync::mpsc::Sender<()>>,
+    }
+
+    impl MachineController for FirstActionBlockingMachineController {
+        fn perform(&mut self, request: MachineRequest) -> anyhow::Result<MachineActionResult> {
+            let MachineRequest::Switch(machine) = request else {
+                panic!("first-action fake received a non-switch request");
+            };
+            self.started.send(machine).unwrap();
+            if machine == MachineKey(1) {
+                self.release_first.recv().expect("release first machine action");
+            }
+            Ok(MachineActionResult::ui(provider_machine_ui()))
+        }
+
+        fn close(&mut self) {
+            if let Some(closed) = self.closed.take() {
+                let _ = closed.send(());
+            }
+        }
+    }
+
     #[test]
     fn blocked_machine_action_does_not_block_the_app_event_loop() {
         let mux = Mux::new("machine-action-responsive", SurfaceOptions::default());
@@ -43734,6 +43781,54 @@ mod tests {
         release.send(()).unwrap();
         dropped_rx.recv_timeout(Duration::from_secs(1)).unwrap();
         drop_thread.join().unwrap();
+    }
+
+    #[test]
+    fn machine_action_worker_shutdown_discards_command_dequeued_after_stop() {
+        let (events, _event_receiver) = crossbeam_channel::bounded(4);
+        let (started, starts) = std::sync::mpsc::channel();
+        let (release_first, releases_first) = std::sync::mpsc::channel();
+        let (closed, closes) = std::sync::mpsc::channel();
+        let (received_tx, received_rx) = crossbeam_channel::bounded(1);
+        let (resume_tx, resume_rx) = crossbeam_channel::bounded(1);
+        let receive_count = Arc::new(AtomicU64::new(0));
+        let hook_count = receive_count.clone();
+        let receive_hook: MachineActionReceiveHook = Arc::new(move || {
+            if hook_count.fetch_add(1, Ordering::SeqCst) == 1 {
+                received_tx.send(()).unwrap();
+                resume_rx.recv().unwrap();
+            }
+        });
+        let mut worker = MachineActionWorker::spawn_with_receive_hook(
+            Box::new(FirstActionBlockingMachineController {
+                started,
+                release_first: releases_first,
+                closed: Some(closed),
+            }),
+            events,
+            receive_hook,
+        )
+        .unwrap();
+
+        worker
+            .perform(MachineRequest::Switch(MachineKey(1)), unused_machine_preparation())
+            .unwrap();
+        assert_eq!(starts.recv_timeout(Duration::from_secs(1)).unwrap(), MachineKey(1));
+        worker
+            .perform(MachineRequest::Switch(MachineKey(2)), unused_machine_preparation())
+            .unwrap();
+        release_first.send(()).unwrap();
+
+        received_rx
+            .recv_timeout(Duration::from_secs(1))
+            .expect("worker did not dequeue the queued command");
+        let started_shutdown = Instant::now();
+        worker.shutdown();
+        assert!(started_shutdown.elapsed() < Duration::from_millis(50));
+        resume_tx.send(()).unwrap();
+        closes.recv_timeout(Duration::from_secs(1)).expect("worker did not close");
+        assert!(starts.try_recv().is_err(), "queued action ran after shutdown");
+        worker.shutdown();
     }
 
     #[test]
