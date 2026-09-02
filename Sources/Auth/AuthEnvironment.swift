@@ -199,7 +199,7 @@ enum AuthEnvironment {
     }
 
     static var signInWebsiteOrigin: URL {
-        appWebOrigin(environment: ProcessInfo.processInfo.environment)
+        resolvedAuthWebOrigin(environment: ProcessInfo.processInfo.environment)
     }
 
     static var apiBaseURL: URL {
@@ -485,6 +485,25 @@ enum AuthEnvironment {
         return appWebOrigin(environment: environment)
     }
 
+    private static func resolvedAuthWebOrigin(environment: [String: String]) -> URL {
+        #if DEBUG
+        let debugBuild = true
+        #else
+        let debugBuild = false
+        #endif
+        if !debugBuild
+            || resolvedStackAuthEnvironment(
+                environment: environment,
+                isDebugBuild: debugBuild
+            ) == .production {
+            return URL(string: "https://cmux.com")!
+        }
+        if let authWebsite = environmentURL("CMUX_AUTH_WWW_ORIGIN", environment: environment) {
+            return canonicalizedLoopbackURL(authWebsite)
+        }
+        return appWebOrigin(environment: environment)
+    }
+
     private static func appWebOrigin(environment: [String: String]) -> URL {
         #if DEBUG
         let debugBuild = true
@@ -720,7 +739,7 @@ enum AuthEnvironment {
     }
 
     static func resolvedAfterSignInOrigin(environment: [String: String]) -> URL {
-        appWebOrigin(environment: environment)
+        resolvedAuthWebOrigin(environment: environment)
     }
 
     static func signInURL(callbackState: String? = nil) -> URL {
