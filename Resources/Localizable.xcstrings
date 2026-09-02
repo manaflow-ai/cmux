@@ -127890,13 +127890,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Your machines are still there. The Cloud service ran into an error loading them — this is on cmux’s side, not your connection."
+            "value": "Your machines are still there. cmux couldn’t load them just now. Retry in a moment."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "マシンはそのまま残っています。クラウドサービスが読み込み中にエラーになりました — これは接続の問題ではなく、cmux 側の問題です。"
+            "value": "マシンはそのまま残っています。cmux は今すぐ読み込めませんでした。しばらくしてから再試行してください。"
           }
         }
       }
@@ -127907,13 +127907,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Cloud service error — showing last known"
+            "value": "Cloud load failed — showing last known"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "クラウドサービスエラー — 既知の状態を表示中"
+            "value": "Cloud の読み込みに失敗 — 既知の状態を表示中"
           }
         }
       }
@@ -127924,13 +127924,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Cloud service error"
+            "value": "Cloud couldn’t load machines"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "クラウドサービスのエラー"
+            "value": "Cloud のマシンを読み込めません"
           }
         }
       }

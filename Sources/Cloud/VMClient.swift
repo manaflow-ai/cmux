@@ -7,7 +7,7 @@ extension URLError.Code {
     /// Keep this list limited to connection, DNS, and TLS failures. Client
     /// configuration errors such as `badURL` are not evidence that the Cloud
     /// service is unreachable and should remain visible as service errors.
-    var isCloudBackendTransportFailure: Bool {
+    nonisolated var isCloudBackendTransportFailure: Bool {
         switch self {
         case .cannotConnectToHost,
              .cannotFindHost,

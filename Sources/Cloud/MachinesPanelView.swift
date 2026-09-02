@@ -180,7 +180,7 @@ struct MachinesPanelView: View {
         case .serverError:
             return String(
                 localized: "machines.serverError.stale",
-                defaultValue: "Cloud service error \u{2014} showing last known"
+                defaultValue: "Cloud load failed \u{2014} showing last known"
             )
         case .unreachable:
             return String(
@@ -310,22 +310,22 @@ struct MachinesPanelView: View {
         .padding(.top, 2)
     }
 
-    /// The Cloud service answered with an error (a 5xx, another non-401/402
-    /// status, or an unreadable body). The request reached the service, so this
-    /// is not a network problem — say so, and let the user retry. Conflating
-    /// this with the transport-failure copy is exactly what made #11597's real
-    /// HTTP 500 read as "Cloud is unreachable — it retries on its own".
+    /// A non-transport failure stopped the machine list from loading. Keep this
+    /// copy neutral because a malformed request or unknown client error does
+    /// not prove that the Cloud service answered. Conflating this state with
+    /// transport failures is what made #11597's real HTTP 500 read as "Cloud
+    /// is unreachable — it retries on its own".
     @ViewBuilder
     private var serverErrorState: some View {
         Image(systemName: "exclamationmark.icloud")
             .font(.system(size: 26, weight: .light))
             .foregroundColor(.secondary.opacity(0.55))
-        Text(String(localized: "machines.serverError.title", defaultValue: "Cloud service error"))
+        Text(String(localized: "machines.serverError.title", defaultValue: "Cloud couldn\u{2019}t load machines"))
             .cmuxFont(size: 13)
             .foregroundColor(.primary.opacity(0.85))
         Text(String(
             localized: "machines.serverError.subtitle",
-            defaultValue: "Your machines are still there. The Cloud service ran into an error loading them \u{2014} this is on cmux\u{2019}s side, not your connection."
+            defaultValue: "Your machines are still there. cmux couldn\u{2019}t load them just now. Retry in a moment."
         ))
         .cmuxFont(size: 12)
         .foregroundColor(.secondary)
@@ -520,7 +520,7 @@ struct MachinesPanelView: View {
                 // a plan gate each get their real fix; only transient-shaped
                 // failures keep the retry-first "unreachable" copy.
                 // A missing classification must not claim the network is down;
-                // the conservative fallback is a service-side error.
+                // the conservative fallback is a non-transport load error.
                 switch viewModel.listProblem ?? .serverError {
                 case .sessionRejected:
                     sessionRejectedState

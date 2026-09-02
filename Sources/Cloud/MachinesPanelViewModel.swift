@@ -346,10 +346,10 @@ final class MachinesPanelViewModel: ObservableObject {
         case sessionRejected
         /// HTTP 402: the plan gates Cloud access.
         case requiresPro
-        /// The Cloud service answered, but with an error (any non-401/402 HTTP
-        /// status, or a body this client could not read). The request reached
-        /// the service, so this is a server-side problem, not a network one —
-        /// it must never wear the "Cloud is unreachable" copy.
+        /// A non-transport failure prevented the list from loading (for
+        /// example, a service response, malformed response, or client error).
+        /// It must never wear the "Cloud is unreachable" copy because the
+        /// failure does not prove that the network is down.
         case serverError
         /// No usable response came back: a transport failure, or a transient
         /// session-refresh failure. This is the only truly "unreachable" case.
@@ -386,7 +386,7 @@ final class MachinesPanelViewModel: ObservableObject {
     /// can surface a transport failure directly on some OS releases, so keep
     /// those failures in the retry-first state instead of calling them a server
     /// error. Unknown errors remain conservative: they are not evidence of an
-    /// unreachable service.
+    /// unreachable service or of a response from the Cloud backend.
     nonisolated static func classifyListFailure(_ error: Error) -> CloudListProblem {
         if let error = error as? VMClientError {
             return classifyListFailure(error)
