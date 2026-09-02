@@ -59,7 +59,7 @@ extension AppDelegate {
             guard action.participatesInGhosttyGotoSplitArbitration else {
                 return false
             }
-            liveConfiguredShortcut(action, owns: event)
+            return liveConfiguredShortcut(action, owns: event)
         }
     }
 
