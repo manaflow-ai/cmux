@@ -40,6 +40,21 @@ const PIPE_READ_POLL_MS: i32 = 100;
 // This is distinct from the relay's lower-level CONTROL_MIN_PROTOCOL floor.
 const DAEMON_LIFECYCLE_PROTOCOL_MIN: u64 = 12;
 
+/// Await a blocking PTY worker while giving an already-cancelled owner
+/// priority over a concurrently-ready worker. The biased select is deliberate
+/// here: Tokio polls branches top to bottom in biased mode, so cancellation
+/// must be listed first to prevent a cancelled open from publishing a handle.
+async fn await_spawn_or_cancel<T>(
+    worker: &mut tokio::task::JoinHandle<T>,
+    cancellation: &CancellationToken,
+) -> Result<Result<T, tokio::task::JoinError>, ()> {
+    tokio::select! {
+        biased;
+        _ = cancellation.cancelled() => Err(()),
+        result = worker => Ok(result),
+    }
+}
+
 async fn control_ready(control: &Arc<dyn ControlHandle>, session: &str) -> bool {
     control.request("identify", serde_json::Value::Null).await.is_some_and(|response| {
         response.get("ok").and_then(serde_json::Value::as_bool) == Some(true)
@@ -1190,13 +1205,9 @@ impl PtyDeps for RealPtyDeps {
                 Err(error) => spawn_pipe_mode(&spec, &error.to_string(), &worker_handoff),
             }
         });
-        let result = tokio::select! {
-            biased;
-            // A pre-cancelled owner must win over a concurrently completing
-            // blocking worker so the returned dead handle gets its terminal
-            // exit event and no PTY is handed to a cancelled request.
-            result = &mut worker => result,
-            _ = cancellation.cancelled() => {
+        let result = match await_spawn_or_cancel(&mut worker, &cancellation).await {
+            Ok(result) => result,
+            Err(()) => {
                 cancel_guard.handoff.cancel();
                 worker.abort();
                 // The async owner returns a dead handle when cancellation wins
