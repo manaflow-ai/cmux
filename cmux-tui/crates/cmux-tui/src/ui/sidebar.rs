@@ -95,7 +95,7 @@ pub fn draw_machines(app: &mut App, frame: &mut Frame) {
     for managed in machine_ui.managed_machines() {
         // Keep the previous first-match behavior if malformed input repeats a
         // key, while normal snapshots remain one entry per stable key.
-        managed_machines.entry(managed.key).or_insert(managed);
+        managed_machines.entry(managed.key.clone()).or_insert(managed);
     }
     let rail_selection = machine_ui.rail_selection;
     let palette = rail::RailPalette::for_app(app, app.machine_sidebar_focused());
