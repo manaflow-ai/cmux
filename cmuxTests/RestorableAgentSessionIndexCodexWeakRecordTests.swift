@@ -179,6 +179,50 @@ struct RestorableAgentSessionIndexCodexWeakRecordTests {
     }
 
     @Test
+    func testCodexTypedUnavailableReasonOverridesLegacyRejectedSource() throws {
+        let fm = FileManager.default
+        let root = fm.temporaryDirectory
+            .appendingPathComponent("cmux-codex-unavailable-reason-\(UUID().uuidString)", isDirectory: true)
+        defer { try? fm.removeItem(at: root) }
+        let repo = root.appendingPathComponent("cmuxterm-hq", isDirectory: true)
+        let codexHome = root.appendingPathComponent(".codex", isDirectory: true)
+        try fm.createDirectory(at: repo, withIntermediateDirectories: true)
+        try fm.createDirectory(at: codexHome, withIntermediateDirectories: true)
+
+        let ws = UUID()
+        let panel = UUID()
+        let sessionId = "019efa75-df8b-71ac-a8ec-a9535e8fdcd5"
+        try writeHookStore(
+            root: root,
+            sessions: [
+                sessionId: codexHookRecord(
+                    sessionId: sessionId, workspaceId: ws, panelId: panel, cwd: repo.path,
+                    transcriptPath: nil, updatedAt: 10,
+                    launchCommand: [
+                        "launcher": "codex",
+                        "arguments": [],
+                        "workingDirectory": repo.path,
+                        "environment": ["CODEX_HOME": codexHome.path],
+                        "capturedAt": 10,
+                        // A legacy source marker can disagree with the typed
+                        // ground. The shared model says argvUnavailable is a
+                        // safe absence fallback, and the index must agree.
+                        "source": "rejected",
+                        "rejectionReason": "argvUnavailable",
+                    ]
+                ),
+            ]
+        )
+
+        let snapshot = try #require(
+            RestorableAgentSessionIndex.load(homeDirectory: root.path, fileManager: fm)
+                .snapshot(workspaceId: ws, panelId: panel)
+        )
+        #expect(snapshot.sessionId == sessionId)
+        #expect(snapshot.launchCommand?.rejectionReason == .argvUnavailable)
+    }
+
+    @Test
     func testCodexRestorableChildWithoutDurableCheckpointDoesNotReplaceParent() throws {
         let fm = FileManager.default
         let root = fm.temporaryDirectory
