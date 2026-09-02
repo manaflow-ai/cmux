@@ -40,7 +40,7 @@ const SENSITIVE_PLACEHOLDER = "[SENSITIVE]";
  * @param {string} provider
  * @param {Record<string, string | undefined>} env deployed runtime env values
  * @param {{ images: Array<{ provider: string, version: string, imageId: string, envVar: string, validationStatus: string }> }} manifest
- * @returns {{ provider: string, envVar: string | null, image: string | null, problems: string[] }}
+ * @returns {{ provider: string, envVar: string | null, image: string | null, imageSource: string, problems: string[] }}
  */
 export function auditProviderReadiness(provider, env, manifest) {
   const problems = [];

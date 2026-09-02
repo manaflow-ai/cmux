@@ -39,9 +39,17 @@ type Manifest = {
   }>;
 };
 
+type Readiness = {
+  provider: string;
+  envVar: string | null;
+  image: string | null;
+  imageSource?: string;
+  problems: string[];
+};
+
 type Coherence = {
-  selected: { provider: string } | null;
-  codeDefault: { provider: string } | null;
+  selected: Readiness | null;
+  codeDefault: Readiness | null;
   problems: string[];
 };
 
