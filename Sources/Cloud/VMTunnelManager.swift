@@ -223,6 +223,31 @@ struct VMTunnelManager: Sendable {
         return try? JSONDecoder().decode(NetworkMetadata.self, from: data)
     }
 
+    /// Fetch this device's network addresses from the control plane and write
+    /// `network.json` without touching the WireGuard config. Enrollment is
+    /// idempotent per device fingerprint and public key, so a Mac that
+    /// enrolled before `network.json` existed (or lost the file) learns its
+    /// addresses again with the tunnel left running and no sudo prompt.
+    func refreshNetworkMetadata(client: VMClient) async throws -> NetworkMetadata {
+        let keys = try keypair()
+        let fingerprint = try deviceFingerprint()
+        let endpoint = try await client.enrollTunnel(
+            clientPublicKey: keys.publicKey,
+            deviceFingerprint: fingerprint,
+            deviceName: CloudTuiClientPaths.deviceName()
+        )
+        let metadata = NetworkMetadata(
+            tunnelId: endpoint.tunnelId,
+            addressV4: endpoint.addressV4,
+            addressV6: endpoint.addressV6,
+            networkCidr: endpoint.networkCidr,
+            networkCidrV6: endpoint.networkCidrV6
+        )
+        try ensureStateDir()
+        try writeNetworkMetadata(metadata)
+        return metadata
+    }
+
     func writeNetworkMetadata(_ metadata: NetworkMetadata) throws {
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.sortedKeys]

@@ -86,6 +86,9 @@ final class VMHostListenerCoordinator {
     private var refreshTask: Task<Void, Never>?
     private var deliveredEndpoints: [String: String] = [:]
     private var linkManagers: [WeakLinkManager] = []
+    /// One metadata refresh per tunnel-up episode; reset when the utun goes away.
+    private var metadataRefresh: Task<Void, Never>?
+    private var metadataRefreshAttempted = false
     private(set) var status = Status()
     private var started = false
 
@@ -158,6 +161,10 @@ final class VMHostListenerCoordinator {
     func setEnabled(_ enabled: Bool) {
         defaults.set(enabled, forKey: Self.settingsKey)
         reconcile(source: "setEnabled")
+        // Sign-in and inventory are learned asynchronously; a user who turns
+        // the feature on right after launch should not see a stale "not
+        // signed in" until some other surface refreshes the machine list.
+        if enabled { scheduleInventoryRefresh(source: "setEnabled") }
     }
 
     /// A link to `machineID` just connected: the account owns at least this
@@ -338,6 +345,7 @@ final class VMHostListenerCoordinator {
         let metadata = manager.loadNetworkMetadata()
         status.enabled = isEnabled
         status.tunnelUp = !live.isEmpty
+        if live.isEmpty { metadataRefreshAttempted = false }
         status.machineFacingAddresses = metadata?.machineFacingAddresses ?? []
         status.networkCIDRs = metadata?.networkCIDRs ?? []
         status.tokenCount = Self.tokens.count
@@ -354,6 +362,7 @@ final class VMHostListenerCoordinator {
         case .on:
             guard !status.machineFacingAddresses.isEmpty, !status.networkCIDRs.isEmpty else {
                 stopListener(reason: "network_metadata_missing")
+                refreshNetworkMetadataOnce()
                 return
             }
             let current = listener?.boundAddresses.map(\.address) ?? []
@@ -367,6 +376,25 @@ final class VMHostListenerCoordinator {
         #if DEBUG
         cmuxDebugLog("vmhost.reconcile source=\(source) desired=\(desired) listening=\(status.listening) port=\(status.port)")
         #endif
+    }
+
+    /// `network.json` is missing while the tunnel is up: a Mac enrolled before
+    /// the file existed. Re-ask the control plane once (idempotent enrollment,
+    /// config untouched) and reconcile again when it lands.
+    private func refreshNetworkMetadataOnce() {
+        guard !metadataRefreshAttempted, metadataRefresh == nil, let client = VMClient.shared else { return }
+        metadataRefreshAttempted = true
+        metadataRefresh = Task { @MainActor [weak self] in
+            guard let self else { return }
+            defer { self.metadataRefresh = nil }
+            do {
+                _ = try await self.manager.refreshNetworkMetadata(client: client)
+                self.reconcile(source: "metadataRefresh")
+            } catch {
+                self.status.lastError = "network metadata: \(error.localizedDescription)"
+                self.publish()
+            }
+        }
     }
 
     private func startListener(addresses: [String]) {
