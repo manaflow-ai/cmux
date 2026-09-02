@@ -18,6 +18,10 @@ struct DecodeFailure {
     Error error;
 };
 
+constexpr std::size_t MAX_JOURNAL_PRODUCER_PERMISSIONS = 32;
+constexpr std::size_t MAX_JOURNAL_PRODUCER_EVENTS = 64;
+constexpr std::size_t MAX_JOURNAL_PRODUCERS = 1'024;
+
 [[noreturn]] void fail(std::string message) {
     throw DecodeFailure(make_error(ErrorCode::decode, std::move(message)));
 }
@@ -165,6 +169,29 @@ std::vector<T> array_value(
     auto array = value.as_array();
     if (!array) {
         fail(std::string(context) + " must be an array");
+    }
+    std::vector<T> result;
+    result.reserve(array.value()->size());
+    for (const auto& item : *array.value()) {
+        result.push_back(parser(item));
+    }
+    return result;
+}
+
+template <typename T, typename Parser>
+std::vector<T> bounded_array_value(
+    const Json& value,
+    std::string_view context,
+    std::size_t maximum,
+    Parser&& parser) {
+    auto array = value.as_array();
+    if (!array) {
+        fail(std::string(context) + " must be an array");
+    }
+    if (array.value()->size() > maximum) {
+        fail(
+            std::string(context) + " contains more than " +
+            std::to_string(maximum) + " entries");
     }
     std::vector<T> result;
     result.reserve(array.value()->size());
@@ -1421,15 +1448,17 @@ JournalProducerManifest parse_journal_producer_manifest(const Json& value) {
         {"producer_id", "namespace", "manifest_version", "max_sensitivity", "permissions", "events"},
         {"producer_id", "namespace", "manifest_version", "max_sensitivity", "permissions", "events"},
         "journal producer manifest");
-    auto permissions = array_value<std::string>(
+    auto permissions = bounded_array_value<std::string>(
         field(object, "permissions", "journal producer manifest"),
         "journal producer permissions",
+        MAX_JOURNAL_PRODUCER_PERMISSIONS,
         [](const Json& item) {
             return bounded_string(item, "journal producer permission", 1, 128);
         });
-    auto events = array_value<JournalEventSchema>(
+    auto events = bounded_array_value<JournalEventSchema>(
         field(object, "events", "journal producer manifest"),
         "journal producer events",
+        MAX_JOURNAL_PRODUCER_EVENTS,
         parse_journal_event_schema);
     auto producer_id = bounded_string(
         field(object, "producer_id", "journal producer manifest"),
@@ -1464,8 +1493,8 @@ JournalProducerManifest parse_journal_producer_manifest(const Json& value) {
         std::move(permissions),
         std::move(events),
     };
-    if (manifest.permissions.empty() || manifest.permissions.size() > 32 ||
-        manifest.events.empty() || manifest.events.size() > 64) {
+    if (manifest.permissions.empty() ||
+        manifest.events.empty()) {
         fail("journal producer manifest has too many or too few entries");
     }
     const auto required_permission = "journal.append." + manifest.namespace_;
@@ -1507,13 +1536,11 @@ JournalProducerListResult parse_journal_producer_list(const Json& value) {
         {"producers"},
         {"producers"},
         "journal producer list result");
-    auto producers = array_value<JournalProducerManifest>(
+    auto producers = bounded_array_value<JournalProducerManifest>(
         field(object, "producers", "journal producer list result"),
         "journal producer list",
+        MAX_JOURNAL_PRODUCERS,
         parse_journal_producer_manifest);
-    if (producers.size() > 1024) {
-        fail("journal producer list contains too many entries");
-    }
     return {std::move(producers)};
 }
 

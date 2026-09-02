@@ -728,7 +728,7 @@ TEST("journal producer decoders reject oversized arrays before item parsing") {
     // Put an invalid item first. The size guard must win before the decoder
     // attempts to parse that item.
     auto oversized_permissions = cmux::Json::parse(
-        R"({"producer_id":"screen-detector","namespace":"plugin.screen-detector","manifest_version":1,"max_sensitivity":"sensitive","permissions":[1,"journal.append.plugin.screen-detector"] ,"events":[])})");
+        R"({"producer_id":"screen-detector","namespace":"plugin.screen-detector","manifest_version":1,"max_sensitivity":"sensitive","permissions":[1,"journal.append.plugin.screen-detector"] ,"events":[]})");
     CHECK(oversized_permissions);
     auto permissions = oversized_permissions.value().find("permissions");
     CHECK(permissions != nullptr);
