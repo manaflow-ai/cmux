@@ -98,6 +98,11 @@ Linux because its Rust SDK transport is Unix-only. A Windows publication needs
 a Windows-capable SDK transport and process backend; it must not claim a
 public-process fallback.
 
+Local hardening also validates the complete numeric Muse binary version,
+rejects empty matchers before they can match every screen, and excludes the
+Unicode BRAILLE PATTERN BLANK from Grok's spinner rule. These are cmux-owned
+changes, not copied herdr material.
+
 `src/detect.rs` adapts herdr's `src/detect/mod.rs` and
 `src/pane/agent_detection.rs` debounce, identity-edge, miss-confirmation, and
 flowing-output signals. The one-second max-evaluation pacer, deterministic

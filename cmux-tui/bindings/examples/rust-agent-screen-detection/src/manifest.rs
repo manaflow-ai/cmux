@@ -692,8 +692,22 @@ fn path_basename(path: &str) -> &str {
 }
 
 fn is_versioned_muse_binary(name: &str) -> bool {
-    name.strip_prefix("muse-bin-")
-        .is_some_and(|version| version.starts_with(|character: char| character.is_ascii_digit()))
+    let Some(version) = name.strip_prefix("muse-bin-") else {
+        return false;
+    };
+    let (numeric, suffix) = version.split_once('-').unwrap_or((version, ""));
+    let numeric_parts = numeric.split('.').collect::<Vec<_>>();
+    if numeric_parts.len() < 2
+        || numeric_parts
+            .iter()
+            .any(|part| part.is_empty() || !part.bytes().all(|byte| byte.is_ascii_digit()))
+    {
+        return false;
+    }
+    suffix.is_empty()
+        || suffix
+            .split(['.', '-'])
+            .all(|part| !part.is_empty() && part.bytes().all(|byte| byte.is_ascii_alphanumeric()))
 }
 
 /// Every bundled manifest, keyed for foreground-process identification.
@@ -1293,9 +1307,18 @@ fn validate_matcher_limits(
     if complexity.total_matchers > MAX_TOTAL_MATCHERS {
         return Err(format!("manifest exceeds max matcher count {MAX_TOTAL_MATCHERS}"));
     }
-    for value in gate.contains.iter().chain(gate.regex.iter()).chain(gate.line_regex.iter()) {
-        if value.chars().count() > MAX_MATCHER_CHARS {
-            return Err(format!("{context} matcher exceeds max length {MAX_MATCHER_CHARS}"));
+    for (field, values) in [
+        ("contains", gate.contains.as_slice()),
+        ("regex", gate.regex.as_slice()),
+        ("line_regex", gate.line_regex.as_slice()),
+    ] {
+        for value in values {
+            if value.is_empty() {
+                return Err(format!("{context} {field} matcher must not be empty"));
+            }
+            if value.chars().count() > MAX_MATCHER_CHARS {
+                return Err(format!("{context} matcher exceeds max length {MAX_MATCHER_CHARS}"));
+            }
         }
     }
     Ok(())
@@ -2099,7 +2122,7 @@ line_regex = ["^working$", "^missing line$"]
 
         let idle = grok.detect(DetectionInput {
             screen: "",
-            osc_title: "\u{2800} custom session title",
+            osc_title: "\u{2800}",
             osc_progress: "4;0;0",
         });
 

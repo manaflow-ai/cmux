@@ -774,6 +774,7 @@ fn operation_class(operation: &str) -> OperationClass {
             | ops::SESSION_GET
             | ops::SESSION_CREATION_RESOLVE
             | ops::SESSION_SNAPSHOT
+            | ops::SESSION_JOURNAL_PRODUCER_LIST
             | ops::SESSION_PING
             | ops::CLIENT_LIST
             | ops::CLIENT_GET

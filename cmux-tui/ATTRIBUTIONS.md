@@ -66,7 +66,8 @@ Derived material and vendored material:
   the deliberate exclusion is listed in `spec/plugins.md`.
 - `bindings/examples/rust-agent-screen-detection/manifests/grok.toml`: the
   local `2026.07.16.2.1` patch gives idle OSC progress precedence over a
-  generic custom title and keeps explicit braille-spinner activity stronger.
+  generic custom title, keeps explicit braille-spinner activity stronger, and
+  excludes the blank braille code point from that activity rule.
 - `bindings/examples/rust-agent-screen-detection/manifests/claude.toml`: the
   upstream `2026.08.31.1` file removes background-shell activity as a working
   signal, so an idle prompt or a permission blocker stays authoritative.

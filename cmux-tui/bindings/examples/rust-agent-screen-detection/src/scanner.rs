@@ -147,8 +147,15 @@ pub fn run(socket: &str, session_name: &str, plugin_id: &str) -> Result<(), Stri
     }
 }
 
-fn configured_session_selector(_session_name: &str) -> Result<Selector<SessionId>, String> {
-    Ok(Selector::current())
+fn configured_session_selector(session_name: &str) -> Result<Selector<SessionId>, String> {
+    if session_name.trim().is_empty() {
+        return Err("CMUX_TUI_SESSION_ID must not be empty".into());
+    }
+    let value = session_name.to_owned();
+    match SessionId::parse(value.clone()) {
+        Ok(id) => Ok(Selector::id(id)),
+        Err(_) => Ok(Selector::name(value)),
+    }
 }
 
 fn register_manifest(session: &Session, plugin_id: &str) -> Result<(), String> {
