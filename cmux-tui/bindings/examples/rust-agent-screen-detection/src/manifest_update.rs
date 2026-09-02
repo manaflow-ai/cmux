@@ -693,6 +693,7 @@ mod tests {
         assert!(validate_agent_id("codex").is_ok());
         assert!(validate_agent_id("screen_detector").is_ok());
         assert!(validate_agent_id("screen-detector").is_ok());
+        assert!(validate_agent_id("status").is_ok());
         assert!(validate_agent_id("bad id").is_err());
         assert!(validate_agent_id("A").is_err());
         assert!(validate_agent_id("-codex").is_err());

@@ -1718,6 +1718,31 @@ mod tests {
     }
 
     #[test]
+    fn screen_detect_manifest_directory_accepts_agent_named_status() {
+        let suffix = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .expect("system clock is after the Unix epoch")
+            .as_nanos();
+        let directory = std::env::temp_dir().join(format!(
+            "cmux-agent-screen-detection-status-agent-{}-{suffix}",
+            std::process::id()
+        ));
+        std::fs::create_dir(&directory).expect("create temporary manifest directory");
+        std::fs::write(
+            directory.join("status.toml"),
+            "id = \"status\"\n[[rules]]\nid = \"idle\"\nstate = \"idle\"\ncontains = [\"ready\"]\n",
+        )
+        .expect("write status agent manifest");
+
+        let mut set = ManifestSet::from_sources(&[]).expect("empty manifest set");
+        set.apply_directory(&directory, |path, _| Ok(ManifestSource::Override(path)))
+            .expect("status agent manifest should load");
+        let _ = std::fs::remove_dir_all(&directory);
+
+        assert_eq!(set.identify("status").map(CompiledManifest::id), Some("status"));
+    }
+
+    #[test]
     fn screen_detect_bundled_manifests_all_parse_and_identify() {
         let set = ManifestSet::bundled();
         let ids: Vec<&str> = set.manifests().map(CompiledManifest::id).collect();
