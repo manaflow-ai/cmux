@@ -2,6 +2,46 @@ import CmuxCommandPalette
 import CmuxSettings
 
 extension KeyboardShortcutSettings.Action {
+    /// Commands that are meaningful only when a terminal surface owns focus.
+    /// Keep this semantic gate separate from the broader surface context so a
+    /// focused Dock browser, simulator, or file-preview panel cannot consume
+    /// the shortcut and merely beep.
+    var requiresFocusedTerminalSurface: Bool {
+        switch self {
+        case .sendCtrlFToTerminal, .clearScreenKeepScrollback:
+            return true
+        default:
+            return false
+        }
+    }
+
+    /// Actions handled by a view-specific router rather than AppDelegate's
+    /// `handleCustomShortcut` path must not suppress Ghostty's `goto_split`
+    /// fallback when their binding happens to share the same stroke.
+    var participatesInGhosttyGotoSplitArbitration: Bool {
+        switch self {
+        case .toggleChecklistItemComplete,
+             .cycleTextBoxSubmitAction,
+             .fileExplorerOpenSelection,
+             .fileExplorerOpenSelectionFinderAlias,
+             .saveFilePreview,
+             .diffViewerScrollDown,
+             .diffViewerScrollUp,
+             .diffViewerScrollHalfPageDown,
+             .diffViewerScrollHalfPageUp,
+             .diffViewerScrollDownEmacs,
+             .diffViewerScrollUpEmacs,
+             .diffViewerScrollToBottom,
+             .diffViewerScrollToTop,
+             .diffViewerOpenFileSearch,
+             .diffViewerNextFile,
+             .diffViewerPreviousFile:
+            return false
+        default:
+            return true
+        }
+    }
+
     var allowsBareFirstStroke: Bool {
         switch self {
         case .diffViewerScrollDown,

@@ -324,9 +324,17 @@ struct AppDelegateRenameShortcutContextTests {
                 panelId: mainPanelId,
                 in: window
             )
+            // Model the real tab click boundary: the pointer host records the
+            // user origin before Bonsplit emits its selection callbacks.
+            dock.beginUserDockPointerInteraction(window: window)
             dock.bonsplitController.focusPane(pane)
             dock.bonsplitController.selectTab(selectedTabId)
-            dock.focusPanelFromDockInteraction(selectedPanelId, window: window)
+            #expect(
+                appDelegate.focusedDockStoreForShortcut(
+                    preferredWindow: window
+                ) === dock
+            )
+            #expect(dock.focusedPanelId == selectedPanelId)
             dock.bonsplitController.updateTab(selectedTabId, title: "Custom Dock Tab", hasCustomTitle: true)
             dock.bonsplitController.requestTabContextAction(
                 .clearName,

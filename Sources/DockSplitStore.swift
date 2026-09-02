@@ -607,7 +607,7 @@ final class DockSplitStore: BonsplitDelegate, FilePreviewTabMetadataHost {
         guard isVisibleInUI != visible else { return }
         isVisibleInUI = visible
         NotificationCenter.default.post(
-            name: .dockMenuCapabilitiesDidChange,
+            name: .dockVisibilityDidChange,
             object: self
         )
         applyFocusedDockSelection()
@@ -630,7 +630,7 @@ final class DockSplitStore: BonsplitDelegate, FilePreviewTabMetadataHost {
         guard isVisibleInUI != anyHostVisible else { return }
         isVisibleInUI = anyHostVisible
         NotificationCenter.default.post(
-            name: .dockMenuCapabilitiesDidChange,
+            name: .dockVisibilityDidChange,
             object: self
         )
         applyFocusedDockSelection()
@@ -1642,6 +1642,10 @@ final class DockSplitStore: BonsplitDelegate, FilePreviewTabMetadataHost {
             if shouldSeed {
                 seed(definitions: resolution.controls, baseDirectory: resolution.baseDirectory)
             }
+            // `seed` has its own refresh for non-empty definitions, but an
+            // empty/filtered config still needs to publish the post-load
+            // snapshot (especially after replacing an older Dock tree).
+            refreshDockMenuCapabilities()
             if configurationSeedSuppressionGeneration == generation { configurationSeedSuppressionGeneration = nil }
             hasAppliedConfigurationSeed = true
         case .failed(let identity, let message):
@@ -1721,6 +1725,7 @@ final class DockSplitStore: BonsplitDelegate, FilePreviewTabMetadataHost {
             previousPanelId = panel.id
         }
         applyVisibilityToAllPanels()
+        refreshDockMenuCapabilities()
     }
 
     private func trustRequestIfNeeded(for resolution: DockConfigResolution) -> DockTrustRequest? {

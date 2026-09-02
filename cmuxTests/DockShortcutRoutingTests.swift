@@ -2173,6 +2173,14 @@ struct DockShortcutRoutingTests {
                 #expect(!focus.shortcutContext.bool(
                     ShortcutContextKnownKey.terminalFocus.rawValue
                 ))
+                KeyboardShortcutSettings.setShortcut(shortcut, for: .sendCtrlFToTerminal)
+                #expect(
+                    !harness.appDelegate.shortcutWhenClauseAllows(
+                        action: .sendCtrlFToTerminal,
+                        event: event
+                    ),
+                    "Terminal-only shortcuts must stay disabled for a focused Dock Simulator"
+                )
                 #expect(!KeyboardShortcutSettings.effectiveWhenClause(
                     for: .canvasZoomReset
                 ).evaluate(canvasContext))

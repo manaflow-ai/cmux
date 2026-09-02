@@ -205,7 +205,8 @@ struct BrowserActionDispatcher {
             return workspace.panels.count > 1
         case .workspaceDock, .windowDock:
             guard let dock = appDelegate.dock(resolving: target),
-                  dock.browserPanel(for: target.panelId) != nil else {
+                  dock.browserPanel(for: target.panelId) != nil,
+                  appDelegate.dockReferenceTabManager(for: dock) != nil else {
                 return false
             }
             // A Dock keeps its root pane when the last panel leaves, so a

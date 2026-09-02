@@ -9998,7 +9998,7 @@ struct ContentView: View {
            let workspaceId = terminalView.tabId,
            let panelId = terminalView.terminalSurface?.id {
             if let app = AppDelegate.shared,
-               let dock = app.windowDockContainingPanel(panelId) {
+               let dock = DockSplitStore.liveStore(containingPanel: panelId) {
                 return CommandPaletteRestoreFocusTarget(
                     host: app.panelHost(for: dock),
                     panelId: panelId,

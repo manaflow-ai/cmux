@@ -17008,8 +17008,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     /// Gates every focus-scoped shortcut, including the numbered workspace/surface
     /// handlers that previously ignored context (issue #5189).
     func shortcutWhenClauseAllows(action: KeyboardShortcutSettings.Action, event: NSEvent) -> Bool {
-        KeyboardShortcutSettings.effectiveWhenClause(for: action)
-            .evaluate(shortcutEventFocusContext(event).shortcutContext)
+        guard KeyboardShortcutSettings.effectiveWhenClause(for: action)
+            .evaluate(shortcutEventFocusContext(event).shortcutContext) else {
+            return false
+        }
+        guard !action.requiresFocusedTerminalSurface
+            || shortcutEventHasFocusedTerminalSurface(event) else {
+            return false
+        }
+        return true
     }
 
     /// Resolves a right-sidebar mode shortcut after applying the action's

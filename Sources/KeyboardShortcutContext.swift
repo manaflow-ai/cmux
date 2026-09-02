@@ -199,6 +199,34 @@ extension AppDelegate {
         return context
     }
 
+    /// Resolves whether the current event is owned by a terminal surface. The
+    /// focus atoms intentionally keep sidebar focus exclusive, so a visible
+    /// Dock terminal needs the explicit Dock ownership lookup as a second
+    /// branch.
+    func shortcutEventHasFocusedTerminalSurface(_ event: NSEvent) -> Bool {
+        let context = shortcutEventFocusContext(event)
+        guard context.browserPanel == nil,
+              context.markdownPanel == nil,
+              !context.filePreviewTextEditorFocused,
+              !context.simulatorFocused else {
+            return false
+        }
+        if context.shortcutContext.bool(
+            ShortcutContextKnownKey.dockFocus.rawValue
+        ) {
+            let window = shortcutResolvedEventWindow(event)
+                ?? event.window
+                ?? NSApp.keyWindow
+                ?? NSApp.mainWindow
+            return focusedDockStoreForShortcut(
+                preferredWindow: window
+            )?.focusedDockPanelIsTerminal == true
+        }
+        return context.shortcutContext.bool(
+            ShortcutFocusAtom.terminalFocus.rawValue
+        )
+    }
+
     /// The ``TabManager`` driving the shortcut window, falling back to the app's
     /// current tab manager when the window is unknown.
     private func shortcutContextTabManager(in window: NSWindow?) -> TabManager? {

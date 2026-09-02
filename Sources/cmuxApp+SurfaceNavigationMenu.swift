@@ -85,7 +85,7 @@ extension cmuxApp {
         }
         Button(
             String(
-                localized: "command.moveTabToNewWorkspace.title",
+                localized: "terminalContextMenu.moveTabToNewWorkspace",
                 defaultValue: "Move Tab to New Workspace"
             )
         ) {

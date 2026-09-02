@@ -56,6 +56,9 @@ extension AppDelegate {
         }
 
         return !KeyboardShortcutSettings.Action.allCases.contains { action in
+            guard action.participatesInGhosttyGotoSplitArbitration else {
+                return false
+            }
             liveConfiguredShortcut(action, owns: event)
         }
     }

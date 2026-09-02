@@ -10,7 +10,9 @@ import Testing
 #endif
 
 extension GlobalSearchShortcutBehaviorTests {
-    @MainActor @Suite final class SystemWideHotkeyShortcutPolicyTests {
+    @Suite(.serialized)
+    @MainActor
+    final class SystemWideHotkeyShortcutPolicyTests {
     private let originalSettingsFileStore: KeyboardShortcutSettingsFileStore
     private let savedDefaults: [String: Any]
 
@@ -117,6 +119,54 @@ extension GlobalSearchShortcutBehaviorTests {
             KeyboardShortcutSettings.shortcut(
                 for: .globalSearch
             ) == globalSearchShortcut
+        )
+    }
+
+    @Test func conflictSnapshotReadsLegacyShowHideBindingBeforeMigration() throws {
+        // Use the same physical default shape as the migration path without
+        // probing Carbon registrations, which can be occupied by another app
+        // on a shared CI host.
+        let shortcut = commandGraveShortcut()
+        let encoded = try JSONEncoder().encode(shortcut)
+        UserDefaults.standard.removeObject(
+            forKey: KeyboardShortcutSettings.Action.showHideAllWindows.defaultsKey
+        )
+        UserDefaults.standard.set(
+            encoded,
+            forKey: SystemWideHotkeySettings.legacyShortcutKey
+        )
+
+        #expect(
+            KeyboardShortcutSettings.conflictResolutionShortcut(
+                for: .showHideAllWindows
+            ) == shortcut
+        )
+        // The conflict snapshot is read-only; migration remains the explicit
+        // responsibility of SystemWideHotkeySettings.shortcut().
+        #expect(
+            UserDefaults.standard.data(
+                forKey: SystemWideHotkeySettings.legacyShortcutKey
+            ) == encoded
+        )
+    }
+
+    @Test func conflictSnapshotPreservesReopenClosedLegacyDisplacement() throws {
+        let legacy = KeyboardShortcutSettings.Action
+            .reopenClosedBrowserPanel
+            .defaultShortcut
+        let encoded = try JSONEncoder().encode(legacy)
+        UserDefaults.standard.set(
+            encoded,
+            forKey: KeyboardShortcutSettings.Action.reopenClosedWorkspace.defaultsKey
+        )
+        UserDefaults.standard.removeObject(
+            forKey: KeyboardShortcutSettings.Action.reopenClosedBrowserPanel.defaultsKey
+        )
+
+        #expect(
+            KeyboardShortcutSettings.conflictResolutionShortcut(
+                for: .reopenClosedBrowserPanel
+            ).isUnbound
         )
     }
 

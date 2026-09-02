@@ -93,6 +93,28 @@ struct TabManagerTitleUpdateTests {
     }
 
     @Test
+    func coalescerIgnoresAQueuedCallbackAfterFlushNow() {
+        let scheduler = ManualCoalescerScheduler()
+        let coalescer = NotificationBurstCoalescer(
+            delay: 0.02,
+            schedule: scheduler.schedule(delay:action:)
+        )
+        var values: [Int] = []
+
+        coalescer.signal { values.append(1) }
+        coalescer.flushNow()
+        coalescer.signal { values.append(2) }
+
+        // A real timer may already have enqueued its MainActor task by the
+        // time flushNow cancels it. Simulate that stale callback explicitly.
+        scheduler.fireIgnoringCancellation(at: 0)
+        #expect(values == [1])
+
+        scheduler.fire(at: 1)
+        #expect(values == [1, 2])
+    }
+
+    @Test
     func titleCoalescingDelayUsesCurrentSettingsAtNotificationTime() async throws {
         let suiteName = "TabManagerTitleCoalescingSettings.\(UUID().uuidString)"
         let defaults = try #require(UserDefaults(suiteName: suiteName))
@@ -535,6 +557,12 @@ struct TabManagerTitleUpdateTests {
         @MainActor
         func fire(at index: Int) {
             guard pendingFlushes.indices.contains(index), !pendingFlushes[index].isCancelled else { return }
+            pendingFlushes[index].action()
+        }
+
+        @MainActor
+        func fireIgnoringCancellation(at index: Int) {
+            guard pendingFlushes.indices.contains(index) else { return }
             pendingFlushes[index].action()
         }
     }

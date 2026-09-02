@@ -11,10 +11,8 @@ extension KeyboardShortcutSettings {
         let managedBySettingsFile = settingsFileStore.isManagedByFile(action)
         let candidate: StoredShortcut? = if managedBySettingsFile {
             settingsFileStore.override(for: action)
-        } else if let data = UserDefaults.standard.data(forKey: action.defaultsKey) {
-            try? JSONDecoder().decode(StoredShortcut.self, from: data)
         } else {
-            nil
+            persistedConflictShortcut(for: action)
         }
 
         if managedBySettingsFile,
@@ -31,6 +29,15 @@ extension KeyboardShortcutSettings {
                     candidate,
                     checkingSystemWideConflicts: false
                 ) {
+                // Match `shortcutIfBound(for:)`: an implicitly recovered
+                // reopen-browser default yields to an explicit workspace
+                // binding, while an explicit binding equal to the default
+                // remains authoritative.
+                if action == .reopenClosedBrowserPanel,
+                   normalized == action.defaultShortcut,
+                   candidate != normalized {
+                    return conflictDefaultShortcut(for: action) ?? .unbound
+                }
                 return normalized
             }
             // Show/Hide must fail closed for an invalid explicit binding; it
@@ -40,14 +47,54 @@ extension KeyboardShortcutSettings {
             }
         }
 
-        guard case let .accepted(normalizedDefault) = action
-            .resolvedRecordedShortcutIgnoringConflicts(
-                action.defaultShortcut,
-                checkingSystemWideConflicts: false
-            ) else {
+        guard let defaultShortcut = conflictDefaultShortcut(for: action),
+              case let .accepted(normalizedDefault) = action
+                  .resolvedRecordedShortcutIgnoringConflicts(
+                      defaultShortcut,
+                      checkingSystemWideConflicts: false
+                  ) else {
             return .unbound
         }
         return normalizedDefault
+    }
+
+    /// Reads the app's persisted shortcut without invoking any effective-value
+    /// resolver. The system-wide action historically used a separate key, so
+    /// retain that key as a fallback until startup migration has run.
+    private static func persistedConflictShortcut(for action: Action) -> StoredShortcut? {
+        if settingsFileStore.isManagedByFile(action) {
+            return settingsFileStore.override(for: action)
+        }
+        let defaults = UserDefaults.standard
+        let keys: [String] = action == .showHideAllWindows
+            ? [action.defaultsKey, SystemWideHotkeySettings.legacyShortcutKey]
+            : [action.defaultsKey]
+        for key in keys {
+            guard let data = defaults.data(forKey: key),
+                  let shortcut = try? JSONDecoder().decode(
+                      StoredShortcut.self,
+                      from: data
+                  ) else {
+                continue
+            }
+            return shortcut
+        }
+        return nil
+    }
+
+    /// Resolves an action's built-in default for conflict snapshots while
+    /// preserving the legacy displacement rule used by `shortcut(for:)`.
+    /// Supplying the action-local persistence closure keeps this path out of
+    /// the system-wide reservation walk, so conflict validation remains
+    /// acyclic.
+    private static func conflictDefaultShortcut(for action: Action) -> StoredShortcut? {
+        guard action == .reopenClosedBrowserPanel else {
+            return action.defaultShortcut
+        }
+        return defaultShortcutResolvingLegacyConflicts(
+            for: action,
+            explicitlyConfiguredShortcut: { persistedConflictShortcut(for: $0) }
+        )
     }
 
     static func reservedSystemWideHotkeyShortcuts(

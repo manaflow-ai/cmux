@@ -173,40 +173,6 @@ final class KeyboardShortcutContextTests: XCTestCase {
         XCTAssertTrue(context.overlaps(KeyboardShortcutSettings.Action.renameTab.shortcutContext))
     }
 
-    func testSurfacePanelContextAllowsDockSidebarFocusOnly() {
-        let context = KeyboardShortcutSettings.Action.renameTab.shortcutContext
-
-        XCTAssertFalse(
-            context.isAvailable(
-                focusedBrowserPanel: false,
-                focusedMarkdownPanel: false,
-                rightSidebarFocused: true
-            )
-        )
-        XCTAssertTrue(
-            context.isAvailable(
-                focusedBrowserPanel: false,
-                focusedMarkdownPanel: false,
-                rightSidebarFocused: true,
-                dockFocused: true
-            )
-        )
-        var shortcutContext = ShortcutContext()
-        shortcutContext.setBool(
-            ShortcutContextKnownKey.sidebarFocus.rawValue,
-            true
-        )
-        shortcutContext.setBool(
-            ShortcutContextKnownKey.dockFocus.rawValue,
-            true
-        )
-        XCTAssertTrue(
-            KeyboardShortcutSettings.Action.renameTab
-                .shortcutContext.defaultWhenClause
-                .evaluate(shortcutContext)
-        )
-    }
-
     func testReactGrabStaysApplicationScopedForTerminalPastebackRouting() {
         XCTAssertEqual(KeyboardShortcutSettings.Action.toggleReactGrab.shortcutContext, .application)
     }

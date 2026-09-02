@@ -101,6 +101,7 @@ extension DockSplitStore {
             focusDockController(panelId: focusedPanelId)
         }
         applyVisibilityToAllPanels()
+        refreshDockMenuCapabilities()
         scheduleDockPortalReconcile(reason: "dock.sessionRestore")
         terminalStartupRestoreCoordinator.commitPendingRestores(
             panelIDs: Array(oldToNewPanelIds.values)

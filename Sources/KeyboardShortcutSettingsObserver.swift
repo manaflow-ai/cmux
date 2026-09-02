@@ -90,11 +90,19 @@ final class KeyboardShortcutSettingsObserver {
     nonisolated private static func deliverOnMainActor(
         _ action: @escaping @MainActor @Sendable () -> Void
     ) {
-        // The main thread is not proof that the current job is running on the
-        // Swift MainActor executor. Always enqueue the isolated action rather
-        // than relying on an executor assertion from a notification callback.
-        Task { @MainActor in
-            action()
+        if Thread.isMainThread {
+            // Settings mutations posted by the app's MainActor-owned stores
+            // must be visible before NotificationCenter.post returns. The
+            // observer is registered for the main-thread notification path;
+            // retain that synchronous contract while the off-main path below
+            // hops safely to the actor.
+            MainActor.assumeIsolated {
+                action()
+            }
+        } else {
+            Task { @MainActor in
+                action()
+            }
         }
     }
 }

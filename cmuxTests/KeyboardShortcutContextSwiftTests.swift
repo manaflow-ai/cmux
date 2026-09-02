@@ -130,6 +130,40 @@ struct KeyboardShortcutContextSwiftTests {
         #expect(context.isAvailable(commandPaletteContext: palette))
     }
 
+    @Test("Surface shortcuts allow the focused Dock but terminal-only actions reject non-terminals")
+    @MainActor
+    func surfaceShortcutContextKeepsDockTerminalGateExplicit() {
+        let context = KeyboardShortcutSettings.Action.renameTab.shortcutContext
+        #expect(!KeyboardShortcutSettings.Action.renameTab.requiresFocusedTerminalSurface)
+        #expect(KeyboardShortcutSettings.Action.sendCtrlFToTerminal.requiresFocusedTerminalSurface)
+        #expect(KeyboardShortcutSettings.Action.clearScreenKeepScrollback.requiresFocusedTerminalSurface)
+        #expect(!context.isAvailable(
+            focusedBrowserPanel: false,
+            focusedMarkdownPanel: false,
+            rightSidebarFocused: true
+        ))
+        #expect(context.isAvailable(
+            focusedBrowserPanel: false,
+            focusedMarkdownPanel: false,
+            rightSidebarFocused: true,
+            dockFocused: true
+        ))
+        var shortcutContext = ShortcutContext()
+        shortcutContext.setBool(
+            ShortcutContextKnownKey.sidebarFocus.rawValue,
+            true
+        )
+        shortcutContext.setBool(
+            ShortcutContextKnownKey.dockFocus.rawValue,
+            true
+        )
+        #expect(
+            KeyboardShortcutSettings.Action.renameTab
+                .shortcutContext.defaultWhenClause
+                .evaluate(shortcutContext)
+        )
+    }
+
     @Test("reopen last closed default yields to an explicit workspace binding")
     func reopenLastClosedDefaultYieldsToExplicitWorkspaceBinding() {
         let workspaceAction = KeyboardShortcutSettings.Action.reopenClosedWorkspace

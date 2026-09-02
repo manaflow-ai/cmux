@@ -58,21 +58,4 @@ struct CommandPaletteWorkspaceRenameTargetTests {
         #expect(target.currentName == "scratch")
     }
 
-    @Test("A Dock tab keeps its owner identity distinct from workspace tabs")
-    func dockTabRetainsOwnerIdentity() {
-        let ownerId = UUID()
-        let panelId = UUID()
-        let target = CommandPaletteRenameTarget(
-            kind: .dockTab(ownerId: ownerId, panelId: panelId),
-            currentName: "Dock shell"
-        )
-
-        #expect(
-            target.kind == .dockTab(
-                ownerId: ownerId,
-                panelId: panelId
-            )
-        )
-        #expect(target.currentName == "Dock shell")
-    }
 }

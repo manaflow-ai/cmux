@@ -5,6 +5,9 @@ extension Notification.Name {
     static let dockMenuCapabilitiesDidChange = Notification.Name(
         "cmux.dockMenuCapabilitiesDidChange"
     )
+    static let dockVisibilityDidChange = Notification.Name(
+        "cmux.dockVisibilityDidChange"
+    )
     static let terminalSelectionDidChange = Notification.Name(
         "cmux.terminalSelectionDidChange"
     )
@@ -50,6 +53,15 @@ final class FocusHistoryMenuInvalidator: ObservableObject {
                 self.revision &+= 1
             }
         })
+        observers.append(center.addObserver(
+            forName: .dockVisibilityDidChange,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor in
+                self?.revision &+= 1
+            }
+        })
     }
 
     /// Dock capability updates from an inactive store cannot affect the
@@ -63,10 +75,10 @@ final class FocusHistoryMenuInvalidator: ObservableObject {
             // Dock itself and must always invalidate the active-store lookup.
             return true
         }
-        // Visibility is flipped before the notification is posted. Keep the
-        // hide transition even though the Dock no longer satisfies the active
-        // store predicate, so Commands can fall back to the main workspace.
-        guard dock.isVisibleInUI else { return true }
+        // Visibility transitions use their own notification. A capability
+        // update from a hidden Dock is not relevant to the active Commands
+        // body and must not rebuild it.
+        guard dock.isVisibleInUI else { return false }
         return AppDelegate.shared?.focusedDockStoreForMenu(
             preferredWindow: NSApp.keyWindow ?? NSApp.mainWindow
         ) === dock

@@ -1240,6 +1240,14 @@ final class SystemWideHotkeyController {
         }
     }
 
+    /// Drops the existing Carbon registration before a shortcut recorder can
+    /// receive its next key event. Rebuilding the replacement binding remains
+    /// deferred to avoid re-entering settings resolution from the notification.
+    private func handleRecorderActivityChange() {
+        unregisterHotKey()
+        scheduleRegistrationRefresh()
+    }
+
     func start() {
         guard defaultsObserver == nil else { return }
 
@@ -1264,7 +1272,7 @@ final class SystemWideHotkeyController {
             object: nil,
             queue: .main
         ) { [weak self] _ in
-            self?.scheduleRegistrationRefresh()
+            self?.handleRecorderActivityChange()
         }
         // The live Settings UI uses the CmuxSettingsUI package recorder, which signals
         // arm/disarm through its own notification (it cannot post the app-target
@@ -1276,7 +1284,7 @@ final class SystemWideHotkeyController {
             object: nil,
             queue: .main
         ) { [weak self] _ in
-            self?.scheduleRegistrationRefresh()
+            self?.handleRecorderActivityChange()
         }
         inputSourceObserver = DistributedNotificationCenter.default().addObserver(
             forName: Notification.Name(rawValue: kTISNotifySelectedKeyboardInputSourceChanged as String),
@@ -1290,7 +1298,11 @@ final class SystemWideHotkeyController {
             object: NSApp,
             queue: .main
         ) { [weak self] _ in
-            Task { @MainActor [weak self] in
+            // `willHide` is the last synchronous point before AppKit removes
+            // windows from the visible set. Capture restore targets inline on
+            // the main notification path so a deferred actor task cannot see
+            // an already-hidden/empty window list.
+            MainActor.assumeIsolated { [weak self] in
                 self?.captureHiddenWindowRestoreTargets()
             }
         }

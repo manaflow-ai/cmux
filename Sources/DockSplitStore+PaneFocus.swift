@@ -269,7 +269,8 @@ extension DockSplitStore {
             isTerminal: terminal != nil,
             canUseSelection: terminal?.hasSelection() == true,
             hasFindSession: terminal?.searchState != nil
-                || browser?.searchState != nil,
+                || browser?.searchState != nil
+                || browser?.isDiffViewerFindOwner == true,
             canCloseOtherTabs: tabs.contains {
                 $0.id != tab.id && !$0.isPinned
             },

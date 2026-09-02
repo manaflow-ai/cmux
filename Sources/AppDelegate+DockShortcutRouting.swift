@@ -148,23 +148,16 @@ extension AppDelegate {
     }
 
     /// Returns the Dock for menu enablement from the delivered focus snapshot.
-    /// This path is intentionally bounded: Commands must not traverse a Dock's
-    /// responder, panel, or Bonsplit collections while rebuilding the menu.
-    /// Menu action execution calls this same resolver, so enablement and the
-    /// mutation target cannot disagree.
+    /// This uses the same bounded ownership predicate as command execution, so
+    /// a transient responder handoff cannot leave a menu item disabled while
+    /// `performFocusedDockCommand` would still route it to the Dock.
     func focusedDockStoreForMenu(preferredWindow: NSWindow?) -> DockSplitStore? {
         guard let context = preferredRegisteredMainWindowContext(
             preferredWindow: preferredWindow
-        ),
-        let sidebarState = context.fileExplorerState,
-        sidebarState.isVisible,
-        context.keyboardFocusCoordinator.focusedRightSidebarMode == .dock,
-        let dock = existingWindowDock(forWindowId: context.windowId),
-        !dock.isRetired,
-        dock.isVisibleInUI else {
+        ) else {
             return nil
         }
-        return dock
+        return dockStoreForShortcut(context: context)
     }
 
     /// Clears a Dock pointer-origin transaction when a key event begins in the
