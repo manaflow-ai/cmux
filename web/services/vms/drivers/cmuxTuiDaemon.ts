@@ -5,16 +5,19 @@ import {
   type ExecResult,
   type ProviderId,
 } from "./types";
-import { shellQuote } from "./wsLease";
 
 // cmux-tui is the ONE session daemon on every cmux Cloud machine
 // (docs/cloud-cmux-tui-daemon.md). This module carries everything about it
 // that is not provider-specific: the pinned-manifest source resolution, the
 // sha256-verified install command, the daemon command, and the enrollment
-// flows, all parameterized over a provider exec so blaxel.ts (sandbox API),
+// flows, all parameterized over a provider exec so freestyle.ts (VM exec API),
 // e2b.ts (commands.run as root), and daytona.ts (toolbox exec) share one
 // implementation. Providers keep only their transport mechanics: how the
 // daemon process is supervised and how port 1337 is reached from outside.
+
+export function shellQuote(value: string): string {
+  return `'${value.replace(/'/g, `'\\''`)}'`;
+}
 
 export const CMUX_TUI_PORT = 1337;
 export const CMUX_TUI_SESSION = "cloud";
@@ -27,8 +30,8 @@ export const CMUX_TUI_PERSISTENT_MOUNT_WAIT_TIMEOUT_MS = 30_000;
 
 // The non-root work user on cmux Cloud machines. Terminals must not run as root
 // (coding agents refuse root, e.g. `claude --dangerously-skip-permissions`); root
-// stays one passwordless `sudo` away. The Blaxel image bakes this user; the
-// driver's runtime user setup creates it on images that predate it.
+// stays one passwordless `sudo` away. An image that bakes this user is driven
+// through CMUX_CLOUD_LAYOUT; images without it keep the root daemon.
 export const CMUX_CLOUD_USER = "cmux";
 export const CMUX_CLOUD_HOME = "/home/cmux";
 
@@ -142,7 +145,7 @@ const CMUX_TUI_MANIFEST_CACHE_MS = 5 * 60 * 1000;
  * `latest`. Nothing else is configured by hand: the build and its sha256 come from
  * the manifest the artifacts workflow publishes.
  */
-export function cmuxTuiManifestUrl(provider: ProviderId = "blaxel"): string {
+export function cmuxTuiManifestUrl(provider: ProviderId = "freestyle"): string {
   const url = process.env.CMUX_VM_CMUX_TUI_MANIFEST_URL?.trim() || CMUX_TUI_DEFAULT_MANIFEST_URL;
   if (!/^https:\/\//.test(url)) {
     throw new ProviderError(provider, "CMUX_VM_CMUX_TUI_MANIFEST_URL must be an https:// URL");
@@ -154,7 +157,7 @@ export function cmuxTuiManifestUrl(provider: ProviderId = "blaxel"): string {
 export function parseCmuxTuiManifest(
   manifestUrl: string,
   manifest: unknown,
-  provider: ProviderId = "blaxel",
+  provider: ProviderId = "freestyle",
 ): CmuxTuiSource {
   const record = manifest && typeof manifest === "object" ? manifest as Record<string, unknown> : {};
   const commit = typeof record.commit === "string" ? record.commit : "";
@@ -178,7 +181,7 @@ export function parseCmuxTuiManifest(
 let cmuxTuiSourceCache: { url: string; fetchedAt: number; source: CmuxTuiSource } | null = null;
 
 /** The Linux daemon build to install, from the manifest (cached 5 min per manifest URL). */
-export async function resolveCmuxTuiSource(provider: ProviderId = "blaxel"): Promise<CmuxTuiSource> {
+export async function resolveCmuxTuiSource(provider: ProviderId = "freestyle"): Promise<CmuxTuiSource> {
   const manifestUrl = cmuxTuiManifestUrl(provider);
   if (cmuxTuiSourceCache && cmuxTuiSourceCache.url === manifestUrl && Date.now() - cmuxTuiSourceCache.fetchedAt < CMUX_TUI_MANIFEST_CACHE_MS) {
     return cmuxTuiSourceCache.source;
@@ -248,8 +251,8 @@ export function cmuxTuiInstallCommand(
   const bin = shellQuote(binaryPath);
   const tmp = shellQuote(`${binaryPath}.tmp`);
   const pinned = (path: string) => `printf '%s  %s\n' ${shellQuote(source.sha256)} ${path} | sha256sum -c >/dev/null 2>&1`;
-  // A stock blaxel/base-image has no curl until background provisioning adds it, so
-  // the fetch installs curl itself (apk, Alpine) and falls back to busybox wget.
+  // A stock minimal base image may have no curl until background provisioning adds
+  // it, so the fetch installs curl itself (apk, Alpine) and falls back to busybox wget.
   const fetch =
     `(command -v curl >/dev/null 2>&1 || apk add --no-cache curl >/dev/null 2>&1 || true); ` +
     `if command -v curl >/dev/null 2>&1; then curl -fsSL --retry 3 --retry-delay 2 -o ${tmp} ${shellQuote(source.url)}; ` +
@@ -281,8 +284,8 @@ export function cmuxTuiPinCheckCommand(
 
 /** The listener bind every container provider uses; cmux-devbox-boot's CMUX_TUI_REMOTE_WS_BIND default. */
 export const CMUX_TUI_DEFAULT_REMOTE_WS_BIND = `0.0.0.0:${CMUX_TUI_PORT}`;
-// Rootfs state lets the Blaxel provider distinguish an intentional root
-// fallback from a still-running non-root daemon and reconcile it on attach.
+// Rootfs state lets a driver distinguish an intentional root fallback from a
+// still-running non-root daemon and reconcile it on attach.
 export const CMUX_TUI_LAYOUT_MARKER_PATH = "/etc/cmux/daemon-layout";
 
 const CMUX_TUI_BACKING_EXPECTED_VAR = "cmux_tui_backing_expected";
@@ -376,7 +379,7 @@ function cmuxTuiSupervisedDaemonInvocation(
     `${watcherPid}=''`,
     terminateChild,
     // USR1 is private to this supervisor. TERM/INT/HUP still stop both children
-    // cleanly when Blaxel stops the named process during lease revocation.
+    // cleanly when a provider stops the named process during lease revocation.
     `trap '${viewLost}=1; cmux_tui_terminate_child "$${daemonPid}"' USR1`,
     `trap 'cmux_tui_terminate_child "$${daemonPid}"; cmux_tui_terminate_child "$${watcherPid}"; exit 143' TERM INT HUP`,
     `{ mkdir -p /etc/cmux 2>/dev/null; printf '${layoutMarker}\\n' > ${CMUX_TUI_LAYOUT_MARKER_PATH}; } 2>/dev/null`,
@@ -442,8 +445,8 @@ function cmuxTuiBackingDaemonInvocation(
  * default).
  *
  * Without a layout the daemon (and so every terminal pane it spawns) runs as root
- * with HOME=/root — the historical model, still used by E2B, Daytona, and
- * Freestyle. With a layout (Blaxel) the daemon drops to the layout user via
+ * with HOME=/root — the model every current driver uses (E2B, Daytona,
+ * Freestyle). With a layout the daemon drops to the layout user via
  * runuser, so panes are non-root shells with passwordless sudo. Two guards keep
  * old machines working:
  *  - A sandbox from before the layout change mounts its persistent volume at
@@ -474,7 +477,7 @@ export function cmuxTuiDaemonCommand(
   const backingBin = cmuxTuiBinaryPath(backing);
   const legacyBin = cmuxTuiBinaryPath("/root");
   const usableBase = cmuxTuiUserUsableCondition(layout);
-  // A no-volume Blaxel machine legitimately uses its disposable rootfs home.
+  // A no-volume machine legitimately uses its disposable rootfs home.
   // A volume-backed machine must never silently switch to that path while its
   // mount is late or lost, because all writes there disappear on resurrection.
   const usable = persistentVolumeExpected
@@ -539,7 +542,7 @@ export function cmuxTuiDaemonCommand(
 /** Enrollment invitations are `cmux://enroll/<base64url JSON>`; the id and expiry inside are what the approve flow needs. */
 export function parseEnrollmentInvitationUri(
   uri: string,
-  provider: ProviderId = "blaxel",
+  provider: ProviderId = "freestyle",
 ): { id: string; expiresAtUnix: number; daemonFingerprint: string | null } {
   const prefix = "cmux://enroll/";
   if (!uri.startsWith(prefix)) {
@@ -588,8 +591,8 @@ export function parseJsonArray(text: string): Array<Record<string, unknown>> {
 
 /**
  * Runs `cmux-tui <args>` inside the VM as the daemon's own user and HOME (the
- * daemon's state home). Each provider supplies its own transport: Blaxel's
- * sandbox API, E2B's commands.run, Daytona's toolbox exec.
+ * daemon's state home). Each provider supplies its own transport: Freestyle's
+ * VM exec API, E2B's commands.run, Daytona's toolbox exec.
  */
 export type CmuxTuiInvoke = (args: string, timeoutMs?: number) => Promise<ExecResult>;
 

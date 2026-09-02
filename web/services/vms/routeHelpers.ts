@@ -536,7 +536,7 @@ export async function vmWorkflowErrorResponse(
     const providerCause = providerCauseSummary(workflowError.cause);
     const phase = vmPhaseForOperation(workflowError.operation);
     if (providerImageNotFound(workflowError.cause)) {
-      // The provider rejected the resolved image (e.g. Blaxel IMAGE_NOT_FOUND):
+      // The provider rejected the resolved image (e.g. a provider IMAGE_NOT_FOUND):
       // nothing was created and retrying cannot help until an operator
       // publishes the image, so this is configuration, not availability.
       console.error(
@@ -565,31 +565,18 @@ export async function vmWorkflowErrorResponse(
         },
       });
     }
-    const retryExhausted = providerRetryExhausted(workflowError.cause);
-    if (retryExhausted) {
-      // Keep the provider and operation in operator logs only. The response
-      // below deliberately contains no URL, status, or upstream body.
-      console.error("[vm-provider-retry-exhausted]", {
-        provider: workflowError.provider,
-        operation: workflowError.operation,
-      });
-    }
     const retryAfterSeconds = retryAfterForOperation(workflowError.operation);
-    const providerMessage = !retryExhausted && providerCause?.message
+    const providerMessage = providerCause?.message
       ? sanitizedProviderMessage(providerCause.message)
       : null;
-    const providerCode = retryExhausted
-      ? "provider_retry_exhausted"
-      : providerCause?.code
-        ? sanitizedProviderCode(providerCause.code)
-        : inferredProviderCode(providerMessage);
+    const providerCode = providerCause?.code
+      ? sanitizedProviderCode(providerCause.code)
+      : inferredProviderCode(providerMessage);
     return vmErrorResponse({
       error: "vm_cloud_service_unavailable",
       status: 502,
       message: vmUnavailableMessage(phase),
-      reason: retryExhausted
-        ? "The Cloud VM service is temporarily unavailable."
-        : providerMessage
+      reason: providerMessage
         ? `Cloud VM service is temporarily unavailable: ${providerMessage}`
         : "Cloud VM service is temporarily unavailable.",
       action: cloudServiceAction(workflowError.operation, retryAfterSeconds),
@@ -669,17 +656,6 @@ async function vmUnsupportedOperationResponse(
   });
 }
 
-/** Identify a retry wrapper whose provider details must stay in operator logs. */
-function providerRetryExhausted(cause: unknown): boolean {
-  let current: unknown = cause;
-  for (let depth = 0; depth < 8 && current; depth += 1) {
-    const record = current as { name?: unknown; cause?: unknown };
-    if (record.name === "BlaxelRetryExhaustedError") return true;
-    current = record.cause;
-  }
-  return false;
-}
-
 /** True when the provider reported that the requested image/template does not exist. */
 function providerImageNotFound(cause: unknown): boolean {
   let current: unknown = cause;
@@ -687,8 +663,10 @@ function providerImageNotFound(cause: unknown): boolean {
     const record = current as { body?: { code?: unknown }; cause?: unknown; message?: unknown };
     const code = typeof record.body?.code === "string" ? record.body.code : "";
     const message = typeof record.message === "string" ? record.message : "";
-    if (/IMAGE_NOT_FOUND|TEMPLATE_NOT_FOUND/i.test(code)) return true;
-    if (/IMAGE_NOT_FOUND|TEMPLATE_NOT_FOUND|(image|template)\s+'[^']*'\s+not found|(image|template) not found/i.test(message)) {
+    // Freestyle resolves an image to a SNAPSHOT id, so its missing-image
+    // answer is a snapshot 404, not an IMAGE_NOT_FOUND code.
+    if (/IMAGE_NOT_FOUND|TEMPLATE_NOT_FOUND|SNAPSHOT_NOT_FOUND/i.test(code)) return true;
+    if (/IMAGE_NOT_FOUND|TEMPLATE_NOT_FOUND|SNAPSHOT_NOT_FOUND|(image|template|snapshot)\s+'[^']*'\s+not found|(image|template|snapshot) not found/i.test(message)) {
       return true;
     }
     current = record.cause;
