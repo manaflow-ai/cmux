@@ -362,7 +362,7 @@ export function promoteImageManifestEntry(
       }
     }
   }
-  const promotedSizes = new Set(variants.map((variant) => variant.size?.name ?? ""));
+  const promotedSizes = new Set<string>(variants.map((variant) => variant.size?.name ?? ""));
   const demoted = manifest.images.map((candidate) => {
     if (candidate.provider !== entry.provider) return candidate;
     const next: DevboxManifestEntry = { ...candidate };
