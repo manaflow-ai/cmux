@@ -18,6 +18,11 @@ export function directDevBackendOrigin(
   const configured = environment.CMUX_WWW_ORIGIN?.trim();
   if (!configured) return undefined;
 
+  // The native handoff pins the origin to the owner-provided Tailscale host.
+  // Apply the same pin here whenever the daemon declares that host, so the
+  // web and native paths trust exactly one backend for auth and billing URLs.
+  const trustedHost = environment.CMUX_DEV_BACKEND_TAILSCALE_HOST?.trim().toLowerCase();
+
   try {
     const url = new URL(configured);
     const host = url.hostname.toLowerCase();
@@ -25,6 +30,7 @@ export function directDevBackendOrigin(
     if (
       url.protocol !== "https:" ||
       !host.endsWith(".ts.net") ||
+      (trustedHost !== undefined && trustedHost !== "" && trustedHost !== host) ||
       !Number.isInteger(port) ||
       port < DIRECT_PORT_MIN ||
       port > DIRECT_PORT_MAX ||
