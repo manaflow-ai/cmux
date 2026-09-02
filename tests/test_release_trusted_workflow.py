@@ -183,6 +183,22 @@ class ReleaseTrustedWorkflowTests(unittest.TestCase):
         ):
             self.assertIn(required, policy)
 
+    def test_sparkle_private_key_is_streamed_to_the_derivation_helper(self) -> None:
+        workflow_text = WORKFLOW.read_text(encoding="utf-8")
+        helper_text = (ROOT / "scripts" / "derive_sparkle_public_key.swift").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn(
+            'swift scripts/derive_sparkle_public_key.swift --stdin <<<"$SPARKLE_PRIVATE_KEY"',
+            workflow_text,
+        )
+        self.assertNotIn(
+            'swift scripts/derive_sparkle_public_key.swift "$SPARKLE_PRIVATE_KEY"',
+            workflow_text,
+        )
+        self.assertIn("FileHandle.standardInput", helper_text)
+        self.assertIn("--stdin", helper_text)
+
     def test_workflow_run_is_resolved_from_protected_main(self) -> None:
         document = load()
         event = triggers(document)
