@@ -42,6 +42,9 @@ final class TerminalSelectionAccessibilitySignal: Sendable {
 @MainActor
 final class TerminalSelectionAccessibilityNotifier {
     private var debounceTimer: Timer?
+    /// Identifies the latest debounce timer without carrying a non-Sendable
+    /// `Timer` instance across the actor hop from `RunLoop.main`.
+    private var debounceGeneration = UUID()
     private var eventsTask: Task<Void, Never>?
     private weak var element: NSView?
     private let onSelectionChanged: (@MainActor () -> Void)?
@@ -63,10 +66,14 @@ final class TerminalSelectionAccessibilityNotifier {
 
     private func schedule() {
         debounceTimer?.invalidate()
-        let timer = Timer(timeInterval: 0.1, repeats: false) { [weak self] timer in
-            // This timer is registered only on RunLoop.main below.
-            MainActor.assumeIsolated {
-                guard let self, self.debounceTimer === timer else { return }
+        let generation = UUID()
+        debounceGeneration = generation
+        let timer = Timer(timeInterval: 0.1, repeats: false) { [weak self] _ in
+            // `RunLoop.main` is an AppKit delivery boundary, not proof that
+            // this callback is executing on Swift's MainActor executor. Carry
+            // only the Sendable generation token into the explicit actor hop.
+            Task { @MainActor [weak self] in
+                guard let self, self.debounceGeneration == generation else { return }
                 self.debounceTimer = nil
                 guard let element = self.element else { return }
                 NSAccessibility.post(element: element, notification: .selectedTextChanged)
