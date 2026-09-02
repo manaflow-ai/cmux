@@ -491,9 +491,11 @@ workflow_id="$(jq -r --arg path "${WORKFLOW_PATH}" '[.[] | .workflows[]? | selec
 # When GitHub includes pull_requests on a run, bind the candidate to the exact
 # PR object, including its source head and live base SHAs. GitHub can return an
 # empty array for pull_request_target runs. Those candidates are accepted only
-# when the run has complete source-repository metadata and its execution SHA is
-# the live PR base SHA. Missing metadata cannot identify which fork produced a
-# branch, so it is always rejected before any check is rerun.
+# when the run has complete source-repository metadata. The later binding step
+# accepts the live base execution directly, or binds a non-base execution to
+# the live source head and its exact failed check. Missing metadata cannot
+# identify which fork produced a branch, so it is always rejected before any
+# check is rerun.
 runs_page="$(gh_api_bounded \
   --method GET \
   --header 'Accept: application/vnd.github+json' \
@@ -577,7 +579,6 @@ if ! candidate_list_json="$(jq -c \
         | if $prs == null then false
           elif ($prs | length > 100) then false
           elif ($prs | length) == 0 then
-            .head_sha == $base_sha and
             .head_branch == $head_ref and
             (.head_repository | type) == "object" and
             .head_repository.full_name == $head_repo and
@@ -789,7 +790,6 @@ if [[ "${candidate_count}" == "0" ]]; then
        | if $prs == null then false
          elif ($prs | length > 100) then false
          elif ($prs | length) == 0 then
-           .head_sha == $sha and
            .head_branch == $head_ref and
            (.head_repository | type) == "object" and
            .head_repository.full_name == $head_repo and
@@ -856,11 +856,11 @@ run_head_branch="$(jq -r '.head_branch // empty' <<<"${candidate_json}")"
 
 # A run with a populated pull_requests array carries a source-PR association,
 # but that association is still only discovery data. For pull_request_target,
-# GitHub records the Actions check on the workflow execution SHA (normally the
-# live PR base SHA), not on the untrusted source head. Empty associations need
-# one extra branch: when GitHub omits or cannot prove the source repository and
-# base execution SHA, require a failed check on the exact source head instead.
-# The selected check always names the exact run and job in its details URL.
+# GitHub normally records the Actions check on the workflow execution SHA,
+# which is the live PR base. If the execution SHA differs, the helper requires
+# complete source metadata, a fresh exact live-PR association, and a failed
+# check on the immutable source head. The selected check always names the
+# exact run and job in its details URL.
 
 # These values are set by validate_run_source_binding before each check lookup.
 # Keeping the lookup SHA separate from the PR source SHA avoids silently using
@@ -1043,7 +1043,6 @@ validate_exact_run_payload() {
            else null end) as $prs
         | if $prs == null then false
           elif ($prs | length) == 0 then
-            .head_sha == $base_sha and
             .head_branch == $head_ref and
             (.head_repository | type) == "object" and
             .head_repository.full_name == $head_repo and

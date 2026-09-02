@@ -18,6 +18,7 @@ jobs = workflow.fetch("jobs")
 lock = jobs.fetch("LockMergedPullRequest")
 
 abort "lock job has unexpected permissions" unless lock.fetch("permissions") == {
+  "contents" => "read",
   "issues" => "write",
   "pull-requests" => "write"
 }
