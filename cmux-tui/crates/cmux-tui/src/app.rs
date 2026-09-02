@@ -8641,7 +8641,8 @@ impl MachineActionWorker {
         self.sender.take();
         // The stop flag is cooperative: an in-flight provider action returns
         // at its transport deadline, then the worker observes stop and closes
-        // the controller. Join so provider cleanup cannot outlive the owner.
+        // the controller. Transfer the worker handle to the reaper so owner
+        // teardown does not wait for that provider deadline.
         if let Some(worker) = self.worker.take() {
             // Provider calls are synchronous and may remain blocked until
             // their transport deadline. Reap the owned handle asynchronously
@@ -8677,8 +8678,16 @@ impl MachineActionWorker {
 impl Drop for MachineActionWorker {
     fn drop(&mut self) {
         self.shutdown();
+        // The reaper owns the worker handle. Join only when it has already
+        // finished; dropping an unfinished reaper handle intentionally lets
+        // that cleanup thread continue without blocking owner teardown. The
+        // reaper still joins the worker and calls controller.close() after the
+        // provider's bounded transport call returns, so no worker handle is
+        // detached or leaked.
         if let Some(reaper) = self.reaper.take() {
-            let _ = reaper.join();
+            if reaper.is_finished() {
+                let _ = reaper.join();
+            }
         }
     }
 }
