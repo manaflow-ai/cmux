@@ -13,14 +13,14 @@ When we change the fork, update this document and the parent submodule SHA.
 ## Current fork changes
 
 The submodule pinned by this branch is `431f5fea0`, from
-https://github.com/manaflow-ai/ghostty/pull/213. It carries the clear-screen
-ordering fix on top of the renderer/API compatibility pin plus the Fish SSH
+https://github.com/manaflow-ai/ghostty/pull/213 and reachable from fork `main`
+through merge commit `d08408433`. It carries the clear-screen ordering fix on
+top of the renderer/API compatibility pin plus the Fish SSH
 feature-gating fix (`fd13a3fc2`): the embedded Ghostty CLI wrapper is installed
 whenever either `ssh-env` or `ssh-terminfo` is enabled. The pin includes the
 prior fork changes below, including tokened iOS render dispositions, VT
 formatter cursor restoration, VT stream-boundary visibility, and Hangul
-canonical font resolution. Merge PR #213 into fork `main` before landing this
-submodule pointer.
+canonical font resolution.
 
 The corresponding universal ReleaseFast GhosttyKit archive is published at
 https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-431f5fea06418c60a73da44c30363fe565d50866-crashsubdir-cmux-crash-sentry-off-noi18n-v2
