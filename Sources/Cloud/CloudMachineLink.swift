@@ -635,7 +635,7 @@ actor CloudMachineLink {
             // Some client versions put the cursor only on the event envelope.
             // Materialize it into the snapshot bytes so the state parser sees
             // one self-describing document.
-            if snapshot["cursor"] == nil {
+            if snapshot["cursor"] == nil || snapshot["cursor"] is NSNull {
                 snapshot["cursor"] = [
                     "generation": cursor.generation,
                     "revision": String(cursor.revision),
