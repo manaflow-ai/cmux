@@ -740,14 +740,20 @@ mod tests {
         let (entered_tx, entered_rx) = oneshot::channel();
         let entered_tx = Arc::new(Mutex::new(Some(entered_tx)));
         let (release_tx, release_rx) = std::sync::mpsc::sync_channel(1);
+        let release_rx = Arc::new(Mutex::new(release_rx));
         let closed = Arc::new(Notify::new());
         let closed_for_handler = Arc::clone(&closed);
         let entered_for_handler = Arc::clone(&entered_tx);
+        let release_rx_for_handler = Arc::clone(&release_rx);
         control.on_event(Box::new(move |_| {
             if let Some(entered_tx) = entered_for_handler.lock().expect("entry signal lock").take()
             {
                 let _ = entered_tx.send(());
-                release_rx.recv().expect("release first event callback");
+                release_rx_for_handler
+                    .lock()
+                    .expect("release receiver lock")
+                    .recv()
+                    .expect("release first event callback");
             }
         }));
         control.on_close(Box::new(move || closed_for_handler.notify_waiters()));
@@ -797,14 +803,20 @@ mod tests {
         let (entered_tx, entered_rx) = oneshot::channel();
         let entered_tx = Arc::new(Mutex::new(Some(entered_tx)));
         let (release_tx, release_rx) = std::sync::mpsc::sync_channel(1);
+        let release_rx = Arc::new(Mutex::new(release_rx));
         let closed = Arc::new(Notify::new());
         let closed_for_handler = Arc::clone(&closed);
         let entered_for_handler = Arc::clone(&entered_tx);
+        let release_rx_for_handler = Arc::clone(&release_rx);
         control.on_event(Box::new(move |_| {
             if let Some(entered_tx) = entered_for_handler.lock().expect("entry signal lock").take()
             {
                 let _ = entered_tx.send(());
-                release_rx.recv().expect("release first byte callback");
+                release_rx_for_handler
+                    .lock()
+                    .expect("release receiver lock")
+                    .recv()
+                    .expect("release first byte callback");
             }
         }));
         control.on_close(Box::new(move || closed_for_handler.notify_waiters()));
@@ -958,9 +970,15 @@ mod tests {
         accepted_rx.await.expect("wait for close race server");
         let (started_tx, started_rx) = oneshot::channel();
         let (release_tx, release_rx) = std::sync::mpsc::sync_channel(1);
+        let release_rx = Arc::new(Mutex::new(release_rx));
+        let release_rx_for_handler = Arc::clone(&release_rx);
         control.on_close(Box::new(move || {
             let _ = started_tx.send(());
-            release_rx.recv().expect("release first close callback");
+            release_rx_for_handler
+                .lock()
+                .expect("release receiver lock")
+                .recv()
+                .expect("release first close callback");
         }));
         start_tx.send(()).expect("start close race server");
         tokio::time::timeout(Duration::from_secs(1), started_rx)

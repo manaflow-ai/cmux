@@ -1349,25 +1349,14 @@ impl Inner {
             state: AtomicUsize::new(0),
         });
         let _start_owner = StartOwner(Arc::clone(&start_cleanup));
-        let start_result = std::thread::Builder::new()
-            .name("chatmux-relay-pty-start".to_owned())
-            .spawn(move || {
-                start(Box::new(move || {
-                    let _ = started_tx.send(());
-                }));
-            });
-        if start_result.is_err() {
-            self.emit_error_for_generation_async(
-                context,
-                &pty_id,
-                generation,
-                &publication_gate,
-                "failed",
-                "PTY output start could not be scheduled",
-            )
-            .await;
-            return;
-        }
+        // Use Tokio's bounded blocking executor. A PTY source may block while
+        // installing callbacks, but repeated cancellations cannot create one
+        // untracked OS thread per opening.
+        let _start_task = tokio::task::spawn_blocking(move || {
+            start(Box::new(move || {
+                let _ = started_tx.send(());
+            }));
+        });
         tokio::select! {
             _ = context.cancellation.cancelled() => {
                 // Do not wait for the publication gate here. The start owner
@@ -2038,7 +2027,7 @@ impl Inner {
         self.close_exact_authorized(pty_id, &attachment, context);
     }
 
-    async fn close_authorized_async(&self, pty_id: &str, context: &FrameContext) {
+    async fn close_authorized_async(self: &Arc<Self>, pty_id: &str, context: &FrameContext) {
         let auth = Self::auth_snapshot(context);
         let Some(attachment) = self.attachments.lock().expect("attach lock").get(pty_id).cloned()
         else {
@@ -2076,7 +2065,7 @@ impl Inner {
     }
 
     async fn close_if_transport_async(
-        &self,
+        self: &Arc<Self>,
         pty_id: &str,
         transport_id: Option<&str>,
         generation: Option<u64>,
@@ -2111,11 +2100,22 @@ impl Inner {
             }
             current.close_pending.store(true, Ordering::SeqCst);
             drop(_publication);
-            let _ = tokio::time::timeout(
+            let drained = tokio::time::timeout(
                 CONTROL_OPERATION_DRAIN_TIMEOUT,
                 attachment.control_ops.wait_async(),
             )
             .await;
+            if drained.is_err() {
+                let manager = Arc::clone(self);
+                let pty_id = pty_id.to_owned();
+                let transport_id = transport_id.map(str::to_owned);
+                tokio::spawn(async move {
+                    manager
+                        .close_if_transport_async(&pty_id, transport_id.as_deref(), generation)
+                        .await;
+                });
+                return;
+            }
             let _publication = publication_gate.lock_async().await;
             let Some(current) = self.attachments.lock().expect("attach lock").get(pty_id).cloned()
             else {
@@ -2209,7 +2209,7 @@ impl Inner {
     }
 
     async fn close_exact_authorized_async(
-        &self,
+        self: &Arc<Self>,
         pty_id: &str,
         attachment: &Attachment,
         context: &FrameContext,
@@ -2237,11 +2237,21 @@ impl Inner {
         }
         current.close_pending.store(true, Ordering::SeqCst);
         drop(_publication);
-        let _ = tokio::time::timeout(
+        let drained = tokio::time::timeout(
             CONTROL_OPERATION_DRAIN_TIMEOUT,
             attachment.control_ops.wait_async(),
         )
         .await;
+        if drained.is_err() {
+            let manager = Arc::clone(self);
+            let pty_id = pty_id.to_owned();
+            let attachment = attachment.clone();
+            let context = context.clone();
+            tokio::spawn(async move {
+                manager.close_exact_authorized_async(&pty_id, &attachment, &context).await;
+            });
+            return;
+        }
         let _publication = gate.lock_async().await;
         let Some(current) = self.attachments.lock().expect("attach lock").get(pty_id).cloned()
         else {
