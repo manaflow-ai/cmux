@@ -1,70 +1,72 @@
-# Journal operations: reading `server stats`
+# Journal and interaction operations
 
-The daemon reports where its own time goes. Ask it before sampling the
-process:
+How to observe cmux-tui's runtime timing from the outside: the named budgets
+every wait is bound by, and the interaction benchmark that measures how those
+waits add up for a user or an agent.
+
+## Named budgets
+
+Every bounded wait in the daemon, the terminal hosts, and the clients is a
+budget with one name, one value, and one interaction stage. `cmux_tui_core::budgets`
+holds the values; the code sites that enforce them import those constants, so
+there is one value per budget.
 
 ```bash
-cmux server stats --json            # exact object, spec/commands.md "server-stats"
-cmux server stats                   # nested key: value lines
+cmux diag budgets          # table
+cmux diag budgets --json   # array of {name,value,unit,stage,purpose,site}
 ```
 
-Counters accumulate since daemon start and reading them costs a few atomic
-loads, so polling is safe. Everything below names a field of that object.
+`stage` places a budget in the interaction lifecycle:
 
-## The write path in one paragraph
+- `accept`: validating and applying a mutation to in-memory state.
+- `durable`: the journal batch that carries the mutation has committed.
+- `settle`: an external effect (host launch, terminate, first frame) reached its
+  outcome.
+- `frame`: a frontend paint cadence.
+- `client`: a client-side wait on the daemon.
+- `planned`: reserved by design, not enforced yet (for example
+  `input.typeahead_bytes`, reserved for the launching-terminal typeahead queue).
 
-Every durable write goes through SQLite in WAL mode with `synchronous=FULL`
-and `fullfsync`, about 20 ms per commit on an Apple SSD. Producers (agent
-hooks, frontends) enqueue into bounded lanes; one writer thread drains both
-lanes into a single transaction, commits, and hands each producer a receipt.
-The writer takes the workspace registry mutex for the commit. Request threads
-take the same mutex for their own commits, so it is the one lock whose
-contention shapes latency under load. `spec/session-journal.md` "Retention and
-storage" describes the intended single-writer shape; the plan to finish it is
-the cmuxterm-hq journal write path plan.
+A timeout error names the budget it exhausted, so an operator or an agent can
+map a stall to one row of this table.
 
-## Reading `registry_lock`
+## Interaction bench
 
-- `holder` names the `file:line` that holds the registry mutex right now and
-  for how long. Under a healthy daemon this is usually `null`; a holder older
-  than a few milliseconds is in an fsync.
-- `hold_us` is the hold-time histogram. Its p50 near 20,000 means most holds
-  are one fsync. `top_sites` says which code holds it longest in total; that is
-  the list to shorten.
-- `wait_us` is how long acquirers waited. A p90 far above `hold_us.p50` means a
-  convoy: many threads queue behind each hold. `contended_acquisitions` (waits
-  of 1 ms or more) and `stalls` (100 ms or more) count it, and `last_stall`
-  names the waiter and the site that held the lock when the wait began.
+`cmux bench interact` drives a session as an ordinary client over the raw
+control protocol and records the latencies a frontend or an agent actually
+feels. It sends only existing commands; it is not a protocol command or a
+resource operation.
 
-## Reading `journal_writer`
+```bash
+# Throwaway session (started and stopped by the bench):
+cmux bench interact --creates 20 --clients 1 --typing-probes 50
+cmux --json bench interact --creates 20 --clients 8 --typing-probes 100
 
-- `batch_size.mean` is the group-commit ratio. Under many concurrent producers
-  it should climb well above 1. A mean near 1 under load means producers are
-  throttled before they reach the queue, which was the symptom of the resolver
-  convoy fixed in cmux PR 11630.
-- `commit_us` is transaction time including the fsync, without lock wait.
-  `commit_lock_wait_us` is the writer waiting for the registry mutex; if it
-  rivals `commit_us`, request threads are starving the writer.
-- `receipt_wait_us` is what a producer such as `cmux-tui-hook` waited from
-  enqueue to receipt. It bounds the hook's detached child lifetime.
-- `terminal_queued` and `durable_queued` are live lane depths.
-  `deadline_expiries` and `commit_failures` should stay at zero; either one
-  rising means the writer is being interrupted or refused.
-- `phase` and `phase_for_us` say what the writer is doing now; a long
-  `waiting_lock` phase points at `registry_lock.holder`.
+# Against a running session:
+cmux --socket /path/to/session.sock bench interact --creates 20 --clients 4
+```
 
-## Reading `connections`
+Metrics, each reported as `count`, `p50`, `p90`, `p99`, `max` in milliseconds:
 
-`limit` is the control-socket cap. `refused` counts sockets dropped at the cap;
-each refused hook connection is a lost agent event, so any non-zero value is a
-capacity incident, not a statistic. `peak` shows how close normal operation
-comes to the cap.
+| metric | what it times |
+| --- | --- |
+| `create.response_ms` | create request write to the command response |
+| `create.visible_ms` | create request write to the first tree delta on a separate `tree_events:"deltas"` subscriber that references the new surface (deltas may precede the response, so both are timed from the write) |
+| `create.first_frame_ms` | `attach-surface` with `mode:"render"` to the first `render-state` |
+| `close.surface_response_ms` | `close-surface` (view-only close) request to response |
+| `close.terminal_response_ms` | `close-terminal` (process-terminating close) request to response; this is the one that waits on host exit escalation, bounded by `terminal.close_wait` |
+| `typing.separate_conn_ms` | one-byte `send` on a connection that issues no creates, while creates are in flight |
+| `typing.same_conn_ms` | one-byte `send` on the connection that also issues creates, after its creates; a gap between this and the separate-connection number is head-of-line blocking |
 
-## Benchmarking
+`--clients N` runs N concurrent create loops on N connections; `--creates K` is
+creates per client; `--typing-probes M` sets the number of typing samples. The
+JSON output also carries `lifecycle_counts` (the `lifecycle` field on each
+create response), `visibility_misses` (creates whose visibility delta did not
+arrive within the grace window), `commit`, and `platform`.
 
-Until the in-binary load generator lands, use the Python scripts recorded in
-the cmuxterm-hq plan (`bench4.py`: N clients over K live terminals through a
-blocking hook helper) and read `server stats` before and after. Numbers on the
-2026-09-02 main with 16 terminals, dev build, Apple M-series laptop: 16 clients
-p50 185 ms at 75 events/s; 48 clients p50 621 ms at 59 events/s; the remaining
-ceiling is the per-event projection commit under the registry lock.
+Read the numbers against the budget table: a `create.response_ms` far above the
+`accept`-stage cost, or a `typing.same_conn_ms` that spikes while creates are in
+flight, is the interaction cost the zero-wait work removes. The record-only
+`bench interact` job in `.github/workflows/cmux-tui.yml` publishes the JSON per
+commit as the `cmux-tui-bench-interact-<os>` artifact. Design and targets:
+`plans/cmux-tui-zero-wait-interaction.md` (IX0).

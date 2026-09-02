@@ -721,6 +721,78 @@ jobs:
       windows_runner: windows-latest
       checkout_ref: ${{ inputs.commit }}
 
+  bench-interact:
+    name: bench interact (${{ matrix.os }})
+    needs: validate-inputs
+    if: inputs.mode == 'full'
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 30
+    # Record-only: this job publishes the IX0 interaction-latency baseline as an
+    # artifact and is intentionally not in hosted-verification's needs, so it is
+    # never a required check. See plans/cmux-tui-zero-wait-interaction.md (IX0).
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos
+            runner: blacksmith-6vcpu-macos-15
+          - os: linux
+            runner: blacksmith-4vcpu-ubuntu-2404
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          ref: ${{ inputs.commit }}
+
+      - name: Require exact checkout
+        env:
+          EXACT_COMMIT: ${{ inputs.commit }}
+        run: test "$(git rev-parse HEAD)" = "$EXACT_COMMIT"
+
+      - name: Use short temporary directory for macOS socket tests
+        if: runner.os == 'macOS'
+        run: echo "TMPDIR=/tmp" >> "$GITHUB_ENV"
+
+      - name: Init ghostty submodule
+        run: git submodule update --init --depth 1 ghostty
+
+      - name: Install Linux build dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y clang libclang-dev pkg-config
+
+      - name: Install zig
+        run: ./scripts/install-zig-ci.sh
+
+      - name: Set up pinned Rust
+        uses: ./.github/actions/setup-cmux-tui-rust
+
+      - name: Build cmux-tui server
+        working-directory: cmux-tui
+        run: cargo build -p cmux-tui --locked
+
+      - name: Run interaction benchmark
+        working-directory: cmux-tui
+        shell: bash
+        run: |
+          set -euo pipefail
+          # Human-readable table in the job log.
+          ./target/debug/cmux-tui bench interact --creates 20 --clients 1 --typing-probes 50
+          # Machine-readable baseline artifact.
+          ./target/debug/cmux-tui --json bench interact \
+            --creates 20 --clients 1 --typing-probes 50 \
+            > "$RUNNER_TEMP/bench-interact.json"
+          cat "$RUNNER_TEMP/bench-interact.json"
+
+      - name: Upload interaction baseline
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: cmux-tui-bench-interact-${{ runner.os }}
+          path: ${{ runner.temp }}/bench-interact.json
+          if-no-files-found: error
+          retention-days: 7
+
   hosted-verification:
     name: ${{ inputs.mode == 'full' && 'hosted verification' || 'focused hosted verification' }}
     if: always()
