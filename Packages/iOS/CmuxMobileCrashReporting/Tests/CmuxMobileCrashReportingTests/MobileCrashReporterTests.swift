@@ -8,6 +8,12 @@ private struct FixedConsent: AnalyticsConsentProviding {
     let isTelemetryEnabled: Bool
 }
 
+#if os(iOS)
+import UIKit
+
+private final class ReplayMaskProbeView: UIView {}
+#endif
+
 @Suite struct MobileCrashReporterTests {
     @Test func consentDisabledDoesNotStart() {
         var startCount = 0
@@ -87,6 +93,18 @@ private struct FixedConsent: AnalyticsConsentProviding {
         #expect(options.enableAutoSessionTracking == false)
         #expect(options.enableLogs == true)
         #expect(options.beforeBreadcrumb != nil)
+        #if os(iOS)
+        #expect(options.sessionReplay.onErrorSampleRate == 1.0)
+        #expect(options.sessionReplay.sessionSampleRate == 0.1)
+        #expect(options.sessionReplay.quality == .low)
+        // On-device masking is the privacy boundary: text/image defaults must
+        // stay on, and CALayer-only fast rendering (which can skip views
+        // instead of drawing their mask blocks) must stay off.
+        #expect(options.sessionReplay.maskAllText == true)
+        #expect(options.sessionReplay.maskAllImages == true)
+        #expect(options.sessionReplay.enableFastViewRendering == false)
+        #expect(options.sessionReplay.maskedViewClasses.isEmpty)
+        #endif
         #if canImport(MetricKit) && !os(tvOS) && !os(visionOS)
         #expect(options.enableMetricKit == true)
         #expect(options.enableMetricKitRawPayload == false)
@@ -99,6 +117,42 @@ private struct FixedConsent: AnalyticsConsentProviding {
         #expect(options.debug == false)
         #endif
     }
+
+    #if os(iOS)
+    @Test func replayMaskedViewClassesPropagateIntoStartedOptions() {
+        var captured: Options?
+
+        MobileCrashReporter().startIfEnabled(
+            consent: FixedConsent(isTelemetryEnabled: true),
+            arguments: ["cmux"],
+            environment: [:],
+            revocationWatcher: MobileCrashReporter.RevocationWatcher(),
+            replayMaskedViewClasses: [ReplayMaskProbeView.self],
+            start: { captured = $0 },
+            close: {},
+            purgeCache: {},
+            crash: {}
+        )
+
+        #expect(captured?.sessionReplay.maskedViewClasses.count == 1)
+        #expect(captured?.sessionReplay.maskedViewClasses.first == ReplayMaskProbeView.self)
+    }
+
+    @Test func replayForceSessionEnvironmentOverridesSampleRateOnlyInDebug() {
+        let forced = MobileCrashReporter().makeOptions(
+            environment: ["CMUX_REPLAY_FORCE_SESSION": "1"]
+        )
+        let normal = MobileCrashReporter().makeOptions(environment: [:])
+
+        #if DEBUG
+        #expect(forced.sessionReplay.sessionSampleRate == 1.0)
+        #else
+        #expect(forced.sessionReplay.sessionSampleRate == 0.1)
+        #endif
+        #expect(normal.sessionReplay.sessionSampleRate == 0.1)
+        #expect(forced.sessionReplay.onErrorSampleRate == 1.0)
+    }
+    #endif
 
     @Test func debugCrashArgumentTriggersInjectedCrashAfterStart() {
         var didStart = false

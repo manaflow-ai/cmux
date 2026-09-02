@@ -2,7 +2,7 @@
   "metadataTitle": "Privatlivspolitik — cmux",
   "metadataDescription": "Privatlivspolitik for cmux",
   "title": "Privatlivspolitik",
-  "lastUpdated": "Sidst opdateret: 10. juli 2026",
+  "lastUpdated": "Sidst opdateret: 1. september 2026",
   "sections": [
     {
       "paragraphs": [
@@ -24,6 +24,7 @@
           ],
           "bullets": [
             "Nedbrudsrapporter og fejldiagnostik gennem Sentry.",
+            "Maskerede sessionsgenafspilninger gennem Sentry på iPhone og iPad, kun mens Del Analytics og nedbrudsrapporter er aktiveret.",
             "Operativsystemversion og applikationsversion.",
             "Produktanalyse og hændelser vedrørende brug af funktioner for webstedet og applikationen.",
             "Enheds-, konto- og parringsmetadata, der er nødvendige for at forbinde dine loggede enheder.",
@@ -32,7 +33,8 @@
           "afterBullets": [
             "macOS-applikationen søger efter opdateringer gennem Sparkle, som kan sende dit operativsystem og applikationsversioner til vores opdateringsserver. iPhone- og iPad-applikationen opdateres gennem App Store, ikke Sparkle.",
             "Siden bruger PostHog til sidevisning og navigationsanalyse. PostHog gemmer en cookie for at skelne besøgende. Hvis du tilmelder dig en platforms venteliste, bliver din indsendte e-mail registreret i PostHog, så vi kan give dig besked. Hvis du indsender Enterprise-kontaktformularen, registrerer vi virksomheden og kontaktoplysningerne, du angiver, i PostHog og sender dem til vores private Slack-arbejdsområde og grundlæggernes e-mail-indbakke, så vi kan svare. Du kan blokere webstedsanalyse med en browserudvidelse, der blokerer sporingsscripts.",
-            "iPhone- og iPad-applikationen sender produktanalysehændelser til vores serverside PostHog-proxy. Disse hændelser hjælper med at diagnosticere pålidelighed, forstå funktionsbrug og forbedre applikationen. De omfatter applancering og -sessionsbegivenheder, log-in-status, parringsforsøg og resultater, gendannelse af forbindelse, åbninger af arbejdsområde, terminalinput-byte og linjeantal og meddelelsestilvalg eller meddelelses-deep-link-resultater. Mobile analytics sender ikke terminalkommandotekst, terminaloutput, udvalgte fotos eller taletransskriptioner til PostHog. Før du logger på, bruger hændelser et tilfældigt klient-id pr. installation. Efter login vedhæfter vores server din Stack Auth-konto-id, før den videresender begivenheder til PostHog. Analytics og nedbrudsrapporter starter deaktiveret og sendes først, når du har aktiveret Del Analytics og nedbrudsrapporter i Indstillinger. Deaktivering af denne kontrol stopper analyser i at blive bufferet eller sendt og stopper nedbrudsrapportering. Kontakt [founders@manaflow.com](mailto:founders@manaflow.com) for at anmode om sletning af analyser knyttet til din konto."
+            "iPhone- og iPad-applikationen sender produktanalysehændelser til vores serverside PostHog-proxy. Disse hændelser hjælper med at diagnosticere pålidelighed, forstå funktionsbrug og forbedre applikationen. De omfatter applancering og -sessionsbegivenheder, log-in-status, parringsforsøg og resultater, gendannelse af forbindelse, åbninger af arbejdsområde, terminalinput-byte og linjeantal og meddelelsestilvalg eller meddelelses-deep-link-resultater. Mobile analytics sender ikke terminalkommandotekst, terminaloutput, udvalgte fotos eller taletransskriptioner til PostHog. Før du logger på, bruger hændelser et tilfældigt klient-id pr. installation. Efter login vedhæfter vores server din Stack Auth-konto-id, før den videresender begivenheder til PostHog. Analytics og nedbrudsrapporter starter deaktiveret og sendes først, når du har aktiveret Del Analytics og nedbrudsrapporter i Indstillinger. Deaktivering af denne kontrol stopper analyser i at blive bufferet eller sendt og stopper nedbrudsrapportering. Kontakt [founders@manaflow.com](mailto:founders@manaflow.com) for at anmode om sletning af analyser knyttet til din konto.",
+            "iPhone- og iPad-applikationen kan optage maskerede sessionsgenafspilninger gennem Sentry for at hjælpe os med at diagnosticere nedbrud og fejlbehæftede forløb. En genafspilning er en optagelse i lav opløsning af applikationens egne skærme, der viser layout og tryk. Al tekst, alle billeder og alt webindhold maskeres, og terminal-, browser-, streamet skærm- og kameraflader blokeres altid, på din enhed før upload, så deres indhold aldrig forlader din enhed. Genafspilninger optages for en lille stikprøve af sessioner og for øjeblikkene før en fejl, og kun mens Del Analytics og nedbrudsrapporter er aktiveret i Indstillinger. Deaktivering af denne kontrol stopper optagelse af genafspilninger og sletter bufferede genafspilningsdata på enheden."
           ]
         },
         {
@@ -61,7 +63,7 @@
         "Apple, Google og GitHub: valgfri login-udbydere, der sender kontooplysninger, der kræves for at godkende dig.",
         "Apple Push Notification-tjeneste: meddelelser til iPhone og iPad, efter du har tilmeldt dig.",
         "Apple talegenkendelse: stemmetransskription, når du vælger det i mobilappen.",
-        "Sentry: fejlsporing og nedbrudsrapportering, som kan indsamle fejllogfiler, stakspor, enhedsoplysninger og operativsystemversion.",
+        "Sentry: fejlsporing, nedbrudsrapportering og maskerede sessionsgenafspilninger, som kan indsamle fejllogfiler, stakspor, enhedsoplysninger, operativsystemversion og maskerede optagelser af applikationens skærme.",
         "Sparkle: macOS automatisk opdateringsramme, som sender applikations- og operativsystemversioner for at søge efter macOS-opdateringer.",
         "Ghostty / libghostty: terminalgengivelsesmotoren, som kører lokalt på din enhed.",
         "PostHog: websteds- og mobilproduktanalyse, herunder sidevisninger, navigationsmønstre, browsermetadata, mobilfunktionshændelser, kontotilknyttet web- og mobilanalyse efter login samt betalings-, abonnements- og fakturahændelser, herunder plan, abonnementsstatus, beløb og valuta samt Stripe-id'er for kunde, abonnement og faktura. Vi registrerer også en indsendt venteliste-e-mail, så vi kan give dig besked.",
@@ -121,7 +123,7 @@
     {
       "heading": "IX. Dataopbevaring",
       "paragraphs": [
-        "Nedbrudsrapporter og diagnostik gemmes kun så længe som nødvendigt. Konto-id'er og godkendelsesdata opbevares, mens kontoen er aktiv, og slettes eller anonymiseres derefter, medmindre sikkerheds-, juridiske, skatte-, fakturerings- eller svindelforebyggende pligter kræver opbevaring. Enheds- og parringsmetadata opbevares til afkobling eller sletning, og Apple-tokens kun mens notifikationer er aktiveret. Web- og mobilanalyse, kontotilknyttet analyse, faktureringshændelser og Stripe-id'er i PostHog opbevares i op til 24 måneder, medmindre du anmoder om tidligere sletning. Kontoindstillinger sletter eller anonymiserer cmux-data, sletter den tilknyttede PostHog-person og anmoder om sletning af web- og mobilanalysehændelser og optagelser. Nogle faktureringsdata og Stripe-id'er kan opbevares på grund af sikkerheds-, juridiske, skatte-, fakturerings- eller svindelforebyggende pligter. Udbydersletning kan ske asynkront. Anmod om sletning i indstillingerne eller via [founders@manaflow.com](mailto:founders@manaflow.com)."
+        "Nedbrudsrapporter og diagnostik gemmes kun så længe som nødvendigt. Maskerede sessionsgenafspilninger slettes fra Sentry 90 dage efter optagelsen. Konto-id'er og godkendelsesdata opbevares, mens kontoen er aktiv, og slettes eller anonymiseres derefter, medmindre sikkerheds-, juridiske, skatte-, fakturerings- eller svindelforebyggende pligter kræver opbevaring. Enheds- og parringsmetadata opbevares til afkobling eller sletning, og Apple-tokens kun mens notifikationer er aktiveret. Web- og mobilanalyse, kontotilknyttet analyse, faktureringshændelser og Stripe-id'er i PostHog opbevares i op til 24 måneder, medmindre du anmoder om tidligere sletning. Kontoindstillinger sletter eller anonymiserer cmux-data, sletter den tilknyttede PostHog-person og anmoder om sletning af web- og mobilanalysehændelser og optagelser. Nogle faktureringsdata og Stripe-id'er kan opbevares på grund af sikkerheds-, juridiske, skatte-, fakturerings- eller svindelforebyggende pligter. Udbydersletning kan ske asynkront. Anmod om sletning i indstillingerne eller via [founders@manaflow.com](mailto:founders@manaflow.com)."
       ]
     }
   ]

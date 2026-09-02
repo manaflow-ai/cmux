@@ -2,7 +2,7 @@
   "metadataTitle": "Gizlilik Politikası — cmux",
   "metadataDescription": "cmux için gizlilik politikası",
   "title": "Gizlilik Politikası",
-  "lastUpdated": "Son güncelleme: 10 Temmuz 2026",
+  "lastUpdated": "Son güncelleme: 1 Eylül 2026",
   "sections": [
     {
       "paragraphs": [
@@ -24,6 +24,7 @@
           ],
           "bullets": [
             "Sentry aracılığıyla kilitlenme raporları ve hata teşhisi.",
+            "iPhone ve iPad'de Sentry aracılığıyla maskelenmiş oturum tekrarları, yalnızca Analizleri Paylaş ve Kilitlenme Raporları etkinken.",
             "İşletim sistemi sürümü ve uygulama sürümü.",
             "Site ve Uygulamaya ilişkin ürün analizleri ve özellik kullanımı etkinlikleri.",
             "Oturum açtığınız cihazlarınızı bağlamak için gereken cihaz, hesap ve eşleştirme meta verileri.",
@@ -32,7 +33,8 @@
           "afterBullets": [
             "macOS Uygulaması, işletim sisteminizi ve uygulama sürümlerinizi güncelleme sunucumuza gönderebilecek Sparkle aracılığıyla güncellemeleri kontrol eder. iPhone ve iPad Uygulaması Sparkle değil App Store aracılığıyla güncellenir.",
             "Site, sayfa görüntüleme ve gezinme analitiği için PostHog'i kullanır. PostHog, ziyaretçileri ayırt etmek için bir çerez saklar. Bir platform bekleme listesine katılırsanız gönderdiğiniz e-postanız PostHog'e kaydedilir, böylece sizi bilgilendirebiliriz. Kurumsal iletişim formunu gönderirseniz, sağladığınız şirketi ve iletişim bilgilerini PostHog'e kaydedip yanıt verebilmemiz için bunları özel Slack çalışma alanımıza ve kurucuların e-posta gelen kutunuza göndeririz. İzleme komut dosyalarını engelleyen bir tarayıcı uzantısıyla web sitesi analizlerini engelleyebilirsiniz.",
-            "iPhone ve iPad Uygulaması, ürün analitiği olaylarını sunucu tarafı PostHog proxy'mize gönderir. Bu olaylar güvenilirliğin teşhis edilmesine, özellik kullanımının anlaşılmasına ve Uygulamanın iyileştirilmesine yardımcı olur. Bunlar, uygulama başlatma ve oturum olaylarını, oturum açma durumunu, eşleştirme denemelerini ve sonuçlarını, bağlantı kurtarmayı, çalışma alanı açılışlarını, terminal giriş baytı ve satır sayımlarını ve bildirime katılım veya bildirim derin bağlantı sonuçlarını içerir. Mobil analiz, PostHog'e terminal komut metnini, terminal çıkışını, seçilen fotoğrafları veya konuşma transkriptlerini göndermez. Oturum açmadan önce etkinlikler, yükleme başına rastgele bir istemci tanımlayıcısı kullanır. Oturum açtıktan sonra sunucumuz, olayları PostHog'e iletmeden önce Stack Auth hesap tanımlayıcınızı ekler. Analizler ve kilitlenme raporları devre dışı bırakılır ve yalnızca Ayarlar'da Analizleri Paylaş ve Kilitlenme Raporlarını etkinleştirdikten sonra gönderilir. Bu kontrolün kapatılması, analizlerin arabelleğe alınmasını veya gönderilmesini durdurur ve kilitlenme raporlamasını durdurur. Hesabınızla ilişkili analizlerin silinmesini talep etmek için [founders@manaflow.com](mailto:founders@manaflow.com) ile iletişime geçin."
+            "iPhone ve iPad Uygulaması, ürün analitiği olaylarını sunucu tarafı PostHog proxy'mize gönderir. Bu olaylar güvenilirliğin teşhis edilmesine, özellik kullanımının anlaşılmasına ve Uygulamanın iyileştirilmesine yardımcı olur. Bunlar, uygulama başlatma ve oturum olaylarını, oturum açma durumunu, eşleştirme denemelerini ve sonuçlarını, bağlantı kurtarmayı, çalışma alanı açılışlarını, terminal giriş baytı ve satır sayımlarını ve bildirime katılım veya bildirim derin bağlantı sonuçlarını içerir. Mobil analiz, PostHog'e terminal komut metnini, terminal çıkışını, seçilen fotoğrafları veya konuşma transkriptlerini göndermez. Oturum açmadan önce etkinlikler, yükleme başına rastgele bir istemci tanımlayıcısı kullanır. Oturum açtıktan sonra sunucumuz, olayları PostHog'e iletmeden önce Stack Auth hesap tanımlayıcınızı ekler. Analizler ve kilitlenme raporları devre dışı bırakılır ve yalnızca Ayarlar'da Analizleri Paylaş ve Kilitlenme Raporlarını etkinleştirdikten sonra gönderilir. Bu kontrolün kapatılması, analizlerin arabelleğe alınmasını veya gönderilmesini durdurur ve kilitlenme raporlamasını durdurur. Hesabınızla ilişkili analizlerin silinmesini talep etmek için [founders@manaflow.com](mailto:founders@manaflow.com) ile iletişime geçin.",
+            "iPhone ve iPad Uygulaması, kilitlenmeleri ve bozuk akışları teşhis etmemize yardımcı olmak için Sentry aracılığıyla maskelenmiş oturum tekrarları kaydedebilir. Tekrar, Uygulamanın kendi ekranlarının düzeni ve dokunuşları gösteren düşük çözünürlüklü bir kaydıdır. Tüm metinler, görseller ve web içeriği maskelenir; terminal, tarayıcı, yayınlanan ekran ve kamera yüzeyleri ise her zaman tamamen kapatılır; bunlar yüklemeden önce cihazınızda yapılır, böylece bu içerikler cihazınızdan asla çıkmaz. Tekrarlar, oturumların küçük bir örneklemi için ve bir hatadan önceki anlar için, yalnızca Ayarlar'da Analizleri Paylaş ve Kilitlenme Raporları etkinken kaydedilir. Bu kontrolün kapatılması tekrar kaydını durdurur ve cihazdaki arabelleğe alınmış tekrar verilerini siler."
           ]
         },
         {
@@ -61,7 +63,7 @@
         "Apple, Google ve GitHub: kimliğinizi doğrulamak için gereken hesap bilgilerini gönderen isteğe bağlı oturum açma sağlayıcıları.",
         "Apple Anında Bildirim hizmeti: kaydolduktan sonra iPhone ve iPad'e bildirimler.",
         "Apple Konuşma Tanıma: mobil uygulamada seçtiğinizde ses transkripsiyonu.",
-        "Sentry: hata günlüklerini, yığın izlerini, cihaz bilgilerini ve işletim sistemi sürümünü toplayabilen hata izleme ve kilitlenme raporlama.",
+        "Sentry: hata günlüklerini, yığın izlerini, cihaz bilgilerini, işletim sistemi sürümünü ve Uygulama ekranlarının maskelenmiş kayıtlarını toplayabilen hata izleme, kilitlenme raporlama ve maskelenmiş oturum tekrarları.",
         "Sparkle: macOS güncellemelerini kontrol etmek için uygulama ve işletim sistemi sürümlerini gönderen macOS otomatik güncelleme çerçevesi.",
         "Ghostty / libghostty: cihazınızda yerel olarak çalışan terminal oluşturma motoru.",
         "PostHog: sayfa görünümleri, gezinme modelleri, tarayıcı meta verileri, mobil özellik etkinlikleri, oturum açtıktan sonra hesaba bağlı web ve mobil analizler ile ödeme, abonelik ve fatura etkinlikleri; bunlara plan, abonelik durumu, tutar ve para birimi ile Stripe müşteri, abonelik ve fatura tanımlayıcıları dahildir. Sizi bilgilendirmek için gönderilen bekleme listesi e-postasını da kaydederiz.",
@@ -121,7 +123,7 @@
     {
       "heading": "IX. Veri Saklama",
       "paragraphs": [
-        "Kilitlenme raporları ve tanılamalar yalnızca gerektiği sürece saklanır. Hesap tanımlayıcıları ve kimlik doğrulama verileri hesap etkinken tutulur, ardından güvenlik, yasal, vergi, faturalandırma veya dolandırıcılığı önleme yükümlülükleri dışında silinir ya da anonimleştirilir. Cihaz ve eşleştirme verileri bağlantı kesilene veya silinene, Apple belirteçleri ise yalnızca bildirimler etkin olduğu sürece tutulur. PostHog'teki web ve mobil analizler, hesaba bağlı analizler, faturalandırma yaşam döngüsü etkinlikleri ve Stripe tanımlayıcıları, daha erken silme istemediğiniz sürece 24 aya kadar saklanır. Hesap ayarları cmux verilerini siler veya anonimleştirir, bağlı PostHog kişisini siler ve web ve mobil analiz etkinlikleri ile kayıtlarının silinmesini ister. Bazı faturalandırma kayıtları ve Stripe tanımlayıcıları güvenlik, yasal, vergi, faturalandırma veya dolandırıcılığı önleme yükümlülükleri nedeniyle saklanabilir. Sağlayıcı silmeleri eşzamansız tamamlanabilir. Ayarlardan veya [founders@manaflow.com](mailto:founders@manaflow.com) üzerinden silme isteyin."
+        "Kilitlenme raporları ve tanılamalar yalnızca gerektiği sürece saklanır. Maskelenmiş oturum tekrarları, yakalanmalarından 90 gün sonra Sentry'den silinir. Hesap tanımlayıcıları ve kimlik doğrulama verileri hesap etkinken tutulur, ardından güvenlik, yasal, vergi, faturalandırma veya dolandırıcılığı önleme yükümlülükleri dışında silinir ya da anonimleştirilir. Cihaz ve eşleştirme verileri bağlantı kesilene veya silinene, Apple belirteçleri ise yalnızca bildirimler etkin olduğu sürece tutulur. PostHog'teki web ve mobil analizler, hesaba bağlı analizler, faturalandırma yaşam döngüsü etkinlikleri ve Stripe tanımlayıcıları, daha erken silme istemediğiniz sürece 24 aya kadar saklanır. Hesap ayarları cmux verilerini siler veya anonimleştirir, bağlı PostHog kişisini siler ve web ve mobil analiz etkinlikleri ile kayıtlarının silinmesini ister. Bazı faturalandırma kayıtları ve Stripe tanımlayıcıları güvenlik, yasal, vergi, faturalandırma veya dolandırıcılığı önleme yükümlülükleri nedeniyle saklanabilir. Sağlayıcı silmeleri eşzamansız tamamlanabilir. Ayarlardan veya [founders@manaflow.com](mailto:founders@manaflow.com) üzerinden silme isteyin."
       ]
     }
   ]

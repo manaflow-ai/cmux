@@ -53,6 +53,7 @@ public struct MobileCrashReporter {
         environment: [String: String] = ProcessInfo.processInfo.environment,
         notificationCenter: NotificationCenter = .default,
         revocationWatcher: RevocationWatcher,
+        replayMaskedViewClasses: [AnyClass] = [],
         prepareLocale: () -> Void = {
             _ = Locale.current
             _ = NSLocale.preferredLanguages
@@ -78,7 +79,10 @@ public struct MobileCrashReporter {
         let purgeCache = purgeCache ?? { cachePurger.purge() }
 
         let startReporting = {
-            let options = makeOptions()
+            let options = makeOptions(
+                environment: environment,
+                replayMaskedViewClasses: replayMaskedViewClasses
+            )
             // Sentry's close() always flushes. A dedicated transport session
             // lets revocation cancel queued and in-flight requests before close
             // attempts that flush; a zero timeout prevents shutdown waiting.
@@ -130,9 +134,20 @@ public struct MobileCrashReporter {
 
     /// Builds the mobile Sentry options without starting the SDK.
     ///
+    /// - Parameters:
+    ///   - environment: Process environment, read for the DEBUG-only
+    ///     `CMUX_REPLAY_FORCE_SESSION` mask-audit override.
+    ///   - replayMaskedViewClasses: View classes replay must always mask, on
+    ///     top of the text/image/webview defaults. The composition root passes
+    ///     every content surface here (terminal, browser stream, sim stream,
+    ///     camera) because Metal- and video-backed views are not covered by
+    ///     the class-based defaults.
     /// - Returns: A fully configured Sentry ``Options`` value suitable for
     ///   `SentrySDK.start(options:)`.
-    public func makeOptions() -> Options {
+    public func makeOptions(
+        environment: [String: String] = ProcessInfo.processInfo.environment,
+        replayMaskedViewClasses: [AnyClass] = []
+    ) -> Options {
         let options = Options()
         options.dsn = Self.dsn
         #if DEBUG
@@ -170,6 +185,37 @@ public struct MobileCrashReporter {
         // Sessions are release-health telemetry, outside the crash-only scope,
         // and the one envelope type the consent beforeSend gate cannot drop.
         options.enableAutoSessionTracking = false
+        #if os(iOS)
+        // Session replay: masked recordings of the app's own screens for crash
+        // and UX context. Masking runs on-device during capture, so masked
+        // pixels are never encoded or uploaded. Text/image/webview defaults
+        // stay on, and the injected class list unconditionally masks content
+        // surfaces the defaults cannot classify (Metal terminal, streamed
+        // browser/sim video, camera preview). Replay consent is enforced on
+        // three layers: the revocation watcher only starts the SDK with
+        // consent on; replay events route through the `beforeSend` consent
+        // gate like any other event (the scrubber returns the same instance,
+        // which SentryClient requires for replays); and revocation cancels
+        // transport and purges `Caches/io.sentry`, which holds buffered
+        // replay segments. Touch capture stays off because it requires
+        // `enableSwizzling`.
+        options.sessionReplay.onErrorSampleRate = 1.0
+        options.sessionReplay.sessionSampleRate = 0.1
+        options.sessionReplay.quality = .low
+        options.sessionReplay.maskAllText = true
+        options.sessionReplay.maskAllImages = true
+        options.sessionReplay.maskedViewClasses = replayMaskedViewClasses
+        // CALayer-only rendering can omit views entirely; keep the complete
+        // renderer so masked regions are drawn as blocks, not skipped.
+        options.sessionReplay.enableFastViewRendering = false
+        #if DEBUG
+        // Mask-audit override: force a full-session replay so every screen
+        // can be walked once and inspected in Sentry for mask leaks.
+        if environment["CMUX_REPLAY_FORCE_SESSION"] == "1" {
+            options.sessionReplay.sessionSampleRate = 1.0
+        }
+        #endif
+        #endif
         #if canImport(MetricKit) && !os(tvOS) && !os(visionOS)
         // Normalized MetricKit diagnostics only. Raw MXDiagnosticPayload
         // attachments bypass sendDefaultPii and any future event scrubber, so

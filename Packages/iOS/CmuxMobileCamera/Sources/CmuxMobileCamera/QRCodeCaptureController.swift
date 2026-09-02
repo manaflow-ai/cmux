@@ -55,11 +55,6 @@ public final class QRCodeCaptureController: UIViewController {
         configureSession()
     }
 
-    public override func viewDidLayoutSubviews() {
-        super.viewDidLayoutSubviews()
-        previewLayer?.frame = view.bounds
-    }
-
     public override func viewWillAppear(_ animated: Bool) {
         super.viewWillAppear(animated)
         startSession()
@@ -102,11 +97,15 @@ public final class QRCodeCaptureController: UIViewController {
         // will not be where the box is drawn and codes that look centered
         // will not decode.
 
-        let layer = AVCaptureVideoPreviewLayer(session: captureSession)
-        layer.videoGravity = .resizeAspectFill
-        layer.frame = view.bounds
-        view.layer.addSublayer(layer)
-        previewLayer = layer
+        // The preview lives in its own maskable host view (see
+        // ``CameraPreviewHostView``); autoresizing keeps layer and view in
+        // sync without a layout override.
+        let host = CameraPreviewHostView(frame: view.bounds)
+        host.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+        host.previewLayer.session = captureSession
+        host.previewLayer.videoGravity = .resizeAspectFill
+        view.addSubview(host)
+        previewLayer = host.previewLayer
         isConfigured = true
     }
 
