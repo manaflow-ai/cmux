@@ -15,6 +15,13 @@ const PROVIDER_CREDENTIAL_KEYS = {
   freestyle: ["FREESTYLE_API_KEY"],
 };
 
+// Runtime kill switches are fail-open when unset, but an explicit false value
+// disables the provider. Keep this mapping beside the credential mapping so a
+// new default provider cannot pass the audit while its create path is off.
+const PROVIDER_ENABLED_KEYS = {
+  freestyle: "CMUX_VM_FREESTYLE_ENABLED",
+};
+
 // Mirrors defaultProviderId() in services/vms/drivers/index.ts. Freestyle is
 // the only provider, and shipped CLIs hardcode its image ids (cmux.swift
 // cloudVMDesktopImage / cloudVMBaseImage), so it must stay provisionable in
@@ -88,7 +95,23 @@ export function auditProviderReadiness(provider, env, manifest) {
     }
   }
 
+  const enabledKey = PROVIDER_ENABLED_KEYS[provider];
+  const enabledValue = enabledKey ? env[enabledKey]?.trim() : undefined;
+  if (enabledKey && enabledValue === SENSITIVE_PLACEHOLDER) {
+    problems.push(
+      `${enabledKey} is stored as a Sensitive env var, so its value cannot be audited; ` +
+      "store it as a plain env var (provider switches are configuration, not secrets)",
+    );
+  } else if (enabledKey && isFalseFlag(enabledValue)) {
+    problems.push(`${enabledKey} disables provider ${provider}, so the selected default cannot create VMs`);
+  }
+
   return { provider, envVar, image, problems };
+}
+
+function isFalseFlag(value) {
+  if (!value) return false;
+  return ["0", "false", "no", "off", "disabled"].includes(value.toLowerCase());
 }
 
 /**

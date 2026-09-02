@@ -11,7 +11,8 @@
 # (sha256-verified) onto the machine at create time and heals it on attach
 # (web/services/vms/drivers/cmuxTuiDaemon.ts). The image ships only
 # /usr/local/bin/cmux-devbox-boot, the supervisor that waits for the binary
-# and restarts the daemon; the Freestyle bake runs it from a systemd unit.
+# and restarts the daemon. The Freestyle public-platform bake runs it from a
+# systemd unit.
 #
 # Portability rules the Freestyle replay depends on (originally imposed by a
 # remote builder's restricted Dockerfile parser): no backslash escape
@@ -217,6 +218,7 @@ RUN bash -n /etc/cmux/agent-config.sh \
   && grep -q 'model_provider = "cmux"' /tmp/agent-config-check/.codex/config.toml \
   && grep -q 'base_url = "https://example.invalid/v1"' /tmp/agent-config-check/.codex/config.toml \
   && grep -q 'wire_api = "responses"' /tmp/agent-config-check/.codex/config.toml \
+  && grep -q 'supports_websockets = false' /tmp/agent-config-check/.codex/config.toml \
   && grep -q 'persistence = "save-all"' /tmp/agent-config-check/.codex/config.toml \
   && grep -q "export OPENAI_API_KEY='crt_check'" /tmp/agent-config-check/.config/cmux/model-plane.env \
   && [ "$(stat -c %a /tmp/agent-config-check/.config/cmux/model-plane.env)" = "600" ] \
