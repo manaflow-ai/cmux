@@ -2683,21 +2683,28 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn delayed_frame_survives_cross_lane_tombstone_churn() {
+    async fn delayed_frame_survives_cross_lane_real_close_churn() {
         let (client_endpoint, daemon_endpoint) = endpoint_pair();
         let client = ServiceMultiplexer::new(client_endpoint, EndpointRole::Client);
-        let stream = client.open(Service::ProcessStream, BTreeMap::new()).await.unwrap();
-        let stream_id = stream.id();
-        stream.close().await.unwrap();
+        let daemon = ServiceMultiplexer::new(daemon_endpoint.clone(), EndpointRole::Daemon);
+        let client_stream = client.open(Service::ProcessStream, BTreeMap::new()).await.unwrap();
+        let stream_id = client_stream.id();
+        let daemon_stream = daemon.accept().await.unwrap().unwrap().stream;
+        daemon_stream.close().await.unwrap();
+        assert!(client_stream.receive().await.unwrap().unwrap().finished);
+        assert!(client_stream.receive().await.unwrap().is_none());
 
-        // Model a stalled lane whose frame is delayed while another lane churns
-        // through its bounded tombstone window.
-        let mut closed = client.closed.lock().await;
-        for id in 100_000..100_000 + REPLAY_FRAMES_PER_LANE as u64 {
-            closed.insert_on(id * 2 + 1, LANE_CONTROL_BIT);
+        // Churn real remote closes on Control while the Interactive tombstone
+        // waits for a delayed frame.
+        for _ in 0..TOMBSTONES_PER_LANE {
+            let churn_client = client.open(Service::WorkspaceRpc, BTreeMap::new()).await.unwrap();
+            let churn_daemon = daemon.accept().await.unwrap().unwrap().stream;
+            churn_daemon.close().await.unwrap();
+            assert!(churn_client.receive().await.unwrap().unwrap().finished);
+            assert!(churn_client.receive().await.unwrap().is_none());
         }
-        assert!(closed.ids.contains(&stream_id));
-        drop(closed);
+
+        assert!(client.closed.lock().await.contains_on(stream_id, Lane::Interactive));
 
         daemon_endpoint
             .send_frame(
