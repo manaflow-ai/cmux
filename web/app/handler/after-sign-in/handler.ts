@@ -448,7 +448,7 @@ export function makeAfterSignInHandler(dependencies: AfterSignInHandlerDependenc
       );
       if (
         trustedPurchaseReturnTo === nativeReturnTo ||
-        isAllowedNativeReturnTo(nativeReturnTo, request)
+        isAllowedNativeReturnTo(nativeReturnTo)
       ) {
         const href = buildNativeHref(nativeReturnTo, refreshToken, accessCookie);
         if (href) {
