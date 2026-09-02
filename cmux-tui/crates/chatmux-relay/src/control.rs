@@ -902,16 +902,24 @@ mod tests {
             .expect("reader waiter task");
 
         let seen_for_close = Arc::clone(&seen);
+        let (close_tx, close_rx) = oneshot::channel();
+        let close_tx = Arc::new(Mutex::new(Some(close_tx)));
+        let close_signal = Arc::clone(&close_tx);
         let control_for_close = Arc::clone(&control);
         let close_registration = std::thread::spawn(move || {
             control_for_close.on_close(Box::new(move || {
                 seen_for_close.lock().expect("close order lock").push("close");
+                if let Some(close_tx) = close_signal.lock().expect("close signal lock").take() {
+                    let _ = close_tx.send(());
+                }
             }));
         });
-        std::thread::yield_now();
-        assert!(!close_registration.is_finished(), "late close must wait for event drain");
-        release.wait();
         close_registration.join().expect("late close registration");
+        release.wait();
+        tokio::time::timeout(Duration::from_secs(1), close_rx)
+            .await
+            .expect("close callback after queued event")
+            .expect("close callback signal");
         assert_eq!(*seen.lock().expect("event order lock"), vec!["event", "close"]);
         tokio::time::timeout(Duration::from_secs(1), server)
             .await
