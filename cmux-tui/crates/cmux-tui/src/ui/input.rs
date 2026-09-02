@@ -1,6 +1,6 @@
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use unicode_segmentation::UnicodeSegmentation;
-use unicode_width::UnicodeWidthStr;
+use ratatui::buffer::CellWidth;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum InputEvent {
@@ -112,7 +112,7 @@ impl TextInput {
         let mut used = 0;
         let mut end = scroll;
         for (offset, grapheme) in self.buffer[scroll..].grapheme_indices(true) {
-            let grapheme_width = UnicodeWidthStr::width(grapheme);
+            let grapheme_width = grapheme.cell_width() as usize;
             if used + grapheme_width > width {
                 break;
             }
@@ -143,7 +143,7 @@ impl TextInput {
         for (offset, grapheme) in self.buffer[self.scroll..].grapheme_indices(true) {
             let start = self.scroll + offset;
             let end = start + grapheme.len();
-            let grapheme_width = UnicodeWidthStr::width(grapheme);
+            let grapheme_width = grapheme.cell_width() as usize;
             if used + grapheme_width > width {
                 break;
             }
@@ -354,7 +354,7 @@ impl TextInput {
         // Recomputing widths from `scroll` on every iteration makes long inputs quadratic.
         let mut cursor_col = 0;
         for grapheme in self.buffer[scroll..cursor].graphemes(true) {
-            cursor_col += UnicodeWidthStr::width(grapheme);
+            cursor_col += grapheme.cell_width() as usize;
         }
         if cursor_col >= width {
             let viewport_start = scroll;
@@ -363,7 +363,7 @@ impl TextInput {
                 if next > cursor {
                     break;
                 }
-                cursor_col = cursor_col.saturating_sub(UnicodeWidthStr::width(grapheme));
+                cursor_col = cursor_col.saturating_sub(grapheme.cell_width() as usize);
                 scroll = next;
                 if cursor_col < width {
                     break;
@@ -563,5 +563,15 @@ mod tests {
 
         assert_eq!(shown, "界");
         assert_eq!(cursor, 2);
+    }
+
+    #[test]
+    fn visible_cursor_counts_halfwidth_sound_marks_as_terminal_cells() {
+        let mut input = text_input("ｶﾞa");
+
+        let (shown, cursor) = input.visible_text_and_cursor(4);
+
+        assert_eq!(shown, "ｶﾞa");
+        assert_eq!(cursor, 3);
     }
 }
