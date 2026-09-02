@@ -20,9 +20,13 @@ public nonisolated enum SocketCredentialResolutionDemand: Sendable {
 
 /// Identifies the source that supplied a socket password.
 public nonisolated enum SocketCredentialSource: Equatable, Sendable {
+    /// The password supplied by the command-line `--password` option.
     case explicit
+    /// The password supplied by `CMUX_SOCKET_PASSWORD`.
     case environment
+    /// The password read from the shared socket-control password file.
     case file
+    /// The password read from the legacy scoped keychain entry.
     case keychain
 }
 
