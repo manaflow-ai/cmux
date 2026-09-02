@@ -3770,6 +3770,7 @@ impl Drop for RemoteSession {
     fn drop(&mut self) {
         self.interactive_writer.request_close();
         self.interactive_writer.abort_transport();
+        self.join_reader_worker();
         self.interactive_writer.join_worker_if_done();
         let Some(dir) = self.frame_dump_dir.as_deref() else {
             return;
