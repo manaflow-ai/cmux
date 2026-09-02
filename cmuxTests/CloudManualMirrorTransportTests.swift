@@ -111,6 +111,29 @@ struct CloudManualMirrorTransportTests {
     }
 
     @Test
+    func pingCommandCarriesRequestIDForReadWatchdog() {
+        let ping = commands.ping(requestID: 42)
+        #expect(ping["cmd"] as? String == "ping")
+        #expect(ping["id"] as? UInt64 == 42)
+    }
+
+    @Test
+    func negotiatedLeaseCannotSilentlyDowngradeToUnleasedResize() {
+        #expect(
+            CloudTuiManualMirrorSession.requiresLeaseToken(
+                capabilities: ["view-attachment-lease-v1"],
+                lease: nil
+            )
+        )
+        #expect(
+            !CloudTuiManualMirrorSession.requiresLeaseToken(
+                capabilities: [],
+                lease: nil
+            )
+        )
+    }
+
+    @Test
     func responseDecoderPreservesCapabilitiesAndLeaseOutcome() throws {
         let line = Self.line([
             "id": 7,
