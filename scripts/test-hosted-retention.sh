@@ -12,6 +12,7 @@ current_commit="aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
 new_commit="bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
 active_commit="cccccccccccccccccccccccccccccccccccccccc"
 old_commit="dddddddddddddddddddddddddddddddddddddddd"
+extra_commit="eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"
 
 fake_lsof="$tmp/lsof"
 cat > "$fake_lsof" <<'EOF'
@@ -45,7 +46,7 @@ case "${CMUX_TEST_STAT_MODE:-gnu}:$format" in
   gnu:-c|bsd:-f)
     shift 2
     ;;
-  gnu:-f|bsd:-c)
+  gnu:-f)
     # GNU stat's -f is filesystem status, not file modification time. Return
     # a successful non-numeric value to catch callers that accept that result.
     printf '/mounted\n'
@@ -63,8 +64,7 @@ EOF
 chmod 0755 "$fake_stat"
 
 make_root() {
-  test_root="$tmp/root-$RANDOM"
-  mkdir -p "$test_root"
+  test_root="$(mktemp -d "$tmp/root.XXXXXX")"
 }
 
 make_artifact() {
@@ -76,7 +76,7 @@ make_artifact() {
 write_stat_map() {
   : > "$tmp/stat-map"
   for entry in "$@"; do
-    printf '%s\n' "$entry" >> "$tmp/stat-map"
+    printf '%s\t%s\n' "${entry%%:*}" "${entry#*:}" >> "$tmp/stat-map"
   done
   export CMUX_TEST_STAT_MAP="$tmp/stat-map"
 }
@@ -85,7 +85,8 @@ run_retention() {
   CMUX_TUI_HOSTED_RETENTION_COUNT="$test_count" \
   CMUX_TUI_HOSTED_RETENTION_DRY_RUN="$test_dry_run" \
   CMUX_TUI_HOSTED_RETENTION_CONFIRM="$test_confirm" \
-  CMUX_TUI_HOSTED_RETENTION_LSOF="$fake_lsof" \
+  CMUX_TUI_HOSTED_RETENTION_MAX_CANDIDATES="${test_max_candidates:-10000}" \
+  CMUX_TUI_HOSTED_RETENTION_LSOF="${test_lsof_command:-$fake_lsof}" \
   CMUX_TUI_HOSTED_RETENTION_STAT="$fake_stat" \
   CMUX_TEST_LSOF_MODE="${test_lsof_mode:-inactive}" \
   CMUX_TEST_ACTIVE_COMMIT="${test_active_commit:-}" \
@@ -132,10 +133,10 @@ make_baseline() {
   make_artifact "$active_commit"
   make_artifact "$old_commit"
   write_stat_map \
-    "$current_commit\t400" \
-    "$new_commit\t300" \
-    "$active_commit\t200" \
-    "$old_commit\t100"
+    "$current_commit:400" \
+    "$new_commit:300" \
+    "$active_commit:200" \
+    "$old_commit:100"
   test_current_commit="$current_commit"
   test_count=1
   test_dry_run=1
@@ -143,6 +144,8 @@ make_baseline() {
   test_lsof_mode=inactive
   test_active_commit=""
   test_stat_mode=gnu
+  test_max_candidates=10000
+  test_lsof_command="$fake_lsof"
 }
 
 # A dry run creates the preview. A destructive run with the same plan removes
@@ -179,6 +182,17 @@ expect_failure 2
 assert_exists "$active_commit"
 assert_exists "$old_commit"
 
+# Adding a candidate after the preview invalidates the exact deletion plan.
+make_baseline
+expect_success
+make_artifact "$extra_commit"
+printf '%s\t%s\n' "$extra_commit" 500 >> "$tmp/stat-map"
+test_dry_run=0
+test_confirm=1
+expect_failure 2
+assert_exists "$extra_commit"
+assert_exists "$old_commit"
+
 # Malformed, expired, and future timestamps are all rejected before cleanup.
 make_baseline
 expect_success
@@ -194,7 +208,7 @@ make_baseline
 expect_success
 preview="$test_root/.retention-preview"
 preview_hash="$(cut -f1 "$preview")"
-printf '%s\t%s\n' "$preview_hash" "$(( $(date +%s) + 1 ))" > "$preview"
+printf '%s\t%s\n' "$preview_hash" "$(( $(date +%s) + 3600 ))" > "$preview"
 test_dry_run=0
 test_confirm=1
 expect_failure 2
@@ -220,6 +234,16 @@ expect_failure 2
 assert_exists "$active_commit"
 assert_exists "$old_commit"
 
+# Cleanup also fails closed when the activity tool is not available.
+make_baseline
+expect_success
+test_dry_run=0
+test_confirm=1
+test_lsof_command="$tmp/missing-lsof"
+expect_failure 2
+assert_exists "$active_commit"
+assert_exists "$old_commit"
+
 # An active binary is retained while a confirmed inactive binary is removed.
 make_baseline
 expect_success
@@ -230,6 +254,13 @@ test_active_commit="$active_commit"
 expect_success
 assert_exists "$active_commit"
 assert_missing "$old_commit"
+
+# The candidate scan has a hard upper bound, so sorting cannot grow without
+# limit when a cache was never cleaned by an older script.
+make_baseline
+test_max_candidates=3
+expect_failure 2
+assert_exists "$old_commit"
 
 # Exercise both documented stat interfaces. The GNU form must be tried first
 # on GNU systems, while the BSD form remains a valid fallback on macOS.
