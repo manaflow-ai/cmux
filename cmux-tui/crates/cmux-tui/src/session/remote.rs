@@ -4573,6 +4573,18 @@ mod tests {
         }
     }
 
+    #[cfg(unix)]
+    #[test]
+    fn private_dump_directory_is_private_when_created() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let root = tempfile::tempdir().unwrap();
+        let path = root.path().join("dumps");
+        let directory = private_dump_directory(&path).unwrap();
+
+        assert_eq!(directory.metadata().unwrap().permissions().mode() & 0o777, 0o700);
+    }
+
     #[test]
     fn disabled_frame_logging_does_not_format_hot_path_messages() {
         struct FormattingProbe(Arc<AtomicBool>);
