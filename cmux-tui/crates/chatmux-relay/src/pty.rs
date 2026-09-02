@@ -505,6 +505,18 @@ impl RouteGate {
         RouteGuard { gate: self, owner }
     }
 
+    fn try_lock(&self) -> Option<RouteGuard<'_>> {
+        let owner = std::thread::current().id();
+        let mut state = self.state.lock().expect("route gate lock");
+        if state.owner.is_some_and(|current| current != owner) {
+            return None;
+        }
+        state.owner = Some(owner);
+        state.depth += 1;
+        drop(state);
+        Some(RouteGuard { gate: self, owner })
+    }
+
     /// Acquire the gate without blocking a Tokio worker. The critical
     /// sections protected by this gate never await, so the polling thread is
     /// stable for the lifetime of the guard and can safely re-enter through a
@@ -1362,7 +1374,13 @@ impl Inner {
                 // drops below and retires the attachment from its detached
                 // cleanup thread, while this request must finish promptly on
                 // transport cancellation.
-                send_pty_error(context, &pty_id, "failed", "PTY output start cancelled");
+                self.send_start_error_if_current(
+                    context,
+                    &pty_id,
+                    generation,
+                    &publication_gate,
+                    "PTY output start cancelled",
+                );
             }
             result = tokio::time::timeout(PTY_START_TIMEOUT, started_rx) => {
                 if result.is_ok() {
@@ -1375,7 +1393,13 @@ impl Inner {
                     // The cleanup owner handles the gated retirement. Keep
                     // the timeout path independent from that gate so a stuck
                     // output callback cannot strand the opening request.
-                    send_pty_error(context, &pty_id, "failed", "PTY output start timed out");
+                    self.send_start_error_if_current(
+                        context,
+                        &pty_id,
+                        generation,
+                        &publication_gate,
+                        "PTY output start timed out",
+                    );
                 }
             }
         }
@@ -1621,6 +1645,38 @@ impl Inner {
         self.emit_terminal_for_generation(pty_id, generation, publication_gate, || {
             send_pty_error(context, pty_id, code, message);
         });
+    }
+
+    fn send_start_error_if_current(
+        &self,
+        context: &FrameContext,
+        pty_id: &str,
+        generation: u64,
+        publication_gate: &Arc<RouteGate>,
+        message: &str,
+    ) {
+        let gate = {
+            let attachments = self.attachments.lock().expect("attach lock");
+            let Some(current) = attachments.get(pty_id) else { return };
+            if current.generation != generation
+                || !Arc::ptr_eq(&current.publication_gate, publication_gate)
+            {
+                return;
+            }
+            Arc::clone(&current.publication_gate)
+        };
+        let Some(_publication) = gate.try_lock() else { return };
+        let attachments = self.attachments.lock().expect("attach lock");
+        let Some(current) = attachments.get(pty_id) else { return };
+        if current.generation != generation
+            || !Arc::ptr_eq(&current.publication_gate, publication_gate)
+            || current.closing.load(Ordering::SeqCst)
+            || current.close_pending.load(Ordering::SeqCst)
+        {
+            return;
+        }
+        drop(attachments);
+        send_pty_error(context, pty_id, "failed", message);
     }
 
     async fn emit_error_for_generation_async(
@@ -2344,9 +2400,34 @@ impl StartCleanup {
         let pty_id = self.pty_id.clone();
         let generation = self.generation;
         let publication_gate = Arc::clone(&self.publication_gate);
-        std::thread::spawn(move || {
-            inner.close_exact(&pty_id, Some(generation), Some(&publication_gate));
-        });
+        if let Ok(handle) = tokio::runtime::Handle::try_current() {
+            // Keep the cleanup task owned by Tokio. The blocking section uses
+            // its bounded executor, so repeated cancelled starts cannot spawn
+            // one untracked OS thread each.
+            handle.spawn(async move {
+                let _ = tokio::task::spawn_blocking(move || {
+                    inner.close_exact(&pty_id, Some(generation), Some(&publication_gate));
+                })
+                .await;
+            });
+        } else {
+            // StartOwner normally drops on a Tokio worker. Keep a fallback for
+            // teardown paths that run after the runtime has shut down.
+            let fallback_inner = Arc::clone(&self.inner);
+            let fallback_gate = Arc::clone(&self.publication_gate);
+            let fallback_pty_id = self.pty_id.clone();
+            let fallback_generation = self.generation;
+            let cleanup = std::thread::Builder::new().name("chatmux-relay-pty-cleanup".to_owned());
+            if let Err(error) = cleanup.spawn(move || {
+                fallback_inner.close_exact(
+                    &fallback_pty_id,
+                    Some(fallback_generation),
+                    Some(&fallback_gate),
+                );
+            }) {
+                eprintln!("PTY cleanup thread could not be created: {error}");
+            }
+        }
     }
 }
 
