@@ -615,12 +615,12 @@ final class MachinesPanelViewModel: ObservableObject {
         let generation = refreshGeneration
         refreshTask = Task { [weak self] in
             defer {
-                guard let self, self.refreshGeneration == generation else { return }
-                self.refreshTask = nil
-                guard !Task.isCancelled else { return }
-                if self.refreshRequestedWhileLoading {
-                    self.refreshRequestedWhileLoading = false
-                    self.refresh()
+                if let self, self.refreshGeneration == generation {
+                    self.refreshTask = nil
+                    if !Task.isCancelled, self.refreshRequestedWhileLoading {
+                        self.refreshRequestedWhileLoading = false
+                        self.refresh()
+                    }
                 }
             }
             let loaded = await CloudClientBootstrapRetry(maxRetries: Self.maxClientBootstrapRetries).run { [weak self] in
