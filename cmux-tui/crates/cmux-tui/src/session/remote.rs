@@ -4871,6 +4871,15 @@ mod tests {
 
     #[cfg(unix)]
     #[test]
+    fn private_dump_scan_ignores_missing_temp_entries() {
+        let root = tempfile::tempdir().unwrap();
+        let missing_path = root.path().join(".frames-1.log.tmp-99999999-1");
+
+        assert!(stale_dump_entry_metadata(&missing_path).unwrap().is_none());
+    }
+
+    #[cfg(unix)]
+    #[test]
     fn private_frame_dump_preserves_line_format() {
         let root = tempfile::tempdir().unwrap();
         let dump_path = root.path().join("dumps");
