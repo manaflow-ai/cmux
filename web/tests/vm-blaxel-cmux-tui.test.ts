@@ -722,7 +722,10 @@ describe("cmux-tui install and daemon commands", () => {
         await new Promise((resolve) => setTimeout(resolve, 10));
       }
       expect(existsSync(join(state, "daemon-ready"))).toBe(true);
-      await new Promise((resolve) => setTimeout(resolve, 100));
+      const livenessDeadline = Date.now() + 100;
+      while (child.exitCode === null && Date.now() < livenessDeadline) {
+        await new Promise((resolve) => setTimeout(resolve, 10));
+      }
       // Missing findmnt must select a bounded direct mount check, not signal the
       // supervisor before the daemon has a chance to serve the mounted home.
       expect(child.exitCode).toBeNull();
