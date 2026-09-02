@@ -36,7 +36,11 @@ export default async function DashboardAdminPage({
         <p className="text-xs font-medium text-muted">{t("eyebrow")}</p>
         <h1 className="mt-1 text-sm font-medium">{t("title")}</h1>
         <p className="mt-1 max-w-2xl text-muted">
-          {t("description", { domains: ADMIN_EMAIL_DOMAINS.join(", ") })}
+          {t("description", {
+            domains: new Intl.ListFormat(locale, { type: "conjunction" }).format(
+              ADMIN_EMAIL_DOMAINS,
+            ),
+          })}
         </p>
       </div>
       <AdminProPanel />

@@ -39,7 +39,7 @@ export async function GET(request: NextRequest) {
     return jsonResponse({ error: "invalid_query" }, 400);
   }
   const users = await searchAdminUsers(query);
-  return jsonResponse({ users });
+  return adminJsonResponse({ users });
 }
 
 /** POST /api/admin/users { userId, plan: "pro" | "founders" | null } */
@@ -64,7 +64,7 @@ export async function POST(request: NextRequest) {
       plan: parsed.plan,
       admin: gate.admin,
     });
-    return jsonResponse({ user });
+    return adminJsonResponse({ user });
   } catch (error) {
     if (error instanceof AdminUserNotFoundError) {
       return jsonResponse({ error: "user_not_found" }, 404);
@@ -74,6 +74,13 @@ export async function POST(request: NextRequest) {
     }
     throw error;
   }
+}
+
+/** Admin user data must never land in a shared or browser cache. */
+function adminJsonResponse(data: unknown, status = 200): Response {
+  const response = jsonResponse(data, status);
+  response.headers.set("cache-control", "no-store");
+  return response;
 }
 
 async function requireAdmin(request: NextRequest): Promise<AdminGate> {

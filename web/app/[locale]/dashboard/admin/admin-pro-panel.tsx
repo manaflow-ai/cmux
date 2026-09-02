@@ -1,6 +1,6 @@
 "use client";
 
-import { useTranslations } from "next-intl";
+import { useFormatter, useTranslations } from "next-intl";
 import { useId, useRef, useState } from "react";
 
 type AdminUserRow = {
@@ -199,6 +199,7 @@ function UserRow({
   error: string | null;
   onGrant: (plan: GrantPlan) => void;
 }) {
+  const format = useFormatter();
   const grantLabel = user.manualPlanId
     ? t("grant.current", { plan: user.manualPlanId })
     : t("grant.none");
@@ -232,7 +233,7 @@ function UserRow({
           <div className="mt-0.5 text-[10px]">
             {t("grant.by", {
               who: user.lastGrant.byEmail ?? user.lastGrant.byUserId,
-              when: user.lastGrant.at,
+              when: formatGrantTime(format, user.lastGrant.at),
             })}
           </div>
         ) : null}
@@ -276,6 +277,12 @@ function UserRow({
       </td>
     </tr>
   );
+}
+
+function formatGrantTime(format: ReturnType<typeof useFormatter>, iso: string): string {
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) return iso;
+  return format.dateTime(date, { dateStyle: "medium", timeStyle: "short" });
 }
 
 function errorMessage(
