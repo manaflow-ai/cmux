@@ -1,7 +1,7 @@
 import { and, eq, isNull } from "drizzle-orm";
 import { NextRequest, NextResponse } from "next/server";
 import type * as StackLib from "../../../lib/stack";
-import { requestOrigin } from "../../../lib/request-origin";
+import { requestOrigin, requestWithOrigin } from "../../../lib/request-origin";
 
 import { cloudDb } from "../../../../db/client";
 import { stripeCustomers } from "../../../../db/schema";
@@ -28,7 +28,10 @@ export async function GET(request: NextRequest) {
       cmux_ios_app_store: request.nextUrl.searchParams.get("cmux_ios_app_store"),
     })
   ) {
-    return NextResponse.redirect(appStorePricingUnavailableURL(request.nextUrl), 302);
+    return NextResponse.redirect(
+      appStorePricingUnavailableURL(requestWithOrigin(request).nextUrl),
+      302,
+    );
   }
 
   // Keep Stack deferred until after the App Store distribution gate. lib/stack
