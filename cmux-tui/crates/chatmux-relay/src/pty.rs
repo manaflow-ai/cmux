@@ -963,7 +963,15 @@ impl PtyManager {
             opening_ids.into_iter().filter(|(_, owner, _)| owns(owner.as_deref())).collect();
         ids.extend(attachment_ids.into_iter().filter(|(_, owner, _)| owns(owner.as_deref())));
         for (id, owner, generation) in ids {
-            self.inner.close_if_transport_async(&id, owner.as_deref(), Some(generation)).await;
+            // Keep retirement owned by Tokio even if the connection teardown
+            // timeout drops this waiter. Dropping a JoinHandle detaches the
+            // cleanup task, so a close_pending marker cannot strand the slot.
+            let manager = Arc::clone(&self.inner);
+            let owner = owner.clone();
+            let cleanup = tokio::spawn(async move {
+                manager.close_if_transport_async(&id, owner.as_deref(), Some(generation)).await;
+            });
+            let _ = cleanup.await;
         }
     }
 }
@@ -2191,14 +2199,32 @@ impl Inner {
         }
         let live_auth = Self::auth_snapshot(context);
         if !self.auth_allows(&live_auth, &current) {
-            current.close_pending.store(false, Ordering::SeqCst);
-            drop(_publication);
-            send_pty_error(
-                context,
-                pty_id,
-                "trust_revoked",
-                "PTY close refused after trust change",
-            );
+            if live_auth.version > current.auth_version {
+                let removed = {
+                    let mut attachments = self.attachments.lock().expect("attach lock");
+                    let Some(current) = attachments.get(pty_id) else { return };
+                    if current.generation != attachment.generation
+                        || !Arc::ptr_eq(&current.publication_gate, &gate)
+                        || !current.close_pending.load(Ordering::SeqCst)
+                    {
+                        return;
+                    }
+                    let removed = attachments.remove(pty_id).expect("attachment still present");
+                    removed.closing.store(true, Ordering::SeqCst);
+                    removed
+                };
+                drop(_publication);
+                removed.control.kill();
+            } else {
+                current.close_pending.store(false, Ordering::SeqCst);
+                drop(_publication);
+                send_pty_error(
+                    context,
+                    pty_id,
+                    "trust_revoked",
+                    "PTY close refused after trust change",
+                );
+            }
             return;
         }
         let removed = {
