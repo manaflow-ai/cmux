@@ -125,6 +125,7 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
           cmux_ssh_auth_platform="$(uname -s 2>/dev/null || true)"
           cmux_ssh_auth_root_termination_identity=
           cmux_ssh_auth_perl_command="$(command -v perl 2>/dev/null || true)"
+          cmux_ssh_auth_lsof_command="$(command -v lsof 2>/dev/null || true)"
           cmux_ssh_auth_capture_root_termination_identity() {
             case "$cmux_ssh_auth_platform" in
               Darwin)
@@ -139,6 +140,9 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
                     expected_parent = Integer(ARGV[1])
                     size = 192
                     buffer = Fiddle::Pointer.malloc(size)
+                    # XNU names flavor 18 PROC_PIDT_BSDINFOWITHUNIQID. It
+                    # returns proc_bsdinfo (136 bytes) followed by
+                    # proc_uniqidentifierinfo (56 bytes), for 192 bytes.
                     written = CmuxLibproc.proc_pidinfo(pid, 18, 0, buffer, size)
                     exit 1 unless written == size
                     bytes = buffer.to_s(size)
@@ -240,13 +244,20 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
                   "$cmux_ssh_auth_perl_command" -e '
                     use strict;
                     use warnings;
+                    use POSIX ();
                     my ($token) = @ARGV;
                     my ($kind, $pid, $parent, $group, $start) = split /:/, $token, -1;
                     exit 0 unless defined $kind && $kind eq "P" &&
                       defined $pid && $pid =~ /\A[1-9][0-9]*\z/ &&
-                      defined $parent && $parent =~ /\A[0-9]+\z/ &&
+                    defined $parent && $parent =~ /\A[0-9]+\z/ &&
                       defined $group && $group =~ /\A[1-9][0-9]*\z/ &&
                       defined $start && $start =~ /\A[1-9][0-9]*\z/;
+                    my $pid_number = int($pid);
+                    # Linux exposes pidfd_open and pidfd_send_signal at these
+                    # stable syscall numbers. If this kernel does not provide
+                    # them, fail closed instead of sending to a bare PID.
+                    my $pidfd_open_syscall = 434;
+                    my $pidfd_send_signal_syscall = 424;
                     sub read_identity {
                       my ($candidate_pid) = @_;
                       open my $input, "<", "/proc/$candidate_pid/stat" or return;
@@ -273,17 +284,19 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
                     };
                     my $identity = read_identity($pid);
                     exit 0 unless $matches->($identity);
-                    my $pidfd = syscall(434, $pid, 0);
-                    exit 0 if $pidfd < 0;
+                    # Force the validated PID to an integer. Perl can pass a
+                    # string scalar as a pointer to syscall on 64-bit hosts.
+                    my $pidfd = syscall($pidfd_open_syscall, $pid_number, 0);
+                    exit 0 unless defined $pidfd && $pidfd >= 0;
                     my $after_open = read_identity($pid);
                     unless ($matches->($after_open)) {
-                      close $pidfd;
+                      POSIX::close($pidfd);
                       exit 0;
                     }
                     for my $signal_number (18, 15, 9) {
-                      syscall(424, $pidfd, $signal_number, 0, 0);
+                      syscall($pidfd_send_signal_syscall, $pidfd, $signal_number, 0, 0);
                     }
-                    close $pidfd;
+                    POSIX::close($pidfd);
                   ' "$cmux_ssh_auth_root_termination_identity" >/dev/null 2>&1 || true
                 fi
                 ;;
@@ -316,7 +329,7 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
             cmux_ssh_auth_cleanup_deadline_millis=$(
               "$cmux_ssh_auth_cleanup_clock_command" \
                 -MTime::HiRes=clock_gettime,CLOCK_MONOTONIC \
-                -e 'printf "%d\\n", int(clock_gettime(CLOCK_MONOTONIC) * 1000)' \
+                -e 'printf "%d\n", int(clock_gettime(CLOCK_MONOTONIC) * 1000)' \
                 2>/dev/null
             ) || cmux_ssh_auth_cleanup_deadline_millis=
             case "$cmux_ssh_auth_cleanup_deadline_millis" in
@@ -330,7 +343,7 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
               cmux_ssh_auth_cleanup_now_millis=$(
                 "$cmux_ssh_auth_cleanup_clock_command" \
                   -MTime::HiRes=clock_gettime,CLOCK_MONOTONIC \
-                  -e 'printf "%d\\n", int(clock_gettime(CLOCK_MONOTONIC) * 1000)' \
+                  -e 'printf "%d\n", int(clock_gettime(CLOCK_MONOTONIC) * 1000)' \
                   2>/dev/null
               ) || return 1
               case "$cmux_ssh_auth_cleanup_now_millis" in
@@ -591,18 +604,22 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
             cmux_ssh_auth_take_snapshot || return 1
             : > "$cmux_ssh_auth_marker_holders" || return 1
             if [ -s "$cmux_ssh_auth_marker_identity_path" ]; then
+              cmux_ssh_auth_marker_device_hex=
               cmux_ssh_auth_marker_device=
               cmux_ssh_auth_marker_inode=
-              if IFS=' ' read -r cmux_ssh_auth_marker_device cmux_ssh_auth_marker_inode \
+              if IFS=' ' read -r cmux_ssh_auth_marker_device_hex cmux_ssh_auth_marker_device cmux_ssh_auth_marker_inode \
                 < "$cmux_ssh_auth_marker_identity_path" &&
+                 [ -n "$cmux_ssh_auth_marker_device_hex" ] &&
                  [ -n "$cmux_ssh_auth_marker_device" ] &&
                  [ -n "$cmux_ssh_auth_marker_inode" ]; then
                 # The marker is unlinked after the authentication shell opens
                 # descriptor 7. Match the anonymous file by device and inode,
                 # so a pathname opener cannot seed destructive ownership.
-                /usr/sbin/lsof -n -w -a -d 7 -F pfiD 2>/dev/null |
+                if [ -n "$cmux_ssh_auth_lsof_command" ]; then
+                  "$cmux_ssh_auth_lsof_command" -n -w -a -d 7 -F pfiD 2>/dev/null |
                   /usr/bin/awk \
                     -v cmux_marker_device="$cmux_ssh_auth_marker_device" \
+                    -v cmux_marker_device_hex="$cmux_ssh_auth_marker_device_hex" \
                     -v cmux_marker_inode="$cmux_ssh_auth_marker_inode" '
                       /^p[0-9]+$/ {
                         cmux_lsof_pid = substr($0, 2)
@@ -618,12 +635,14 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
                       /^D/ { cmux_lsof_device = substr($0, 2); next }
                       /^i/ {
                         if (cmux_lsof_fd ~ /^7/ &&
-                            cmux_lsof_device == cmux_marker_device &&
+                            (cmux_lsof_device == cmux_marker_device ||
+                             cmux_lsof_device == cmux_marker_device_hex) &&
                             substr($0, 2) == cmux_marker_inode) {
                           print cmux_lsof_pid
                         }
                       }
                     ' > "$cmux_ssh_auth_marker_holders" || : > "$cmux_ssh_auth_marker_holders"
+                fi
               fi
             fi
             /usr/bin/awk '
@@ -693,7 +712,9 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
             [ "$cmux_ssh_auth_wait_for_term_event_enabled" = 1 ] || return 0
             [ -n "$cmux_ssh_auth_event_token" ] || return 0
             if [ ! -p "$cmux_ssh_auth_term_event_fifo" ]; then return 0; fi
-            if [ ! -p "$cmux_ssh_auth_term_event_ack_fifo" ] || ! exec 10<> "$cmux_ssh_auth_term_event_ack_fifo"; then return 0; fi
+            # Keep both descriptors below 10 because POSIX sh does not
+            # require multi-digit redirection operands.
+            if [ ! -p "$cmux_ssh_auth_term_event_ack_fifo" ] || ! exec 8<> "$cmux_ssh_auth_term_event_ack_fifo"; then return 0; fi
             exec 9<> "$cmux_ssh_auth_term_event_fifo" || return 0
             cmux_ssh_auth_term_event_writer=
             if [ "$cmux_ssh_auth_signal_backend" != darwin ]; then
@@ -747,15 +768,15 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
 
           cmux_ssh_auth_ack_term_event() {
             if [ "$cmux_ssh_auth_term_event_received" = 1 ]; then
-              printf '%s\n' "$cmux_ssh_auth_event_token" >&10 2>/dev/null || true
+              printf '%s\n' "$cmux_ssh_auth_event_token" >&8 2>/dev/null || true
             fi
             exec 9>&-
           }
 
           # Validate and signal an identity batch. On Darwin, the shell/awk
           # snapshot is fenced again with the kernel audit token, which carries
-          # the PID version. Linux uses a fresh procfs snapshot and the shell's
-          # validated signal builtin instead of loading libproc.
+          # the PID version. Linux uses a fresh procfs snapshot and pidfds so a
+          # PID cannot be reused between validation and signal delivery.
           # STOP candidates are journaled after the identity-checked request.
           # A confirming snapshot must prove the stopped state before TERM or
           # KILL. A stopped process cannot exit and reuse its PID, which closes
@@ -779,45 +800,122 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
               "$cmux_ssh_auth_portable_require_stopped"; then
               return 1
             fi
-            cmux_ssh_auth_portable_failed=0
-            while IFS=' ' read -r cmux_ssh_auth_portable_depth \
-              cmux_ssh_auth_portable_pid cmux_ssh_auth_portable_parent \
-              cmux_ssh_auth_portable_group cmux_ssh_auth_portable_state \
-              cmux_ssh_auth_portable_started; do
-              case "$cmux_ssh_auth_portable_pid" in
-                ''|*[!0-9]*) continue ;;
-              esac
-              case "$cmux_ssh_auth_portable_signal_name" in
-                STOP)
-                  case "$cmux_ssh_auth_portable_state" in *T*) continue ;; esac
-                  if kill -STOP "$cmux_ssh_auth_portable_pid" >/dev/null 2>&1; then
-                    printf '%s\n' \
-                      "$cmux_ssh_auth_portable_depth $cmux_ssh_auth_portable_pid $cmux_ssh_auth_portable_parent $cmux_ssh_auth_portable_group $cmux_ssh_auth_portable_state $cmux_ssh_auth_portable_started" \
-                      >> "$cmux_ssh_auth_portable_signal_output" || cmux_ssh_auth_portable_failed=1
-                  else
-                    cmux_ssh_auth_portable_failed=1
-                  fi
-                  ;;
-                TERM)
-                  if kill -TERM "$cmux_ssh_auth_portable_pid" >/dev/null 2>&1; then
-                    kill -CONT "$cmux_ssh_auth_portable_pid" >/dev/null 2>&1 || true
-                  else
-                    # A failed TERM must not strand a process that this helper
-                    # stopped. The caller will retry the identity-checked CONT.
-                    kill -CONT "$cmux_ssh_auth_portable_pid" >/dev/null 2>&1 || true
-                    cmux_ssh_auth_portable_failed=1
-                  fi
-                  ;;
-                CONT)
-                  kill -CONT "$cmux_ssh_auth_portable_pid" >/dev/null 2>&1 || cmux_ssh_auth_portable_failed=1
-                  ;;
-                KILL)
-                  kill -KILL "$cmux_ssh_auth_portable_pid" >/dev/null 2>&1 || cmux_ssh_auth_portable_failed=1
-                  ;;
-              esac
-            done < "$cmux_ssh_auth_portable_candidates"
+            if [ -z "$cmux_ssh_auth_perl_command" ]; then
+              /bin/rm -f "$cmux_ssh_auth_portable_candidates" 2>/dev/null || true
+              return 1
+            fi
+            "$cmux_ssh_auth_perl_command" -e '
+              use strict;
+              use warnings;
+              use POSIX ();
+              my ($signal_name, $input_path, $output_path, $require_stopped) = @ARGV;
+              my %signals = (STOP => 19, TERM => 15, CONT => 18, KILL => 9);
+              # Linux exposes pidfd_open and pidfd_send_signal at these stable
+              # syscall numbers. If this kernel does not provide them, report
+              # failure so the caller never falls back to a bare PID signal.
+              my $pidfd_open_syscall = 434;
+              my $pidfd_send_signal_syscall = 424;
+              exit 2 unless exists $signals{$signal_name};
+
+              sub read_identity {
+                my ($candidate_pid) = @_;
+                open my $input, "<", "/proc/$candidate_pid/stat" or return;
+                my $line = <$input>;
+                close $input;
+                chomp $line if defined $line;
+                return unless defined $line &&
+                  $line =~ /\A([1-9][0-9]*) \(.*\) (.*)\z/;
+                my $observed_pid = $1;
+                my @fields = split /\s+/, $2;
+                return unless @fields >= 20;
+                my ($state, $parent, $group, $start) = @fields[0, 1, 2, 19];
+                $state = uc $state;
+                return unless $observed_pid eq $candidate_pid &&
+                  $state ne "Z" && $parent =~ /\A[0-9]+\z/ &&
+                  $group =~ /\A[1-9][0-9]*\z/ && $start =~ /\A[1-9][0-9]*\z/;
+                return [$state, $parent, $group, $start];
+              }
+              sub matches {
+                my ($identity, $parent, $group, $start) = @_;
+                return defined $identity && $identity->[1] eq $parent &&
+                  $identity->[2] eq $group && $identity->[3] eq $start;
+              }
+
+              open my $input, "<", $input_path or exit 1;
+              open my $output, ">>", $output_path or exit 1;
+              my $failed = 0;
+              while (my $line = <$input>) {
+                chomp $line;
+                my @fields = split /\s+/, $line;
+                next unless @fields == 6;
+                my ($depth, $pid, $parent, $group, $original_state, $started) = @fields;
+                next unless $depth =~ /\A[0-9]+\z/ && $pid =~ /\A[1-9][0-9]*\z/ &&
+                  $parent =~ /\A[0-9]+\z/ && $group =~ /\A[1-9][0-9]*\z/ &&
+                  $started =~ /\AP_[0-9]+_0_0_0_0\z/;
+                my ($expected_start) = $started =~ /\AP_([0-9]+)_0_0_0_0\z/;
+                next unless defined $expected_start;
+                my $pid_number = int($pid);
+                my $identity = read_identity($pid);
+                next unless matches($identity, $parent, $group, $expected_start);
+                next if $signal_name eq "STOP" && $identity->[0] =~ /T/;
+                next if $signal_name eq "CONT" && $original_state =~ /T/;
+                next if $signal_name =~ /\A(?:TERM|KILL)\z/ && $identity->[0] !~ /T/;
+                next if $require_stopped eq "1" && $identity->[0] !~ /T/ &&
+                  $signal_name ne "CONT";
+                # Force the validated PID to an integer. Perl can pass a
+                # string scalar as a pointer to syscall on 64-bit hosts.
+                my $pidfd = syscall($pidfd_open_syscall, $pid_number, 0);
+                if (!defined $pidfd || $pidfd < 0) {
+                  $failed = 1;
+                  next;
+                }
+                my $after_open = read_identity($pid);
+                unless (matches($after_open, $parent, $group, $expected_start)) {
+                  POSIX::close($pidfd);
+                  next;
+                }
+                my $send = sub {
+                  my $result = syscall($pidfd_send_signal_syscall, $pidfd, $_[0], 0, 0);
+                  defined($result) && $result == 0;
+                };
+                if ($signal_name eq "STOP") {
+                  if ($send->($signals{STOP})) {
+                    print {$output} "$line\n" or $failed = 1;
+                  } else {
+                    $failed = 1;
+                  }
+                } elsif ($signal_name eq "TERM") {
+                  my $term_ok = $send->($signals{TERM});
+                  my $cont_ok = $send->($signals{CONT});
+                  unless ($term_ok && $cont_ok) {
+                    # An exited target is already cleaned up. A surviving
+                    # target means this batch did not complete and must stay
+                    # on the bounded retry or root-abort path.
+                    $failed = 1 if defined read_identity($pid);
+                  }
+                } elsif ($signal_name eq "CONT") {
+                  unless ($send->($signals{CONT})) {
+                    my $current = read_identity($pid);
+                    $failed = 1 if matches($current, $parent, $group, $expected_start) &&
+                      $current->[0] =~ /T/;
+                  }
+                } elsif ($signal_name eq "KILL") {
+                  unless ($send->($signals{KILL})) {
+                    my $current = read_identity($pid);
+                    $failed = 1 if matches($current, $parent, $group, $expected_start) &&
+                      $current->[0] =~ /T/;
+                  }
+                }
+                POSIX::close($pidfd);
+              }
+              close $input;
+              close $output;
+              exit $failed ? 1 : 0;
+            ' "$cmux_ssh_auth_signal_name" "$cmux_ssh_auth_portable_candidates" \
+              "$cmux_ssh_auth_portable_signal_output" "$cmux_ssh_auth_portable_require_stopped"
+            cmux_ssh_auth_portable_status=$?
             /bin/rm -f "$cmux_ssh_auth_portable_candidates" 2>/dev/null || true
-            [ "$cmux_ssh_auth_portable_failed" = 0 ]
+            [ "$cmux_ssh_auth_portable_status" -eq 0 ]
           }
 
           cmux_ssh_auth_signal_verified_batch() {
@@ -1054,7 +1152,7 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
             # the event wait times out; unlinking first also wakes a reader
             # that races with cleanup.
             exec 9>&- 2>/dev/null || true
-            exec 10>&- 2>/dev/null || true
+            exec 8>&- 2>/dev/null || true
             /bin/rm -f "$cmux_ssh_auth_snapshot" "$cmux_ssh_auth_members" \
               "$cmux_ssh_auth_pending" "$cmux_ssh_auth_owned" \
               "$cmux_ssh_auth_live" "$cmux_ssh_auth_term" \
@@ -1084,7 +1182,7 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
               cmux_ssh_auth_term_event_owned=1
             else
               exec 9>&- 2>/dev/null || true
-              exec 10>&- 2>/dev/null || true
+              exec 8>&- 2>/dev/null || true
               # The directory was created by this invocation. Remove only its
               # own partial setup. A mkdir collision never reaches this path,
               # so a stale attempt's FIFOs remain untouched.
@@ -1364,6 +1462,49 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
           }
         }
         """
+        let markerSetup = """
+        cmux_ssh_auth_marker_stat_command="$(command -v stat 2>/dev/null || true)"
+        if [ -n "$cmux_ssh_auth_event_token" ]; then
+          cmux_ssh_auth_term_event_fifo="${TMPDIR:-/tmp}/cmux-ssh-auth-term.$cmux_ssh_auth_event_token/done"
+          cmux_ssh_auth_term_event_ack_fifo="${TMPDIR:-/tmp}/cmux-ssh-auth-term.$cmux_ssh_auth_event_token/ack"
+          cmux_ssh_auth_marker_path="${TMPDIR:-/tmp}/cmux-ssh-auth-marker.$cmux_ssh_auth_event_token"
+          cmux_ssh_auth_marker_identity_path="$cmux_ssh_auth_marker_path.identity"
+          # Probe the host's stat implementation. GNU stat accepts -c and BSD
+          # stat accepts -f; the first successful probe supplies numeric device
+          # and inode values without assuming a platform-specific path.
+          if ( set -C; : > "$cmux_ssh_auth_marker_path" ) 2>/dev/null; then
+            if exec 7<> "$cmux_ssh_auth_marker_path" 2>/dev/null; then
+              cmux_ssh_auth_marker_device=
+              cmux_ssh_auth_marker_inode=
+              if [ -n "$cmux_ssh_auth_marker_stat_command" ]; then
+                cmux_ssh_auth_marker_device=$(
+                  "$cmux_ssh_auth_marker_stat_command" -c '%d' "$cmux_ssh_auth_marker_path" 2>/dev/null ||
+                  "$cmux_ssh_auth_marker_stat_command" -f '%d' "$cmux_ssh_auth_marker_path" 2>/dev/null ||
+                  true
+                )
+                cmux_ssh_auth_marker_inode=$(
+                  "$cmux_ssh_auth_marker_stat_command" -c '%i' "$cmux_ssh_auth_marker_path" 2>/dev/null ||
+                  "$cmux_ssh_auth_marker_stat_command" -f '%i' "$cmux_ssh_auth_marker_path" 2>/dev/null ||
+                  true
+                )
+              fi
+              cmux_ssh_auth_marker_device_hex=$(printf '0x%x' "$cmux_ssh_auth_marker_device" 2>/dev/null || true)
+              if case "$cmux_ssh_auth_marker_device:$cmux_ssh_auth_marker_inode" in
+                ''|*[!0-9:]*|:*|*:) false ;;
+                *) true ;;
+              esac && [ -n "$cmux_ssh_auth_marker_device_hex" ] &&
+                ( set -C; printf '%s %s %s\n' "$cmux_ssh_auth_marker_device_hex" "$cmux_ssh_auth_marker_device" "$cmux_ssh_auth_marker_inode" > "$cmux_ssh_auth_marker_identity_path" ) 2>/dev/null; then
+                cmux_ssh_auth_marker_owned=1
+              else
+                exec 7>&-
+                /bin/rm -f -- "$cmux_ssh_auth_marker_path" "$cmux_ssh_auth_marker_identity_path" 2>/dev/null || true
+              fi
+            else
+              /bin/rm -f -- "$cmux_ssh_auth_marker_path" 2>/dev/null || true
+            fi
+          fi
+        fi
+        """
         let script = [
             "umask 077",
             "cmux_ssh_auth_capture_state=$(mktemp \"${TMPDIR:-/tmp}/cmux-ssh-auth.XXXXXX\") || exit 255",
@@ -1378,7 +1519,7 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
             "cmux_ssh_auth_event_token=\"${CMUX_SSH_AUTH_EVENT_TOKEN:-}\"",
             "case \"$cmux_ssh_auth_event_token\" in ''|*[!A-Za-z0-9_-]*) cmux_ssh_auth_event_token= ;; esac",
             "cmux_ssh_auth_term_event_fifo=; cmux_ssh_auth_term_event_ack_fifo=; cmux_ssh_auth_marker_path=; cmux_ssh_auth_marker_identity_path=; cmux_ssh_auth_marker_owned=0; cmux_ssh_auth_marker_cleanup_deferred=0",
-            "if [ -n \"$cmux_ssh_auth_event_token\" ]; then cmux_ssh_auth_term_event_fifo=\"${TMPDIR:-/tmp}/cmux-ssh-auth-term.$cmux_ssh_auth_event_token/done\"; cmux_ssh_auth_term_event_ack_fifo=\"${TMPDIR:-/tmp}/cmux-ssh-auth-term.$cmux_ssh_auth_event_token/ack\"; cmux_ssh_auth_marker_path=\"${TMPDIR:-/tmp}/cmux-ssh-auth-marker.$cmux_ssh_auth_event_token\"; cmux_ssh_auth_marker_identity_path=\"$cmux_ssh_auth_marker_path.identity\"; if ( set -C; : > \"$cmux_ssh_auth_marker_path\" ) 2>/dev/null; then if exec 7<> \"$cmux_ssh_auth_marker_path\" 2>/dev/null; then cmux_ssh_auth_marker_device=$(/usr/bin/stat -f '%d' \"$cmux_ssh_auth_marker_path\" 2>/dev/null || true); cmux_ssh_auth_marker_inode=$(/usr/bin/stat -f '%i' \"$cmux_ssh_auth_marker_path\" 2>/dev/null || true); cmux_ssh_auth_marker_device_hex=$(/usr/bin/printf '0x%x' \"$cmux_ssh_auth_marker_device\" 2>/dev/null || true); if case \"$cmux_ssh_auth_marker_device:$cmux_ssh_auth_marker_inode\" in ''|*[!0-9:]*|:*|*:) false ;; *) true ;; esac && [ -n \"$cmux_ssh_auth_marker_device_hex\" ] && ( set -C; /usr/bin/printf '%s %s\\n' \"$cmux_ssh_auth_marker_device_hex\" \"$cmux_ssh_auth_marker_inode\" > \"$cmux_ssh_auth_marker_identity_path\" ) 2>/dev/null; then cmux_ssh_auth_marker_owned=1; else exec 7>&-; /bin/rm -f -- \"$cmux_ssh_auth_marker_path\" \"$cmux_ssh_auth_marker_identity_path\" 2>/dev/null || true; fi; else /bin/rm -f -- \"$cmux_ssh_auth_marker_path\" 2>/dev/null || true; fi; fi; fi",
+            markerSetup,
             // Open both FIFO endpoints before waiting for the command. The
             // helper can then enter a bounded read without blocking on FIFO
             // setup, while the completion payload still has a happens-before
