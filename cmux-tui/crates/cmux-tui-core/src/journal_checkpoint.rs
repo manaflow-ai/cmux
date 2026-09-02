@@ -917,7 +917,7 @@ mod tests {
     }
 
     #[test]
-    fn reducer_accepts_resource_revisions_without_checkpoint_cursor() {
+    fn reducer_rejects_resource_revisions_without_checkpoint_cursor() {
         let mut checkpoint = JournalCheckpoint {
             checkpoint_id: "checkpoint_missing_resource_cursor".into(),
             source_sequence: 3,
@@ -936,14 +936,16 @@ mod tests {
 
         let preview = restore_preview(&checkpoint, &[record], 4).unwrap();
 
-        assert_eq!(preview["fully_reducible"], true);
-        assert_eq!(preview["unsupported_required_record_count"], "0");
-        assert_eq!(preview["state"]["session_snapshot"]["cursor"]["revision"], "3");
+        assert_eq!(preview["fully_reducible"], false);
+        assert_eq!(preview["unsupported_required_record_count"], "1");
+        assert!(preview["state"]["session_snapshot"].get("cursor").is_none());
 
         checkpoint.state["session_snapshot"]["cursor"] = Value::Null;
         let preview =
             restore_preview(&checkpoint, &[resource_record(4, 3, 2, "workspace_new")], 4).unwrap();
-        assert_eq!(preview["fully_reducible"], true);
+        assert_eq!(preview["fully_reducible"], false);
+        assert_eq!(preview["unsupported_required_record_count"], "1");
+        assert!(preview["state"]["session_snapshot"]["cursor"].is_null());
     }
 
     #[test]
