@@ -73,11 +73,13 @@ import {
 } from "../services/vms/drivers/cmuxTuiDaemon";
 import {
   DEVBOX_GHOSTTY_DEB_URL,
+  DEVBOX_INSTANCE_ID_COMMAND,
   bakeMetadata,
   bakePreflight,
   devboxAgentPins,
   devboxCuaDriverVersion,
   devboxFileBytes,
+  devboxParkDaemonCommand,
   emitBakeResult,
   hasFlag,
   manifestEntrySkeleton,
@@ -123,9 +125,7 @@ const BUILD_ENV = {
 /** The work user: the base's uid-1000 account, the API and SSH default. */
 const WORK_USER = "ubuntu";
 
-/** The platform's name for this machine, from the Firecracker MMDS (EC2-style token then GET). */
-const instanceIdCommand =
-  "curl -sf -m 2 -H \"X-aws-ec2-metadata-token: $(curl -sf -m 2 -X PUT http://169.254.169.254/latest/api/token -H 'X-metadata-token-ttl-seconds: 60')\" http://169.254.169.254/latest/meta-data/instance-id";
+const instanceIdCommand = DEVBOX_INSTANCE_ID_COMMAND;
 const WORK_HOME = `/home/${WORK_USER}`;
 
 const builderSnapshot = process.env.CMUX_FREESTYLE_BUILDER_SNAPSHOT?.trim() || "freestyle/ubuntu-sm";
@@ -369,14 +369,10 @@ try {
     "cmux-tui-daemon-up",
     `for i in $(seq 1 30); do env HOME=/root /root/.cmux/bin/cmux-tui server status --session ${CMUX_TUI_SESSION} >/dev/null 2>&1 && grep -qi ':0539 ' /proc/net/tcp6 && break; sleep 1; done && env HOME=/root /root/.cmux/bin/cmux-tui server status --session ${CMUX_TUI_SESSION} && grep -qi ':0539 ' /proc/net/tcp6 && test "$(cat /etc/cmux/daemon-instance-id)" = "$(${instanceIdCommand})" && echo daemon-up-bound-to-builder`,
   );
-  // Park it: record the builder's instance id so the supervisor holds the
-  // daemon here, stop the running daemon, and wipe every byte of identity
-  // and session state it produced. A clone (different instance id) starts a
-  // fresh daemon within one supervisor tick of resume.
-  await step(
-    "cmux-tui-daemon-park",
-    `${instanceIdCommand} > /etc/cmux/bake-instance-id && test -s /etc/cmux/bake-instance-id && pkill -f 'cmux-tui server [s]tart'; sleep 4; ! pgrep -f 'cmux-tui server [s]tart' >/dev/null && systemctl is-active cmux-tui-daemon >/dev/null && rm -rf /root/.local/state/cmux/remote /root/.local/state/cmux-tui /etc/cmux/daemon-instance-id && ! grep -qi ':0539 ' /proc/net/tcp6 && echo daemon-parked-for-clones`,
-  );
+  // Park it (devboxParkDaemonCommand): the supervisor stops the daemon while
+  // the machine's id equals the recorded bake id, its identity and session
+  // state are wiped, and a clone (different id) starts fresh within one tick.
+  await step("cmux-tui-daemon-park", devboxParkDaemonCommand());
 
   await step(
     "ghost-text-smoke",

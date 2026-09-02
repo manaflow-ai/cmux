@@ -340,7 +340,17 @@ export function mapFreestyleState(state: VmData["state"] | null | undefined): VM
  */
 export function freestyleDaemonHealthyCommand(): string {
   // [s]tart: pgrep -f would otherwise match the exec shell carrying this command line.
-  return "pgrep -f 'cmux-tui server [s]tart' >/dev/null 2>&1 && grep -qi ':0539 ' /proc/net/tcp6";
+  // On an image whose supervisor binds the daemon identity to the instance id
+  // (it ships /etc/cmux/bake-instance-id), the daemon is healthy only when the
+  // bound id is this machine's: a clone of a live machine briefly runs the
+  // source machine's daemon until the supervisor re-keys it, and an
+  // invitation minted from that daemon would name the wrong fingerprint.
+  return (
+    "pgrep -f 'cmux-tui server [s]tart' >/dev/null 2>&1 && grep -qi ':0539 ' /proc/net/tcp6" +
+    " && { [ ! -f /etc/cmux/bake-instance-id ] || [ \"$(cat /etc/cmux/daemon-instance-id 2>/dev/null)\" = \"$(" +
+    "curl -sf -m 2 -H \"X-aws-ec2-metadata-token: $(curl -sf -m 2 -X PUT http://169.254.169.254/latest/api/token -H 'X-metadata-token-ttl-seconds: 60')\" http://169.254.169.254/latest/meta-data/instance-id" +
+    ")\" ]; }"
+  );
 }
 
 const REMOTE_WS_BIND_OVERRIDE =

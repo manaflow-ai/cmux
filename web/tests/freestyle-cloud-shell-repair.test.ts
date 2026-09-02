@@ -6,10 +6,13 @@ import {
 
 describe("Freestyle Cloud VM daemon repair", () => {
   test("health checks require the managed daemon and its dual-stack listener", () => {
-    expect(freestyleDaemonHealthyCommand()).toBe(
-      // [s]tart keeps the pattern from matching the exec shell that carries it.
-      "pgrep -f 'cmux-tui server [s]tart' >/dev/null 2>&1 && grep -qi ':0539 ' /proc/net/tcp6",
-    );
+    const healthy = freestyleDaemonHealthyCommand();
+    // [s]tart keeps the pattern from matching the exec shell that carries it.
+    expect(healthy).toContain("pgrep -f 'cmux-tui server [s]tart' >/dev/null 2>&1 && grep -qi ':0539 ' /proc/net/tcp6");
+    // Instance-binding images: healthy also means bound to this machine's id.
+    expect(healthy).toContain("[ ! -f /etc/cmux/bake-instance-id ] ||");
+    expect(healthy).toContain("/etc/cmux/daemon-instance-id");
+    expect(healthy).toContain("/latest/meta-data/instance-id");
   });
 
   test("repair restores the managed dual-stack daemon", () => {

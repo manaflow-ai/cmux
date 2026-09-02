@@ -27,7 +27,7 @@ import {
   cmuxTuiPinCheckCommand,
   resolveCmuxTuiSource,
 } from "../services/vms/drivers/cmuxTuiDaemon";
-import { devboxAgentPins, devboxDesktopDir, devboxDir, sha256File } from "./devbox-image-common";
+import { DEVBOX_INSTANCE_ID_COMMAND, devboxAgentPins, devboxDesktopDir, devboxDir, sha256File } from "./devbox-image-common";
 
 const pins = devboxAgentPins();
 const shaOf = (name: string): string => sha256File(path.join(devboxDir, name));
@@ -84,8 +84,7 @@ const CHECKS: readonly string[] = [
 // The daemon came up on its own after resume: it serves the session, listens
 // on 1337 (hex 0539), the baked binary is the one on PATH, and its identity is
 // bound to THIS machine's instance id, not the builder's.
-const INSTANCE_ID =
-  "curl -sf -m 2 -H \"X-aws-ec2-metadata-token: $(curl -sf -m 2 -X PUT http://169.254.169.254/latest/api/token -H 'X-metadata-token-ttl-seconds: 60')\" http://169.254.169.254/latest/meta-data/instance-id";
+const INSTANCE_ID = DEVBOX_INSTANCE_ID_COMMAND;
 // cmux-remote keys per-session state by the base64url session name under its
 // default root state dir; the Noise static identity lives in auth/.
 const REMOTE_IDENTITY = `/root/.local/state/cmux/remote/sessions/${Buffer.from(CMUX_TUI_SESSION).toString("base64url")}/auth/identity.json`;

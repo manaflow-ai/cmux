@@ -31,7 +31,7 @@ import {
   type VmImageSize,
   type VmImageSizeName,
 } from "../services/vms/images/sizes";
-import { argValue, hasFlag } from "./devbox-image-common";
+import { argValue, devboxParkDaemonCommand, hasFlag } from "./devbox-image-common";
 
 const apiKey = process.env.FREESTYLE_API_KEY;
 const stackToken = process.env.FREESTYLE_STACK_ACCESS_TOKEN;
@@ -133,6 +133,10 @@ for (const name of sizes) {
         const m = await measure(vm);
         throw new Error(`${name}: resize did not take: ${fits(m, size)} (${JSON.stringify(m)})`);
       }
+      // A resized clone runs a live daemon bound to its own instance id; park
+      // it so the derived snapshot, like the master, carries no identity.
+      const parked = await sh(vm, devboxParkDaemonCommand(), 120_000);
+      if (parked.code !== 0) throw new Error(`${name}: could not park the cmux-tui daemon before the snapshot: ${parked.out.slice(-500)}`);
       await sh(vm, "sync");
       const snap = await vm.snapshot({ displayName: `cmux devbox ${slug} (${size.cpu} vCPU · ${size.memoryMb} MiB · ${size.storageMb} MiB)` });
       if (!snap.snapshotId) throw new Error(`${name}: snapshot response carried no id`);
@@ -150,6 +154,14 @@ for (const name of sizes) {
     const problem = fits(measured, size);
     if (problem) throw new Error(`${name}: derived snapshot ${imageId} boots wrong: ${problem}`);
     if (!measured.units.includes("active")) throw new Error(`${name}: units not active after boot: ${measured.units}`);
+    // The parked daemon must come back by itself on the derived shape, bound
+    // to this machine and listening dual-stack.
+    let daemon = { code: 1, out: "" };
+    for (let i = 0; i < 30 && daemon.code !== 0; i += 1) {
+      daemon = await sh(check.vm, "env HOME=/root /root/.cmux/bin/cmux-tui server status --session cloud >/dev/null 2>&1 && grep -qi ':0539 ' /proc/net/tcp6 && test -s /etc/cmux/daemon-instance-id && echo daemon-up", 30_000);
+      if (daemon.code !== 0) await sleep(1000);
+    }
+    if (daemon.code !== 0) throw new Error(`${name}: cmux-tui daemon did not come up on the derived snapshot ${imageId}: ${daemon.out.slice(-300)}`);
   } finally {
     await check.vm.delete().catch(() => {});
   }
