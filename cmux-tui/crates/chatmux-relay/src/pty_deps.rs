@@ -673,7 +673,7 @@ fn spawn_pipe_mode(spec: &SpawnSpec, reason: &str) -> PtyHandle {
     command.stderr(std::process::Stdio::piped());
     let directory = match spec.cwd.directory.try_clone() {
         Ok(directory) => directory,
-        Err(error) => {
+        Err(_) => {
             output.push_exit(1);
             return PtyHandle { control: Arc::new(DeadControl), output, banner: None };
         }
