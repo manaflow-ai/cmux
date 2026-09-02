@@ -4,7 +4,7 @@ Every verb the cmux CLI exposes for cmux Cloud, as it exists on this branch. `cm
 
 ## Conventions
 
-- **Requires** the cmux app running on the Mac and a signed-in account (`cmux auth status`). Every verb talks to the app over its Unix socket (`CMUX_SOCKET_PATH` when set; the app's default socket otherwise) — the app, not the CLI, holds the cloud credentials.
+- **Requires** the cmux app running on the Mac, a signed-in account (`cmux auth status`), and the WireGuard tunnel up (`cmux vpn up`) — machines live on a private per-user network with no public ports, so attach/exec/port verbs need it. Every verb talks to the app over its Unix socket (`CMUX_SOCKET_PATH` when set; the app's default socket otherwise) — the app, not the CLI, holds the cloud credentials.
 - **`--json`** is a global flag: it may appear before or after the subcommand and prints the socket payload (or the CLI's own summary object, noted per verb) instead of text. Parse JSON, never the human tables.
 - **`--help` / `-h`** works offline (no app needed). `cmux vm --help` is the overview; `cmux vm run --help`, `route`, `agent`, `push`, `pull`, `wait`, `open`, `tree`, `workspace`, `terminal`, `tui`, `prompt`, and `base` print that verb's own options (`cmux vm terminal --help` covers close, send, read, and wait). Anything after `--` is never treated as a help flag (`cmux vm exec <id> -- --help` runs `--help` on the machine).
 - **Exit codes:** `0` success; `1` any error (socket missing, backend error, usage error, unknown `vm` verb); `2` missing or unknown top-level command. `cmux vm run` exits with the **remote command's exit code**; `cmux vm exec` prints `exit <n>` to stderr and exits `1` when the remote command fails; `cmux vm wait` and `cmux vm terminal wait` exit `1` on timeout (or a failed machine).
@@ -407,6 +407,17 @@ Socket `vm.ssh_info`. Text: the `ssh <user>@<host> -p <port>` line plus host/por
 Internal helper the SSH workspace pane runs; not for direct use.
 
 ## Account and plan
+
+### `cmux vpn`
+
+```bash
+cmux vpn up          # enroll this Mac on first run, bring the WireGuard tunnel up (wg-quick, prompts for sudo; brew install wireguard-tools)
+cmux vpn down        # tunnel down; enrollment kept
+cmux vpn status      # tunnel state, config path, backend
+cmux vpn revoke      # tunnel down + unenroll (server deletes its side)
+```
+
+The tunnel between this Mac and the private Cloud VM network. Config lives at `~/.cmuxterm/wireguard/cmux.conf`; the private key is generated on this Mac and never leaves it. Run `up` once per boot before the attach/exec/port verbs.
 
 ### `cmux auth`
 

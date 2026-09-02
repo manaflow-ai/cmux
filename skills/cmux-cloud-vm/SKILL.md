@@ -5,7 +5,7 @@ description: Drive cmux Cloud machines (persistent cloud VMs) from the plain `cm
 
 # cmux Cloud Machines
 
-Everything cmux Cloud exposes from the CLI, for any coding agent (Claude Code, Codex, OpenCode, Pi, or any open-source-model harness): the agent-only primitives (`route`, `run`, `agent`, `exec`, `push`, `pull`, `wait`, `terminal send|read|wait`) plus every verb the Cloud sidebar has. Requires the cmux app running and a signed-in account (`cmux auth status`, `cmux auth login`). `cmux vm --help` is the overview and `cmux vm <verb> --help` prints a verb's own options, both offline; [references/commands.md](references/commands.md) is the complete reference and CI keeps it in lockstep with the CLI (`tests/test_cloud_vm_skill_coverage.py`). An agent with no skill loaded can bootstrap itself with `cmux vm prompt`, which installs the app-bundled copy of this skill at `~/.config/cmux/skills/cmux-cloud.md` and prints a kickoff prompt.
+Everything cmux Cloud exposes from the CLI, for any coding agent (Claude Code, Codex, OpenCode, Pi, or any open-source-model harness): the agent-only primitives (`route`, `run`, `agent`, `exec`, `push`, `pull`, `wait`, `terminal send|read|wait`) plus every verb the Cloud sidebar has. Requires the cmux app running, a signed-in account (`cmux auth status`, `cmux auth login`), and — since machines live on a private per-user network with no public ports — the WireGuard tunnel up once per boot (`cmux vpn up`; `cmux vpn status` to check). `cmux vm --help` is the overview and `cmux vm <verb> --help` prints a verb's own options, both offline; [references/commands.md](references/commands.md) is the complete reference and CI keeps it in lockstep with the CLI (`tests/test_cloud_vm_skill_coverage.py`). An agent with no skill loaded can bootstrap itself with `cmux vm prompt`, which installs the app-bundled copy of this skill at `~/.config/cmux/skills/cmux-cloud.md` and prints a kickoff prompt.
 
 ## What a machine is
 
@@ -106,6 +106,7 @@ Agents started with `vm agent` authenticate inside the machine the way they woul
 | `vm exec` hangs or times out | Exec is capped (~30 s). Background it: `nohup … > /tmp/x.log 2>&1 &`, then poll — or use `vm run`, `vm agent`, or a session terminal driven with `terminal send|wait|read`. |
 | `claude`/`codex` not found on a brand-new machine | Provisioning is still running: `cmux vm exec <id> -- tail /tmp/cmux/provision.log`; the agents land in `/root/.npm-global/bin` (on PATH in login shells). |
 | First command after idle is slow | The machine was asleep: `cmux vm wait <id> --wake`. |
+| Attach/exec cannot reach any machine | The WireGuard tunnel is down: `cmux vpn up` (state: `cmux vpn status`; needs `brew install wireguard-tools`). Machines have no public ports. |
 | `vm route` says it would provision | The pool is empty/busy. Check the plan meter; `--provision` (or `vm run`) creates one. |
 | Create fails with `vm_requires_pro` or an active-limit error | Provisioning needs a paid plan (`cmux.com/pricing`), or the plan's machine cap is reached. Report it; let the user upgrade or choose a machine to remove. |
 | `vm open <m>/<ws>` says no such workspace | Names are the cmux-tui workspace names; copy the `ws_…` id from `cmux vm tree <m>` (`--refresh` right after a link attach). |

@@ -13,10 +13,10 @@ import {
 import { DEVBOX_TEMPLATE_FILES, devboxAgentPins } from "../scripts/devbox-image-common";
 
 // Contract tests for the shared cmux Cloud devbox image template
-// (services/vms/images/devbox), consumed by build-devbox-e2b.ts,
-// build-devbox-daytona.ts, and build-devbox-freestyle.ts. These pin the
+// (services/vms/images/devbox), consumed by build-devbox-freestyle.ts,
+// which replays its steps over Freestyle exec. These pin the
 // pieces other code depends on: the cmux-tui daemon contract each driver
-// expects and the E2B Dockerfile-parser restrictions. The template IS the
+// expects and the Dockerfile portability restrictions. The template IS the
 // artifact, so it is pinned here rather than only exercised by a live bake.
 
 const templateDir = path.join(import.meta.dirname, "../services/vms/images/devbox");
@@ -119,11 +119,12 @@ describe("devbox image template", () => {
     expect(readScript("build-devbox-freestyle.ts")).toContain("blesh-cache-seed");
   });
 
-  test("stays within the E2B Dockerfile-parser restrictions", () => {
-    // The E2B translation strips backslash escape sequences inside RUN
-    // strings (printf '\n' corrupts written files), would turn ENTRYPOINT
-    // into a template start command (provider boot commands come from the
-    // build scripts), and needs a literal PATH.
+  test("stays within the Dockerfile portability restrictions", () => {
+    // These began as E2B Dockerfile-parser limits and are kept because the
+    // Freestyle replay executes the same instructions over exec: backslash
+    // escape sequences inside RUN strings are unreliable (printf '\n'
+    // corrupts written files), ENTRYPOINT is not the boot mechanism (boot
+    // commands come from the build script), and PATH must be literal.
     const instructionLines = dockerfile
       .split("\n")
       .filter((line) => !line.trimStart().startsWith("#"));
@@ -142,7 +143,7 @@ describe("devbox image template", () => {
     expect(CMUX_TUI_PORT).toBe(1337);
     expect(CMUX_TUI_SESSION).toBe("cloud");
     // The boot script parameterizes only the listener bind (the env Freestyle
-    // beta's systemd unit sets); everything else must match the drivers'
+    // public platform's systemd unit sets); everything else must match the drivers'
     // command byte for byte, so passing the shell expansion as the bind
     // reconstructs the script's exact line.
     expect(devboxBoot).toContain(
@@ -158,8 +159,6 @@ describe("devbox image template", () => {
     expect(dockerfile).not.toContain("cmuxd");
     expect(devboxBoot).not.toContain("cmuxd");
     for (const name of [
-      "build-devbox-e2b.ts",
-      "build-devbox-daytona.ts",
       "build-devbox-freestyle.ts",
       "verify-devbox-image.ts",
     ]) {
@@ -168,16 +167,7 @@ describe("devbox image template", () => {
     }
   });
 
-  test("each provider boot path supervises the daemon per its lifecycle", () => {
-    // Daytona: stop kills processes; the registered entrypoint brings the
-    // daemon back on start.
-    const daytonaScript = readScript("build-devbox-daytona.ts");
-    expect(daytonaScript).toContain('entrypoint: ["/usr/local/bin/cmux-devbox-boot"]');
-    // E2B: pause/resume preserves processes; the driver starts the daemon,
-    // so the template has no start command.
-    const e2bScript = readScript("build-devbox-e2b.ts");
-    expect(e2bScript).not.toContain("setStartCmd");
-    // Freestyle (beta): systemd runs the supervisor.
+  test("the Freestyle boot path supervises the daemon through systemd", () => {
     const freestyleScript = readScript("build-devbox-freestyle.ts");
     expect(freestyleScript).toContain("ExecStart=/usr/local/bin/cmux-devbox-boot");
     expect(freestyleScript).toContain("cmux-tui-daemon.service");
@@ -272,6 +262,9 @@ describe("devbox image template", () => {
     }
     // The image must prove generation in a throwaway HOME and ship none.
     expect(dockerfile).toContain("test ! -e /root/.codex/config.toml");
+    expect(dockerfile).toContain(
+      "grep -q 'supports_websockets = false' /tmp/agent-config-check/.codex/config.toml",
+    );
     expect(dockerfile).toContain("test ! -e /root/.pi/agent/models.json");
     expect(dockerfile).toContain("test ! -e /root/.config/opencode/opencode.json");
     expect(dockerfile).toContain("test ! -e /root/.config/cmux/model-plane.env");
@@ -307,6 +300,9 @@ describe("devbox image template", () => {
       expect(codex).toContain('model_provider = "cmux"');
       expect(codex).toContain('base_url = "https://example.invalid/v1"');
       expect(codex).toContain('wire_api = "responses"');
+      // The /v1 plane is HTTP-only; pin the Responses WebSocket transport off
+      // instead of relying on the custom-provider default.
+      expect(codex).toContain("supports_websockets = false");
       expect(codex).toContain('persistence = "save-all"');
       const plane = readFileSync(path.join(home, ".config/cmux/model-plane.env"), "utf8");
       expect(plane).toContain("export OPENAI_API_KEY='crt_test'");
@@ -416,7 +412,11 @@ describe("devbox image template", () => {
     expect(readScript("build-devbox-freestyle.ts")).toContain('{ "cleanupPeriodDays": 99999 }');
   });
 
-  test("never installs docker (E2B/Daytona sandboxes cannot run it)", () => {
+  test("never installs docker (deliberate image-scope choice)", () => {
+    // This began as a hard limit: the old sandbox providers could not run
+    // Docker at all. Freestyle VMs can (nested virtualization), so this is now
+    // a scope choice about image size rather than a platform constraint —
+    // revisit it deliberately if the devbox should ship a container runtime.
     expect(dockerfile.toLowerCase()).not.toContain("docker.io");
     expect(dockerfile.toLowerCase()).not.toContain("docker-ce");
     expect(dockerfile.toLowerCase()).not.toContain("get.docker.com");
@@ -424,23 +424,15 @@ describe("devbox image template", () => {
 });
 
 describe("model-plane env reaches provider creates", () => {
-  // The vm route mints coderouter model-plane env into CreateOptions.envs
-  // for every provider; the devbox agent-config generator consumes it. E2B
-  // and Daytona forward it to the provider create call (Freestyle has no
-  // VM-level create env; its machines rely on the persisted copy).
-  test("e2b create forwards options.envs", () => {
+  // The vm route mints coderouter model-plane env into CreateOptions.envs and
+  // the devbox agent-config generator consumes it. Freestyle has no VM-level
+  // create env, so the driver persists the file the guest sources instead.
+  test("freestyle persists the model-plane env file its guests source", () => {
     const driver = readFileSync(
-      path.join(import.meta.dirname, "../services/vms/drivers/e2b.ts"),
+      path.join(import.meta.dirname, "../services/vms/drivers/freestyle.ts"),
       "utf8",
     );
-    expect(driver).toContain("envs: { ...DEFAULT_SANDBOX_ENVS, ...(options.envs ?? {}) }");
-  });
-
-  test("daytona create forwards options.envs", () => {
-    const driver = readFileSync(
-      path.join(import.meta.dirname, "../services/vms/drivers/daytona.ts"),
-      "utf8",
-    );
-    expect(driver).toContain("envVars: { ...DEFAULT_SANDBOX_ENVS, ...(options.envs ?? {}) }");
+    expect(driver).toContain("renderFreestyleModelPlaneEnvFile");
+    expect(driver).toContain("/root/.config/cmux/model-plane.env");
   });
 });

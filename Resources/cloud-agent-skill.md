@@ -14,6 +14,12 @@ You are helping the user work with cmux Cloud machines through the `cmux` CLI. T
 
 ## Commands
 
+Network (required once per boot — machines have no public ports):
+
+```
+cmux vpn up          # WireGuard tunnel to the private Cloud VM network (cmux vpn status | down | revoke)
+```
+
 List and inspect:
 
 ```

@@ -38,14 +38,11 @@ export const requiredRuntimeEnvKeys = [
   "CMUX_DB_DRIVER",
   "CMUX_VM_CREATE_ENABLED",
   "CMUX_VM_DEFAULT_PROVIDER",
-  "CMUX_VM_E2B_ENABLED",
   // Freestyle is the production default provider (CMUX_VM_DEFAULT_PROVIDER):
   // without credentials and a snapshot selector every create 503s.
   "CMUX_VM_FREESTYLE_ENABLED",
   // Every Vercel cron (VM alerts included) refuses to run without it.
   "CRON_SECRET",
-  "E2B_API_KEY",
-  "E2B_CMUXD_WS_TEMPLATE",
   "FREESTYLE_API_KEY",
   "FREESTYLE_SANDBOX_SNAPSHOT",
   "NEXT_PUBLIC_STACK_PROJECT_ID",
@@ -60,14 +57,14 @@ export const requiredRuntimeEnvKeys = [
 export const recommendedRuntimeEnvKeys = [
   "CMUX_DB_POOL_MAX",
   // Kill switches are off-only: unset means enabled, so requiring presence
-  // would fail a healthy deployment. Recommended for explicitness (the other
-  // provider flags are set in prod).
+  // would fail a healthy deployment. Freestyle's own flag is required rather
+  // than recommended because it is the only provider, so a missing value there
+  // is a real outage risk.
   // CMUX_VM_ALLOW_FREE_PROVISIONING / CMUX_VM_REQUIRE_PRO are deliberately
   // absent from every presence list: unset is the safe value, and their
   // VALUES are audited by freeProvisioningAudit.mjs (a permissive value fails).
   // CMUX_ALERTS_SINK_UNCONFIGURED_ACK is absent for the same reason; its VALUE
   // is audited by alertSinkAudit.mjs.
-  "CMUX_VM_DAYTONA_ENABLED",
   "CMUX_DB_SSL_REJECT_UNAUTHORIZED",
   "OTEL_EXPORTER_OTLP_ENDPOINT",
   "OTEL_EXPORTER_OTLP_HEADERS",
@@ -80,6 +77,21 @@ export const forbiddenRuntimeEnvKeys = [
 ];
 
 export const legacyCloudVmEnvKeys = [
+  // Blaxel, E2B, and Daytona were removed by the provider migrations. Keep
+  // their keys visible to the audit until operators remove them from Vercel.
+  "BL_API_KEY",
+  "BL_WORKSPACE",
+  "BLAXEL_SANDBOX_IMAGE",
+  "BLAXEL_SANDBOX_DESKTOP_IMAGE",
+  "CMUX_VM_BLAXEL_ENABLED",
+  "E2B_API_KEY",
+  "E2B_CMUXD_WS_TEMPLATE",
+  "E2B_SANDBOX_TEMPLATE",
+  "CMUX_VM_E2B_ENABLED",
+  "DAYTONA_API_KEY",
+  "DAYTONA_API_URL",
+  "DAYTONA_SANDBOX_SNAPSHOT",
+  "CMUX_VM_DAYTONA_ENABLED",
   "CMUX_RIVET_INTERNAL_SECRET",
   "RIVET_ENDPOINT",
   "RIVET_NAMESPACE",
