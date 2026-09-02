@@ -15,7 +15,7 @@ import CmuxTerminalCore
     }
 
     @Test func terminalCSIProbeRepliesStayTerminalBytes() {
-        let replies = ["\u{1B}[?1;2c", "\u{1B}[>0;95;0c", "\u{1B}[0n", "\u{1B}[?997;1n", "\u{1B}[?0u", "\u{1B}[?12;2$y", "\u{1B}[4;1$y"]
+        let replies = ["\u{1B}[?1;2c", "\u{1B}[>0;95;0c", "\u{1B}[0n", "\u{1B}[?997;1n", "\u{1B}[?0u", "\u{1B}[?12;2$y", "\u{1B}[4;1$y", "\u{1B}[6;16;8t"]
         let events = TerminalSurface.parsedSocketInputEvents(for: replies.joined())
         #expect(terminalBytePayloads(in: events) == replies.map { Data($0.utf8) })
         #expect(!containsUserInputEvents(events))
