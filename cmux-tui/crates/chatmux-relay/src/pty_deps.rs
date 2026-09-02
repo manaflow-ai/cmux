@@ -297,6 +297,17 @@ struct ProcessOutputCompletionState {
     child_exit: Option<i64>,
 }
 
+/// Complete a PTY setup that failed after the reader started. Recording the
+/// synthetic exit enters the bounded completion path, which signals the PTY
+/// reader's cancellation wake even when a descendant still owns the slave.
+fn finish_pty_wait_setup_failure(
+    control: &dyn PtyControl,
+    completion: &Arc<ProcessOutputCompletion>,
+) {
+    control.kill();
+    completion.child_exited(1);
+}
+
 /// Wakes a PTY reader that is waiting in `poll` when completion reaches its
 /// bounded grace deadline. A socket pair avoids closing a descriptor from a
 /// different thread, which can race with descriptor reuse.
@@ -914,7 +925,7 @@ fn spawn_real_pty(spec: &SpawnSpec, handoff: &SpawnHandoff) -> anyhow::Result<Pt
         })
         .is_err()
     {
-        control.kill();
+        finish_pty_wait_setup_failure(control.as_ref(), &completion);
         return Err(anyhow::anyhow!("PTY wait thread spawn failed"));
     }
 
@@ -1987,7 +1998,8 @@ mod tests {
         });
 
         let kills = TestArc::new(AtomicUsize::new(0));
-        let control = TestControl { kills: TestArc::clone(&kills), drops: TestArc::new(AtomicUsize::new(0)) };
+        let control =
+            TestControl { kills: TestArc::clone(&kills), drops: TestArc::new(AtomicUsize::new(0)) };
         finish_pty_wait_setup_failure(&control, &completion);
 
         reader_done_rx
