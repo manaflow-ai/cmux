@@ -2646,7 +2646,7 @@ struct PtyChild {
 #[cfg(unix)]
 struct CapturingPtyChild {
     child: Option<Box<dyn cmux_pty::Child + Send + Sync>>,
-    writer: Option<Box<dyn std::io::Write + Send>>,
+    writer: Option<Box<dyn Write + Send>>,
     receiver: mpsc::Receiver<Vec<u8>>,
     reader_thread: Option<std::thread::JoinHandle<()>>,
 }
