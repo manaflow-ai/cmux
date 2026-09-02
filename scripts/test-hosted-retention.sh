@@ -61,9 +61,19 @@ expect_invalid() { if valid_retention_count 9223372036854775808; then return 1; 
 expect_invalid
 generation_dir="$tmp/generation"
 mkdir "$generation_dir"
-generation_before="$(stat -f '%i:%m' "$generation_dir" 2>/dev/null || stat -c '%i:%Y' "$generation_dir")"
+generation_identity() {
+  local value=""
+  if value="$(stat -f '%i:%m' "$1" 2>/dev/null)" && [[ "$value" =~ ^[0-9]+:[0-9]+$ ]]; then
+    printf '%s\n' "$value"
+  elif value="$(stat -c '%i:%Y' "$1" 2>/dev/null)" && [[ "$value" =~ ^[0-9]+:[0-9]+$ ]]; then
+    printf '%s\n' "$value"
+  else
+    return 1
+  fi
+}
+generation_before="$(generation_identity "$generation_dir")"
 touch -t 200001010000 "$generation_dir"
-generation_after="$(stat -f '%i:%m' "$generation_dir" 2>/dev/null || stat -c '%i:%Y' "$generation_dir")"
+generation_after="$(generation_identity "$generation_dir")"
 [[ "$generation_before" != "$generation_after" ]]
 rm -f "$preview"
 echo 'hosted retention token behavior passed'
