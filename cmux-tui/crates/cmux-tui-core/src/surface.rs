@@ -4414,14 +4414,14 @@ impl Surface {
                 render.latest = None;
                 render.initial_graphics = None;
             }
-            graphics_changed
+            let generation = pty.render_generation.fetch_add(1, Ordering::AcqRel) + 1;
+            #[cfg(test)]
+            pty.run_kitty_limits_test_hook();
+            (graphics_changed, generation)
         };
         if !graphics_changed {
             return Ok(());
         }
-        #[cfg(test)]
-        pty.run_kitty_limits_test_hook();
-        let generation = pty.render_generation.fetch_add(1, Ordering::AcqRel) + 1;
         pty.request_frame(generation);
         Ok(())
     }
