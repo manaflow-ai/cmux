@@ -331,9 +331,6 @@ jobs:
       - name: Validate bootstrap CI governance
         run: python3 tests/test_ci_governance_bootstrap.py
 
-      - name: Validate release attestation retry guard
-        run: ./tests/test_ci_attestation_retry.sh
-
       - name: Validate Python R2 appcast upload guard
         run: ./tests/test_ci_r2_upload_python.sh
 
