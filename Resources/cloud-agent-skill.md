@@ -6,7 +6,7 @@ You are helping the user work with cmux Cloud machines through the `cmux` CLI. T
 
 - A machine is a persistent cloud VM owned by the signed-in cmux user. Its generated name (like `brave-otter`) is its address everywhere; `cmux vm rename` sets a display label only. The machine outlives panes, closed laptops, and reconnects.
 - Every machine runs a cmux session daemon (cmux-tui on current images, cmuxd-remote on older ones) that owns terminal sessions and scrollback. Clients attach through short-lived leases minted by the backend; the transport depends on what the provider and image support. SSH is a fallback some providers and images cannot mint, and its absence is not an error.
-- New machines boot a desktop image (xfce + noVNC) plus a shell, with a persistent per-machine home. `--base` gives a shell-only machine.
+- New machines are shell-only with a persistent per-machine home; no provider ships a desktop image today, so `--desktop` fails closed until one lands.
 - Base is a separate single per-user persistent slot, pinned to the top of the sidebar. `cmux vm new` mints fresh machines; `cmux vm base` always reopens the same one.
 - Terminals on a machine live in its cmux-tui session (workspaces `ws_…`, terminals `term_…`). They keep running detached. `cmux vm tree` catalogs every surface, and every line is an address `cmux vm open` (machine targets) or `cmux surface open` (any entry, including This Mac) accepts: `brave-otter/main/term_2f9c…`, `brave-otter:desktop`, `brave-otter:port/3000`.
 - Pool machines (labeled `agent-pool` in `cmux vm ls`) are provisioned by the `vm run`/`vm agent` router and reused for routed work. The router never drafts machines a person made by hand.
@@ -47,7 +47,7 @@ Attach and open:
 ```
 cmux vm shell <id>                       # a plain terminal on the machine (one terminal in its cmux-tui session, attached in a pane)
 cmux vm tui <id>                         # the machine's full cmux-tui client in a pane
-cmux vm desktop <id>                     # noVNC screen as a browser pane
+cmux vm desktop <id>                     # noVNC screen as a browser pane (desktop-image machines only; none ship today)
 cmux vm open <machine>                   # same as vm shell
 cmux vm open <machine>/<ws>[/<term>]     # a cmux-tui workspace or one terminal
 cmux vm open <machine>:desktop

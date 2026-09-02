@@ -18293,8 +18293,9 @@ struct CMUXCLI {
                                         VM is retained so accidental resets are
                                         recoverable.
               new [--desktop|--base] [--size <2g|4g|8g|16g|24g|32g>] [--name <label>] [--provider <provider>] [--window <id|ref|index>] [--detach|-d]
-                                        Create a new machine by kind (desktop by
-                                        default; --base for shell-only). The server
+                                        Create a new machine by kind (shell-only by
+                                        default; --desktop needs a desktop image and
+                                        no provider ships one today). The server
                                         picks the image for the kind; --image <id>
                                         is an explicit override you normally omit.
               snapshot <id> [--name <name>]

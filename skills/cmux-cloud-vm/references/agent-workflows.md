@@ -98,7 +98,7 @@ cmux vm rm "$fork_a"; cmux vm rm "$fork_b"             # only the forks you crea
 
 ## 6. Desktop and browser tasks
 
-Desktop machines run xfce + TigerVNC + noVNC and the CUA driver (`cua-computer-server`, the computer-use API that screenshots/clicks/types on display `:1`). Drive it from inside the machine (`vm agent` with a computer-use-capable agent, or your own script against the server), and show the human the screen:
+No provider ships a desktop image today, so every machine is shell-only and these verbs answer with an error until one lands. When a desktop image exists, drive it from inside the machine (`vm agent` with a computer-use-capable agent) and show the human the screen:
 
 ```bash
 cmux vm open <id>:desktop              # the screen as a browser pane beside the shell

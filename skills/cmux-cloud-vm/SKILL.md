@@ -12,12 +12,12 @@ Everything cmux Cloud exposes from the CLI, for any coding agent (Claude Code, C
 | Term | Meaning |
 |------|---------|
 | **Machine** | A persistent cloud VM (`cmux vm ls`); its generated name (`brave-otter`) is its id everywhere, a `vm rename` label is cosmetic. Sleeps when idle (free while asleep), wakes on connect or exec. `/root` is the persistent volume; the rest of the filesystem is disposable compute. |
-| **Kind** | `desktop` (default for `vm new`: xfce + TigerVNC + noVNC + a shell, plus the CUA driver `cua-computer-server` on display `:1`) or `base` (`--base`: shell-only). Ubuntu 22.04 with node 22, bun, uv, git, gh, ripgrep, fd, jq, tmux, xdotool; **Claude Code, Codex, OpenCode, and Pi preinstalled** under `/root/.npm-global/bin`. Provisioning runs in the background on first boot (`cat /tmp/cmux/provision.log` if a tool is missing). |
+| **Kind** | `base` (shell-only, the default for `vm new`) or `desktop` — but **no provider ships a desktop image today**, so `--desktop` fails closed with an image config error and there is no VNC screen to open until one lands. Ubuntu (shared devbox image) with node, bun, uv, git, gh, ripgrep, fd, jq, tmux, xdotool; **Claude Code, Codex, OpenCode, and Pi preinstalled** under `/root/.npm-global/bin`. Provisioning runs in the background on first boot (`cat /tmp/cmux/provision.log` if a tool is missing). |
 | **Session** | Every machine runs the **cmux-tui remote daemon**: its own workspaces (`ws_…`) → terminals (`term_…`), visible in `cmux vm tree`. A terminal started there keeps running when the Mac disconnects or a pane closes. |
 | **Surface** | A terminal, VNC screen, or browser — on This Mac or on a machine — with a stable id `<machine>/<kind>/<key>` (`cmux surface ls --json`). Panes *project* surfaces: `cmux surface open <id>` reuses the pane already showing one or lands it at a pane edge; closing a pane never kills a machine's terminal. |
 | **Base** | The one pinned persistent machine per user (`cmux vm base open`; `base reset` mints a new generation and keeps the old VM) — the user's ongoing work. |
 | **Pool** | Machines the router provisioned for agent work (labeled `agent-pool` in `vm ls`, membership persisted in `~/.cmuxterm/vm-run-pool.json`). `vm run`/`vm agent` only draft these; any other machine needs `--machine <id>`. |
-| **Plan meter** | `cmux vm ls` prints `N of M machines on the <plan> plan` (`vm ls --json` → `limits`). **Provisioning requires a paid plan**: `vm new`, the first `vm base open`, `base reset`, `fork`, `restore`, and the router's own provisioning answer `vm_requires_pro` with the pricing link on free or unknown plans; at the plan's machine cap, creates fail with an upgrade action. Never delete machines to make room without asking. |
+| **Plan meter** | `cmux vm ls` prints the meter (`vm ls --json` → `limits`; a missing `limits.maxActiveVms` means the paid plan has **no machine cap** and prints `N machines on the <plan> plan, no limit`). **Provisioning requires a paid plan**: `vm new`, the first `vm base open`, `base reset`, `fork`, `restore`, and the router's own provisioning answer `vm_requires_pro` with the pricing link on free or unknown plans. Never delete machines to make room without asking. |
 | **Checkpoint / fork** | `vm snapshot` mints a restorable checkpoint, `vm fork` clones a machine for a parallel experiment, `vm restore` brings a snapshot back — where the provider supports it (`vm ls --json` → `capabilities`). |
 
 ## Decide: cloud or local?
@@ -25,7 +25,7 @@ Everything cmux Cloud exposes from the CLI, for any coding agent (Claude Code, C
 | Run in the cloud when… | Stay local when… |
 |------------------------|------------------|
 | Builds/tests take minutes, need Linux, or would hog the user's Mac | The task is a quick edit or read |
-| The task needs a desktop, browser automation, or a screen the user can watch (`vm open <m>:desktop`) | The user is editing the same files right now |
+| The task needs Linux isolation or a machine the user can watch through panes and port URLs | The user is editing the same files right now |
 | You want isolation (a fork per experiment, a throwaway machine) | The repo has uncommitted local-only state you cannot sync |
 | You want to fan out: several agents on several machines in parallel | |
 | The user said "cloud", "machine", "VM", or `cmux vm route` shows a warm machine for this directory | |
@@ -40,7 +40,7 @@ cmux vm run --sync --pull work/app/dist -- sh -c 'cd work/app && bun run build'
 cmux vm agent --agent claude --sync -- "run the tests and fix failures"   # a detached Claude Code session on the routed machine
 cmux vm tree                                             # the surface catalog: This Mac, then every machine → workspaces → terminals, desktop, ports
 cmux vm open vivid-newt/main/term_2f9c                   # show the human one terminal (reuses its pane if open)
-cmux surface open vivid-newt/display/display:1 --pane pane:2 --left   # any surface, at a pane edge (same drop rules as the sidebar)
+cmux surface open vivid-newt/terminal/term_2f9c --pane pane:2 --left   # any surface, at a pane edge (same drop rules as the sidebar)
 ```
 
 Repeat runs from the same directory hit the same machine (sticky binding, 14 days), so synced checkouts and dependencies stay warm. `--new` forces a fresh pool machine; `--machine <id>` pins one; `--size 8g` sizes a machine the run creates.
@@ -49,7 +49,7 @@ Repeat runs from the same directory hit the same machine (sticky binding, 14 day
 
 1. `cmux vm route` — the router's answer for this directory. If it says it *would provision*, that costs a machine slot: check `cmux vm ls` first (`--provision` creates it now).
 2. Ongoing user work → Base (`cmux vm base open`, or `--machine <base-id>`).
-3. Isolation → `cmux vm new --detach --json` (desktop machine) or `--base` (shell-only); add `--size 8g` / `--name <label>`. The CLI requests a machine *kind*; never pass `--image` unless you have a specific image id. Then `--machine <id>`, and `cmux vm wait <id> --wake` before the first command.
+3. Isolation → `cmux vm new --detach --json` (shell-only; `--desktop` fails closed until a desktop image ships); add `--size 8g` / `--name <label>`. The CLI requests a machine *kind*; never pass `--image` unless you have a specific image id. Then `--machine <id>`, and `cmux vm wait <id> --wake` before the first command.
 4. Never draft the user's own machines without `--machine`, and respect the plan meter.
 
 ## Running work
@@ -70,10 +70,10 @@ Opening a machine (`cmux vm shell <id>`, `vm new`, `vm base open`, the sidebar) 
 ```bash
 cmux vm tree <id>                       # live: terminals with title, cwd, agent state, (open: surface)
 cmux vm terminal read <id> <term>       # the screen of any machine terminal, without a pane
-cmux vm open <id>                       # the machine's shell (+ its screen on desktop machines)
+cmux vm open <id>                       # the machine's shell
 cmux vm open <id>/<ws>/<term>           # one terminal as a pane; reuses the pane already showing it
 cmux vm workspace open <id> <ws> [--here|--tabs|--pane <p> --left]   # a whole workspace: new local workspace, or into this one
-cmux vm open <id>:desktop               # the noVNC screen
+cmux vm open <id>:desktop               # the noVNC screen (desktop-image machines only — none ship today)
 cmux vm open <id>:port/3000 [--print]   # private tokened URL for an HTTP port (--print: URL only)
 cmux surface ls --json                  # every surface (local + cloud) with ids, lifecycle, and which panes show it
 cmux surface open <resource> [--new] [--pane <p> --left|--right|--up|--down|--tab]   # one open path for all of them
@@ -113,7 +113,7 @@ Agents started with `vm agent` authenticate inside the machine the way they woul
 | Pushed a repo but `.git` is missing | `push` skips `.git`, `node_modules`, `.venv`, `__pycache__`, `.DS_Store` by default; `--no-default-excludes`, or ship a `git bundle` (recipes). |
 | Push/pull refuses a large payload | 256 MB cap. Clone/download inside the machine instead. |
 | Command works in `vm shell` but not `vm exec` | Exec has no TTY/stdin; use non-interactive flags, or `surface new-terminal` + `terminal send|read|wait` for interactive programs. |
-| `vm snapshot`/`vm fork` refused | Provider capability (`vm ls --json` → `capabilities`); Blaxel machines cannot. |
+| `vm snapshot`/`vm fork` refused | Provider capability (`vm ls --json` → `capabilities`); providers without it hide the sidebar verbs too. |
 | `vm ssh` errors | The default provider attaches through the cmux-tui daemon and mints no SSH endpoint; use `exec`, `agent`, or `open`. |
 
 ## Deep-dive references

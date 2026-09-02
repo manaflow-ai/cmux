@@ -19,7 +19,7 @@ Every verb the cmux CLI exposes for cmux Cloud, as it exists on this branch. `cm
 cmux vm ls [--json]                    # alias: cmux vm list
 ```
 
-Socket `vm.list`. Text: a `NAME  LABEL  STATE  PROVIDER  IMAGE` table, then the plan meter (`N of M machines on the <plan> plan`) and, on free plans, when free cloud access expires. Empty: `No cloud VMs. Try: cmux vm new`.
+Socket `vm.list`. Text: a `NAME  LABEL  STATE  PROVIDER  IMAGE` table, then the plan meter (`N of M machines on the <plan> plan`, or `N machines on the <plan> plan, no limit` when the paid plan has no cap) and, on free plans, when free cloud access expires. Empty: `No cloud VMs. Try: cmux vm new`.
 `--json`: `{vms: [{id, displayName?, status, provider, image, kind?, capabilities?: {snapshot, fork}, createdAt?, freeAccessExpiresAt?}], limits: {maxActiveVms, planId, freeAccessWindowDays?, freeAccessExpiresAt?}, imageKinds?}`. Sidebar: the Machines panel list.
 
 ### `cmux vm new`
@@ -29,8 +29,8 @@ cmux vm new [--desktop|--base] [--size <2g|4g|8g|16g|24g|32g|MB>] [--name <label
 # alias: cmux vm create
 ```
 
-Socket `vm.create` with the machine **kind** (`desktop` by default: xfce + noVNC + a shell; `--base`/`--no-desktop` for shell-only). The backend picks the image for the kind; `--image <id>` is the explicit override and the only way an image id leaves the client. `--size` is a memory preset (`2g|4g|8g|16g|24g|32g`, aliases `small|medium|large|xl|xxl`, or MB ≥ 512); plans cap it. `--name` applies a display label through `vm.rename` after the create. Positional arguments are rejected (`cmux vm new myvm` errors instead of provisioning). Retries of a failed create reuse an idempotency key so a transient failure never mints two machines.
-Without `--detach`, opens a plain terminal on the machine (the same open path as `vm shell`) plus the desktop split for desktop machines. `--detach` prints `<id> is ready` and the follow-up commands. `--json`: the `vm.create` payload (`{id, provider, image, kind?, …}`) and no pane. Sidebar: Machines panel ＋ / "New Cloud Machine…" sheet (name, kind, size, plan meter). On a free or unknown plan the backend returns `vm_requires_pro`; at the plan cap, an upgrade error (both exit 1).
+Socket `vm.create` with the machine **kind** — shell-only (`base`) by default; `--desktop` fails closed with a server-side image config error because no provider ships a desktop image today (`--base`/`--no-desktop` stay accepted for old scripts). The backend picks the image for the kind; `--image <id>` is the explicit override and the only way an image id leaves the client. `--size` is a memory preset (`2g|4g|8g|16g|24g|32g`, aliases `small|medium|large|xl|xxl`, or MB ≥ 512); plans cap it. `--name` applies a display label through `vm.rename` after the create. Positional arguments are rejected (`cmux vm new myvm` errors instead of provisioning). Retries of a failed create reuse an idempotency key so a transient failure never mints two machines.
+Without `--detach`, opens a plain terminal on the machine (the same open path as `vm shell`); desktop machines would also get their screen in a split, when a desktop image exists. `--detach` prints `<id> is ready` and the follow-up commands. `--json`: the `vm.create` payload (`{id, provider, image, kind?, …}`) and no pane. Sidebar: Machines panel ＋ / "New Cloud Machine…" sheet (name, kind, size, plan meter). On a free or unknown plan the backend returns `vm_requires_pro` (exit 1); paid plans have no machine cap. Providers: `--provider e2b|freestyle|daytona` (default Freestyle, chosen server-side).
 
 ### `cmux vm status`
 
@@ -288,7 +288,7 @@ One resolver, several target shapes (copy them from `cmux vm tree`):
 | `<machine>` | the machine's shell — exactly `cmux vm shell <machine>` | see `vm shell` |
 | `<machine>/<ws>` (`ws_…` id or workspace name) | that workspace's focused/first live terminal, or a new terminal there when it is empty (`OK terminal=… workspace=… surface=…`) | `surface.catalog`, `surface.project` / `surface.new_terminal {machine, remote_workspace_id, open}` |
 | `<machine>/<ws>/<term_…>` | one terminal; reuses the pane already showing it (`reused=true`) | `surface.project {resource: "<m>/terminal/<term>", workspace_id?, focus?}` |
-| `<machine>:desktop` | the noVNC screen as a browser pane — same as `cmux vm desktop` | `vm.desktop_open` |
+| `<machine>:desktop` | the noVNC screen as a browser pane — same as `cmux vm desktop` (desktop-image machines only; none ship today) | `vm.desktop_open` |
 | `<machine>:port/<n>` and `<machine> <n>` | a private tokened URL for an HTTP port, as a browser pane | `vm.port_open {id, port, workspace_id?}` |
 | `… --print` | ports only: mint and print the URL, no pane | `vm.open_port {id, port}` → `{open_url, …}` |
 
@@ -300,7 +300,7 @@ One resolver, several target shapes (copy them from `cmux vm tree`):
 cmux vm desktop <id> [--workspace <id|ref|index>] [--json]    # alias: cmux vm vnc
 ```
 
-Socket `vm.desktop_open {id, workspace_id?, focus: false}`: the machine's noVNC desktop as a browser pane in the machine's open workspace, else the one you name, else where you are. Text `OK surface=… url=…`. Shell-only (`--base`) machines have no desktop (exit 1). Sidebar: machine row › Open Desktop; Displays › Open Desktop.
+Socket `vm.desktop_open {id, workspace_id?, focus: false}`: the machine's noVNC desktop as a browser pane in the machine's open workspace, else the one you name, else where you are. Text `OK surface=… url=…`. Desktop-image machines only — **none ship today** (every current machine is shell-only, exit 1); the verb is kept for Freestyle desktop support. Sidebar: machine row › Open Desktop; Displays › Open Desktop.
 
 ### `cmux vm tui`
 
@@ -338,7 +338,7 @@ Socket `surface.new_terminal {machine, command?, cwd?, name?, remote_workspace_i
 
 ## Checkpoints and forks
 
-Provider-dependent: `cmux vm ls --json` → `capabilities.snapshot` / `capabilities.fork` say whether a machine supports them (Blaxel machines do not; the sidebar hides the verbs there).
+Provider-dependent: `cmux vm ls --json` → `capabilities.snapshot` / `capabilities.fork` say whether a machine supports them; the sidebar hides the verbs on providers that cannot.
 
 ### `cmux vm snapshot`
 
@@ -384,7 +384,7 @@ A `vm.exec` of `ss -ltnp` (or `netstat -ltnp`): the TCP ports listening **inside
 
 ### Port URLs: `cmux vm open <id> <port>`
 
-See `vm open`: `cmux vm open <id> 3000` opens a private tokened HTTPS URL for an HTTP port as a browser pane (`vm.port_open`); `--print` only mints and prints it (`vm.open_port`, `--json` → `{open_url, …}`). Only share URLs minted this way; never guess provider URLs. The desktop's noVNC lives on port 6901 and is what `<id>:desktop` opens.
+See `vm open`: `cmux vm open <id> 3000` opens a private tokened HTTPS URL for an HTTP port as a browser pane (`vm.port_open`); `--print` only mints and prints it (`vm.open_port`, `--json` → `{open_url, …}`). Only share URLs minted this way; never guess provider URLs.
 
 ### `cmux vm ssh`
 
@@ -420,7 +420,7 @@ Every `cmux vm` verb requires a signed-in app.
 
 ### Plan meter and limits
 
-`cmux vm ls` prints `N of M machines on the <plan> plan`, and `cmux vm ls --json` carries `limits` (`maxActiveVms`, `planId`, and `freeAccessExpiresAt` when a free window applies). **Provisioning is gated to paid plans**: `vm new`, a first `vm base open`, `base reset`, `fork`, `restore`, and the router's provisioning path return the `vm_requires_pro` error (with the pricing link) on free or unknown plans; creates past `maxActiveVms` fail with an upgrade action. Report either — never delete machines to make room without asking. Sizes above the plan's ceiling are refused by the backend.
+`cmux vm ls` prints `N of M machines on the <plan> plan` — or `N machines on the <plan> plan, no limit`, since paid plans have no active-machine cap (`limits.maxActiveVms` is absent then). `cmux vm ls --json` carries `limits` (`maxActiveVms?`, `planId`, `freeAccessExpiresAt` when a free window applies). **Provisioning is gated to paid plans**: `vm new`, a first `vm base open`, `base reset`, `fork`, `restore`, and the router's provisioning path return the `vm_requires_pro` error (with the pricing link) on free or unknown plans. Report it — never delete machines to make room without asking. Sizes above the plan's ceiling are refused by the backend.
 
 ### `cmux ai-accounts`
 
