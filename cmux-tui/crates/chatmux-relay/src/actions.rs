@@ -22,8 +22,9 @@
 //! - all output is truncated to bounded sizes before it goes on the wire.
 
 use std::collections::HashMap;
+use std::future::Future;
 use std::path::{Component, Path, PathBuf};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
 use serde_json::{Map, Value, json};
 
@@ -43,6 +44,7 @@ const MAX_RUNTIME_ENVIRONMENT_ENTRIES: usize = 64;
 const MAX_RUNTIME_ENVIRONMENT_BYTES: usize = 256_000;
 const MAX_RUNTIME_FILES: usize = 8;
 pub(crate) const MAX_BLOCKING_FILE_ACTIONS: usize = 8;
+const MAX_LIVE_PROCESSES: usize = 8;
 
 // ---------------------------------------------------------------------------
 // Path policy (pure)
@@ -997,6 +999,126 @@ enum RunOutcome {
     Failed { message: String },
 }
 
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub(crate) enum SupervisorState {
+    Open,
+    Closing,
+    Closed,
+}
+
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum WaitState {
+    Retry,
+    AlreadyReaped,
+}
+
+impl WaitState {
+    fn from_wait_error(already_reaped: bool) -> Self {
+        if already_reaped { Self::AlreadyReaped } else { Self::Retry }
+    }
+}
+
+pub(crate) struct ProcessSupervisor {
+    lifecycle: Mutex<SupervisorLifecycle>,
+    slots: Arc<tokio::sync::Semaphore>,
+    shutdown_gate: tokio::sync::Mutex<()>,
+}
+
+struct SupervisorLifecycle {
+    state: SupervisorState,
+    tasks: Vec<SupervisedTask>,
+}
+
+struct SupervisedTask {
+    handle: tokio::task::JoinHandle<()>,
+    cancellation: tokio_util::sync::CancellationToken,
+}
+
+struct CancelOnDrop(Option<tokio_util::sync::CancellationToken>);
+
+impl Drop for CancelOnDrop {
+    fn drop(&mut self) {
+        if let Some(token) = self.0.take() {
+            token.cancel();
+        }
+    }
+}
+
+async fn await_supervised(
+    receiver: tokio::sync::oneshot::Receiver<RunOutcome>,
+    cancellation: tokio_util::sync::CancellationToken,
+) -> RunOutcome {
+    let mut cancel_on_drop = CancelOnDrop(Some(cancellation));
+    let outcome = receiver
+        .await
+        .unwrap_or(RunOutcome::Failed { message: "process failed to start".to_owned() });
+    cancel_on_drop.0 = None;
+    outcome
+}
+
+impl ProcessSupervisor {
+    pub(crate) fn new() -> Self {
+        Self {
+            lifecycle: Mutex::new(SupervisorLifecycle {
+                state: SupervisorState::Open,
+                tasks: Vec::new(),
+            }),
+            slots: Arc::new(tokio::sync::Semaphore::new(MAX_LIVE_PROCESSES)),
+            shutdown_gate: tokio::sync::Mutex::new(()),
+        }
+    }
+
+    fn state(&self) -> SupervisorState {
+        self.lifecycle.lock().unwrap_or_else(std::sync::PoisonError::into_inner).state
+    }
+
+    fn spawn<F, Fut>(
+        &self,
+        task: F,
+    ) -> Option<(tokio::sync::oneshot::Receiver<RunOutcome>, tokio_util::sync::CancellationToken)>
+    where
+        F: FnOnce(tokio_util::sync::CancellationToken) -> Fut + Send + 'static,
+        Fut: Future<Output = RunOutcome> + Send + 'static,
+    {
+        let permit = Arc::clone(&self.slots).try_acquire_owned().ok()?;
+        let mut lifecycle =
+            self.lifecycle.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        if lifecycle.state != SupervisorState::Open {
+            return None;
+        }
+        let (sender, receiver) = tokio::sync::oneshot::channel();
+        let cancellation = tokio_util::sync::CancellationToken::new();
+        let task_cancellation = cancellation.clone();
+        let handle = tokio::spawn(async move {
+            let _permit = permit;
+            let outcome = task(task_cancellation).await;
+            let _ = sender.send(outcome);
+        });
+        lifecycle.tasks.retain(|task| !task.handle.is_finished());
+        lifecycle.tasks.push(SupervisedTask { handle, cancellation: cancellation.clone() });
+        Some((receiver, cancellation))
+    }
+
+    pub(crate) async fn shutdown(&self) {
+        let _shutdown_gate = self.shutdown_gate.lock().await;
+        let tasks = {
+            let mut lifecycle =
+                self.lifecycle.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+            if lifecycle.state == SupervisorState::Closed {
+                return;
+            }
+            lifecycle.state = SupervisorState::Closing;
+            std::mem::take(&mut lifecycle.tasks)
+        };
+        for task in tasks {
+            task.cancellation.cancel();
+            let _ = task.handle.await;
+        }
+        self.lifecycle.lock().unwrap_or_else(std::sync::PoisonError::into_inner).state =
+            SupervisorState::Closed;
+    }
+}
+
 #[cfg(unix)]
 struct ProcessGroupGuard {
     pid: Option<u32>,
@@ -1026,6 +1148,7 @@ async fn run_spec(
     cwd_fd: Option<ScopedCwdFd>,
     timeout_ms: u64,
     env: &HashMap<String, String>,
+    cancellation: Option<tokio_util::sync::CancellationToken>,
 ) -> RunOutcome {
     use tokio::io::AsyncReadExt as _;
     let mut command = match &spec {
@@ -1086,6 +1209,7 @@ async fn run_spec(
         Ok(job) => Some(job),
         Err(_) => {
             let _ = child.start_kill();
+            let _ = child.wait().await;
             return RunOutcome::Failed { message: "process failed to start".to_owned() };
         }
     };
@@ -1098,6 +1222,7 @@ async fn run_spec(
     let mut stderr = child.stderr.take();
     let mut output: Vec<u8> = Vec::new();
     let mut timed_out = false;
+    let mut cancelled = false;
     let deadline = tokio::time::sleep(std::time::Duration::from_millis(timeout_ms));
     tokio::pin!(deadline);
     let mut stdout_buf = [0_u8; 8_192];
@@ -1108,6 +1233,7 @@ async fn run_spec(
     let mut kill_deadline: Option<std::pin::Pin<Box<tokio::time::Sleep>>> = None;
     let mut drain_deadline: Option<std::pin::Pin<Box<tokio::time::Sleep>>> = None;
     let mut final_wait_deadline: Option<std::pin::Pin<Box<tokio::time::Sleep>>> = None;
+    let mut wait_retry_deadline: Option<std::pin::Pin<Box<tokio::time::Sleep>>> = None;
     loop {
         // A timed-out process group still needs its escalation pass even when
         // the shell leader has already exited. Otherwise closing inherited
@@ -1121,6 +1247,23 @@ async fn run_spec(
             break;
         }
         tokio::select! {
+            () = async {
+                match cancellation.as_ref() {
+                    Some(token) => token.cancelled().await,
+                    None => std::future::pending().await,
+                }
+            }, if !cancelled => {
+                cancelled = true;
+                #[cfg(unix)]
+                if !signal_process_tree(pid, false) {
+                    let _ = child.start_kill();
+                }
+                #[cfg(not(unix))]
+                signal_process_tree(pid, false);
+                kill_deadline = Some(Box::pin(tokio::time::sleep(
+                    std::time::Duration::from_millis(250),
+                )));
+            }
             read = async {
                 match stdout.as_mut() {
                     Some(stream) => stream.read(&mut stdout_buf).await,
@@ -1151,7 +1294,8 @@ async fn run_spec(
                     }
                 }
             }
-            status = child.wait(), if exited.is_none() => {
+            status = child.wait(),
+                if exited.is_none() && wait_retry_deadline.is_none() && kill_deadline.is_none() => {
                 // The child is gone, but descendants may still own the output
                 // pipes. Preserve a timeout escalation that is already in
                 // flight, and bound the remaining drain after a timeout.
@@ -1171,7 +1315,24 @@ async fn run_spec(
                             process_group_guard.armed = false;
                         }
                     }
-                    Err(_) => exited = Some(1),
+                    Err(error) => {
+                        #[cfg(unix)]
+                        if error.raw_os_error() == Some(libc::ECHILD) {
+                            exited = Some(1);
+                            process_group_guard.armed = false;
+                        } else {
+                            wait_retry_deadline = Some(Box::pin(tokio::time::sleep(
+                                std::time::Duration::from_millis(10),
+                            )));
+                        }
+                        #[cfg(not(unix))]
+                        {
+                            let _ = error;
+                            wait_retry_deadline = Some(Box::pin(tokio::time::sleep(
+                                std::time::Duration::from_millis(10),
+                            )));
+                        }
+                    }
                 }
             }
             () = &mut deadline, if !timed_out => {
@@ -1180,9 +1341,7 @@ async fn run_spec(
                 // inherited stdout/stderr. Kill the whole POSIX process group
                 // so the supervisor gets its EXIT cleanup, then enforce a
                 // hard bound for processes that ignore TERM.
-                if exited.is_some() {
-                    signal_process_group(pid, false);
-                } else {
+                if exited.is_none() {
                     // The process group is the authoritative target. If the
                     // group disappeared before we could signal it, use the
                     // live Child handle instead of the numeric PID. A PID
@@ -1217,9 +1376,7 @@ async fn run_spec(
                     None => std::future::pending().await,
                 }
             }, if kill_deadline.is_some() => {
-                if exited.is_some() {
-                    signal_process_group(pid, true);
-                } else {
+                if exited.is_none() {
                     // See the timeout branch above: never fall back to a
                     // numeric PID after a process-group signal fails.
                     #[cfg(unix)]
@@ -1256,14 +1413,21 @@ async fn run_spec(
                     None => std::future::pending().await,
                 }
             }, if final_wait_deadline.is_some() && exited.is_none() => {
-                let _ = child.start_kill();
                 final_wait_deadline = None;
-                exited = Some(1);
+                wait_retry_deadline = None;
                 if stdout_open || stderr_open {
                     drain_deadline = Some(Box::pin(tokio::time::sleep(
                         std::time::Duration::from_millis(250),
                     )));
                 }
+            }
+            () = async {
+                match wait_retry_deadline.as_mut() {
+                    Some(timer) => timer.as_mut().await,
+                    None => std::future::pending().await,
+                }
+            }, if wait_retry_deadline.is_some() => {
+                wait_retry_deadline = None;
             }
         }
     }
@@ -1275,6 +1439,9 @@ async fn run_spec(
     }
     if timed_out {
         return RunOutcome::TimedOut;
+    }
+    if cancelled {
+        return RunOutcome::Failed { message: "process cancelled".to_owned() };
     }
     let text = String::from_utf8_lossy(&output);
     RunOutcome::Done { exit_code: exited.unwrap_or(0), output: text.into_owned() }
@@ -1400,6 +1567,7 @@ pub struct ActionContext {
     pub env: HashMap<String, String>,
     /// Process-owned capacity retained by file work that outlives a socket.
     pub file_slots: Arc<tokio::sync::Semaphore>,
+    pub(crate) process_supervisor: Arc<ProcessSupervisor>,
     #[cfg(test)]
     pub(crate) test_file_operation_barrier: Option<Arc<std::sync::Barrier>>,
 }
@@ -1806,7 +1974,8 @@ pub async fn perform_action(frame: &Value, context: &ActionContext) -> Value {
             };
             #[cfg(not(unix))]
             let command_cwd_fd = None;
-            let outcome = tokio::spawn(async move {
+            let process_supervisor = Arc::clone(&context.process_supervisor);
+            let outcome = match process_supervisor.spawn(move |cancellation| async move {
                 let _file_permit = file_permit;
                 #[cfg(unix)]
                 let _path_guard = _path_guard;
@@ -1829,11 +1998,13 @@ pub async fn perform_action(frame: &Value, context: &ActionContext) -> Value {
                     command_cwd_fd,
                     timeout_ms,
                     &env,
+                    Some(cancellation),
                 )
                 .await
-            })
-            .await
-            .unwrap_or(RunOutcome::Failed { message: "process failed to start".to_owned() });
+            }) {
+                Some((receiver, cancellation)) => await_supervised(receiver, cancellation).await,
+                None => RunOutcome::Failed { message: "relay process capacity is busy".to_owned() },
+            };
             run_reply(version, &action_id, outcome, args.get("limit"), Some(200), timeout_ms)
         }
         "find" => {
@@ -1897,14 +2068,25 @@ pub async fn perform_action(frame: &Value, context: &ActionContext) -> Value {
                 find_args.push("-name".to_owned());
                 find_args.push(pattern.to_owned());
             }
-            let outcome = run_spec(
-                RunSpec::Argv { file: "find", args: find_args },
-                Path::new(&command_cwd_path),
-                command_cwd_fd,
-                timeout_ms,
-                &env,
-            )
-            .await;
+            let process_supervisor = Arc::clone(&context.process_supervisor);
+            let outcome = match process_supervisor.spawn(move |cancellation| async move {
+                #[cfg(unix)]
+                let _path_guard = _path_guard;
+                #[cfg(unix)]
+                let _cwd_guard = _cwd_guard;
+                run_spec(
+                    RunSpec::Argv { file: "find", args: find_args },
+                    Path::new(&command_cwd_path),
+                    command_cwd_fd,
+                    timeout_ms,
+                    &env,
+                    Some(cancellation),
+                )
+                .await
+            }) {
+                Some((receiver, cancellation)) => await_supervised(receiver, cancellation).await,
+                None => RunOutcome::Failed { message: "relay process capacity is busy".to_owned() },
+            };
             run_reply(version, &action_id, outcome, args.get("limit"), Some(500), timeout_ms)
         }
         "exec" => {
@@ -1938,14 +2120,23 @@ pub async fn perform_action(frame: &Value, context: &ActionContext) -> Value {
             #[cfg(not(unix))]
             let scoped_cwd_fd = None;
             let prepared = command_with_process_files(command, &runtime.files);
-            let outcome = run_spec(
-                RunSpec::Shell { command: &prepared },
-                Path::new(&scoped_cwd_path),
-                scoped_cwd_fd,
-                timeout_ms,
-                &env,
-            )
-            .await;
+            let process_supervisor = Arc::clone(&context.process_supervisor);
+            let outcome = match process_supervisor.spawn(move |cancellation| async move {
+                #[cfg(unix)]
+                let _cwd_guard = _cwd_guard;
+                run_spec(
+                    RunSpec::Shell { command: &prepared },
+                    Path::new(&scoped_cwd_path),
+                    scoped_cwd_fd,
+                    timeout_ms,
+                    &env,
+                    Some(cancellation),
+                )
+                .await
+            }) {
+                Some((receiver, cancellation)) => await_supervised(receiver, cancellation).await,
+                None => RunOutcome::Failed { message: "relay process capacity is busy".to_owned() },
+            };
             run_reply(version, &action_id, outcome, None, None, timeout_ms)
         }
         _ => fail("unsupported_verb", &format!("verb \"{verb}\" fell through")),
@@ -1972,6 +2163,7 @@ mod tests {
             home,
             env: HashMap::new(),
             file_slots: Arc::new(tokio::sync::Semaphore::new(MAX_BLOCKING_FILE_ACTIONS)),
+            process_supervisor: Arc::new(ProcessSupervisor::new()),
             test_file_operation_barrier: None,
         }
     }
@@ -2058,6 +2250,42 @@ mod tests {
         assert_eq!(clamp_timeout(Some(&json!(50))), 1_000);
         assert_eq!(clamp_timeout(Some(&json!(9_999_999))), MAX_TIMEOUT_MS);
         assert_eq!(clamp_timeout(Some(&json!(-5))), DEFAULT_TIMEOUT_MS);
+    }
+
+    #[tokio::test]
+    async fn process_supervisor_closes_after_owned_task_finishes() {
+        let supervisor = Arc::new(ProcessSupervisor::new());
+        let completed = Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let task_completed = Arc::clone(&completed);
+        let outcome = supervisor
+            .spawn(move |_| async move {
+                tokio::time::sleep(std::time::Duration::from_millis(5)).await;
+                task_completed.store(true, std::sync::atomic::Ordering::Release);
+                RunOutcome::Done { exit_code: 0, output: String::new() }
+            })
+            .expect("open supervisor admits process");
+        let (outcome, _) = outcome;
+        supervisor.shutdown().await;
+        assert!(completed.load(std::sync::atomic::Ordering::Acquire));
+        assert!(matches!(outcome.await, Ok(RunOutcome::Done { exit_code: 0, .. })));
+        assert_eq!(supervisor.state(), SupervisorState::Closed);
+    }
+
+    #[tokio::test]
+    async fn process_supervisor_rejects_new_tasks_after_close() {
+        let supervisor = Arc::new(ProcessSupervisor::new());
+        supervisor.shutdown().await;
+        assert!(
+            supervisor
+                .spawn(|_| async { RunOutcome::Done { exit_code: 0, output: String::new() } })
+                .is_none()
+        );
+    }
+
+    #[test]
+    fn wait_error_state_distinguishes_already_reaped() {
+        assert_eq!(WaitState::from_wait_error(true), WaitState::AlreadyReaped);
+        assert_eq!(WaitState::from_wait_error(false), WaitState::Retry);
     }
 
     #[test]
@@ -2504,7 +2732,7 @@ mod tests {
         let env = scrubbed_env(&HashMap::from([("PATH".to_owned(), "/usr/bin:/bin".to_owned())]));
         let outcome = tokio::time::timeout(
             std::time::Duration::from_secs(2),
-            run_spec(RunSpec::Shell { command: "sleep 5 &" }, Path::new("/"), None, 20, &env),
+            run_spec(RunSpec::Shell { command: "sleep 5 &" }, Path::new("/"), None, 20, &env, None),
         )
         .await
         .expect("timeout cleanup must not wait for a descendant pipe");
