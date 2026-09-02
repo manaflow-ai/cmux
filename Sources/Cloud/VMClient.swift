@@ -353,6 +353,10 @@ struct VMCapabilities: Equatable, Sendable {
     var ports: Bool
     /// A desktop (VNC) surface exists for this provider's machines.
     var desktop: Bool
+    /// Create honors `memoryMb` (as a floor on grow-only providers).
+    var sizing: Bool
+    /// Create honors a named persistent home volume request.
+    var persistentHome: Bool
     /// Session transports the provider can hand out (e.g. "cmux-remote", "ssh").
     /// nil means the server predates transport reporting: attempt, don't gate.
     var attachTransports: [String]?
@@ -363,11 +367,13 @@ struct VMCapabilities: Equatable, Sendable {
     static let all = VMCapabilities(
         snapshot: true, restore: true, fork: true,
         exec: true, stats: true, ports: true, desktop: true,
+        sizing: true, persistentHome: true,
         attachTransports: nil)
 
     init(
         snapshot: Bool, restore: Bool, fork: Bool,
         exec: Bool = true, stats: Bool = true, ports: Bool = true, desktop: Bool = true,
+        sizing: Bool = true, persistentHome: Bool = true,
         attachTransports: [String]? = nil
     ) {
         self.snapshot = snapshot
@@ -377,6 +383,8 @@ struct VMCapabilities: Equatable, Sendable {
         self.stats = stats
         self.ports = ports
         self.desktop = desktop
+        self.sizing = sizing
+        self.persistentHome = persistentHome
         self.attachTransports = attachTransports
     }
 
@@ -395,6 +403,7 @@ struct VMCapabilities: Equatable, Sendable {
         self.init(
             snapshot: flag("snapshot"), restore: flag("restore"), fork: flag("fork"),
             exec: flag("exec"), stats: flag("stats"), ports: flag("ports"), desktop: flag("desktop"),
+            sizing: flag("sizing"), persistentHome: flag("persistentHome"),
             attachTransports: transports)
     }
 
@@ -408,6 +417,8 @@ struct VMCapabilities: Equatable, Sendable {
             "stats": stats,
             "ports": ports,
             "desktop": desktop,
+            "sizing": sizing,
+            "persistentHome": persistentHome,
         ]
         if let attachTransports { object["attach_transports"] = attachTransports }
         return object
@@ -705,6 +716,9 @@ actor VMClient {
         let displayStatus = rawStatus.flatMap { $0.isEmpty ? nil : $0 } ?? "running"
         var summary = VMSummary(id: id, provider: providerValue, status: displayStatus, image: imageValue, createdAt: createdAt, base: nil)
         summary.kind = Self.decodeKind(obj["kind"])
+        if obj["capabilities"] != nil {
+            summary.capabilities = VMCapabilities(json: obj["capabilities"])
+        }
         return summary
     }
 
@@ -748,6 +762,9 @@ actor VMClient {
         let displayStatus = rawStatus.flatMap { $0.isEmpty ? nil : $0 } ?? "running"
         var summary = VMSummary(id: id, provider: providerValue, status: displayStatus, image: imageValue, createdAt: createdAt, base: decodeBaseSummary(obj["base"]))
         summary.kind = Self.decodeKind(obj["kind"])
+        if obj["capabilities"] != nil {
+            summary.capabilities = VMCapabilities(json: obj["capabilities"])
+        }
         return summary
     }
 
@@ -849,9 +866,13 @@ actor VMClient {
             ?? Int64((obj["createdAt"] as? Double) ?? 0)
         let status = (obj["status"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines)
         let snapshotID = obj["snapshotId"] as? String
+        var forked = VMSummary(id: vmID, provider: provider, status: status?.isEmpty == false ? status! : "running", image: image, createdAt: createdAt, base: nil)
+        if obj["capabilities"] != nil {
+            forked.capabilities = VMCapabilities(json: obj["capabilities"])
+        }
         return (
             snapshot: snapshotID.map { VMSnapshotResult(id: $0, name: nil, createdAt: Int64(Date().timeIntervalSince1970 * 1000)) },
-            vm: VMSummary(id: vmID, provider: provider, status: status?.isEmpty == false ? status! : "running", image: image, createdAt: createdAt, base: nil)
+            vm: forked
         )
     }
 
@@ -876,7 +897,11 @@ actor VMClient {
         let createdAt = (obj["createdAt"] as? Int64)
             ?? Int64((obj["createdAt"] as? Double) ?? 0)
         let status = (obj["status"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines)
-        return VMSummary(id: id, provider: providerValue, status: status?.isEmpty == false ? status! : "running", image: image, createdAt: createdAt, base: nil)
+        var restored = VMSummary(id: id, provider: providerValue, status: status?.isEmpty == false ? status! : "running", image: image, createdAt: createdAt, base: nil)
+        if obj["capabilities"] != nil {
+            restored.capabilities = VMCapabilities(json: obj["capabilities"])
+        }
+        return restored
     }
 
     func openSSH(id: String) async throws -> VMSSHEndpoint {

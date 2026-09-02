@@ -20,7 +20,8 @@ describe("vm capability derivation", () => {
       // Port previews ride the platform's TLS edge (style.dev capability URLs).
       ports: true,
       desktop: false,
-      sizing: false,
+      // Grow-only live resize honors memoryMb as a floor.
+      sizing: true,
       persistentHome: false,
       attachTransports: ["cmux-remote"],
     });

@@ -554,6 +554,13 @@ export class FreestyleProvider implements VMProvider {
   /** The only session transport: the cmux-tui remote daemon (`openCmuxRemote`). */
   readonly attachTransports: readonly AttachTransport[] = ["cmux-remote"];
 
+  /**
+   * `sizing` is declared because it has no structural signal: create honors
+   * `memoryMb` through the platform's grow-only live resize (`vm.resize`), so
+   * a machine ends with at least the requested memory.
+   */
+  readonly capabilities = { sizing: true } as const;
+
   readonly privateNetworking: VMPrivateNetworking = new FreestylePrivateNetworking();
 
   async create(options: CreateOptions): Promise<VMHandle> {
@@ -585,6 +592,7 @@ export class FreestyleProvider implements VMProvider {
             "cmux.vm.network.private": !!networkId,
           });
           try {
+            if (options.memoryMb) await this.applyRequestedMemory(vm, vmId, options.memoryMb);
             await this.bootstrapCmuxTui(vm, vmId, options.envs);
           } catch (err) {
             // A VM that failed to bootstrap must not survive as an orphan.
@@ -902,6 +910,24 @@ export class FreestyleProvider implements VMProvider {
    */
   private async installGuestCli(vm: Vm): Promise<void> {
     await this.execResult(vm, guestCliInstallCommand(), 30_000);
+  }
+
+  /**
+   * Grow-only sizing: the platform's live resize means a machine ends with at
+   * least the requested memory. A snapshot that already boots larger than the
+   * request is left alone — the request is a floor, not an exact size.
+   */
+  private async applyRequestedMemory(vm: Vm, vmId: string, memoryMb: number): Promise<void> {
+    try {
+      const data = await vm.data();
+      const current = typeof data.resources?.memory === "number" ? data.resources.memory : null;
+      if (current !== null && current >= memoryMb) return;
+      await vm.resize({ memory: memoryMb });
+    } catch (err) {
+      throw err instanceof ProviderError
+        ? err
+        : new ProviderError("freestyle", `resize(${vmId}) to ${memoryMb} MiB failed`, err);
+    }
   }
 
   /**

@@ -1028,6 +1028,7 @@ struct VMCapabilitiesDecodingTests {
         let caps = VMCapabilities(json: [
             "snapshot": true, "restore": true, "fork": false,
             "exec": true, "stats": false, "ports": false, "desktop": false,
+            "sizing": true, "persistentHome": false,
             "attachTransports": ["cmux-remote"],
         ])
         #expect(caps.snapshot)
@@ -1036,6 +1037,8 @@ struct VMCapabilitiesDecodingTests {
         #expect(!caps.stats)
         #expect(!caps.ports)
         #expect(!caps.desktop)
+        #expect(caps.sizing)
+        #expect(!caps.persistentHome)
         #expect(caps.attachTransports == ["cmux-remote"])
         #expect(caps.cmuxRemote)
         #expect(!caps.ssh)
@@ -1048,6 +1051,8 @@ struct VMCapabilitiesDecodingTests {
         #expect(caps.stats)
         #expect(caps.ports)
         #expect(caps.desktop)
+        #expect(caps.sizing)
+        #expect(caps.persistentHome)
         #expect(caps.attachTransports == nil)
         #expect(caps.ssh)
         #expect(caps.cmuxRemote)
@@ -1064,11 +1069,14 @@ struct VMCapabilitiesDecodingTests {
         let caps = VMCapabilities(
             snapshot: true, restore: true, fork: false,
             exec: true, stats: false, ports: false, desktop: false,
+            sizing: true, persistentHome: false,
             attachTransports: ["cmux-remote"])
         let object = caps.jsonObject
         #expect(object["fork"] as? Bool == false)
         #expect(object["stats"] as? Bool == false)
         #expect(object["ports"] as? Bool == false)
+        #expect(object["sizing"] as? Bool == true)
+        #expect(object["persistentHome"] as? Bool == false)
         #expect(object["attach_transports"] as? [String] == ["cmux-remote"])
     }
 }
