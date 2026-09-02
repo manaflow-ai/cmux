@@ -2,13 +2,12 @@
 # snapshot (web/scripts/build-devbox-e2b.ts and build-devbox-daytona.ts;
 # build-devbox-freestyle.ts replays the same steps over Freestyle exec).
 # Parity target is the chatmux devbox (chatmux repo,
-# infra/sandbox-images/Dockerfile) and the Blaxel cmux-devbox template
-# (../blaxel/Dockerfile): same devtools, mise toolchains, pinned coding
+# infra/sandbox-images/Dockerfile): same devtools, mise toolchains, pinned coding
 # agents, ble.sh ghost text, half-life prompt, seeded history, and the
 # coderouter agent-config generator.
 #
 # Session daemon: cmux-tui, the machine's only session daemon
-# (docs/cloud-cmux-tui-daemon.md), exactly as on Blaxel. The binary is NOT
+# (docs/cloud-cmux-tui-daemon.md). The binary is NOT
 # baked: each driver installs the pinned files.cmux.com build
 # (sha256-verified) onto the machine at create time and heals it on attach
 # (web/services/vms/drivers/cmuxTuiDaemon.ts). The image ships only
@@ -34,7 +33,7 @@ ENV CMUX_IMAGE_EPOCH=2026-09-01-r3
 ENV LANG=C.UTF-8 \
     DEBIAN_FRONTEND=noninteractive
 
-# Devtools (chatmux devbox apt list) plus vim (Blaxel parity), sudo for
+# Devtools (chatmux devbox apt list) plus vim, sudo for
 # non-root provider exec users (E2B), and procps for the drivers' daemon
 # process discovery (pgrep).
 RUN apt-get update && apt-get install -y --no-install-recommends \
@@ -136,7 +135,7 @@ RUN curl -fsSL https://cua.ai/driver/install.sh -o /tmp/cua-install.sh \
   && cua-driver --version
 
 # Coding agents, pinned at bake time (bump with the image epoch; keep in
-# lockstep with ../blaxel/Dockerfile). Installed on the mise node so they
+# lockstep with the chatmux devbox). Installed on the mise node so they
 # ride the same toolchain users get.
 ARG CMUX_IMAGE_CLAUDE_CODE_VERSION=2.1.252
 ARG CMUX_IMAGE_CODEX_VERSION=0.151.0
@@ -162,7 +161,7 @@ RUN mkdir -p /etc/claude-code \
 # the machine (cmux sessions run as root via the cmux-tui daemon).
 RUN if id -u user >/dev/null 2>&1; then echo 'user ALL=(ALL) NOPASSWD:ALL' > /etc/sudoers.d/91-user-nopasswd && chmod 0440 /etc/sudoers.d/91-user-nopasswd; fi
 
-# Interactive shell polish: bash IS the shell (Blaxel/chatmux parity); it
+# Interactive shell polish: bash IS the shell (chatmux parity); it
 # borrows the oh-my-zsh half-life theme colors and ble.sh supplies
 # zsh-autosuggestions-style ghost text from history, seeded with the
 # claude/codex launch commands. The build-time `bash -ic` check runs without
@@ -182,7 +181,7 @@ RUN bash -n /etc/cmux/bashrc \
   && echo 'set -g default-shell /bin/bash' >> /etc/tmux.conf \
   && bash -ic 'head -2 /root/.bash_history'
 
-# Seed ble.sh tput caches for the TERMs cmux uses, exactly as the Blaxel
+# Seed ble.sh tput caches for the TERMs cmux uses, exactly as the chatmux
 # template does (its Dockerfile carries the full rationale): without them the
 # FIRST shell on a machine prints "ble/term.sh: updating tput cache ... done"
 # into the pane before its first prompt. Both cache homes are seeded: the
