@@ -195,6 +195,20 @@ extension DockSplitStore {
         return browser.requestExplicitWebViewFocus()
     }
 
+    /// Restores the browser's semantic focus target while preserving the Dock's
+    /// blank-page preference for the address bar.
+    @discardableResult
+    func restoreBrowserPanelInputFocus(
+        _ browser: BrowserPanel,
+        intent: PanelFocusIntent? = nil
+    ) -> Bool {
+        let resolvedIntent = intent ?? browser.preferredFocusIntentForActivation()
+        if case .browser(.webView) = resolvedIntent {
+            return focusBrowserPanelPreferringAddressBar(browser)
+        }
+        return browser.restoreFocusIntent(resolvedIntent)
+    }
+
     func focusedDockPaneSelection() -> (pane: PaneID?, tab: TabID?) {
         let pane = bonsplitController.focusedPaneId
         return (pane, pane.flatMap { bonsplitController.selectedTab(inPane: $0)?.id })
@@ -326,10 +340,10 @@ extension DockSplitStore {
             )
             return
         }
-        selectedPanel.focus()
-        if let browser = selectedPanel as? BrowserPanel,
-           case .browser(.webView) = activationIntent {
-            _ = focusBrowserPanelPreferringAddressBar(browser)
+        if let browser = selectedPanel as? BrowserPanel {
+            _ = restoreBrowserPanelInputFocus(browser, intent: activationIntent)
+        } else {
+            selectedPanel.focus()
         }
     }
 
