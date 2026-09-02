@@ -61,7 +61,6 @@ public struct TuiManualIOPumpPolicy: Sendable {
         case (0, "terminal-ended"): return .terminalEnded
         case (0, "parent-closed"): return .parentClosed
         case (2, "daemon-lost"): return .daemonLost
-        case (0, _): return .terminalEnded
         default: return .failure
         }
     }
