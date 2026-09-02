@@ -381,6 +381,21 @@ final class MachinesPanelViewModel: ObservableObject {
             return .unreachable
         }
     }
+
+    /// Classify an error that escaped the typed Cloud client boundary. URLSession
+    /// can surface a transport failure directly on some OS releases, so keep
+    /// those failures in the retry-first state instead of calling them a server
+    /// error. Unknown errors remain conservative: they are not evidence of an
+    /// unreachable service.
+    nonisolated static func classifyListFailure(_ error: Error) -> CloudListProblem {
+        if let error = error as? VMClientError {
+            return classifyListFailure(error)
+        }
+        if let error = error as? URLError, error.code.isCloudBackendTransportFailure {
+            return .unreachable
+        }
+        return .serverError
+    }
     /// Human-readable label of the Cloud VM action currently running from this
     /// panel ("Checkpointing noble-wren…"). Replaces the plan meter in the
     /// header while set — the in-app substitute for a floating progress HUD.
@@ -742,10 +757,7 @@ final class MachinesPanelViewModel: ObservableObject {
             return
         } catch {
             lastErrorDescription = String(describing: error)
-            // An unknown error proves neither a transport failure nor an auth
-            // rejection. Keep the UI honest and treat it as a service error
-            // until a typed client error tells us otherwise.
-            listProblem = .serverError
+            listProblem = Self.classifyListFailure(error)
         }
         isLoading = false
         hasLoadedOnce = true

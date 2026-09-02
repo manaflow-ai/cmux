@@ -964,6 +964,25 @@ struct MachinesPanelListProblemTests {
         )
     }
 
+    @Test("Raw transport failures stay in the unreachable state")
+    func rawTransportFailuresStayUnreachable() {
+        for code in [
+            URLError.Code.secureConnectionFailed,
+            .serverCertificateUntrusted,
+            .dnsLookupFailed,
+            .timedOut,
+        ] {
+            #expect(
+                MachinesPanelViewModel.classifyListFailure(URLError(code)) == .unreachable,
+                "\(code) is a transport failure without a usable Cloud response"
+            )
+        }
+        #expect(
+            MachinesPanelViewModel.classifyListFailure(URLError(.badURL)) == .serverError,
+            "A malformed client URL is not evidence that Cloud is unreachable"
+        )
+    }
+
     /// No "detached" pill anywhere (austin, 2026-08-31): a pool terminal with no
     /// view is just a row, one view is the normal state, and only several views
     /// earn a badge (a multiplier).
