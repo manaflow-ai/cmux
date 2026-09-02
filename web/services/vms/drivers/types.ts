@@ -2,9 +2,9 @@
 // per-provider implementations behind an interface. Callers hold a `VMProvider` and never reach
 // into specifics.
 
-export type ProviderId = "e2b" | "freestyle" | "daytona";
+export type ProviderId = "freestyle";
 
-const PROVIDER_IDS: readonly ProviderId[] = ["e2b", "freestyle", "daytona"];
+const PROVIDER_IDS: readonly ProviderId[] = ["freestyle"];
 
 export function isProviderId(value: unknown): value is ProviderId {
   return typeof value === "string" && PROVIDER_IDS.includes(value as ProviderId);
@@ -61,7 +61,7 @@ export type VMHandle = {
   provider: ProviderId;
   providerVmId: string;
   status: VMStatus;
-  image: string; // e.g. "cmux-sandbox:v0-71a954b8e53b" for e2b
+  image: string; // the provider snapshot id the machine booted from
   createdAt: number;
   providerMetadata?: Record<string, unknown>;
 };
@@ -108,7 +108,7 @@ export type SSHEndpoint = {
   };
   /**
    * Opaque identity/token handle the driver needs later to revoke these credentials.
-   * Freestyle uses its identity id; E2B returns an empty string (no identities there yet).
+   * Freestyle uses its identity id.
    * The VM workflow stores this in Postgres and calls `revokeSSHIdentity` on destroy and before
    * minting a replacement identity, so unreferenced tokens don't pile up on the provider side.
    */
@@ -319,7 +319,7 @@ export interface VMProvider {
   openSSH(vmId: string): Promise<SSHEndpoint>;
 
   // Best-effort revocation of an identity handle that `openSSH` previously returned. No-op
-  // if the driver doesn't mint revocable credentials (e.g. E2B), must not throw on unknown
+  // if the driver doesn't mint revocable credentials, must not throw on unknown
   // or already-revoked handles. Cleanup paths rely on it being safe to call.
   revokeSSHIdentity(identityHandle: string): Promise<void>;
 

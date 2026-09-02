@@ -50,16 +50,13 @@ const realManifest = JSON.parse(
 ) as Manifest;
 
 describe("cloud VM provider coherence audit", () => {
-  test("an env default that is not the code default fails on the code-default leg", () => {
-    // The 2026-08-26 outage shape: a fully coherent env default for one
-    // provider, while shipped clients send the code default's image ids and no
-    // env existed for it. The old key-presence audit passed this env.
+  test("an env default naming a removed provider fails on the code-default leg", () => {
+    // The 2026-08-26 outage shape, and now also the stale-env shape: the
+    // deployed CMUX_VM_DEFAULT_PROVIDER still names a provider that has been
+    // removed, while shipped clients send the code default's image ids. The
+    // old key-presence audit passed this env.
     const result = auditCloudVmProviderCoherence(
-      {
-        CMUX_VM_DEFAULT_PROVIDER: "e2b",
-        E2B_CMUXD_WS_TEMPLATE: "cmuxd-ws:tooling-20260509f",
-        E2B_API_KEY: "x",
-      },
+      { CMUX_VM_DEFAULT_PROVIDER: "e2b" },
       realManifest,
     ) as Coherence;
     expect(result.selected?.provider).toBe("e2b");
@@ -69,7 +66,7 @@ describe("cloud VM provider coherence audit", () => {
 
   test("no default provider set means the code default (freestyle) must be ready", () => {
     const result = auditCloudVmProviderCoherence(
-      { E2B_CMUXD_WS_TEMPLATE: "cmuxd-ws:tooling-20260509f", E2B_API_KEY: "x" },
+      {},
       realManifest,
     ) as Coherence;
     expect(result.selected?.provider).toBe("freestyle");
@@ -95,20 +92,6 @@ describe("cloud VM provider coherence audit", () => {
     expect(result.problems.join("\n")).toContain("validationStatus");
   });
 
-  test("a coherent e2b rollback passes only with the code default still provisionable", () => {
-    const rollbackEnv = {
-      CMUX_VM_DEFAULT_PROVIDER: "e2b",
-      E2B_CMUXD_WS_TEMPLATE: "cmuxd-ws:tooling-20260509f",
-      E2B_API_KEY: "x",
-      FREESTYLE_SANDBOX_SNAPSHOT: "sh-fb3dcf7b47894114889b10186626af5b",
-      FREESTYLE_API_KEY: "x",
-    };
-    const result = auditCloudVmProviderCoherence(rollbackEnv, realManifest) as Coherence;
-    expect(result.codeDefault?.provider).toBe("freestyle");
-    // Still not clean: the code default's snapshot has not been re-baked.
-    expect(result.problems.join("\n")).toContain("validationStatus");
-  });
-
   test("an image value outside the manifest is a problem", () => {
     const result = auditProviderReadiness(
       "freestyle",
@@ -120,9 +103,9 @@ describe("cloud VM provider coherence audit", () => {
 
   test("a provider with no manifest entries at all is a problem", () => {
     const result = auditProviderReadiness(
-      "daytona",
+      "freestyle",
       {},
-      { images: realManifest.images.filter((entry) => entry.provider !== "daytona") },
+      { images: realManifest.images.filter((entry) => entry.provider !== "freestyle") },
     ) as { problems: string[] };
     expect(result.problems.join("\n")).toContain("no entries in the image manifest");
   });
@@ -149,9 +132,9 @@ describe("sensitive env placeholders", () => {
   test("a Sensitive image value is itself a problem", () => {
     const result = auditCloudVmProviderCoherence(
       {
-        CMUX_VM_DEFAULT_PROVIDER: "e2b",
-        E2B_CMUXD_WS_TEMPLATE: "[SENSITIVE]",
-        E2B_API_KEY: "x",
+        CMUX_VM_DEFAULT_PROVIDER: "freestyle",
+        FREESTYLE_SANDBOX_SNAPSHOT: "[SENSITIVE]",
+        FREESTYLE_API_KEY: "x",
       },
       realManifest,
     ) as Coherence;
@@ -207,16 +190,13 @@ describe("required runtime env keys cover the production provider path", () => {
   });
 
   test("no removed provider's env keys are still demanded", () => {
-    for (const key of ["BL_API_KEY", "BL_WORKSPACE", "BLAXEL_SANDBOX_IMAGE", "BLAXEL_SANDBOX_DESKTOP_IMAGE", "CMUX_VM_BLAXEL_ENABLED"]) {
+    for (const key of [
+      "BL_API_KEY", "BL_WORKSPACE", "BLAXEL_SANDBOX_IMAGE", "BLAXEL_SANDBOX_DESKTOP_IMAGE", "CMUX_VM_BLAXEL_ENABLED",
+      "E2B_API_KEY", "E2B_CMUXD_WS_TEMPLATE", "CMUX_VM_E2B_ENABLED",
+    ]) {
       expect(requiredRuntimeEnvKeys).not.toContain(key);
       expect(recommendedRuntimeEnvKeys).not.toContain(key);
     }
-  });
-
-  test("an off-only kill switch for a non-default provider stays recommended, not required", () => {
-    // Unset means enabled, so requiring presence would fail a healthy deployment.
-    expect(recommendedRuntimeEnvKeys).toContain("CMUX_VM_DAYTONA_ENABLED");
-    expect(requiredRuntimeEnvKeys).not.toContain("CMUX_VM_DAYTONA_ENABLED");
   });
 
   test("the free-provisioning escape hatch is never required or recommended", () => {

@@ -12,15 +12,13 @@
  * keep in sync with services/vms/drivers/*.
  */
 const PROVIDER_CREDENTIAL_KEYS = {
-  e2b: ["E2B_API_KEY"],
   freestyle: ["FREESTYLE_API_KEY"],
-  daytona: ["DAYTONA_API_KEY"],
 };
 
-// Mirrors defaultProviderId() in services/vms/drivers/index.ts. Shipped CLIs
-// also hardcode this provider's image ids (cmux.swift cloudVMDesktopImage /
-// cloudVMBaseImage), so it must stay provisionable in production even when
-// the env deliberately selects a different default as a rollback.
+// Mirrors defaultProviderId() in services/vms/drivers/index.ts. Freestyle is
+// the only provider, and shipped CLIs hardcode its image ids (cmux.swift
+// cloudVMDesktopImage / cloudVMBaseImage), so it must stay provisionable in
+// production.
 export const CODE_DEFAULT_PROVIDER = "freestyle";
 
 // What `vercel env pull` writes for values it cannot decrypt. The default

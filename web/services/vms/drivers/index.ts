@@ -1,18 +1,14 @@
-import { DaytonaProvider } from "./daytona";
-import { E2BProvider } from "./e2b";
 import { FreestyleProvider } from "./freestyle";
 import { isProviderId, type ProviderId, type VmCapabilities, type VMProvider } from "./types";
 
 export * from "./types";
-export { DaytonaProvider, E2BProvider, FreestyleProvider };
+export { FreestyleProvider };
 
 let registry: Map<ProviderId, VMProvider> | null = null;
 
 function buildRegistry(): Map<ProviderId, VMProvider> {
   const map = new Map<ProviderId, VMProvider>();
-  map.set("e2b", new E2BProvider());
   map.set("freestyle", new FreestyleProvider());
-  map.set("daytona", new DaytonaProvider());
   return map;
 }
 
@@ -40,9 +36,8 @@ export function volumeCapableProviderId(): ProviderId | null {
 export function defaultProviderId(): ProviderId {
   const configured = process.env.CMUX_VM_DEFAULT_PROVIDER;
   if (isProviderId(configured)) return configured;
-  // Freestyle (the public platform) is the default interactive provider. E2B and
-  // Daytona remain available as explicit overrides, or as an explicitly
-  // configured deployment rollback, but never as a silent fallback.
+  // Freestyle (the public platform) is the only provider; the env override
+  // survives so an operator can still pin it explicitly.
   return "freestyle";
 }
 
