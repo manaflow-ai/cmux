@@ -13,6 +13,8 @@ public final class TuiManualIOInputChannel: @unchecked Sendable {
     private var lastGeometryClaim: TimeInterval = 0
     private var needsGeometryClaim = false
     private let queue = DispatchQueue(label: "cmux.tuiManualIO.stdin", qos: .userInitiated)
+    private let maxQueuedBytes = 1 * 1024 * 1024
+    private var queuedBytes = 0
 
     /// Creates a channel with the supplied wire policy.
     public init(policy: TuiManualIOPumpPolicy = TuiManualIOPumpPolicy()) {
@@ -56,8 +58,13 @@ public final class TuiManualIOInputChannel: @unchecked Sendable {
         let target = handle
         lock.unlock()
         guard let target else { return }
-        queue.async {
-            try? target.write(contentsOf: line)
+        enqueue(bytes: line.count) { [weak self] in
+            defer { self?.releaseQueued(bytes: line.count) }
+            do {
+                try target.write(contentsOf: line)
+            } catch {
+                self?.detachIfCurrent(target)
+            }
         }
     }
 
@@ -81,11 +88,17 @@ public final class TuiManualIOInputChannel: @unchecked Sendable {
         guard let target else { return }
         let sendClaim = claim
         let claimLine = policy.claimGeometryLine
-        queue.async {
-            if sendClaim {
-                try? target.write(contentsOf: claimLine)
+        let queuedBytes = line.count + (sendClaim ? claimLine.count : 0)
+        enqueue(bytes: queuedBytes) { [weak self] in
+            defer { self?.releaseQueued(bytes: queuedBytes) }
+            do {
+                if sendClaim {
+                    try target.write(contentsOf: claimLine)
+                }
+                try target.write(contentsOf: line)
+            } catch {
+                self?.detachIfCurrent(target)
             }
-            try? target.write(contentsOf: line)
         }
     }
 
@@ -104,5 +117,35 @@ public final class TuiManualIOInputChannel: @unchecked Sendable {
 
     deinit {
         closeHandle()
+    }
+
+    @discardableResult
+    private func enqueue(bytes: Int, operation: @escaping @Sendable () -> Void) -> Bool {
+        lock.lock()
+        guard bytes <= maxQueuedBytes - queuedBytes else {
+            lock.unlock()
+            return false
+        }
+        queuedBytes += bytes
+        lock.unlock()
+        queue.async(execute: operation)
+        return true
+    }
+
+    private func releaseQueued(bytes: Int) {
+        lock.lock()
+        queuedBytes = max(0, queuedBytes - bytes)
+        lock.unlock()
+    }
+
+    private func detachIfCurrent(_ target: FileHandle) {
+        lock.lock()
+        guard handle === target else {
+            lock.unlock()
+            return
+        }
+        handle = nil
+        lock.unlock()
+        try? target.close()
     }
 }
