@@ -33,9 +33,6 @@ function evaluateReleaseAssetGuard({ existingAssetNames, immutableAssetNames = I
     conflicts,
     missingImmutableAssets,
     guardState,
-    hasPartialConflict: guardState === RELEASE_ASSET_GUARD_STATE.PARTIAL,
-    shouldSkipBuildAndUpload: guardState === RELEASE_ASSET_GUARD_STATE.COMPLETE,
-    shouldSkipUpload: guardState === RELEASE_ASSET_GUARD_STATE.COMPLETE,
   };
 }
 
