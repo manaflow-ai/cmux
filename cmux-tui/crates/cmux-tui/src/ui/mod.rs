@@ -747,8 +747,9 @@ pub(crate) fn truncate(s: &str, max: usize) -> String {
 }
 
 pub(crate) fn middle_truncate(input: &str, max_chars: usize) -> String {
-    let chars = input.chars().collect::<Vec<_>>();
-    if chars.len() <= max_chars {
+    let graphemes = input.graphemes(true);
+    let prefix = graphemes.clone().take(max_chars.saturating_add(1)).count();
+    if prefix <= max_chars {
         return input.to_string();
     }
     if max_chars == 0 {
@@ -760,9 +761,9 @@ pub(crate) fn middle_truncate(input: &str, max_chars: usize) -> String {
     let keep = max_chars - 3;
     let front = keep.div_ceil(2);
     let back = keep / 2;
-    let mut output = chars[..front].iter().collect::<String>();
+    let mut output = input.graphemes(true).take(front).collect::<String>();
     output.push_str("...");
-    output.extend(&chars[chars.len() - back..]);
+    output.extend(input.graphemes(true).rev().take(back).collect::<Vec<_>>().into_iter().rev());
     output
 }
 
@@ -783,6 +784,7 @@ mod tests {
         assert_eq!(middle_truncate("abcdefghi", 3), "...");
         assert_eq!(middle_truncate("abc", 3), "abc");
         assert_eq!(middle_truncate("abc", 0), "");
+        assert_eq!(middle_truncate("e\u{301}clair", 5), "e\u{301}...r");
     }
 
     #[test]

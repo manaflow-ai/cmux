@@ -9,6 +9,7 @@ use ratatui::buffer::Buffer;
 use ratatui::layout::Position;
 use ratatui::style::{Modifier, Style};
 use unicode_width::UnicodeWidthStr;
+use unicode_segmentation::UnicodeSegmentation;
 
 use crate::app::{App, ContextMenu, MenuItem};
 use crate::localization::catalog;
@@ -339,9 +340,13 @@ fn wrapped_message_lines(message: &str, width: usize, limit: usize) -> Vec<Strin
     let mut lines = Vec::new();
     let mut remaining = sanitized.as_str();
     while !remaining.is_empty() && lines.len() < limit {
-        let mut end = remaining.len();
-        while end > 0 && remaining[..end].width() > width {
-            end = remaining[..end].char_indices().next_back().map_or(0, |(index, _)| index);
+        let mut end = 0;
+        let mut used = 0;
+        for grapheme in remaining.graphemes(true) {
+            let next = used.saturating_add(grapheme.width());
+            if next > width { break; }
+            used = next;
+            end += grapheme.len();
         }
         if end == 0 {
             break;
@@ -358,7 +363,8 @@ fn wrapped_message_lines(message: &str, width: usize, limit: usize) -> Vec<Strin
         && let Some(last) = lines.last_mut()
     {
         while format!("{last}…").width() > width && !last.is_empty() {
-            last.pop();
+            let end = last.grapheme_indices(true).next_back().map_or(0, |(i, _)| i);
+            last.truncate(end);
         }
         last.push('…');
     }
@@ -703,7 +709,7 @@ fn label_width(label: &str) -> u16 {
 mod tests {
     use cmux_tui_core::Rect;
 
-    use super::toast_rect_for_label;
+    use super::{toast_rect_for_label, wrapped_message_lines};
     use crate::localization::catalog_for_locale;
 
     #[test]
@@ -718,5 +724,11 @@ mod tests {
             toast_rect_for_label(Rect { x: 10, y: 2, width: 10, height: 5 }, " 界 "),
             Some(Rect { x: 16, y: 5, width: 3, height: 1 })
         );
+    }
+
+    #[test]
+    fn wrapping_does_not_split_combining_graphemes() {
+        let lines = wrapped_message_lines("e\u{301}clair", 3, 2);
+        assert_eq!(lines, vec!["e\u{301}c", "lair"]);
     }
 }
