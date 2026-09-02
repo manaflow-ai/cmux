@@ -516,6 +516,20 @@ def _validate_commit_pull(
     return _pr_number(row, "commit")
 
 
+def _resolve_commit_pull_number(api: GitHubAPI, head_sha: str) -> int:
+    """Resolve one exact open PR when GitHub omits run associations."""
+
+    head_sha = _as_sha(head_sha, "workflow run head SHA")
+    payload = api.get(
+        f"repos/{api.repository}/commits/{head_sha}/pulls?per_page=100",
+        paginate=True,
+    )
+    rows = _array_rows(payload, "commit pull requests")
+    if len(rows) != 1:
+        raise GateError("commit must resolve to exactly one pull request")
+    return _validate_commit_pull(rows[0], api.repository, head_sha)
+
+
 def _event_target(
     api: GitHubAPI, event_name: str, event: Mapping[str, Any]
 ) -> tuple[Mapping[str, Any], str, int, int | None]:
@@ -556,18 +570,7 @@ def _event_target(
         if pull_requests:
             pr_number = _single_pr_number(pull_requests, "workflow run")
         else:
-            pull_payload = api.get(
-                f"repos/{api.repository}/commits/{event_head}/pulls?per_page=100",
-                paginate=True,
-            )
-            commit_rows = _array_rows(pull_payload, "commit pull requests")
-            if len(commit_rows) != 1:
-                raise GateError(
-                    "commit must resolve to exactly one pull request"
-                )
-            pr_number = _validate_commit_pull(
-                commit_rows[0], api.repository, event_head
-            )
+            pr_number = _resolve_commit_pull_number(api, event_head)
     else:
         raise GateError(f"unsupported event {event_name or 'unknown'}")
 
@@ -612,19 +615,21 @@ def _select_ci_run(
 
     valid: list[Mapping[str, Any]] = []
     pr_number = pull.get("number")
+    if not isinstance(pr_number, int) or isinstance(pr_number, bool) or pr_number <= 0:
+        raise GateError("pull request number is malformed")
     for run in candidates:
         if run.get("path") != CI_WORKFLOW_PATH or run.get("event") != "pull_request":
             continue
         if run.get("head_sha") != head_sha:
             continue
         pull_requests = run.get("pull_requests")
-        if isinstance(pull_requests, list):
-            if pull_requests and not any(
-                isinstance(item, Mapping) and item.get("number") == pr_number
-                for item in pull_requests
-            ):
+        if pull_requests is None or pull_requests == []:
+            if _resolve_commit_pull_number(api, head_sha) != pr_number:
                 continue
-        elif pull_requests is not None:
+        elif isinstance(pull_requests, list):
+            if _single_pr_number(pull_requests, "CI workflow run") != pr_number:
+                continue
+        else:
             raise GateError("CI workflow run pull request association is malformed")
         valid.append(run)
     if not valid:
