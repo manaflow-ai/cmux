@@ -5,6 +5,7 @@ import { useFormatter, useTranslations } from "next-intl";
 import { useId, useRef, useState, type ReactNode } from "react";
 
 import { Modal } from "../../components/modal";
+import { AdminProList } from "./admin-pro-list";
 
 type GrantRecord = {
   readonly plan: string | null;
@@ -381,6 +382,15 @@ export function AdminProPanel() {
           </table>
         </ResultSection>
       ) : null}
+
+      <AdminProList
+        onPickQuery={(value) => {
+          setQuery(value);
+          setNotice(null);
+          void runSearch(value);
+          if (typeof window !== "undefined") window.scrollTo({ top: 0, behavior: "smooth" });
+        }}
+      />
 
       <ConfirmDialog
         t={t}
