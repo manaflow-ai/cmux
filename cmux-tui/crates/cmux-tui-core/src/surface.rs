@@ -4464,14 +4464,14 @@ impl Surface {
                 render.latest = None;
                 render.initial_graphics = None;
             }
+            if !graphics_changed {
+                return Ok(());
+            }
             let generation = pty.render_generation.fetch_add(1, Ordering::AcqRel) + 1;
             #[cfg(test)]
             pty.run_kitty_limits_test_hook();
-            (graphics_changed, generation)
+            generation
         };
-        if !graphics_changed {
-            return Ok(());
-        }
         pty.request_frame(generation);
         Ok(())
     }
