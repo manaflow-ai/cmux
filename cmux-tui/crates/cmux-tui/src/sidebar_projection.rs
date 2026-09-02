@@ -57,6 +57,8 @@ pub(crate) struct ProjectionRailState {
     pub footer_scroll: usize,
     pub follow_selection: bool,
     pub collapsed: HashSet<ProjectionBranch>,
+    /// Revision for row-affecting presentation state in this rail.
+    pub rows_generation: u64,
 }
 
 impl Default for ProjectionRailState {
@@ -68,6 +70,7 @@ impl Default for ProjectionRailState {
             footer_scroll: 0,
             follow_selection: true,
             collapsed: HashSet::new(),
+            rows_generation: 0,
         }
     }
 }
@@ -79,8 +82,14 @@ impl Default for ProjectionRailState {
 pub(crate) struct ProjectionRevision {
     pub tree_workspace: u64,
     pub tree_pane: Option<u64>,
-    pub agents: u64,
+    /// Agent changes affect only views that include the Agents resource.
+    pub agents: Option<u64>,
+    /// Workspace selection affects flat views that need a workspace context.
+    pub selected_workspace: usize,
+    /// Selection and focus changes that affect every projection view.
     pub sidebar: u64,
+    /// Collapse changes are scoped to the projection rail being rendered.
+    pub rail: u64,
 }
 
 struct CachedProjectionRows {
@@ -488,8 +497,10 @@ mod tests {
         let revision = ProjectionRevision {
             tree_workspace: tree.workspace_revision,
             tree_pane: tree.pane_revision,
-            agents: 3,
+            agents: Some(3),
+            selected_workspace: 0,
             sidebar: 7,
+            rail: 0,
         };
         let mut cache = ProjectionRowsCache::default();
         let mut builds = 0;
