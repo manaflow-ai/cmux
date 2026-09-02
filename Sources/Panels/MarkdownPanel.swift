@@ -87,6 +87,12 @@ final class MarkdownPanel: Panel, ObservableObject, FilePreviewTextEditingPanel 
     /// focus requests posted before a hide/re-show can never steal focus.
     @Published private(set) var searchFocusRequestGeneration: UInt64 = 0
 
+    /// The generation currently allowed to claim the find field. Leaving the
+    /// pane clears this lease even though the monotonic counter continues, so
+    /// a newly mounted overlay cannot mistake an invalidated request for a
+    /// fresh one.
+    private var activeSearchFocusRequestGeneration: UInt64?
+
     private var searchNeedleCancellable: AnyCancellable?
     private var lastSearchNeedle = ""
     private lazy var findService = BrowserFindService(
@@ -158,6 +164,7 @@ final class MarkdownPanel: Panel, ObservableObject, FilePreviewTextEditingPanel 
         let shouldSelectAll = created && !recoveredNeedle.isEmpty
         searchFocusRequestGeneration &+= 1
         let generation = searchFocusRequestGeneration
+        activeSearchFocusRequestGeneration = generation
         postSearchFocusNotification(generation: generation, selectAll: shouldSelectAll)
         // Re-post once because the overlay mounts on the same runloop turn and
         // can miss the first notification.
@@ -180,16 +187,31 @@ final class MarkdownPanel: Panel, ObservableObject, FilePreviewTextEditingPanel 
         }
     }
 
+    /// Hides the preview find bar after yielding its AppKit responder.
     func hideFind() {
+        // Release the field editor while searchState still identifies the
+        // overlay as this panel's responder. Clearing the state first would
+        // make the hidden find field indistinguishable from another pane's
+        // responder during the teardown transaction.
+        unfocus()
         searchState = nil
     }
 
     /// Whether an async find-field focus request for `generation` may still
     /// be applied. Guards against focus theft after hide or a newer request.
     func canApplySearchFocusRequest(_ generation: UInt64) -> Bool {
-        searchState != nil && generation == searchFocusRequestGeneration
+        searchState != nil &&
+            generation == searchFocusRequestGeneration &&
+            activeSearchFocusRequestGeneration == generation
     }
 
+    /// Invalidates deferred notifications that could otherwise reclaim focus.
+    private func invalidateSearchFocusRequests() {
+        searchFocusRequestGeneration &+= 1
+        activeSearchFocusRequestGeneration = nil
+    }
+
+    /// Posts a focus request only while its generation is still current.
     private func postSearchFocusNotification(generation: UInt64, selectAll: Bool) {
         guard canApplySearchFocusRequest(generation) else { return }
         NotificationCenter.default.post(
@@ -221,7 +243,7 @@ final class MarkdownPanel: Panel, ObservableObject, FilePreviewTextEditingPanel 
         } else if let oldValue {
             lastSearchNeedle = oldValue.needle
             searchNeedleCancellable = nil
-            searchFocusRequestGeneration &+= 1
+            invalidateSearchFocusRequests()
             executeFindClear()
         }
     }
@@ -405,11 +427,110 @@ final class MarkdownPanel: Panel, ObservableObject, FilePreviewTextEditingPanel 
         focus()
     }
 
+    /// Releases Markdown-owned AppKit responders when this pane is left.
     func unfocus() {
         pendingPreviewFocus = false
+        invalidateSearchFocusRequests()
+
+        guard let window = windowOwningPreviewFocus() else { return }
+        _ = yieldOwnedKeyboardResponder(in: window)
     }
 
+    /// Identifies a responder currently owned by this Markdown panel.
+    func ownedFocusIntent(for responder: NSResponder, in window: NSWindow) -> PanelFocusIntent? {
+        ownsKeyboardResponder(responder, in: window) ? .panel : nil
+    }
+
+    @discardableResult
+    /// Yields a previously identified Markdown responder to another panel.
+    func yieldFocusIntent(_ intent: PanelFocusIntent, in window: NSWindow) -> Bool {
+        guard intent == .panel,
+              let firstResponder = window.firstResponder,
+              ownsKeyboardResponder(firstResponder, in: window) else {
+            return false
+        }
+
+        pendingPreviewFocus = false
+        invalidateSearchFocusRequests()
+        return window.makeFirstResponder(nil)
+    }
+
+    /// Finds the AppKit window containing the panel's current first responder.
+    private func windowOwningPreviewFocus() -> NSWindow? {
+        var candidates: [NSWindow] = []
+        if let window = rendererSession.webView?.window {
+            candidates.append(window)
+        }
+        if let keyWindow = NSApp.keyWindow {
+            candidates.append(keyWindow)
+        }
+        if let mainWindow = NSApp.mainWindow {
+            candidates.append(mainWindow)
+        }
+        candidates.append(contentsOf: NSApp.windows)
+
+        var visited = Set<ObjectIdentifier>()
+        for window in candidates {
+            guard visited.insert(ObjectIdentifier(window)).inserted,
+                  let firstResponder = window.firstResponder else {
+                continue
+            }
+            if ownsKeyboardResponder(firstResponder, in: window) {
+                return window
+            }
+        }
+
+        return rendererSession.webView?.window ?? NSApp.keyWindow ?? NSApp.mainWindow
+    }
+
+    /// Returns whether a responder belongs to this panel's input surfaces.
+    private func ownsKeyboardResponder(_ responder: NSResponder, in window: NSWindow) -> Bool {
+        if let searchState,
+           let owner = cmuxFindTextFieldOwner(for: responder),
+           owner.window === window,
+           owner.cmuxSelectionOwner === searchState {
+            return true
+        }
+
+        if let textView,
+           textView.window === window,
+           Self.responderChainContains(responder, target: textView) {
+            return true
+        }
+
+        if let webView = rendererSession.webView,
+           webView.window === window,
+           Self.responderChainContains(responder, target: webView) {
+            return true
+        }
+
+        return false
+    }
+
+    /// Resigns the panel-owned first responder in the supplied window.
+    private func yieldOwnedKeyboardResponder(in window: NSWindow) -> Bool {
+        guard let firstResponder = window.firstResponder,
+              ownsKeyboardResponder(firstResponder, in: window) else {
+            return false
+        }
+        return window.makeFirstResponder(nil)
+    }
+
+    /// Checks a bounded AppKit responder chain for a target view.
+    private static func responderChainContains(_ start: NSResponder?, target: NSResponder) -> Bool {
+        var current = start
+        var hops = 0
+        while let responder = current, hops < 64 {
+            if responder === target { return true }
+            current = responder.nextResponder
+            hops += 1
+        }
+        return false
+    }
+
+    /// Closes the panel and tears down its renderer and file watcher.
     func close() {
+        unfocus()
         isClosed = true
         pendingPreviewFocus = false
         searchState = nil

@@ -1,6 +1,6 @@
 import AppKit
+import Testing
 import WebKit
-import XCTest
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
@@ -11,7 +11,10 @@ import XCTest
 /// Regression coverage for find controls that must yield AppKit focus when a
 /// pane-selection transaction moves keyboard input to another pane.
 @MainActor
-final class PaneFocusFindResponderTests: XCTestCase {
+@Suite("Pane focus find responder", .serialized)
+struct PaneFocusFindResponderTests {
+    /// Verifies that pane leave releases a Markdown find field responder.
+    @Test
     func testMarkdownFindFieldIsReleasedWhenPaneFocusMoves() throws {
         let fileManager = FileManager.default
         let directoryURL = fileManager.temporaryDirectory
@@ -38,7 +41,7 @@ final class PaneFocusFindResponderTests: XCTestCase {
         }
 
         panel.startFind()
-        let searchState = try XCTUnwrap(panel.searchState)
+        let searchState = try #require(panel.searchState)
         let container = NSView(frame: NSRect(x: 0, y: 0, width: 420, height: 240))
         let rendererCoordinator = panel.rendererSession.coordinator(
             panelId: panel.id,
@@ -66,17 +69,13 @@ final class PaneFocusFindResponderTests: XCTestCase {
         window.initialFirstResponder = findField
         window.makeKeyAndOrderFront(nil)
 
-        XCTAssertTrue(
+        #expect(
             window.makeFirstResponder(findField),
             "The Markdown find field must own first responder before the pane move"
         )
-        guard let firstResponder = window.firstResponder else {
-            XCTFail("Expected a Markdown find responder")
-            return
-        }
-        XCTAssertEqual(
-            panel.ownedFocusIntent(for: firstResponder, in: window),
-            .panel,
+        let firstResponder = try #require(window.firstResponder)
+        #expect(
+            panel.ownedFocusIntent(for: firstResponder, in: window) == .panel,
             "The pane boundary must identify the Markdown find field as owned focus"
         )
         let generationBeforeLeave = panel.searchFocusRequestGeneration
@@ -85,20 +84,82 @@ final class PaneFocusFindResponderTests: XCTestCase {
         // split, and close selection paths.
         panel.unfocus()
 
-        XCTAssertFalse(
-            panel.ownedFocusIntent(for: window.firstResponder ?? window, in: window) == .panel,
+        #expect(
+            panel.ownedFocusIntent(for: window.firstResponder ?? window, in: window) != .panel,
             "A Markdown find field must no longer own focus after leaving its pane"
         )
-        XCTAssertFalse(
-            window.firstResponder === findField,
+        #expect(
+            window.firstResponder !== findField,
             "Leaving a Markdown pane must resign its find field first responder"
         )
-        XCTAssertFalse(
-            panel.canApplySearchFocusRequest(generationBeforeLeave),
+        #expect(
+            !panel.canApplySearchFocusRequest(generationBeforeLeave),
             "Pending Cmd+F focus requests must be invalidated when the pane is left"
+        )
+        #expect(
+            !panel.canApplySearchFocusRequest(panel.searchFocusRequestGeneration),
+            "A newly mounted find overlay must not reclaim focus after the pane is left"
         )
     }
 
+    /// Verifies that hiding the find bar releases its field editor first.
+    @Test
+    func testMarkdownHideFindReleasesItsFieldEditorBeforeTeardown() throws {
+        let directoryURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-hide-find-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(
+            at: directoryURL,
+            withIntermediateDirectories: true
+        )
+        let fileURL = directoryURL.appendingPathComponent("README.md")
+        try "# Hide find\n".write(to: fileURL, atomically: true, encoding: .utf8)
+        let panel = MarkdownPanel(workspaceId: UUID(), filePath: fileURL.path)
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 320, height: 180),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        defer {
+            window.orderOut(nil)
+            window.close()
+            panel.close()
+            try? FileManager.default.removeItem(at: directoryURL)
+        }
+
+        panel.startFind()
+        let searchState = try #require(panel.searchState)
+        let findField = FindSelectionTrackingTextField(
+            frame: NSRect(x: 20, y: 120, width: 180, height: 24)
+        )
+        findField.isEditable = true
+        findField.isSelectable = true
+        findField.isEnabled = true
+        findField.cmuxSelectionOwner = searchState
+        window.contentView = findField
+        window.makeKeyAndOrderFront(nil)
+
+        #expect(window.makeFirstResponder(findField))
+        #expect(
+            panel.ownedFocusIntent(for: window.firstResponder ?? window, in: window) == .panel
+        )
+        let capturedResponder = try #require(window.firstResponder)
+
+        panel.hideFind()
+
+        #expect(panel.searchState == nil)
+        #expect(
+            window.firstResponder !== capturedResponder,
+            "Hiding the find bar must resign the field editor responder itself"
+        )
+        #expect(
+            window.firstResponder !== findField,
+            "Hiding the find bar must resign its field editor before removing ownership state"
+        )
+    }
+
+    /// Verifies that a diff viewer WebView yields focus on pane leave.
+    @Test
     func testDiffViewerFindWebViewIsReleasedWhenPaneFocusMoves() throws {
         let panel = BrowserPanel(
             workspaceId: UUID(),
@@ -116,13 +177,13 @@ final class PaneFocusFindResponderTests: XCTestCase {
             panel.close()
         }
 
-        let webView = try XCTUnwrap(panel.webView as? CmuxWebView)
+        let webView = try #require(panel.webView as? CmuxWebView)
         webView.diffViewerFocusStateDidChange(
             viewer: true,
             editable: true,
             rendererReady: true
         )
-        XCTAssertTrue(
+        #expect(
             panel.isDiffViewerFindOwner,
             "The fixture must model a ready diff viewer that owns Cmd+F"
         )
@@ -131,23 +192,23 @@ final class PaneFocusFindResponderTests: XCTestCase {
         container.addSubview(webView)
         window.contentView = container
         window.makeKeyAndOrderFront(nil)
-        XCTAssertTrue(
+        #expect(
             window.makeFirstResponder(webView),
             "The diff viewer WebView must own first responder before the pane move"
         )
-        XCTAssertEqual(
-            panel.ownedFocusIntent(for: window.firstResponder ?? window, in: window),
-            .browser(.webView)
+        #expect(
+            panel.ownedFocusIntent(for: window.firstResponder ?? window, in: window) == .browser(.webView)
         )
 
         panel.unfocus()
 
-        XCTAssertFalse(
-            responderChainContains(window.firstResponder, target: webView),
+        #expect(
+            !responderChainContains(window.firstResponder, target: webView),
             "Leaving a diff viewer pane must resign the WebView responder"
         )
     }
 
+    /// Returns whether a responder chain contains the supplied target.
     private func responderChainContains(_ start: NSResponder?, target: NSResponder) -> Bool {
         var current = start
         var hops = 0
