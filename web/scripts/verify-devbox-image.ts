@@ -10,20 +10,15 @@
  * finally deletes the sandbox.
  *
  * Usage:
- *   E2B_API_KEY=...       bun scripts/verify-devbox-image.ts e2b <template>
- *   DAYTONA_API_KEY=...   bun scripts/verify-devbox-image.ts daytona <snapshot-name>
  *   FREESTYLE_API_KEY=... bun scripts/verify-devbox-image.ts freestyle <snapshot-id>
  *
  * Exit 0 means every check passed; record validationStatus "passed" in the
  * manifest entry then. Creates only its own sandboxes and deletes them in a
  * finally block.
  */
-import { Daytona } from "@daytonaio/sdk";
-import { Sandbox } from "e2b";
-// The devbox freestyle bake targets the BETA platform (see
-// build-devbox-freestyle.ts), so its snapshots are verified with the beta
-// SDK too. The shipped freestyle driver still speaks the legacy platform.
-import { Freestyle } from "freestyle-beta";
+// The devbox freestyle bake targets the public platform (see
+// build-devbox-freestyle.ts), the same platform the shipped driver speaks.
+import { Freestyle } from "freestyle";
 import path from "node:path";
 import {
   CMUX_TUI_SESSION,
@@ -31,7 +26,6 @@ import {
   cmuxTuiInstallCommand,
   resolveCmuxTuiSource,
 } from "../services/vms/drivers/cmuxTuiDaemon";
-import { ENVD_CONTROL_PORT, INBOUND_FIREWALL_COMMAND } from "../services/vms/drivers/e2b";
 import { devboxAgentPins, devboxDir, sha256File } from "./devbox-image-common";
 
 const pins = devboxAgentPins();
@@ -115,13 +109,8 @@ async function runChecks(label: string, checks: readonly string[], exec: Exec): 
  * (sha256-verified by the install command itself), make sure something runs
  * the daemon, and wait for the session to answer.
  *
- * How the daemon is started differs per provider, exactly as in production:
- * E2B has no in-image supervisor, so its driver launches the daemon through
- * the provider's native background-process API (a `setsid nohup … &` shell
- * trick races E2B's cgroup teardown when the exec returns); Daytona and
- * Freestyle bake a supervisor (`cmux-devbox-boot` as the snapshot entrypoint
- * or a systemd unit) that starts the daemon on its own once the binary
- * exists, so `startDaemon` is a no-op there.
+ * Freestyle bakes a supervisor (a systemd unit) that starts the daemon on its
+ * own once the binary exists, so `startDaemon` is a no-op there.
  */
 async function bootstrapDaemon(
   provider: string,
@@ -143,131 +132,23 @@ async function bootstrapDaemon(
   throw new Error(`${provider}: cmux-tui daemon did not become ready`);
 }
 
-/**
- * Proves the E2B driver's inbound firewall (INBOUND_FIREWALL_COMMAND) does
- * what it must: after applying it, envd control (this very exec path) and the
- * cmux-tui daemon (1337) stay reachable, while a scratch listener on a
- * non-allowed port becomes unreachable from outside. Uses the exact command
- * string the driver runs, so drift can't hide.
- */
-async function verifyE2bFirewall(sbx: Sandbox, exec: Exec): Promise<boolean> {
-  const scratchPort = 4820;
-  // A minimal HTTP responder on the scratch port (reachable before firewall).
-  await sbx.commands
-    .run(
-      `nohup sh -c 'while true; do printf "HTTP/1.1 200 OK\\r\\ncontent-length: 2\\r\\n\\r\\nok" | nc -l -p ${scratchPort} -q1; done' >/tmp/scratch.log 2>&1`,
-      { background: true, user: "root", timeoutMs: 0 },
-    )
-    .catch(() => undefined);
-  await new Promise((resolve) => setTimeout(resolve, 1500));
-  const probe = async (port: number): Promise<string> => {
-    const host = sbx.getHost(port);
-    const res = await fetch(`https://${host}/`, { signal: AbortSignal.timeout(12_000) }).catch((e) => String(e));
-    return typeof res === "string" ? (res.includes("imeout") ? "blocked" : res) : `reachable(${res.status})`;
-  };
-  const scratchBefore = await probe(scratchPort);
-
-  const applied = await exec(INBOUND_FIREWALL_COMMAND, 60_000);
-  if (applied.exitCode !== 0) {
-    console.log(`[e2b firewall] apply FAILED exit=${applied.exitCode}\n    ${applied.output.trim()}`);
-    return false;
-  }
-  // envd control must survive (this exec reaches the VM through envd on 49983).
-  const ctrl = await exec("echo envd-control-alive", 30_000);
-  const daemon = await exec(`env HOME=/root /root/.cmux/bin/cmux-tui server status --session ${CMUX_TUI_SESSION} >/dev/null && echo daemon-alive`, 30_000);
-  const scratchAfter = await probe(scratchPort);
-
-  const ok =
-    ctrl.exitCode === 0 &&
-    daemon.exitCode === 0 &&
-    scratchBefore.startsWith("reachable") &&
-    scratchAfter === "blocked";
-  console.log(
-    `[e2b firewall] envd(${ENVD_CONTROL_PORT})=${ctrl.exitCode === 0 ? "alive" : "DEAD"} ` +
-      `daemon(1337)=${daemon.exitCode === 0 ? "alive" : "DEAD"} ` +
-      `scratch(${scratchPort}) before=${scratchBefore} after=${scratchAfter} => ${ok ? "PASS" : "FAIL"}`,
-  );
-  return ok;
-}
-
 const provider = process.argv[2] ?? "";
 const image = process.argv[3] ?? "";
 if (!image) {
-  throw new Error("usage: bun scripts/verify-devbox-image.ts <e2b|daytona|freestyle> <image>");
+  throw new Error("usage: bun scripts/verify-devbox-image.ts freestyle <snapshot-id>");
 }
 let pass = false;
 
-if (provider === "e2b") {
-  console.log(`===== e2b (template ${image}) =====`);
-  const t0 = Date.now();
-  const sbx = await Sandbox.create(image, { timeoutMs: 300_000 });
-  console.log(`provisioned ${sbx.sandboxId} in ${((Date.now() - t0) / 1000).toFixed(1)}s`);
-  try {
-    // Root, like the driver: cmux sessions run as root via the cmux-tui daemon.
-    const exec: Exec = async (cmd, timeoutMs = 120_000) => {
-      const r = await sbx.commands.run(cmd, { timeoutMs, user: "root" }).catch((e: unknown) => {
-        // e2b throws CommandExitError on nonzero exit; unwrap it.
-        if (e && typeof e === "object" && "exitCode" in e) return e as never;
-        throw e;
-      });
-      return { exitCode: r.exitCode, output: `${r.stdout}${r.stderr}` };
-    };
-    // Mirror the E2B driver: start the daemon through the native background
-    // API so envd does not reap it when the launching exec returns.
-    await bootstrapDaemon("e2b", exec, async () => {
-      await sbx.commands.run(cmuxTuiDaemonCommand(), { background: true, user: "root", timeoutMs: 0 });
-    });
-    // Prove the driver's inbound firewall keeps attach alive: start a scratch
-    // listener on a non-allowed port, apply the exact firewall the driver
-    // applies, then confirm envd control + 1337 still work and the scratch
-    // port is unreachable from outside.
-    const firewallOk = await verifyE2bFirewall(sbx, exec);
-    pass = firewallOk && (await runChecks("e2b", [...CHECKS, ...DAEMON_CHECKS], exec));
-  } finally {
-    await sbx.kill();
-    console.log(`killed ${sbx.sandboxId}`);
-  }
-} else if (provider === "daytona") {
-  console.log(`===== daytona (snapshot ${image}) =====`);
-  const daytona = new Daytona({
-    apiKey: process.env.DAYTONA_API_KEY,
-    apiUrl: process.env.DAYTONA_API_URL,
-  });
-  const t0 = Date.now();
-  const sandbox = await daytona.create({ snapshot: image });
-  console.log(`provisioned ${sandbox.id} in ${((Date.now() - t0) / 1000).toFixed(1)}s`);
-  try {
-    const exec: Exec = async (cmd, timeoutMs = 120_000) => {
-      try {
-        const r = await sandbox.process.executeCommand(cmd, undefined, undefined, Math.ceil(timeoutMs / 1000));
-        // The Daytona toolbox merges stderr into `result`.
-        return { exitCode: r.exitCode, output: r.result ?? "" };
-      } catch (error) {
-        return { exitCode: 124, output: String(error).slice(0, 500) };
-      }
-    };
-    // The snapshot entrypoint (cmux-devbox-boot) supervises the daemon and
-    // starts it on its own once the binary is installed.
-    await bootstrapDaemon("daytona", exec, async () => {});
-    pass = await runChecks("daytona", [
-      ...CHECKS,
-      ...DAEMON_CHECKS,
-      // The registered entrypoint is the daemon supervisor across stop/start.
-      "pgrep -f cmux-devbox-boot >/dev/null && echo entrypoint-supervisor-running",
-    ], exec);
-  } finally {
-    await daytona.delete(sandbox);
-    console.log(`deleted ${sandbox.id}`);
-  }
-} else if (provider === "freestyle") {
-  console.log(`===== freestyle (snapshot ${image}, beta platform) =====`);
+if (provider === "freestyle") {
+  console.log(`===== freestyle (snapshot ${image}, public platform) =====`);
   const apiKey = process.env.FREESTYLE_API_KEY;
   const stackToken = process.env.FREESTYLE_STACK_ACCESS_TOKEN;
   const teamId = process.env.FREESTYLE_TEAM_ID;
+  const baseUrl = process.env.FREESTYLE_API_URL?.trim() || undefined;
   const fs = apiKey
-    ? new Freestyle({ apiKey })
+    ? new Freestyle({ apiKey, baseUrl })
     : stackToken && teamId
-      ? new Freestyle({ stackAccessToken: stackToken, teamId })
+      ? new Freestyle({ stackAccessToken: stackToken, teamId, baseUrl })
       : (() => {
           throw new Error("set FREESTYLE_API_KEY, or FREESTYLE_STACK_ACCESS_TOKEN + FREESTYLE_TEAM_ID");
         })();
@@ -275,7 +156,7 @@ if (provider === "e2b") {
   const { vm, vmId } = await fs.vms.create({
     snapshotId: image,
     displayName: "cmux-devbox-verify",
-    // Beta creates require an explicit firewall; the daemon install below
+    // Creates require an explicit firewall; the daemon install below
     // needs outbound (files.cmux.com).
     firewall: { rules: [{ action: "allow", source: {}, destination: { public: true } }] },
   });
@@ -284,7 +165,8 @@ if (provider === "e2b") {
     const exec: Exec = async (cmd, timeoutMs = 120_000) => {
       // Login bash for the mise shims; Freestyle guest exec has an empty HOME.
       const wrapped = `bash -lc 'export HOME="$\{HOME:-$(getent passwd $(id -u) | cut -d: -f6)\}"; export PATH="/opt/mise/shims:$\{PATH\}"; ${cmd.replace(/'/g, `'\\''`)}'`;
-      const r = await vm.exec({ command: wrapped, timeoutMs: Math.min(timeoutMs, 300_000) });
+      // The 0.2 API defaults to uid 1000; the driver runs everything as root.
+      const r = await vm.exec({ command: wrapped, timeoutMs: Math.min(timeoutMs, 300_000), linuxUser: "root" });
       return {
         exitCode: r.statusCode ?? 124,
         output: `${r.stdout ?? ""}${r.stderr ?? ""}`,
@@ -303,7 +185,7 @@ if (provider === "e2b") {
     console.log(`deleted ${vmId}`);
   }
 } else {
-  throw new Error("usage: bun scripts/verify-devbox-image.ts <e2b|daytona|freestyle> <image>");
+  throw new Error("usage: bun scripts/verify-devbox-image.ts freestyle <snapshot-id>");
 }
 
 if (!pass) process.exit(1);

@@ -167,7 +167,7 @@ struct CmuxConfigNewWorkspaceMenuTests {
             ))
             #expect(!store.newWorkspaceContextMenuIsConfigured)
             #expect(store.newWorkspaceMenuSectionOrder == .cloudFirst)
-            let cloudOpenTitle = String(localized: "command.cloudVM.open.title", defaultValue: "Open Base")
+            let cloudOpenTitle = String(localized: "command.cloudVM.new.title", defaultValue: "New Cloud VM")
             let cloudOpenIndex = try #require(menu.items.firstIndex { item in
                 !item.isSeparatorItem && item.title == cloudOpenTitle
             })

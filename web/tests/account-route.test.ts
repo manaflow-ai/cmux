@@ -64,6 +64,8 @@ const realWithVaultUserQuotaLock = vaultUsageModule.withVaultUserQuotaLock;
 const vmErrorsModule = await import("../services/vms/errors");
 const workflowsModule = await import("../services/vms/workflows");
 const realDestroyVm = workflowsModule.destroyVm;
+const realDeletePrivateNetworkingForAccountDeletion =
+  workflowsModule.deletePrivateNetworkingForAccountDeletion;
 const realListUserVms = workflowsModule.listUserVms;
 const realRevokeUserIdentityLeasesForAccountDeletion = workflowsModule.revokeUserIdentityLeasesForAccountDeletion;
 const realRunVmWorkflow = workflowsModule.runVmWorkflow as (...args: unknown[]) => unknown;
@@ -210,6 +212,10 @@ const revokeUserIdentityLeasesForAccountDeletion = mock((...args: unknown[]) => 
     afterBatch: input?.afterBatch,
   };
 });
+const deletePrivateNetworkingForAccountDeletion = mock((...args: unknown[]) => {
+  const [userId] = args as [string];
+  return { kind: "deletePrivateNetworking" as const, userId };
+});
 const destroyVm = mock((...args: unknown[]) => {
   const [input] = args as [{
     readonly userId: string;
@@ -238,6 +244,10 @@ const runVmWorkflow = mock(async (...args: unknown[]) => {
     routeEvents.push("revoke-identities");
     if (revokeIdentityLeasesError) throw revokeIdentityLeasesError;
     return revokedIdentityLeaseCount;
+  }
+  if (program.kind === "deletePrivateNetworking") {
+    routeEvents.push("delete-private-networking");
+    return { tunnels: 0, networks: 0 };
   }
   routeEvents.push("destroy-vm");
   const destroyVmFailure = destroyVmFailureErrorsByProviderId.get(program.input.providerVmId);
@@ -394,6 +404,7 @@ type WorkflowProgram =
       readonly userId: string;
       readonly afterBatch?: () => unknown;
     }
+  | { readonly kind: "deletePrivateNetworking"; readonly userId: string }
   | {
       readonly kind: "destroyVm";
       readonly input: {
@@ -596,6 +607,11 @@ mock.module("../services/vms/workflows", () => ({
     if (input.userId === ACCOUNT_USER_ID) return destroyVm(...args);
     return realDestroyVm(...args);
   }) as typeof realDestroyVm,
+  deletePrivateNetworkingForAccountDeletion: ((...args: Parameters<typeof realDeletePrivateNetworkingForAccountDeletion>) => {
+    const [userId] = args;
+    if (userId === ACCOUNT_USER_ID) return deletePrivateNetworkingForAccountDeletion(...args);
+    return realDeletePrivateNetworkingForAccountDeletion(...args);
+  }) as typeof realDeletePrivateNetworkingForAccountDeletion,
   revokeUserIdentityLeasesForAccountDeletion: ((...args: Parameters<typeof realRevokeUserIdentityLeasesForAccountDeletion>) => {
     const [userId] = args;
     if (userId === ACCOUNT_USER_ID) return revokeUserIdentityLeasesForAccountDeletion(...args);
@@ -884,6 +900,7 @@ describe("account deletion route", () => {
       "list-vms",
       "destroy-vm",
       "destroy-vm",
+      "delete-private-networking",
       "vault-delete",
       "vault-delete",
       "vault-delete",
@@ -1331,10 +1348,14 @@ describe("account deletion route", () => {
     );
   });
 
-  test("destroys personal VMs with the same provider id on different providers", async () => {
+  test("destroys every distinct personal VM and dedupes repeated rows", async () => {
+    // Rows are deduped by (providerVmId, provider). With one provider that
+    // makes a repeated provider id the same machine, so it is destroyed once
+    // while a genuinely distinct id still gets its own destroy call.
     listedPersonalVmIds = [
-      { providerVmId: "shared-provider-id", provider: "freestyle" },
-      { providerVmId: "shared-provider-id", provider: "e2b" },
+      { providerVmId: "vm-one", provider: "freestyle" },
+      { providerVmId: "vm-one", provider: "freestyle" },
+      { providerVmId: "vm-two", provider: "freestyle" },
     ];
 
     const response = await DELETE(accountDeletionRequest());
@@ -1342,18 +1363,14 @@ describe("account deletion route", () => {
     expect(response.status).toBe(200);
     expect(await response.json()).toEqual({ ok: true, destroyedVms: 2 });
     expect(destroyVm).toHaveBeenCalledTimes(2);
-    expect(destroyVm).toHaveBeenCalledWith(expect.objectContaining({
-      userId: "account-user-1",
-      teamIds: ["account-user-1"],
-      providerVmId: "shared-provider-id",
-      provider: "freestyle",
-    }));
-    expect(destroyVm).toHaveBeenCalledWith(expect.objectContaining({
-      userId: "account-user-1",
-      teamIds: ["account-user-1"],
-      providerVmId: "shared-provider-id",
-      provider: "e2b",
-    }));
+    for (const providerVmId of ["vm-one", "vm-two"]) {
+      expect(destroyVm).toHaveBeenCalledWith(expect.objectContaining({
+        userId: "account-user-1",
+        teamIds: ["account-user-1"],
+        providerVmId,
+        provider: "freestyle",
+      }));
+    }
   });
 
   test("destroys personal-team scoped VMs before deleting account rows", async () => {
@@ -2344,6 +2361,7 @@ describe("account deletion route", () => {
       "list-vms",
       "destroy-vm",
       "destroy-vm",
+      "delete-private-networking",
       "transaction",
       "transaction-lock",
       "stack-delete",
@@ -2568,6 +2586,7 @@ function isAccountDeletionWorkflowProgram(program: unknown): boolean {
   if (candidate.kind === "revokeUserIdentityLeasesForAccountDeletion") {
     return candidate.userId === ACCOUNT_USER_ID;
   }
+  if (candidate.kind === "deletePrivateNetworking") return candidate.userId === ACCOUNT_USER_ID;
   if (candidate.kind === "destroyVm") return candidate.input?.userId === ACCOUNT_USER_ID;
   return false;
 }
