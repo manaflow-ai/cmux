@@ -12,11 +12,16 @@
 -- rows readable rather than dropping them. Run the reaper to destroy live
 -- Blaxel machines BEFORE applying this migration — afterwards nothing in the
 -- control plane can address them.
+--
+-- The comparisons cast to text on purpose: on a fresh database every migration
+-- runs in one transaction, and Postgres refuses to use an enum value added
+-- earlier in that same transaction ("unsafe use of new value"). Comparing the
+-- text form sidesteps the enum lookup and works on fresh and existing databases.
 
-UPDATE "cloud_vms" SET "provider" = 'e2b' WHERE "provider" = 'blaxel';
-UPDATE "cloud_vm_usage_events" SET "provider" = 'e2b' WHERE "provider" = 'blaxel';
-UPDATE "cloud_vm_bases" SET "active_provider" = 'e2b' WHERE "active_provider" = 'blaxel';
-UPDATE "cloud_vm_base_generations" SET "provider" = 'e2b' WHERE "provider" = 'blaxel';
+UPDATE "cloud_vms" SET "provider" = 'e2b' WHERE "provider"::text = 'blaxel';
+UPDATE "cloud_vm_usage_events" SET "provider" = 'e2b' WHERE "provider"::text = 'blaxel';
+UPDATE "cloud_vm_bases" SET "active_provider" = 'e2b' WHERE "active_provider"::text = 'blaxel';
+UPDATE "cloud_vm_base_generations" SET "provider" = 'e2b' WHERE "provider"::text = 'blaxel';
 
 ALTER TYPE "vm_provider" RENAME TO "vm_provider_old";
 CREATE TYPE "vm_provider" AS ENUM ('e2b', 'freestyle', 'daytona');
