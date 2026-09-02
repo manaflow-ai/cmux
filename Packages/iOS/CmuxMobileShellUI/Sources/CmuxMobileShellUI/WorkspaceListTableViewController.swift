@@ -15,6 +15,8 @@ final class WorkspaceListTableViewController: UIViewController {
     let tableView = WorkspaceListUITableView(frame: .zero, style: .plain)
 
     private let scrollEdgeCoordinator = WorkspaceListScrollEdgeCoordinator()
+    private var chromeInsetWriteBudget = ChromeInsetWriteBudget()
+    private var chromeInsetBudgetResetPending = false
 
     override func loadView() {
         view = tableView
@@ -125,7 +127,51 @@ final class WorkspaceListTableViewController: UIViewController {
             right: 0
         )
         guard nextAdditionalInsets != additionalSafeAreaInsets else { return }
+
+        // The write below assumes the enclosing chrome holds still while the
+        // delta converges. During split-column transitions (Hide Sidebar) the
+        // chrome answers each write with a geometry change that re-dirties
+        // layout INSIDE the same CoreAnimation flush, so the fixed point
+        // oscillates forever: viewDidLayoutSubviews -> write -> re-layout,
+        // 100% main thread, the transaction never commits. Bound the writes
+        // per run-loop turn: a wedged flush starves after the budget (layout
+        // converges with the current insets), and the reset — which can only
+        // run once the flush actually completes — restores the budget for the
+        // next natural layout pass.
+        guard chromeInsetWriteBudget.allowWrite() else {
+            MobileDebugLog.anchormux(
+                "workspace-list.chromeInsets write budget exhausted; breaking layout feedback"
+            )
+            return
+        }
+        if !chromeInsetBudgetResetPending {
+            chromeInsetBudgetResetPending = true
+            RunLoop.main.perform { [weak self] in
+                self?.chromeInsetWriteBudget.reset()
+                self?.chromeInsetBudgetResetPending = false
+            }
+        }
         additionalSafeAreaInsets = nextAdditionalInsets
+    }
+}
+
+/// Write budget for safe-area forwarding: a fixed number of
+/// `additionalSafeAreaInsets` writes per run-loop turn. Convergent layouts
+/// need one or two; an infinite chrome feedback loop would consume the rest
+/// of the budget and must then stop writing so the CoreAnimation transaction
+/// can complete.
+struct ChromeInsetWriteBudget {
+    static let writesPerTurn = 4
+    private(set) var writesUsed = 0
+
+    mutating func allowWrite() -> Bool {
+        guard writesUsed < Self.writesPerTurn else { return false }
+        writesUsed += 1
+        return true
+    }
+
+    mutating func reset() {
+        writesUsed = 0
     }
 }
 #endif
