@@ -1463,7 +1463,6 @@ impl Inner {
             if generation.is_none_or(|expected| entry.generation == expected) && owns_opening {
                 opening.cancelled.insert(pty_id.to_owned(), entry.generation);
             }
-            return;
         }
         drop(opening);
         let Some(attachment) = self.attachments.lock().expect("attach lock").get(pty_id).cloned()
