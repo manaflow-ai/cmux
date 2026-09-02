@@ -138,8 +138,11 @@ fn read_crossterm_event_with_clock(
             Ok(false) => return Ok(None),
             Ok(true) => break,
             Err(error) if error.kind() == std::io::ErrorKind::Interrupted => {
+                if remaining.is_zero() {
+                    return Ok(None);
+                }
                 interrupted = interrupted.saturating_add(1);
-                if interrupted >= MAX_INTERRUPTED_RETRIES || remaining.is_zero() {
+                if interrupted >= MAX_INTERRUPTED_RETRIES {
                     return Err(error);
                 }
             }
@@ -24915,11 +24918,7 @@ mod tests {
             || {
                 let call = clock_calls;
                 clock_calls += 1;
-                if call == 0 {
-                    start
-                } else {
-                    start + Duration::from_millis(11)
-                }
+                if call == 0 { start } else { start + Duration::from_millis(11) }
             },
         );
         assert_eq!(result.unwrap(), None);
