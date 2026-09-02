@@ -17,11 +17,11 @@ use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 use std::time::{Duration, Instant};
 
-use anyhow::{anyhow, bail, Context};
-use base64::engine::general_purpose::STANDARD as BASE64;
+use anyhow::{Context, anyhow, bail};
 use base64::Engine as _;
+use base64::engine::general_purpose::STANDARD as BASE64;
 use cmux_tui_core::platform::transport;
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 
 const MAX_NATIVE_PAYLOAD_BYTES: u64 = 1024 * 1024;
 const MAX_MESSAGE_BYTES: usize = 4 * 1024 * 1024;
@@ -522,7 +522,7 @@ mod detach {
 
     use anyhow::Context;
 
-    use super::{append_with_receipt, Handoff};
+    use super::{Handoff, append_with_receipt};
 
     /// Forks a detached child that performs the append, then returns once the
     /// child has written the request (normally milliseconds) or has given up
@@ -635,7 +635,7 @@ mod detach {
 
 #[cfg(unix)]
 mod detach {
-    use super::{Handoff, DETACHED_MODE_ARG};
+    use super::{DETACHED_MODE_ARG, Handoff};
     use anyhow::Context;
     use std::io::{Read, Write};
     use std::path::Path;
@@ -743,7 +743,7 @@ mod detach {
 
     use anyhow::Context;
 
-    use super::{Handoff, DETACHED_MODE_ARG};
+    use super::{DETACHED_MODE_ARG, Handoff};
 
     /// Respawns this helper detached from the provider's console and process
     /// group with the request on its stdin, then waits (bounded) for the
