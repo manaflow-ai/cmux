@@ -516,6 +516,9 @@ export async function verifyRequest(
         options.subrouterAuthorizationSignal,
       );
     } catch (error) {
+      // The circuit's own fast-fail must not count as a new upstream throttle,
+      // or steady retry traffic would hold the circuit open forever.
+      if (error instanceof StackAuthRateLimitedError) throw error;
       if (cacheable && hasAuthRateLimitSignal(error)) throw recordStackThrottle(error);
       throw error;
     }
