@@ -17,10 +17,13 @@ cannot silently change a vendored rule. The record is not a release signature:
 remote updates still need authenticated, signed catalog data before they can be
 treated as trusted.
 
-The capability audit was rerun against herdr master
+The capability audit was rerun against herdr's agent-surface revision
 `8633a398e653eee47b375c963996c78a8a14aa48`. The only detector-source change
 after the snapshot is the exact Pi bundled CLI path correction from
 `b1ff4582e9688f52ffb943cfa8bee4871ae122e4`; no bundled manifest changed. The
 later multi-client tab-view and delayed-prompt commits are host/client and PTY
 input work, outside this manifest package. The package does not claim parity
-with that transport or input work.
+with that transport or input work. The repository tip checked on 2026-09-02 is
+`d08e44686d8b19bd9555cc99ec9068d9fde05f16`; its post-audit changes only cover
+client terminal geometry and detach handling, so the agent-surface revision is
+the reproducible capability-audit pin.

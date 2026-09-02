@@ -61,7 +61,7 @@ Derived material and vendored material:
   compilation to catch accidental drift. It is not a cryptographic release
   signature for remote updates.
 
-The capability audit was rerun against the current herdr revision
+The capability audit was rerun against herdr's agent-surface revision
 `8633a398e653eee47b375c963996c78a8a14aa48`. Comparing `src/detect` with the
 manifest snapshot found one detector-source change: the exact Pi bundled CLI
 path correction from `b1ff4582e9688f52ffb943cfa8bee4871ae122e4`. The userland
@@ -85,6 +85,12 @@ or an agent-specific core method. A standalone release must define and test
 SDK endpoint-generation compatibility before it promises binary upgrades
 across host versions. Review the Windows changes before publishing a Windows
 package.
+
+The herdr repository tip checked on 2026-09-02 is
+`d08e44686d8b19bd9555cc99ec9068d9fde05f16`. The commits after the
+agent-surface revision only change client terminal geometry and detach
+handling; they do not change `src/detect`, manifests, or the agent API. The
+agent-surface revision is therefore the reproducible capability-audit pin.
 
 Files that port herdr logic carry a header comment naming the upstream
 file and the modifications.

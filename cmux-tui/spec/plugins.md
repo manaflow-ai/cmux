@@ -332,9 +332,9 @@ application policy into cmux core.
 | Native session report (`pane.report_agent_session`) | Native hook integrations can retain opaque session references; the userland screen plugin does not report or resume them | Do not let an untrusted screen guess authorize a resume command. Add a generic opaque reference only with an explicit host resume contract. |
 | Presentation metadata (`pane.report_metadata`) and state labels/tokens | Generic journal `native` and `extra` data can be retained, but it does not override host lifecycle or labels | Keep display metadata in host projections. Do not let plugin payloads change semantic state by side effect. |
 | Child-agent topology and rollups | A screen plugin reports one terminal observation. Core has no vendor child graph or rollup policy | Require explicit parent references and a generic graph contract before adding topology. |
-| Remote client endpoint compatibility | Current herdr tip `8633a398e653eee47b375c963996c78a8a14aa48` changes its transport endpoint generation, not the userland detector contract | Define and test SDK endpoint-generation compatibility before a standalone binary promises daemon upgrades. Do not import herdr's transport implementation into the detector. |
+| Remote client endpoint compatibility | Herdr's audited agent-surface revision `8633a398e653eee47b375c963996c78a8a14aa48` changes its transport endpoint generation, not the userland detector contract | Define and test SDK endpoint-generation compatibility before a standalone binary promises daemon upgrades. Do not import herdr's transport implementation into the detector. |
 
-This inventory was rechecked against the current herdr revision
+This inventory was rechecked against herdr's agent-surface revision
 `8633a398e653eee47b375c963996c78a8a14aa48`. The only `src/detect` change
 after the manifest snapshot is the exact Pi bundled CLI path correction from
 `b1ff4582e9688f52ffb943cfa8bee4871ae122e4`; the userland process adapter
@@ -360,7 +360,10 @@ PTY input architecture, not detector policy. The malformed Windows process
 environment fix `5616196942cbe752cc0659b9bd0fb616b2a6ed5c` is portable-pty
 behavior. These changes are outside the userland detector. Before publishing
 a standalone binary, define and test SDK endpoint-generation compatibility
-across host versions.
+across host versions. The herdr repository tip checked on 2026-09-02 is
+`d08e44686d8b19bd9555cc99ec9068d9fde05f16`; its post-audit changes only cover
+client terminal geometry and detach handling, so the agent-surface revision is
+the reproducible capability-audit pin.
 
 Linux child-group inference remains an explicit fallback because it cannot
 distinguish foreground from background children without a controlling
