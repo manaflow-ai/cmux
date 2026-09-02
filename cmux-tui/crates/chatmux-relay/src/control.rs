@@ -46,7 +46,7 @@ mod unix {
     use super::*;
     use std::collections::HashMap;
     use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
-    use std::sync::{Arc, Mutex};
+    use std::sync::{Arc, Condvar, Mutex};
     use std::time::Duration;
 
     use tokio::io::{AsyncReadExt as _, AsyncWriteExt as _};
@@ -78,6 +78,10 @@ mod unix {
         dispatch_tx: std::sync::mpsc::SyncSender<Dispatch>,
         close_signal_tx: std::sync::mpsc::SyncSender<()>,
         queued_event_bytes: AtomicUsize,
+        pending_events: Mutex<usize>,
+        event_drain: Condvar,
+        worker_done: AtomicBool,
+        worker_thread: Mutex<Option<std::thread::ThreadId>>,
     }
 
     enum Dispatch {
@@ -144,6 +148,43 @@ mod unix {
                 }
             }
         }
+
+        fn start_event(&self) -> bool {
+            let mut pending = self.pending_events.lock().expect("control event drain lock");
+            if self.closed.load(Ordering::Acquire) {
+                return false;
+            }
+            *pending += 1;
+            true
+        }
+
+        fn finish_event(&self) {
+            let mut pending = self.pending_events.lock().expect("control event drain lock");
+            *pending = pending.checked_sub(1).expect("control event pending count");
+            if *pending == 0 {
+                self.event_drain.notify_all();
+            }
+        }
+
+        fn wait_for_event_drain(&self) {
+            let mut pending = self.pending_events.lock().expect("control event drain lock");
+            while *pending != 0 && !self.worker_done.load(Ordering::Acquire) {
+                pending = self.event_drain.wait(pending).expect("control event drain wait");
+            }
+        }
+
+        fn on_worker_thread(&self) -> bool {
+            self.worker_thread
+                .lock()
+                .expect("control worker thread lock")
+                .is_some_and(|worker| worker == std::thread::current().id())
+        }
+
+        fn finish_worker(&self) {
+            let _pending = self.pending_events.lock().expect("control event drain lock");
+            self.worker_done.store(true, Ordering::Release);
+            self.event_drain.notify_all();
+        }
     }
 
     pub struct UnixControl {
@@ -194,12 +235,31 @@ mod unix {
             dispatch_tx,
             close_signal_tx,
             queued_event_bytes: AtomicUsize::new(0),
+            pending_events: Mutex::new(0),
+            event_drain: Condvar::new(),
+            worker_done: AtomicBool::new(false),
+            worker_thread: Mutex::new(None),
         });
         let worker_shared = Arc::clone(&shared);
         std::thread::Builder::new()
             .name("chatmux-relay-control-events".to_owned())
             .spawn(move || {
                 let shared = worker_shared;
+                *shared.worker_thread.lock().expect("control worker thread lock") =
+                    Some(std::thread::current().id());
+                let deliver_event = |shared: &Arc<Shared>, event: Value, bytes: usize| {
+                    if !shared.release_event_bytes(bytes) {
+                        shared.finish_event();
+                        shared.settle_closed();
+                        return false;
+                    }
+                    let handler = shared.event_handler.lock().expect("control event lock").clone();
+                    if let Some(handler) = handler {
+                        handler(&event);
+                    }
+                    shared.finish_event();
+                    true
+                };
                 let invoke_close = |shared: &Arc<Shared>| {
                     if !shared.deliberate.load(Ordering::SeqCst) {
                         let handler =
@@ -223,20 +283,18 @@ mod unix {
                     };
                     match dispatch {
                         Dispatch::Event { value: event, bytes } => {
-                            if !shared.release_event_bytes(bytes) {
-                                shared.settle_closed();
+                            if !deliver_event(&shared, event, bytes) {
                                 break;
-                            }
-                            // Closure is settled before the marker is queued,
-                            // but events already in the FIFO still belong to
-                            // the stream and must be delivered first.
-                            let handler =
-                                shared.event_handler.lock().expect("control event lock").clone();
-                            if let Some(handler) = handler {
-                                handler(&event);
                             }
                         }
                         Dispatch::Closed => {
+                            while let Ok(Dispatch::Event { value: event, bytes }) =
+                                dispatch_rx.try_recv()
+                            {
+                                if !deliver_event(&shared, event, bytes) {
+                                    break;
+                                }
+                            }
                             invoke_close(&shared);
                             break;
                         }
@@ -248,20 +306,15 @@ mod unix {
                         while let Ok(Dispatch::Event { value: event, bytes }) =
                             dispatch_rx.try_recv()
                         {
-                            if !shared.release_event_bytes(bytes) {
-                                shared.settle_closed();
+                            if !deliver_event(&shared, event, bytes) {
                                 break;
-                            }
-                            let handler =
-                                shared.event_handler.lock().expect("control event lock").clone();
-                            if let Some(handler) = handler {
-                                handler(&event);
                             }
                         }
                         invoke_close(&shared);
                         break;
                     }
                 }
+                shared.finish_worker();
             })
             .expect("spawn control event worker");
         // Keep one async writer for every connection. The queue makes the
@@ -398,11 +451,16 @@ mod unix {
                         shared.settle_closed();
                         break 'read_loop;
                     }
+                    if !shared.start_event() {
+                        let _ = shared.release_event_bytes(bytes);
+                        break 'read_loop;
+                    }
                     if shared
                         .dispatch_tx
                         .try_send(Dispatch::Event { value: parsed, bytes })
                         .is_err()
                     {
+                        shared.finish_event();
                         let _ = shared.release_event_bytes(bytes);
                         shared.settle_closed();
                         break 'read_loop;
@@ -514,7 +572,14 @@ mod unix {
                 if self.shared.deliberate.load(Ordering::SeqCst) {
                     return;
                 }
+                if self.shared.on_worker_thread()
+                    && !self.shared.worker_done.load(Ordering::Acquire)
+                {
+                    *slot = Some(handler);
+                    return;
+                }
                 drop(slot);
+                self.shared.wait_for_event_drain();
                 handler();
             } else {
                 *slot = Some(handler);
@@ -848,9 +913,15 @@ mod tests {
             entered_for_handler.wait();
             release_for_handler.wait();
         }));
+        let control_for_reader = Arc::clone(&control);
+        let reader_done = tokio::spawn(async move { control_for_reader.wait_reader_done().await });
+        tokio::task::yield_now().await;
         start_tx.send(()).expect("start late-order event");
         entered.wait();
-        control.wait_reader_done().await;
+        tokio::time::timeout(Duration::from_secs(1), reader_done)
+            .await
+            .expect("reader sees peer close")
+            .expect("reader waiter task");
 
         let seen_for_close = Arc::clone(&seen);
         let control_for_close = Arc::clone(&control);

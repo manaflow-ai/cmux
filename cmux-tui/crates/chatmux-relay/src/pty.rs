@@ -2180,20 +2180,42 @@ impl Inner {
         };
         let _publication = gate.lock();
         let attachment = {
-            let mut attachments = self.attachments.lock().expect("attach lock");
+            let attachments = self.attachments.lock().expect("attach lock");
             let Some(current) = attachments.get(pty_id) else { return };
             if generation.is_some_and(|expected| current.generation != expected)
                 || !Arc::ptr_eq(&current.publication_gate, &gate)
             {
                 return;
             }
-            let attachment = attachments.remove(pty_id).expect("attachment still present");
-            attachment.closing.store(true, Ordering::SeqCst);
-            attachment
+            current.close_pending.store(true, Ordering::SeqCst);
+            current.clone()
         };
         let _ = attachment.control_ops.wait_sync_timeout(Some(CONTROL_OPERATION_DRAIN_TIMEOUT));
+        let attachment = {
+            let attachments = self.attachments.lock().expect("attach lock");
+            let Some(current) = attachments.get(pty_id) else { return };
+            if generation.is_some_and(|expected| current.generation != expected)
+                || !Arc::ptr_eq(&current.publication_gate, &gate)
+                || !current.close_pending.load(Ordering::SeqCst)
+                || current.closing.load(Ordering::SeqCst)
+            {
+                return;
+            }
+            current.closing.store(true, Ordering::SeqCst);
+            current.clone()
+        };
         drop(_publication);
         attachment.control.kill();
+        let _publication = gate.lock();
+        let mut attachments = self.attachments.lock().expect("attach lock");
+        if attachments.get(pty_id).is_some_and(|current| {
+            generation.is_none_or(|expected| current.generation == expected)
+                && Arc::ptr_eq(&current.publication_gate, &gate)
+                && current.close_pending.load(Ordering::SeqCst)
+                && current.closing.load(Ordering::SeqCst)
+        }) {
+            attachments.remove(pty_id);
+        }
     }
 }
 
@@ -5153,18 +5175,19 @@ mod tests {
 
         let manager = PtyManager { inner: Arc::clone(&h.manager.inner) };
         let detach = thread::spawn(move || manager.detach_transport("transport-a"));
-        for _ in 0..100 {
-            if h.manager
+        loop {
+            let close_state = h
+                .manager
                 .inner
                 .attachments
                 .lock()
                 .unwrap()
                 .get("p1")
-                .is_some_and(|attachment| attachment.close_pending.load(Ordering::SeqCst))
-            {
-                break;
+                .map(|attachment| attachment.close_pending.load(Ordering::SeqCst));
+            match close_state {
+                None | Some(true) => break,
+                Some(false) => thread::yield_now(),
             }
-            thread::yield_now();
         }
         assert!(
             h.manager
