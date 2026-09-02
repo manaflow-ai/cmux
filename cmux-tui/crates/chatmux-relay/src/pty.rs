@@ -1112,7 +1112,6 @@ impl Inner {
         if !self.auth_allows_claim(&live_auth, actor, &cwd, 0) {
             drop(opening);
             drop(attachments);
-            reservation.active = false;
             opened.closing.store(true, Ordering::SeqCst);
             opened.control.kill();
             fail("trust_revoked", "terminal trust changed while opening");
