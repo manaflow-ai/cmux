@@ -43761,12 +43761,17 @@ mod tests {
     }
 
     #[test]
-    fn machine_action_worker_drop_waits_for_reaper_cleanup() {
+    fn machine_action_worker_drop_does_not_wait_for_reaper_cleanup() {
         let (events, _event_receiver) = crossbeam_channel::bounded(4);
         let (started, starts) = std::sync::mpsc::channel();
         let (release, releases) = std::sync::mpsc::channel();
+        let (closed, closes) = std::sync::mpsc::channel();
         let worker = MachineActionWorker::spawn(
-            Box::new(OrderedBlockingMachineController { started, release: releases, closed: None }),
+            Box::new(OrderedBlockingMachineController {
+                started,
+                release: releases,
+                closed: Some(closed),
+            }),
             events,
         )
         .unwrap();
@@ -43780,10 +43785,15 @@ mod tests {
             drop(worker);
             dropped.send(()).unwrap();
         });
-        assert!(dropped_rx.recv_timeout(Duration::from_millis(20)).is_err());
+        let drop_completed_before_release =
+            dropped_rx.recv_timeout(Duration::from_millis(200)).is_ok();
         release.send(()).unwrap();
-        dropped_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+        closes.recv_timeout(Duration::from_secs(1)).expect("reaper did not close controller");
         drop_thread.join().unwrap();
+        assert!(
+            drop_completed_before_release,
+            "dropping a blocked machine worker waited for provider completion"
+        );
     }
 
     #[test]
