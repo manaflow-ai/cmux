@@ -38,8 +38,12 @@
 //! already attach terminals through the cmux CLI. Paired human machines
 //! never run this listener: it starts from the managed branch only.
 
-use std::sync::Arc;
+use std::future::Future;
+use std::pin::Pin;
+use std::sync::RwLock;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::{Arc, Mutex as StdMutex};
+use std::task::{Context, Poll};
 use std::time::Duration;
 
 use base64::Engine as _;
@@ -47,11 +51,12 @@ use base64::engine::general_purpose::STANDARD as BASE64;
 use serde_json::{Value, json};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{TcpListener, TcpStream};
-use tokio::sync::mpsc;
+use tokio::sync::{Semaphore, mpsc, watch};
 use tokio_util::sync::CancellationToken;
 
 use crate::pty::{
-    FrameContext, PTY_PROTOCOL_VERSION, PtyManager, random_hex, session_name_ok, surface_ref_ok,
+    FrameContext, OpenCancellation, PTY_PROTOCOL_VERSION, PtyManager, TransportKind, random_hex,
+    session_name_ok, surface_ref_ok,
 };
 
 /// Loopback port the gateway's spliced streams dial. The chatmux Worker
@@ -73,6 +78,53 @@ const OPEN_TIMEOUT: Duration = Duration::from_secs(10);
 /// manager's own 1 MiB output cap stays the hard boundary above this.
 const FLOW_PAUSE_BYTES: u64 = 262_144;
 const FLOW_RESUME_BYTES: u64 = 32_768;
+/// The manager's output cap is one MiB. Keep a small control-frame reserve so
+/// a queued output frame cannot prevent an exit or refusal from being sent,
+/// while still making the total writer memory bound explicit.
+const TUNNEL_QUEUE_BYTES: u64 = MAX_TUNNEL_FRAME_BYTES as u64 + HEADER_BYTES as u64 + 64 * 1024;
+/// Bytes held back for terminal control/error frames. Data frames cannot
+/// consume this budget, so a saturated output queue can still report failure
+/// or completion.
+const TUNNEL_CONTROL_QUEUE_RESERVE_BYTES: u64 = 64 * 1024;
+const TUNNEL_WRITER_QUEUE_ITEMS: usize = 256;
+/// Keep queue slots available for `opened`, `error`, and `exit` control
+/// frames. PTY output is rejected before it consumes the reserve.
+const TUNNEL_CONTROL_QUEUE_RESERVE_ITEMS: usize = 8;
+/// Bound pre-open sockets as well as live PTY attachments. A gateway retry
+/// storm must not allocate one reader, writer, and 64 KiB read buffer per
+/// unbounded connection.
+const TUNNEL_MAX_CONNECTIONS: usize = 64;
+
+/// Authority published by the authenticated relay session for local tunnel
+/// connections. `None` means the relay is disconnected or has not completed
+/// hello negotiation, so tunnel opens fail closed.
+#[derive(Clone, Debug, Default)]
+pub struct TunnelAuth {
+    pub trust: String,
+    pub local_roots: Option<Vec<String>>,
+    pub owner_user_id: Option<String>,
+}
+
+/// A monotonically versioned authority slot. The generation changes whenever
+/// the relay reconnects or publishes a new trust snapshot, so a tunnel socket
+/// opened under an older capability cannot continue after that boundary.
+#[derive(Clone, Debug, Default)]
+pub struct TunnelAuthority {
+    pub generation: u64,
+    pub auth: Option<TunnelAuth>,
+}
+
+impl TunnelAuthority {
+    pub fn revoked(previous_generation: u64) -> Self {
+        Self { generation: previous_generation.saturating_add(1), auth: None }
+    }
+
+    pub fn published(previous_generation: u64, auth: TunnelAuth) -> Self {
+        Self { generation: previous_generation.saturating_add(1), auth: Some(auth) }
+    }
+}
+
+pub type TunnelAuthState = Arc<RwLock<TunnelAuthority>>;
 
 /// Relay pty_error codes -> browser wire codes. Mirrors the Worker's
 /// browserErrorCode map (apps/backend/src/terminal/relay-pty.ts). KEEP IN
@@ -101,20 +153,24 @@ pub struct TunnelFrame {
 }
 
 /// Encode one frame: u32be payload length, u8 kind, payload.
-pub fn encode_tunnel_frame(kind: u8, payload: &[u8]) -> Vec<u8> {
-    debug_assert!(payload.len() <= MAX_TUNNEL_FRAME_BYTES);
+pub fn encode_tunnel_frame(kind: u8, payload: &[u8]) -> Option<Vec<u8>> {
+    if payload.len() > MAX_TUNNEL_FRAME_BYTES
+        || !matches!(kind, FRAME_KIND_CONTROL | FRAME_KIND_PTY)
+    {
+        return None;
+    }
     let mut frame = Vec::with_capacity(HEADER_BYTES + payload.len());
-    frame.extend_from_slice(&u32::try_from(payload.len()).unwrap_or(0).to_be_bytes());
+    frame.extend_from_slice(&u32::try_from(payload.len()).ok()?.to_be_bytes());
     frame.push(kind);
     frame.extend_from_slice(payload);
-    frame
+    Some(frame)
 }
 
-pub fn encode_control_frame(frame: &Value) -> Vec<u8> {
+pub fn encode_control_frame(frame: &Value) -> Option<Vec<u8>> {
     encode_tunnel_frame(FRAME_KIND_CONTROL, frame.to_string().as_bytes())
 }
 
-pub fn encode_pty_frame(bytes: &[u8]) -> Vec<u8> {
+pub fn encode_pty_frame(bytes: &[u8]) -> Option<Vec<u8>> {
     encode_tunnel_frame(FRAME_KIND_PTY, bytes)
 }
 
@@ -123,6 +179,9 @@ pub fn encode_pty_frame(bytes: &[u8]) -> Vec<u8> {
 /// the caller must close the connection.
 pub struct TunnelFrameDecoder {
     buffer: Vec<u8>,
+    /// Bytes before this cursor have already been emitted. Keeping a cursor
+    /// avoids repeatedly shifting the whole buffer for a busy PTY stream.
+    cursor: usize,
     failed: bool,
     max_frame_bytes: usize,
 }
@@ -131,6 +190,7 @@ impl TunnelFrameDecoder {
     pub fn new(max_frame_bytes: usize) -> TunnelFrameDecoder {
         TunnelFrameDecoder {
             buffer: Vec::new(),
+            cursor: 0,
             failed: false,
             max_frame_bytes: max_frame_bytes.clamp(1, MAX_TUNNEL_FRAME_BYTES),
         }
@@ -142,14 +202,14 @@ impl TunnelFrameDecoder {
         }
         self.buffer.extend_from_slice(chunk);
         let mut frames = Vec::new();
-        while self.buffer.len() >= HEADER_BYTES {
+        while self.buffer.len().saturating_sub(self.cursor) >= HEADER_BYTES {
             let length = u32::from_be_bytes([
-                self.buffer[0],
-                self.buffer[1],
-                self.buffer[2],
-                self.buffer[3],
+                self.buffer[self.cursor],
+                self.buffer[self.cursor + 1],
+                self.buffer[self.cursor + 2],
+                self.buffer[self.cursor + 3],
             ]) as usize;
-            let kind = self.buffer[4];
+            let kind = self.buffer[self.cursor + 4];
             if length > self.max_frame_bytes {
                 self.failed = true;
                 return Err("frame_too_large");
@@ -158,12 +218,17 @@ impl TunnelFrameDecoder {
                 self.failed = true;
                 return Err("unknown_frame_kind");
             }
-            if self.buffer.len() < HEADER_BYTES + length {
+            if self.buffer.len().saturating_sub(self.cursor) < HEADER_BYTES + length {
                 break;
             }
-            let payload = self.buffer[HEADER_BYTES..HEADER_BYTES + length].to_vec();
-            self.buffer.drain(..HEADER_BYTES + length);
+            let start = self.cursor + HEADER_BYTES;
+            let payload = self.buffer[start..start + length].to_vec();
+            self.cursor = start + length;
             frames.push(TunnelFrame { kind, payload });
+        }
+        if self.cursor > 0 && (self.cursor >= 64 * 1024 || self.cursor * 2 >= self.buffer.len()) {
+            self.buffer.drain(..self.cursor);
+            self.cursor = 0;
         }
         Ok(frames)
     }
@@ -229,13 +294,13 @@ pub fn parse_tunnel_client_frame(payload: &[u8]) -> Option<ClientFrame> {
 
 /// Server-generated session names: same alphabet and prefix the Worker route
 /// uses, so pickers and process tables read consistently.
-pub fn generate_session_name() -> String {
+pub fn generate_session_name() -> Result<String, getrandom::Error> {
     const ALPHABET: &[u8] = b"abcdefghjkmnpqrstuvwxyz23456789";
     let mut bytes = [0_u8; 4];
-    let _ = getrandom::fill(&mut bytes);
+    getrandom::fill(&mut bytes)?;
     let suffix: String =
         bytes.iter().map(|byte| ALPHABET[*byte as usize % ALPHABET.len()] as char).collect();
-    format!("web-{suffix}")
+    Ok(format!("web-{suffix}"))
 }
 
 // ---------------------------------------------------------------------------
@@ -243,8 +308,16 @@ pub fn generate_session_name() -> String {
 // ---------------------------------------------------------------------------
 
 enum WriterMessage {
-    Frame(Vec<u8>),
-    /// Flush what is queued, then close the write half.
+    Frame {
+        bytes: Vec<u8>,
+        live: Option<Arc<AtomicBool>>,
+        /// Revoke a generation only after this frame has been written. Exit
+        /// frames must remain deliverable, while later stale frames must be
+        /// rejected once the ordered exit reaches the socket.
+        revoke_live_after_write: Option<Arc<AtomicBool>>,
+    },
+    /// Flush what is queued, then close the write half. The slot for this
+    /// message is reserved when the connection starts.
     End,
 }
 
@@ -253,9 +326,21 @@ enum WriterMessage {
 struct Connection {
     pty_id: String,
     manager: Arc<PtyManager>,
-    writer_tx: mpsc::UnboundedSender<WriterMessage>,
+    writer_tx: mpsc::Sender<WriterMessage>,
+    /// A permanently reserved channel slot for the explicit overflow frame.
+    overflow_permit: StdMutex<Option<mpsc::OwnedPermit<WriterMessage>>>,
+    /// A permanently reserved channel slot for the terminal shutdown frame.
+    /// `finish` is synchronous, so it cannot wait for queue capacity.
+    end_permit: StdMutex<Option<mpsc::OwnedPermit<WriterMessage>>>,
+    /// Serializes enqueue and End so shutdown cannot overtake a frame that
+    /// already reserved bytes. The critical section only performs a
+    /// non-blocking channel operation.
+    queue_gate: std::sync::Mutex<()>,
     /// pty_flow requests from the writer's water marks (true = pause).
-    flow_tx: mpsc::UnboundedSender<bool>,
+    flow_tx: watch::Sender<bool>,
+    auth_state: TunnelAuthState,
+    /// Authority generation captured when this socket was accepted.
+    auth_generation: u64,
     /// Bytes queued toward the socket and not yet written.
     pending_out: AtomicU64,
     paused: AtomicBool,
@@ -263,23 +348,171 @@ struct Connection {
     open_sent: AtomicBool,
     /// The manager answered pty_opened (clears the open deadline).
     opened_seen: AtomicBool,
+    /// Cancels and identifies an in-flight open on timeout, disconnect, or
+    /// protocol error. The capability is created before the open task is
+    /// spawned, so a task that has not been polled cannot recreate a
+    /// transport after its owner ends or collide with a reused pty id.
+    open_cancellation: OpenCancellation,
     finished: AtomicBool,
     done: CancellationToken,
 }
 
-impl Connection {
-    fn send_control(&self, frame: &Value) {
-        self.enqueue(WriterMessage::Frame(encode_control_frame(frame)));
+/// Keep an in-flight open task owned by the connection. Dropping a Tokio
+/// `JoinHandle` detaches the task, which would let it retain the manager's
+/// open permit after the protocol deadline. Aborting and joining gives the
+/// cancellation token and resource guards a defined cleanup boundary.
+struct AbortOnDrop<T> {
+    handle: Option<tokio::task::JoinHandle<T>>,
+}
+
+impl<T> AbortOnDrop<T> {
+    fn new(handle: tokio::task::JoinHandle<T>) -> Self {
+        Self { handle: Some(handle) }
     }
 
-    fn enqueue(&self, message: WriterMessage) {
+    fn abort(&self) {
+        if let Some(handle) = &self.handle {
+            handle.abort();
+        }
+    }
+}
+
+impl<T> Unpin for AbortOnDrop<T> {}
+
+impl<T> Future for AbortOnDrop<T> {
+    type Output = Result<T, tokio::task::JoinError>;
+
+    fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
+        let result = {
+            let handle = self.handle.as_mut().expect("open task polled after completion");
+            Pin::new(handle).poll(cx)
+        };
+        if let Poll::Ready(result) = result {
+            self.handle = None;
+            Poll::Ready(result)
+        } else {
+            result
+        }
+    }
+}
+
+impl<T> Drop for AbortOnDrop<T> {
+    fn drop(&mut self) {
+        if let Some(handle) = &self.handle {
+            handle.abort();
+        }
+    }
+}
+
+impl Connection {
+    fn send_control(&self, frame: &Value) {
+        self.send_control_with_live(frame, None);
+    }
+
+    fn send_control_with_live(&self, frame: &Value, live: Option<Arc<AtomicBool>>) {
+        let Some(encoded) = encode_control_frame(frame) else {
+            self.finish();
+            return;
+        };
+        let _ = self.enqueue_frame(encoded, true, live);
+    }
+
+    fn reserve_bytes(&self, length: usize, control: bool) -> bool {
+        let length = length as u64;
+        if length > TUNNEL_QUEUE_BYTES {
+            return false;
+        }
+        let mut current = self.pending_out.load(Ordering::Acquire);
+        loop {
+            let Some(next) = current.checked_add(length) else { return false };
+            let limit = queue_limit(control);
+            if next > limit {
+                return false;
+            }
+            match self.pending_out.compare_exchange_weak(
+                current,
+                next,
+                Ordering::AcqRel,
+                Ordering::Acquire,
+            ) {
+                Ok(_) => return true,
+                Err(observed) => current = observed,
+            }
+        }
+    }
+
+    fn enqueue_frame(&self, frame: Vec<u8>, control: bool, live: Option<Arc<AtomicBool>>) -> bool {
+        self.enqueue_frame_with_revoke(frame, control, live, None)
+    }
+
+    fn enqueue_frame_with_revoke(
+        &self,
+        frame: Vec<u8>,
+        control: bool,
+        live: Option<Arc<AtomicBool>>,
+        revoke_live_after_write: Option<Arc<AtomicBool>>,
+    ) -> bool {
+        let mut accepted = false;
+        let mut reserved = 0_u64;
+        {
+            let _queue_gate = self.queue_gate.lock().expect("tunnel queue lock");
+            let queue_has_room =
+                control || self.writer_tx.capacity() > TUNNEL_CONTROL_QUEUE_RESERVE_ITEMS;
+            if !self.finished.load(Ordering::SeqCst)
+                && queue_has_room
+                && self.reserve_bytes(frame.len(), control)
+            {
+                reserved = frame.len() as u64;
+                if self
+                    .writer_tx
+                    .try_send(WriterMessage::Frame { bytes: frame, live, revoke_live_after_write })
+                    .is_ok()
+                {
+                    accepted = true;
+                }
+            }
+        }
+        if !accepted {
+            if reserved != 0 {
+                // The frame was never handed to the writer, so release its
+                // reservation before closing the connection.
+                self.pending_out.fetch_sub(reserved, Ordering::AcqRel);
+            }
+            if !self.finished.load(Ordering::SeqCst) {
+                self.reject_due_to_backpressure();
+            }
+        }
+        accepted
+    }
+
+    /// Report saturation using the reserved control slot, then close.
+    fn reject_due_to_backpressure(&self) {
+        let _queue_gate = self.queue_gate.lock().expect("tunnel queue lock");
         if self.finished.load(Ordering::SeqCst) {
             return;
         }
-        if let WriterMessage::Frame(frame) = &message {
-            self.pending_out.fetch_add(frame.len() as u64, Ordering::SeqCst);
+        let overflow = encode_control_frame(&json!({ "t": "error", "code": "overflow" }))
+            .expect("overflow frame fits protocol");
+        let overflow_bytes = overflow.len() as u64;
+        if self.reserve_bytes(overflow.len(), true) {
+            if let Some(permit) = self.overflow_permit.lock().expect("overflow permit lock").take()
+            {
+                permit.send(WriterMessage::Frame {
+                    bytes: overflow,
+                    live: None,
+                    revoke_live_after_write: None,
+                });
+            } else {
+                self.pending_out.fetch_sub(overflow_bytes, Ordering::AcqRel);
+            }
         }
-        let _ = self.writer_tx.send(message);
+        self.finished.store(true, Ordering::SeqCst);
+        self.open_cancellation.cancel();
+        if let Some(permit) = self.end_permit.lock().expect("tunnel end permit lock").take() {
+            permit.send(WriterMessage::End);
+        }
+        self.flow_tx.send_replace(true);
+        self.done.cancel();
     }
 
     /// Idempotent shutdown: flush queued frames, close the socket, and let
@@ -287,24 +520,35 @@ impl Connection {
     /// session lives on for a later re-attach, the same rule a dropped
     /// relay-socket viewer follows).
     fn finish(&self) {
+        let _queue_gate = self.queue_gate.lock().expect("tunnel queue lock");
         if self.finished.swap(true, Ordering::SeqCst) {
             return;
         }
-        let _ = self.writer_tx.send(WriterMessage::End);
+        self.open_cancellation.cancel();
+        if let Some(permit) = self.end_permit.lock().expect("tunnel end permit lock").take() {
+            permit.send(WriterMessage::End);
+        }
         self.done.cancel();
     }
 
-    fn protocol_error(&self, code: &str, message: &str) {
+    fn protocol_error(&self, code: &str) {
         if self.finished.load(Ordering::SeqCst) {
             return;
         }
-        self.send_control(&json!({ "t": "error", "code": code, "message": message }));
+        // Do not forward parser or filesystem details over the tunnel. The
+        // code is stable protocol data; clients can localize it without
+        // exposing paths, command lines, or internal error strings.
+        self.send_control(&json!({ "t": "error", "code": wire_error_code(code) }));
         self.finish();
     }
 
     /// The manager's reply sink (FrameContext::send). Synchronous: enqueue
     /// only, never block.
     fn on_manager_frame(&self, frame: &Value) {
+        self.on_manager_frame_with_liveness(frame, None);
+    }
+
+    fn on_manager_frame_with_liveness(&self, frame: &Value, live: Option<Arc<AtomicBool>>) {
         if self.finished.load(Ordering::SeqCst) {
             return;
         }
@@ -324,7 +568,7 @@ impl Connection {
                 if let Some(surface) = frame.get("surface").and_then(Value::as_str) {
                     opened["surface"] = Value::from(surface);
                 }
-                self.send_control(&opened);
+                self.send_control_with_live(&opened, live);
             }
             Some("pty_output") => {
                 let Some(bytes) = frame
@@ -335,7 +579,13 @@ impl Connection {
                 else {
                     return;
                 };
-                self.enqueue(WriterMessage::Frame(encode_pty_frame(&bytes)));
+                let Some(encoded) = encode_pty_frame(&bytes) else {
+                    self.protocol_error("overflow");
+                    return;
+                };
+                if !self.enqueue_frame(encoded, false, live) {
+                    return;
+                }
                 // Socket-side congestion: pause the source through the
                 // manager's own flow verb; the writer resumes it below the
                 // low-water mark.
@@ -347,17 +597,18 @@ impl Connection {
             }
             Some("pty_exit") => {
                 let code = frame.get("code").and_then(Value::as_i64).unwrap_or(0);
-                self.send_control(&json!({ "t": "exit", "code": code }));
+                let Some(encoded) = encode_control_frame(&json!({ "t": "exit", "code": code }))
+                else {
+                    self.finish();
+                    return;
+                };
+                let _ = self.enqueue_frame_with_revoke(encoded, true, live.clone(), live);
                 self.finish();
             }
             Some("pty_error") => {
                 let code =
                     wire_error_code(frame.get("code").and_then(Value::as_str).unwrap_or("failed"));
-                let mut error = json!({ "t": "error", "code": code });
-                if let Some(message) = frame.get("message").and_then(Value::as_str) {
-                    error["message"] = Value::from(message);
-                }
-                self.send_control(&error);
+                self.send_control_with_live(&json!({ "t": "error", "code": code }), live);
                 // Non-fatal errors (an oversized input frame) keep the
                 // attachment; a refused open or a dropped attachment ends
                 // the connection.
@@ -371,30 +622,56 @@ impl Connection {
 
     fn frame_context(self: &Arc<Self>) -> FrameContext {
         let sink = Arc::clone(self);
+        let live_sink = Arc::clone(self);
         let probe = Arc::clone(self);
+        let authority = self.auth_state.read().ok().map(|state| state.clone()).unwrap_or_default();
+        let auth = if authority.generation == self.auth_generation {
+            authority.auth.unwrap_or_default()
+        } else {
+            TunnelAuth::default()
+        };
         FrameContext {
             send: Arc::new(move |frame: Value| sink.on_manager_frame(&frame)),
+            send_live: Arc::new(move |frame: Value, live: Arc<AtomicBool>| {
+                live_sink.on_manager_frame_with_liveness(&frame, Some(live));
+            }),
             buffered_amount: Arc::new(move || probe.pending_out.load(Ordering::SeqCst)),
-            trust: "supervised".to_owned(),
-            local_roots: None,
-            owner_user_id: None,
+            trust: auth.trust,
+            local_roots: auth.local_roots,
+            owner_user_id: auth.owner_user_id,
             transport_id: Some(self.pty_id.clone()),
             cancellation: self.done.clone(),
+            transport_kind: TransportKind::Tunnel,
+            auth_generation: Some(self.auth_generation),
         }
+    }
+
+    fn authority_current(&self) -> bool {
+        self.auth_state.read().ok().is_some_and(|authority| {
+            authority.generation == self.auth_generation && authority.auth.is_some()
+        })
     }
 }
 
-async fn handle_client_frame(
-    connection: &Arc<Connection>,
-    context: &FrameContext,
-    frame: TunnelFrame,
-) {
+fn queue_limit(control: bool) -> u64 {
+    if control {
+        TUNNEL_QUEUE_BYTES
+    } else {
+        TUNNEL_QUEUE_BYTES - TUNNEL_CONTROL_QUEUE_RESERVE_BYTES
+    }
+}
+
+async fn handle_client_frame(connection: &Arc<Connection>, frame: TunnelFrame) {
     if connection.finished.load(Ordering::SeqCst) {
+        return;
+    }
+    if !connection.authority_current() {
+        connection.protocol_error("trust_revoked");
         return;
     }
     if frame.kind == FRAME_KIND_PTY {
         if !connection.open_sent.load(Ordering::SeqCst) {
-            connection.protocol_error("bad_request", "bytes before open");
+            connection.protocol_error("bad_request");
             return;
         }
         let input = json!({
@@ -403,31 +680,84 @@ async fn handle_client_frame(
             "ptyId": connection.pty_id,
             "dataB64": BASE64.encode(&frame.payload),
         });
-        connection.manager.handle_frame(&input, context).await;
+        let context = connection.frame_context();
+        connection.manager.handle_frame(&input, &context).await;
         return;
     }
     let Some(parsed) = parse_tunnel_client_frame(&frame.payload) else {
-        connection.protocol_error("bad_request", "invalid terminal request");
+        connection.protocol_error("bad_request");
         return;
     };
     match parsed {
         ClientFrame::Open { session, surface, cols, rows } => {
-            if connection.open_sent.swap(true, Ordering::SeqCst) {
-                connection.protocol_error("bad_request", "duplicate open");
+            if connection
+                .open_sent
+                .compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst)
+                .is_err()
+            {
+                connection.protocol_error("bad_request");
                 return;
             }
+            let session = match session {
+                Some(session) => session,
+                None => match generate_session_name() {
+                    Ok(session) => session,
+                    Err(_) => {
+                        connection.protocol_error("failed");
+                        return;
+                    }
+                },
+            };
+            let context = connection.frame_context();
             let mut open = json!({
                 "version": PTY_PROTOCOL_VERSION,
                 "type": "pty_open",
                 "ptyId": connection.pty_id,
-                "session": session.unwrap_or_else(generate_session_name),
+                "session": session,
                 "cols": cols,
                 "rows": rows,
             });
+            // The manager's observe policy is owner-bound. Carry the actor
+            // from the locally reconciled authority, never from tunnel input.
+            if let Some(actor) = context.owner_user_id.clone() {
+                open["actorId"] = Value::from(actor);
+            }
             if let Some(surface) = surface {
                 open["surface"] = Value::from(surface);
             }
-            connection.manager.handle_frame(&open, context).await;
+            // Keep the manager future owned through the protocol deadline.
+            // The cancellation capability fences a task that has not reached
+            // the reservation yet and names this exact attempt if the pty id
+            // is reused. Provider guards reclaim resources when it is aborted.
+            let mut open_task = AbortOnDrop::new(tokio::spawn({
+                let manager = Arc::clone(&connection.manager);
+                let open = open.clone();
+                let context = context.clone();
+                let cancellation = connection.open_cancellation.clone();
+                async move {
+                    manager
+                        .handle_frame_with_open_cancellation(&open, &context, Some(cancellation))
+                        .await;
+                }
+            }));
+            match tokio::time::timeout(OPEN_TIMEOUT, &mut open_task).await {
+                Ok(Ok(())) => {}
+                Ok(Err(_)) => connection.protocol_error("failed"),
+                Err(_) => {
+                    // Fence the exact attempt, then abort and join the task.
+                    // Provider implementations receive the same token and
+                    // own guards for any child, control socket, or PTY they
+                    // create, so no permit or process survives the deadline.
+                    connection.manager.cancel_open(
+                        &connection.pty_id,
+                        &context,
+                        &connection.open_cancellation,
+                    );
+                    open_task.abort();
+                    let _ = (&mut open_task).await;
+                    connection.protocol_error("failed");
+                }
+            }
         }
         ClientFrame::Resize { cols, rows } => {
             if !connection.open_sent.load(Ordering::SeqCst) {
@@ -440,31 +770,80 @@ async fn handle_client_frame(
                 "cols": cols,
                 "rows": rows,
             });
-            connection.manager.handle_frame(&resize, context).await;
+            let context = connection.frame_context();
+            connection.manager.handle_frame(&resize, &context).await;
         }
         ClientFrame::Detach => connection.finish(),
     }
 }
 
-async fn serve_connection(stream: TcpStream, manager: Arc<PtyManager>, parent: CancellationToken) {
+async fn serve_connection(
+    stream: TcpStream,
+    manager: Arc<PtyManager>,
+    parent: CancellationToken,
+    auth_state: TunnelAuthState,
+    mut authority_changes: watch::Receiver<u64>,
+    _connection_permit: tokio::sync::OwnedSemaphorePermit,
+) {
     let _ = stream.set_nodelay(true);
     let (mut read_half, mut write_half) = stream.into_split();
-    let (writer_tx, mut writer_rx) = mpsc::unbounded_channel::<WriterMessage>();
-    let (flow_tx, mut flow_rx) = mpsc::unbounded_channel::<bool>();
+    let (writer_tx, mut writer_rx) = mpsc::channel::<WriterMessage>(TUNNEL_WRITER_QUEUE_ITEMS);
+    // Reserve control slots before any producer can fill the queue. Tokio's
+    // owned permits keep these capacities unavailable to ordinary sends and
+    // can later send overflow and End synchronously.
+    let overflow_permit = match writer_tx.clone().reserve_owned().await {
+        Ok(permit) => permit,
+        Err(_) => {
+            let _ = write_half.shutdown().await;
+            return;
+        }
+    };
+    let end_permit = match writer_tx.clone().reserve_owned().await {
+        Ok(permit) => permit,
+        Err(_) => {
+            let _ = write_half.shutdown().await;
+            return;
+        }
+    };
+    let (flow_tx, mut flow_rx) = watch::channel(false);
+    let pty_id = match random_hex(8) {
+        Ok(id) => format!("tunnel-{id}"),
+        Err(_) => {
+            let _ = write_half.shutdown().await;
+            return;
+        }
+    };
+    let auth_generation =
+        auth_state.read().map(|authority| authority.generation).unwrap_or_default();
+    let done = CancellationToken::new();
+    let Some(open_cancellation) = manager.new_open_cancellation_with_parent(&done) else {
+        let _ = write_half.shutdown().await;
+        return;
+    };
     let connection = Arc::new(Connection {
-        pty_id: format!("tunnel-{}", random_hex(8)),
+        pty_id,
         manager: Arc::clone(&manager),
         writer_tx,
+        overflow_permit: StdMutex::new(Some(overflow_permit)),
+        end_permit: StdMutex::new(Some(end_permit)),
+        queue_gate: std::sync::Mutex::new(()),
         flow_tx,
+        auth_state,
+        auth_generation,
         pending_out: AtomicU64::new(0),
         paused: AtomicBool::new(false),
         open_sent: AtomicBool::new(false),
         opened_seen: AtomicBool::new(false),
+        open_cancellation,
         finished: AtomicBool::new(false),
-        done: CancellationToken::new(),
+        done,
     });
-    let context = connection.frame_context();
-
+    // Identified tunnel transports must be admitted before their first
+    // manager frame. The active snapshot itself is the disconnect fence, so
+    // no historical per-connection tombstone is needed.
+    if connection.authority_current() {
+        manager.update_transport_auth(&connection.frame_context());
+    }
     // Writer: the only task that touches the write half. Applies the flow
     // water marks as the queue drains.
     let mut writer = {
@@ -472,8 +851,22 @@ async fn serve_connection(stream: TcpStream, manager: Arc<PtyManager>, parent: C
         tokio::spawn(async move {
             while let Some(message) = writer_rx.recv().await {
                 match message {
-                    WriterMessage::Frame(frame) => {
+                    WriterMessage::Frame { bytes: frame, live, revoke_live_after_write } => {
+                        if live.as_ref().is_some_and(|live| !live.load(Ordering::Acquire)) {
+                            let length = frame.len() as u64;
+                            let previous =
+                                connection.pending_out.fetch_sub(length, Ordering::SeqCst);
+                            if previous.saturating_sub(length) < FLOW_RESUME_BYTES
+                                && connection.paused.swap(false, Ordering::SeqCst)
+                            {
+                                let _ = connection.flow_tx.send(false);
+                            }
+                            continue;
+                        }
                         let written = write_half.write_all(&frame).await;
+                        if let Some(live) = revoke_live_after_write {
+                            live.store(false, Ordering::Release);
+                        }
                         // Every dequeued frame added exactly its length at
                         // enqueue, so this never underflows.
                         let length = frame.len() as u64;
@@ -499,9 +892,9 @@ async fn serve_connection(stream: TcpStream, manager: Arc<PtyManager>, parent: C
     // slow open never delays a pause.
     let flow = {
         let connection = Arc::clone(&connection);
-        let context = context.clone();
         tokio::spawn(async move {
-            while let Some(pause) = flow_rx.recv().await {
+            while flow_rx.changed().await.is_ok() {
+                let pause = *flow_rx.borrow_and_update();
                 if connection.finished.load(Ordering::SeqCst) {
                     break;
                 }
@@ -511,6 +904,7 @@ async fn serve_connection(stream: TcpStream, manager: Arc<PtyManager>, parent: C
                     "ptyId": connection.pty_id,
                     "pause": pause,
                 });
+                let context = connection.frame_context();
                 connection.manager.handle_frame(&frame, &context).await;
             }
         })
@@ -531,8 +925,21 @@ async fn serve_connection(stream: TcpStream, manager: Arc<PtyManager>, parent: C
                 break;
             }
             _ = connection.done.cancelled() => break,
+            changed = authority_changes.changed() => {
+                match changed {
+                    Ok(()) if *authority_changes.borrow_and_update() != connection.auth_generation => {
+                        connection.protocol_error("trust_revoked");
+                        break;
+                    }
+                    Ok(()) => {}
+                    Err(_) => {
+                        connection.finish();
+                        break;
+                    }
+                }
+            }
             _ = &mut open_deadline, if !connection.opened_seen.load(Ordering::SeqCst) => {
-                connection.protocol_error("bad_request", "no open frame");
+                connection.protocol_error("bad_request");
                 break;
             }
             read = read_half.read(&mut buffer) => {
@@ -548,11 +955,11 @@ async fn serve_connection(stream: TcpStream, manager: Arc<PtyManager>, parent: C
                 match decoder.push(&buffer[..count]) {
                     Ok(frames) => {
                         for frame in frames {
-                            handle_client_frame(&connection, &context, frame).await;
+                            handle_client_frame(&connection, frame).await;
                         }
                     }
                     Err(_) => {
-                        connection.protocol_error("bad_request", "malformed frame");
+                        connection.protocol_error("bad_request");
                         break;
                     }
                 }
@@ -560,6 +967,11 @@ async fn serve_connection(stream: TcpStream, manager: Arc<PtyManager>, parent: C
         }
     }
     connection.finish();
+    // Stop the independent flow task before removing the transport snapshot.
+    // Otherwise a queued pause/resume could enter `handle_frame` after the
+    // detach and recreate stale authorization for this connection.
+    flow.abort();
+    let _ = flow.await;
     // Detach, never kill: the owed close releases only this connection's
     // attachment (transport-fenced), and the session lives on.
     if connection.open_sent.load(Ordering::SeqCst) {
@@ -568,15 +980,22 @@ async fn serve_connection(stream: TcpStream, manager: Arc<PtyManager>, parent: C
             "type": "pty_close",
             "ptyId": connection.pty_id,
         });
+        let context = connection.frame_context();
         manager.handle_frame(&close, &context).await;
     }
-    flow.abort();
+    // Remove the per-transport authority even when the open was refused or
+    // the peer disconnected before an attachment existed. Otherwise a busy
+    // local tunnel endpoint could accumulate stale snapshots indefinitely.
+    manager.detach_transport_kind(&connection.pty_id, TransportKind::Tunnel);
     // A peer that stopped reading can wedge the final flush forever; the
     // attachment is already released above, so cap the flush and reap.
     if tokio::time::timeout(Duration::from_secs(30), &mut writer).await.is_err() {
         writer.abort();
+        // `abort` only requests cancellation. Await the handle so the writer
+        // task has completed before this connection returns and its socket
+        // state is dropped.
+        let _ = writer.await;
     }
-    let _ = flow.await;
 }
 
 /// Start the loopback listener. Managed mode only — the caller's managed
@@ -588,9 +1007,23 @@ pub async fn start_tunnel_terminal_listener(
     cancellation: CancellationToken,
     host: &str,
     port: u16,
+    auth_state: TunnelAuthState,
+    authority_changes: watch::Receiver<u64>,
 ) -> std::io::Result<u16> {
+    // The gateway's capability check ends at this process. Binding any
+    // address other than the fixed IPv4 loopback would turn a local-only
+    // listener into an unauthenticated network terminal service. Keep the
+    // host argument for the test and call-site contract, but fail closed if a
+    // future caller passes a configurable or wildcard address.
+    if host != TUNNEL_TERMINAL_HOST {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::InvalidInput,
+            "tunnel terminal listener is unavailable",
+        ));
+    }
     let listener = TcpListener::bind((host, port)).await?;
     let bound = listener.local_addr()?.port();
+    let connection_slots = Arc::new(Semaphore::new(TUNNEL_MAX_CONNECTIONS));
     tokio::spawn(async move {
         loop {
             let accepted = tokio::select! {
@@ -600,9 +1033,24 @@ pub async fn start_tunnel_terminal_listener(
             };
             match accepted {
                 Ok((stream, _)) => {
+                    let permit = match connection_slots.clone().try_acquire_owned() {
+                        Ok(permit) => permit,
+                        Err(_) => {
+                            let mut stream = stream;
+                            let _ = stream.shutdown().await;
+                            continue;
+                        }
+                    };
                     let manager = Arc::clone(&manager);
                     let child = cancellation.child_token();
-                    tokio::spawn(serve_connection(stream, manager, child));
+                    tokio::spawn(serve_connection(
+                        stream,
+                        manager,
+                        child,
+                        Arc::clone(&auth_state),
+                        authority_changes.clone(),
+                        permit,
+                    ));
                 }
                 Err(_) => {
                     // Transient accept errors (EMFILE and friends) must not
@@ -633,6 +1081,9 @@ mod tests {
     use std::path::{Path, PathBuf};
     use std::sync::Mutex as StdMutex;
     use tokio::net::tcp::OwnedReadHalf;
+
+    /// The overflow and End owned permits permanently hold two queue slots.
+    const RESERVED_WRITER_QUEUE_ITEMS: usize = 2;
 
     #[derive(Default)]
     struct FakeState {
@@ -687,16 +1138,26 @@ mod tests {
 
     struct FakeDeps {
         spawned: Arc<StdMutex<Vec<FakePty>>>,
+        banner: Option<Vec<u8>>,
     }
 
     #[async_trait]
     impl PtyDeps for FakeDeps {
-        async fn spawn_pty(&self, _spec: SpawnSpec) -> PtyHandle {
+        async fn spawn_pty(
+            &self,
+            _spec: SpawnSpec,
+            _cancellation: CancellationToken,
+            _permit: crate::pty::OpenPermit,
+        ) -> PtyHandle {
             let pty = FakePty { state: Arc::new(StdMutex::new(FakeState::default())) };
             self.spawned.lock().unwrap().push(pty.clone());
-            PtyHandle { control: Arc::new(pty.clone()), output: Arc::new(pty), banner: None }
+            PtyHandle {
+                control: Arc::new(pty.clone()),
+                output: Arc::new(pty),
+                banner: self.banner.clone(),
+            }
         }
-        async fn resolve_cmux_tui(&self) -> Option<CmuxTui> {
+        async fn resolve_cmux_tui(&self, _cancellation: CancellationToken) -> Option<CmuxTui> {
             None
         }
         async fn ensure_daemon(
@@ -706,16 +1167,22 @@ mod tests {
             _socket_dir: &Path,
             _cwd: &Path,
             _env: &HashMap<String, String>,
+            _cancellation: CancellationToken,
         ) -> Result<EnsureDaemon, String> {
             Err("no daemon in tunnel tests".to_owned())
         }
         async fn connect_control(
             &self,
             _socket_path: &Path,
+            _cancellation: CancellationToken,
         ) -> Result<Arc<dyn crate::control::ControlHandle>, String> {
             Err("no control in tunnel tests".to_owned())
         }
-        async fn read_dir(&self, _path: &Path) -> Result<Vec<String>, ()> {
+        async fn read_dir(
+            &self,
+            _path: &Path,
+            _cancellation: CancellationToken,
+        ) -> Result<Vec<String>, ()> {
             Err(())
         }
         fn socket_dir(&self) -> PathBuf {
@@ -731,11 +1198,12 @@ mod tests {
         spawned: Arc<StdMutex<Vec<FakePty>>>,
         port: u16,
         cancel: CancellationToken,
+        generation: watch::Sender<u64>,
     }
 
-    async fn rig_with_limits(max_ptys: usize) -> Rig {
+    async fn rig_with_limits_and_banner(max_ptys: usize, banner: Option<Vec<u8>>) -> Rig {
         let spawned = Arc::new(StdMutex::new(Vec::new()));
-        let deps = Arc::new(FakeDeps { spawned: Arc::clone(&spawned) });
+        let deps = Arc::new(FakeDeps { spawned: Arc::clone(&spawned), banner });
         let env = HashMap::from([
             ("SHELL".to_owned(), "/bin/fakesh".to_owned()),
             ("HOME".to_owned(), std::env::temp_dir().to_string_lossy().into_owned()),
@@ -749,15 +1217,34 @@ mod tests {
             1_048_576,
         ));
         let cancel = CancellationToken::new();
+        let auth_state = Arc::new(RwLock::new(TunnelAuthority {
+            generation: 0,
+            auth: Some(TunnelAuth {
+                trust: "supervised".to_owned(),
+                local_roots: None,
+                owner_user_id: None,
+            }),
+        }));
+        let (generation, generation_rx) = watch::channel(0_u64);
         let port = start_tunnel_terminal_listener(
             Arc::clone(&manager),
             cancel.clone(),
             TUNNEL_TERMINAL_HOST,
             0,
+            auth_state,
+            generation_rx,
         )
         .await
         .expect("bind test listener");
-        Rig { manager, spawned, port, cancel }
+        Rig { manager, spawned, port, cancel, generation }
+    }
+
+    async fn rig_with_limits(max_ptys: usize) -> Rig {
+        rig_with_limits_and_banner(max_ptys, None).await
+    }
+
+    async fn rig_with_start_banner(banner: &[u8]) -> Rig {
+        rig_with_limits_and_banner(8, Some(banner.to_vec())).await
     }
 
     async fn rig() -> Rig {
@@ -793,6 +1280,27 @@ mod tests {
         serde_json::from_slice(&frame.payload).expect("control json")
     }
 
+    #[test]
+    fn data_reservation_leaves_control_bytes_available() {
+        assert_eq!(queue_limit(false), TUNNEL_QUEUE_BYTES - TUNNEL_CONTROL_QUEUE_RESERVE_BYTES);
+        assert!(queue_limit(false) < queue_limit(true));
+        assert!(queue_limit(false) + TUNNEL_CONTROL_QUEUE_RESERVE_BYTES <= TUNNEL_QUEUE_BYTES);
+    }
+
+    #[test]
+    fn control_reservation_accepts_reserved_tail() {
+        let data_limit = queue_limit(false);
+        assert!(data_limit + TUNNEL_CONTROL_QUEUE_RESERVE_BYTES <= queue_limit(true));
+        const { assert!(TUNNEL_CONTROL_QUEUE_RESERVE_BYTES > 0) };
+    }
+
+    #[test]
+    fn maximum_valid_data_frame_fits_the_reserved_budget() {
+        let encoded = encode_pty_frame(&vec![0_u8; MAX_TUNNEL_FRAME_BYTES]).expect("max frame");
+        assert_eq!(encoded.len(), MAX_TUNNEL_FRAME_BYTES + HEADER_BYTES);
+        assert!(encoded.len() as u64 <= queue_limit(false));
+    }
+
     /// Wait until the fake spawn landed (open settles asynchronously).
     async fn spawned_pty(rig: &Rig) -> FakePty {
         for _ in 0..100 {
@@ -817,12 +1325,135 @@ mod tests {
         }
     }
 
+    async fn queue_connection(
+        manager: Arc<PtyManager>,
+    ) -> (Connection, mpsc::Receiver<WriterMessage>) {
+        let (writer_tx, writer_rx) = mpsc::channel::<WriterMessage>(TUNNEL_WRITER_QUEUE_ITEMS);
+        let overflow_permit =
+            writer_tx.clone().reserve_owned().await.expect("reserve overflow slot");
+        let end_permit = writer_tx.clone().reserve_owned().await.expect("reserve End slot");
+        let (flow_tx, _) = watch::channel(false);
+        let open_cancellation = manager.new_open_cancellation().expect("open attempt token");
+        (
+            Connection {
+                pty_id: "queue-test".to_owned(),
+                manager,
+                writer_tx,
+                overflow_permit: StdMutex::new(Some(overflow_permit)),
+                end_permit: StdMutex::new(Some(end_permit)),
+                queue_gate: StdMutex::new(()),
+                flow_tx,
+                auth_state: Arc::new(RwLock::new(TunnelAuthority::default())),
+                auth_generation: 0,
+                pending_out: AtomicU64::new(0),
+                paused: AtomicBool::new(false),
+                open_sent: AtomicBool::new(false),
+                opened_seen: AtomicBool::new(false),
+                open_cancellation,
+                finished: AtomicBool::new(false),
+                done: CancellationToken::new(),
+            },
+            writer_rx,
+        )
+    }
+
+    #[tokio::test]
+    async fn maximum_valid_pty_frame_fits_the_bounded_data_budget() {
+        let rig = rig().await;
+        let (connection, mut writer_rx) = queue_connection(Arc::clone(&rig.manager)).await;
+        let frame = encode_pty_frame(&vec![b'x'; MAX_TUNNEL_FRAME_BYTES]).expect("valid frame");
+        assert!(connection.enqueue_frame(frame, false, None));
+        connection.finish();
+        drop(connection);
+        assert!(matches!(writer_rx.recv().await, Some(WriterMessage::Frame { .. })));
+        assert!(matches!(writer_rx.recv().await, Some(WriterMessage::End)));
+        rig.cancel.cancel();
+    }
+
+    #[tokio::test]
+    async fn saturated_writer_queue_still_delivers_error_and_end() {
+        let rig = rig().await;
+        let (connection, mut writer_rx) = queue_connection(Arc::clone(&rig.manager)).await;
+
+        // Data can fill every ordinary slot after both owned permits and the
+        // item reserve are accounted for. The permits keep overflow and End
+        // available, while the item reserve leaves room for the control error.
+        let accepted_data = TUNNEL_WRITER_QUEUE_ITEMS
+            - RESERVED_WRITER_QUEUE_ITEMS
+            - TUNNEL_CONTROL_QUEUE_RESERVE_ITEMS;
+        for _ in 0..accepted_data {
+            assert!(connection.enqueue_frame(vec![b'x'], false, None));
+        }
+        connection.send_control(&json!({ "t": "error", "code": "failed" }));
+        connection.finish();
+        drop(connection);
+
+        let mut saw_error = false;
+        let mut saw_end = false;
+        while let Some(message) = writer_rx.recv().await {
+            match message {
+                WriterMessage::Frame { bytes: frame, .. }
+                    if frame.len() > HEADER_BYTES && frame[4] == FRAME_KIND_CONTROL =>
+                {
+                    let payload = &frame[5..];
+                    let value: Value = serde_json::from_slice(payload).expect("error frame");
+                    saw_error = value["t"] == "error" && value["code"] == "failed";
+                }
+                WriterMessage::End => {
+                    saw_end = true;
+                    break;
+                }
+                WriterMessage::Frame { .. } => {}
+            }
+        }
+        assert!(saw_error, "control error must survive data saturation");
+        assert!(saw_end, "reserved End item must be delivered");
+        rig.cancel.cancel();
+    }
+
+    #[tokio::test]
+    async fn saturated_writer_queue_reports_overflow_before_end() {
+        let rig = rig().await;
+        let (connection, mut writer_rx) = queue_connection(Arc::clone(&rig.manager)).await;
+        let accepted_data = TUNNEL_WRITER_QUEUE_ITEMS
+            - RESERVED_WRITER_QUEUE_ITEMS
+            - TUNNEL_CONTROL_QUEUE_RESERVE_ITEMS;
+        for _ in 0..accepted_data {
+            assert!(connection.enqueue_frame(vec![b'x'], false, None));
+        }
+        assert!(!connection.enqueue_frame(vec![b'x'], false, None));
+        drop(connection);
+
+        let mut saw_overflow = false;
+        let mut saw_end = false;
+        while let Some(message) = writer_rx.recv().await {
+            match message {
+                WriterMessage::Frame { bytes: frame, .. }
+                    if frame.len() > HEADER_BYTES && frame[4] == FRAME_KIND_CONTROL =>
+                {
+                    let payload = &frame[5..];
+                    let value: Value = serde_json::from_slice(payload).expect("overflow frame");
+                    saw_overflow = value["t"] == "error" && value["code"] == "overflow";
+                }
+                WriterMessage::End => {
+                    saw_end = true;
+                    break;
+                }
+                WriterMessage::Frame { .. } => {}
+            }
+        }
+        assert!(saw_overflow, "overflow error must survive data saturation");
+        assert!(saw_end, "reserved End item must be delivered");
+        rig.cancel.cancel();
+    }
+
     // -- pure codec/parse ---------------------------------------------------
 
     #[test]
     fn codec_round_trips_frames_split_at_every_byte_boundary() {
-        let control = encode_control_frame(&json!({ "t": "open", "cols": 80, "rows": 24 }));
-        let pty = encode_pty_frame(b"echo hi\r");
+        let control =
+            encode_control_frame(&json!({ "t": "open", "cols": 80, "rows": 24 })).unwrap();
+        let pty = encode_pty_frame(b"echo hi\r").unwrap();
         let stream = [control, pty].concat();
         let mut decoder = TunnelFrameDecoder::new(MAX_TUNNEL_FRAME_BYTES);
         let mut frames = Vec::new();
@@ -909,11 +1540,20 @@ mod tests {
     #[test]
     fn generated_session_names_use_the_web_prefix_and_alphabet() {
         for _ in 0..32 {
-            let name = generate_session_name();
+            let name = generate_session_name().expect("OS entropy");
             let suffix = name.strip_prefix("web-").expect("web- prefix");
             assert_eq!(suffix.len(), 4);
             assert!(suffix.chars().all(|c| "abcdefghjkmnpqrstuvwxyz23456789".contains(c)));
         }
+    }
+
+    #[test]
+    fn tunnel_frame_encoding_rejects_oversized_and_unknown_frames_in_release() {
+        assert!(
+            encode_tunnel_frame(FRAME_KIND_PTY, &vec![0_u8; MAX_TUNNEL_FRAME_BYTES + 1]).is_none()
+        );
+        assert!(encode_tunnel_frame(7, b"x").is_none());
+        assert!(encode_pty_frame(b"ok").is_some());
     }
 
     // -- live listener ------------------------------------------------------
@@ -927,7 +1567,9 @@ mod tests {
         let mut queue = Vec::new();
 
         write
-            .write_all(&encode_control_frame(&json!({ "t": "open", "cols": 80, "rows": 24 })))
+            .write_all(
+                &encode_control_frame(&json!({ "t": "open", "cols": 80, "rows": 24 })).unwrap(),
+            )
             .await
             .unwrap();
         let opened = control_json(&next_frame(&mut read, &mut decoder, &mut queue).await);
@@ -944,9 +1586,11 @@ mod tests {
         assert_eq!(output.kind, FRAME_KIND_PTY);
         assert_eq!(output.payload, b"hello from the shell");
 
-        write.write_all(&encode_pty_frame(b"ls\r")).await.unwrap();
+        write.write_all(&encode_pty_frame(b"ls\r").unwrap()).await.unwrap();
         write
-            .write_all(&encode_control_frame(&json!({ "t": "resize", "cols": 132, "rows": 43 })))
+            .write_all(
+                &encode_control_frame(&json!({ "t": "resize", "cols": 132, "rows": 43 })).unwrap(),
+            )
             .await
             .unwrap();
         for _ in 0..100 {
@@ -978,9 +1622,12 @@ mod tests {
         let mut decoder = TunnelFrameDecoder::new(MAX_TUNNEL_FRAME_BYTES);
         let mut queue = Vec::new();
         write
-            .write_all(&encode_control_frame(
-                &json!({ "t": "open", "session": session, "cols": 80, "rows": 24 }),
-            ))
+            .write_all(
+                &encode_control_frame(
+                    &json!({ "t": "open", "session": session, "cols": 80, "rows": 24 }),
+                )
+                .unwrap(),
+            )
             .await
             .unwrap();
         let reopened = control_json(&next_frame(&mut read, &mut decoder, &mut queue).await);
@@ -989,12 +1636,47 @@ mod tests {
         rig.cancel.cancel();
     }
 
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn tunnel_open_replays_start_output_without_deadlocking() {
+        let rig = rig_with_start_banner(b"startup").await;
+        let stream = connect(&rig).await;
+        let (mut read, mut write) = stream.into_split();
+        let mut decoder = TunnelFrameDecoder::new(MAX_TUNNEL_FRAME_BYTES);
+        let mut queue = Vec::new();
+        write
+            .write_all(
+                &encode_control_frame(&json!({ "t": "open", "cols": 80, "rows": 24 })).unwrap(),
+            )
+            .await
+            .unwrap();
+
+        let opened = tokio::time::timeout(
+            Duration::from_secs(1),
+            next_frame(&mut read, &mut decoder, &mut queue),
+        )
+        .await
+        .expect("tunnel open must not deadlock while starting output");
+        assert_eq!(control_json(&opened)["t"], "opened");
+
+        let output = tokio::time::timeout(
+            Duration::from_secs(1),
+            next_frame(&mut read, &mut decoder, &mut queue),
+        )
+        .await
+        .expect("startup output must be delivered");
+        assert_eq!(output.kind, FRAME_KIND_PTY);
+        assert_eq!(output.payload, b"startup");
+
+        drop(write);
+        rig.cancel.cancel();
+    }
+
     #[tokio::test]
     async fn bytes_before_open_are_a_protocol_error() {
         let rig = rig().await;
         let stream = connect(&rig).await;
         let (mut read, mut write) = stream.into_split();
-        write.write_all(&encode_pty_frame(b"sneaky")).await.unwrap();
+        write.write_all(&encode_pty_frame(b"sneaky").unwrap()).await.unwrap();
         let mut decoder = TunnelFrameDecoder::new(MAX_TUNNEL_FRAME_BYTES);
         let mut queue = Vec::new();
         let error = control_json(&next_frame(&mut read, &mut decoder, &mut queue).await);
@@ -1005,11 +1687,44 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn authority_revocation_closes_a_quiet_open_attachment() {
+        let rig = rig().await;
+        let stream = connect(&rig).await;
+        let (mut read, mut write) = stream.into_split();
+        write
+            .write_all(
+                &encode_control_frame(&json!({ "t": "open", "cols": 80, "rows": 24 })).unwrap(),
+            )
+            .await
+            .unwrap();
+        let mut decoder = TunnelFrameDecoder::new(MAX_TUNNEL_FRAME_BYTES);
+        let mut queue = Vec::new();
+        let opened = control_json(&next_frame(&mut read, &mut decoder, &mut queue).await);
+        assert_eq!(opened["t"], "opened");
+        assert_eq!(rig.manager.attachment_count(), 1);
+
+        // The session publishes the new floor before notifying sockets. A
+        // quiet connection must close without requiring another client frame.
+        rig.manager.set_tunnel_authority_generation(1);
+        rig.generation.send(1).unwrap();
+        read_eof(&mut read).await;
+        for _ in 0..100 {
+            if rig.manager.attachment_count() == 0 {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+        assert_eq!(rig.manager.attachment_count(), 0);
+        drop(write);
+        rig.cancel.cancel();
+    }
+
+    #[tokio::test]
     async fn duplicate_open_is_a_protocol_error() {
         let rig = rig().await;
         let stream = connect(&rig).await;
         let (mut read, mut write) = stream.into_split();
-        let open = encode_control_frame(&json!({ "t": "open", "cols": 80, "rows": 24 }));
+        let open = encode_control_frame(&json!({ "t": "open", "cols": 80, "rows": 24 })).unwrap();
         write.write_all(&open).await.unwrap();
         write.write_all(&open).await.unwrap();
         let mut decoder = TunnelFrameDecoder::new(MAX_TUNNEL_FRAME_BYTES);
@@ -1031,7 +1746,10 @@ mod tests {
         let rig = rig().await;
         let stream = connect(&rig).await;
         let (mut read, mut write) = stream.into_split();
-        write.write_all(&encode_tunnel_frame(FRAME_KIND_CONTROL, b"{not json")).await.unwrap();
+        write
+            .write_all(&encode_tunnel_frame(FRAME_KIND_CONTROL, b"{not json").unwrap())
+            .await
+            .unwrap();
         let mut decoder = TunnelFrameDecoder::new(MAX_TUNNEL_FRAME_BYTES);
         let mut queue = Vec::new();
         let error = control_json(&next_frame(&mut read, &mut decoder, &mut queue).await);
@@ -1047,7 +1765,9 @@ mod tests {
         let stream = connect(&rig).await;
         let (mut read, mut write) = stream.into_split();
         write
-            .write_all(&encode_control_frame(&json!({ "t": "open", "cols": 80, "rows": 24 })))
+            .write_all(
+                &encode_control_frame(&json!({ "t": "open", "cols": 80, "rows": 24 })).unwrap(),
+            )
             .await
             .unwrap();
         let mut decoder = TunnelFrameDecoder::new(MAX_TUNNEL_FRAME_BYTES);
@@ -1068,7 +1788,9 @@ mod tests {
         let stream = connect(&rig).await;
         let (mut read, mut write) = stream.into_split();
         write
-            .write_all(&encode_control_frame(&json!({ "t": "open", "cols": 80, "rows": 24 })))
+            .write_all(
+                &encode_control_frame(&json!({ "t": "open", "cols": 80, "rows": 24 })).unwrap(),
+            )
             .await
             .unwrap();
         let mut decoder = TunnelFrameDecoder::new(MAX_TUNNEL_FRAME_BYTES);
@@ -1078,5 +1800,30 @@ mod tests {
         assert_eq!(error["code"], "session_limit");
         read_eof(&mut read).await;
         rig.cancel.cancel();
+    }
+
+    #[tokio::test]
+    async fn listener_rejects_non_loopback_bind_addresses() {
+        let spawned = Arc::new(StdMutex::new(Vec::new()));
+        let deps = Arc::new(FakeDeps { spawned: Arc::clone(&spawned), banner: None });
+        let manager = Arc::new(PtyManager::with_limits(
+            deps,
+            std::env::temp_dir(),
+            HashMap::new(),
+            1,
+            32,
+            1_048_576,
+        ));
+        let error = start_tunnel_terminal_listener(
+            manager,
+            CancellationToken::new(),
+            "0.0.0.0",
+            0,
+            Arc::new(RwLock::new(TunnelAuthority::default())),
+            watch::channel(0_u64).1,
+        )
+        .await
+        .expect_err("wildcard bind must be rejected");
+        assert_eq!(error.kind(), std::io::ErrorKind::InvalidInput);
     }
 }
