@@ -3,6 +3,7 @@ import {
   ProviderError,
   type CmuxRemoteEndpoint,
   type ExecResult,
+  type NativeRelayBootstrap,
   type ProviderId,
 } from "./types";
 import { shellQuote } from "./wsLease";
@@ -13,14 +14,30 @@ import { shellQuote } from "./wsLease";
 // sha256-verified install command, the daemon command, and the enrollment
 // flows, all parameterized over a provider exec so blaxel.ts (sandbox API),
 // e2b.ts (commands.run as root), and daytona.ts (toolbox exec) share one
-// implementation. Providers keep only their transport mechanics: how the
-// daemon process is supervised and how port 1337 is reached from outside.
+// implementation. Providers keep only their process-supervision mechanics.
 
 export const CMUX_TUI_PORT = 1337;
 export const CMUX_TUI_SESSION = "cloud";
 export const CMUX_TUI_BINARY_PATH = "/root/.cmux/bin/cmux-tui";
 export const CMUX_TUI_INVITATION_TTL_SECONDS = 5 * 60;
 export const CMUX_TUI_INSTALL_TIMEOUT_MS = 5 * 60 * 1000;
+export const CMUX_NATIVE_RELAY_TICKET_PATH = "/usr/local/libexec/cmux-native-relay-ticket";
+export const CMUX_NATIVE_RELAY_DAEMON_PATH = "/usr/local/libexec/cmux-native-relay-daemon";
+/** Stable command-line marker left after the daemon helper execs cmux-tui. */
+export const CMUX_NATIVE_RELAY_PROCESS_MARKER = `--relay-ticket-command ${CMUX_NATIVE_RELAY_TICKET_PATH}`;
+
+/**
+ * Guest-side liveness probe for the native daemon. Provider process APIs can
+ * report the outer helper command, or omit the command altogether, so checking
+ * only their metadata would either miss a healthy native process or restart it
+ * on every attach.
+ */
+export function cmuxNativeRelayProcessHealthyCommand(): string {
+  // The bracket expression keeps pgrep from matching the shell that is
+  // running this probe. That shell contains the literal command text in its
+  // argv while the daemon process contains the actual `cmux-tui` binary name.
+  return `pgrep -af '[c]mux-tui server start' | grep -F -- '${CMUX_NATIVE_RELAY_PROCESS_MARKER}' >/dev/null 2>&1`;
+}
 
 export type CmuxTuiSource = { url: string; sha256: string; commit: string; builtAt: string | null };
 
@@ -133,20 +150,106 @@ export function cmuxTuiPinCheckCommand(source: CmuxTuiSource): string {
   return `test -x ${shellQuote(CMUX_TUI_BINARY_PATH)} && printf '%s  %s\n' ${shellQuote(source.sha256)} ${shellQuote(CMUX_TUI_BINARY_PATH)} | sha256sum -c >/dev/null 2>&1`;
 }
 
-/** The listener bind every container provider uses; cmux-devbox-boot's CMUX_TUI_REMOTE_WS_BIND default. */
+/** The listener bind used by legacy provider-ingress mode. Native relay mode has no listener. */
 export const CMUX_TUI_DEFAULT_REMOTE_WS_BIND = `0.0.0.0:${CMUX_TUI_PORT}`;
 
 /**
  * The daemon command every provider's supervisor runs. Launch cwd = /root so
- * new terminals open in the persistent home. `remoteWsBind` defaults to the
- * IPv4 wildcard the container providers' proxies dial; Freestyle beta machines
- * are reached at their public IPv6 and pass a dual-stack `[::]` bind instead
- * (a container with IPv6 disabled cannot bind `[::]` at all, so dual-stack is
- * per-provider, not the default).
+ * new terminals open in the persistent home. Legacy provider-ingress mode binds
+ * `remoteWsBind`; native relay mode is deliberately outbound-only and does not
+ * bind a network listener on the VM.
  */
-export function cmuxTuiDaemonCommand(remoteWsBind: string = CMUX_TUI_DEFAULT_REMOTE_WS_BIND): string {
-  return `cd /root && env HOME=/root TERM=xterm-256color ${CMUX_TUI_BINARY_PATH} server start --session ${CMUX_TUI_SESSION} --remote-ws ${remoteWsBind} --remote-ws-insecure-bind`;
+export function cmuxTuiDaemonCommand(
+  remoteWsBind: string = CMUX_TUI_DEFAULT_REMOTE_WS_BIND,
+  nativeRelay?: NativeRelayBootstrap,
+): string {
+  if (!nativeRelay) {
+    return `cd /root && env HOME=/root TERM=xterm-256color ${CMUX_TUI_BINARY_PATH} server start --session ${CMUX_TUI_SESSION} --remote-ws ${remoteWsBind} --remote-ws-insecure-bind`;
+  }
+  return [
+    cmuxNativeRelayInstallCommand(),
+    `cd /root && env HOME=/root TERM=xterm-256color ${CMUX_NATIVE_RELAY_DAEMON_PATH} ${shellQuote(remoteWsBind)}`,
+  ].join(" && ");
 }
+
+/**
+ * Install the two small, secret-free launch helpers used by a native relay
+ * daemon. The bootstrap bearer stays in the provider environment; these
+ * scripts only read it when cmux-tui asks for a fresh ticket.
+ */
+export function cmuxNativeRelayInstallCommand(): string {
+  const ticket = Buffer.from(NATIVE_RELAY_TICKET_HELPER, "utf8").toString("base64");
+  const daemon = Buffer.from(NATIVE_RELAY_DAEMON_HELPER, "utf8").toString("base64");
+  return [
+    `install -d -m 0700 ${shellQuote(dirname(CMUX_NATIVE_RELAY_TICKET_PATH))}`,
+    `printf '%s' ${shellQuote(ticket)} | base64 -d > ${shellQuote(CMUX_NATIVE_RELAY_TICKET_PATH)}`,
+    `printf '%s' ${shellQuote(daemon)} | base64 -d > ${shellQuote(CMUX_NATIVE_RELAY_DAEMON_PATH)}`,
+    `chmod 0700 ${shellQuote(CMUX_NATIVE_RELAY_TICKET_PATH)} ${shellQuote(CMUX_NATIVE_RELAY_DAEMON_PATH)}`,
+  ].join(" && ");
+}
+
+const NATIVE_RELAY_TICKET_HELPER = `#!/bin/sh
+set -eu
+shard="\${1:-}"
+case "\$shard" in
+  "") exit 64 ;;
+  *[!A-Za-z0-9._-]*) exit 64 ;;
+esac
+ticket_url="\${CMUX_NATIVE_RELAY_TICKET_URL:-}"
+bootstrap_token="\${CMUX_NATIVE_RELAY_BOOTSTRAP_TOKEN:-}"
+[ -n "\$ticket_url" ] && [ -n "\$bootstrap_token" ] || exit 78
+case "\$ticket_url" in
+  https://*|http://127.0.0.1/*|http://127.0.0.1:*/*|http://localhost/*|http://localhost:*/*|http://\[::1\]/*|http://\[::1\]:*/*) ;;
+  *) exit 78 ;;
+esac
+if command -v curl >/dev/null 2>&1; then
+  exec curl --fail --silent --show-error --retry 3 --retry-all-errors --connect-timeout 5 --max-time 15 \\
+    --proto '=https,http' -X POST -H "Authorization: Bearer \$bootstrap_token" \\
+    "\$ticket_url?shard=\$shard"
+fi
+if command -v wget >/dev/null 2>&1; then
+  exec wget -q -O - --post-data='' --timeout=15 --tries=3 --header="Authorization: Bearer \$bootstrap_token" \\
+    "\$ticket_url?shard=\$shard"
+fi
+exit 69
+`;
+
+const NATIVE_RELAY_DAEMON_HELPER = `#!/bin/sh
+set -eu
+bind="\${1:-0.0.0.0:1337}"
+case "\$bind" in
+  *[!A-Za-z0-9.:\[\]-]*) exit 64 ;;
+esac
+shift || true
+[ "\${CMUX_NATIVE_RELAY_ENABLED:-}" = "1" ] || exit 78
+[ -n "\${CMUX_NATIVE_RELAY_TICKET_URL:-}" ] && [ -n "\${CMUX_NATIVE_RELAY_BOOTSTRAP_TOKEN:-}" ] || exit 78
+# Native helpers are installed only for relay mode. Do not fall back to an
+# unauthenticated public WebSocket listener when bootstrap configuration is
+# missing. The legacy bind argument is accepted for supervisor API
+# compatibility, but native relay mode must never pass it to cmux-tui or open
+# a direct listener.
+[ "\$#" -eq 0 ] || exit 64
+set -- server start --session cloud
+[ -n "\${CMUX_NATIVE_RELAY_1_URL:-}" ] && [ -n "\${CMUX_NATIVE_RELAY_1_SLOT:-}" ] && [ -n "\${CMUX_NATIVE_RELAY_1_ID:-}" ] || exit 78
+[ -n "\${CMUX_NATIVE_RELAY_2_URL:-}" ] && [ -n "\${CMUX_NATIVE_RELAY_2_SLOT:-}" ] && [ -n "\${CMUX_NATIVE_RELAY_2_ID:-}" ] || exit 78
+if [ -n "\${CMUX_NATIVE_RELAY_1_URL:-}" ] || [ -n "\${CMUX_NATIVE_RELAY_1_SLOT:-}" ] || [ -n "\${CMUX_NATIVE_RELAY_1_ID:-}" ]; then
+  [ -n "\${CMUX_NATIVE_RELAY_1_URL:-}" ] && [ -n "\${CMUX_NATIVE_RELAY_1_SLOT:-}" ] && [ -n "\${CMUX_NATIVE_RELAY_1_ID:-}" ] || exit 78
+  set -- "\$@" --relay "\$CMUX_NATIVE_RELAY_1_URL" --relay-slot "\$CMUX_NATIVE_RELAY_1_SLOT" --relay-ticket-command /usr/local/libexec/cmux-native-relay-ticket --relay-ticket-command-arg "\$CMUX_NATIVE_RELAY_1_ID"
+fi
+if [ -n "\${CMUX_NATIVE_RELAY_2_URL:-}" ] || [ -n "\${CMUX_NATIVE_RELAY_2_SLOT:-}" ] || [ -n "\${CMUX_NATIVE_RELAY_2_ID:-}" ]; then
+  [ -n "\${CMUX_NATIVE_RELAY_2_URL:-}" ] && [ -n "\${CMUX_NATIVE_RELAY_2_SLOT:-}" ] && [ -n "\${CMUX_NATIVE_RELAY_2_ID:-}" ] || exit 78
+  set -- "\$@" --relay "\$CMUX_NATIVE_RELAY_2_URL" --relay-slot "\$CMUX_NATIVE_RELAY_2_SLOT" --relay-ticket-command /usr/local/libexec/cmux-native-relay-ticket --relay-ticket-command-arg "\$CMUX_NATIVE_RELAY_2_ID"
+fi
+if [ -n "\${CMUX_NATIVE_RELAY_3_URL:-}" ] || [ -n "\${CMUX_NATIVE_RELAY_3_SLOT:-}" ] || [ -n "\${CMUX_NATIVE_RELAY_3_ID:-}" ]; then
+  [ -n "\${CMUX_NATIVE_RELAY_3_URL:-}" ] && [ -n "\${CMUX_NATIVE_RELAY_3_SLOT:-}" ] && [ -n "\${CMUX_NATIVE_RELAY_3_ID:-}" ] || exit 78
+  set -- "\$@" --relay "\$CMUX_NATIVE_RELAY_3_URL" --relay-slot "\$CMUX_NATIVE_RELAY_3_SLOT" --relay-ticket-command /usr/local/libexec/cmux-native-relay-ticket --relay-ticket-command-arg "\$CMUX_NATIVE_RELAY_3_ID"
+fi
+if [ -n "\${CMUX_NATIVE_RELAY_4_URL:-}" ] || [ -n "\${CMUX_NATIVE_RELAY_4_SLOT:-}" ] || [ -n "\${CMUX_NATIVE_RELAY_4_ID:-}" ]; then
+  [ -n "\${CMUX_NATIVE_RELAY_4_URL:-}" ] && [ -n "\${CMUX_NATIVE_RELAY_4_SLOT:-}" ] && [ -n "\${CMUX_NATIVE_RELAY_4_ID:-}" ] || exit 78
+  set -- "\$@" --relay "\$CMUX_NATIVE_RELAY_4_URL" --relay-slot "\$CMUX_NATIVE_RELAY_4_SLOT" --relay-ticket-command /usr/local/libexec/cmux-native-relay-ticket --relay-ticket-command-arg "\$CMUX_NATIVE_RELAY_4_ID"
+fi
+exec /root/.cmux/bin/cmux-tui "\$@"
+`;
 
 /** Enrollment invitations are `cmux://enroll/<base64url JSON>`; the id and expiry inside are what the approve flow needs. */
 export function parseEnrollmentInvitationUri(

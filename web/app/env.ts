@@ -73,6 +73,24 @@ const requireVercelRelayValue = (
       });
     }
   });
+const requireVercelNativeRelayValue = (
+  schema: z.ZodString = z.string().min(1),
+): z.ZodType<string | undefined> =>
+  schema.optional().superRefine((value, context) => {
+    // Native relay is an explicit rollout flag. Once an operator turns it on
+    // in a deployed non-preview runtime, a partial catalog must fail startup
+    // instead of leaving machines on a half-configured transport.
+    if (
+      isVercelNonPreviewDeployment &&
+      trimEnv(process.env.CMUX_NATIVE_RELAY_ENABLED) === "1" &&
+      !value
+    ) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "Native relay runtime configuration is incomplete",
+      });
+    }
+  });
 const retiredEnvValue = (
   name: string,
   replacement: string,
@@ -89,6 +107,9 @@ const privateRelayEnvNames = new Set([
   "CMUX_RELAY_JWT_PRIVATE_KEY_PEM",
   "CMUX_RELAY_POLICY_KEY_ID",
   "CMUX_RELAY_POLICY_PRIVATE_KEY_PEM",
+  "CMUX_NATIVE_RELAY_SHARDS_JSON",
+  "CMUX_NATIVE_RELAY_BOOTSTRAP_SECRET_B64",
+  "CMUX_NATIVE_RELAY_TICKET_ISSUER_URL",
 ]);
 const publicEnvValidationIssues = (issues: readonly unknown[]): readonly unknown[] => {
   const publicIssues: unknown[] = [];
@@ -339,6 +360,12 @@ export const env = createEnv({
     // CMUX_IROH_MINT_HMAC_SECRET_B64.
     CMUX_RELAY_ALLOW_HMAC_SECRET_B64:
       z.string().max(512).regex(/^[A-Za-z0-9+/]{43,}={0,2}$/).optional(),
+    // Native cmux-tui relay fleet. This is opt-in so existing deployments keep
+    // their provider ingress until the Azure shards are provisioned and tested.
+    CMUX_NATIVE_RELAY_ENABLED: z.enum(["0", "1"]).optional(),
+    CMUX_NATIVE_RELAY_SHARDS_JSON: requireVercelNativeRelayValue(z.string().min(2).max(64 * 1024)),
+    CMUX_NATIVE_RELAY_BOOTSTRAP_SECRET_B64: requireVercelNativeRelayValue(z.string().min(43).max(512)),
+    CMUX_NATIVE_RELAY_TICKET_ISSUER_URL: requireVercelNativeRelayValue(z.string().url()),
   },
   client: {
     NEXT_PUBLIC_STACK_PROJECT_ID: z.string().min(1),
@@ -445,6 +472,14 @@ export const env = createEnv({
     ),
     CMUX_RELAY_ALLOW_HMAC_SECRET_B64: trimEnv(
       process.env.CMUX_RELAY_ALLOW_HMAC_SECRET_B64,
+    ),
+    CMUX_NATIVE_RELAY_ENABLED: trimEnv(process.env.CMUX_NATIVE_RELAY_ENABLED),
+    CMUX_NATIVE_RELAY_SHARDS_JSON: trimEnv(process.env.CMUX_NATIVE_RELAY_SHARDS_JSON),
+    CMUX_NATIVE_RELAY_BOOTSTRAP_SECRET_B64: trimEnv(
+      process.env.CMUX_NATIVE_RELAY_BOOTSTRAP_SECRET_B64,
+    ),
+    CMUX_NATIVE_RELAY_TICKET_ISSUER_URL: trimEnv(
+      process.env.CMUX_NATIVE_RELAY_TICKET_ISSUER_URL,
     ),
     NEXT_PUBLIC_STACK_PROJECT_ID: stackEnv(
       process.env.NEXT_PUBLIC_STACK_PROJECT_ID,

@@ -2,8 +2,8 @@
 
 This directory packages `cmux-relay` as an independent cmux Cloud data-plane
 service. It is not the chatmux relay and it does not use Durable Objects.
-This slice adds the service binary, Azure topology, and lifecycle contract. It
-does not change the provider attach routes or deploy Azure resources.
+This slice adds the service binary, Azure topology, lifecycle contract, and the
+cmux Cloud control-plane integration. It does not deploy Azure resources.
 
 The relay forwards encrypted WebSocket frames. It does not parse PTY data,
 port data, browser frames, or workspace RPC data. PTY, loopback port forwarding,
@@ -26,10 +26,13 @@ The cmux Cloud control plane will assign each machine a stable relay shard. The
 machine and every client will receive that shard endpoint. A shard has one
 active relay process because its circuit pairing table is in memory. Azure
 repairs that VM when it fails. A second shard provides capacity and a reconnect
-target. Each fallback shard has its own issuer and HMAC secret, so the control
-plane must issue a matching ticket set for every endpoint it gives to a machine
-and client. The control-plane assignment and provider bootstrap are the next
-integration slice.
+target. Each fallback shard has its own issuer and HMAC secret. The control
+plane assigns two stable shards to each machine, passes the machine ticket
+helper and shard catalog to all four current providers, and gives clients
+short-lived Connect tickets through the Stack-authenticated API.
+
+Use the issuer convention `cmux-cloud-<shard>` in the relay catalog. The Azure
+cloud-init service sets that value for the matching shard.
 
 Do not put several relay processes behind one generic load balancer. The machine
 and client use different network flows, so a five-tuple hash cannot guarantee
@@ -122,6 +125,11 @@ and deploy this template once per shard. Keep `vmssCapacity=1`.
 
 1. Store the relay HMAC secret and a versioned TLS certificate secret in the
    existing Key Vault. The HMAC secret must contain at least 32 random bytes.
+   Key Vault stores this value as text. The matching `secretB64` value in
+   `CMUX_NATIVE_RELAY_SHARDS_JSON` must be base64 of the exact UTF-8 text stored
+   in Key Vault, including no trailing newline. For example, if Key Vault
+   contains a 64-character hex secret, encode those 64 characters, not the
+   decoded 32 bytes. Use a different secret for every shard.
    Set `certificateSecretName` to the TLS secret name used in
    `certificateSecretId`.
 2. Copy `bicep/shard.parameters.example.json` to a private parameters file.
@@ -139,9 +147,9 @@ az deployment group create \
   --parameters @relays/azure/bicep/shard.parameters.private.json
 ```
 
-The output `relayRoute` is the route to publish in the cmux relay catalog. Add
-a CNAME such as `relay-westus2-a.cmux.cloud` to the output hostname. DNS changes
-are outside this template.
+The output `relayRoute` is the canonical `/v1/relay` route to publish in the
+cmux relay catalog. Add a CNAME such as `relay-westus2-a.cmux.cloud` to the
+output hostname. DNS changes are outside this template.
 
 The Bicep deployment grants each identity the Azure Key Vault Secrets User role
 at its individual secret scope. Role propagation can delay the first service
@@ -154,8 +162,9 @@ Use an immutable binary digest and a rolling VMSS model update. Before a
 planned replacement, systemd sends `SIGTERM` to the relay. The relay marks
 itself not ready, Azure stops sending new traffic, and existing sockets drain.
 Clients retry with unlimited attempts by default, exponential backoff from
-100 ms to 5 seconds, jitter, and heartbeats. The daemon retains replayable
-remote lanes for its resume lease and replays them after reconnect. Tunnel
+100 ms to 5 seconds, full jitter, and heartbeats. The daemon registration loop
+uses the same bounded exponential range and keeps retrying until shutdown. The
+daemon retains replayable remote lanes for its resume lease and replays them after reconnect. Tunnel
 streams are not replayed after a disconnect because repeating a TCP write can
 have an external side effect.
 
@@ -187,6 +196,5 @@ curl -fsS http://127.0.0.1:8787/healthz
 curl -fsS http://127.0.0.1:8787/readyz
 ```
 
-No Azure resources are created by this change. Provider bootstrap, shard
-catalog assignment, and cmux API ticket issuance are the next integration
-slice.
+No Azure resources are created by this change. Set the native relay environment
+and deploy the shard resources before enabling it for production traffic.

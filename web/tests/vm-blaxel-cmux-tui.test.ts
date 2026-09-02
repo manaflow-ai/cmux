@@ -1,4 +1,8 @@
 import { describe, expect, test } from "bun:test";
+import { spawnSync } from "node:child_process";
+import { chmodSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import path from "node:path";
 import {
   cmuxTuiDaemonCommand,
   cmuxTuiPreviewBranded,
@@ -84,6 +88,81 @@ describe("cmux-tui install and daemon commands", () => {
     const command = cmuxTuiDaemonCommand();
     expect(command.startsWith("cd /root && env HOME=/root")).toBe(true);
     expect(command).toContain("server start --session cloud --remote-ws 0.0.0.0:1337 --remote-ws-insecure-bind");
+  });
+
+  test("native relay daemon receives all assigned routes and fetches tickets on demand", () => {
+    const command = cmuxTuiDaemonCommand("0.0.0.0:1337", {
+      slot: "vm-id",
+      ticketUrl: "https://cmux.example/api/internal/vm/id/relay-ticket",
+      bootstrapToken: "bootstrap-token",
+      routes: [
+        { id: "relay-a", route: "relay+wss://relay-a.example/v1/relay", slot: "vm-id" },
+        { id: "relay-b", route: "relay+wss://relay-b.example/v1/relay", slot: "vm-id" },
+      ],
+    });
+    expect(command).toContain("cmux-native-relay-daemon");
+    // The helper reads route and credential values from the provider env at
+    // launch time, so secrets and route values are not embedded in this
+    // command string.
+    expect(command).toContain("cmux-native-relay-ticket");
+    expect(command).not.toContain("bootstrap-token");
+    const encodedScripts = [...command.matchAll(/printf '%s' '([^']+)' \| base64 -d/g)].map(
+      (match) => Buffer.from(match[1]!, "base64").toString("utf8"),
+    );
+    const helper = encodedScripts.join("\n");
+    expect(helper).toContain("CMUX_NATIVE_RELAY_1_URL");
+    expect(helper).toContain("CMUX_NATIVE_RELAY_2_URL");
+    expect(helper).not.toContain("--remote-ws");
+    expect(helper).toContain('[ "${CMUX_NATIVE_RELAY_ENABLED:-}" = "1" ] || exit 78');
+  });
+
+  test("native relay helper does not pass the legacy bind as a cmux-tui argument", () => {
+    const command = cmuxTuiDaemonCommand("0.0.0.0:1337", {
+      slot: "vm-id",
+      ticketUrl: "https://cmux.example/api/internal/vm/id/relay-ticket",
+      bootstrapToken: "bootstrap-token",
+      routes: [
+        { id: "relay-a", route: "relay+wss://relay-a.example/v1/relay", slot: "vm-id" },
+        { id: "relay-b", route: "relay+wss://relay-b.example/v1/relay", slot: "vm-id" },
+      ],
+    });
+    const encodedScripts = [...command.matchAll(/printf '%s' '([^']+)' \| base64 -d/g)].map(
+      (match) => Buffer.from(match[1]!, "base64").toString("utf8"),
+    );
+    const daemon = encodedScripts.find((script) => script.includes("set -- server start --session cloud"));
+    expect(daemon).toBeDefined();
+
+    const root = mkdtempSync(path.join(tmpdir(), "cmux-native-relay-helper-"));
+    try {
+      const binary = path.join(root, "cmux-tui");
+      const helper = path.join(root, "daemon");
+      writeFileSync(binary, '#!/bin/sh\nprintf "%s\\n" "$@"\n');
+      chmodSync(binary, 0o755);
+      writeFileSync(helper, daemon!.replaceAll("/root/.cmux/bin/cmux-tui", binary));
+      chmodSync(helper, 0o755);
+      const result = spawnSync("/bin/sh", [helper, "0.0.0.0:1337"], {
+        env: {
+          ...process.env,
+          CMUX_NATIVE_RELAY_ENABLED: "1",
+          CMUX_NATIVE_RELAY_TICKET_URL: "https://cmux.example/ticket",
+          CMUX_NATIVE_RELAY_BOOTSTRAP_TOKEN: "bootstrap-token",
+          CMUX_NATIVE_RELAY_1_URL: "relay+wss://relay-a.example/v1/relay",
+          CMUX_NATIVE_RELAY_1_SLOT: "vm-id",
+          CMUX_NATIVE_RELAY_1_ID: "relay-a",
+          CMUX_NATIVE_RELAY_2_URL: "relay+wss://relay-b.example/v1/relay",
+          CMUX_NATIVE_RELAY_2_SLOT: "vm-id",
+          CMUX_NATIVE_RELAY_2_ID: "relay-b",
+        },
+        encoding: "utf8",
+      });
+      expect(result.status).toBe(0);
+      const args = result.stdout.trim().split("\n");
+      expect(args.slice(0, 4)).toEqual(["server", "start", "--session", "cloud"]);
+      expect(args).not.toContain("0.0.0.0:1337");
+      expect(args).toContain("--relay");
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
   });
 });
 

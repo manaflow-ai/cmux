@@ -10,15 +10,20 @@ import {
   type ExecResult,
   type SnapshotRef,
   type VMHandle,
+  type VMResumeOptions,
   type VMStatus,
 } from "./types";
 import { recordSpanError, setSpanAttributes, withVmSpan } from "../telemetry";
 import { imageUsesFreestyleBetaPlatform } from "../images/resolver";
+import { nativeRelayProviderEnvironment } from "../nativeRelay";
+import { shellQuote } from "./wsLease";
 import {
   CMUX_TUI_INSTALL_TIMEOUT_MS,
   CMUX_TUI_PORT,
   CMUX_TUI_SESSION,
   approveCmuxTuiEnrollment,
+  cmuxNativeRelayInstallCommand,
+  cmuxNativeRelayProcessHealthyCommand,
   cmuxTuiDaemonBuild,
   cmuxTuiDaemonCommand,
   cmuxTuiInstallCommand,
@@ -36,20 +41,21 @@ import {
 // legacy 0.1.51 platform code there keeps serving existing production machines.
 //
 // Machines attach through the cmux-tui remote daemon (transport `cmux-remote`,
-// docs/cloud-cmux-tui-daemon.md), the same model as Blaxel/E2B/Daytona. The
-// beta API has no HTTP ingress proxy to arbitrary VM ports (verified against
-// /openapi.json: no preview/port routes; TLS edge rules need a customer-verified
-// domain), so the route is the VM's stable public IPv6 straight to the daemon:
-// `ws://[<publicIpv6>]:1337/v1/link`. The daemon's Noise handshake encrypts and
-// authenticates the session end to end (carrier TLS is not required and the
-// route token only feeds the lease ledger, exactly like E2B's public proxy).
-// The daemon must therefore bind dual-stack: the baked systemd unit sets
-// CMUX_TUI_REMOTE_WS_BIND=[::]:1337 and the driver re-asserts it on heal.
+// docs/cloud-cmux-tui-daemon.md), the same model as Blaxel/E2B/Daytona. Native
+// relay mode is outbound-only and does not expose a VM port. Legacy beta
+// machines still use the stable public IPv6 route
+// `ws://[<publicIpv6>]:1337/v1/link`, because the beta API has no HTTP ingress
+// proxy to arbitrary VM ports. The daemon's Noise handshake encrypts and
+// authenticates the session end to end. The legacy daemon must bind dual-stack:
+// the baked systemd unit sets CMUX_TUI_REMOTE_WS_BIND=[::]:1337 and the driver
+// re-asserts it on heal.
 //
-// Beta creates take NO ports field, NO create-time env, and NO systemd
-// injection; `firewall` is mandatory. Model-plane env is delivered by writing
-// the persisted /root/.config/cmux/model-plane.env file (0600) that
-// /etc/cmux/agent-config.sh already sources when the boot env is absent.
+// Beta creates take NO ports or create-time env fields; `firewall` is mandatory.
+// Native relay bootstrap is installed immediately after create through the
+// provider exec/filesystem APIs, then loaded by a systemd drop-in. Model-plane
+// env is delivered by writing the persisted /root/.config/cmux/model-plane.env
+// file (0600) that /etc/cmux/agent-config.sh already sources when boot env is
+// absent.
 
 export const FREESTYLE_PLATFORM_METADATA_KEY = "freestylePlatform";
 /** Beta VM ids are `vm-<32 hex>`; legacy ids are bare 20-char base36. */
@@ -69,6 +75,7 @@ const MAX_EXEC_TIMEOUT_MS = 300_000;
 const EXEC_OVERHEAD_TIMEOUT_MS = 15_000;
 const ROUTE_TOKEN_TTL_SECONDS = 12 * 60 * 60;
 const MODEL_PLANE_ENV_PATH = "/root/.config/cmux/model-plane.env";
+const NATIVE_RELAY_ENV_PATH = "/root/.config/cmux/native-relay.env";
 
 export function isFreestyleBetaVmId(vmId: string): boolean {
   return FREESTYLE_BETA_VM_ID_PATTERN.test(vmId.trim());
@@ -106,20 +113,20 @@ function betaClient(timeoutMs = DEFAULT_TIMEOUT_MS): Freestyle {
 }
 
 /**
- * Outbound open (package installs, files.cmux.com, agents); inbound only the
- * cmux-tui daemon port. Beta's mandatory `firewall` field defaults to NOTHING —
- * no outbound, no inbound — so both rules are stated. Session auth on 1337 is
- * the daemon's Noise device enrollment; the platform edge closing every other
- * port is the same posture the e2b driver builds by hand with iptables.
+ * Outbound open (package installs, files.cmux.com, agents). Legacy direct mode
+ * also permits the cmux-tui daemon port. Native relay mode has no inbound rule,
+ * because its daemon dials the relay shards and never binds port 1337. Beta's
+ * mandatory `firewall` field defaults to NOTHING, so both modes state their
+ * intended rules explicitly.
  */
-export function freestyleBetaFirewallRules() {
+export function freestyleBetaFirewallRules(nativeRelay = false) {
   return [
     { action: "allow" as const, source: {}, destination: { public: true as const } },
-    {
+    ...(nativeRelay ? [] : [{
       action: "allow" as const,
       source: { public: true as const },
       destination: { port: CMUX_TUI_PORT, protocol: "tcp" as const },
-    },
+    }]),
   ];
 }
 
@@ -151,6 +158,20 @@ export function renderFreestyleModelPlaneEnvFile(envs: Readonly<Record<string, s
   ];
   if (envs.OPENAI_API_KEY) lines.push(`export OPENAI_API_KEY=${quote(envs.OPENAI_API_KEY)}`);
   if (envs.CMUX_CODEROUTER_URL) lines.push(`export CMUX_CODEROUTER_URL=${quote(envs.CMUX_CODEROUTER_URL)}`);
+  return `${lines.join("\n")}\n`;
+}
+
+/** Render native relay bootstrap values for the beta VM's persistent root-only env file. */
+function renderNativeRelayEnvFile(
+  nativeRelay: CreateOptions["nativeRelay"],
+): string | null {
+  if (!nativeRelay) return null;
+  const values = nativeRelayProviderEnvironment(nativeRelay);
+  const quote = (value: string) => `'${value.replace(/'/g, `'\\''`)}'`;
+  const lines = ["# generated by cmux; managed, do not edit"];
+  for (const [name, value] of Object.entries(values)) {
+    lines.push(`export ${name}=${quote(value)}`);
+  }
   return `${lines.join("\n")}\n`;
 }
 
@@ -187,12 +208,17 @@ export function mapFreestyleBetaState(state: VmData["state"] | null | undefined)
  * appears in /proc/net/tcp, is unreachable at the public IPv6, and must be
  * restarted under the dual-stack override.
  */
-export function freestyleBetaDaemonHealthyCommand(): string {
-  return "pgrep -f 'cmux-tui server start' >/dev/null 2>&1 && grep -qi ':0539 ' /proc/net/tcp6";
+export function freestyleBetaDaemonHealthyCommand(nativeRelay = false): string {
+  const processCheck = nativeRelay
+    ? cmuxNativeRelayProcessHealthyCommand()
+    : "pgrep -f 'cmux-tui server start' >/dev/null 2>&1";
+  return nativeRelay ? processCheck : `${processCheck} && grep -qi ':0539 ' /proc/net/tcp6`;
 }
 
 const REMOTE_WS_BIND_OVERRIDE =
   "/etc/systemd/system/cmux-tui-daemon.service.d/10-cmux-remote-ws-bind.conf";
+const NATIVE_RELAY_ENV_OVERRIDE =
+  "/etc/systemd/system/cmux-tui-daemon.service.d/20-cmux-native-relay-env.conf";
 
 /**
  * (Re)start the daemon listening dual-stack. Under systemd (the baked
@@ -202,15 +228,25 @@ const REMOTE_WS_BIND_OVERRIDE =
  * Without systemd (or the unit), fall back to a direct daemon launch with the
  * dual-stack bind, mirroring the Daytona driver's fallback.
  */
-export function freestyleBetaStartDaemonCommand(): string {
+export function freestyleBetaStartDaemonCommand(nativeRelay?: CreateOptions["nativeRelay"]): string {
+  const systemdRemoteWs = nativeRelay
+    ? `rm -f ${REMOTE_WS_BIND_OVERRIDE};`
+    : `printf '[Service]\\nEnvironment=CMUX_TUI_REMOTE_WS_BIND=${FREESTYLE_BETA_REMOTE_WS_BIND}\\n' > ${REMOTE_WS_BIND_OVERRIDE};`;
+  const systemdEnv = nativeRelay
+    ? `printf '[Service]\\nEnvironmentFile=-${NATIVE_RELAY_ENV_PATH}\\n' > ${NATIVE_RELAY_ENV_OVERRIDE};`
+    : `rm -f ${NATIVE_RELAY_ENV_OVERRIDE};`;
+  const fallbackCommand = nativeRelay
+    ? `set -a; . ${NATIVE_RELAY_ENV_PATH}; set +a; ${cmuxTuiDaemonCommand(FREESTYLE_BETA_REMOTE_WS_BIND, nativeRelay)}`
+    : cmuxTuiDaemonCommand(FREESTYLE_BETA_REMOTE_WS_BIND);
   return [
     "if [ -d /run/systemd/system ] && [ -f /etc/systemd/system/cmux-tui-daemon.service ]; then",
     `mkdir -p ${REMOTE_WS_BIND_OVERRIDE.replace(/\/[^/]+$/, "")};`,
-    `printf '[Service]\\nEnvironment=CMUX_TUI_REMOTE_WS_BIND=${FREESTYLE_BETA_REMOTE_WS_BIND}\\n' > ${REMOTE_WS_BIND_OVERRIDE};`,
+    systemdRemoteWs,
+    systemdEnv,
     "systemctl daemon-reload;",
     "systemctl restart cmux-tui-daemon;",
     "else",
-    `pgrep -f 'cmux-tui server start' >/dev/null 2>&1 || (setsid nohup sh -c '${cmuxTuiDaemonCommand(FREESTYLE_BETA_REMOTE_WS_BIND)}' >>/tmp/cmux-tui-daemon.log 2>&1 &);`,
+    `${nativeRelay ? cmuxNativeRelayProcessHealthyCommand() : "pgrep -f 'cmux-tui server start' >/dev/null 2>&1"} || (setsid nohup sh -c ${shellQuote(fallbackCommand)} >>/tmp/cmux-tui-daemon.log 2>&1 &);`,
     "fi",
   ].join(" ");
 }
@@ -276,11 +312,11 @@ export class FreestyleBetaPlatform {
             snapshotId: image,
             displayName: "cmux Cloud VM",
             metadata: { cmux: "cloud" },
-            firewall: { rules: freestyleBetaFirewallRules() },
+            firewall: { rules: freestyleBetaFirewallRules(!!options.nativeRelay) },
           });
           setSpanAttributes(span, { "cmux.vm.id": vmId });
           try {
-            await this.bootstrapCmuxTui(vm, vmId, options.envs);
+            await this.bootstrapCmuxTui(vm, vmId, options.envs, options.nativeRelay);
           } catch (err) {
             // A VM that failed to bootstrap must not survive as an orphan.
             await vm.delete().catch((cleanupErr) => {
@@ -354,7 +390,7 @@ export class FreestyleBetaPlatform {
     );
   }
 
-  async resume(vmId: string): Promise<VMHandle> {
+  async resume(vmId: string, options?: VMResumeOptions): Promise<VMHandle> {
     return withVmSpan(
       "cmux.vm.provider.resume",
       betaSpanAttributes(vmId, "resume"),
@@ -369,9 +405,10 @@ export class FreestyleBetaPlatform {
           // stopped) relies on the baked systemd unit. Heal best-effort so the
           // first attach doesn't race the unit; attach re-verifies anyway.
           try {
-            await this.ensureCmuxTuiRunning(vm, vmId);
+            await this.ensureCmuxTuiRunning(vm, vmId, options?.nativeRelay);
           } catch (healErr) {
             recordSpanError(span, healErr);
+            if (options?.nativeRelay) throw healErr;
           }
           return {
             provider: "freestyle" as const,
@@ -483,16 +520,23 @@ export class FreestyleBetaPlatform {
           const fs = betaClient(CMUX_TUI_INSTALL_TIMEOUT_MS + EXEC_OVERHEAD_TIMEOUT_MS);
           const vm = fs.vms.ref(vmId);
           const data = await vm.data();
-          const route = freestyleBetaCmuxRemoteRoute(data.publicIpv6, vmId);
-          await this.ensureCmuxTuiRunning(vm, vmId);
+          const route = options?.nativeRelay
+            ? options.nativeRelay.routes[0]?.route ?? ""
+            : freestyleBetaCmuxRemoteRoute(data.publicIpv6, vmId);
+          if (!route) throw new Error("native relay returned no route");
+          await this.ensureCmuxTuiRunning(vm, vmId, options?.nativeRelay);
           const invoke = this.cmuxTuiInvoke(vm);
           // Direct-IPv6 carries no URL token; this one exists only for the
           // lease ledger. The daemon's Noise enrollment is the session gate —
           // the same trust model as E2B's public proxy route.
-          const token = `cmux-freestyle-route-${randomBytes(32).toString("hex")}`;
+          const token = options?.nativeRelay
+            ? "native-relay"
+            : `cmux-freestyle-route-${randomBytes(32).toString("hex")}`;
           const expiresAtUnix = Math.floor(Date.now() / 1000) + ROUTE_TOKEN_TTL_SECONDS;
           let invitation: CmuxRemoteEndpoint["invitation"];
-          const enrolled = options?.deviceFingerprint
+          const enrolled = options?.includeInvitation === false
+            ? true
+            : options?.deviceFingerprint
             ? await isCmuxTuiDeviceEnrolled(invoke, options.deviceFingerprint)
             : false;
           if (!enrolled) {
@@ -535,15 +579,24 @@ export class FreestyleBetaPlatform {
     );
   }
 
-  /** Installs the pinned binary, persists the model-plane env, starts the daemon (fresh create). */
-  private async bootstrapCmuxTui(vm: Vm, vmId: string, envs?: Readonly<Record<string, string>>): Promise<void> {
+  /** Installs the pinned binary, persists machine env, and starts the daemon (fresh create). */
+  private async bootstrapCmuxTui(
+    vm: Vm,
+    vmId: string,
+    envs?: Readonly<Record<string, string>>,
+    nativeRelay?: CreateOptions["nativeRelay"],
+  ): Promise<void> {
     const source = await resolveCmuxTuiSource("freestyle");
     await this.execOrThrow(vm, vmId, cmuxTuiInstallCommand(source), CMUX_TUI_INSTALL_TIMEOUT_MS)
       .catch((err: unknown) => {
         throw new ProviderError("freestyle", `cmux-tui install in ${vmId} failed: ${errorMessage(err)}`);
-      });
+    });
     if (envs) await this.writeModelPlaneEnv(vm, vmId, envs);
-    await this.execOrThrow(vm, vmId, freestyleBetaStartDaemonCommand(), 60_000);
+    if (nativeRelay) {
+      await this.writeNativeRelayEnv(vm, vmId, nativeRelay);
+      await this.execOrThrow(vm, vmId, cmuxNativeRelayInstallCommand(), 60_000);
+    }
+    await this.execOrThrow(vm, vmId, freestyleBetaStartDaemonCommand(nativeRelay), 60_000);
     await waitForCmuxTuiReady(this.cmuxTuiInvoke(vm), "freestyle", vmId);
   }
 
@@ -564,6 +617,21 @@ export class FreestyleBetaPlatform {
     }
   }
 
+  private async writeNativeRelayEnv(
+    vm: Vm,
+    vmId: string,
+    nativeRelay: CreateOptions["nativeRelay"],
+  ): Promise<void> {
+    const content = renderNativeRelayEnvFile(nativeRelay);
+    if (!content) return;
+    try {
+      await vm.exec({ command: `mkdir -p ${NATIVE_RELAY_ENV_PATH.replace(/\/[^/]+$/, "")}`, timeoutMs: 30_000 });
+      await vm.fs.writeTextFile(NATIVE_RELAY_ENV_PATH, content, { mode: 0o600 });
+    } catch (err) {
+      throw new ProviderError("freestyle", `native relay env write in ${vmId} failed`, err);
+    }
+  }
+
   /**
    * Attach-time heal, mirroring the other cmux-tui drivers: a daemon that is
    * running AND listening dual-stack is left alone; anything else is repaired,
@@ -571,8 +639,19 @@ export class FreestyleBetaPlatform {
    * pin change. The dual-stack check matters because a machine from an older
    * bake boots the daemon on 0.0.0.0, which the public-IPv6 route cannot reach.
    */
-  private async ensureCmuxTuiRunning(vm: Vm, vmId: string): Promise<void> {
-    const healthy = await this.execResult(vm, freestyleBetaDaemonHealthyCommand());
+  private async ensureCmuxTuiRunning(
+    vm: Vm,
+    vmId: string,
+    nativeRelay?: CreateOptions["nativeRelay"],
+  ): Promise<void> {
+    if (nativeRelay) {
+      await this.writeNativeRelayEnv(vm, vmId, nativeRelay);
+      const helper = await this.execResult(vm, cmuxNativeRelayInstallCommand());
+      if (!helper || helper.exitCode !== 0) {
+        throw new ProviderError("freestyle", `native relay helper install in ${vmId} failed`);
+      }
+    }
+    const healthy = await this.execResult(vm, freestyleBetaDaemonHealthyCommand(!!nativeRelay));
     if (healthy?.exitCode === 0) return;
     const source = await resolveCmuxTuiSource("freestyle");
     const pinned = await this.execResult(vm, cmuxTuiPinCheckCommand(source));
@@ -582,7 +661,7 @@ export class FreestyleBetaPlatform {
           throw new ProviderError("freestyle", `cmux-tui install in ${vmId} failed: ${errorMessage(err)}`);
         });
     }
-    await this.execOrThrow(vm, vmId, freestyleBetaStartDaemonCommand(), 60_000);
+    await this.execOrThrow(vm, vmId, freestyleBetaStartDaemonCommand(nativeRelay), 60_000);
     await waitForCmuxTuiReady(this.cmuxTuiInvoke(vm), "freestyle", vmId);
   }
 

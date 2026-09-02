@@ -694,6 +694,13 @@ fn start_connected(mut flags: ConnectFlags) -> anyhow::Result<ConnectedRuntime> 
         (known.route_hints.clone(), auth, Some(key), Some(known), false)
     };
 
+    // Route-scoped relay credentials are also route candidates. The first
+    // positional route selects daemon identity and auth; every additional
+    // relay route must still be resolved so the multiplexer can fail over.
+    let mut route_strings = route_strings;
+    for route in &relay_route_names {
+        push_unique(&mut route_strings, route.clone());
+    }
     let mut routes = resolve_route_candidates(&route_strings, &flags.routing, &providers)?;
     promote_reachable_unix_routes(&mut routes);
     if flags.upgrade && routes.first().is_none_or(|route| route.endpoint.scheme() != "ssh") {

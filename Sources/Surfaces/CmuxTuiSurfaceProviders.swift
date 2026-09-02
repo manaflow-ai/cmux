@@ -495,9 +495,46 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
 
     /// The endpoint for `port`, minted through the control plane on a miss and cached.
     private func endpoint(port: Int, desktop: Bool) async throws -> URL {
+        // A native forward is a local process, not a provider URL. Reuse its
+        // listener before asking the control plane to mint another lease.
+        if let forwarded = await links.forwardedURL(machineID: machineID, port: port) {
+            let raw = desktop
+                ? CmuxTuiSnapshotParser.desktopURL(openURL: forwarded.absoluteString)
+                : forwarded.absoluteString
+            guard let url = URL(string: raw) else { throw ProviderError.badURL(raw) }
+            return url
+        }
+        // A connected native link must never fall back to a legacy provider URL
+        // that survived in memory from before the transport rollout. Mint a new
+        // native endpoint and recreate the loopback listener instead.
+        let nativeRelayActive = await links.nativeRelayActive(machineID: machineID)
+        if nativeRelayActive {
+            guard let client = VMClient.shared else { throw ProviderError.notSignedIn }
+            let minted = try await client.openPort(id: machineID, port: port)
+            guard minted.transport == "cmux-remote" else {
+                throw ProviderError.badURL("Cloud VM changed from native relay to provider preview while the link was active.")
+            }
+            let forwarded = try await links.forward(machineID: machineID, port: port, endpoint: minted)
+            let raw = desktop
+                ? CmuxTuiSnapshotParser.desktopURL(openURL: forwarded.url.absoluteString)
+                : forwarded.url.absoluteString
+            guard let url = URL(string: raw) else { throw ProviderError.badURL(raw) }
+            return url
+        }
+        // Check the legacy cache after the live native forward. A rollout can
+        // change an in-memory provider from preview transport to native relay;
+        // an old cached provider URL must not win over the live loopback route.
         if let url = endpointURL(port: port, desktop: desktop) { return url }
         guard let client = VMClient.shared else { throw ProviderError.notSignedIn }
         let minted = try await client.openPort(id: machineID, port: port)
+        if minted.transport == "cmux-remote" {
+            let forwarded = try await links.forward(machineID: machineID, port: port, endpoint: minted)
+            let raw = desktop
+                ? CmuxTuiSnapshotParser.desktopURL(openURL: forwarded.url.absoluteString)
+                : forwarded.url.absoluteString
+            guard let url = URL(string: raw) else { throw ProviderError.badURL(raw) }
+            return url
+        }
         let raw = desktop ? CmuxTuiSnapshotParser.desktopURL(openURL: minted.openUrl) : minted.openUrl
         guard let url = URL(string: raw) else { throw ProviderError.badURL(raw) }
         endpoints.store(openURL: minted.openUrl, port: port)
@@ -508,7 +545,9 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
     /// failure is silent here — the drop itself reports it — and retried next refresh.
     private func prefetchDesktopEndpoint() {
         let port = CmuxTuiSnapshotParser.desktopPort
-        guard endpointPrefetch == nil, endpoints.openURL(port: port) == nil, VMClient.shared != nil else { return }
+        guard endpointPrefetch == nil,
+              endpoints.openURL(port: port) == nil,
+              VMClient.shared != nil else { return }
         endpointPrefetch = Task { [weak self] in
             guard let self else { return }
             _ = try? await self.endpoint(port: port, desktop: true)

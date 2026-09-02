@@ -26,7 +26,9 @@ struct MarkdownWebRenderer: NSViewRepresentable {
     /// Called after the renderer view is attached to a window. A panel can
     /// request focus before SwiftUI mounts its WebKit view, so the panel uses
     /// this lifecycle signal to complete that request without polling.
-    let onViewAttachedToWindow: () -> Void = {}
+    // Keep this mutable so Swift includes the defaulted callback in the
+    // synthesized memberwise initializer on the older service branch.
+    var onViewAttachedToWindow: () -> Void = {}
 
     func makeCoordinator() -> Coordinator {
         session.coordinator(panelId: panelId, workspaceId: workspaceId, filePath: filePath)

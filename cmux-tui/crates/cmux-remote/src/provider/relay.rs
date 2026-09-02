@@ -1137,6 +1137,34 @@ pub struct RelayDaemonRegistration {
     task: Option<tokio::task::JoinHandle<()>>,
 }
 
+/// A relay registration that can be kept alive while its first carrier
+/// connection is still being established.
+///
+/// Daemons have more than one relay route for redundancy. The startup path
+/// must not block the whole daemon on a single unavailable route, but callers
+/// that need the old all-or-nothing readiness contract can still use
+/// `register_relay_daemon_with_credentials` below.
+pub struct RelayDaemonStartup {
+    registration: RelayDaemonRegistration,
+    ready: oneshot::Receiver<Result<(), ProviderError>>,
+}
+
+impl fmt::Debug for RelayDaemonStartup {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.debug_struct("RelayDaemonStartup").finish_non_exhaustive()
+    }
+}
+
+impl RelayDaemonStartup {
+    /// Split the startup handle so a caller can apply its own readiness
+    /// policy while retaining the registration on a timeout.
+    pub fn into_parts(
+        self,
+    ) -> (RelayDaemonRegistration, oneshot::Receiver<Result<(), ProviderError>>) {
+        (self.registration, self.ready)
+    }
+}
+
 impl fmt::Debug for RelayDaemonRegistration {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         formatter.debug_struct("RelayDaemonRegistration").finish_non_exhaustive()
@@ -1172,9 +1200,33 @@ pub async fn register_relay_daemon(
 
 pub async fn register_relay_daemon_with_credentials(
     daemon: Arc<RemoteDaemon>,
-    mut config: RelayDaemonConfig,
+    config: RelayDaemonConfig,
     credentials: RelayCredentialSource,
 ) -> Result<RelayDaemonRegistration, ProviderError> {
+    let startup = spawn_relay_daemon_with_credentials(daemon, config, credentials)?;
+    let (registration, ready) = startup.into_parts();
+    match ready.await {
+        Ok(Ok(())) => Ok(registration),
+        Ok(Err(error)) => {
+            registration.shutdown().await;
+            Err(error)
+        }
+        Err(_) => {
+            registration.shutdown().await;
+            Err(ProviderError::Transport("relay registration stopped before ready".into()))
+        }
+    }
+}
+
+/// Start relay registration without waiting for the first carrier.
+///
+/// The returned registration owns a retry loop. Dropping or shutting it down
+/// stops that loop, including when the initial carrier is unavailable.
+pub fn spawn_relay_daemon_with_credentials(
+    daemon: Arc<RemoteDaemon>,
+    mut config: RelayDaemonConfig,
+    credentials: RelayCredentialSource,
+) -> Result<RelayDaemonStartup, ProviderError> {
     config.ticket.zeroize();
     config.validate_common()?;
     let framing = RelayCircuitFraming::for_route(&sanitized_route(&config.endpoint));
@@ -1190,10 +1242,10 @@ pub async fn register_relay_daemon_with_credentials(
         shutdown_rx,
         Some(ready_tx),
     ));
-    ready_rx.await.map_err(|_| {
-        ProviderError::Transport("relay registration stopped before ready".into())
-    })??;
-    Ok(RelayDaemonRegistration { shutdown: shutdown_tx, task: Some(task) })
+    Ok(RelayDaemonStartup {
+        registration: RelayDaemonRegistration { shutdown: shutdown_tx, task: Some(task) },
+        ready: ready_rx,
+    })
 }
 
 async fn run_registration_loop(

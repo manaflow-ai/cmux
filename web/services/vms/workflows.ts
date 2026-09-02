@@ -4,12 +4,21 @@ import * as Layer from "effect/Layer";
 import type {
   AttachEndpoint,
   AttachOptions,
+  CmuxRemoteEndpoint,
+  NativeRelayAttachGrant,
   ExecResult,
+  NativeRelayBootstrap,
   ProviderId,
   SSHEndpoint,
   VMHandle,
   VMStatus,
 } from "./drivers";
+import {
+  freestylePlatformIsBeta,
+  isFreestyleBetaSnapshotId,
+  isFreestyleBetaVmId,
+} from "./drivers/freestyleBeta";
+import { imageUsesFreestyleBetaPlatform } from "./images/resolver";
 import {
   VmBillingGateway,
   VmBillingGatewayLive,
@@ -56,6 +65,15 @@ import {
   type VmRepositoryShape,
 } from "./repository";
 import { measureVmEffect, type VmTimingSink } from "./timings";
+import {
+  nativeRelayAttachGrants,
+  nativeRelayBootstrapForVm,
+  isNativeRelayProvisioned,
+  markNativeRelayProvisioned,
+  readNativeRelayConfig,
+  NativeRelayConfigError,
+  type NativeRelayConfig,
+} from "./nativeRelay";
 
 export {
   homeVolumeNameForUser,
@@ -100,6 +118,114 @@ const ACTIVE_IDENTITY_REVOKE_HOT_PATH_LIMIT = 8;
 const ACCOUNT_DELETION_IDENTITY_REVOKE_BATCH = 8;
 const VM_STATUS_RECONCILE_BATCH_LIMIT = 200;
 const PREVIEW_ENDPOINT_LEASE_TTL_MS = 12 * 60 * 60 * 1000;
+
+/** Native relay is opt-in per VM. The marker is written only after a create
+ * injects the bootstrap, so enabling the deployment flag cannot reinterpret an
+ * older VM whose daemon was never given relay credentials. */
+function nativeRelayForVm(
+  vm: Pick<CloudVmRow, "id" | "provider" | "providerVmId" | "providerMetadata">,
+  config?: NativeRelayConfig | null,
+): NativeRelayBootstrap | undefined {
+  if (
+    vm.provider === "freestyle" &&
+    !freestylePlatformIsBeta(vm.providerMetadata) &&
+    !isFreestyleBetaVmId(vm.providerVmId ?? "")
+  ) {
+    return undefined;
+  }
+  if (!isNativeRelayProvisioned(vm.providerMetadata)) return undefined;
+  // Do not parse the relay catalog for a pre-rollout VM. This keeps a bad or
+  // intentionally disabled relay deployment from breaking its legacy path.
+  const resolvedConfig = config === undefined ? readNativeRelayConfig() : config;
+  if (!resolvedConfig) {
+    throw new NativeRelayConfigError(
+      "native relay is required by this VM but the deployment is not configured",
+    );
+  }
+  return nativeRelayBootstrapForVm(vm.id, resolvedConfig);
+}
+
+function persistedProviderMetadata(
+  handleMetadata: Record<string, unknown> | undefined,
+  fallbackMetadata: Record<string, unknown> | undefined,
+  nativeRelay: NativeRelayBootstrap | undefined,
+): Record<string, unknown> | undefined {
+  const metadata = handleMetadata ?? fallbackMetadata;
+  return nativeRelay ? markNativeRelayProvisioned(metadata) : metadata;
+}
+
+/** A new Freestyle VM has no provider id or platform marker until create returns.
+ * Use the resolved beta image shape to keep legacy Freestyle creates on cmuxd. */
+function freestyleCreateUsesNativeRelay(image: string): boolean {
+  return imageUsesFreestyleBetaPlatform("freestyle", image) ||
+    isFreestyleBetaSnapshotId(image) ||
+    process.env.CMUX_FREESTYLE_PLATFORM?.trim().toLowerCase() === "beta";
+}
+
+function nativeRelayConfigForCreate(
+  provider: ProviderId,
+  image: string,
+): NativeRelayConfig | null {
+  if (provider === "freestyle" && !freestyleCreateUsesNativeRelay(image)) return null;
+  return readNativeRelayConfig();
+}
+
+function nativeRelayBootstrapForCreateEffect(
+  provider: ProviderId,
+  image: string,
+  vmId: string,
+): Effect.Effect<NativeRelayBootstrap | undefined, VmProviderOperationError> {
+  return Effect.try({
+    try: () => nativeRelayBootstrapForVm(vmId, nativeRelayConfigForCreate(provider, image)),
+    catch: (cause) => new VmProviderOperationError({
+      provider,
+      operation: "nativeRelayConfig",
+      cause,
+    }),
+  });
+}
+
+function nativeRelayForVmEffect(
+  vm: Pick<CloudVmRow, "id" | "provider" | "providerVmId" | "providerMetadata">,
+): Effect.Effect<NativeRelayBootstrap | undefined, VmProviderOperationError> {
+  return Effect.try({
+    try: () => nativeRelayForVm(vm),
+    catch: (cause) => new VmProviderOperationError({
+      provider: vm.provider,
+      operation: "nativeRelayConfig",
+      cause,
+    }),
+  });
+}
+
+/** Replace the provider ingress placeholder with short-lived, redundant relay
+ * tickets. Raw tickets remain in the response only, never in Postgres. */
+function applyNativeRelayAttachGrants(
+  vmId: string,
+  provider: ProviderId,
+  endpoint: CmuxRemoteEndpoint,
+): CmuxRemoteEndpoint {
+  const grants = nativeRelayAttachGrants(vmId);
+  if (grants.length === 0) {
+    throw new VmProviderOperationError({
+      provider,
+      operation: "nativeRelayAttach",
+      cause: new Error("native relay is enabled but no attach shards are configured"),
+    });
+  }
+  const first = grants[0]!;
+  return {
+    ...endpoint,
+    route: first.route,
+    // Native relay tickets are carried in `relays`. Keep `token` as a unique,
+    // ledger-only nonce so concurrent users and repeated attaches cannot hit
+    // the global cloud_vm_leases.token_hash unique index. It is never sent to
+    // the relay and is not used for native transport authentication.
+    token: `native-relay-${randomUUID()}`,
+    expiresAtUnix: Math.min(...grants.map((grant) => grant.expiresAtUnix)),
+    relays: grants,
+  };
+}
 
 type ExistingVmAccessInput = {
   readonly userId: string;
@@ -348,6 +474,31 @@ export function createVm(input: {
       return vmEntryFromRow(existing);
     }
 
+    // Resolve native relay configuration before reserving credits or calling a
+    // provider. A bad catalog must leave no charge and no stuck provisioning
+    // row, while a legacy Freestyle image remains on its direct transport.
+    const nativeRelay = yield* nativeRelayBootstrapForCreateEffect(
+      input.provider,
+      input.image,
+      create.vm.id,
+    ).pipe(
+      Effect.tapError((err) =>
+        Effect.all([
+          repo.markCreateFailed({
+            id: create.vm.id,
+            code: "native_relay_config_invalid",
+            message: "Native relay configuration is invalid.",
+          }),
+          recordCreateFailureEvent(
+            repo,
+            input,
+            create.vm,
+            err.operation,
+            errorMessage(err.cause),
+          ),
+        ], { discard: true }).pipe(Effect.catchAll(() => Effect.void))
+      ),
+    );
     const creditReservation = yield* reserveCreateCredit(billing, repo, input, create.vm);
     yield* recordCreateRequestedEvents(repo, input, create.vm, creditReservation);
 
@@ -365,6 +516,7 @@ export function createVm(input: {
             : undefined,
         memoryMb: input.memoryMb,
         envs: input.envs,
+        nativeRelay,
       }),
     ).pipe(
       Effect.tapError((err) =>
@@ -401,7 +553,11 @@ export function createVm(input: {
         providerVmId: handle.providerVmId,
         image: handle.image,
         imageVersion: input.imageVersion ?? null,
-        providerMetadata: handle.providerMetadata ?? create.vm.providerMetadata,
+        providerMetadata: persistedProviderMetadata(
+          handle.providerMetadata,
+          create.vm.providerMetadata,
+          nativeRelay,
+        ),
       }),
     ).pipe(
       Effect.catchAll((err) =>
@@ -535,6 +691,37 @@ function finishBaseCreate(
     }
 
     const idempotencyKey = create.vm.idempotencyKey ?? undefined;
+    const nativeRelay = yield* nativeRelayBootstrapForCreateEffect(
+      input.provider,
+      input.image,
+      create.vm.id,
+    ).pipe(
+      Effect.tapError((err) =>
+        Effect.all([
+          repo.markBaseCreateFailed({
+            baseId: create.base.id,
+            generation: create.generation.generation,
+            vmId: create.vm.id,
+            userId: input.userId,
+            code: "native_relay_config_invalid",
+            message: "Native relay configuration is invalid.",
+          }),
+          recordCreateFailureEvent(
+            repo,
+            {
+              userId: input.userId,
+              billingTeamId: input.billingTeamId,
+              billingPlanId: input.billingPlanId,
+              provider: input.provider,
+              image: input.image,
+            },
+            create.vm,
+            err.operation,
+            errorMessage(err.cause),
+          ),
+        ], { discard: true }).pipe(Effect.catchAll(() => Effect.void))
+      ),
+    );
     const creditReservation = yield* reserveCreateCredit(billing, repo, {
       ...input,
       idempotencyKey,
@@ -551,6 +738,7 @@ function finishBaseCreate(
         image: input.image,
         providerMetadata: create.vm.providerMetadata,
         bakedFreestyleSignedAdmin: input.bakedFreestyleSignedAdmin,
+        nativeRelay,
       }),
     ).pipe(
       Effect.tapError((err) =>
@@ -588,7 +776,11 @@ function finishBaseCreate(
         providerVmId: handle.providerVmId,
         image: handle.image,
         imageVersion: input.imageVersion ?? null,
-        providerMetadata: handle.providerMetadata ?? create.vm.providerMetadata,
+        providerMetadata: persistedProviderMetadata(
+          handle.providerMetadata,
+          create.vm.providerMetadata,
+          nativeRelay,
+        ),
         userId: input.userId,
       }),
     ).pipe(
@@ -1152,11 +1344,12 @@ function resumeUntilRunning(
   providers: VmProviderGatewayShape,
   vm: CloudVmRow,
   providerVmId: string,
+  nativeRelay?: NativeRelayBootstrap,
 ): Effect.Effect<void, VmWorkflowError> {
   return Effect.gen(function* () {
     const resume = providers.resume;
     if (!resume) return;
-    const handle = yield* resume(vm.provider, providerVmId);
+    const handle = yield* resume(vm.provider, providerVmId, { nativeRelay });
     if (handle.status === "running") return;
     const settled = yield* waitForRunningStatus(providers, vm, providerVmId);
     if (settled) return;
@@ -1252,6 +1445,7 @@ function preflightResumeIfSuspended(
     const resume = providers.resume;
     if (!getStatus || !resume) return false;
 
+    const nativeRelay = yield* nativeRelayForVmEffect(vm);
     const status = yield* getStatus(vm.provider, providerVmId).pipe(
       Effect.timeoutFail({
         duration: RESUME_STATUS_PROBE_TIMEOUT,
@@ -1318,7 +1512,7 @@ function preflightResumeIfSuspended(
     if (status !== "paused") return false;
 
     const reserved = yield* reservePausedResumeIfTeam(repo, vm, providerVmId);
-    yield* resumeUntilRunning(providers, vm, providerVmId).pipe(
+    yield* resumeUntilRunning(providers, vm, providerVmId, nativeRelay).pipe(
       Effect.tapError(() => rollbackPausedResumeReservation(repo, vm, providerVmId, reserved)),
     );
     yield* recordRunningTransition(
@@ -1350,6 +1544,7 @@ function withResumeOnSuspendedAfterFailure<A>(
       if (!getStatus || !resume) return Effect.fail(originalError);
 
       return Effect.gen(function* () {
+        const nativeRelay = yield* nativeRelayForVmEffect(vm);
         const status = yield* getStatus(vm.provider, providerVmId).pipe(
           Effect.catchAll(() => Effect.succeed(null as VMStatus | null)),
         );
@@ -1369,7 +1564,7 @@ function withResumeOnSuspendedAfterFailure<A>(
         }
 
         const reserved = yield* reservePausedResumeIfTeam(repo, vm, providerVmId);
-        yield* resumeUntilRunning(providers, vm, providerVmId).pipe(
+        yield* resumeUntilRunning(providers, vm, providerVmId, nativeRelay).pipe(
           Effect.tapError(() => rollbackPausedResumeReservation(repo, vm, providerVmId, reserved)),
           Effect.catchAll(() => Effect.fail(originalError)),
         );
@@ -1684,6 +1879,7 @@ export function openVmPort(input: {
     const repo = yield* VmRepository;
     const providers = yield* VmProviderGateway;
     const vm = yield* requireAccessibleUserVm(input);
+    const nativeRelay = yield* nativeRelayForVmEffect(vm);
     yield* preflightResumeIfSuspended(
       repo,
       providers,
@@ -1691,6 +1887,62 @@ export function openVmPort(input: {
       input.providerVmId,
       "open_port",
     );
+    if (nativeRelay) {
+      if (!providers.openCmuxRemote) {
+        return yield* Effect.fail(
+          new VmProviderOperationError({
+            provider: vm.provider,
+            operation: "openPort",
+            cause: new Error("native relay port forwarding requires the cmux-tui remote daemon"),
+          }),
+        );
+      }
+      const endpoint = yield* withResumeOnSuspendedAfterFailure(
+        repo,
+        providers,
+        vm,
+        input.providerVmId,
+        "open_port",
+        providers.openCmuxRemote(vm.provider, input.providerVmId, {
+          providerMetadata: vm.providerMetadata,
+          includeInvitation: false,
+          nativeRelay,
+        }),
+      );
+      const attachEndpoint = applyNativeRelayAttachGrants(vm.id, vm.provider, endpoint);
+      // Keep `url` and `openUrl` present for older API clients while marking
+      // the transport explicitly. Native clients never navigate to `openUrl`.
+      const nativeEndpoint = {
+        ...attachEndpoint,
+        transport: "cmux-remote" as const,
+        port: input.port,
+        url: attachEndpoint.route,
+        openUrl: "",
+      };
+      // Native relay creates no provider preview lease. If the local ledger
+      // write fails, leave the authenticated daemon intact so the caller can
+      // retry without tearing down every other session on this VM.
+      yield* repo.recordLease({
+        vmId: vm.id,
+        userId: input.userId,
+        kind: "preview",
+        tokenHash: hashToken(nativeEndpoint.token),
+        expiresAt: new Date(nativeEndpoint.expiresAtUnix * 1000),
+        transport: "cmux-remote",
+        metadata: { port: input.port, nativeRelay: true, invited: !!nativeEndpoint.invitation },
+      });
+      yield* repo.recordUsageEvent({
+        userId: input.userId,
+        billingTeamId: vm.billingTeamId,
+        billingPlanId: vm.billingPlanId,
+        vmId: vm.id,
+        eventType: "vm.open_port",
+        provider: vm.provider,
+        imageId: vm.imageId,
+        metadata: { port: input.port, transport: "cmux-remote" },
+      }).pipe(Effect.catchAll(() => Effect.void));
+      return nativeEndpoint;
+    }
     if (!providers.openPort) {
       return yield* Effect.fail(
         new VmProviderOperationError({
@@ -1735,6 +1987,60 @@ export function openVmPort(input: {
 }
 
 /**
+ * Mint fresh client tickets for an already enrolled native-relay link. This
+ * route does not touch a provider or create a lease. The caller is already
+ * authorized by the VM row, and the tickets are intentionally short-lived so
+ * sign-out or a lost auth session stops reconnects within one rotation window.
+ */
+export function refreshVmRelayTickets(input: {
+  readonly userId: string;
+  readonly billingTeamId?: string | null;
+  readonly teamIds?: readonly string[];
+  readonly providerVmId: string;
+  readonly callerPlanId?: string | null;
+}): Effect.Effect<{
+  readonly transport: "cmux-remote";
+  readonly relays: readonly NativeRelayAttachGrant[];
+  readonly expiresAtUnix: number;
+  readonly refreshAfterUnix: number;
+}, VmWorkflowError, VmRepository> {
+  return Effect.gen(function* () {
+    const vm = yield* requireAccessibleUserVm(input);
+    let nativeRelay: NativeRelayBootstrap | undefined;
+    let grants: readonly NativeRelayAttachGrant[];
+    try {
+      nativeRelay = nativeRelayForVm(vm);
+      grants = nativeRelay ? nativeRelayAttachGrants(vm.id) : [];
+    } catch (cause) {
+      return yield* Effect.fail(
+        new VmProviderOperationError({
+          provider: vm.provider,
+          operation: "nativeRelayTicket",
+          cause,
+        }),
+      );
+    }
+    if (!nativeRelay || grants.length === 0) {
+      return yield* Effect.fail(
+        new VmProviderOperationError({
+          provider: vm.provider,
+          operation: "nativeRelayTicket",
+          cause: new Error("native relay is not enabled for this machine"),
+        }),
+      );
+    }
+    const expiresAtUnix = Math.min(...grants.map((grant) => grant.expiresAtUnix));
+    const refreshAfterUnix = Math.min(...grants.map((grant) => grant.refreshAfterUnix));
+    return {
+      transport: "cmux-remote" as const,
+      relays: grants,
+      expiresAtUnix,
+      refreshAfterUnix,
+    };
+  });
+}
+
+/**
  * Attach through the cmux-tui remote daemon — the only session transport on Blaxel
  * machines (other providers still serve the legacy websocket/SSH attach). The ingress
  * token lands in the same lease ledger as previews so sign-out revokes it; session
@@ -1755,6 +2061,7 @@ export function openVmCmuxRemote(input: {
     const repo = yield* VmRepository;
     const providers = yield* VmProviderGateway;
     const vm = yield* requireAccessibleUserVm(input);
+    const nativeRelay = yield* nativeRelayForVmEffect(vm);
     yield* preflightResumeIfSuspended(repo, providers, vm, input.providerVmId, "attach");
     if (!providers.openCmuxRemote) {
       return yield* Effect.fail(
@@ -1775,18 +2082,29 @@ export function openVmCmuxRemote(input: {
         deviceFingerprint: input.deviceFingerprint,
         clientCapabilities: input.clientCapabilities,
         providerMetadata: vm.providerMetadata,
+        nativeRelay,
       }),
     );
+    const attachEndpoint = nativeRelay
+      ? applyNativeRelayAttachGrants(vm.id, vm.provider, endpoint)
+      : endpoint;
     yield* repo.recordLease({
       vmId: vm.id,
       userId: input.userId,
       kind: "preview",
-      tokenHash: hashToken(endpoint.token),
-      expiresAt: new Date(endpoint.expiresAtUnix * 1000),
+      tokenHash: hashToken(attachEndpoint.token),
+      expiresAt: new Date(attachEndpoint.expiresAtUnix * 1000),
       transport: "cmux-remote",
-      metadata: { session: endpoint.session, invited: !!endpoint.invitation },
+      metadata: {
+        session: attachEndpoint.session,
+        invited: !!attachEndpoint.invitation,
+        nativeRelay: !!nativeRelay,
+      },
     }).pipe(
       Effect.catchAll((err) => {
+        // Native relay endpoints do not allocate provider ingress leases. A
+        // failed ledger write must not revoke other authenticated sessions.
+        if (nativeRelay) return Effect.fail(err);
         const cleanup = providers.revokeEndpointLeases
           ? providers.revokeEndpointLeases(vm.provider, input.providerVmId).pipe(Effect.catchAll(() => Effect.void))
           : Effect.void;
@@ -1801,9 +2119,9 @@ export function openVmCmuxRemote(input: {
       eventType: "vm.attach",
       provider: vm.provider,
       imageId: vm.imageId,
-      metadata: { transport: "cmux-remote", invited: !!endpoint.invitation },
+      metadata: { transport: "cmux-remote", invited: !!attachEndpoint.invitation, nativeRelay: !!nativeRelay },
     }).pipe(Effect.catchAll(() => Effect.void));
-    return endpoint;
+    return attachEndpoint;
   });
 }
 
@@ -1836,6 +2154,14 @@ export type VmAccessRevocationResult = {
   readonly cleanupFailures: number;
 };
 
+function isNativeRelayAccessLease(lease: CloudVmAccessLeaseRow): boolean {
+  if (lease.transport !== "cmux-remote") return false;
+  return typeof lease.metadata === "object"
+    && lease.metadata !== null
+    && !Array.isArray(lease.metadata)
+    && (lease.metadata as Record<string, unknown>).nativeRelay === true;
+}
+
 /**
  * Invalidates endpoint credentials issued to one signed-in account.
  *
@@ -1864,6 +2190,11 @@ export function revokeUserVmAccess(input: { readonly userId: string }) {
       for (const vmLeases of byVm.values()) {
         const first = vmLeases[0];
         if (!first) continue;
+        // Native relay has no provider-side lease to revoke. Calling the
+        // legacy cleanup hook here would stop the shared daemon and disconnect
+        // other users. Short-lived relay tickets expire naturally; refresh
+        // cannot continue after this user's Stack session is gone.
+        if (vmLeases.every(isNativeRelayAccessLease)) continue;
         yield* providers.revokeEndpointLeases(first.provider, first.providerVmId).pipe(
           Effect.catchAll(() =>
             Effect.sync(() => {

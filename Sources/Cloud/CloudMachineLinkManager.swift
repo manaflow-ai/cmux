@@ -34,6 +34,12 @@ actor CloudMachineLinkManager {
     private let clientURL: URL?
     private var links: [String: CloudMachineLink] = [:]
     private var connecting: [String: Task<CloudMachineLink.Connected, Error>] = [:]
+    /// Invitation approval must outlive the carrier handshake. The daemon can accept the
+    /// Noise connection as soon as the control-plane approval is committed, while the
+    /// HTTP approval request still has a response in flight. Keep the task until it
+    /// records the device fingerprint, then cancel it when the link is abandoned.
+    private var enrollmentApprovals: [String: Task<Void, Never>] = [:]
+    private var enrollmentApprovalIDs: [String: String] = [:]
     private var lastFailure: [String: (at: Date, error: String)] = [:]
     /// A failed link is not retried for this long, so a polling sidebar does not hammer
     /// a machine whose route is broken.
@@ -93,14 +99,37 @@ actor CloudMachineLinkManager {
                 deviceFingerprint: paths.deviceFingerprint(for: machineID),
                 clientCapabilities: Self.clientCapabilities(clientURL: clientURL)
             )
-            var approval: Task<Void, Never>?
             if let invitation = endpoint.invitation {
-                approval = Task { await self.approveEnrollment(machineID: machineID, invitationID: invitation.invitationId, client: client) }
+                startEnrollmentApproval(
+                    machineID: machineID,
+                    invitationID: invitation.invitationId,
+                    client: client
+                )
+            } else {
+                cancelEnrollmentApproval(machineID: machineID)
             }
-            defer { approval?.cancel() }
+            let relayRefresh: (@Sendable () async throws -> [VMCmuxRemoteEndpoint.RelayGrant])?
+            if endpoint.relays.isEmpty {
+                relayRefresh = nil
+            } else {
+                relayRefresh = { [client, machineID] in
+                    let grants = try await client.refreshRelayGrants(id: machineID)
+                    guard !grants.isEmpty else {
+                        throw VMClientError.malformedResponse("Cloud VM relay refresh returned no route grants.")
+                    }
+                    return grants
+                }
+            }
             do {
-                return try await link.connect(route: endpoint.route, session: endpoint.session, invitationURI: endpoint.invitation?.uri)
+                return try await link.connect(
+                    route: endpoint.route,
+                    session: endpoint.session,
+                    invitationURI: endpoint.invitation?.uri,
+                    relayGrants: endpoint.relays,
+                    relayRefresh: relayRefresh
+                )
             } catch {
+                cancelEnrollmentApproval(machineID: machineID)
                 await link.disconnect()
                 throw error
             }
@@ -130,6 +159,43 @@ actor CloudMachineLinkManager {
         links[machineID]
     }
 
+    /// Opens a native relay port through the already enrolled headless link.
+    /// The provider never receives a public preview URL, and the local listener
+    /// is bound by cmux-tui to loopback only.
+    func forward(
+        machineID: String,
+        port: Int,
+        endpoint: VMOpenPortEndpoint
+    ) async throws -> CloudMachineLink.ForwardedPort {
+        _ = try await connected(machineID: machineID)
+        // A headless link can claim a first-use invitation before the control
+        // plane's approval poll finishes. The forward is a second device
+        // connection, so wait for that enrollment to commit before dialing it.
+        if let approval = enrollmentApprovals[machineID] {
+            await approval.value
+        }
+        guard let link = links[machineID] else {
+            throw ManagerError.retryLater("Cloud VM link disappeared while opening port \(port).")
+        }
+        return try await link.forward(port: port, endpoint: endpoint)
+    }
+
+    /// Looks up an existing native loopback listener. This is intentionally a
+    /// lookup only: a missing listener must still go through the authenticated
+    /// VM endpoint flow so the daemon can be resumed and healed.
+    func forwardedURL(machineID: String, port: Int) async -> URL? {
+        guard let link = links[machineID] else { return nil }
+        return await link.forwardedURL(port: port)
+    }
+
+    /// Whether the current link was established with native relay grants. A
+    /// missing link is deliberately false, so callers still perform the normal
+    /// authenticated attach before deciding which port transport to use.
+    func nativeRelayActive(machineID: String) async -> Bool {
+        guard let link = links[machineID] else { return false }
+        return await link.nativeRelayActive
+    }
+
     func status(machineID: String) async -> LinkStatus? {
         if let link = links[machineID] {
             return LinkStatus(state: await link.state, error: await link.lastError)
@@ -146,6 +212,7 @@ actor CloudMachineLinkManager {
     func disconnect(machineID: String) async {
         connecting[machineID]?.cancel()
         connecting[machineID] = nil
+        cancelEnrollmentApproval(machineID: machineID)
         // An in-flight drain notices the removed link on its next run; dropping the
         // queued mark keeps it from issuing one more command to a machine being cut.
         themePushQueued.remove(machineID)
@@ -161,6 +228,9 @@ actor CloudMachineLinkManager {
         }
         for task in connecting.values { task.cancel() }
         connecting.removeAll()
+        for task in enrollmentApprovals.values { task.cancel() }
+        enrollmentApprovals.removeAll()
+        enrollmentApprovalIDs.removeAll()
         lastFailure.removeAll()
     }
 
@@ -225,6 +295,30 @@ actor CloudMachineLinkManager {
 
     private func store(link: CloudMachineLink, for machineID: String) {
         links[machineID] = link
+    }
+
+    private func startEnrollmentApproval(
+        machineID: String,
+        invitationID: String,
+        client: VMClient
+    ) {
+        cancelEnrollmentApproval(machineID: machineID)
+        enrollmentApprovalIDs[machineID] = invitationID
+        enrollmentApprovals[machineID] = Task { [weak self] in
+            await self?.approveEnrollment(machineID: machineID, invitationID: invitationID, client: client)
+            await self?.finishEnrollmentApproval(machineID: machineID, invitationID: invitationID)
+        }
+    }
+
+    private func cancelEnrollmentApproval(machineID: String) {
+        enrollmentApprovals.removeValue(forKey: machineID)?.cancel()
+        enrollmentApprovalIDs.removeValue(forKey: machineID)
+    }
+
+    private func finishEnrollmentApproval(machineID: String, invitationID: String) {
+        guard enrollmentApprovalIDs[machineID] == invitationID else { return }
+        enrollmentApprovals.removeValue(forKey: machineID)
+        enrollmentApprovalIDs.removeValue(forKey: machineID)
     }
 
     /// Same loop as the CLI's `vm-tui-approve`: the control plane minted the invitation

@@ -250,6 +250,25 @@ Unix pipe and PTY processes terminated by a signal report a null exit code and t
 
 ## Native relay
 
+### Local relay lab
+
+`scripts/relay-lab.sh up` starts the whole native relay topology on loopback: two `cmux-relay` shards with separate HMAC secrets, issuers, and slots, one daemon registered with both through an on-demand ticket helper (the same shape as the cloud VM's `cmux-native-relay-ticket`), and one client enrolled through a relay-bootstrapped invitation. It then runs the staging test matrix and prints a PASS/FAIL table: single-route RPC on each shard, a loopback TCP forward, tampered-ticket and wrong-slot rejection, a SIGTERM drain of shard a with a live session that must fail over to shard b, a forward that must work again after the drain, daemon re-registration once shard a returns, and a scan of the shard logs for payload, ticket, and secret leaks. No Azure, staging, or provider VM is involved.
+
+The lab stays running so a human can try the interactive rows. The quickest view is the browser dashboard: `scripts/relay-lab.sh dashboard` serves `http://127.0.0.1:8790` with the shards, their health, drain and start buttons, and every reachable machine. Clicking a machine opens a PTY on its daemon through the relay, rendered by ghostty-web's atlas renderer (`?renderer=canvas` for the default renderer), with a status bar showing the live route and generation. Press drain on the shard in the status bar while typing; the route flips to the other shard and typing continues. With `CMUX_DASHBOARD_API_URL` pointing at a cmux web server and dogfood Stack credentials in `~/.secrets/cmuxterm-dev.env`, the machine list also includes that account's Cloud VMs and attaches to them with the same relay grants the Mac app uses.
+
+```sh
+scripts/relay-lab.sh attach        # TUI over shard a with fallback to b; type quickly
+scripts/relay-lab.sh drain a       # in a second terminal: the TUI keeps working through b
+scripts/relay-lab.sh watch         # live route, generation, and state changes
+scripts/relay-lab.sh forward 3000  # loopback URL for a local dev server through the relay
+scripts/relay-lab.sh rpc '{"type":"capabilities"}' b   # pin one shard, no fallback
+scripts/relay-lab.sh check         # rerun the matrix; scripts/relay-lab.sh down when finished
+```
+
+State lives in `/tmp/cmux-relay-lab` (override with `CMUX_RELAY_LAB_DIR`, keep it short because Unix socket paths are length-limited). Point `CMUX_TUI_BIN` at a hosted artifact from `verify-cmux-tui-hosted.sh` to avoid a local cmux-tui build; `cmux-relay` still builds locally. The lab uses plaintext `relay+ws://` on loopback; a real deployment puts a TLS proxy in front, as described below.
+
+### Manual setup
+
 Build the central Rust relay and set its signing secret:
 
 ```sh

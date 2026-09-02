@@ -66,6 +66,31 @@ export type VMHandle = {
   providerMetadata?: Record<string, unknown>;
 };
 
+/** Provider bootstrap values that let a VM daemon refresh its relay ticket. */
+export type NativeRelayBootstrap = {
+  readonly slot: string;
+  readonly ticketUrl: string;
+  /** Scoped machine credential. It is passed to the provider, never persisted in metadata. */
+  readonly bootstrapToken: string;
+  readonly routes: readonly NativeRelayRoute[];
+};
+
+export type NativeRelayRoute = {
+  readonly id: string;
+  readonly route: string;
+  readonly slot: string;
+};
+
+/** Short-lived client credential for one native relay shard. */
+export type NativeRelayAttachGrant = {
+  readonly shardId: string;
+  readonly route: string;
+  readonly slot: string;
+  readonly ticket: string;
+  readonly expiresAtUnix: number;
+  readonly refreshAfterUnix: number;
+};
+
 export type CreateOptions = {
   image: string; // provider-specific template/snapshot identifier
   providerMetadata?: Record<string, unknown>;
@@ -89,6 +114,8 @@ export type CreateOptions = {
    * Providers without machine-level env support ignore it.
    */
   envs?: Readonly<Record<string, string>>;
+  /** Native relay bootstrap for this VM, when the self-hosted relay is enabled. */
+  nativeRelay?: NativeRelayBootstrap;
 };
 
 export type SSHEndpoint = {
@@ -172,7 +199,25 @@ export type CmuxRemoteEndpoint = {
     invitationId: string;
     expiresAtUnix: number;
   };
+  /** Redundant native relay routes. Tickets are never persisted by the daemon. */
+  relays?: readonly NativeRelayAttachGrant[];
 };
+
+/** Port access over the authenticated cmux-tui TcpTunnel service. */
+export type NativeRelayPortEndpoint = CmuxRemoteEndpoint & {
+  readonly port: number;
+};
+
+/** Provider preview access kept for deployments that have not enabled native relay. */
+export type ProviderPortEndpoint = {
+  readonly transport?: "preview";
+  readonly url: string;
+  readonly token: string;
+  readonly openUrl: string;
+  readonly expiresAtMs?: number;
+};
+
+export type VmPortEndpoint = NativeRelayPortEndpoint | ProviderPortEndpoint;
 
 export type CmuxRemoteAttachOptions = {
   /**
@@ -187,6 +232,14 @@ export type CmuxRemoteAttachOptions = {
    */
   clientCapabilities?: readonly string[];
   providerMetadata?: Record<string, unknown>;
+  /** Skip a new enrollment invitation when the caller already has an enrolled link. */
+  includeInvitation?: boolean;
+  /** Passes relay bootstrap to provider daemon heal/start paths. */
+  nativeRelay?: NativeRelayBootstrap;
+};
+
+export type VMResumeOptions = {
+  readonly nativeRelay?: NativeRelayBootstrap;
 };
 
 export type CmuxRemoteApprovalResult = {
@@ -269,7 +322,7 @@ export interface VMProvider {
   getStats?(vmId: string): Promise<VMStats>;
 
   pause(vmId: string): Promise<void>;
-  resume(vmId: string): Promise<VMHandle>;
+  resume(vmId: string, options?: VMResumeOptions): Promise<VMHandle>;
 
   exec(vmId: string, command: string, opts?: { timeoutMs?: number }): Promise<ExecResult>;
 

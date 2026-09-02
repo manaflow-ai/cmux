@@ -298,6 +298,7 @@ struct CmuxTuiSnapshotParser: Sendable {
     /// The noVNC page recipe `cmux vm desktop` uses: auto-connect, follow the pane's size,
     /// reconnect after a sleep.
     static func desktopURL(openURL: String) -> String {
-        openURL + "&autoconnect=1&resize=remote&reconnect=1&reconnect_delay=2000"
+        let separator = openURL.contains("?") ? "&" : "?"
+        return openURL + separator + "autoconnect=1&resize=remote&reconnect=1&reconnect_delay=2000"
     }
 }

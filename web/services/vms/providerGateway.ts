@@ -16,6 +16,7 @@ import {
   type VMVolumeListOptions,
   type VMStatus,
   type VMStats,
+  type VMResumeOptions,
   type CmuxRemoteApprovalResult,
   type CmuxRemoteAttachOptions,
   type CmuxRemoteEndpoint,
@@ -36,7 +37,7 @@ export type VmProviderGatewayShape = {
     options?: VMVolumeListOptions,
   ) => Effect.Effect<VMVolumeInventory, VmProviderOperationError>;
   readonly getStatus?: (provider: ProviderId, vmId: string) => Effect.Effect<VMStatus, VmProviderOperationError>;
-  readonly resume?: (provider: ProviderId, vmId: string) => Effect.Effect<VMHandle, VmProviderOperationError>;
+  readonly resume?: (provider: ProviderId, vmId: string, options?: VMResumeOptions) => Effect.Effect<VMHandle, VmProviderOperationError>;
   readonly pause?: (provider: ProviderId, vmId: string) => Effect.Effect<void, VmProviderOperationError>;
   readonly snapshot?: (
     provider: ProviderId,
@@ -129,8 +130,8 @@ export const VmProviderGatewayLive = Layer.succeed(VmProviderGateway, {
       if (!driver.getStatus) return "running" as const;
       return await driver.getStatus(vmId);
     }),
-  resume: (provider, vmId) =>
-    providerEffect(provider, "resume", () => getProvider(provider).resume(vmId)),
+  resume: (provider, vmId, options) =>
+    providerEffect(provider, "resume", () => getProvider(provider).resume(vmId, options)),
   pause: (provider, vmId) =>
     providerEffect(provider, "pause", () => getProvider(provider).pause(vmId)),
   snapshot: (provider, vmId, name) =>

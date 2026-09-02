@@ -89,9 +89,9 @@ secret_value="$(curl --fail --silent --show-error \
   ')"
 
 umask 077
-install -d -m 0750 /run/cmux-relay
+install -d -o cmux-relay -g cmux-relay -m 0750 /run/cmux-relay
+install -o cmux-relay -g cmux-relay -m 0640 /dev/null /run/cmux-relay/relay.env
 printf 'CMUX_RELAY_HMAC_SECRET=%s\n' "$secret_value" > /run/cmux-relay/relay.env
-chmod 0640 /run/cmux-relay/relay.env
 ''')
 path.write_text(
     template

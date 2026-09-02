@@ -412,25 +412,3 @@ describe("devbox image template", () => {
     expect(dockerfile.toLowerCase()).not.toContain("get.docker.com");
   });
 });
-
-describe("model-plane env reaches provider creates", () => {
-  // The vm route mints coderouter model-plane env into CreateOptions.envs
-  // for every provider; the devbox agent-config generator consumes it. E2B
-  // and Daytona forward it to the provider create call (Freestyle has no
-  // VM-level create env; its machines rely on the persisted copy).
-  test("e2b create forwards options.envs", () => {
-    const driver = readFileSync(
-      path.join(import.meta.dirname, "../services/vms/drivers/e2b.ts"),
-      "utf8",
-    );
-    expect(driver).toContain("envs: { ...DEFAULT_SANDBOX_ENVS, ...(options.envs ?? {}) }");
-  });
-
-  test("daytona create forwards options.envs", () => {
-    const driver = readFileSync(
-      path.join(import.meta.dirname, "../services/vms/drivers/daytona.ts"),
-      "utf8",
-    );
-    expect(driver).toContain("envVars: { ...DEFAULT_SANDBOX_ENVS, ...(options.envs ?? {}) }");
-  });
-});

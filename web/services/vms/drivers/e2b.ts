@@ -10,12 +10,14 @@ import {
   type CmuxRemoteEndpoint,
   type CreateOptions,
   type ExecResult,
+  type VMResumeOptions,
   type SSHEndpoint,
   type SnapshotRef,
   type VMHandle,
   type VMProvider,
 } from "./types";
 import { withVmSpan } from "../telemetry";
+import { nativeRelayProviderEnvironment } from "../nativeRelay";
 import {
   CMUX_TUI_INSTALL_TIMEOUT_MS,
   CMUX_TUI_PORT,
@@ -23,6 +25,8 @@ import {
   approveCmuxTuiEnrollment,
   cmuxTuiDaemonBuild,
   cmuxTuiDaemonCommand,
+  cmuxNativeRelayProcessHealthyCommand,
+  cmuxNativeRelayInstallCommand,
   cmuxTuiInstallCommand,
   cmuxTuiPinCheckCommand,
   isCmuxTuiDeviceEnrolled,
@@ -62,19 +66,24 @@ export const ENVD_CONTROL_PORT = 49983;
 // A dedicated INPUT chain that ends in DROP, hooked once. Reversible (flush the
 // chain) and idempotent (re-hook only if absent), unlike flipping INPUT's policy.
 // allowPublicTraffic exposes every listening port at `<port>-<id>.e2b.app`; this
-// closes all of them except the cmux-tui daemon (1337) and envd (49983), so a
-// user's dev server on 3000 is not silently world-reachable.
-export const INBOUND_FIREWALL_COMMAND = [
-  "command -v iptables >/dev/null 2>&1 || exit 0",
+// closes all of them except envd (49983) and, for legacy direct-daemon machines,
+// cmux-tui (1337). Native relay machines have no inbound daemon listener.
+export function inboundFirewallCommand(allowDaemonPort = true, requireIptables = false): string {
+  const rules = [
+  `command -v iptables >/dev/null 2>&1 || exit ${requireIptables ? 127 : 0}`,
   "iptables -w -N CMUX_FW 2>/dev/null || iptables -w -F CMUX_FW",
   "iptables -w -A CMUX_FW -i lo -j ACCEPT",
   "iptables -w -A CMUX_FW -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT",
   "iptables -w -A CMUX_FW -p icmp -j ACCEPT",
   `iptables -w -A CMUX_FW -p tcp --dport ${ENVD_CONTROL_PORT} -j ACCEPT`,
-  `iptables -w -A CMUX_FW -p tcp --dport ${CMUX_TUI_PORT} -j ACCEPT`,
+  ...(allowDaemonPort ? [`iptables -w -A CMUX_FW -p tcp --dport ${CMUX_TUI_PORT} -j ACCEPT`] : []),
   "iptables -w -A CMUX_FW -j DROP",
   "iptables -w -C INPUT -j CMUX_FW 2>/dev/null || iptables -w -I INPUT 1 -j CMUX_FW",
-].join(" && ");
+  ];
+  return rules.join(" && ");
+}
+
+export const INBOUND_FIREWALL_COMMAND = inboundFirewallCommand(true);
 
 export class E2BProvider implements VMProvider {
   readonly id = "e2b" as const;
@@ -97,13 +106,17 @@ export class E2BProvider implements VMProvider {
           // create (see CreateOptions.envs); it goes to the provider call
           // only, never into persisted handle metadata.
           const sandbox = await Sandbox.create(image, {
-            envs: { ...DEFAULT_SANDBOX_ENVS, ...(options.envs ?? {}) },
+            envs: {
+              ...DEFAULT_SANDBOX_ENVS,
+              ...(options.envs ?? {}),
+              ...nativeRelayProviderEnvironment(options.nativeRelay),
+            },
             // Public port traffic: see the ingress note at the top of this file.
             network: { allowPublicTraffic: true },
           });
           span.setAttribute("cmux.vm.id", sandbox.sandboxId);
           try {
-            await this.bootstrapCmuxTui(sandbox);
+            await this.bootstrapCmuxTui(sandbox, options.nativeRelay);
           } catch (err) {
             // A sandbox that failed to bootstrap must not survive as an orphan.
             await Sandbox.kill(sandbox.sandboxId).catch((cleanupErr) => {
@@ -145,13 +158,14 @@ export class E2BProvider implements VMProvider {
     );
   }
 
-  async resume(vmId: string): Promise<VMHandle> {
+  async resume(vmId: string, options?: VMResumeOptions): Promise<VMHandle> {
     return withVmSpan(
       "cmux.vm.provider.resume",
       { "cmux.vm.provider": "e2b", "cmux.vm.operation": "resume", "cmux.vm.id": vmId },
       async () => {
         const sbx = await Sandbox.connect(vmId);
         const info = await Sandbox.getInfo(vmId);
+        await this.ensureCmuxTuiRunning(sbx, options?.nativeRelay);
         return {
           provider: "e2b",
           providerVmId: sbx.sandboxId,
@@ -265,16 +279,21 @@ export class E2BProvider implements VMProvider {
       async (span) => {
         try {
           const sandbox = await Sandbox.connect(vmId);
-          await this.ensureCmuxTuiRunning(sandbox);
+          await this.ensureCmuxTuiRunning(sandbox, options?.nativeRelay);
           const invoke = this.cmuxTuiInvoke(sandbox);
           // The E2B proxy has no URL-carriable ingress auth (header-only), so the
           // route is the bare public host and this token exists only for the
           // lease ledger; the daemon's Noise enrollment is the session gate.
-          const token = `cmux-e2b-route-${randomBytes(32).toString("hex")}`;
+          const token = options?.nativeRelay
+            ? "native-relay"
+            : `cmux-e2b-route-${randomBytes(32).toString("hex")}`;
           const expiresAtUnix = Math.floor(Date.now() / 1000) + ROUTE_TOKEN_TTL_SECONDS;
-          const route = `wss://${sandbox.getHost(CMUX_TUI_PORT)}/v1/link`;
+          const route = options?.nativeRelay?.routes[0]?.route
+            ?? `wss://${sandbox.getHost(CMUX_TUI_PORT)}/v1/link`;
           let invitation: CmuxRemoteEndpoint["invitation"];
-          const enrolled = options?.deviceFingerprint
+          const enrolled = options?.includeInvitation === false
+            ? true
+            : options?.deviceFingerprint
             ? await isCmuxTuiDeviceEnrolled(invoke, options.deviceFingerprint)
             : false;
           if (!enrolled) {
@@ -319,30 +338,45 @@ export class E2BProvider implements VMProvider {
   }
 
   /** Installs the pinned binary and starts the daemon (fresh create). */
-  private async bootstrapCmuxTui(sandbox: Sandbox): Promise<void> {
+  private async bootstrapCmuxTui(sandbox: Sandbox, nativeRelay?: CreateOptions["nativeRelay"]): Promise<void> {
     const source = await resolveCmuxTuiSource("e2b");
     const install = await this.rootExec(sandbox, cmuxTuiInstallCommand(source), CMUX_TUI_INSTALL_TIMEOUT_MS);
     if (install.exitCode !== 0) {
       throw new ProviderError("e2b", `cmux-tui install in ${sandbox.sandboxId} failed: ${install.stderr || install.stdout}`);
     }
-    await this.startCmuxTuiDaemon(sandbox);
+    if (nativeRelay) {
+      const helper = await this.rootExec(sandbox, cmuxNativeRelayInstallCommand());
+      if (helper.exitCode !== 0) {
+        throw new ProviderError("e2b", `native relay helper install in ${sandbox.sandboxId} failed: ${helper.stderr || helper.stdout}`);
+      }
+    }
+    await this.startCmuxTuiDaemon(sandbox, nativeRelay);
     await waitForCmuxTuiReady(this.cmuxTuiInvoke(sandbox), "e2b", sandbox.sandboxId);
-    await this.applyInboundFirewall(sandbox);
+    await this.applyInboundFirewall(sandbox, nativeRelay);
   }
 
   /**
-   * Close every externally reachable port except the cmux-tui daemon (1337)
-   * and envd (49983). allowPublicTraffic exposes every listener at
+   * Close every externally reachable port except envd (49983), and the legacy
+   * cmux-tui daemon (1337) when direct ingress is in use. allowPublicTraffic exposes every listener at
    * `<port>-<id>.e2b.app`, so without this a user's dev server would be
-   * world-reachable. Best-effort: a firewall failure must not brick a machine
-   * whose daemon is already up, so it is logged, not thrown. Idempotent, so
+   * world-reachable. Native relay machines fail closed if the firewall cannot
+   * be applied. Legacy direct-ingress machines keep the historical best-effort
+   * behavior so an existing daemon is not bricked. Idempotent, so
    * ensureCmuxTuiRunning re-asserts it after resume/restore.
    */
-  private async applyInboundFirewall(sandbox: Sandbox): Promise<void> {
-    const result = await this.rootExec(sandbox, INBOUND_FIREWALL_COMMAND).catch(() => null);
+  private async applyInboundFirewall(sandbox: Sandbox, nativeRelay?: CreateOptions["nativeRelay"]): Promise<void> {
+    const result = await this.rootExec(sandbox, inboundFirewallCommand(!nativeRelay, !!nativeRelay)).catch(() => null);
     if (!result || result.exitCode !== 0) {
+      const allowed = nativeRelay ? `${ENVD_CONTROL_PORT}` : `${CMUX_TUI_PORT}/${ENVD_CONTROL_PORT}`;
+      if (nativeRelay) {
+        throw new ProviderError(
+          "e2b",
+          `native relay inbound firewall on ${sandbox.sandboxId} failed; refusing an exposed sandbox`,
+          result?.stderr || result?.stdout || "firewall command did not run",
+        );
+      }
       console.error(
-        `[e2b] inbound firewall on ${sandbox.sandboxId} did not apply cleanly; ports other than ${CMUX_TUI_PORT}/${ENVD_CONTROL_PORT} may be publicly reachable`,
+        `[e2b] inbound firewall on ${sandbox.sandboxId} did not apply cleanly; ports other than ${allowed} may be publicly reachable`,
         result?.stderr || result?.stdout || "",
       );
     }
@@ -354,9 +388,23 @@ export class E2BProvider implements VMProvider {
    * missing or a manifest pin change supersedes it. E2B pause/resume preserves
    * processes (memory snapshot), so this is normally a no-op.
    */
-  private async ensureCmuxTuiRunning(sandbox: Sandbox): Promise<void> {
-    const running = await this.rootExec(sandbox, "pgrep -f 'cmux-tui server start' >/dev/null 2>&1").catch(() => null);
+  private async ensureCmuxTuiRunning(sandbox: Sandbox, nativeRelay?: CreateOptions["nativeRelay"]): Promise<void> {
+    if (nativeRelay) {
+      const helper = await this.rootExec(sandbox, cmuxNativeRelayInstallCommand()).catch(() => null);
+      if (!helper || helper.exitCode !== 0) {
+        throw new ProviderError("e2b", `native relay helper install in ${sandbox.sandboxId} failed`);
+      }
+    }
+    const running = await this.rootExec(
+      sandbox,
+      nativeRelay
+        ? cmuxNativeRelayProcessHealthyCommand()
+        : "pgrep -f 'cmux-tui server start' >/dev/null 2>&1",
+    ).catch(() => null);
     if (running?.exitCode === 0) return;
+    if (nativeRelay) {
+      await this.rootExec(sandbox, "pkill -f '[c]mux-tui server start' >/dev/null 2>&1 || true").catch(() => undefined);
+    }
     const source = await resolveCmuxTuiSource("e2b");
     const pinned = await this.rootExec(sandbox, cmuxTuiPinCheckCommand(source)).catch(() => null);
     if (pinned?.exitCode !== 0) {
@@ -365,17 +413,17 @@ export class E2BProvider implements VMProvider {
         throw new ProviderError("e2b", `cmux-tui install in ${sandbox.sandboxId} failed: ${install.stderr || install.stdout}`);
       }
     }
-    await this.startCmuxTuiDaemon(sandbox);
+    await this.startCmuxTuiDaemon(sandbox, nativeRelay);
     await waitForCmuxTuiReady(this.cmuxTuiInvoke(sandbox), "e2b", sandbox.sandboxId);
     // Re-assert the inbound firewall: a fresh restore boots with no rules, and
     // a resume that somehow lost them is repaired here (idempotent).
-    await this.applyInboundFirewall(sandbox);
+    await this.applyInboundFirewall(sandbox, nativeRelay);
   }
 
-  private async startCmuxTuiDaemon(sandbox: Sandbox): Promise<void> {
+  private async startCmuxTuiDaemon(sandbox: Sandbox, nativeRelay?: CreateOptions["nativeRelay"]): Promise<void> {
     // A background command is E2B's process supervisor surface; there is no
     // restart-on-failure flag, so attach-time ensureCmuxTuiRunning is the heal.
-    await sandbox.commands.run(cmuxTuiDaemonCommand(), {
+    await sandbox.commands.run(cmuxTuiDaemonCommand(undefined, nativeRelay), {
       background: true,
       user: "root",
       timeoutMs: 0,
