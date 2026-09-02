@@ -2,10 +2,18 @@ import { expect, mock, test } from "bun:test";
 import { renderToStaticMarkup } from "react-dom/server";
 import type React from "react";
 
+const pendingProvider = new Promise<never>(() => {});
+let stackProviderPending = true;
 let dashboardChildren: React.ReactNode;
 
 mock.module("@stackframe/stack", () => ({
-  StackProvider: ({ children }: React.PropsWithChildren) => children,
+  StackProvider: ({ children }: React.PropsWithChildren) => {
+    if (stackProviderPending) {
+      void children;
+      throw pendingProvider;
+    }
+    return children;
+  },
   StackTheme: ({ children }: React.PropsWithChildren) => children,
 }));
 
@@ -13,6 +21,15 @@ mock.module("@/app/lib/stack", () => ({
   getStackServerApp: () => ({}),
   isStackConfigured: () => true,
 }));
+
+mock.module(
+  "../app/[locale]/dashboard/components/dashboard-skeleton",
+  () => ({
+    DashboardSkeleton: () => (
+      <p data-testid="dashboard-suspense-fallback">Loading dashboard</p>
+    ),
+  }),
+);
 
 mock.module(
   "../app/[locale]/dashboard/components/query-provider",
@@ -32,7 +49,21 @@ const { default: DashboardLayout } = await import(
   "../app/[locale]/dashboard/layout"
 );
 
+test("keeps a cold Stack provider load inside the dashboard fallback", async () => {
+  stackProviderPending = true;
+  const html = renderToStaticMarkup(
+    await DashboardLayout({
+      children: <main>Dashboard content</main>,
+      params: Promise.resolve({ locale: "en" }),
+    }),
+  );
+
+  expect(html).toContain('data-testid="dashboard-suspense-fallback"');
+  expect(html).not.toContain("Dashboard content");
+});
+
 test("passes page content directly to the shared dashboard shell", async () => {
+  stackProviderPending = false;
   const content = <main>Dashboard content</main>;
 
   try {
@@ -46,6 +77,7 @@ test("passes page content directly to the shared dashboard shell", async () => {
     expect(dashboardChildren).toBe(content);
     expect(html).toContain("Dashboard content");
   } finally {
+    stackProviderPending = true;
     dashboardChildren = undefined;
   }
 });
