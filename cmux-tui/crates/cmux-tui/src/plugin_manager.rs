@@ -1649,6 +1649,39 @@ mod tests {
     }
 
     #[test]
+    fn update_preserves_an_explicit_install_alias() {
+        let installed_manifest = parse_manifest(&manifest_text("fzf")).unwrap();
+        let updated_manifest = parse_manifest(&manifest_text("fzf")).unwrap();
+        let installed = InstalledPlugin {
+            id: "sidebar_plugin_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa".into(),
+            name: "custom-name".into(),
+            manifest: installed_manifest,
+            dir: PathBuf::from("/tmp/custom-name"),
+            selected: false,
+        };
+
+        validate_update_manifest_name(&installed, &updated_manifest).unwrap();
+        assert_eq!(installed.name, "custom-name");
+    }
+
+    #[test]
+    fn update_rejects_a_manifest_identity_change_even_for_an_alias() {
+        let installed_manifest = parse_manifest(&manifest_text("fzf")).unwrap();
+        let updated_manifest = parse_manifest(&manifest_text("other")).unwrap();
+        let installed = InstalledPlugin {
+            id: "sidebar_plugin_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa".into(),
+            name: "custom-name".into(),
+            manifest: installed_manifest,
+            dir: PathBuf::from("/tmp/custom-name"),
+            selected: false,
+        };
+
+        let error =
+            validate_update_manifest_name(&installed, &updated_manifest).unwrap_err().to_string();
+        assert!(error.contains("changed its manifest name"), "{error}");
+    }
+
+    #[test]
     fn registry_assigns_and_persists_secure_opaque_ids() {
         let root = std::env::temp_dir().join(format!(
             "cmux-plugin-registry-test-{}-{}",
