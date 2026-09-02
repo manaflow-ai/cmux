@@ -1355,7 +1355,7 @@ impl Inner {
             let inner = Arc::clone(self);
             let context = context.clone();
             let pty_id = pty_id.to_owned();
-            Arc::new(move |chunk: Bytes| {
+            let emit_output: DataSink = Arc::new(move |chunk: Bytes| {
                 inner.emit_output_for_generation(
                     &pty_id,
                     &chunk,
@@ -1363,7 +1363,9 @@ impl Inner {
                     generation,
                     &output_gate,
                 )
-            }) as Arc<dyn Fn(Bytes) + Send + Sync>
+            });
+            Arc::new(move |chunk: Bytes| emit_bounded_bytes(&emit_output, chunk))
+                as Arc<dyn Fn(Bytes) + Send + Sync>
         };
         let exit_gate = Arc::clone(&publication_gate);
         let on_exit = {
@@ -1937,12 +1939,11 @@ impl Inner {
 
     async fn close_authorized_async(&self, pty_id: &str, context: &FrameContext) {
         let auth = Self::auth_snapshot(context);
-        let attachment = match self
-            .authorize_snapshot_for_generation_nonterminal(pty_id, &auth, context, "close", 0)
+        let attachment = match self.authorize_snapshot_for_close(pty_id, &auth, context, "close", 0)
         {
             Ok(attachment) => attachment,
-            Err(NonterminalAuthorizationFailure::Denied) => return,
-            Err(NonterminalAuthorizationFailure::Missing) => {
+            Err(CloseAuthorizationFailure::Denied) => return,
+            Err(CloseAuthorizationFailure::Missing) => {
                 self.close_if_transport_async(pty_id, context.transport_id.as_deref(), None).await;
                 return;
             }
