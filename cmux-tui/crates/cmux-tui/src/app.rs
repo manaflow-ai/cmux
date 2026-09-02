@@ -1120,11 +1120,15 @@ impl HostInputIngress {
 
 struct HostInputRuntime {
     ingress: Arc<HostInputIngress>,
+    reader: Arc<HostInputReaderControl>,
 }
 
 impl HostInputRuntime {
     fn new() -> Self {
-        Self { ingress: Arc::new(HostInputIngress::default()) }
+        Self {
+            ingress: Arc::new(HostInputIngress::default()),
+            reader: Arc::new(HostInputReaderControl::default()),
+        }
     }
 
     fn producer(&self, events: SyncSender<AppEvent>) -> HostInputProducer {
@@ -1134,12 +1138,84 @@ impl HostInputRuntime {
     fn pop_if(&self, accept: impl FnOnce(&HostInputMessage) -> bool) -> Option<HostInputMessage> {
         self.ingress.pop_if(accept)
     }
+
+    fn attach_reader(&self, reader: JoinHandle<()>) {
+        let mut state = self.reader.state.lock().unwrap();
+        assert!(!state.shutting_down, "host input reader cannot attach during shutdown");
+        assert!(state.reader.is_none(), "host input reader can only be attached once");
+        state.reader_thread = Some(reader.thread().id());
+        state.reader = Some(reader);
+    }
+
+    fn shutdown_control(&self) -> HostInputShutdown {
+        HostInputShutdown { ingress: self.ingress.clone(), reader: self.reader.clone() }
+    }
+
+    fn shutdown(&self) {
+        self.shutdown_control().shutdown();
+    }
 }
 
 impl Drop for HostInputRuntime {
     fn drop(&mut self) {
-        self.ingress.close();
+        self.shutdown();
     }
+}
+
+#[derive(Clone)]
+struct HostInputShutdown {
+    ingress: Arc<HostInputIngress>,
+    reader: Arc<HostInputReaderControl>,
+}
+
+impl HostInputShutdown {
+    fn shutdown(&self) {
+        self.ingress.close();
+        // The reader checks the closed ingress before each read. The
+        // crossterm wrapper caps every poll at CROSSTERM_POLL_INTERVAL and
+        // only calls read after poll reports a ready event, so joining here
+        // cannot wait on an idle terminal read.
+        let current_thread = std::thread::current().id();
+        let reader = {
+            let mut state = self.reader.state.lock().unwrap();
+            if state.complete {
+                return;
+            }
+            if state.shutting_down {
+                if state.reader_thread == Some(current_thread) {
+                    return;
+                }
+                while !state.complete {
+                    state = self.reader.complete.wait(state).unwrap();
+                }
+                return;
+            }
+            state.shutting_down = true;
+            state.reader.take()
+        };
+        if let Some(reader) = reader
+            && reader.thread().id() != current_thread
+        {
+            let _ = reader.join();
+        }
+        let mut state = self.reader.state.lock().unwrap();
+        state.complete = true;
+        self.reader.complete.notify_all();
+    }
+}
+
+#[derive(Default)]
+struct HostInputReaderControl {
+    state: Mutex<HostInputReaderState>,
+    complete: Condvar,
+}
+
+#[derive(Default)]
+struct HostInputReaderState {
+    reader: Option<JoinHandle<()>>,
+    reader_thread: Option<std::thread::ThreadId>,
+    shutting_down: bool,
+    complete: bool,
 }
 
 struct HostInputProducer {
@@ -1161,8 +1237,16 @@ impl HostInputProducer {
         if !wake {
             return true;
         }
+        // This is only a wake hint. Keep it nonblocking so shutdown can join
+        // the reader even when the app event channel is full.
         match self.events.try_send(AppEvent::HostInputReady) {
-            Ok(()) | Err(TrySendError::Full(AppEvent::HostInputReady)) => true,
+            Ok(()) => true,
+            Err(TrySendError::Full(AppEvent::HostInputReady)) => {
+                // A full channel already has queued work. The event loop
+                // drains retained host input before each wait and after every
+                // queued event, so this wake hint is redundant.
+                true
+            }
             Err(TrySendError::Disconnected(AppEvent::HostInputReady)) => {
                 self.ingress.close();
                 false
@@ -9104,6 +9188,7 @@ fn run_with_machine_updates_inner(request: RunRequest) -> anyhow::Result<RunOutc
     // would corrupt the raw-mode screen, so route fd 2 into the client log.
     crate::client_log::redirect_stderr_into_log();
     let mut terminal_restore = TerminalRestoreGuard::new(stdout_lock.clone());
+    terminal_restore.set_host_input_shutdown(host_input.shutdown_control());
     if let Err(e) = (|| -> anyhow::Result<()> {
         let _guard = stdout_lock.lock();
         stdout_lock.recover_stream_locked()?;
@@ -9144,7 +9229,7 @@ fn run_with_machine_updates_inner(request: RunRequest) -> anyhow::Result<RunOutc
     // startup terminal probes so their replies cannot be consumed as key
     // input. Backpressure here must never block mutation completions.
     let input = host_input.producer(tx.clone());
-    if let Err(error) = std::thread::Builder::new().name("input".into()).spawn(move || {
+    let input_reader = match std::thread::Builder::new().name("input".into()).spawn(move || {
         for event in crate::ui::graphics::finish_startup_input(pending_input) {
             if !input.send(event) {
                 return;
@@ -9174,8 +9259,10 @@ fn run_with_machine_updates_inner(request: RunRequest) -> anyhow::Result<RunOutc
             }
         }
     }) {
-        return Err(terminal_restore.restore_after_error(error.into()));
-    }
+        Ok(reader) => reader,
+        Err(error) => return Err(terminal_restore.restore_after_error(error.into())),
+    };
+    host_input.attach_reader(input_reader);
 
     let graphics_writer = if graphics_supported {
         let graphics_ready = tx.clone();
@@ -9197,8 +9284,10 @@ fn run_with_machine_updates_inner(request: RunRequest) -> anyhow::Result<RunOutc
     let default_hook = std::panic::take_hook();
     let restore_lock = stdout_lock.clone();
     let panic_keyboard_protocol = terminal_restore.host_keyboard_protocol().clone();
+    let panic_host_input_shutdown = host_input.shutdown_control();
     let panic_graphics_shutdown = graphics_shutdown;
     std::panic::set_hook(Box::new(move |info| {
+        panic_host_input_shutdown.shutdown();
         if let Some(graphics_shutdown) = &panic_graphics_shutdown {
             graphics_shutdown.cancel_for_panic_hook();
         }
@@ -9481,6 +9570,7 @@ fn report_after_unwind<T>(
 struct TerminalRestoreGuard {
     stdout_lock: Arc<StdoutLock>,
     host_keyboard_protocol: HostKeyboardProtocolOwnership,
+    host_input_shutdown: Option<HostInputShutdown>,
     graphics_shutdown: Option<GraphicsWriterShutdown>,
     armed: bool,
 }
@@ -9490,6 +9580,7 @@ impl TerminalRestoreGuard {
         Self {
             stdout_lock,
             host_keyboard_protocol: HostKeyboardProtocolOwnership::default(),
+            host_input_shutdown: None,
             graphics_shutdown: None,
             armed: true,
         }
@@ -9507,11 +9598,18 @@ impl TerminalRestoreGuard {
         self.graphics_shutdown = graphics_shutdown;
     }
 
+    fn set_host_input_shutdown(&mut self, host_input_shutdown: HostInputShutdown) {
+        self.host_input_shutdown = Some(host_input_shutdown);
+    }
+
     fn restore(&mut self) -> anyhow::Result<()> {
         if !self.armed {
             return Ok(());
         }
         self.armed = false;
+        if let Some(host_input_shutdown) = &self.host_input_shutdown {
+            host_input_shutdown.shutdown();
+        }
         if let Some(graphics_shutdown) = &self.graphics_shutdown {
             graphics_shutdown.cancel_and_wait();
         }
@@ -9543,6 +9641,9 @@ impl Drop for TerminalRestoreGuard {
     fn drop(&mut self) {
         if self.armed {
             self.armed = false;
+            if let Some(host_input_shutdown) = &self.host_input_shutdown {
+                host_input_shutdown.shutdown();
+            }
             if let Some(graphics_shutdown) = &self.graphics_shutdown {
                 graphics_shutdown.cancel_and_wait();
             }
@@ -10732,6 +10833,7 @@ impl App {
     }
 
     fn shutdown_runtime_components(&mut self) {
+        self.host_input.shutdown();
         self.shutdown_background_workers();
         self.cancel_pointer_interaction();
         self.session.begin_shutdown();
@@ -24885,6 +24987,75 @@ mod tests {
         assert_eq!(ingress.len(), DEFERRED_INPUT_CAPACITY);
         ingress.close();
         producer.join().unwrap();
+    }
+
+    #[test]
+    fn host_input_runtime_shutdown_joins_reader_before_returning() {
+        let mut runtime = HostInputRuntime::new();
+        let ingress = runtime.ingress.clone();
+        let (events_tx, events_rx) = crossbeam_channel::bounded(1);
+        events_tx.send(AppEvent::HostInputReady).unwrap();
+        let input = runtime.producer(events_tx);
+        let (finished_tx, finished_rx) = std::sync::mpsc::sync_channel(1);
+        let reader = std::thread::spawn(move || {
+            let key = Event::Key(KeyEvent::new(KeyCode::Char('x'), KeyModifiers::NONE));
+            assert!(input.send(key));
+            while !ingress.is_closed() {
+                std::thread::yield_now();
+            }
+            finished_tx.send(()).unwrap();
+        });
+
+        runtime.attach_reader(reader);
+        runtime.shutdown();
+
+        assert!(
+            finished_rx.try_recv().is_ok(),
+            "runtime shutdown must join the input reader before returning"
+        );
+        drop(events_rx);
+    }
+
+    #[test]
+    fn host_input_runtime_shutdown_serializes_concurrent_callers() {
+        let mut runtime = HostInputRuntime::new();
+        let ingress = runtime.ingress.clone();
+        let (closed_tx, closed_rx) = std::sync::mpsc::sync_channel(1);
+        let (release_tx, release_rx) = std::sync::mpsc::sync_channel(1);
+        let reader = std::thread::spawn(move || {
+            while !ingress.is_closed() {
+                std::thread::yield_now();
+            }
+            closed_tx.send(()).unwrap();
+            release_rx.recv().unwrap();
+        });
+        runtime.attach_reader(reader);
+
+        let shutdown = runtime.shutdown_control();
+        let first_shutdown = shutdown.clone();
+        let (first_done_tx, first_done_rx) = std::sync::mpsc::sync_channel(1);
+        let first = std::thread::spawn(move || {
+            first_shutdown.shutdown();
+            first_done_tx.send(()).unwrap();
+        });
+        closed_rx.recv().unwrap();
+
+        let second_shutdown = shutdown.clone();
+        let (second_done_tx, second_done_rx) = std::sync::mpsc::sync_channel(1);
+        let second = std::thread::spawn(move || {
+            second_shutdown.shutdown();
+            second_done_tx.send(()).unwrap();
+        });
+        assert!(
+            second_done_rx.try_recv().is_err(),
+            "concurrent shutdown must wait for the reader join"
+        );
+
+        release_tx.send(()).unwrap();
+        first.join().unwrap();
+        second.join().unwrap();
+        assert!(first_done_rx.try_recv().is_ok());
+        assert!(second_done_rx.try_recv().is_ok());
     }
 
     #[test]
