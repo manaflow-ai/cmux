@@ -14,6 +14,12 @@ or update `ci-status-gate` and `ci-status` check runs on that exact head. No
 repository contents are written. Missing, stale, pending, failed, or
 unexpected CI jobs fail closed.
 
+For a `workflow_run` event whose API response omits pull-request associations,
+the gate resolves the commit to exactly one open PR targeting this repository's
+`main` branch with the same head SHA. It checks out the explicit protected
+`refs/heads/main` ref for that recovery path and never uses the event default
+ref or SHA as trusted code.
+
 Each published run has a deterministic `external_id` with generation `v2`,
 the check name, and the head SHA. The gate updates only a run with that exact
 identity and refuses a response from another producer. A future migration
