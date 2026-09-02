@@ -6927,6 +6927,35 @@ mod tests {
     }
 
     #[test]
+    fn pipe_io_forward_does_not_consume_original_surface_for_other_surface_tap() {
+        let session = test_session(Box::new(CloseTrackingWriter {
+            closed: Arc::new(AtomicBool::new(false)),
+        }));
+        let (first_sender, _first_receiver) = crossbeam_channel::bounded(1);
+        let (first_lifecycle_sender, _first_lifecycle_receiver) = crossbeam_channel::bounded(1);
+        let _first_token = session.install_pipe_io_tap(
+            7,
+            first_sender,
+            first_lifecycle_sender,
+            Arc::new(PipeIoByteBudget::new(1024)),
+        );
+        let (second_sender, second_receiver) = crossbeam_channel::bounded(1);
+        let (second_lifecycle_sender, _second_lifecycle_receiver) = crossbeam_channel::bounded(1);
+        let replacement = session.clone();
+
+        assert!(!session.pipe_io_forward(7, || {
+            replacement.install_pipe_io_tap(
+                8,
+                second_sender,
+                second_lifecycle_sender,
+                Arc::new(PipeIoByteBudget::new(1024)),
+            );
+            PipeIoEvent::Output(b"original-surface".to_vec())
+        }));
+        assert!(second_receiver.try_recv().is_err());
+    }
+
+    #[test]
     fn transport_disconnect_reason_is_first_writer_wins() {
         let session = test_session(Box::new(CloseTrackingWriter {
             closed: Arc::new(AtomicBool::new(false)),
