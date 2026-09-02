@@ -761,6 +761,82 @@ extension CMUXCLI {
         case unavailable
     }
 
+    /// The safe first terminal for a whole-workspace open. One unresolved
+    /// terminal must not veto another terminal whose placement is known, while
+    /// an unresolved result remains available when there is no safe candidate.
+    enum VMRemoteWorkspaceTerminalResolution: Equatable {
+        case resolved(terminalID: String, tabID: String?)
+        case none
+        case ambiguous(selector: String)
+        case unavailable(selector: String)
+    }
+
+    /// Resolve the terminal a whole-workspace open should show. Exited rows are
+    /// not candidates: their stale or partial placement data cannot block a live
+    /// terminal. Among live rows, all safe candidates are collected before an
+    /// ambiguity or unavailable result is returned, so an early bad row cannot
+    /// hide a later safe row.
+    static func resolveVMRemoteWorkspaceTerminal(
+        _ resources: [[String: Any]],
+        machine: String,
+        workspaceID: String
+    ) -> VMRemoteWorkspaceTerminalResolution {
+        let liveTerminals = resources.filter { resource in
+            (resource["kind"] as? String) == "terminal" && (resource["lifecycle"] as? String) != "exited"
+        }
+        var candidates: [(terminalID: String, tabID: String?, focused: Bool, sortID: String)] = []
+        var ambiguousSelectors: [String] = []
+        var unavailableSelectors: [String] = []
+
+        for terminal in liveTerminals {
+            let selector = (terminal["key"] as? String) ?? (terminal["id"] as? String) ?? "?"
+            switch resolveVMRemoteView(in: terminal, workspaceID: workspaceID) {
+            case .resolved(let view):
+                guard let terminalID = vmTerminalID(in: terminal, machine: machine) else {
+                    unavailableSelectors.append(selector)
+                    continue
+                }
+                let tabID = (view["tab_id"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines)
+                guard let tabID, !tabID.isEmpty else {
+                    unavailableSelectors.append(selector)
+                    continue
+                }
+                candidates.append((terminalID, tabID, (view["focused"] as? Bool) == true, selector))
+            case .legacy:
+                guard let terminalID = vmTerminalID(in: terminal, machine: machine) else {
+                    unavailableSelectors.append(selector)
+                    continue
+                }
+                candidates.append((terminalID, nil, false, selector))
+            case .notFound:
+                continue
+            case .ambiguous:
+                ambiguousSelectors.append(selector)
+            case .unavailable:
+                unavailableSelectors.append(selector)
+            }
+        }
+
+        let focusedFirst = candidates.sorted { lhs, rhs in
+            if lhs.focused != rhs.focused { return lhs.focused && !rhs.focused }
+            if lhs.sortID != rhs.sortID { return lhs.sortID < rhs.sortID }
+            return (lhs.tabID ?? "") < (rhs.tabID ?? "")
+        }
+        if let pick = focusedFirst.first {
+            return .resolved(terminalID: pick.terminalID, tabID: pick.tabID)
+        }
+        // An unavailable catalog is less actionable than a placement ambiguity:
+        // tell the caller to reconnect instead of asking it to choose from stale
+        // rows. Both are reported only after every live row proved unsafe.
+        if let selector = unavailableSelectors.sorted().first {
+            return .unavailable(selector: selector)
+        }
+        if let selector = ambiguousSelectors.sorted().first {
+            return .ambiguous(selector: selector)
+        }
+        return .none
+    }
+
     /// Resolve a resource's exact view in one remote workspace. A view row is required for
     /// focused/tab placement. A legacy single-workspace resource is returned as `.legacy` so
     /// workspace opens can preserve the terminal-id fallback while exact selectors fail.
@@ -1759,67 +1835,39 @@ extension CMUXCLI {
                 catalog: catalog
             )
             let resources = (catalog["resources"] as? [[String: Any]]) ?? []
-            let terminals = resources.filter { ($0["kind"] as? String) == "terminal" }
-            var inWorkspace: [([String: Any], [String: Any]?)] = []
-            for terminal in terminals {
-                switch Self.resolveVMRemoteView(in: terminal, workspaceID: remoteWorkspaceID) {
-                case .resolved(let view):
-                    inWorkspace.append((terminal, view))
-                case .notFound:
-                    continue
-                case .legacy:
-                    // Older snapshot-only daemons expose the terminal's
-                    // workspace but no tab id. The workspace operation still
-                    // has a safe terminal/workspace target, and the project
-                    // path will choose the daemon's legacy placement.
-                    inWorkspace.append((terminal, nil))
-                case .ambiguous:
-                    let selector = (terminal["key"] as? String) ?? (terminal["id"] as? String) ?? "?"
-                    throw Self.vmTerminalPlacementResolutionError(
-                        .ambiguous,
-                        machine: machine,
-                        workspace: workspace,
-                        selector: selector
-                    )
-                case .unavailable:
-                    let selector = (terminal["key"] as? String) ?? (terminal["id"] as? String) ?? "?"
-                    throw Self.vmTerminalPlacementResolutionError(
-                        .unavailable,
-                        machine: machine,
-                        workspace: workspace,
-                        selector: selector
-                    )
-                }
-            }
-            let live = inWorkspace.filter { ($0.0["lifecycle"] as? String) != "exited" }
-            let focusedFirst = live.sorted { lhs, rhs in
-                let l = (lhs.1?["focused"] as? Bool) == true
-                let r = (rhs.1?["focused"] as? Bool) == true
-                if l != r { return l && !r }
-                let lID = (lhs.0["key"] as? String) ?? (lhs.0["id"] as? String) ?? ""
-                let rID = (rhs.0["key"] as? String) ?? (rhs.0["id"] as? String) ?? ""
-                return lID < rID
-            }
-            if let pick = focusedFirst.first {
-                guard let terminalId = Self.vmTerminalID(in: pick.0, machine: machine) else {
-                    throw Self.vmTerminalPlacementResolutionError(
-                        .unavailable,
-                        machine: machine,
-                        workspace: workspace,
-                        selector: (pick.0["id"] as? String) ?? "?"
-                    )
-                }
+            switch Self.resolveVMRemoteWorkspaceTerminal(
+                resources,
+                machine: machine,
+                workspaceID: remoteWorkspaceID
+            ) {
+            case .resolved(let terminalID, let remoteTabID):
                 try openVMTerminal(
                     machine: machine,
-                    terminalId: terminalId,
+                    terminalId: terminalID,
                     remoteWorkspaceID: remoteWorkspaceID,
-                    remoteTabID: pick.1?["tab_id"] as? String,
+                    remoteTabID: remoteTabID,
                     workspaceRaw: workspaceRaw,
                     focus: focus,
                     client: client,
                     jsonOutput: jsonOutput
                 )
                 return
+            case .ambiguous(let selector):
+                throw Self.vmTerminalPlacementResolutionError(
+                    .ambiguous,
+                    machine: machine,
+                    workspace: workspace,
+                    selector: selector
+                )
+            case .unavailable(let selector):
+                throw Self.vmTerminalPlacementResolutionError(
+                    .unavailable,
+                    machine: machine,
+                    workspace: workspace,
+                    selector: selector
+                )
+            case .none:
+                break
             }
             // A remote workspace with nothing running: start a shell in it and show that.
             var params: [String: Any] = ["machine": machine, "remote_workspace_id": remoteWorkspaceID, "open": true]
