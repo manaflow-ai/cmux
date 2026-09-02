@@ -124,7 +124,7 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
           cmux_ssh_auth_state_dir=
           cmux_ssh_auth_platform="$(uname -s 2>/dev/null || true)"
           cmux_ssh_auth_root_termination_identity=
-          cmux_ssh_auth_perl_command=
+          cmux_ssh_auth_perl_command="$(command -v perl 2>/dev/null || true)"
           cmux_ssh_auth_capture_root_termination_identity() {
             case "$cmux_ssh_auth_platform" in
               Darwin)
@@ -159,7 +159,6 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
                 ) || cmux_ssh_auth_root_termination_identity=
                 ;;
               *)
-                cmux_ssh_auth_perl_command=$(command -v perl 2>/dev/null || true)
                 if [ -n "$cmux_ssh_auth_perl_command" ] &&
                    [ -r "/proc/$cmux_ssh_auth_tree_root_pid/stat" ]; then
                   cmux_ssh_auth_root_termination_identity=$(
@@ -307,12 +306,41 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
           }
           cmux_ssh_auth_capture_root_termination_identity
 
-          # SECONDS is provided by the /bin/sh used by the generated launchers
-          # and avoids one fork per deadline check. The pass limits below are a
-          # second bound if an older shell does not update it.
-          SECONDS=0
+          # Use Perl's monotonic clock for the shared cleanup budget. This is
+          # independent of shell extensions such as bash's SECONDS, which are
+          # absent from common POSIX shells. A failed clock probe stops the
+          # cleanup pass; the bounded pass count is the final fallback.
+          cmux_ssh_auth_cleanup_clock_command="$cmux_ssh_auth_perl_command"
+          cmux_ssh_auth_cleanup_deadline_millis=
+          if [ -n "$cmux_ssh_auth_cleanup_clock_command" ]; then
+            cmux_ssh_auth_cleanup_deadline_millis=$(
+              "$cmux_ssh_auth_cleanup_clock_command" \
+                -MTime::HiRes=clock_gettime,CLOCK_MONOTONIC \
+                -e 'printf "%d\\n", int(clock_gettime(CLOCK_MONOTONIC) * 1000)' \
+                2>/dev/null
+            ) || cmux_ssh_auth_cleanup_deadline_millis=
+            case "$cmux_ssh_auth_cleanup_deadline_millis" in
+              ''|*[!0-9]*) cmux_ssh_auth_cleanup_deadline_millis= ;;
+              *) cmux_ssh_auth_cleanup_deadline_millis=$((cmux_ssh_auth_cleanup_deadline_millis + 2000)) ;;
+            esac
+          fi
+          cmux_ssh_auth_cleanup_fallback_checks=0
           cmux_ssh_auth_cleanup_has_time() {
-            [ "${SECONDS:-0}" -lt 2 ]
+            if [ -n "$cmux_ssh_auth_cleanup_deadline_millis" ]; then
+              cmux_ssh_auth_cleanup_now_millis=$(
+                "$cmux_ssh_auth_cleanup_clock_command" \
+                  -MTime::HiRes=clock_gettime,CLOCK_MONOTONIC \
+                  -e 'printf "%d\\n", int(clock_gettime(CLOCK_MONOTONIC) * 1000)' \
+                  2>/dev/null
+              ) || return 1
+              case "$cmux_ssh_auth_cleanup_now_millis" in
+                ''|*[!0-9]*) return 1 ;;
+              esac
+              [ "$cmux_ssh_auth_cleanup_now_millis" -lt "$cmux_ssh_auth_cleanup_deadline_millis" ]
+              return $?
+            fi
+            cmux_ssh_auth_cleanup_fallback_checks=$((cmux_ssh_auth_cleanup_fallback_checks + 1))
+            [ "$cmux_ssh_auth_cleanup_fallback_checks" -le 4 ]
           }
           umask 077 || cmux_ssh_auth_setup_abort
           cmux_ssh_auth_state_dir=$(/usr/bin/mktemp -d "${TMPDIR:-/tmp}/cmux-ssh-auth-tree.XXXXXX") || cmux_ssh_auth_setup_abort
@@ -342,8 +370,10 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
           cmux_ssh_auth_term_event_fifo=
           cmux_ssh_auth_term_event_ack_fifo=
           cmux_ssh_auth_marker_path=
+          cmux_ssh_auth_marker_identity_path=
           if [ -n "$cmux_ssh_auth_event_token" ]; then
             cmux_ssh_auth_marker_path="${TMPDIR:-/tmp}/cmux-ssh-auth-marker.$cmux_ssh_auth_event_token"
+            cmux_ssh_auth_marker_identity_path="$cmux_ssh_auth_marker_path.identity"
             cmux_ssh_auth_term_event_fifo="$cmux_ssh_auth_term_event_dir/done"
             cmux_ssh_auth_term_event_ack_fifo="$cmux_ssh_auth_term_event_dir/ack"
           fi
@@ -550,18 +580,51 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
 
           # A TERM handler can create a new session, exit, and leave its
           # replacement reparented before the next process-table snapshot. The
-          # classifier therefore keeps a per-attempt marker FD open. `lsof`
-          # returns the exact processes that inherited that FD, including a
-          # detached replacement. Record their PID, parent, PGID, and kernel
-          # start identity, then follow only their current descendants. A random
-          # marker token and the inherited descriptor are the ownership proof;
-          # no numeric process-group reuse can authorize an unrelated process.
+          # classifier therefore keeps a per-attempt marker FD open. The nested
+          # shell unlinks the marker after opening descriptor 7. `lsof` then
+          # matches the anonymous file by device and inode, including a detached
+          # replacement that inherited the descriptor. Record its PID, parent,
+          # PGID, and kernel start identity, then follow only current descendants.
+          # No pathname opener or numeric process-group reuse can authorize an
+          # unrelated process.
           cmux_ssh_auth_record_dynamic_members() {
             cmux_ssh_auth_take_snapshot || return 1
             : > "$cmux_ssh_auth_marker_holders" || return 1
-            if [ -n "$cmux_ssh_auth_marker_path" ] && [ -f "$cmux_ssh_auth_marker_path" ]; then
-              /usr/sbin/lsof -n -w -t -- "$cmux_ssh_auth_marker_path" \
-                > "$cmux_ssh_auth_marker_holders" 2>/dev/null || : > "$cmux_ssh_auth_marker_holders"
+            if [ -s "$cmux_ssh_auth_marker_identity_path" ]; then
+              cmux_ssh_auth_marker_device=
+              cmux_ssh_auth_marker_inode=
+              if IFS=' ' read -r cmux_ssh_auth_marker_device cmux_ssh_auth_marker_inode \
+                < "$cmux_ssh_auth_marker_identity_path" &&
+                 [ -n "$cmux_ssh_auth_marker_device" ] &&
+                 [ -n "$cmux_ssh_auth_marker_inode" ]; then
+                # The marker is unlinked after the authentication shell opens
+                # descriptor 7. Match the anonymous file by device and inode,
+                # so a pathname opener cannot seed destructive ownership.
+                /usr/sbin/lsof -n -w -a -d 7 -F pfiD 2>/dev/null |
+                  /usr/bin/awk \
+                    -v cmux_marker_device="$cmux_ssh_auth_marker_device" \
+                    -v cmux_marker_inode="$cmux_ssh_auth_marker_inode" '
+                      /^p[0-9]+$/ {
+                        cmux_lsof_pid = substr($0, 2)
+                        cmux_lsof_fd = ""
+                        cmux_lsof_device = ""
+                        next
+                      }
+                      /^f/ {
+                        cmux_lsof_fd = substr($0, 2)
+                        cmux_lsof_device = ""
+                        next
+                      }
+                      /^D/ { cmux_lsof_device = substr($0, 2); next }
+                      /^i/ {
+                        if (cmux_lsof_fd ~ /^7/ &&
+                            cmux_lsof_device == cmux_marker_device &&
+                            substr($0, 2) == cmux_marker_inode) {
+                          print cmux_lsof_pid
+                        }
+                      }
+                    ' > "$cmux_ssh_auth_marker_holders" || : > "$cmux_ssh_auth_marker_holders"
+              fi
             fi
             /usr/bin/awk '
               FILENAME == ARGV[1] {
@@ -660,13 +723,13 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
               fi
               return 0
             fi
-            # macOS /bin/sh accepts only an integer read timeout. Start this
-            # bounded grace after TERM so scheduler pressure can delay the
-            # handler without blocking cleanup forever. The FIFO stays open
-            # across retries.
-            cmux_ssh_auth_term_event_wait_start=${SECONDS:-0}
+            # macOS /bin/sh accepts only an integer read timeout. Five bounded
+            # reads give scheduler pressure time to deliver the handler without
+            # relying on a non-POSIX shell timer. The FIFO stays open across
+            # retries.
+            cmux_ssh_auth_term_event_wait_attempt=0
             while [ "$cmux_ssh_auth_term_event_received" != 1 ] &&
-                  [ "$((${SECONDS:-0} - cmux_ssh_auth_term_event_wait_start))" -lt 5 ]; do
+                  [ "$cmux_ssh_auth_term_event_wait_attempt" -lt 5 ]; do
               if IFS= read -r -t 1 cmux_ssh_auth_term_event_writer <&9; then
                 # The FIFO directory and payload both carry the random,
                 # per-attempt nonce. Process ownership is established by the
@@ -675,6 +738,7 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
                   cmux_ssh_auth_term_event_received=1
                 fi
               fi
+              cmux_ssh_auth_term_event_wait_attempt=$((cmux_ssh_auth_term_event_wait_attempt + 1))
             done
             if [ "$cmux_ssh_auth_term_event_received" != 1 ]; then
               exec 9>&-
@@ -975,12 +1039,11 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
               fi
             fi
             # Once the wrapper opens the per-attempt event FIFOs, marker
-            # cleanup is handed to this helper. The wrapper may time out while
-            # waiting for the ACK, but the marker must stay linked until every
-            # post-TERM discovery pass has finished so `lsof` can still prove
-            # ownership of a detached replacement.
+            # identity cleanup is handed to this helper. The wrapper may time
+            # out while waiting for the ACK, but the identity record must stay
+            # available until every post-TERM discovery pass has finished.
             if [ "$cmux_ssh_auth_term_event_owned" = 1 ] && [ -n "$cmux_ssh_auth_marker_path" ]; then
-              /bin/rm -f -- "$cmux_ssh_auth_marker_path" 2>/dev/null || true
+              /bin/rm -f -- "$cmux_ssh_auth_marker_path" "$cmux_ssh_auth_marker_identity_path" 2>/dev/null || true
             fi
             if [ "$cmux_ssh_auth_term_event_owned" = 1 ]; then
               /bin/rm -f "$cmux_ssh_auth_term_event_fifo" "$cmux_ssh_auth_term_event_ack_fifo" 2>/dev/null || true
@@ -1268,7 +1331,11 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
               if [ -f "$cmux_ssh_auth_marker_path" ]; then
                 # zsh's managed descriptors are close-on-exec. Use a fixed
                 # descriptor so the marker survives the nested env/zsh exec.
-                exec 7<> "$cmux_ssh_auth_marker_path" 2>/dev/null || true
+                if exec 7<> "$cmux_ssh_auth_marker_path" 2>/dev/null; then
+                  # Unlink the marker after the inherited descriptor is open.
+                  # The helper uses the saved device and inode, not this path.
+                  /bin/rm -f -- "$cmux_ssh_auth_marker_path" 2>/dev/null || true
+                fi
               fi
               ;;
           esac
@@ -1310,8 +1377,8 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
             // path from their unrelated `$$` values.
             "cmux_ssh_auth_event_token=\"${CMUX_SSH_AUTH_EVENT_TOKEN:-}\"",
             "case \"$cmux_ssh_auth_event_token\" in ''|*[!A-Za-z0-9_-]*) cmux_ssh_auth_event_token= ;; esac",
-            "cmux_ssh_auth_term_event_fifo=; cmux_ssh_auth_term_event_ack_fifo=; cmux_ssh_auth_marker_path=; cmux_ssh_auth_marker_owned=0; cmux_ssh_auth_marker_cleanup_deferred=0",
-            "if [ -n \"$cmux_ssh_auth_event_token\" ]; then cmux_ssh_auth_term_event_fifo=\"${TMPDIR:-/tmp}/cmux-ssh-auth-term.$cmux_ssh_auth_event_token/done\"; cmux_ssh_auth_term_event_ack_fifo=\"${TMPDIR:-/tmp}/cmux-ssh-auth-term.$cmux_ssh_auth_event_token/ack\"; cmux_ssh_auth_marker_path=\"${TMPDIR:-/tmp}/cmux-ssh-auth-marker.$cmux_ssh_auth_event_token\"; if ( set -C; : > \"$cmux_ssh_auth_marker_path\" ) 2>/dev/null; then if exec 7<> \"$cmux_ssh_auth_marker_path\" 2>/dev/null; then cmux_ssh_auth_marker_owned=1; else /bin/rm -f -- \"$cmux_ssh_auth_marker_path\" 2>/dev/null || true; fi; fi; fi",
+            "cmux_ssh_auth_term_event_fifo=; cmux_ssh_auth_term_event_ack_fifo=; cmux_ssh_auth_marker_path=; cmux_ssh_auth_marker_identity_path=; cmux_ssh_auth_marker_owned=0; cmux_ssh_auth_marker_cleanup_deferred=0",
+            "if [ -n \"$cmux_ssh_auth_event_token\" ]; then cmux_ssh_auth_term_event_fifo=\"${TMPDIR:-/tmp}/cmux-ssh-auth-term.$cmux_ssh_auth_event_token/done\"; cmux_ssh_auth_term_event_ack_fifo=\"${TMPDIR:-/tmp}/cmux-ssh-auth-term.$cmux_ssh_auth_event_token/ack\"; cmux_ssh_auth_marker_path=\"${TMPDIR:-/tmp}/cmux-ssh-auth-marker.$cmux_ssh_auth_event_token\"; cmux_ssh_auth_marker_identity_path=\"$cmux_ssh_auth_marker_path.identity\"; if ( set -C; : > \"$cmux_ssh_auth_marker_path\" ) 2>/dev/null; then if exec 7<> \"$cmux_ssh_auth_marker_path\" 2>/dev/null; then cmux_ssh_auth_marker_device=$(/usr/bin/stat -f '%d' \"$cmux_ssh_auth_marker_path\" 2>/dev/null || true); cmux_ssh_auth_marker_inode=$(/usr/bin/stat -f '%i' \"$cmux_ssh_auth_marker_path\" 2>/dev/null || true); cmux_ssh_auth_marker_device_hex=$(/usr/bin/printf '0x%x' \"$cmux_ssh_auth_marker_device\" 2>/dev/null || true); if case \"$cmux_ssh_auth_marker_device:$cmux_ssh_auth_marker_inode\" in ''|*[!0-9:]*|:*|*:) false ;; *) true ;; esac && [ -n \"$cmux_ssh_auth_marker_device_hex\" ] && ( set -C; /usr/bin/printf '%s %s\\n' \"$cmux_ssh_auth_marker_device_hex\" \"$cmux_ssh_auth_marker_inode\" > \"$cmux_ssh_auth_marker_identity_path\" ) 2>/dev/null; then cmux_ssh_auth_marker_owned=1; else exec 7>&-; /bin/rm -f -- \"$cmux_ssh_auth_marker_path\" \"$cmux_ssh_auth_marker_identity_path\" 2>/dev/null || true; fi; else /bin/rm -f -- \"$cmux_ssh_auth_marker_path\" 2>/dev/null || true; fi; fi; fi",
             // Open both FIFO endpoints before waiting for the command. The
             // helper can then enter a bounded read without blocking on FIFO
             // setup, while the completion payload still has a happens-before
@@ -1332,7 +1399,7 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
             "      wait \"$cmux_ssh_auth_capture_pid\" 2>/dev/null || true",
             "    fi",
             "  done",
-            "  if [ \"${cmux_ssh_auth_marker_owned:-0}\" = 1 ]; then exec 7>&-; if [ \"${cmux_ssh_auth_marker_cleanup_deferred:-0}\" != 1 ]; then /bin/rm -f -- \"$cmux_ssh_auth_marker_path\" 2>/dev/null || true; fi; cmux_ssh_auth_marker_owned=0; fi",
+            "  if [ \"${cmux_ssh_auth_marker_owned:-0}\" = 1 ]; then exec 7>&-; if [ \"${cmux_ssh_auth_marker_cleanup_deferred:-0}\" != 1 ]; then /bin/rm -f -- \"$cmux_ssh_auth_marker_path\" \"$cmux_ssh_auth_marker_identity_path\" 2>/dev/null || true; fi; cmux_ssh_auth_marker_owned=0; fi",
             "  /bin/rm -f -- \"$cmux_ssh_auth_classifier_fifo\" \"$cmux_ssh_auth_capture_state\" 2>/dev/null || true",
             "}",
             "cmux_ssh_auth_capture_signal_exit() {",
