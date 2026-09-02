@@ -504,11 +504,15 @@ export async function verifyRequest(
     }
     // Subrouter calls carry their own deadline and error classes; only the
     // cacheable native path (device registry, iroh broker, relay) is gated.
-    if (cacheable) assertStackNotThrottled();
+    // The check runs inside the operation so it is evaluated when the call
+    // actually starts, not when it was queued behind the concurrency limiter.
     let user: Awaited<ReturnType<typeof stackServerApp.getUser>>;
     try {
       user = await stackAuthorizationCall(
-        () => stackServerApp.getUser({ tokenStore: tokens }),
+        () => {
+          if (cacheable) assertStackNotThrottled();
+          return stackServerApp.getUser({ tokenStore: tokens });
+        },
         options.subrouterAuthorizationSignal,
       );
     } catch (error) {
