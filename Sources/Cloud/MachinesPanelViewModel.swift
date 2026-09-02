@@ -583,8 +583,8 @@ final class MachinesPanelViewModel: ObservableObject {
         }
         isLoading = true
         refreshTask = Task { [weak self] in
-            guard let self else { return }
-            await self.performRefresh()
+            await self?.performRefresh()
+            guard !Task.isCancelled, let self else { return }
             self.refreshTask = nil
             if self.refreshRequestedWhileLoading {
                 self.refreshRequestedWhileLoading = false
