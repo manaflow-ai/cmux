@@ -251,6 +251,30 @@ struct TitlebarInteractiveControlTests {
     @Test func primarySegmentUsesWholeFrameAsHitTarget() {
         _ = NSApplication.shared
 
+        let defaultsSuiteName = "TitlebarInteractiveControlTests.\(UUID().uuidString)"
+        guard let defaults = UserDefaults(suiteName: defaultsSuiteName) else {
+            Issue.record("Expected to create isolated titlebar-control defaults")
+            return
+        }
+        defer { defaults.removePersistentDomain(forName: defaultsSuiteName) }
+#if DEBUG
+        let geometryKeys = [
+            TitlebarNewWorkspaceCloudSplitButtonDebugSettings.plusWidthOffsetKey,
+            TitlebarNewWorkspaceCloudSplitButtonDebugSettings.caretWidthOffsetKey,
+            TitlebarNewWorkspaceCloudSplitButtonDebugSettings.plusPaddingTopKey,
+            TitlebarNewWorkspaceCloudSplitButtonDebugSettings.plusPaddingLeadingKey,
+            TitlebarNewWorkspaceCloudSplitButtonDebugSettings.plusPaddingBottomKey,
+            TitlebarNewWorkspaceCloudSplitButtonDebugSettings.plusPaddingTrailingKey,
+            TitlebarNewWorkspaceCloudSplitButtonDebugSettings.caretPaddingTopKey,
+            TitlebarNewWorkspaceCloudSplitButtonDebugSettings.caretPaddingLeadingKey,
+            TitlebarNewWorkspaceCloudSplitButtonDebugSettings.caretPaddingBottomKey,
+            TitlebarNewWorkspaceCloudSplitButtonDebugSettings.caretPaddingTrailingKey,
+        ]
+        for key in geometryKeys {
+            defaults.set(0.0, forKey: key)
+        }
+#endif
+
         let config = TitlebarControlsStyle.classic.config
         let primaryWidth = TitlebarNewWorkspaceCloudSplitButtonMetrics.primaryWidth(config: config)
         let totalWidth = TitlebarNewWorkspaceCloudSplitButtonMetrics.totalWidth(config: config)
@@ -260,6 +284,7 @@ struct TitlebarInteractiveControlTests {
             foregroundColor: .primary,
             onNewTab: { actionCount += 1 }
         )
+        .defaultAppStorage(defaults)
         let hostingView = NSHostingView(rootView: root)
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: totalWidth, height: config.buttonSize),
