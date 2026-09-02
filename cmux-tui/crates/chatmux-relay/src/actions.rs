@@ -1311,6 +1311,10 @@ async fn run_spec(
                     Ok(status) => {
                         exited = Some(status.code().map(i64::from).unwrap_or(1));
                         wait_retries = 0;
+                        #[cfg(unix)]
+                        {
+                            process_group_guard.armed = false;
+                        }
                     }
                     Err(error) => {
                         #[cfg(unix)]
@@ -1320,6 +1324,7 @@ async fn run_spec(
                             WaitState::AlreadyReaped => {
                                 exited = Some(1);
                                 wait_retries = 0;
+                                process_group_guard.armed = false;
                             }
                             WaitState::Retry => {
                                 wait_retries = wait_retries.saturating_add(1);
