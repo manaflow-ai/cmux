@@ -226,6 +226,12 @@ export type ExecResult = {
   stderr: string;
 };
 
+export type ExecOptions = {
+  readonly timeoutMs?: number;
+  /** Server-side metadata persisted with the VM row, used for durable-home routing. */
+  readonly providerMetadata?: Record<string, unknown>;
+};
+
 export type SnapshotRef = {
   id: string;
   createdAt: number;
@@ -271,7 +277,7 @@ export interface VMProvider {
   pause(vmId: string): Promise<void>;
   resume(vmId: string): Promise<VMHandle>;
 
-  exec(vmId: string, command: string, opts?: { timeoutMs?: number }): Promise<ExecResult>;
+  exec(vmId: string, command: string, opts?: ExecOptions): Promise<ExecResult>;
 
   // Optional: mint a private, token-gated HTTPS preview URL for an arbitrary HTTP port on the
   // VM (the exe.dev "https://vmname.exe.xyz:3456" equivalent). openUrl embeds the token as a

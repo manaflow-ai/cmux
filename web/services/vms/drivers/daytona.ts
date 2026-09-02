@@ -8,6 +8,7 @@ import {
   type CmuxRemoteAttachOptions,
   type CmuxRemoteEndpoint,
   type CreateOptions,
+  type ExecOptions,
   type ExecResult,
   type SSHEndpoint,
   type SnapshotRef,
@@ -241,7 +242,7 @@ export class DaytonaProvider implements VMProvider {
     );
   }
 
-  async exec(vmId: string, command: string, opts?: { timeoutMs?: number }): Promise<ExecResult> {
+  async exec(vmId: string, command: string, opts?: ExecOptions): Promise<ExecResult> {
     const timeoutMs = normalizeExecTimeout(opts?.timeoutMs);
     return withVmSpan(
       "cmux.vm.provider.exec",

@@ -9,6 +9,7 @@ import {
   type CmuxRemoteAttachOptions,
   type CmuxRemoteEndpoint,
   type CreateOptions,
+  type ExecOptions,
   type ExecResult,
   type SSHEndpoint,
   type SnapshotRef,
@@ -163,7 +164,7 @@ export class E2BProvider implements VMProvider {
     );
   }
 
-  async exec(vmId: string, command: string, opts?: { timeoutMs?: number }): Promise<ExecResult> {
+  async exec(vmId: string, command: string, opts?: ExecOptions): Promise<ExecResult> {
     const timeoutMs = opts?.timeoutMs ?? 30_000;
     return withVmSpan(
       "cmux.vm.provider.exec",

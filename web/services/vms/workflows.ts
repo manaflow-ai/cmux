@@ -1633,6 +1633,7 @@ export function execVm(input: {
     );
     const result = yield* providers.exec(vm.provider, input.providerVmId, input.command, {
       timeoutMs: input.timeoutMs,
+      providerMetadata: vm.providerMetadata,
     });
     yield* repo.recordUsageEvent({
       userId: input.userId,

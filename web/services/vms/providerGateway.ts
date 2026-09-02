@@ -7,6 +7,7 @@ import {
   type AttachOptions,
   type AttachTransport,
   type CreateOptions,
+  type ExecOptions,
   type ExecResult,
   type ProviderId,
   type SnapshotRef,
@@ -49,7 +50,7 @@ export type VmProviderGatewayShape = {
     provider: ProviderId,
     vmId: string,
     command: string,
-    options?: { timeoutMs?: number },
+    options?: ExecOptions,
   ) => Effect.Effect<ExecResult, VmProviderOperationError>;
   readonly openPort?: (
     provider: ProviderId,

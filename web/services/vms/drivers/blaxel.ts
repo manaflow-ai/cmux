@@ -6,6 +6,7 @@ import {
   type AttachOptions,
   type AttachTransport,
   type CreateOptions,
+  type ExecOptions,
   type ExecResult,
   type SSHEndpoint,
   type SnapshotRef,
@@ -508,11 +509,17 @@ const DEFAULT_MEMORY_MB = 4096;
 // and the view makes the root-owned tree cmux-owned instantly.
 const HOME_VOLUME_MOUNT_PATH = CMUX_HOME_VOLUME_BACKING_PATH;
 
-/** Returns whether Blaxel attached the driver's persistent home volume. */
-function sandboxHasPersistentHomeVolume(sandbox: BlaxelSandbox): boolean {
-  return (sandbox.spec?.volumes ?? []).some((volume) =>
+/** Returns whether the VM row or live Blaxel response identifies a persistent home volume. */
+function sandboxHasPersistentHomeVolume(
+  sandbox: BlaxelSandbox,
+  providerMetadata?: Record<string, unknown>,
+): boolean {
+  const liveVolume = (sandbox.spec?.volumes ?? []).some((volume) =>
     volume.mountPath === HOME_VOLUME_MOUNT_PATH || volume.mountPath === "/root"
   );
+  if (liveVolume) return true;
+  const persistedVolume = providerMetadata?.homeVolume;
+  return typeof persistedVolume === "string" && persistedVolume.trim().length > 0;
 }
 
 // Disk follows memory the way hosted dev boxes do, but Blaxel caps a volume at 16 GB
@@ -1632,8 +1639,7 @@ export class BlaxelProvider implements VMProvider {
             throw new Error("sandbox is missing metadata.url");
           }
           const persistentVolumeExpected =
-            sandboxHasPersistentHomeVolume(sandbox) ||
-            typeof options?.providerMetadata?.homeVolume === "string";
+            sandboxHasPersistentHomeVolume(sandbox, options?.providerMetadata);
           await this.ensureCmuxTuiRunning(vmId, sandboxUrl, persistentVolumeExpected);
           const branded = cmuxTuiPreviewBranded(options?.clientCapabilities);
           const previewUrl = await this.ensurePreview(
@@ -1788,7 +1794,7 @@ export class BlaxelProvider implements VMProvider {
     );
   }
 
-  async exec(vmId: string, command: string, opts?: { timeoutMs?: number }): Promise<ExecResult> {
+  async exec(vmId: string, command: string, opts?: ExecOptions): Promise<ExecResult> {
     const timeoutMs = Math.min(opts?.timeoutMs ?? EXEC_DEFAULT_TIMEOUT_MS, MAX_EXEC_TIMEOUT_MS);
     return withVmSpan(
       "cmux.vm.provider.exec",
@@ -1808,7 +1814,7 @@ export class BlaxelProvider implements VMProvider {
         const result = await this.sandboxExec(
           sandboxUrl,
           userExecCommand(command, {
-            persistentVolumeExpected: sandboxHasPersistentHomeVolume(sandbox),
+            persistentVolumeExpected: sandboxHasPersistentHomeVolume(sandbox, opts?.providerMetadata),
           }),
           timeoutMs,
         );

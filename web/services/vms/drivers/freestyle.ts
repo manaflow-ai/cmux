@@ -4,6 +4,7 @@ import {
   ProviderError,
   type AttachOptions,
   type CreateOptions,
+  type ExecOptions,
   type ExecResult,
   type AttachEndpoint,
   type SSHEndpoint,
@@ -285,7 +286,7 @@ export class FreestyleProvider implements VMProvider {
   async exec(
     vmId: string,
     command: string,
-    opts?: { timeoutMs?: number },
+    opts?: ExecOptions,
   ): Promise<ExecResult> {
     if (isFreestyleBetaVmId(vmId)) return this.beta.exec(vmId, command, opts);
     const timeoutMs = normalizeExecTimeout(opts?.timeoutMs);

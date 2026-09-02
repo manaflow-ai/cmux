@@ -128,12 +128,7 @@ describe("BlaxelProvider session transport", () => {
       const result = await new BlaxelProvider().exec(
         "machine-with-hidden-volume",
         "printf ok",
-        // The option is deliberately expressed as an unknown-compatible object
-        // in the failing-test commit; the implementation commit adds it to the
-        // shared driver contract.
-        { timeoutMs: 1000, providerMetadata: { homeVolume: "cmux-home-machine-with-hidden-volume" } } as {
-          timeoutMs?: number;
-        },
+        { timeoutMs: 1000, providerMetadata: { homeVolume: "cmux-home-machine-with-hidden-volume" } },
       );
       expect(result).toEqual({ exitCode: 0, stdout: "ok", stderr: "" });
       expect(processBodies).toHaveLength(1);
