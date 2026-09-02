@@ -478,6 +478,14 @@ impl RouteGate {
         drop(state);
         RouteGuard { gate: self, owner }
     }
+
+    fn held_by_current_thread(&self) -> bool {
+        self.state
+            .lock()
+            .expect("route gate lock")
+            .owner
+            .is_some_and(|owner| owner == std::thread::current().id())
+    }
 }
 
 impl Drop for RouteGuard<'_> {
@@ -815,7 +823,25 @@ impl Inner {
         }
         let fail = |code: &str, message: &str| send_pty_error(context, &pty_id, code, message);
         let opening_generation = self.next_opening_generation.fetch_add(1, Ordering::Relaxed);
-        let reservation_result = {
+        // Do not inspect the route gate while holding the attachment map. The
+        // normal publication path takes RouteGate -> attachments, so this
+        // preflight must run before the reservation's opening_state ->
+        // attachments critical section to preserve lock ordering.
+        let closing_attachment = {
+            let attachments = self.attachments.lock().expect("attach lock");
+            attachments.get(&pty_id).cloned()
+        };
+        let reentrant_replacement = closing_attachment.is_some_and(|attachment| {
+            attachment.closing.load(Ordering::SeqCst)
+                && attachment.publication_gate.held_by_current_thread()
+        });
+        let reservation_result = if reentrant_replacement {
+            // A callback may synchronously re-enter OPEN for the same id
+            // while publishing an exit/error. Reject that replacement,
+            // because allowing it to acquire the reentrant gate would
+            // publish the new generation before the old frame returns.
+            Err(("bad_request", "ptyId is still publishing".to_owned()))
+        } else {
             let mut opening = self.opening_state.lock().expect("opening state lock");
             let attachments = self.attachments.lock().expect("attach lock");
             let attached = attachments
@@ -1502,6 +1528,34 @@ impl Inner {
         action: &str,
         generation: u64,
     ) -> Option<Attachment> {
+        self.authorize_snapshot_for_generation_mode(pty_id, auth, context, action, generation, true)
+    }
+
+    /// Authorization failures for an explicit CLOSE are non-terminal. The
+    /// caller may have a stale or downgraded trust snapshot, but it must not
+    /// be able to retire an attachment it does not own.
+    fn authorize_snapshot_for_generation_nonterminal(
+        &self,
+        pty_id: &str,
+        auth: &AuthSnapshot,
+        context: &FrameContext,
+        action: &str,
+        generation: u64,
+    ) -> Option<Attachment> {
+        self.authorize_snapshot_for_generation_mode(
+            pty_id, auth, context, action, generation, false,
+        )
+    }
+
+    fn authorize_snapshot_for_generation_mode(
+        &self,
+        pty_id: &str,
+        auth: &AuthSnapshot,
+        context: &FrameContext,
+        action: &str,
+        generation: u64,
+        retire_on_denial: bool,
+    ) -> Option<Attachment> {
         let attachment = self.attachments.lock().expect("attach lock").get(pty_id)?.clone();
         if generation != 0 && attachment.generation != generation {
             return None;
@@ -1511,6 +1565,14 @@ impl Inner {
         }
         if Self::auth_allows(auth, &attachment) {
             Some(attachment)
+        } else if !retire_on_denial {
+            send_pty_error(
+                context,
+                pty_id,
+                "trust_revoked",
+                &format!("PTY {action} refused after trust change"),
+            );
+            None
         } else {
             self.emit_error_for_generation(
                 context,
@@ -1527,7 +1589,7 @@ impl Inner {
     fn close_authorized(&self, pty_id: &str, context: &FrameContext) {
         let auth = Self::auth_snapshot(context);
         let Some(attachment) =
-            self.authorize_snapshot_for_generation(pty_id, &auth, context, "close", 0)
+            self.authorize_snapshot_for_generation_nonterminal(pty_id, &auth, context, "close", 0)
         else {
             // A close may race the asynchronous open before its attachment
             // is published. The transport fence ran at frame dispatch, so
