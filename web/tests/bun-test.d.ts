@@ -31,7 +31,9 @@ declare module "bun:test" {
   export const describe: TestFunction;
   export const expect: {
     (actual: unknown): Matchers;
+    arrayContaining: (value: unknown[]) => unknown;
     objectContaining: (value: unknown) => unknown;
+    stringContaining: (value: string) => unknown;
   };
   export const mock: Mock;
   export const setSystemTime: (time?: Date | number) => void;
