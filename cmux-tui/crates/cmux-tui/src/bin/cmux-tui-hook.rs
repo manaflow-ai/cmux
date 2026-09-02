@@ -180,9 +180,9 @@ where
     let (sender, receiver) = std::sync::mpsc::sync_channel(0);
     std::thread::spawn(move || forward_setup_result(sender, setup()));
     match deadline {
-        Some(deadline) => receiver
-            .recv_timeout(deadline.saturating_duration_since(Instant::now()))
-            .ok(),
+        Some(deadline) => {
+            receiver.recv_timeout(deadline.saturating_duration_since(Instant::now())).ok()
+        }
         None => receiver.recv().ok(),
     }
 }
@@ -711,21 +711,15 @@ mod detach {
                 let mut child = super::DetachedChildGuard::new(
                     command.spawn().context("spawn detached hook child")?,
                 );
-                let mut stdin = child
-                    .child_mut()
-                    .stdin
-                    .take()
-                    .context("detached hook child has no stdin")?;
+                let mut stdin =
+                    child.child_mut().stdin.take().context("detached hook child has no stdin")?;
                 stdin.write_all(request_id.as_bytes())?;
                 stdin.write_all(b"\n")?;
                 stdin.write_all(&encoded)?;
                 stdin.flush()?;
                 drop(stdin);
-                let stdout = child
-                    .child_mut()
-                    .stdout
-                    .take()
-                    .context("detached hook child has no stdout")?;
+                let stdout =
+                    child.child_mut().stdout.take().context("detached hook child has no stdout")?;
                 Ok((child, stdout))
             })()
         });
@@ -793,21 +787,15 @@ mod detach {
                 let mut child = super::DetachedChildGuard::new(
                     command.spawn().context("spawn detached hook child")?,
                 );
-                let mut stdin = child
-                    .child_mut()
-                    .stdin
-                    .take()
-                    .context("detached hook child has no stdin")?;
+                let mut stdin =
+                    child.child_mut().stdin.take().context("detached hook child has no stdin")?;
                 stdin.write_all(request_id.as_bytes())?;
                 stdin.write_all(b"\n")?;
                 stdin.write_all(&encoded)?;
                 stdin.flush()?;
                 drop(stdin);
-                let stdout = child
-                    .child_mut()
-                    .stdout
-                    .take()
-                    .context("detached hook child has no stdout")?;
+                let stdout =
+                    child.child_mut().stdout.take().context("detached hook child has no stdout")?;
                 Ok((child, stdout))
             })()
         });
