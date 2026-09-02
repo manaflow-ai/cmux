@@ -11,6 +11,7 @@ on:
       - scripts/validate-xcframework-archive.py
       - scripts/ghosttykit-checksums.txt
       - tests/test_ci_ghosttykit_release_check.sh
+      - Resources/bin/cmux-hermes-agent-wrapper
       - tests/test_hermes_wrapper_hooks.py
       - tests/test_ci_change_areas.py
       - .github/workflows/ci.yml
