@@ -24,7 +24,6 @@ import { Freestyle } from "freestyle";
 import path from "node:path";
 import {
   CMUX_TUI_SESSION,
-  cmuxTuiPinCheckCommand,
   resolveCmuxTuiSource,
 } from "../services/vms/drivers/cmuxTuiDaemon";
 import { DEVBOX_INSTANCE_ID_COMMAND, devboxAgentPins, devboxDesktopDir, devboxDir, sha256File } from "./devbox-image-common";
@@ -257,14 +256,26 @@ if (provider === "freestyle") {
     const exec = execFor(vm);
     const daemonMs = await waitForBakedDaemon("freestyle", exec);
     console.log(`baked daemon answered ${daemonMs} ms after the first probe (${Date.now() - t0} ms after create)`);
-    // The baked binary is the current files.cmux.com pin. A later re-verify of
-    // an older image fails here on purpose: that image is not the pin any more.
-    const source = await resolveCmuxTuiSource("freestyle");
-    console.log(`cmux-tui pin: commit ${source.commit} sha256 ${source.sha256.slice(0, 12)}…`);
-    const pin = await exec(cmuxTuiPinCheckCommand(source), 30_000);
-    if (pin.exitCode !== 0) {
-      throw new Error(`baked cmux-tui does not match the current manifest pin: ${pin.output.slice(-500)}`);
+    // The baked binary must be the pin the bake resolved and recorded in
+    // /etc/cmux/cmux-tui-pin (that is the image's contract; the manifest entry
+    // carries the same commit). The live files.cmux.com pin moves with every
+    // cmux-tui release, so drift from it is reported, not failed: a new pin
+    // reaches machines through a rebake.
+    const bakedPin = await exec("cat /etc/cmux/cmux-tui-pin", 30_000);
+    const [bakedSha, bakedCommit] = bakedPin.output.trim().split(/\s+/);
+    if (bakedPin.exitCode !== 0 || !/^[0-9a-f]{64}$/.test(bakedSha ?? "")) {
+      throw new Error(`image carries no readable /etc/cmux/cmux-tui-pin: ${bakedPin.output.slice(-300)}`);
     }
+    const pin = await exec(`printf '%s  %s\\n' ${bakedSha} /root/.cmux/bin/cmux-tui | sha256sum -c >/dev/null 2>&1 && echo baked-pin-ok`, 30_000);
+    if (pin.exitCode !== 0) {
+      throw new Error(`baked cmux-tui does not match the pin recorded at bake time: ${pin.output.slice(-500)}`);
+    }
+    const live = await resolveCmuxTuiSource("freestyle");
+    console.log(
+      live.sha256 === bakedSha
+        ? `cmux-tui pin: ${bakedCommit} (${bakedSha.slice(0, 12)}…), the current files.cmux.com pin`
+        : `cmux-tui pin: baked ${bakedCommit} (${bakedSha.slice(0, 12)}…); files.cmux.com now pins ${live.commit} (${live.sha256.slice(0, 12)}…), a rebake picks it up`,
+    );
     // A second machine from the same memory snapshot must mint its own
     // identity; a shared one would let every machine impersonate every other.
     const second = await fs.vms.create({ snapshotId: image, displayName: "cmux-devbox-verify-2", firewall });

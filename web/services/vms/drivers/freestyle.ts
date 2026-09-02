@@ -35,6 +35,7 @@ import {
 import { PLAN_MACHINE_MEMORY_MB, vcpusForMemoryMb, vmDiskMb } from "../machineSpec";
 import { recordSpanError, setSpanAttributes, withVmSpan } from "../telemetry";
 import {
+  CMUX_TUI_BINARY_PATH,
   CMUX_TUI_INSTALL_TIMEOUT_MS,
   CMUX_TUI_PORT,
   CMUX_TUI_SESSION,
@@ -46,6 +47,7 @@ import {
   isCmuxTuiDeviceEnrolled,
   mintCmuxTuiInvitation,
   resolveCmuxTuiSource,
+  type CmuxTuiSource,
   waitForCmuxTuiReady,
   type CmuxTuiInvoke,
 } from "./cmuxTuiDaemon";
@@ -338,6 +340,23 @@ export function mapFreestyleState(state: VmData["state"] | null | undefined): VM
  * appears in /proc/net/tcp, is unreachable at the public IPv6, and must be
  * restarted under the dual-stack override.
  */
+/**
+ * Is the installed binary the machine's pinned build? A baked image records
+ * the pin it was built with in /etc/cmux/cmux-tui-pin (`<sha256> <commit>`),
+ * and that is the version contract for every machine from that snapshot: the
+ * heal reinstalls only a missing or corrupt binary, never one the live
+ * files.cmux.com manifest has since moved past (a new pin ships by rebake).
+ * Images without the file were installed from the live pin at create, so the
+ * live pin stays their reference.
+ */
+export function freestylePinCheckCommand(source: CmuxTuiSource): string {
+  return (
+    "if [ -s /etc/cmux/cmux-tui-pin ]; then " +
+    `test -x ${CMUX_TUI_BINARY_PATH} && printf '%s  %s\\n' "$(cut -d' ' -f1 /etc/cmux/cmux-tui-pin)" ${CMUX_TUI_BINARY_PATH} | sha256sum -c >/dev/null 2>&1; ` +
+    `else ${cmuxTuiPinCheckCommand(source)}; fi`
+  );
+}
+
 export function freestyleDaemonHealthyCommand(): string {
   // [s]tart: pgrep -f would otherwise match the exec shell carrying this command line.
   // On an image whose supervisor binds the daemon identity to the instance id
@@ -986,7 +1005,7 @@ export class FreestyleProvider implements VMProvider {
     const healthy = await this.execResult(vm, freestyleDaemonHealthyCommand());
     if (healthy?.exitCode === 0) return;
     const source = await resolveCmuxTuiSource("freestyle");
-    const pinned = await this.execResult(vm, cmuxTuiPinCheckCommand(source));
+    const pinned = await this.execResult(vm, freestylePinCheckCommand(source));
     if (pinned?.exitCode !== 0) {
       await this.execOrThrow(vm, vmId, cmuxTuiInstallCommand(source), CMUX_TUI_INSTALL_TIMEOUT_MS)
         .catch((err: unknown) => {
