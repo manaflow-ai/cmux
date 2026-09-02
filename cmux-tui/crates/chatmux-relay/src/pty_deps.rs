@@ -845,12 +845,11 @@ impl PtyDeps for RealPtyDeps {
         if let Some(override_path) =
             self.env.get("CHATMUX_RELAY_CMUX_TUI").filter(|value| !value.trim().is_empty())
         {
-            let path = override_path.trim();
-            return if is_executable(Path::new(path)).await {
-                Some(CmuxTui { file: path.to_owned(), prefix: Vec::new() })
-            } else {
-                None
-            };
+            let path = Path::new(override_path.trim());
+            return canonical_executable(path).await.map(|file| CmuxTui {
+                file: file.to_string_lossy().into_owned(),
+                prefix: Vec::new(),
+            });
         }
         // Never a bare `cmux` on PATH — that name is ambiguous; only cmux-tui.
         for dir in self.env.get("PATH").map(String::as_str).unwrap_or("").split(':') {
@@ -858,9 +857,9 @@ impl PtyDeps for RealPtyDeps {
                 continue;
             }
             let candidate = Path::new(dir).join("cmux-tui");
-            if is_executable(&candidate).await {
+            if let Some(file) = canonical_executable(&candidate).await {
                 return Some(CmuxTui {
-                    file: candidate.to_string_lossy().into_owned(),
+                    file: file.to_string_lossy().into_owned(),
                     prefix: Vec::new(),
                 });
             }
@@ -988,6 +987,18 @@ async fn is_executable(path: &Path) -> bool {
     }
 }
 
+/// Resolve and validate an operator-selected executable before handing it to
+/// `Command`. Relative sources are rejected because the relay's launch cwd can
+/// be caller-controlled. Keeping the canonical absolute path in `CmuxTui`
+/// avoids a second PATH lookup after validation.
+async fn canonical_executable(path: &Path) -> Option<PathBuf> {
+    if !path.is_absolute() {
+        return None;
+    }
+    let canonical = tokio::fs::canonicalize(path).await.ok()?;
+    is_executable(&canonical).await.then_some(canonical)
+}
+
 /// Session-name validity is re-exported so the daemon path can reject early.
 pub fn valid_session(name: &str) -> bool {
     session_name_ok(name)
@@ -1044,6 +1055,61 @@ mod tests {
         let error = session_socket_path(Path::new("/run/cmux-tui-501"), 501, "bad/name")
             .expect_err("path separator must be rejected");
         assert!(error.contains("invalid session"));
+    }
+
+    #[tokio::test]
+    async fn canonical_executable_rejects_relative_path() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let root = std::env::temp_dir().join(format!("cmux-relay-cwd-test-{}", std::process::id()));
+        let cwd = root.join("request");
+        let bin = cwd.join("bin");
+        let executable = bin.join("cmux-tui");
+        tokio::fs::create_dir_all(&bin).await.unwrap();
+        tokio::fs::write(&executable, b"#!/bin/sh\n").await.unwrap();
+        tokio::fs::set_permissions(&executable, std::fs::Permissions::from_mode(0o755))
+            .await
+            .unwrap();
+
+        let resolved = canonical_executable(Path::new("bin/cmux-tui")).await;
+        assert_eq!(resolved, None);
+        let _ = tokio::fs::remove_dir_all(root).await;
+    }
+
+    #[tokio::test]
+    async fn resolver_rejects_relative_override_and_path_entries() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let root = std::env::temp_dir().join(format!(
+            "cmux-relay-relative-executable-policy-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()
+        ));
+        let cwd = root.join("launch");
+        let executable = cwd.join("bin/cmux-tui");
+        tokio::fs::create_dir_all(executable.parent().unwrap()).await.unwrap();
+        tokio::fs::write(&executable, b"#!/bin/sh\n").await.unwrap();
+        tokio::fs::set_permissions(&executable, std::fs::Permissions::from_mode(0o755))
+            .await
+            .unwrap();
+
+        let mut env = HashMap::new();
+        env.insert("CHATMUX_RELAY_CMUX_TUI".to_owned(), "bin/cmux-tui".to_owned());
+        env.insert("PATH".to_owned(), "bin".to_owned());
+        let mut deps = RealPtyDeps::new(env);
+
+        assert!(deps.resolve_cmux_tui().await.is_none());
+
+        deps.env.remove("CHATMUX_RELAY_CMUX_TUI");
+        assert!(deps.resolve_cmux_tui().await.is_none());
+
+        deps.env
+            .insert("CHATMUX_RELAY_CMUX_TUI".to_owned(), executable.to_string_lossy().into_owned());
+        assert_eq!(
+            deps.resolve_cmux_tui().await.map(|resolved| resolved.file),
+            Some(std::fs::canonicalize(&executable).unwrap().to_string_lossy().into_owned())
+        );
+        let _ = tokio::fs::remove_dir_all(root).await;
     }
 
     #[test]
@@ -1105,10 +1171,10 @@ mod tests {
         let exit_seen = TestArc::clone(&seen);
         output.subscribe(
             TestArc::new(move |chunk| {
-                data_seen.lock().expect("seen lock").push(format!("data:{}", chunk.len()))
+                data_seen.lock().expect("seen lock").push(format!("data:{}", chunk.len()));
             }),
             TestArc::new(move |code| {
-                exit_seen.lock().expect("seen lock").push(format!("exit:{code}"))
+                exit_seen.lock().expect("seen lock").push(format!("exit:{code}"));
             }),
         );
         assert_eq!(
@@ -1194,10 +1260,10 @@ mod tests {
                 data_seen
                     .lock()
                     .expect("seen lock")
-                    .push(String::from_utf8_lossy(&chunk).into_owned())
+                    .push(String::from_utf8_lossy(&chunk).into_owned());
             }),
             TestArc::new(move |code| {
-                exit_seen.lock().expect("seen lock").push(format!("exit:{code}"))
+                exit_seen.lock().expect("seen lock").push(format!("exit:{code}"));
             }),
         );
 
