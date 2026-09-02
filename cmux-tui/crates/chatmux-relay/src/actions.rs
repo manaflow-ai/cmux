@@ -2314,6 +2314,15 @@ mod tests {
     }
 
     #[test]
+    fn wait_retry_exhaustion_requests_kill_escalation() {
+        let mut retries = 0;
+        for _ in 0..MAX_WAIT_RETRIES.saturating_sub(1) {
+            assert_eq!(next_wait_retry(&mut retries), WaitRetryAction::Retry);
+        }
+        assert_eq!(next_wait_retry(&mut retries), WaitRetryAction::Escalate);
+    }
+
+    #[test]
     fn scoped_file_capability_refusal_is_typed_and_fail_closed() {
         let roots = vec!["/srv/work".to_owned()];
         let scoped: RootLists<'_> = [Some(roots.as_slice()), None];
