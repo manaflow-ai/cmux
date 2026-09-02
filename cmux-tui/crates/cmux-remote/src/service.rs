@@ -1001,10 +1001,10 @@ async fn reader_loop(reader: ReaderLoop) {
             let mut table = streams.lock().await;
             if table.len() >= MAX_OPEN_STREAMS {
                 drop(table);
-                closed
-                    .lock()
-                    .await
-                    .insert_on(frame.stream, tombstone_lane_mask(control.0, frame.lane));
+                closed.lock().await.insert_on(
+                    frame.stream,
+                    rejected_open_tombstone_lane_mask(control.0, frame.lane),
+                );
                 cleanup.spawn(
                     endpoint.clone(),
                     stream_generation,
@@ -1059,10 +1059,10 @@ async fn reader_loop(reader: ReaderLoop) {
                 Ok(()) => {}
                 Err(mpsc::error::TrySendError::Closed(_)) => break,
                 Err(mpsc::error::TrySendError::Full(incoming)) => {
-                    closed
-                        .lock()
-                        .await
-                        .insert_on(frame.stream, tombstone_lane_mask(control.0, frame.lane));
+                    closed.lock().await.insert_on(
+                        frame.stream,
+                        rejected_open_tombstone_lane_mask(control.0, frame.lane),
+                    );
                     if let Some(registration) = streams.lock().await.remove(&frame.stream) {
                         fail_registration(
                             registration,
@@ -1452,6 +1452,10 @@ fn tombstone_lane_mask(service: Service, lane: Lane) -> u8 {
 
 fn legal_tombstone_lane_mask(service: Service) -> u8 {
     tombstone_lane_mask(service, default_lane(service))
+}
+
+fn rejected_open_tombstone_lane_mask(service: Service, open_lane: Lane) -> u8 {
+    tombstone_lane_mask(service, open_lane) | legal_tombstone_lane_mask(service)
 }
 
 fn open_lane(service: Service) -> Lane {
