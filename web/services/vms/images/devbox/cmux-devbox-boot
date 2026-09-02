@@ -2,12 +2,31 @@
 # cmux devbox boot supervisor (/usr/local/bin/cmux-devbox-boot).
 #
 # Supervises the cmux-tui session daemon, the machine's only session daemon
-# (docs/cloud-cmux-tui-daemon.md). The binary is NOT baked: the driver
-# installs the pinned files.cmux.com build to /root/.cmux/bin/cmux-tui at
-# create time (sha256-verified; see web/services/vms/drivers/cmuxTuiDaemon.ts),
-# so this loop waits for it and restarts the daemon if it ever exits. The
-# command below must stay identical to cmuxTuiDaemonCommand() in that module;
-# vm-devbox-image.test.ts pins the equality.
+# (docs/cloud-cmux-tui-daemon.md). The Freestyle bake installs the pinned
+# files.cmux.com build at /root/.cmux/bin/cmux-tui (sha256-verified; see
+# web/scripts/build-devbox-freestyle.ts) and this loop starts the daemon and
+# restarts it if it ever exits. On an image without the binary (the container
+# Dockerfile) the loop waits for a driver to install it. The command below
+# must stay identical to cmuxTuiDaemonCommand() in
+# web/services/vms/drivers/cmuxTuiDaemon.ts; vm-devbox-image.test.ts pins
+# the equality.
+#
+# Per-machine daemon identity. A Freestyle snapshot is a memory image: every
+# machine created from it resumes the builder's processes, so a daemon left
+# running at snapshot time would hand the same Noise static identity
+# (identity.json) to every customer machine. The platform's metadata service
+# names each machine (latest/meta-data/instance-id, the Firecracker MMDS
+# behind the EC2-style token dance), so the daemon identity is bound to that
+# id, cloud-init style:
+#   * /etc/cmux/daemon-instance-id is the machine whose identity the state
+#     dir holds. A different id means "this is a clone": the remote state is
+#     wiped and the daemon starts with a fresh identity, bound to this id.
+#   * /etc/cmux/bake-instance-id is the builder's own id. On the builder the
+#     loop keeps the daemon parked so the snapshot never carries a live
+#     identity; every clone has a different id and starts within one loop
+#     tick of resume. Only the bake writes it.
+# Without a metadata service (containers) the id is empty and the daemon
+# simply runs, keeping whatever identity the state dir already holds.
 #
 # The Freestyle public-platform bake runs this script from the cmux-tui-daemon
 # systemd unit.
@@ -16,9 +35,30 @@
 # wildcard. Freestyle sets [::]:1337 (its systemd unit / a driver drop-in)
 # because those machines are reached directly at their public IPv6; a
 # dual-stack bind still accepts IPv4.
+BIN=/root/.cmux/bin/cmux-tui
+# cmux-remote's default_state_dir for root on Linux: identity.json, devices.json, runtime.json.
+REMOTE_STATE_DIR=/root/.local/state/cmux/remote
+BOUND_INSTANCE_FILE=/etc/cmux/daemon-instance-id
+BAKE_INSTANCE_FILE=/etc/cmux/bake-instance-id
+METADATA=http://169.254.169.254
+
+instance_id() {
+  token=$(curl -sf -m 1 -X PUT "$METADATA/latest/api/token" -H 'X-metadata-token-ttl-seconds: 60') || return 1
+  curl -sf -m 1 -H "X-aws-ec2-metadata-token: $token" "$METADATA/latest/meta-data/instance-id"
+}
+
 while true; do
-  if [ -x /root/.cmux/bin/cmux-tui ]; then
-    (cd /root && env HOME=/root TERM=xterm-256color /root/.cmux/bin/cmux-tui server start --session cloud --remote-ws "${CMUX_TUI_REMOTE_WS_BIND:-0.0.0.0:1337}" --remote-ws-insecure-bind)
+  if [ -x "$BIN" ]; then
+    id=$(instance_id 2>/dev/null) || id=""
+    if [ -n "$id" ] && [ -f "$BAKE_INSTANCE_FILE" ] && [ "$id" = "$(cat "$BAKE_INSTANCE_FILE")" ]; then
+      : # the builder itself: parked until the snapshot is taken
+    else
+      if [ -n "$id" ] && [ "$id" != "$(cat "$BOUND_INSTANCE_FILE" 2>/dev/null)" ]; then
+        rm -rf "$REMOTE_STATE_DIR"
+        mkdir -p /etc/cmux && printf '%s\n' "$id" > "$BOUND_INSTANCE_FILE"
+      fi
+      (cd /root && env HOME=/root TERM=xterm-256color /root/.cmux/bin/cmux-tui server start --session cloud --remote-ws "${CMUX_TUI_REMOTE_WS_BIND:-0.0.0.0:1337}" --remote-ws-insecure-bind)
+    fi
   fi
-  sleep 2
+  sleep 1
 done

@@ -205,6 +205,9 @@ export type DevboxManifestEntry = {
   kind?: DevboxImageKind;
   defaultForKind?: boolean;
   cmuxdRemoteCommit: string;
+  /** The cmux-tui build baked at /root/.cmux/bin/cmux-tui (files.cmux.com manifest pin at bake time). Absent on images that installed it at create time. */
+  cmuxTuiCommit?: string;
+  cmuxTuiSha256?: string;
   /** The cmux commit whose devbox definition produced this image. */
   repoCommit?: string;
   builtAt: string;
