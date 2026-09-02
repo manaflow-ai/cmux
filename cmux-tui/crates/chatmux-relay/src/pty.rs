@@ -1109,6 +1109,7 @@ impl PtyManager {
             let publication =
                 candidate.publication_gate.lock().expect("attachment publication lock");
             let operation = candidate.operation_gate.lock().expect("attachment operation lock");
+            let delivery = candidate.delivery_gate.lock().expect("attachment delivery lock");
             Self::revoke_publication(&candidate);
             candidate.closing.store(true, Ordering::Release);
             let removed = {
@@ -1122,6 +1123,7 @@ impl PtyManager {
             if let Some(removed) = removed {
                 retired.push(removed);
             }
+            drop(delivery);
             drop(operation);
             drop(publication);
         }
@@ -1803,6 +1805,14 @@ impl Inner {
             return;
         }
         let _delivery = attachment.delivery_gate.lock().expect("attachment delivery lock");
+        // Retirement takes the same delivery gate before revocation. Recheck
+        // after a wait so a claim made before detach cannot call the
+        // transport after that attachment has been revoked or removed.
+        if !self.attachment_snapshot_is_current(pty_id, &attachment)
+            || attachment.publication_state.load(Ordering::Acquire) & 1 != 0
+        {
+            return;
+        }
         (auth.send)(json!({
             "version": PTY_PROTOCOL_VERSION,
             "type": "pty_output",
@@ -1851,6 +1861,7 @@ impl Inner {
             self.handle_authorization_failure(pty_id, &attachment, &auth, context, "exit");
             return;
         }
+        let _delivery = attachment.delivery_gate.lock().expect("attachment delivery lock");
         let removed = {
             Self::revoke_publication(&attachment);
             attachment.closing.store(true, Ordering::Release);
@@ -1868,7 +1879,6 @@ impl Inner {
         // lifecycle state before invoking the callback.
         drop(_operation);
         drop(_publication);
-        let _delivery = attachment.delivery_gate.lock().expect("attachment delivery lock");
         (auth.send)(json!({
             "version": PTY_PROTOCOL_VERSION,
             "type": "pty_exit",
@@ -2137,6 +2147,7 @@ impl Inner {
             self.handle_authorization_failure(pty_id, &attachment, &auth, context, "close");
             return;
         }
+        let _delivery = attachment.delivery_gate.lock().expect("attachment delivery lock");
         let removed = {
             Self::revoke_publication(&attachment);
             attachment.closing.store(true, Ordering::Release);
@@ -2150,6 +2161,7 @@ impl Inner {
         if removed {
             // Killing a PTY can acquire a platform mutex. Keep it outside the
             // lifecycle barrier and the per-attachment operation gate.
+            drop(_delivery);
             drop(_operation);
             drop(_publication);
             attachment.control.kill();
@@ -2251,6 +2263,7 @@ impl Inner {
         // Callers must release any prior guard before entering this helper.
         let publication = attachment.publication_gate.lock().expect("attachment publication lock");
         let operation = attachment.operation_gate.lock().expect("attachment operation lock");
+        let delivery = attachment.delivery_gate.lock().expect("attachment delivery lock");
         Self::revoke_publication(attachment);
         attachment.closing.store(true, Ordering::Release);
         let removed = {
@@ -2261,6 +2274,7 @@ impl Inner {
             });
             if same { attachments.remove(pty_id) } else { None }
         };
+        drop(delivery);
         drop(operation);
         drop(publication);
         if let Some(removed) = removed {
@@ -2273,8 +2287,11 @@ impl Inner {
         // was linearized before removal from the attachment map; killing the
         // control concurrently closes that admitted operation when the
         // platform permits it, while this transition remains bounded.
-        Self::revoke_publication(&attachment);
-        attachment.closing.store(true, Ordering::SeqCst);
+        {
+            let _delivery = attachment.delivery_gate.lock().expect("attachment delivery lock");
+            Self::revoke_publication(&attachment);
+            attachment.closing.store(true, Ordering::SeqCst);
+        }
         attachment.control.kill();
     }
 }
@@ -2717,15 +2734,11 @@ impl Inner {
                                 || inner.draining_viewers.contains(&viewer.id)
                             {
                                 let backlog = inner.paused_backlog.entry(viewer.id).or_default();
-                                backlog.chunks.push_back(chunk.clone());
-                                backlog.bytes += chunk.len();
-                                while backlog.bytes > scrollback_limit && backlog.chunks.len() > 1 {
-                                    if let Some(dropped) = backlog.chunks.pop_front() {
-                                        backlog.bytes -= dropped.len();
-                                    }
-                                }
-                                if backlog.bytes > scrollback_limit {
+                                if chunk.len() > scrollback_limit.saturating_sub(backlog.bytes) {
                                     overflowed_viewers.insert(viewer.id);
+                                } else {
+                                    backlog.chunks.push_back(chunk.clone());
+                                    backlog.bytes += chunk.len();
                                 }
                             } else {
                                 viewers_to_notify.push((
