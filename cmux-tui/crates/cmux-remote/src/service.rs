@@ -1260,7 +1260,7 @@ async fn reset_registered_stream(
     let registration = streams.lock().await.remove(&stream);
     let lane_mask = registration
         .as_ref()
-        .map(|registration| tombstone_lane_mask(registration.service, lane))
+        .map(|registration| rejected_open_tombstone_lane_mask(registration.service, lane))
         .unwrap_or_else(|| lane_bit(lane));
     closed.lock().await.insert_on(stream, lane_mask);
     if let Some(registration) = registration {
