@@ -105,8 +105,25 @@ describe("Blaxel baked image template", () => {
     );
   });
 
-  test("shell setup survives the persistent /root volume shadowing the image", () => {
-    // Nothing user-facing baked into /root except the one-line bashrc hook;
+  test("terminals get a non-root work user with passwordless sudo", () => {
+    // Coding agents refuse a root shell (`claude --dangerously-skip-permissions`);
+    // the daemon drops to cmux, and root stays one passwordless sudo away. uid 1001
+    // matches the driver's runtime-setup pin so volume ownership is stable.
+    expect(dockerfile).toContain("useradd -m -u 1001 -s /bin/bash cmux");
+    expect(dockerfile).toContain("printf 'cmux ALL=(ALL) NOPASSWD:ALL\\n' > /etc/sudoers.d/90-cmux-nopasswd");
+    expect(dockerfile).toContain("chmod 0440 /etc/sudoers.d/90-cmux-nopasswd");
+    expect(dockerfile).toContain("visudo -c");
+    // The sudo binary itself ships in the devtools layer.
+    expect(dockerfile).toMatch(/apt-get install[^&]*\bsudo \\\n/);
+    // The volume lives at /cmux/home; this boot chown only prepares a disposable
+    // rootfs home for machines without the bindfs view, and is never recursive.
+    expect(entrypoint).toContain("persistent home volume is mounted at /cmux/home");
+    expect(entrypoint).toContain("rootfs home for machines without that identity view");
+    expect(entrypoint).toContain("chown cmux:cmux /home/cmux");
+  });
+
+  test("shell setup survives the persistent home volume shadowing the image", () => {
+    // Nothing user-facing baked into /home/cmux except the one-line bashrc hook;
     // per-HOME state (seed history) materializes at shell start from /etc/cmux.
     expect(bashrc).toContain("/etc/cmux/seed-history");
     expect(bashrc).toContain('cp /etc/cmux/seed-history "$HOME/.bash_history"');
@@ -137,7 +154,7 @@ describe("Blaxel baked image template", () => {
     // half-life prompt with the machine name kept (\h): machines are addressed by name.
     expect(bashrc).toContain("PS1='\\[\\e[38;5;135m\\]\\u@\\h");
     expect(dockerfile).toContain("echo 'set -g default-shell /bin/bash' >> /etc/tmux.conf");
-    for (const target of ["/etc/bash.bashrc", "/etc/skel/.bashrc", "/root/.bashrc", "/home/cua/.bashrc"]) {
+    for (const target of ["/etc/bash.bashrc", "/etc/skel/.bashrc", "/root/.bashrc", "/home/cmux/.bashrc", "/home/cua/.bashrc"]) {
       expect(dockerfile).toContain(`'[ -f /etc/cmux/bashrc ] && . /etc/cmux/bashrc' >> ${target}`);
     }
   });
@@ -160,7 +177,7 @@ describe("Blaxel baked image template", () => {
     expect(dockerfile).toContain(
       "'[ -f /etc/cmux/agent-config.sh ] && . /etc/cmux/agent-config.sh' > /etc/profile.d/cmux-agents.sh",
     );
-    for (const target of ["/etc/bash.bashrc", "/etc/skel/.bashrc", "/root/.bashrc", "/home/cua/.bashrc"]) {
+    for (const target of ["/etc/bash.bashrc", "/etc/skel/.bashrc", "/root/.bashrc", "/home/cmux/.bashrc", "/home/cua/.bashrc"]) {
       expect(dockerfile).toContain(
         `'[ -f /etc/cmux/agent-config.sh ] && . /etc/cmux/agent-config.sh' >> ${target}`,
       );
@@ -189,11 +206,13 @@ describe("Blaxel baked image template", () => {
     expect(agentConfig).toContain("{env:OPENAI_API_KEY}");
     expect(agentConfig).toContain('[ ! -e "$HOME/.config/opencode/opencode.json" ]');
     // The Dockerfile proves generation under a throwaway HOME and proves the
-    // image ships no generated config for /root.
+    // image ships no generated config for /root or the work user's home.
     expect(dockerfile).toContain("test ! -e /root/.codex/config.toml");
     expect(dockerfile).toContain("test ! -e /root/.pi/agent/models.json");
     expect(dockerfile).toContain("test ! -e /root/.config/opencode/opencode.json");
     expect(dockerfile).toContain("test ! -e /root/.config/cmux/model-plane.env");
+    expect(dockerfile).toContain("test ! -e /home/cmux/.codex/config.toml");
+    expect(dockerfile).toContain("test ! -e /home/cmux/.config/cmux/model-plane.env");
   });
 
   test("declares the Blaxel template with the ports cmux opens", () => {
