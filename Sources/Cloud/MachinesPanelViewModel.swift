@@ -328,22 +328,16 @@ enum MachineSnapshotBuilder {
 @MainActor
 struct CloudClientBootstrapRetry {
     let maxRetries: Int
-    let retryDelay: Duration
 
-    init(maxRetries: Int, retryDelay: Duration = .milliseconds(100)) {
+    init(maxRetries: Int) {
         self.maxRetries = max(0, maxRetries)
-        self.retryDelay = retryDelay
     }
 
     func run(attempt: () async -> Bool) async -> Bool {
         for retry in 0...maxRetries {
             if await attempt() { return true }
             guard !Task.isCancelled, retry < maxRetries else { return false }
-            do {
-                try await Task.sleep(for: retryDelay)
-            } catch {
-                return false
-            }
+            await Task.yield()
         }
         return false
     }
@@ -601,9 +595,7 @@ final class MachinesPanelViewModel: ObservableObject {
     /// real machine now, not on the next 45 s sweep.
     private var refreshRequestedWhileLoading = false
     private var refreshGeneration = 0
-    // Allow several seconds for auth restoration and client construction, while
-    // keeping the loading state bounded if composition really failed.
-    private static let maxClientBootstrapRetries = 50
+    private static let maxClientBootstrapRetries = 3
 
     func refresh() {
         guard refreshTask == nil else {
@@ -629,7 +621,16 @@ final class MachinesPanelViewModel: ObservableObject {
             }
             guard !Task.isCancelled, let self else { return }
             if !loaded {
-                self.completeMissingClientLoad()
+                // A bounded bootstrap timeout is still a transient readiness
+                // failure. Keep the retry-first state so a slow, valid setup
+                // is never reported as permanently misconfigured.
+                self.lastErrorDescription = String(
+                    localized: "machines.unavailable.title",
+                    defaultValue: "Cloud is unreachable"
+                )
+                self.listProblem = .unreachable
+                self.isLoading = false
+                self.hasLoadedOnce = true
             }
         }
     }
