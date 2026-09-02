@@ -174,7 +174,18 @@ public final class WorkstreamStore {
     /// Returns the canonical workstream key used by task-tool state and
     /// persisted checklist references for an incoming event.
     public func normalizedWorkstreamID(for event: WorkstreamEvent) -> String {
-        workstreamIDNormalizer(event.sessionId, event.source)
+        normalizedWorkstreamID(rawValue: event.sessionId, source: event.source)
+    }
+
+    /// Applies the configured identity migration to an arbitrary persisted or
+    /// incoming workstream value.
+    ///
+    /// - Parameters:
+    ///   - rawValue: A legacy or already-canonical workstream value.
+    ///   - source: The producer/agent identity that owns the value.
+    /// - Returns: The canonical key used by task-tool state.
+    public func normalizedWorkstreamID(rawValue: String, source: String) -> String {
+        workstreamIDNormalizer(rawValue, source)
     }
 
     /// Seeds task-tool state from persisted workspace rows before applying a

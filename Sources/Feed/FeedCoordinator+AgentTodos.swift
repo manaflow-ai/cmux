@@ -29,7 +29,10 @@ extension FeedCoordinator {
         for workspace in candidates {
             for item in workspace.todoState.checklist {
                 guard let ref = item.agentTaskRef,
-                      ref.workstreamId == workstreamID,
+                      store.normalizedWorkstreamID(
+                          rawValue: ref.workstreamId,
+                          source: event.source
+                      ) == workstreamID,
                       seen.insert(ref.taskId).inserted else { continue }
                 restored.append(WorkstreamTaskTodo(
                     id: ref.taskId,
@@ -52,10 +55,22 @@ extension FeedCoordinator {
             tasks: todos,
             workstreamId: item.workstreamId
         )
-        retireAgentTodos(for: item.workstreamId, excluding: workspace.id)
+        retireAgentTodos(
+            for: item.workstreamId,
+            excluding: workspace.id,
+            source: event.source
+        )
+        guard let store else { return }
         let existingAgentItems = workspace.todoState.checklist.reduce(into: [WorkspaceAgentTaskRef: WorkspaceChecklistItem]()) { result, checklistItem in
             if let ref = checklistItem.agentTaskRef {
-                result[ref] = checklistItem
+                let canonicalRef = WorkspaceAgentTaskRef(
+                    workstreamId: store.normalizedWorkstreamID(
+                        rawValue: ref.workstreamId,
+                        source: event.source
+                    ),
+                    taskId: ref.taskId
+                )
+                result[canonicalRef] = checklistItem
             }
         }
         let tasks = todos.map { todo in
@@ -85,13 +100,22 @@ extension FeedCoordinator {
     }
 
     @MainActor
-    private func retireAgentTodos(for workstreamId: String, excluding workspaceID: UUID) {
+    private func retireAgentTodos(
+        for workstreamId: String,
+        excluding workspaceID: UUID,
+        source: String
+    ) {
         // Persisted checklist ownership is authoritative. Always inspect the
         // live workspace set so a stale or cold cache cannot leave duplicate
         // rows behind after a workstream is re-homed.
+        guard let store else { return }
         for workspace in AppDelegate.shared?.allWorkspacesForAgentTodoRetirement ?? [] where workspace.id != workspaceID {
             guard workspace.todoState.checklist.contains(where: {
-                $0.agentTaskRef?.workstreamId == workstreamId
+                guard let rawWorkstreamID = $0.agentTaskRef?.workstreamId else { return false }
+                return store.normalizedWorkstreamID(
+                    rawValue: rawWorkstreamID,
+                    source: source
+                ) == workstreamId
             }) else { continue }
             guard let replacements = WorkspaceAgentChecklistSync().replacement(
                 existing: workspace.todoState.checklist,

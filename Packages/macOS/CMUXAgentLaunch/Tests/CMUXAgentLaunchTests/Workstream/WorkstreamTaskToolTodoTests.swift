@@ -588,5 +588,11 @@ struct WorkstreamTaskToolTodoTests {
         #expect(store.ownedTaskIds(forWorkstream: "canonical:claude:legacy-session") == ["1"])
         #expect(store.ownedTaskIds(forWorkstream: "legacy-session").isEmpty)
         #expect(store.items.last?.workstreamId == "canonical:claude:legacy-session")
+        #expect(
+            store.normalizedWorkstreamID(
+                rawValue: "legacy-session",
+                source: "claude"
+            ) == "canonical:claude:legacy-session"
+        )
     }
 }
