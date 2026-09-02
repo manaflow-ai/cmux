@@ -42,6 +42,7 @@ struct DockShortcutRoutingTests {
                 let dockBrowser = try #require(
                     harness.dock.browserPanel(for: dockBrowserId)
                 )
+                #expect(harness.dock.dockInteractionWindow() === harness.window)
                 let overlaySearchField = NSTextField(frame: .zero)
                 let contentView = try #require(harness.window.contentView)
                 contentView.addSubview(overlaySearchField)
