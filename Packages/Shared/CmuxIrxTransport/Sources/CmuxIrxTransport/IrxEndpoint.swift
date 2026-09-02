@@ -74,6 +74,9 @@ public actor IrxEndpointSupervisor {
 
     public var currentGeneration: Int { generation }
 
+    /// Lifecycle token for callers that must fence work across suspension.
+    public var currentLifecycleEpoch: UInt64 { lifecycleEpoch }
+
     public func identity() -> IrxIdentity { configuration.identity }
 
     /// Returns a bound, relay-online endpoint, binding one if needed.
@@ -146,10 +149,18 @@ public actor IrxEndpointSupervisor {
     /// the forked iroh authenticates a replacement relay connection before
     /// swapping routes, so live sessions continue. Never removeRelay for a
     /// URL being rotated - remove tears the active relay down instantly.
-    public func rotateCredentials(_ credentials: [IrxRelayCredential]) async {
-        guard !deactivated else { return }
+    public func rotateCredentials(
+        _ credentials: [IrxRelayCredential],
+        expectedLifecycleEpoch: UInt64? = nil
+    ) async {
+        guard !deactivated,
+              expectedLifecycleEpoch == nil || expectedLifecycleEpoch == lifecycleEpoch
+        else { return }
         guard let driver, !driver.isClosed() else { return }
         for credential in credentials {
+            guard !deactivated,
+                  expectedLifecycleEpoch == nil || expectedLifecycleEpoch == lifecycleEpoch
+            else { return }
             do {
                 try await driver.insertRelay(
                     config: RelayConfig(
