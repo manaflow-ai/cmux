@@ -3911,7 +3911,7 @@ fn test_session_with_writer(
     Arc::new(RemoteSession {
         interactive_writer: InteractiveWriter::spawn(writer, Arc::new(NoopTransportAbort)).unwrap(),
         disconnect_state: Mutex::new(DisconnectState::default()),
-        pending: Mutex::new(HashMap::new()),
+        pending: Mutex::new(PendingRemoteRequests::default()),
         next_id: AtomicU64::new(1),
         attach_progress: AtomicU64::new(0),
         shutdown: AtomicBool::new(false),
@@ -5153,7 +5153,7 @@ mod tests {
         Arc::new(RemoteSession {
             interactive_writer: InteractiveWriter::spawn(writer, abort).unwrap(),
             disconnect_state: Mutex::new(DisconnectState::default()),
-            pending: Mutex::new(HashMap::new()),
+            pending: Mutex::new(PendingRemoteRequests::default()),
             next_id: AtomicU64::new(1),
             attach_progress: AtomicU64::new(0),
             shutdown: AtomicBool::new(false),
