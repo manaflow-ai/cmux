@@ -38,7 +38,7 @@ grep -Fq "ref: \${{ github.workflow_sha }}" "$WORKFLOW"
 grep -Fq 'sparse-checkout: .github/scripts/rerun-failed-cla.sh' "$WORKFLOW"
 grep -Fq 'bash .github/scripts/rerun-failed-cla.sh' "$WORKFLOW"
 grep -Fq "COMMENT_ID: \${{ github.event.comment.id }}" "$WORKFLOW"
-grep -Fq 'types: [opened, reopened, synchronize, ready_for_review]' "$ROOT_DIR/.github/workflows/ci.yml"
+grep -Fq 'types: [opened, edited, reopened, synchronize, ready_for_review]' "$ROOT_DIR/.github/workflows/ci.yml"
 if awk '
   /^  pull_request:[[:space:]]*$/ { in_pull_request=1; next }
   in_pull_request && /^  [^[:space:]]/ { in_pull_request=0 }

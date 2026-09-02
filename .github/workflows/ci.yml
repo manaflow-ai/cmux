@@ -5,7 +5,7 @@ on:
     # Every PR must publish the aggregate `ci-status` check. The jobs below
     # still route expensive suites by changed area, so this trigger avoids a
     # permanently pending required check without running every suite twice.
-    types: [opened, reopened, synchronize, ready_for_review]
+    types: [opened, edited, reopened, synchronize, ready_for_review]
   workflow_dispatch:
 
 permissions:
