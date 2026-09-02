@@ -123,7 +123,7 @@ class FakeAPI:
         if endpoint.endswith("/pulls/1/reviews?per_page=100"):
             return []
         if endpoint.endswith("/pulls/1/files?per_page=100"):
-            return [{"files": [{"filename": "README.md"}]}]
+            return [[{"filename": "README.md"}]]
         raise AssertionError(f"unexpected API endpoint: {endpoint}")
 
 
@@ -237,6 +237,11 @@ def test_gate_queries_exact_head_and_ci_run_jobs() -> None:
         for request in api.requests
     )
     assert "CI status gate passed." in stdout.getvalue()
+
+
+def test_pr_file_pagination_accepts_slurped_array_pages() -> None:
+    api = FakeAPI(complete_checks())
+    assert module._pr_files(api, 1, 1) == ["README.md"]
 
 
 def test_workflow_definition_mismatch_requires_trusted_review() -> None:
