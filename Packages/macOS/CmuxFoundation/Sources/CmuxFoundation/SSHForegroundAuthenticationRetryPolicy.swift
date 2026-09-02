@@ -138,14 +138,21 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
                     end
                     pid = Integer(ARGV[0])
                     expected_parent = Integer(ARGV[1])
-                    size = 192
+                    proc_bsdinfo_size = 136
+                    proc_uniqidentifierinfo_legacy_size = 40
+                    proc_uniqidentifierinfo_current_size = 56
+                    legacy_size = proc_bsdinfo_size + proc_uniqidentifierinfo_legacy_size
+                    size = proc_bsdinfo_size + proc_uniqidentifierinfo_current_size
+                    accepted_sizes = [legacy_size, size]
                     buffer = Fiddle::Pointer.malloc(size)
                     # XNU names flavor 18 PROC_PIDT_BSDINFOWITHUNIQID. It
                     # returns proc_bsdinfo (136 bytes) followed by
-                    # proc_uniqidentifierinfo (56 bytes), for 192 bytes.
+                    # proc_uniqidentifierinfo (56 bytes), for 192 bytes. A
+                    # legacy kernel may report a 176-byte record instead. Use
+                    # only the common fields and reject every other size.
                     written = CmuxLibproc.proc_pidinfo(pid, 18, 0, buffer, size)
-                    exit 1 unless written == size
-                    bytes = buffer.to_s(size)
+                    exit 1 unless accepted_sizes.include?(written)
+                    bytes = buffer.to_s(written)
                     uint32 = ->(offset) { bytes.byteslice(offset, 4).unpack1("L<") }
                     uint64 = ->(offset) { bytes.byteslice(offset, 8).unpack1("Q<") }
                     observed_pid = uint32.call(12)
@@ -154,14 +161,14 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
                     status = uint32.call(4)
                     seconds = uint64.call(120)
                     microseconds = uint64.call(128)
-                    # `proc_uniqidentifierinfo` starts after the 136-byte
-                    # `proc_bsdinfo`. Its UUID is 16 bytes, followed by the
+                    # `proc_uniqidentifierinfo` starts after the
+                    # `proc_bsdinfo` record. Its UUID is 16 bytes, followed by the
                     # process and parent unique IDs (8 bytes each), then the
                     # 32-bit `p_idversion` used by audit-token signaling.
                     # Keep the offset derived from that layout so a change to
                     # either record cannot silently point at reserved bytes.
-                    proc_bsdinfo_size = 136
                     proc_uniqidentifierinfo_pidversion_offset = proc_bsdinfo_size + 16 + 8 + 8
+                    exit 1 unless bytes.bytesize >= proc_uniqidentifierinfo_pidversion_offset + 4
                     version = uint32.call(proc_uniqidentifierinfo_pidversion_offset)
                     exit 1 unless observed_pid == pid && parent == expected_parent &&
                       group > 0 && status != 5 && seconds > 0 &&
@@ -223,15 +230,20 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
                     extern "int proc_pidinfo(int, int, unsigned long long, void*, int)"
                     extern "int proc_signal_with_audittoken(void*, int)"
                   end
-                  size = 192
+                  proc_bsdinfo_size = 136
+                  proc_uniqidentifierinfo_legacy_size = 40
+                  proc_uniqidentifierinfo_current_size = 56
+                  legacy_size = proc_bsdinfo_size + proc_uniqidentifierinfo_legacy_size
+                  size = proc_bsdinfo_size + proc_uniqidentifierinfo_current_size
+                  accepted_sizes = [legacy_size, size]
                   buffer = Fiddle::Pointer.malloc(size)
                   written = CmuxLibproc.proc_pidinfo(pid, 18, 0, buffer, size)
-                  exit 0 unless written == size
-                  bytes = buffer.to_s(size)
+                  exit 0 unless accepted_sizes.include?(written)
+                  bytes = buffer.to_s(written)
                   uint32 = ->(offset) { bytes.byteslice(offset, 4).unpack1("L<") }
                   uint64 = ->(offset) { bytes.byteslice(offset, 8).unpack1("Q<") }
-                  proc_bsdinfo_size = 136
                   proc_uniqidentifierinfo_pidversion_offset = proc_bsdinfo_size + 16 + 8 + 8
+                  exit 0 unless bytes.bytesize >= proc_uniqidentifierinfo_pidversion_offset + 4
                   observed = [
                     uint32.call(12), uint32.call(16), uint32.call(100), uint32.call(4),
                     uint64.call(120), uint64.call(128),
@@ -1021,20 +1033,27 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
               end
 
               bsd_with_unique_id_flavor = 18
-              # This flavor returns proc_bsdinfo (136 bytes) followed by
-              # proc_uniqidentifierinfo (56 bytes), for a 192-byte record.
-              process_info_size = 192
+              # Current XNU returns proc_bsdinfo (136 bytes) followed by
+              # proc_uniqidentifierinfo (56 bytes), for a 192-byte record. A
+              # legacy kernel may report 176 bytes. Accept only those two
+              # ABI sizes, and fail closed for any other record.
+              proc_bsdinfo_size = 136
+              proc_uniqidentifierinfo_legacy_size = 40
+              proc_uniqidentifierinfo_current_size = 56
+              legacy_process_info_size = proc_bsdinfo_size + proc_uniqidentifierinfo_legacy_size
+              process_info_size = proc_bsdinfo_size + proc_uniqidentifierinfo_current_size
+              accepted_process_info_sizes = [legacy_process_info_size, process_info_size]
               uint32 = ->(bytes, offset) { bytes.byteslice(offset, 4).unpack1("L<") }
               uint64 = ->(bytes, offset) { bytes.byteslice(offset, 8).unpack1("Q<") }
-              proc_bsdinfo_size = 136
               proc_uniqidentifierinfo_pidversion_offset = proc_bsdinfo_size + 16 + 8 + 8
               process_identity = lambda do |pid|
                 buffer = Fiddle::Pointer.malloc(process_info_size)
                 written = CmuxLibproc.proc_pidinfo(
                   Integer(pid), bsd_with_unique_id_flavor, 0, buffer, process_info_size
                 )
-                next nil unless written == process_info_size
-                bytes = buffer.to_s(process_info_size)
+                next nil unless accepted_process_info_sizes.include?(written)
+                bytes = buffer.to_s(written)
+                next nil unless bytes.bytesize >= proc_uniqidentifierinfo_pidversion_offset + 4
                 [
                   uint32.call(bytes, 12), # pbi_pid
                   uint32.call(bytes, 16), # pbi_ppid
