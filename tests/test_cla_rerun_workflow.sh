@@ -475,6 +475,13 @@ gh() {
             {id:$job_id,run_id:$run_id,name:"CLA Assistant v3",workflow_name:"CLA Assistant v3",status:"completed",conclusion:"failure",head_sha:$run_sha,head_branch:"feature",head_repository:null,steps:[{name:$marker,status:"completed",conclusion:"failure"}]},
             {id:502,run_id:$run_id,name:"CLA Assistant",workflow_name:"CLA Assistant v3",status:"completed",conclusion:"failure",head_sha:$run_sha,head_branch:"feature",head_repository:null,steps:[{name:"Mirror CLA Assistant compatibility result",status:"completed",conclusion:"failure"}]}
           ]}'
+      elif [[ "${FAKE_MODE}" == signing-stale-writer ]]; then
+        jq -nc --argjson run_id "$run_id" --argjson job_id "$job_id" --arg marker "$marker" --arg run_sha "$run_sha" \
+          '{jobs:[
+            {id:505,run_id:$run_id,name:"CLA ledger writer",workflow_name:"CLA Assistant v3",status:"completed",conclusion:"success",head_sha:$run_sha,head_branch:"feature",head_repository:null,steps:[]},
+            {id:$job_id,run_id:$run_id,name:"CLA Assistant v3",workflow_name:"CLA Assistant v3",status:"completed",conclusion:"failure",head_sha:$run_sha,head_branch:"feature",head_repository:null,steps:[{name:$marker,status:"completed",conclusion:"failure"}]},
+            {id:506,run_id:$run_id,name:"CLA Assistant",workflow_name:"CLA Assistant v3",status:"completed",conclusion:"failure",head_sha:$run_sha,head_branch:"feature",head_repository:null,steps:[{name:"Mirror CLA Assistant compatibility result",status:"completed",conclusion:"failure"}]}
+          ]}'
       elif [[ "${FAKE_MODE}" == writer-failed ]]; then
         jq -nc --argjson run_id "$run_id" --argjson job_id "$job_id" --arg marker "$marker" --arg run_sha "$run_sha" \
           '{jobs:[
@@ -549,7 +556,7 @@ run_case() {
     comment_author_id=301
   elif [[ "$mode" == recheck-unset-output ]]; then
     signature_recorded=''
-  elif [[ "$mode" == external-signer ]]; then
+  elif [[ "$mode" == external-signer || "$mode" == signing-stale-writer ]]; then
     comment_author=coauthor
     comment_author_id=400
     comment_body='I have read the CLA Document v2.2 and I hereby sign the CLA'
@@ -681,7 +688,10 @@ run_case stale-base-association 1 "outdated or malformed pull request base SHA" 
 run_case alternate-generation 1 "Unexpected CLA generation marker" 0
 run_case malformed-comment-login 1 "Comment author is malformed" 0
 run_case late-ambiguous 0 "Requested rerun for CLA job 500 in workflow run 400" 1
-run_case external-signer 0 "Requested rerun for CLA job 500 in workflow run 400" 1
+run_case external-signer 0 "Requested rerun for CLA workflow run 400 (refresh writer and result jobs)" 1 \
+  "repos/manaflow-ai/cmux/actions/runs/400/rerun"
+run_case signing-stale-writer 0 "Requested rerun for CLA workflow run 400 (refresh writer and result jobs)" 1 \
+  "repos/manaflow-ai/cmux/actions/runs/400/rerun"
 run_case unrecorded-signer 1 "did not result in a persisted signature" 0
 run_case unbound-signer 1 "signing comment was not the signature persisted" 0
 run_case duplicate-runs 0 "Requested rerun for CLA job 501 in workflow run 401" 1 \
@@ -690,7 +700,8 @@ run_case binding-mode-newer 0 "Requested rerun for CLA job 501 in workflow run 4
   "repos/manaflow-ai/cmux/actions/jobs/501/rerun"
 run_case stale-comment-association 1 "Only the pull request author or a trusted repository participant" 0
 run_case job-missing-head-repository 0 "Requested rerun for CLA job 500 in workflow run 400" 1
-run_case wrapped-ledger 0 "Requested rerun for CLA job 500 in workflow run 400" 1
+run_case wrapped-ledger 0 "Requested rerun for CLA workflow run 400 (refresh writer and result jobs)" 1 \
+  "repos/manaflow-ai/cmux/actions/runs/400/rerun"
 run_case oversized-ledger 1 "exceeds the 1 MB limit" 0
 run_case malformed-ledger 1 "not valid base64" 0
 run_case compatibility-failed 0 "Requested rerun for failed CLA result jobs (writer, v3, and compatibility) in workflow run 400" 1 \
