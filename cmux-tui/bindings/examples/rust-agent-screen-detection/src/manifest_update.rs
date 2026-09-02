@@ -27,6 +27,8 @@ const MAX_FETCH_BYTES: usize = 256 * 1024;
 const MAX_CATALOG_AGENTS: usize = 256;
 const MAX_CATALOG_PATH_BYTES: usize = 512;
 const MAX_CATALOG_URL_BYTES: usize = 2 * 1024;
+const STATUS_FILE_NAME: &str = ".cmux-agent-detection-status.toml";
+const LEGACY_STATUS_FILE_NAME: &str = "status.toml";
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ManifestUpdateSummary {
@@ -335,31 +337,67 @@ pub fn environment_cache_dir() -> PathBuf {
 }
 
 pub fn status_path(cache_dir: &Path) -> PathBuf {
-    cache_dir.join("status.toml")
+    cache_dir.join(STATUS_FILE_NAME)
 }
 
 pub fn load_status(cache_dir: &Path) -> ManifestUpdateStatus {
     let path = status_path(cache_dir);
-    let content = match read_bounded_utf8_file(&path, MAX_FETCH_BYTES) {
-        Ok(content) => content,
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
-            return ManifestUpdateStatus::default();
+    match read_status_file(&path, true) {
+        Ok(Some(status)) => status,
+        Ok(None) => {
+            // Read the old location only when the new namespaced file does
+            // not exist. This preserves existing diagnostics while allowing
+            // `status.toml` to become a normal agent manifest.
+            let legacy = cache_dir.join(LEGACY_STATUS_FILE_NAME);
+            read_status_file(&legacy, false).ok().flatten().unwrap_or_default()
         }
+        Err(()) => ManifestUpdateStatus::default(),
+    }
+}
+
+fn read_status_file(path: &Path, report_invalid: bool) -> Result<Option<ManifestUpdateStatus>, ()> {
+    let content = match read_bounded_utf8_file(path, MAX_FETCH_BYTES) {
+        Ok(content) => content,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
         Err(error) => {
             eprintln!(
                 "cmux-agent-screen-detection: ignoring unreadable status {}: {error}",
                 path.display()
             );
-            return ManifestUpdateStatus::default();
+            return Err(());
         }
     };
-    toml::from_str(&content).unwrap_or_else(|error| {
-        eprintln!(
-            "cmux-agent-screen-detection: ignoring invalid status {}: {error}",
-            path.display()
-        );
-        ManifestUpdateStatus::default()
-    })
+    match toml::from_str(&content) {
+        Ok(status) => Ok(Some(status)),
+        Err(error) => {
+            if report_invalid {
+                eprintln!(
+                    "cmux-agent-screen-detection: ignoring invalid status {}: {error}",
+                    path.display()
+                );
+            }
+            Err(())
+        }
+    }
+}
+
+/// Return whether a path is owned by the updater rather than a manifest.
+/// `status.toml` is treated as metadata only when it contains a valid legacy
+/// status document, so an agent named `status` remains loadable.
+pub(crate) fn is_status_file(path: &Path) -> bool {
+    let Some(name) = path.file_name().and_then(|name| name.to_str()) else {
+        return false;
+    };
+    if name == STATUS_FILE_NAME {
+        return true;
+    }
+    if name != LEGACY_STATUS_FILE_NAME {
+        return false;
+    }
+    read_bounded_utf8_file(path, MAX_FETCH_BYTES)
+        .ok()
+        .and_then(|content| toml::from_str::<ManifestUpdateStatus>(&content).ok())
+        .is_some()
 }
 
 fn save_status(cache_dir: &Path, status: &ManifestUpdateStatus) -> Result<(), String> {

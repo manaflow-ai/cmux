@@ -865,7 +865,7 @@ impl ManifestSet {
             if path.extension().and_then(|extension| extension.to_str()) != Some("toml") {
                 continue;
             }
-            if path.file_name().and_then(|name| name.to_str()) == Some("status.toml") {
+            if crate::manifest_update::is_status_file(&path) {
                 continue;
             }
             let result = (|| -> Result<CompiledManifest, String> {
