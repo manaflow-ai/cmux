@@ -386,28 +386,34 @@ export async function loadProListSnapshot(
   } = {},
 ): Promise<ProListSnapshot> {
   const db = options.db ?? cloudDb();
-  const budget = options.statementTimeoutMs;
   const guard = () => {
     if (options.deadlineMs !== undefined && Date.now() > options.deadlineMs) {
       throw new ProListTimeoutError(Math.max(0, options.deadlineMs - Date.now()));
     }
   };
+  // Each read's statement timeout is the smaller of the configured budget and
+  // what is left of the absolute deadline, so a read started late in the
+  // budget cannot hold a connection past the point the page stopped waiting.
+  const budgetFor = (): number | undefined => {
+    const configured = options.statementTimeoutMs;
+    if (options.deadlineMs === undefined) return configured;
+    const remaining = Math.max(1, options.deadlineMs - Date.now());
+    return configured === undefined ? remaining : Math.min(configured, remaining);
+  };
   try {
     // Each read gets its own short transaction, so a failed optional read
     // (missing admin_plan_grants table) aborts only its own transaction and
     // the catch below still yields an empty pending list.
-    const subscribers = await withStatementTimeout(db, budget, async (scoped) => {
-      guard();
-      return await listStripeProSubscribers({ db: scoped });
-    });
-    const teamSubscriptions = await withStatementTimeout(db, budget, async (scoped) => {
-      guard();
-      return await listStripeTeamSubscriptions({ db: scoped, app: options.app });
-    });
-    const pendingGrants = await withStatementTimeout(db, budget, async (scoped) => {
-      guard();
-      return await listAllPendingEmailGrants({ db: scoped });
-    }).catch((error: unknown) => {
+    guard();
+    const subscribers = await withStatementTimeout(db, budgetFor(), async (scoped) =>
+      await listStripeProSubscribers({ db: scoped }));
+    guard();
+    const teamSubscriptions = await withStatementTimeout(db, budgetFor(), async (scoped) =>
+      await listStripeTeamSubscriptions({ db: scoped, app: options.app }));
+    guard();
+    const pendingGrants = await withStatementTimeout(db, budgetFor(), async (scoped) =>
+      await listAllPendingEmailGrants({ db: scoped }),
+    ).catch((error: unknown) => {
       if (isMissingGrantsTableError(error)) return { rows: [], truncated: false };
       throw error;
     });

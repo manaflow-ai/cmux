@@ -239,6 +239,38 @@ describe("Pro roster", () => {
     expect(committed).toBe(2);
   });
 
+  test("later reads get only the remaining deadline as their statement timeout", async () => {
+    const executed: string[] = [];
+    const base = fakeDb(new Map());
+    let now = 1_000_000;
+    const realNow = Date.now;
+    Date.now = () => now;
+    try {
+      const db: ProListDb = {
+        ...base,
+        transaction: async (operation) => {
+          const result = await operation({
+            select: base.select,
+            execute: (async (query: { queryChunks?: Array<{ value?: string[] }> }) => {
+              executed.push((query.queryChunks ?? []).map((chunk) => (chunk.value ?? []).join("")).join(""));
+              // Each read consumes 3 seconds of an 8 second deadline.
+              now += 3000;
+            }) as never,
+          });
+          return result;
+        },
+      };
+      await loadProListSnapshot({ db, app: fakeApp({}), statementTimeoutMs: 8000, deadlineMs: now + 8000 });
+      expect(executed).toEqual([
+        "set local statement_timeout = 8000",
+        "set local statement_timeout = 5000",
+        "set local statement_timeout = 2000",
+      ]);
+    } finally {
+      Date.now = realNow;
+    }
+  });
+
   test("no read starts after the deadline has passed", async () => {
     const base = fakeDb(new Map());
     await expect(
