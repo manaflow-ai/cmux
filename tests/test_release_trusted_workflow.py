@@ -230,6 +230,7 @@ class ReleaseTrustedWorkflowTests(unittest.TestCase):
             "protected",
             "source_sha",
             "tag_name",
+            "is_prerelease",
             "minimal unprivileged observer",
         ):
             self.assertIn(required, script)
@@ -270,21 +271,28 @@ class ReleaseTrustedWorkflowTests(unittest.TestCase):
         sign_text = "\n".join(str(step) for step in sign_steps)
         for required in (
             "skip_r2_upload",
-            "restore_appcast",
-            "repair_appcast_asset",
-            "Restore existing appcast for a publication retry",
-            "Regenerate missing appcast for a publication retry",
+            "Refusing to download or sign release assets",
+            "Refusing to trust mutable release assets on a retry",
             "Revalidate release tag before GitHub publication",
             "Revalidate release tag before R2 publication",
         ):
             self.assertIn(required, sign_text)
-        restore = next(step for step in sign_steps if step.get("name") == "Restore existing appcast for a publication retry")
-        self.assertIn("gh release download", restore["run"])
         r2_recheck = next(step for step in sign_steps if step.get("name") == "Revalidate release tag before R2 publication")
         self.assertIn("gh api", r2_recheck["run"])
         self.assertIn("skip_r2_upload", r2_recheck["if"])
         r2_upload = next(step for step in sign_steps if step.get("name") == "Upload release appcast to R2")
         self.assertIn('RELEASE_TAG" == *-*', r2_upload["run"])
+
+        release_upload = next(step for step in sign_steps if step.get("name") == "Upload release asset")
+        self.assertEqual(
+            release_upload["with"]["prerelease"],
+            "${{ needs.validate-source.outputs.is_prerelease == 'true' }}",
+        )
+        self.assertEqual(
+            release_upload["with"]["make_latest"],
+            "${{ needs.validate-source.outputs.is_prerelease != 'true' }}",
+        )
+        self.assertNotIn("gh release download", sign_text)
         self.assertNotIn("sort -V", r2_upload["run"])
         self.assertIn("python3 -c", r2_upload["run"])
         self.assertIn("gh release list --limit 1000", r2_upload["run"])
