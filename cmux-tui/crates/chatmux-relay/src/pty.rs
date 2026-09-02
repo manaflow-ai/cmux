@@ -440,6 +440,9 @@ struct ViewerSink {
 /// fans output out to every attachment (multi-viewer, tmux-style).
 struct ShellSession {
     control: Arc<dyn PtyControl>,
+    /// Created shell sessions own their PTY until the final viewer leaves.
+    /// Keep this at session scope so creator detachment cannot orphan it.
+    cleanup_when_empty: bool,
     /// Existing-session opens that have selected this session but have not
     /// published their viewer yet. Cancellation cleanup must not kill the
     /// session while one of these opens can still attach.
@@ -2782,6 +2785,7 @@ impl Inner {
                 let PtyHandle { control, output, banner } = handle;
                 let shell_session = Arc::new(ShellSession {
                     control,
+                    cleanup_when_empty: true,
                     pending_viewers: AtomicUsize::new(0),
                     flow_lock: Mutex::new(()),
                     dispatch_lock: Mutex::new(()),
@@ -2934,7 +2938,6 @@ impl Inner {
         // A stable viewer id lets release remove exactly this sink.
         let viewer_id = next_viewer_id();
         let released = Arc::new(AtomicBool::new(false));
-        let cleanup_if_empty = Arc::new(AtomicBool::new(created));
         let closing = Arc::new(AtomicBool::new(false));
         let (on_data, on_exit) = self.sinks(pty_id, context, Arc::clone(&closing));
 
@@ -2947,7 +2950,6 @@ impl Inner {
             pending_viewer: Arc::clone(&pending_viewer),
             manager: Arc::clone(&self),
             session_name: session.to_owned(),
-            cleanup_if_empty: Arc::clone(&cleanup_if_empty),
         });
 
         let start_session = Arc::clone(&shell_session);
@@ -2979,11 +2981,6 @@ impl Inner {
                         delivery_lock: Arc::clone(delivery_lock),
                     });
                     inner.draining_viewers.insert(viewer_id);
-                    // Keep cleanup armed until the viewer is published while
-                    // holding the flow lock. A close racing this callback
-                    // then either cleans up before publication, or observes
-                    // the published viewer and performs normal detach.
-                    cleanup_if_empty.store(false, Ordering::Release);
                 }
                 (banner, replay, alive, delivery_lock)
             };
@@ -3048,7 +3045,6 @@ struct ShellViewerControl {
     viewer_id: u64,
     released: Arc<AtomicBool>,
     pending_viewer: Arc<AtomicBool>,
-    cleanup_if_empty: Arc<AtomicBool>,
 }
 
 impl ShellViewerControl {
@@ -3066,7 +3062,7 @@ impl ShellViewerControl {
             inner.paused_viewers.remove(&self.viewer_id);
         }
         let no_viewers = self.session.inner.lock().expect("shell inner lock").viewers.is_empty();
-        let cleanup = self.cleanup_if_empty.load(Ordering::Acquire)
+        let cleanup = self.session.cleanup_when_empty
             && self.session.pending_viewers.load(Ordering::Acquire) == 0
             && no_viewers;
         if cleanup
