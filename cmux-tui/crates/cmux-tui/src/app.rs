@@ -23445,20 +23445,16 @@ impl App {
             .hidden_sidebar_views
             .entry(self.config.sidebar.active_profile.clone())
             .or_default();
+        let changed = if visible { hidden.remove(&view_id) } else { hidden.insert(view_id) };
         if visible {
-            let changed = hidden.remove(&view_id);
             self.sidebar_visible = true;
-            if changed {
-                self.bump_sidebar_generation();
-            }
         } else {
-            let changed = hidden.insert(view_id);
             if hides_focused {
                 self.focus = FocusTarget::Pane;
             }
-            if changed {
-                self.bump_sidebar_generation();
-            }
+        }
+        if changed {
+            self.bump_sidebar_generation();
         }
     }
 
