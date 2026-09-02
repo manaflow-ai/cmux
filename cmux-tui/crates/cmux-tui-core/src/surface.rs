@@ -8245,18 +8245,17 @@ mod tests {
         // already-dead path must still make the final replay attachable.
         pty.dead.store(true, Ordering::Release);
         assert_eq!(
-            surface.terminal_host_connection_state(),
-            Some(TerminalHostConnectionState::Connected)
+            TerminalHostConnectionState::from_u8(pty.host_connection_state.load(Ordering::Acquire),),
+            TerminalHostConnectionState::Connected
         );
         pty.finish_hosted_exit();
 
         assert_eq!(
-            surface.terminal_host_connection_state(),
-            Some(TerminalHostConnectionState::Exited)
+            TerminalHostConnectionState::from_u8(pty.host_connection_state.load(Ordering::Acquire),),
+            TerminalHostConnectionState::Exited
         );
-        let attach = surface
-            .attach_stream()
-            .expect("an exited hosted terminal must serve its final replay");
+        let attach =
+            surface.attach_stream().expect("an exited hosted terminal must serve its final replay");
         assert!(attach.stream.try_recv().is_err());
     }
 

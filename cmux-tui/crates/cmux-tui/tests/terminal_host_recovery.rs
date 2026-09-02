@@ -2369,11 +2369,11 @@ fn delayed_adoption_host_death_materializes_exited_surface() {
         );
         std::thread::sleep(Duration::from_millis(25));
     };
-    let restored_surface = resolved["surface"]
-        .as_u64()
-        .expect("delayed adoption death lost the materialized surface");
+    let restored_surface =
+        resolved["surface"].as_u64().expect("delayed adoption death lost the materialized surface");
 
-    let recovered = request(&harness.socket, serde_json::json!({"id": 5, "cmd": "list-workspaces"}));
+    let recovered =
+        request(&harness.socket, serde_json::json!({"id": 5, "cmd": "list-workspaces"}));
     let workspace = recovered["workspaces"]
         .as_array()
         .unwrap()

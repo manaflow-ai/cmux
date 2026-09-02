@@ -3210,6 +3210,37 @@ impl Mux {
         Ok(())
     }
 
+    /// Materialize an exited terminal after an asynchronous adoption worker
+    /// proves that its host ended. Cold-start reconciliation calls the same
+    /// materializer, but the worker can discover host death after startup has
+    /// already completed. Re-read the registry so a concurrent close wins,
+    /// and keep replay corruption fail-open for the daemon.
+    #[cfg(unix)]
+    fn materialize_restored_exited_terminal_if_needed(
+        self: &Arc<Self>,
+        terminal_id: &str,
+        options: &SurfaceOptions,
+    ) {
+        let terminal = match self.workspace_registry.lock().unwrap().terminal_record(terminal_id) {
+            Ok(Some(terminal)) => terminal,
+            Ok(None) => return,
+            Err(error) => {
+                eprintln!(
+                    "cmux-tui: could not read exited terminal {terminal_id} for restoration: {error:#}"
+                );
+                return;
+            }
+        };
+        if terminal.lifecycle != TerminalLifecycle::Exited {
+            return;
+        }
+        if let Err(error) = self.materialize_restored_exited_terminal(&terminal, options) {
+            eprintln!(
+                "cmux-tui: could not restore exited terminal {terminal_id} content: {error:#}"
+            );
+        }
+    }
+
     /// Latch a restart-window death as a durable exit while preserving the
     /// terminal's journaled tab placements and split tree. The daemon never
     /// respawns the process and never mutates topology on behalf of a process
@@ -3260,6 +3291,7 @@ impl Mux {
                 &path, &record,
             )?;
         }
+        self.materialize_restored_exited_terminal_if_needed(terminal_id, options);
         Ok(())
     }
 
@@ -13951,7 +13983,8 @@ impl Mux {
         let detach_projection = if matches!(
             terminal.lifecycle,
             TerminalLifecycle::Exited | TerminalLifecycle::Tombstoned
-        ) || keep_live_views || topology_policy == TerminalExitTopology::Preserve
+        ) || keep_live_views
+            || topology_policy == TerminalExitTopology::Preserve
         {
             None
         } else if let Some(public_terminal_id) = public_terminal_id.as_ref() {

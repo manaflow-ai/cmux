@@ -53,10 +53,9 @@ pub use journal_extensions::{
     JournalHookRegex, JournalHookRetry, JournalIngress, JournalProducerManifest, JournalSegment,
 };
 pub(crate) use journal_extensions::{
-    encode_hex,
     JournalCheckpointCommit, JournalCheckpointSummary, JournalContentBlob, JournalHookAttempt,
     JournalHookDelivery, JournalHookDeliveryResult, JournalHookScan, JournalHookState,
-    JournalSegmentSealCommit, JournalSegmentSealStart,
+    JournalSegmentSealCommit, JournalSegmentSealStart, encode_hex,
 };
 pub use public_projection_store::RegistryPublicProjections;
 #[cfg(test)]

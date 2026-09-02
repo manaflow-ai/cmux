@@ -16,7 +16,7 @@ use serde_json::Value;
 use sha2::{Digest, Sha256};
 
 use crate::SessionJournalRecord;
-use crate::workspace_registry::{encode_hex, JournalContentRef, WorkspaceRegistry};
+use crate::workspace_registry::{JournalContentRef, WorkspaceRegistry, encode_hex};
 
 /// Bound on tail bytes replayed into one restored placeholder. Matches the
 /// bounded VT replay budget used everywhere else a terminal is rebuilt.
