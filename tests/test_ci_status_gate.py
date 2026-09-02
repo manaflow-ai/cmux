@@ -582,7 +582,11 @@ def test_workflow_definition_mismatch_requires_trusted_review() -> None:
             return super().get(endpoint, paginate=paginate)
 
     unapproved = WorkflowAPI(approved=False)
-    pull = {"number": 1, "user": {"login": "contributor"}, "base": {"sha": BASE_SHA}}
+    pull = {
+        "number": 1,
+        "user": {"id": 424242, "login": "contributor"},
+        "base": {"sha": BASE_SHA},
+    }
     try:
         module.verify_ci_workflow_revision(unapproved, pull, HEAD_SHA)
     except module.GateError as error:
@@ -602,6 +606,25 @@ def test_workflow_definition_mismatch_requires_trusted_review() -> None:
         assert "workflow definition" in str(error)
     else:
         raise AssertionError("self-approval was accepted")
+
+    for malformed_author in (
+        None,
+        {},
+        {"id": 424242},
+        {"login": "contributor"},
+        {"id": 0, "login": "contributor"},
+        {"id": True, "login": "contributor"},
+        {"id": 424242, "login": "   "},
+    ):
+        malformed_pull = {**pull, "user": malformed_author}
+        try:
+            module.verify_ci_workflow_revision(
+                WorkflowAPI(approved=True), malformed_pull, HEAD_SHA
+            )
+        except module.GateError as error:
+            assert "author" in str(error)
+        else:
+            raise AssertionError("malformed PR author identity was accepted")
 
 
 if __name__ == "__main__":
