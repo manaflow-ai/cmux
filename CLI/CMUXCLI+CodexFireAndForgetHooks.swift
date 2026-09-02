@@ -326,11 +326,11 @@ extension CMUXCLI {
 
     static func codexFireAndForgetAgentHookShellCommand(_ command: String, for def: AgentHookDef) -> String {
         let routedArguments = command.hasPrefix("cmux ") ? String(command.dropFirst("cmux ".count)) : command
-        // The supervisor must finish installing its signal trap and timer
-        // before a fast child can trigger the parent's cleanup.  Without this
-        // readiness handshake, `kill "$watchdog"` can win the race before the
-        // trap exists, leaving the timer process orphaned.
-        let runner = "payload=\"$1\"; shift; ready=\"$payload.ready\"; rm -f \"$ready\"; \"$@\" <\"$payload\" >/dev/null 2>&1 & child=\"$!\"; ( timer=; trap \"kill \\$timer 2>/dev/null || true; wait \\$timer 2>/dev/null || true; exit 0\" HUP INT TERM; sleep 30 & timer=\"$!\"; printf ready >\"$ready\"; wait \"$timer\" 2>/dev/null || true; timer=; kill \"$child\" 2>/dev/null || true ) & watchdog=\"$!\"; ready_attempt=0; while [ ! -s \"$ready\" ] && [ \"$ready_attempt\" -lt 100 ]; do /bin/sleep 0.001; ready_attempt=$((ready_attempt + 1)); done; wait \"$child\" 2>/dev/null || true; kill \"$watchdog\" 2>/dev/null || true; wait \"$watchdog\" 2>/dev/null || true; rm -f \"$payload\" \"$ready\""
+        // Keep timer ownership in one process and stop it through a file
+        // handshake. A signal-based supervisor can receive TERM before its
+        // trap/timer assignment is installed, orphaning the timer for a fast
+        // child; the explicit parent-owned timer is always waited/reaped.
+        let runner = "payload=\"$1\"; shift; timer_stop=\"$payload.timer-stop\"; timer_done=\"$payload.timer-done\"; rm -f \"$timer_stop\" \"$timer_done\"; ( sleep 30 & timer=\"$!\"; while [ ! -e \"$timer_stop\" ]; do timer_state=$(/bin/ps -o state= -p \"$timer\" 2>/dev/null | /usr/bin/tr -d \"[:space:]\"); case \"$timer_state\" in \"\"|Z*) wait \"$timer\" 2>/dev/null || true; printf done >\"$timer_done\"; exit 0;; esac; /bin/sleep 0.05; done; kill \"$timer\" 2>/dev/null || true; wait \"$timer\" 2>/dev/null || true; exit 0 ) & timer_supervisor=\"$!\"; \"$@\" <\"$payload\" >/dev/null 2>&1 & child=\"$!\"; ( while [ ! -s \"$timer_done\" ] && [ ! -e \"$timer_stop\" ]; do /bin/sleep 0.05; done; if [ -s \"$timer_done\" ]; then kill \"$child\" 2>/dev/null || true; fi ) & watchdog=\"$!\"; wait \"$child\" 2>/dev/null || true; : >\"$timer_stop\"; kill \"$watchdog\" 2>/dev/null || true; wait \"$watchdog\" 2>/dev/null || true; wait \"$timer_supervisor\" 2>/dev/null || true; rm -f \"$payload\" \"$timer_stop\" \"$timer_done\""
         let noOp = stdinDrainingHookNoOpShellCommand
         return [
             "cmux_cli=\"${CMUX_BUNDLED_CLI_PATH:-}\"",
