@@ -118857,6 +118857,56 @@
         }
       }
     },
+    "featureFlags.cloudTerminalManualIO.description": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": { "stringUnit": { "state": "translated", "value": "يستخدم مسار البايت للنسخ اليدوي لمحطات السحابة، مع جسر exec PTY كخيار احتياطي للتوافق." } },
+        "bs": { "stringUnit": { "state": "translated", "value": "Koristi putanju bajtova za ručno zrcaljenje cloud terminala, uz exec PTY most kao rezervu za kompatibilnost." } },
+        "da": { "stringUnit": { "state": "translated", "value": "Bruger byte-stien til manuel spejling af cloudterminaler med exec-PTY-broen som kompatibilitetsreserve." } },
+        "de": { "stringUnit": { "state": "translated", "value": "Verwendet den manuellen Byte-Spiegelungspfad für Cloud-Terminals, mit der exec-PTY-Brücke als Kompatibilitätsfallback." } },
+        "en": { "stringUnit": { "state": "translated", "value": "Uses the manual-mirror byte path for cloud terminals, with the exec PTY bridge as a compatibility fallback." } },
+        "es": { "stringUnit": { "state": "translated", "value": "Usa la ruta de bytes del espejo manual para terminales en la nube, con el puente PTY de exec como alternativa de compatibilidad." } },
+        "fr": { "stringUnit": { "state": "translated", "value": "Utilise le chemin d’octets du miroir manuel pour les terminaux cloud, avec le pont PTY d’exec comme solution de repli de compatibilité." } },
+        "it": { "stringUnit": { "state": "translated", "value": "Usa il percorso a byte del mirror manuale per i terminali cloud, con il bridge PTY di exec come fallback di compatibilità." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "クラウドターミナルでは手動ミラーのバイト経路を使い、互換性のために exec PTY ブリッジへフォールバックします。" } },
+        "km": { "stringUnit": { "state": "translated", "value": "ប្រើផ្លូវបៃត៍ manual-mirror សម្រាប់ស្ថានីយ cloud ដោយមានស្ពាន exec PTY ជាជម្រើសបម្រុងសម្រាប់ភាពឆបគ្នា។" } },
+        "ko": { "stringUnit": { "state": "translated", "value": "클라우드 터미널에 수동 미러 바이트 경로를 사용하고, 호환성을 위해 exec PTY 브리지를 대체 경로로 사용합니다." } },
+        "nb": { "stringUnit": { "state": "translated", "value": "Bruker bytebanen for manuell speiling av skyterminaler, med exec-PTY-broen som kompatibilitetsreserve." } },
+        "pl": { "stringUnit": { "state": "translated", "value": "Używa ścieżki bajtów ręcznego mirrorowania dla terminali w chmurze, a most exec PTY służy jako zapasowa ścieżka zgodności." } },
+        "pt-BR": { "stringUnit": { "state": "translated", "value": "Usa o caminho de bytes do espelhamento manual para terminais na nuvem, com o relay PTY do exec como fallback de compatibilidade." } },
+        "ru": { "stringUnit": { "state": "translated", "value": "Использует байтовый путь ручного зеркалирования для облачных терминалов, а мост exec PTY служит запасным вариантом для совместимости." } },
+        "th": { "stringUnit": { "state": "translated", "value": "ใช้เส้นทางไบต์แบบมิเรอร์ด้วยตนเองสำหรับเทอร์มินัลคลาวด์ โดยมีบริดจ์ PTY ของ exec เป็นทางเลือกสำรองเพื่อความเข้ากันได้" } },
+        "tr": { "stringUnit": { "state": "translated", "value": "Bulut terminalleri için manuel yansıtma bayt yolunu kullanır ve uyumluluk için exec PTY köprüsünü geri dönüş yolu olarak sunar." } },
+        "uk": { "stringUnit": { "state": "translated", "value": "Використовує байтовий шлях ручного дзеркалювання для хмарних терміналів, а міст exec PTY є запасним варіантом для сумісності." } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "为云终端使用手动镜像字节路径，并以 exec PTY 桥接作为兼容性后备方案。" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "為雲端終端機使用手動鏡像位元組路徑，並以 exec PTY 橋接作為相容性備援方案。" } }
+      }
+    },
+    "featureFlags.cloudTerminalManualIO.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": { "stringUnit": { "state": "translated", "value": "إدخال وإخراج يدوي للطرفية السحابية" } },
+        "bs": { "stringUnit": { "state": "translated", "value": "Ručni I/O cloud terminala" } },
+        "da": { "stringUnit": { "state": "translated", "value": "Manuel I/O for cloudterminal" } },
+        "de": { "stringUnit": { "state": "translated", "value": "Manuelles I/O für Cloud-Terminal" } },
+        "en": { "stringUnit": { "state": "translated", "value": "Cloud terminal manual I/O" } },
+        "es": { "stringUnit": { "state": "translated", "value": "E/S manual del terminal en la nube" } },
+        "fr": { "stringUnit": { "state": "translated", "value": "E/S manuel du terminal cloud" } },
+        "it": { "stringUnit": { "state": "translated", "value": "I/O manuale del terminale cloud" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "クラウドターミナル手動 I/O" } },
+        "km": { "stringUnit": { "state": "translated", "value": "I/O ដោយដៃសម្រាប់ស្ថានីយ cloud" } },
+        "ko": { "stringUnit": { "state": "translated", "value": "클라우드 터미널 수동 I/O" } },
+        "nb": { "stringUnit": { "state": "translated", "value": "Manuell I/O for skyterminal" } },
+        "pl": { "stringUnit": { "state": "translated", "value": "Ręczne wejście/wyjście terminala w chmurze" } },
+        "pt-BR": { "stringUnit": { "state": "translated", "value": "E/S manual do terminal na nuvem" } },
+        "ru": { "stringUnit": { "state": "translated", "value": "Ручной ввод-вывод облачного терминала" } },
+        "th": { "stringUnit": { "state": "translated", "value": "I/O แบบแมนนวลสำหรับเทอร์มินัลคลาวด์" } },
+        "tr": { "stringUnit": { "state": "translated", "value": "Bulut terminali manuel G/Ç" } },
+        "uk": { "stringUnit": { "state": "translated", "value": "Ручний ввід-вивід хмарного термінала" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "云终端手动输入输出" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "雲端終端機手動輸入輸出" } }
+      }
+    },
     "featureFlags.column.current": {
       "extractionState": "manual",
       "localizations": {
