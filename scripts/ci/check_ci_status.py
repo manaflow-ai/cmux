@@ -11,7 +11,7 @@ from collections.abc import Mapping
 from typing import Any
 
 
-ROUTE_NAMES = ("macos", "web", "go", "agent_session_web")
+ROUTE_NAMES = ("macos", "web", "agent_session_web")
 
 # A job can be selected by more than one route. In particular, the diff
 # sidecar checks both macOS and web changes.
@@ -24,7 +24,6 @@ ROUTE_JOBS: dict[str, tuple[str, ...]] = {
     "react-apps-check": ("web",),
     "diff-sidecar-check": ("macos", "web"),
     "web-db-migrations": ("web",),
-    "remote-daemon-tests": ("go",),
     "agent-session-web-resources": ("agent_session_web",),
 }
 
@@ -42,7 +41,6 @@ ALWAYS_REQUIRED = COMMON_REQUIRED + (
 PREFLIGHT_REQUIRED = COMMON_REQUIRED
 
 PREFLIGHT_ROUTE_JOBS = (
-    "remote-daemon-tests",
     "web-typecheck",
     "react-apps-check",
     "diff-sidecar-check",

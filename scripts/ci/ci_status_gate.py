@@ -772,7 +772,6 @@ def build_needs(
     outputs = {
         "macos": "true" if areas.macos else "false",
         "web": "true" if areas.web else "false",
-        "go": "true" if areas.go else "false",
         "agent_session_web": "true" if areas.agent_session_web else "false",
     }
     needs: dict[str, dict[str, Any]] = {

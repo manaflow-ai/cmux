@@ -592,7 +592,7 @@ jobs:
       - linux-preflight
     # !cancelled() disables the implicit success() gate, which GitHub evaluates
     # over the transitive needs chain: linux-preflight runs behind routed linux
-    # jobs that legitimately skip (web/go/agent-session paths), and that
+    # jobs that legitimately skip (web/agent-session paths), and that
     # transitive skip otherwise marks every macOS job skipped even when
     # linux-preflight itself succeeds. Require the direct needs explicitly.
     if: ${{ !cancelled() && needs.changes.result == 'success' && needs.linux-preflight.result == 'success' && needs.changes.outputs.macos == 'true' }}
@@ -1528,7 +1528,7 @@ jobs:
       - linux-preflight
     # !cancelled() disables the implicit success() gate, which GitHub evaluates
     # over the transitive needs chain: linux-preflight runs behind routed linux
-    # jobs that legitimately skip (web/go/agent-session paths), and that
+    # jobs that legitimately skip (web/agent-session paths), and that
     # transitive skip otherwise marks every macOS job skipped even when
     # linux-preflight itself succeeds. Require the direct needs explicitly.
     if: ${{ !cancelled() && needs.changes.result == 'success' && needs.linux-preflight.result == 'success' && needs.changes.outputs.macos == 'true' }}
@@ -1877,7 +1877,7 @@ jobs:
       - linux-preflight
     # !cancelled() disables the implicit success() gate, which GitHub evaluates
     # over the transitive needs chain: linux-preflight runs behind routed linux
-    # jobs that legitimately skip (web/go/agent-session paths), and that
+    # jobs that legitimately skip (web/agent-session paths), and that
     # transitive skip otherwise marks every macOS job skipped even when
     # linux-preflight itself succeeds. Require the direct needs explicitly.
     if: ${{ !cancelled() && needs.changes.result == 'success' && needs.linux-preflight.result == 'success' && needs.changes.outputs.macos == 'true' }}
@@ -2460,7 +2460,6 @@ jobs:
       - changes
       - workflow-guard-tests
       - ghosttykit-release-check
-      - remote-daemon-tests
       - web-typecheck
       - react-apps-check
       - diff-sidecar-check
