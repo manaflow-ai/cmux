@@ -21,38 +21,51 @@ enum CloudWireGuardHubSocketReadiness {
         }
     }
 
+    /// A `connect(2)` probe answers readiness directly, but a listening Unix
+    /// socket has no kqueue edge for the bind→listen transition: the socket file
+    /// exists after `bind`, and no later vnode event fires when `listen` starts
+    /// accepting. So a directory vnode watch is only an accelerator for the file
+    /// appearing; a bounded probe cadence is what actually detects "accepts now".
+    static let probeInterval: Duration = .milliseconds(100)
+
     static func wait(
         socketPath: String,
         timeout: Duration,
+        probeInterval: Duration = Self.probeInterval,
         sleep: @escaping @Sendable (Duration) async throws -> Void = { try await ContinuousClock().sleep(for: $0) }
     ) async throws {
         if accepts(socketPath) { return }
         let directory = (socketPath as NSString).deletingLastPathComponent
-        let fd = open(directory, O_EVTONLY)
-        guard fd >= 0 else { throw ReadinessError.directoryUnavailable(directory) }
+        let watchFd = open(directory, O_EVTONLY)
+        guard watchFd >= 0 else { throw ReadinessError.directoryUnavailable(directory) }
         let ready = CloudLinkFirstValue<Bool>()
         let source = DispatchSource.makeFileSystemObjectSource(
-            fileDescriptor: fd,
+            fileDescriptor: watchFd,
             eventMask: [.write, .extend, .attrib],
             queue: DispatchQueue.global(qos: .utility)
         )
         source.setEventHandler {
             if accepts(socketPath) { ready.resolve(true) }
         }
-        source.setCancelHandler { close(fd) }
+        source.setCancelHandler { close(watchFd) }
         source.resume()
         defer { source.cancel() }
-        // The listener may have appeared between the first probe and the watch.
         if accepts(socketPath) { return }
         let outcome: Bool = await withTaskGroup(of: Bool.self) { group in
+            // The watch resolves this the instant the file appears and accepts.
             group.addTask { await ready.result ?? false }
+            // The probe cadence catches the bind→listen edge the watch cannot see.
             group.addTask {
-                do {
-                    try await sleep(timeout)
-                } catch {
-                    return false
+                let deadline = ContinuousClock.now.advanced(by: timeout)
+                while ContinuousClock.now < deadline {
+                    if accepts(socketPath) { return true }
+                    do {
+                        try await sleep(probeInterval)
+                    } catch {
+                        return false
+                    }
                 }
-                return false
+                return accepts(socketPath)
             }
             let first = await group.next() ?? false
             group.cancelAll()
