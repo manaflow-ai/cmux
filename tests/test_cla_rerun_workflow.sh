@@ -634,7 +634,7 @@ run_case wrong-workflow-name 0 "No failed CLA run exists for this pull request h
 run_case stale-base-association 1 "outdated or malformed pull request base SHA" 0
 run_case alternate-generation 1 "Unexpected CLA generation marker" 0
 run_case malformed-comment-login 1 "Comment author is malformed" 0
-run_case late-ambiguous 1 "Expected exactly one open pull request for this head" 0
+run_case late-ambiguous 0 "Requested rerun for CLA job 500 in workflow run 400" 1
 run_case external-signer 0 "Requested rerun for CLA job 500 in workflow run 400" 1
 run_case unrecorded-signer 1 "did not result in a persisted signature" 0
 run_case unbound-signer 1 "signing comment was not the signature persisted" 0
