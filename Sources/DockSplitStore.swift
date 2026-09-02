@@ -432,6 +432,7 @@ final class DockSplitStore: BonsplitDelegate, FilePreviewTabMetadataHost {
             [weak self] tabId, _ in
             guard let self else { return false }
             return self.panel(for: tabId) != nil
+                && AppDelegate.shared?.dockReferenceTabManager(for: self) != nil
         }
         // Drop the controller's default welcome tab so the root pane starts
         // empty and renders the in-app create affordance until config seeds it.
