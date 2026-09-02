@@ -4501,6 +4501,44 @@ mod tests {
         assert_eq!(directory.metadata().unwrap().permissions().mode() & 0o777, 0o700);
     }
 
+    #[cfg(unix)]
+    #[test]
+    fn private_dump_write_failure_preserves_previous_dump_and_cleans_temp() {
+        let root = tempfile::tempdir().unwrap();
+        let directory = private_dump_directory(root.path()).unwrap();
+        let final_path = root.path().join("mirror.txt");
+        fs::write(&final_path, b"previous").unwrap();
+
+        let error = write_private_dump(&directory, "mirror.txt", |_file| {
+            Err(io::Error::other("simulated dump failure"))
+        })
+        .unwrap_err();
+
+        assert_eq!(error.kind(), io::ErrorKind::Other);
+        assert_eq!(fs::read(&final_path).unwrap(), b"previous");
+        assert!(fs::read_dir(root.path())
+            .unwrap()
+            .filter_map(Result::ok)
+            .all(|entry| entry.file_name() == "mirror.txt"));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn private_dump_replacement_does_not_modify_hard_linked_previous_dump() {
+        let root = tempfile::tempdir().unwrap();
+        let directory = private_dump_directory(root.path()).unwrap();
+        let final_path = root.path().join("mirror.txt");
+        let linked_path = root.path().join("mirror-backup.txt");
+        fs::write(&final_path, b"previous").unwrap();
+        fs::hard_link(&final_path, &linked_path).unwrap();
+
+        write_private_dump(&directory, "mirror.txt", |file| file.write_all(b"replacement"))
+            .unwrap();
+
+        assert_eq!(fs::read(&final_path).unwrap(), b"replacement");
+        assert_eq!(fs::read(&linked_path).unwrap(), b"previous");
+    }
+
     #[test]
     fn disabled_frame_logging_does_not_format_hot_path_messages() {
         struct FormattingProbe(Arc<AtomicBool>);
