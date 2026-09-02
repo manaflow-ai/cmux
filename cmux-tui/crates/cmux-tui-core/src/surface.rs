@@ -2449,6 +2449,7 @@ impl Surface {
                 geometry_test_hook: Mutex::new(None),
                 #[cfg(test)]
                 deferred_cell_pixel_ack_test_hook: Mutex::new(None),
+                #[cfg(test)]
                 kitty_limits_test_hook,
                 #[cfg(test)]
                 test_master_control: None,
@@ -2934,6 +2935,7 @@ impl Surface {
                 geometry_test_hook: Mutex::new(None),
                 #[cfg(test)]
                 deferred_cell_pixel_ack_test_hook: Mutex::new(None),
+                #[cfg(test)]
                 kitty_limits_test_hook,
                 #[cfg(test)]
                 test_master_control: None,
@@ -3978,6 +3980,7 @@ impl Surface {
                 geometry_test_hook: Mutex::new(None),
                 #[cfg(test)]
                 deferred_cell_pixel_ack_test_hook: Mutex::new(None),
+                #[cfg(test)]
                 kitty_limits_test_hook,
                 #[cfg(test)]
                 test_master_control: None,
@@ -4464,7 +4467,7 @@ impl Surface {
         };
         #[cfg(not(unix))]
         let next = requested;
-        let graphics_changed = {
+        let generation = {
             let mut term = pty.term.lock().unwrap();
             let mut limits = pty.kitty_graphics_limits.lock().unwrap();
             if *limits == next {
