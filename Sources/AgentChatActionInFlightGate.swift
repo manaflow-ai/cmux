@@ -80,7 +80,7 @@ nonisolated final class AgentChatActionInFlightGate: @unchecked Sendable {
                 state.terminationInProgress ? state.terminationCompletion : nil
             }
             guard let completion else { return }
-            _ = await completion.wait()
+            guard await completion.wait() else { return }
         }
     }
 
