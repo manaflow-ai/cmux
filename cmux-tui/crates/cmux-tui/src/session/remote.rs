@@ -11,6 +11,7 @@ use std::sync::mpsc::{Receiver, RecvTimeoutError, Sender, channel, sync_channel}
 use std::sync::{Arc, Condvar, Mutex, OnceLock, Weak};
 use std::time::{Duration, Instant};
 
+use anyhow::Context;
 use base64::Engine;
 use cmux_tui_core::server::{VIEWPORT_COLUMN_RESIZE_CAPABILITY, VIEWPORT_SPLITS_CAPABILITY};
 use cmux_tui_core::{
@@ -236,6 +237,28 @@ impl RemoteRequestError {
             _ => None,
         }
     }
+}
+
+pub(crate) fn is_pipe_io_retryable_error(error: &anyhow::Error) -> bool {
+    error.chain().any(|cause| {
+        if let Some(remote_error) = cause.downcast_ref::<RemoteRequestError>() {
+            return remote_error.is_transport_failure() || remote_error.is_timeout();
+        }
+        cause.downcast_ref::<io::Error>().is_some_and(|io_error| {
+            matches!(
+                io_error.kind(),
+                io::ErrorKind::ConnectionRefused
+                    | io::ErrorKind::ConnectionReset
+                    | io::ErrorKind::BrokenPipe
+                    | io::ErrorKind::UnexpectedEof
+                    | io::ErrorKind::TimedOut
+                    | io::ErrorKind::NotConnected
+                    | io::ErrorKind::WouldBlock
+                    | io::ErrorKind::Interrupted
+                    | io::ErrorKind::NotFound
+            )
+        })
+    })
 }
 
 impl std::fmt::Display for RemoteRequestError {
@@ -2156,9 +2179,8 @@ impl RemoteSession {
     }
 
     fn connect_path(path: &Path, subscribe: bool) -> anyhow::Result<Arc<Self>> {
-        let stream = transport::connect(path).map_err(|e| {
-            anyhow::anyhow!("cannot connect to session socket {}: {e}", path.display())
-        })?;
+        let stream = transport::connect(path)
+            .with_context(|| format!("cannot connect to session socket {}", path.display()))?;
         Self::connect_stream_with_subscription(stream, subscribe)
     }
 
@@ -2178,9 +2200,7 @@ impl RemoteSession {
         {
             Ok(result) => {
                 let _ = connector.join();
-                result.map_err(|error| {
-                    anyhow::anyhow!("cannot connect to session socket {display}: {error}")
-                })?
+                result.with_context(|| format!("cannot connect to session socket {display}"))?
             }
             Err(RecvTimeoutError::Disconnected) => {
                 let _ = connector.join();
