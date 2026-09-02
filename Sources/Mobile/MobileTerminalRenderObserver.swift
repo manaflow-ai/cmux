@@ -440,7 +440,8 @@ final class MobileTerminalRenderObserver {
                 let identity = MobileTerminalByteTee.shared.recordRenderGridFrame(
                     surfaceID: surfaceID,
                     anchor: anchor,
-                    fullFrame: themedFrame
+                    fullFrame: themedFrame,
+                    content: state.content
                 )
                 identifiedFrame.renderEpoch = identity.epoch
                 identifiedFrame.renderRevision = identity.revision
@@ -463,7 +464,8 @@ final class MobileTerminalRenderObserver {
                         rowSignatures: state.rowSignatures,
                         anchor: state.anchor,
                         historyRows: state.historyRows,
-                        rowSpaceRevision: state.rowSpaceRevision
+                        rowSpaceRevision: state.rowSpaceRevision,
+                        content: state.content
                     )
                 return identifiedFrame
             case .needsScrollback(let rows):

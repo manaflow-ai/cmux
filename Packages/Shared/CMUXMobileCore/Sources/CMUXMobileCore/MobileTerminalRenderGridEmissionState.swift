@@ -1,8 +1,9 @@
 /// Cached producer state used to choose the next render-grid event payload.
 ///
-/// A producer stores this compact state instead of the full previous
-/// ``MobileTerminalRenderGridFrame`` so the hot render path can diff row
-/// signatures without retaining complete viewport snapshots.
+/// A producer stores this state instead of the full previous
+/// ``MobileTerminalRenderGridFrame``. The rendered-content snapshot is computed
+/// once at the frame boundary and reused by both delta comparison and revision
+/// tracking, so the hot render path never rebuilds the same signatures twice.
 public struct MobileTerminalRenderGridEmissionState: Equatable, Sendable {
     /// Producer lifetime that owns the revision sequence.
     public let renderEpoch: String
@@ -26,6 +27,10 @@ public struct MobileTerminalRenderGridEmissionState: Equatable, Sendable {
     public let terminalConfigTheme: TerminalTheme?
     /// Per-row text/style signatures from ``MobileTerminalRenderGridFrame/rowSignatures()``.
     public let rowSignatures: [String]
+    /// Canonical visual-content identity for stable polling revision tracking.
+    /// Legacy callers may leave this `nil`; producers created by
+    /// ``MobileTerminalRenderGridFrame/emissionState`` always populate it.
+    public let content: MobileTerminalRenderGridContent?
     /// Grid anchor of the frame that produced this state.
     public let anchor: MobileTerminalRenderGridFrame.Anchor
     /// Retained history rows above the producer's active area at capture time.
@@ -57,7 +62,8 @@ public struct MobileTerminalRenderGridEmissionState: Equatable, Sendable {
         rowSignatures: [String],
         anchor: MobileTerminalRenderGridFrame.Anchor = .viewport,
         historyRows: UInt64? = nil,
-        rowSpaceRevision: UInt64? = nil
+        rowSpaceRevision: UInt64? = nil,
+        content: MobileTerminalRenderGridContent? = nil
     ) {
         precondition(columns >= 0, "columns must be non-negative")
         precondition(rows >= 0, "rows must be non-negative")
@@ -72,6 +78,7 @@ public struct MobileTerminalRenderGridEmissionState: Equatable, Sendable {
         self.terminalTheme = terminalTheme
         self.terminalConfigTheme = terminalConfigTheme
         self.rowSignatures = rowSignatures
+        self.content = content
         self.anchor = anchor
         self.historyRows = historyRows
         self.rowSpaceRevision = rowSpaceRevision

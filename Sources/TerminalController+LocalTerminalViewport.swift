@@ -19,9 +19,8 @@ extension TerminalController {
         "mobile.terminal.scroll",
     ]
 
-    /// Dispatches a local-socket viewport command or replay through the same
-    /// main-actor target resolution as the mobile terminal API.
-    func v2LocalViewportCommandResult(
+    /// Handles a set/reset mutation on the main actor for one connection.
+    func v2LocalViewportMutationResult(
         request: ControlRequest,
         session: LocalTerminalViewportSession
     ) -> V2CallResult {
@@ -31,17 +30,131 @@ extension TerminalController {
             return v2LocalTerminalViewportSet(params: params, session: session)
         case "terminal.viewport.reset", "mobile.terminal.viewport.reset":
             return v2LocalTerminalViewportReset(params: params, session: session)
-        case "terminal.replay", "mobile.terminal.replay":
-            return v2LocalTerminalReplay(params: params, session: session)
-        case "terminal.scroll", "mobile.terminal.scroll":
-            return v2LocalTerminalScroll(params: params, session: session)
         default:
             return .err(
                 code: "method_not_found",
-                message: "Unknown method",
+                message: Self.localViewportUnknownMethodMessage,
                 data: nil
             )
         }
+    }
+
+    /// Executes a connection-local viewport command without doing render-grid
+    /// projection on the main actor. Target capture remains a minimal
+    /// `MainActor` operation; response parsing, frame projection, and JSON
+    /// encoding run on the socket worker.
+    nonisolated func v2LocalViewportCommandResultAsync(
+        request: ControlRequest,
+        session: LocalTerminalViewportSession
+    ) async -> String {
+        switch request.method {
+        case "terminal.viewport.set", "mobile.terminal.viewport.set",
+             "terminal.viewport.reset", "mobile.terminal.viewport.reset":
+            let response = await v2MainAsync {
+                self.v2Result(
+                    id: request.id?.foundationObject,
+                    self.v2LocalViewportMutationResult(
+                        request: request,
+                        session: session
+                    )
+                )
+            }
+            return response
+        case "terminal.replay", "mobile.terminal.replay":
+            let captured = await v2MainAsync {
+                let params = request.params.mapValues(\.foundationObject)
+                let hasOverride = self.mobileCanonicalTerminalTarget(params: params)
+                    .flatMap { session.viewport(for: $0.surfaceID) } != nil
+                return (
+                    response: self.v2Result(
+                        id: request.id?.foundationObject,
+                        self.v2MobileTerminalReplay(
+                            params: params,
+                            adoptReplayBaseline: !hasOverride,
+                            recordProducerIdentity: !hasOverride
+                        )
+                    ),
+                    hasOverride: hasOverride
+                )
+            }
+            guard captured.hasOverride else { return captured.response }
+            return await projectLocalViewportResponse(captured.response, session: session)
+        case "terminal.scroll", "mobile.terminal.scroll":
+            let captured = await v2MainAsync {
+                let params = request.params.mapValues(\.foundationObject)
+                let hasOverride = self.mobileCanonicalTerminalTarget(params: params)
+                    .flatMap { session.viewport(for: $0.surfaceID) } != nil
+                return (
+                    response: self.v2Result(
+                        id: request.id?.foundationObject,
+                        self.v2MobileTerminalScroll(
+                            params: params,
+                            adoptReplayBaseline: !hasOverride,
+                            recordProducerIdentity: !hasOverride
+                        )
+                    ),
+                    hasOverride: hasOverride
+                )
+            }
+            guard captured.hasOverride else { return captured.response }
+            return await projectLocalViewportResponse(captured.response, session: session)
+        default:
+            return Self.v2Encoder.error(
+                id: request.id,
+                code: "method_not_found",
+                message: Self.localViewportUnknownMethodMessage
+            )
+        }
+    }
+
+    /// Projects one already-encoded replay/scroll response after resolving the
+    /// connection's current surface override. The response is returned intact
+    /// when the command failed or the connection has no override for that
+    /// surface.
+#if compiler(>=6.2)
+    @concurrent
+#else
+    @Sendable
+#endif
+    private nonisolated func projectLocalViewportResponse(
+        _ response: String,
+        session: LocalTerminalViewportSession
+    ) async -> String {
+        guard let data = response.data(using: .utf8),
+              var envelope = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
+              envelope["ok"] as? Bool == true,
+              var result = envelope["result"] as? [String: Any],
+              let rawSurfaceID = result["surface_id"] as? String,
+              let surfaceID = UUID(uuidString: rawSurfaceID),
+              let viewport = await session.viewport(for: surfaceID) else {
+            return response
+        }
+
+        let nativeColumns = result["columns"]
+        let nativeRows = result["rows"]
+        var didProjectRenderGrid = false
+        if let object = result["render_grid"],
+           let frame = try? MobileTerminalRenderGridFrame.decodeJSONObject(object),
+           let projectedObject = try? frame.projectedViewport(
+               columns: viewport.columns,
+               rows: viewport.rows
+           ).jsonObject() {
+            result["render_grid"] = projectedObject
+            result["columns"] = viewport.columns
+            result["rows"] = viewport.rows
+            didProjectRenderGrid = true
+        }
+        result["viewport_override"] = didProjectRenderGrid
+        if !didProjectRenderGrid {
+            if let nativeColumns { result["columns"] = nativeColumns }
+            if let nativeRows { result["rows"] = nativeRows }
+            result["projection"] = "native_fallback"
+        }
+        envelope["result"] = result
+        guard let value = JSONValue(foundationObject: envelope) else {
+            return response
+        }
+        return Self.v2Encoder.encode(value)
     }
 
     /// Applies a validated per-connection cell or pixel viewport.
@@ -99,9 +212,15 @@ extension TerminalController {
         }
         let size = ghostty_surface_size(surface)
         let viewport = LocalTerminalViewport(
-            columns: max(1, Int(size.columns)),
-            rows: max(1, Int(size.rows))
-        ) ?? LocalTerminalViewport(columns: 1, rows: 1)!
+            columns: min(
+                max(LocalTerminalViewport.minimumColumns, Int(size.columns)),
+                LocalTerminalViewport.maximumColumns
+            ),
+            rows: min(
+                max(LocalTerminalViewport.minimumRows, Int(size.rows)),
+                LocalTerminalViewport.maximumRows
+            )
+        )!
         return localViewportPayload(
             workspaceID: target.workspace.id,
             surfaceID: target.surfaceID,
@@ -172,118 +291,76 @@ extension TerminalController {
         )
     }
 
-    private func v2LocalTerminalReplay(
-        params: [String: Any],
-        session: LocalTerminalViewportSession
-    ) -> V2CallResult {
-        let result = v2MobileTerminalReplay(
-            params: params,
-            adoptReplayBaseline: false,
-            recordProducerIdentity: false
-        )
-        guard case .ok(let rawPayload) = result,
-              var payload = rawPayload as? [String: Any],
-              let rawSurfaceID = payload["surface_id"] as? String,
-              let surfaceID = UUID(uuidString: rawSurfaceID),
-              let viewport = session.viewport(for: surfaceID) else {
-            return result
-        }
-        payload["columns"] = viewport.columns
-        payload["rows"] = viewport.rows
-        payload["viewport_override"] = true
-
-        if let object = payload["render_grid"],
-           let frame = try? MobileTerminalRenderGridFrame.decodeJSONObject(object) {
-            let projected = frame.projectedViewport(
-                columns: viewport.columns,
-                rows: viewport.rows
-            )
-            if let projectedObject = try? projected.jsonObject() {
-                payload["render_grid"] = projectedObject
-            }
-        } else if let snapshotEncoded = payload["snapshot_data_b64"] as? String,
-                  let data = Data(base64Encoded: snapshotEncoded),
-                  let text = String(data: data, encoding: .utf8) {
-            let projected = text.projectedTerminalText(
-                columns: viewport.columns,
-                rows: viewport.rows,
-                keepAllRows: false
-            )
-            payload["snapshot_data_b64"] = Data(projected.utf8).base64EncodedString()
-        } else if let dataEncoded = payload["data_b64"] as? String,
-                  let data = Data(base64Encoded: dataEncoded),
-                  let text = String(data: data, encoding: .utf8) {
-            let projected = text.projectedTerminalText(
-                columns: viewport.columns,
-                rows: viewport.rows,
-                keepAllRows: false
-            )
-            payload["data_b64"] = Data(projected.utf8).base64EncodedString()
-        }
-        return .ok(payload)
-    }
-
-    private func v2LocalTerminalScroll(
-        params: [String: Any],
-        session: LocalTerminalViewportSession
-    ) -> V2CallResult {
-        let result = v2MobileTerminalScroll(
-            params: params,
-            adoptReplayBaseline: false,
-            recordProducerIdentity: false
-        )
-        guard case .ok(let rawPayload) = result,
-              var payload = rawPayload as? [String: Any],
-              let rawSurfaceID = payload["surface_id"] as? String,
-              let surfaceID = UUID(uuidString: rawSurfaceID),
-              let viewport = session.viewport(for: surfaceID) else {
-            return result
-        }
-        payload["columns"] = viewport.columns
-        payload["rows"] = viewport.rows
-        payload["viewport_override"] = true
-        if let object = payload["render_grid"],
-           let frame = try? MobileTerminalRenderGridFrame.decodeJSONObject(object),
-           let projectedObject = try? frame.projectedViewport(
-               columns: viewport.columns,
-               rows: viewport.rows
-           ).jsonObject() {
-            payload["render_grid"] = projectedObject
-        }
-        return .ok(payload)
-    }
-
     /// Applies a local viewport to the text returned by `surface.read_text`.
-    /// The canonical capture and expensive text formatting stay on the socket
-    /// worker; only the session lookup hops to the main actor after the result
-    /// has been formatted.
+    ///
+    /// Target resolution and Ghostty capture are performed through one
+    /// suspending main-actor hop. Formatting and viewport projection then run
+    /// on the socket worker, so a large scrollback read never parks the main
+    /// queue behind a synchronous dispatch.
+#if compiler(>=6.2)
+    @concurrent
+#else
+    @Sendable
+#endif
     nonisolated func v2SurfaceReadTextForLocalConnection(
         request: ControlRequest,
         session: LocalTerminalViewportSession
     ) async -> String {
-        let params = request.params.mapValues(\.foundationObject)
-        let result = v2SurfaceReadText(params: params)
-        guard case .ok(let rawPayload) = result,
-              var payload = rawPayload as? [String: Any],
-              let rawSurfaceID = payload["surface_id"] as? String,
-              let surfaceID = UUID(uuidString: rawSurfaceID),
-              let text = payload["text"] as? String else {
-            return v2Result(id: request.id?.foundationObject, result)
+        let capture = await v2MainAsync {
+            let params = request.params.mapValues(\.foundationObject)
+            var includeScrollback = self.v2Bool(params, "scrollback") ?? false
+            let lineLimit = self.v2Int(params, "lines")
+            if lineLimit != nil { includeScrollback = true }
+            return ReadTextCaptureEnvelope(
+                outcome: self.v2SurfaceReadTextCapture(
+                    params: params,
+                    includeScrollback: includeScrollback,
+                    lineLimit: lineLimit
+                ),
+                includeScrollback: includeScrollback,
+                lineLimit: lineLimit
+            )
         }
-        guard let viewport = await session.viewport(for: surfaceID) else {
-            return v2Result(id: request.id?.foundationObject, result)
+
+        switch capture.outcome {
+        case let .finished(error):
+            return Self.v2Encoder.response(id: request.id, error.controlCallResult)
+        case let .captured(rawCapture):
+            guard case .success(let textPayload) = Self.terminalTextPayload(
+                from: rawCapture.rawSnapshot,
+                includeScrollback: capture.includeScrollback,
+                lineLimit: capture.lineLimit
+            ) else {
+                return Self.v2Encoder.error(
+                    id: request.id,
+                    code: "internal_error",
+                    message: "Failed to read terminal text"
+                )
+            }
+
+            var payload: [String: Any] = [
+                "text": textPayload.text,
+                "base64": textPayload.base64,
+                "workspace_id": rawCapture.workspaceID.uuidString,
+                "workspace_ref": rawCapture.workspaceRef,
+                "surface_id": rawCapture.surfaceID.uuidString,
+                "surface_ref": rawCapture.surfaceRef,
+                "window_id": v2OrNull(rawCapture.windowID?.uuidString),
+                "window_ref": v2OrNull(rawCapture.windowRef),
+            ]
+            guard let viewport = await session.viewport(for: rawCapture.surfaceID) else {
+                return v2Result(id: request.id?.foundationObject, .ok(payload))
+            }
+            let projected = textPayload.text.projectedTerminalText(
+                columns: viewport.columns,
+                rows: viewport.rows,
+                keepAllRows: capture.includeScrollback
+            )
+            payload["text"] = projected
+            payload["base64"] = Data(projected.utf8).base64EncodedString()
+            payload["viewport_override"] = true
+            return v2Result(id: request.id?.foundationObject, .ok(payload))
         }
-        let includeScrollback = v2Bool(params, "scrollback") == true
-            || v2Int(params, "lines") != nil
-        let projected = text.projectedTerminalText(
-            columns: viewport.columns,
-            rows: viewport.rows,
-            keepAllRows: includeScrollback
-        )
-        payload["text"] = projected
-        payload["base64"] = Data(projected.utf8).base64EncodedString()
-        payload["viewport_override"] = true
-        return v2Result(id: request.id?.foundationObject, .ok(payload))
     }
 
     private static var localViewportDimensionsMessage: String {
@@ -297,6 +374,13 @@ extension TerminalController {
         String(
             localized: "socket.terminal.viewport.surfaceNotFound",
             defaultValue: "Terminal surface not found"
+        )
+    }
+
+    private static var localViewportUnknownMethodMessage: String {
+        String(
+            localized: "socket.terminal.viewport.unknownMethod",
+            defaultValue: "Unknown terminal viewport method"
         )
     }
 }

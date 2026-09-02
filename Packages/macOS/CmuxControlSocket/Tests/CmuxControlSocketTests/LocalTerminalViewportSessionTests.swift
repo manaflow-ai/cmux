@@ -4,19 +4,24 @@ import Testing
 
 @MainActor
 @Test func localViewportSessionSetResetAndDisconnectLifecycle() throws {
-    let session = LocalTerminalViewportSession(connectionID: UUID())
     let surfaceID = UUID()
     let viewport = try #require(LocalTerminalViewport(columns: 40, rows: 12))
 
-    session.set(viewport, for: surfaceID)
-    #expect(session.viewport(for: surfaceID) == viewport)
-    #expect(session.reset(surfaceID: surfaceID))
-    #expect(session.viewport(for: surfaceID) == nil)
+    weak var weakSession: LocalTerminalViewportSession?
+    do {
+        let session = LocalTerminalViewportSession(connectionID: UUID())
+        weakSession = session
+        session.set(viewport, for: surfaceID)
+        #expect(session.viewport(for: surfaceID) == viewport)
+        #expect(session.reset(surfaceID: surfaceID))
+        #expect(session.viewport(for: surfaceID) == nil)
 
-    session.set(viewport, for: surfaceID)
-    session.clear() // the accepted socket disconnected
-    #expect(session.isEmpty)
-    #expect(session.viewport(for: surfaceID) == nil)
+        session.set(viewport, for: surfaceID)
+        session.clear() // the accepted socket disconnected
+        #expect(session.isEmpty)
+        #expect(session.viewport(for: surfaceID) == nil)
+    }
+    #expect(weakSession == nil)
 }
 
 @MainActor

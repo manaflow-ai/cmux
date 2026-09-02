@@ -245794,6 +245794,23 @@
         }
       }
     },
+    "socket.terminal.viewport.unknownMethod": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Unknown terminal viewport method"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "不明なターミナルビューポートメソッドです"
+          }
+        }
+      }
+    },
     "socket.workspace.remote.terminalProfile.invalid": {
       "extractionState": "manual",
       "localizations": {

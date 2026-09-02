@@ -133,8 +133,12 @@ extension MobileTerminalRenderGridFrame {
         sourceColumns: Int,
         targetColumns: Int
     ) -> [ViewportLine] {
+        // Canonicalize the entire span list once. The previous implementation
+        // sorted every row independently, multiplying sort overhead for large
+        // scrollback exports and repeated local-socket projections.
+        let canonicalRows = Self.canonicalSpans(rows)
         var spansByRow: [Int: [RowSpan]] = [:]
-        for span in rows {
+        for span in canonicalRows {
             spansByRow[span.row, default: []].append(span)
         }
         var result: [ViewportLine] = []
@@ -147,7 +151,7 @@ extension MobileTerminalRenderGridFrame {
                     text: " ", styleID: 0, width: 1, sourceColumn: index
                 )
             }
-            for span in (spansByRow[sourceRow] ?? []).sorted(by: { $0.column < $1.column }) {
+            for span in spansByRow[sourceRow] ?? [] {
                 var column = span.column
                 var remainingWidth = span.gridCellWidth
                 for character in span.text {
@@ -322,7 +326,10 @@ extension String {
             var line = ""
             var width = 0
             for character in sourceLine {
-                let characterWidth = max(1, character.renderGridEstimatedCellWidth)
+                let characterWidth = min(
+                    max(1, character.renderGridEstimatedCellWidth),
+                    columns
+                )
                 if width > 0, width + characterWidth > columns {
                     projected.append(line)
                     line = ""

@@ -28,26 +28,10 @@ public struct MobileTerminalRenderGridRevisionTracker: Sendable {
         }
     }
 
-    private struct Content: Equatable, Sendable {
-        let columns: Int
-        let rows: Int
-        let activeScreen: MobileTerminalRenderGridFrame.Screen
-        let anchor: MobileTerminalRenderGridFrame.Anchor
-        let rowSignatures: [String]
-        let scrollbackRows: Int
-        let scrollbackSignatures: [String]
-        let cursor: MobileTerminalRenderGridFrame.Cursor?
-        let terminalForeground: String?
-        let terminalBackground: String?
-        let terminalCursorColor: String?
-        let terminalTheme: TerminalTheme?
-        let terminalConfigTheme: TerminalTheme?
-    }
-
     private let renderEpoch: String
     private var renderRevision: UInt64 = 0
     private var emissionRevision: UInt64 = 0
-    private var lastContent: Content?
+    private var lastContent: MobileTerminalRenderGridContent?
 
     /// Creates a tracker for one terminal-runtime lifetime.
     ///
@@ -78,18 +62,15 @@ public struct MobileTerminalRenderGridRevisionTracker: Sendable {
     ///
     /// - Parameter fullFrame: Complete frame exported by the producer before
     ///   transport filtering or delta encoding.
+    /// - Parameter content: Optional content snapshot computed while choosing
+    ///   the emission. Passing it avoids a second span scan; when omitted, the
+    ///   tracker computes one for standalone callers.
     /// - Returns: The content and emission revisions for this frame.
     public mutating func record(
-        fullFrame: MobileTerminalRenderGridFrame
+        fullFrame: MobileTerminalRenderGridFrame,
+        content: MobileTerminalRenderGridContent? = nil
     ) -> Identity {
-        let content = Self.content(of: fullFrame)
-        if lastContent != content {
-            renderRevision &+= 1
-            if renderRevision == 0 {
-                renderRevision = 1
-            }
-            lastContent = content
-        }
+        _ = observe(fullFrame: fullFrame, content: content)
         emissionRevision &+= 1
         if emissionRevision == 0 {
             emissionRevision = 1
@@ -97,59 +78,29 @@ public struct MobileTerminalRenderGridRevisionTracker: Sendable {
         return currentIdentity
     }
 
-    private static func content(
-        of frame: MobileTerminalRenderGridFrame
-    ) -> Content {
-        var stylesByID: [Int: MobileTerminalRenderGridFrame.Style] = [:]
-        for style in frame.styles {
-            stylesByID[style.id] = style
+    /// Observes one complete frame without claiming a new transport emission.
+    ///
+    /// Request/response projections use this to initialize or advance the
+    /// shared content polling token without changing the exact-emission
+    /// sequence used by delta consumers.
+    ///
+    /// - Parameters:
+    ///   - fullFrame: Complete frame exported by the producer.
+    ///   - content: Optional snapshot already computed by an emission decision.
+    /// - Returns: The current content and emission identity.
+    public mutating func observe(
+        fullFrame: MobileTerminalRenderGridFrame,
+        content: MobileTerminalRenderGridContent? = nil
+    ) -> Identity {
+        let renderedContent = content ?? fullFrame.renderedContent()
+        if lastContent != renderedContent {
+            renderRevision &+= 1
+            if renderRevision == 0 {
+                renderRevision = 1
+            }
+            lastContent = renderedContent
         }
-        let scrollbackSignatures = frame.scrollbackSpans
-            .sorted {
-                if $0.row != $1.row { return $0.row < $1.row }
-                return $0.column < $1.column
-            }
-            .map { span in
-                let style = stylesByID[span.styleID] ?? .default
-                return "\(span.row):\(span.column):\(span.gridCellWidth):" +
-                    "\(Self.styleSignature(style)):\(span.text)"
-            }
-        return Content(
-            columns: frame.columns,
-            rows: frame.rows,
-            activeScreen: frame.activeScreen,
-            anchor: frame.anchor,
-            rowSignatures: frame.rowSignatures(),
-            scrollbackRows: frame.scrollbackRows,
-            scrollbackSignatures: scrollbackSignatures,
-            cursor: frame.cursor,
-            terminalForeground: frame.terminalForeground,
-            terminalBackground: frame.terminalBackground,
-            terminalCursorColor: frame.terminalCursorColor,
-            terminalTheme: frame.terminalTheme,
-            terminalConfigTheme: frame.terminalConfigTheme
-        )
+        return currentIdentity
     }
 
-    private static func styleSignature(
-        _ style: MobileTerminalRenderGridFrame.Style
-    ) -> String {
-        let flags = [
-            style.bold,
-            style.faint,
-            style.italic,
-            style.underline,
-            style.blink,
-            style.inverse,
-            style.invisible,
-            style.strikethrough,
-            style.overline,
-        ]
-            .map { $0 ? "1" : "0" }
-            .joined()
-        let foregroundSource = style.foregroundSource?.rawValue ?? "legacy"
-        let backgroundSource = style.backgroundSource?.rawValue ?? "legacy"
-        return "\(style.foreground ?? "-"):\(foregroundSource):\(style.foregroundPaletteIndex ?? -1)/" +
-            "\(style.background ?? "-"):\(backgroundSource):\(style.backgroundPaletteIndex ?? -1)/\(flags)"
-    }
 }

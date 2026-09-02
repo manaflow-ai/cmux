@@ -142,12 +142,36 @@ final class MobileTerminalByteTee {
     func recordRenderGridFrame(
         surfaceID: UUID,
         anchor: MobileTerminalRenderGridFrame.Anchor,
-        fullFrame: MobileTerminalRenderGridFrame
+        fullFrame: MobileTerminalRenderGridFrame,
+        content: MobileTerminalRenderGridContent? = nil
     ) -> (epoch: String, revision: UInt64, emissionRevision: UInt64) {
         var state = statesBySurfaceID[surfaceID] ?? SurfaceState()
         var tracker = state.revisionTrackers[anchor]
             ?? MobileTerminalRenderGridRevisionTracker(renderEpoch: state.renderEpoch)
-        let identity = tracker.record(fullFrame: fullFrame)
+        let identity = tracker.record(fullFrame: fullFrame, content: content)
+        state.revisionTrackers[anchor] = tracker
+        statesBySurfaceID[surfaceID] = state
+        return (
+            epoch: identity.renderEpoch,
+            revision: identity.renderRevision,
+            emissionRevision: identity.emissionRevision
+        )
+    }
+
+    /// Observes a request/response capture without advancing the transport
+    /// emission counter. This keeps local polling tokens meaningful even when
+    /// no mobile event subscriber is active, while leaving event delta bases
+    /// owned by the actual event producer.
+    func observeRenderGridContent(
+        surfaceID: UUID,
+        anchor: MobileTerminalRenderGridFrame.Anchor,
+        fullFrame: MobileTerminalRenderGridFrame,
+        content: MobileTerminalRenderGridContent? = nil
+    ) -> (epoch: String, revision: UInt64, emissionRevision: UInt64) {
+        var state = statesBySurfaceID[surfaceID] ?? SurfaceState()
+        var tracker = state.revisionTrackers[anchor]
+            ?? MobileTerminalRenderGridRevisionTracker(renderEpoch: state.renderEpoch)
+        let identity = tracker.observe(fullFrame: fullFrame, content: content)
         state.revisionTrackers[anchor] = tracker
         statesBySurfaceID[surfaceID] = state
         return (

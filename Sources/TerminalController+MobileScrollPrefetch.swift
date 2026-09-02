@@ -70,14 +70,10 @@ extension TerminalController {
                 fullFrame: frame
             )
         } else {
-            let current = MobileTerminalByteTee.shared.currentRenderCaptureIdentity(
+            identity = MobileTerminalByteTee.shared.observeRenderGridContent(
                 surfaceID: surfaceID,
-                anchor: anchor
-            )
-            identity = (
-                epoch: current.epoch,
-                revision: current.revision,
-                emissionRevision: current.emissionRevision
+                anchor: anchor,
+                fullFrame: frame
             )
         }
         frame.renderEpoch = identity.epoch

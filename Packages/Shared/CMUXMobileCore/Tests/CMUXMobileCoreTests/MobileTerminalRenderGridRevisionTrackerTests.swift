@@ -42,6 +42,74 @@ private struct RenderGridRevisionFixture {
     #expect(sameBatchReplay.emissionRevision == changed.emissionRevision + 1)
 }
 
+@Test func emissionStateCarriesTheCanonicalContentIdentity() throws {
+    let frame = try MobileTerminalRenderGridFrame(
+        surfaceID: "surface-a",
+        stateSeq: 4,
+        columns: 8,
+        rows: 2,
+        rowSpans: [.init(row: 0, column: 0, text: "same")],
+        scrollbackRows: 1,
+        scrollbackSpans: [.init(row: 0, column: 0, text: "history")]
+    )
+    let state = frame.emissionState
+    let content = try #require(state.content)
+    var tracker = MobileTerminalRenderGridRevisionTracker(renderEpoch: "epoch-1")
+
+    let first = tracker.record(fullFrame: frame, content: content)
+    let replay = tracker.record(fullFrame: frame, content: content)
+
+    #expect(content.rowSignatures == state.rowSignatures)
+    #expect(first.renderRevision == replay.renderRevision)
+    #expect(replay.emissionRevision == first.emissionRevision + 1)
+}
+
+@Test func renderedContentCanonicalizesSpanOrderWithoutChangingIdentity() throws {
+    let style = MobileTerminalRenderGridFrame.Style(id: 2, bold: true)
+    let first = try MobileTerminalRenderGridFrame(
+        surfaceID: "surface-a",
+        stateSeq: 1,
+        columns: 8,
+        rows: 2,
+        styles: [.default, style],
+        rowSpans: [
+            .init(row: 1, column: 3, styleID: 2, text: "end"),
+            .init(row: 0, column: 0, styleID: 2, text: "start"),
+        ]
+    )
+    let second = try MobileTerminalRenderGridFrame(
+        surfaceID: "surface-a",
+        stateSeq: 99,
+        columns: 8,
+        rows: 2,
+        styles: [.default, style],
+        rowSpans: [
+            .init(row: 0, column: 0, styleID: 2, text: "start"),
+            .init(row: 1, column: 3, styleID: 2, text: "end"),
+        ]
+    )
+
+    #expect(first.renderedContent() == second.renderedContent())
+}
+
+@Test func observingARequestCaptureAdvancesContentWithoutAnEmission() throws {
+    let frame = try MobileTerminalRenderGridFrame.fromPlainRows(
+        surfaceID: "surface-a",
+        stateSeq: 1,
+        columns: 8,
+        rows: 1,
+        text: "visible"
+    )
+    var tracker = MobileTerminalRenderGridRevisionTracker(renderEpoch: "epoch-1")
+
+    let first = tracker.observe(fullFrame: frame)
+    let replay = tracker.observe(fullFrame: frame)
+
+    #expect(first.renderRevision == 1)
+    #expect(first.emissionRevision == 0)
+    #expect(replay == first)
+}
+
 @Test func resizeAdvancesContentRevision() throws {
     var fixture = RenderGridRevisionFixture()
     let baseline = try fixture.record(text: "size", columns: 12, rows: 2)

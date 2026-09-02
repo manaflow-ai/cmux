@@ -16,7 +16,8 @@ extension MobileTerminalRenderGridFrame {
     /// ``renderGridEmission(comparedTo:fullScrollbackTarget:)`` for the next
     /// full producer snapshot.
     public var emissionState: MobileTerminalRenderGridEmissionState {
-        MobileTerminalRenderGridEmissionState(
+        let content = renderedContent()
+        return MobileTerminalRenderGridEmissionState(
             renderEpoch: renderEpoch,
             renderRevision: renderRevision,
             emissionRevision: emissionRevision,
@@ -26,10 +27,11 @@ extension MobileTerminalRenderGridFrame {
             activeScreen: activeScreen,
             terminalTheme: terminalTheme,
             terminalConfigTheme: terminalConfigTheme,
-            rowSignatures: rowSignatures(),
+            rowSignatures: content.rowSignatures,
             anchor: anchor,
             historyRows: historyRows,
-            rowSpaceRevision: rowSpaceRevision
+            rowSpaceRevision: rowSpaceRevision,
+            content: content
         )
     }
 
@@ -82,7 +84,8 @@ extension MobileTerminalRenderGridFrame {
         fullScrollbackTarget: Int = 0,
         allowScrollbackRequest: Bool = true
     ) throws -> Emission {
-        let nextSignatures = rowSignatures()
+        let nextContent = renderedContent()
+        let nextSignatures = nextContent.rowSignatures
         let nextState = MobileTerminalRenderGridEmissionState(
             renderEpoch: renderEpoch,
             renderRevision: renderRevision,
@@ -96,7 +99,8 @@ extension MobileTerminalRenderGridFrame {
             rowSignatures: nextSignatures,
             anchor: anchor,
             historyRows: historyRows,
-            rowSpaceRevision: rowSpaceRevision
+            rowSpaceRevision: rowSpaceRevision,
+            content: nextContent
         )
         func fullEmission() throws -> Emission {
             if allowScrollbackRequest,

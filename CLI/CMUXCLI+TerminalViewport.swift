@@ -69,8 +69,6 @@ extension CMUXCLI {
             return
         }
 
-        let columns: Int
-        let rows: Int
         if let widthOpt, let heightOpt {
             guard positional.isEmpty,
                   let width = Int(widthOpt),
@@ -80,11 +78,10 @@ extension CMUXCLI {
             params["width"] = width
             params["height"] = height
             if pixels { params["pixels"] = true }
-            columns = width
-            rows = height
         } else {
             guard widthOpt == nil,
                   heightOpt == nil,
+                  !pixels,
                   positional.count == 2,
                   let parsedColumns = Int(positional[0]),
                   let parsedRows = Int(positional[1]) else {
@@ -92,8 +89,6 @@ extension CMUXCLI {
             }
             params["columns"] = parsedColumns
             params["rows"] = parsedRows
-            columns = parsedColumns
-            rows = parsedRows
         }
 
         let payload = try client.sendV2(method: "terminal.viewport.set", params: params)

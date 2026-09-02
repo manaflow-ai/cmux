@@ -423,8 +423,8 @@ Terminal viewport methods:
 
 | Method / command | Contract |
 | --- | --- |
-| `terminal.viewport.set` / `cmux terminal viewport <columns> <rows>` | Set a cell viewport for this socket connection and surface. The exported render grid and text reads are projected to that size; the pane and PTY are not resized. `width`/`height` may be supplied as pixel dimensions. |
-| `terminal.viewport.reset` / `cmux terminal viewport reset` | Remove this connection's override and restore the native render projection. |
+| `terminal.viewport.set` / `cmux terminal viewport <columns> <rows>` | Set a cell viewport for this socket connection and surface. `terminal.replay`, `terminal.scroll`, and `surface.read_text` on that connection project to the requested size; the pane and PTY are not resized. `width`/`height` may be supplied as pixel dimensions. |
+| `terminal.viewport.reset` / `cmux terminal viewport reset` | Remove this connection's override and restore the native render projection for subsequent replay, scroll, and text-read responses. |
 
 Viewport overrides are connection-local and are cleared on disconnect. See
 [terminal-viewport.md](terminal-viewport.md) for the wire response and the

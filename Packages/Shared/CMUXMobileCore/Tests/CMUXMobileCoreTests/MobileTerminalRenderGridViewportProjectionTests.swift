@@ -59,6 +59,10 @@ import Testing
     #expect(text.projectedTerminalText(columns: 4, rows: 10, keepAllRows: true) == "abcd\nefgh\nnext")
 }
 
+@Test func textProjectionClampsWideGlyphsToAOneColumnViewport() {
+    #expect("界x".projectedTerminalText(columns: 1, rows: 4, keepAllRows: true) == "界\nx")
+}
+
 @Test func viewportProjectionHonorsExplicitSpanWidthsAndWideGlyphs() throws {
     let style = MobileTerminalRenderGridFrame.Style(id: 1, bold: true)
     let frame = try MobileTerminalRenderGridFrame(

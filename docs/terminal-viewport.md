@@ -26,11 +26,12 @@ The response reports `mode` (`override` or `native`), effective `columns` and
 
 The override is keyed by the accepted socket connection and surface. It is
 discarded when that connection closes, so two clients can request different
-sizes for one surface without affecting one another. `terminal.replay` and
-`surface.read_text` on that connection apply the projection. The standalone
-`cmux terminal viewport` command is useful for probing the response; a client
-that needs the setting across multiple requests must keep its socket open (or
-send the raw v2 methods from its own persistent client).
+sizes for one surface without affecting one another. `terminal.replay`,
+`terminal.scroll`, and `surface.read_text` on that connection apply the
+projection. The local `events.stream` endpoint remains the generic workspace
+event stream; it does not replace a render-grid replay. A client that needs a
+viewport across multiple requests must keep its control socket open (or send
+the raw v2 methods from its own persistent client).
 
 ## Resize model
 
@@ -39,8 +40,10 @@ connection boundary. It never calls the terminal resize path: the Mac pane,
 Ghostty's PTY dimensions, shell wrapping, and other clients remain unchanged.
 This is deliberate because a PTY resize is global and would make one phone's
 width change every agent's terminal. The projection preserves styles, cursor,
-scrollback rows, and producer identity; when a VT-text fallback is used, text
-is wrapped to the requested width and the newest rows are retained.
+scrollback rows, and producer identity. `surface.read_text` is always projected
+as plain text. Replay fallbacks (`snapshot_data_b64` and `data_b64`) are
+preserved byte-for-byte because they are VT/control streams; those responses
+report `viewport_override:false` when a render-grid frame is unavailable.
 
 ## `terminal.render_grid` revisions
 
