@@ -2780,7 +2780,7 @@ mod tests {
 
         let pid = tokio::time::timeout(std::time::Duration::from_secs(1), async {
             loop {
-                if let Ok(pid) = std::fs::read_to_string(&pid_file)
+                if let Some(pid) = std::fs::read_to_string(&pid_file)
                     .ok()
                     .and_then(|value| value.trim().parse::<libc::pid_t>().ok())
                 {
