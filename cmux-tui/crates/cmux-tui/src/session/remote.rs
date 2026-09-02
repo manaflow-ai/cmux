@@ -7336,6 +7336,21 @@ mod tests {
     }
 
     #[test]
+    fn pipe_io_forward_does_not_build_payload_without_matching_tap() {
+        let session = test_session(Box::new(CloseTrackingWriter {
+            closed: Arc::new(AtomicBool::new(false)),
+        }));
+        let built = Arc::new(AtomicBool::new(false));
+        let built_by_event = built.clone();
+
+        assert!(!session.pipe_io_forward(7, || {
+            built_by_event.store(true, Ordering::Release);
+            PipeIoEvent::Output(vec![0; 1024])
+        }));
+        assert!(!built.load(Ordering::Acquire));
+    }
+
+    #[test]
     fn stale_pipe_io_tap_cleanup_cannot_remove_a_replacement() {
         let session = test_session(Box::new(CloseTrackingWriter {
             closed: Arc::new(AtomicBool::new(false)),
