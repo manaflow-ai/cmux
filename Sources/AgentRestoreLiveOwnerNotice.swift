@@ -11,7 +11,10 @@ struct AgentRestoreLiveOwnerNotice: Sendable {
         )
         let message = String(
             format: format,
-            locale: Locale.current,
+            // A PID is a shell-facing identifier, not localized prose. Keep
+            // grouping separators out so the value remains one unambiguous
+            // numeric token in every locale.
+            locale: Locale(identifier: "en_US_POSIX"),
             Int64(processID)
         )
         return startupInput(message: message, dialect: dialect)

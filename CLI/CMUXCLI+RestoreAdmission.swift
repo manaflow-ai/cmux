@@ -76,7 +76,9 @@ extension CMUXCLI {
                     detail: "kind=\(record.kind) session=\(sessionID) pid=\(processID)",
                     message: String(
                         format: format,
-                        locale: Locale.current,
+                        // Keep the PID an unambiguous shell token while the
+                        // surrounding diagnostic remains localized.
+                        locale: Locale(identifier: "en_US_POSIX"),
                         processID
                     )
                 )
