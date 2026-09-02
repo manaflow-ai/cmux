@@ -104,6 +104,24 @@ struct AuthEnvironmentTests {
         #expect(release?.absoluteString == "https://cmux.com")
     }
 
+    @Test("production auth pins the authenticated API origin")
+    func productionAuthPinsAuthenticatedAPIOrigin() {
+        let debugProduction = AuthEnvironment.resolvedAPIBaseURL(
+            environment: [
+                "CMUX_AUTH_ENVIRONMENT": "production",
+                "CMUX_API_BASE_URL": "https://cmux-staging.vercel.app",
+            ],
+            isDebugBuild: true
+        )
+        #expect(debugProduction.absoluteString == "https://cmux.com")
+
+        let release = AuthEnvironment.resolvedAPIBaseURL(
+            environment: ["CMUX_API_BASE_URL": "https://cmux-staging.vercel.app"],
+            isDebugBuild: false
+        )
+        #expect(release.absoluteString == "https://cmux.com")
+    }
+
     @Test("device registry publishes to shared staging in debug so dev phones read fresh routes")
     func deviceRegistryPublishesToSharedStagingInDebug() {
         let localVMAPI = URL(string: "http://localhost:9450")!

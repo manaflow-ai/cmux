@@ -102,7 +102,7 @@ private struct OfflineReachabilityStub: ReachabilityProviding {
         #expect(MobileAuthComposition.resolvedAuthEnvironment(
             isDevelopmentBuild: false,
             overrides: ["AuthEnvironment": "development"]
-        ) == .development)
+        ) == .production)
     }
 
     @Test func overrideIsCaseInsensitiveAndTrimmed() {
@@ -184,6 +184,27 @@ private struct OfflineReachabilityStub: ReachabilityProviding {
         )
 
         #expect(overrides["ApiBaseURL"] == "http://localhost:8123")
+    }
+
+    @Test func productionBuildCannotKeepDevelopmentAuthOrAPIOverrides() {
+        let resolved = MobileAuthComposition.resolvedAuthEnvironment(
+            isDevelopmentBuild: false,
+            overrides: [
+                "AuthEnvironment": "development",
+                "ApiBaseURL": "https://cmux-staging.vercel.app",
+            ]
+        )
+        #expect(resolved == .production)
+
+        let safe = MobileAuthComposition.productionSafeOverrides(
+            [
+                "AuthEnvironment": "development",
+                "ApiBaseURL": "https://cmux-staging.vercel.app",
+            ],
+            authEnvironment: resolved
+        )
+        #expect(safe["AuthEnvironment"] == "production")
+        #expect(safe["ApiBaseURL"] == "https://cmux.com")
     }
 
     // MARK: - Dev sign-in shortcut gating
