@@ -39,6 +39,8 @@ public struct MobileTerminalRenderGridRevisionTracker: Sendable {
         let activeScreen: MobileTerminalRenderGridFrame.Screen
         let anchor: MobileTerminalRenderGridFrame.Anchor
         let rowSignatures: [String]
+        let historyRows: UInt64?
+        let rowSpaceRevision: UInt64?
         let cursor: MobileTerminalRenderGridFrame.Cursor?
         let terminalForeground: String?
         let terminalBackground: String?
@@ -52,6 +54,8 @@ public struct MobileTerminalRenderGridRevisionTracker: Sendable {
             activeScreen = content.activeScreen
             anchor = content.anchor
             rowSignatures = content.rowSignatures
+            historyRows = content.historyRows
+            rowSpaceRevision = content.rowSpaceRevision
             cursor = content.cursor
             terminalForeground = content.terminalForeground
             terminalBackground = content.terminalBackground

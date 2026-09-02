@@ -21,6 +21,11 @@ public struct MobileTerminalRenderGridContent: Equatable, Sendable {
     public let scrollbackRows: Int
     /// Canonical scrollback span signatures, oldest first.
     public let scrollbackSignatures: [String]
+    /// Total retained history rows at capture time, when the producer reports it.
+    /// This is independent of the request's scrollback payload depth.
+    public let historyRows: UInt64?
+    /// Absolute row-space identity, when the producer reports it.
+    public let rowSpaceRevision: UInt64?
     /// Cursor position, when visible in the snapshot.
     public let cursor: MobileTerminalRenderGridFrame.Cursor?
     /// Dynamic terminal foreground override.
@@ -44,6 +49,8 @@ public struct MobileTerminalRenderGridContent: Equatable, Sendable {
     ///   - rowSignatures: Canonical visible-row signatures.
     ///   - scrollbackRows: Number of retained scrollback rows.
     ///   - scrollbackSignatures: Canonical scrollback signatures.
+    ///   - historyRows: Total retained history rows, if available.
+    ///   - rowSpaceRevision: Absolute row-space identity, if available.
     ///   - cursor: Rendered cursor position, if any.
     ///   - terminalForeground: Dynamic foreground override.
     ///   - terminalBackground: Dynamic background override.
@@ -58,6 +65,8 @@ public struct MobileTerminalRenderGridContent: Equatable, Sendable {
         rowSignatures: [String],
         scrollbackRows: Int,
         scrollbackSignatures: [String],
+        historyRows: UInt64? = nil,
+        rowSpaceRevision: UInt64? = nil,
         cursor: MobileTerminalRenderGridFrame.Cursor?,
         terminalForeground: String?,
         terminalBackground: String?,
@@ -72,6 +81,8 @@ public struct MobileTerminalRenderGridContent: Equatable, Sendable {
         self.rowSignatures = rowSignatures
         self.scrollbackRows = scrollbackRows
         self.scrollbackSignatures = scrollbackSignatures
+        self.historyRows = historyRows
+        self.rowSpaceRevision = rowSpaceRevision
         self.cursor = cursor
         self.terminalForeground = terminalForeground
         self.terminalBackground = terminalBackground
@@ -115,6 +126,8 @@ extension MobileTerminalRenderGridFrame {
             rowSignatures: rowSignatures,
             scrollbackRows: scrollbackRows,
             scrollbackSignatures: scrollbackSignatures,
+            historyRows: historyRows,
+            rowSpaceRevision: rowSpaceRevision,
             cursor: cursor,
             terminalForeground: terminalForeground,
             terminalBackground: terminalBackground,
