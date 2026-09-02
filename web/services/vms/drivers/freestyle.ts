@@ -1,4 +1,13 @@
-import { Freestyle, FreestyleApiError, type TunnelData, type VmData, type Vm, type VpcData } from "freestyle";
+import {
+  Freestyle,
+  FreestyleApiError,
+  type ResizeVmOptions,
+  type TunnelData,
+  type VmData,
+  type VmResources,
+  type Vm,
+  type VpcData,
+} from "freestyle";
 import { randomBytes } from "node:crypto";
 import {
   ProviderError,
@@ -23,6 +32,7 @@ import {
   type VMProvider,
   type VMStatus,
 } from "./types";
+import { PLAN_MACHINE_MEMORY_MB, vcpusForMemoryMb, vmDiskMb } from "../machineSpec";
 import { recordSpanError, setSpanAttributes, withVmSpan } from "../telemetry";
 import {
   CMUX_TUI_INSTALL_TIMEOUT_MS,
@@ -577,9 +587,16 @@ export class FreestyleProvider implements VMProvider {
             "cmux.vm.network.private": !!networkId,
           });
           try {
+            // CreateVmOptions has no size: a VM boots at its snapshot's
+            // resources (the devbox snapshot is 2 vCPU / 4 GB / 16 GB) and
+            // only a grow-only resize raises them. Size before bootstrap so
+            // the machine the daemon comes up on is the one that was sold.
+            await this.growToRequestedSize(fs, vm, vmId, options.memoryMb, span);
             await this.bootstrapCmuxTui(vm, vmId, options.envs);
           } catch (err) {
-            // A VM that failed to bootstrap must not survive as an orphan.
+            // A VM that failed to size or bootstrap must not survive as an
+            // orphan, and an undersized machine must not ship as if it were
+            // the plan machine.
             await vm.delete().catch((cleanupErr) => {
               console.error(`[freestyle] create rollback failed; VM ${vmId} may be orphaned`, cleanupErr);
             });
@@ -607,6 +624,32 @@ export class FreestyleProvider implements VMProvider {
         }
       },
     );
+  }
+
+  /**
+   * Grow the VM to the requested memory (the plan machine when the caller
+   * sent none), the vCPUs that memory implies, and the plan disk. Freestyle
+   * resize is grow-only, so only larger dimensions are sent; a snapshot that
+   * already carries the size is a no-op.
+   */
+  private async growToRequestedSize(
+    fs: Freestyle,
+    vm: Vm,
+    vmId: string,
+    memoryMb: number | undefined,
+    span: Parameters<typeof setSpanAttributes>[0],
+  ): Promise<void> {
+    const current = (await fs.vms.get(vmId)).resources;
+    const target = freestyleTargetResources(memoryMb ?? PLAN_MACHINE_MEMORY_MB);
+    const request = freestyleResizeRequest(current, target);
+    setSpanAttributes(span, {
+      "cmux.vm.resources.cpu": target.cpu,
+      "cmux.vm.resources.memory_mb": target.memory,
+      "cmux.vm.resources.storage_mb": target.storage,
+      "cmux.vm.resize.requested": request !== null,
+    });
+    if (!request) return;
+    await vm.resize(request);
   }
 
   async destroy(vmId: string): Promise<void> {
@@ -961,4 +1004,32 @@ export class FreestyleProvider implements VMProvider {
       return r ?? { exitCode: 124, stdout: "", stderr: "exec failed" };
     };
   }
+}
+
+/** The resources a machine of `memoryMb` is sold with (see entitlements.ts). */
+export function freestyleTargetResources(
+  memoryMb: number,
+  env: Record<string, string | undefined> = process.env,
+): VmResources {
+  return {
+    cpu: vcpusForMemoryMb(memoryMb),
+    memory: memoryMb,
+    storage: vmDiskMb(env),
+  };
+}
+
+/**
+ * The grow-only resize that takes `current` to `target`, or null when nothing
+ * needs to grow. Shrinks are never requested: Freestyle rejects them, and a
+ * snapshot restored at a larger size keeps what it had.
+ */
+export function freestyleResizeRequest(
+  current: VmResources,
+  target: VmResources,
+): ResizeVmOptions | null {
+  const request: ResizeVmOptions = {};
+  if (target.cpu > current.cpu) request.cpu = target.cpu;
+  if (target.memory > current.memory) request.memory = target.memory;
+  if (target.storage > current.storage) request.storage = target.storage;
+  return Object.keys(request).length > 0 ? request : null;
 }
