@@ -10,7 +10,6 @@ import {
   isVmLimitExceededError,
 } from "../../../../services/vms/errors";
 import {
-  imageUsesBakedFreestyleSignedAdmin,
   inferVmProviderForImage,
   resolveVmImage,
 } from "../../../../services/vms/images/resolver";
@@ -107,7 +106,6 @@ export async function runBaseRoute(input: {
       image: imageSelection.image,
       imageVersion: imageSelection.imageVersion,
       baseName: parsed.body.name,
-      bakedFreestyleSignedAdmin: imageUsesBakedFreestyleSignedAdmin(provider, imageSelection.image),
       timing: input.timing,
     };
     entry = await runVmWorkflow(
