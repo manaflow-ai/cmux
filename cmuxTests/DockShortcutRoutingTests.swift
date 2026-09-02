@@ -1711,7 +1711,7 @@ struct DockShortcutRoutingTests {
                     in: harness.window
                 )
 
-                harness.dock.focusPanel(first)
+                harness.dock.focusPanel(first.id)
                 harness.appDelegate.noteMainPanelKeyboardFocusIntent(
                     workspaceId: harness.mainWorkspace.id,
                     panelId: mainPanelId,
@@ -2559,7 +2559,7 @@ struct DockShortcutRoutingTests {
                         focus: true
                     )
                 )
-                harness.dock.focusPanel(first.id)
+                harness.dock.focusPanel(first)
                 harness.dock.refreshDockMenuCapabilities()
 
                 #expect(
@@ -2577,7 +2577,7 @@ struct DockShortcutRoutingTests {
                         preferredWindow: harness.window
                     )
                 )
-                #expect(harness.dock.focusedPanelId == second.id)
+                #expect(harness.dock.focusedPanelId == second)
             }
         }
     }
