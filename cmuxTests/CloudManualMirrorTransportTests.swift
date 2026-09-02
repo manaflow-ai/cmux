@@ -61,6 +61,159 @@ struct CloudManualMirrorTransportTests {
         #expect(resize["rows"] as? UInt64 == 52)
     }
 
+    @Test
+    func capabilityHandshakeAndLeasedResizeUseExactAttachment() throws {
+        let identify = CloudTuiManualIOCommand.identify(requestID: 4)
+        #expect(identify["cmd"] as? String == "identify")
+        #expect(identify["id"] as? UInt64 == 4)
+
+        let resize = try #require(
+            CloudTuiManualIOCommand.resizeAttachedView(
+                surfaceID: 17,
+                lease: "lease-token",
+                columns: 160,
+                rows: 52,
+                requestID: 8
+            )
+        )
+        #expect(resize["cmd"] as? String == "resize-attached-view")
+        #expect(resize["lease"] as? String == "lease-token")
+        #expect(resize["cols"] as? UInt64 == 160)
+        #expect(resize["rows"] as? UInt64 == 52)
+
+        let release = try #require(
+            CloudTuiManualIOCommand.releaseAttachedViewSize(
+                surfaceID: 17,
+                lease: "lease-token"
+            )
+        )
+        #expect(release["cmd"] as? String == "release-attached-view-size")
+        #expect(release["lease"] as? String == "lease-token")
+        #expect(
+            CloudTuiManualIOCommand.resizeAttachedView(
+                surfaceID: 17,
+                lease: "",
+                columns: 160,
+                rows: 52
+            ) == nil
+        )
+        #expect(
+            CloudTuiManualIOCommand.resizeAttachedView(
+                surfaceID: 17,
+                lease: "lease-token",
+                columns: 10_001,
+                rows: 52
+            ) == nil
+        )
+    }
+
+    @Test
+    func responseDecoderPreservesCapabilitiesAndLeaseOutcome() throws {
+        let line = Self.line([
+            "id": 7,
+            "ok": true,
+            "data": [
+                "lease": "lease-token",
+                "capabilities": ["attach-initial-size"],
+                "outcome": "applied",
+                "accepted": false,
+            ],
+        ])
+        let frame = try #require(CloudTuiManualIOFrameDecoder().decode(line))
+        guard case let .response(requestID, ok, lease, capabilities, outcome, accepted, error) = frame else {
+            Issue.record("expected a response frame")
+            return
+        }
+        #expect(requestID == 7)
+        #expect(ok)
+        #expect(lease == "lease-token")
+        #expect(capabilities == ["attach-initial-size"])
+        #expect(outcome == "applied")
+        #expect(accepted == false)
+        #expect(error == nil)
+    }
+
+    @Test
+    func resizeSamplesAreLatestWinsAndResumeAfterGeometryClaim() throws {
+        var scheduler = CloudTuiManualIOResizeScheduler()
+        let first = try #require(CloudTuiManualIOGrid(columns: 99, rows: 35))
+        let final = try #require(CloudTuiManualIOGrid(columns: 160, rows: 52))
+
+        #expect(scheduler.sample(first, canSend: true) == first)
+        #expect(scheduler.sample(final, canSend: true) == nil)
+        // The first acknowledgement parks the newest sample while the
+        // connection promotes itself to the terminal's geometry owner.
+        #expect(scheduler.acknowledge(canSend: false) == nil)
+        #expect(scheduler.resume() == final)
+        #expect(scheduler.inFlight == final)
+        #expect(scheduler.acknowledge(canSend: true) == nil)
+        #expect(scheduler.sample(final, canSend: true) == nil)
+    }
+
+    @Test
+    func geometryClaimCommandMakesThePaneReportAuthoritative() {
+        let command = CloudTuiManualIOCommand.claimGeometry(surfaceID: 17, requestID: 9)
+        #expect(command["cmd"] as? String == "set-client-sizing")
+        #expect(command["surface"] as? UInt64 == 17)
+        #expect(command["enabled"] as? Bool == true)
+        #expect(command["exclusive"] as? Bool == true)
+        #expect(command["id"] as? UInt64 == 9)
+    }
+
+    @Test
+    func hiddenMirrorsReleaseTheirSizingReport() {
+        let command = CloudTuiManualIOCommand.releaseSizing(surfaceID: 17)
+        #expect(command["cmd"] as? String == "release-surface-size")
+        #expect(command["surface"] as? UInt64 == 17)
+        #expect(command["id"] as? UInt64 == 0)
+    }
+
+    @Test
+    func legacyTreeBridgesPublicTerminalIdentityToNumericSurface() throws {
+        let tree: [String: Any] = [
+            "workspaces": [[
+                "screens": [[
+                    "panes": [[
+                        "tabs": [[
+                            "surface": 17,
+                            "terminal_resource_id": "term_remote",
+                        ]],
+                    ]],
+                ]],
+            ]],
+        ]
+        let data = try JSONSerialization.data(withJSONObject: tree)
+        #expect(
+            CloudTuiLegacySnapshotParser.surfaceID(from: data, terminalID: "term_remote") == 17
+        )
+    }
+
+    @Test
+    func generationAwareResolverUsesThePrivateCommandShape() throws {
+        let arguments = try #require(
+            CloudTuiCommandLine.resolveTerminalArguments(
+                socketPath: "/tmp/cmux.sock",
+                terminalID: "term_0123456789abcdef0123456789abcdef"
+            )
+        )
+        #expect(arguments.prefix(5).elementsEqual(["--socket", "/tmp/cmux.sock", "--json", "raw", "command"]))
+        let requestIndex = try #require(arguments.firstIndex(of: "--request-json")) + 1
+        let request = try #require(
+            JSONSerialization.jsonObject(with: Data(arguments[requestIndex].utf8)) as? [String: Any]
+        )
+        #expect(request["cmd"] as? String == "resolve-terminal")
+        #expect(request["terminal_id"] as? String == "0123456789abcdef0123456789abcdef")
+    }
+
+    @Test
+    func resolvedTerminalResponseBridgesSurfaceHandle() throws {
+        let data = try JSONSerialization.data(withJSONObject: [
+            "surface": 23,
+            "terminal_id": "0123456789abcdef0123456789abcdef",
+        ])
+        #expect(CloudTuiLegacySnapshotParser.resolvedSurfaceID(from: data) == 23)
+    }
+
     private static func line(_ object: [String: Any]) -> Data {
         try! JSONSerialization.data(withJSONObject: object)
     }

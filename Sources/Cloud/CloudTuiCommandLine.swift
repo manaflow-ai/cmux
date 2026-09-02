@@ -70,6 +70,43 @@ struct CloudTuiCommandLine: Sendable {
         ["--socket", socketPath, "attach", "--terminal", terminalID]
     }
 
+    /// The compatibility tree used to translate a public `term_…` id to the
+    /// numeric surface id required by `attach-surface` byte streams.
+    static func legacyListWorkspacesArguments(socketPath: String) -> [String] {
+        ["--socket", socketPath, "--json", "list-workspaces"]
+    }
+
+    /// Resolves a stable terminal resource ID to the current generation's
+    /// numeric surface handle. This is preferred over walking the legacy tree
+    /// because it also works while a terminal has no visible tab placement.
+    /// The private command accepts the 32-character payload without the
+    /// public `term_` prefix.
+    static func resolveTerminalArguments(socketPath: String, terminalID: String) -> [String]? {
+        let payload = terminalID.hasPrefix("term_")
+            ? String(terminalID.dropFirst("term_".count))
+            : terminalID
+        guard payload.count == 32,
+              payload.unicodeScalars.allSatisfy({
+                  (48...57).contains($0.value) || (97...102).contains($0.value)
+              }) else {
+            return nil
+        }
+        let request: [String: Any] = [
+            "id": 1,
+            "cmd": "resolve-terminal",
+            "terminal_id": payload,
+        ]
+        guard let data = try? JSONSerialization.data(withJSONObject: request),
+              let encoded = String(data: data, encoding: .utf8) else {
+            return nil
+        }
+        return [
+            "--socket", socketPath,
+            "--json", "raw", "command",
+            "--request-json", encoded,
+        ]
+    }
+
     /// `session current terminal defaults set [--foreground #rrggbb] [--background #rrggbb]`
     /// (spec `session.terminal_defaults.update`): the session defaults every PTY surface
     /// renders with unless an application on the machine authored its own OSC 10/11.
