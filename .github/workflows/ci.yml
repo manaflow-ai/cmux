@@ -1470,10 +1470,18 @@ jobs:
             } | tee "$batch_output"
             batch_status="${PIPESTATUS[0]}"
 
-            if [ "$batch_status" -eq 65 ] \
+            # Reuse the final classifier for per-batch continuation. It only
+            # tolerates ordinary XCTest statuses (65/125); reserved wrapper
+            # statuses and unknown failures cannot be hidden by a stale
+            # "(0 unexpected)" summary. The output classifier additionally
+            # requires every XCTest summary in the batch to be clean, so an
+            # earlier unexpected failure is not masked by a later summary.
+            if [ "$batch_status" -ne 0 ] \
+              && scripts/ci/classify-app-host-test-result.sh \
+                "$batch_status" "$batch_output" >/dev/null 2>&1 \
               && python3 scripts/ci/classify-app-host-test-output.py "$batch_output"; then
-                echo "All failures in app-host batch ${logical_shard}/${LOGICAL_SHARD_TOTAL} are expected, continuing"
-                return 0
+              echo "All failures in app-host batch ${logical_shard}/${LOGICAL_SHARD_TOTAL} are expected, continuing"
+              return 0
             fi
             return "$batch_status"
           }
@@ -1512,6 +1520,11 @@ jobs:
           fi
 
           scripts/ci/classify-app-host-test-result.sh "$EXIT_CODE" "$TEST_OUTPUT"
+          if [ "$EXIT_CODE" -ne 0 ]; then
+            # A tolerated nonzero status must also have no unexpected failure in
+            # any XCTest summary, not just the last one.
+            python3 scripts/ci/classify-app-host-test-output.py "$TEST_OUTPUT"
+          fi
 
       - name: Run bundled Ghostty theme picker helper regression
         if: ${{ matrix.shard == fromJSON(env.CMUX_APP_HOST_FOCUSED_REGRESSION_SHARD) }}
