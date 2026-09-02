@@ -619,6 +619,27 @@ final class MachinesPanelModelTests: XCTestCase {
         XCTAssertEqual(group.placements.map(\.remoteTabID), ["tab_a", "tab_b"])
     }
 
+    @MainActor
+    func testCatalogWorkspaceGroupUsesLegacyWorkspaceWhenRemoteViewsAreEmpty() throws {
+        let machine = SurfaceMachineID.cloud("legacy-group-test")
+        let workspace = SurfaceRemoteWorkspace(id: "ws_legacy", name: "legacy", index: 0, focused: true)
+        var resource = terminal(machine, "term_legacy", title: "shell")
+        // Older snapshots can include the explicit zero-view marker and still
+        // retain the single-workspace compatibility field.
+        resource.remoteWorkspace = workspace
+        resource.remoteViews = []
+        let catalog = SurfaceCatalog()
+        catalog.replaceResources(
+            [resource],
+            on: machine,
+            info: machineInfo(machine, hasDesktop: false, remoteWorkspaces: [workspace])
+        )
+
+        let group = try catalog.remoteWorkspaceGroup(machine: machine, workspaceID: workspace.id)
+        XCTAssertEqual(group.resources, [resource.id])
+        XCTAssertEqual(group.placements.first?.remoteWorkspaceID, workspace.id)
+    }
+
     func testCloudTreeLocalBrowsersGroupAndEmptyLocalPlaceholder() {
         let browser = SurfaceResource(id: SurfaceResourceID(machine: .local, kind: .browser, key: "BBB"), title: "Docs", detail: nil, lifecycle: .running, agent: nil, remoteWorkspace: nil, port: nil, url: "https://cmux.com/docs")
         let local = UUID()
