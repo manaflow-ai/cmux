@@ -1654,7 +1654,24 @@ impl Inner {
             }
             Arc::clone(&current.publication_gate)
         };
-        let Some(_publication) = gate.try_lock() else { return };
+        let Some(_publication) = gate.try_lock() else {
+            // A live output callback may own the gate while waiting on the
+            // socket. Send the terminal error directly in that case. The
+            // attachment cannot be replaced until the callback releases its
+            // gate, so this remains generation-scoped without another wait.
+            let attachments = self.attachments.lock().expect("attach lock");
+            let Some(current) = attachments.get(pty_id) else { return };
+            if current.generation != generation
+                || !Arc::ptr_eq(&current.publication_gate, publication_gate)
+                || current.closing.load(Ordering::SeqCst)
+                || current.close_pending.load(Ordering::SeqCst)
+            {
+                return;
+            }
+            drop(attachments);
+            send_pty_error(context, pty_id, "failed", message);
+            return;
+        };
         let attachments = self.attachments.lock().expect("attach lock");
         let Some(current) = attachments.get(pty_id) else { return };
         if current.generation != generation
@@ -2253,21 +2270,11 @@ impl Inner {
         }
         current.close_pending.store(true, Ordering::SeqCst);
         drop(_publication);
-        let drained = tokio::time::timeout(
-            CONTROL_OPERATION_DRAIN_TIMEOUT,
-            attachment.control_ops.wait_async(),
-        )
-        .await;
-        if drained.is_err() {
-            let manager = Arc::clone(self);
-            let pty_id = pty_id.to_owned();
-            let attachment = attachment.clone();
-            let context = context.clone();
-            tokio::spawn(async move {
-                manager.close_exact_authorized_async(&pty_id, &attachment, &context).await;
-            });
-            return;
-        }
+        // Keep the generation reserved until every in-flight control call
+        // completes. The transport teardown owns a separate cleanup task, so
+        // cancellation cannot create a retry loop or expose a replacement ID
+        // while the old operation is still running.
+        attachment.control_ops.wait_async().await;
         let _publication = gate.lock_async().await;
         let Some(current) = self.attachments.lock().expect("attach lock").get(pty_id).cloned()
         else {
