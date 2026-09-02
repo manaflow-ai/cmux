@@ -412,6 +412,9 @@ does not know the plugin's agent catalog or screen grammar. The Rust SDK names
 these types generically. `Session::journal_producers` reads the installed
 manifests for diagnostics. Bindings that exposed the preview `AgentPlugin*`
 names retain source-compatible aliases.
+There are deliberately no `agent_plugin.*` transport operation names. The
+commands are local CLI plans, and the selected process uses the generic journal
+operations after the server socket is bound.
 
 | Class | Operations |
 | --- | --- |

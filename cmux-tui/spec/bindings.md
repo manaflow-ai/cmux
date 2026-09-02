@@ -120,7 +120,8 @@ resource graph for `asyncio`. Cancellation closes its dedicated connection and
 releases reader threads. The package supports Python 3.9 without runtime
 dependencies. Private models live under `cmux.raw`.
 Generic producers use `list_journal_producers`, `put_journal_producer`, and
-`append_journal`; the `agent_plugin_*` names remain compatibility aliases.
+`append_journal`; the longer `put_journal_producer_manifest` and
+`append_journal_event` names remain compatibility aliases.
 
 ### TypeScript
 

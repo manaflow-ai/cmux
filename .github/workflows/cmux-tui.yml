@@ -113,7 +113,10 @@ jobs:
         working-directory: cmux-tui
         run: |
           cargo +1.91.0 check --workspace --locked
-          cargo +1.91.0 check --manifest-path bindings/examples/rust-agent-screen-detection/Cargo.toml --locked
+          CARGO_TARGET_DIR=target-msrv-agent-plugin \
+            cargo +1.91.0 check \
+              --manifest-path bindings/examples/rust-agent-screen-detection/Cargo.toml \
+              --locked
 
   web-frontend:
     needs: validate-inputs
