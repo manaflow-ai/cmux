@@ -8,8 +8,9 @@ The files under `manifests/` are derived from the herdr project:
 * Manifest snapshot revision: `2290257acb2085ce6842ba5c7e3ca50c3ba64f02`
 * First-acquisition OSC retention: `82e6a80eb3ae39fb3d3ebd4d1fed19389767e605`
 * Included manifest fixes: Claude MCP elicitation `f807b697353cfa00aa912c7cde4830e863001cf5`,
-  Claude background-shell state `987b070fbfa187e85009b45cd7e208fc6175ff6a`, and
-  Codex weak-blocker scope `f457cff4f2648eee85d176f8a41861241d4e8428`.
+  Claude background-shell state `987b070fbfa187e85009b45cd7e208fc6175ff6a`,
+  Codex weak-blocker scope `f457cff4f2648eee85d176f8a41861241d4e8428`, and
+  Copilot background-agent activity `2290257acb2085ce6842ba5c7e3ca50c3ba64f02`.
 * License: Apache-2.0, reproduced in `manifests/LICENSE`
 * Unchanged vendored material: 18 of the 21 `manifests/*.toml` files, copied
   from `src/detect/manifests/` at the manifest snapshot revision. `claude.toml`

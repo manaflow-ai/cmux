@@ -94,7 +94,7 @@ manifests and adapted detector sources live under
 - **Detector source reference:** commit `7b675f42af35508eab66ac42fe1598628597a893`
 - **Pi bundled-launcher correction:** commit `b1ff4582e9688f52ffb943cfa8bee4871ae122e4`
 - **Manifest snapshot:** commit `2290257acb2085ce6842ba5c7e3ca50c3ba64f02`
-- **Included manifest fixes:** Claude MCP elicitation `f807b697353cfa00aa912c7cde4830e863001cf5`, Claude background-shell state `987b070fbfa187e85009b45cd7e208fc6175ff6a`, and Codex weak-blocker scope `f457cff4f2648eee85d176f8a41861241d4e8428`
+- **Included manifest fixes:** Claude MCP elicitation `f807b697353cfa00aa912c7cde4830e863001cf5`, Claude background-shell state `987b070fbfa187e85009b45cd7e208fc6175ff6a`, Codex weak-blocker scope `f457cff4f2648eee85d176f8a41861241d4e8428`, and Copilot background-agent activity `2290257acb2085ce6842ba5c7e3ca50c3ba64f02`
 - **License text:** cmux-owned code is covered by
   `cmux-tui/bindings/examples/rust-agent-screen-detection/LICENSE-MIT`; the
   herdr-derived files use
