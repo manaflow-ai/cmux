@@ -5736,6 +5736,42 @@ enum PaneResizeDragTarget {
     },
 }
 
+/// Client-local divider position while a split drag is in progress. Motion
+/// updates only this value; the daemon receives one `set-split-ratio` on
+/// release (`committed`), and the preview stays until the authoritative tree
+/// carries that ratio so the divider never snaps back for a frame.
+#[derive(Clone, Copy, Debug, PartialEq)]
+struct SplitDragPreview {
+    split: SplitId,
+    ratio: f32,
+    committed: bool,
+}
+
+fn apply_split_ratio_preview(node: &mut Node, split: SplitId, ratio: f32) -> bool {
+    match node {
+        Node::Split { id, ratio: current, a, b, .. } => {
+            if *id == split {
+                *current = ratio;
+                return true;
+            }
+            apply_split_ratio_preview(a, split, ratio) || apply_split_ratio_preview(b, split, ratio)
+        }
+        _ => false,
+    }
+}
+
+fn split_ratio_in_node(node: &Node, split: SplitId) -> Option<f32> {
+    match node {
+        Node::Split { id, ratio, a, b, .. } => {
+            if *id == split {
+                return Some(*ratio);
+            }
+            split_ratio_in_node(a, split).or_else(|| split_ratio_in_node(b, split))
+        }
+        _ => None,
+    }
+}
+
 /// Mouse drag in progress.
 enum Drag {
     /// Left press on a tab chip; becomes `Tab` after moving cells.
@@ -7253,6 +7289,7 @@ pub struct App {
     /// Bumped on every tree adoption and user focus report; fences late
     /// `client-focus` answers (see `AppEvent::ClientFocusRestored`).
     client_focus_epoch: u64,
+    split_drag_preview: Option<SplitDragPreview>,
     /// Terminal cells actually represented by the last rendered snapshot.
     /// Foreign-viewer padding outside these bounds is display-only.
     pub(crate) rendered_terminal_bounds: HashMap<SurfaceId, Rect>,
@@ -9536,6 +9573,7 @@ fn run_with_machine_updates_inner(request: RunRequest) -> anyhow::Result<RunOutc
         reported_focus: None,
         client_focus_id: client_focus_identity(),
         client_focus_epoch: 0,
+        split_drag_preview: None,
         rendered_terminal_bounds: HashMap::new(),
         rendered_kitty_graphics: HashMap::new(),
         visible_size_surfaces: HashSet::new(),
@@ -14675,7 +14713,8 @@ impl App {
             self.sync_sidebar_files_to_focus(false);
         }
         self.pane_areas.clear();
-        let Some(screen) = self.tree.active_screen().cloned() else {
+        self.reconcile_split_drag_preview();
+        let Some(mut screen) = self.tree.active_screen().cloned() else {
             self.viewport_projection.clear();
             self.viewport_layout.clear();
             self.viewport_stacked_headers.clear();
@@ -14695,6 +14734,9 @@ impl App {
             }
             return;
         };
+        if let Some(preview) = self.split_drag_preview {
+            apply_split_ratio_preview(&mut screen.layout, preview.split, preview.ratio);
+        }
         let viewport_enabled = self.surface_only.is_none()
             && screen.zoomed_pane.is_none()
             && !screen.viewport_splits.is_empty();
@@ -18506,11 +18548,27 @@ impl App {
         self.handle_direct_keyboard_to(input, None)
     }
 
+    fn handle_direct_keyboard_to_inner_guard(&mut self, input: &keys::KeyboardInput) -> bool {
+        // Escape during a split drag drops the local preview and sends
+        // nothing; the key is consumed.
+        if !input.is_release()
+            && input.ui_key().code == KeyCode::Esc
+            && matches!(self.drag, Some(Drag::ResizeSplit { .. }))
+        {
+            self.cancel_split_drag();
+            return true;
+        }
+        false
+    }
+
     fn handle_direct_keyboard_to(
         &mut self,
         input: keys::KeyboardInput,
         destination: Option<SurfaceId>,
     ) -> anyhow::Result<RenderAction> {
+        if self.handle_direct_keyboard_to_inner_guard(&input) {
+            return Ok(RenderAction::Draw);
+        }
         let visible_state = self.visible_input_state(destination);
         let action = self.handle_direct_keyboard_to_inner(input, destination)?;
         Ok(action.merge(self.visible_input_action(visible_state)))
@@ -21705,7 +21763,7 @@ impl App {
             let settle_split = matches!(self.drag, Some(Drag::ResizeSplit { .. }));
             self.drag = None;
             if settle_split {
-                self.session.settle_split_ratio();
+                self.commit_split_drag_preview();
             }
         }
         self.active_pointer_buttons.clear();
@@ -21783,7 +21841,7 @@ impl App {
                     BrowserMouseDispatch::new("mouseReleased", Some("left"), Some(1)),
                 );
             }
-            Some(Drag::ResizeSplit { .. }) => self.session.settle_split_ratio(),
+            Some(Drag::ResizeSplit { .. }) => self.commit_split_drag_preview(),
             Some(
                 Drag::TabArm { .. }
                 | Drag::Tab { .. }
@@ -23160,7 +23218,7 @@ impl App {
         }
         if matches!(self.drag, Some(Drag::ResizeSplit { .. })) {
             self.drag = None;
-            self.session.settle_split_ratio();
+            self.commit_split_drag_preview();
             return Ok(RenderAction::Draw);
         }
         if matches!(self.drag, Some(Drag::StatusMessage { .. })) {
@@ -23642,10 +23700,59 @@ impl App {
                 }
                 let requested = (coord.saturating_sub(start) as f64 / extent as f64) as f32;
                 let ratio = requested.clamp(minimum_ratio, maximum_ratio);
+                // Motion is client-local: the divider follows the pointer from
+                // this preview every frame, and one durable mutation is sent
+                // on release (`commit_split_drag_preview`).
+                self.split_drag_preview = Some(SplitDragPreview { split, ratio, committed: false });
+            }
+        }
+    }
+
+    /// Release of a split drag: send exactly one `set-split-ratio` for the
+    /// previewed value (plus its settle barrier), or only settle when the drag
+    /// moved a viewport column, whose width mutations are still coalesced.
+    fn commit_split_drag_preview(&mut self) {
+        match self.split_drag_preview {
+            Some(preview) if !preview.committed => {
                 if self.prepare_pty_input_before_mutation() {
-                    self.session.set_split_ratio_deferred(split, ratio);
+                    self.split_drag_preview =
+                        Some(SplitDragPreview { committed: true, ..preview });
+                    self.session.set_split_ratio(preview.split, preview.ratio);
+                } else {
+                    self.split_drag_preview = None;
                 }
             }
+            _ => self.session.settle_split_ratio(),
+        }
+    }
+
+    /// Escape during a split drag: drop the preview, send nothing.
+    fn cancel_split_drag(&mut self) {
+        self.drag = None;
+        self.split_drag_preview = None;
+    }
+
+    /// Drop a committed preview once the authoritative tree carries its
+    /// ratio, or once every mutation has settled and the tree is current
+    /// (the commit was refused), or when the split no longer exists.
+    fn reconcile_split_drag_preview(&mut self) {
+        let Some(preview) = self.split_drag_preview else { return };
+        if matches!(self.drag, Some(Drag::ResizeSplit { .. })) {
+            return;
+        }
+        let tree_ratio = self
+            .tree
+            .active_screen()
+            .and_then(|screen| split_ratio_in_node(&screen.layout, preview.split));
+        let settled =
+            !self.session.has_pending_mutations() && !self.session.remote_tree_is_stale();
+        let drop = match tree_ratio {
+            None => true,
+            Some(ratio) if (ratio - preview.ratio).abs() < 1e-3 => true,
+            Some(_) => !preview.committed || settled,
+        };
+        if drop {
+            self.split_drag_preview = None;
         }
     }
 
@@ -24934,12 +25041,14 @@ mod tests {
         RenderedMenuLevel, RenderedPaneRoute, RenderedPointerFrame, Selection, SelectionMode,
         SessionCompletion, SessionCompletionAction, SessionEventSender, ShortcutHelp,
         SidebarActionTarget, SidebarLayout, SidebarPluginSyncClaim, SidebarPluginSyncState,
-        SidebarWidthOverrides, StatusTemplateValues, StatusWorkerStop, StdoutLock,
+        SidebarWidthOverrides, SplitDragPreview, StatusTemplateValues, StatusWorkerStop,
+        StdoutLock,
         SurfaceAttachClaimState, SurfaceResizeDecision, SurfaceResizeOwnership,
         TERMINAL_PAINT_CADENCE, TerminalInput, TerminalPaintPacer, TerminalPointerAdmission,
         TerminalPointerAdmissionResult, TerminalPointerEncoding, TextInput, Toast,
         VIEWPORT_ANIMATION_DURATION, ViewportMotion, ViewportPaneAreaProjection,
-        WorkspaceRailSelection, action_available_in_mode, browser_content_size_for_rect,
+        WorkspaceRailSelection, action_available_in_mode, apply_split_ratio_preview,
+        browser_content_size_for_rect,
         browser_frame_source_crop, browser_hover_forward_allowed, browser_source_crop,
         canonical_terminal_content, catch_renderer_panic, clamp_split_ratio_for_tab_bars,
         client_menu_item, clip_horizontal_rect, content_size_for_rect,
@@ -24970,7 +25079,7 @@ mod tests {
     use cmux_tui_core::resource::FrontendProjectionPublicId;
     use cmux_tui_core::{
         AgentSource, AgentState, BrowserFrame, BrowserStatus, Direction, LayoutUndoError, Mux,
-        MuxEvent, Node, PointerSnapshotProbe, Rect, SplitDir, SurfaceId, SurfaceKind,
+        MuxEvent, Node, PointerSnapshotProbe, Rect, SplitDir, SplitId, SurfaceId, SurfaceKind,
         SurfaceOptions, VirtualRect, ZoomMode, layout_screen, server,
     };
     use crossterm::event::{
@@ -29704,6 +29813,129 @@ mod tests {
         for surface in surfaces {
             mux.close_surface(surface).unwrap();
         }
+    }
+
+    fn split_drag_test_app(
+        name: &str,
+    ) -> (App, Receiver<AppEvent>, Arc<Mux>, SplitId, cmux_tui_core::PaneId) {
+        let mux = Mux::new(name, SurfaceOptions::default());
+        mux.new_workspace(None, Some((80, 30))).unwrap();
+        let first = Session::Local(mux.clone()).tree().active_screen().unwrap().active_pane;
+        mux.split(first, SplitDir::Right, Some((40, 30))).unwrap();
+        let (mut app, events) = test_app_with_events(Session::Local(mux.clone()));
+        app.sidebar_visible = false;
+        app.replace_tree(app.session.tree());
+        app.sync_layout((100, 20));
+        while app.session.has_pending_mutations() {
+            app.handle(events.recv_timeout(Duration::from_secs(1)).unwrap()).unwrap();
+        }
+        let split = match &app.tree.active_screen().unwrap().layout {
+            Node::Split { id, .. } => *id,
+            other => panic!("expected a split layout, got {other:?}"),
+        };
+        (app, events, mux, split, first)
+    }
+
+    fn pane_width(app: &App, pane: cmux_tui_core::PaneId) -> u16 {
+        app.pane_areas.iter().find(|area| area.pane == pane).expect("pane area").rect.width
+    }
+
+    fn close_all_surfaces(mux: &Arc<Mux>) {
+        let surfaces = mux.with_state(|state| state.surfaces.keys().copied().collect::<Vec<_>>());
+        for surface in surfaces {
+            mux.close_surface(surface).unwrap();
+        }
+    }
+
+    #[test]
+    fn split_drag_previews_locally_and_commits_once_on_release() {
+        let (mut app, events, mux, split, first) =
+            split_drag_test_app("split-drag-preview-commit-test");
+        let initial_width = pane_width(&app, first);
+        let target = app.resolve_pane_resize_drag(first, PaneEdge::Right).expect("split divider");
+        app.drag = Some(Drag::ResizeSplit { horizontal: Some(target), vertical: None });
+
+        let pending = |app: &App| app.session.pending_mutations.load(Ordering::Acquire);
+        let before = pending(&app);
+        app.handle_left_drag(25, 5).unwrap();
+        assert_eq!(pending(&app), before, "drag motion must not send a request");
+        let preview = app.split_drag_preview.expect("motion records a local preview");
+        assert_eq!(preview.split, split);
+        assert!(!preview.committed);
+        assert!(preview.ratio < 0.4, "pointer at x=25 of 100 must move the divider left: {}", preview.ratio);
+
+        // The preview drives layout while the drag is in progress.
+        app.sync_layout((100, 20));
+        assert!(pane_width(&app, first) < initial_width, "divider did not follow the pointer");
+        assert!(app.split_drag_preview.is_some(), "preview must survive layout during a drag");
+
+        let before = pending(&app);
+        app.handle_left_drag(60, 5).unwrap();
+        assert_eq!(pending(&app), before, "drag motion must not send a request");
+        let moved = app.split_drag_preview.unwrap();
+        assert!(moved.ratio > 0.5, "pointer at x=60 must move the divider right: {}", moved.ratio);
+
+        let before = pending(&app);
+        app.handle_left_up(60, 5).unwrap();
+        assert!(app.drag.is_none());
+        // Exactly one set-split-ratio plus its settle barrier.
+        assert_eq!(pending(&app) - before, 2);
+        let committed =
+            app.split_drag_preview.expect("committed preview stays until the tree agrees");
+        assert!(committed.committed);
+        assert!((committed.ratio - moved.ratio).abs() < 1e-6);
+
+        while app.session.has_pending_mutations() {
+            app.handle(events.recv_timeout(Duration::from_secs(1)).unwrap()).unwrap();
+        }
+        app.sync_layout((100, 20));
+        let tree_ratio =
+            super::split_ratio_in_node(&app.tree.active_screen().unwrap().layout, split).unwrap();
+        assert!((tree_ratio - committed.ratio).abs() < 1e-3, "tree ratio {tree_ratio}");
+        assert!(app.split_drag_preview.is_none(), "preview clears once the tree carries it");
+        close_all_surfaces(&mux);
+    }
+
+    #[test]
+    fn escape_cancels_split_drag_without_a_request() {
+        let (mut app, _events, mux, _split, first) =
+            split_drag_test_app("split-drag-preview-escape-test");
+        let initial_width = pane_width(&app, first);
+        let target = app.resolve_pane_resize_drag(first, PaneEdge::Right).expect("split divider");
+        app.drag = Some(Drag::ResizeSplit { horizontal: Some(target), vertical: None });
+        app.handle_left_drag(25, 5).unwrap();
+        assert!(app.split_drag_preview.is_some());
+
+        let before = app.session.pending_mutations.load(Ordering::Acquire);
+        app.handle_key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE)).unwrap();
+        assert!(app.drag.is_none());
+        assert!(app.split_drag_preview.is_none());
+        assert_eq!(app.session.pending_mutations.load(Ordering::Acquire), before);
+        app.sync_layout((100, 20));
+        assert_eq!(pane_width(&app, first), initial_width);
+        close_all_surfaces(&mux);
+    }
+
+    #[test]
+    fn committed_split_preview_holds_until_the_tree_carries_the_ratio() {
+        let (mut app, events, mux, split, _first) =
+            split_drag_test_app("split-drag-preview-hold-test");
+        app.split_drag_preview =
+            Some(SplitDragPreview { split, ratio: 0.3, committed: true });
+        // The authoritative tree still says 0.5 and a mutation is pending: the
+        // preview holds so the divider does not snap back for a frame.
+        app.session.pending_mutations.fetch_add(1, Ordering::AcqRel);
+        app.sync_layout((100, 20));
+        assert!(app.split_drag_preview.is_some());
+        app.session.pending_mutations.fetch_sub(1, Ordering::AcqRel);
+
+        app.session.set_split_ratio(split, 0.3);
+        while app.session.has_pending_mutations() {
+            app.handle(events.recv_timeout(Duration::from_secs(1)).unwrap()).unwrap();
+        }
+        app.sync_layout((100, 20));
+        assert!(app.split_drag_preview.is_none(), "tree agrees; preview must clear");
+        close_all_surfaces(&mux);
     }
 
     #[test]
@@ -46136,6 +46368,7 @@ mod tests {
             reported_focus: None,
             client_focus_id: None,
             client_focus_epoch: 0,
+            split_drag_preview: None,
             rendered_terminal_bounds: HashMap::new(),
             rendered_kitty_graphics: HashMap::new(),
             visible_size_surfaces: HashSet::new(),
