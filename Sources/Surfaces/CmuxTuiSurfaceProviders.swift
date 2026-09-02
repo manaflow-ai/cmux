@@ -180,9 +180,14 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
     /// reader. Remote generations are opaque, so a response from an older
     /// request must not replace a generation installed later in the same turn.
     private var cloudStateInstallVersion: UInt64 = 0
-    /// A failed event feed must remain visible even when a one-shot snapshot succeeds. The
-    /// snapshot is current at that instant, but it cannot prove future changes will arrive.
-    private var eventsError: String?
+    /// A failed event feed is a transport warning, separate from the freshness of the last
+    /// accepted snapshot. Agents can read the exact graph and the warning in one export.
+    private var eventsFeedWarning: String?
+    private var unknownBarrierRefreshTask: Task<Void, Never>?
+    private var unknownBarrierRefreshQueued = false
+    private var unknownBarrierCount = 0
+    private let refreshClock: any Clock<Duration>
+    private static let unknownBarrierLimit = 5
     private var changeWatcher: Task<Void, Never>?
     /// Identity of the link owned by `changeWatcher`. A provider can replace a
     /// dead link during refresh; the old stream must not clear or restart the
@@ -218,11 +223,17 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
     /// multi-view rename if a later tab mutation fails.
     private var tabNameByID: [String: String] = [:]
 
-    init(summary: VMSummary, links: CloudMachineLinkManager, catalog: SurfaceCatalog) {
+    init(
+        summary: VMSummary,
+        links: CloudMachineLinkManager,
+        catalog: SurfaceCatalog,
+        refreshClock: any Clock<Duration> = ContinuousClock()
+    ) {
         machineID = summary.id
         self.summary = summary
         self.links = links
         self.catalog = catalog
+        self.refreshClock = refreshClock
         info = Self.info(from: summary, linkState: summary.status == "running" ? .connecting : .asleep, linkError: nil, stats: nil)
     }
 
@@ -254,6 +265,11 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
         changeWatcherID = nil
         scheduledRefresh?.cancel()
         scheduledRefresh = nil
+        unknownBarrierRefreshTask?.cancel()
+        unknownBarrierRefreshTask = nil
+        unknownBarrierRefreshQueued = false
+        unknownBarrierCount = 0
+        eventsFeedWarning = nil
         endpointPrefetch?.cancel()
         endpointPrefetch = nil
         for session in manualMirrorSessions.values { session.stop() }
@@ -369,11 +385,15 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
             }
         } catch {
             let status = await links.status(machineID: machineID)
-            linkError = eventsError ?? status?.error ?? CloudMachineLink.errorText(error)
-            linkState = eventsError == nil ? (status?.state ?? .error) : .error
+            linkError = eventsFeedWarning ?? status?.error ?? CloudMachineLink.errorText(error)
+            linkState = eventsFeedWarning == nil ? (status?.state ?? .error) : .error
             #if DEBUG
             cmuxDebugLog("cloud.provider.refreshFailed machine=\(machineID) state=\(linkState) error=\(String(reflecting: error))")
             #endif
+        }
+        if let eventsFeedWarning {
+            linkState = .error
+            linkError = eventsFeedWarning
         }
         let remoteWorkspaces = cloudState.map(Self.remoteWorkspaces)
         info = Self.info(
@@ -388,9 +408,12 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
             // current. A failed read keeps the graph for diagnosis but marks it
             // stale, so agents can see it without treating it as writable truth.
             let stateAdvancedDuringRead = cloudStateInstallVersion != requestVersion
-            let observation: CloudVMStateObservation = (snapshotReadSucceeded || stateAdvancedDuringRead) && eventsError == nil
+            // A successful snapshot is current even when the subscription is degraded. The
+            // warning stays in machine info, so agents see both the exact last read and the
+            // missing live-feed guarantee instead of an apparently permanent stale graph.
+            let observation: CloudVMStateObservation = (snapshotReadSucceeded || stateAdvancedDuringRead)
                 ? .current
-                : .stale(reason: eventsError ?? info.linkError ?? info.linkState.rawValue)
+                : .stale(reason: eventsFeedWarning ?? info.linkError ?? info.linkState.rawValue)
             publish(
                 cloudState,
                 ports: currentPorts,
@@ -1084,7 +1107,8 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
                 return
             }
             if installSnapshotIfNewer(incoming) {
-                eventsError = nil
+                eventsFeedWarning = nil
+                unknownBarrierCount = 0
                 await link.setEventsCursor(incoming.cursor)
                 info.linkState = .connected
                 info.linkError = nil
@@ -1117,7 +1141,8 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
                 }
                 cloudState = next
                 cloudStateInstallVersion &+= 1
-                eventsError = nil
+                eventsFeedWarning = nil
+                unknownBarrierCount = 0
                 await link.setEventsCursor(next.cursor)
                 info.linkState = .connected
                 info.linkError = nil
@@ -1131,14 +1156,43 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
             // CloudMachineLink owns bounded event-feed recovery. The provider
             // must not independently restart the same stream.
             if reason == "events_recovery_exhausted" {
-                eventsError = reason
+                eventsFeedWarning = reason
             }
             await refresh(force: true)
 
         case .unknown:
             // An unknown item is a synchronization barrier, but it is not proof that the
-            // transport is dead. Refresh the complete snapshot and keep the existing stream.
-            await refresh(force: true)
+            // transport is dead. Coalesce the expensive snapshot repair and stop after a small
+            // bounded number of barriers from one broken stream.
+            scheduleUnknownBarrierRefresh()
+        }
+    }
+
+    private func scheduleUnknownBarrierRefresh() {
+        guard unknownBarrierCount < Self.unknownBarrierLimit else {
+            eventsFeedWarning = "unknown_event_stream"
+            unknownBarrierRefreshQueued = false
+            return
+        }
+        unknownBarrierCount += 1
+        unknownBarrierRefreshQueued = true
+        guard unknownBarrierRefreshTask == nil else { return }
+        let clock = refreshClock
+        unknownBarrierRefreshTask = Task { @MainActor [weak self, clock] in
+            do {
+                try await clock.sleep(for: .milliseconds(250))
+            } catch {
+                self?.unknownBarrierRefreshTask = nil
+                return
+            }
+            guard let self, !Task.isCancelled else { return }
+            self.unknownBarrierRefreshTask = nil
+            guard self.unknownBarrierRefreshQueued else { return }
+            self.unknownBarrierRefreshQueued = false
+            await self.refresh(force: true)
+            if self.unknownBarrierRefreshQueued {
+                self.scheduleUnknownBarrierRefresh()
+            }
         }
     }
 
