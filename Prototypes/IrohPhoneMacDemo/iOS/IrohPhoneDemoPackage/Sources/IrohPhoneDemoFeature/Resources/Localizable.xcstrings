@@ -1,0 +1,222 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "iroh.demo.defaultMessage" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Hello from iPhone" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "iPhone からこんにちは" } }
+      }
+    },
+    "iroh.demo.error.invalidResponse" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "The Rust bridge returned invalid JSON." } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "Rust ブリッジが無効な JSON を返しました。" } }
+      }
+    },
+    "iroh.demo.error.missingResponse" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "The Rust bridge returned no response." } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "Rust ブリッジから応答がありませんでした。" } }
+      }
+    },
+    "iroh.demo.error.unknown" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Unknown iroh error" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "不明な iroh エラー" } }
+      }
+    },
+    "iroh.demo.idle" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Waiting for a ticket" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "チケットを待機中" } }
+      }
+    },
+    "iroh.demo.latency.empty" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "No latency sample yet" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "レイテンシーのサンプルはまだありません" } }
+      }
+    },
+    "iroh.demo.latency.header" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Latency" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "レイテンシー" } }
+      }
+    },
+    "iroh.demo.latency.ping" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Ping" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "Ping" } }
+      }
+    },
+    "iroh.demo.latency.terminal" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "PTY" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "PTY" } }
+      }
+    },
+    "iroh.demo.latency.value" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "%lld ms" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "%lld ms" } }
+      }
+    },
+    "iroh.demo.message.header" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Request" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "リクエスト" } }
+      }
+    },
+    "iroh.demo.message.placeholder" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Message" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "メッセージ" } }
+      }
+    },
+    "iroh.demo.missingTicket" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Paste a Mac ticket first." } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "先に Mac のチケットを貼り付けてください。" } }
+      }
+    },
+    "iroh.demo.noPasteboardText" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "The pasteboard does not contain text." } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "ペーストボードにテキストがありません。" } }
+      }
+    },
+    "iroh.demo.pasteTicket" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Paste Ticket" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "チケットを貼り付け" } }
+      }
+    },
+    "iroh.demo.pingMac" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Ping Mac" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "Mac に Ping" } }
+      }
+    },
+    "iroh.demo.remote" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Remote: %@" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "リモート: %@" } }
+      }
+    },
+    "iroh.demo.sending" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Connecting over iroh" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "iroh で接続中" } }
+      }
+    },
+    "iroh.demo.status.header" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Status" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "ステータス" } }
+      }
+    },
+    "iroh.demo.success" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Connected in %lld ms" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "%lld ms で接続" } }
+      }
+    },
+    "iroh.demo.terminal.accessibility" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "PTY command" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "PTY コマンド" } }
+      }
+    },
+    "iroh.demo.terminal.defaultCommand" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "pwd && uname -a" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "pwd && uname -a" } }
+      }
+    },
+    "iroh.demo.terminal.emptyOutput" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "No output" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "出力なし" } }
+      }
+    },
+    "iroh.demo.terminal.exit" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Exit: %@" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "終了コード: %@" } }
+      }
+    },
+    "iroh.demo.terminal.exitUnknown" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "unknown" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "不明" } }
+      }
+    },
+    "iroh.demo.terminal.header" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Mac PTY" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "Mac PTY" } }
+      }
+    },
+    "iroh.demo.terminal.idle" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Waiting to run a PTY command" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "PTY コマンドの実行を待機中" } }
+      }
+    },
+    "iroh.demo.terminal.missingCommand" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Enter a command first." } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "先にコマンドを入力してください。" } }
+      }
+    },
+    "iroh.demo.terminal.placeholder" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Command" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "コマンド" } }
+      }
+    },
+    "iroh.demo.terminal.run" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Run PTY" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "PTY を実行" } }
+      }
+    },
+    "iroh.demo.terminal.sending" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Running in Mac PTY" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "Mac PTY で実行中" } }
+      }
+    },
+    "iroh.demo.terminal.success" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "PTY returned in %lld ms" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "%lld ms で PTY が応答" } }
+      }
+    },
+    "iroh.demo.ticket.accessibility" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Iroh ticket" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "Iroh チケット" } }
+      }
+    },
+    "iroh.demo.ticket.footer" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Copy the ticket from the Mac TUI and paste it here." } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "Mac TUI からチケットをコピーしてここに貼り付けます。" } }
+      }
+    },
+    "iroh.demo.ticket.header" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Mac Ticket" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "Mac チケット" } }
+      }
+    },
+    "iroh.demo.title" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Iroh Link" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "Iroh リンク" } }
+      }
+    }
+  },
+  "version" : "1.0"
+}

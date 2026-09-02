@@ -1,0 +1,34 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<!-- Base entitlements - add your app's entitlements here -->
+	<!-- AI agents can safely modify this file to add capabilities -->
+	
+	<!-- Example entitlements (commented out by default):
+	
+	<key>com.apple.developer.healthkit</key>
+	<true/>
+	
+	<key>com.apple.developer.networking.wifi-info</key>
+	<true/>
+	
+	<key>com.apple.developer.contacts.notes</key>
+	<true/>
+	
+	<key>com.apple.developer.usernotifications.time-sensitive</key>
+	<true/>
+	
+	<key>com.apple.security.application-groups</key>
+	<array>
+		<string>group.com.mycompany.IrohPhoneDemo</string>
+	</array>
+	
+	<key>keychain-access-groups</key>
+	<array>
+		<string>$(AppIdentifierPrefix)com.mycompany.IrohPhoneDemo</string>
+	</array>
+    
+	-->
+</dict>
+</plist>
