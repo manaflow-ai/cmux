@@ -71,7 +71,15 @@ export function AdminProPanel() {
       setSearch({ kind: "error", message: errorMessage(t, response.status) });
       return;
     }
-    const body = (await response.json()) as { users: AdminUserRow[] };
+    let body: { users: AdminUserRow[] };
+    try {
+      body = (await response.json()) as { users: AdminUserRow[] };
+    } catch {
+      if (seq === requestSeq.current) setSearch({ kind: "error", message: t("errors.generic") });
+      return;
+    }
+    // A newer search may have started while this body was streaming.
+    if (seq !== requestSeq.current) return;
     setSearch({ kind: "results", users: body.users });
   }
 
