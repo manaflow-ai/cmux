@@ -1320,10 +1320,20 @@ impl Inner {
         // stream. Wait only until the sink is installed, then let the
         // generation fence and control kill own its lifecycle.
         let (started_tx, started_rx) = oneshot::channel();
+        let start_cleanup = Arc::new(StartCleanup {
+            inner: Arc::clone(&self),
+            pty_id: pty_id.clone(),
+            generation,
+            publication_gate: Arc::clone(&publication_gate),
+            state: AtomicUsize::new(0),
+        });
+        let start_cleanup_for_thread = Arc::clone(&start_cleanup);
+        let _start_owner = StartOwner(Arc::clone(&start_cleanup));
         let start_result = std::thread::Builder::new()
             .name("chatmux-relay-pty-start".to_owned())
             .spawn(move || {
                 start(Box::new(move || {
+                    start_cleanup_for_thread.mark_ready();
                     let _ = started_tx.send(());
                 }));
             });
@@ -2235,6 +2245,44 @@ struct Opened {
 struct OpenedCleanup {
     control: Arc<dyn PtyControl>,
     claimed: AtomicBool,
+}
+
+/// Own the attachment until the start thread proves that both output sinks
+/// are installed. Cancellation while waiting for readiness releases the slot
+/// from a detached cleanup thread, so the async runtime is never blocked.
+struct StartCleanup {
+    inner: Arc<Inner>,
+    pty_id: String,
+    generation: u64,
+    publication_gate: Arc<RouteGate>,
+    state: AtomicUsize,
+}
+
+impl StartCleanup {
+    fn mark_ready(&self) {
+        let _ = self.state.compare_exchange(0, 1, Ordering::AcqRel, Ordering::Acquire);
+    }
+
+    fn cancel(&self) {
+        if self.state.compare_exchange(0, 2, Ordering::AcqRel, Ordering::Acquire).is_err() {
+            return;
+        }
+        let inner = Arc::clone(&self.inner);
+        let pty_id = self.pty_id.clone();
+        let generation = self.generation;
+        let publication_gate = Arc::clone(&self.publication_gate);
+        std::thread::spawn(move || {
+            inner.close_exact(&pty_id, Some(generation), Some(&publication_gate));
+        });
+    }
+}
+
+struct StartOwner(Arc<StartCleanup>);
+
+impl Drop for StartOwner {
+    fn drop(&mut self) {
+        self.0.cancel();
+    }
 }
 
 impl Drop for OpenedCleanup {
