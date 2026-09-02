@@ -7160,7 +7160,8 @@ pub struct App {
     pub(crate) tabs_footer_scroll: usize,
     projection_rails: HashMap<String, ProjectionRailState>,
     projection_rows_cache: ProjectionRowsCache,
-    agent_generation: u64,
+    agent_generations: HashMap<WorkspaceId, u64>,
+    agent_unscoped_generation: u64,
     sidebar_generation: u64,
     pub(crate) machine_rail_follow_selection: bool,
     pub(crate) workspace_rail_follow_selection: bool,
@@ -9431,7 +9432,8 @@ fn run_with_machine_updates_inner(request: RunRequest) -> anyhow::Result<RunOutc
         tabs_footer_scroll: 0,
         projection_rails: HashMap::new(),
         projection_rows_cache: ProjectionRowsCache::default(),
-        agent_generation: 0,
+        agent_generations: HashMap::new(),
+        agent_unscoped_generation: 0,
         sidebar_generation: 0,
         machine_rail_follow_selection: true,
         workspace_rail_follow_selection: true,
@@ -10202,10 +10204,30 @@ impl App {
             .unwrap_or(empty_collapsed);
         let rail_generation =
             self.projection_rails.get(&spec.id).map_or(0, |state| state.rows_generation);
+        let agent_revision = if spec.includes(SidebarResourceKind::Agents) {
+            let generation = if spec.includes(SidebarResourceKind::Workspaces) {
+                self.tree
+                    .workspaces()
+                    .iter()
+                    .map(|workspace| {
+                        self.agent_generations.get(&workspace.id).copied().unwrap_or(0)
+                    })
+                    .fold(0_u64, u64::wrapping_add)
+            } else {
+                self.tree
+                    .workspaces()
+                    .get(self.sidebar_workspace_selection)
+                    .and_then(|workspace| self.agent_generations.get(&workspace.id).copied())
+                    .unwrap_or(0)
+            };
+            Some(generation.wrapping_add(self.agent_unscoped_generation))
+        } else {
+            None
+        };
         let revision = ProjectionRevision {
             tree_workspace: self.tree.workspace_revision,
             tree_pane: self.tree.pane_revision,
-            agents: spec.includes(SidebarResourceKind::Agents).then_some(self.agent_generation),
+            agents: agent_revision,
             selected_workspace: (!spec.includes(SidebarResourceKind::Workspaces))
                 .then_some(self.sidebar_workspace_selection)
                 .unwrap_or(0),
@@ -10338,8 +10360,18 @@ impl App {
         state.rows_generation = state.rows_generation.saturating_add(1);
     }
 
-    fn bump_agent_generation(&mut self) {
-        self.agent_generation = self.agent_generation.saturating_add(1);
+    fn bump_agent_generation(&mut self, surface: SurfaceId) {
+        let workspace = self
+            .tab_locations
+            .get(&surface)
+            .and_then(|[workspace, ..]| self.tree.workspaces().get(*workspace))
+            .map(|workspace| workspace.id);
+        if let Some(workspace) = workspace {
+            let generation = self.agent_generations.entry(workspace).or_default();
+            *generation = generation.saturating_add(1);
+        } else {
+            self.agent_unscoped_generation = self.agent_unscoped_generation.saturating_add(1);
+        }
     }
 
     fn invoke_sidebar_action(
@@ -15547,8 +15579,8 @@ impl App {
                 self.session.refresh_clients_background();
                 Ok(RenderAction::Draw)
             }
-            AppEvent::Mux(MuxEvent::AgentChanged { .. }) => {
-                self.bump_agent_generation();
+            AppEvent::Mux(MuxEvent::AgentChanged { surface, .. }) => {
+                self.bump_agent_generation(surface);
                 Ok(RenderAction::Draw)
             }
             AppEvent::Mux(_) => Ok(RenderAction::Draw),
@@ -46246,7 +46278,8 @@ mod tests {
             tabs_footer_scroll: 0,
             projection_rails: HashMap::new(),
             projection_rows_cache: ProjectionRowsCache::default(),
-            agent_generation: 0,
+            agent_generations: HashMap::new(),
+            agent_unscoped_generation: 0,
             sidebar_generation: 0,
             machine_rail_follow_selection: true,
             workspace_rail_follow_selection: true,
