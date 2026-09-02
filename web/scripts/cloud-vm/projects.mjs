@@ -77,6 +77,13 @@ export const forbiddenRuntimeEnvKeys = [
 ];
 
 export const legacyCloudVmEnvKeys = [
+  // Blaxel was removed by the 2026-09-01 provider migration. Keep these keys
+  // visible to the audit until operators remove them from Vercel.
+  "BLAXEL_SANDBOX_IMAGE",
+  "BLAXEL_SANDBOX_DESKTOP_IMAGE",
+  "BL_API_KEY",
+  "BL_WORKSPACE",
+  "CMUX_VM_BLAXEL_ENABLED",
   "CMUX_RIVET_INTERNAL_SECRET",
   "RIVET_ENDPOINT",
   "RIVET_NAMESPACE",

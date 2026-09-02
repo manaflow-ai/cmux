@@ -20,6 +20,7 @@ import {
   isFreeProvisioningAllowed,
 } from "../scripts/cloud-vm/freeProvisioningAudit.mjs";
 import {
+  legacyCloudVmEnvKeys,
   recommendedRuntimeEnvKeys,
   requiredRuntimeEnvKeys,
 } from "../scripts/cloud-vm/projects.mjs";
@@ -250,6 +251,7 @@ describe("required runtime env keys cover the production provider path", () => {
     ]) {
       expect(requiredRuntimeEnvKeys).not.toContain(key);
       expect(recommendedRuntimeEnvKeys).not.toContain(key);
+      expect(legacyCloudVmEnvKeys).toContain(key);
     }
   });
 
