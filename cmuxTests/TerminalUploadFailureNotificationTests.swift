@@ -47,6 +47,8 @@ import Foundation
 
         let originalTabManager = appDelegate.tabManager
         let originalStore = appDelegate.notificationStore
+        let originalNotifications = store.notifications
+        let originalSelectedTabId = manager.selectedTabId
         appDelegate.tabManager = manager
         appDelegate.notificationStore = store
         store.replaceNotificationsForTesting([])
@@ -56,7 +58,11 @@ import Foundation
             if manager.tabs.contains(where: { $0.id == workspace.id }) {
                 manager.closeWorkspace(workspace)
             }
-            store.replaceNotificationsForTesting([])
+            if let originalSelectedTabId,
+               manager.tabs.contains(where: { $0.id == originalSelectedTabId }) {
+                manager.selectedTabId = originalSelectedTabId
+            }
+            store.replaceNotificationsForTesting(originalNotifications)
             appDelegate.tabManager = originalTabManager
             appDelegate.notificationStore = originalStore
         }
@@ -68,17 +74,27 @@ import Foundation
                 NSLocalizedDescriptionKey: "Upload command failed: ssh ProxyCommand not found",
             ]
         )
-        let posted = TerminalUploadFailureNotification.post(
+        let outcome = TerminalUploadFailureNotification.post(
             error: error,
             surfaceId: workspace.focusedPanelId
         )
 
-        #expect(posted)
+        #expect(outcome == .posted)
         let recorded = store.notifications.first {
             $0.body.contains("ssh ProxyCommand not found")
         }
         #expect(recorded != nil, "the failure reason must reach the store as a notification body")
         #expect(recorded?.tabId == workspace.id)
+
+        // The same surface failing again inside the cooldown window is swallowed
+        // by the store; the caller must learn that so it can fall back to a beep.
+        let countBefore = store.notifications.count
+        let repeated = TerminalUploadFailureNotification.post(
+            error: error,
+            surfaceId: workspace.focusedPanelId
+        )
+        #expect(repeated == .unavailable)
+        #expect(store.notifications.count == countBefore)
     }
 
     /// The built-in scp transport captures scp's stderr and used to replace it
@@ -133,7 +149,7 @@ import Foundation
             TerminalUploadFailureNotification.post(
                 error: CancellationError(),
                 surfaceId: UUID()
-            ) == false
+            ) == .suppressed
         )
     }
 
@@ -194,6 +210,22 @@ import Foundation
         #expect(oneClusterManyScalars.count == 1)
         let trimmed = TerminalUploadFailureNotification.truncated(oneClusterManyScalars)
         #expect(trimmed.unicodeScalars.count == limit)
+    }
+
+    /// stderr can carry terminal escape sequences; none of them belong in a
+    /// notification body.
+    @Test func controlCharactersAreStrippedFromTheReason() {
+        let error = NSError(
+            domain: "test",
+            code: 1,
+            userInfo: [NSLocalizedDescriptionKey: "line one\u{1b}[31m red\u{07}\nline two"]
+        )
+        let detail = TerminalUploadFailureNotification.detail(for: error)
+        #expect(detail?.contains("\u{1b}") == false)
+        #expect(detail?.contains("\u{07}") == false)
+        #expect(detail?.contains("\n") == false)
+        #expect(detail?.contains("line one") == true)
+        #expect(detail?.contains("line two") == true)
     }
 
     @Test func aReasonThatFitsIsLeftAlone() {

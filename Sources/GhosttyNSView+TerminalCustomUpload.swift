@@ -56,21 +56,24 @@ extension GhosttyNSView {
         // different surface while it runs, so reading it back in the completion
         // would name whichever surface happens to be mounted then.
         let originSurfaceId = terminalSurface?.id
+        // The indicator was started on this view; end it on the same one even
+        // if a different surface is mounted by the time the upload finishes.
+        weak var originHostedView = terminalSurface?.hostedView
         return TerminalCustomUploadRunner().handleIfMatched(
             plan: plan,
             operation: operation,
             cleanup: { GhosttyApp.terminalPasteboard.cleanupTransferredTemporaryImageFiles($0) },
             completion: { [weak self] result in
-                self?.terminalSurface?.hostedView.endImageTransferIndicator(for: operation)
+                (originHostedView ?? self?.terminalSurface?.hostedView)?.endImageTransferIndicator(for: operation)
                 switch result {
                 case .success(let text):
                     self?.deliverUploadResultText(text)
                 case .failure(let error):
-                    let posted = TerminalUploadFailureNotification.post(
+                    let outcome = TerminalUploadFailureNotification.post(
                         error: error,
                         surfaceId: originSurfaceId
                     )
-                    if !posted { NSSound.beep() }
+                    if outcome == .unavailable { NSSound.beep() }
 #if DEBUG
                     cmuxDebugLog("terminal.remoteDropUpload.customFailed surface=\(originSurfaceId?.uuidString.prefix(5) ?? "nil")")
 #endif

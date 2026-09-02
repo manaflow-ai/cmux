@@ -270,13 +270,13 @@ extension GhosttyApp {
                                 )
                             }
                             if shouldPresentFailure {
-                                let posted = MainActor.assumeIsolated {
+                                let outcome = MainActor.assumeIsolated {
                                     TerminalUploadFailureNotification.post(
                                         error: error,
                                         surfaceId: callbackContext.surfaceId
                                     )
                                 }
-                                if !posted { NSSound.beep() }
+                                if outcome == .unavailable { NSSound.beep() }
 #if DEBUG
                                 cmuxDebugLog(
                                     "terminal.remotePasteUpload.failed " +

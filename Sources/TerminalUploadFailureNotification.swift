@@ -7,10 +7,11 @@ import Foundation
 /// failed. Both were built and then dropped on the floor, so an upload that
 /// stopped working looked identical to one that had never been configured.
 ///
-/// This turns that reason into a notification. Callers beep only when nothing
-/// was posted: the store plays its own sound according to the user's
-/// notification settings, so beeping alongside it would double the sound.
-@MainActor
+/// This turns that reason into a notification. Callers beep only when the
+/// notification could not be delivered: the store plays its own sound according
+/// to the user's notification settings, so beeping alongside it would double
+/// the sound, and a failure that is deliberately not reported (cancellation)
+/// must stay silent.
 enum TerminalUploadFailureNotification {
     /// Longest reason we will show, in unicode scalars. Counting scalars rather
     /// than Characters matters: a Character is a grapheme cluster, so one base
@@ -27,6 +28,19 @@ enum TerminalUploadFailureNotification {
         let cooldownKey: String
     }
 
+    /// What became of a failure handed to ``post(error:surfaceId:)``.
+    enum Outcome: Equatable {
+        /// A notification was added to the store.
+        case posted
+        /// Nothing to say (cancellation, or an error with no message). The
+        /// silence is intentional; the caller must not beep.
+        case suppressed
+        /// There was a reason to show but no way to show it: no store, no
+        /// workspace to anchor to, or the per-surface cooldown swallowed it.
+        /// The caller should fall back to a beep.
+        case unavailable
+    }
+
     static let cooldownInterval: TimeInterval = 5
 
     /// The reason to show for `error`, or nil when there is nothing worth
@@ -39,10 +53,23 @@ enum TerminalUploadFailureNotification {
             return nil
         }
 
-        let described = error.localizedDescription
+        let described = sanitized(error.localizedDescription)
             .trimmingCharacters(in: .whitespacesAndNewlines)
         guard !described.isEmpty else { return nil }
         return truncated(described)
+    }
+
+    /// Drops C0 control characters and DEL. The text comes from a process's
+    /// stderr, and terminal escape sequences have no business in a
+    /// notification body. Newlines and tabs are kept as spaces so a multi-line
+    /// reason still reads.
+    static func sanitized(_ text: String) -> String {
+        String(String.UnicodeScalarView(text.unicodeScalars.map { scalar in
+            switch scalar {
+            case "\n", "\r", "\t": return " "
+            default: return (scalar.value < 0x20 || scalar.value == 0x7f) ? " " : scalar
+            }
+        }))
     }
 
     /// Trims to `maximumDetailScalars`, marking the cut so a reader can tell the
@@ -72,18 +99,17 @@ enum TerminalUploadFailureNotification {
         )
     }
 
-    /// Posts the failure against the workspace owning `surfaceId`. Returns false
-    /// when nothing was posted — no reason worth showing, no store, or no
-    /// workspace to anchor to — and the caller should beep instead.
+    /// Posts the failure against the workspace owning `surfaceId`.
     ///
     /// `surfaceId` must be the surface the upload STARTED on, captured before
     /// the transfer, not read back in the completion: a view can be reattached
     /// to a different surface while the upload runs.
+    @MainActor
     @discardableResult
-    static func post(error: Error, surfaceId: UUID?) -> Bool {
-        guard let payload = payload(for: error, surfaceId: surfaceId) else { return false }
+    static func post(error: Error, surfaceId: UUID?) -> Outcome {
+        guard let payload = payload(for: error, surfaceId: surfaceId) else { return .suppressed }
         guard let appDelegate = AppDelegate.shared,
-              let notificationStore = appDelegate.notificationStore else { return false }
+              let notificationStore = appDelegate.notificationStore else { return .unavailable }
 
         // Anchor to the workspace that owns the originating surface. If that
         // surface is gone the id is dropped too, so the notification is filed
@@ -94,8 +120,12 @@ enum TerminalUploadFailureNotification {
         let anchoredSurfaceId = owningWorkspaceId == nil ? nil : surfaceId
         guard let tabId = owningWorkspaceId
             ?? appDelegate.activeTabManagerForCommands(preferredWindow: nil)?.selectedTabId
-        else { return false }
+        else { return .unavailable }
 
+        // The store reports nothing back and silently drops a notification
+        // whose cooldown key is still active, so the only way to know whether
+        // this one landed is to look.
+        let countBefore = notificationStore.notifications.count
         notificationStore.addNotification(
             tabId: tabId,
             surfaceId: anchoredSurfaceId,
@@ -105,6 +135,6 @@ enum TerminalUploadFailureNotification {
             cooldownKey: payload.cooldownKey,
             cooldownInterval: cooldownInterval
         )
-        return true
+        return notificationStore.notifications.count > countBefore ? .posted : .unavailable
     }
 }

@@ -9136,8 +9136,11 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         }
 
         // Captured before the transfer starts; see the note in
-        // handleCustomDropUploadIfMatched about reattached views.
+        // handleCustomDropUploadIfMatched about reattached views. The hosted
+        // view is captured for the same reason: the indicator must end on the
+        // view it began on.
         let originSurfaceId = terminalSurface?.id
+        weak var originHostedView = terminalSurface?.hostedView
 
         TerminalImageTransferPlanner.execute(
             plan: plan,
@@ -9191,14 +9194,15 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             },
             onFailure: { [weak self] error in
                 if let operation {
-                    self?.terminalSurface?.hostedView.endImageTransferIndicator(for: operation)
+                    (originHostedView ?? self?.terminalSurface?.hostedView)?
+                        .endImageTransferIndicator(for: operation)
                 }
                 DispatchQueue.main.async {
-                    let posted = TerminalUploadFailureNotification.post(
+                    let outcome = TerminalUploadFailureNotification.post(
                         error: error,
                         surfaceId: originSurfaceId
                     )
-                    if !posted { NSSound.beep() }
+                    if outcome == .unavailable { NSSound.beep() }
 #if DEBUG
                     cmuxDebugLog("terminal.remoteDropUpload.failed surface=\(originSurfaceId?.uuidString.prefix(5) ?? "nil")")
 #endif
