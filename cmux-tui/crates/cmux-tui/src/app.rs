@@ -43166,6 +43166,191 @@ mod tests {
         mux.close_surface(surface.id).unwrap();
     }
 
+    fn projection_test_app(session: Session, levels: Vec<SidebarResourceKind>) -> App {
+        let mut app = test_app(session);
+        app.config.sidebar.columns.clear();
+        app.config.sidebar.views = vec![SidebarViewSpec {
+            id: "projection-active-refresh".into(),
+            levels,
+            actions: Vec::new(),
+            actions_position: crate::config::ActionsPosition::Bottom,
+            width: 40,
+            max_width: 0,
+            collapse_priority: 30,
+        }];
+        app.config.sidebar.views_explicit = true;
+        app.replace_tree(app.session.tree());
+        app
+    }
+
+    #[test]
+    fn projection_rows_refresh_active_workspace_after_client_selection() {
+        let mux = Mux::new("projection-active-workspace-refresh-test", SurfaceOptions::default());
+        let first = mux.new_workspace(Some("Alpha".into()), Some((80, 24))).unwrap();
+        let second = mux.new_workspace(Some("Beta".into()), Some((80, 24))).unwrap();
+        let mut app =
+            projection_test_app(Session::Local(mux.clone()), vec![SidebarResourceKind::Workspaces]);
+
+        assert!(app.projection_rows(0).iter().any(|row| {
+            row.resource == SidebarResourceKind::Workspaces
+                && row.active
+                && matches!(
+                    row.target,
+                    crate::sidebar_projection::ProjectionTarget::Workspace { index: 1, .. }
+                )
+        }));
+
+        app.select_workspace_for_client(Some(0), None);
+
+        assert!(app.projection_rows(0).iter().any(|row| {
+            row.resource == SidebarResourceKind::Workspaces
+                && row.active
+                && matches!(
+                    row.target,
+                    crate::sidebar_projection::ProjectionTarget::Workspace { index: 0, .. }
+                )
+        }));
+
+        for surface in [first, second] {
+            mux.close_surface(surface.id).unwrap();
+        }
+    }
+
+    #[test]
+    fn projection_rows_refresh_active_pane_after_client_focus() {
+        let mux = Mux::new("projection-active-pane-refresh-test", SurfaceOptions::default());
+        let surface = mux.new_workspace(None, Some((80, 24))).unwrap();
+        let first_pane = mux.with_state(|state| state.pane_of(surface.id).unwrap());
+        mux.split(first_pane, SplitDir::Right, Some((40, 24))).unwrap();
+        let second_pane = Session::Local(mux.clone()).tree().active_screen().unwrap().active_pane;
+        let mut app = projection_test_app(
+            Session::Local(mux.clone()),
+            vec![SidebarResourceKind::Workspaces, SidebarResourceKind::Panes],
+        );
+
+        assert!(app.projection_rows(0).iter().any(|row| {
+            row.resource == SidebarResourceKind::Panes
+                && row.active
+                && matches!(
+                    row.target,
+                    crate::sidebar_projection::ProjectionTarget::Pane { pane, .. }
+                        if pane == second_pane
+                )
+        }));
+
+        app.focus_pane_after_input(first_pane);
+
+        assert!(app.projection_rows(0).iter().any(|row| {
+            row.resource == SidebarResourceKind::Panes
+                && row.active
+                && matches!(
+                    row.target,
+                    crate::sidebar_projection::ProjectionTarget::Pane { pane, .. }
+                        if pane == first_pane
+                )
+        }));
+
+        mux.close_surface(surface.id).unwrap();
+    }
+
+    #[test]
+    fn projection_rows_refresh_active_tab_after_client_selection() {
+        let mux = Mux::new("projection-active-tab-refresh-test", SurfaceOptions::default());
+        let first = mux.new_workspace(None, Some((80, 24))).unwrap();
+        let pane = mux.with_state(|state| state.pane_of(first.id).unwrap());
+        let second = mux.new_tab(Some(pane), None, Some((80, 24))).unwrap();
+        let mut app = projection_test_app(
+            Session::Local(mux.clone()),
+            vec![
+                SidebarResourceKind::Workspaces,
+                SidebarResourceKind::Panes,
+                SidebarResourceKind::Tabs,
+            ],
+        );
+
+        assert!(app.projection_rows(0).iter().any(|row| {
+            row.resource == SidebarResourceKind::Tabs
+                && row.active
+                && matches!(
+                    row.target,
+                    crate::sidebar_projection::ProjectionTarget::Surface { surface, .. }
+                        if surface == second.id
+                )
+        }));
+
+        app.select_tab_for_client(Some(pane), Some(0), None);
+
+        assert!(app.projection_rows(0).iter().any(|row| {
+            row.resource == SidebarResourceKind::Tabs
+                && row.active
+                && matches!(
+                    row.target,
+                    crate::sidebar_projection::ProjectionTarget::Surface { surface, .. }
+                        if surface == first.id
+                )
+        }));
+
+        app.select_created_surface(second.id);
+
+        assert!(app.projection_rows(0).iter().any(|row| {
+            row.resource == SidebarResourceKind::Tabs
+                && row.active
+                && matches!(
+                    row.target,
+                    crate::sidebar_projection::ProjectionTarget::Surface { surface, .. }
+                        if surface == second.id
+                )
+        }));
+
+        mux.close_surface(first.id).unwrap();
+        mux.close_surface(second.id).unwrap();
+    }
+
+    #[test]
+    fn projection_rows_refresh_active_screen_after_client_selection() {
+        let mux = Mux::new("projection-active-screen-refresh-test", SurfaceOptions::default());
+        let surface = mux.new_workspace(None, Some((80, 24))).unwrap();
+        let workspace = Session::Local(mux.clone()).tree().active_workspace().unwrap().id;
+        mux.new_screen(Some(workspace), Some((80, 24))).unwrap();
+        let second_screen_pane =
+            Session::Local(mux.clone()).tree().active_screen().unwrap().active_pane;
+        let mut app = projection_test_app(
+            Session::Local(mux.clone()),
+            vec![SidebarResourceKind::Workspaces, SidebarResourceKind::Panes],
+        );
+
+        assert!(app.projection_rows(0).iter().any(|row| {
+            row.resource == SidebarResourceKind::Panes
+                && row.active
+                && matches!(
+                    row.target,
+                    crate::sidebar_projection::ProjectionTarget::Pane { pane, .. }
+                        if pane == second_screen_pane
+                )
+        }));
+
+        let first_screen_pane = app
+            .tree
+            .workspaces
+            .first()
+            .and_then(|workspace| workspace.screens.first())
+            .map(|screen| screen.active_pane)
+            .unwrap();
+        app.select_screen_for_client(Some(0), None);
+
+        assert!(app.projection_rows(0).iter().any(|row| {
+            row.resource == SidebarResourceKind::Panes
+                && row.active
+                && matches!(
+                    row.target,
+                    crate::sidebar_projection::ProjectionTarget::Pane { pane, .. }
+                        if pane == first_screen_pane
+                )
+        }));
+
+        mux.close_surface(surface.id).unwrap();
+    }
+
     #[test]
     fn projection_stale_action_selection_does_not_retarget_resource_row() {
         let (mux, surface) = test_mux("projection-stale-action-selection-test", None);
