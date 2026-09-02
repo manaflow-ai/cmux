@@ -491,10 +491,11 @@ export async function setTeamManualPlanGrant(input: {
       } else {
         client.cmuxVmPlan = input.plan;
       }
-      // Mirror reconciliation, identical to syncTeamPlanMetadata.
+      // Mirror reconciliation, like syncTeamPlanMetadata but clearing any
+      // stale paid value: entitlements treat pro, team, and founders alike.
       if (stripeActive) {
         client.cmuxPlan = TEAM_PLAN_ID;
-      } else if (client.cmuxPlan === TEAM_PLAN_ID) {
+      } else if (isPaidPlanId(typeof client.cmuxPlan === "string" ? client.cmuxPlan : null)) {
         delete client.cmuxPlan;
       }
       const server = metadataRecord(team.serverMetadata);
@@ -611,30 +612,14 @@ export async function createPendingEmailGrant(input: {
   const email = canonicalizeEmailForMatching(input.email);
   // One open grant per email: a new grant supersedes any earlier open one, so
   // sign-in never has more than one row to apply and the newest plan wins.
-  // A row that a sign-in claimed but never finalized may already have written
-  // metadata, so it is unwound through the revoke path (which clears exactly
-  // the grant it produced and stays retryable) instead of being revoked
-  // blindly. Unclaimed rows never wrote anything and are superseded in the
-  // same transaction as the insert; the partial unique index on open emails
-  // makes a concurrent second grant fail instead of leaving two open rows.
-  const claimedOpen = await db
-    .select({ id: adminPlanGrants.id })
-    .from(adminPlanGrants)
-    .where(
-      and(
-        eq(adminPlanGrants.email, email),
-        isNull(adminPlanGrants.appliedAt),
-        isNull(adminPlanGrants.revokedAt),
-        isNotNull(adminPlanGrants.appliedUserId),
-      ),
-    )
-    .orderBy(desc(adminPlanGrants.createdAt))
-    .limit(ADMIN_USER_SEARCH_LIMIT);
-  for (const claimedRow of claimedOpen) {
-    await revokePendingEmailGrant({ grantId: claimedRow.id, db, admin: input.admin, grant: input.grant });
-  }
-  const row = await db.transaction(async (tx) => {
-    await tx
+  // Supersede and insert commit together, and the partial unique index on
+  // open emails makes a concurrent second grant fail instead of leaving two
+  // open rows. A superseded row that a sign-in had claimed may already have
+  // written metadata; that grant is cleared after the commit through the
+  // conditional clear, and if the clear fails the row keeps its claim marker
+  // so the user's next sign-in retries it (retryRevokedGrantCleanup).
+  const { row, superseded } = await db.transaction(async (tx) => {
+    const supersededRows = await tx
       .update(adminPlanGrants)
       .set({ revokedAt: new Date() })
       .where(
@@ -642,9 +627,15 @@ export async function createPendingEmailGrant(input: {
           eq(adminPlanGrants.email, email),
           isNull(adminPlanGrants.appliedAt),
           isNull(adminPlanGrants.revokedAt),
-          isNull(adminPlanGrants.appliedUserId),
         ),
-      );
+      )
+      .returning({
+        id: adminPlanGrants.id,
+        plan: adminPlanGrants.plan,
+        appliedUserId: adminPlanGrants.appliedUserId,
+        grantedByUserId: adminPlanGrants.grantedByUserId,
+        grantedByEmail: adminPlanGrants.grantedByEmail,
+      });
     const [inserted] = await tx
       .insert(adminPlanGrants)
       .values({
@@ -660,8 +651,30 @@ export async function createPendingEmailGrant(input: {
         grantedByEmail: adminPlanGrants.grantedByEmail,
         createdAt: adminPlanGrants.createdAt,
       });
-    return inserted;
+    return { row: inserted, superseded: supersededRows };
   });
+  for (const old of superseded) {
+    if (!old.appliedUserId) continue;
+    try {
+      await (input.grant ?? setManualPlanGrant)({
+        targetUserId: old.appliedUserId,
+        plan: null,
+        admin: input.admin,
+        onlyIfCurrent: { plan: old.plan, byUserId: old.grantedByUserId },
+        supersedePending: false,
+      });
+      await db
+        .update(adminPlanGrants)
+        .set({ appliedUserId: null, claimedAt: null })
+        .where(eq(adminPlanGrants.id, old.id));
+    } catch (error) {
+      if (error instanceof AdminUserNotFoundError) continue;
+      console.error("admin.pending_grants.supersede_clear_failed", {
+        grantId: old.id,
+        failure: error instanceof Error ? error.name : "unknown",
+      });
+    }
+  }
   if (!row) throw new Error("admin_plan_grants insert returned no row");
   return {
     id: row.id,

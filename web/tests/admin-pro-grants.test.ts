@@ -419,6 +419,15 @@ describe("teams", () => {
   });
 
   test("removing a team grant also drops a stale cmuxPlan mirror when Stripe lapsed", async () => {
+    for (const stale of ["team", "pro", "founders"]) {
+      const staleTeam = fakeTeam({ id: "ts", clientReadOnlyMetadata: { cmuxVmPlan: "team", cmuxPlan: stale } });
+      const staleApp = fakeApp([], [staleTeam]);
+      await setTeamManualPlanGrant({
+        teamId: "ts", plan: null, admin, app: staleApp, withFreshTeam: directTeamMutation(staleApp),
+        hasActiveTeamSubscription: async () => false, stripeBillingStatus: async () => noStripe,
+      });
+      expect(staleTeam.clientReadOnlyMetadata).toEqual({});
+    }
     const team = fakeTeam({ id: "t1", clientReadOnlyMetadata: { cmuxVmPlan: "team", cmuxPlan: "team" } });
     const app = fakeApp([], [team]);
     const removed = await setTeamManualPlanGrant({
@@ -816,8 +825,27 @@ describe("pending email grants", () => {
       expect.objectContaining({ targetUserId: "u9", plan: null, onlyIfCurrent: { plan: "pro", byUserId: "admin-1" } }),
     ]);
     expect(rows[0]!.revokedAt).toBeInstanceOf(Date);
+    expect(rows[0]!.appliedUserId).toBeNull();
     expect(created.plan).toBe("founders");
     expect((await listPendingEmailGrants("pat", { db })).map((row) => row.plan)).toEqual(["founders"]);
+  });
+
+  test("superseding keeps the claim marker for durable retry when the clear fails", async () => {
+    const rows: GrantRow[] = [];
+    const db = fakeGrantsDb(rows);
+    await createPendingEmailGrant({ email: "pat@example.com", plan: "pro", admin, db });
+    rows[0]!.appliedUserId = "u9";
+    rows[0]!.claimedAt = new Date();
+    const created = await createPendingEmailGrant({ email: "pat@example.com", plan: "founders", admin, db, grant: async () => { throw new AdminGrantConflictError("u9"); } });
+    expect(created.plan).toBe("founders");
+    expect(rows[0]!.revokedAt).toBeInstanceOf(Date);
+    expect(rows[0]!.appliedUserId).toBe("u9");
+    // The user's next sign-in retries the clear before applying the new grant.
+    const seen: SetManualPlanGrantInput[] = [];
+    await applyPendingEmailGrants({ id: "u9", primaryEmail: "pat@example.com" }, { db, grant: async (input) => { seen.push(input); } });
+    expect(seen.map((input) => input.plan)).toEqual([null, "founders"]);
+    expect(rows[0]!.appliedUserId).toBeNull();
+    expect(rows[1]!.appliedAt).toBeInstanceOf(Date);
   });
 
   test("a direct admin decision on a verified account supersedes older pending grants", async () => {
