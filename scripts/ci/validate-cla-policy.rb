@@ -49,7 +49,7 @@ EXPECTED_GUARD_WORKFLOW_DIGEST = "9fa2952791cfd01c5a74ca92640a9e1827fe5c98b78071
 # The guard workflow remains pinned to its reviewed immutable bytes. The CLA
 # policy itself is validated structurally, then authorized by an exact-head
 # trusted review.
-EXPECTED_GUARD_SCRIPT_DIGEST = "246720b32a6ffad5784f46a6e01c677bc8f67186fb9ac2a694bd2e58d3c081cc"
+EXPECTED_GUARD_SCRIPT_DIGEST = "da5e363f8af080cf461d11354fba6939dffc6d6eee61da89ee0e2f5aa904bfba"
 # Migration marker for the base v2 guard validator. That validator requires
 # the literal EXPECTED_WORKFLOW_DIGEST while it checks this candidate. The v3
 # validator does not use this inert marker for policy authorization.
@@ -2279,20 +2279,25 @@ begin
     !live_head_repo["full_name"].empty? &&
     live_head_repo["id"].is_a?(Integer) &&
     live_head_repo["id"].positive?
+  head_repository = live_head_repo["full_name"].to_s
+  fail!("pull request head repository name is malformed") unless head_repository.match?(REPOSITORY)
 
   base_workflow = fetch_file(repository, base_sha, ".github/workflows/cla.yml")
-  head_workflow = fetch_file(repository, head_sha, ".github/workflows/cla.yml")
+  # A fork pull request stores the head commit in the head repository. Fetch
+  # base files from the protected repository and candidate files from the
+  # validated head repository, so normal external contributions are admitted.
+  head_workflow = fetch_file(head_repository, head_sha, ".github/workflows/cla.yml")
   fail!("CLA workflow is missing from the pull-request revision") if head_workflow.nil?
   base_guard_workflow = fetch_file(repository, base_sha, ".github/workflows/cla-policy-guard.yml", allow_missing: true)
-  head_guard_workflow = fetch_file(repository, head_sha, ".github/workflows/cla-policy-guard.yml", allow_missing: true)
+  head_guard_workflow = fetch_file(head_repository, head_sha, ".github/workflows/cla-policy-guard.yml", allow_missing: true)
   base_guard_script = fetch_file(repository, base_sha, "scripts/ci/validate-cla-policy.rb", allow_missing: true)
-  head_guard_script = fetch_file(repository, head_sha, "scripts/ci/validate-cla-policy.rb", allow_missing: true)
+  head_guard_script = fetch_file(head_repository, head_sha, "scripts/ci/validate-cla-policy.rb", allow_missing: true)
   guard_changed = base_guard_workflow != head_guard_workflow || base_guard_script != head_guard_script
 
   base_cla = fetch_file(repository, base_sha, CLA_DOCUMENT_PATH)
-  head_cla = fetch_file(repository, head_sha, CLA_DOCUMENT_PATH)
+  head_cla = fetch_file(head_repository, head_sha, CLA_DOCUMENT_PATH)
   base_script = fetch_file(repository, base_sha, ".github/scripts/rerun-failed-cla.sh", allow_missing: true)
-  head_script = fetch_file(repository, head_sha, ".github/scripts/rerun-failed-cla.sh", allow_missing: true)
+  head_script = fetch_file(head_repository, head_sha, ".github/scripts/rerun-failed-cla.sh", allow_missing: true)
   policy_changed = base_workflow != head_workflow || base_script != head_script
   document_changed = Digest::SHA256.hexdigest(base_cla) != Digest::SHA256.hexdigest(head_cla)
   if policy_changed
