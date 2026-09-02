@@ -89,8 +89,9 @@ and an explicit Linux child-group fallback. The Python option distinctions are
 a local correctness improvement:
 `-S` does not consume the script, documented help aliases (`-?`, `-VV`)
 terminate, and help/version/hash options cannot expose following tokens as
-agent executables. Its strict Pi package-entrypoint check includes herdr's
-Windows fix
+agent executables. Unsupported attached long options fail closed before they
+can consume a later runtime mode flag. Its strict Pi package-entrypoint check
+includes herdr's Windows fix
 from commit `b1ff4582e9688f52ffb943cfa8bee4871ae122e4`; the check is adapted to
 the replaceable manifest catalog. The reference package targets macOS and
 Linux because its Rust SDK transport is Unix-only. A Windows publication needs

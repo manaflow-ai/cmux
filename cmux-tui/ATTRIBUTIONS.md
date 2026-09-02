@@ -46,7 +46,8 @@ Derived material and vendored material:
   a local correctness improvement over the inherited option list: `-S` is
   boolean, documented help aliases (`-?`, `-VV`) terminate, and
   help/version/hash options cannot expose following tokens as agent
-  executables.
+  executables. Unsupported attached long options fail closed before they can
+  consume a later runtime mode flag.
 - `crates/cmux-tui-core/src/terminal_metadata.rs`: OSC string framing adapted
   from herdr's `src/pane/osc.rs`. Core retains only generic bounded OSC 9
   progress metadata; it has no agent or roster policy.

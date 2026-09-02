@@ -638,6 +638,13 @@ fn runtime_path_arguments<'a>(runtime: &str, argv: &'a [String]) -> Vec<&'a str>
             // token is command-line data, never an executable script.
             break;
         }
+        if runtime_option_has_unsupported_attached_value(runtime, argument) {
+            // An unknown or unsupported `--name=value` spelling may be
+            // rejected by the runtime. Do not consume the next token as its
+            // value, because that could turn a later mode flag and command
+            // text into a false agent script.
+            return Vec::new();
+        }
         if is_python_runtime(runtime) && runtime_flag_matches(argument, "-m") {
             // Python module mode consumes the following token as a module
             // name. Remaining tokens are module arguments, not executables.
@@ -693,14 +700,19 @@ fn runtime_option_takes_value(runtime: &str, argument: &str) -> bool {
             // `-S` is a boolean site-import switch. `-L` and `-o` are kept
             // for alternate Python runtimes that document those options.
             // This predicate only describes options that consume the next
-            // argv element. Python does not document an `=` form for
-            // `--check-hash-based-pycs`; treat it as value-bearing so an
-            // invalid invocation fails closed instead of exposing a script.
+            // argv element. Unsupported attached long options are handled
+            // separately so they cannot skip a later mode flag.
             matches!(argument, "-m" | "-W" | "-X" | "-L" | "-o" | "--check-hash-based-pycs")
-                || long_option_with_attached_value(argument, "--check-hash-based-pycs")
         }
         _ => false,
     }
+}
+
+/// Return true when a runtime option uses an attached long value that this
+/// parser cannot prove is valid. Python's documented long options use a
+/// separate value token, so fail closed for every `--name=value` spelling.
+fn runtime_option_has_unsupported_attached_value(runtime: &str, argument: &str) -> bool {
+    is_python_runtime(runtime) && argument.starts_with("--") && argument.contains('=')
 }
 
 fn runtime_option_exits(runtime: &str, argument: &str) -> bool {
