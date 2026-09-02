@@ -382,10 +382,16 @@ hosted_artifact_order=()
 while IFS= read -r -d '' candidate_dir; do
   candidate_commit="${candidate_dir##*/}"
   [[ "$candidate_commit" =~ ^[0-9a-f]{40}$ ]] || continue
-  if stat -f '%m' "$candidate_dir" >/dev/null 2>&1; then
-    candidate_mtime="$(stat -f '%m' "$candidate_dir")"
+  candidate_mtime=""
+  if candidate_mtime="$(stat -f '%m' "$candidate_dir" 2>/dev/null)" &&
+    [[ "$candidate_mtime" =~ ^[0-9]+$ ]]; then
+    :
+  elif candidate_mtime="$(stat -c '%Y' "$candidate_dir" 2>/dev/null)" &&
+    [[ "$candidate_mtime" =~ ^[0-9]+$ ]]; then
+    :
   else
-    candidate_mtime="$(stat -c '%Y' "$candidate_dir")"
+    echo "error: cannot read modification time for hosted artifact: $candidate_dir" >&2
+    exit 2
   fi
   hosted_artifact_order+=("$candidate_mtime	$candidate_commit	$candidate_dir")
 done < <(find cmux-tui/target/hosted -mindepth 1 -maxdepth 1 -type d -user "$(id -u)" -print0)
@@ -394,15 +400,57 @@ if ((${#hosted_artifact_order[@]} > 0)); then
     hosted_artifact_dirs+=("$candidate_dir")
   done < <(printf '%s\n' "${hosted_artifact_order[@]}" | sort -t $'\t' -k1,1nr -k2,2r)
 fi
-candidate_set_hash="$(printf '%s\n' "${hosted_artifact_dirs[@]}" | shasum -a 256 | awk '{print $1}')"
+retention_plan_file="$temp_dir/retention-plan"
+{
+  printf 'commit\t%s\n' "$commit"
+  printf 'retention_count\t%s\n' "$retention_count"
+  for candidate_dir in "${hosted_artifact_dirs[@]}"; do
+    printf 'candidate\t%s\n' "$candidate_dir"
+  done
+} > "$retention_plan_file"
 if [[ "$retention_dry_run" == true ]]; then
-  printf '%s\t%s\n' "$candidate_set_hash" "$(date +%s)" > "$preview_file"
-elif [[ ! -f "$preview_file" ]] || [[ "$(cut -f1 "$preview_file")" != "$candidate_set_hash" ]] || \
-  (( $(date +%s) - $(cut -f2 "$preview_file") > 600 )); then
-  echo "error: retention requires a fresh dry-run preview for this candidate set" >&2
-  exit 2
+  preview_tmp="$temp_dir/retention-preview"
+  {
+    cat "$retention_plan_file"
+    printf 'timestamp\t%s\n' "$(date +%s)"
+  } > "$preview_tmp"
+  mv -f "$preview_tmp" "$preview_file"
+else
+  if [[ ! -f "$preview_file" ]]; then
+    echo "error: retention requires a fresh dry-run preview for this plan" >&2
+    exit 2
+  fi
+  preview_timestamp="$(awk -F '\t' '
+    $1 == "timestamp" {
+      if (seen || $2 !~ /^[0-9]+$/) exit 1
+      seen = 1
+      value = $2
+      next
+    }
+    seen { exit 1 }
+    END {
+      if (!seen) exit 1
+      print value
+    }
+  ' "$preview_file")" || {
+    echo "error: retention preview timestamp is invalid" >&2
+    exit 2
+  }
+  now="$(date +%s)"
+  if (( preview_timestamp > now || now - preview_timestamp > 600 )); then
+    echo "error: retention preview is missing or expired; run a dry run first" >&2
+    exit 2
+  fi
+  preview_plan_file="$temp_dir/retention-preview-plan"
+  sed '$d' "$preview_file" > "$preview_plan_file"
+  if ! cmp -s "$retention_plan_file" "$preview_plan_file"; then
+    echo "error: retention preview does not match the current cleanup plan" >&2
+    exit 2
+  fi
 fi
+
 retained=0
+cleanup_dirs=()
 for candidate_dir in "${hosted_artifact_dirs[@]}"; do
   candidate_commit="${candidate_dir##*/}"
   candidate_binary="$candidate_dir/cmux-tui"
@@ -413,11 +461,36 @@ for candidate_dir in "${hosted_artifact_dirs[@]}"; do
     retained=$((retained + 1))
     continue
   fi
+  cleanup_dirs+=("$candidate_dir")
+done
+
+active_artifact_paths=""
+if ((${#cleanup_dirs[@]} > 0)); then
   if [[ "$lsof_available" != true ]]; then
     echo "error: cannot prove artifact is inactive because lsof is unavailable" >&2
     exit 2
   fi
-  if [[ -f "$candidate_binary" ]] && lsof -t -- "$candidate_binary" >/dev/null 2>&1; then
+  lsof_candidates=()
+  for candidate_dir in "${cleanup_dirs[@]}"; do
+    candidate_binary="$candidate_dir/cmux-tui"
+    [[ -f "$candidate_binary" ]] && lsof_candidates+=("$candidate_binary")
+  done
+  if ((${#lsof_candidates[@]} > 0)); then
+    set +e
+    active_artifact_paths="$(lsof -Fn -- "${lsof_candidates[@]}" 2>/dev/null)"
+    lsof_status=$?
+    set -e
+    if (( lsof_status > 1 )); then
+      echo "error: cannot determine whether hosted artifacts are active" >&2
+      exit 2
+    fi
+  fi
+fi
+
+for candidate_dir in "${cleanup_dirs[@]}"; do
+  candidate_binary="$candidate_dir/cmux-tui"
+  if [[ -f "$candidate_binary" ]] &&
+    printf '%s\n' "$active_artifact_paths" | grep -F -x -q -- "$candidate_binary"; then
     echo "Keeping active hosted artifact: $candidate_binary" >&2
     continue
   fi
