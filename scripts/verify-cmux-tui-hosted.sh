@@ -371,6 +371,7 @@ if [[ "$retention_dry_run" == false && "$retention_confirmed" != "1" ]]; then
   echo "error: destructive retention requires CMUX_TUI_HOSTED_RETENTION_CONFIRM=1 after a dry run" >&2
   exit 2
 fi
+preview_file="cmux-tui/target/hosted/.retention-preview"
 lsof_available=false
 if command -v lsof >/dev/null 2>&1; then
   lsof_available=true
@@ -393,6 +394,14 @@ if ((${#hosted_artifact_order[@]} > 0)); then
     hosted_artifact_dirs+=("$candidate_dir")
   done < <(printf '%s\n' "${hosted_artifact_order[@]}" | sort -t $'\t' -k1,1nr -k2,2r)
 fi
+candidate_set_hash="$(printf '%s\n' "${hosted_artifact_dirs[@]}" | shasum -a 256 | awk '{print $1}')"
+if [[ "$retention_dry_run" == true ]]; then
+  printf '%s\t%s\n' "$candidate_set_hash" "$(date +%s)" > "$preview_file"
+elif [[ ! -f "$preview_file" ]] || [[ "$(cut -f1 "$preview_file")" != "$candidate_set_hash" ]] || \
+  (( $(date +%s) - $(cut -f2 "$preview_file") > 600 )); then
+  echo "error: retention requires a fresh dry-run preview for this candidate set" >&2
+  exit 2
+fi
 retained=0
 for candidate_dir in "${hosted_artifact_dirs[@]}"; do
   candidate_commit="${candidate_dir##*/}"
@@ -405,8 +414,8 @@ for candidate_dir in "${hosted_artifact_dirs[@]}"; do
     continue
   fi
   if [[ "$lsof_available" != true ]]; then
-    echo "Keeping artifact because lsof is unavailable: $candidate_dir" >&2
-    continue
+    echo "error: cannot prove artifact is inactive because lsof is unavailable" >&2
+    exit 2
   fi
   if [[ -f "$candidate_binary" ]] && lsof -t -- "$candidate_binary" >/dev/null 2>&1; then
     echo "Keeping active hosted artifact: $candidate_binary" >&2
