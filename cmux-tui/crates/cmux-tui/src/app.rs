@@ -10352,25 +10352,31 @@ impl App {
         let collapsed = self
             .projection_rails
             .get(&spec.id)
-            .map(|state| &state.collapsed)
-            .unwrap_or(&empty_collapsed);
+            .map(|state| state.collapsed.clone())
+            .unwrap_or(empty_collapsed);
         let agents = self
             .projection_agents
             .as_ref()
             .filter(|_| includes_agents)
             .map_or(&[][..], |(_, agents)| agents.as_slice());
+        let rail_generation =
+            self.projection_rails.get(&spec.id).map_or(0, |state| state.rows_generation);
         let revision = ProjectionRevision {
             tree_workspace: self.tree.workspace_revision,
             tree_pane: self.tree.pane_revision,
-            agents: self.projection_agents_generation,
+            agents: spec.includes(SidebarResourceKind::Agents)
+                .then_some(self.projection_agents_generation),
+            selected_workspace: (!spec.includes(SidebarResourceKind::Workspaces))
+                .then_some(self.sidebar_workspace_selection)
+                .unwrap_or(0),
             sidebar: self.sidebar_generation,
+            rail: rail_generation,
         };
         let tree = &self.tree;
         let selected_workspace = self.sidebar_workspace_selection;
         self.projection_rows_cache.get_or_build(&spec.id, revision, || {
-            crate::sidebar_projection::rows(spec, tree, agents, selected_workspace, collapsed)
+            crate::sidebar_projection::rows(spec, tree, agents, selected_workspace, &collapsed)
         })
-            
     }
 
     pub(crate) fn sidebar_action_rows(&self, index: usize) -> Vec<SidebarActionRow> {
@@ -10473,6 +10479,11 @@ impl App {
 
     fn bump_sidebar_generation(&mut self) {
         self.sidebar_generation = self.sidebar_generation.saturating_add(1);
+    }
+
+    fn bump_projection_rows_generation(&mut self, index: usize) {
+        let state = self.projection_rail_state_mut(index);
+        state.rows_generation = state.rows_generation.saturating_add(1);
     }
 
     fn bump_agent_generation(&mut self) {
@@ -18804,7 +18815,7 @@ impl App {
                 && selected.as_ref().is_some_and(|row| row.expanded)
             {
                 if self.projection_rail_state_mut(view_index).collapsed.insert(branch) {
-                    self.bump_sidebar_generation();
+                    self.bump_projection_rows_generation(view_index);
                 }
             } else {
                 self.focus_adjacent_rail(RailKind::Projection(view_index), -1);
@@ -18817,7 +18828,7 @@ impl App {
                 && selected.as_ref().is_some_and(|row| !row.expanded)
             {
                 if self.projection_rail_state_mut(view_index).collapsed.remove(&branch) {
-                    self.bump_sidebar_generation();
+                    self.bump_projection_rows_generation(view_index);
                 }
             } else if !self.focus_adjacent_rail(RailKind::Projection(view_index), 1) {
                 self.focus = FocusTarget::Pane;
@@ -18846,7 +18857,7 @@ impl App {
             if !state.collapsed.remove(&branch) {
                 state.collapsed.insert(branch);
             }
-            self.bump_sidebar_generation();
+            self.bump_projection_rows_generation(view_index);
             return Ok(RenderAction::Draw);
         }
         if key.code == KeyCode::Enter {
@@ -22181,10 +22192,8 @@ impl App {
             let workspace_index = self.tree.active_workspace;
             let screen_index =
                 self.tree.active_workspace().map(|workspace| workspace.active_screen);
-            let changed = self
-                .tree
-                .active_screen()
-                .is_some_and(|screen| screen.active_pane != pane);
+            let changed =
+                self.tree.active_screen().is_some_and(|screen| screen.active_pane != pane);
             let focused = screen_index
                 .is_some_and(|screen| self.tree.set_active_pane(workspace_index, screen, pane));
             if focused {
@@ -22204,7 +22213,6 @@ impl App {
         delta: Option<isize>,
     ) {
         let pane = pane.or_else(|| self.active_pane());
-<<<<<<< HEAD
         if let Some(pane_id) = pane {
             let target = self.tree.pane(pane_id).and_then(|pane| {
                 if pane.tabs.is_empty() {
@@ -22278,7 +22286,6 @@ impl App {
                     self.bump_sidebar_generation();
                 }
             }
-        }
         }
         if selected && let Some(active) = self.active_pane() {
             self.pane_focus_history.record(active);
@@ -22718,7 +22725,7 @@ impl App {
                     if !state.collapsed.remove(&branch) {
                         state.collapsed.insert(branch);
                     }
-                    self.bump_sidebar_generation();
+                    self.bump_projection_rows_generation(view);
                 }
                 Hit::ProjectionRow { view, row, target } => {
                     let state = self.projection_rail_state_mut(view);
@@ -44344,7 +44351,8 @@ mod tests {
         let first_after = app.projection_rows_cache.revision_for("first-view").unwrap();
         let second_after = app.projection_rows_cache.revision_for("second-view").unwrap();
 
-        assert_ne!(first_before, first_after);
+        assert_ne!(first_before.rail, first_after.rail);
+        assert_eq!(first_before.sidebar, first_after.sidebar);
         assert_eq!(second_before, second_after);
 
         mux.close_surface(surface.id).unwrap();
