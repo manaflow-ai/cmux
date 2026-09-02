@@ -1,0 +1,472 @@
+import Foundation
+import CmuxSubrouter
+
+/// Handles `subrouter.*` socket methods backing `cmux subrouter`.
+///
+/// All verbs route through the app-owned ``SubrouterAppRuntime`` store — the
+/// single owner of daemon interaction — so a CLI-triggered switch or reload
+/// updates the Agents panel and footer switcher immediately. The bodies run
+/// on the socket-worker lane (they await HTTP fetches and the `sr`
+/// subprocess) and hop to the main actor only for store access. Only
+/// token-free metadata crosses the socket.
+extension TerminalController {
+    /// The daemon may fan out usage requests across a large remote pool;
+    /// leave enough room for the serialized switch/reload/refresh pipeline:
+    /// one 30s CLI invocation plus two 60s daemon reads can take about 150s
+    /// on a cold remote pool. The CLI uses a matching larger deadline.
+    private nonisolated static let subrouterDataResponseTimeoutSeconds: TimeInterval = 240
+
+    private nonisolated static var subrouterDisabledError: TerminalController.V2CallResult {
+        .err(
+            code: "subrouter_disabled",
+            message: String(
+                localized: "socket.subrouter.disabled",
+                defaultValue: "The subrouter integration is disabled. Enable it in Settings or set subrouter.enabled in ~/.config/cmux/cmux.json."
+            ),
+            data: nil
+        )
+    }
+
+    nonisolated func socketWorkerSubrouterResponse(
+        method: String,
+        id: Any?,
+        params: [String: Any]
+    ) -> String {
+        switch method {
+        case "subrouter.status":
+            if params["refresh"] as? Bool == false {
+                return v2AsyncResultCall(id: id, timeoutSeconds: 5) {
+                    await Self.subrouterGateResult()
+                }
+            }
+            if params["probe"] as? String == "health" {
+                return v2AsyncResultCall(id: id, timeoutSeconds: 3) {
+                    await Self.subrouterHealthProbeResult()
+                }
+            }
+            return v2AsyncResultCall(id: id, timeoutSeconds: Self.subrouterDataResponseTimeoutSeconds) {
+                await Self.subrouterRefreshResult(requiresHealthyDaemon: false) { snapshot, configuration in
+                    var payload = Self.subrouterStatusPayload(snapshot: snapshot)
+                    payload["endpoint"] = configuration.endpoint.baseURL.absoluteString
+                    payload["account_count"] = snapshot.usageStatuses.count
+                    payload["attention_count"] = snapshot.attentionCount
+                    payload["session_count"] = snapshot.sessions.count
+                    return payload
+                }
+            }
+        case "subrouter.accounts":
+            return v2AsyncResultCall(id: id, timeoutSeconds: Self.subrouterDataResponseTimeoutSeconds) {
+                await Self.subrouterRefreshResult(requiresHealthyDaemon: true, includeSessions: false) { snapshot, _ in
+                    ["accounts": snapshot.usageStatuses.map { Self.subrouterAccountPayload($0, includeWindows: false) }]
+                }
+            }
+        case "subrouter.usage":
+            return v2AsyncResultCall(id: id, timeoutSeconds: Self.subrouterDataResponseTimeoutSeconds) {
+                await Self.subrouterRefreshResult(requiresHealthyDaemon: true, includeSessions: false) { snapshot, _ in
+                    ["accounts": snapshot.usageStatuses.map { Self.subrouterAccountPayload($0, includeWindows: true) }]
+                }
+            }
+        case "subrouter.sessions":
+            return v2AsyncResultCall(id: id, timeoutSeconds: Self.subrouterDataResponseTimeoutSeconds) {
+                await Self.subrouterRefreshResult(requiresHealthyDaemon: true) { snapshot, _ in
+                    ["sessions": snapshot.sessions.map(Self.subrouterSessionPayload)]
+                }
+            }
+        case "subrouter.switch":
+            guard let providerRaw = Self.subrouterString(params["provider"]),
+                  let accountID = Self.subrouterString(params["account"]) else {
+                return v2Error(
+                    id: id,
+                    code: "invalid_params",
+                    message: "subrouter.switch requires `provider` (codex|claude) and `account`."
+                )
+            }
+            return v2AsyncResultCall(id: id, timeoutSeconds: Self.subrouterDataResponseTimeoutSeconds) {
+                await Self.subrouterSwitchResult(providerRaw: providerRaw, accountID: accountID)
+            }
+        case "subrouter.reload":
+            return v2AsyncResultCall(id: id, timeoutSeconds: Self.subrouterDataResponseTimeoutSeconds) {
+                await Self.subrouterReloadResult()
+            }
+        default:
+            return v2Error(id: id, code: "method_not_found", message: "Unknown method")
+        }
+    }
+
+    /// Async socket counterpart for Subrouter verbs. Socket connections use
+    /// this path so long daemon/`sr` work suspends the connection task instead
+    /// of parking a worker thread in ``v2AsyncResultCall``.
+    nonisolated func socketWorkerSubrouterResponseAsync(
+        method: String,
+        id: JSONValue?,
+        params: [String: JSONValue]
+    ) async -> String {
+        await v2AsyncResultCallAsync(
+            id: id?.foundationObject,
+            timeoutSeconds: Self.subrouterDataResponseTimeoutSeconds
+        ) {
+            let foundationParams = params.mapValues(\.foundationObject)
+            let result = await Self.subrouterAsyncResult(method: method, params: foundationParams)
+            return Self.v2EncodedResult(id: id, result)
+        }
+    }
+
+    private nonisolated static func subrouterAsyncResult(
+        method: String,
+        params: [String: Any]
+    ) async -> TerminalController.V2CallResult {
+        switch method {
+        case "subrouter.status":
+            if params["refresh"] as? Bool == false {
+                return await Self.subrouterGateResult()
+            }
+            if params["probe"] as? String == "health" {
+                return await Self.subrouterHealthProbeResult()
+            }
+            let result = await Self.subrouterRefreshResult(requiresHealthyDaemon: false) { snapshot, configuration in
+                var payload = Self.subrouterStatusPayload(snapshot: snapshot)
+                payload["endpoint"] = configuration.endpoint.baseURL.absoluteString
+                payload["account_count"] = snapshot.usageStatuses.count
+                payload["attention_count"] = snapshot.attentionCount
+                payload["session_count"] = snapshot.sessions.count
+                return payload
+            }
+            return result
+        case "subrouter.accounts":
+            return await Self.subrouterRefreshResult(requiresHealthyDaemon: true, includeSessions: false) { snapshot, _ in
+                ["accounts": snapshot.usageStatuses.map { Self.subrouterAccountPayload($0, includeWindows: false) }]
+            }
+        case "subrouter.usage":
+            return await Self.subrouterRefreshResult(requiresHealthyDaemon: true, includeSessions: false) { snapshot, _ in
+                ["accounts": snapshot.usageStatuses.map { Self.subrouterAccountPayload($0, includeWindows: true) }]
+            }
+        case "subrouter.sessions":
+            return await Self.subrouterRefreshResult(requiresHealthyDaemon: true) { snapshot, _ in
+                ["sessions": snapshot.sessions.map(Self.subrouterSessionPayload)]
+            }
+        case "subrouter.switch":
+            guard let providerRaw = Self.subrouterString(params["provider"]),
+                  let accountID = Self.subrouterString(params["account"]) else {
+                return .err(
+                    code: "invalid_params",
+                    message: "subrouter.switch requires `provider` (codex|claude) and `account`.",
+                    data: nil
+                )
+            }
+            return await Self.subrouterSwitchResult(providerRaw: providerRaw, accountID: accountID)
+        case "subrouter.reload":
+            return await Self.subrouterReloadResult()
+        default:
+            return .err(code: "method_not_found", message: "Unknown method", data: nil)
+        }
+    }
+
+    // MARK: - Store access
+
+    /// Returns the effective integration gate without contacting the daemon.
+    /// The CLI uses this lightweight form before executing a passthrough `sr`
+    /// command, so feature-flag and user opt-out decisions cannot be bypassed
+    /// while a cold remote usage refresh is in flight.
+    private nonisolated static func subrouterGateResult() async -> TerminalController.V2CallResult {
+        let runtime = await MainActor.run { SubrouterAppRuntime.shared }
+        await runtime.refreshServerSelectionAndApply()
+        let configuration = await MainActor.run { runtime.store.configuration }
+        guard configuration.isEnabled else { return Self.subrouterDisabledError }
+        return .ok([
+            "enabled": true,
+            "endpoint": configuration.endpoint.baseURL.absoluteString,
+        ])
+    }
+
+    /// Performs only the cheap daemon health request for onboarding readiness.
+    private nonisolated static func subrouterHealthProbeResult() async -> TerminalController.V2CallResult {
+        let runtime = await MainActor.run { SubrouterAppRuntime.shared }
+        await runtime.refreshServerSelectionAndApply()
+        let store = await MainActor.run { runtime.store }
+        let enabled = await MainActor.run { store.configuration.isEnabled }
+        guard enabled else { return Self.subrouterDisabledError }
+        do {
+            let healthy = try await store.checkDaemonHealth()
+            return .ok(["healthy": healthy])
+        } catch let error as SubrouterClientError {
+            return .err(code: "daemon_unreachable", message: error.shortDescription, data: nil)
+        } catch {
+            return .err(
+                code: "daemon_unreachable",
+                message: String(
+                    localized: "socket.subrouter.unexpectedError",
+                    defaultValue: "The subrouter daemon could not be reached."
+                ),
+                data: nil
+            )
+        }
+    }
+
+    /// Refreshes through the shared store (single-flight with UI polling)
+    /// and shapes a success payload from the fresh snapshot. Returns the
+    /// disabled error when the master gate is off.
+    ///
+    /// Socket verbs are an authoritative boundary, so the runtime re-reads
+    /// sr's server registry first: `sr server use` inside a cmux terminal
+    /// never deactivates the app, and these commands must answer for the
+    /// registry's current server.
+    ///
+    /// - Parameters:
+    ///   - requiresHealthyDaemon: Data verbs (`accounts`, `usage`,
+    ///     `sessions`) pass `true` so an unreachable daemon becomes an error
+    ///     instead of silently serving retained (stale or empty) snapshot
+    ///     data; `status` passes `false` because reporting the failure state
+    ///     is its job.
+    ///   - includeSessions: Verbs that never read sessions (`accounts`,
+    ///     `usage`) pass `false` to skip the sessions endpoint's
+    ///     whole-history transfer; `status` (session_count) and `sessions`
+    ///     keep the full fetch.
+    private nonisolated static func subrouterRefreshResult(
+        requiresHealthyDaemon: Bool,
+        includeSessions: Bool = true,
+        _ payload: @Sendable (SubrouterSnapshot, SubrouterConfiguration) -> [String: Any]
+    ) async -> TerminalController.V2CallResult {
+        let runtime = await MainActor.run { SubrouterAppRuntime.shared }
+        await runtime.refreshServerSelectionAndApply()
+        let store = await MainActor.run { runtime.store }
+        let configuration = await MainActor.run { store.configuration }
+        guard configuration.isEnabled else { return Self.subrouterDisabledError }
+        let snapshot = await store.performFreshRefresh(reason: "socket", includingSessions: includeSessions)
+        if requiresHealthyDaemon {
+            if !snapshot.daemonState.isHealthy {
+                return .err(
+                    code: "daemon_unreachable",
+                    message: snapshot.lastErrorDescription ?? "The subrouter daemon is unreachable.",
+                    data: nil
+                )
+            }
+            // The daemon can answer its health probe while the requested
+            // data fetch fails; the snapshot then retains previous data
+            // and records the error. Data verbs must not report stale or
+            // partial data as ok, so scripts see a non-zero exit instead.
+            if let refreshError = snapshot.lastErrorDescription {
+                return .err(code: "refresh_failed", message: refreshError, data: nil)
+            }
+        }
+        return .ok(payload(snapshot, configuration))
+    }
+
+    private nonisolated static func subrouterSwitchResult(
+        providerRaw: String,
+        accountID: String
+    ) async -> TerminalController.V2CallResult {
+        let runtime = await MainActor.run { SubrouterAppRuntime.shared }
+        // Re-read sr's registry first: the store's remote-server guard must
+        // evaluate against the registry's current selection, not a cache
+        // from the last activation.
+        await runtime.refreshServerSelectionAndApply()
+        let store = await MainActor.run { runtime.store }
+        do {
+            try await store.switchAccount(
+                provider: SubrouterProvider(rawValue: providerRaw.lowercased()),
+                accountID: accountID
+            )
+        } catch let error as SubrouterSwitchError {
+            return Self.subrouterSwitchError(error)
+        } catch {
+            // Unknown errors stay generic: raw dumps never cross the
+            // socket/CLI boundary (typed errors are mapped above).
+            return .err(
+                code: "sr_failed",
+                message: String(
+                    localized: "socket.subrouter.switchFailed",
+                    defaultValue: "The account switch failed unexpectedly."
+                ),
+                data: nil
+            )
+        }
+        let snapshot = await MainActor.run { store.snapshot }
+        var payload: [String: Any] = [
+            "switched": true,
+            "provider": providerRaw.lowercased(),
+            "account": accountID,
+        ]
+        if let warning = snapshot.lastErrorDescription {
+            payload["warning"] = warning
+        }
+        return .ok(payload)
+    }
+
+    private nonisolated static func subrouterReloadResult() async -> TerminalController.V2CallResult {
+        let runtime = await MainActor.run { SubrouterAppRuntime.shared }
+        // Like every other subrouter verb, answer for sr's current registry
+        // selection: `sr server use` inside a cmux terminal never fires app
+        // activation, so the cached selection may be stale.
+        await runtime.refreshServerSelectionAndApply()
+        let store = await MainActor.run { runtime.store }
+        let enabled = await MainActor.run { store.configuration.isEnabled }
+        guard enabled else { return Self.subrouterDisabledError }
+        do {
+            let result = try await store.reloadDaemonAccounts()
+            guard result.ok else {
+                // The daemon answered but reported the reload failed:
+                // scripts must see an error (non-zero exit), not "ok".
+                return .err(
+                    code: "reload_failed",
+                    message: String(
+                        localized: "socket.subrouter.reloadFailed",
+                        defaultValue: "The subrouter daemon reported that the account reload failed."
+                    ),
+                    data: nil
+                )
+            }
+            return .ok([
+                "ok": result.ok,
+                "accounts": result.accounts,
+                "usage_refreshed": result.usageRefreshed,
+            ])
+        } catch let error as SubrouterClientError {
+            if case .unsupported = error {
+                return .err(code: "unsupported_operation", message: error.shortDescription, data: nil)
+            }
+            return .err(code: "daemon_unreachable", message: error.shortDescription, data: nil)
+        } catch {
+            return .err(
+                code: "daemon_unreachable",
+                message: String(
+                    localized: "socket.subrouter.unexpectedError",
+                    defaultValue: "The subrouter daemon could not be reached."
+                ),
+                data: nil
+            )
+        }
+    }
+
+    private nonisolated static func subrouterSwitchError(_ error: SubrouterSwitchError) -> TerminalController.V2CallResult {
+        switch error {
+        case .integrationDisabled:
+            return Self.subrouterDisabledError
+        case .switchUnsupported(let provider):
+            return .err(
+                code: "unsupported_provider",
+                message: "Provider '\(provider.rawValue)' has no switch support; use codex or claude.",
+                data: nil
+            )
+        case .commandNotFound:
+            return .err(
+                code: "sr_not_found",
+                message: "The sr CLI was not found on PATH or in ~/bin. Install subrouter or set subrouter.commandPath.",
+                data: nil
+            )
+        case .commandFailed:
+            return .err(
+                code: "sr_failed",
+                message: String(
+                    localized: "socket.subrouter.switchFailed",
+                    defaultValue: "The account switch failed unexpectedly."
+                ),
+                data: nil
+            )
+        case .commandTimedOut:
+            return .err(code: "sr_timeout", message: "The sr CLI timed out.", data: nil)
+        case .switchAlreadyInFlight:
+            return .err(code: "switch_in_flight", message: "Another account switch is already in progress.", data: nil)
+        case .remoteServerManagesSelection(let serverName):
+            return .err(
+                code: "remote_server_selection",
+                message: "Server '\(serverName)' assigns accounts per session; global switching is unavailable. Use SUBROUTER_CODEX_ACCOUNT_ID to force an account for one session.",
+                data: nil
+            )
+        }
+    }
+
+    // MARK: - Payload shaping (pure value mapping)
+
+    // ISO8601DateFormatter is Apple-documented thread-safe; shared so the
+    // per-session payload mapping does not allocate one per element.
+    private nonisolated(unsafe) static let subrouterTimestampFormatter: ISO8601DateFormatter = {
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        return formatter
+    }()
+
+    private nonisolated static func subrouterStatusPayload(snapshot: SubrouterSnapshot) -> [String: Any] {
+        var daemon: [String: Any] = [:]
+        switch snapshot.daemonState {
+        case .unknown:
+            daemon["state"] = "unknown"
+        case .healthy:
+            daemon["state"] = "healthy"
+        case .unreachable(let consecutiveFailures):
+            daemon["state"] = "unreachable"
+            daemon["consecutive_failures"] = consecutiveFailures
+        }
+        var payload: [String: Any] = ["enabled": true, "daemon": daemon]
+        if let lastError = snapshot.lastErrorDescription {
+            payload["last_error"] = lastError
+        }
+        if let lastUpdatedAt = snapshot.lastUpdatedAt {
+            payload["last_updated"] = Self.subrouterTimestampFormatter.string(from: lastUpdatedAt)
+        }
+        return payload
+    }
+
+    private nonisolated static func subrouterAccountPayload(
+        _ account: SubrouterAccountUsageStatus,
+        includeWindows: Bool
+    ) -> [String: Any] {
+        var payload: [String: Any] = [
+            "id": account.id,
+            "provider": account.provider.rawValue,
+            "auth_mode": account.authMode.rawValue,
+            "active": account.isActive,
+            "auth_checked": account.authChecked,
+            "auth_valid": account.authValid,
+            "needs_attention": account.needsAttention,
+            "quota": Self.subrouterQuotaString(account.quotaAssessment),
+        ]
+        if let email = account.email { payload["email"] = email }
+        if let planType = account.planType { payload["plan_type"] = planType }
+        if let errorDescription = account.errorDescription { payload["error"] = errorDescription }
+        if includeWindows {
+            payload["windows"] = account.windows.map { window in
+                [
+                    "name": window.name,
+                    "used_percent": window.usedPercent,
+                    "limit_window_seconds": window.limitWindowSeconds,
+                    "reset_after_seconds": window.resetAfterSeconds,
+                    "feature": window.feature,
+                ] as [String: Any]
+            }
+            if let credits = account.credits {
+                payload["credits"] = [
+                    "has_credits": credits.hasCredits,
+                    "unlimited": credits.unlimited,
+                    "balance": credits.balance,
+                ] as [String: Any]
+            }
+        }
+        return payload
+    }
+
+    private nonisolated static func subrouterSessionPayload(_ session: SubrouterSessionAssignment) -> [String: Any] {
+        var payload: [String: Any] = [
+            "agent_type": session.agentType,
+            "session_id": session.sessionID,
+            "account_id": session.accountID,
+            "created_at": Self.subrouterTimestampFormatter.string(from: session.createdAt),
+            "updated_at": Self.subrouterTimestampFormatter.string(from: session.updatedAt),
+        ]
+        if let userEmail = session.userEmail { payload["user_email"] = userEmail }
+        return payload
+    }
+
+    private nonisolated static func subrouterQuotaString(_ assessment: SubrouterQuotaAssessment) -> String {
+        switch assessment {
+        case .ok: return "ok"
+        case .tempCooked: return "temp_cooked"
+        case .cooked: return "cooked"
+        }
+    }
+
+    private nonisolated static func subrouterString(_ raw: Any?) -> String? {
+        guard let value = raw as? String else { return nil }
+        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? nil : trimmed
+    }
+}

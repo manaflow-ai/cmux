@@ -27,6 +27,8 @@ public enum SettingsSectionID: String, CaseIterable, Identifiable, Sendable, Has
     case customSidebars
     case betaFeatures
     case automation
+    /// The local subrouter daemon integration (AI-agent account switching).
+    case subrouter
     /// Local computer-use integration, permissions, and menu-bar controls.
     case computerUse
     case browser
@@ -54,6 +56,7 @@ public enum SettingsSectionID: String, CaseIterable, Identifiable, Sendable, Has
         case .customSidebars: return String(localized: "settings.section.customSidebars", defaultValue: "Custom Sidebars")
         case .betaFeatures: return "Beta Features"
         case .automation: return "Automation"
+        case .subrouter: return String(localized: "settings.section.subrouter", defaultValue: "Agent Accounts")
         case .computerUse: return String(localized: "settings.section.computerUse", defaultValue: "Computer Use")
         case .browser: return "Browser"
         case .browserImport: return "Import Browser Data"
@@ -80,6 +83,7 @@ public enum SettingsSectionID: String, CaseIterable, Identifiable, Sendable, Has
         case .customSidebars: return "sidebar.squares.left"
         case .betaFeatures: return "exclamationmark.triangle"
         case .automation: return "wand.and.sparkles"
+        case .subrouter: return "arrow.triangle.branch"
         case .computerUse: return "cursorarrow.rays"
         case .browser: return "globe"
         case .browserImport: return "square.and.arrow.down"
@@ -108,6 +112,7 @@ public enum SettingsSectionID: String, CaseIterable, Identifiable, Sendable, Has
         case .customSidebars: return "custom sidebars vibe swift json interpreted renderer in-process remote worker isolated"
         case .betaFeatures: return "beta experimental unstable feed dock right sidebar"
         case .automation: return "socket integrations hooks ports claude cursor gemini naming auto naming workspace tabs"
+        case .subrouter: return "subrouter agents accounts codex claude switch usage quota cooked sr daemon"
         case .computerUse:
             return String(
                 localized: "settings.search.keywords.computerUse",

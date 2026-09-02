@@ -13,6 +13,7 @@ enum SettingsNavigationTarget: String, CaseIterable, Identifiable {
     case customSidebars
     case betaFeatures
     case automation
+    case subrouter
     case computerUse
     case browser
     case browserImport
@@ -52,6 +53,8 @@ enum SettingsNavigationTarget: String, CaseIterable, Identifiable {
             return String(localized: "settings.section.betaFeatures", defaultValue: "Beta Features")
         case .automation:
             return String(localized: "settings.section.automation", defaultValue: "Automation")
+        case .subrouter:
+            return String(localized: "settings.section.subrouter", defaultValue: "Agent Accounts")
         case .computerUse:
             return String(localized: "settings.section.computerUse", defaultValue: "Computer Use")
         case .browser:
@@ -97,6 +100,8 @@ enum SettingsNavigationTarget: String, CaseIterable, Identifiable {
             return "exclamationmark.triangle"
         case .automation:
             return "wand.and.sparkles"
+        case .subrouter:
+            return "arrow.triangle.branch"
         case .computerUse:
             return "cursorarrow.rays"
         case .browser:
@@ -142,6 +147,8 @@ enum SettingsNavigationTarget: String, CaseIterable, Identifiable {
             return "\(title) beta experimental unstable feed dock right sidebar"
         case .automation:
             return "\(title) socket integrations hooks ports claude cursor gemini kiro naming auto naming workspace tabs"
+        case .subrouter:
+            return "\(title) subrouter agents accounts codex claude switch usage quota cooked sr daemon"
         case .computerUse:
             return "\(title) computer use cua accessibility screen recording permissions cursor mcp agents driver menu bar onboarding"
         case .browser:
@@ -480,6 +487,10 @@ enum SettingsSearchIndex {
         setting(.automation, "kiro-notification-level", String(localized: "settings.automation.kiro.notificationLevel", defaultValue: "Kiro Notification Level"), "agent hooks notifications verbosity tool events"),
         setting(.automation, "port-base", String(localized: "settings.automation.portBase", defaultValue: "Port Base"), "CMUX_PORT start"),
         setting(.automation, "port-range", String(localized: "settings.automation.portRange", defaultValue: "Port Range Size"), "CMUX_PORT_END workspace ports"),
+        setting(.subrouter, "enabled", String(localized: "settings.subrouter.enabled", defaultValue: "Enable Subrouter Integration"), "subrouter agents accounts codex claude daemon"),
+        setting(.subrouter, "show-account-switcher", String(localized: "settings.subrouter.showAccountSwitcher", defaultValue: "Show Account Switcher in Sidebar Footer"), "subrouter agents accounts footer switcher status dot"),
+        setting(.subrouter, "endpoint", String(localized: "settings.subrouter.endpoint", defaultValue: "Daemon Endpoint"), "subrouter daemon endpoint host port localhost"),
+        setting(.subrouter, "command-path", String(localized: "settings.subrouter.commandPath", defaultValue: "sr Binary Path"), "subrouter sr binary executable path cli"),
         setting(.browser, "search-engine", String(localized: "settings.browser.searchEngine", defaultValue: "Default Search Engine"), "address bar query google duckduckgo bing kagi brave startpage perplexity exa yahoo ecosia qwant mojeek wikipedia github baidu yandex custom search provider"),
         setting(.browser, "enable-browser", String(localized: "settings.browser.enabled", defaultValue: "Enable cmux Browser"), "webview tabs links"),
         setting(.browser, "search-suggestions", String(localized: "settings.browser.searchSuggestions", defaultValue: "Show Search Suggestions"), "browser address bar suggestions"),
@@ -622,6 +633,10 @@ enum SettingsSearchIndex {
         "automation.kiroNotificationLevel": settingID(for: .automation, idSuffix: "kiro-notification-level"),
         "automation.portBase": settingID(for: .automation, idSuffix: "port-base"),
         "automation.portRange": settingID(for: .automation, idSuffix: "port-range"),
+        "subrouter.enabled": settingID(for: .subrouter, idSuffix: "enabled"),
+        "sidebar.showAccountSwitcher": settingID(for: .subrouter, idSuffix: "show-account-switcher"),
+        "subrouter.endpoint": settingID(for: .subrouter, idSuffix: "endpoint"),
+        "subrouter.commandPath": settingID(for: .subrouter, idSuffix: "command-path"),
         "browser.enabled": settingID(for: .browser, idSuffix: "enable-browser"),
         "browser.defaultSearchEngine": settingID(for: .browser, idSuffix: "search-engine"),
         "browser.customSearchEngineName": settingID(for: .browser, idSuffix: "search-engine"),

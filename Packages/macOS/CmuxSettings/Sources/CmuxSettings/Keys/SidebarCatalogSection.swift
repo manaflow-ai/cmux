@@ -84,6 +84,14 @@ public struct SidebarCatalogSection: SettingCatalogSection {
         userDefaultsKey: "sidebarShowPullRequest"
     )
 
+    /// Shows the AI-agent account switcher in the sidebar footer. Only
+    /// takes effect while `subrouter.enabled` is on.
+    public let showAccountSwitcher = DefaultsKey<Bool>(
+        id: "sidebar.showAccountSwitcher",
+        defaultValue: true,
+        userDefaultsKey: "sidebarShowAccountSwitcher"
+    )
+
     public let watchGitStatus = DefaultsKey<Bool>(
         id: "sidebar.watchGitStatus",
         defaultValue: true,

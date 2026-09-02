@@ -144,6 +144,7 @@ struct SettingsWindowHostRoot: View {
     /// main-actor hop (so the content's restore navigation cannot clobber
     /// it) and guards it against being superseded by a newer targeted show.
     let onContentAppear: @MainActor () -> Void
+    private let featureFlags = CmuxFeatureFlags.shared
 
     @AppStorage(AppearanceSettings.appearanceModeKey)
     private var appearanceMode = AppearanceSettings.defaultMode.rawValue
@@ -158,7 +159,10 @@ struct SettingsWindowHostRoot: View {
     @ViewBuilder
     private var content: some View {
         if let runtime = AppDelegate.shared?.settingsRuntime {
-            SettingsWindowRoot(runtime: runtime)
+            let visibleSections = Set(SettingsSectionID.allCases.filter { section in
+                section != .subrouter || featureFlags.isSubrouterUIEnabled
+            })
+            SettingsWindowRoot(runtime: runtime, visibleSections: visibleSections)
                 .settingsRuntime(runtime)
         } else {
             // Unreachable in a normally-launched app (the runtime is created

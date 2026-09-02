@@ -64,6 +64,12 @@ final class CmuxFeatureFlags {
     private static let mobileTerminalFilesChipDefault = true
     private nonisolated static let mobileTaskComposerDefault = true
 
+    #if DEBUG
+    private nonisolated static let subrouterUIDefault = true
+    #else
+    private nonisolated static let subrouterUIDefault = false
+    #endif
+
     private static let overrideKeyPrefix = "cmux.flags.override."
     private static let remoteCacheKeyPrefix = "cmux.flags.remote."
     private static let releaseControlProductWideDistinctID = "cmux-desktop-release-control"
@@ -186,6 +192,22 @@ final class CmuxFeatureFlags {
             defaultValue: "Enables the iOS New Task composer, including task model discovery, directory picking, and attachment staging."
         ),
         defaultWhenUnavailable: CmuxFeatureFlags.mobileTaskComposerDefault
+    )
+
+    // FLAG(key: subrouter-ui-enabled-release, owner: austinwang,
+    //      reviewBy: 2026-10-01, defaultWhenUnavailable: false)
+    // Shows the Subrouter integration (Agents sidebar mode, footer account
+    // switcher, Agent Accounts settings, and the cmux subrouter CLI). Release
+    // builds hide it until the PostHog flag enables it; DEBUG keeps it on for
+    // dogfood. The subrouter.enabled setting remains the user's opt-out.
+    nonisolated static let subrouterUIFlag = CmuxFeatureFlagDefinition(
+        key: "subrouter-ui-enabled-release",
+        title: String(localized: "featureFlags.subrouter.title", defaultValue: "Subrouter integration"),
+        flagDescription: String(
+            localized: "featureFlags.subrouter.description",
+            defaultValue: "Shows the Agents sidebar panel, footer account switcher, and cmux subrouter CLI backed by the configured daemon."
+        ),
+        defaultWhenUnavailable: CmuxFeatureFlags.subrouterUIDefault
     )
 
     // Order is load-bearing for the positional typed accessors below. Flags
@@ -312,6 +334,7 @@ final class CmuxFeatureFlags {
 
             CmuxFeatureFlags.mobileTerminalFilesChipFlag,
             CmuxFeatureFlags.mobileTaskComposerFlag,
+            CmuxFeatureFlags.subrouterUIFlag,
         ]
     }()
 
@@ -372,6 +395,10 @@ final class CmuxFeatureFlags {
 
     var isMobileTaskComposerEnabled: Bool {
         effectiveValue(for: Self.mobileTaskComposerFlag)
+    }
+
+    var isSubrouterUIEnabled: Bool {
+        effectiveValue(for: Self.subrouterUIFlag)
     }
 
     /// Effective values mirrored for nonisolated readers: the mobile host

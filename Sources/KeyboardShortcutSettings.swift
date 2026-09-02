@@ -96,6 +96,7 @@ enum KeyboardShortcutSettings {
         case switchRightSidebarToSessions
         case switchRightSidebarToFeed
         case switchRightSidebarToDock
+        case switchRightSidebarToAgents
         case switchRightSidebarToMachines
         case triggerFlash
 
@@ -249,6 +250,7 @@ enum KeyboardShortcutSettings {
             case .switchRightSidebarToFeed: return String(localized: "shortcut.switchRightSidebarToFeed.label", defaultValue: "Show Sidebar Feed")
             case .switchRightSidebarToDock: return String(localized: "shortcut.switchRightSidebarToDock.label", defaultValue: "Show Sidebar Dock")
             case .switchRightSidebarToMachines: return String(localized: "shortcut.switchRightSidebarToMachines.label", defaultValue: "Show Sidebar Cloud")
+            case .switchRightSidebarToAgents: return String(localized: "shortcut.switchRightSidebarToAgents.label", defaultValue: "Show Sidebar Subrouter")
             case .triggerFlash: return String(localized: "shortcut.flashFocusedPanel.label", defaultValue: "Flash Focused Panel")
             case .nextSurface: return String(localized: "shortcut.nextSurface.label", defaultValue: "Next Surface")
             case .prevSurface: return String(localized: "shortcut.previousSurface.label", defaultValue: "Previous Surface")
@@ -451,6 +453,8 @@ enum KeyboardShortcutSettings {
                 return StoredShortcut(key: "5", command: false, shift: false, option: false, control: true)
             case .switchRightSidebarToMachines:
                 return StoredShortcut(key: "6", command: false, shift: false, option: false, control: true)
+            case .switchRightSidebarToAgents:
+                return StoredShortcut(key: "7", command: false, shift: false, option: false, control: true)
             case .triggerFlash:
                 return StoredShortcut(key: "h", command: true, shift: true, option: false, control: false)
             case .nextSidebarTab:

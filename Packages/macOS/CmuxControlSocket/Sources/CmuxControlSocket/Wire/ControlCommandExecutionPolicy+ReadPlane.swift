@@ -43,6 +43,13 @@ extension ControlCommandExecutionPolicy {
         "current_workspace",
         "list_surfaces",
         "read_screen",
+        // Subrouter read verbs trigger live daemon refreshes (and `sessions`
+        // transfers bounded routing history), so they use the same per-client
+        // token bucket as the other polling surfaces.
+        "subrouter.status",
+        "subrouter.accounts",
+        "subrouter.usage",
+        "subrouter.sessions",
     ]
 
     /// Whether a v2 method belongs to the published read plane.

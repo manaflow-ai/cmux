@@ -1690,6 +1690,8 @@ class TerminalController {
             return socketWorkerRemotesResponse(method: method, id: request.id, params: request.params)
         case let method where method.hasPrefix("aiAccounts."):
             return socketWorkerAIAccountsResponse(method: method, id: request.id, params: request.params)
+        case let method where method.hasPrefix("subrouter."):
+            return socketWorkerSubrouterResponse(method: method, id: request.id, params: request.params)
         default:
 #if !DEBUG
             // debug.sidebar.simulate_drag stays policy-listed in Release but
@@ -2883,6 +2885,12 @@ class TerminalController {
             "aiAccounts.list",
             "aiAccounts.upload",
             "aiAccounts.remove",
+            "subrouter.status",
+            "subrouter.accounts",
+            "subrouter.usage",
+            "subrouter.sessions",
+            "subrouter.switch",
+            "subrouter.reload",
             "window.list",
             "window.current",
             "window.focus",
@@ -4017,13 +4025,31 @@ class TerminalController {
         case err(code: String, message: String, data: Any?)
     }
 
-    nonisolated func v2Result(id: Any?, _ res: V2CallResult) -> String {
+    nonisolated static func v2EncodedResult(id: JSONValue?, _ res: V2CallResult) -> String {
         switch res {
         case .ok(let payload):
-            return v2Ok(id: id, result: payload)
+            guard let payload = JSONValue(foundationObject: payload) else {
+                return ControlResponseEncoder.encodeFailureResponse
+            }
+            return v2Encoder.ok(id: id, result: payload)
         case .err(let code, let message, let data):
-            return v2Error(id: id, code: code, message: message, data: data)
+            guard data == nil || JSONValue(foundationObject: data as Any) != nil else {
+                return ControlResponseEncoder.encodeFailureResponse
+            }
+            let dataValue = data.flatMap { JSONValue(foundationObject: $0) }
+            return v2Encoder.error(id: id, code: code, message: message, data: dataValue)
         }
+    }
+
+    nonisolated static func v2EncodedResult(id: Any?, _ res: V2CallResult) -> String {
+        guard let idValue = v2WireId(id) else {
+            return ControlResponseEncoder.encodeFailureResponse
+        }
+        return v2EncodedResult(id: idValue, res)
+    }
+
+    nonisolated func v2Result(id: Any?, _ res: V2CallResult) -> String {
+        Self.v2EncodedResult(id: id, res)
     }
 
     nonisolated func v2UnsupportedWorkspaceAliasError(method: String, params: [String: Any]) -> V2CallResult? {

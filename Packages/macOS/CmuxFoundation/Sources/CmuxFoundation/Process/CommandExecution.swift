@@ -33,7 +33,8 @@ final class CommandExecution: @unchecked Sendable {
     init(
         executableURL: URL,
         arguments: [String],
-        currentDirectoryURL: URL
+        currentDirectoryURL: URL,
+        environment: [String: String]? = nil
     ) throws {
         let stdoutPipe = try OwnedProcessPipe()
         let stderrPipe: OwnedProcessPipe
@@ -79,6 +80,9 @@ final class CommandExecution: @unchecked Sendable {
         process.executableURL = executableURL
         process.arguments = arguments
         process.currentDirectoryURL = currentDirectoryURL
+        if let environment {
+            process.environment = environment
+        }
         process.standardInput = FileHandle.nullDevice
         process.standardOutput = stdoutPipe.pipe
         process.standardError = stderrPipe.pipe

@@ -28,6 +28,9 @@ public struct SettingsRuntime: @unchecked Sendable {
     public let accountFlow: AccountFlow?
     /// Host callbacks for actions the package cannot perform itself.
     public let hostActions: SettingsHostActions
+    /// Sections exposed by this runtime's rollout policy. Hidden sections are
+    /// omitted from both the sidebar/detail stack and the search index.
+    public let visibleSections: Set<SettingsSectionID>
 
     /// Creates the settings runtime bundle injected into the settings UI.
     ///
@@ -41,6 +44,7 @@ public struct SettingsRuntime: @unchecked Sendable {
     ///   - hostActions: Host callbacks for actions the package cannot perform itself.
     ///   - searchIndex: Prebuilt search index to share across settings roots. When `nil`,
     ///     the runtime builds one index from `catalog` and keeps it for its own lifetime.
+    ///   - visibleSections: Sections allowed by the host's rollout policy.
     @MainActor
     public init(
         catalog: SettingCatalog,
@@ -50,10 +54,15 @@ public struct SettingsRuntime: @unchecked Sendable {
         errorLog: SettingsErrorLog,
         accountFlow: AccountFlow? = nil,
         hostActions: SettingsHostActions = NoopSettingsHostActions(),
-        searchIndex: SettingsSearchIndex? = nil
+        searchIndex: SettingsSearchIndex? = nil,
+        visibleSections: Set<SettingsSectionID> = Set(SettingsSectionID.allCases)
     ) {
         self.catalog = catalog
-        self.searchIndex = searchIndex ?? SettingsSearchIndex(catalog: catalog)
+        self.visibleSections = visibleSections
+        self.searchIndex = searchIndex ?? SettingsSearchIndex(
+            catalog: catalog,
+            visibleSections: visibleSections
+        )
         self.userDefaultsStore = userDefaultsStore
         self.jsonStore = jsonStore
         self.secretStore = secretStore

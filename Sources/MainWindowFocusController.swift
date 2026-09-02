@@ -127,7 +127,7 @@ final class MainWindowFocusController {
             fileExplorerHost = host
         case .find:
             fileSearchHost = host
-        case .sessions, .feed, .dock, .machines, .customSidebar:
+        case .sessions, .feed, .dock, .agents, .machines, .customSidebar:
             break
         }
         focusRegisteredRightSidebarEndpointIfNeeded(mode: mode)
@@ -747,7 +747,7 @@ final class MainWindowFocusController {
             return .outline
         case .find:
             return .searchField
-        case .sessions, .machines, .customSidebar:
+        case .sessions, .agents, .machines, .customSidebar:
             return .host
         case .feed:
             return focusFirstItem ? .firstItem : .host
@@ -767,6 +767,7 @@ final class MainWindowFocusController {
             return fileSearchHost?.focusSearchField() == true
         case .sessions, .customSidebar:
             return mode == .customSidebar ? focusFallbackRightSidebarHost() : false
+        case .agents:
         case .machines:
             return focusFallbackRightSidebarHost()
         case .feed:

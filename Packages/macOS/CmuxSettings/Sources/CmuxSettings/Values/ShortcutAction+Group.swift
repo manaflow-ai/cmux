@@ -11,7 +11,8 @@ extension ShortcutAction {
              .markAllNotificationsRead, .clearAllNotifications,
              .focusRightSidebar, .switchRightSidebarToFiles, .switchRightSidebarToFind,
              .switchRightSidebarToSessions, .switchRightSidebarToFeed,
-             .switchRightSidebarToDock, .switchRightSidebarToMachines, .triggerFlash, .reopenClosedWorkspace:
+             .switchRightSidebarToDock, .switchRightSidebarToAgents,
+             .switchRightSidebarToMachines, .triggerFlash, .reopenClosedWorkspace:
             return .workspace
         case .nextSurface, .prevSurface, .moveSurfaceLeft, .moveSurfaceRight,
              .moveSurfaceToPreviousPane, .moveSurfaceToNextPane,

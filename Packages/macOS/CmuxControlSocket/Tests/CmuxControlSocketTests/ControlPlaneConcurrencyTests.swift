@@ -216,6 +216,14 @@ struct ControlPlaneConcurrencyTests {
         #expect(
             ControlCommandExecutionPolicy.pollingMethods.contains("system.top")
         )
+        for method in [
+            "subrouter.status",
+            "subrouter.accounts",
+            "subrouter.usage",
+            "subrouter.sessions",
+        ] {
+            #expect(ControlCommandExecutionPolicy.pollingMethods.contains(method))
+        }
         #expect(
             !ControlCommandExecutionPolicy.pollingMethods.contains("workspace.create")
         )

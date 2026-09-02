@@ -14,10 +14,18 @@ import SwiftUI
 public struct SettingsWindowRoot: View {
     private let runtime: SettingsRuntime
     private let searchIndex: SettingsSearchIndex
+    private let visibleSections: Set<SettingsSectionID>
 
-    public init(runtime: SettingsRuntime) {
+    public init(
+        runtime: SettingsRuntime,
+        visibleSections: Set<SettingsSectionID>? = nil
+    ) {
         self.runtime = runtime
-        self.searchIndex = runtime.searchIndex
+        let resolvedSections = visibleSections ?? runtime.visibleSections
+        self.visibleSections = resolvedSections
+        self.searchIndex = visibleSections == nil
+            ? runtime.searchIndex
+            : SettingsSearchIndex(catalog: runtime.catalog, visibleSections: resolvedSections)
     }
 
     @State private var searchText: String = ""
@@ -495,13 +503,19 @@ public struct SettingsWindowRoot: View {
         )
         .id(anchorID(for: .automation))
 
-        ComputerUseSection(
-            jsonStore: jsonStore,
-            catalog: catalog,
-            errorLog: runtime.errorLog,
-            hostActions: hostActions
-        )
-        .id(anchorID(for: .computerUse))
+        if visibleSections.contains(.subrouter) {
+            SubrouterSection(defaultsStore: defaultsStore, catalog: catalog)
+                .id(anchorID(for: .subrouter))
+        }
+        if visibleSections.contains(.computerUse) {
+            ComputerUseSection(
+                jsonStore: jsonStore,
+                catalog: catalog,
+                errorLog: runtime.errorLog,
+                hostActions: hostActions
+            )
+            .id(anchorID(for: .computerUse))
+        }
 
         BrowserSection(
             defaultsStore: defaultsStore,

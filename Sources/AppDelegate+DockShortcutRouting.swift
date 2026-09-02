@@ -84,6 +84,7 @@ extension KeyboardShortcutSettings.Action {
              .switchRightSidebarToSessions,
              .switchRightSidebarToFeed,
              .switchRightSidebarToDock,
+             .switchRightSidebarToAgents,
              .switchRightSidebarToMachines,
              .nextSidebarTab, .prevSidebarTab,
              .nextSidebarTabInGroup, .prevSidebarTabInGroup,

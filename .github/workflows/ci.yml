@@ -1725,6 +1725,8 @@ jobs:
             CmuxNotifications
             CmuxSettings
             CmuxSettingsUI
+            CmuxSubrouter
+            CmuxSubrouterUI
             CmuxTerminal
             CmuxTerminalCore
             CmuxUpdater

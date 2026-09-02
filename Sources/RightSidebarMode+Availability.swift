@@ -14,6 +14,8 @@ extension RightSidebarMode {
             return .feed
         case "dock":
             return .dock
+        case "agents", "subrouter":
+            return .agents
         case "cloud", "machines", "vms":
             return .machines
         case "custom", "custom-sidebar":
@@ -24,32 +26,87 @@ extension RightSidebarMode {
     }
 
     static func availableModes(defaults: UserDefaults = .standard) -> [RightSidebarMode] {
-        availableModes(
+        let settings = SubrouterIntegrationSettings(defaults: defaults)
+        return availableModes(
             feedEnabled: RightSidebarBetaFeatureSettings.isFeedEnabled(defaults: defaults),
             dockEnabled: RightSidebarBetaFeatureSettings.isDockEnabled(defaults: defaults),
+            agentsEnabled: settings.isEnabled
+                && settings.hasValidEndpointSetting
+                && SubrouterAppRuntime.isRuntimeEnabledForAvailability,
             machinesEnabled: CloudMachinesFeature.offMainIsEnabled(defaults: defaults)
         )
     }
 
+    static func availableModes(feedEnabled: Bool, dockEnabled: Bool, agentsEnabled: Bool) -> [RightSidebarMode] {
+        availableModes(
+            feedEnabled: feedEnabled,
+            dockEnabled: dockEnabled,
+            agentsEnabled: agentsEnabled,
+            machinesEnabled: false
+        )
+    }
+
     static func availableModes(feedEnabled: Bool, dockEnabled: Bool, machinesEnabled: Bool) -> [RightSidebarMode] {
+        availableModes(
+            feedEnabled: feedEnabled,
+            dockEnabled: dockEnabled,
+            agentsEnabled: false,
+            machinesEnabled: machinesEnabled
+        )
+    }
+
+    static func availableModes(
+        feedEnabled: Bool,
+        dockEnabled: Bool,
+        agentsEnabled: Bool,
+        machinesEnabled: Bool
+    ) -> [RightSidebarMode] {
         allCases.filter {
             $0.isAvailable(
                 feedEnabled: feedEnabled,
                 dockEnabled: dockEnabled,
+                agentsEnabled: agentsEnabled,
                 machinesEnabled: machinesEnabled
             )
         }
     }
 
     func isAvailable(defaults: UserDefaults = .standard) -> Bool {
-        isAvailable(
+        let settings = SubrouterIntegrationSettings(defaults: defaults)
+        return isAvailable(
             feedEnabled: RightSidebarBetaFeatureSettings.isFeedEnabled(defaults: defaults),
             dockEnabled: RightSidebarBetaFeatureSettings.isDockEnabled(defaults: defaults),
+            agentsEnabled: settings.isEnabled
+                && settings.hasValidEndpointSetting
+                && SubrouterAppRuntime.isRuntimeEnabledForAvailability,
             machinesEnabled: CloudMachinesFeature.offMainIsEnabled(defaults: defaults)
         )
     }
 
+    func isAvailable(feedEnabled: Bool, dockEnabled: Bool, agentsEnabled: Bool) -> Bool {
+        isAvailable(
+            feedEnabled: feedEnabled,
+            dockEnabled: dockEnabled,
+            agentsEnabled: agentsEnabled,
+            machinesEnabled: false
+        )
+    }
+
     func isAvailable(feedEnabled: Bool, dockEnabled: Bool, machinesEnabled: Bool) -> Bool {
+        isAvailable(
+            feedEnabled: feedEnabled,
+            dockEnabled: dockEnabled,
+            agentsEnabled: false,
+            machinesEnabled: machinesEnabled
+        )
+    }
+
+    func isAvailable(
+        feedEnabled: Bool,
+        dockEnabled: Bool,
+        agentsEnabled: Bool,
+        machinesEnabled: Bool
+    ) -> Bool {
         switch self {
         case .files, .find, .sessions:
             return true
@@ -57,12 +114,13 @@ extension RightSidebarMode {
             return feedEnabled
         case .dock:
             return dockEnabled
+        case .agents:
+            return agentsEnabled
         case .machines:
             return machinesEnabled
         case .customSidebar:
             // Available once the custom-sidebars beta is on AND a right-side
-            // sidebar has been picked (right_sidebar set custom <name>); the
-            // mode bar then grows a Custom button.
+            // sidebar has been picked (right_sidebar set custom <name>).
             return CmuxExtensionSidebarSelection.customSidebarsEnabled
                 && FileExplorerState.persistedCustomSidebarName() != nil
         }

@@ -8,3 +8,6 @@
 [submodule "vendor/bonsplit"]
 	path = vendor/bonsplit
 	url = https://github.com/manaflow-ai/bonsplit.git
+[submodule "subrouter"]
+	path = subrouter
+	url = https://github.com/manaflow-ai/subrouter.git
