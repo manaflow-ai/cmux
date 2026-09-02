@@ -352,12 +352,17 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
             let authoritative = cloudState?.snapshotObject() ?? object
             tabByTerminal = CmuxTuiSnapshotParser.tabByTerminal(fromSnapshot: authoritative)
             tabNameByID = CmuxTuiSnapshotParser.tabNames(fromSnapshot: authoritative)
-            if cloudState?.cursor == nil {
+            if let cursor = cloudState?.cursor {
+                await link.setEventsCursor(cursor)
+                // This is deliberately adjacent to the mode check. A legacy
+                // snapshot suspends the reader; the first accepted versioned
+                // snapshot must reopen it on the same refresh, not wait for a
+                // later reconnect or optional lookup.
+                await link.resumeEventsSubscription(from: cursor)
+            } else {
                 // Keep legacy VMs readable, but do not consume an event stream
                 // whose items cannot be ordered against the installed snapshot.
                 await link.suspendEventsSubscription()
-            } else {
-                await link.setEventsCursor(cloudState?.cursor)
             }
             let needsSurfaceIDRefresh = !manualMirrorSessions.isEmpty
                 && (manualMirrorSurfaceIDsSocketPath != connected.socketPath
@@ -391,9 +396,6 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
             for session in manualMirrorSessions.values
             where reconnectableSessionIDs.contains(ObjectIdentifier(session)) {
                 session.reconnect(socketPath: connected.socketPath)
-            }
-            if let cursor = cloudState?.cursor {
-                await link.resumeEventsSubscription(from: cursor)
             }
             currentPorts = await ports(client: client, force: force)
         } catch {
