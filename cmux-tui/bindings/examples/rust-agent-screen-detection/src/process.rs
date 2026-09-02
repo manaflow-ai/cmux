@@ -900,6 +900,24 @@ mod platform {
         use super::*;
 
         #[test]
+        fn proc_file_reader_enforces_the_limit_before_parsing() {
+            let path = std::env::temp_dir().join(format!(
+                "cmux-agent-screen-detection-proc-read-{}-{}",
+                std::process::id(),
+                std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .expect("system clock should be after the Unix epoch")
+                    .as_nanos()
+            ));
+            std::fs::write(&path, b"four").expect("write temporary proc fixture");
+
+            assert_eq!(read_proc_file(&path, 4), Some(b"four".to_vec()));
+            assert_eq!(read_proc_file(&path, 3), None);
+
+            std::fs::remove_file(path).expect("remove temporary proc fixture");
+        }
+
+        #[test]
         fn process_detection_mode_requires_explicit_child_groups_value() {
             assert_eq!(parse_process_detection_mode(None), Ok(ProcessDetectionMode::Native));
             assert_eq!(
