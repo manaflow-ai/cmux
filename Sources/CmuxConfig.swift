@@ -1737,6 +1737,7 @@ final class CmuxConfigStore: ObservableObject {
     private struct ParsedConfigCacheEntry {
         let fileSize: UInt64
         let modificationDate: Date?
+        let contentDigest: Data
         let workspaceColorPaletteFingerprint: String
         let config: CmuxConfigFile?
         let issue: CmuxConfigIssue?
@@ -2938,6 +2939,8 @@ final class CmuxConfigStore: ObservableObject {
         let attributes = try? fileManager.attributesOfItem(atPath: path)
         let fileSize = (attributes?[.size] as? NSNumber)?.uint64Value ?? 0
         let modificationDate = attributes?[.modificationDate] as? Date
+        let data = fileManager.contents(atPath: path) ?? Data()
+        let contentDigest = Data(SHA256.hash(data: data))
         let paletteFingerprint = WorkspaceTabColorSettings.paletteCacheFingerprint(
             defaults: workspaceColorDefaults
         )
@@ -2945,16 +2948,17 @@ final class CmuxConfigStore: ObservableObject {
         if let cached = parsedConfigCache[path],
            cached.fileSize == fileSize,
            cached.modificationDate == modificationDate,
+           cached.contentDigest == contentDigest,
            cached.workspaceColorPaletteFingerprint == paletteFingerprint {
             return ParsedConfigResult(config: cached.config, issue: cached.issue)
         }
 
-        guard let data = fileManager.contents(atPath: path),
-              !data.isEmpty else {
+        guard !data.isEmpty else {
             let issue = schemaIssue(path: path, message: "cmux.json is empty")
             parsedConfigCache[path] = ParsedConfigCacheEntry(
                 fileSize: fileSize,
                 modificationDate: modificationDate,
+                contentDigest: contentDigest,
                 workspaceColorPaletteFingerprint: paletteFingerprint,
                 config: nil,
                 issue: issue
@@ -2969,6 +2973,7 @@ final class CmuxConfigStore: ObservableObject {
             parsedConfigCache[path] = ParsedConfigCacheEntry(
                 fileSize: fileSize,
                 modificationDate: modificationDate,
+                contentDigest: contentDigest,
                 workspaceColorPaletteFingerprint: paletteFingerprint,
                 config: nil,
                 issue: issue
@@ -2990,6 +2995,7 @@ final class CmuxConfigStore: ObservableObject {
             parsedConfigCache[path] = ParsedConfigCacheEntry(
                 fileSize: fileSize,
                 modificationDate: modificationDate,
+                contentDigest: contentDigest,
                 workspaceColorPaletteFingerprint: paletteFingerprint,
                 config: decoded.config,
                 issue: issue
@@ -3005,6 +3011,7 @@ final class CmuxConfigStore: ObservableObject {
             parsedConfigCache[path] = ParsedConfigCacheEntry(
                 fileSize: fileSize,
                 modificationDate: modificationDate,
+                contentDigest: contentDigest,
                 workspaceColorPaletteFingerprint: paletteFingerprint,
                 config: nil,
                 issue: issue

@@ -165,6 +165,45 @@ struct CmuxConfigLayoutEntryTests {
         #expect(config.commandDecodingIssues.count == 2)
     }
 
+    @MainActor
+    @Test func configParseCacheInvalidatesForSameSizeAndModificationDate() throws {
+        let defaultsSuite = "cmux-config-digest-defaults-\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: defaultsSuite))
+        defer { defaults.removePersistentDomain(forName: defaultsSuite) }
+
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(
+            "cmux-config-digest-\(UUID().uuidString)",
+            isDirectory: true
+        )
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let configURL = root.appendingPathComponent("cmux.json")
+        let first = #"{"commands":[{"name":"first","command":"echo 1"}]}"#
+        let second = #"{"commands":[{"name":"other","command":"echo 2"}]}"#
+        #expect(first.utf8.count == second.utf8.count)
+        try Data(first.utf8).write(to: configURL)
+        let modificationDate = try #require(
+            FileManager.default.attributesOfItem(atPath: configURL.path)[.modificationDate] as? Date
+        )
+
+        let store = CmuxConfigStore(
+            globalConfigPath: configURL.path,
+            startFileWatchers: false,
+            workspaceColorDefaults: defaults
+        )
+        store.loadAll()
+        #expect(store.loadedCommands.map(\.name) == ["first"])
+
+        try Data(second.utf8).write(to: configURL)
+        try FileManager.default.setAttributes(
+            [.modificationDate: modificationDate],
+            ofItemAtPath: configURL.path
+        )
+        store.loadAll()
+        #expect(store.loadedCommands.map(\.name) == ["other"])
+    }
+
     @Test func typeValidatorMatchesRuntimeColorNormalization() throws {
         let object = try JSONSerialization.jsonObject(
             with: Data(#"{"commands":[{"name":"layout","color":"  #336699  ","layout":{"pane":{"surfaces":[{"type":"terminal"}]}}}]}"#.utf8)
