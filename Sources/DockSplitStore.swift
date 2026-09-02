@@ -1253,7 +1253,7 @@ final class DockSplitStore: BonsplitDelegate, FilePreviewTabMetadataHost {
         fallback: String? = nil,
         transferOverride: Workspace.DetachedSurfaceTransfer? = nil
     ) -> (title: String, hasUserOwnedTitle: Bool)? {
-        guard let terminal = panels[panelId] as? TerminalPanel,
+        guard panels[panelId] is TerminalPanel,
               let tabId = surfaceId(forPanelId: panelId),
               let existing = bonsplitController.tab(tabId) else {
             return nil
@@ -1315,7 +1315,7 @@ final class DockSplitStore: BonsplitDelegate, FilePreviewTabMetadataHost {
                 false
             )
         }
-        return (terminal.displayTitle, false)
+        return (existing.title, false)
     }
 
     /// Projects Codex lifecycle state onto one Dock terminal tab.

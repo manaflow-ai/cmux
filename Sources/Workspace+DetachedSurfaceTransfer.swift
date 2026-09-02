@@ -40,8 +40,8 @@ extension Workspace {
         var ttyNameWasReportedByCurrentRuntime: Bool = false
         var ttyReportRuntimeSurfaceGeneration: UInt64? = nil
         let cachedTitle: String?
-        let customTitle: String?
-        let customTitleSource: Workspace.CustomTitleSource?
+        var customTitle: String?
+        var customTitleSource: Workspace.CustomTitleSource?
         let manuallyUnread: Bool
         let restoredUnreadIndicator: RestoredPanelUnreadIndicator?
         let restorableAgent: SessionRestorableAgentSnapshot?
