@@ -159,7 +159,12 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
 
           # Signals go through xargs in bounded batches so a very wide tree can
           # never exceed the exec argument limit and silently skip the sweep.
+          # The root is frozen before the first snapshot, so a snapshot that
+          # holds only the root is already stable; a wider set is frozen and
+          # rescanned until it stops growing, and the final set is frozen once
+          # more before the kill so nothing found by the last rescan can fork.
           cmux_ssh_kill_auth_subtree() (
+            /bin/kill -STOP "$1" >/dev/null 2>&1 || exit 0
             cmux_ssh_auth_subtree_pids=$(cmux_ssh_list_auth_subtree "$1")
             [ -n "$cmux_ssh_auth_subtree_pids" ] || cmux_ssh_auth_subtree_pids="$1"
             cmux_ssh_auth_subtree_rescan=0
@@ -171,6 +176,7 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
               cmux_ssh_auth_subtree_pids="$cmux_ssh_auth_subtree_rescanned"
               cmux_ssh_auth_subtree_rescan=$((cmux_ssh_auth_subtree_rescan + 1))
             done
+            printf '%s ' $cmux_ssh_auth_subtree_pids | /usr/bin/xargs -n 256 /bin/kill -STOP >/dev/null 2>&1 || true
             printf '%s ' $cmux_ssh_auth_subtree_pids | /usr/bin/xargs -n 256 /bin/kill -KILL >/dev/null 2>&1 || true
             printf '%s ' $cmux_ssh_auth_subtree_pids | /usr/bin/xargs -n 256 /bin/kill -CONT >/dev/null 2>&1 || true
           )
