@@ -202,6 +202,7 @@
         "name": "cmux Pro",
         "activeBody": "プランは{date}に更新されます。",
         "pendingBody": "プランは{date}に終了する予定です。",
+        "entitledBody": "cmux Proアクセスは有効です。",
         "monthlyPrice": "${amount}/月",
         "annualPrice": "${monthly}/月（年払い）",
         "grantedBody": "このアカウントの Pro アクセスは cmux チームによって付与されています。管理するサブスクリプションはありません。"
@@ -245,18 +246,18 @@
     "testflight": {
       "eyebrow": "アカウント",
       "title": "iOS TestFlight",
-      "description": "有効なサブスクリプションでcmux iOSベータに参加します。",
+      "description": "Proの権利でcmux iOSベータに参加します。",
       "banners": {
         "joined": "AppleからTestFlightの招待メールがまもなく届きます。",
         "left": "iOS TestFlightグループから退出しました。",
         "error": "TestFlightを更新できませんでした。しばらくしてから再試行してください。",
-        "ineligible": "iOS TestFlightには有効な個人Proサブスクリプションが必要です。",
+        "ineligible": "iOS TestFlightにはcmux Proの権利が必要です。",
         "needs_email": "iOS TestFlightに参加する前に、確認済みのメインメールを追加してください。",
         "unavailable": "現在、TestFlight登録は利用できません。"
       },
       "notEligible": {
         "title": "サブスクリプションが必要です",
-        "body": "iOS TestFlightアクセスは、有効な個人Proサブスクリプションのユーザーが利用できます。"
+        "body": "iOS TestFlightアクセスは、cmux Proの権利があれば利用できます。"
       },
       "needsEmail": {
         "title": "確認済みメールが必要です",
@@ -273,7 +274,7 @@
       "enrolled": {
         "title": "登録済みです",
         "body": "{email}はcmux iOS TestFlightグループに登録されています。",
-        "lapseNote": "サブスクリプションが失効すると、アクセスは自動的に終了します。"
+        "lapseNote": "TestFlightアクセスはcmux Proの権利に従います。"
       },
       "details": {
         "email": "メール",

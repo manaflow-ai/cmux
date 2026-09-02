@@ -53,6 +53,64 @@ describe("coderouter entitlement", () => {
       accountCount: 7,
     });
   });
+
+  test("a Founder personal entitlement covers a team over the free limit", async () => {
+    const hasActiveSubscription = mock(async (...args: unknown[]) =>
+      args[2] === "founders",
+    );
+    const check = createCoderouterEntitlementCheck({
+      countAccounts: async () => 7,
+      hasActiveSubscription: hasActiveSubscription as never,
+    });
+
+    await expect(check("user_1", "team_1", "founders", false)).resolves.toEqual({
+      allowed: true,
+      basis: "subscription",
+      accountCount: 7,
+    });
+    expect(hasActiveSubscription).toHaveBeenCalledWith(
+      "user_1",
+      "team_1",
+      "founders",
+      false,
+    );
+  });
+
+  test("a durable Founder row remains effective after metadata normalizes to Pro", async () => {
+    const check = createCoderouterEntitlementCheck({
+      countAccounts: async () => 7,
+      hasActiveSubscription: async (
+        _userId,
+        _teamId,
+        userBillingPlanId,
+        userHasManualVmPlanOverride,
+      ) => userBillingPlanId === "pro" && userHasManualVmPlanOverride === false,
+    });
+
+    await expect(check("user_1", "team_1", "pro", false)).resolves.toEqual({
+      allowed: true,
+      basis: "subscription",
+      accountCount: 7,
+    });
+  });
+
+  test("a non-Founder VM override suppresses a durable Founder row", async () => {
+    const check = createCoderouterEntitlementCheck({
+      countAccounts: async () => 7,
+      hasActiveSubscription: async (
+        _userId,
+        _teamId,
+        _userBillingPlanId,
+        userHasManualVmPlanOverride,
+      ) => userHasManualVmPlanOverride !== true,
+    });
+
+    await expect(check("user_1", "team_1", "free", true)).resolves.toEqual({
+      allowed: false,
+      basis: "pro_required",
+      accountCount: 7,
+    });
+  });
 });
 
 describe("coderouter account addition gate", () => {
@@ -94,6 +152,19 @@ describe("coderouter account addition gate", () => {
       findExisting: async () => null,
     });
     await expect(gate(input)).resolves.toEqual({
+      allowed: true,
+      accountCount: 3,
+    });
+  });
+
+  test("allows a fourth account for a Founder personal entitlement", async () => {
+    const gate = createAccountAdditionGate({
+      countAccounts: async () => 3,
+      hasActiveSubscription: async (_userId, _teamId, userBillingPlanId) =>
+        userBillingPlanId === "founders",
+      findExisting: async () => null,
+    });
+    await expect(gate({ ...input, userBillingPlanId: "founders" })).resolves.toEqual({
       allowed: true,
       accountCount: 3,
     });

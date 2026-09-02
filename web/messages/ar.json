@@ -337,6 +337,9 @@
         "free": "مجاني",
         "pro": "Pro",
         "loading": "جارٍ التحميل…"
+      },
+      "pro": {
+        "entitledBody": "تم تفعيل وصولك إلى cmux Pro."
       }
     }
   },

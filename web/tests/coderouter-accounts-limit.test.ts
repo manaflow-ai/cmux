@@ -61,6 +61,41 @@ describe("coderouter account addition limit", () => {
     expect(response.status).toBe(201);
   });
 
+  test("passes a Founder personal plan to the account addition gate", async () => {
+    const additionAllowed = mock(async (...args: unknown[]) => {
+      const input = args[0] as { userBillingPlanId?: string | null };
+      return {
+        allowed: input.userBillingPlanId === "founders",
+        accountCount: 3,
+      };
+    });
+    const founderContext = {
+      ...context,
+      value: {
+        ...context.value,
+        user: {
+          ...context.value.user,
+          userBillingPlanId: "founders",
+          userHasManualVmPlanOverride: false,
+        },
+      },
+    };
+    const POST = makeCoderouterAccountsPostHandler({
+      resolveContext: mock(async () => founderContext) as never,
+      additionAllowed: additionAllowed as never,
+      add: async () => ({ accountId: "new", alreadyExists: false }),
+      hostedProRequired: () => true,
+    });
+
+    const response = await POST(addRequest());
+
+    expect(response.status).toBe(201);
+    expect(additionAllowed).toHaveBeenCalledWith(expect.objectContaining({
+      userBillingPlanId: "founders",
+      userHasManualVmPlanOverride: false,
+    }));
+  });
+
   test("fails closed with a retryable error when the gate is unavailable", async () => {
     const add = mock(async () => ({ accountId: "new", alreadyExists: false }));
     const POST = makeCoderouterAccountsPostHandler({

@@ -56,7 +56,12 @@ describe("promoteImageManifestEntry", () => {
         defaultForLocalDev: true,
       }),
       passedEntry({ version: "freestyle-old-base", imageId: "sh-old", kind: "base", defaultForKind: true }),
-      passedEntry({ provider: "e2b", version: "e2b-x", imageId: "cmux-devbox:x", envVar: "E2B_CMUXD_WS_TEMPLATE", kind: "base", defaultForKind: true }),
+      // Legacy provider rows remain valid manifest data even though the active
+      // provider union only permits Freestyle for new bake entries.
+      ({
+        ...passedEntry({ version: "e2b-x", imageId: "cmux-devbox:x", envVar: "E2B_CMUXD_WS_TEMPLATE", kind: "base", defaultForKind: true }),
+        provider: "e2b",
+      } as unknown as DevboxManifestEntry),
     ],
   };
 
@@ -121,10 +126,8 @@ describe("imageManifestProblems", () => {
       ],
     };
     const problems = imageManifestProblems(bad);
-    expect(problems).toEqual(expect.arrayContaining([
-      expect.stringContaining("b: defaultForKind but validationStatus is unknown"),
-      expect.stringContaining("freestyle/base: 2 entries flagged defaultForKind"),
-      expect.stringContaining("freestyle/d: version listed more than once"),
-    ]));
+    expect(problems.some((problem) => problem.includes("b: defaultForKind but validationStatus is unknown"))).toBe(true);
+    expect(problems.some((problem) => problem.includes("freestyle/base: 2 entries flagged defaultForKind"))).toBe(true);
+    expect(problems.some((problem) => problem.includes("freestyle/d: version listed more than once"))).toBe(true);
   });
 });

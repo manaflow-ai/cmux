@@ -18,7 +18,12 @@ export type CoderouterEntitlement = {
 
 export type CoderouterEntitlementDependencies = {
   readonly countAccounts: typeof countAccountsForTeam;
-  readonly hasActiveSubscription: typeof hasActiveCoderouterSubscription;
+  readonly hasActiveSubscription: (
+    stackUserId: string,
+    teamId: string,
+    userBillingPlanId?: string | null,
+    userHasManualVmPlanOverride?: boolean,
+  ) => Promise<boolean>;
 };
 
 /**
@@ -28,8 +33,18 @@ export type CoderouterEntitlementDependencies = {
  */
 export function createCoderouterEntitlementCheck(
   dependencies: CoderouterEntitlementDependencies,
-): (stackUserId: string, teamId: string) => Promise<CoderouterEntitlement> {
-  return async (stackUserId, teamId) => {
+): (
+  stackUserId: string,
+  teamId: string,
+  userBillingPlanId?: string | null,
+  userHasManualVmPlanOverride?: boolean,
+) => Promise<CoderouterEntitlement> {
+  return async (
+    stackUserId,
+    teamId,
+    userBillingPlanId,
+    userHasManualVmPlanOverride,
+  ) => {
     const accountCount = await dependencies.countAccounts(teamId);
     if (accountCount <= CODEROUTER_FREE_ACCOUNT_LIMIT) {
       return { allowed: true, basis: "free_tier", accountCount };
@@ -37,6 +52,8 @@ export function createCoderouterEntitlementCheck(
     const subscribed = await dependencies.hasActiveSubscription(
       stackUserId,
       teamId,
+      userBillingPlanId,
+      userHasManualVmPlanOverride,
     );
     return subscribed
       ? { allowed: true, basis: "subscription", accountCount }
@@ -72,6 +89,8 @@ export function createAccountAdditionGate(
 ): (input: {
   stackUserId: string;
   teamId: string;
+  userBillingPlanId?: string | null;
+  userHasManualVmPlanOverride?: boolean;
   provider: CodeRouterProvider;
   providerAccountId: string;
 }) => Promise<AccountAdditionDecision> {
@@ -89,6 +108,8 @@ export function createAccountAdditionGate(
     const subscribed = await dependencies.hasActiveSubscription(
       input.stackUserId,
       input.teamId,
+      input.userBillingPlanId,
+      input.userHasManualVmPlanOverride,
     );
     return { allowed: subscribed, accountCount };
   };

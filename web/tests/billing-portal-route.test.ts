@@ -14,7 +14,10 @@ const stripeModule = await import("../services/billing/stripe");
 const signedInUser = {
   id: "user-pro",
   isAnonymous: false,
-  clientReadOnlyMetadata: {},
+  isRestricted: false,
+  primaryEmail: null as string | null,
+  primaryEmailVerified: false,
+  clientReadOnlyMetadata: {} as Record<string, unknown>,
   selectedTeam: null as null | { id: string; displayName?: string },
   listTeams: mock(async () => [] as Array<{ id: string; displayName?: string }>),
   update: mock(async () => undefined),
@@ -31,7 +34,10 @@ let stripeConfigured = true;
 let returnNullUser: unknown = signedInUser;
 let anonymousIfExistsUser: unknown = null;
 let customerRows: { id: string }[] = [{ id: "cus_123" }];
-let stripeSubscriptionRows: { id: string }[] = [];
+let stripeSubscriptionRows: Array<{
+  id: string;
+  raw?: Record<string, unknown> | null;
+}> = [];
 
 const getUser = mock(async (options?: unknown) => {
   const or =
@@ -100,10 +106,19 @@ describe("billing portal route", () => {
     returnNullUser = signedInUser;
     anonymousIfExistsUser = null;
     customerRows = [{ id: "cus_123" }];
-    stripeSubscriptionRows = [];
+    stripeSubscriptionRows = [{
+      id: "sub_123",
+      raw: { metadata: { app: "cmux", plan: "pro" } },
+    }];
     signedInUser.selectedTeam = null;
+    signedInUser.isAnonymous = false;
+    signedInUser.isRestricted = false;
+    signedInUser.primaryEmail = null;
+    signedInUser.primaryEmailVerified = false;
+    signedInUser.clientReadOnlyMetadata = {};
     signedInUser.listTeams.mockClear();
     getUser.mockClear();
+    mockImplementation(signedInUser.update, async () => undefined);
     signedInUser.update.mockClear();
     anonymousUser.update.mockClear();
     createPortalSession.mockClear();
@@ -127,6 +142,62 @@ describe("billing portal route", () => {
       return_url: "https://cmux.test/pricing",
     });
     expect(getUser).toHaveBeenCalledWith({ or: "return-null" });
+  });
+
+  test("opens a valid Stripe portal when metadata reconciliation would fail", async () => {
+    signedInUser.primaryEmail = "pro@example.com";
+    signedInUser.primaryEmailVerified = true;
+    signedInUser.isAnonymous = false;
+    signedInUser.isRestricted = false;
+    mockImplementation(signedInUser.update, async () => {
+      throw new Error("metadata update unavailable");
+    });
+
+    const response = await GET(
+      new NextRequest("https://cmux.test/api/billing/portal"),
+    );
+
+    expect(response.status).toBe(302);
+    expect(response.headers.get("location")).toBe(
+      "https://billing.stripe.com/session/test",
+    );
+    expect(createPortalSession).toHaveBeenCalled();
+  });
+
+  test("does not open the Stripe portal for a Founder-only entitlement", async () => {
+    signedInUser.clientReadOnlyMetadata = { cmuxVmPlan: "founders" };
+    stripeSubscriptionRows = [{
+      id: "sub_founder_only",
+      raw: { metadata: { founders_edition: "true" } },
+    }];
+
+    const response = await GET(
+      new NextRequest("https://cmux.test/api/billing/portal"),
+    );
+
+    expect(response.status).toBe(302);
+    expect(response.headers.get("location")).toBe(
+      "https://cmux.test/pricing?billing=unavailable",
+    );
+    expect(createPortalSession).not.toHaveBeenCalled();
+  });
+
+  test("keeps the portal available when a Founder also has a real Stripe subscription", async () => {
+    signedInUser.clientReadOnlyMetadata = { cmuxVmPlan: "founders" };
+    stripeSubscriptionRows = [{ id: "sub_founder_pro" }];
+
+    const response = await GET(
+      new NextRequest("https://cmux.test/api/billing/portal"),
+    );
+
+    expect(response.status).toBe(302);
+    expect(response.headers.get("location")).toBe(
+      "https://billing.stripe.com/session/test",
+    );
+    expect(createPortalSession).toHaveBeenCalledWith({
+      customer: "cus_123",
+      return_url: "https://cmux.test/pricing",
+    });
   });
 
   test("App Store portal block redirects to the direct dev-backend origin", async () => {
@@ -258,6 +329,7 @@ describe("billing portal route", () => {
 
   test("redirects users without a Stripe customer row to billing unavailable", async () => {
     customerRows = [];
+    stripeSubscriptionRows = [];
 
     const response = await GET(
       new NextRequest("https://cmux.test/api/billing/portal"),

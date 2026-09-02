@@ -60,6 +60,29 @@ describe("mintVmModelPlaneEnv", () => {
     expect(env).toBeNull();
   });
 
+  test("passes the Founder personal plan to hosted entitlement checks", async () => {
+    let receivedPlan: string | null | undefined;
+    const env = await mintVmModelPlaneEnv(
+      {
+        teamId: "team-1",
+        stackUserId: "user-1",
+        userBillingPlanId: "pro",
+        userHasManualVmPlanOverride: false,
+        requestUrl: "https://cmux.example/api/vm",
+      },
+      deps({
+        hostedProRequired: () => true,
+        entitlement: (async (...args: unknown[]) => {
+          receivedPlan = args[2] as string | null | undefined;
+          return { allowed: true, basis: "subscription", accountCount: 9 };
+        }) as never,
+      }),
+    );
+
+    expect(env?.OPENAI_API_KEY).toBe("crt_test-token");
+    expect(receivedPlan).toBe("pro");
+  });
+
   test("skips the entitlement read when hosted gating is off", async () => {
     let entitlementCalls = 0;
     await mintVmModelPlaneEnv(

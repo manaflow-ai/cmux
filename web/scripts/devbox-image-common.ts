@@ -317,7 +317,7 @@ export type PromoteImageOptions = {
   readonly validationNotes?: string;
 };
 
-function sizeKey(entry: Pick<DevboxManifestEntry, "size">): string {
+function sizeKey(entry: Pick<DevboxManifestEntry, "size">): "" | VmImageSizeName {
   return entry.size?.name ?? "";
 }
 

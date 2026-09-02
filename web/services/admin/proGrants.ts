@@ -1061,4 +1061,3 @@ async function retryRevokedGrantCleanup(
 function isMissingDatabaseConfigError(error: unknown): boolean {
   return error instanceof Error && /DATABASE_URL is required/.test(error.message);
 }
-

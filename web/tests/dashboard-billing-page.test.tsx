@@ -154,6 +154,60 @@ describe("dashboard billing page", () => {
     expect(html).toContain('href="/api/billing/portal"');
   });
 
+  test("renders a Founder entitlement as cmux Pro without subscription controls or an upsell", async () => {
+    proUser.clientReadOnlyMetadata = { cmuxVmPlan: "founders" };
+
+    const html = await renderBillingPage();
+
+    expect(html).toContain("cmux Pro");
+    expect(html).not.toContain("You are currently on the Free plan.");
+    expect(html).not.toContain("Upgrade when you need cloud agents or shared CodeRouter.");
+    expect(html).not.toContain("/api/billing/checkout?plan=pro");
+    expect(html).not.toContain("/api/billing/subscription");
+    expect(html).not.toContain("/api/billing/portal");
+  });
+
+  test("does not expose Stripe management for a durable Founder row with a customer", async () => {
+    subscriptionRows = [{
+      ...stripeSubscriptionRow({ cancelAtPeriodEnd: false }),
+      raw: { metadata: { founders_edition: "true" } },
+    }];
+    customerRows = [{ id: "cus_founder" }];
+
+    const html = await renderBillingPage();
+
+    expect(html).toContain("cmux Pro");
+    expect(html).not.toContain("/api/billing/subscription");
+    expect(html).not.toContain("/api/billing/portal");
+  });
+
+  test("keeps a Founder personal plan alongside a Team subscription", async () => {
+    proUser.clientReadOnlyMetadata = { cmuxVmPlan: "founders" };
+    proUser.selectedTeam = { id: "team-founder", displayName: "Founder Team" };
+    subscriptionResults = [
+      [],
+      [],
+      [],
+      [
+        stripeSubscriptionRow({
+          cancelAtPeriodEnd: false,
+          plan: "team",
+          scope: "team",
+          seats: 2,
+        }),
+      ],
+    ];
+    customerRows = [{ id: "cus_team" }];
+
+    const html = await renderBillingPage();
+
+    expect(html).toContain("cmux Pro");
+    expect(html).toContain("cmux Team");
+    expect(html).toContain("Founder Team renews on");
+    expect(html).not.toContain("Upgrade when you need cloud agents or shared CodeRouter.");
+    expect(html).not.toContain("/api/billing/checkout?plan=pro");
+  });
+
   test("prices every Stripe Pro subscription from its own price amount", async () => {
     customerRows = [{ id: "cus_123" }];
     const cases: Array<[string | undefined, number, "month" | "year", string]> = [
@@ -228,6 +282,7 @@ describe("dashboard billing page", () => {
       [],
       [],
       [],
+      [],
       [
         stripeSubscriptionRow({
           cancelAtPeriodEnd: false,
@@ -258,6 +313,7 @@ describe("dashboard billing page", () => {
       [],
       [],
       [],
+      [],
       [
         stripeSubscriptionRow({
           cancelAtPeriodEnd: false,
@@ -281,6 +337,7 @@ describe("dashboard billing page", () => {
       [],
       [],
       [],
+      [],
       [
         stripeSubscriptionRow({
           cancelAtPeriodEnd: false,
@@ -298,6 +355,7 @@ describe("dashboard billing page", () => {
     expect(await renderBillingPage()).toContain("$35/seat/mo");
 
     subscriptionResults = [
+      [],
       [],
       [],
       [],
@@ -331,6 +389,7 @@ describe("dashboard billing page", () => {
       { id: "team-pro", displayName: "Team Pro", clientReadOnlyMetadata: { cmuxPlan: "team" } },
     ]);
     subscriptionResults = [
+      [],
       [],
       [],
       [],

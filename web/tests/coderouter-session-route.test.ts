@@ -175,4 +175,43 @@ describe("coderouter hosted entitlement", () => {
     expect(entitlement).toHaveBeenCalledWith("user_1", "team_1");
     expect(issueToken).toHaveBeenCalledWith("team_1", "user_1");
   });
+
+  test("passes a Founder personal plan to the hosted entitlement gate", async () => {
+    const issueToken = mock(async () => ({
+      token: "crt_founder",
+      expiresAt: new Date("2026-09-01T00:00:00Z"),
+    }));
+    const entitlement = mock(async (...args: unknown[]) => ({
+      allowed: args[2] === "pro" && args[3] === false,
+      basis: "subscription" as const,
+      accountCount: 5,
+    }));
+    const founderContext = {
+      ...context,
+      value: {
+        ...context.value,
+        user: {
+          ...context.value.user,
+          userBillingPlanId: "pro",
+          userHasManualVmPlanOverride: false,
+        },
+      },
+    };
+    const POST = makeCoderouterSessionPostHandler({
+      resolveContext: mock(async () => founderContext) as never,
+      entitlement: entitlement as never,
+      issueToken,
+      hostedProRequired: () => true,
+    });
+
+    const response = await POST(
+      new Request("https://coderouter.dev/api/coderouter/session", {
+        method: "POST",
+      }),
+    );
+
+    expect(response.status).toBe(200);
+    expect(entitlement).toHaveBeenCalledWith("user_1", "team_1", "pro", false);
+    expect(issueToken).toHaveBeenCalledWith("team_1", "user_1");
+  });
 });

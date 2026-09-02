@@ -22,10 +22,10 @@ function context(user: unknown) {
   return { request: new Request("http://localhost/api/rpc"), user } as never;
 }
 
-function fakeUser(email: string | null) {
+function fakeUser(email: string | null, clientReadOnlyMetadata: unknown = {}) {
   return {
     primaryEmail: email,
-    clientReadOnlyMetadata: {},
+    clientReadOnlyMetadata,
     update: async () => undefined,
   };
 }
@@ -50,6 +50,19 @@ describe("account.me", () => {
     });
     expect(result.email).toBe("");
     expect(result.planId).toBe("free");
+  });
+
+  test("normalizes a verified Founder entitlement to the Pro account plan", async () => {
+    const result = await call(accountMeProcedure, undefined, {
+      context: context(fakeUser("founder@example.com", { cmuxVmPlan: "founders" })),
+    });
+
+    expect(result).toMatchObject({
+      email: "founder@example.com",
+      planId: "pro",
+      isPro: true,
+      billingManagement: "none",
+    });
   });
 
   test("rejects unauthenticated callers before resolving a plan", async () => {

@@ -202,6 +202,7 @@
         "name": "cmux Pro",
         "activeBody": "Your plan renews on {date}.",
         "pendingBody": "Your plan is scheduled to end on {date}.",
+        "entitledBody": "Your cmux Pro access is active.",
         "monthlyPrice": "${amount}/mo",
         "annualPrice": "${monthly}/mo, billed annually",
         "grantedBody": "Pro access was granted to this account by the cmux team. There is no subscription to manage."
@@ -245,18 +246,18 @@
     "testflight": {
       "eyebrow": "account",
       "title": "iOS TestFlight",
-      "description": "join the cmux iOS beta from your active subscription.",
+      "description": "join the cmux iOS beta with your Pro entitlement.",
       "banners": {
         "joined": "Apple will email your TestFlight invite shortly.",
         "left": "You have left the iOS TestFlight group.",
         "error": "TestFlight could not be updated. Try again shortly.",
-        "ineligible": "An active personal Pro subscription is required for iOS TestFlight.",
+        "ineligible": "A cmux Pro entitlement is required for iOS TestFlight.",
         "needs_email": "Add a verified primary email before joining iOS TestFlight.",
         "unavailable": "TestFlight enrollment is not available right now."
       },
       "notEligible": {
         "title": "Subscription required",
-        "body": "iOS TestFlight access is available to active personal Pro subscribers."
+        "body": "iOS TestFlight access is available with a cmux Pro entitlement."
       },
       "needsEmail": {
         "title": "Verified email required",
@@ -273,7 +274,7 @@
       "enrolled": {
         "title": "You are enrolled",
         "body": "{email} is in the cmux iOS TestFlight group.",
-        "lapseNote": "Access ends automatically if your subscription lapses."
+        "lapseNote": "Your TestFlight access follows your cmux Pro entitlement."
       },
       "details": {
         "email": "Email",

@@ -121,6 +121,15 @@ export function makeCoderouterAccountsPostHandler(
       decision = await dependencies.additionAllowed({
         stackUserId: resolved.value.user.id,
         teamId: resolved.value.team.teamId,
+        ...(resolved.value.user.userBillingPlanId !== undefined
+          ? { userBillingPlanId: resolved.value.user.userBillingPlanId }
+          : {}),
+        ...(resolved.value.user.userHasManualVmPlanOverride !== undefined
+          ? {
+              userHasManualVmPlanOverride:
+                resolved.value.user.userHasManualVmPlanOverride,
+            }
+          : {}),
         provider: credential.provider,
         providerAccountId: credential.accountId,
       });

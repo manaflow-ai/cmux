@@ -108,7 +108,7 @@ describe("dashboard TestFlight page", () => {
     const html = await renderTestflightPage();
 
     expect(html).toContain("Subscription required");
-    expect(html).toContain("active personal Pro subscribers");
+    expect(html).toContain("cmux Pro entitlement");
     expect(html).toContain('href="/pricing"');
     expect(html).not.toContain("/api/testflight");
     expect(ascFetch).not.toHaveBeenCalled();
@@ -133,7 +133,7 @@ describe("dashboard TestFlight page", () => {
 
     expect(html).toContain("You are enrolled");
     expect(html).toContain("INVITED");
-    expect(html).toContain("Access ends automatically if your subscription lapses.");
+    expect(html).toContain("Your TestFlight access follows your cmux Pro entitlement.");
     expect(html).toContain('name="action" value="leave"');
   });
 
@@ -141,7 +141,7 @@ describe("dashboard TestFlight page", () => {
     ["joined", "Apple will email your TestFlight invite shortly."],
     ["left", "You have left the iOS TestFlight group."],
     ["error", "TestFlight could not be updated. Try again shortly."],
-    ["ineligible", "An active personal Pro subscription is required for iOS TestFlight."],
+    ["ineligible", "A cmux Pro entitlement is required for iOS TestFlight."],
     ["needs_email", "Add a verified primary email before joining iOS TestFlight."],
     ["unavailable", "TestFlight enrollment is not available right now."],
   ] as const) {
