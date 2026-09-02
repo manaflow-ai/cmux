@@ -3705,7 +3705,9 @@ fn prune_stale_dump_temps(directory: &fs::File, path: &Path) -> io::Result<()> {
         if !is_dump_temp {
             continue;
         }
-        let metadata = fs::symlink_metadata(entry.path())?;
+        let Some(metadata) = stale_dump_entry_metadata(&entry.path())? else {
+            continue;
+        };
         if !metadata.is_file() || metadata.uid() != uid || metadata.nlink() != 1 {
             continue;
         }
@@ -3730,6 +3732,15 @@ fn prune_stale_dump_temps(directory: &fs::File, path: &Path) -> io::Result<()> {
         }
     }
     Ok(())
+}
+
+#[cfg(unix)]
+fn stale_dump_entry_metadata(path: &Path) -> io::Result<Option<fs::Metadata>> {
+    match fs::symlink_metadata(path) {
+        Ok(metadata) => Ok(Some(metadata)),
+        Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(None),
+        Err(error) => Err(error),
+    }
 }
 
 #[cfg(unix)]
