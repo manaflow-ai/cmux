@@ -40,7 +40,7 @@ const SENSITIVE_PLACEHOLDER = "[SENSITIVE]";
  * @param {string} provider
  * @param {Record<string, string | undefined>} env deployed runtime env values
  * @param {{ images: Array<{ provider: string, version: string, imageId: string, envVar: string, validationStatus: string }> }} manifest
- * @returns {{ provider: string, envVar: string | null, image: string | null, imageSource?: string, problems: string[] }}
+ * @returns {{ provider: string, envVar: string | null, image: string | null, imageSource: "manifest" | null, problems: string[] }}
  */
 export function auditProviderReadiness(provider, env, manifest) {
   const problems = [];
@@ -50,7 +50,7 @@ export function auditProviderReadiness(provider, env, manifest) {
       `provider ${provider} has no entries in the image manifest; ` +
       "every imageless create will fail closed in deployed runtimes",
     );
-    return { provider, envVar: null, image: null, problems };
+    return { provider, envVar: null, image: null, imageSource: null, problems };
   }
 
   // The checked-in manifest is the only source of truth for images: deployed

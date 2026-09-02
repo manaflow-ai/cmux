@@ -91,7 +91,7 @@ describe("cloud VM provider coherence audit", () => {
     // defaultForKind). A clean env is one with the API key set.
     const result = auditProviderReadiness("freestyle", { FREESTYLE_API_KEY: "x" }, realManifest) as unknown as {
       image: string | null;
-      imageSource: string;
+      imageSource: string | null;
       problems: string[];
     };
     expect(result).toMatchObject({ image: freestyleBaseDefault.imageId, imageSource: "manifest", problems: [] });

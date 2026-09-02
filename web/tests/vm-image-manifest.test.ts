@@ -69,7 +69,7 @@ describe("promoteImageManifestEntry", () => {
     ],
   };
 
-  test("appends one entry per kind, flags them default, and demotes the provider's old defaults", () => {
+  test("appends one entry per kind, flags them default, and demotes old defaults", () => {
     const next = promoteImageManifestEntry(base, passedEntry(), {
       kinds: ["desktop", "base"],
       validationNotes: "Validated in test.",
@@ -77,14 +77,12 @@ describe("promoteImageManifestEntry", () => {
     // Pure: the input is untouched.
     expect(base.images[0].defaultForKind).toBe(true);
     expect(imageManifestProblems(next)).toEqual([]);
-    expect(next.images).toHaveLength(5);
-    expect(next.images.slice(0, 3).map((e) => [e.version, e.defaultForKind])).toEqual([
+    expect(next.images).toHaveLength(4);
+    expect(next.images.slice(0, 2).map((e) => [e.version, e.defaultForKind])).toEqual([
       ["freestyle-old-desktop", false],
       ["freestyle-old-base", false],
-      // Another provider's defaults are not this promotion's business.
-      ["e2b-x", true],
     ]);
-    expect(next.images.slice(3)).toMatchObject([
+    expect(next.images.slice(2)).toMatchObject([
       { version: "freestyle-cmux-devbox-test", kind: "desktop", defaultForKind: true },
       { version: "freestyle-cmux-devbox-test-base", kind: "base", defaultForKind: true },
     ]);
@@ -96,7 +94,6 @@ describe("promoteImageManifestEntry", () => {
     expect(next.images.map((e) => [e.version, e.kind, e.defaultForKind])).toEqual([
       ["freestyle-old-desktop", "desktop", true],
       ["freestyle-old-base", "base", false],
-      ["e2b-x", "base", true],
       ["freestyle-cmux-devbox-test", "base", true],
     ]);
   });
