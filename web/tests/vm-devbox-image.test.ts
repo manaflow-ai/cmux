@@ -143,7 +143,7 @@ describe("devbox image template", () => {
     expect(CMUX_TUI_PORT).toBe(1337);
     expect(CMUX_TUI_SESSION).toBe("cloud");
     // The boot script parameterizes only the listener bind (the env Freestyle
-    // beta's systemd unit sets); everything else must match the drivers'
+    // public platform's systemd unit sets); everything else must match the drivers'
     // command byte for byte, so passing the shell expansion as the bind
     // reconstructs the script's exact line.
     expect(devboxBoot).toContain(
