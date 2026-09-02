@@ -4320,6 +4320,51 @@ mod tests {
         assert!(!h.manager.has_attachment("p1"));
     }
 
+    #[tokio::test(flavor = "current_thread")]
+    async fn async_close_auth_denial_does_not_block_tokio_worker() {
+        let h = harness(None, None);
+        h.open("p1", "main", Value::Null, "supervised", h.owner.clone()).await;
+        let publication_gate = {
+            let attachments = h.manager.inner.attachments.lock().expect("attach lock");
+            Arc::clone(&attachments.get("p1").expect("opened attachment").publication_gate)
+        };
+        let (entered_tx, entered_rx) = tokio::sync::oneshot::channel();
+        let (release_tx, release_rx) = std::sync::mpsc::channel();
+        let gate_owner = std::thread::spawn(move || {
+            let _publication = publication_gate.lock();
+            entered_tx.send(()).expect("gate owner entered");
+            release_rx.recv().expect("gate owner released");
+        });
+        entered_rx.await.expect("gate owner entered");
+
+        let mut revoked = h.context("", h.owner.clone());
+        let owner = h.owner.clone();
+        revoked.live_auth = Arc::new(move || LiveAuth {
+            trust: String::new(),
+            owner_user_id: owner.clone(),
+            version: 1,
+            ..Default::default()
+        });
+        let close = tokio::spawn({
+            let manager = h.manager.clone();
+            async move {
+                manager
+                    .handle_frame(&serde_json::json!({"type":"pty_close","ptyId":"p1"}), &revoked)
+                    .await;
+            }
+        });
+        tokio::task::yield_now().await;
+        assert!(!close.is_finished(), "close waits asynchronously for the publication gate");
+        let tick = tokio::spawn(async { 17_u8 });
+        assert_eq!(tick.await.expect("unrelated task"), 17);
+
+        release_tx.send(()).expect("release gate owner");
+        close.await.expect("close task");
+        gate_owner.join().expect("gate owner");
+        assert!(h.sent().iter().any(|frame| frame["code"] == "trust_revoked"));
+        assert!(!h.manager.has_attachment("p1"));
+    }
+
     #[tokio::test]
     async fn close_detaches_without_killing_reattach_replays_scrollback() {
         let h = harness(None, None);
@@ -4631,7 +4676,10 @@ mod tests {
         tokio::task::spawn_blocking(move || entered.wait()).await.expect("subscribe entered");
 
         cancellation.cancel();
-        open.abort();
+        tokio::time::timeout(Duration::from_secs(1), open)
+            .await
+            .expect("cancelled open returns without waiting for the publication gate")
+            .expect("cancelled open task");
         tokio::task::spawn_blocking(move || release.wait()).await.expect("subscribe released");
         tokio::time::timeout(Duration::from_secs(1), async {
             loop {
