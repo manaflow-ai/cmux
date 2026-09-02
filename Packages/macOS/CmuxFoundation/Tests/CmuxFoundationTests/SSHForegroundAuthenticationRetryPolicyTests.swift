@@ -301,6 +301,78 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
         #expect(processLiveness(leafPID) != nil)
     }
 
+    @Test func terminatesTreeWhenAuthenticationRootWasAlreadyStopped() throws {
+        let fileManager = FileManager.default
+        let root = fileManager.temporaryDirectory
+            .appendingPathComponent("cmux-ssh-auth-prestopped-\(UUID().uuidString)", isDirectory: true)
+        let leafScript = root.appendingPathComponent("leaf.sh")
+        let leafPIDFile = root.appendingPathComponent("leaf.pid")
+        let readyMarker = root.appendingPathComponent("ready")
+        let signalLog = root.appendingPathComponent("signal.log")
+        try fileManager.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? fileManager.removeItem(at: root) }
+
+        try """
+        #!/bin/sh
+        trap '' HUP INT
+        trap 'printf "%s\\n" term > "$CMUX_TEST_SIGNAL_LOG"' TERM
+        printf '%s\\n' "$$" > "$CMUX_TEST_LEAF_PID"
+        : > "$CMUX_TEST_READY_MARKER"
+        while :; do /bin/sleep 30; done
+        """.write(to: leafScript, atomically: true, encoding: .utf8)
+        try fileManager.setAttributes([.posixPermissions: 0o700], ofItemAtPath: leafScript.path)
+
+        let command = """
+        \(SSHForegroundAuthenticationRetryPolicy().processTreeTerminationShellFunction())
+        ( /bin/sh "$CMUX_TEST_LEAF_SCRIPT" & wait $! ) &
+        cmux_test_auth_root=$!
+        trap '/bin/kill -CONT "$cmux_test_auth_root" >/dev/null 2>&1 || true; /bin/kill -KILL "$cmux_test_auth_root" >/dev/null 2>&1 || true' EXIT
+        cmux_test_ready_attempt=0
+        while [ ! -f "$CMUX_TEST_READY_MARKER" ] && [ "$cmux_test_ready_attempt" -lt 300 ]; do
+          /bin/sleep 0.01
+          cmux_test_ready_attempt=$((cmux_test_ready_attempt + 1))
+        done
+        test -f "$CMUX_TEST_READY_MARKER" || exit 98
+        # The root is already stopped before cleanup takes ownership. The
+        # helper must journal it without sending a second STOP, then terminate
+        # both the root and its foreground-auth child.
+        /bin/kill -STOP "$cmux_test_auth_root"
+        cmux_ssh_terminate_auth_process_tree "$cmux_test_auth_root" "$$"
+        wait "$cmux_test_auth_root" 2>/dev/null || true
+        test "$(/bin/cat "$CMUX_TEST_SIGNAL_LOG" 2>/dev/null || true)" = term
+        trap - EXIT
+        """
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/bin/sh")
+        process.arguments = ["-c", command]
+        process.environment = ProcessInfo.processInfo.environment.merging([
+            "CMUX_TEST_LEAF_SCRIPT": leafScript.path,
+            "CMUX_TEST_LEAF_PID": leafPIDFile.path,
+            "CMUX_TEST_READY_MARKER": readyMarker.path,
+            "CMUX_TEST_SIGNAL_LOG": signalLog.path,
+        ]) { _, override in override }
+        process.standardInput = FileHandle.nullDevice
+        process.standardOutput = FileHandle.nullDevice
+        let stderrCapture = try makeStandardErrorCapture()
+        defer { removeStandardErrorCapture(stderrCapture) }
+        process.standardError = stderrCapture.handle
+
+        try process.run()
+        try waitForExit(process, stderrCapture: stderrCapture)
+
+        let leafPID = try #require(Int32(
+            String(contentsOf: leafPIDFile, encoding: .utf8)
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+        ))
+        defer { Darwin.kill(leafPID, SIGKILL) }
+        waitForProcessesToExit([leafPID])
+
+        #expect(process.terminationStatus == 0)
+        #expect(try String(contentsOf: signalLog, encoding: .utf8) == "term\n")
+        #expect(processLiveness(leafPID) == false)
+        #expect(processLiveness(leafPID) != nil)
+    }
+
     @Test func refusesAuthenticationRootWithMismatchedKnownParent() throws {
         let fileManager = FileManager.default
         let root = fileManager.temporaryDirectory

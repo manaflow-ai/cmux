@@ -154,7 +154,15 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
                     status = uint32.call(4)
                     seconds = uint64.call(120)
                     microseconds = uint64.call(128)
-                    version = uint32.call(168)
+                    # `proc_uniqidentifierinfo` starts after the 136-byte
+                    # `proc_bsdinfo`. Its UUID is 16 bytes, followed by the
+                    # process and parent unique IDs (8 bytes each), then the
+                    # 32-bit `p_idversion` used by audit-token signaling.
+                    # Keep the offset derived from that layout so a change to
+                    # either record cannot silently point at reserved bytes.
+                    proc_bsdinfo_size = 136
+                    proc_uniqidentifierinfo_pidversion_offset = proc_bsdinfo_size + 16 + 8 + 8
+                    version = uint32.call(proc_uniqidentifierinfo_pidversion_offset)
                     exit 1 unless observed_pid == pid && parent == expected_parent &&
                       group > 0 && status != 5 && seconds > 0 &&
                       microseconds < 1_000_000 && version > 0
@@ -222,9 +230,12 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
                   bytes = buffer.to_s(size)
                   uint32 = ->(offset) { bytes.byteslice(offset, 4).unpack1("L<") }
                   uint64 = ->(offset) { bytes.byteslice(offset, 8).unpack1("Q<") }
+                  proc_bsdinfo_size = 136
+                  proc_uniqidentifierinfo_pidversion_offset = proc_bsdinfo_size + 16 + 8 + 8
                   observed = [
                     uint32.call(12), uint32.call(16), uint32.call(100), uint32.call(4),
-                    uint64.call(120), uint64.call(128), uint32.call(168)
+                    uint64.call(120), uint64.call(128),
+                    uint32.call(proc_uniqidentifierinfo_pidversion_offset)
                   ]
                   expected = [pid, parent, group, nil, seconds, microseconds, version]
                   exit 0 unless observed[0] == expected[0] && observed[1] == expected[1] &&
@@ -909,7 +920,17 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
                 my $pid_number = int($pid);
                 my $identity = read_identity($pid);
                 next unless matches($identity, $parent, $group, $expected_start);
-                next if $signal_name eq "STOP" && $identity->[0] =~ /T/;
+                if ($signal_name eq "STOP" && $identity->[0] =~ /T/) {
+                  # A process that was already stopped in the candidate
+                  # snapshot still belongs in the ownership journal. Do not
+                  # send another STOP, and retain its original T state so a
+                  # rollback will not resume it. A process that became stopped
+                  # after the snapshot is not ours, so leave it unclaimed.
+                  if ($original_state eq "T") {
+                    print {$output} "$line\n" or $failed = 1;
+                  }
+                  next;
+                }
                 next if $signal_name eq "CONT" && $original_state =~ /T/;
                 next if $signal_name =~ /\A(?:TERM|KILL)\z/ && $identity->[0] !~ /T/;
                 next if $require_stopped eq "1" && $identity->[0] !~ /T/ &&
@@ -1005,6 +1026,8 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
               process_info_size = 192
               uint32 = ->(bytes, offset) { bytes.byteslice(offset, 4).unpack1("L<") }
               uint64 = ->(bytes, offset) { bytes.byteslice(offset, 8).unpack1("Q<") }
+              proc_bsdinfo_size = 136
+              proc_uniqidentifierinfo_pidversion_offset = proc_bsdinfo_size + 16 + 8 + 8
               process_identity = lambda do |pid|
                 buffer = Fiddle::Pointer.malloc(process_info_size)
                 written = CmuxLibproc.proc_pidinfo(
@@ -1019,7 +1042,7 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
                   uint32.call(bytes, 4), # pbi_status
                   uint64.call(bytes, 120), # pbi_start_tvsec
                   uint64.call(bytes, 128), # pbi_start_tvusec
-                  uint32.call(bytes, 168), # proc_uniqueidentifierinfo.id_version
+                  uint32.call(bytes, proc_uniqidentifierinfo_pidversion_offset), # p_idversion
                 ]
               rescue ArgumentError, Fiddle::DLError, NoMethodError, RangeError, TypeError
                 nil
@@ -1058,9 +1081,13 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
                 next if before[3] == 5
 
                 if signal_name == "STOP"
-                  # Do not claim a process that was already stopped by another
-                  # owner. Resuming it would be an observable side effect.
-                  next if before[3] == 4
+                  if before[3] == 4
+                    # Preserve a process that was already stopped in the
+                    # candidate snapshot without sending another STOP. The
+                    # original T state prevents rollback from resuming it.
+                    output.puts(line.chomp) if original_state == "T"
+                    next
+                  end
                   next unless signal_exact.call(before, signals[signal_name])
                   # SIGSTOP delivery can be asynchronous to proc_pidinfo. The
                   # audit-token call already verified this exact identity, so
