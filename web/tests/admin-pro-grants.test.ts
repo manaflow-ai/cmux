@@ -919,6 +919,16 @@ describe("pending email grants", () => {
     expect(rows[0]!.revokedAt).toBeInstanceOf(Date);
     expect(await listPendingEmailGrants("pat", { db: grantsDb })).toEqual([]);
 
+    // A declined conditional write supersedes nothing either.
+    await createPendingEmailGrant({ email: "pat@example.com", plan: "founders", admin, db: grantsDb });
+    await setManualPlanGrant({
+      targetUserId: "u1", plan: null, admin, app, withFreshUser: directMutation(app),
+      stripeBillingStatus: async () => noStripe, grantsDb,
+      onlyIfCurrent: { plan: "founders", byUserId: "nobody", pendingGrantId: "gx" },
+    });
+    expect((await listPendingEmailGrants("pat", { db: grantsDb })).length).toBe(1);
+    await supersedeForTest(grantsDb);
+
     // Unverified accounts do not supersede: the pending row may belong to the real owner.
     await createPendingEmailGrant({ email: "pat@example.com", plan: "founders", admin, db: grantsDb });
     const squatter = fakeUser({ id: "u2", primaryEmail: "pat@example.com", primaryEmailVerified: false });
@@ -929,6 +939,12 @@ describe("pending email grants", () => {
     });
     expect((await listPendingEmailGrants("pat", { db: grantsDb })).length).toBe(1);
   });
+
+  async function supersedeForTest(db: AdminGrantsDb) {
+    for (const row of await listPendingEmailGrants("pat", { db })) {
+      await revokePendingEmailGrant({ grantId: row.id, db, grant: async () => undefined });
+    }
+  }
 
   test("an older pending grant never overwrites a newer direct admin decision", async () => {
     const target = fakeUser({

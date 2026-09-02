@@ -281,6 +281,7 @@ export async function setManualPlanGrant(
   const now = input.now ?? (() => new Date());
 
   let mutated: AdminStackUser;
+  let wrote = false;
   try {
     mutated = await withFreshUser(input.targetUserId, async (user, lease) => {
       if (user.isAnonymous) throw new AdminUserNotFoundError(input.targetUserId);
@@ -322,6 +323,7 @@ export async function setManualPlanGrant(
         clientReadOnlyMetadata: client as ProMetadataJson,
         serverMetadata: server as ProMetadataJson,
       });
+      wrote = true;
       return user;
     });
   } catch (error) {
@@ -340,7 +342,7 @@ export async function setManualPlanGrant(
   // A direct admin decision on a verified account supersedes any older
   // pending grant addressed to that mailbox; otherwise the pending grant would
   // re-apply at the next sign-in and silently undo this write.
-  if (input.supersedePending !== false && mutated.primaryEmailVerified && mutated.primaryEmail) {
+  if (wrote && input.supersedePending !== false && mutated.primaryEmailVerified && mutated.primaryEmail) {
     await supersedeOpenGrantsForEmail(mutated.primaryEmail, mutated.id, input.grantsDb);
   }
 
