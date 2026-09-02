@@ -3689,6 +3689,18 @@ fn private_dump_directory(path: &Path) -> io::Result<fs::File> {
 
 #[cfg(unix)]
 fn prune_stale_dump_temps(directory: &fs::File, path: &Path) -> io::Result<()> {
+    prune_stale_dump_temps_with(directory, path, stale_dump_entry_metadata)
+}
+
+#[cfg(unix)]
+fn prune_stale_dump_temps_with<F>(
+    directory: &fs::File,
+    path: &Path,
+    mut metadata_for_entry: F,
+) -> io::Result<()>
+where
+    F: FnMut(&Path) -> io::Result<Option<fs::Metadata>>,
+{
     use std::ffi::CString;
     use std::os::fd::AsRawFd;
     use std::os::unix::ffi::OsStrExt;
@@ -3705,7 +3717,9 @@ fn prune_stale_dump_temps(directory: &fs::File, path: &Path) -> io::Result<()> {
         if !is_dump_temp {
             continue;
         }
-        let metadata = fs::symlink_metadata(entry.path())?;
+        let Some(metadata) = metadata_for_entry(&entry.path())? else {
+            continue;
+        };
         if !metadata.is_file() || metadata.uid() != uid || metadata.nlink() != 1 {
             continue;
         }
@@ -3730,6 +3744,15 @@ fn prune_stale_dump_temps(directory: &fs::File, path: &Path) -> io::Result<()> {
         }
     }
     Ok(())
+}
+
+#[cfg(unix)]
+fn stale_dump_entry_metadata(path: &Path) -> io::Result<Option<fs::Metadata>> {
+    match fs::symlink_metadata(path) {
+        Ok(metadata) => Ok(Some(metadata)),
+        Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(None),
+        Err(error) => Err(error),
+    }
 }
 
 #[cfg(unix)]
@@ -4867,6 +4890,30 @@ mod tests {
         let _directory = private_dump_directory(&dump_path).unwrap();
 
         assert!(!stale_path.exists());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn private_dump_scan_ignores_missing_temp_entries_after_directory_scan() {
+        use std::cell::Cell;
+
+        let root = tempfile::tempdir().unwrap();
+        let dump_path = root.path().join("dumps");
+        let directory = private_dump_directory(&dump_path).unwrap();
+        let missing_path = dump_path.join(".frames-1.log.tmp-99999999-1");
+        fs::write(&missing_path, b"partial secret").unwrap();
+        let removed = Cell::new(false);
+
+        prune_stale_dump_temps_with(&directory, &dump_path, |path| {
+            assert_eq!(path, missing_path);
+            fs::remove_file(path).unwrap();
+            removed.set(true);
+            stale_dump_entry_metadata(path)
+        })
+        .unwrap();
+
+        assert!(removed.get());
+        assert!(!missing_path.exists());
     }
 
     #[cfg(unix)]
