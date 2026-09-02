@@ -985,4 +985,39 @@ mod tests {
         }
         assert_eq!(std::fs::read_to_string(marker).unwrap(), "survived");
     }
+
+    #[cfg(unix)]
+    #[test]
+    fn setup_handoff_timeout_releases_a_late_child() {
+        use std::process::{Command, Stdio};
+        use std::sync::{Arc, Barrier};
+
+        let root = tempfile::tempdir().unwrap();
+        let marker = root.path().join("survived");
+        let child = Command::new("/bin/sh")
+            .arg("-c")
+            .arg("read ignored; printf survived > \"$CMUX_TUI_TEST_MARKER\"")
+            .env("CMUX_TUI_TEST_MARKER", &marker)
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .spawn()
+            .unwrap();
+        let mut guard = DetachedChildGuard::new(child);
+        let stdout = guard.child_mut().stdout.take().unwrap();
+        let barrier = Arc::new(Barrier::new(2));
+        let worker_barrier = barrier.clone();
+
+        let setup = setup_handoff(Some(Instant::now() + Duration::from_millis(20)), move || {
+            worker_barrier.wait();
+            Ok((guard, stdout))
+        });
+        assert!(setup.is_none(), "setup should time out before the worker handoff");
+
+        barrier.wait();
+        let deadline = Instant::now() + Duration::from_secs(2);
+        while !marker.exists() && Instant::now() < deadline {
+            std::thread::yield_now();
+        }
+        assert_eq!(std::fs::read_to_string(marker).unwrap(), "survived");
+    }
 }
