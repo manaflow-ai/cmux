@@ -750,6 +750,53 @@ extension CMUXCLI {
         return matches[0]
     }
 
+    enum VMRemoteViewResolution {
+        case resolved([String: Any])
+        case notFound
+        case ambiguous
+        case unavailable
+    }
+
+    /// Resolve a resource's exact view in one remote workspace. A view row is required for
+    /// focused/tab placement. The legacy single-workspace field is retained only to identify
+    /// the workspace; without a tab id it is unavailable for an exact open.
+    static func resolveVMRemoteView(
+        in resource: [String: Any],
+        workspaceID: String
+    ) -> VMRemoteViewResolution {
+        if let views = resource["remote_views"] as? [[String: Any]] {
+            let matches = views.filter { view in
+                let workspace = view["workspace"] as? [String: Any]
+                return (workspace?["id"] as? String) == workspaceID
+            }
+            guard !matches.isEmpty else { return .notFound }
+            let candidate: [String: Any]
+            if matches.count == 1 {
+                candidate = matches[0]
+            } else {
+                // A terminal may occur in several tabs of the same workspace. The focused
+                // tab is the only safe implicit choice; zero or multiple focused tabs stay
+                // unresolved instead of selecting by array order.
+                let focused = matches.filter { ($0["focused"] as? Bool) == true }
+                guard focused.count == 1 else { return .ambiguous }
+                candidate = focused[0]
+            }
+            guard let tabID = (candidate["tab_id"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines),
+                  !tabID.isEmpty else {
+                return .unavailable
+            }
+            guard views.filter({ ($0["tab_id"] as? String) == tabID }).count == 1 else {
+                return .ambiguous
+            }
+            return .resolved(candidate)
+        }
+        guard let workspace = resource["remote_workspace"] as? [String: Any],
+              (workspace["id"] as? String) == workspaceID else {
+            return .notFound
+        }
+        return .unavailable
+    }
+
     /// Find a resource's exact view in one remote workspace. The view row is
     /// required for focused/tab placement; the legacy single-workspace field is
     /// retained as a compatibility fallback for providers without multi-view data.
@@ -757,22 +804,10 @@ extension CMUXCLI {
         in resource: [String: Any],
         workspaceID: String
     ) -> [String: Any]? {
-        if let views = resource["remote_views"] as? [[String: Any]] {
-            let matches = views.filter { view in
-                let workspace = view["workspace"] as? [String: Any]
-                return (workspace?["id"] as? String) == workspaceID
-            }
-            guard matches.count > 0 else { return nil }
-            if matches.count == 1 { return matches[0] }
-            // A terminal may occur in several tabs of the same workspace. The
-            // focused tab is the only safe implicit choice; malformed state with
-            // zero or multiple focused tabs remains unresolved.
-            let focused = matches.filter { ($0["focused"] as? Bool) == true }
-            return focused.count == 1 ? focused[0] : nil
+        guard case .resolved(let view) = resolveVMRemoteView(in: resource, workspaceID: workspaceID) else {
+            return nil
         }
-        let workspace = resource["remote_workspace"] as? [String: Any]
-        guard (workspace?["id"] as? String) == workspaceID else { return nil }
-        return workspace
+        return view
     }
 
     /// Resolves a terminal selector to one daemon tab. A terminal can be shown in several
@@ -818,22 +853,19 @@ extension CMUXCLI {
             return candidates.isEmpty ? .notFound : .ambiguous
         }
 
-        guard let view = vmRemoteView(in: resource, workspaceID: workspaceID) else {
-            // A cloud resource must expose `remote_views` to support an exact tab. A missing
-            // view is a current answer that this terminal is not in the requested workspace;
-            // a null or absent list means the placement contract is unavailable.
-            if resource["remote_views"] == nil || resource["remote_views"] is NSNull {
+        let tabID: String
+        switch resolveVMRemoteView(in: resource, workspaceID: workspaceID) {
+        case .resolved(let view):
+            guard let value = (view["tab_id"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines), !value.isEmpty else {
                 return .unavailable
             }
+            tabID = value
+        case .notFound:
             return .notFound
-        }
-        guard let tabID = (view["tab_id"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines),
-              !tabID.isEmpty else {
-            return .unavailable
-        }
-        if let views = resource["remote_views"] as? [[String: Any]],
-           views.filter({ ($0["tab_id"] as? String) == tabID }).count != 1 {
+        case .ambiguous:
             return .ambiguous
+        case .unavailable:
+            return .unavailable
         }
 
         let terminalID: String?
@@ -1699,11 +1731,30 @@ extension CMUXCLI {
             )
             let resources = (catalog["resources"] as? [[String: Any]]) ?? []
             let terminals = resources.filter { ($0["kind"] as? String) == "terminal" }
-            let inWorkspace: [([String: Any], [String: Any]?)] = terminals.compactMap { terminal in
-                guard let view = Self.vmRemoteView(in: terminal, workspaceID: remoteWorkspaceID) else {
-                    return nil
+            var inWorkspace: [([String: Any], [String: Any]?)] = []
+            for terminal in terminals {
+                switch Self.resolveVMRemoteView(in: terminal, workspaceID: remoteWorkspaceID) {
+                case .resolved(let view):
+                    inWorkspace.append((terminal, view))
+                case .notFound:
+                    continue
+                case .ambiguous:
+                    let selector = (terminal["key"] as? String) ?? (terminal["id"] as? String) ?? "?"
+                    throw Self.vmTerminalPlacementResolutionError(
+                        .ambiguous,
+                        machine: machine,
+                        workspace: workspace,
+                        selector: selector
+                    )
+                case .unavailable:
+                    let selector = (terminal["key"] as? String) ?? (terminal["id"] as? String) ?? "?"
+                    throw Self.vmTerminalPlacementResolutionError(
+                        .unavailable,
+                        machine: machine,
+                        workspace: workspace,
+                        selector: selector
+                    )
                 }
-                return (terminal, view)
             }
             let live = inWorkspace.filter { ($0.0["lifecycle"] as? String) != "exited" }
             let focusedFirst = live.sorted { lhs, rhs in
