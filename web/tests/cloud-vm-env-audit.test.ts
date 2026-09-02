@@ -213,6 +213,13 @@ describe("required runtime env keys cover the production provider path", () => {
     }
   });
 
+  test("retired E2B env keys are not demanded", () => {
+    for (const key of ["E2B_API_KEY", "E2B_CMUXD_WS_TEMPLATE", "CMUX_VM_E2B_ENABLED"]) {
+      expect(requiredRuntimeEnvKeys).not.toContain(key);
+      expect(recommendedRuntimeEnvKeys).not.toContain(key);
+    }
+  });
+
   test("the free-provisioning escape hatch is never required or recommended", () => {
     // Unset is the safe value; listing it for presence would nudge operators
     // into setting it. Its VALUE is audited instead (see below).
