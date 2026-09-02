@@ -349,6 +349,49 @@ class ReleaseTrustedWorkflowTests(unittest.TestCase):
             self.assertIn(required, cleanup_run)
         self.assertIn("CMUX_KEYCHAIN_CREATED", cleanup_run)
 
+    def test_signing_keychain_is_unique_and_cleanup_is_owned(self) -> None:
+        document = load()
+        sign_steps = document["jobs"]["build-sign-notarize"]["steps"]
+        import_step = next(step for step in sign_steps if step.get("name") == "Import signing cert")
+        cleanup_step = next(step for step in sign_steps if step.get("name") == "Cleanup keychain")
+        import_run = import_step["run"]
+        cleanup_run = cleanup_step["run"]
+        for required in (
+            'keychain_dir="$(mktemp -d "$runner_temp/cmux-signing-keychain.',
+            '[[ -d "$keychain_dir" && ! -L "$keychain_dir" ]]',
+            'keychain_path="$keychain_dir/build.keychain-db"',
+            'CMUX_KEYCHAIN_PATH=$keychain_path',
+            'security create-keychain -p "$KEYCHAIN_PASSWORD" "$keychain_path"',
+        ):
+            self.assertIn(required, import_run)
+        self.assertNotIn("security delete-keychain build.keychain", import_run)
+        self.assertIn('keychain_path="${CMUX_KEYCHAIN_PATH:-}"', cleanup_run)
+        self.assertIn('security delete-keychain "$keychain_path"', cleanup_run)
+        self.assertIn('rmdir "$keychain_dir"', cleanup_run)
+        self.assertNotIn('security delete-keychain build.keychain', cleanup_run)
+
+    def test_lock_cleanup_fails_closed_when_lsof_is_unavailable(self) -> None:
+        document = load()
+        for job_name in ("build-ghostty-cli-helper", "build-sign-notarize"):
+            cleanup = next(
+                step for step in document["jobs"][job_name]["steps"]
+                if step.get("name") == "Clear stale git locks (self-hosted reused workspace)"
+            )
+            cleanup_run = cleanup["run"]
+            self.assertIn('if ! command -v lsof >/dev/null 2>&1; then', cleanup_run)
+            self.assertIn("Refusing to inspect active Git lock", cleanup_run)
+            self.assertIn("return 1", cleanup_run)
+
+    def test_r2_latest_release_rejects_equal_core_versions_with_build_metadata(self) -> None:
+        document = load()
+        sign_steps = document["jobs"]["build-sign-notarize"]["steps"]
+        r2_upload = next(step for step in sign_steps if step.get("name") == "Upload release appcast to R2")
+        r2_run = r2_upload["run"]
+        self.assertIn("duplicate stable SemVer precedence", r2_run)
+        self.assertIn("duplicate_core_versions", r2_run)
+        self.assertIn("len(tags) > 1", r2_run)
+        self.assertNotIn("max(versions, key=lambda item: (item[0], item[1]))", r2_run)
+
         # A reused self-hosted workspace must never delete another process's
         # lock. The pre-checkout cleanup is intentionally duplicated in each
         # privileged job so source-controlled code cannot weaken the guard.
