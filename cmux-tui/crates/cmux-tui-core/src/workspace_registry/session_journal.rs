@@ -262,8 +262,7 @@ impl JournalRestoreCursor {
             let Some(segment_id) = self.next_segment()? else {
                 break;
             };
-            #[cfg(test)]
-            self.segment_decode_count += 1;
+            self.note_segment_decoded();
             let decoded = decode_journal_segment(self.load_segment(&segment_id)?)?;
             if let Some(previous_end) = self.previous_segment_end {
                 anyhow::ensure!(
@@ -347,9 +346,16 @@ impl JournalRestoreCursor {
         Ok(Some(segment_id))
     }
 
+    #[cfg(test)]
+    fn note_segment_decoded(&mut self) {
+        self.segment_decode_count += 1;
+    }
+
+    #[cfg(not(test))]
+    fn note_segment_decoded(&mut self) {}
+
     fn load_segment(&mut self, segment_id: &str) -> anyhow::Result<JournalSegmentRow> {
-        #[cfg(test)]
-        self.segment_content_load_count += 1;
+        self.note_segment_content_loaded();
         let mut statement = self.connection.prepare(
             "SELECT segment_id, start_sequence, end_sequence, record_count, codec,
                     content, uncompressed_bytes, sha256
@@ -364,6 +370,14 @@ impl JournalRestoreCursor {
             )
             .with_context(|| format!("load journal segment {segment_id}"))
     }
+
+    #[cfg(test)]
+    fn note_segment_content_loaded(&mut self) {
+        self.segment_content_load_count += 1;
+    }
+
+    #[cfg(not(test))]
+    fn note_segment_content_loaded(&mut self) {}
 
     fn validate_and_advance(
         &mut self,
