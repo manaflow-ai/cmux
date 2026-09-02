@@ -494,6 +494,9 @@ pub(crate) struct RemoteClientMessages {
     pub rpc_stdin_invalid_utf8: &'static str,
     pub known_forget_arity: &'static str,
     pub known_state_dir_unavailable: &'static str,
+    wireguard_config_unreadable: &'static str,
+    wireguard_config_invalid: &'static str,
+    wireguard_start_failed: &'static str,
     known_daemon_not_known: &'static str,
     known_daemon_forgotten: &'static str,
     pub known_daemons_empty: &'static str,
@@ -504,6 +507,18 @@ pub(crate) struct RemoteClientMessages {
 impl RemoteClientMessages {
     pub(crate) fn option_needs_value(&self, option: &str) -> String {
         self.option_needs_value.replace("{option}", option)
+    }
+
+    pub(crate) fn wireguard_config_unreadable(&self, path: &str, error: &str) -> String {
+        self.wireguard_config_unreadable.replace("{path}", path).replace("{error}", error)
+    }
+
+    pub(crate) fn wireguard_config_invalid(&self, error: &str) -> String {
+        self.wireguard_config_invalid.replace("{error}", error)
+    }
+
+    pub(crate) fn wireguard_start_failed(&self, error: &str) -> String {
+        self.wireguard_start_failed.replace("{error}", error)
     }
 
     pub(crate) fn invalid_option_value(&self, option: &str, expected: &str) -> String {
@@ -1429,6 +1444,8 @@ TRANSPORT:
     and credential-source groups in occurrence order.
   --relay-ticket-command-arg ARG  --iroh-relay URL  --iroh-address ADDR
   --iroh-path auto|direct-only|relay-only
+  --wireguard-config PATH  dial ws routes inside that tunnel's AllowedIPs
+    through an in-process WireGuard peer (owner-only wg-quick file; no root)
   --ssh-binary PATH  --remote-binary PATH  --ssh-arg ARG  --no-install
   --remote-state-dir PATH for a non-default daemon state directory
   --upgrade explicitly replaces an SSH-managed remote sidecar after installing
@@ -1550,6 +1567,9 @@ OPTIONS:
         rpc_stdin_invalid_utf8: "RPC stdin line is not valid UTF-8",
         known_forget_arity: "known-daemons forget expects exactly one fingerprint",
         known_state_dir_unavailable: "cannot determine remote state directory; use --state-dir",
+        wireguard_config_unreadable: "cannot read WireGuard config {path}: {error} (the file must be a regular file with owner-only permissions)",
+        wireguard_config_invalid: "WireGuard config is not a valid wg-quick file: {error}",
+        wireguard_start_failed: "could not start the in-process WireGuard tunnel: {error}",
         known_daemon_not_known: "daemon {fingerprint} is not known",
         known_daemon_forgotten: "Forgot daemon {fingerprint}.",
         known_daemons_empty: "No known daemons.",
@@ -2075,6 +2095,8 @@ ID とセッション:
   代替ルートでは --relay-route、--relay-slot、認証情報の組を出現順に最大 4 回指定します。
   --relay-ticket-command-arg 引数  --iroh-relay URL  --iroh-address アドレス
   --iroh-path auto|direct-only|relay-only
+  --wireguard-config パス  そのトンネルの AllowedIPs 内の ws ルートを
+    プロセス内 WireGuard ピア経由で接続します（所有者のみ読める wg-quick ファイル、root 不要）
   --ssh-binary パス  --remote-binary パス  --ssh-arg 引数  --no-install
   --remote-state-dir パス  既定以外のデーモン状態ディレクトリ
   --upgrade は固定済みバイナリのインストール後に SSH 管理のサイドカーを置換します。
@@ -2194,6 +2216,9 @@ ID とセッション:
         rpc_stdin_invalid_utf8: "RPC 標準入力の行は有効な UTF-8 ではありません",
         known_forget_arity: "known-daemons forget にはフィンガープリントを 1 つ指定してください",
         known_state_dir_unavailable: "リモート状態ディレクトリを特定できません。--state-dir を指定してください",
+        wireguard_config_unreadable: "WireGuard 設定 {path} を読めません: {error}（所有者のみ読める通常ファイルが必要です）",
+        wireguard_config_invalid: "WireGuard 設定は有効な wg-quick ファイルではありません: {error}",
+        wireguard_start_failed: "プロセス内 WireGuard トンネルを開始できませんでした: {error}",
         known_daemon_not_known: "デーモン {fingerprint} は登録されていません",
         known_daemon_forgotten: "デーモン {fingerprint} を削除しました。",
         known_daemons_empty: "登録済みのデーモンはありません。",

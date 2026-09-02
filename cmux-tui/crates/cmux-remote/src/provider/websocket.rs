@@ -14,11 +14,12 @@ use tokio_tungstenite::tungstenite::client::IntoClientRequest;
 use tokio_tungstenite::tungstenite::handshake::client::Request as ClientRequest;
 use tokio_tungstenite::tungstenite::http::header::{HeaderValue, USER_AGENT};
 use tokio_tungstenite::tungstenite::protocol::WebSocketConfig;
-use tokio_tungstenite::{MaybeTlsStream, WebSocketStream, connect_async_with_config};
+use tokio_tungstenite::{MaybeTlsStream, WebSocketStream, client_async_tls_with_config};
 use url::Url;
 
 use crate::link::{FrameLink, LinkError};
 use crate::observability::{TransportPathKind, TransportPathSnapshot, TransportSnapshot};
+use crate::provider::dial::{DialedStream, Dialer, OsTcpDialer};
 use crate::provider::{
     CarrierEvidence, ConnectRequest, LinkGroup, LinkRequest, ProviderCapabilities, ProviderError,
     SupportedClientAuthModes, TransportProvider, sanitized_route,
@@ -134,15 +135,40 @@ pub fn client_request(endpoint: &Url) -> Result<ClientRequest, LinkError> {
     Ok(request)
 }
 
+/// The link type every direct dial produces, whatever carried the bytes.
+pub type DialedWebSocketLink = TungsteniteWebSocketLink<MaybeTlsStream<DialedStream>>;
+
+/// Dial a direct WebSocket route over the operating system's TCP stack.
 pub async fn connect_websocket(
     endpoint: &Url,
     maximum: usize,
-) -> Result<TungsteniteWebSocketLink<MaybeTlsStream<tokio::net::TcpStream>>, LinkError> {
+) -> Result<DialedWebSocketLink, LinkError> {
+    connect_websocket_via(endpoint, maximum, &OsTcpDialer).await
+}
+
+/// Dial a direct WebSocket route over whatever carrier `dialer` provides.
+///
+/// The dialer owns only the byte stream. TLS for `wss` and the WebSocket
+/// upgrade run above it exactly as they do over a kernel socket, so an
+/// in-process WireGuard tunnel and the operating system's TCP stack produce the
+/// same link.
+pub async fn connect_websocket_via(
+    endpoint: &Url,
+    maximum: usize,
+    dialer: &dyn Dialer,
+) -> Result<DialedWebSocketLink, LinkError> {
     let description = sanitized_route(endpoint);
+    let host = endpoint
+        .host_str()
+        .ok_or_else(|| LinkError::Transport("WebSocket route has no host".into()))?;
+    let port = endpoint
+        .port_or_known_default()
+        .ok_or_else(|| LinkError::Transport("WebSocket route has no port".into()))?;
     let config =
         WebSocketConfig::default().max_message_size(Some(maximum)).max_frame_size(Some(maximum));
     let request = client_request(endpoint)?;
-    let (socket, _) = connect_async_with_config(request, Some(config), true)
+    let stream = dialer.dial(host, port).await?;
+    let (socket, _) = client_async_tls_with_config(request, stream, Some(config), None)
         .await
         .map_err(|error| LinkError::Transport(error.to_string()))?;
     Ok(TungsteniteWebSocketLink::new(description, maximum, socket))
@@ -223,11 +249,23 @@ fn ensure_size(actual: usize, maximum: usize) -> Result<(), LinkError> {
 #[derive(Debug, Clone)]
 pub struct DirectWebSocketProvider {
     maximum: usize,
+    dialer: Arc<dyn Dialer>,
 }
 
 impl DirectWebSocketProvider {
+    /// Dial over the operating system's TCP stack.
     pub fn new(maximum: usize) -> Self {
-        Self { maximum }
+        Self::with_dialer(maximum, Arc::new(OsTcpDialer))
+    }
+
+    /// Dial over a caller-supplied carrier, such as an in-process WireGuard
+    /// tunnel. The route, TLS, and upgrade are unchanged.
+    pub fn with_dialer(maximum: usize, dialer: Arc<dyn Dialer>) -> Self {
+        Self { maximum, dialer }
+    }
+
+    pub fn dialer(&self) -> &Arc<dyn Dialer> {
+        &self.dialer
     }
 }
 
@@ -263,6 +301,7 @@ impl TransportProvider for DirectWebSocketProvider {
             description,
             evidence,
             maximum: self.maximum,
+            dialer: Arc::clone(&self.dialer),
             closed: AtomicBool::new(false),
         }))
     }
@@ -274,6 +313,7 @@ struct WebSocketLinkGroup {
     description: String,
     evidence: CarrierEvidence,
     maximum: usize,
+    dialer: Arc<dyn Dialer>,
     closed: AtomicBool,
 }
 
@@ -316,7 +356,7 @@ impl LinkGroup for WebSocketLinkGroup {
             ("cmux_lane", request.lane.to_string()),
             ("cmux_generation", request.generation.to_string()),
         ]);
-        let link = connect_websocket(&endpoint, self.maximum).await?;
+        let link = connect_websocket_via(&endpoint, self.maximum, self.dialer.as_ref()).await?;
         Ok(Box::new(link))
     }
 

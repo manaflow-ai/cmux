@@ -51,6 +51,7 @@ fs4.workspace = true
 [target.'cfg(unix)'.dependencies]
 cmux-remote.workspace = true
 cmux-remote-protocol.workspace = true
+cmux-wg.workspace = true
 tokio.workspace = true
 url.workspace = true
 async-trait.workspace = true
