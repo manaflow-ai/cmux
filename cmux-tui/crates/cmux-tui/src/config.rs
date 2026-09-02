@@ -4906,6 +4906,7 @@ fn parse_ghostty_defaults_from_path_result(
     parse_ghostty_defaults_from_path_result_until(path, theme_dirs, Some(deadline_at))
 }
 
+#[cfg(test)]
 fn parse_ghostty_defaults_from_path_result_until(
     path: &Path,
     theme_dirs: &[PathBuf],
@@ -4978,6 +4979,7 @@ fn parse_ghostty_config_file_with_deadline(
     )
 }
 
+#[cfg(test)]
 fn parse_ghostty_config_file_until(
     path: &Path,
     theme_candidates: &mut Vec<GhosttyThemeCandidate>,
