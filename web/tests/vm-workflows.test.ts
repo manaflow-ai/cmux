@@ -17,6 +17,8 @@ import {
   VmRepositoryLive,
   type CloudVmIdentityLeaseRow,
   type CloudVmLeaseRow,
+  type CloudVmBaseGenerationRow,
+  type CloudVmBaseRow,
   type CloudVmSessionRow,
   type CloudVmRow,
   type VmRepositoryShape,
@@ -4429,6 +4431,237 @@ describe("VM Effect workflows", () => {
     }]);
   });
 });
+
+describe("VM create-time env minting", () => {
+  function createEnvRepo(input: {
+    readonly inserted: boolean;
+    readonly vm: CloudVmRow;
+    readonly markCreateFailed?: VmRepositoryShape["markCreateFailed"];
+  }): VmRepositoryShape {
+    return {
+      ...testWorkflowRepo({ vm: input.vm }),
+      beginCreate: () => Effect.succeed({ inserted: input.inserted, vm: input.vm }),
+      markCreateRunning: ({ providerVmId }) =>
+        Effect.succeed({ ...input.vm, status: "running" as const, providerVmId }),
+      markCreateFailed: input.markCreateFailed ?? (() => Effect.void),
+      recordUsageEvents: () => Effect.void,
+    };
+  }
+
+  function envProvider(input: {
+    readonly onCreate: (envs: Readonly<Record<string, string>> | undefined) => void;
+  }): VmProviderGatewayShape {
+    return {
+      create: (_provider, options) =>
+        Effect.sync(() => {
+          input.onCreate(options.envs);
+          return {
+            provider: "freestyle" as const,
+            providerVmId: "provider-vm-envs",
+            status: "running" as const,
+            image: "snapshot-test",
+            createdAt: Date.now(),
+          };
+        }),
+      destroy: () => Effect.void,
+      exec: () => Effect.succeed({ exitCode: 0, stdout: "", stderr: "" }),
+      openAttach: () => Effect.fail(new Error("unused") as never),
+      openSSH: () => Effect.fail(new Error("unused") as never),
+      revokeSSHIdentity: () => Effect.void,
+    };
+  }
+
+  function reservingBilling(onRefund: () => void): VmBillingGatewayShape {
+    return {
+      ...noOpVmBillingGateway(),
+      reserveCreate: () => Effect.succeed({
+        kind: "stack_item" as const,
+        itemId: "cmux-vm-create-credit",
+        customerType: "team" as const,
+        customerId: "team-envs",
+        amount: 1,
+      }),
+      refundCreate: () => Effect.sync(onRefund),
+    };
+  }
+
+  const createInput = {
+    userId: "user-envs",
+    billingCustomerType: "team" as const,
+    billingTeamId: "team-envs",
+    billingPlanId: "free",
+    maxActiveVms: 1,
+    provider: "freestyle" as const,
+    image: "snapshot-test",
+    idempotencyKey: "envs-1",
+  };
+
+  test("createVm mints create-time env only when a machine is actually created", async () => {
+    let mintCalls = 0;
+    const receivedEnvs: Array<Readonly<Record<string, string>> | undefined> = [];
+    const mintEnvs = async () => {
+      mintCalls += 1;
+      return { CMUX_MODEL_PLANE_TOKEN: "minted" };
+    };
+    const provider = envProvider({ onCreate: (envs) => receivedEnvs.push(envs) });
+
+    const created = await Effect.runPromise(
+      createVm({ ...createInput, mintEnvs }).pipe(
+        Effect.provide(workflowLayer(
+          createEnvRepo({ inserted: true, vm: testCloudVmRow({ userId: "user-envs" }) }),
+          provider,
+        )),
+      ),
+    );
+    expect(created.providerVmId).toBe("provider-vm-envs");
+    expect(mintCalls).toBe(1);
+    expect(receivedEnvs).toEqual([{ CMUX_MODEL_PLANE_TOKEN: "minted" }]);
+
+    // An idempotent replay of a running machine creates nothing, so it must
+    // not burn a stored bearer token on a mint either.
+    const replayed = await Effect.runPromise(
+      createVm({ ...createInput, mintEnvs }).pipe(
+        Effect.provide(workflowLayer(
+          createEnvRepo({
+            inserted: false,
+            vm: testCloudVmRow({
+              userId: "user-envs",
+              status: "running",
+              providerVmId: "provider-vm-envs",
+            }),
+          }),
+          provider,
+        )),
+      ),
+    );
+    expect(replayed.providerVmId).toBe("provider-vm-envs");
+    expect(mintCalls).toBe(1);
+    expect(receivedEnvs).toHaveLength(1);
+  });
+
+  test("createVm routes a rejected mint through the refund and mark-failed path", async () => {
+    let refunds = 0;
+    let createCalls = 0;
+    const failures: string[] = [];
+    const error = await Effect.runPromise(
+      createVm({
+        ...createInput,
+        mintEnvs: async () => {
+          throw new Error("token mint exploded");
+        },
+      }).pipe(
+        Effect.flip,
+        Effect.provide(workflowLayer(
+          createEnvRepo({
+            inserted: true,
+            vm: testCloudVmRow({ userId: "user-envs" }),
+            markCreateFailed: ({ code }) =>
+              Effect.sync(() => {
+                failures.push(code);
+              }),
+          }),
+          envProvider({ onCreate: () => { createCalls += 1; } }),
+          reservingBilling(() => { refunds += 1; }),
+        )),
+      ),
+    );
+    expect(error).toBeInstanceOf(VmProviderOperationError);
+    expect(createCalls).toBe(0);
+    expect(refunds).toBe(1);
+    expect(failures).toHaveLength(1);
+  });
+
+  test("openBaseVm routes a rejected mint through the refund and mark-failed path", async () => {
+    let refunds = 0;
+    let createCalls = 0;
+    const failures: string[] = [];
+    const vm = testCloudVmRow({ userId: "user-envs", idempotencyKey: null });
+    const base = testCloudVmBaseRow();
+    const generation = testCloudVmBaseGenerationRow({ baseId: base.id, vmId: vm.id });
+    const repo: VmRepositoryShape = {
+      ...testWorkflowRepo({ vm }),
+      beginBaseOpen: () => Effect.succeed({
+        kind: "create" as const,
+        base,
+        generation,
+        vm,
+        previousGeneration: null,
+        previousVm: null,
+      }),
+      markBaseCreateFailed: ({ code }) =>
+        Effect.sync(() => {
+          failures.push(code);
+        }),
+      recordUsageEvents: () => Effect.void,
+    };
+    const error = await Effect.runPromise(
+      openBaseVm({
+        userId: "user-envs",
+        billingCustomerType: "team",
+        billingTeamId: "team-envs",
+        billingPlanId: "free",
+        maxActiveVms: 1,
+        provider: "freestyle",
+        image: "snapshot-test",
+        mintEnvs: async () => {
+          throw new Error("token mint exploded");
+        },
+      }).pipe(
+        Effect.flip,
+        Effect.provide(workflowLayer(
+          repo,
+          envProvider({ onCreate: () => { createCalls += 1; } }),
+          reservingBilling(() => { refunds += 1; }),
+        )),
+      ),
+    );
+    expect(error).toBeInstanceOf(VmProviderOperationError);
+    expect(createCalls).toBe(0);
+    expect(refunds).toBe(1);
+    expect(failures).toHaveLength(1);
+  });
+});
+
+function testCloudVmBaseRow(overrides: Partial<CloudVmBaseRow> = {}): CloudVmBaseRow {
+  const now = new Date();
+  return {
+    id: "00000000-0000-4000-8000-0000000000b1",
+    scopeType: "team",
+    scopeId: "team-envs",
+    name: "base",
+    activeGeneration: 0,
+    activeVmId: null,
+    activeProvider: null,
+    activeProviderVmId: null,
+    state: "creating",
+    createdByUserId: "user-envs",
+    lastOpenedByUserId: null,
+    createdAt: now,
+    updatedAt: now,
+    ...overrides,
+  };
+}
+
+function testCloudVmBaseGenerationRow(
+  overrides: Partial<CloudVmBaseGenerationRow> = {},
+): CloudVmBaseGenerationRow {
+  const now = new Date();
+  return {
+    id: "00000000-0000-4000-8000-0000000000c1",
+    baseId: "00000000-0000-4000-8000-0000000000b1",
+    generation: 1,
+    vmId: null,
+    provider: null,
+    providerVmId: null,
+    state: "creating",
+    createdByUserId: "user-envs",
+    retainedAt: null,
+    deletedAt: null,
+    createdAt: now,
+    updatedAt: now,
+    ...overrides,
+  };
+}
 
 function testCloudVmRow(overrides: Partial<CloudVmRow> = {}): CloudVmRow {
   const now = new Date();

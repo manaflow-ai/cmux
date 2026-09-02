@@ -7,6 +7,7 @@ import {
 } from "../../../../services/subrouter/routeHelpers";
 import { resolveSubrouterRequestContext } from "../../../../services/subrouter/requestContext";
 import { captureCoderouterEvent } from "../../../../services/coderouter/analytics";
+import { mirrorConnectedAccount } from "../../../../services/coderouter/accountMirror";
 
 
 export async function GET(request: Request): Promise<Response> {
@@ -51,6 +52,14 @@ export async function POST(request: Request): Promise<Response> {
       tenant.tenantKey,
       input.value,
     );
+    // Connect once, every machine works: a Claude account connected here is
+    // mirrored into the coderouter vault that cloud machines route through.
+    const vmPlane = await mirrorConnectedAccount({
+      teamId: context.team.teamId,
+      stackUserId: context.user.id,
+      input: input.value,
+      created: account,
+    });
     captureCoderouterEvent({
       event: "coderouter_account_added",
       userId: context.user.id,
@@ -61,7 +70,7 @@ export async function POST(request: Request): Promise<Response> {
         already_exists: false,
       },
     });
-    return jsonResponse({ teamId: context.team.teamId, account });
+    return jsonResponse({ teamId: context.team.teamId, account, vmPlane });
   } catch (err) {
     return subrouterErrorResponse(err);
   }

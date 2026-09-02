@@ -27,8 +27,9 @@ import {
   vmWorkflowErrorResponse,
   resolveVmProvisioningAccountScope,
 } from "../../../../services/vms/routeHelpers";
+import { measureVmAsync, type VmTimingRecorder } from "../../../../services/vms/timings";
+import { mintVmModelPlaneEnvBestEffort } from "../../../../services/coderouter/vmModelPlane";
 import { vmRequestLocale } from "../../../../services/vms/vmErrorMessages";
-import type { VmTimingRecorder } from "../../../../services/vms/timings";
 import type { Locale } from "../../../../i18n/routing";
 import {
   openBaseVm,
@@ -94,6 +95,18 @@ export async function runBaseRoute(input: {
     throw err;
   }
 
+  // A Base machine is wired to coderouter exactly like `cmux vm new`: mint a
+  // per-machine route token and hand it over as create-time env. Lazy, so an
+  // idempotent re-open of a running Base mints nothing; best-effort, so a
+  // coderouter outage ships an unwired Base, never a failed create.
+  const mintEnvs = async () =>
+    (await measureVmAsync(input.timing, "model_plane_env", () =>
+      mintVmModelPlaneEnvBestEffort({
+        teamId: entitlements.billingTeamId,
+        stackUserId: input.user.id,
+        requestUrl: input.request.url,
+      }))) ?? undefined;
+
   let entry: BaseVmEntry;
   try {
     const programInput = {
@@ -106,6 +119,7 @@ export async function runBaseRoute(input: {
       image: imageSelection.image,
       imageVersion: imageSelection.imageVersion,
       baseName: parsed.body.name,
+      mintEnvs,
       timing: input.timing,
     };
     entry = await runVmWorkflow(

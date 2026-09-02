@@ -163,12 +163,27 @@ data plane existed. This PR completes the set:
 
 No new UI. No Swift changes. Local (non-cloud) agent launch paths untouched.
 
+## Connect once, every machine works
+
+The user-facing contract is in `docs/cloud-ai-accounts.md`: connect an AI
+account once from the Mac (`cmux ai-accounts upload claude`, which reads the
+Claude Code login already on the machine, or the dashboard) and every cloud
+machine routes over it. That path stores accounts in the hosted Subrouter
+store; `web/services/coderouter/accountMirror.ts` mirrors the providers the
+machine plane serves (Claude) into the coderouter vault on connect and removes
+them on disconnect, best-effort and idempotent, so normal connects keep the two
+stores in step (a vault outage is reported and heals on the next connect).
+Codex reaches the vault through `cr add codex` today;
+mirroring it too is a follow-up (its dedupe key is the ChatGPT account id).
+
 ## Incremental plan (follow-ups, in order)
 
-1. **Mint on every machine-creating path.** Base opens, restores, and forks
-   currently create without env (`web/services/vms/workflows.ts`); they mostly
-   inherit a wired home volume, but a fresh base machine is born unwired.
-   Thread the same best-effort mint through those workflows.
+1. **Mint on every machine-creating path.** Done for Base machines (the base
+   open/reset route mints the same best-effort env as `cmux vm new`).
+   Restores and forks go through provider snapshot/fork APIs that take no
+   create-time env and inherit the persisted `model-plane.env` on the home
+   volume; giving them a fresh token needs the rotation mechanism in item 2.
+   Tracked in #11320.
 2. **Token rotation for long-lived machines.** Tokens live 30 days and are
    minted once. Add a re-mint on resume/attach (control plane rewrites the
    persisted `model-plane.env` via the provider exec/fs channel, which the

@@ -12,51 +12,94 @@ import type { CodeRouterCredential } from "./types";
 import { deleteVaultCredential } from "./vault";
 import { reportCoderouterFailure } from "./observability";
 
-export async function addAccount(
+type AddAccountOptions = {
+  /**
+   * Replace a healthy existing account's credential instead of leaving it
+   * untouched — for callers that hand over freshly rotated tokens for an
+   * account the vault already knows (the connected-account mirror).
+   */
+  readonly refreshExisting?: boolean;
+};
+
+export type AddAccountResult = {
+  accountId: string;
+  /**
+   * The vault already served this account when the call arrived. False for a
+   * fresh insert and for the repair of an expired/broken account, which the
+   * caller reports as a new connection (201) either way.
+   */
+  alreadyExists: boolean;
+  /** An existing credential was replaced at the caller's request. */
+  refreshed: boolean;
+};
+
+export function createAccountAdder(dependencies: {
+  readonly find: typeof findAccountByProviderIdentity;
+  readonly encrypt: typeof encryptCredential;
+  readonly insert: typeof insertAccountWithCredential;
+  readonly replace: typeof replaceAccountCredential;
+}): (
   teamId: string,
   credential: CodeRouterCredential,
-): Promise<{ accountId: string; alreadyExists: boolean }> {
-  const existing = await findAccountByProviderIdentity(
-    teamId,
-    credential.provider,
-    credential.accountId,
-  );
-  if (existing?.state === "active" || existing?.state === "refreshing") {
-    return { accountId: existing.id, alreadyExists: true };
-  }
-
-  const accountId = existing?.id ?? randomUUID();
-  const expectedRevision = existing?.vaultRevision ?? 0;
-  const encrypted = await encryptCredential({
-    teamId,
-    accountId,
-    provider: credential.provider,
-    credentialRevision: expectedRevision + 1,
-    credential,
-  });
-  if (!existing) {
-    const inserted = await insertAccountWithCredential({
-      credential,
-      encrypted,
-    });
-    if (!inserted) {
-      const raced = await findAccountByProviderIdentity(
-        teamId,
-        credential.provider,
-        credential.accountId,
-      );
-      if (raced) return { accountId: raced.id, alreadyExists: true };
-      throw new Error("coderouter account insert lost a uniqueness race");
+  options?: AddAccountOptions,
+) => Promise<AddAccountResult> {
+  return async (teamId, credential, options = {}) => {
+    const existing = await dependencies.find(
+      teamId,
+      credential.provider,
+      credential.accountId,
+    );
+    const healthy = existing?.state === "active" || existing?.state === "refreshing";
+    if (existing && healthy && !options.refreshExisting) {
+      return { accountId: existing.id, alreadyExists: true, refreshed: false };
     }
-  } else {
-    await replaceAccountCredential({
+
+    const accountId = existing?.id ?? randomUUID();
+    const expectedRevision = existing?.vaultRevision ?? 0;
+    const encrypted = await dependencies.encrypt({
+      teamId,
+      accountId,
+      provider: credential.provider,
+      credentialRevision: expectedRevision + 1,
+      credential,
+    });
+    if (!existing) {
+      const inserted = await dependencies.insert({
+        credential,
+        encrypted,
+      });
+      if (!inserted) {
+        const raced = await dependencies.find(
+          teamId,
+          credential.provider,
+          credential.accountId,
+        );
+        if (raced) return { accountId: raced.id, alreadyExists: true, refreshed: false };
+        throw new Error("coderouter account insert lost a uniqueness race");
+      }
+      return { accountId, alreadyExists: false, refreshed: false };
+    }
+    await dependencies.replace({
       credential,
       encrypted,
       expectedRevision,
     });
-  }
-  return { accountId, alreadyExists: false };
+    // Replacing a healthy credential is a refresh of a connected account;
+    // replacing an expired or broken one is a repair that reconnects it.
+    return {
+      accountId,
+      alreadyExists: healthy,
+      refreshed: options.refreshExisting === true,
+    };
+  };
 }
+
+export const addAccount = createAccountAdder({
+  find: findAccountByProviderIdentity,
+  encrypt: encryptCredential,
+  insert: insertAccountWithCredential,
+  replace: replaceAccountCredential,
+});
 
 export { listAccounts };
 

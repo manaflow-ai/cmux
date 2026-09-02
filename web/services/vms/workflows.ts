@@ -348,6 +348,8 @@ export function createVm(input: {
    * persisted in the VM row or providerMetadata.
    */
   readonly envs?: Readonly<Record<string, string>>;
+  /** Lazily minted create-time env, called only when a machine is actually created. */
+  readonly mintEnvs?: () => Promise<Readonly<Record<string, string>> | undefined>;
   readonly timing?: VmTimingSink;
 }): Effect.Effect<VmEntry, VmWorkflowError, VmRepository | VmProviderGateway | VmBillingGateway> {
   return Effect.gen(function* () {
@@ -392,22 +394,25 @@ export function createVm(input: {
     const creditReservation = yield* reserveCreateCredit(billing, repo, input, create.vm);
     yield* recordCreateRequestedEvents(repo, input, create.vm, creditReservation);
 
-    const handle = yield* measureVmEffect(
-      input.timing,
-      "provider_create",
-      providers.create(input.provider, {
-        image: input.image,
-        providerMetadata: create.vm.providerMetadata,
-        homeVolume: input.perMachineHome
-          ? homeVolumeTemplateForUser(input.userId)
-          : input.persistentHome
-            ? homeVolumeNameForUser(input.userId)
-            : undefined,
-        memoryMb: input.memoryMb,
-        envs: input.envs,
-        ...(network ? { network: { id: network.providerNetworkId } } : {}),
-      }),
-    ).pipe(
+    const handle = yield* Effect.gen(function* () {
+      const envs = yield* resolveCreateEnvs(input);
+      return yield* measureVmEffect(
+        input.timing,
+        "provider_create",
+        providers.create(input.provider, {
+          image: input.image,
+          providerMetadata: create.vm.providerMetadata,
+          homeVolume: input.perMachineHome
+            ? homeVolumeTemplateForUser(input.userId)
+            : input.persistentHome
+              ? homeVolumeNameForUser(input.userId)
+              : undefined,
+          memoryMb: input.memoryMb,
+          envs,
+          ...(network ? { network: { id: network.providerNetworkId } } : {}),
+        }),
+      );
+    }).pipe(
       Effect.tapError((err) =>
         Effect.all([
           refundCredit(billing, repo, create.vm, creditReservation),
@@ -482,6 +487,9 @@ export function openBaseVm(input: {
   readonly image: string;
   readonly imageVersion?: string | null;
   readonly baseName?: string;
+  readonly envs?: Readonly<Record<string, string>>;
+  /** Lazily minted create-time env, called only when a machine is actually created. */
+  readonly mintEnvs?: () => Promise<Readonly<Record<string, string>> | undefined>;
   readonly timing?: VmTimingSink;
 }): Effect.Effect<BaseVmEntry, VmWorkflowError, VmRepository | VmProviderGateway | VmBillingGateway> {
   return Effect.gen(function* () {
@@ -508,6 +516,9 @@ export function resetBaseVm(input: {
   readonly imageVersion?: string | null;
   readonly baseName?: string;
   readonly reason?: string | null;
+  readonly envs?: Readonly<Record<string, string>>;
+  /** Lazily minted create-time env, called only when a machine is actually created. */
+  readonly mintEnvs?: () => Promise<Readonly<Record<string, string>> | undefined>;
   readonly timing?: VmTimingSink;
 }): Effect.Effect<BaseVmEntry, VmWorkflowError, VmRepository | VmProviderGateway | VmBillingGateway> {
   return Effect.gen(function* () {
@@ -520,6 +531,34 @@ export function resetBaseVm(input: {
       repo.beginBaseReset(input),
     );
     return yield* finishBaseCreate(repo, providers, billing, input, create);
+  });
+}
+
+/**
+ * The create-time machine env for a create that is actually going to reach
+ * the provider. `envs` wins when given; otherwise `mintEnvs` runs here and
+ * only here, so an idempotent replay of a running machine never burns a
+ * stored bearer token on a mint. A rejected mint is a create failure like any
+ * other provider failure: it fails inside the caller's cleanup chain, so the
+ * reserved credit is refunded and the row is marked failed instead of leaking
+ * a provisioning VM.
+ */
+function resolveCreateEnvs(input: {
+  readonly provider: ProviderId;
+  readonly envs?: Readonly<Record<string, string>>;
+  readonly mintEnvs?: () => Promise<Readonly<Record<string, string>> | undefined>;
+}): Effect.Effect<Readonly<Record<string, string>> | undefined, VmProviderOperationError> {
+  if (input.envs) return Effect.succeed(input.envs);
+  const mint = input.mintEnvs;
+  if (!mint) return Effect.succeed(undefined);
+  return Effect.tryPromise({
+    try: () => mint(),
+    catch: (cause) =>
+      new VmProviderOperationError({
+        provider: input.provider,
+        operation: "mint_envs",
+        cause,
+      }),
   });
 }
 
@@ -537,7 +576,10 @@ function finishBaseCreate(
     readonly image: string;
     readonly imageVersion?: string | null;
     readonly baseName?: string;
-      readonly timing?: VmTimingSink;
+    /** Create-time machine env (the coderouter model-plane vars); see createVm. */
+    readonly envs?: Readonly<Record<string, string>>;
+    readonly mintEnvs?: () => Promise<Readonly<Record<string, string>> | undefined>;
+    readonly timing?: VmTimingSink;
   },
   create: BeginBaseCreateResult,
 ): Effect.Effect<BaseVmEntry, VmWorkflowError, never> {
@@ -597,15 +639,19 @@ function finishBaseCreate(
       ),
     );
 
-    const handle = yield* measureVmEffect(
-      input.timing,
-      "provider_create",
-      providers.create(input.provider, {
-        image: input.image,
-        providerMetadata: create.vm.providerMetadata,
-        ...(network ? { network: { id: network.providerNetworkId } } : {}),
-      }),
-    ).pipe(
+    const handle = yield* Effect.gen(function* () {
+      const envs = yield* resolveCreateEnvs(input);
+      return yield* measureVmEffect(
+        input.timing,
+        "provider_create",
+        providers.create(input.provider, {
+          image: input.image,
+          providerMetadata: create.vm.providerMetadata,
+          envs,
+          ...(network ? { network: { id: network.providerNetworkId } } : {}),
+        }),
+      );
+    }).pipe(
       Effect.tapError((err) =>
         Effect.all([
           refundCredit(billing, repo, create.vm, creditReservation),

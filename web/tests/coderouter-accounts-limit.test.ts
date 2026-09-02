@@ -35,7 +35,7 @@ function addRequest(): Request {
 
 describe("coderouter account addition limit", () => {
   test("blocks connecting a fourth account without a subscription", async () => {
-    const add = mock(async () => ({ accountId: "new", alreadyExists: false }));
+    const add = mock(async () => ({ accountId: "new", alreadyExists: false, refreshed: false }));
     const POST = makeCoderouterAccountsPostHandler({
       resolveContext: mock(async () => context) as never,
       additionAllowed: async () => ({ allowed: false, accountCount: 3 }),
@@ -54,7 +54,7 @@ describe("coderouter account addition limit", () => {
     const POST = makeCoderouterAccountsPostHandler({
       resolveContext: mock(async () => context) as never,
       additionAllowed: async () => ({ allowed: true, accountCount: 1 }),
-      add: async () => ({ accountId: "new", alreadyExists: false }),
+      add: async () => ({ accountId: "new", alreadyExists: false, refreshed: false }),
       hostedProRequired: () => true,
     });
     const response = await POST(addRequest());
@@ -62,7 +62,7 @@ describe("coderouter account addition limit", () => {
   });
 
   test("fails closed with a retryable error when the gate is unavailable", async () => {
-    const add = mock(async () => ({ accountId: "new", alreadyExists: false }));
+    const add = mock(async () => ({ accountId: "new", alreadyExists: false, refreshed: false }));
     const POST = makeCoderouterAccountsPostHandler({
       resolveContext: mock(async () => context) as never,
       additionAllowed: async () => {
@@ -88,7 +88,7 @@ describe("coderouter account addition limit", () => {
     const POST = makeCoderouterAccountsPostHandler({
       resolveContext: mock(async () => context) as never,
       additionAllowed,
-      add: async () => ({ accountId: "new", alreadyExists: false }),
+      add: async () => ({ accountId: "new", alreadyExists: false, refreshed: false }),
       hostedProRequired: () => false,
     });
     const response = await POST(addRequest());

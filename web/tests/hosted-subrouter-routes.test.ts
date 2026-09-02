@@ -46,6 +46,34 @@ const captureCoderouterEvent = mock(() => {});
 mock.module("../services/coderouter/analytics", () => ({
   captureCoderouterEvent,
 }));
+// The VM-plane mirror is exercised in coderouter-account-mirror.test.ts; here
+// only the wiring (called with the connected account, result surfaced) matters.
+const mirrorConnectedAccount = mock(async (...args: unknown[]) => {
+  const [call] = args as [{ readonly input: { readonly provider: string } }];
+  return call.input.provider === "claude" ? ("mirrored" as const) : ("not_applicable" as const);
+});
+const unmirrorConnectedAccount = mock(async () => "removed" as const);
+// bun module mocks are process-global, so the stubs only take effect while
+// this file's tests run; every other suite (coderouter-account-mirror.test.ts)
+// reaches the real implementations, captured by value before mocking.
+let useMirrorStubs = false;
+const accountMirrorModule = await import("../services/coderouter/accountMirror");
+const realMirrorConnectedAccount = accountMirrorModule.mirrorConnectedAccount;
+const realUnmirrorConnectedAccount = accountMirrorModule.unmirrorConnectedAccount;
+const realCredentialForMirror = accountMirrorModule.credentialForMirror;
+const realMirroredProviderAccountId = accountMirrorModule.mirroredProviderAccountId;
+mock.module("../services/coderouter/accountMirror", () => ({
+  mirrorConnectedAccount: ((...args: Parameters<typeof realMirrorConnectedAccount>) =>
+    useMirrorStubs
+      ? mirrorConnectedAccount(...args)
+      : realMirrorConnectedAccount(...args)) as typeof realMirrorConnectedAccount,
+  unmirrorConnectedAccount: ((...args: Parameters<typeof realUnmirrorConnectedAccount>) =>
+    useMirrorStubs
+      ? (unmirrorConnectedAccount as (...a: unknown[]) => Promise<"removed">)(...args)
+      : realUnmirrorConnectedAccount(...args)) as typeof realUnmirrorConnectedAccount,
+  credentialForMirror: realCredentialForMirror,
+  mirroredProviderAccountId: realMirroredProviderAccountId,
+}));
 
 const accountsRoute = await import("../app/api/subrouter/accounts/route");
 const accountRoute = await import(
@@ -78,6 +106,7 @@ let exchangeStatus = 200;
 let accountListStatus = 200;
 
 afterAll(() => {
+  useMirrorStubs = false;
   globalThis.fetch = originalFetch;
   for (const name of modifiedEnvironment) {
     const value = originalEnvironment[name];
@@ -90,6 +119,9 @@ afterAll(() => {
 });
 
 beforeEach(() => {
+  useMirrorStubs = true;
+  mirrorConnectedAccount.mockClear();
+  unmirrorConnectedAccount.mockClear();
   currentUser = stackUser();
   authJson = {
     accessToken: "cookie-access",
@@ -269,6 +301,8 @@ describe("hosted Subrouter account routes", () => {
         kind: "openai-apikey",
         label: "work",
       },
+      // API-key accounts have no machine-plane provider to mirror into.
+      vmPlane: "not_applicable",
     });
     expect(calls[0]?.headers.get("authorization")).toBe("Bearer cookie-access");
     expect(calls[1]?.body).toEqual({
@@ -404,6 +438,49 @@ describe("hosted Subrouter account routes", () => {
     );
     expect(oversized.status).toBe(413);
     expect(calls).toHaveLength(0);
+  });
+
+  test("mirrors a connected Claude account into the cloud machines' vault", async () => {
+    const response = await accountsRoute.POST(
+      request("/api/subrouter/accounts", {
+        method: "POST",
+        body: JSON.stringify({
+          provider: "claude",
+          label: "person@example.com",
+          claudeAiOauth: {
+            accessToken: "sk-ant-oat-access",
+            refreshToken: "sk-ant-ort-refresh",
+            expiresAt: 1_800_000_000_000,
+            subscriptionType: "max",
+          },
+        }),
+      }),
+    );
+    expect(response.status).toBe(200);
+    const body = await response.json() as { vmPlane: string; account: { id: string } };
+    expect(body.vmPlane).toBe("mirrored");
+    expect(mirrorConnectedAccount).toHaveBeenCalledWith({
+      teamId: "team-a",
+      stackUserId: "user-1",
+      input: expect.objectContaining({
+        provider: "claude",
+        claudeAiOauth: expect.objectContaining({ accessToken: "sk-ant-oat-access" }),
+      }),
+      created: expect.objectContaining({ id: body.account.id, kind: "claude" }),
+    });
+  });
+
+  test("removing a connected account un-mirrors it from the machines' vault", async () => {
+    const deleted = await accountRoute.DELETE(
+      request("/api/subrouter/accounts/old%40example.com", { method: "DELETE" }),
+      { params: Promise.resolve({ accountId: "old@example.com" }) },
+    );
+    expect(deleted.status).toBe(200);
+    expect(await deleted.json()).toEqual({ ok: true, teamId: "team-a", vmPlane: "removed" });
+    expect(unmirrorConnectedAccount).toHaveBeenCalledWith({
+      teamId: "team-a",
+      subrouterAccountId: "old@example.com",
+    });
   });
 
   test("keeps only supported Codex token fields before upload", async () => {
