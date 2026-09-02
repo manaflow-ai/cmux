@@ -49,6 +49,27 @@ fn error(message: &str) -> ManagedEnrollmentError {
     ManagedEnrollmentError(message.to_owned())
 }
 
+fn read_bounded<R: Read>(
+    reader: &mut R,
+    max_bytes: usize,
+    contents: &mut Vec<u8>,
+) -> std::io::Result<bool> {
+    let mut limited = reader.take((max_bytes as u64) + 1);
+    let mut chunk = [0_u8; 8192];
+    loop {
+        match limited.read(&mut chunk) {
+            Ok(0) => break Ok(false),
+            Ok(read) => {
+                contents.extend_from_slice(&chunk[..read]);
+                if contents.len() > max_bytes {
+                    break Ok(true);
+                }
+            }
+            Err(error) => break Err(error),
+        }
+    }
+}
+
 fn read_and_shred(path: &Path) -> Result<String, ManagedEnrollmentError> {
     // Open read-only first. Validation must not require write access: callers
     // may intentionally mount the enrollment file read-only. O_NOFOLLOW keeps
@@ -93,20 +114,7 @@ fn read_and_shred(path: &Path) -> Result<String, ManagedEnrollmentError> {
 
     let mut contents =
         Vec::with_capacity(metadata.len().min((MAX_ENROLLMENT_BYTES as u64) + 1) as usize);
-    // Read through a fixed buffer so the `Take` limit bounds both I/O and
-    // allocation. `Take::read_to_end` may delegate to the underlying reader's
-    // unbounded implementation before applying its own limit.
-    let read_result = {
-        let mut limited = Read::by_ref(&mut file).take((MAX_ENROLLMENT_BYTES as u64) + 1);
-        let mut chunk = [0_u8; 8192];
-        loop {
-            match limited.read(&mut chunk) {
-                Ok(0) => break Ok(()),
-                Ok(read) => contents.extend_from_slice(&chunk[..read]),
-                Err(error) => break Err(error),
-            }
-        }
-    };
+    let read_result = read_bounded(&mut file, MAX_ENROLLMENT_BYTES, &mut contents);
     let oversized = contents.len() > MAX_ENROLLMENT_BYTES;
 
     // Reopen for writing only after validation and reading. The second open
@@ -446,6 +454,34 @@ mod tests {
         let error = load_managed_enrollment_file(&path, NOW).expect_err("oversized enrollment");
         assert_eq!(error.0, "Managed enrollment file is invalid.");
         assert!(!Path::new(&path).exists(), "oversized file must be shredded after refusal");
+    }
+
+    struct InterruptOnce {
+        bytes: &'static [u8],
+        interrupted: bool,
+    }
+
+    impl Read for InterruptOnce {
+        fn read(&mut self, buffer: &mut [u8]) -> std::io::Result<usize> {
+            if !self.interrupted {
+                self.interrupted = true;
+                return Err(std::io::Error::from(std::io::ErrorKind::Interrupted));
+            }
+            let count = buffer.len().min(self.bytes.len());
+            buffer[..count].copy_from_slice(&self.bytes[..count]);
+            self.bytes = &self.bytes[count..];
+            Ok(count)
+        }
+    }
+
+    #[test]
+    fn interrupted_bounded_read_is_retried() {
+        let mut reader = InterruptOnce { bytes: b"enrollment", interrupted: false };
+        let mut contents = Vec::new();
+        let oversized =
+            read_bounded(&mut reader, MAX_ENROLLMENT_BYTES, &mut contents).expect("interrupted read");
+        assert_eq!(contents, b"enrollment");
+        assert!(!oversized);
     }
 
     #[test]
