@@ -489,6 +489,9 @@ jobs:
           branch: "cla-signatures"
           required-base-ref: "main"
           custom-pr-sign-comment: "I have read the CLA Document v2.2 and I hereby sign the CLA"
+          # Keep this exemption set limited to the two independent maintainers.
+          # Maintainer IDs are intentionally absent so merge locking cannot
+          # become a second maintainer self-bypass path.
           allowlist-ids: "38676809,67667005"
           require-opener-as-author: "true"
           lock-pullrequest-aftermerge: "true"
