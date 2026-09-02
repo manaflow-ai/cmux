@@ -42,7 +42,7 @@ import {
 // machine does.
 //
 // Machines attach through the cmux-tui remote daemon (transport `cmux-remote`,
-// docs/cloud-cmux-tui-daemon.md), the same model as E2B/Daytona. The API has
+// docs/cloud-cmux-tui-daemon.md). The API has
 // no HTTP ingress proxy to arbitrary VM ports (TLS edge rules need a
 // customer-verified domain), so the route is the VM's stable public IPv6
 // straight to the daemon: `ws://[<publicIpv6>]:1337/v1/link`. The daemon's
@@ -196,7 +196,7 @@ const REMOTE_WS_BIND_OVERRIDE =
  * CMUX_TUI_REMOTE_WS_BIND=[::]:1337 — the env cmux-devbox-boot reads — then
  * restart the unit, healing machines from bakes that predate the env default.
  * Without systemd (or the unit), fall back to a direct daemon launch with the
- * dual-stack bind, mirroring the Daytona driver's fallback.
+ * dual-stack bind.
  */
 export function freestyleStartDaemonCommand(): string {
   return [
