@@ -12,8 +12,8 @@ When we change the fork, update this document and the parent submodule SHA.
 
 ## Current fork changes
 
-The submodule pinned by this branch is `04a10e6727`, a published descendant of
-fork `origin/main` `8bacdbb9e` (which contains cmux's current compatibility
+The submodule pinned by this branch is `f03fae7d0d`, a published descendant of
+fork `origin/main` `abd40f6e4` (which contains cmux's current compatibility
 pins) on
 https://github.com/manaflow-ai/ghostty/tree/fix/5490-color-scheme-protocol. It
 keeps the terminal color-scheme state authoritative across appearance callbacks
@@ -25,8 +25,8 @@ formatter cursor restoration, VT stream-boundary visibility, and Hangul
 canonical font resolution.
 
 The corresponding universal ReleaseFast GhosttyKit archive is published at
-https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-04a10e6727e15b0f698644e00803e3f75c38b98f-crashsubdir-cmux-crash-sentry-off-noi18n-v2
-with SHA-256 `05de152edee389ae47ee5fe379473d598cd439791e32c908a2af68f79024dff1`
+https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-f03fae7d0d953ae0abec91a7be4ea0e1cfb6dd6c-crashsubdir-cmux-crash-sentry-off-noi18n-v2
+with SHA-256 `f32f7cda56ac2584db7e4c20034478341ea1130e292ffa9afc3c1162bb3d62cb`
 pinned in `scripts/ghosttykit-checksums.txt`.
 
 ### Kitty color-scheme Mode 2031 reporting
@@ -36,6 +36,8 @@ pinned in `scripts/ghosttykit-checksums.txt`.
   - `23df1f4d0` (restore per-surface conditional state for reports)
   - `9c23cb4d0` (publish the immediate per-surface state update and preserve it across config swaps)
   - `04a10e6727` (merge current fork main while retaining the protocol fix)
+  - `d59b673a7` (serialize the initial report across queued config updates)
+  - `f03fae7d0` (merge current fork main `abd40f6e4` normally)
 - Files:
   - `src/termio/stream_handler.zig`
   - `src/Surface.zig`
@@ -49,6 +51,10 @@ pinned in `scripts/ghosttykit-checksums.txt`.
     renderer mutex before queuing the transition report. A queued stale config
     cannot overwrite that newer state while an embedder suppresses reentrant
     reload actions.
+  - A pending enable marker suppresses non-forced reports that crossed the
+    parser boundary before the authoritative initial report; it is cleared by
+    the forced report, so later palette/config and appearance notifications are
+    not coalesced incorrectly.
   - The existing PTY write path and `suppress_terminal_responses` guard remain
     per-surface, including manual-mirror/replay surfaces.
 - Conflict note:
@@ -59,8 +65,8 @@ pinned in `scripts/ghosttykit-checksums.txt`.
     conditional-state assignment with `Surface.updateConfig` when that method
     is reconciled again.
 - Artifact:
-  - https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-04a10e6727e15b0f698644e00803e3f75c38b98f-crashsubdir-cmux-crash-sentry-off-noi18n-v2
-  - SHA-256 `05de152edee389ae47ee5fe379473d598cd439791e32c908a2af68f79024dff1`
+  - https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-f03fae7d0d953ae0abec91a7be4ea0e1cfb6dd6c-crashsubdir-cmux-crash-sentry-off-noi18n-v2
+  - SHA-256 `f32f7cda56ac2584db7e4c20034478341ea1130e292ffa9afc3c1162bb3d62cb`
     is pinned in `scripts/ghosttykit-checksums.txt`.
 
 ### iOS tokened render disposition and nonblocking prompt reveal
