@@ -767,4 +767,22 @@ mod tests {
             .collect();
         assert!(validate_catalog_entries(too_many, "https://example.test/catalog").is_err());
     }
+
+    #[cfg(unix)]
+    #[test]
+    fn catalog_updates_hold_an_exclusive_cache_lock() {
+        let directory = std::env::temp_dir().join(format!(
+            "cmux-agent-update-lock-{}-{}",
+            std::process::id(),
+            now_nanos()
+        ));
+        let first = UpdateLock::acquire(&directory).expect("first updater acquires the lock");
+        assert!(
+            UpdateLock::acquire(&directory).is_err(),
+            "a second updater must not race the first cache transaction"
+        );
+        drop(first);
+        assert!(UpdateLock::acquire(&directory).is_ok(), "the lock must release on drop");
+        let _ = std::fs::remove_dir_all(directory);
+    }
 }
