@@ -2757,6 +2757,26 @@ mod tests {
 
     #[cfg(unix)]
     #[tokio::test]
+    async fn timeout_after_sigkill_reaches_terminal_wait_state() {
+        let env = scrubbed_env(&HashMap::from([("PATH".to_owned(), "/usr/bin:/bin".to_owned())]));
+        let outcome = tokio::time::timeout(
+            std::time::Duration::from_secs(2),
+            run_spec(
+                RunSpec::Shell { command: "trap '' TERM; exec sleep 5" },
+                Path::new("/"),
+                None,
+                20,
+                &env,
+                None,
+            ),
+        )
+        .await
+        .expect("SIGKILL cleanup must reach a terminal wait state");
+        assert!(matches!(outcome, RunOutcome::TimedOut));
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
     async fn cancellation_reports_failure_and_kills_descendant() {
         use tokio_util::sync::CancellationToken;
 
