@@ -42,16 +42,18 @@ public final class MobileMacCompatCenter {
         defaults: UserDefaults = .standard,
         loader: Loader? = nil
     ) {
+        let url: URL?
         if let apiBaseURL, !apiBaseURL.isEmpty {
-            requestURL = URL(string: apiBaseURL + Self.requestPath)
+            url = URL(string: apiBaseURL + Self.requestPath)
         } else {
-            requestURL = nil
+            url = nil
         }
+        requestURL = url
         self.defaults = defaults
         self.loader = loader ?? mobileRemoteJSONLoader
-        let scheme = requestURL?.scheme?.lowercased() ?? "none"
-        let host = requestURL?.host?.lowercased() ?? "none"
-        let port = requestURL?.port.map(String.init) ?? "default"
+        let scheme = url?.scheme?.lowercased() ?? "none"
+        let host = url?.host?.lowercased() ?? "none"
+        let port = url?.port.map(String.init) ?? "default"
         let environmentCacheKey = "\(Self.cacheKey).\(scheme).\(host).\(port)"
         self.environmentCacheKey = environmentCacheKey
         if let cached = defaults.data(forKey: environmentCacheKey),
