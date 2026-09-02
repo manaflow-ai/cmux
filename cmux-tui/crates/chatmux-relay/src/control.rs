@@ -6,6 +6,7 @@
 //! reading so PTY backpressure applies naturally.
 
 use serde_json::Value;
+use std::future::Future;
 
 /// Per-request budget on a cmux-tui control connection.
 pub const CONTROL_TIMEOUT_MS: u64 = 3_000;
@@ -28,6 +29,16 @@ pub trait ControlHandle: Send + Sync {
     ) -> std::pin::Pin<Box<dyn Future<Output = Option<Value>> + Send + '_>>;
     /// Fire-and-forget (input/resize hot paths); the response line drops.
     fn send(&self, cmd: &str, params: Value) -> bool;
+    /// Enqueue a fire-and-forget command with backpressure. The future
+    /// resolves after the writer accepts the line.
+    fn send_reliable(
+        &self,
+        cmd: &str,
+        params: Value,
+    ) -> std::pin::Pin<Box<dyn Future<Output = bool> + Send + '_>> {
+        let accepted = self.send(cmd, params);
+        Box::pin(async move { accepted })
+    }
     fn on_event(&self, handler: EventHandler);
     /// Fires on unexpected close only (not after `end()`).
     fn on_close(&self, handler: CloseHandler);
@@ -391,6 +402,32 @@ mod unix {
             }
             let id = self.next_id.fetch_add(1, Ordering::SeqCst);
             self.enqueue_line(id, cmd, params, None)
+        }
+
+        fn send_reliable(
+            &self,
+            cmd: &str,
+            params: Value,
+        ) -> std::pin::Pin<Box<dyn Future<Output = bool> + Send + '_>> {
+            let cmd = cmd.to_owned();
+            Box::pin(async move {
+                if self.shared.closed.load(Ordering::SeqCst) {
+                    return false;
+                }
+                let (written, result) = oneshot::channel();
+                if self
+                    .writer_tx
+                    .send(OutboundLine {
+                        bytes: Self::encode_line(0, &cmd, params),
+                        written: Some(written),
+                    })
+                    .await
+                    .is_err()
+                {
+                    return false;
+                }
+                result.await.unwrap_or(false)
+            })
         }
 
         fn on_event(&self, handler: EventHandler) {

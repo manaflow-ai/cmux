@@ -487,7 +487,21 @@ struct ControlLease {
 }
 
 impl ControlLease {
-    fn release(&self, surface_id: i64, lease: Option<&str>, detach_supported: bool) {
+    fn finish_count(&self) {
+        let Some(inner) = self.inner.upgrade() else { return };
+        let mut users = inner.control_users.lock().expect("control users lock");
+        let Some(state) = users.get_mut(&self.key) else { return };
+        if !Arc::ptr_eq(&state.control, &self.control) {
+            return;
+        }
+        state.count = state.count.saturating_sub(1);
+        if state.count == 0 {
+            users.remove(&self.key);
+            self.control.end();
+        }
+    }
+
+    fn release(self: &Arc<Self>, surface_id: i64, lease: Option<&str>, detach_supported: bool) {
         if self.released.swap(true, Ordering::SeqCst) {
             return;
         }
@@ -500,15 +514,22 @@ impl ControlLease {
         if detach_supported && let Some(lease) = lease {
             // The detach command is idempotent and queued before the control
             // is closed. This handles an attach response racing cancellation.
-            let _ = self
-                .control
-                .send("detach-attached-view", json!({ "surface": surface_id, "lease": lease }));
+            let params = json!({ "surface": surface_id, "lease": lease });
+            if !self.control.send("detach-attached-view", params.clone()) {
+                drop(users);
+                if let Ok(handle) = tokio::runtime::Handle::try_current() {
+                    let control = Arc::clone(&self.control);
+                    let lease = Arc::clone(self);
+                    handle.spawn(async move {
+                        let _ = control.send_reliable("detach-attached-view", params).await;
+                        lease.finish_count();
+                    });
+                }
+                return;
+            }
         }
-        state.count = state.count.saturating_sub(1);
-        if state.count == 0 {
-            users.remove(&self.key);
-            self.control.end();
-        }
+        drop(users);
+        self.finish_count();
     }
 }
 
@@ -1361,6 +1382,15 @@ impl Inner {
         // revoked context cannot send a control operation to the old
         // attachment generation.
         if !(context.live_authorized)(&actor_id) {
+            drop(_publication);
+            self.emit_error_for_generation(
+                context,
+                pty_id,
+                attachment.generation,
+                &attachment.publication_gate,
+                "trust_revoked",
+                "PTY control operation refused after trust change",
+            );
             return None;
         }
         Some(operation(attachment.control.as_ref()))
