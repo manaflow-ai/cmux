@@ -166,6 +166,7 @@ struct TextBoxSubmitActionTests {
         let expectedCommand = "codex --yolo -- '--help\nship user'\\''s fix\nwith\ttabs'"
         XCTAssertEqual(plan.launchCommand, expectedCommand)
         XCTAssertEqual(plan.launchContextCommand, "codex --yolo --")
+        XCTAssertEqual(plan.atomicPromptTerminalAgentContext, "")
         XCTAssertEqual(plan.events, TextBoxSubmit.dispatchEvents(for: [.text(expectedCommand)], terminalAgentContext: ""))
     }
 

@@ -483,6 +483,7 @@ extension TextBoxInputContainer {
 
     struct SubmitDispatchPlan {
         let events: [TextBoxSubmit.DispatchEvent]
+        let atomicPromptTerminalAgentContext: String
         let cleanupTerminalAgentContext: String
         let launchCommand: String?
         let launchContextCommand: String?
@@ -518,6 +519,7 @@ extension TextBoxInputContainer {
             )
             return SubmitDispatchPlan(
                 events: TextBoxSubmit.dispatchEvents(for: parts, terminalAgentContext: textEntryContext),
+                atomicPromptTerminalAgentContext: textEntryContext,
                 cleanupTerminalAgentContext: textEntryContext,
                 launchCommand: nil,
                 launchContextCommand: nil
@@ -532,6 +534,7 @@ extension TextBoxInputContainer {
             )
             return SubmitDispatchPlan(
                 events: TextBoxSubmit.dispatchEvents(for: parts, terminalAgentContext: textEntryContext),
+                atomicPromptTerminalAgentContext: textEntryContext,
                 cleanupTerminalAgentContext: textEntryContext,
                 launchCommand: nil,
                 launchContextCommand: nil
@@ -539,6 +542,10 @@ extension TextBoxInputContainer {
         }
         return SubmitDispatchPlan(
             events: TextBoxSubmit.dispatchEvents(for: [.text(command)], terminalAgentContext: ""),
+            // The command-template event is intentionally app-owned but has
+            // no agent prompt-hook context. Keep the compound write while
+            // disabling workspace.prompt_submit attribution.
+            atomicPromptTerminalAgentContext: "",
             cleanupTerminalAgentContext: Self.textEntryTerminalAgentContext(
                 allowsCommandTemplateSubmit: allowsCommandTemplateSubmit,
                 terminalAgentContext: terminalAgentContext,

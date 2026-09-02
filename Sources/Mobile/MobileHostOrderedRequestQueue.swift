@@ -26,19 +26,26 @@ struct MobileHostOrderedRequestQueue {
 }
 
 extension MobileHostRPCRequest {
+    /// Conservative ordering bucket used while a chat binding is unresolved.
+    static let globalTerminalInputOrderingKey =
+        "__cmux_global_terminal_input__"
+
     /// Whether this request can write terminal input and must therefore be
     /// handled in arrival order rather than on a concurrent response task.
     /// paste_image belongs here because its handler writes the materialized
     /// image path into the PTY; scroll and mouse belong here because their
     /// handlers emit mouse-report bytes when the terminal has mouse reporting
     /// active, and either could otherwise overtake earlier queued keystrokes.
+    /// `mobile.chat.send` is included because attachment preparation suspends
+    /// before it emits the same compound terminal write.
     var isOrderedTerminalInput: Bool {
         switch method {
         case "mobile.terminal.input", "terminal.input",
              "mobile.terminal.paste", "terminal.paste",
              "mobile.terminal.paste_image", "terminal.paste_image",
              "mobile.terminal.scroll", "terminal.scroll",
-             "mobile.terminal.mouse", "terminal.mouse":
+             "mobile.terminal.mouse", "terminal.mouse",
+             "mobile.chat.send", "mobile.chat.interrupt", "mobile.chat.answer":
             true
         default:
             false
@@ -48,6 +55,10 @@ extension MobileHostRPCRequest {
     /// The per-surface ordering domain for an ordered terminal request.
     /// Requests without a surface selection share one conservative bucket.
     var orderedInputSurfaceKey: String {
+        if method == "mobile.chat.send",
+           let sessionID = params["session_id"] as? String {
+            return "chat-session:" + sessionID
+        }
         (params["surface_id"] as? String)?
             .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
     }

@@ -243,7 +243,10 @@ path and include ordered `workspace_ids`, `moved_workspace_ids`,
 `workspace.prompt.submitted` payloads include `workspace_id`, a redacted
 `message`, `message_preview`, `message_length`, and `redacted_fields`. This is
 local sensitive data, so consumers should only forward it with explicit user
-opt-in.
+opt-in. Prompts accepted through `workspace.agent_submit` use that method name
+as the event source. They are recorded only when the matching agent hook
+confirms delivery, so a cold queued prompt that never reaches the agent is not
+reported as submitted.
 
 Extension sidebars should bootstrap from the v2 socket method
 `extension.sidebar.snapshot`, then subscribe to `cmux events --category

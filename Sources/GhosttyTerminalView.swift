@@ -5284,6 +5284,9 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             requestInputRecoveryAfterSurfaceMiss(reason: reason)
             return false
         }
+        if let terminalSurface {
+            terminalSurface.recordHumanPromptInput(.unknown)
+        }
         return true
     }
     func performBindingAction(_ action: String) -> Bool {
@@ -6407,6 +6410,20 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         }
     }
 
+    /// Reconciles prompt ownership after Ghostty accepts a key before text interpretation.
+    func recordPromptOwnershipAfterAcceptedGhosttyKey(
+        _ keyEvent: ghostty_input_key_s
+    ) {
+        guard let terminalSurface else { return }
+        // Ghostty bindings are agent/config-specific. Even Ctrl-C or Escape
+        // may mutate a composer. Route the accepted key through the shared
+        // classifier so only a configured Ctrl-Return establishes a boundary.
+        terminalSurface.recordHumanPromptKey(
+            keycode: keyEvent.keycode,
+            mods: keyEvent.mods
+        )
+    }
+
     override func keyDown(with event: NSEvent) {
         if routeInputDuringClipboardRead(event) { return }
         let cancelledDeferredAdmission = terminalSurface?.didReceiveExplicitInput() == true
@@ -6565,7 +6582,10 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             // If Ghostty handled the key (action/encoding), we're done.
             // If not (e.g. `ignore` keybind), fall through to interpretKeyEvents
             // so the IME gets a chance to process this event.
-            if handled { return }
+            if handled {
+                recordPromptOwnershipAfterAcceptedGhosttyKey(keyEvent)
+                return
+            }
         }
 
         let action = event.isARepeat ? GHOSTTY_ACTION_REPEAT : GHOSTTY_ACTION_PRESS
@@ -6675,11 +6695,13 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         // entry left by an earlier suppressed repeat for the same physical key.
         imeConsumedKeyUps.remove(event.keyCode)
 
+        let eventMods = modsFromEvent(event)
+
         // Build the key event
         var keyEvent = ghostty_input_key_s()
         keyEvent.action = action
         keyEvent.keycode = UInt32(event.keyCode)
-        keyEvent.mods = modsFromEvent(event)
+        keyEvent.mods = eventMods
         // Control and Command never contribute to text translation
         keyEvent.consumed_mods = consumedModsFromFlags(translationMods)
         keyEvent.unshifted_codepoint = unshiftedCodepointFromEvent(event)
@@ -6689,6 +6711,14 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         keyEvent.composing = markedText.length > 0 || markedTextBefore
 
         // Use accumulated text from insertText (for IME), or compute text for key
+        let canRecordPhysicalPromptBoundary =
+            !markedTextBefore
+                && markedText.length == 0
+                && (event.keyCode == UInt16(kVK_Return)
+                    || event.keyCode == UInt16(kVK_ANSI_KeypadEnter))
+        var acceptedGhosttyKey = false
+        var acceptedPromptBoundaryKey = false
+        var acceptedAccumulatedText = false
         if !accumulatedText.isEmpty {
             // Accumulated text comes from insertText (IME composition result).
             // These never have "composing" set to true because these are the
@@ -6700,10 +6730,10 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
                     let sendTimingStart = CmuxTypingTiming.start()
                     let ghosttySendStart = ProcessInfo.processInfo.systemUptime
 #endif
-                    text.withCString { ptr in
+                    let handled = text.withCString { ptr in
                         keyEvent.text = ptr
                         #if DEBUG
-                        _ = sendTimedGhosttyKey(
+                        return sendTimedGhosttyKey(
                             surface,
                             keyEvent,
                             path: "terminal.keyDown.accumulatedGhosttySend",
@@ -6711,8 +6741,12 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
                             extra: "textBytes=\(text.utf8.count)"
                         )
                         #else
-                        _ = sendGhosttyKey(surface, keyEvent)
+                        return sendGhosttyKey(surface, keyEvent)
                         #endif
+                    }
+                    acceptedGhosttyKey = handled || acceptedGhosttyKey
+                    if handled {
+                        acceptedAccumulatedText = true
                     }
 #if DEBUG
                     ghosttySendMs += (ProcessInfo.processInfo.systemUptime - ghosttySendStart) * 1000.0
@@ -6728,15 +6762,17 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
                     keyEvent.text = nil
                     #if DEBUG
                     let ghosttySendStart = ProcessInfo.processInfo.systemUptime
-                    _ = sendTimedGhosttyKey(
+                    let handled = sendTimedGhosttyKey(
                         surface,
                         keyEvent,
                         path: "terminal.keyDown.accumulatedGhosttySend",
                         event: event
                     )
+                    acceptedGhosttyKey = handled || acceptedGhosttyKey
                     ghosttySendMs += (ProcessInfo.processInfo.systemUptime - ghosttySendStart) * 1000.0
                     #else
-                    _ = sendGhosttyKey(surface, keyEvent)
+                    let handled = sendGhosttyKey(surface, keyEvent)
+                    acceptedGhosttyKey = handled || acceptedGhosttyKey
                     #endif
                 }
             }
@@ -6749,15 +6785,19 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
                 keyEvent.text = nil
 #if DEBUG
                 let ghosttySendStart = ProcessInfo.processInfo.systemUptime
-                _ = sendTimedGhosttyKey(
+                let handled = sendTimedGhosttyKey(
                     surface,
                     keyEvent,
                     path: "terminal.keyDown.accumulatedConfirmGhosttySend",
                     event: event
                 )
+                acceptedGhosttyKey = handled || acceptedGhosttyKey
+                acceptedPromptBoundaryKey = handled || acceptedPromptBoundaryKey
                 ghosttySendMs += (ProcessInfo.processInfo.systemUptime - ghosttySendStart) * 1000.0
 #else
-                _ = sendGhosttyKey(surface, keyEvent)
+                let handled = sendGhosttyKey(surface, keyEvent)
+                acceptedGhosttyKey = handled || acceptedGhosttyKey
+                acceptedPromptBoundaryKey = handled || acceptedPromptBoundaryKey
 #endif
             }
         } else {
@@ -6796,6 +6836,10 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
                     if handled {
                         notePotentialDeferredNumpadIMECommit(text: text, event: event)
                     }
+                    acceptedGhosttyKey = handled || acceptedGhosttyKey
+                    if canRecordPhysicalPromptBoundary {
+                        acceptedPromptBoundaryKey = handled || acceptedPromptBoundaryKey
+                    }
 #if DEBUG
                     ghosttySendMs += (ProcessInfo.processInfo.systemUptime - ghosttySendStart) * 1000.0
                     CmuxTypingTiming.logDuration(
@@ -6810,15 +6854,23 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
                     keyEvent.text = nil
                     #if DEBUG
                     let ghosttySendStart = ProcessInfo.processInfo.systemUptime
-                    _ = sendTimedGhosttyKey(
+                    let handled = sendTimedGhosttyKey(
                         surface,
                         keyEvent,
                         path: "terminal.keyDown.ghosttySend",
                         event: event
                     )
+                    acceptedGhosttyKey = handled || acceptedGhosttyKey
+                    if canRecordPhysicalPromptBoundary {
+                        acceptedPromptBoundaryKey = handled || acceptedPromptBoundaryKey
+                    }
                     ghosttySendMs += (ProcessInfo.processInfo.systemUptime - ghosttySendStart) * 1000.0
                     #else
-                    _ = sendGhosttyKey(surface, keyEvent)
+                    let handled = sendGhosttyKey(surface, keyEvent)
+                    acceptedGhosttyKey = handled || acceptedGhosttyKey
+                    if canRecordPhysicalPromptBoundary {
+                        acceptedPromptBoundaryKey = handled || acceptedPromptBoundaryKey
+                    }
                     #endif
                 }
             } else {
@@ -6826,16 +6878,51 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
                 keyEvent.text = nil
                 #if DEBUG
                 let ghosttySendStart = ProcessInfo.processInfo.systemUptime
-                _ = sendTimedGhosttyKey(
+                let handled = sendTimedGhosttyKey(
                     surface,
                     keyEvent,
                     path: "terminal.keyDown.ghosttySend",
                     event: event
                 )
+                acceptedGhosttyKey = handled || acceptedGhosttyKey
+                if canRecordPhysicalPromptBoundary {
+                    acceptedPromptBoundaryKey = handled || acceptedPromptBoundaryKey
+                }
                 ghosttySendMs += (ProcessInfo.processInfo.systemUptime - ghosttySendStart) * 1000.0
                 #else
-                _ = sendGhosttyKey(surface, keyEvent)
+                let handled = sendGhosttyKey(surface, keyEvent)
+                acceptedGhosttyKey = handled || acceptedGhosttyKey
+                if canRecordPhysicalPromptBoundary {
+                    acceptedPromptBoundaryKey = handled || acceptedPromptBoundaryKey
+                }
                 #endif
+            }
+        }
+
+        // A rejected Ghostty key (for example, an `ignore` binding) did not
+        // mutate the terminal, so it must not create a recoverable composer
+        // boundary or a conservative human-input record.
+        if acceptedGhosttyKey, let terminalSurface {
+            // `insertText` can arrive during `interpretKeyEvents`, where the
+            // committed string is accumulated and later split into real
+            // Return/Tab key events by the send path. Replay the same text
+            // grammar here so embedded newlines create hook-recoverable
+            // boundaries instead of collapsing to one unknown mutation.
+            if acceptedAccumulatedText {
+                for text in accumulatedText {
+                    terminalSurface.recordAcceptedUnownedPromptInput(text)
+                }
+            }
+            if acceptedPromptBoundaryKey {
+                terminalSurface.recordHumanPromptKey(
+                    keycode: UInt32(event.keyCode),
+                    mods: eventMods
+                )
+            } else if !acceptedAccumulatedText {
+                // Committed IME text and ordinary non-submit keys are human
+                // mutations, but they do not establish a hook-recoverable
+                // prompt boundary.
+                terminalSurface.recordHumanPromptInput(.unknown)
             }
         }
 
@@ -9231,7 +9318,11 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         case .reject:
             return false
         case .insertText(let text):
-            return terminalSurface?.sendText(text) ?? false
+            guard let terminalSurface,
+                  terminalSurface.sendText(text) else {
+                return false
+            }
+            return true
         case .fileURLs(let fileURLs):
             let plan = TerminalImageTransferPlanner.plan(
                 fileURLs: fileURLs,
@@ -13251,11 +13342,14 @@ extension GhosttyNSView: NSTextInputClient {
     /// keep their normal interactive behaviors (autosuggestions, Return
     /// execution, etc.). Programmatic callers can preserve literal ESC bytes so
     /// automation payloads remain byte-for-byte stable.
-    fileprivate func sendTextToSurface(_ chars: String, preserveLiteralEscape: Bool) {
-        guard !chars.isEmpty else { return }
+    fileprivate func sendTextToSurface(
+        _ chars: String,
+        preserveLiteralEscape: Bool
+    ) -> Bool {
+        guard !chars.isEmpty else { return false }
         terminalSurface?.didReceiveExplicitInput()
         recordDirectAgentHibernationTerminalInput()
-        sendTextToSurfaceAfterInputNotification(
+        return sendTextToSurfaceAfterInputNotification(
             chars,
             preserveLiteralEscape: preserveLiteralEscape
         )
@@ -13264,7 +13358,7 @@ extension GhosttyNSView: NSTextInputClient {
     private func sendTextToSurfaceAfterInputNotification(
         _ chars: String,
         preserveLiteralEscape: Bool
-    ) {
+    ) -> Bool {
         if deferRuntimeInputDuringClipboardRead(
             estimatedBytes: chars.utf8.count,
             replay: { [weak self] in
@@ -13274,9 +13368,9 @@ extension GhosttyNSView: NSTextInputClient {
                 )
             }
         ) {
-            return
+            return true
         }
-        guard ensureSurfaceReadyForInput() != nil else { return }
+        guard ensureSurfaceReadyForInput() != nil else { return false }
 #if DEBUG
         let typingTimingStart = CmuxTypingTiming.start()
 #endif
@@ -13293,15 +13387,16 @@ extension GhosttyNSView: NSTextInputClient {
         var bufferedText = ""
         var previousWasCR = false
 
+        var acceptedInput = false
         func flushBufferedText() {
             guard !bufferedText.isEmpty else { return }
             let committedText = bufferedText
             bufferedText.removeAll(keepingCapacity: true)
-            sendCommittedTextChunk(committedText)
+            acceptedInput = sendCommittedTextChunk(committedText) || acceptedInput
         }
 
         func sendControlKey(_ keycode: UInt32) {
-            sendCommittedControlKey(keycode)
+            acceptedInput = sendCommittedControlKey(keycode) || acceptedInput
         }
 
         for scalar in chars.unicodeScalars {
@@ -13341,17 +13436,18 @@ extension GhosttyNSView: NSTextInputClient {
             extra: "textBytes=\(chars.utf8.count)"
         )
 #endif
+        return acceptedInput
     }
 
-    private func sendCommittedTextChunk(_ text: String) {
-        guard !text.isEmpty else { return }
+    private func sendCommittedTextChunk(_ text: String) -> Bool {
+        guard !text.isEmpty else { return false }
         if deferRuntimeInputDuringClipboardRead(
             estimatedBytes: text.utf8.count,
             replay: { [weak self] in self?.sendCommittedTextChunk(text) }
         ) {
-            return
+            return true
         }
-        guard let surface = ensureSurfaceReadyForInput() else { return }
+        guard let surface = ensureSurfaceReadyForInput() else { return false }
         var keyEvent = ghostty_input_key_s()
         keyEvent.action = GHOSTTY_ACTION_PRESS
         keyEvent.keycode = 0
@@ -13359,20 +13455,20 @@ extension GhosttyNSView: NSTextInputClient {
         keyEvent.consumed_mods = GHOSTTY_MODS_NONE
         keyEvent.unshifted_codepoint = 0
         keyEvent.composing = false
-        text.withCString { pointer in
+        return text.withCString { pointer in
             keyEvent.text = pointer
-            _ = sendGhosttyKey(surface, keyEvent)
+            sendGhosttyKey(surface, keyEvent)
         }
     }
 
-    private func sendCommittedControlKey(_ keycode: UInt32) {
+    private func sendCommittedControlKey(_ keycode: UInt32) -> Bool {
         if deferRuntimeInputDuringClipboardRead(
             estimatedBytes: MemoryLayout<UInt32>.size,
             replay: { [weak self] in self?.sendCommittedControlKey(keycode) }
         ) {
-            return
+            return true
         }
-        guard let surface = ensureSurfaceReadyForInput() else { return }
+        guard let surface = ensureSurfaceReadyForInput() else { return false }
         var keyEvent = ghostty_input_key_s()
         keyEvent.action = GHOSTTY_ACTION_PRESS
         keyEvent.keycode = keycode
@@ -13381,7 +13477,7 @@ extension GhosttyNSView: NSTextInputClient {
         keyEvent.unshifted_codepoint = 0
         keyEvent.composing = false
         keyEvent.text = nil
-        _ = sendGhosttyKey(surface, keyEvent)
+        return sendGhosttyKey(surface, keyEvent)
     }
 
     /// External accessibility/dictation tools should commit plain text, but
@@ -13523,6 +13619,8 @@ extension GhosttyNSView: NSTextInputClient {
             )
         }
 #endif
+        let previousMarkedText = markedText.string
+        let previousMarkedSelectedRange = markedSelectedRange
         switch string {
         case let v as NSAttributedString:
             markedText = NSMutableAttributedString(attributedString: v)
@@ -13532,6 +13630,16 @@ extension GhosttyNSView: NSTextInputClient {
             return
         }
         markedSelectedRange = normalizedMarkedSelectionRange(selectedRange, markedLength: markedText.length)
+
+        // AppKit can consume composition keystrokes entirely inside the text
+        // input manager, so no Ghostty key result is available to establish
+        // human ownership. Claim changed non-empty preedit state at this
+        // boundary instead of allowing automation to interleave with it.
+        if markedText.length > 0,
+           (markedText.string != previousMarkedText
+            || markedSelectedRange != previousMarkedSelectedRange) {
+            terminalSurface?.recordHumanPromptInput(.unknown)
+        }
 
         // If we're not in a keyDown event, sync preedit immediately.
         // This can happen due to external events like changing keyboard layouts
@@ -13762,10 +13870,16 @@ extension GhosttyNSView: NSTextInputClient {
 #endif
 
         guard !sanitizedChars.isEmpty else { return }
-        sendTextToSurface(
+        let didDeliver = sendTextToSurface(
             sanitizedChars,
             preserveLiteralEscape: !isExternalCommittedText
         )
+        if didDeliver, let terminalSurface {
+            // Keep direct text commits on the same ownership grammar as socket
+            // and remote input. In particular, sendTextToSurface turns embedded
+            // newlines into Return key events that hooks must be able to confirm.
+            terminalSurface.recordAcceptedUnownedPromptInput(sanitizedChars)
+        }
     }
 
     private func insertBopomofoPreeditText(_ chars: String, replacementRange: NSRange) {
@@ -13778,6 +13892,7 @@ extension GhosttyNSView: NSTextInputClient {
                 NSRange(location: insertionLocation, length: 0),
                 markedLength: markedText.length
             )
+            terminalSurface?.recordHumanPromptInput(.unknown)
             return
         }
 
@@ -13786,6 +13901,7 @@ extension GhosttyNSView: NSTextInputClient {
             NSRange(location: markedText.length, length: 0),
             markedLength: markedText.length
         )
+        terminalSurface?.recordHumanPromptInput(.unknown)
     }
 
     private func effectiveBopomofoPreeditReplacementRange(_ replacementRange: NSRange) -> NSRange {

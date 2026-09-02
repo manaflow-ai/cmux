@@ -312,6 +312,7 @@ extension TerminalSurface {
             registry.unregisterRuntimeSurface(surfaceToFree, ownerId: id)
         }
         surface = nil
+        discardPendingSocketInput()
         guard let surfaceToFree else {
             callbackContext?.release()
             manualIOContext?.release()
@@ -411,8 +412,7 @@ extension TerminalSurface {
         portalHostAuthority = nil
         clearPortalHostVacancyRetries()
         portalLifecycleGeneration &+= 1
-        pendingSocketInputQueue.removeAll(keepingCapacity: false)
-        pendingSocketInputBytes = 0
+        discardPendingSocketInput()
         desiredFocusState = false
 
         guard let surfaceToFree else {

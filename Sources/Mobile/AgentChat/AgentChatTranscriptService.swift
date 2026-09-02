@@ -1,6 +1,7 @@
 import CMUXAgentLaunch
 import CmuxAgentChat
 import CmuxTerminal
+import CryptoKit
 import Foundation
 
 /// Retains terminal render/tick notifications only while live prose streaming
@@ -115,6 +116,7 @@ final class AgentChatTranscriptService {
     private var tailers: [String: AgentChatTranscriptTailer] = [:]
     private let hasEventSubscribers: @MainActor () -> Bool
     private let emitEventPayload: @MainActor ([String: Any]) -> Void
+    private let cleanupMobileChatAttachments: @MainActor ([URL]) -> Void
     private let now: () -> Date
     /// Drives the live agent-prose streaming preview.
     private var proseStreamer: AgentChatProseStreamer!
@@ -126,6 +128,19 @@ final class AgentChatTranscriptService {
     /// Highest transcript seq observed per session, used to bind live preview
     /// settlement to transcript lines that landed after the prompt started.
     private var latestTranscriptSeqBySessionID: [String: Int] = [:]
+    /// Attachment batches staged by mobile chat until an authoritative agent
+    /// turn-completion hook proves that the terminal consumed the paths.
+    private var pendingMobileChatAttachmentBatches: [
+        MobileChatAttachmentBatch
+    ] = []
+    private var pendingMobileChatAttachmentReservations = 0
+    private var pendingMobileChatAttachmentReservationFileCount = 0
+    /// One-shot deadline that bounds owned mobile attachment retention even
+    /// when the agent never emits another hook or request.
+    private var mobileChatAttachmentExpirationTimer: DispatchSourceTimer?
+    private static let maximumPendingMobileChatAttachmentBatches = 64
+    private static let maximumPendingMobileChatAttachmentFiles = 32
+    private static let mobileChatAttachmentExpiration: TimeInterval = 30 * 60
     /// Sessions whose transcript could not be resolved cheaply; skipped until
     /// authoritative bindings arrive or an explicit history request retries.
     /// Hook delivery never runs Codex's recursive fallback scan.
@@ -138,6 +153,18 @@ final class AgentChatTranscriptService {
         let startedAt: Date
         let transcriptFloorSeq: Int
     }
+
+    private typealias MobileChatAttachmentBatch = (
+        sessionID: String,
+        surfaceID: String,
+        processID: Int?,
+        promptDigest: [UInt8],
+        promptByteCount: Int,
+        fileCount: Int,
+        createdAt: Date,
+        fileURLs: [URL],
+        hookConfirmed: Bool
+    )
 
     /// Creates the service with a hook-store-backed registry.
     ///
@@ -160,6 +187,10 @@ final class AgentChatTranscriptService {
         emitEventPayload: @escaping @MainActor ([String: Any]) -> Void = { payload in
             MobileHostService.emitEvent(topic: AgentChatTranscriptService.eventTopic, payload: payload)
         },
+        cleanupMobileChatAttachments: @escaping @MainActor ([URL]) -> Void = { fileURLs in
+            GhosttyApp.terminalPasteboard
+                .cleanupTransferredTemporaryImageFiles(fileURLs)
+        },
         now: @escaping () -> Date = { Date() },
         fallbackTranscriptPathResolver: AgentChatFallbackTranscriptResolutionCoordinator.Resolver? = nil,
         fallbackResolutionTimeout: Duration = .seconds(3)
@@ -168,6 +199,7 @@ final class AgentChatTranscriptService {
         self.resolver = resolver
         self.hasEventSubscribers = hasEventSubscribers
         self.emitEventPayload = emitEventPayload
+        self.cleanupMobileChatAttachments = cleanupMobileChatAttachments
         self.now = now
         self.fallbackResolutionCoordinator = AgentChatFallbackTranscriptResolutionCoordinator(
             transcriptResolver: resolver,
@@ -298,7 +330,27 @@ final class AgentChatTranscriptService {
     ///
     /// - Parameter event: The hook event.
     func noteHookEvent(_ event: WorkstreamEvent) {
+        expireStaleMobileChatAttachmentBatches()
         let record = registry.noteHookEvent(event)
+        switch event.hookEventName {
+        case .userPromptSubmit:
+            markMobileChatAttachmentBatchConfirmed(
+                for: event,
+                record: record
+            )
+        case .stop:
+            cleanupCompletedMobileChatAttachments(
+                for: event,
+                record: record
+            )
+        case .sessionEnd:
+            cleanupAllMobileChatAttachments(
+                for: event,
+                record: record
+            )
+        default:
+            break
+        }
         // A session (re)starting or receiving a prompt is the bounded
         // retry point for a transcript that didn't exist at first sight.
         switch event.hookEventName {
@@ -338,6 +390,293 @@ final class AgentChatTranscriptService {
         default:
             break
         }
+    }
+
+    /// Reserves bounded attachment capacity before an async materialization.
+    func reserveMobileChatAttachmentBatch(fileCount: Int) -> Bool {
+        expireStaleMobileChatAttachmentBatches()
+        guard fileCount > 0,
+              pendingMobileChatAttachmentBatches.count
+                  + pendingMobileChatAttachmentReservations
+                  < Self.maximumPendingMobileChatAttachmentBatches,
+              (
+                  pendingMobileChatAttachmentBatches.reduce(0) {
+                      $0 + $1.fileCount
+                  }
+                      + pendingMobileChatAttachmentReservationFileCount
+                      + fileCount
+              ) <= Self.maximumPendingMobileChatAttachmentFiles else {
+            return false
+        }
+        pendingMobileChatAttachmentReservations += 1
+        pendingMobileChatAttachmentReservationFileCount += fileCount
+        return true
+    }
+
+    /// Releases a reservation when attachment preparation or delivery fails.
+    func releaseMobileChatAttachmentBatchReservation(fileCount: Int) {
+        pendingMobileChatAttachmentReservations = max(
+            0,
+            pendingMobileChatAttachmentReservations - 1
+        )
+        pendingMobileChatAttachmentReservationFileCount = max(
+            0,
+            pendingMobileChatAttachmentReservationFileCount - fileCount
+        )
+    }
+
+    /// Retains materialized mobile-chat files until the receiving terminal
+    /// emits a post-turn lifecycle hook.
+    ///
+    /// - Parameters:
+    ///   - fileURLs: Owned image files referenced by one submitted prompt.
+    ///   - sessionID: Agent session that receives the prompt.
+    ///   - surfaceID: Stable terminal surface receiving the prompt.
+    ///   - processID: Optional process identity captured at admission.
+    ///   - fileCount: Number of files covered by the reservation.
+    ///   - prompt: Full normalized prompt body used for hook matching.
+    func registerMobileChatAttachmentFiles(
+        _ fileURLs: [URL],
+        sessionID: String,
+        surfaceID: String,
+        processID: Int? = nil,
+        fileCount: Int,
+        prompt: String
+    ) -> Bool {
+        let normalizedSessionID = sessionID.trimmingCharacters(
+            in: .whitespacesAndNewlines
+        )
+        let normalizedSurfaceID = normalizedMobileChatSurfaceID(surfaceID)
+        guard !normalizedSessionID.isEmpty,
+              !normalizedSurfaceID.isEmpty,
+              !fileURLs.isEmpty,
+              fileCount == fileURLs.count,
+              let promptSignature = mobileChatPromptSignature(prompt),
+              pendingMobileChatAttachmentReservations > 0 else {
+            return false
+        }
+        // Consume the reservation only after every registration invariant has
+        // passed. A rejected registration therefore leaves the caller's
+        // reservation available for its normal release path.
+        pendingMobileChatAttachmentReservations -= 1
+        pendingMobileChatAttachmentReservationFileCount = max(
+            0,
+            pendingMobileChatAttachmentReservationFileCount - fileCount
+        )
+        pendingMobileChatAttachmentBatches.append(
+            (
+                sessionID: normalizedSessionID,
+                surfaceID: normalizedSurfaceID,
+                processID: processID,
+                promptDigest: promptSignature.digest,
+                promptByteCount: promptSignature.byteCount,
+                fileCount: fileCount,
+                createdAt: now(),
+                fileURLs: fileURLs,
+                hookConfirmed: false
+            )
+        )
+        armMobileChatAttachmentExpirationTimerIfNeeded()
+        return true
+    }
+
+    /// Discards one registered attachment batch and removes only its files.
+    ///
+    /// The mobile send path calls this when terminal admission or delivery
+    /// fails after registration. Matching the complete `(sessionID, surfaceID,
+    /// fileURLs)` identity prevents a failed older request from deleting a
+    /// newer batch that happens to target the same session and surface.
+    ///
+    /// - Returns: `true` when an exact registered batch was removed.
+    @discardableResult
+    func discardMobileChatAttachmentBatch(
+        _ fileURLs: [URL],
+        sessionID: String,
+        surfaceID: String
+    ) -> Bool {
+        let normalizedSessionID = sessionID.trimmingCharacters(
+            in: .whitespacesAndNewlines
+        )
+        let normalizedSurfaceID = normalizedMobileChatSurfaceID(surfaceID)
+        guard let index = pendingMobileChatAttachmentBatches.firstIndex(
+            where: { batch in
+                batch.sessionID == normalizedSessionID
+                    && batch.surfaceID == normalizedSurfaceID
+                    && batch.fileURLs == fileURLs
+            }
+        ) else {
+            return false
+        }
+        let batch = pendingMobileChatAttachmentBatches.remove(at: index)
+        if pendingMobileChatAttachmentBatches.isEmpty {
+            mobileChatAttachmentExpirationTimer?.cancel()
+            mobileChatAttachmentExpirationTimer = nil
+        }
+        cleanupMobileChatAttachments(batch.fileURLs)
+        return true
+    }
+
+    private func markMobileChatAttachmentBatchConfirmed(
+        for event: WorkstreamEvent,
+        record: AgentChatSessionRecord
+    ) {
+        guard let index = pendingMobileChatAttachmentBatches.firstIndex(
+            where: { batch in
+                guard mobileChatAttachmentBatchMatches(
+                    batch,
+                    event: event,
+                    record: record
+                ) else {
+                    return false
+                }
+                guard let message = event.submittedPromptMessage,
+                      let signature = mobileChatPromptSignature(message) else {
+                    return !batch.hookConfirmed
+                }
+                return !batch.hookConfirmed
+                    && batch.promptDigest == signature.digest
+                    && batch.promptByteCount == signature.byteCount
+            }
+        ) else {
+            return
+        }
+        pendingMobileChatAttachmentBatches[index].hookConfirmed = true
+    }
+
+    private func cleanupCompletedMobileChatAttachments(
+        for event: WorkstreamEvent,
+        record: AgentChatSessionRecord
+    ) {
+        cleanupMobileChatAttachmentBatches(
+            matching: { batch in
+                batch.hookConfirmed
+                    && mobileChatAttachmentBatchMatches(
+                        batch,
+                        event: event,
+                        record: record
+                    )
+            }
+        )
+    }
+
+    private func cleanupAllMobileChatAttachments(
+        for event: WorkstreamEvent,
+        record: AgentChatSessionRecord
+    ) {
+        cleanupMobileChatAttachmentBatches(
+            matching: { batch in
+                mobileChatAttachmentBatchMatches(
+                    batch,
+                    event: event,
+                    record: record
+                )
+            }
+        )
+    }
+
+    private func cleanupMobileChatAttachmentBatches(
+        matching predicate: (MobileChatAttachmentBatch) -> Bool
+    ) {
+        var retained: [MobileChatAttachmentBatch] = []
+        var cleanedURLs: [URL] = []
+        retained.reserveCapacity(pendingMobileChatAttachmentBatches.count)
+        for batch in pendingMobileChatAttachmentBatches {
+            if predicate(batch) {
+                cleanedURLs.append(contentsOf: batch.fileURLs)
+            } else {
+                retained.append(batch)
+            }
+        }
+        pendingMobileChatAttachmentBatches = retained
+        if pendingMobileChatAttachmentBatches.isEmpty {
+            mobileChatAttachmentExpirationTimer?.cancel()
+            mobileChatAttachmentExpirationTimer = nil
+        }
+        guard !cleanedURLs.isEmpty else { return }
+        cleanupMobileChatAttachments(cleanedURLs)
+    }
+
+    private func expireStaleMobileChatAttachmentBatches() {
+        let expirationDate = now().addingTimeInterval(
+            -Self.mobileChatAttachmentExpiration
+        )
+        cleanupMobileChatAttachmentBatches { batch in
+            batch.createdAt < expirationDate
+        }
+        armMobileChatAttachmentExpirationTimerIfNeeded()
+    }
+
+    private func armMobileChatAttachmentExpirationTimerIfNeeded() {
+        guard mobileChatAttachmentExpirationTimer == nil,
+              !pendingMobileChatAttachmentBatches.isEmpty else {
+            return
+        }
+        // This is a genuine one-shot retention deadline, not polling: the
+        // timer fires once at the injected ownership TTL and is re-armed only
+        // while owned batches remain.
+        let timer = DispatchSource.makeTimerSource(queue: .main)
+        timer.schedule(
+            deadline: .now() + Self.mobileChatAttachmentExpiration,
+            repeating: .never
+        )
+        timer.setEventHandler { [weak self] in
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                self.mobileChatAttachmentExpirationTimer = nil
+                self.expireStaleMobileChatAttachmentBatches()
+            }
+        }
+        mobileChatAttachmentExpirationTimer = timer
+        timer.resume()
+    }
+
+    private func mobileChatAttachmentBatchMatches(
+        _ batch: MobileChatAttachmentBatch,
+        event: WorkstreamEvent,
+        record: AgentChatSessionRecord
+    ) -> Bool {
+        let eventSessionIDs = [
+            event.sessionId,
+            AgentChatSessionRegistry.normalizedSessionID(
+                event.sessionId,
+                source: event.source
+            ),
+            AgentChatSessionRegistry.normalizedSessionID(
+                batch.sessionID,
+                source: event.source
+            ),
+        ]
+        guard eventSessionIDs.contains(batch.sessionID) else { return false }
+        if let processID = batch.processID {
+            guard let hookProcessID = event.ppid,
+                  processID == hookProcessID else {
+                return false
+            }
+        }
+        guard let surfaceID = record.surfaceID ?? event.surfaceId else {
+            return false
+        }
+        return batch.surfaceID == normalizedMobileChatSurfaceID(surfaceID)
+    }
+
+    private func mobileChatPromptSignature(
+        _ prompt: String
+    ) -> (digest: [UInt8], byteCount: Int)? {
+        let normalized = prompt
+            .split(whereSeparator: \.isWhitespace)
+            .joined(separator: " ")
+        guard !normalized.isEmpty else { return nil }
+        let data = Data(normalized.utf8)
+        return (
+            digest: Array(SHA256.hash(data: data)),
+            byteCount: data.count
+        )
+    }
+
+    private func normalizedMobileChatSurfaceID(_ surfaceID: String) -> String {
+        surfaceID
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
     }
 
     /// Lists chat-capable sessions.
@@ -708,6 +1047,7 @@ final class AgentChatTranscriptService {
         // `isolated deinit` still has Xcode compatibility constraints in cmux,
         // so keep teardown synchronous while asserting that owner invariant.
         MainActor.assumeIsolated {
+            mobileChatAttachmentExpirationTimer?.cancel()
             proseWakeDriver?.stop()
             proseStreamer?.stopAll()
         }

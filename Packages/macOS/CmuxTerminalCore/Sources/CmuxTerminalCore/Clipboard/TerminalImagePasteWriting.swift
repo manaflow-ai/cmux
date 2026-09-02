@@ -39,6 +39,9 @@ public protocol TerminalImagePasteWriting: AnyObject, Sendable {
     /// an owned temporary file and returns its shell-escaped path.
     func saveImageData(_ data: Data, fileExtension: String) -> String?
 
+    /// Writes raw image bytes to an owned temporary file and returns its URL.
+    func saveImageDataFileURL(_ data: Data, fileExtension: String) -> URL?
+
     /// Whether the file was materialized by this service and is still owned.
     func isOwnedTemporaryImageFile(_ fileURL: URL) -> Bool
 
@@ -48,4 +51,16 @@ public protocol TerminalImagePasteWriting: AnyObject, Sendable {
 
     /// Deletes every temporary image file this service still owns.
     func cleanupAllOwnedTemporaryImageFiles()
+}
+
+public extension TerminalImagePasteWriting {
+    /// Legacy conformers may not support URL-returning image materialization.
+    /// The shell-escaped ``saveImageData(_:fileExtension:)`` requirement
+    /// remains available, while callers that need ownership-aware URL cleanup
+    /// receive `nil` and can take their existing fallback path.
+    func saveImageDataFileURL(_ data: Data, fileExtension: String) -> URL? {
+        _ = data
+        _ = fileExtension
+        return nil
+    }
 }

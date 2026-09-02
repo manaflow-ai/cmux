@@ -53,9 +53,13 @@ public final class TerminalPasteboardService: Sendable {
     static let utf8PlainTextType = NSPasteboard.PasteboardType("public.utf8-plain-text")
     static let temporaryImageFilenamePrefix = "clipboard-"
     static let objectReplacementCharacter = Character(UnicodeScalar(0xFFFC)!)
-    /// Mirrors the clipboard-image size cap applied to every materialization
-    /// path (local paste and remote-forwarded image bytes alike).
-    static let maxClipboardImageSize = 10 * 1024 * 1024  // 10 MB
+    /// Largest decoded image payload accepted by every materialization path
+    /// (local paste and remote-forwarded image bytes alike).
+    public static let maximumImageDataByteCount = 10 * 1024 * 1024
+
+    /// Largest Base64 representation that can decode within the image cap.
+    public static let maximumBase64ImageByteCount =
+        ((maximumImageDataByteCount + 2) / 3) * 4
 
     // SAFETY: immutable references; NSPasteboard handles are usable from any
     // thread and the legacy code already wrote to these pasteboards from

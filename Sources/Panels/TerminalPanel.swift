@@ -721,10 +721,83 @@ final class TerminalPanel: Panel, ObservableObject {
         return surface.sendInputResult(text)
     }
 
+    /// Sends app-owned input without attributing it to the terminal composer.
+    @discardableResult
+    func sendAppOwnedInputResult(_ text: String) -> TerminalSurface.InputSendResult {
+        resumeForExplicitInputIfNeeded()
+        return surface.sendAppOwnedInputResult(text)
+    }
+
     @discardableResult
     func sendNamedKeyResult(_ keyName: String) -> TerminalSurface.NamedKeySendResult {
         resumeForExplicitInputIfNeeded()
         return surface.sendNamedKey(keyName)
+    }
+
+    /// Sends an app-owned named key without attributing it to the terminal
+    /// composer.
+    @discardableResult
+    func sendAppOwnedNamedKeyResult(
+        _ keyName: String
+    ) -> TerminalSurface.NamedKeySendResult {
+        resumeForExplicitInputIfNeeded()
+        return surface.sendAppOwnedNamedKeyResult(keyName)
+    }
+
+    /// Delivers one complete agent prompt transaction, including any app-owned
+    /// preparation keys, without touching a human-owned TextBox draft or
+    /// merging with unconfirmed physical terminal input. Guarded callers also
+    /// reject when no authoritative agent scope exists.
+    @discardableResult
+    func sendPromptSubmissionResult(
+        _ text: String,
+        submitKey: String,
+        preparationKeys: [String] = [],
+        agentInputScope: String?,
+        rejectIfHumanComposerBusy: Bool,
+        hookRecordingSource: String?,
+        hookConfirmsHumanInput: Bool = false,
+        recordHumanPromptInput: Bool = false,
+        deliveryReceipt: PromptSubmissionDeliveryReceipt? = nil
+    ) -> TerminalSurface.PromptSubmissionSendResult {
+        if rejectIfHumanComposerBusy {
+            guard let agentInputScope else {
+                deliveryReceipt?.finish(.agentScopeUnavailable)
+                return .agentScopeUnavailable
+            }
+            guard !terminalComposerIsBusy(
+                agentInputScope: agentInputScope
+            ) else {
+                deliveryReceipt?.finish(.composerBusy)
+                return .composerBusy
+            }
+        } else {
+            surface.synchronizePromptInputAgentScope(agentInputScope)
+        }
+        resumeForExplicitInputIfNeeded()
+        return surface.sendPromptSubmission(
+            text,
+            submitKey: submitKey,
+            preparationKeys: preparationKeys,
+            rejectIfHumanComposerBusy: rejectIfHumanComposerBusy,
+            hookRecordingSource: hookRecordingSource,
+            hookConfirmsHumanInput: hookConfirmsHumanInput,
+            recordHumanPromptInput: recordHumanPromptInput,
+            agentInputScope: agentInputScope,
+            deliveryReceipt: deliveryReceipt
+        )
+    }
+
+    /// Synchronizes the agent ownership epoch and reports whether the terminal
+    /// TUI composer can contain a human draft.
+    ///
+    /// The native TextBox is separate app-owned state: a compound terminal
+    /// submission bypasses it and therefore preserves that draft as its own
+    /// future submission. The terminal composer cannot be extracted safely, so
+    /// unconfirmed input there must reject automation.
+    func terminalComposerIsBusy(agentInputScope: String?) -> Bool {
+        surface.synchronizePromptInputAgentScope(agentInputScope)
+        return surface.hasUnconfirmedHumanPromptInput
     }
 
     @discardableResult

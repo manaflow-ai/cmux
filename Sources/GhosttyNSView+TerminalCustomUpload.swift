@@ -18,6 +18,7 @@ extension GhosttyNSView {
             ) ?? false
         }
         if handledByMirror {
+            surface.recordHumanPromptInput(.unknown)
             onCompleted()
             return true
         }

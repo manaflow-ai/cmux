@@ -1,6 +1,43 @@
 {
   "sourceLanguage": "en",
   "strings": {
+    "agent.generic.notification.body.needsAttention": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"%@ needs your attention"}},"ja":{"stringUnit":{"state":"translated","value":"%@ の確認が必要です"}}}},
+    "agent.generic.notification.body.sentNotification": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"%@ sent a notification"}},"ja":{"stringUnit":{"state":"translated","value":"%@ から通知が届きました"}}}},
+    "cli.agentSubmit.error.missingText": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"agent-submit requires prompt text"}},"ja":{"stringUnit":{"state":"translated","value":"agent-submit にはプロンプトのテキストが必要です"}}}},
+    "cli.agentSubmit.error.missingWorkspace": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"agent-submit requires --workspace outside a cmux workspace"}},"ja":{"stringUnit":{"state":"translated","value":"cmux ワークスペースの外部で agent-submit を使うには --workspace が必要です"}}}},
+    "cli.agentSubmit.success": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Prompt submitted"}},"ja":{"stringUnit":{"state":"translated","value":"プロンプトを送信しました"}}}},
+    "cli.agentSubmit.usageLine": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"agent-submit [--workspace <id|ref|index>] [--surface <id|ref|index>] [--window <id|ref|index>] <text>"}},"ja":{"stringUnit":{"state":"translated","value":"agent-submit [--workspace <id|ref|index>] [--surface <id|ref|index>] [--window <id|ref|index>] <text>"}}}},
+    "cli.help.agentSubmit": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Usage: cmux agent-submit [--workspace <id|ref|index>] [--surface <id|ref|index>] [--window <id|ref|index>] [--] <text>\n\nSubmit one complete prompt to an agent terminal. All calls are serialized globally, preserving FIFO order within each workspace. If uncertain human input may remain in the terminal TUI, the command fails with rejected_composer_busy and leaves it unchanged. Native TextBox drafts are preserved as separate future submissions. agent_scope_unavailable means the agent terminal is not ready for automation yet.\n\nFlags:\n  --workspace <id|ref|index>   Target workspace (default: $CMUX_WORKSPACE_ID)\n  --surface <id|ref|index>     Agent surface when the workspace has more than one\n  --window <id|ref|index>      Window context for workspace/surface refs and indexes\n\nExample:\n  cmux agent-submit --workspace workspace:2 \"Run the focused tests\""}},"ja":{"stringUnit":{"state":"translated","value":"使い方: cmux agent-submit [--workspace <id|ref|index>] [--surface <id|ref|index>] [--window <id|ref|index>] [--] <text>\n\nエージェントのターミナルに1件の完全なプロンプトを送信します。すべての呼び出しはグローバルに順番に処理されるため、各ワークスペース内でも FIFO 順序が保持されます。ターミナル TUI に人間の未確定の入力が残っている可能性がある場合、コマンドは rejected_composer_busy で失敗し、その入力は変更されません。ネイティブのテキストボックスの下書きは、後で別のメッセージとして送信できるよう保持されます。agent_scope_unavailable は、エージェントのターミナルがまだ自動操作の準備ができていないことを示します。\n\nフラグ:\n  --workspace <id|ref|index>   対象ワークスペース（デフォルト: $CMUX_WORKSPACE_ID）\n  --surface <id|ref|index>     ワークスペースに複数のエージェントがある場合の対象サーフェス\n  --window <id|ref|index>      ワークスペース／サーフェスの参照とインデックスに使うウィンドウ\n\n例:\n  cmux agent-submit --workspace workspace:2 \"Run the focused tests\""}}}},
+    "cli.hooks.kimi.legacyCleanupWarning": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Warning: cmux hooks are active at %@, but cmux could not remove its legacy hook block from %@. Check that path and re-run `cmux hooks setup kimi` to finish cleanup."}},"ja":{"stringUnit":{"state":"translated","value":"警告: cmux hooks は %@ で有効ですが、従来の hook ブロックを %@ から削除できませんでした。そのパスを確認し、`cmux hooks setup kimi` を再実行してクリーンアップを完了してください。"}}}},
+    "cli.hooks.kimi.legacyUninstallWarning": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Warning: cmux could not remove its legacy hook block from %@. Check that path and re-run `cmux hooks uninstall kimi` to finish cleanup."}},"ja":{"stringUnit":{"state":"translated","value":"警告: 従来の hook ブロックを %@ から削除できませんでした。そのパスを確認し、`cmux hooks uninstall kimi` を再実行してクリーンアップを完了してください。"}}}},
+    "mobile.chat.error.attachmentPreparationFailed": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"The attachment could not be prepared. Check it and try again."}},"ja":{"stringUnit":{"state":"translated","value":"添付ファイルを準備できませんでした。内容を確認して、もう一度お試しください。"}}}},
+    "mobile.pairing.getApp.prompt": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Don't have it yet?"}},"ja":{"stringUnit":{"state":"translated","value":"まだお持ちでないですか？"}}}},
+    "mobile.pairing.needsTailscale.body": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"This Mac has no Tailscale address, so your iPhone can't reach it. Install Tailscale on this Mac and your iPhone (same account), then refresh."}},"ja":{"stringUnit":{"state":"translated","value":"この Mac には Tailscale アドレスがないため、iPhone から接続できません。この Mac と iPhone の両方に（同じアカウントで）Tailscale をインストールしてから、更新してください。"}}}},
+    "mobile.pairing.req.signIn.subtitle": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Sign in to authorize this Mac for pairing."}},"ja":{"stringUnit":{"state":"translated","value":"この Mac のペアリングを許可するにはサインインしてください。"}}}},
+    "mobile.pairing.req.signIn.title": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Signed in to cmux"}},"ja":{"stringUnit":{"state":"translated","value":"cmux にサインイン済み"}}}},
+    "mobile.pairing.req.tailscale.hint": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Tailscale must be installed and connected on both this Mac and your iPhone. Both devices must be connected to the same Tailscale network."}},"ja":{"stringUnit":{"state":"translated","value":"この Mac と iPhone の両方に Tailscale をインストールして接続してください。両方のデバイスを同じ Tailscale ネットワークに接続する必要があります。"}}}},
+    "mobile.pairing.req.tailscale.reachable": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Tailscale is connected on this Mac. It must also be installed and connected on your iPhone. Both devices must be connected to the same Tailscale network."}},"ja":{"stringUnit":{"state":"translated","value":"この Mac は Tailscale に接続済みです。iPhone にも Tailscale をインストールして接続してください。両方のデバイスを同じ Tailscale ネットワークに接続する必要があります。"}}}},
+    "mobile.pairing.req.tailscale.title": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Tailscale"}},"ja":{"stringUnit":{"state":"translated","value":"Tailscale"}}}},
+    "mobile.pairing.signIn.button": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Sign In"}},"ja":{"stringUnit":{"state":"translated","value":"サインイン"}}}},
+    "mobile.pairing.signIn.connecting": {"extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"translated","value":"جارٍ الاتصال…"}},"bs":{"stringUnit":{"state":"translated","value":"Povezivanje…"}},"da":{"stringUnit":{"state":"translated","value":"Forbinder…"}},"de":{"stringUnit":{"state":"translated","value":"Verbindung wird hergestellt…"}},"en":{"stringUnit":{"state":"translated","value":"Connecting…"}},"es":{"stringUnit":{"state":"translated","value":"Conectando…"}},"fr":{"stringUnit":{"state":"translated","value":"Connexion…"}},"it":{"stringUnit":{"state":"translated","value":"Connessione…"}},"ja":{"stringUnit":{"state":"translated","value":"接続しています…"}},"km":{"stringUnit":{"state":"translated","value":"កំពុងភ្ជាប់…"}},"ko":{"stringUnit":{"state":"translated","value":"연결 중…"}},"nb":{"stringUnit":{"state":"translated","value":"Kobler til…"}},"pl":{"stringUnit":{"state":"translated","value":"Łączenie…"}},"pt-BR":{"stringUnit":{"state":"translated","value":"Conectando…"}},"ru":{"stringUnit":{"state":"translated","value":"Подключение…"}},"th":{"stringUnit":{"state":"translated","value":"กำลังเชื่อมต่อ…"}},"tr":{"stringUnit":{"state":"translated","value":"Bağlanıyor…"}},"uk":{"stringUnit":{"state":"translated","value":"Підключення…"}},"zh-Hans":{"stringUnit":{"state":"translated","value":"正在连接…"}},"zh-Hant":{"stringUnit":{"state":"translated","value":"正在連接…"}}}},
+    "mobile.pairing.signIn.openInBrowser": {"extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"translated","value":"فتح في المتصفح"}},"bs":{"stringUnit":{"state":"translated","value":"Otvori u pregledniku"}},"da":{"stringUnit":{"state":"translated","value":"Åbn i browser"}},"de":{"stringUnit":{"state":"translated","value":"Im Browser öffnen"}},"en":{"stringUnit":{"state":"translated","value":"Open in Browser"}},"es":{"stringUnit":{"state":"translated","value":"Abrir en el navegador"}},"fr":{"stringUnit":{"state":"translated","value":"Ouvrir dans le navigateur"}},"it":{"stringUnit":{"state":"translated","value":"Apri nel browser"}},"ja":{"stringUnit":{"state":"translated","value":"ブラウザで開く"}},"km":{"stringUnit":{"state":"translated","value":"បើកក្នុងកម្មវិធីរុករក"}},"ko":{"stringUnit":{"state":"translated","value":"브라우저에서 열기"}},"nb":{"stringUnit":{"state":"translated","value":"Åpne i nettleser"}},"pl":{"stringUnit":{"state":"translated","value":"Otwórz w przeglądarce"}},"pt-BR":{"stringUnit":{"state":"translated","value":"Abrir no navegador"}},"ru":{"stringUnit":{"state":"translated","value":"Открыть в браузере"}},"th":{"stringUnit":{"state":"translated","value":"เปิดในเบราว์เซอร์"}},"tr":{"stringUnit":{"state":"translated","value":"Tarayıcıda Aç"}},"uk":{"stringUnit":{"state":"translated","value":"Відкрити у браузері"}},"zh-Hans":{"stringUnit":{"state":"translated","value":"在浏览器中打开"}},"zh-Hant":{"stringUnit":{"state":"translated","value":"在瀏覽器中打開"}}}},
+    "mobile.pairing.signIn.prompt": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Sign in with your cmux account to pair your iPhone."}},"ja":{"stringUnit":{"state":"translated","value":"iPhone をペアリングするには、cmux アカウントでサインインしてください。"}}}},
+    "mobile.pairing.signIn.slowHint": {"extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"translated","value":"قد تتوقف نافذة تسجيل الدخول في النظام عن الاستجابة. إذا لم يحدث شيء، فافتح تسجيل الدخول في المتصفح الافتراضي بدلاً من ذلك."}},"bs":{"stringUnit":{"state":"translated","value":"Sistemski prozor za prijavu može prestati odgovarati. Ako se ništa ne dogodi, otvorite prijavu u zadanom pregledniku."}},"da":{"stringUnit":{"state":"translated","value":"Systemets loginvindue kan holde op med at svare. Hvis der ikke sker noget, skal du i stedet åbne login i din standardbrowser."}},"de":{"stringUnit":{"state":"translated","value":"Das System-Anmeldefenster reagiert möglicherweise nicht mehr. Wenn nichts passiert, öffne die Anmeldung stattdessen in deinem Standardbrowser."}},"en":{"stringUnit":{"state":"translated","value":"The system sign-in window may stop responding. If nothing happens, open sign-in in your default browser instead."}},"es":{"stringUnit":{"state":"translated","value":"La ventana de inicio de sesión del sistema puede dejar de responder. Si no sucede nada, abre el inicio de sesión en tu navegador predeterminado."}},"fr":{"stringUnit":{"state":"translated","value":"La fenêtre de connexion du système peut ne plus répondre. Si rien ne se passe, ouvrez plutôt la connexion dans votre navigateur par défaut."}},"it":{"stringUnit":{"state":"translated","value":"La finestra di accesso di sistema potrebbe smettere di rispondere. Se non succede nulla, apri l’accesso nel browser predefinito."}},"ja":{"stringUnit":{"state":"translated","value":"システムのサインインウィンドウが応答しなくなることがあります。何も起きない場合は、デフォルトのブラウザでサインインを開いてください。"}},"km":{"stringUnit":{"state":"translated","value":"បង្អួចចូលគណនីរបស់ប្រព័ន្ធអាចឈប់ឆ្លើយតប។ ប្រសិនបើគ្មានអ្វីកើតឡើង សូមបើកការចូលគណនីក្នុងកម្មវិធីរុករកលំនាំដើមរបស់អ្នកជំនួសវិញ។"}},"ko":{"stringUnit":{"state":"translated","value":"시스템 로그인 창이 응답하지 않을 수 있습니다. 아무 반응이 없으면 기본 브라우저에서 로그인을 열어 주세요."}},"nb":{"stringUnit":{"state":"translated","value":"Systemets påloggingsvindu kan slutte å svare. Hvis ingenting skjer, åpner du påloggingen i standardnettleseren i stedet."}},"pl":{"stringUnit":{"state":"translated","value":"Systemowe okno logowania może przestać odpowiadać. Jeśli nic się nie dzieje, otwórz logowanie w domyślnej przeglądarce."}},"pt-BR":{"stringUnit":{"state":"translated","value":"A janela de login do sistema pode parar de responder. Se nada acontecer, abra o login no navegador padrão."}},"ru":{"stringUnit":{"state":"translated","value":"Системное окно входа может перестать отвечать. Если ничего не происходит, откройте вход в браузере по умолчанию."}},"th":{"stringUnit":{"state":"translated","value":"หน้าต่างลงชื่อเข้าของระบบอาจหยุดตอบสนอง หากไม่มีอะไรเกิดขึ้น ให้เปิดการลงชื่อเข้าในเบราว์เซอร์เริ่มต้นแทน"}},"tr":{"stringUnit":{"state":"translated","value":"Sistem oturum açma penceresi yanıt vermeyi durdurabilir. Hiçbir şey olmazsa oturum açmayı varsayılan tarayıcınızda açın."}},"uk":{"stringUnit":{"state":"translated","value":"Системне вікно входу може перестати відповідати. Якщо нічого не відбувається, відкрийте вхід у браузері за умовчанням."}},"zh-Hans":{"stringUnit":{"state":"translated","value":"系统登录窗口可能会停止响应。如果没有任何反应，请改用默认浏览器打开登录。"}},"zh-Hant":{"stringUnit":{"state":"translated","value":"系統登入視窗可能會停止回應。如果沒有任何反應，請改用預設瀏覽器開啟登入。"}}}},
+    "mobile.pairing.step.install": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Install cmux on your iPhone and open it."}},"ja":{"stringUnit":{"state":"translated","value":"iPhone に cmux をインストールして開きます。"}}}},
+    "mobile.pairing.step.scan": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"On your iPhone, choose Tailscale, tap Scan QR Code, then scan the code above."}},"ja":{"stringUnit":{"state":"translated","value":"接続方法として Tailscale を選び、「QR コードをスキャン」をタップして上のコードにカメラを向けます。"}}}},
+    "mobile.pairing.step.signIn": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Sign in with the same account you use on this Mac."}},"ja":{"stringUnit":{"state":"translated","value":"この Mac と同じアカウントでサインインします。"}}}},
+    "mobile.pairing.window.heading": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Pair your iPhone with Tailscale"}},"ja":{"stringUnit":{"state":"translated","value":"TailscaleでiPhoneをペアリング"}}}},
+    "mobile.pairing.window.subheading": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"iPhones on your cmux account connect automatically. Use this code only for Tailscale."}},"ja":{"stringUnit":{"state":"translated","value":"同じ cmux アカウントでサインインしている iPhone は自動的に接続されます。iPhone の接続方法で Tailscale を選択した場合は、このコードを使用してください。"}}}},
+    "socket.workspace.agentSubmit.agentNotFound": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"No running agent terminal was found in that workspace."}},"ja":{"stringUnit":{"state":"translated","value":"そのワークスペースに実行中のエージェントターミナルが見つかりません。"}}}},
+    "socket.workspace.agentSubmit.ambiguousAgent": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"More than one agent terminal is available. Specify surface_id."}},"ja":{"stringUnit":{"state":"translated","value":"複数のエージェントターミナルがあります。surface_id を指定してください。"}}}},
+    "socket.workspace.agentSubmit.composerBusy": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"The agent composer may contain human input. It was left unchanged; retry after the human submits it or the agent restarts."}},"ja":{"stringUnit":{"state":"translated","value":"エージェントの入力欄に人間の入力が残っている可能性があります。内容は変更されていません。人間が送信するかエージェントが再起動した後に再試行してください。"}}}},
+    "socket.workspace.agentSubmit.invalidSubmitKey": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"The agent terminal cannot accept this prompt. Restart the agent and retry."}},"ja":{"stringUnit":{"state":"translated","value":"エージェントターミナルはこのプロンプトを受け付けられません。エージェントを再起動して、もう一度お試しください。"}}}},
+    "socket.workspace.agentSubmit.invalidSurface": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"surface_id must be a valid surface UUID."}},"ja":{"stringUnit":{"state":"translated","value":"surface_id には有効なサーフェス UUID を指定してください。"}}}},
+    "socket.workspace.agentSubmit.invalidWorkspace": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Missing or invalid workspace_id."}},"ja":{"stringUnit":{"state":"translated","value":"workspace_id がないか、無効です。"}}}},
+    "socket.workspace.agentSubmit.missingText": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Agent prompt text must not be empty."}},"ja":{"stringUnit":{"state":"translated","value":"エージェントのプロンプトを空にすることはできません。"}}}},
+    "socket.workspace.agentSubmit.scopeUnavailable": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"The agent terminal is not ready for automation yet. Retry when the agent terminal is ready."}},"ja":{"stringUnit":{"state":"translated","value":"エージェントのターミナルはまだ自動操作の準備ができていません。ターミナルの準備ができたら再試行してください。"}}}},
+    "socket.workspace.agentSubmit.surfaceNotFound": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Terminal surface not found in that workspace."}},"ja":{"stringUnit":{"state":"translated","value":"そのワークスペースにターミナルサーフェスが見つかりません。"}}}},
+    "socket.workspace.agentSubmit.workspaceNotFound": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Workspace not found."}},"ja":{"stringUnit":{"state":"translated","value":"ワークスペースが見つかりません。"}}}},
     "socket.error.unknownMethod": {
       "extractionState": "manual",
       "localizations": {
@@ -34719,40 +34756,8 @@
         }
       }
     },
-    "caffeine.error.missingEnabled": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Pass enabled=true or enabled=false."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "enabled=true または enabled=false を指定してください。"
-          }
-        }
-      }
-    },
-    "caffeine.error.unavailable": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Keep Mac Awake isn't available yet."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "「Macをスリープさせない」はまだ利用できません。"
-          }
-        }
-      }
-    },
+
+
     "canvas.commandScrollHint": {
       "extractionState": "manual",
       "localizations": {
@@ -39699,23 +39704,7 @@
         }
       }
     },
-    "cli.help.notify.reply": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "--reply                Allow a free-text inline reply"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "--reply                自由入力のインライン返信を許可"
-          }
-        }
-      }
-    },
+
     "cli.help.openNotification": {
       "extractionState": "manual",
       "localizations": {
@@ -56369,23 +56358,7 @@
         }
       }
     },
-    "cli.ssh.terminalExitPrompt.prompt": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "[cmux] press Enter to close this pane."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "[cmux] 閉じるには Enter を押してください。"
-          }
-        }
-      }
-    },
+
     "cli.sshPtyAttach.bridgeClosedReattaching": {
       "extractionState": "manual",
       "localizations": {
@@ -56850,23 +56823,7 @@
         }
       }
     },
-    "cli.sshPtyAttach.terminalInputTransitionFailed": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "SSH reattach stopped because queued terminal input could not be discarded safely."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "キューに入ったターミナル入力を安全に破棄できなかったため、SSH の再接続を停止しました。"
-          }
-        }
-      }
-    },
+
     "cli.sshPtyAttach.terminalInputGuardFailed": {
       "extractionState": "manual",
       "localizations": {
@@ -88245,312 +88202,24 @@
         }
       }
     },
-    "debug.menu.notification.all": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Emit All"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "すべて送信"
-          }
-        }
-      }
-    },
-    "debug.menu.notification.cli": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "CLI"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "CLI"
-          }
-        }
-      }
-    },
-    "debug.menu.notification.cliReply": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "CLI Reply"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "CLI 返信"
-          }
-        }
-      }
-    },
-    "debug.menu.notification.emit": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Emit Notification"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "通知を送信"
-          }
-        }
-      }
-    },
-    "debug.menu.notification.error": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Error"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "エラー"
-          }
-        }
-      }
-    },
-    "debug.menu.notification.feedExitPlan": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Feed Exit Plan"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "フィード終了プラン"
-          }
-        }
-      }
-    },
-    "debug.menu.notification.feedPermission": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Feed Permission"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "フィード権限"
-          }
-        }
-      }
-    },
-    "debug.menu.notification.feedQuestion": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Feed Question"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "フィード質問"
-          }
-        }
-      }
-    },
-    "debug.menu.notification.feedQuestion4": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Feed Question (4 Options)"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "フィード質問（4つの選択肢）"
-          }
-        }
-      }
-    },
-    "debug.menu.notification.feedQuestionMany": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Feed Question (Many Options)"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "フィード質問（多数の選択肢）"
-          }
-        }
-      }
-    },
-    "debug.menu.notification.feedQuestionMultiSelect": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Feed Question (Multi-select)"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "フィード質問（複数選択）"
-          }
-        }
-      }
-    },
-    "debug.menu.notification.feedQuestionMultiple": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Feed Question (Multiple)"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "フィード質問（複数質問）"
-          }
-        }
-      }
-    },
-    "debug.menu.notification.hookFailed": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Hook Failed"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "フック失敗"
-          }
-        }
-      }
-    },
-    "debug.menu.notification.idle": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Idle Reminder"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "アイドル通知"
-          }
-        }
-      }
-    },
-    "debug.menu.notification.mode": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Notification Debug Mode"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "通知デバッグモード"
-          }
-        }
-      }
-    },
-    "debug.menu.notification.needsPermission": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Needs Permission"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "権限が必要"
-          }
-        }
-      }
-    },
-    "debug.menu.notification.osc": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "OSC"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "OSC"
-          }
-        }
-      }
-    },
-    "debug.menu.notification.turnComplete": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Turn Complete"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ターン完了"
-          }
-        }
-      }
-    },
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
     "debug.menu.openAgentGuiReact": {
       "extractionState": "manual",
       "localizations": {
@@ -89171,142 +88840,14 @@
         }
       }
     },
-    "debug.notification.error.invalidKindOrTarget": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Unknown kind or no notification target"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "不明な種類、または通知対象がありません"
-          }
-        }
-      }
-    },
-    "debug.notification.error.missingEnabled": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Pass enabled=true or enabled=false to turn notification debug mode on or off."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "enabled=true または enabled=false を指定して、通知デバッグモードのオン/オフを切り替えてください。"
-          }
-        }
-      }
-    },
-    "debug.notification.error.missingKind": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Pass kind=<notification kind> to choose which debug notification to emit."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "kind=<通知の種類> を指定して、発行するデバッグ通知を選んでください。"
-          }
-        }
-      }
-    },
-    "debug.notification.synthetic.body": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Synthetic %@ notification"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "合成 %@ 通知"
-          }
-        }
-      }
-    },
-    "debug.notification.synthetic.option": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Option %d"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "選択肢 %d"
-          }
-        }
-      }
-    },
-    "debug.notification.synthetic.plan": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Inspect the notification and verify the actions."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "通知を確認し、アクションを検証します。"
-          }
-        }
-      }
-    },
-    "debug.notification.synthetic.question": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Choose a notification debug answer"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "通知デバッグの回答を選択"
-          }
-        }
-      }
-    },
-    "debug.notification.synthetic.title": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Notification Debug"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "通知デバッグ"
-          }
-        }
-      }
-    },
+
+
+
+
+
+
+
+
     "debug.sidebarFooterIconBalance.description": {
       "extractionState": "manual",
       "localizations": {
@@ -121890,23 +121431,7 @@
         }
       }
     },
-    "feed.notification.exitPlan.revise": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Revise…"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "修正…"
-          }
-        }
-      }
-    },
+
     "feed.notification.exitPlan.title": {
       "extractionState": "manual",
       "localizations": {
@@ -122060,23 +121585,7 @@
         }
       }
     },
-    "feed.notification.question.other": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Other…"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "その他…"
-          }
-        }
-      }
-    },
+
     "feed.notification.question.reply": {
       "extractionState": "manual",
       "localizations": {
@@ -146066,91 +145575,11 @@
         }
       }
     },
-    "mobile.panel.artifact.error.forbidden": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "That file is not currently shown in this panel."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "そのファイルは現在このパネルに表示されていません。"
-          }
-        }
-      }
-    },
-    "mobile.panel.artifact.error.internal": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "cmux couldn't complete the panel file request."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "パネルのファイル要求を完了できませんでした。"
-          }
-        }
-      }
-    },
-    "mobile.panel.artifact.error.invalidParams": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "cmux couldn't tell which panel or file was requested."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "どのパネルのどのファイルが要求されたか判別できませんでした。"
-          }
-        }
-      }
-    },
-    "mobile.panel.artifact.error.methodNotFound": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "cmux doesn't recognize that panel file request."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "そのパネルのファイル要求を認識できませんでした。"
-          }
-        }
-      }
-    },
-    "mobile.panel.artifact.error.panelNotFound": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "That file panel is no longer available."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "そのファイルパネルは利用できなくなりました。"
-          }
-        }
-      }
-    },
+
+
+
+
+
     "mobile.taskComposer.error.capabilityDisabled": {
       "extractionState": "manual",
       "localizations": {
@@ -146219,193 +145648,17 @@
         }
       }
     },
-    "mobile.workspaceChanges.error.capabilityDisabled": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Workspace changes are not enabled on this Mac"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "このMacではワークスペースの変更機能が有効になっていません"
-          }
-        }
-      }
-    },
-    "mobile.workspaceChanges.error.invalidContentRequest": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "The workspace, path, or revision is missing or invalid"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ワークスペース、パス、またはリビジョンの指定が無効です"
-          }
-        }
-      }
-    },
-    "mobile.workspaceChanges.error.invalidPath": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Missing or invalid path"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "パスが指定されていないか、無効です"
-          }
-        }
-      }
-    },
-    "mobile.workspaceChanges.error.invalidWorkspaceID": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "The workspace identifier is missing or invalid"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ワークスペースの識別子が指定されていないか無効です"
-          }
-        }
-      }
-    },
-    "mobile.workspaceChanges.error.invalidWorkspaceIDs": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "A selected workspace identifier is invalid"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "選択したワークスペースの識別子が無効です"
-          }
-        }
-      }
-    },
-    "mobile.workspaceChanges.error.notRepository": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Workspace directory is not a Git repository"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ワークスペースのディレクトリはGitリポジトリではありません"
-          }
-        }
-      }
-    },
-    "mobile.workspaceChanges.error.pathNotChanged": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Path is not in the workspace changes"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "パスはワークスペースの変更に含まれていません"
-          }
-        }
-      }
-    },
-    "mobile.workspaceChanges.error.pathOutsideRepository": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Path must stay inside the repository"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "パスはリポジトリ内に収まっている必要があります"
-          }
-        }
-      }
-    },
-    "mobile.workspaceChanges.error.readFailed": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Failed to read workspace diff"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ワークスペースの差分を読み込めませんでした"
-          }
-        }
-      }
-    },
-    "mobile.workspaceChanges.error.workspaceIDsCount": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Between 1 and 64 workspaces can be requested at once"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "一度にリクエストできるワークスペースは1〜64件です"
-          }
-        }
-      }
-    },
-    "mobile.workspaceChanges.error.workspaceUnavailable": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Workspace or effective directory not found"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ワークスペースまたは有効なディレクトリが見つかりません"
-          }
-        }
-      }
-    },
+
+
+
+
+
+
+
+
+
+
+
     "mode.compact": {
       "localizations": {
         "en": {
@@ -252629,57 +251882,9 @@
         }
       }
     },
-    "terminal.notification.action.reply": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Reply"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "返信"
-          }
-        }
-      }
-    },
-    "terminal.notification.action.replyPlaceholder": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Message the agent…"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "エージェントにメッセージ…"
-          }
-        }
-      }
-    },
-    "terminal.notification.action.replySend": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Send"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "送信"
-          }
-        }
-      }
-    },
+
+
+
     "terminal.notification.action.show": {
       "extractionState": "manual",
       "localizations": {

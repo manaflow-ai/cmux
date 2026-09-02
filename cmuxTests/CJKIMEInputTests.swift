@@ -1350,10 +1350,17 @@ final class AccessibilityInsertTextRegressionTests: XCTestCase {
             }
         }
 
+        surface.synchronizePromptInputAgentScope("agentPIDKey:dictation")
         view.insertText("dictated line\n", replacementRange: NSRange(location: NSNotFound, length: 0))
 
         XCTAssertEqual(pressedText, ["dictated line"])
         XCTAssertEqual(pressedKeycodes, [36], "Trailing newline should be delivered as Return, not pasted text")
+        XCTAssertTrue(surface.hasUnconfirmedHumanPromptInput)
+        XCTAssertEqual(
+            surface.confirmPromptSubmission(message: "dictated line"),
+            .human
+        )
+        XCTAssertFalse(surface.hasUnconfirmedHumanPromptInput)
     }
 
     func testDirectInsertTextPreservesLeadingEscapeForAutomation() {
