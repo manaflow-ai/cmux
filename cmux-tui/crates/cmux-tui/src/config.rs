@@ -152,6 +152,7 @@ use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use ratatui::style::Color;
 use serde::{Deserialize, Deserializer};
 use serde_json::{Value, json};
+use unicode_segmentation::UnicodeSegmentation;
 use unicode_width::UnicodeWidthStr;
 use wait_timeout::ChildExt;
 
@@ -3166,7 +3167,7 @@ impl StatusBarOptions {
 /// The maximum number of configured segments per status bar side.
 pub const MAX_STATUS_SEGMENTS: usize = 8;
 
-/// The maximum length of one literal status segment, in characters.
+/// The maximum width of one literal status segment, in terminal cells.
 pub const MAX_STATUS_SEGMENT_TEXT: usize = 256;
 
 /// One status bar segment: literal text with `{variable}` interpolation, or
@@ -3204,7 +3205,22 @@ fn resolve_status_segments(raw: Vec<RawStatusSegment>, side: &str) -> Vec<Status
             }
             (Some(text), None) => {
                 // Bound per-draw expansion work on the render path.
-                StatusSegmentContent::Text(text.chars().take(MAX_STATUS_SEGMENT_TEXT).collect())
+                let mut bounded = String::new();
+                let mut width = 0;
+                let mut scalar_count = 0;
+                for grapheme in text.graphemes(true) {
+                    let grapheme_width = grapheme.width();
+                    let grapheme_scalars = grapheme.chars().count();
+                    if width.saturating_add(grapheme_width) > MAX_STATUS_SEGMENT_TEXT
+                        || scalar_count.saturating_add(grapheme_scalars) > MAX_STATUS_SEGMENT_TEXT
+                    {
+                        break;
+                    }
+                    bounded.push_str(grapheme);
+                    width += grapheme_width;
+                    scalar_count += grapheme_scalars;
+                }
+                StatusSegmentContent::Text(bounded)
             }
             (None, Some(run)) => {
                 if run.first().is_none_or(|program| program.is_empty()) {

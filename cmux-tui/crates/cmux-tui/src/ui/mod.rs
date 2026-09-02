@@ -746,23 +746,45 @@ pub(crate) fn truncate(s: &str, max: usize) -> String {
     out
 }
 
-pub(crate) fn middle_truncate(input: &str, max_chars: usize) -> String {
-    let chars = input.chars().collect::<Vec<_>>();
-    if chars.len() <= max_chars {
+pub(crate) fn middle_truncate(input: &str, max_width: usize) -> String {
+    if input.width() <= max_width {
         return input.to_string();
     }
-    if max_chars == 0 {
+    if max_width == 0 {
         return String::new();
     }
-    if max_chars <= 3 {
-        return ".".repeat(max_chars);
+    if max_width <= 3 {
+        return ".".repeat(max_width);
     }
-    let keep = max_chars - 3;
-    let front = keep.div_ceil(2);
-    let back = keep / 2;
-    let mut output = chars[..front].iter().collect::<String>();
+    let keep_width = max_width - 3;
+    let front_width = keep_width.div_ceil(2);
+    let back_width = keep_width / 2;
+    let graphemes = input.graphemes(true).collect::<Vec<_>>();
+    let mut front = String::new();
+    let mut width = 0;
+    for grapheme in graphemes.iter().copied() {
+        let grapheme_width = grapheme.width();
+        if width.saturating_add(grapheme_width) > front_width {
+            break;
+        }
+        front.push_str(grapheme);
+        width += grapheme_width;
+    }
+    let mut back = Vec::new();
+    width = 0;
+    for grapheme in graphemes.iter().rev().copied() {
+        let grapheme_width = grapheme.width();
+        if width.saturating_add(grapheme_width) > back_width {
+            break;
+        }
+        back.push(grapheme);
+        width += grapheme_width;
+    }
+    let mut output = front;
     output.push_str("...");
-    output.extend(&chars[chars.len() - back..]);
+    for grapheme in back.iter().rev() {
+        output.push_str(grapheme);
+    }
     output
 }
 

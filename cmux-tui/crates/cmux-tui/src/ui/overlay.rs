@@ -8,6 +8,7 @@ use ratatui::Frame;
 use ratatui::buffer::Buffer;
 use ratatui::layout::Position;
 use ratatui::style::{Modifier, Style};
+use unicode_segmentation::UnicodeSegmentation;
 use unicode_width::UnicodeWidthStr;
 
 use crate::app::{App, ContextMenu, MenuItem};
@@ -339,10 +340,7 @@ fn wrapped_message_lines(message: &str, width: usize, limit: usize) -> Vec<Strin
     let mut lines = Vec::new();
     let mut remaining = sanitized.as_str();
     while !remaining.is_empty() && lines.len() < limit {
-        let mut end = remaining.len();
-        while end > 0 && remaining[..end].width() > width {
-            end = remaining[..end].char_indices().next_back().map_or(0, |(index, _)| index);
-        }
+        let end = grapheme_prefix_end(remaining, width);
         if end == 0 {
             break;
         }
@@ -358,7 +356,8 @@ fn wrapped_message_lines(message: &str, width: usize, limit: usize) -> Vec<Strin
         && let Some(last) = lines.last_mut()
     {
         while format!("{last}…").width() > width && !last.is_empty() {
-            last.pop();
+            let end = last.grapheme_indices(true).next_back().map_or(0, |(index, _)| index);
+            last.truncate(end);
         }
         last.push('…');
     }
@@ -696,7 +695,21 @@ fn draw_border(buf: &mut Buffer, rect: Rect, style: Style) {
 }
 
 fn label_width(label: &str) -> u16 {
-    label.chars().count() as u16
+    label.width().min(u16::MAX as usize) as u16
+}
+
+fn grapheme_prefix_end(input: &str, max_width: usize) -> usize {
+    let mut width = 0;
+    let mut end = 0;
+    for (index, grapheme) in input.grapheme_indices(true) {
+        let grapheme_width = grapheme.width();
+        if width.saturating_add(grapheme_width) > max_width {
+            break;
+        }
+        width += grapheme_width;
+        end = index + grapheme.len();
+    }
+    end
 }
 
 #[cfg(test)]
@@ -717,7 +730,7 @@ mod tests {
     fn toast_occlusion_uses_the_rendered_character_clamp() {
         assert_eq!(
             toast_rect_for_label(Rect { x: 10, y: 2, width: 10, height: 5 }, " 界 "),
-            Some(Rect { x: 16, y: 5, width: 3, height: 1 })
+            Some(Rect { x: 15, y: 5, width: 4, height: 1 })
         );
     }
 

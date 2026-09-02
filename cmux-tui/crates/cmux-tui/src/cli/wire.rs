@@ -10,6 +10,7 @@ use cmux_tui_core::resource::{
     StreamEndReason, StreamItemEnvelope,
 };
 use serde_json::{Value, json};
+use unicode_width::UnicodeWidthStr;
 
 use super::command::{RequestPlan, WireOperation, random_prefixed};
 use super::{GlobalArgs, OutputMode, UsageError};
@@ -591,10 +592,10 @@ fn append_human(value: &Value, output: &mut String) {
             }
             let mut rows = Vec::new();
             flatten_human_object(None, object, &mut rows);
-            let width = rows.iter().map(|(key, _)| key.chars().count()).max().unwrap_or(0);
+            let width = rows.iter().map(|(key, _)| key.width()).max().unwrap_or(0);
             for (key, value) in rows {
                 output.push_str(&key);
-                output.push_str(&" ".repeat(width.saturating_sub(key.chars().count())));
+                output.push_str(&" ".repeat(width.saturating_sub(key.width())));
                 output.push_str("  ");
                 output.push_str(&value);
                 output.push('\n');
@@ -636,10 +637,10 @@ fn append_record_table(values: &[Value], output: &mut String) {
         .enumerate()
         .map(|(index, column)| {
             rows.iter()
-                .map(|row| row[index].chars().count())
+                .map(|row| row[index].width())
                 .max()
                 .unwrap_or(0)
-                .max(human_header(column).chars().count())
+                .max(human_header(column).width())
         })
         .collect::<Vec<_>>();
 
@@ -660,7 +661,7 @@ fn append_table_row(cells: &[String], widths: &[usize], output: &mut String) {
         }
         output.push_str(cell);
         if index + 1 != cells.len() {
-            output.push_str(&" ".repeat(widths[index].saturating_sub(cell.chars().count())));
+            output.push_str(&" ".repeat(widths[index].saturating_sub(cell.width())));
         }
     }
     output.push('\n');
