@@ -4,10 +4,12 @@ import Foundation
 /// address, and the `/etc/hosts` management that makes the name resolve.
 ///
 /// The name only works from a Mac whose WireGuard tunnel is up (the address
-/// it resolves to is unroutable otherwise), so this is deliberately a courtesy
-/// convenience layered on the private IP, never a substitute for it: every
-/// caller that offers a `.internal` link falls back to the bare address when
-/// the entry cannot be written or has not been synced yet.
+/// it resolves to is unroutable otherwise) AND whose `/etc/hosts` has been
+/// synced (`cmux vpn hosts`), so nothing in the app builds a clickable link
+/// out of it — `directPortURL` uses the raw address instead, unconditionally.
+/// The `.internal` name is a manual-use convenience (typed into a terminal,
+/// an SSH config) that this module still builds and publishes to
+/// `/etc/hosts`; it is just never the thing a click depends on.
 ///
 /// Shared between the app (which builds the link a person clicks) and the CLI
 /// (`cmux vpn hosts`, which owns writing `/etc/hosts`) so the slug algorithm
@@ -63,6 +65,19 @@ public enum CmuxInternalHostnames {
 
     private static func slugOrRaw(_ raw: String) -> String {
         slug(raw) ?? raw
+    }
+
+    /// The URL a click on a machine's port row actually navigates to: straight
+    /// to its private-network address, over the WireGuard tunnel — never
+    /// through a provider port-forwarding proxy, which Freestyle's public
+    /// platform does not offer for arbitrary ports. Deliberately the raw
+    /// address, not the `.internal` name `cmux vpn hosts` publishes: that name
+    /// only resolves once `/etc/hosts` has been synced, and a link that only
+    /// sometimes works is worse than one that always does. An IPv6 literal is
+    /// bracketed the way every URL scheme requires.
+    public static func directPortURL(privateAddress: String, port: Int) -> String {
+        let bracketed = privateAddress.contains(":") ? "[\(privateAddress)]" : privateAddress
+        return "http://\(bracketed):\(port)"
     }
 
     /// Render entries as the managed block's body (no markers): one `ip host`

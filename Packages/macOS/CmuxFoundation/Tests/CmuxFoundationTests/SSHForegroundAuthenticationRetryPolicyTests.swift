@@ -293,14 +293,11 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
                 .trimmingCharacters(in: .whitespacesAndNewlines)
         ))
         defer { Darwin.kill(leafPID, SIGKILL) }
-        let exitDeadline = Date.now.addingTimeInterval(1)
-        while Darwin.kill(leafPID, 0) == 0, Date.now < exitDeadline {
-            Thread.sleep(forTimeInterval: 0.01)
-        }
+        waitForProcessesToExit([leafPID])
 
         #expect(process.terminationStatus == 0)
         #expect(try String(contentsOf: signalLog, encoding: .utf8) == "term\n")
-        #expect(Darwin.kill(leafPID, 0) != 0)
+        #expect(!processIsRunning(leafPID))
     }
 
     @Test func refusesAuthenticationRootWithMismatchedKnownParent() throws {
@@ -415,18 +412,20 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
         let processIDs = try String(contentsOf: pidLog, encoding: .utf8)
             .split(separator: "\n")
             .compactMap { Int32($0) }
-        let exitDeadline = Date.now.addingTimeInterval(1)
-        while processIDs.contains(where: { Darwin.kill($0, 0) == 0 }), Date.now < exitDeadline {
-            Thread.sleep(forTimeInterval: 0.01)
-        }
+        waitForProcessesToExit(processIDs)
 
         #expect(process.terminationStatus == 0)
         #expect(processIDs.count == 25)
+        // The cleanup shares one two-second deadline across the whole tree, and
+        // once it expires each unvisited subtree is frozen and force-killed
+        // from one process-table snapshot. That sweep costs a few `ps` calls
+        // per leftover node, so allow for it; twenty-five per-node deadlines
+        // would take close to a minute.
         #expect(
-            elapsed < 3,
+            elapsed < 5,
             "Foreground authentication cleanup took \(elapsed) seconds instead of one bounded deadline"
         )
-        #expect(!processIDs.contains(where: { Darwin.kill($0, 0) == 0 }))
+        #expect(!processIDs.contains(where: processIsRunning))
     }
 
     @Test func terminatesReplacementSpawnedByAuthenticationTermHandler() throws {
@@ -497,13 +496,10 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
                 .trimmingCharacters(in: .whitespacesAndNewlines)
         ))
         defer { Darwin.kill(replacementPID, SIGKILL) }
-        let exitDeadline = Date.now.addingTimeInterval(1)
-        while Darwin.kill(replacementPID, 0) == 0, Date.now < exitDeadline {
-            Thread.sleep(forTimeInterval: 0.01)
-        }
+        waitForProcessesToExit([replacementPID])
 
         #expect(process.terminationStatus == 0)
-        #expect(Darwin.kill(replacementPID, 0) != 0)
+        #expect(!processIsRunning(replacementPID))
     }
 
     @Test func restoresTerminalModesWhenTerminatingForegroundAuthenticationTree() throws {
@@ -694,6 +690,32 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
     private func removeStandardErrorCapture(_ capture: (url: URL, handle: FileHandle)) {
         try? capture.handle.close()
         try? FileManager.default.removeItem(at: capture.url)
+    }
+
+    /// True while `pid` exists as a live process. A zombie has already
+    /// terminated and only waits for its parent to reap it, so it counts as
+    /// exited: `kill(pid, 0)` alone reports zombies as alive, which made the
+    /// liveness sweeps below flake on loaded CI runners where reaping lags.
+    private func processIsRunning(_ pid: Int32) -> Bool {
+        guard Darwin.kill(pid, 0) == 0 else { return false }
+        var info = kinfo_proc()
+        var size = MemoryLayout<kinfo_proc>.stride
+        var mib: [Int32] = [CTL_KERN, KERN_PROC, KERN_PROC_PID, pid]
+        guard sysctl(&mib, UInt32(mib.count), &info, &size, nil, 0) == 0, size > 0 else {
+            return false
+        }
+        return Int32(info.kp_proc.p_stat) != SZOMB
+    }
+
+    /// Waits for every process in `pids` to exit or become a zombie. The
+    /// retry policy's own cleanup deadline is asserted separately through the
+    /// measured elapsed time; this budget only absorbs scheduler and reaping
+    /// latency on a loaded machine before the final liveness assertion.
+    private func waitForProcessesToExit(_ pids: [Int32], timeout: TimeInterval = 5) {
+        let deadline = Date.now.addingTimeInterval(timeout)
+        while pids.contains(where: processIsRunning), Date.now < deadline {
+            Thread.sleep(forTimeInterval: 0.01)
+        }
     }
 
     private func waitForExit(

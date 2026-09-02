@@ -24,6 +24,7 @@ let rawAccessCookie: string;
 let getUserResponses: Array<TestStackAuthUser | null> = [];
 let promotionShouldFail = false;
 const claimVerifiedBilling = mock(async () => undefined);
+const applyAdminGrants = mock(async () => undefined);
 const getUser = mock(async (): Promise<TestStackAuthUser | null> => getUserResponses.shift() ?? null);
 const signOut = mock((options?: unknown) => {
   void options;
@@ -43,6 +44,7 @@ const GET = makeAfterSignInHandler({
   stackServerApp: { getUser },
   promoteVerifiedAnonymousUser,
   claimVerifiedBilling,
+  applyAdminGrants,
   getCookieStore: async () => ({
     get: (name: string) => {
       if (name === HANDOFF_COOKIE && handoffCookie) return { value: handoffCookie };
@@ -98,6 +100,7 @@ describe("after sign-in native handoff", () => {
     signOut.mockClear();
     promoteVerifiedAnonymousUser.mockClear();
     claimVerifiedBilling.mockClear();
+    applyAdminGrants.mockClear();
   });
 
   test("issues and clears the handoff nonce with one cookie contract", async () => {
@@ -299,6 +302,10 @@ describe("after sign-in native handoff", () => {
       "anonymous-verified",
       "buyer@example.com",
     );
+    expect(applyAdminGrants).toHaveBeenCalledWith(
+      "anonymous-verified",
+      "buyer@example.com",
+    );
     expect(createSession).toHaveBeenCalledWith({
       expiresInMillis: 30 * 24 * 60 * 60 * 1000,
     });
@@ -328,6 +335,10 @@ describe("after sign-in native handoff", () => {
     );
 
     expect(claimVerifiedBilling).toHaveBeenCalledWith(
+      "verified-account",
+      "buyer@example.com",
+    );
+    expect(applyAdminGrants).toHaveBeenCalledWith(
       "verified-account",
       "buyer@example.com",
     );

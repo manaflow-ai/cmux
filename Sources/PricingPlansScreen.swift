@@ -409,7 +409,7 @@ private struct NativePricingPlansView: View {
             )
             NativePricingPlanCard(
                 name: String(localized: "pricing.native.plan.pro", defaultValue: "Pro"),
-                price: String(localized: "pricing.native.pro.price", defaultValue: "$30"),
+                price: String(localized: "pricing.native.pro.price", defaultValue: "$50"),
                 period: String(localized: "pricing.native.period.month", defaultValue: "/month"),
                 isCurrent: snapshot.isPro,
                 actionTitle: proActionTitle,
@@ -417,14 +417,14 @@ private struct NativePricingPlansView: View {
                 isProminent: true,
                 features: [
                     String(localized: "pricing.native.pro.feature.vms", defaultValue: "Cloud agents on isolated Cloud VMs"),
-                    String(localized: "pricing.native.pro.feature.hours", defaultValue: "20 active compute-hours per month, then usage-based"),
-                    String(localized: "pricing.native.pro.feature.gateway", defaultValue: "Model gateway with usage and cost analytics"),
+                    String(localized: "pricing.native.pro.feature.hours", defaultValue: "Up to 50 Cloud VMs, each with 5 vCPU, 20 GB RAM, and 200 GB disk"),
+                    String(localized: "pricing.native.pro.feature.gateway", defaultValue: "Unlimited workspaces"),
                     String(localized: "pricing.native.pro.feature.ios", defaultValue: "cmux iOS app and email support"),
                 ]
             )
             NativePricingPlanCard(
                 name: String(localized: "pricing.native.plan.team", defaultValue: "Team"),
-                price: String(localized: "pricing.native.team.price", defaultValue: "$35"),
+                price: String(localized: "pricing.native.team.price", defaultValue: "$60"),
                 period: String(localized: "pricing.native.period.userMonth", defaultValue: "/user/month"),
                 isCurrent: false,
                 actionTitle: String(localized: "pricing.native.team.cta", defaultValue: "Get Teams"),
@@ -432,7 +432,7 @@ private struct NativePricingPlansView: View {
                 features: [
                     String(localized: "pricing.native.team.feature.billing", defaultValue: "Unified billing for the whole team"),
                     String(localized: "pricing.native.team.feature.seats", defaultValue: "Centralized seat management"),
-                    String(localized: "pricing.native.team.feature.compute", defaultValue: "Pooled Cloud VM compute hours"),
+                    String(localized: "pricing.native.team.feature.compute", defaultValue: "Up to 50 Cloud VMs per user"),
                     String(localized: "pricing.native.team.feature.gateway", defaultValue: "Team-wide model gateway analytics"),
                     String(localized: "pricing.native.team.feature.support", defaultValue: "Priority email support"),
                 ]
@@ -597,16 +597,16 @@ private struct NativePricingComparisonSection: View {
             id: "cloud",
             label: String(localized: "pricing.native.compare.cloud", defaultValue: "Cloud agents on Cloud VMs"),
             free: .text(String(localized: "pricing.native.compare.cloud.free", defaultValue: "1 VM trial")),
-            pro: .text(String(localized: "pricing.native.compare.cloud.pro", defaultValue: "20 hrs/mo, then usage-based")),
-            team: .text(String(localized: "pricing.native.compare.cloud.team", defaultValue: "Pooled, usage-based")),
+            pro: .text(String(localized: "pricing.native.compare.cloud.pro", defaultValue: "Included")),
+            team: .text(String(localized: "pricing.native.compare.cloud.team", defaultValue: "Included")),
             enterprise: .text(String(localized: "pricing.native.compare.cloud.enterprise", defaultValue: "Committed usage"))
         ),
         NativePricingCompareRow(
             id: "concurrent",
             label: String(localized: "pricing.native.compare.concurrent", defaultValue: "Concurrent Cloud VMs"),
             free: .text(String(localized: "pricing.native.compare.concurrent.free", defaultValue: "1")),
-            pro: .text(String(localized: "pricing.native.compare.usageBased", defaultValue: "Usage-based")),
-            team: .text(String(localized: "pricing.native.compare.usageBased", defaultValue: "Usage-based")),
+            pro: .text(String(localized: "pricing.native.compare.concurrent.paid", defaultValue: "50")),
+            team: .text(String(localized: "pricing.native.compare.concurrent.team", defaultValue: "50 per user")),
             enterprise: .text(String(localized: "pricing.native.compare.custom", defaultValue: "Custom"))
         ),
         NativePricingCompareRow(
@@ -759,35 +759,7 @@ private struct NativePricingTableCell: View {
     }
 }
 
-private struct NativePricingVMSizeRow: Identifiable {
-    let id: String
-    let size: String
-    let use: String
-    let rate: String
-}
-
 private struct NativePricingSizeSection: View {
-    private let rows: [NativePricingVMSizeRow] = [
-        NativePricingVMSizeRow(
-            id: "small",
-            size: "2 vCPU / 8 GB",
-            use: String(localized: "pricing.native.size.small.use", defaultValue: "Light agents and quick tasks"),
-            rate: String(localized: "pricing.native.size.small.rate", defaultValue: "$0.20")
-        ),
-        NativePricingVMSizeRow(
-            id: "medium",
-            size: "4 vCPU / 16 GB",
-            use: String(localized: "pricing.native.size.medium.use", defaultValue: "Standard development"),
-            rate: String(localized: "pricing.native.size.medium.rate", defaultValue: "$0.40")
-        ),
-        NativePricingVMSizeRow(
-            id: "large",
-            size: "8 vCPU / 32 GB",
-            use: String(localized: "pricing.native.size.large.use", defaultValue: "Heavy builds and parallel agents"),
-            rate: String(localized: "pricing.native.size.large.rate", defaultValue: "$0.80")
-        )
-    ]
-
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
             Text(String(localized: "pricing.native.sizes.title", defaultValue: "Cloud VM sizes"))
@@ -795,26 +767,10 @@ private struct NativePricingSizeSection: View {
                 .foregroundStyle(.secondary)
             Text(String(
                 localized: "pricing.native.sizes.body",
-                defaultValue: "Pick a VM size per agent. You are billed per active compute-hour, and idle VMs suspend automatically. Pro includes 20 hours per month on the 4 vCPU / 16 GB size."
+                defaultValue: "Every Cloud VM is 5 vCPU, 20 GB RAM, and 200 GB disk. Pro and Team include up to 50 machines with no metering or overages."
             ))
             .font(.system(size: 13))
             .foregroundStyle(.secondary)
-            VStack(spacing: 0) {
-                HStack(spacing: 0) {
-                    NativePricingTableCell(text: String(localized: "pricing.native.sizes.colSize", defaultValue: "Size"), width: 180, isHeader: true)
-                    NativePricingTableCell(text: String(localized: "pricing.native.sizes.colUse", defaultValue: "Best for"), width: 560, isHeader: true)
-                    NativePricingTableCell(text: String(localized: "pricing.native.sizes.colRate", defaultValue: "Per active hour"), width: 180, isHeader: true)
-                }
-                .background(Color(nsColor: .controlBackgroundColor).opacity(0.7))
-                ForEach(rows) { row in
-                    HStack(spacing: 0) {
-                        NativePricingTableCell(text: row.size, width: 180)
-                        NativePricingTableCell(text: row.use, width: 560)
-                        NativePricingTableCell(text: row.rate, width: 180)
-                    }
-                }
-            }
-            .overlay(Rectangle().stroke(Color(nsColor: .separatorColor).opacity(0.55)))
         }
     }
 }

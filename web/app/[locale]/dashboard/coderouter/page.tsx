@@ -1,6 +1,7 @@
 import { getTranslations } from "next-intl/server";
 import { headers } from "next/headers";
 import { redirect } from "next/navigation";
+import { connection } from "next/server";
 import { buildAlternates, openGraphDefaults, seoDescription, twitterSummary } from "@/i18n/seo";
 import { Link } from "@/i18n/navigation";
 import { getStackServerApp, isStackConfigured } from "@/app/lib/stack";
@@ -74,6 +75,11 @@ export async function generateMetadata({ params }: { params: Promise<{ locale: s
 }
 
 export default async function CoderouterOverviewPage({ params, searchParams }: PageProps) {
+  // Everything below depends on the live session. With cacheComponents, Next
+  // also runs this page during a prerender and a runtime prefetch, where
+  // headers() resolves but the Stack SDK's sync UUID generation aborts the
+  // render with blocking-prerender-crypto. Leave both before any of that work.
+  await connection();
   const [{ locale }, { team: teamParam }] = await Promise.all([params, searchParams]);
   const team = Array.isArray(teamParam) ? teamParam[0] : teamParam;
 

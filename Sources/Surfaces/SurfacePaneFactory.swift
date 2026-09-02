@@ -135,17 +135,28 @@ enum SurfacePaneFactory {
         guard let workspace = workspace(id: workspaceID) else { throw FactoryError.workspaceNotFound(workspaceID) }
         let controller = TerminalController.shared
         let routing = routing(workspaceID: workspaceID)
-        switch destination {
-        case .tab(_, let paneID, _):
-            guard let requestedPane = UUID(uuidString: paneID) else { throw FactoryError.paneNotFound(paneID) }
-            return try tab(controller: controller, routing: routing, typeRaw: typeRaw, url: url, initialCommand: initialCommand, workingDirectory: workingDirectory, requestedPane: requestedPane, focus: focus)
-        case .workspace(_, .tab):
-            return try tab(controller: controller, routing: routing, typeRaw: typeRaw, url: url, initialCommand: initialCommand, workingDirectory: workingDirectory, requestedPane: nil, focus: focus)
-        case .split(_, let paneID, let direction):
-            let anchor = try anchorSurface(paneID: paneID, in: workspace)
-            return try split(controller: controller, routing: routing, typeRaw: typeRaw, url: url, initialCommand: initialCommand, workingDirectory: workingDirectory, direction: direction, anchor: anchor, focus: focus)
-        case .workspace(_, .split):
-            return try split(controller: controller, routing: routing, typeRaw: typeRaw, url: url, initialCommand: initialCommand, workingDirectory: workingDirectory, direction: .right, anchor: nil, focus: focus)
+        // The create/split handlers honor a focus request only inside a socket command
+        // whose policy allows focus (`v2FocusAllowed`); with no command active the
+        // stack is empty and the request is dropped, so a Cmd+T / Cmd+D / sidebar
+        // gesture would add the tab without selecting it. `focus` is the caller's
+        // already-decided intent, so run the handler under a frame carrying it. A
+        // frame already on the stack is a socket command's policy and still wins: a
+        // command that may not move focus cannot regain it through the factory.
+        // Activation stays suppressed either way (`shouldSuppressSocketCommandActivation`).
+        let outerAllowsFocus = TerminalController.currentSocketCommandFocusAllowanceStack().last ?? true
+        return try TerminalController.withSocketCommandPolicyStack([focus && outerAllowsFocus]) {
+            switch destination {
+            case .tab(_, let paneID, _):
+                guard let requestedPane = UUID(uuidString: paneID) else { throw FactoryError.paneNotFound(paneID) }
+                return try tab(controller: controller, routing: routing, typeRaw: typeRaw, url: url, initialCommand: initialCommand, workingDirectory: workingDirectory, requestedPane: requestedPane, focus: focus)
+            case .workspace(_, .tab):
+                return try tab(controller: controller, routing: routing, typeRaw: typeRaw, url: url, initialCommand: initialCommand, workingDirectory: workingDirectory, requestedPane: nil, focus: focus)
+            case .split(_, let paneID, let direction):
+                let anchor = try anchorSurface(paneID: paneID, in: workspace)
+                return try split(controller: controller, routing: routing, typeRaw: typeRaw, url: url, initialCommand: initialCommand, workingDirectory: workingDirectory, direction: direction, anchor: anchor, focus: focus)
+            case .workspace(_, .split):
+                return try split(controller: controller, routing: routing, typeRaw: typeRaw, url: url, initialCommand: initialCommand, workingDirectory: workingDirectory, direction: .right, anchor: nil, focus: focus)
+            }
         }
     }
 

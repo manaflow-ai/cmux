@@ -271,6 +271,52 @@ describe("resolveProPlanStatus", () => {
     });
   });
 
+  test("clears a stale non-pro paid mirror when no Stripe Pro row backs it", async () => {
+    for (const stale of ["founders", "team", "PRO"]) {
+      const user = metadataUser({ cmuxPlan: stale }, "user-stale");
+      const status = await resolveProPlanStatus(user, {
+        hasActiveStripeSubscription: async () => false,
+        hasStripeCustomer: async () => false,
+        withFreshMetadataUser: async (_userId, operation) => operation(user, mutationLease()),
+      });
+      expect(status.isPro).toBe(false);
+      expect(status.metadataChanged).toBe(true);
+      expect(user.updates).toEqual([{}]);
+    }
+  });
+
+  test("reports Pro from a paid manual override without a Stripe subscription", async () => {
+    for (const override of ["pro", "founders", "Team"]) {
+      const user = metadataUser({ cmuxVmPlan: override }, "user-granted");
+      await expect(
+        resolveProPlanStatus(user, {
+          hasActiveStripeSubscription: async () => false,
+          hasStripeCustomer: async () => false,
+        }),
+      ).resolves.toEqual({
+        planId: PRO_PLAN_ID,
+        isPro: true,
+        billingManagement: "none",
+        metadataPlanId: null,
+        hasManualVmPlanOverride: true,
+        metadataChanged: false,
+      });
+      expect(user.updates).toEqual([]);
+    }
+  });
+
+  test("a free or unknown manual override does not grant Pro", async () => {
+    for (const override of ["free", "enterprise"]) {
+      const user = metadataUser({ cmuxVmPlan: override }, "user-not-granted");
+      const status = await resolveProPlanStatus(user, {
+        hasActiveStripeSubscription: async () => false,
+        hasStripeCustomer: async () => false,
+      });
+      expect(status.isPro).toBe(false);
+      expect(status.planId).toBe(FREE_PLAN_ID);
+    }
+  });
+
   test("does not mutate metadata when a manual VM plan override exists", async () => {
     const user = metadataUser({ cmuxVmPlan: "enterprise" }, "user-stripe-pro");
     await expect(

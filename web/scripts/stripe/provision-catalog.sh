@@ -254,13 +254,19 @@ echo "Resolved Pro product." >&2
 team_product_id="$(canonical_product "cmux-team-monthly" "cmux Team" "team")"
 echo "Resolved Team product." >&2
 
-ensure_price "$pro_product_id" "cmux-pro-monthly" "3000" "month" "cmux Pro Monthly"
-# Keep the original $240 annual Price active for existing subscribers. Stripe
-# Price amounts are immutable, so new annual checkouts use a new lookup key.
-ensure_price "$pro_product_id" "cmux-pro-yearly" "24000" "year" "cmux Pro Yearly (Legacy)"
-ensure_price "$pro_product_id" "cmux-pro-yearly-288" "28800" "year" "cmux Pro Yearly"
-ensure_price "$team_product_id" "cmux-team-monthly" "3500" "month" "cmux Team Monthly"
-ensure_price "$team_product_id" "cmux-team-yearly-336" "33600" "year" "cmux Team Yearly"
+# Current catalog (web/services/billing/plans.ts). Stripe Price amounts are
+# immutable, so each price change mints a new lookup key carrying the amount.
+ensure_price "$pro_product_id" "cmux-pro-monthly-50" "5000" "month" "cmux Pro Monthly"
+ensure_price "$pro_product_id" "cmux-pro-yearly-480" "48000" "year" "cmux Pro Yearly"
+ensure_price "$team_product_id" "cmux-team-monthly-60" "6000" "month" "cmux Team Monthly"
+ensure_price "$team_product_id" "cmux-team-yearly-576" "57600" "year" "cmux Team Yearly"
+# Grandfathered Prices stay active for the subscriptions already on them
+# (LEGACY_PRICE_LOOKUP_KEYS); no new checkout may use these keys.
+ensure_price "$pro_product_id" "cmux-pro-monthly" "3000" "month" "cmux Pro Monthly (Legacy \$30)"
+ensure_price "$pro_product_id" "cmux-pro-yearly" "24000" "year" "cmux Pro Yearly (Legacy \$240)"
+ensure_price "$pro_product_id" "cmux-pro-yearly-288" "28800" "year" "cmux Pro Yearly (Legacy \$288)"
+ensure_price "$team_product_id" "cmux-team-monthly" "3500" "month" "cmux Team Monthly (Legacy \$35)"
+ensure_price "$team_product_id" "cmux-team-yearly-336" "33600" "year" "cmux Team Yearly (Legacy \$336)"
 
 if [[ "$MODE" == "live" ]]; then
   webhook_ids=""

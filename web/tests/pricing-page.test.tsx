@@ -100,8 +100,8 @@ describe("localized pricing page", () => {
     ).toEqual({
       label: "Concurrent Cloud VMs",
       free: "false",
-      pro: "Up to 5",
-      team: "Up to 5",
+      pro: "50",
+      team: "50 per user",
       enterprise: "Custom",
     });
     expect(enMessages.dashboard.billing.free.upsellTitle).toBe(
@@ -145,7 +145,7 @@ describe("localized pricing page", () => {
     expect(html).toContain("/mo");
     expect(html).toContain("/user/mo");
     expect(html).not.toContain("/mo.");
-    expect(html).toContain("$28/user/mo");
+    expect(html).toContain("$48/user/mo");
     expect(html).toContain(
       "/api/billing/checkout?plan=team&amp;cmux_external_browser=1&amp;interval=year",
     );
@@ -208,18 +208,18 @@ describe("localized pricing page", () => {
     });
     const html = renderToStaticMarkup(element);
 
-    expect(html).toContain("$24");
+    expect(html).toContain("$40");
     expect(html).toContain("/mo");
-    expect(html).toContain("$24/mo");
-    expect(html).toContain("$28");
+    expect(html).toContain("$40/mo");
+    expect(html).toContain("$48");
     expect(html).toContain("/user/mo");
     expect(html).toContain("/mo, billed yearly");
     expect(html).toContain("/user/mo, billed yearly");
-    expect(html).toContain("$28/user/mo");
-    expect(html).not.toContain("$288/year");
-    expect(html).not.toContain("$336/user/year");
-    expect(html).not.toContain("Billed $288 annually · save 20%");
-    expect(html).not.toContain("Billed $336 annually · save 20%");
+    expect(html).toContain("$48/user/mo");
+    expect(html).not.toContain("$480/year");
+    expect(html).not.toContain("$576/user/year");
+    expect(html).not.toContain("$24");
+    expect(html).not.toContain("$28");
     expect(html).toContain(
       "/api/billing/checkout?plan=pro&amp;cmux_external_browser=1&amp;interval=year",
     );
@@ -239,8 +239,11 @@ describe("localized pricing page", () => {
     });
     const html = renderToStaticMarkup(element);
 
-    expect(html).toContain("$30");
-    expect(html).toContain("$35");
+    expect(html).toContain("$50");
+    expect(html).toContain("$60");
+    expect(html).toContain("Up to 50 Cloud VMs, each with 5 vCPU, 20 GB RAM, and 200 GB disk");
+    expect(html).toContain("Unlimited workspaces");
+    expect(html).not.toContain("Unlimited active Cloud VMs");
     expect(html).toContain(
       "/api/billing/checkout?plan=pro&amp;cmux_external_browser=1&amp;interval=month",
     );

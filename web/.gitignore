@@ -38,6 +38,9 @@ yarn-error.log*
 # vercel
 .vercel
 
+# build-time copy of the repository changelog (tools/sync-changelog.ts)
+/CHANGELOG.md
+
 # typescript
 *.tsbuildinfo
 next-env.d.ts

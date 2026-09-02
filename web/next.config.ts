@@ -186,6 +186,11 @@ const nextConfig: NextConfig = {
       "./public/logo.png",
     ],
     "**/browser-opengraph-image": ["./public/logo.png"],
+    // Changelog versions outside generateStaticParams render at request time
+    // and read the copy that tools/sync-changelog.ts writes before the build.
+    "**/docs/changelog": ["./CHANGELOG.md"],
+    "**/docs/changelog/**": ["./CHANGELOG.md"],
+    "**/sitemap.xml": ["./CHANGELOG.md"],
   },
   images: {
     // AVIF first: for the detailed hero screenshot (crisp terminal text +

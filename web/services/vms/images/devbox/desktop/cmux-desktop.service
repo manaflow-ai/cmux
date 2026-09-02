@@ -1,0 +1,17 @@
+[Unit]
+Description=cmux devbox desktop (TigerVNC + openbox + noVNC on 6901)
+After=network.target
+
+[Service]
+Type=simple
+User=ubuntu
+Environment=HOME=/home/ubuntu
+Environment=USER=ubuntu
+Environment=DISPLAY=:1
+WorkingDirectory=/home/ubuntu
+ExecStart=/usr/local/bin/cmux-desktop-boot
+Restart=always
+RestartSec=2
+
+[Install]
+WantedBy=multi-user.target

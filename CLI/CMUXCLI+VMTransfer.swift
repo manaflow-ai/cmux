@@ -605,7 +605,7 @@ extension CMUXCLI {
 
     static var vmRunUsage: String {
         """
-        Usage: cmux vm run [--sync] [--pull <remote-path>] [--machine <id>] [--new] [--size <2g|4g|8g|16g|24g|32g>] [--timeout <seconds>] -- <command...>
+        Usage: cmux vm run [--sync] [--pull <remote-path>] [--machine <id>] [--new] [--size <20g>] [--timeout <seconds>] -- <command...>
 
         Run a command on a cloud machine without naming one: reuses an idle
         machine the router itself provisioned earlier (shown as "\(vmRunPoolLabel)"
@@ -1090,7 +1090,7 @@ extension CMUXCLI {
 extension CMUXCLI {
     static var vmRouteUsage: String {
         """
-        Usage: cmux vm route [--cwd <dir>] [--new] [--provision] [--size <2g|4g|8g|16g|24g|32g>] [--json]
+        Usage: cmux vm route [--cwd <dir>] [--new] [--provision] [--size <20g>] [--json]
 
         Print the machine `cmux vm run` / `cmux vm agent` would use for work in a
         directory, and why — without running anything. The policy is the router's

@@ -391,9 +391,12 @@ extension TerminalSurface {
         // must still report, because a hidden mirror's one-time size claim
         // (see RemoteTmuxWindowMirror.updateClientSize) is triggered by its
         // surfaces' first applied resize — the LISTENER owns the policy of
-        // what a hidden report may do.
+        // what a hidden report may do. A hidden bootstrap window is not a
+        // real pane window and must never become sizing truth.
         if ioMode.usesManualIO, let report = onManualSizeApplied {
-            if let attachedView, attachedView.window != nil {
+            if let attachedView,
+               let realWindow = uiWindow,
+               attachedView.window === realWindow {
                 manualSizeReportPendingWindowAttach = false
                 let applied = ghostty_surface_size(surface)
                 let cols = Int(applied.columns)
@@ -466,7 +469,8 @@ extension TerminalSurface {
     public func flushPendingManualSizeReportIfAttached() {
         guard manualSizeReportPendingWindowAttach,
               let report = onManualSizeApplied,
-              attachedView?.window != nil,
+              let realWindow = uiWindow,
+              attachedView?.window === realWindow,
               let sample = rawSizingSample(),
               sample.columns > 1, sample.rows > 1
         else { return }

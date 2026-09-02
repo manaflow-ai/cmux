@@ -170,7 +170,7 @@ export default async function AppPricingPage({
                 name={pricing.pro.name}
                 price={
                   <PricingIntervalValue
-                    monthly={pricing.pro.price}
+                    monthly={`$${PRO_PRICING_USD.month.billedAmount}`}
                     annual={`$${PRO_PRICING_USD.year.monthlyEquivalent}`}
                   />
                 }
@@ -219,7 +219,7 @@ export default async function AppPricingPage({
                 name={pricing.team.name}
                 price={
                   <PricingIntervalValue
-                    monthly={pricing.team.price}
+                    monthly={`$${TEAM_PRICING_USD.month.billedAmount}`}
                     annual={`$${TEAM_PRICING_USD.year.monthlyEquivalent}`}
                   />
                 }
@@ -282,7 +282,7 @@ export default async function AppPricingPage({
                 free: pricing.free.price,
                 pro: (
                   <PricingIntervalValue
-                    monthly={`${pricing.pro.price} ${pricing.perMonth}`}
+                    monthly={`$${PRO_PRICING_USD.month.billedAmount} ${pricing.perMonth}`}
                     annual={annualComparePrice}
                   />
                 ),

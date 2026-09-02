@@ -44,7 +44,6 @@ export const requiredRuntimeEnvKeys = [
   // Every Vercel cron (VM alerts included) refuses to run without it.
   "CRON_SECRET",
   "FREESTYLE_API_KEY",
-  "FREESTYLE_SANDBOX_SNAPSHOT",
   "NEXT_PUBLIC_STACK_PROJECT_ID",
   "NEXT_PUBLIC_STACK_PUBLISHABLE_CLIENT_KEY",
   "PGDATABASE",
