@@ -346,6 +346,21 @@ struct CloudManualMirrorTransportTests {
                 from: try Self.line(["id": 1, "ok": false, "data": ["protocol": 12]])
             ) == nil
         )
+        #expect(
+            parser.protocolVersion(
+                from: try Self.line(["ok": true, "data": ["protocol": 12]])
+            ) == nil
+        )
+        #expect(
+            parser.protocolVersion(
+                from: try Self.line(["id": 2, "ok": true, "data": ["protocol": 12]])
+            ) == nil
+        )
+        #expect(
+            parser.protocolVersion(
+                from: Data(#"{"id":1.0,"ok":true,"data":{"protocol":12}}"#.utf8)
+            ) == nil
+        )
     }
 
     @Test
