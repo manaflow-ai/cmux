@@ -122,15 +122,173 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
           cmux_ssh_auth_setup_failed=0
           cmux_ssh_auth_cleanup_complete=0
           cmux_ssh_auth_state_dir=
-          cmux_ssh_auth_force_root_termination() {
-            case "$cmux_ssh_auth_tree_root_pid" in
-              ''|*[!0-9]*) return 0 ;;
+          cmux_ssh_auth_platform="$(uname -s 2>/dev/null || true)"
+          cmux_ssh_auth_root_termination_identity=
+          cmux_ssh_auth_perl_command=
+          cmux_ssh_auth_capture_root_termination_identity() {
+            case "$cmux_ssh_auth_platform" in
+              Darwin)
+                cmux_ssh_auth_root_termination_identity=$(
+                  /usr/bin/ruby -rfiddle -rfiddle/import -e '
+                    module CmuxLibproc
+                      extend Fiddle::Importer
+                      dlload "/usr/lib/libproc.dylib"
+                      extern "int proc_pidinfo(int, int, unsigned long long, void*, int)"
+                    end
+                    pid = Integer(ARGV[0])
+                    expected_parent = Integer(ARGV[1])
+                    size = 192
+                    buffer = Fiddle::Pointer.malloc(size)
+                    written = CmuxLibproc.proc_pidinfo(pid, 18, 0, buffer, size)
+                    exit 1 unless written == size
+                    bytes = buffer.to_s(size)
+                    uint32 = ->(offset) { bytes.byteslice(offset, 4).unpack1("L<") }
+                    uint64 = ->(offset) { bytes.byteslice(offset, 8).unpack1("Q<") }
+                    observed_pid = uint32.call(12)
+                    parent = uint32.call(16)
+                    group = uint32.call(100)
+                    status = uint32.call(4)
+                    seconds = uint64.call(120)
+                    microseconds = uint64.call(128)
+                    version = uint32.call(168)
+                    exit 1 unless observed_pid == pid && parent == expected_parent &&
+                      group > 0 && status != 5 && seconds > 0 &&
+                      microseconds < 1_000_000 && version > 0
+                    puts "D:#{pid}:#{parent}:#{group}:#{seconds}:#{microseconds}:#{version}"
+                  ' "$cmux_ssh_auth_tree_root_pid" "$cmux_ssh_auth_tree_root_parent" 2>/dev/null
+                ) || cmux_ssh_auth_root_termination_identity=
+                ;;
+              *)
+                cmux_ssh_auth_perl_command=$(command -v perl 2>/dev/null || true)
+                if [ -n "$cmux_ssh_auth_perl_command" ] &&
+                   [ -r "/proc/$cmux_ssh_auth_tree_root_pid/stat" ]; then
+                  cmux_ssh_auth_root_termination_identity=$(
+                    "$cmux_ssh_auth_perl_command" -e '
+                      use strict;
+                      use warnings;
+                      my ($pid, $expected_parent) = @ARGV;
+                      open my $input, "<", "/proc/$pid/stat" or exit 1;
+                      my $line = <$input>;
+                      close $input;
+                      chomp $line if defined $line;
+                      exit 1 unless defined $line &&
+                        $line =~ /\A([1-9][0-9]*) \(.*\) (.*)\z/;
+                      my $observed_pid = $1;
+                      my @fields = split /\s+/, $2;
+                      exit 1 unless @fields >= 20;
+                      my ($state, $parent, $group, $start) = @fields[0, 1, 2, 19];
+                      $state = uc $state;
+                      exit 1 unless $observed_pid eq $pid && $state ne "Z" &&
+                        $parent eq $expected_parent && $group =~ /\A[1-9][0-9]*\z/ &&
+                        $start =~ /\A[1-9][0-9]*\z/;
+                      print "P:$pid:$parent:$group:$start\n";
+                    ' "$cmux_ssh_auth_tree_root_pid" "$cmux_ssh_auth_tree_root_parent" 2>/dev/null
+                  ) || cmux_ssh_auth_root_termination_identity=
+                fi
+                ;;
             esac
-            if kill -0 "$cmux_ssh_auth_tree_root_pid" >/dev/null 2>&1; then
-              kill -CONT "$cmux_ssh_auth_tree_root_pid" >/dev/null 2>&1 || true
-              kill -TERM "$cmux_ssh_auth_tree_root_pid" >/dev/null 2>&1 || true
-              kill -KILL "$cmux_ssh_auth_tree_root_pid" >/dev/null 2>&1 || true
-            fi
+            case "$cmux_ssh_auth_root_termination_identity" in
+              D:*|P:*) ;;
+              *) cmux_ssh_auth_root_termination_identity= ;;
+            esac
+          }
+          cmux_ssh_auth_force_root_termination() {
+            case "$cmux_ssh_auth_root_termination_identity" in
+              D:*)
+                /usr/bin/ruby -rfiddle -rfiddle/import -e '
+                  token = ARGV[0].to_s.split(":", -1)
+                  exit 0 unless token.length == 7 && token[0] == "D"
+                  begin
+                    pid, parent, group, seconds, microseconds, version = token.drop(1).map(&:to_i)
+                  rescue ArgumentError, TypeError
+                    exit 0
+                  end
+                  exit 0 unless pid > 0 && parent >= 0 && group > 0 && seconds > 0 &&
+                    microseconds >= 0 && microseconds < 1_000_000 && version > 0
+
+                  module CmuxLibproc
+                    extend Fiddle::Importer
+                    dlload "/usr/lib/libproc.dylib"
+                    extern "int proc_pidinfo(int, int, unsigned long long, void*, int)"
+                    extern "int proc_signal_with_audittoken(void*, int)"
+                  end
+                  size = 192
+                  buffer = Fiddle::Pointer.malloc(size)
+                  written = CmuxLibproc.proc_pidinfo(pid, 18, 0, buffer, size)
+                  exit 0 unless written == size
+                  bytes = buffer.to_s(size)
+                  uint32 = ->(offset) { bytes.byteslice(offset, 4).unpack1("L<") }
+                  uint64 = ->(offset) { bytes.byteslice(offset, 8).unpack1("Q<") }
+                  observed = [
+                    uint32.call(12), uint32.call(16), uint32.call(100), uint32.call(4),
+                    uint64.call(120), uint64.call(128), uint32.call(168)
+                  ]
+                  expected = [pid, parent, group, nil, seconds, microseconds, version]
+                  exit 0 unless observed[0] == expected[0] && observed[1] == expected[1] &&
+                    observed[2] == expected[2] && observed[3] != 5 && observed[4] == expected[4] &&
+                    observed[5] == expected[5] && observed[6] == expected[6]
+                  audit_token = Fiddle::Pointer.malloc(32)
+                  audit_token[0, 32] = ([0xffffffff] * 8).pack("L<*")
+                  audit_token[20, 4] = [pid].pack("L<")
+                  audit_token[28, 4] = [version].pack("L<")
+                  [19, 15, 9].each do |signal_number|
+                    CmuxLibproc.proc_signal_with_audittoken(audit_token, signal_number)
+                  end
+                ' "$cmux_ssh_auth_root_termination_identity" >/dev/null 2>&1 || true
+                ;;
+              P:*)
+                if [ -n "$cmux_ssh_auth_perl_command" ]; then
+                  "$cmux_ssh_auth_perl_command" -e '
+                    use strict;
+                    use warnings;
+                    my ($token) = @ARGV;
+                    my ($kind, $pid, $parent, $group, $start) = split /:/, $token, -1;
+                    exit 0 unless defined $kind && $kind eq "P" &&
+                      defined $pid && $pid =~ /\A[1-9][0-9]*\z/ &&
+                      defined $parent && $parent =~ /\A[0-9]+\z/ &&
+                      defined $group && $group =~ /\A[1-9][0-9]*\z/ &&
+                      defined $start && $start =~ /\A[1-9][0-9]*\z/;
+                    sub read_identity {
+                      my ($candidate_pid) = @_;
+                      open my $input, "<", "/proc/$candidate_pid/stat" or return;
+                      my $line = <$input>;
+                      close $input;
+                      chomp $line if defined $line;
+                      return unless defined $line &&
+                        $line =~ /\A([1-9][0-9]*) \(.*\) (.*)\z/;
+                      my $observed_pid = $1;
+                      my @fields = split /\s+/, $2;
+                      return unless @fields >= 20;
+                      my ($state, $observed_parent, $observed_group, $observed_start) =
+                        @fields[0, 1, 2, 19];
+                      return unless $observed_pid eq $candidate_pid && uc($state) ne "Z" &&
+                        $observed_parent =~ /\A[0-9]+\z/ &&
+                        $observed_group =~ /\A[1-9][0-9]*\z/ &&
+                        $observed_start =~ /\A[1-9][0-9]*\z/;
+                      return [$observed_parent, $observed_group, $observed_start];
+                    }
+                    my $matches = sub {
+                      my ($identity) = @_;
+                      return defined $identity && $identity->[0] eq $parent &&
+                        $identity->[1] eq $group && $identity->[2] eq $start;
+                    };
+                    my $identity = read_identity($pid);
+                    exit 0 unless $matches->($identity);
+                    my $pidfd = syscall(434, $pid, 0);
+                    exit 0 if $pidfd < 0;
+                    my $after_open = read_identity($pid);
+                    unless ($matches->($after_open)) {
+                      close $pidfd;
+                      exit 0;
+                    }
+                    for my $signal_number (18, 15, 9) {
+                      syscall(424, $pidfd, $signal_number, 0, 0);
+                    }
+                    close $pidfd;
+                  ' "$cmux_ssh_auth_root_termination_identity" >/dev/null 2>&1 || true
+                fi
+                ;;
+            esac
           }
           cmux_ssh_auth_early_cleanup() {
             trap - EXIT HUP INT TERM
@@ -147,6 +305,7 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
             cmux_ssh_auth_setup_failed=1
             exit 0
           }
+          cmux_ssh_auth_capture_root_termination_identity
 
           # SECONDS is provided by the /bin/sh used by the generated launchers
           # and avoids one fork per deadline check. The pass limits below are a
@@ -292,6 +451,7 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
                 my $line = <$input>;
                 close $input;
                 next unless defined $line;
+                chomp $line;
                 # The command name may contain spaces and closing parens. The
                 # fields after the final close-parenthesis have the stable
                 # procfs layout.
@@ -304,7 +464,7 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
                   $parent =~ /\A[0-9]+\z/ && $group =~ /\A[1-9][0-9]*\z/ &&
                   $start =~ /\A[1-9][0-9]*\z/;
                 $state = uc $state;
-                print "$pid $parent $group $state P_${start}_0_0_0_0\n";
+                print "$pid $parent $group $state P_${start} 0 0 0 0\n";
               }
             ' > "$cmux_ssh_auth_snapshot" 2>/dev/null; then
               cmux_ssh_auth_cleanup_needs_root_abort=1
@@ -532,17 +692,19 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
           # snapshot is fenced again with the kernel audit token, which carries
           # the PID version. Linux uses a fresh procfs snapshot and the shell's
           # validated signal builtin instead of loading libproc.
-          # STOP candidates are checked again after the signal and only a
-          # confirmed stop enters the ownership journal. TERM and KILL are sent
-          # only to a confirmed stopped identity. A stopped process cannot exit
-          # and reuse its PID, which also closes the destructive KILL window.
+          # STOP candidates are journaled after the identity-checked request.
+          # A confirming snapshot must prove the stopped state before TERM or
+          # KILL. A stopped process cannot exit and reuse its PID, which closes
+          # the destructive KILL window.
           cmux_ssh_auth_signal_portable_batch() {
             cmux_ssh_auth_portable_signal_name="$1"
             cmux_ssh_auth_portable_signal_input="$2"
             cmux_ssh_auth_portable_signal_output="${3:-/dev/null}"
+            cmux_ssh_auth_portable_filter_stopped="${4:-1}"
             case "$cmux_ssh_auth_portable_signal_name" in
               STOP) cmux_ssh_auth_portable_require_stopped=0 ;;
-              TERM|CONT|KILL) cmux_ssh_auth_portable_require_stopped=1 ;;
+              TERM|KILL) cmux_ssh_auth_portable_require_stopped=1 ;;
+              CONT) cmux_ssh_auth_portable_require_stopped="$cmux_ssh_auth_portable_filter_stopped" ;;
               *) return 2 ;;
             esac
             cmux_ssh_auth_portable_candidates="$cmux_ssh_auth_state_dir/portable-candidates"
@@ -583,10 +745,7 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
                   fi
                   ;;
                 CONT)
-                  case "$cmux_ssh_auth_portable_state" in *T*)
-                    kill -CONT "$cmux_ssh_auth_portable_pid" >/dev/null 2>&1 || cmux_ssh_auth_portable_failed=1
-                    ;;
-                  esac
+                  kill -CONT "$cmux_ssh_auth_portable_pid" >/dev/null 2>&1 || cmux_ssh_auth_portable_failed=1
                   ;;
                 KILL)
                   kill -KILL "$cmux_ssh_auth_portable_pid" >/dev/null 2>&1 || cmux_ssh_auth_portable_failed=1
@@ -601,11 +760,13 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
             cmux_ssh_auth_signal_name="$1"
             cmux_ssh_auth_signal_input="$2"
             cmux_ssh_auth_signal_output="${3:-/dev/null}"
+            cmux_ssh_auth_signal_filter_stopped="${4:-1}"
             if [ "$cmux_ssh_auth_signal_backend" != darwin ]; then
               cmux_ssh_auth_signal_portable_batch \
                 "$cmux_ssh_auth_signal_name" \
                 "$cmux_ssh_auth_signal_input" \
-                "$cmux_ssh_auth_signal_output"
+                "$cmux_ssh_auth_signal_output" \
+                "$cmux_ssh_auth_signal_filter_stopped"
               cmux_ssh_auth_signal_status=$?
               if [ "$cmux_ssh_auth_signal_status" -ne 0 ]; then
                 cmux_ssh_auth_cleanup_needs_root_abort=1
@@ -749,7 +910,9 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
           }
 
           cmux_ssh_auth_resume_kernel_journal() {
-            cmux_ssh_auth_signal_verified_batch CONT "$1" /dev/null || true
+            # A STOP may still be in flight when the confirming snapshot runs.
+            # Include matching running rows so CONT cancels that delayed stop.
+            cmux_ssh_auth_signal_verified_batch CONT "$1" /dev/null 0 || true
           }
 
           cmux_ssh_auth_resume_unconfirmed_stops() {
