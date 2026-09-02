@@ -395,13 +395,20 @@ extension CMUXCLI {
         let windowId: String?
         let terminalSurfaceId: String?
         let didCreateWorkspace: Bool
-        if let target = options.targetWorkspaceId?.trimmingCharacters(in: .whitespacesAndNewlines), !target.isEmpty {
+        // Focus inside the workspace the person is already looking at is not
+        // stealing; focus that would switch them to another workspace is. A
+        // freshly created workspace is never the one on screen, so only a
+        // pre-existing target can earn pane focus on a background open. The
+        // same value drives the placeholder replacement AND the real terminal
+        // (`surface.new_terminal`) that takes its place.
+        let requestedTarget = options.targetWorkspaceId?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let paneFocus = options.focus || requestedTarget.map {
+            !$0.isEmpty && isWorkspaceCurrentlySelected($0, windowRaw: windowRaw, client: client)
+        } ?? false
+        if let target = requestedTarget, !target.isEmpty {
             // The app pre-created this workspace with a loading pane; the link takes
             // that pane's place (no new workspace, no title change).
             let ready: [String: Any]
-            // Focus inside the workspace the person is already looking at is not
-            // stealing; focus that would switch them to another workspace is.
-            let paneFocus = options.focus || isWorkspaceCurrentlySelected(target, windowRaw: windowRaw, client: client)
             do {
                 ready = try client.sendV2(
                     method: "workspace.cloud_vm_terminal_ready",
@@ -463,7 +470,7 @@ extension CMUXCLI {
             do {
                 let opened = try client.sendV2(
                     method: "surface.new_terminal",
-                    params: ["machine": vmId, "open": true, "workspace_id": workspaceId, "focus": options.focus, "name": "shell"],
+                    params: ["machine": vmId, "open": true, "workspace_id": workspaceId, "focus": paneFocus, "name": "shell"],
                     responseTimeout: 180
                 )
                 terminalId = opened["terminal_id"] as? String

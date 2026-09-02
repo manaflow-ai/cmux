@@ -5864,7 +5864,7 @@ struct CMUXCLI {
                 // `--focus false` opens the machine in the background: its workspace is
                 // created and bound but never selected, so a create the person walked
                 // away from (the New Machine sheet) does not yank them back when it lands.
-                let focus = try Self.parseCloudVMFocusOption(focusOpt, command: "vm new")
+                let focus = try parseCloudVMFocusOption(focusOpt, command: "vm new")
                 let detach = hasFlag(rem2, name: "--detach") || hasFlag(rem2, name: "-d")
                 // A machine comes with its screen: new machines boot the desktop image
                 // (xfce + noVNC) unless the person asks for a shell-only box with --base.
@@ -6040,6 +6040,10 @@ struct CMUXCLI {
                     id
                 )
                 print(createdMessage)
+                // Stable machine-readable marker alongside the localized line: the app
+                // (`CloudVMActionLauncher`) classifies "created but opening failed" from
+                // this token, never from display text that follows the user's locale.
+                print("OK machine=\(id)")
                 // The machine exists now. Clear the retry key here, not after the attach:
                 // a failed attach must not make the next `vm new` replay this create and
                 // "create" the same machine again.
@@ -12881,7 +12885,8 @@ struct CMUXCLI {
                 windowRaw: windowRaw,
                 client: client,
                 remoteRelayPort: generateRemoteRelayPort(),
-                pinWorkspaceToTop: shouldPinWorkspaceToTop
+                pinWorkspaceToTop: shouldPinWorkspaceToTop,
+                focus: focus
             )
             let relayID = UUID().uuidString.lowercased()
             let relayToken = try randomHex(byteCount: 32)
@@ -12999,6 +13004,7 @@ struct CMUXCLI {
                 windowRaw: windowRaw,
                 targetWorkspaceId: targetWorkspaceId,
                 shouldPinWorkspaceToTop: shouldPinWorkspaceToTop,
+                focus: focus,
                 client: client,
                 jsonOutput: jsonOutput,
                 idFormat: idFormat
@@ -13011,7 +13017,8 @@ struct CMUXCLI {
             windowRaw: windowRaw,
             client: client,
             remoteRelayPort: generateRemoteRelayPort(),
-            pinWorkspaceToTop: shouldPinWorkspaceToTop
+            pinWorkspaceToTop: shouldPinWorkspaceToTop,
+            focus: focus
         )
         let relayID = UUID().uuidString.lowercased()
         let relayToken = try randomHex(byteCount: 32)
@@ -13037,7 +13044,7 @@ struct CMUXCLI {
         let (targetWorkspaceOpt, rem0) = parseOption(args, name: "--workspace")
         let (windowOpt, rem0a) = parseOption(rem0, name: "--window")
         let (focusOpt, rem1) = parseOption(rem0a, name: "--focus")
-        let focus = try Self.parseCloudVMFocusOption(focusOpt, command: "vm base open")
+        let focus = try parseCloudVMFocusOption(focusOpt, command: "vm base open")
         let detach = hasFlag(rem1, name: "--detach") || hasFlag(rem1, name: "-d")
         let baseKind = Self.parseCloudVMKindFlags(rem1)
         let remaining = rem1.filter { !["--detach", "-d", "--desktop", "--base"].contains($0) }
@@ -13120,14 +13127,13 @@ struct CMUXCLI {
 
     /// `--focus true|false` on the create/open verbs. Nil (flag absent) keeps the
     /// foreground behavior every script relies on; anything else is a usage error.
-    static func parseCloudVMFocusOption(_ raw: String?, command: String) throws -> Bool {
-        switch raw?.lowercased() {
-        case nil: return true
-        case "true", "1", "yes": return true
-        case "false", "0", "no": return false
-        default:
+    /// Accepts the same spellings as every other boolean flag (`parseBoolString`).
+    func parseCloudVMFocusOption(_ raw: String?, command: String) throws -> Bool {
+        guard let raw else { return true }
+        guard let value = parseBoolString(raw) else {
             throw CLIError(message: "\(command): --focus takes true or false")
         }
+        return value
     }
 
     private func runPersistentBaseResetCommand(
@@ -13236,7 +13242,8 @@ struct CMUXCLI {
         windowRaw: String?,
         client: SocketClient,
         remoteRelayPort: Int,
-        pinWorkspaceToTop: Bool = false
+        pinWorkspaceToTop: Bool = false,
+        focus: Bool = true
     ) throws -> SSHCommandOptions {
         guard (response["transport"] as? String) == "ssh",
               let host = response["host"] as? String,
@@ -13326,7 +13333,7 @@ struct CMUXCLI {
             identityFile: nil,
             workspaceName: workspaceName,
             windowRaw: windowRaw,
-            noFocus: false,
+            noFocus: !focus,
             sshOptions: sshOptionStrings,
             extraArguments: [],
             passwordCredential: token,
@@ -13993,6 +14000,7 @@ struct CMUXCLI {
         windowRaw: String?,
         targetWorkspaceId: String? = nil,
         shouldPinWorkspaceToTop: Bool,
+        focus: Bool = true,
         client: SocketClient,
         jsonOutput: Bool,
         idFormat: CLIIDFormat
@@ -14092,7 +14100,7 @@ struct CMUXCLI {
                     params: [
                         "workspace_id": workspaceId,
                         "initial_command": initialStartupCommand,
-                        "focus": true,
+                        "focus": focus || isWorkspaceCurrentlySelected(workspaceId, windowRaw: windowRaw, client: client),
                     ]
                 )
                 logVMTiming(
@@ -14104,21 +14112,23 @@ struct CMUXCLI {
                 )
             }
 
-            var selectParams: [String: Any] = ["workspace_id": workspaceId]
-            if let workspaceWindowId = (workspaceCreate["window_id"] as? String)?
-                .trimmingCharacters(in: .whitespacesAndNewlines),
-               !workspaceWindowId.isEmpty {
-                selectParams["window_id"] = workspaceWindowId
+            if focus {
+                var selectParams: [String: Any] = ["workspace_id": workspaceId]
+                if let workspaceWindowId = (workspaceCreate["window_id"] as? String)?
+                    .trimmingCharacters(in: .whitespacesAndNewlines),
+                   !workspaceWindowId.isEmpty {
+                    selectParams["window_id"] = workspaceWindowId
+                }
+                let selectStartedAt = Date()
+                _ = try client.sendV2(method: "workspace.select", params: selectParams)
+                logVMTiming(
+                    "workspace.select",
+                    vmID: id,
+                    transport: "websocket",
+                    startedAt: selectStartedAt,
+                    extra: "workspace=\(String(workspaceId.prefix(8)))"
+                )
             }
-            let selectStartedAt = Date()
-            _ = try client.sendV2(method: "workspace.select", params: selectParams)
-            logVMTiming(
-                "workspace.select",
-                vmID: id,
-                transport: "websocket",
-                startedAt: selectStartedAt,
-                extra: "workspace=\(String(workspaceId.prefix(8)))"
-            )
         } catch {
             if didCreateWorkspace {
                 do {

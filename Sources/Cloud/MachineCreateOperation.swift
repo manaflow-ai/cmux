@@ -52,7 +52,8 @@ struct MachineCreateOperation: Identifiable, Equatable {
     static func headline(ofOutput output: String) -> String? {
         for rawLine in output.split(whereSeparator: \.isNewline) {
             var line = rawLine.trimmingCharacters(in: .whitespaces)
-            guard !line.isEmpty, MachineCreateCoordinator.createdMachineID(fromOutput: line) == nil else { continue }
+            guard !line.isEmpty, !line.hasPrefix("OK "),
+                  MachineCreateCoordinator.createdMachineID(fromOutput: line) == nil else { continue }
             if line.lowercased().hasPrefix("error:") {
                 line = String(line.dropFirst("error:".count)).trimmingCharacters(in: .whitespaces)
             }

@@ -93,14 +93,23 @@ final class MachineCreateCoordinator {
 
     /// Launches the create and records it. Returns false, recording nothing,
     /// when the launcher refused (the caller shows that inline: the person is
-    /// still looking at the sheet at that moment).
+    /// still looking at the sheet at that moment). The operation is registered
+    /// BEFORE the launcher runs so a completion that fires synchronously still
+    /// finds its row; a refused launch takes the registration back down.
     @discardableResult
     func start(_ request: MachineCreateRequest, launch: @escaping Launch) -> Bool {
         let operation = MachineCreateOperation(id: UUID(), request: request, startedAt: now())
-        guard launch(request.arguments, completionHandler(for: operation.id)) else { return false }
         operations.append(operation)
         launches[operation.id] = launch
         postDidChange(finished: nil)
+        guard launch(request.arguments, completionHandler(for: operation.id)) else {
+            if let index = operations.firstIndex(where: { $0.id == operation.id }) {
+                operations.remove(at: index)
+            }
+            launches.removeValue(forKey: operation.id)
+            postDidChange(finished: nil)
+            return false
+        }
         return true
     }
 
@@ -162,6 +171,31 @@ final class MachineCreateCoordinator {
         return nil
     }
 
+    /// The failure text every surface shows (row tooltip, control bar, Show
+    /// Error, Copy Error, notification): the CLI transcript with the app's
+    /// standard redaction applied once, at storage time. Progress/token lines
+    /// ("Created Cloud VM …", "OK machine=…") are dropped first so the reason
+    /// leads. Redacted transcripts fall back to their first safe line plus the
+    /// hidden-details placeholder, matching `CloudVMActionLauncher`'s alerts.
+    static func displayableFailureOutput(_ output: String) -> String {
+        let generic = String(localized: "machines.new.error.generic", defaultValue: "The machine could not be created.")
+        let stripped = output
+            .split(separator: "\n", omittingEmptySubsequences: false)
+            .filter { line in
+                let trimmed = line.trimmingCharacters(in: .whitespaces)
+                return !trimmed.hasPrefix("OK ") && Self.createdMachineID(fromOutput: trimmed) == nil
+            }
+            .joined(separator: "\n")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !stripped.isEmpty else { return generic }
+        let safe = CloudVMActionLauncher.sanitizedCloudVMStartOutput(String(stripped.prefix(4000)))
+        guard safe == CloudVMActionLauncher.hiddenOutputPlaceholder else {
+            return safe.isEmpty ? generic : safe
+        }
+        guard let reason = CloudVMActionLauncher.firstSafeLine(of: stripped) else { return safe }
+        return "\(reason)\n\(safe)"
+    }
+
     private func completionHandler(for id: UUID) -> @MainActor (CloudVMActionLauncher.Completion) -> Void {
         { [weak self] completion in
             self?.finish(id: id, completion: completion)
@@ -174,21 +208,23 @@ final class MachineCreateCoordinator {
         guard let index = operations.firstIndex(where: { $0.id == id }) else { return }
         let operation = operations[index]
         let output = completion.output.trimmingCharacters(in: .whitespacesAndNewlines)
+        // The CLI's `machine=` token is the authoritative created-machine
+        // signal; the localized "Created Cloud VM" line is the fallback for
+        // older bundled CLIs.
+        let createdMachineID = completion.machineId ?? Self.createdMachineID(fromOutput: output)
         let outcome: Outcome
         if completion.succeeded {
-            outcome = .created(machineID: Self.createdMachineID(fromOutput: output), workspaceID: completion.workspaceId)
+            outcome = .created(machineID: createdMachineID, workspaceID: completion.workspaceId)
             operations.remove(at: index)
             launches.removeValue(forKey: id)
-        } else if !operation.request.isBaseSetup, let machineID = Self.createdMachineID(fromOutput: output) {
+        } else if !operation.request.isBaseSetup, let machineID = createdMachineID {
             // Base setup is idempotent (`vm base open` reopens the same slot),
             // so only `vm new` can leave a machine behind that must not be re-created.
-            outcome = .createdButOpenFailed(machineID: machineID, output: output)
+            outcome = .createdButOpenFailed(machineID: machineID, output: Self.displayableFailureOutput(output))
             operations.remove(at: index)
             launches.removeValue(forKey: id)
         } else {
-            let failure = output.isEmpty
-                ? String(localized: "machines.new.error.generic", defaultValue: "The machine could not be created.")
-                : output
+            let failure = Self.displayableFailureOutput(output)
             outcome = .failed(output: failure)
             operations[index].phase = .failed(output: failure)
         }

@@ -30,9 +30,14 @@ struct MachineCreateCoordinatorTests {
             }
         }
 
-        func complete(status: Int32, output: String, workspaceID: UUID? = nil) {
+        func complete(status: Int32, output: String, workspaceID: UUID? = nil, machineID: String? = nil) {
             let completion = completions.removeFirst()
-            completion(CloudVMActionLauncher.Completion(terminationStatus: status, output: output, workspaceId: workspaceID))
+            completion(CloudVMActionLauncher.Completion(
+                terminationStatus: status,
+                output: output,
+                workspaceId: workspaceID,
+                machineId: machineID
+            ))
         }
     }
 
@@ -134,8 +139,28 @@ struct MachineCreateCoordinatorTests {
         launches.starts = false
         #expect(!coordinator.start(Self.newMachineRequest(), launch: launches.launch))
         #expect(coordinator.operations.isEmpty)
-        #expect(changes.changes == 0)
+        #expect(changes.changes == 2, "the provisional row is published and taken back down")
         #expect(notices.notices.isEmpty)
+    }
+
+    /// The operation must be registered before the launcher runs: a launcher
+    /// whose completion fires synchronously still has to find its row, finish
+    /// it, and notify — never leave a phantom pending row behind.
+    @Test func synchronousCompletionStillResolvesTheOperation() {
+        let (coordinator, _, notices, changes, _) = makeCoordinator()
+        let immediate: MachineCreateCoordinator.Launch = { _, completion in
+            completion(CloudVMActionLauncher.Completion(
+                terminationStatus: 0,
+                output: "",
+                workspaceId: nil,
+                machineId: "calm-petrel"
+            ))
+            return true
+        }
+        #expect(coordinator.start(Self.newMachineRequest(), launch: immediate))
+        #expect(coordinator.operations.isEmpty, "the synchronous completion resolved the row")
+        #expect(changes.finished.count == 1)
+        #expect(notices.notices.first?.title == "calm-petrel is ready")
     }
 
     // MARK: Success
@@ -247,19 +272,52 @@ struct MachineCreateCoordinatorTests {
         coordinator.start(Self.newMachineRequest(), launch: launches.launch)
         let id = coordinator.operations[0].id
 
-        launches.complete(status: 1, output: "Created Cloud VM calm-petrel\nError: No provider for machine calm-petrel.")
+        // The launcher's structured `machine=` token is the signal; the
+        // progress and token lines are stripped from what the person sees.
+        launches.complete(
+            status: 1,
+            output: "Created Cloud VM calm-petrel\nOK machine=calm-petrel\nError: attach failed (HTTP 502)",
+            machineID: "calm-petrel"
+        )
 
         #expect(coordinator.operations.isEmpty, "the machine exists; the fleet row is the truth now")
         #expect(!coordinator.retry(id), "a second create would mint a second machine")
         #expect(launches.arguments.count == 1)
         #expect(changes.finished.first?.outcome == .createdButOpenFailed(
             machineID: "calm-petrel",
-            output: "Created Cloud VM calm-petrel\nError: No provider for machine calm-petrel."
+            output: "Error: attach failed (HTTP 502)"
         ))
         let notice = try? #require(notices.notices.first)
         #expect(notice?.isFailure == true)
         #expect(notice?.title == "calm-petrel was created, but opening it failed")
-        #expect(notice?.body == "No provider for machine calm-petrel.\nOpen it from the Machines list.", "the reason, not the CLI's progress line, leads the body")
+        #expect(notice?.body == "attach failed (HTTP 502)\nOpen it from the Machines list.", "the reason, not the CLI's progress line, leads the body")
+    }
+
+    /// An older bundled CLI without the `machine=` token still classifies via
+    /// the localized "Created Cloud VM" line.
+    @Test func createdButOpenFailedFallsBackToTheLocalizedCreatedLine() {
+        let (coordinator, launches, _, changes, _) = makeCoordinator()
+        coordinator.start(Self.newMachineRequest(), launch: launches.launch)
+        let id = coordinator.operations[0].id
+        launches.complete(status: 1, output: "Created Cloud VM calm-petrel\nError: attach failed (HTTP 502)")
+        #expect(coordinator.operations.isEmpty)
+        #expect(!coordinator.retry(id))
+        #expect(changes.finished.first?.outcome == .createdButOpenFailed(
+            machineID: "calm-petrel",
+            output: "Error: attach failed (HTTP 502)"
+        ))
+    }
+
+    /// Transcripts that trip the app's redaction never reach the row, the
+    /// notification, or the clipboard; the person still gets the placeholder.
+    @Test func failureOutputIsRedactedBeforeItEntersSharedState() {
+        let (coordinator, launches, notices, _, _) = makeCoordinator()
+        coordinator.start(Self.newMachineRequest(), launch: launches.launch)
+        launches.complete(status: 1, output: "Error: provider blaxel rejected the request token abc123")
+        let stored = coordinator.operations.first?.failureOutput
+        #expect(stored == CloudVMActionLauncher.hiddenOutputPlaceholder)
+        #expect(stored?.contains("token") == false)
+        #expect(notices.notices.first?.body.contains("abc123") == false)
     }
 
     @Test func headlineSkipsTheCreatedLineAndTheErrorPrefix() {
@@ -273,7 +331,7 @@ struct MachineCreateCoordinatorTests {
         let (coordinator, launches, _, _, _) = makeCoordinator()
         coordinator.start(Self.baseRequest(), launch: launches.launch)
         let id = coordinator.operations[0].id
-        launches.complete(status: 1, output: "Created Cloud VM base-1\nError: attach failed")
+        launches.complete(status: 1, output: "Created Cloud VM base-1\nError: attach failed", machineID: "base-1")
         #expect(coordinator.operation(id: id)?.isRunning == false, "Base setup stays retriable through the idempotent base open")
         #expect(coordinator.retry(id))
         #expect(launches.arguments.count == 2)
@@ -322,10 +380,10 @@ struct MachinesPanelPendingCreateTests {
         #expect(viewModel.pendingCreates.map(\.request.displayName) == ["ci"])
         #expect(viewModel.pendingCreates.first?.isRunning == true)
 
-        launches.complete(status: 1, output: "Created Cloud VM calm-petrel\nError: No provider for machine calm-petrel.")
+        launches.complete(status: 1, output: "Created Cloud VM calm-petrel\nError: attach failed (HTTP 502)", machineID: "calm-petrel")
         #expect(viewModel.pendingCreates.isEmpty)
         #expect(viewModel.treeErrorDescription?.contains("calm-petrel") == true)
-        #expect(viewModel.treeErrorDescription?.contains("No provider") == true)
+        #expect(viewModel.treeErrorDescription?.contains("attach failed (HTTP 502)") == true)
 
         viewModel.resetForAuthTransition()
         #expect(viewModel.pendingCreates.isEmpty)
@@ -347,12 +405,12 @@ struct MachinesPanelPendingCreateTests {
         let running = MachineCreateOperation(
             id: UUID(),
             request: MachineCreateCoordinatorTests.newMachineRequest(name: "ci"),
-            startedAt: Date()
+            startedAt: Date(timeIntervalSince1970: 1_787_400_000)
         )
         var failed = MachineCreateOperation(
             id: UUID(),
             request: MachineCreateCoordinatorTests.baseRequest(),
-            startedAt: Date()
+            startedAt: Date(timeIntervalSince1970: 1_787_400_060)
         )
         failed.phase = .failed(output: "Error: quota")
         let machine = MachineSnapshot(
