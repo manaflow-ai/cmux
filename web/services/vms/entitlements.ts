@@ -212,11 +212,13 @@ export function maxActiveVmsForPlan(
   options: { readonly seats?: number | null } = {},
 ): number | null {
   const normalized = normalizedPlanId(planId ?? "");
-  const limit = activeVmLimitForPlan(normalized, env);
-  if (limit === null || normalized !== TEAM_PLAN_ID) return limit;
+  const resolved = activeVmLimitForPlan(normalized, env);
+  // An operator brake is an absolute ceiling for the whole team; only the
+  // advertised allowance scales with paid seats.
+  if (resolved.limit === null || resolved.brake || normalized !== TEAM_PLAN_ID) return resolved.limit;
   const seats = options.seats;
   const paidSeats = typeof seats === "number" && Number.isSafeInteger(seats) && seats > 0 ? seats : 1;
-  return limit * paidSeats;
+  return resolved.limit * paidSeats;
 }
 
 /**
@@ -339,27 +341,38 @@ function isVmFalseFlag(value: string | undefined): boolean {
   }
 }
 
-function activeVmLimitForPlan(planId: string, env: Record<string, string | undefined>): number | null {
+/** `brake` marks a limit that came from an operator env override (absolute). */
+function activeVmLimitForPlan(
+  planId: string,
+  env: Record<string, string | undefined>,
+): { readonly limit: number | null; readonly brake: boolean } {
   const planKey = planId.replace(/[^a-zA-Z0-9]/g, "_").toUpperCase();
   if (!isPaidVmPlan(planId)) {
     // Cloud machines are a paid feature. Keep every non-paid/unknown plan at
     // zero unless the same explicit escape hatch that disables the Pro gate is
     // set; this prevents a stale `CMUX_VM_FREE_MAX_ACTIVE_VMS` (or a plan-
     // specific override) from reopening provisioning by configuration drift.
-    if (!isVmFreeProvisioningAllowed(env)) return 0;
+    if (!isVmFreeProvisioningAllowed(env)) return { limit: 0, brake: false };
     const specific = env[`CMUX_VM_PLAN_${planKey}_MAX_ACTIVE_VMS`];
-    if (specific?.trim()) return positiveInteger(specific, `CMUX_VM_PLAN_${planKey}_MAX_ACTIVE_VMS`);
-    return nonNegativeInteger(env.CMUX_VM_FREE_MAX_ACTIVE_VMS ?? "0", "CMUX_VM_FREE_MAX_ACTIVE_VMS");
+    if (specific?.trim()) {
+      return { limit: positiveInteger(specific, `CMUX_VM_PLAN_${planKey}_MAX_ACTIVE_VMS`), brake: true };
+    }
+    return {
+      limit: nonNegativeInteger(env.CMUX_VM_FREE_MAX_ACTIVE_VMS ?? "0", "CMUX_VM_FREE_MAX_ACTIVE_VMS"),
+      brake: true,
+    };
   }
 
   // Paid plans get the advertised allowance. A plan-specific override wins
   // over the paid-wide one; both exist only as operator brakes for an
   // incident, never as the place the product number lives.
   const specific = env[`CMUX_VM_PLAN_${planKey}_MAX_ACTIVE_VMS`];
-  if (specific?.trim()) return positiveInteger(specific, `CMUX_VM_PLAN_${planKey}_MAX_ACTIVE_VMS`);
+  if (specific?.trim()) {
+    return { limit: positiveInteger(specific, `CMUX_VM_PLAN_${planKey}_MAX_ACTIVE_VMS`), brake: true };
+  }
   const paid = env.CMUX_VM_PAID_MAX_ACTIVE_VMS;
-  if (paid?.trim()) return positiveInteger(paid, "CMUX_VM_PAID_MAX_ACTIVE_VMS");
-  return PAID_MAX_ACTIVE_VMS_DEFAULT;
+  if (paid?.trim()) return { limit: positiveInteger(paid, "CMUX_VM_PAID_MAX_ACTIVE_VMS"), brake: true };
+  return { limit: PAID_MAX_ACTIVE_VMS_DEFAULT, brake: false };
 }
 
 function normalizedPlanId(planId: string): string {

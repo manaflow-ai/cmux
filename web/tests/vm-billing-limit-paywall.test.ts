@@ -36,8 +36,9 @@ describe("free plan VM allowance", () => {
     // Seats only mean something on the Team plan.
     expect(maxActiveVmsForPlan("pro", {}, { seats: 4 })).toBe(50);
     expect(maxActiveVmsForPlan("free", {}, { seats: 4 })).toBe(0);
-    // Operator brakes scale with seats too.
-    expect(maxActiveVmsForPlan("team", { CMUX_VM_PLAN_TEAM_MAX_ACTIVE_VMS: "2" }, { seats: 3 })).toBe(6);
+    // Operator brakes are absolute for the whole team, never multiplied.
+    expect(maxActiveVmsForPlan("team", { CMUX_VM_PLAN_TEAM_MAX_ACTIVE_VMS: "2" }, { seats: 3 })).toBe(2);
+    expect(maxActiveVmsForPlan("team", { CMUX_VM_PAID_MAX_ACTIVE_VMS: "5" }, { seats: 4 })).toBe(5);
   });
 
   test("operator brakes: a plan-specific cap wins over the paid-wide cap", () => {
