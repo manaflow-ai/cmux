@@ -868,6 +868,16 @@ struct DockControlDefinitionDecodingTests {
         appDelegate.tabManager = manager
         defer { AppDelegate.shared = previousAppDelegate }
 
+        // The app-host process runs suites that temporarily change the global
+        // close-warning preference. Pin this test to the prompt path it is
+        // asserting, then restore the caller's value on every exit.
+        let warningStore = CloseTabWarningStore(
+            defaults: manager.closeTabWarningDefaults
+        )
+        let previousWarning = warningStore.warnsBeforeClosingTab
+        warningStore.setWarnsBeforeClosingTab(true)
+        defer { warningStore.setWarnsBeforeClosingTab(previousWarning) }
+
         let workspace = try #require(manager.tabs.first)
         defer { workspace.teardownAllPanels() }
 
