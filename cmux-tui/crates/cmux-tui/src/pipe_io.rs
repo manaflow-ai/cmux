@@ -33,10 +33,7 @@ use cmux_tui_core::resource::TerminalPublicId;
 use crossbeam_channel::{Receiver, Sender};
 use serde::Deserialize;
 
-use crate::session::{
-    PipeIoByteBudget, PipeIoEvent, PipeIoSurfaceAttach, RemoteSession,
-    is_remote_surface_unavailable,
-};
+use crate::session::{PipeIoByteBudget, PipeIoEvent, PipeIoSurfaceAttach, RemoteSession};
 
 /// The terminal ended, or the embedder walked away: respawning is wrong.
 pub const EXIT_DO_NOT_RESPAWN: i32 = 0;
@@ -200,7 +197,7 @@ pub fn run(
             return Ok(PipeIoExitReason::TerminalEnded);
         }
         Ok(PipeIoSurfaceAttach::Deferred) => return Ok(PipeIoExitReason::DaemonLost),
-        Err(error) => return Ok(attach_failure_exit_reason(&error, surface)),
+        Err(error) => return Ok(attach_failure_exit_reason(&error)),
     };
     // The daemon resizes a terminal's PTY only for its geometry-authority
     // client (the full TUI client claims this for its active surface). The
@@ -215,7 +212,7 @@ pub fn run(
         // requests look accepted while the daemon keeps the wrong PTY size.
         // Classify the startup failure so the embedder can either stop for a
         // retired terminal or reconnect after a lost daemon transport.
-        return Ok(attach_failure_exit_reason(&error, surface));
+        return Ok(attach_failure_exit_reason(&error));
     }
     // Older daemons do not accept geometry in the attach request. Apply the
     // requested initial size explicitly after claiming authority so the
@@ -282,14 +279,11 @@ impl Drop for PipeIoTapGuard<'_> {
     }
 }
 
-fn attach_failure_exit_reason(error: &anyhow::Error, surface: SurfaceId) -> PipeIoExitReason {
-    // A rejected attach naming this exact surface means the terminal ended
-    // between the tree lookup and the attach request. Only confirmed
-    // transport failures are retryable; capability and protocol failures
-    // must stop without asking the embedder to respawn forever.
-    if is_remote_surface_unavailable(error, surface) {
-        PipeIoExitReason::TerminalEnded
-    } else if crate::session::is_pipe_io_retryable_error(error) {
+fn attach_failure_exit_reason(error: &anyhow::Error) -> PipeIoExitReason {
+    // Unknown rejection text is not a reliable lifecycle signal. Fail closed
+    // unless the transport itself is explicitly retryable; setup errors must
+    // not respawn forever on a stale or unauthorized surface.
+    if crate::session::is_pipe_io_retryable_error(error) {
         PipeIoExitReason::DaemonLost
     } else {
         PipeIoExitReason::SetupFailed
@@ -737,12 +731,12 @@ mod tests {
     fn attach_failures_preserve_terminal_and_daemon_exit_contracts() {
         let terminal_ended =
             crate::session::test_remote_rejected_error_with_message("unknown surface 7");
-        assert_eq!(attach_failure_exit_reason(&terminal_ended, 7), PipeIoExitReason::TerminalEnded);
+        assert_eq!(attach_failure_exit_reason(&terminal_ended), PipeIoExitReason::SetupFailed);
 
         let daemon_lost = crate::session::test_remote_transport_error();
-        assert_eq!(attach_failure_exit_reason(&daemon_lost, 7), PipeIoExitReason::DaemonLost);
+        assert_eq!(attach_failure_exit_reason(&daemon_lost), PipeIoExitReason::DaemonLost);
 
         let unexpected = anyhow::anyhow!("attach capability negotiation failed");
-        assert_eq!(attach_failure_exit_reason(&unexpected, 7), PipeIoExitReason::SetupFailed);
+        assert_eq!(attach_failure_exit_reason(&unexpected), PipeIoExitReason::SetupFailed);
     }
 }
