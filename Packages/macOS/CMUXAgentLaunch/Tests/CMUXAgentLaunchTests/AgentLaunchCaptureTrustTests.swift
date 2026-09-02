@@ -7,6 +7,7 @@ struct AgentLaunchCaptureTrustTests {
         #expect(AgentLaunchCaptureTrust.launcherDescribesKind("codex", kind: "codex"))
         #expect(AgentLaunchCaptureTrust.launcherDescribesKind("Claude", kind: "claude"))
         #expect(AgentLaunchCaptureTrust.launcherDescribesKind("pi", kind: "pi"))
+        #expect(AgentLaunchCaptureTrust.launcherDescribesKind("prime-agent", kind: "prime-agent"))
     }
 
     @Test func absentLauncherIsTrusted() {
@@ -28,6 +29,11 @@ struct AgentLaunchCaptureTrustTests {
         #expect(!AgentLaunchCaptureTrust.launcherDescribesKind("codex", kind: "claude"))
         #expect(!AgentLaunchCaptureTrust.launcherDescribesKind("claudeTeams", kind: "codex"))
         #expect(!AgentLaunchCaptureTrust.launcherDescribesKind("omo", kind: "codex"))
+        #expect(!AgentLaunchCaptureTrust.nativeProcessDescribesKind(
+            processName: "prime",
+            arguments: ["/usr/local/bin/prime", "--resume", "/tmp/session.jsonl"],
+            kind: "prime-agent"
+        ))
     }
 
     @Test func shellWrapperArgvDetection() {
@@ -62,6 +68,32 @@ struct AgentLaunchCaptureTrustTests {
                 processName: "node",
                 arguments: ["node", "/Users/alice/.claude/local/claude.js"],
                 kind: "claude"
+            )
+        )
+        #expect(
+            AgentLaunchCaptureTrust.nativeProcessDescribesKind(
+                processName: "node",
+                arguments: [
+                    "node",
+                    "/Users/alice/.prime/agent/versions/current/packages/coding-agent/dist/bundle/cli.js",
+                    "--model",
+                    "prime-model",
+                ],
+                kind: "prime-agent"
+            )
+        )
+        #expect(
+            !AgentLaunchCaptureTrust.nativeProcessDescribesKind(
+                processName: "node",
+                arguments: ["node", "/Users/alice/.prime/agent/scripts/unrelated.js"],
+                kind: "prime-agent"
+            )
+        )
+        #expect(
+            !AgentLaunchCaptureTrust.nativeProcessDescribesKind(
+                processName: "node",
+                arguments: ["node", "/tmp/packages/coding-agent/cli.js"],
+                kind: "prime-agent"
             )
         )
         #expect(
@@ -153,6 +185,62 @@ struct AgentLaunchCaptureTrustTests {
                 processName: "agy",
                 arguments: ["/usr/local/bin/agy"],
                 kind: "antigravity"
+            )
+        )
+    }
+
+    @Test func primeAgentScriptMatchRequiresManagedBundleLayout() {
+        let matcher = PrimeAgentScriptMatch()
+        #expect(
+            matcher.matches(
+                "/Users/alice/.prime/agent/versions/current/packages/coding-agent/dist/bundle/cli.js"
+            )
+        )
+        #expect(
+            matcher.matches(
+                "/Users/alice/prime-agent/packages/coding-agent/src/cli.ts"
+            )
+        )
+        #expect(
+            matcher.matches(
+                "/Users/alice/node_modules/prime-agent/dist/bundle/cli.js"
+            )
+        )
+        #expect(
+            matcher.matches(
+                "/Users/alice/node_modules/@earendil-works/pi-coding-agent/dist/cli.js"
+            )
+        )
+        #expect(!matcher.matches("/tmp/prime-agent/cli.js"))
+        #expect(!matcher.matches("/tmp/prime-agent/packages/coding-agent/cli.js"))
+    }
+
+    @Test func primeAgentProcessIdentityRequiresRuntimeAndManagedScript() {
+        let identity = PrimeAgentProcessIdentity()
+        #expect(
+            identity.matchesRecordedProcess(
+                liveExecutable: "/usr/bin/node",
+                recordedExecutable: "/usr/bin/node",
+                arguments: [
+                    "/usr/bin/node",
+                    "/Users/alice/.prime/agent/versions/current/packages/coding-agent/dist/bundle/cli.js",
+                ]
+            )
+        )
+        #expect(
+            !identity.matchesRecordedProcess(
+                liveExecutable: "/usr/bin/node",
+                recordedExecutable: "/usr/bin/node",
+                arguments: ["/usr/bin/node", "/tmp/prime-agent/cli.js"]
+            )
+        )
+        #expect(
+            identity.matchesRuntimeProcess(
+                processName: "bun",
+                arguments: [
+                    "bun",
+                    "/Users/alice/node_modules/prime-agent/dist/bundle/cli.js",
+                ]
             )
         )
     }

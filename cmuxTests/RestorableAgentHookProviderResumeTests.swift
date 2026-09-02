@@ -8,6 +8,51 @@ import XCTest
 #endif
 
 extension SocketListenerAcceptPolicyTests {
+    func testPrimeAgentResumeCommandUsesAbsoluteSessionFile() {
+        let sessionFile = "/Users/example/.prime/agent/sessions/prime-session.jsonl"
+        let snapshot = SessionRestorableAgentSnapshot(
+            kind: .primeAgent,
+            sessionId: "prime-session-id",
+            workingDirectory: "/tmp/prime repo",
+            launchCommand: AgentLaunchCommandSnapshot(
+                launcher: "prime-agent",
+                executablePath: "prime-agent",
+                arguments: ["prime-agent", "--resume", sessionFile],
+                workingDirectory: "/tmp/prime repo",
+                environment: ["PRIME_AGENT_CODING_AGENT_DIR": "/tmp/prime home"],
+                capturedAt: 123,
+                source: "agent-hook"
+            )
+        )
+
+        XCTAssertEqual(
+            snapshot.resumeCommand,
+            "cd -- '/tmp/prime repo' 2>/dev/null || [ ! -d '/tmp/prime repo' ] && 'env' 'PRIME_AGENT_CODING_AGENT_DIR=/tmp/prime home' 'prime-agent' '--resume' '\(sessionFile)'"
+        )
+    }
+
+    func testPrimeAgentResumeCommandPreservesSafeLaunchOptions() {
+        let sessionFile = "/Users/example/.prime/agent/sessions/prime-session.jsonl"
+        let snapshot = SessionRestorableAgentSnapshot(
+            kind: .primeAgent,
+            sessionId: "prime-session-id",
+            workingDirectory: nil,
+            launchCommand: AgentLaunchCommandSnapshot(
+                launcher: "prime-agent",
+                executablePath: "prime-agent",
+                arguments: ["prime-agent", "--resume", sessionFile, "--model", "prime-model"],
+                workingDirectory: nil,
+                capturedAt: 123,
+                source: "agent-hook"
+            )
+        )
+
+        XCTAssertEqual(
+            snapshot.resumeCommand,
+            "'prime-agent' '--resume' '\(sessionFile)' '--model' 'prime-model'"
+        )
+    }
+
     func testGeminiResumeCommandPreservesSafeFlagsAndDropsSessionSelectors() {
         let snapshot = SessionRestorableAgentSnapshot(
             kind: .gemini,

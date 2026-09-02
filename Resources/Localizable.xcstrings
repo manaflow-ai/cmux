@@ -272847,6 +272847,2602 @@
           }
         }
       }
+    },
+    "settings.common.save": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Save"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "保存"
+          }
+        }
+      }
+    },
+    "settings.section.networking": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Networking"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ネットワーク"
+          }
+        }
+      }
+    },
+    "settings.networking.attention": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Your saved relay choice needs attention. Direct Iroh remains available, but cmux will not substitute an unselected relay."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "保存したリレーの選択を確認してください。Iroh の直接接続は利用できますが、cmux が未選択のリレーへ切り替えることはありません。"
+          }
+        }
+      }
+    },
+    "settings.networking.custom.add": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Add Custom Relay"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "カスタムリレーを追加"
+          }
+        }
+      }
+    },
+    "settings.networking.custom.add.short": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Add…"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "追加…"
+          }
+        }
+      }
+    },
+    "settings.networking.custom.authentication": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Authentication"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "認証"
+          }
+        }
+      }
+    },
+    "settings.networking.custom.authentication.none": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "None"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "なし"
+          }
+        }
+      }
+    },
+    "settings.networking.custom.authentication.secret": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Device Secret"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "デバイスシークレット"
+          }
+        }
+      }
+    },
+    "settings.networking.custom.edit": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Edit Custom Relay"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "カスタムリレーを編集"
+          }
+        }
+      }
+    },
+    "settings.networking.custom.name": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Name"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "名前"
+          }
+        }
+      }
+    },
+    "settings.networking.custom.note": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Relay addresses sync with your account. Provider secrets stay only in each device's secure storage. Missing secrets never fall back to cmux relays."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "リレーアドレスはアカウントと同期されます。プロバイダーのシークレットは各デバイスの安全なストレージにのみ保存されます。シークレットがない場合に cmux リレーへ切り替わることはありません。"
+          }
+        }
+      }
+    },
+    "settings.networking.custom.provider": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Provider"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "プロバイダー"
+          }
+        }
+      }
+    },
+    "settings.networking.custom.region": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Region"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "リージョン"
+          }
+        }
+      }
+    },
+    "settings.networking.custom.remove.confirm": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Remove this custom relay?"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このカスタムリレーを削除しますか？"
+          }
+        }
+      }
+    },
+    "settings.networking.custom.secret": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Relay Secret"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "リレーシークレット"
+          }
+        }
+      }
+    },
+    "settings.networking.custom.secret.keep": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "New Secret (leave blank to keep current)"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "新しいシークレット（現在の値を維持する場合は空欄）"
+          }
+        }
+      }
+    },
+    "settings.networking.custom.secret.note": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The secret stays in this device's secure storage and never syncs with your account."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "シークレットはこのデバイスの安全なストレージに保存され、アカウントとは同期されません。"
+          }
+        }
+      }
+    },
+    "settings.networking.custom.subtitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Use relays you operate or obtain from another provider."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "自分で運用するリレー、または別のプロバイダーのリレーを使用します。"
+          }
+        }
+      }
+    },
+    "settings.networking.custom.summary": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ · %2$@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ · %2$@"
+          }
+        }
+      }
+    },
+    "settings.networking.custom.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Custom Relays"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "カスタムリレー"
+          }
+        }
+      }
+    },
+    "settings.networking.custom.url": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Relay URL"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "リレー URL"
+          }
+        }
+      }
+    },
+    "settings.networking.policy": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Relay Policy"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "リレーポリシー"
+          }
+        }
+      }
+    },
+    "settings.networking.policy.cached": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Using the last verified catalog"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "最後に検証済みのカタログを使用中"
+          }
+        }
+      }
+    },
+    "settings.networking.policy.server": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Verified from cmux"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux から検証済み"
+          }
+        }
+      }
+    },
+    "settings.networking.policy.unavailable": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No valid catalog available"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "有効なカタログがありません"
+          }
+        }
+      }
+    },
+    "settings.networking.preference.automatic": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Automatic"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "自動"
+          }
+        }
+      }
+    },
+    "settings.networking.preference.custom": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Custom Relays"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "カスタムリレー"
+          }
+        }
+      }
+    },
+    "settings.networking.preference.managed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Selected cmux Relays"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "選択した cmux リレー"
+          }
+        }
+      }
+    },
+    "settings.networking.private.add": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Add Private Network"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "プライベートネットワークを追加"
+          }
+        }
+      }
+    },
+    "settings.networking.private.add.short": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Add…"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "追加…"
+          }
+        }
+      }
+    },
+    "settings.networking.private.edit": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Edit Private Network"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "プライベートネットワークを編集"
+          }
+        }
+      }
+    },
+    "settings.networking.private.enabled": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Enabled"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "有効"
+          }
+        }
+      }
+    },
+    "settings.networking.private.host": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Host or IP Address"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ホストまたは IP アドレス"
+          }
+        }
+      }
+    },
+    "settings.networking.private.name": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Name"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "名前"
+          }
+        }
+      }
+    },
+    "settings.networking.private.note": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Use this for Tailscale alternatives, a company VPN, or a private network you operate. Authentication still happens before cmux accepts the route."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tailscale の代替、会社の VPN、または自分で運用するプライベートネットワークに使用します。cmux がルートを受け入れる前に認証が行われます。"
+          }
+        }
+      }
+    },
+    "settings.networking.private.note.short": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The other Mac must run a current cmux build that advertises Iroh private-path support. Custom raw TCP routes are not accepted because they cannot prove the remote Mac. Iroh private paths stay encrypted and bound to its exact EndpointID."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "接続先のMacは、Irohのプライベート経路サポートを通知する最新のcmuxを実行している必要があります。カスタムの生 TCP ルートはリモート Mac を証明できないため受け付けません。Iroh のプライベート経路は暗号化され、正確な EndpointID に結び付けられます。"
+          }
+        }
+      }
+    },
+    "settings.networking.private.port": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Port"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ポート"
+          }
+        }
+      }
+    },
+    "settings.networking.private.provider": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Provider"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "プロバイダー"
+          }
+        }
+      }
+    },
+    "settings.networking.diagnostics.clear": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Clear Report"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "レポートを消去"
+          }
+        }
+      }
+    },
+    "settings.networking.diagnostics.clear.confirm": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Clear this diagnostic report?"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "この診断レポートを消去しますか？"
+          }
+        }
+      }
+    },
+    "settings.networking.diagnostics.clear.message": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This permanently removes the connection timeline stored on this Mac."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "この Mac に保存された接続タイムラインを完全に削除します。"
+          }
+        }
+      }
+    },
+    "settings.networking.diagnostics.eventCount": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Recorded Events"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "記録済みイベント"
+          }
+        }
+      }
+    },
+    "settings.networking.diagnostics.failure.accountMismatch": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Account Mismatch"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "アカウントが一致しません"
+          }
+        }
+      }
+    },
+    "settings.networking.diagnostics.failure.admissionDenied": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Connection Admission Denied"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "接続の受け入れが拒否されました"
+          }
+        }
+      }
+    },
+    "settings.networking.diagnostics.failure.admissionLeaseExpired": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Admission Lease Expired"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "受け入れリースの期限切れ"
+          }
+        }
+      }
+    },
+    "settings.networking.diagnostics.failure.admissionRevalidationFailed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Admission Revalidation Failed"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "受け入れの再検証に失敗しました"
+          }
+        }
+      }
+    },
+    "settings.networking.diagnostics.failure.authorizationFailed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Authorization Failed"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "認可に失敗"
+          }
+        }
+      }
+    },
+    "settings.networking.diagnostics.failure.cancelled": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cancelled"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "キャンセル"
+          }
+        }
+      }
+    },
+    "settings.networking.diagnostics.failure.connectionClosed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Connection Closed"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "接続が終了しました"
+          }
+        }
+      }
+    },
+    "settings.networking.diagnostics.failure.connectionRefused": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Connection Refused"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "接続が拒否されました"
+          }
+        }
+      }
+    },
+    "settings.networking.diagnostics.failure.credentialUnavailable": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Credentials Unavailable"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "認証情報を利用できません"
+          }
+        }
+      }
+    },
+    "settings.networking.diagnostics.failure.dnsFailed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Name Resolution Failed"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "名前解決に失敗"
+          }
+        }
+      }
+    },
+    "settings.networking.diagnostics.failure.endpointUnavailable": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Endpoint Unavailable"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "エンドポイントを利用できません"
+          }
+        }
+      }
+    },
+    "settings.networking.diagnostics.failure.hostUnreachable": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Host Unreachable"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ホストに到達できません"
+          }
+        }
+      }
+    },
+    "settings.networking.diagnostics.failure.identityMismatch": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Endpoint Identity Mismatch"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "エンドポイント ID が一致しません"
+          }
+        }
+      }
+    },
+    "settings.networking.diagnostics.failure.noRoute": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No Route Available"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "利用可能な経路がありません"
+          }
+        }
+      }
+    },
+    "settings.networking.diagnostics.failure.none": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "None"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "なし"
+          }
+        }
+      }
+    },
+    "settings.networking.diagnostics.failure.offline": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Offline"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "オフライン"
+          }
+        }
+      }
+    },
+    "settings.networking.diagnostics.failure.permissionDenied": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Permission Denied"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "権限がありません"
+          }
+        }
+      }
+    },
+    "settings.networking.diagnostics.failure.policyUnavailable": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Relay Policy Unavailable"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "リレーポリシーを利用できません"
+          }
+        }
+      }
+    },
+    "settings.networking.diagnostics.failure.protocolViolation": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Protocol Error"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "プロトコルエラー"
+          }
+        }
+      }
+    },
+    "settings.networking.diagnostics.failure.routeGated": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Connection Attempt Held"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "接続試行が一時的に保留されました"
+          }
+        }
+      }
+    },
+    "settings.networking.diagnostics.failure.secureChannelFailed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Secure Channel Failed"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "安全なチャネルの確立に失敗"
+          }
+        }
+      }
+    },
+    "settings.networking.diagnostics.failure.sendQueueOverflow": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Send Queue Overflow"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "送信キューオーバーフロー"
+          }
+        }
+      }
+    },
+    "settings.networking.diagnostics.failure.superseded": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Replaced by a Newer Attempt"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "新しい接続試行に置き換えられました"
+          }
+        }
+      }
+    },
+    "settings.networking.diagnostics.failure.timedOut": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Timed Out"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "タイムアウト"
+          }
+        }
+      }
+    },
+    "settings.networking.diagnostics.failure.transportIdleTimedOut": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Transport Idle Timeout"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "接続アイドルタイムアウト"
+          }
+        }
+      }
+    },
+    "settings.networking.diagnostics.failure.unknown": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Unknown"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "不明"
+          }
+        }
+      }
+    },
+    "settings.networking.diagnostics.failure.unsupportedRoute": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Unsupported Route"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "サポートされていない経路"
+          }
+        }
+      }
+    },
+    "settings.networking.diagnostics.lastFailure": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Last Failure"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "最後のエラー"
+          }
+        }
+      }
+    },
+    "settings.networking.diagnostics.lastSuccess": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Last Successful Connection"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "最終接続成功"
+          }
+        }
+      }
+    },
+    "settings.networking.diagnostics.notRecorded": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Not Recorded"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "記録なし"
+          }
+        }
+      }
+    },
+    "settings.networking.diagnostics.privacy": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The report stays on this Mac until you share it. It excludes terminal content, account and endpoint identities, network addresses, relay URLs, credentials, and raw errors."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このレポートは共有するまでこの Mac にのみ保存されます。ターミナルの内容、アカウントおよびエンドポイントの識別情報、ネットワークアドレス、リレー URL、認証情報、生のエラーは含まれません。"
+          }
+        }
+      }
+    },
+    "settings.networking.diagnostics.report": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Connection Report"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "接続レポート"
+          }
+        }
+      }
+    },
+    "settings.networking.diagnostics.report.subtitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Share a bounded, privacy-safe connection timeline with support."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "範囲が限定されたプライバシー保護済みの接続タイムラインをサポートと共有します。"
+          }
+        }
+      }
+    },
+    "settings.networking.diagnostics.share": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Share…"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "共有…"
+          }
+        }
+      }
+    },
+    "settings.networking.private.remove.confirm": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Remove this private network?"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このプライベートネットワークを削除しますか？"
+          }
+        }
+      }
+    },
+    "settings.networking.private.subtitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Iroh discovers usable LAN and VPN paths after authenticating the other device."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Iroh は相手デバイスを認証した後、利用可能な LAN および VPN 経路を検出します。"
+          }
+        }
+      }
+    },
+    "settings.networking.private.automatic": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Automatic"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "自動"
+          }
+        }
+      }
+    },
+    "settings.networking.private.tailscale": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tailscale Compatibility"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tailscale 互換"
+          }
+        }
+      }
+    },
+    "settings.networking.private.tailscale.subtitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Retained for released clients and networks where Iroh cannot connect."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "リリース済みクライアントと Iroh が接続できないネットワーク向けに維持されます。"
+          }
+        }
+      }
+    },
+    "settings.networking.private.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Private Networks"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "プライベートネットワーク"
+          }
+        }
+      }
+    },
+    "settings.networking.refresh": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Refresh"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "更新"
+          }
+        }
+      }
+    },
+    "settings.networking.relayOnly": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Relay Only"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "リレーのみ"
+          }
+        }
+      }
+    },
+    "settings.networking.relayOnly.subtitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Keeps Iroh connections to this Mac on cmux relays instead of direct or local-network paths. Applies on the next reconnect."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "この Mac への Iroh 接続を、直接経路やローカルネットワーク経路ではなく cmux リレー経由に固定します。次回の再接続時に適用されます。"
+          }
+        }
+      }
+    },
+    "settings.networking.relayPolicy.note": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux downloads a signed relay catalog. Fleet additions, removals, and regional changes do not require an app update."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux は署名済みリレーカタログを取得します。フリートの追加、削除、リージョン変更にアプリ更新は不要です。"
+          }
+        }
+      }
+    },
+    "settings.networking.relayPreference": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Relay Preference"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "リレー設定"
+          }
+        }
+      }
+    },
+    "settings.networking.relayPreference.subtitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Direct peer-to-peer stays enabled. This controls which relays Iroh may use when a direct path is unavailable."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ピアツーピアの直接接続は有効なままです。直接経路が利用できない場合に Iroh が使用できるリレーを指定します。"
+          }
+        }
+      }
+    },
+    "settings.networking.saveFailed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Could Not Save Networking Settings"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ネットワーク設定を保存できませんでした"
+          }
+        }
+      }
+    },
+    "settings.networking.saveFailed.message": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Your previous networking configuration is still active. Check your account connection and relay values, then try again."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "以前のネットワーク設定が引き続き有効です。アカウント接続とリレーの値を確認して、もう一度お試しください。"
+          }
+        }
+      }
+    },
+    "settings.networking.status": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Iroh Status"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Iroh の状態"
+          }
+        }
+      }
+    },
+    "settings.networking.status.active": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Iroh endpoint active"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Iroh エンドポイントは稼働中"
+          }
+        }
+      }
+    },
+    "settings.networking.status.degraded": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Direct-only until relay settings recover"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "リレー設定が復旧するまで直接接続のみ"
+          }
+        }
+      }
+    },
+    "settings.networking.status.direct": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Connected directly peer-to-peer"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ピアツーピアで直接接続"
+          }
+        }
+      }
+    },
+    "settings.networking.status.inactive": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Inactive"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "停止中"
+          }
+        }
+      }
+    },
+    "settings.networking.status.private": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Connected through %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ 経由で接続"
+          }
+        }
+      }
+    },
+    "settings.networking.status.private.generic": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Connected through a private network"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "プライベートネットワーク経由で接続"
+          }
+        }
+      }
+    },
+    "settings.networking.status.relayed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Connected through %1$@, %2$@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@（%2$@）経由で接続"
+          }
+        }
+      }
+    },
+    "settings.networking.status.starting": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Starting"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "起動中"
+          }
+        }
+      }
+    },
+    "settings.networking.test": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Test"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "テスト"
+          }
+        }
+      }
+    },
+    "settings.networking.test.failed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "unreachable"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "到達不可"
+          }
+        }
+      }
+    },
+    "settings.networking.test.incomplete": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "test unavailable"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "テスト利用不可"
+          }
+        }
+      }
+    },
+    "settings.networking.test.reachable": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "reachable"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "到達可能"
+          }
+        }
+      }
+    },
+    "push.hidden.body": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "نشاط جديد في الوحدة الطرفية"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nova aktivnost u terminalu"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ny terminalaktivitet"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Neue Terminalaktivität"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "New terminal activity"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nueva actividad en la terminal"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nouvelle activité dans le terminal"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nuova attività nel terminale"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "新しいターミナルアクティビティ"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "សកម្មភាពស្ថានីយថ្មី"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "새 터미널 활동"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ny terminalaktivitet"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nowa aktywność terminala"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nova atividade no terminal"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Новая активность в терминале"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "มีกิจกรรมใหม่ในเทอร์มินัล"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Yeni terminal etkinliği"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Нова активність у терміналі"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "新的终端活动"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "新的終端活動"
+          }
+        }
+      }
+    },
+    "push.test.body": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "أرسل Mac تنبيهًا تجريبيًا إلى cmux."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vaš Mac je poslao probno upozorenje u cmux."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Din Mac sendte en testadvarsel til cmux."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dein Mac hat eine Testmitteilung an cmux gesendet."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Your Mac sent a test alert to cmux."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tu Mac envió una alerta de prueba a cmux."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Votre Mac a envoyé une alerte de test à cmux."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Il Mac ha inviato un avviso di prova a cmux."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mac から cmux にテスト通知が送信されました。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mac របស់អ្នកបានផ្ញើការជូនដំណឹងសាកល្បងទៅ cmux។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mac에서 cmux로 테스트 알림을 보냈습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Macen sendte et testvarsel til cmux."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mac wysłał alert testowy do cmux."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Seu Mac enviou um alerta de teste ao cmux."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ваш Mac отправил тестовое уведомление в cmux."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mac ของคุณส่งการแจ้งเตือนทดสอบไปยัง cmux แล้ว"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mac’iniz cmux’a bir test uyarısı gönderdi."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ваш Mac надіслав тестове сповіщення в cmux."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "你的 Mac 已向 cmux 发送测试提醒。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "你的 Mac 已向 cmux 傳送測試提醒。"
+          }
+        }
+      }
+    },
+    "push.test.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "اختبار إشعارات cmux"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux test obavještenja"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux-notifikationstest"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux-Mitteilungstest"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux Notification Test"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Prueba de notificaciones de cmux"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Test de notification cmux"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Test notifiche cmux"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux 通知テスト"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ការសាកល្បងការជូនដំណឹង cmux"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux 알림 테스트"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux-varslingstest"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Test powiadomień cmux"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Teste de notificações do cmux"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Тест уведомлений cmux"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ทดสอบการแจ้งเตือน cmux"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux bildirim testi"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Тест сповіщень cmux"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux 通知测试"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux 通知測試"
+          }
+        }
+      }
+    },
+    "settings.networking.check.path": { "extractionState": "manual", "localizations": {
+      "en": { "stringUnit": { "state": "translated", "value": "Active Route" } },
+      "ja": { "stringUnit": { "state": "translated", "value": "アクティブな経路" } }
+    } },
+    "settings.networking.check.path.unavailable": { "extractionState": "manual", "localizations": {
+      "en": { "stringUnit": { "state": "translated", "value": "No Live Route" } },
+      "ja": { "stringUnit": { "state": "translated", "value": "有効な経路なし" } }
+    } },
+    "settings.networking.check.path.direct": { "extractionState": "manual", "localizations": {
+      "en": { "stringUnit": { "state": "translated", "value": "Direct Peer-to-Peer" } },
+      "ja": { "stringUnit": { "state": "translated", "value": "ピアツーピア直接接続" } }
+    } },
+    "settings.networking.check.path.private": { "extractionState": "manual", "localizations": {
+      "en": { "stringUnit": { "state": "translated", "value": "LAN or Private VPN" } },
+      "ja": { "stringUnit": { "state": "translated", "value": "LAN またはプライベート VPN" } }
+    } },
+    "settings.networking.check.path.managedRelay": { "extractionState": "manual", "localizations": {
+      "en": { "stringUnit": { "state": "translated", "value": "cmux Relay (%1$@, %2$@)" } },
+      "ja": { "stringUnit": { "state": "translated", "value": "cmux リレー（%1$@、%2$@）" } }
+    } },
+    "settings.networking.check.path.customRelay": { "extractionState": "manual", "localizations": {
+      "en": { "stringUnit": { "state": "translated", "value": "Custom Relay (%1$@)" } },
+      "ja": { "stringUnit": { "state": "translated", "value": "カスタムリレー（%1$@）" } }
+    } },
+    "settings.networking.check.shareReport": { "extractionState": "manual", "localizations": {
+      "en": { "stringUnit": { "state": "translated", "value": "Connection Report" } },
+      "ja": { "stringUnit": { "state": "translated", "value": "接続レポート" } }
+    } },
+    "settings.networking.check.report.header": { "extractionState": "manual", "localizations": {
+      "en": { "stringUnit": { "state": "translated", "value": "cmux Connection Report" } },
+      "ja": { "stringUnit": { "state": "translated", "value": "cmux 接続レポート" } }
+    } },
+    "settings.networking.check.report.action": { "extractionState": "manual", "localizations": {
+      "en": { "stringUnit": { "state": "translated", "value": "Suggested Action" } },
+      "ja": { "stringUnit": { "state": "translated", "value": "推奨される対応" } }
+    } },
+    "settings.networking.check.shareAllowlist": { "extractionState": "manual", "localizations": {
+      "en": { "stringUnit": { "state": "translated", "value": "IT Relay Allowlist" } },
+      "ja": { "stringUnit": { "state": "translated", "value": "IT リレー許可リスト" } }
+    } },
+    "settings.networking.check.share": { "extractionState": "manual", "localizations": {
+      "en": { "stringUnit": { "state": "translated", "value": "Share…" } },
+      "ja": { "stringUnit": { "state": "translated", "value": "共有…" } }
+    } },
+    "settings.networking.check.allowlist.header": { "extractionState": "manual", "localizations": {
+      "en": { "stringUnit": { "state": "translated", "value": "Allow outbound HTTPS and WebSocket access to these cmux relay origins:" } },
+      "ja": { "stringUnit": { "state": "translated", "value": "次の cmux リレーオリジンへの送信 HTTPS および WebSocket アクセスを許可してください:" } }
+    } },
+    "settings.networking.check.title": { "extractionState": "manual", "localizations": {
+      "en": { "stringUnit": { "state": "translated", "value": "Connection Check" } },
+      "ja": { "stringUnit": { "state": "translated", "value": "接続チェック" } }
+    } },
+    "settings.networking.check.subtitle": { "extractionState": "manual", "localizations": {
+      "en": { "stringUnit": { "state": "translated", "value": "Checks encrypted transport, relay policy, and relay reachability from this Mac." } },
+      "ja": { "stringUnit": { "state": "translated", "value": "この Mac から暗号化トランスポート、リレーポリシー、リレーへの到達性を確認します。" } }
+    } },
+    "settings.networking.check.run": { "extractionState": "manual", "localizations": {
+      "en": { "stringUnit": { "state": "translated", "value": "Run Check" } },
+      "ja": { "stringUnit": { "state": "translated", "value": "チェックを実行" } }
+    } },
+    "settings.networking.check.note": { "extractionState": "manual", "localizations": {
+      "en": { "stringUnit": { "state": "translated", "value": "cmux automatically uses direct internet, LAN, or any VPN route available to macOS, then falls back to an allowed relay. Every route remains end-to-end encrypted." } },
+      "ja": { "stringUnit": { "state": "translated", "value": "cmux は macOS で利用可能なインターネット、LAN、または任意の VPN 経路を自動的に使用し、必要に応じて許可されたリレーへ切り替えます。すべての経路でエンドツーエンド暗号化が維持されます。" } }
+    } },
+    "settings.networking.check.transport": { "extractionState": "manual", "localizations": {
+      "en": { "stringUnit": { "state": "translated", "value": "Encrypted Transport" } },
+      "ja": { "stringUnit": { "state": "translated", "value": "暗号化トランスポート" } }
+    } },
+    "settings.networking.check.policy": { "extractionState": "manual", "localizations": {
+      "en": { "stringUnit": { "state": "translated", "value": "Relay Policy" } },
+      "ja": { "stringUnit": { "state": "translated", "value": "リレーポリシー" } }
+    } },
+    "settings.networking.check.relay": { "extractionState": "manual", "localizations": {
+      "en": { "stringUnit": { "state": "translated", "value": "Relay Reachability" } },
+      "ja": { "stringUnit": { "state": "translated", "value": "リレーへの到達性" } }
+    } },
+    "settings.networking.check.mac": { "extractionState": "manual", "localizations": {
+      "en": { "stringUnit": { "state": "translated", "value": "Mac Available" } },
+      "ja": { "stringUnit": { "state": "translated", "value": "Mac の利用可否" } }
+    } },
+    "settings.networking.check.session": { "extractionState": "manual", "localizations": {
+      "en": { "stringUnit": { "state": "translated", "value": "Secure Session" } },
+      "ja": { "stringUnit": { "state": "translated", "value": "安全なセッション" } }
+    } },
+    "settings.networking.check.passed": { "extractionState": "manual", "localizations": {
+      "en": { "stringUnit": { "state": "translated", "value": "Passed" } },
+      "ja": { "stringUnit": { "state": "translated", "value": "正常" } }
+    } },
+    "settings.networking.check.warning": { "extractionState": "manual", "localizations": {
+      "en": { "stringUnit": { "state": "translated", "value": "Needs Attention" } },
+      "ja": { "stringUnit": { "state": "translated", "value": "確認が必要" } }
+    } },
+    "settings.networking.check.failed": { "extractionState": "manual", "localizations": {
+      "en": { "stringUnit": { "state": "translated", "value": "Failed" } },
+      "ja": { "stringUnit": { "state": "translated", "value": "失敗" } }
+    } },
+    "settings.networking.check.notApplicable": { "extractionState": "manual", "localizations": {
+      "en": { "stringUnit": { "state": "translated", "value": "Not Needed" } },
+      "ja": { "stringUnit": { "state": "translated", "value": "不要" } }
+    } },
+    "settings.networking.check.action.retry": { "extractionState": "manual", "localizations": {
+      "en": { "stringUnit": { "state": "translated", "value": "Retry. If this continues, share the safe report with cmux support." } },
+      "ja": { "stringUnit": { "state": "translated", "value": "再試行してください。問題が続く場合は、安全なレポートを cmux サポートと共有してください。" } }
+    } },
+    "settings.networking.check.action.internet": { "extractionState": "manual", "localizations": {
+      "en": { "stringUnit": { "state": "translated", "value": "Connect this Mac to the internet, then run the check again." } },
+      "ja": { "stringUnit": { "state": "translated", "value": "この Mac をインターネットに接続してから、もう一度確認してください。" } }
+    } },
+    "settings.networking.check.action.mac": { "extractionState": "manual", "localizations": {
+      "en": { "stringUnit": { "state": "translated", "value": "Keep cmux open and confirm both apps use the same account." } },
+      "ja": { "stringUnit": { "state": "translated", "value": "cmux を開いたままにし、両方のアプリが同じアカウントを使用していることを確認してください。" } }
+    } },
+    "settings.networking.check.action.relay": { "extractionState": "manual", "localizations": {
+      "en": { "stringUnit": { "state": "translated", "value": "Your network may block relay traffic. Ask IT to allow HTTPS and WebSocket access to your configured cmux relay domains, or add an approved custom relay." } },
+      "ja": { "stringUnit": { "state": "translated", "value": "ネットワークがリレートラフィックを遮断している可能性があります。設定済みの cmux リレードメインへの HTTPS と WebSocket アクセスを許可するよう IT 部門に依頼するか、承認済みのカスタムリレーを追加してください。" } }
+    } },
+    "settings.networking.check.action.account": { "extractionState": "manual", "localizations": {
+      "en": { "stringUnit": { "state": "translated", "value": "Confirm you are signed in, then reopen cmux and run the check again." } },
+      "ja": { "stringUnit": { "state": "translated", "value": "サインインを確認し、cmux を開き直してからもう一度確認してください。" } }
+    } },
+    "settings.networking.check.action.settings": { "extractionState": "manual", "localizations": {
+      "en": { "stringUnit": { "state": "translated", "value": "Choose Automatic relay selection, or fix the selected custom relay and its device secret." } },
+      "ja": { "stringUnit": { "state": "translated", "value": "リレー選択を「自動」にするか、選択したカスタムリレーとデバイスシークレットを修正してください。" } }
+    } },
+    "settings.networking.check.action.repair": { "extractionState": "manual", "localizations": {
+      "en": { "stringUnit": { "state": "translated", "value": "Update cmux on both devices. If needed, pair them again." } },
+      "ja": { "stringUnit": { "state": "translated", "value": "両方のデバイスで cmux を更新してください。必要に応じて再度ペアリングしてください。" } }
+    } },
+    "cli.workspaceGroup.help.overview": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Manage collapsible workspace groups in the sidebar. Each group is owned by an \"anchor\" workspace; the group header IS the anchor's sidebar representation. Closing the anchor closes only that workspace and promotes the group's next member to be the new anchor, so the group and its other members stay intact. When the anchor is the group's only workspace, the group is removed."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "サイドバーで折りたたみ可能なワークスペースグループを管理します。各グループは「アンカー」ワークスペースが所有し、サイドバーのグループヘッダーがそのアンカーを表します。アンカーを閉じると、閉じられるのはそのワークスペースだけで、グループの次のメンバーが新しいアンカーに昇格するため、グループと他のメンバーはそのまま維持されます。アンカーがグループ唯一のワークスペースだった場合は、グループが削除されます。"
+          }
+        }
+      }
+    },
+    "cli.coderouter.aliases": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": { "stringUnit": { "state": "translated", "value": "coderouter|cr [coderouter-args...]                 (بدائل لـ CodeRouter CLI المثبّت)" } },
+        "bs": { "stringUnit": { "state": "translated", "value": "coderouter|cr [coderouter-args...]                 (aliasi za instalirani CodeRouter CLI)" } },
+        "da": { "stringUnit": { "state": "translated", "value": "coderouter|cr [coderouter-args...]                 (aliasser for den installerede CodeRouter CLI)" } },
+        "de": { "stringUnit": { "state": "translated", "value": "coderouter|cr [coderouter-args...]                 (Aliase für die installierte CodeRouter-CLI)" } },
+        "en": { "stringUnit": { "state": "translated", "value": "coderouter|cr [coderouter-args...]                 (aliases for the installed CodeRouter CLI)" } },
+        "es": { "stringUnit": { "state": "translated", "value": "coderouter|cr [coderouter-args...]                 (alias para la CLI de CodeRouter instalada)" } },
+        "fr": { "stringUnit": { "state": "translated", "value": "coderouter|cr [coderouter-args...]                 (alias de la CLI CodeRouter installée)" } },
+        "it": { "stringUnit": { "state": "translated", "value": "coderouter|cr [coderouter-args...]                 (alias per la CLI CodeRouter installata)" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "coderouter|cr [coderouter-args...]                 (インストール済み CodeRouter CLI のエイリアス)" } },
+        "km": { "stringUnit": { "state": "translated", "value": "coderouter|cr [coderouter-args...]                 (ឈ្មោះកាត់សម្រាប់ CodeRouter CLI ដែលបានដំឡើង)" } },
+        "ko": { "stringUnit": { "state": "translated", "value": "coderouter|cr [coderouter-args...]                 (설치된 CodeRouter CLI의 별칭)" } },
+        "nb": { "stringUnit": { "state": "translated", "value": "coderouter|cr [coderouter-args...]                 (aliaser for den installerte CodeRouter CLI)" } },
+        "pl": { "stringUnit": { "state": "translated", "value": "coderouter|cr [coderouter-args...]                 (aliasy zainstalowanego CodeRouter CLI)" } },
+        "pt-BR": { "stringUnit": { "state": "translated", "value": "coderouter|cr [coderouter-args...]                 (aliases para a CLI do CodeRouter instalada)" } },
+        "ru": { "stringUnit": { "state": "translated", "value": "coderouter|cr [coderouter-args...]                 (псевдонимы для установленного CodeRouter CLI)" } },
+        "th": { "stringUnit": { "state": "translated", "value": "coderouter|cr [coderouter-args...]                 (ชื่อเรียกแทนสำหรับ CodeRouter CLI ที่ติดตั้งไว้)" } },
+        "tr": { "stringUnit": { "state": "translated", "value": "coderouter|cr [coderouter-args...]                 (yüklü CodeRouter CLI için takma adlar)" } },
+        "uk": { "stringUnit": { "state": "translated", "value": "coderouter|cr [coderouter-args...]                 (псевдоніми для встановленого CodeRouter CLI)" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "coderouter|cr [coderouter-args...]                 (已安装 CodeRouter CLI 的别名)" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "coderouter|cr [coderouter-args...]                 (已安裝 CodeRouter CLI 的別名)" } }
+      }
+    },
+    "cli.coderouter.error.launchFailed": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": { "stringUnit": { "state": "translated", "value": "تعذر تشغيل أداة سطر الأوامر المطلوبة. تحقّق من التثبيت ثم أعد المحاولة." } },
+        "bs": { "stringUnit": { "state": "translated", "value": "Traženi CLI nije moguće pokrenuti. Provjerite instalaciju i pokušajte ponovo." } },
+        "da": { "stringUnit": { "state": "translated", "value": "Den nødvendige CLI kunne ikke startes. Kontrollér installationen, og prøv igen." } },
+        "de": { "stringUnit": { "state": "translated", "value": "Die erforderliche CLI konnte nicht gestartet werden. Überprüfen Sie die Installation und versuchen Sie es erneut." } },
+        "en": { "stringUnit": { "state": "translated", "value": "Could not start the required CLI. Check the installation and try again." } },
+        "es": { "stringUnit": { "state": "translated", "value": "No se pudo iniciar la CLI necesaria. Comprueba la instalación y vuelve a intentarlo." } },
+        "fr": { "stringUnit": { "state": "translated", "value": "Impossible de démarrer la CLI requise. Vérifiez l’installation, puis réessayez." } },
+        "it": { "stringUnit": { "state": "translated", "value": "Impossibile avviare la CLI richiesta. Verifica l'installazione e riprova." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "必要な CLI を起動できませんでした。インストールを確認して、もう一度お試しください。" } },
+        "km": { "stringUnit": { "state": "translated", "value": "មិនអាចចាប់ផ្ដើម CLI ដែលត្រូវការ។ សូមពិនិត្យការដំឡើង ហើយព្យាយាមម្ដងទៀត។" } },
+        "ko": { "stringUnit": { "state": "translated", "value": "필요한 CLI를 시작할 수 없습니다. 설치를 확인한 후 다시 시도하세요." } },
+        "nb": { "stringUnit": { "state": "translated", "value": "Kunne ikke starte den nødvendige CLI-en. Kontroller installasjonen og prøv igjen." } },
+        "pl": { "stringUnit": { "state": "translated", "value": "Nie można uruchomić wymaganej biblioteki CLI. Sprawdź instalację i spróbuj ponownie." } },
+        "pt-BR": { "stringUnit": { "state": "translated", "value": "Não foi possível iniciar a CLI necessária. Verifique a instalação e tente novamente." } },
+        "ru": { "stringUnit": { "state": "translated", "value": "Не удалось запустить необходимый CLI. Проверьте установку и повторите попытку." } },
+        "th": { "stringUnit": { "state": "translated", "value": "ไม่สามารถเริ่ม CLI ที่จำเป็นได้ โปรดตรวจสอบการติดตั้งแล้วลองอีกครั้ง" } },
+        "tr": { "stringUnit": { "state": "translated", "value": "Gerekli CLI başlatılamadı. Kurulumu kontrol edip tekrar deneyin." } },
+        "uk": { "stringUnit": { "state": "translated", "value": "Не вдалося запустити потрібний CLI. Перевірте встановлення та повторіть спробу." } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "无法启动所需的 CLI。请检查安装并重试。" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "無法啟動必要的 CLI。請檢查安裝後再試一次。" } }
+      }
+    },
+    "cli.coderouter.error.notFound": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": { "stringUnit": { "state": "translated", "value": "تعذر العثور على أداة سطر الأوامر المطلوبة. ثبّت الأمر ثم أعد المحاولة." } },
+        "bs": { "stringUnit": { "state": "translated", "value": "Traženi CLI nije pronađen. Instalirajte naredbu i pokušajte ponovo." } },
+        "da": { "stringUnit": { "state": "translated", "value": "Den nødvendige CLI blev ikke fundet. Installer kommandoen, og prøv igen." } },
+        "de": { "stringUnit": { "state": "translated", "value": "Die erforderliche CLI wurde nicht gefunden. Installieren Sie den Befehl und versuchen Sie es erneut." } },
+        "en": { "stringUnit": { "state": "translated", "value": "Required CLI not found. Install the command and retry." } },
+        "es": { "stringUnit": { "state": "translated", "value": "No se encontró la CLI necesaria. Instala el comando y vuelve a intentarlo." } },
+        "fr": { "stringUnit": { "state": "translated", "value": "La CLI requise est introuvable. Installez la commande, puis réessayez." } },
+        "it": { "stringUnit": { "state": "translated", "value": "La CLI richiesta non è stata trovata. Installa il comando e riprova." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "必要な CLI が見つかりません。コマンドをインストールして、もう一度お試しください。" } },
+        "km": { "stringUnit": { "state": "translated", "value": "រកមិនឃើញ CLI ដែលត្រូវការ។ សូមដំឡើងពាក្យបញ្ជា ហើយព្យាយាមម្ដងទៀត។" } },
+        "ko": { "stringUnit": { "state": "translated", "value": "필요한 CLI를 찾을 수 없습니다. 명령을 설치한 후 다시 시도하세요." } },
+        "nb": { "stringUnit": { "state": "translated", "value": "Fant ikke den nødvendige CLI-en. Installer kommandoen og prøv igjen." } },
+        "pl": { "stringUnit": { "state": "translated", "value": "Nie znaleziono wymaganej CLI. Zainstaluj polecenie i spróbuj ponownie." } },
+        "pt-BR": { "stringUnit": { "state": "translated", "value": "A CLI necessária não foi encontrada. Instale o comando e tente novamente." } },
+        "ru": { "stringUnit": { "state": "translated", "value": "Не удалось найти необходимый CLI. Установите команду и повторите попытку." } },
+        "th": { "stringUnit": { "state": "translated", "value": "ไม่พบ CLI ที่จำเป็น โปรดติดตั้งคำสั่งแล้วลองอีกครั้ง" } },
+        "tr": { "stringUnit": { "state": "translated", "value": "Gerekli CLI bulunamadı. Komutu yükleyip tekrar deneyin." } },
+        "uk": { "stringUnit": { "state": "translated", "value": "Не знайдено потрібний CLI. Установіть команду та повторіть спробу." } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "未找到所需的 CLI。请安装该命令后重试。" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "找不到必要的 CLI。請安裝該命令後再試一次。" } }
+      }
+    },
+    "agent.primeAgent.displayName": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": { "stringUnit": { "state": "translated", "value": "Prime Agent" } },
+        "bs": { "stringUnit": { "state": "translated", "value": "Prime Agent" } },
+        "da": { "stringUnit": { "state": "translated", "value": "Prime Agent" } },
+        "de": { "stringUnit": { "state": "translated", "value": "Prime Agent" } },
+        "en": { "stringUnit": { "state": "translated", "value": "Prime Agent" } },
+        "es": { "stringUnit": { "state": "translated", "value": "Prime Agent" } },
+        "fr": { "stringUnit": { "state": "translated", "value": "Prime Agent" } },
+        "it": { "stringUnit": { "state": "translated", "value": "Prime Agent" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "Prime Agent" } },
+        "km": { "stringUnit": { "state": "translated", "value": "Prime Agent" } },
+        "ko": { "stringUnit": { "state": "translated", "value": "Prime Agent" } },
+        "nb": { "stringUnit": { "state": "translated", "value": "Prime Agent" } },
+        "pl": { "stringUnit": { "state": "translated", "value": "Prime Agent" } },
+        "pt-BR": { "stringUnit": { "state": "translated", "value": "Prime Agent" } },
+        "ru": { "stringUnit": { "state": "translated", "value": "Prime Agent" } },
+        "th": { "stringUnit": { "state": "translated", "value": "Prime Agent" } },
+        "tr": { "stringUnit": { "state": "translated", "value": "Prime Agent" } },
+        "uk": { "stringUnit": { "state": "translated", "value": "Prime Agent" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "Prime Agent" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "Prime Agent" } }
+      }
+    },
+    "cli.hooks.primeAgent.aborted": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": { "stringUnit": { "state": "translated", "value": "تم الإلغاء." } },
+        "bs": { "stringUnit": { "state": "translated", "value": "Prekinuto." } },
+        "da": { "stringUnit": { "state": "translated", "value": "Annulleret." } },
+        "de": { "stringUnit": { "state": "translated", "value": "Abgebrochen." } },
+        "en": { "stringUnit": { "state": "translated", "value": "Aborted." } },
+        "es": { "stringUnit": { "state": "translated", "value": "Cancelado." } },
+        "fr": { "stringUnit": { "state": "translated", "value": "Opération annulée." } },
+        "it": { "stringUnit": { "state": "translated", "value": "Operazione annullata." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "中止しました。" } },
+        "km": { "stringUnit": { "state": "translated", "value": "បានបោះបង់។" } },
+        "ko": { "stringUnit": { "state": "translated", "value": "취소되었습니다." } },
+        "nb": { "stringUnit": { "state": "translated", "value": "Avbrutt." } },
+        "pl": { "stringUnit": { "state": "translated", "value": "Anulowano." } },
+        "pt-BR": { "stringUnit": { "state": "translated", "value": "Cancelado." } },
+        "ru": { "stringUnit": { "state": "translated", "value": "Отменено." } },
+        "th": { "stringUnit": { "state": "translated", "value": "ยกเลิกแล้ว" } },
+        "tr": { "stringUnit": { "state": "translated", "value": "İptal edildi." } },
+        "uk": { "stringUnit": { "state": "translated", "value": "Скасовано." } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "已取消。" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "已取消。" } }
+      }
+    },
+    "cli.hooks.primeAgent.alreadyUpToDate": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": { "stringUnit": { "state": "translated", "value": "خطافات Prime Agent محدثة بالفعل في %@" } },
+        "bs": { "stringUnit": { "state": "translated", "value": "Prime Agent hookovi su već ažurirani na %@" } },
+        "da": { "stringUnit": { "state": "translated", "value": "Prime Agent-hooks er allerede opdaterede på %@" } },
+        "de": { "stringUnit": { "state": "translated", "value": "Prime-Agent-Hooks unter %@ sind bereits aktuell" } },
+        "en": { "stringUnit": { "state": "translated", "value": "Prime Agent hooks already up to date at %@" } },
+        "es": { "stringUnit": { "state": "translated", "value": "Los hooks de Prime Agent ya están actualizados en %@" } },
+        "fr": { "stringUnit": { "state": "translated", "value": "Les hooks Prime Agent sont déjà à jour dans %@" } },
+        "it": { "stringUnit": { "state": "translated", "value": "Gli hook di Prime Agent sono già aggiornati in %@" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "%@ の Prime Agent フックはすでに最新です" } },
+        "km": { "stringUnit": { "state": "translated", "value": "Prime Agent hooks បានធ្វើបច្ចុប្បន្នភាពរួចហើយនៅ %@" } },
+        "ko": { "stringUnit": { "state": "translated", "value": "Prime Agent 훅이 %@에서 이미 최신 상태입니다" } },
+        "nb": { "stringUnit": { "state": "translated", "value": "Prime Agent-hookene er allerede oppdatert på %@" } },
+        "pl": { "stringUnit": { "state": "translated", "value": "Hooki Prime Agent są już aktualne w %@" } },
+        "pt-BR": { "stringUnit": { "state": "translated", "value": "Os hooks do Prime Agent já estão atualizados em %@" } },
+        "ru": { "stringUnit": { "state": "translated", "value": "Хуки Prime Agent уже обновлены в %@" } },
+        "th": { "stringUnit": { "state": "translated", "value": "ฮุกของ Prime Agent เป็นปัจจุบันแล้วที่ %@" } },
+        "tr": { "stringUnit": { "state": "translated", "value": "Prime Agent kancaları %@ konumunda zaten güncel" } },
+        "uk": { "stringUnit": { "state": "translated", "value": "Хуки Prime Agent уже оновлено в %@" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "Prime Agent 钩子已在 %@ 处是最新版本" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "Prime Agent 掛鉤已在 %@ 處是最新版本" } }
+      }
+    },
+    "cli.hooks.primeAgent.confirmProceed": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": { "stringUnit": { "state": "translated", "value": "\nمتابعة؟ [y/N] " } },
+        "bs": { "stringUnit": { "state": "translated", "value": "\nNastaviti? [y/N] " } },
+        "da": { "stringUnit": { "state": "translated", "value": "\nFortsæt? [y/N] " } },
+        "de": { "stringUnit": { "state": "translated", "value": "\nFortfahren? [y/N] " } },
+        "en": { "stringUnit": { "state": "translated", "value": "\nProceed? [y/N] " } },
+        "es": { "stringUnit": { "state": "translated", "value": "\n¿Continuar? [y/N] " } },
+        "fr": { "stringUnit": { "state": "translated", "value": "\nContinuer ? [y/N] " } },
+        "it": { "stringUnit": { "state": "translated", "value": "\nContinuare? [y/N] " } },
+        "ja": { "stringUnit": { "state": "translated", "value": "\n続行しますか？ [y/N] " } },
+        "km": { "stringUnit": { "state": "translated", "value": "\nបន្តឬ? [y/N] " } },
+        "ko": { "stringUnit": { "state": "translated", "value": "\n계속할까요? [y/N] " } },
+        "nb": { "stringUnit": { "state": "translated", "value": "\nFortsette? [y/N] " } },
+        "pl": { "stringUnit": { "state": "translated", "value": "\nKontynuować? [y/N] " } },
+        "pt-BR": { "stringUnit": { "state": "translated", "value": "\nContinuar? [y/N] " } },
+        "ru": { "stringUnit": { "state": "translated", "value": "\nПродолжить? [y/N] " } },
+        "th": { "stringUnit": { "state": "translated", "value": "\nดำเนินการต่อหรือไม่ [y/N] " } },
+        "tr": { "stringUnit": { "state": "translated", "value": "\nDevam edilsin mi? [y/N] " } },
+        "uk": { "stringUnit": { "state": "translated", "value": "\nПродовжити? [y/N] " } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "\n继续？[y/N] " } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "\n繼續？[y/N] " } }
+      }
+    },
+    "cli.hooks.primeAgent.error.notCmuxExtension": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": { "stringUnit": { "state": "translated", "value": "%@ موجود وليس امتداد cmux؛ سيبقى كما هو" } },
+        "bs": { "stringUnit": { "state": "translated", "value": "%@ postoji i nije cmux ekstenzija; ostavljamo ga" } },
+        "da": { "stringUnit": { "state": "translated", "value": "%@ findes allerede og er ikke en cmux-udvidelse; den lades være" } },
+        "de": { "stringUnit": { "state": "translated", "value": "%@ existiert und ist keine cmux-Erweiterung; bleibt unverändert" } },
+        "en": { "stringUnit": { "state": "translated", "value": "%@ exists and is not a cmux extension; leaving it alone" } },
+        "es": { "stringUnit": { "state": "translated", "value": "%@ existe y no es una extensión de cmux; se dejará intacto" } },
+        "fr": { "stringUnit": { "state": "translated", "value": "%@ existe et n’est pas une extension cmux ; il est conservé" } },
+        "it": { "stringUnit": { "state": "translated", "value": "%@ esiste e non è un'estensione cmux; verrà lasciato invariato" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "%@ は cmux 拡張ではないため、そのまま残します" } },
+        "km": { "stringUnit": { "state": "translated", "value": "%@ មានរួចហើយ ហើយមិនមែនជាផ្នែកបន្ថែម cmux ទេ; ទុកវាដដែល" } },
+        "ko": { "stringUnit": { "state": "translated", "value": "%@이(가) 존재하며 cmux 확장이 아닙니다. 그대로 둡니다" } },
+        "nb": { "stringUnit": { "state": "translated", "value": "%@ finnes og er ikke en cmux-utvidelse; den lar vi være" } },
+        "pl": { "stringUnit": { "state": "translated", "value": "%@ istnieje i nie jest rozszerzeniem cmux; pozostawiamy go bez zmian" } },
+        "pt-BR": { "stringUnit": { "state": "translated", "value": "%@ existe e não é uma extensão do cmux; será mantido" } },
+        "ru": { "stringUnit": { "state": "translated", "value": "%@ существует и не является расширением cmux; оставляем без изменений" } },
+        "th": { "stringUnit": { "state": "translated", "value": "%@ มีอยู่แล้วและไม่ใช่ส่วนขยายของ cmux จึงปล่อยไว้" } },
+        "tr": { "stringUnit": { "state": "translated", "value": "%@ mevcut ve bir cmux uzantısı değil; olduğu gibi bırakılıyor" } },
+        "uk": { "stringUnit": { "state": "translated", "value": "%@ існує і не є розширенням cmux; залишаємо без змін" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "%@ 已存在且不是 cmux 扩展；将保留不变" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "%@ 已存在且不是 cmux 擴充功能；將保留不變" } }
+      }
+    },
+    "cli.hooks.primeAgent.error.readFailed": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": { "stringUnit": { "state": "translated", "value": "تعذّرت قراءة %@" } },
+        "bs": { "stringUnit": { "state": "translated", "value": "Čitanje %@ nije uspjelo" } },
+        "da": { "stringUnit": { "state": "translated", "value": "Kunne ikke læse %@" } },
+        "de": { "stringUnit": { "state": "translated", "value": "%@ konnte nicht gelesen werden" } },
+        "en": { "stringUnit": { "state": "translated", "value": "Failed to read %@" } },
+        "es": { "stringUnit": { "state": "translated", "value": "No se pudo leer %@" } },
+        "fr": { "stringUnit": { "state": "translated", "value": "Impossible de lire %@" } },
+        "it": { "stringUnit": { "state": "translated", "value": "Impossibile leggere %@" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "%@ を読み取れませんでした" } },
+        "km": { "stringUnit": { "state": "translated", "value": "មិនអាចអាន %@ បានទេ" } },
+        "ko": { "stringUnit": { "state": "translated", "value": "%@을(를) 읽지 못했습니다" } },
+        "nb": { "stringUnit": { "state": "translated", "value": "Kunne ikke lese %@" } },
+        "pl": { "stringUnit": { "state": "translated", "value": "Nie można odczytać %@" } },
+        "pt-BR": { "stringUnit": { "state": "translated", "value": "Não foi possível ler %@" } },
+        "ru": { "stringUnit": { "state": "translated", "value": "Не удалось прочитать %@" } },
+        "th": { "stringUnit": { "state": "translated", "value": "อ่าน %@ ไม่สำเร็จ" } },
+        "tr": { "stringUnit": { "state": "translated", "value": "%@ okunamadı" } },
+        "uk": { "stringUnit": { "state": "translated", "value": "Не вдалося прочитати %@" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "无法读取 %@" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "無法讀取 %@" } }
+      }
+    },
+    "cli.hooks.primeAgent.installed": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": { "stringUnit": { "state": "translated", "value": "تم تثبيت خطافات Prime Agent في %@" } },
+        "bs": { "stringUnit": { "state": "translated", "value": "Prime Agent hookovi instalirani su na %@" } },
+        "da": { "stringUnit": { "state": "translated", "value": "Prime Agent-hooks installeret på %@" } },
+        "de": { "stringUnit": { "state": "translated", "value": "Prime-Agent-Hooks unter %@ installiert" } },
+        "en": { "stringUnit": { "state": "translated", "value": "Prime Agent hooks installed at %@" } },
+        "es": { "stringUnit": { "state": "translated", "value": "Hooks de Prime Agent instalados en %@" } },
+        "fr": { "stringUnit": { "state": "translated", "value": "Hooks Prime Agent installés dans %@" } },
+        "it": { "stringUnit": { "state": "translated", "value": "Hook di Prime Agent installati in %@" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "Prime Agent フックを %@ にインストールしました" } },
+        "km": { "stringUnit": { "state": "translated", "value": "បានដំឡើង Prime Agent hooks នៅ %@" } },
+        "ko": { "stringUnit": { "state": "translated", "value": "%@에 Prime Agent 훅을 설치했습니다" } },
+        "nb": { "stringUnit": { "state": "translated", "value": "Prime Agent-hookene ble installert på %@" } },
+        "pl": { "stringUnit": { "state": "translated", "value": "Hooki Prime Agent zainstalowano w %@" } },
+        "pt-BR": { "stringUnit": { "state": "translated", "value": "Hooks do Prime Agent instalados em %@" } },
+        "ru": { "stringUnit": { "state": "translated", "value": "Хуки Prime Agent установлены в %@" } },
+        "th": { "stringUnit": { "state": "translated", "value": "ติดตั้งฮุกของ Prime Agent ที่ %@ แล้ว" } },
+        "tr": { "stringUnit": { "state": "translated", "value": "Prime Agent kancaları %@ konumuna yüklendi" } },
+        "uk": { "stringUnit": { "state": "translated", "value": "Хуки Prime Agent встановлено в %@" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "Prime Agent 钩子已安装到 %@" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "Prime Agent 掛鉤已安裝至 %@" } }
+      }
+    },
+    "cli.hooks.primeAgent.noneFound": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": { "stringUnit": { "state": "translated", "value": "لم يتم العثور على امتداد cmux لـ Prime Agent في %@" } },
+        "bs": { "stringUnit": { "state": "translated", "value": "Nije pronađena cmux ekstenzija za Prime Agent na %@" } },
+        "da": { "stringUnit": { "state": "translated", "value": "Ingen cmux-udvidelse til Prime Agent fundet på %@" } },
+        "de": { "stringUnit": { "state": "translated", "value": "Keine cmux-Erweiterung für Prime Agent unter %@ gefunden" } },
+        "en": { "stringUnit": { "state": "translated", "value": "No Prime Agent cmux extension found at %@" } },
+        "es": { "stringUnit": { "state": "translated", "value": "No se encontró ninguna extensión de cmux para Prime Agent en %@" } },
+        "fr": { "stringUnit": { "state": "translated", "value": "Aucune extension cmux Prime Agent trouvée dans %@" } },
+        "it": { "stringUnit": { "state": "translated", "value": "Nessuna estensione cmux di Prime Agent trovata in %@" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "%@ に Prime Agent の cmux 拡張がありません" } },
+        "km": { "stringUnit": { "state": "translated", "value": "រកមិនឃើញផ្នែកបន្ថែម cmux របស់ Prime Agent នៅ %@ ទេ" } },
+        "ko": { "stringUnit": { "state": "translated", "value": "%@에서 Prime Agent cmux 확장을 찾을 수 없습니다" } },
+        "nb": { "stringUnit": { "state": "translated", "value": "Fant ingen cmux-utvidelse for Prime Agent på %@" } },
+        "pl": { "stringUnit": { "state": "translated", "value": "Nie znaleziono rozszerzenia cmux Prime Agent w %@" } },
+        "pt-BR": { "stringUnit": { "state": "translated", "value": "Nenhuma extensão cmux do Prime Agent encontrada em %@" } },
+        "ru": { "stringUnit": { "state": "translated", "value": "Расширение cmux для Prime Agent не найдено в %@" } },
+        "th": { "stringUnit": { "state": "translated", "value": "ไม่พบส่วนขยาย cmux ของ Prime Agent ที่ %@" } },
+        "tr": { "stringUnit": { "state": "translated", "value": "%@ konumunda Prime Agent cmux uzantısı bulunamadı" } },
+        "uk": { "stringUnit": { "state": "translated", "value": "Розширення cmux для Prime Agent не знайдено в %@" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "在 %@ 未找到 Prime Agent cmux 扩展" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "在 %@ 找不到 Prime Agent cmux 擴充功能" } }
+      }
+    },
+    "cli.hooks.primeAgent.refuseRemoveMissingMarker": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": { "stringUnit": { "state": "translated", "value": "رفض إزالة %@: علامة cmux مفقودة" } },
+        "bs": { "stringUnit": { "state": "translated", "value": "Odbijeno uklanjanje %@: nedostaje cmux oznaka" } },
+        "da": { "stringUnit": { "state": "translated", "value": "Fjerner ikke %@: cmux-markør mangler" } },
+        "de": { "stringUnit": { "state": "translated", "value": "Entfernen von %@ verweigert: cmux-Markierung fehlt" } },
+        "en": { "stringUnit": { "state": "translated", "value": "Refusing to remove %@: missing cmux marker" } },
+        "es": { "stringUnit": { "state": "translated", "value": "No se eliminará %@: falta el marcador de cmux" } },
+        "fr": { "stringUnit": { "state": "translated", "value": "Suppression de %@ refusée : marqueur cmux manquant" } },
+        "it": { "stringUnit": { "state": "translated", "value": "Rimozione di %@ rifiutata: manca il contrassegno cmux" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "cmux マーカーがないため %@ は削除しません" } },
+        "km": { "stringUnit": { "state": "translated", "value": "បដិសេធមិនលុប %@៖ បាត់សញ្ញាសម្គាល់ cmux" } },
+        "ko": { "stringUnit": { "state": "translated", "value": "cmux 마커가 없어 %@을(를) 삭제하지 않습니다" } },
+        "nb": { "stringUnit": { "state": "translated", "value": "Fjerner ikke %@: cmux-markør mangler" } },
+        "pl": { "stringUnit": { "state": "translated", "value": "Odmowa usunięcia %@: brak znacznika cmux" } },
+        "pt-BR": { "stringUnit": { "state": "translated", "value": "Recusa em remover %@: marcador do cmux ausente" } },
+        "ru": { "stringUnit": { "state": "translated", "value": "Отказано в удалении %@: отсутствует маркер cmux" } },
+        "th": { "stringUnit": { "state": "translated", "value": "ปฏิเสธการลบ %@: ไม่มีเครื่องหมาย cmux" } },
+        "tr": { "stringUnit": { "state": "translated", "value": "%@ kaldırılmadı: cmux işareti eksik" } },
+        "uk": { "stringUnit": { "state": "translated", "value": "Відмовлено у видаленні %@: відсутній маркер cmux" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "拒绝删除 %@：缺少 cmux 标记" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "拒絕刪除 %@：缺少 cmux 標記" } }
+      }
+    },
+    "cli.hooks.primeAgent.removed": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": { "stringUnit": { "state": "translated", "value": "تمت إزالة امتداد cmux لـ Prime Agent من %@" } },
+        "bs": { "stringUnit": { "state": "translated", "value": "Uklonjena je cmux ekstenzija za Prime Agent iz %@" } },
+        "da": { "stringUnit": { "state": "translated", "value": "Prime Agents cmux-udvidelse blev fjernet fra %@" } },
+        "de": { "stringUnit": { "state": "translated", "value": "Prime-Agent-cmux-Erweiterung aus %@ entfernt" } },
+        "en": { "stringUnit": { "state": "translated", "value": "Removed Prime Agent cmux extension from %@" } },
+        "es": { "stringUnit": { "state": "translated", "value": "Se eliminó la extensión de cmux para Prime Agent de %@" } },
+        "fr": { "stringUnit": { "state": "translated", "value": "Extension cmux Prime Agent supprimée de %@" } },
+        "it": { "stringUnit": { "state": "translated", "value": "Estensione cmux di Prime Agent rimossa da %@" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "%@ から Prime Agent の cmux 拡張を削除しました" } },
+        "km": { "stringUnit": { "state": "translated", "value": "បានលុបផ្នែកបន្ថែម cmux របស់ Prime Agent ចេញពី %@" } },
+        "ko": { "stringUnit": { "state": "translated", "value": "%@에서 Prime Agent cmux 확장을 삭제했습니다" } },
+        "nb": { "stringUnit": { "state": "translated", "value": "Prime Agent-cmux-utvidelsen ble fjernet fra %@" } },
+        "pl": { "stringUnit": { "state": "translated", "value": "Usunięto rozszerzenie cmux Prime Agent z %@" } },
+        "pt-BR": { "stringUnit": { "state": "translated", "value": "Extensão cmux do Prime Agent removida de %@" } },
+        "ru": { "stringUnit": { "state": "translated", "value": "Расширение cmux для Prime Agent удалено из %@" } },
+        "th": { "stringUnit": { "state": "translated", "value": "ลบส่วนขยาย cmux ของ Prime Agent จาก %@ แล้ว" } },
+        "tr": { "stringUnit": { "state": "translated", "value": "Prime Agent cmux uzantısı %@ konumundan kaldırıldı" } },
+        "uk": { "stringUnit": { "state": "translated", "value": "Розширення cmux для Prime Agent видалено з %@" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "已从 %@ 移除 Prime Agent cmux 扩展" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "已從 %@ 移除 Prime Agent cmux 擴充功能" } }
+      }
     }
   },
   "version": "1.0"

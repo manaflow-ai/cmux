@@ -533,4 +533,62 @@ struct SharedLiveAgentIndexAgentLivenessTests {
             "A reused PID running the same agent binary for another session must refresh instead of forking stale state."
         )
     }
+
+    @Test
+    func primeAgentNodeProcessMatchesItsCodingAgentBundle() {
+        let snapshot = SessionRestorableAgentSnapshot(
+            kind: .primeAgent,
+            sessionId: "prime-session",
+            workingDirectory: nil,
+            launchCommand: AgentLaunchCommandSnapshot(
+                launcher: "prime-agent",
+                executablePath: "/usr/bin/node",
+                arguments: [
+                    "/usr/bin/node",
+                    "/Users/test/.prime/agent/prime-agent/packages/coding-agent/dist/bundle/cli.js",
+                ],
+                workingDirectory: nil,
+                environment: nil,
+                capturedAt: nil,
+                source: "process"
+            )
+        )
+        let validator = CachedAgentProcessIdentityValidator()
+        #expect(
+            CachedAgentProcessIdentityValidator.livePrimeAgentProcessExecutableMatches(
+                kind: .primeAgent,
+                liveExecutable: "/usr/bin/node",
+                arguments: [
+                    "/usr/bin/node",
+                    "/Users/test/.prime/agent/prime-agent/packages/coding-agent/dist/bundle/cli.js",
+                    "--resume",
+                    "/Users/test/.prime/agent/sessions/session.jsonl",
+                ]
+            )
+        )
+        #expect(
+            !CachedAgentProcessIdentityValidator.livePrimeAgentProcessExecutableMatches(
+                kind: .primeAgent,
+                liveExecutable: "/usr/bin/node",
+                arguments: ["/usr/bin/node", "/tmp/unrelated/cli.js"]
+            )
+        )
+        #expect(
+            !CachedAgentProcessIdentityValidator.livePrimeAgentProcessExecutableMatches(
+                kind: .primeAgent,
+                liveExecutable: "/usr/bin/node",
+                arguments: ["/usr/bin/node", "/tmp/prime-agent/cli.js"]
+            )
+        )
+        #expect(
+            validator.currentProcess(
+                CmuxTopProcessArguments(
+                    arguments: ["/usr/bin/node", "/tmp/unrelated/cli.js"],
+                    environment: ["CMUX_AGENT_LAUNCH_KIND": "prime-agent"]
+                ),
+                matches: snapshot
+            ) == false,
+            "A same-basename Node process must not validate as the Prime Agent."
+        )
+    }
 }

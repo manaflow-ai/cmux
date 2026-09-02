@@ -55,6 +55,14 @@ struct CachedAgentProcessIdentityValidator: Sendable {
         matches snapshot: SessionRestorableAgentSnapshot
     ) -> Bool {
         guard let liveExecutable = arguments.first.map(executableBasename) else { return false }
+        if snapshot.kind == .primeAgent {
+            let recordedExecutable = recordedExecutableBasename(snapshot) ?? snapshot.kind.rawValue
+            return Self.primeAgentExecutableIdentityMatches(
+                liveExecutable: liveExecutable,
+                recordedExecutable: recordedExecutable,
+                arguments: arguments
+            )
+        }
         if let liveKind = normalizedProcessValue(environment["CMUX_AGENT_LAUNCH_KIND"]),
            Self.launchKind(liveKind, matches: snapshot.kind, launcher: snapshot.launchCommand?.launcher),
            normalizedProcessValue(snapshot.launchCommand?.launcher)?.compare(liveKind, options: [.caseInsensitive, .literal]) == .orderedSame,
@@ -127,6 +135,7 @@ struct CachedAgentProcessIdentityValidator: Sendable {
         }
         return Self.liveClaudeProcessExecutableMatches(kind: kind, liveExecutable: liveExecutable, arguments: arguments)
             || Self.liveCodexProcessExecutableMatches(kind: kind, liveExecutable: liveExecutable, arguments: arguments)
+            || Self.livePrimeAgentProcessExecutableMatches(kind: kind, liveExecutable: liveExecutable, arguments: arguments)
     }
 
     static func liveClaudeProcessExecutableMatches(

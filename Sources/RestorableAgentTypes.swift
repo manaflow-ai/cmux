@@ -6,6 +6,7 @@ enum RestorableAgentKind: Codable, Hashable, Sendable {
     case codex
     case grok
     case pi
+    case primeAgent
     case amp
     case cursor
     case gemini
@@ -28,6 +29,7 @@ enum RestorableAgentKind: Codable, Hashable, Sendable {
         // Pi and Grok are registry-owned so the built-in Vault registrations can be
         // overridden by project config while direct native values still encode.
         .amp,
+        .primeAgent,
         .cursor,
         .gemini,
         .kiro,
@@ -52,6 +54,7 @@ enum RestorableAgentKind: Codable, Hashable, Sendable {
         case "codex": self = .codex
         case "grok": self = .grok
         case "pi": self = .pi
+        case "prime-agent": self = .primeAgent
         case "amp": self = .amp
         case "cursor": self = .cursor
         case "gemini": self = .gemini
@@ -89,6 +92,7 @@ enum RestorableAgentKind: Codable, Hashable, Sendable {
         case .codex: return "codex"
         case .grok: return "grok"
         case .pi: return "pi"
+        case .primeAgent: return "prime-agent"
         case .amp: return "amp"
         case .cursor: return "cursor"
         case .gemini: return "gemini"
@@ -120,6 +124,8 @@ enum RestorableAgentKind: Codable, Hashable, Sendable {
         case .codex: return "Codex"
         case .grok: return "Grok"
         case .pi: return "Pi"
+        case .primeAgent:
+            return String(localized: "agent.primeAgent.displayName", defaultValue: "Prime Agent")
         case .amp: return "Amp"
         case .cursor: return "Cursor"
         case .gemini: return "Gemini"

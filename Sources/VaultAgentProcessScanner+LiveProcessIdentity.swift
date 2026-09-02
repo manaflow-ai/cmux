@@ -12,6 +12,13 @@ extension RestorableAgentSessionIndex {
         arguments: [String],
         environment: [String: String]
     ) -> Bool {
+        if kind == .primeAgent {
+            return CachedAgentProcessIdentityValidator.primeAgentExecutableIdentityMatches(
+                liveExecutable: liveExecutable,
+                recordedExecutable: recordedExecutable,
+                arguments: arguments
+            )
+        }
         if liveExecutable.compare(recordedExecutable, options: [.caseInsensitive, .literal]) == .orderedSame {
             return true
         }
@@ -25,5 +32,6 @@ extension RestorableAgentSessionIndex {
 
         return CachedAgentProcessIdentityValidator.liveClaudeProcessExecutableMatches(kind: kind, liveExecutable: liveExecutable, arguments: arguments)
             || CachedAgentProcessIdentityValidator.liveCodexProcessExecutableMatches(kind: kind, liveExecutable: liveExecutable, arguments: arguments)
+            || CachedAgentProcessIdentityValidator.livePrimeAgentProcessExecutableMatches(kind: kind, liveExecutable: liveExecutable, arguments: arguments)
     }
 }

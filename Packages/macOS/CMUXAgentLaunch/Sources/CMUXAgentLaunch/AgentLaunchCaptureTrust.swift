@@ -34,6 +34,10 @@ public enum AgentLaunchCaptureTrust {
         "omp": ["omp"],
         "opencode": ["opencode", "omo", "omx", "omc"],
         "pi": ["pi", "omp"],
+        // Prime's public executable is deliberately exact. `prime` is not a
+        // documented Prime Agent entrypoint and can be an unrelated command;
+        // accepting it would let PID fallback capture the wrong process.
+        "prime-agent": ["prime-agent"],
         "qoder": ["qodercli", "qoder"],
         "rovodev": ["rovodev", "rovo", "rovo-dev"],
     ]
@@ -141,6 +145,12 @@ public enum AgentLaunchCaptureTrust {
                     || lowered.contains("packages/session/dist/campfire")
             }) {
                 descriptors.insert("campfire")
+            }
+            if PrimeAgentProcessIdentity().matchesRuntimeProcess(
+                processName: nameBase,
+                arguments: arguments
+            ) {
+                descriptors.insert("prime-agent")
             }
             return descriptors
         }

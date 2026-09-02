@@ -81,8 +81,19 @@ extension CMUXCLI {
         transcriptPath: String? = nil,
         currentPID: Int? = nil
     ) -> AgentHookLaunchCommandRecord? {
-        if normalizedHookValue(current?.source)?.lowercased() == "rejected" {
+        // A rejected capture is an explicit trust decision. Do not let the
+        // provider-specific session-file shortcut turn a non-restorable launch
+        // back into an executable resume command.
+        if normalizedHookValue(current?.source)?.lowercased() == "rejected"
+            || (current == nil && normalizedHookValue(mapped?.launchCommand?.source)?.lowercased() == "rejected") {
             return current
+        }
+        if kind == "prime-agent" {
+            return preferredPrimeAgentResumeLaunchCommand(
+                current: current,
+                mapped: mapped,
+                transcriptPath: transcriptPath
+            )
         }
         if kind == "codex",
            let currentPID,

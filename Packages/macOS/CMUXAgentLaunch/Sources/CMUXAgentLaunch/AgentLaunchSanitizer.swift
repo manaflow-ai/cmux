@@ -115,6 +115,8 @@ public enum AgentLaunchSanitizer {
             return preserveOptions(args, policy: grokPolicy)
         case "pi", "omp":
             return preserveOptions(args, policy: piPolicy)
+        case "prime-agent":
+            return preserveOptions(args, policy: primeAgentPolicy)
         case "campfire":
             return preserveOptions(args, policy: campfirePolicy)
         case "amp":

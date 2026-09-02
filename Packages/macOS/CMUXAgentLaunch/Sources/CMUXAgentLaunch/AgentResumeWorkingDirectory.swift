@@ -30,7 +30,7 @@ public struct AgentResumeWorkingDirectory: Sendable, Equatable {
     ///   kinds, which prefer the launch cwd).
     public func cwdNamespacing(forKind kind: String) -> AgentCwdNamespacing {
         switch kind {
-        case "codex", "opencode", "amp", "antigravity", "rovodev", "hermes-agent":
+        case "codex", "opencode", "amp", "antigravity", "rovodev", "hermes-agent", "prime-agent":
             return .cwdInFile
         default:
             return .byDirectory
