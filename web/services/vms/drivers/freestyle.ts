@@ -18,7 +18,7 @@ import {
   type VMProvider,
   type VMStatus,
 } from "./types";
-import { vcpusForMemoryMb, vmDiskMb } from "../machineSpec";
+import { PLAN_MACHINE_MEMORY_MB, vcpusForMemoryMb, vmDiskMb } from "../machineSpec";
 import { recordSpanError, setSpanAttributes, withVmSpan } from "../telemetry";
 import {
   CMUX_TUI_INSTALL_TIMEOUT_MS,
@@ -290,9 +290,10 @@ export class FreestyleProvider implements VMProvider {
   }
 
   /**
-   * Grow the VM to the requested memory, the vCPUs that memory implies, and
-   * the plan disk. Freestyle resize is grow-only, so only larger dimensions
-   * are sent; a snapshot that already carries the size is a no-op.
+   * Grow the VM to the requested memory (the plan machine when the caller
+   * sent none), the vCPUs that memory implies, and the plan disk. Freestyle
+   * resize is grow-only, so only larger dimensions are sent; a snapshot that
+   * already carries the size is a no-op.
    */
   private async growToRequestedSize(
     fs: Freestyle,
@@ -301,9 +302,8 @@ export class FreestyleProvider implements VMProvider {
     memoryMb: number | undefined,
     span: Parameters<typeof setSpanAttributes>[0],
   ): Promise<void> {
-    if (memoryMb === undefined) return;
     const current = (await fs.vms.get(vmId)).resources;
-    const target = freestyleTargetResources(memoryMb);
+    const target = freestyleTargetResources(memoryMb ?? PLAN_MACHINE_MEMORY_MB);
     const request = freestyleResizeRequest(current, target);
     setSpanAttributes(span, {
       "cmux.vm.resources.cpu": target.cpu,
