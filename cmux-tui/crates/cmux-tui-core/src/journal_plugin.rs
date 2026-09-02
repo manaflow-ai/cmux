@@ -720,4 +720,12 @@ mod tests {
         assert_eq!(state.failures, 1);
         assert_eq!(state.restart_at, Some(started + STABLE_RUNTIME + Duration::from_secs(1)));
     }
+
+    #[cfg(windows)]
+    #[test]
+    fn windows_runtime_can_cross_thread_boundaries() {
+        fn assert_send_sync<T: Send + Sync>() {}
+
+        assert_send_sync::<JournalPluginRuntime>();
+    }
 }
