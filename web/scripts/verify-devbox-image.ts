@@ -4,10 +4,12 @@
  * against the provider SDKs. Boots ONE sandbox for the named provider,
  * asserts everything the devbox promises (pinned agents, mise toolchain,
  * devtools, Chrome + cua-driver, ble.sh ghost text under a real PTY, the
- * agent-config generator byte-identical to this checkout), then replays the
- * driver's create-time cmux-tui bootstrap (pinned files.cmux.com install,
- * sha256-verified) and asserts the daemon contract for that provider, and
- * finally deletes the sandbox.
+ * agent-config generator byte-identical to this checkout), then asserts the
+ * daemon contract with NO bootstrap of its own: the baked cmux-tui daemon must
+ * come up by itself after resume, bound to this machine's instance id, with
+ * the binary at the current files.cmux.com pin. A second machine from the same
+ * snapshot must hold a different daemon identity (the snapshot is a memory
+ * image; see cmux-devbox-boot). Both sandboxes are deleted.
  *
  * Usage:
  *   FREESTYLE_API_KEY=... bun scripts/verify-devbox-image.ts freestyle <snapshot-id>
@@ -22,7 +24,7 @@ import { Freestyle } from "freestyle";
 import path from "node:path";
 import {
   CMUX_TUI_SESSION,
-  cmuxTuiInstallCommand,
+  cmuxTuiPinCheckCommand,
   resolveCmuxTuiSource,
 } from "../services/vms/drivers/cmuxTuiDaemon";
 import { devboxAgentPins, devboxDesktopDir, devboxDir, sha256File } from "./devbox-image-common";
@@ -79,13 +81,23 @@ const CHECKS: readonly string[] = [
   "whoami; nproc; free -m | sed -n 2p; df -h / | tail -1",
 ];
 
-// After the create-time bootstrap replay below: the daemon serves the session,
-// listens on 1337 (hex 0539), and the pinned binary is the one on PATH.
+// The daemon came up on its own after resume: it serves the session, listens
+// on 1337 (hex 0539), the baked binary is the one on PATH, and its identity is
+// bound to THIS machine's instance id, not the builder's.
+const INSTANCE_ID =
+  "curl -sf -m 2 -H \"X-aws-ec2-metadata-token: $(curl -sf -m 2 -X PUT http://169.254.169.254/latest/api/token -H 'X-metadata-token-ttl-seconds: 60')\" http://169.254.169.254/latest/meta-data/instance-id";
+const REMOTE_IDENTITY = "/root/.local/state/cmux/remote/identity.json";
 const DAEMON_CHECKS: readonly string[] = [
-  "pgrep -f 'cmux-tui server start' >/dev/null && echo daemon-running",
+  // [s]tart: the pattern must not match the exec shell carrying this very command line.
+  "pgrep -f 'cmux-tui server [s]tart' >/dev/null && echo daemon-running",
   `env HOME=/root /root/.cmux/bin/cmux-tui server status --session ${CMUX_TUI_SESSION} >/dev/null && echo daemon-status-ok`,
   "awk '$2 ~ /:0539$/ && $4 == \"0A\" { found=1 } END { exit !found }' /proc/net/tcp /proc/net/tcp6 && echo daemon-port-1337-ok",
   "test \"$(readlink /usr/local/bin/cmux-tui)\" = /root/.cmux/bin/cmux-tui && echo cmux-tui-symlink-ok",
+  `test -s ${REMOTE_IDENTITY} && echo daemon-identity-present`,
+  `test "$(cat /etc/cmux/daemon-instance-id)" = "$(${INSTANCE_ID})" && echo daemon-identity-bound-to-this-instance`,
+  `test -s /etc/cmux/bake-instance-id && test "$(cat /etc/cmux/bake-instance-id)" != "$(${INSTANCE_ID})" && echo builder-instance-differs`,
+  "test -d /root/.config/cmux && echo model-plane-env-dir-baked",
+  "systemctl is-active cmux-tui-daemon >/dev/null && echo systemd-supervisor-active",
 ];
 
 // The desktop layer (Freestyle bakes; /etc/cmux/image-stamp says "desktop"):
@@ -179,31 +191,19 @@ async function runChecks(label: string, checks: readonly string[], exec: Exec): 
 }
 
 /**
- * Replays the driver's create-time bootstrap: install the pinned build
- * (sha256-verified by the install command itself), make sure something runs
- * the daemon, and wait for the session to answer.
- *
- * Freestyle bakes a supervisor (a systemd unit) that starts the daemon on its
- * own once the binary exists, so `startDaemon` is a no-op there.
+ * Waits for the baked daemon to answer on its own. Nothing is installed or
+ * started here: a machine the driver creates gets exactly this treatment
+ * (vms.create, then the Mac dials), so this is the contract being verified.
+ * Returns the milliseconds from the call until the session answered.
  */
-async function bootstrapDaemon(
-  provider: string,
-  exec: Exec,
-  startDaemon: () => Promise<void>,
-): Promise<void> {
-  const source = await resolveCmuxTuiSource();
-  console.log(`cmux-tui pin: commit ${source.commit} sha256 ${source.sha256.slice(0, 12)}…`);
-  const install = await exec(cmuxTuiInstallCommand(source), 5 * 60 * 1000);
-  if (install.exitCode !== 0) {
-    throw new Error(`cmux-tui install failed: ${install.output.slice(-2000)}`);
-  }
-  await startDaemon();
+async function waitForBakedDaemon(provider: string, exec: Exec): Promise<number> {
+  const t0 = Date.now();
   for (let attempt = 0; attempt < 45; attempt += 1) {
     const status = await exec(`env HOME=/root /root/.cmux/bin/cmux-tui server status --session ${CMUX_TUI_SESSION}`, 30_000);
-    if (status.exitCode === 0) return;
+    if (status.exitCode === 0) return Date.now() - t0;
     await new Promise((resolve) => setTimeout(resolve, 1000));
   }
-  throw new Error(`${provider}: cmux-tui daemon did not become ready`);
+  throw new Error(`${provider}: baked cmux-tui daemon did not come up by itself`);
 }
 
 const provider = process.argv[2] ?? "";
@@ -234,28 +234,57 @@ if (provider === "freestyle") {
       : (() => {
           throw new Error("set FREESTYLE_API_KEY, or FREESTYLE_STACK_ACCESS_TOKEN + FREESTYLE_TEAM_ID");
         })();
+  // Creates require an explicit firewall; outbound only, like the driver's
+  // private-network machines. Nothing here needs inbound.
+  const firewall = { rules: [{ action: "allow" as const, source: {}, destination: { public: true as const } }] };
+  const execFor = (vm: Awaited<ReturnType<typeof fs.vms.create>>["vm"]): Exec => async (cmd, timeoutMs = 120_000) => {
+    // Login bash for the mise shims; Freestyle guest exec has an empty HOME.
+    const wrapped = `bash -lc 'export HOME="$\{HOME:-$(getent passwd $(id -u) | cut -d: -f6)\}"; export PATH="/opt/mise/shims:$\{PATH\}"; ${cmd.replace(/'/g, `'\\''`)}'`;
+    // The 0.2 API defaults to uid 1000; the driver runs everything as root.
+    const r = await vm.exec({ command: wrapped, timeoutMs: Math.min(timeoutMs, 300_000), linuxUser: "root" });
+    return {
+      exitCode: r.statusCode ?? 124,
+      output: `${r.stdout ?? ""}${r.stderr ?? ""}`,
+    };
+  };
   const t0 = Date.now();
-  const { vm, vmId } = await fs.vms.create({
-    snapshotId: image,
-    displayName: "cmux-devbox-verify",
-    // Creates require an explicit firewall; the daemon install below
-    // needs outbound (files.cmux.com).
-    firewall: { rules: [{ action: "allow", source: {}, destination: { public: true } }] },
-  });
+  const { vm, vmId } = await fs.vms.create({ snapshotId: image, displayName: "cmux-devbox-verify", firewall });
   console.log(`provisioned ${vmId} in ${((Date.now() - t0) / 1000).toFixed(1)}s`);
   try {
-    const exec: Exec = async (cmd, timeoutMs = 120_000) => {
-      // Login bash for the mise shims; Freestyle guest exec has an empty HOME.
-      const wrapped = `bash -lc 'export HOME="$\{HOME:-$(getent passwd $(id -u) | cut -d: -f6)\}"; export PATH="/opt/mise/shims:$\{PATH\}"; ${cmd.replace(/'/g, `'\\''`)}'`;
-      // The 0.2 API defaults to uid 1000; the driver runs everything as root.
-      const r = await vm.exec({ command: wrapped, timeoutMs: Math.min(timeoutMs, 300_000), linuxUser: "root" });
-      return {
-        exitCode: r.statusCode ?? 124,
-        output: `${r.stdout ?? ""}${r.stderr ?? ""}`,
-      };
-    };
-    // The baked cmux-tui-daemon systemd unit supervises the daemon.
-    await bootstrapDaemon("freestyle", exec, async () => {});
+    const exec = execFor(vm);
+    const daemonMs = await waitForBakedDaemon("freestyle", exec);
+    console.log(`baked daemon answered ${daemonMs} ms after the first probe (${Date.now() - t0} ms after create)`);
+    // The baked binary is the current files.cmux.com pin. A later re-verify of
+    // an older image fails here on purpose: that image is not the pin any more.
+    const source = await resolveCmuxTuiSource("freestyle");
+    console.log(`cmux-tui pin: commit ${source.commit} sha256 ${source.sha256.slice(0, 12)}…`);
+    const pin = await exec(cmuxTuiPinCheckCommand(source), 30_000);
+    if (pin.exitCode !== 0) {
+      throw new Error(`baked cmux-tui does not match the current manifest pin: ${pin.output.slice(-500)}`);
+    }
+    // A second machine from the same memory snapshot must mint its own
+    // identity; a shared one would let every machine impersonate every other.
+    const second = await fs.vms.create({ snapshotId: image, displayName: "cmux-devbox-verify-2", firewall });
+    try {
+      const exec2 = execFor(second.vm);
+      await waitForBakedDaemon("freestyle", exec2);
+      const [a, b] = await Promise.all([
+        exec(`sha256sum ${REMOTE_IDENTITY} | cut -c1-64`, 30_000),
+        exec2(`sha256sum ${REMOTE_IDENTITY} | cut -c1-64`, 30_000),
+      ]);
+      const digestA = a.output.trim();
+      const digestB = b.output.trim();
+      if (a.exitCode !== 0 || b.exitCode !== 0 || digestA.length !== 64 || digestB.length !== 64) {
+        throw new Error(`could not read both daemon identities: ${a.output.slice(-200)} / ${b.output.slice(-200)}`);
+      }
+      if (digestA === digestB) {
+        throw new Error(`two machines from ${image} share one daemon identity (${digestA.slice(0, 12)}…)`);
+      }
+      console.log(`daemon identities differ across machines: ${digestA.slice(0, 12)}… vs ${digestB.slice(0, 12)}…`);
+    } finally {
+      await second.vm.delete();
+      console.log(`deleted ${second.vmId}`);
+    }
     // The image stamp says which layers were baked; a desktop image must
     // pass the desktop contract, a base image must not carry a desktop.
     const stamp = await exec("cat /etc/cmux/image-stamp 2>/dev/null || true", 30_000);
@@ -268,8 +297,6 @@ if (provider === "freestyle") {
     pass = await runChecks("freestyle", [
       ...CHECKS,
       ...DAEMON_CHECKS,
-      // The baked systemd unit is the daemon supervisor across reboots.
-      "systemctl is-active cmux-tui-daemon >/dev/null && echo systemd-supervisor-active",
       ...FREESTYLE_BASE_CHECKS,
       ...(desktop
         ? desktopChecks()

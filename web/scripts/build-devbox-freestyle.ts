@@ -373,7 +373,7 @@ try {
   // fresh daemon within one supervisor tick of resume.
   await step(
     "cmux-tui-daemon-park",
-    `${instanceIdCommand} > /etc/cmux/bake-instance-id && test -s /etc/cmux/bake-instance-id && pkill -f 'cmux-tui server start'; sleep 4; ! pgrep -f 'cmux-tui server start' >/dev/null && systemctl is-active cmux-tui-daemon >/dev/null && rm -rf /root/.local/state/cmux/remote /root/.local/state/cmux-tui /etc/cmux/daemon-instance-id && ! grep -qi ':0539 ' /proc/net/tcp6 && echo daemon-parked-for-clones`,
+    `${instanceIdCommand} > /etc/cmux/bake-instance-id && test -s /etc/cmux/bake-instance-id && pkill -f 'cmux-tui server [s]tart'; sleep 4; ! pgrep -f 'cmux-tui server [s]tart' >/dev/null && systemctl is-active cmux-tui-daemon >/dev/null && rm -rf /root/.local/state/cmux/remote /root/.local/state/cmux-tui /etc/cmux/daemon-instance-id && ! grep -qi ':0539 ' /proc/net/tcp6 && echo daemon-parked-for-clones`,
   );
 
   await step(

@@ -83,6 +83,13 @@ import {
 // `firewall` is mandatory. Model-plane env is delivered by writing the
 // persisted /root/.config/cmux/model-plane.env file (0600) that
 // /etc/cmux/agent-config.sh already sources when the boot env is absent.
+//
+// Create runs no guest bootstrap. The devbox snapshot carries the pinned
+// cmux-tui build and the cmux-tui-daemon systemd unit, and its supervisor
+// (services/vms/images/devbox/cmux-devbox-boot) starts the daemon with a
+// fresh identity as soon as the machine resumes, keyed on the platform
+// instance id. Create is therefore `vms.create`, the grow-only resize, and one
+// file write; attach heals a daemon that is not yet, or no longer, listening.
 
 export const FREESTYLE_REMOTE_WS_BIND = `[::]:${CMUX_TUI_PORT}`;
 export const FREESTYLE_ATTACH_TRANSPORT: AttachTransport = "cmux-remote";
@@ -332,7 +339,8 @@ export function mapFreestyleState(state: VmData["state"] | null | undefined): VM
  * restarted under the dual-stack override.
  */
 export function freestyleDaemonHealthyCommand(): string {
-  return "pgrep -f 'cmux-tui server start' >/dev/null 2>&1 && grep -qi ':0539 ' /proc/net/tcp6";
+  // [s]tart: pgrep -f would otherwise match the exec shell carrying this command line.
+  return "pgrep -f 'cmux-tui server [s]tart' >/dev/null 2>&1 && grep -qi ':0539 ' /proc/net/tcp6";
 }
 
 const REMOTE_WS_BIND_OVERRIDE =
@@ -354,7 +362,7 @@ export function freestyleStartDaemonCommand(): string {
     "systemctl daemon-reload;",
     "systemctl restart cmux-tui-daemon;",
     "else",
-    `pgrep -f 'cmux-tui server start' >/dev/null 2>&1 || (setsid nohup sh -c '${cmuxTuiDaemonCommand(FREESTYLE_REMOTE_WS_BIND)}' >>/tmp/cmux-tui-daemon.log 2>&1 &);`,
+    `pgrep -f 'cmux-tui server [s]tart' >/dev/null 2>&1 || (setsid nohup sh -c '${cmuxTuiDaemonCommand(FREESTYLE_REMOTE_WS_BIND)}' >>/tmp/cmux-tui-daemon.log 2>&1 &);`,
     "fi",
   ].join(" ");
 }
@@ -600,12 +608,14 @@ export class FreestyleProvider implements VMProvider {
           try {
             // CreateVmOptions has no size: a VM boots at its snapshot's
             // resources (the devbox snapshot is 2 vCPU / 4 GB / 16 GB) and
-            // only a grow-only resize raises them. Size before bootstrap so
-            // the machine the daemon comes up on is the one that was sold.
+            // only a grow-only resize raises them. Size first so the machine
+            // the daemon comes up on is the one that was sold.
             await this.growToRequestedSize(fs, vm, vmId, options.memoryMb, span);
-            await this.bootstrapCmuxTui(vm, vmId, options.envs);
+            // The baked supervisor is already bringing the daemon up; the only
+            // per-machine input it needs is the model-plane env file.
+            if (options.envs) await this.writeModelPlaneEnv(vm, vmId, options.envs);
           } catch (err) {
-            // A VM that failed to size or bootstrap must not survive as an
+            // A VM that failed to size or configure must not survive as an
             // orphan, and an undersized machine must not ship as if it were
             // the plan machine.
             await vm.delete().catch((cleanupErr) => {
@@ -936,33 +946,17 @@ export class FreestyleProvider implements VMProvider {
     // openSSH always throws, so there is never an identity to revoke.
   }
 
-  /** Installs the pinned binary, persists the model-plane env, starts the daemon (fresh create). */
-  private async bootstrapCmuxTui(vm: Vm, vmId: string, envs?: Readonly<Record<string, string>>): Promise<void> {
-    const source = await resolveCmuxTuiSource("freestyle");
-    await this.execOrThrow(vm, vmId, cmuxTuiInstallCommand(source), CMUX_TUI_INSTALL_TIMEOUT_MS)
-      .catch((err: unknown) => {
-        throw new ProviderError("freestyle", `cmux-tui install in ${vmId} failed: ${errorMessage(err)}`);
-      });
-    if (envs) await this.writeModelPlaneEnv(vm, vmId, envs);
-    await this.execOrThrow(vm, vmId, freestyleStartDaemonCommand(), 60_000);
-    await waitForCmuxTuiReady(this.cmuxTuiInvoke(vm), "freestyle", vmId);
-  }
-
   /**
    * There is no create-time env. The coderouter model-plane vars are delivered
    * by writing the persisted file /etc/cmux/agent-config.sh already reads
    * (0600, root); every shell the daemon spawns sources it through the
-   * profile/bashrc chain and materializes the harness configs from it.
+   * profile/bashrc chain and materializes the harness configs from it. The
+   * bake creates the directory, so this is a single fs write, no exec.
    */
   private async writeModelPlaneEnv(vm: Vm, vmId: string, envs: Readonly<Record<string, string>>): Promise<void> {
     const content = renderFreestyleModelPlaneEnvFile(envs);
     if (!content) return;
     try {
-      await vm.exec({
-        command: `mkdir -p ${MODEL_PLANE_ENV_PATH.replace(/\/[^/]+$/, "")}`,
-        timeoutMs: 30_000,
-        linuxUser: GUEST_LINUX_USER,
-      });
       await vm.fs.writeTextFile(MODEL_PLANE_ENV_PATH, content, { mode: 0o600 });
     } catch (err) {
       throw new ProviderError("freestyle", `model-plane env write in ${vmId} failed`, err);
@@ -970,11 +964,13 @@ export class FreestyleProvider implements VMProvider {
   }
 
   /**
-   * Attach-time heal, mirroring the other cmux-tui drivers: a daemon that is
-   * running AND listening dual-stack is left alone; anything else is repaired,
-   * reinstalling first when the binary is missing or superseded by a manifest
-   * pin change. The dual-stack check matters because a machine from an older
-   * bake boots the daemon on 0.0.0.0, which the public-IPv6 route cannot reach.
+   * Attach-time heal: a daemon that is running AND listening dual-stack is
+   * left alone; anything else is repaired, reinstalling first when the binary
+   * is missing (a pre-bake image) or superseded by a manifest pin change. On a
+   * freshly resumed machine this also covers the sub-second window before the
+   * baked supervisor has started the daemon. The dual-stack check matters
+   * because a machine from an older bake boots the daemon on 0.0.0.0, which
+   * the public-IPv6 route cannot reach.
    */
   private async ensureCmuxTuiRunning(vm: Vm, vmId: string): Promise<void> {
     const healthy = await this.execResult(vm, freestyleDaemonHealthyCommand());
