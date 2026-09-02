@@ -1,9 +1,10 @@
 use std::borrow::Cow;
+use std::num::NonZeroU16;
 
 use cmux_tui_core::{Rect, SurfaceRenderFrame};
 use ghostty_vt::{Cell as VtCell, CellWidth, ColorSpec, CursorInfo, Rgb};
 use ratatui::Frame;
-use ratatui::buffer::Buffer;
+use ratatui::buffer::{Buffer, CellDiffOption, CellWidth as RatatuiCellWidth};
 use ratatui::layout::Rect as RatatuiRect;
 use ratatui::style::{Color, Modifier, Style};
 
@@ -107,16 +108,23 @@ fn draw_render_frame_with_catalog(
         for col in 0..available {
             let source_col = source_x + col;
             let x = rect.x + col as u16;
-            let selected = selected(source_col as u16, row as u16);
             let cell = &cells[source_col];
-            apply_cell(&mut buf[(x, y)], cell, &colors, selected.then_some(theme));
-            if partial_wide_cell(cells, source_x, source_end, source_col) {
-                buf[(x, y)].set_symbol(" ");
+            let partial = partial_wide_cell(cells, source_x, source_end, source_col);
+            let selected = selected_cell(cells, source_col, row, &selected);
+            let target = &mut buf[(x, y)];
+            apply_cell(target, cell, &colors, selected.then_some(theme));
+            if partial {
+                // A clipped half of a wide grapheme is rendered as a normal
+                // blank cell. Clear the forced width applied above so Ratatui
+                // does not skip the adjacent column during diffing.
+                target.set_symbol(" ").set_diff_option(CellDiffOption::None);
             }
         }
         for col in available..live_cols {
             let x = rect.x + col as u16;
-            buf[(x, y)].set_symbol(" ").set_style(blank_style);
+            let target = &mut buf[(x, y)];
+            target.reset();
+            target.set_symbol(" ").set_style(blank_style);
         }
     }
 
@@ -137,6 +145,38 @@ fn draw_render_frame_with_catalog(
         )
         .map(|(x, y)| (rect.x + x, rect.y + y))
     })
+}
+
+/// Return whether a grid cell is selected, treating both columns of a wide
+/// grapheme as one selectable unit. Selection ranges are normally normalized
+/// to the lead cell, but checking the paired coordinate also keeps rendering
+/// correct for callers that still provide a raw spacer-tail endpoint.
+fn selected_cell(
+    cells: &[VtCell],
+    source_col: usize,
+    row: usize,
+    selected: &impl Fn(u16, u16) -> bool,
+) -> bool {
+    let selected_here = selected(source_col as u16, row as u16);
+    let paired_col = match cells[source_col].width {
+        CellWidth::Wide
+            if cells
+                .get(source_col.saturating_add(1))
+                .is_some_and(|next| next.width == CellWidth::SpacerTail) =>
+        {
+            Some(source_col + 1)
+        }
+        CellWidth::SpacerTail
+            if source_col > 0
+                && cells
+                    .get(source_col - 1)
+                    .is_some_and(|previous| previous.width == CellWidth::Wide) =>
+        {
+            Some(source_col - 1)
+        }
+        CellWidth::Narrow | CellWidth::SpacerHead | CellWidth::Wide | CellWidth::SpacerTail => None,
+    };
+    selected_here || paired_col.is_some_and(|col| selected(col as u16, row as u16))
 }
 
 /// Return a cursor position that is drawable in a horizontally cropped frame.
@@ -387,7 +427,17 @@ fn apply_cell(
     selected: Option<&Theme>,
 ) {
     target.reset();
-    target.set_symbol(&renderable_cell_text(&cell.text));
+    let text = renderable_cell_text(&cell.text);
+    target.set_symbol(&text);
+    let columns = match cell.width {
+        CellWidth::Wide => 2,
+        CellWidth::Narrow | CellWidth::SpacerTail | CellWidth::SpacerHead => 1,
+    };
+    if text.cell_width() != columns {
+        target.set_diff_option(CellDiffOption::ForcedWidth(
+            NonZeroU16::new(columns).expect("Ghostty cells always occupy at least one column"),
+        ));
+    }
 
     let mut style = Style::default();
     style = style.fg(colors.resolve_fg(cell.fg));
