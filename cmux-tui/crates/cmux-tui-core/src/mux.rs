@@ -16444,7 +16444,7 @@ impl Drop for Mux {
 fn expected_panes_by_screen(
     panes: &[RegistryPane],
 ) -> HashMap<ScreenPublicId, HashSet<PanePublicId>> {
-    let mut panes_by_screen = HashMap::new();
+    let mut panes_by_screen: HashMap<ScreenPublicId, HashSet<PanePublicId>> = HashMap::new();
     for pane in panes {
         panes_by_screen.entry(pane.screen_id.clone()).or_default().insert(pane.public_id.clone());
     }
