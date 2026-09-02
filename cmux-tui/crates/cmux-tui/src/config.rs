@@ -9223,10 +9223,19 @@ mod tests {
             unsafe { std::env::set_var("CMUX_TUI_CONFIG", &path) };
 
             let config = load();
+            restore_env_var("CMUX_TUI_CONFIG", old_cmux_tui_config.clone());
 
             assert_eq!(config.sidebar.rail_glyph, glyph);
         }
+
+        std::fs::write(&path, r#"{"sidebar":{"rail_glyph":"\n"}}"#).unwrap();
+        // SAFETY: env mutation in tests is serialized by CONFIG_ENV_LOCK.
+        unsafe { std::env::set_var("CMUX_TUI_CONFIG", &path) };
+
+        let config = load();
         restore_env_var("CMUX_TUI_CONFIG", old_cmux_tui_config);
+
+        assert_eq!(config.sidebar.rail_glyph, Config::default().sidebar.rail_glyph);
     }
 
     #[test]
