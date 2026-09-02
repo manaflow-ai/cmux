@@ -1031,9 +1031,12 @@ impl ProcessTreeOwner {
         let mut keeper_command = tokio::process::Command::new("/bin/sh");
         keeper_command
             .args(["-c", "while read -r _; do :; done"])
+            .env_clear()
+            .env("PATH", "/usr/bin:/bin")
             .stdin(std::process::Stdio::piped())
             .stdout(std::process::Stdio::null())
             .stderr(std::process::Stdio::null())
+            .kill_on_drop(true)
             .process_group(0);
         let mut keeper = keeper_command.spawn().map_err(|_| ())?;
         let pgid = keeper.id().ok_or(())? as libc::pid_t;
