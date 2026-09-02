@@ -55,10 +55,8 @@ pub(super) fn budgets_text() -> String {
     let rows = sorted_budgets();
     let name_width = rows.iter().map(|b| b.name.len()).max().unwrap_or(4).max(4);
     let stage_width = rows.iter().map(|b| b.stage.len()).max().unwrap_or(5).max(5);
-    let mut out = format!(
-        "{:<name_width$}  {:>10}  {:<stage_width$}  PURPOSE\n",
-        "NAME", "VALUE", "STAGE"
-    );
+    let mut out =
+        format!("{:<name_width$}  {:>10}  {:<stage_width$}  PURPOSE\n", "NAME", "VALUE", "STAGE");
     for budget in rows {
         let value = format!("{} {}", budget.value.amount(), budget.value.unit());
         out.push_str(&format!(
