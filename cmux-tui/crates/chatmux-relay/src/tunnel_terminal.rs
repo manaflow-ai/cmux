@@ -124,6 +124,7 @@ pub fn encode_pty_frame(bytes: &[u8]) -> Vec<u8> {
 /// the caller must close the connection.
 pub struct TunnelFrameDecoder {
     buffer: BytesMut,
+    storage_capacity: usize,
     failed: bool,
     max_frame_bytes: usize,
 }
@@ -132,6 +133,7 @@ impl TunnelFrameDecoder {
     pub fn new(max_frame_bytes: usize) -> TunnelFrameDecoder {
         let max_frame_bytes = max_frame_bytes.clamp(1, MAX_TUNNEL_FRAME_BYTES);
         TunnelFrameDecoder {
+            storage_capacity: max_frame_bytes + HEADER_BYTES,
             buffer: BytesMut::with_capacity(max_frame_bytes + HEADER_BYTES),
             failed: false,
             max_frame_bytes,
@@ -143,6 +145,7 @@ impl TunnelFrameDecoder {
             return Err("decoder_poisoned");
         }
         self.buffer.extend_from_slice(chunk);
+        self.storage_capacity = self.storage_capacity.max(self.buffer.capacity());
         let mut frames = Vec::new();
         while self.buffer.len() >= HEADER_BYTES {
             let length = u32::from_be_bytes([
@@ -171,9 +174,10 @@ impl TunnelFrameDecoder {
         // storage bounded by one maximum-size frame plus its header instead
         // of holding the capacity of that whole read forever.
         let retained_limit = self.max_frame_bytes + HEADER_BYTES;
-        if self.buffer.capacity() > retained_limit && self.buffer.len() <= retained_limit {
+        if self.storage_capacity > retained_limit && self.buffer.len() <= retained_limit {
             let mut compacted = BytesMut::with_capacity(retained_limit);
             compacted.extend_from_slice(&self.buffer);
+            self.storage_capacity = compacted.capacity();
             self.buffer = compacted;
         }
         Ok(frames)
@@ -869,9 +873,9 @@ mod tests {
         }));
         assert!(decoder.buffer.is_empty());
         assert!(
-            decoder.buffer.capacity() <= MAX_FRAME_BYTES + HEADER_BYTES,
+            decoder.storage_capacity <= MAX_FRAME_BYTES + HEADER_BYTES,
             "decoder retained {} bytes for a {} byte max frame",
-            decoder.buffer.capacity(),
+            decoder.storage_capacity,
             MAX_FRAME_BYTES
         );
     }
