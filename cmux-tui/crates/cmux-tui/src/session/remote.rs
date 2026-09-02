@@ -385,12 +385,23 @@ impl RemoteTreeCache {
 
     fn replace_agents(&mut self, agents: Vec<AgentInfo>, refresh_generation: u64) {
         self.agents = agents;
+        let snapshot_surfaces =
+            self.agents.iter().map(|agent| agent.surface).collect::<HashSet<_>>();
         let updates = std::mem::take(&mut self.agent_updates);
-        for update in updates.into_values() {
-            if update.generation > refresh_generation
-                && self.surface_tabs.contains_key(&update.agent.surface)
-            {
-                self.replace_agent(update.agent);
+        for (surface, update) in updates {
+            if self.surface_tabs.contains_key(&surface) {
+                // A pending update may have been observed during an earlier
+                // refresh whose topology omitted this surface. Once the
+                // surface is visible again, prefer that event even when the
+                // current refresh started after it.
+                if update.generation > refresh_generation || !snapshot_surfaces.contains(&surface) {
+                    self.replace_agent(update.agent);
+                }
+            } else if update.generation > refresh_generation {
+                // The topology response can lag the event stream. Keep a
+                // newer event until a later topology confirms the surface is
+                // gone instead of dropping it at this refresh boundary.
+                self.agent_updates.insert(surface, update);
             }
         }
     }
