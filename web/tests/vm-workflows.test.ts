@@ -43,6 +43,7 @@ import {
   execVm,
   homeVolumeNameForUser,
   listUserVms,
+  approveVmCmuxRemoteEnrollment,
   openBaseVm,
   openAttachEndpoint,
   openVmSession,
@@ -191,6 +192,79 @@ describe("VM Effect workflows", () => {
       eventType: "vm.exec",
       vmId: vm.id,
       metadata: { commandLength: "echo preflight".length, exitCode: 7 },
+    });
+  });
+
+  test("passes persisted provider metadata to the exec driver", async () => {
+    const vm = testCloudVmRow({
+      id: "00000000-0000-4000-8000-000000000119",
+      userId: "user-workflow-exec-metadata",
+      provider: "blaxel",
+      providerVmId: "provider-vm-exec-metadata",
+      status: "running",
+      providerMetadata: { homeVolume: "cmux-home-user-workflow-exec-metadata" },
+    });
+    const repo = testWorkflowRepo({ vm });
+    let receivedOptions: unknown;
+    const provider: VmProviderGatewayShape = {
+      ...unusedProviderGateway(),
+      exec: (_provider, _vmId, _command, options) =>
+        Effect.sync(() => {
+          receivedOptions = options;
+          return { exitCode: 0, stdout: "ok", stderr: "" };
+        }),
+    };
+
+    const result = await Effect.runPromise(
+      execVm({
+        userId: "user-workflow-exec-metadata",
+        providerVmId: "provider-vm-exec-metadata",
+        command: "printf ok",
+        timeoutMs: 1000,
+      }).pipe(Effect.provide(workflowLayer(repo, provider))),
+    );
+
+    expect(result).toEqual({ exitCode: 0, stdout: "ok", stderr: "" });
+    expect(receivedOptions).toEqual({
+      timeoutMs: 1000,
+      providerMetadata: { homeVolume: "cmux-home-user-workflow-exec-metadata" },
+    });
+  });
+
+  test("passes persisted provider metadata to enrollment approval", async () => {
+    const vm = testCloudVmRow({
+      id: "00000000-0000-4000-8000-000000000120",
+      userId: "user-workflow-approve-metadata",
+      provider: "blaxel",
+      providerVmId: "provider-vm-approve-metadata",
+      status: "running",
+      providerMetadata: { homeVolume: "cmux-home-user-workflow-approve-metadata" },
+    });
+    const repo = testWorkflowRepo({ vm });
+    const approvalCalls: unknown[][] = [];
+    const provider: VmProviderGatewayShape = {
+      ...unusedProviderGateway(),
+      approveCmuxRemoteEnrollment: (...args) =>
+        Effect.sync(() => {
+          // Keep the tuple cast local so this test also catches the missing
+          // optional argument on the pre-fix gateway contract.
+          approvalCalls.push(args as unknown[]);
+          return { approved: true, state: "approved" as const, deviceFingerprint: "device-1" };
+        }),
+    };
+
+    const result = await Effect.runPromise(
+      approveVmCmuxRemoteEnrollment({
+        userId: "user-workflow-approve-metadata",
+        providerVmId: "provider-vm-approve-metadata",
+        invitationId: "invite-1",
+      }).pipe(Effect.provide(workflowLayer(repo, provider))),
+    );
+
+    expect(result).toEqual({ approved: true, state: "approved", deviceFingerprint: "device-1" });
+    expect(approvalCalls).toHaveLength(1);
+    expect(approvalCalls[0]?.[3]).toEqual({
+      providerMetadata: { homeVolume: "cmux-home-user-workflow-approve-metadata" },
     });
   });
 

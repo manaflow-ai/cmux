@@ -150,15 +150,15 @@
     },
     {
       "provider": "blaxel",
-      "version": "blaxel-cmux-devbox-20260827a",
+      "version": "blaxel-cmux-devbox-20260831b",
       "imageId": "sandbox/cmux-devbox:latest",
       "envVar": "BLAXEL_SANDBOX_IMAGE",
       "defaultForLocalDev": true,
       "kind": "desktop",
       "defaultForKind": true,
       "cmuxdRemoteCommit": "none-cmux-tui",
-      "builtAt": "2026-08-28T00:55:00.000Z",
-      "builderScriptVersion": "cmux-devbox-2026-08-27-r7",
+      "builtAt": "2026-09-01T01:40:00.000Z",
+      "builderScriptVersion": "cmux-devbox-2026-08-31-r12",
       "agentToolResolvedVersions": {
         "@anthropic-ai/claude-code": "2.1.246",
         "@openai/codex": "0.150.0",
@@ -167,7 +167,7 @@
         "agent-browser": "0.35.1"
       },
       "validationStatus": "passed",
-      "notes": "Baked cmux machine image (services/vms/images/blaxel, deployed with web/scripts/build-blaxel-image.sh): chatmux-devbox tool parity (mise node/python/bun, uv, gh, devtools, pinned coding agents, ble.sh ghost text, half-life prompt, seeded history) plus an openbox/TigerVNC desktop with Ghostty, Chrome, Thunar, and noVNC on 6901. Keeps the stock desktop driver contract: start-vnc.sh as user cua, RFB 5901. /etc/cmux/image-stamp makes the driver skip create-time provisioning. The session daemon is not baked: the driver installs the pinned cmux-tui build at create time exactly as on stock images. Validated 2026-08-26 on tag bb86c85e4ea70d04351d5 (epoch r6) in us-pdx-1: driver E2E on the cmux-tui transport (create, cmux-tui install, cmux-remote route upgrade, enrollment, smart-sleep watcher), agents/toolchain/Ghostty/Chrome versions, half-life prompt + seeded history, 5901+6901 listening, noVNC through a tokened gateway preview, and screenshots showing the wallpaper, the Chrome/Files/Ghostty dock, Chrome opening straight to DuckDuckGo with first run pre-accepted, and Ghostty rendering with the prompt. Blaxel's deploy-time rootfs slimming strips /usr/share/applications and raster icon themes, so dock launchers and icons bake under /etc/cmux. r7 (2026-08-27, digest sandbox/cmux-devbox:b3c3cdc9cfe048515743e): the tint2 dock paints again (panel background defined before it is referenced); wallpaper re-fills on noVNC remote resize."
+      "notes": "Baked cmux machine image (services/vms/images/blaxel, deployed with web/scripts/build-blaxel-image.sh): chatmux-devbox tool parity (mise node/python/bun, uv, gh, devtools, pinned coding agents, ble.sh ghost text, half-life prompt, seeded history) plus an openbox/TigerVNC desktop with Ghostty, Chrome, Thunar, and noVNC on 6901. Keeps the stock desktop driver contract: start-vnc.sh as user cua, RFB 5901. /etc/cmux/image-stamp makes the driver skip create-time provisioning. The session daemon is not baked: the driver installs the pinned cmux-tui build at create time exactly as on stock images. Validated 2026-08-26 on tag bb86c85e4ea70d04351d5 (epoch r6) in us-pdx-1: driver E2E on the cmux-tui transport (create, cmux-tui install, cmux-remote route upgrade, enrollment, smart-sleep watcher), agents/toolchain/Ghostty/Chrome versions, half-life prompt + seeded history, 5901+6901 listening, noVNC through a tokened gateway preview, and screenshots showing the wallpaper, the Chrome/Files/Ghostty dock, Chrome opening straight to DuckDuckGo with first run pre-accepted, and Ghostty rendering with the prompt. Blaxel's deploy-time rootfs slimming strips /usr/share/applications and raster icon themes, so dock launchers and icons bake under /etc/cmux. r7 (2026-08-27, digest sandbox/cmux-devbox:b3c3cdc9cfe048515743e): the tint2 dock paints again (panel background defined before it is referenced); wallpaper re-fills on noVNC remote resize. r12 (2026-08-31, digest sandbox/cmux-devbox:b62efe3f7ab023c5be1e8): non-root terminals plus the r11 ble.sh tput cache seeds — bakes the cmux work user (uid 1001) with NOPASSWD sudo plus the sudo and bindfs packages; the driver mounts the home volume at /cmux/home and bindfs presents it at /home/cmux (the volume's virtiofs squashes guest identity to root, so the view is what makes a non-root home possible), and the tput cache.d seeds cover uids 0/1000/1001. Validated 2026-08-31 with the new driver on volume-backed machines: image-stamp r12, /home/cmux is the fuse view over the virtiofs backing, daemon process runs as cmux, write/rewrite as cmux persists to the volume backing, sudo -n whoami returns root, claude --dangerously-skip-permissions launches to the login prompt instead of refusing, and the first interactive shell prints zero tput-cache lines."
     },
     {
       "provider": "blaxel",

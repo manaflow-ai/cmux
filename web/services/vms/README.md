@@ -338,10 +338,11 @@ remains a validated manifest fallback (`BLAXEL_SANDBOX_IMAGE`;
 driver bootstraps every image, baked or stock, at create time with the **cmux-tui remote
 daemon as the machine's only session daemon**.
 The sandbox downloads the pinned static-musl `cmux-tui` build onto its persistent home
-volume (`/root/.cmux/bin/cmux-tui`, sha256-verified inside the VM with `sha256sum -c`,
-reused on resurrection) and the sandbox supervisor runs `cmux-tui server start --session
-cloud --remote-ws 0.0.0.0:1337`. The build and its digest come from the artifacts manifest
-published by `.github/workflows/cmux-tui-artifacts.yml` — nothing is pinned by hand.
+volume, normally `/cmux/home/.cmux/bin/cmux-tui`, with `sha256sum -c` verification inside
+the VM. A bindfs identity view presents that volume at `/home/cmux`; the supervisor runs the
+daemon and its terminal panes as `cmux` (uid 1001) with passwordless sudo. The binary and
+daemon state are reused on resurrection. The build and its digest come from the artifacts
+manifest published by `.github/workflows/cmux-tui-artifacts.yml`, nothing is pinned by hand.
 Config: `BL_API_KEY`, `BL_WORKSPACE`; optionally `CMUX_VM_CMUX_TUI_MANIFEST_URL` to pin a
 deployment to one commit's `https://files.cmux.com/cmux-tui/<commit>/manifest.json` instead
 of the rolling `latest`. Blaxel freezes a sandbox ~15 s after the last connection unless a
@@ -349,13 +350,16 @@ of the rolling `latest`. Blaxel freezes a sandbox ~15 s after the last connectio
 cmux-tui shell is idle and no client is connected, so an idle machine drops to (free)
 standby and the next attach wakes it.
 
-The persistent home volume (`/root`) is sized from the machine's memory in dev-box tiers
-(`defaultHomeVolumeMbForMemory`: ≤4 GB → 8 GB, otherwise 16 GB — Blaxel refuses volumes
-above 16 GB (measured 2026-08-26), so the 24 GB plan default gets the 16 GB ceiling instead of the
-old flat 5 GB); `CMUX_VM_BLAXEL_HOME_VOLUME_MB` pins every
-new volume to one size instead. The chosen size is recorded as `providerMetadata.homeVolumeMb`.
-Volumes are never resized: existing machines keep the volume they were created with, and a
-size Blaxel's volume API rejects fails the create with the provider's message.
+The persistent home volume (`/cmux/home`) is sized from the machine's memory in dev-box tiers
+(`defaultHomeVolumeMbForMemory`: ≤4 GB → 8 GB, otherwise 16 GB, Blaxel refuses volumes above
+16 GB, measured 2026-08-26, so the 24 GB plan default gets the 16 GB ceiling instead of the old
+flat 5 GB). `CMUX_VM_BLAXEL_HOME_VOLUME_MB` pins every new volume to one size instead. The
+chosen size is recorded in `providerMetadata.homeVolumeMb`. Volumes are never resized: existing
+machines keep the volume they were created with, and a size Blaxel's volume API rejects fails the
+create with the provider's message. Sandboxes created before this layout change still mount their
+volume at `/root` and keep a root daemon until resurrection. If the `/home/cmux` bindfs view is
+unavailable, the daemon and `cmux vm exec` use `/cmux/home` as a root fallback, so they never
+write to the disposable rootfs home.
 
 Preview ingress is enforced private: attach only reuses a preview whose spec is not public,
 replaces a public one, and refuses a preview that comes back public, so the daemon is never

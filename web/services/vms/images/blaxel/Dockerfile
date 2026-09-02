@@ -11,8 +11,13 @@
 #   - The VNC RFB port is 5901 (the heal probe greps for a :5901 listener).
 #   - The noVNC web client answers on 6901 (CLI cloudVMDesktopPort) at `/` with the
 #     standard noVNC URL params (autoconnect/resize/reconnect).
-#   - /root is shadowed at runtime by the persistent home volume, so nothing user-facing
-#     may be baked into /root; per-HOME setup materializes at shell start from /etc/cmux.
+#   - Terminals run as the non-root `cmux` user (uid 1001) with passwordless sudo; the
+#     driver's daemon command drops to it via runuser, so the user, its sudoers policy,
+#     and bindfs (the identity view over the root-squashing home volume) must exist in
+#     the image.
+#   - /home/cmux is shadowed at runtime by the bindfs view of the persistent home
+#     volume (mounted at /cmux/home), so nothing user-facing may be baked into it (or
+#     into /root); per-HOME setup materializes at shell start from /etc/cmux.
 #   - /etc/cmux/image-stamp marks the image as baked; the driver skips its create-time
 #     provisioning fallback when it is present.
 #
@@ -53,6 +58,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     sqlite3 \
     tmux \
     less \
+    sudo \
+    bindfs \
     rsync \
     file \
     tree \
@@ -183,8 +190,18 @@ RUN mkdir -p /etc/claude-code \
 # stock blaxel/xfce-vnc image set that contract and we keep it.
 RUN useradd -m -u 1000 -s /bin/bash cua
 
+# Work user. Terminals and agents run as `cmux`, never root: coding agents refuse a
+# root shell (`claude --dangerously-skip-permissions`), and root should require an
+# explicit `sudo` — which is passwordless. The driver mounts the persistent home
+# volume over /home/cmux and starts the cmux-tui daemon as this user (uid 1001 is
+# the driver's runtime-setup pin too, so volume ownership is stable across images).
+RUN useradd -m -u 1001 -s /bin/bash cmux \
+  && printf 'cmux ALL=(ALL) NOPASSWD:ALL\n' > /etc/sudoers.d/90-cmux-nopasswd \
+  && chmod 0440 /etc/sudoers.d/90-cmux-nopasswd \
+  && visudo -c
+
 # Interactive shell setup: ble.sh ghost text, half-life prompt, seeded history.
-# Everything global lives under /etc/cmux because /root is shadowed by the
+# Everything global lives under /etc/cmux because /home/cmux is shadowed by the
 # persistent home volume at runtime; cmux-bashrc materializes per-HOME state.
 RUN curl -fsSL https://github.com/akinomyoga/ble.sh/releases/download/nightly/ble-nightly.tar.xz -o /tmp/ble.tar.xz \
   && tar xJf /tmp/ble.tar.xz -C /tmp \
@@ -198,6 +215,7 @@ COPY wallpaper.jpg /usr/share/backgrounds/cmux/wallpaper.jpg
 RUN printf '%s\n' '[ -f /etc/cmux/bashrc ] && . /etc/cmux/bashrc' >> /etc/bash.bashrc \
   && printf '%s\n' '[ -f /etc/cmux/bashrc ] && . /etc/cmux/bashrc' >> /etc/skel/.bashrc \
   && printf '%s\n' '[ -f /etc/cmux/bashrc ] && . /etc/cmux/bashrc' >> /root/.bashrc \
+  && printf '%s\n' '[ -f /etc/cmux/bashrc ] && . /etc/cmux/bashrc' >> /home/cmux/.bashrc \
   && printf '%s\n' '[ -f /etc/cmux/bashrc ] && . /etc/cmux/bashrc' >> /home/cua/.bashrc \
   && echo 'set -g default-shell /bin/bash' >> /etc/tmux.conf
 
@@ -225,12 +243,14 @@ RUN mkdir -p /etc/cmux/blesh-cache-seed \
   && test -s /etc/cmux/blesh-cache-seed/blesh/*/term.screen-256color \
   && test -s /etc/cmux/blesh-cache-seed/blesh/*/term.tmux-256color \
   && test -s /etc/cmux/blesh-cache-seed/blesh/*/term.linux \
-  && mkdir -p /usr/local/share/blesh/cache.d/0 /usr/local/share/blesh/cache.d/1000 \
+  && mkdir -p /usr/local/share/blesh/cache.d/0 /usr/local/share/blesh/cache.d/1000 /usr/local/share/blesh/cache.d/1001 \
   && chmod a+rwxt /usr/local/share/blesh/cache.d \
   && cp /etc/cmux/blesh-cache-seed/blesh/*/term.* /usr/local/share/blesh/cache.d/0/ \
   && cp /etc/cmux/blesh-cache-seed/blesh/*/term.* /usr/local/share/blesh/cache.d/1000/ \
-  && chmod 700 /usr/local/share/blesh/cache.d/0 /usr/local/share/blesh/cache.d/1000 \
-  && chown -R cua:cua /usr/local/share/blesh/cache.d/1000
+  && cp /etc/cmux/blesh-cache-seed/blesh/*/term.* /usr/local/share/blesh/cache.d/1001/ \
+  && chmod 700 /usr/local/share/blesh/cache.d/0 /usr/local/share/blesh/cache.d/1000 /usr/local/share/blesh/cache.d/1001 \
+  && chown -R cua:cua /usr/local/share/blesh/cache.d/1000 \
+  && chown -R cmux:cmux /usr/local/share/blesh/cache.d/1001
 
 # Agent harness config: every shell materializes per-harness model-proxy
 # configs from the machine boot env (the coderouter model-plane vars minted at
@@ -244,6 +264,7 @@ RUN bash -n /etc/cmux/agent-config.sh \
   && printf '%s\n' '[ -f /etc/cmux/agent-config.sh ] && . /etc/cmux/agent-config.sh' >> /etc/bash.bashrc \
   && printf '%s\n' '[ -f /etc/cmux/agent-config.sh ] && . /etc/cmux/agent-config.sh' >> /etc/skel/.bashrc \
   && printf '%s\n' '[ -f /etc/cmux/agent-config.sh ] && . /etc/cmux/agent-config.sh' >> /root/.bashrc \
+  && printf '%s\n' '[ -f /etc/cmux/agent-config.sh ] && . /etc/cmux/agent-config.sh' >> /home/cmux/.bashrc \
   && printf '%s\n' '[ -f /etc/cmux/agent-config.sh ] && . /etc/cmux/agent-config.sh' >> /home/cua/.bashrc \
   && mkdir -p /tmp/agent-config-check \
   && env HOME=/tmp/agent-config-check OPENAI_BASE_URL=https://example.invalid/v1 OPENAI_API_KEY=crt_check CMUX_CODEROUTER_URL=https://example.invalid bash -lc 'true' \
@@ -266,7 +287,11 @@ RUN bash -n /etc/cmux/agent-config.sh \
   && test ! -e /root/.codex/config.toml \
   && test ! -e /root/.pi/agent/models.json \
   && test ! -e /root/.config/opencode/opencode.json \
-  && test ! -e /root/.config/cmux/model-plane.env
+  && test ! -e /root/.config/cmux/model-plane.env \
+  && test ! -e /home/cmux/.codex/config.toml \
+  && test ! -e /home/cmux/.pi/agent/models.json \
+  && test ! -e /home/cmux/.config/opencode/opencode.json \
+  && test ! -e /home/cmux/.config/cmux/model-plane.env
 
 # /entrypoint.sh is the path every official Blaxel template uses; the microVM
 # boot command comes from this ENTRYPOINT.

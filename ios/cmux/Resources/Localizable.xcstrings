@@ -60,6 +60,23 @@
         }
       }
     },
+    "mobile.demo.computerName": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Demo Mac"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "デモMac"
+          }
+        }
+      }
+    },
     "mobile.buildType.demo": {
       "extractionState": "manual",
       "localizations": {
@@ -83086,6 +83103,40 @@
           "stringUnit": {
             "state": "translated",
             "value": "이 iPhone 업데이트는 새로운 연결 프로토콜을 사용하며 업데이트된 Mac과만 페어링됩니다. 연결하기 전에 Mac의 cmux를 %@로 업데이트하세요. 아직 Mac을 업데이트할 준비가 되지 않으셨나요? 이전 Mac에서 작동하는 마지막 버전인 cmux BETA TestFlight 버전 1.0.4(20260817224846)를 유지하거나 이전 버전으로 되돌립니다."
+          }
+        }
+      }
+    },
+    "mobile.macUpdate.requiredOnMacFormat": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Requires %@ on your Mac."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mac に %@ が必要です。"
+          }
+        }
+      }
+    },
+    "mobile.macUpdate.revertShort": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Not ready? Stay on (or revert to) cmux BETA 1.0.4 (20260817224846)."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "まだの場合は、cmux BETA 1.0.4 (20260817224846) をそのままご利用ください（または戻してください）。"
           }
         }
       }
