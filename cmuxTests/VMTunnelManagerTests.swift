@@ -95,10 +95,49 @@ struct VMTunnelManagerTests {
     }
 
     @Test
-    func interfaceUpIsFalseWithoutARuntimeNameFile() throws {
+    func interfaceUpIsFalseWithoutAWrittenConfig() throws {
         let home = try temporaryHome()
         defer { try? FileManager.default.removeItem(at: home) }
-        // /var/run/wireguard/cmux.name does not exist in a test environment.
+        // No config on disk means nothing to match interfaces against.
         #expect(VMTunnelManager(home: home).wgQuickInterfaceUp() == false)
+    }
+
+    @Test
+    func interfaceAddressesParseOnlyTheInterfaceSection() {
+        let config = """
+        [Interface]
+        PrivateKey = X
+        Address = 100.64.0.9/32
+        Address = FD7A:7570:6C6B::9/128, 10.9.9.9/24
+        MTU = 1380
+
+        [Peer]
+        PublicKey = Y
+        AllowedIPs = 10.0.0.0/8, fd00::/8
+        """
+        // Prefix lengths stripped, IPv6 lowercased, AllowedIPs never included —
+        // matching an AllowedIPs range against interface addresses would call
+        // any 10.x interface "the tunnel".
+        #expect(VMTunnelManager.interfaceAddresses(in: config) == [
+            "100.64.0.9", "fd7a:7570:6c6b::9", "10.9.9.9",
+        ])
+    }
+
+    @Test
+    func interfaceUpMatchesALiveInterfaceAddress() throws {
+        let home = try temporaryHome()
+        defer { try? FileManager.default.removeItem(at: home) }
+        let manager = VMTunnelManager(home: home)
+        try FileManager.default.createDirectory(at: manager.stateDir, withIntermediateDirectories: true)
+        // Loopback is always present, so a config claiming 127.0.0.1 as the
+        // interface address reads as up — proving detection is address-based.
+        try """
+        [Interface]
+        Address = 127.0.0.1/32
+
+        [Peer]
+        PublicKey = Y
+        """.write(to: manager.configURL, atomically: true, encoding: .utf8)
+        #expect(manager.wgQuickInterfaceUp() == true)
     }
 }

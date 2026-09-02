@@ -70,8 +70,9 @@ struct VMTunnelManager: Sendable {
     var deviceIDURL: URL { stateDir.appendingPathComponent("device-id", isDirectory: false) }
     var configURL: URL { stateDir.appendingPathComponent("\(Self.interfaceName).conf", isDirectory: false) }
 
-    /// wg-quick(8) records the created utun's name here; readable without root,
-    /// so "is the tunnel up" never needs privileges.
+    /// wg-quick(8) records the created utun's name here — but on macOS the
+    /// file is root-only (0400), so liveness detection must not depend on it;
+    /// see `wgQuickInterfaceUp()`.
     var runtimeNameFileURL: URL {
         URL(fileURLWithPath: "/var/run/wireguard/\(Self.interfaceName).name", isDirectory: false)
     }
@@ -149,24 +150,71 @@ struct VMTunnelManager: Sendable {
         )
     }
 
-    /// Whether wg-quick currently has this tunnel up, via its runtime name
-    /// file. Truthful for the CLI path; a future NetworkExtension tunnel
-    /// reports through NEVPNStatus instead.
+    /// Whether wg-quick currently has this tunnel up, without privileges.
+    ///
+    /// wg-quick's own record (`/var/run/wireguard/cmux.name`) is root-only on
+    /// macOS, so instead this asks the question the network can answer: does
+    /// any interface hold one of the tunnel's own `[Interface] Address`es from
+    /// the config this manager wrote? Those are fixed platform-side addresses
+    /// unique to the tunnel, so a match is the tunnel and nothing else. A
+    /// future NetworkExtension tunnel reports through NEVPNStatus instead.
     func wgQuickInterfaceUp() -> Bool {
-        guard let utun = try? String(contentsOf: runtimeNameFileURL, encoding: .utf8) else { return false }
-        let name = utun.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !name.isEmpty else { return false }
-        // The name file can outlive a crashed wireguard-go; trust it only if
-        // the utun it names still exists.
+        guard let config = try? String(contentsOf: configURL, encoding: .utf8) else { return false }
+        let expected = Self.interfaceAddresses(in: config)
+        guard !expected.isEmpty else { return false }
         var addrs: UnsafeMutablePointer<ifaddrs>?
         guard getifaddrs(&addrs) == 0 else { return false }
         defer { freeifaddrs(addrs) }
         var cursor = addrs
         while let current = cursor {
-            if String(cString: current.pointee.ifa_name) == name { return true }
+            if let sa = current.pointee.ifa_addr, let address = Self.numericAddress(sa),
+               expected.contains(address) {
+                return true
+            }
             cursor = current.pointee.ifa_next
         }
         return false
+    }
+
+    /// The `Address =` values in a wg-quick config's `[Interface]` section,
+    /// with their prefix lengths stripped (`100.64.0.1/32` → `100.64.0.1`).
+    static func interfaceAddresses(in config: String) -> Set<String> {
+        var addresses = Set<String>()
+        var inInterface = false
+        for rawLine in config.components(separatedBy: "\n") {
+            let line = rawLine.trimmingCharacters(in: .whitespaces)
+            if line.hasPrefix("[") {
+                inInterface = line.lowercased() == "[interface]"
+                continue
+            }
+            guard inInterface else { continue }
+            let parts = line.split(separator: "=", maxSplits: 1)
+            guard parts.count == 2,
+                  parts[0].trimmingCharacters(in: .whitespaces).lowercased() == "address" else { continue }
+            for entry in parts[1].split(separator: ",") {
+                let value = entry.trimmingCharacters(in: .whitespaces)
+                let bare = value.split(separator: "/", maxSplits: 1).first.map(String.init) ?? value
+                if !bare.isEmpty { addresses.insert(bare.lowercased()) }
+            }
+        }
+        return addresses
+    }
+
+    private static func numericAddress(_ sa: UnsafeMutablePointer<sockaddr>) -> String? {
+        switch Int32(sa.pointee.sa_family) {
+        case AF_INET:
+            var addr = sa.withMemoryRebound(to: sockaddr_in.self, capacity: 1) { $0.pointee.sin_addr }
+            var buffer = [CChar](repeating: 0, count: Int(INET_ADDRSTRLEN))
+            guard inet_ntop(AF_INET, &addr, &buffer, socklen_t(INET_ADDRSTRLEN)) != nil else { return nil }
+            return String(cString: buffer)
+        case AF_INET6:
+            var addr = sa.withMemoryRebound(to: sockaddr_in6.self, capacity: 1) { $0.pointee.sin6_addr }
+            var buffer = [CChar](repeating: 0, count: Int(INET6_ADDRSTRLEN))
+            guard inet_ntop(AF_INET6, &addr, &buffer, socklen_t(INET6_ADDRSTRLEN)) != nil else { return nil }
+            return String(cString: buffer).lowercased()
+        default:
+            return nil
+        }
     }
 
     /// Fill the blank `PrivateKey` line the server left in the config.
