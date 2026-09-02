@@ -4323,6 +4323,36 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn large_live_output_is_split_into_bounded_frames() {
+        let h = harness(None, None);
+        h.open("p1", "main", Value::Null, "supervised", h.owner.clone()).await;
+        let pty = h.spawned()[0].clone();
+        let before = h.sent().len();
+        pty.emit(&"x".repeat(MAX_OUTPUT_CHUNK_BYTES * 2 + 5));
+        let frames: Vec<Value> = h.sent()[before..]
+            .iter()
+            .filter(|frame| frame["type"] == "pty_output")
+            .cloned()
+            .collect();
+        assert!(frames.len() >= 2);
+        assert!(frames.iter().all(|frame| {
+            BASE64
+                .decode(frame["dataB64"].as_str().unwrap_or_default())
+                .map(|bytes| bytes.len() <= MAX_OUTPUT_CHUNK_BYTES)
+                .unwrap_or(false)
+        }));
+        assert!(!h.sent().iter().any(|frame| frame["code"] == "failed"));
+    }
+
+    #[tokio::test]
+    async fn async_close_authorized_path_is_callable() {
+        let h = harness(None, None);
+        h.open("p1", "main", Value::Null, "supervised", h.owner.clone()).await;
+        h.frame(serde_json::json!({ "type": "pty_close", "ptyId": "p1" })).await;
+        assert!(!h.manager.has_attachment("p1"));
+    }
+
+    #[tokio::test]
     async fn second_open_adds_a_viewer_output_fans_out_to_both() {
         let h = harness(None, None);
         h.open("p1", "main", Value::Null, "supervised", h.owner.clone()).await;
