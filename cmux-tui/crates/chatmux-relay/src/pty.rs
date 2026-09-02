@@ -597,6 +597,10 @@ fn reserve_cached_shell(inner: &Inner, session: &str) -> Option<Arc<ShellSession
     let existing = inner.shell_sessions.lock().expect("shell lock").get(session).cloned()?;
     let _dispatch = existing.dispatch_lock.lock().expect("shell dispatch lock");
     if !existing.inner.lock().expect("shell inner lock").alive {
+        let mut shells = inner.shell_sessions.lock().expect("shell lock");
+        if shells.get(session).is_some_and(|cached| Arc::ptr_eq(cached, &existing)) {
+            shells.remove(session);
+        }
         return None;
     }
     if !inner
