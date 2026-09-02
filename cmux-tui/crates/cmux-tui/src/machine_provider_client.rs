@@ -13,12 +13,8 @@ use std::collections::{BTreeMap, HashMap, VecDeque};
 use std::fmt;
 #[cfg(unix)]
 use std::io::{self, BufRead, BufReader, Write};
-#[cfg(all(unix, test))]
-use std::path::Path;
 #[cfg(unix)]
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
-#[cfg(all(unix, test))]
-use std::sync::mpsc::Receiver;
 #[cfg(unix)]
 use std::sync::mpsc::{self, RecvTimeoutError, SyncSender, TrySendError};
 #[cfg(unix)]
@@ -610,7 +606,7 @@ impl ProviderClient {
     /// Test-only unauthenticated connection. Runtime callers go through
     /// `connect_authenticated_with` so every generation performs `hello`.
     #[cfg(test)]
-    pub(crate) fn connect(socket_path: impl AsRef<Path>) -> ProviderResult<Self> {
+    pub(crate) fn connect(socket_path: impl AsRef<std::path::Path>) -> ProviderResult<Self> {
         let (control, streams) =
             UnixProviderConnector::open_unauthenticated(socket_path.as_ref().to_path_buf())?;
         Self::from_transport(control, streams)
@@ -646,7 +642,7 @@ impl ProviderClient {
     /// Test-only Unix-socket convenience over `connect_authenticated_with`.
     #[cfg(test)]
     pub(crate) fn connect_authenticated(
-        socket_path: impl AsRef<Path>,
+        socket_path: impl AsRef<std::path::Path>,
         token: BearerToken,
         client: ClientDescriptor,
     ) -> ProviderResult<(Self, HelloResult)> {
@@ -933,7 +929,7 @@ impl ProviderClient {
     /// Subscribe to revision invalidations. Receivers are removed after drop.
     /// The runtime fetches snapshots on demand and does not subscribe yet.
     #[cfg(test)]
-    pub(crate) fn subscribe_snapshot_changes(&self) -> ProviderResult<Receiver<u64>> {
+    pub(crate) fn subscribe_snapshot_changes(&self) -> ProviderResult<mpsc::Receiver<u64>> {
         self.ensure_live()?;
         let (sender, receiver) = mpsc::sync_channel(1);
         self.inner
