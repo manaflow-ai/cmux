@@ -8,9 +8,6 @@ import CmuxSimulator
 import CoreFoundation
 import CryptoKit
 import Darwin
-#if canImport(Security)
-import Security
-#endif
 
 struct CLIError: Error, CustomStringConvertible {
     enum SocketFailureKind: Equatable {
