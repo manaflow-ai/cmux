@@ -232,13 +232,39 @@ jobs:
       - name: Clear stale git locks (self-hosted reused workspace)
         shell: bash
         run: |
-          # Self-hosted macOS runners reuse the workspace. A job cancelled or
-          # killed mid-checkout can leave a stale .git/modules/*/index.lock that
-          # fails every later submodule checkout (e.g. ghostty). Clear them first.
-          ws="${GITHUB_WORKSPACE:-$PWD}"
-          rm -f "$ws/.git/index.lock" 2>/dev/null || true
-          if [ -d "$ws/.git/modules" ]; then
-            find "$ws/.git/modules" -type f -name "*.lock" -delete 2>/dev/null || true
+          # Self-hosted macOS runners can reuse a workspace. Remove only
+          # runner-owned, inactive index locks. Refuse unknown owners and
+          # active locks so a concurrent Git process cannot be corrupted.
+          set -euo pipefail
+          ws="${GITHUB_WORKSPACE:?GITHUB_WORKSPACE is required}"
+          git_dir="$ws/.git"
+          if [[ -d "$git_dir" ]]; then
+            runner_uid="$(id -u)"
+            remove_owned_lock() {
+              local lock="$1"
+              [[ -f "$lock" ]] || return 0
+              local owner
+              if stat -c '%u' "$lock" >/dev/null 2>&1; then
+                owner="$(stat -c '%u' "$lock")"
+              else
+                owner="$(stat -f '%u' "$lock")"
+              fi
+              if [[ "$owner" != "$runner_uid" ]]; then
+                echo "Refusing to remove Git lock not owned by this runner: $lock" >&2
+                return 1
+              fi
+              if command -v lsof >/dev/null 2>&1 && lsof -n -t "$lock" 2>/dev/null | grep -q .; then
+                echo "Refusing to remove active Git lock: $lock" >&2
+                return 1
+              fi
+              rm -f -- "$lock"
+            }
+            remove_owned_lock "$git_dir/index.lock"
+            if [[ -d "$git_dir/modules" ]]; then
+              while IFS= read -r -d '' lock; do
+                remove_owned_lock "$lock"
+              done < <(find -P "$git_dir/modules" -type f -name index.lock -print0)
+            fi
           fi
 
       - name: Checkout
@@ -287,6 +313,11 @@ jobs:
   build-sign-notarize:
     needs: [validate-source, build-ghostty-cli-helper]
     if: needs.validate-source.result == 'success'
+    # Keep R2 publication serialized across retries and release tags. The
+    # latest-release check below is valid only while this lock is held.
+    concurrency:
+      group: cmux-release-stable-r2
+      cancel-in-progress: false
     permissions:
       contents: write
       attestations: write
@@ -307,13 +338,39 @@ jobs:
       - name: Clear stale git locks (self-hosted reused workspace)
         shell: bash
         run: |
-          # Self-hosted macOS runners reuse the workspace. A job cancelled or
-          # killed mid-checkout can leave a stale .git/modules/*/index.lock that
-          # fails every later submodule checkout (e.g. ghostty). Clear them first.
-          ws="${GITHUB_WORKSPACE:-$PWD}"
-          rm -f "$ws/.git/index.lock" 2>/dev/null || true
-          if [ -d "$ws/.git/modules" ]; then
-            find "$ws/.git/modules" -type f -name "*.lock" -delete 2>/dev/null || true
+          # Self-hosted macOS runners can reuse a workspace. Remove only
+          # runner-owned, inactive index locks. Refuse unknown owners and
+          # active locks so a concurrent Git process cannot be corrupted.
+          set -euo pipefail
+          ws="${GITHUB_WORKSPACE:?GITHUB_WORKSPACE is required}"
+          git_dir="$ws/.git"
+          if [[ -d "$git_dir" ]]; then
+            runner_uid="$(id -u)"
+            remove_owned_lock() {
+              local lock="$1"
+              [[ -f "$lock" ]] || return 0
+              local owner
+              if stat -c '%u' "$lock" >/dev/null 2>&1; then
+                owner="$(stat -c '%u' "$lock")"
+              else
+                owner="$(stat -f '%u' "$lock")"
+              fi
+              if [[ "$owner" != "$runner_uid" ]]; then
+                echo "Refusing to remove Git lock not owned by this runner: $lock" >&2
+                return 1
+              fi
+              if command -v lsof >/dev/null 2>&1 && lsof -n -t "$lock" 2>/dev/null | grep -q .; then
+                echo "Refusing to remove active Git lock: $lock" >&2
+                return 1
+              fi
+              rm -f -- "$lock"
+            }
+            remove_owned_lock "$git_dir/index.lock"
+            if [[ -d "$git_dir/modules" ]]; then
+              while IFS= read -r -d '' lock; do
+                remove_owned_lock "$lock"
+              done < <(find -P "$git_dir/modules" -type f -name index.lock -print0)
+            fi
           fi
 
       - name: Checkout
@@ -925,6 +982,7 @@ jobs:
         if: steps.guard_release_assets.outputs.skip_r2_upload != 'true' && steps.revalidate-r2-tag.outputs.verified == 'true'
         env:
           GH_TOKEN: ${{ github.token }}
+          EXPECTED_SHA: ${{ needs.validate-source.outputs.source_sha }}
           AWS_ACCESS_KEY_ID: ${{ secrets.CF_R2_ACCESS_KEY_ID }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.CF_R2_SECRET_ACCESS_KEY }}
           AWS_DEFAULT_REGION: auto
@@ -939,14 +997,47 @@ jobs:
             exit 0
           fi
 
-          # Guard: only upload if this tag is the highest semver release.
-          # Prevents a backport tag (e.g. v0.62.1 after v0.63.1) from
-          # overwriting the stable appcast with an older version.
-          LATEST=$(gh release list --exclude-drafts --exclude-pre-releases \
-            --json tagName -q '.[].tagName' | sort -V | tail -1)
-          if [ -n "$LATEST" ] && [ "$LATEST" != "$RELEASE_TAG" ]; then
+          # Guard: only upload if this tag is the highest stable SemVer
+          # release. Python provides the same ordering on every runner,
+          # including macOS where BSD sort has no -V option.
+          LATEST=$(gh release list --limit 1000 --exclude-drafts --exclude-pre-releases \
+            --json tagName -q '.[].tagName' | python3 -c '
+            import re
+            import sys
+
+            pattern = re.compile(
+                r"^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)"
+                r"(?:\+([0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*))?$"
+            )
+            versions = []
+            for line in sys.stdin:
+                tag = line.strip()
+                match = pattern.fullmatch(tag)
+                if match:
+                    versions.append((tuple(int(part) for part in match.groups()[:3]), tag))
+            print(max(versions, key=lambda item: (item[0], item[1]))[1] if versions else "")
+            ')
+          if [ -z "$LATEST" ]; then
+            echo "Refusing R2 stable upload: no stable release was returned by GitHub" >&2
+            exit 1
+          fi
+          if [ "$LATEST" != "$RELEASE_TAG" ]; then
             echo "Skipping R2 stable upload: $RELEASE_TAG is not the latest release ($LATEST)"
             exit 0
+          fi
+
+          # Bind the latest-release decision to the immutable source SHA. The
+          # release list is a tag-name view, so resolve that tag again and
+          # reject a moved tag before the object write.
+          latest_object="$(gh api "repos/manaflow-ai/cmux/git/ref/tags/$LATEST")"
+          latest_type="$(jq -r '.object.type' <<<"$latest_object")"
+          latest_sha="$(jq -r '.object.sha' <<<"$latest_object")"
+          if [ "$latest_type" = tag ]; then
+            latest_sha="$(gh api "repos/manaflow-ai/cmux/git/tags/$latest_sha" --jq '.object.sha')"
+          fi
+          if [ "$latest_sha" != "$EXPECTED_SHA" ]; then
+            echo "Latest release $LATEST resolves to $latest_sha, expected immutable source $EXPECTED_SHA" >&2
+            exit 1
           fi
 
           # Upload after GitHub Release publish so the appcast never references

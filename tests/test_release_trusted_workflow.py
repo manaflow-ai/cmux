@@ -171,6 +171,18 @@ process.env.WORKFLOW_RUN_JSON = JSON.stringify(context.payload.workflow_run);
 
 
 class ReleaseTrustedWorkflowTests(unittest.TestCase):
+    def test_release_tag_policy_is_documented_as_a_deployment_prerequisite(self) -> None:
+        policy = (ROOT / "docs" / "ci-runners.md").read_text(encoding="utf-8")
+        for required in (
+            "Protected release tags",
+            "refs/tags/v*",
+            "create, update, and delete",
+            "only to the release authority",
+            "rejects force-updates",
+            "deployment prerequisite",
+        ):
+            self.assertIn(required, policy)
+
     def test_workflow_run_is_resolved_from_protected_main(self) -> None:
         document = load()
         event = triggers(document)
@@ -233,6 +245,10 @@ class ReleaseTrustedWorkflowTests(unittest.TestCase):
                 self.assertIs(checkout.get("with", {}).get("persist-credentials"), False)
 
         sign_steps = document["jobs"]["build-sign-notarize"]["steps"]
+        self.assertEqual(
+            document["jobs"]["build-sign-notarize"]["concurrency"],
+            {"group": "cmux-release-stable-r2", "cancel-in-progress": False},
+        )
         sign_text = "\n".join(str(step) for step in sign_steps)
         for required in (
             "skip_r2_upload",
@@ -251,6 +267,26 @@ class ReleaseTrustedWorkflowTests(unittest.TestCase):
         self.assertIn("skip_r2_upload", r2_recheck["if"])
         r2_upload = next(step for step in sign_steps if step.get("name") == "Upload release appcast to R2")
         self.assertIn('RELEASE_TAG" == *-*', r2_upload["run"])
+        self.assertNotIn("sort -V", r2_upload["run"])
+        self.assertIn("python3 -c", r2_upload["run"])
+        self.assertIn("gh release list --limit 1000", r2_upload["run"])
+        self.assertIn("latest_sha", r2_upload["run"])
+        self.assertIn("EXPECTED_SHA", r2_upload["run"])
+
+        # A reused self-hosted workspace must never delete another process's
+        # lock. The pre-checkout cleanup is intentionally duplicated in each
+        # privileged job so source-controlled code cannot weaken the guard.
+        for job_name in ("build-ghostty-cli-helper", "build-sign-notarize"):
+            cleanup = next(
+                step for step in document["jobs"][job_name]["steps"]
+                if step.get("name") == "Clear stale git locks (self-hosted reused workspace)"
+            )
+            cleanup_run = cleanup["run"]
+            self.assertIn("stat -c '%u'", cleanup_run)
+            self.assertIn("stat -f '%u'", cleanup_run)
+            self.assertIn("lsof -n -t", cleanup_run)
+            self.assertIn("find -P", cleanup_run)
+            self.assertNotIn('find "$git_dir/modules" -type f -name "*.lock" -delete', cleanup_run)
 
     def test_adversarial_tag_workflow_is_rejected_before_release(self) -> None:
         document = load()
