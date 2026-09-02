@@ -24,6 +24,7 @@ pub(super) enum CommandPlan {
     Plugin(PluginPlan),
     ProviderAuthority(ProviderAuthorityPlan),
     RawCommand(super::raw::RawCommandPlan),
+    Diag(super::diag::DiagPlan),
 }
 
 #[derive(Clone, Debug)]
@@ -171,6 +172,7 @@ pub(super) fn parse(args: &[String]) -> Result<CommandPlan, UsageError> {
         "projection" => parse_projection(&tokens.words[1..], &mut selectors, &mut tokens.flags)?,
         "provider" => parse_provider(&tokens.words[1..], &mut selectors, &mut tokens.flags)?,
         "raw" => parse_raw(&tokens.words[1..], &mut tokens.flags)?,
+        "diag" => parse_diag(&tokens.words[1..])?,
         value => return Err(super::unknown_scope(value)),
     };
     tokens.flags.reject_remaining()?;
@@ -1653,6 +1655,16 @@ fn parse_provider(
     }
 }
 
+fn parse_diag(words: &[String]) -> Result<CommandPlan, UsageError> {
+    match strs(words).as_slice() {
+        ["budgets"] => Ok(CommandPlan::Diag(super::diag::DiagPlan::Budgets)),
+        [action] => Err(UsageError::new(format!(
+            "unknown diag action {action:?}; expected budgets"
+        ))),
+        _ => Err(UsageError::new("usage: cmux diag budgets [--json]")),
+    }
+}
+
 fn parse_raw(words: &[String], flags: &mut Flags) -> Result<CommandPlan, UsageError> {
     let refs = strs(words);
     if refs.as_slice() == ["command"] {
@@ -2969,6 +2981,16 @@ mod tests {
             CommandPlan::Protocol(plan) => plan,
             _ => panic!("expected protocol plan"),
         }
+    }
+
+    #[test]
+    fn diag_budgets_is_a_local_plan() {
+        assert!(matches!(
+            parse(&strings(&["diag", "budgets"])).unwrap(),
+            CommandPlan::Diag(super::super::diag::DiagPlan::Budgets)
+        ));
+        assert!(parse(&strings(&["diag", "locks"])).is_err());
+        assert!(parse(&strings(&["diag"])).is_err());
     }
 
     #[test]
