@@ -100,6 +100,30 @@ import Testing
         #expect(workspace.panelIdFromSurfaceId(selectedSurface) == created.panelID)
     }
 
+    /// Inside a socket command whose policy forbids focus mutations, the factory must
+    /// not re-enable them: the outer policy wins over the caller's `focus: true`.
+    @Test func focusRequestCannotEscapeAFocusForbiddingSocketPolicy() throws {
+        let harness = try Harness()
+        defer { harness.tearDown() }
+        let workspace = harness.workspace
+        let paneID = try #require(workspace.bonsplitController.focusedPaneId)
+        let before = try #require(workspace.focusedPanelId)
+
+        let created = try TerminalController.withSocketCommandPolicyStack([false]) {
+            try SurfacePaneFactory.makeTerminalPane(
+                initialCommand: nil,
+                workingDirectory: nil,
+                at: .tab(workspaceID: workspace.id, paneID: paneID.id.uuidString, index: nil),
+                focus: true
+            )
+        }
+
+        #expect(created.panelID != before)
+        #expect(workspace.focusedPanelId == before)
+        let selectedSurface = try #require(workspace.bonsplitController.selectedTab(inPane: paneID)?.id)
+        #expect(workspace.panelIdFromSurfaceId(selectedSurface) == before)
+    }
+
     @MainActor
     private struct Harness {
         let appDelegate: AppDelegate

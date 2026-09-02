@@ -138,11 +138,13 @@ enum SurfacePaneFactory {
         // The create/split handlers honor a focus request only inside a socket command
         // whose policy allows focus (`v2FocusAllowed`); with no command active the
         // stack is empty and the request is dropped, so a Cmd+T / Cmd+D / sidebar
-        // gesture would add the tab without selecting it. `focus` here is the caller's
-        // already-decided intent (the socket handlers read their `focus` param before
-        // suspending), so run the handler under exactly that policy. Activation stays
-        // suppressed either way (`shouldSuppressSocketCommandActivation`).
-        return try TerminalController.withSocketCommandPolicyStack([focus]) {
+        // gesture would add the tab without selecting it. `focus` is the caller's
+        // already-decided intent, so run the handler under a frame carrying it. A
+        // frame already on the stack is a socket command's policy and still wins: a
+        // command that may not move focus cannot regain it through the factory.
+        // Activation stays suppressed either way (`shouldSuppressSocketCommandActivation`).
+        let outerAllowsFocus = TerminalController.currentSocketCommandFocusAllowanceStack().last ?? true
+        return try TerminalController.withSocketCommandPolicyStack([focus && outerAllowsFocus]) {
             switch destination {
             case .tab(_, let paneID, _):
                 guard let requestedPane = UUID(uuidString: paneID) else { throw FactoryError.paneNotFound(paneID) }
