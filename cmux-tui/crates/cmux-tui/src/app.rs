@@ -1120,12 +1120,15 @@ impl HostInputIngress {
 
 struct HostInputRuntime {
     ingress: Arc<HostInputIngress>,
-    reader: Arc<Mutex<Option<JoinHandle<()>>>>,
+    reader: Arc<HostInputReaderControl>,
 }
 
 impl HostInputRuntime {
     fn new() -> Self {
-        Self { ingress: Arc::new(HostInputIngress::default()), reader: Arc::new(Mutex::new(None)) }
+        Self {
+            ingress: Arc::new(HostInputIngress::default()),
+            reader: Arc::new(HostInputReaderControl::default()),
+        }
     }
 
     fn producer(&self, events: SyncSender<AppEvent>) -> HostInputProducer {
@@ -1137,9 +1140,11 @@ impl HostInputRuntime {
     }
 
     fn attach_reader(&self, reader: JoinHandle<()>) {
-        let mut slot = self.reader.lock().unwrap();
-        assert!(slot.is_none(), "host input reader can only be attached once");
-        *slot = Some(reader);
+        let mut state = self.reader.state.lock().unwrap();
+        assert!(!state.shutting_down, "host input reader cannot attach during shutdown");
+        assert!(state.reader.is_none(), "host input reader can only be attached once");
+        state.reader_thread = Some(reader.thread().id());
+        state.reader = Some(reader);
     }
 
     fn shutdown_control(&self) -> HostInputShutdown {
@@ -1160,7 +1165,7 @@ impl Drop for HostInputRuntime {
 #[derive(Clone)]
 struct HostInputShutdown {
     ingress: Arc<HostInputIngress>,
-    reader: Arc<Mutex<Option<JoinHandle<()>>>>,
+    reader: Arc<HostInputReaderControl>,
 }
 
 impl HostInputShutdown {
@@ -1170,16 +1175,47 @@ impl HostInputShutdown {
         // crossterm wrapper caps every poll at CROSSTERM_POLL_INTERVAL and
         // only calls read after poll reports a ready event, so joining here
         // cannot wait on an idle terminal read.
+        let current_thread = std::thread::current().id();
         let reader = {
-            let mut slot = self.reader.lock().unwrap();
-            slot.take()
+            let mut state = self.reader.state.lock().unwrap();
+            if state.complete {
+                return;
+            }
+            if state.shutting_down {
+                if state.reader_thread == Some(current_thread) {
+                    return;
+                }
+                while !state.complete {
+                    state = self.reader.complete.wait(state).unwrap();
+                }
+                return;
+            }
+            state.shutting_down = true;
+            state.reader.take()
         };
         if let Some(reader) = reader
-            && reader.thread().id() != std::thread::current().id()
+            && reader.thread().id() != current_thread
         {
             let _ = reader.join();
         }
+        let mut state = self.reader.state.lock().unwrap();
+        state.complete = true;
+        self.reader.complete.notify_all();
     }
+}
+
+#[derive(Default)]
+struct HostInputReaderControl {
+    state: Mutex<HostInputReaderState>,
+    complete: Condvar,
+}
+
+#[derive(Default)]
+struct HostInputReaderState {
+    reader: Option<JoinHandle<()>>,
+    reader_thread: Option<std::thread::ThreadId>,
+    shutting_down: bool,
+    complete: bool,
 }
 
 struct HostInputProducer {
@@ -24972,6 +25008,48 @@ mod tests {
             "runtime shutdown must join the input reader before returning"
         );
         drop(events_rx);
+    }
+
+    #[test]
+    fn host_input_runtime_shutdown_serializes_concurrent_callers() {
+        let mut runtime = HostInputRuntime::new();
+        let ingress = runtime.ingress.clone();
+        let (closed_tx, closed_rx) = std::sync::mpsc::sync_channel(1);
+        let (release_tx, release_rx) = std::sync::mpsc::sync_channel(1);
+        let reader = std::thread::spawn(move || {
+            while !ingress.is_closed() {
+                std::thread::yield_now();
+            }
+            closed_tx.send(()).unwrap();
+            release_rx.recv().unwrap();
+        });
+        runtime.attach_reader(reader);
+
+        let shutdown = runtime.shutdown_control();
+        let first_shutdown = shutdown.clone();
+        let (first_done_tx, first_done_rx) = std::sync::mpsc::sync_channel(1);
+        let first = std::thread::spawn(move || {
+            first_shutdown.shutdown();
+            first_done_tx.send(()).unwrap();
+        });
+        closed_rx.recv().unwrap();
+
+        let second_shutdown = shutdown.clone();
+        let (second_done_tx, second_done_rx) = std::sync::mpsc::sync_channel(1);
+        let second = std::thread::spawn(move || {
+            second_shutdown.shutdown();
+            second_done_tx.send(()).unwrap();
+        });
+        assert!(
+            second_done_rx.try_recv().is_err(),
+            "concurrent shutdown must wait for the reader join"
+        );
+
+        release_tx.send(()).unwrap();
+        first.join().unwrap();
+        second.join().unwrap();
+        assert!(first_done_rx.try_recv().is_ok());
+        assert!(second_done_rx.try_recv().is_ok());
     }
 
     #[test]
