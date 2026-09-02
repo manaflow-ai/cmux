@@ -8590,7 +8590,8 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         // is a local-terminal request by construction (including the attach panes the
         // routed create itself materializes, whose initialCommand is the attach argv).
         if initialCommand == nil, tmuxStartCommand == nil, remotePTYSessionID == nil,
-           workingDirectory == nil, !suppressWorkspaceRemoteStartupCommand,
+           workingDirectory == nil, cloudTuiManualIOAttach == nil,
+           !suppressWorkspaceRemoteStartupCommand,
            routeCloudPaneTerminalSplit(from: panelId, orientation: orientation, insertFirst: insertFirst, focus: focus) {
             return .routedToRemote
         }
