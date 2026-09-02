@@ -1026,6 +1026,9 @@ mod tests {
     use std::sync::Mutex as StdMutex;
     use tokio::net::tcp::OwnedReadHalf;
 
+    /// The overflow and End owned permits permanently hold two queue slots.
+    const RESERVED_WRITER_QUEUE_ITEMS: usize = 2;
+
     #[derive(Default)]
     struct FakeState {
         on_data: Option<DataSink>,
@@ -1316,10 +1319,12 @@ mod tests {
         let rig = rig().await;
         let (connection, mut writer_rx) = queue_connection(Arc::clone(&rig.manager)).await;
 
-        // Data can fill every ordinary slot, but the reserved permit keeps
-        // the shutdown item available and the item reserve leaves room for
-        // the control error.
-        let accepted_data = TUNNEL_WRITER_QUEUE_ITEMS - TUNNEL_CONTROL_QUEUE_RESERVE_ITEMS - 1;
+        // Data can fill every ordinary slot after both owned permits and the
+        // item reserve are accounted for. The permits keep overflow and End
+        // available, while the item reserve leaves room for the control error.
+        let accepted_data = TUNNEL_WRITER_QUEUE_ITEMS
+            - RESERVED_WRITER_QUEUE_ITEMS
+            - TUNNEL_CONTROL_QUEUE_RESERVE_ITEMS;
         for _ in 0..accepted_data {
             assert!(connection.enqueue_frame(vec![b'x'], false));
         }
@@ -1354,7 +1359,9 @@ mod tests {
     async fn saturated_writer_queue_reports_overflow_before_end() {
         let rig = rig().await;
         let (connection, mut writer_rx) = queue_connection(Arc::clone(&rig.manager)).await;
-        let accepted_data = TUNNEL_WRITER_QUEUE_ITEMS - TUNNEL_CONTROL_QUEUE_RESERVE_ITEMS - 1;
+        let accepted_data = TUNNEL_WRITER_QUEUE_ITEMS
+            - RESERVED_WRITER_QUEUE_ITEMS
+            - TUNNEL_CONTROL_QUEUE_RESERVE_ITEMS;
         for _ in 0..accepted_data {
             assert!(connection.enqueue_frame(vec![b'x'], false));
         }
