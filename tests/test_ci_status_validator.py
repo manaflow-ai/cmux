@@ -108,9 +108,9 @@ def test_shared_route_job_is_required_for_either_route() -> None:
 
 def test_inactive_failure_is_not_ignored() -> None:
     failures = module.validate_needs(
-        needs(ALL_FALSE, results={"remote-daemon-tests": "failure"})
+        needs(ALL_FALSE, results={"web-typecheck": "failure"})
     )
-    assert "remote-daemon-tests: unexpected result for inactive route, got failure" in failures
+    assert "web-typecheck: unexpected result for inactive route, got failure" in failures
 
 
 def test_missing_or_malformed_route_data_fails_closed() -> None:
@@ -134,12 +134,12 @@ def test_workflow_fails_when_serialized_selected_job_is_skipped() -> None:
 
 
 def test_preflight_requires_selected_linux_routes() -> None:
-    outputs = {**ALL_FALSE, "go": "true"}
+    outputs = {**ALL_FALSE, "web": "true"}
     failures = module.validate_needs(
         {name: data for name, data in needs(outputs).items() if name not in {"linux-preflight", "tests"}},
         phase="preflight",
     )
-    assert "remote-daemon-tests: required for route go, got skipped" in failures
+    assert "web-typecheck: required for route web, got skipped" in failures
 
 
 if __name__ == "__main__":

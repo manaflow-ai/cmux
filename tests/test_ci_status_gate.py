@@ -56,7 +56,6 @@ def complete_checks() -> list[dict[str, object]]:
         "react-apps-check",
         "diff-sidecar-check",
         "web-db-migrations",
-        "remote-daemon-tests",
         "agent-session-web-resources",
     ]
     checks = [check(name, number=index + 1) for index, name in enumerate(names)]
