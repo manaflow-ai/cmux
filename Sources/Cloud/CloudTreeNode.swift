@@ -230,8 +230,8 @@ struct CloudTreeLocalWorkspace: Equatable {
 /// Pure assembly of outline nodes from the fleet rows and the catalog snapshot.
 /// Order: This Mac (local workspaces → terminals; Browsers) first, then every
 /// cloud machine (Terminals pool; Displays pool; Workspaces → workspace →
-/// pointer rows; Browsers); ports stay out of the tree for now, and a machine
-/// without a connected link gets a placeholder child instead of the pools.
+/// pointer rows; Browsers; Ports); a machine without a connected link gets a
+/// placeholder child instead of the pools.
 enum CloudTreeNodeBuilder {
     /// Whether the tree shows this Mac's own terminals and browsers. Off for now —
     /// the Machines panel is the cloud fleet; this Mac's surfaces already live in the
@@ -507,10 +507,9 @@ enum CloudTreeNodeBuilder {
                 ))
             }
         }
-        // Ports are out of the tree for now (still in the catalog: the CLI and
-        // `cmux vm open <id>:port/<n>` keep working); the rows return with the
-        // pool rework if they earn their place back.
-        let browsers = resources.filter { $0.kind == .browser && $0.port == nil && $0.remoteViewCount == 0 }
+        // Daemon browsers no workspace views (a localhost URL still keeps its browser row;
+        // only the probe's canonical `port:<n>` resources are port rows).
+        let browsers = resources.filter { $0.kind == .browser && !$0.id.key.hasPrefix("port:") && $0.remoteViewCount == 0 }
         if !browsers.isEmpty {
             children.append(CloudTreeNode(
                 id: nodeID(browsersGroup: machine),
@@ -520,7 +519,27 @@ enum CloudTreeNodeBuilder {
                 }
             ))
         }
+        // Forwarded ports the machine is listening on (the provider's probe), lowest
+        // first. A port row is the sidebar side of `cmux vm open <id>:port/<n>`: the
+        // same `<id>/browser/port:<n>` catalog resource, opened through the same
+        // `SurfaceCatalog.project` path, with Copy Port on its menu.
+        let ports = portResources(resources)
+        if !ports.isEmpty {
+            children.append(CloudTreeNode(
+                id: nodeID(portsGroup: machine),
+                kind: .portsGroup(machine: machine),
+                children: ports.map { CloudTreeNode(id: nodeID(resource: $0.id), kind: .port($0)) }
+            ))
+        }
         return children
+    }
+
+    /// A machine's forwarded-port resources (`<machine>/browser/port:<n>`), by port number.
+    /// Daemon browsers that merely point at a localhost URL keep their browser row.
+    static func portResources(_ resources: [SurfaceResource]) -> [SurfaceResource] {
+        resources
+            .filter { $0.kind == .browser && $0.port != nil && $0.id.key.hasPrefix("port:") }
+            .sorted { ($0.port ?? 0, $0.id.key) < ($1.port ?? 0, $1.id.key) }
     }
 
     private static func terminalNode(

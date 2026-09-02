@@ -847,6 +847,9 @@ extension CMUXCLI {
             if direction != nil, pane == nil {
                 throw CLIError(message: "vm workspace open: --left/--right/--up/--down need --pane <id|ref>\n\n\(Self.vmWorkspaceUsage)")
             }
+            if tabs, direction != nil {
+                throw CLIError(message: String(localized: "cli.vm.workspace.open.tabsAndSide", defaultValue: "vm workspace open: --tabs and a pane side (--left/--right/--up/--down) are two different placements; pass one") + "\n\n\(Self.vmWorkspaceUsage)")
+            }
             if here {
                 params["here"] = true
                 if let localWorkspace { params["target_workspace_id"] = localWorkspace }
@@ -856,8 +859,19 @@ extension CMUXCLI {
             }
             let response = try client.sendV2(method: "vm.workspace_open", params: params, responseTimeout: 240)
             if jsonOutput { print(jsonString(response)); return }
-            let local = (response["workspace_id"] as? String) ?? "?"
             let opened = (response["opened"] as? Int) ?? 0
+            if (response["empty"] as? Bool) == true {
+                // Same as clicking the row: an empty workspace opens nothing (D9).
+                // The hint names the workspace by id (that is what --remote-workspace takes),
+                // even when the caller opened it by name.
+                let remoteID = (response["remote_workspace_id"] as? String) ?? positional[1]
+                print(String(
+                    format: String(localized: "cli.vm.workspace.open.empty", defaultValue: "OK opened=0 machine=%1$@ (workspace %2$@ is empty — nothing to open; `cmux surface new-terminal --machine %1$@ --remote-workspace %3$@` starts a terminal in it)"),
+                    machine, positional[1], remoteID
+                ))
+                return
+            }
+            let local = (response["workspace_id"] as? String) ?? "?"
             print("OK workspace=\(local) opened=\(opened) machine=\(machine)\(here ? " here" : "")")
         case "close":
             guard positional.count >= 2 else { throw CLIError(message: Self.vmWorkspaceUsage) }
@@ -992,12 +1006,15 @@ extension CMUXCLI {
             print(String(localized: "cli.vm.tree.empty", defaultValue: "No cloud machines. Try: cmux vm new"))
             return
         }
-        // Local terminals group by the workspace that shows them; titles come from the
-        // workspace list (best effort — an id stands in when the list is unavailable).
+        // Local terminals group by the workspace that shows them. The catalog carries
+        // this Mac's workspace titles itself (`workspaces`); an older app without them
+        // costs one `workspace.list` round trip (best effort — an id stands in when
+        // neither is available).
         var workspaceTitles: [String: String] = [:]
-        if machines.contains(where: { ($0["local"] as? Bool) == true }),
-           let list = try? client.sendV2(method: "workspace.list"),
-           let workspaces = list["workspaces"] as? [[String: Any]] {
+        if machines.contains(where: { ($0["local"] as? Bool) == true }) {
+            let workspaces = (response["workspaces"] as? [[String: Any]])
+                ?? ((try? client.sendV2(method: "workspace.list"))?["workspaces"] as? [[String: Any]])
+                ?? []
             for workspace in workspaces {
                 guard let id = workspace["id"] as? String else { continue }
                 let title = (workspace["title"] as? String).flatMap { $0.isEmpty ? nil : $0 }
@@ -1275,11 +1292,26 @@ extension CMUXCLI {
             let catalog = try client.sendV2(method: "surface.catalog", params: ["machine": machine], responseTimeout: 120)
             let resources = (catalog["resources"] as? [[String: Any]]) ?? []
             let terminals = resources.filter { ($0["kind"] as? String) == "terminal" }
+            // The machine's own workspace list resolves the address (by `ws_…` id or by
+            // name) so an EMPTY workspace is found too; terminals fill it in.
+            let listed = ((catalog["machines"] as? [[String: Any]])?.first?["remote_workspaces"] as? [[String: Any]]) ?? []
+            let listedMatch = listed.first { ($0["id"] as? String) == workspace } ?? listed.first { ($0["name"] as? String) == workspace }
             let inWorkspace = terminals.filter { terminal in
-                let remote = terminal["remote_workspace"] as? [String: Any]
-                return (remote?["id"] as? String) == workspace || (remote?["name"] as? String) == workspace
+                // Membership is every view of the terminal (`remote_views`), not only its
+                // first workspace: a terminal shown in two workspaces belongs to both.
+                var members: [[String: Any]] = ((terminal["remote_views"] as? [[String: Any]]) ?? []).compactMap { $0["workspace"] as? [String: Any] }
+                if members.isEmpty, let first = terminal["remote_workspace"] as? [String: Any] { members = [first] }
+                return members.contains { remote in
+                    let id = remote["id"] as? String
+                    // The machine's list already picked the workspace (id first, then
+                    // name): membership is that id alone, so a name that equals another
+                    // workspace's id cannot admit both.
+                    if let listedID = listedMatch?["id"] as? String { return id == listedID }
+                    return id == workspace || (remote["name"] as? String) == workspace
+                }
             }
-            let remoteWorkspaceId = (inWorkspace.first?["remote_workspace"] as? [String: Any])?["id"] as? String
+            let remoteWorkspaceId = (listedMatch?["id"] as? String)
+                ?? (inWorkspace.first?["remote_workspace"] as? [String: Any])?["id"] as? String
             guard let remoteWorkspaceId else {
                 throw CLIError(message: String(
                     format: String(localized: "cli.vm.open.workspaceNotFound", defaultValue: "%1$@ has no workspace '%2$@'. See: cmux vm tree %1$@"),
@@ -1287,11 +1319,16 @@ extension CMUXCLI {
                 ))
             }
             let live = inWorkspace.filter { ($0["lifecycle"] as? String) != "exited" }
-            let focusedFirst = live.sorted { lhs, rhs in
-                let l = ((lhs["remote_workspace"] as? [String: Any])?["focused"] as? Bool) == true
-                let r = ((rhs["remote_workspace"] as? [String: Any])?["focused"] as? Bool) == true
-                return l && !r
+            // "Focused" is judged in the REQUESTED workspace's view of the terminal, not
+            // its first workspace: a terminal focused elsewhere must not outrank this
+            // workspace's own focused terminal.
+            func focusedHere(_ terminal: [String: Any]) -> Bool {
+                let views = ((terminal["remote_views"] as? [[String: Any]]) ?? []).compactMap { $0["workspace"] as? [String: Any] }
+                let member = views.first { ($0["id"] as? String) == remoteWorkspaceId }
+                    ?? (terminal["remote_workspace"] as? [String: Any])
+                return (member?["focused"] as? Bool) == true
             }
+            let focusedFirst = live.sorted { lhs, rhs in focusedHere(lhs) && !focusedHere(rhs) }
             if let pick = focusedFirst.first, let terminalId = pick["key"] as? String {
                 try openVMTerminal(machine: machine, terminalId: terminalId, workspaceRaw: workspaceRaw, focus: focus, client: client, jsonOutput: jsonOutput)
                 return
@@ -1400,6 +1437,9 @@ extension CMUXCLI {
             }
             if (direction != nil || tab) && paneOpt == nil {
                 throw CLIError(message: "surface open: --left/--right/--up/--down/--tab need --pane <id|ref>\n\n\(Self.surfaceUsage)")
+            }
+            if tab, direction != nil {
+                throw CLIError(message: String(localized: "cli.surface.open.tabAndSide", defaultValue: "surface open: --tab and a pane side (--left/--right/--up/--down) are two different placements; pass one") + "\n\n\(Self.surfaceUsage)")
             }
             var params: [String: Any] = ["resource": resource]
             if let workspaceOpt { params["workspace_id"] = workspaceOpt }

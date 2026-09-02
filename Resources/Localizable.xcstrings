@@ -1,6 +1,10 @@
 {
   "sourceLanguage": "en",
   "strings": {
+    "cli.surface.open.tabAndSide": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"surface open: --tab and a pane side (--left/--right/--up/--down) are two different placements; pass one"}},"ja":{"stringUnit":{"state":"translated","value":"surface open: --tab とペインの辺 (--left/--right/--up/--down) は別々の配置です。どちらか一方を指定してください"}}}},
+    "cli.vm.workspace.open.empty": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"OK opened=0 machine=%1$@ (workspace %2$@ is empty — nothing to open; `cmux surface new-terminal --machine %1$@ --remote-workspace %3$@` starts a terminal in it)"}},"ja":{"stringUnit":{"state":"translated","value":"OK opened=0 machine=%1$@（ワークスペース %2$@ は空です — 開くものがありません。`cmux surface new-terminal --machine %1$@ --remote-workspace %3$@` でターミナルを作成できます）"}}}},
+    "cli.vm.workspace.open.tabsAndSide": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"vm workspace open: --tabs and a pane side (--left/--right/--up/--down) are two different placements; pass one"}},"ja":{"stringUnit":{"state":"translated","value":"vm workspace open: --tabs とペインの辺 (--left/--right/--up/--down) は別々の配置です。どちらか一方を指定してください"}}}},
+    "cloud.provider.snapshotUnreadable": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"%@'s cmux-tui session did not return a readable snapshot; retry in a moment."}},"ja":{"stringUnit":{"state":"translated","value":"%@ の cmux-tui セッションから読み取り可能なスナップショットが返りませんでした。しばらくしてから再試行してください。"}}}},
     "socket.error.unknownMethod": {
       "extractionState": "manual",
       "localizations": {

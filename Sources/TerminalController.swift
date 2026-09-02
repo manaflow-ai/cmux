@@ -3926,10 +3926,13 @@ class TerminalController {
                     message: message
                 )
             }
+            // Human wording first: the catalog and pane factory throw LocalizedErrors
+            // ("Unknown surface …", "Destination not found: …"); a raw enum dump
+            // ("unknownResource(…)") is what the CLI would otherwise print verbatim.
             return v2Error(
                 id: id,
                 code: "vm_error",
-                message: String(describing: error),
+                message: (error as? LocalizedError)?.errorDescription ?? String(describing: error),
                 data: Self.cloudVMBackendErrorData(error)
             )
         case nil:

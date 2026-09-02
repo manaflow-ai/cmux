@@ -425,7 +425,20 @@ final class MachinesPanelModelTests: XCTestCase {
             "machine:vivid-newt/ws/ws_side/resource:vivid-newt/display/display:1",
             "machine:vivid-newt/ws/ws_empty",
             "machine:vivid-newt/ws/ws_empty/resource:vivid-newt/display/display:1",
+            "machine:vivid-newt/ports",
+            "resource:vivid-newt/browser/port:3000",
         ])
+        // Port rows: the sidebar side of `cmux vm open <m>:port/<n>` — the same
+        // `<m>/browser/port:<n>` resource, so click and CLI open one catalog entry.
+        let portRows = Dictionary(CloudTreeNodeBuilder.flattened(nodes).map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+        if case .port(let resource) = portRows["resource:vivid-newt/browser/port:3000"]!.kind {
+            XCTAssertEqual(resource.port, 3000)
+            XCTAssertEqual(resource.id, port.id)
+        } else { XCTFail("expected a port row") }
+        XCTAssertFalse(portRows["resource:vivid-newt/browser/port:3000"]!.isDragSource, "ports open in place; they do not leave the tree by drag")
+        // A daemon browser at a localhost URL is a browser, never a port row.
+        let localhostBrowser = SurfaceResource(id: SurfaceResourceID(machine: .cloud("vivid-newt"), kind: .browser, key: "browser_9"), title: "app", detail: "http://localhost:3000", lifecycle: .running, agent: nil, remoteWorkspace: nil, port: 3000, url: "http://localhost:3000")
+        XCTAssertEqual(CloudTreeNodeBuilder.portResources([localhostBrowser, port]).map(\.id), [port.id])
         // A remote workspace already showing locally: its row marks it open and the click
         // jumps to that local workspace instead of opening a second copy.
         let openSnapshot = SurfaceCatalogSnapshot(
@@ -469,7 +482,6 @@ final class MachinesPanelModelTests: XCTestCase {
             CloudTreeNodeBuilder.flattened(nodes).first { $0.id == "machine:vivid-newt/ws/ws_main" }?.dragGroup?.resources,
             [remoteA.id]
         )
-        XCTAssertFalse(ids.contains { $0.contains("port") }, "ports stay out of the tree for now")
         let flattened = CloudTreeNodeBuilder.flattened(nodes)
         let byID = Dictionary(flattened.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
 
@@ -507,7 +519,8 @@ final class MachinesPanelModelTests: XCTestCase {
             "vivid-newt/terminal/term_1", "vivid-newt/display/display:1",
             "vivid-newt/terminal/term_1", "vivid-newt/display/display:1",
             "vivid-newt/display/display:1",
-        ], "pool rows, then one drag resource per pointer (or implicit display) row")
+            "vivid-newt/browser/port:3000",
+        ], "pool rows, then one drag resource per pointer (or implicit display) row, then the port rows")
         XCTAssertTrue(flattened[0].isMachineRow)
         XCTAssertTrue(flattened[3].isMachineRow)
         XCTAssertEqual(flattened[3].machine, .cloud("vivid-newt"))
