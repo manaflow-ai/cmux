@@ -650,8 +650,8 @@ struct CLIExplicitSurfaceRoutingTests {
     // CI runners can cold-start the bundled CLI and its Swift runtime in a few
     // seconds. Keep these waits bounded, but leave enough headroom that a slow
     // runner does not turn an otherwise handled socket response into a timeout.
-    private static let processTimeout: TimeInterval = 15
-    private static let serverTimeout: TimeInterval = 15
+    private static let processTimeout: TimeInterval = 60
+    private static let serverTimeout: TimeInterval = 60
     private static let callerSurfaceId = "22222222-2222-2222-2222-222222222222"
     private static let targetSurfaceRef = "surface:11"
     private static let numericSurfaceId = "33333333-3333-3333-3333-333333333333"
