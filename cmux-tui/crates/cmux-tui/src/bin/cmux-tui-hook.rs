@@ -157,6 +157,20 @@ impl Drop for DetachedChildGuard {
     }
 }
 
+type SetupResult = anyhow::Result<(DetachedChildGuard, std::process::ChildStdout)>;
+
+/// Forward setup ownership to the provider-facing path. If that path has
+/// already timed out, recover a successful handoff from `SendError` and
+/// release the child instead of dropping the guard, which would terminate it.
+fn forward_setup_result(sender: std::sync::mpsc::SyncSender<SetupResult>, result: SetupResult) {
+    if let Err(error) = sender.send(result) {
+        if let Ok((child, stdout)) = error.0 {
+            child.release();
+            drop(stdout);
+        }
+    }
+}
+
 /// Settle the parent-side ownership before the provider-facing process
 /// returns. A child that already exited is reaped and its stdout reader is
 /// joined. A child that is still running must continue waiting for its receipt,
@@ -700,7 +714,7 @@ mod detach {
                         .context("detached hook child has no stdout")?;
                     Ok((child, stdout))
                 })();
-            let _ = sender.send(result);
+            super::forward_setup_result(sender, result);
         });
         let setup = || {
             deadline.map_or(None, |deadline| {
@@ -793,7 +807,7 @@ mod detach {
                         .context("detached hook child has no stdout")?;
                     Ok((child, stdout))
                 })();
-            let _ = sender.send(result);
+            super::forward_setup_result(sender, result);
         });
         let setup = match deadline {
             Some(deadline) => receiver
