@@ -117,7 +117,6 @@ struct WorkstreamTaskToolTodos: Sendable {
                     && content(in: object(from: operations[$0][keyPath: inputJSONKeyPath])) == subject
             }
             if matches.count == 1, let index = matches.first { return index }
-            if tool == .taskCreate, let first = matches.first { return first }
         }
         return nil
     }
