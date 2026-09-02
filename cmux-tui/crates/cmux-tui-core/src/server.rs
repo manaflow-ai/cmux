@@ -1480,7 +1480,7 @@ impl std::error::Error for DeliveryClassifiedError {
 }
 
 const STREAM_DISCONNECT_POLL: Duration = Duration::from_millis(100);
-const STREAM_WRITE_TIMEOUT: Duration = Duration::from_secs(2);
+const STREAM_WRITE_TIMEOUT: Duration = crate::budgets::SERVER_STREAM_WRITE;
 const SHUTDOWN_ACK_FLUSH_TIMEOUT: Duration = Duration::from_secs(5);
 #[cfg(not(test))]
 const WEBSOCKET_HANDSHAKE_TIMEOUT: Duration = Duration::from_secs(5);
@@ -1529,7 +1529,7 @@ const OUTBOUND_CONNECTION_BYTE_CAPACITY: usize = OUTBOUND_BYTE_CAPACITY * 8;
 const CLIENT_DETACH_WRITE_TIMEOUT: Duration = Duration::from_millis(100);
 const CONNECTION_SURFACE_QUEUE_CAPACITY: usize = 256;
 const CONNECTION_SURFACE_QUEUE_BYTE_CAPACITY: usize = 16 * 1024 * 1024;
-const CONNECTION_SURFACE_SHUTDOWN_TIMEOUT: Duration = Duration::from_secs(3);
+const CONNECTION_SURFACE_SHUTDOWN_TIMEOUT: Duration = crate::budgets::SERVER_CONNECTION_SURFACE_SHUTDOWN;
 const SERVER_SURFACE_WORKER_CAPACITY: usize = 16;
 const SERVER_SURFACE_RETAINED_BYTE_CAPACITY: usize = 16 * 1024 * 1024;
 const RESOURCE_STREAMS_PER_CLIENT_CAPACITY: usize = 64;

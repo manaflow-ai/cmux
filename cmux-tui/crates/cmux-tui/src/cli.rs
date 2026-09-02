@@ -5,6 +5,7 @@
 //! accidentally fall back to the private command protocol.
 
 mod command;
+mod diag;
 mod lifecycle;
 mod raw;
 mod wire;
@@ -33,6 +34,7 @@ const PUBLIC_SCOPES: &[&str] = &[
     "projection",
     "provider",
     "raw",
+    "diag",
 ];
 
 const REMOTE_COMMANDS: &[&str] = &[
@@ -157,6 +159,7 @@ pub fn run(args: &[String], startup_usage: &str) -> i32 {
                 command::run_provider_authority(global, authority)
             }
             CommandPlan::RawCommand(command) => raw::run(global, command),
+            CommandPlan::Diag(plan) => diag::run(global, plan),
         },
         Err(failure) => {
             let message = if matches!(failure.output, OutputMode::Quiet | OutputMode::Human) {
@@ -421,6 +424,7 @@ fn scope_help_for(
         "projection" => Cow::Borrowed(PROJECTION_HELP),
         "provider" => Cow::Borrowed(PROVIDER_HELP),
         "raw" => Cow::Borrowed(RAW_HELP),
+        "diag" => Cow::Borrowed(DIAG_HELP),
         _ => Cow::Owned(root_help(&catalog.local_server)),
     }
 }
@@ -476,6 +480,7 @@ const ROOT_HELP_SCOPES_SUFFIX: &str = "\
   projection    Read and update frontend projections
   provider      Install private provider authority
   raw           Send an explicit low-level operation
+  diag          Local diagnostics (named budgets)
 
 Run `cmux <scope> --help` for scope-specific paths.
 ";
@@ -675,6 +680,14 @@ USAGE
 
 `raw operation` uses cmux.protocol/2. `raw command` is an unsafe internal
 escape for the legacy control protocol and provides no compatibility promise.
+";
+
+const DIAG_HELP: &str = "\
+USAGE
+  cmux diag budgets [--json]
+
+`diag budgets` prints every named timing and size budget the daemon, terminal
+hosts, and clients enforce, with its stage and code site. It needs no session.
 ";
 
 #[cfg(test)]

@@ -3855,7 +3855,7 @@ enum RenderAction {
     Draw,
 }
 
-const TERMINAL_PAINT_CADENCE: Duration = Duration::from_millis(16);
+const TERMINAL_PAINT_CADENCE: Duration = cmux_tui_core::budgets::FRAME;
 
 /// Keep terminal parsing lossless while collapsing presentation-only wakes to
 /// the host's frame cadence. Structural draws remain immediate.
