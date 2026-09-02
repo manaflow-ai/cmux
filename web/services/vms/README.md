@@ -67,8 +67,9 @@ The auth regression tests live in `web/tests/vm-route-auth.test.ts`. They verify
   ordering that the old protocol cannot provide.
 - Event-feed recovery is an explicit phase machine with a capped backoff. One
   accepted event starts a ten-second stability window; the retry budget resets
-  only after that window or a new authenticated link. Snapshot refreshes do not
-  restart an exhausted feed.
+  only after that window or a new authenticated link. The first exhausted run
+  gets one snapshot-recovery restart without erasing the spent budget. Later
+  snapshot refreshes do not restart an exhausted feed.
 - `cloud_vm_leases` stores hashed PTY/RPC/SSH lease tokens, provider identity handles, session ids, expiry, and revocation timestamps.
 - `cmux-remote` lease rows are account-scoped and are marked revoked on sign-out.
   Freestyle daemon enrollment records are device-scoped and are not revoked yet,

@@ -136,9 +136,11 @@ budget and exposes an error state when the feed remains incompatible. The link
 models recovery as one phase, `healthy`, `recovering`, `exhausted`, or
 `snapshot_only`. A valid event does not immediately forgive a failed stream. It
 starts a ten-second stability window; only a stream that remains healthy for the
-whole window resets the consecutive-failure count. A routine snapshot refresh
-cannot reset an exhausted feed, so a dead daemon cannot cause an unbounded spawn
-loop. A new authenticated connection is an explicit reset boundary.
+whole window resets the consecutive-failure count. The first exhausted run has
+one snapshot-recovery allowance, which starts one final stream without erasing
+the spent budget. A later failed run stays exhausted, so routine snapshot
+refreshes cannot cause an unbounded spawn loop. A new authenticated connection
+is an explicit reset boundary.
 
 Older daemons may return the same complete graph without a cursor. The app
 keeps that graph in `snapshot_only` mode, exports it to agents, and suspends the

@@ -47,7 +47,12 @@ actor CloudMachineLink {
     private enum EventsRecoveryPhase: Equatable {
         case healthy
         case recovering(attempt: Int)
-        case exhausted
+        /// The retry budget is spent, but one authoritative full snapshot may
+        /// make one final stream-start attempt without resetting that budget.
+        case exhausted(canResumeFromSnapshot: Bool)
+        /// A snapshot consumed the one-shot restart allowance. It must become
+        /// healthy before another failure can be forgiven.
+        case snapshotRecovery
         case snapshotOnly
     }
 
@@ -297,16 +302,26 @@ actor CloudMachineLink {
         // A versioned snapshot is allowed to leave snapshot-only mode. Routine
         // refreshes must not reset an exhausted recovery budget, or a broken
         // daemon would be respawned forever by each refresh.
-        if eventsRecoveryPhase == .snapshotOnly {
-            resetEventsRecovery()
+        let leavingSnapshotOnly = eventsRecoveryPhase == .snapshotOnly
+        let hasSnapshotRecoveryAllowance: Bool
+        if case .exhausted(canResumeFromSnapshot: true) = eventsRecoveryPhase {
+            hasSnapshotRecoveryAllowance = true
+        } else {
+            hasSnapshotRecoveryAllowance = false
         }
+        if leavingSnapshotOnly { resetEventsRecovery() }
         replaceEventsCursor(cursor)
         guard state == .connected,
               let socketPath = connected?.socketPath,
               eventsSubscriptionID == nil,
-              eventsRecoveryTask == nil,
-              eventsRecoveryPhase == .healthy
+              eventsRecoveryTask == nil
         else { return }
+        if hasSnapshotRecoveryAllowance {
+            // A full snapshot is an ordering boundary, not a reason to erase
+            // the transport failure budget. Consume the one-shot restart now.
+            eventsRecoveryPhase = .snapshotRecovery
+        }
+        guard eventsRecoveryPhase == .healthy || eventsRecoveryPhase == .snapshotRecovery else { return }
         _ = startEventsSubscription(socketPath: socketPath, cursor: eventsCursor)
     }
 
@@ -469,19 +484,32 @@ actor CloudMachineLink {
         guard state == .connected,
               connected != nil,
               eventsSubscriptionID == nil,
-              eventsRecoveryPhase != .exhausted,
+              eventsRecoveryPhase != .exhausted(canResumeFromSnapshot: true),
+              eventsRecoveryPhase != .exhausted(canResumeFromSnapshot: false),
               eventsRecoveryPhase != .snapshotOnly,
               eventsRecoveryTask == nil
         else { return }
 
         let nextAttempt: Int
-        if case .recovering(let attempt) = eventsRecoveryPhase {
+        if case .snapshotRecovery = eventsRecoveryPhase {
+            eventsRecoveryPhase = .exhausted(canResumeFromSnapshot: false)
+            changesContinuation.yield(.streamEnded(reason: "events_recovery_exhausted", cursor: eventsCursor))
+            return
+        } else if case .recovering(let attempt) = eventsRecoveryPhase {
             nextAttempt = attempt + 1
         } else {
             nextAttempt = 1
         }
         guard let delay = eventsRecoveryPolicy.delay(forAttempt: nextAttempt) else {
-            eventsRecoveryPhase = .exhausted
+            // The first capped run may be retried once after a valid full
+            // snapshot. A later capped run has already consumed that allowance.
+            let canResumeFromSnapshot: Bool
+            if case .recovering(let attempt) = eventsRecoveryPhase {
+                canResumeFromSnapshot = attempt == eventsRecoveryPolicy.delays.count
+            } else {
+                canResumeFromSnapshot = false
+            }
+            eventsRecoveryPhase = .exhausted(canResumeFromSnapshot: canResumeFromSnapshot)
             changesContinuation.yield(.streamEnded(reason: "events_recovery_exhausted", cursor: eventsCursor))
             return
         }
@@ -504,7 +532,9 @@ actor CloudMachineLink {
         guard state == .connected,
               connected?.socketPath == socketPath,
               eventsSubscriptionID == nil,
-              eventsRecoveryPhase != .exhausted,
+              eventsRecoveryPhase != .exhausted(canResumeFromSnapshot: true),
+              eventsRecoveryPhase != .exhausted(canResumeFromSnapshot: false),
+              eventsRecoveryPhase != .snapshotRecovery,
               eventsRecoveryPhase != .snapshotOnly
         else { return }
         _ = startEventsSubscription(socketPath: socketPath, cursor: eventsCursor)
@@ -515,7 +545,8 @@ actor CloudMachineLink {
     /// stream after this one has ended.
     private func scheduleEventsStabilityReset(subscriptionID: UUID) {
         guard eventsStabilityTask == nil,
-              eventsRecoveryPhase != .exhausted,
+              eventsRecoveryPhase != .exhausted(canResumeFromSnapshot: true),
+              eventsRecoveryPhase != .exhausted(canResumeFromSnapshot: false),
               eventsRecoveryPhase != .snapshotOnly
         else { return }
         let clock = eventsRecoveryClock
