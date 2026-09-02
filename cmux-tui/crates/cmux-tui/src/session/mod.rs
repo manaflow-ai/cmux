@@ -2865,6 +2865,12 @@ pub(crate) fn test_remote_session_without_provider_authority() -> Session {
     Session::Remote(remote::test_session_without_provider_authority())
 }
 
+/// A remote session whose control socket accepts requests and never answers.
+#[cfg(test)]
+pub(crate) fn test_remote_session_with_silent_requests(capabilities: HashSet<String>) -> Session {
+    Session::Remote(remote::test_session_with_silent_requests(capabilities))
+}
+
 /// A remote session whose event transport already died with `reason`, the
 /// state the reader thread leaves behind before it synthesizes
 /// `MuxEvent::Empty` on connection loss.

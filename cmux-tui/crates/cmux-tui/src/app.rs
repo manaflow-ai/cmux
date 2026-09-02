@@ -268,6 +268,13 @@ enum AppEvent {
         generation: u64,
         result: Result<Vec<ClientInfo>, String>,
     },
+    /// The remote server answered `client-focus` for this client. `epoch` is
+    /// `App::client_focus_epoch` when the question was asked; the answer
+    /// applies only if no adoption or user navigation happened since.
+    ClientFocusRestored {
+        focus: crate::session::ClientFocus,
+        epoch: u64,
+    },
     SidebarPluginUpdated {
         status: SidebarPluginSurface,
         relaunch: bool,
@@ -2202,6 +2209,28 @@ impl OrderedSession {
 
     fn client_focus(&self, client_id: &str) -> Option<crate::session::ClientFocus> {
         self.inner.client_focus(client_id)
+    }
+
+    /// Ask the remote server for this client's remembered focus without
+    /// blocking the caller. The answer arrives as `AppEvent::ClientFocusRestored`
+    /// and is applied only if `App::client_focus_epoch` is still `epoch`.
+    /// The draw thread must never wait on a control-socket round trip.
+    fn restore_client_focus_async(&self, client_id: String, epoch: u64) {
+        let session = self.inner.clone();
+        let events = self.events.clone();
+        let spawn = std::thread::Builder::new().name("client-focus-restore".into()).spawn(
+            move || {
+                if let Some(focus) = session.client_focus(&client_id) {
+                    let _ = events.send(AppEvent::ClientFocusRestored { focus, epoch });
+                }
+            },
+        );
+        if spawn.is_err() {
+            crate::client_log::stderr_log!(
+                "session",
+                "cmux-tui: could not start the client focus restore worker; keeping the tree's default focus"
+            );
+        }
     }
 
     fn agents(&self) -> Vec<AgentInfo> {
@@ -7221,6 +7250,9 @@ pub struct App {
     /// Durable identity for per-client focus memory on the mux
     /// (client-focus-v1); None when no config directory is available.
     client_focus_id: Option<String>,
+    /// Bumped on every tree adoption and user focus report; fences late
+    /// `client-focus` answers (see `AppEvent::ClientFocusRestored`).
+    client_focus_epoch: u64,
     /// Terminal cells actually represented by the last rendered snapshot.
     /// Foreign-viewer padding outside these bounds is display-only.
     pub(crate) rendered_terminal_bounds: HashMap<SurfaceId, Rect>,
@@ -9503,6 +9535,7 @@ fn run_with_machine_updates_inner(request: RunRequest) -> anyhow::Result<RunOutc
         pane_focus_history: PaneFocusHistory::default(),
         reported_focus: None,
         client_focus_id: client_focus_identity(),
+        client_focus_epoch: 0,
         rendered_terminal_bounds: HashMap::new(),
         rendered_kitty_graphics: HashMap::new(),
         visible_size_surfaces: HashSet::new(),
@@ -15937,6 +15970,16 @@ impl App {
                 }
                 Ok(RenderAction::Draw)
             }
+            AppEvent::ClientFocusRestored { focus, epoch } => {
+                if self.client_focus_epoch != epoch {
+                    // The user navigated (or a new tree was adopted) before
+                    // the server answered; that wins over remembered focus.
+                    return Ok(RenderAction::None);
+                }
+                self.apply_restored_client_focus(focus);
+                self.rebuild_tab_locations();
+                Ok(RenderAction::Draw)
+            }
             AppEvent::ClientsUpdated { generation, result } => {
                 if generation != self.session.client_refresh_generation() {
                     return Ok(RenderAction::None);
@@ -16804,8 +16847,21 @@ impl App {
     /// server has one whose pane still exists in the adopted tree; otherwise
     /// the tree's own focus stays. Sets the report baseline either way.
     fn restore_client_focus_from_session(&mut self) {
+        // Every adoption starts a new focus epoch so an answer to an earlier
+        // question can never land on a later tree.
+        self.client_focus_epoch = self.client_focus_epoch.wrapping_add(1);
         let Some(client_id) = self.client_focus_id.clone() else { return };
+        if self.session.remote {
+            // A remote answer is a control-socket round trip. First draw uses
+            // the tree's own focus; the answer is applied when it arrives.
+            self.session.restore_client_focus_async(client_id, self.client_focus_epoch);
+            return;
+        }
         let Some(focus) = self.session.client_focus(&client_id) else { return };
+        self.apply_restored_client_focus(focus);
+    }
+
+    fn apply_restored_client_focus(&mut self, focus: crate::session::ClientFocus) {
         let mut location = None;
         for (workspace_index, workspace) in self.tree.workspaces().iter().enumerate() {
             for (screen_index, screen) in workspace.screens.iter().enumerate() {
@@ -16845,6 +16901,8 @@ impl App {
             Some(previous) => {
                 self.session.report_focus(Some(previous), focus, self.client_focus_id.as_deref());
                 self.reported_focus = Some(focus);
+                // User navigation supersedes any focus answer still in flight.
+                self.client_focus_epoch = self.client_focus_epoch.wrapping_add(1);
             }
         }
     }
@@ -29570,6 +29628,77 @@ mod tests {
         // Reconnection restores this client's own remembered focus, not the
         // session focus another client reported afterwards.
         assert_eq!(second.tree.active_workspace, 1);
+
+        let surfaces = mux.with_state(|state| state.surfaces.keys().copied().collect::<Vec<_>>());
+        for surface in surfaces {
+            mux.close_surface(surface).unwrap();
+        }
+    }
+
+    #[test]
+    fn remote_client_focus_restore_does_not_block_tree_adoption() {
+        // A remote session whose control socket never answers: `client-focus`
+        // would block for the full request timeout if it ran on the caller.
+        let session = crate::session::test_remote_session_with_silent_requests(HashSet::from([
+            server::CLIENT_FOCUS_CAPABILITY.to_string(),
+        ]));
+        let (mut app, events) = test_app_with_events(session);
+        app.sidebar_visible = false;
+        app.client_focus_id = Some("alice".to_string());
+        let tree = crate::session::tree::parse_tree(&serde_json::json!({
+            "workspaces": [{
+                "id": 1, "name": "one", "active": true,
+                "screens": [{
+                    "id": 1, "layout": {"type": "leaf", "pane": 1}, "active_pane": 1,
+                    "panes": [{"id": 1, "tabs": [{"surface": 1, "title": "sh", "kind": "pty"}]}]
+                }]
+            }]
+        }));
+        let started = Instant::now();
+        app.replace_tree(tree);
+        assert!(
+            started.elapsed() < Duration::from_secs(2),
+            "first tree adoption waited on the client-focus round trip"
+        );
+        assert_eq!(app.tree.active_workspace, 0);
+        assert!(
+            events.try_recv().is_err(),
+            "no focus answer can arrive from a silent server before the timeout"
+        );
+    }
+
+    #[test]
+    fn restored_client_focus_yields_to_user_navigation() {
+        let mux = Mux::new("client-focus-late-answer-test", SurfaceOptions::default());
+        mux.new_workspace(None, Some((80, 30))).unwrap();
+        mux.new_workspace(None, Some((80, 30))).unwrap();
+        mux.select_workspace(Some(0), None);
+        let mut app = test_app(Session::Local(mux.clone()));
+        app.sidebar_visible = false;
+        app.replace_tree(app.session.tree());
+        let epoch = app.client_focus_epoch;
+        let remembered_pane = app.tree.workspaces[1].screens[0].active_pane;
+
+        // A late answer while the user has stayed put applies.
+        app.handle(AppEvent::ClientFocusRestored {
+            focus: crate::session::ClientFocus { pane: remembered_pane, tab: 0 },
+            epoch,
+        })
+        .unwrap();
+        assert_eq!(app.tree.active_workspace, 1);
+
+        // A late answer after the user navigated is ignored, even when the
+        // user navigated back to where the adoption started.
+        app.select_workspace_for_client(Some(0), None);
+        let first_pane = app.tree.workspaces[0].screens[0].active_pane;
+        assert_eq!(app.tree.active_workspace, 0);
+        app.handle(AppEvent::ClientFocusRestored {
+            focus: crate::session::ClientFocus { pane: remembered_pane, tab: 0 },
+            epoch,
+        })
+        .unwrap();
+        assert_eq!(app.tree.active_workspace, 0);
+        assert_eq!(app.tree.workspaces[0].screens[0].active_pane, first_pane);
 
         let surfaces = mux.with_state(|state| state.surfaces.keys().copied().collect::<Vec<_>>());
         for surface in surfaces {
@@ -46006,6 +46135,7 @@ mod tests {
             pane_focus_history: PaneFocusHistory::default(),
             reported_focus: None,
             client_focus_id: None,
+            client_focus_epoch: 0,
             rendered_terminal_bounds: HashMap::new(),
             rendered_kitty_graphics: HashMap::new(),
             visible_size_surfaces: HashSet::new(),

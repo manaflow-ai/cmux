@@ -4188,6 +4188,16 @@ fn test_session_with_provider_context(
     test_session_with_writer(Box::new(NoopWriter), provider_workspace_authority, capabilities)
 }
 
+/// A remote session whose writer accepts every request and never answers, so
+/// any blocking request runs to its timeout. Used to prove a code path does
+/// not wait on the control socket.
+#[cfg(test)]
+pub(super) fn test_session_with_silent_requests(
+    capabilities: HashSet<String>,
+) -> Arc<RemoteSession> {
+    test_session_with_provider_context(None, capabilities)
+}
+
 #[cfg(test)]
 pub(super) fn test_session_without_provider_authority() -> Arc<RemoteSession> {
     test_session_with_provider_context(
