@@ -6324,6 +6324,108 @@ mod tests {
         assert!(closed.load(Ordering::Acquire));
     }
 
+    struct LifecycleReader {
+        responses: Receiver<String>,
+        remaining_responses: usize,
+        release: Arc<(Mutex<bool>, Condvar)>,
+        exited: Sender<()>,
+    }
+
+    impl RemoteMessageReader for LifecycleReader {
+        fn receive(&mut self) -> io::Result<Option<String>> {
+            if self.remaining_responses > 0 {
+                self.remaining_responses -= 1;
+                return self.responses.recv().map(Some).map_err(|_| {
+                    io::Error::new(io::ErrorKind::BrokenPipe, "lifecycle response channel closed")
+                });
+            }
+
+            let (released, changed) = &*self.release;
+            let mut released = released.lock().unwrap();
+            while !*released {
+                released = changed.wait(released).unwrap();
+            }
+            self.exited.send(()).unwrap();
+            Ok(None)
+        }
+    }
+
+    struct LifecycleWriter {
+        responses: Sender<String>,
+        closed: Arc<AtomicBool>,
+        exited: Sender<()>,
+    }
+
+    impl RemoteMessageWriter for LifecycleWriter {
+        fn send(&mut self, message: &str) -> io::Result<()> {
+            let request: Value = serde_json::from_str(message).map_err(io::Error::other)?;
+            let id = request
+                .get("id")
+                .and_then(Value::as_u64)
+                .ok_or_else(|| io::Error::other("lifecycle request omitted its id"))?;
+            let data = (request.get("cmd").and_then(Value::as_str) == Some("identify"))
+                .then(|| json!({"app": "cmux-tui", "protocol": SUPPORTED_PROTOCOL_VERSION}))
+                .unwrap_or(Value::Null);
+            self.responses
+                .send(json!({"id": id, "ok": true, "data": data}).to_string())
+                .map_err(|_| io::Error::new(io::ErrorKind::BrokenPipe, "lifecycle reader exited"))
+        }
+
+        fn close(&mut self) -> io::Result<()> {
+            self.closed.store(true, Ordering::Release);
+            Ok(())
+        }
+    }
+
+    impl Drop for LifecycleWriter {
+        fn drop(&mut self) {
+            let _ = self.exited.send(());
+        }
+    }
+
+    struct LifecycleAbort {
+        release: Arc<(Mutex<bool>, Condvar)>,
+    }
+
+    impl RemoteTransportAbort for LifecycleAbort {
+        fn abort(&self) -> io::Result<()> {
+            let (released, changed) = &*self.release;
+            *released.lock().unwrap() = true;
+            changed.notify_all();
+            Ok(())
+        }
+    }
+
+    #[test]
+    fn transport_disconnect_cancels_and_joins_reader_and_writer_workers() {
+        let (responses, response_rx) = channel();
+        let release = Arc::new((Mutex::new(false), Condvar::new()));
+        let (reader_exited, reader_exited_rx) = channel();
+        let (writer_exited, writer_exited_rx) = channel();
+        let closed = Arc::new(AtomicBool::new(false));
+        let session = RemoteSession::connect_transport(RemoteTransport::new(
+            Box::new(LifecycleReader {
+                responses: response_rx,
+                remaining_responses: 3,
+                release: release.clone(),
+                exited: reader_exited,
+            }),
+            Box::new(LifecycleWriter { responses, closed: closed.clone(), exited: writer_exited }),
+            Arc::new(LifecycleAbort { release }),
+        ))
+        .unwrap();
+
+        session.disconnect_transport();
+
+        assert!(closed.load(Ordering::Acquire));
+        reader_exited_rx
+            .recv_timeout(Duration::from_millis(100))
+            .expect("transport shutdown must cancel the blocked reader");
+        writer_exited_rx
+            .recv_timeout(Duration::from_millis(100))
+            .expect("transport shutdown must join the writer");
+    }
+
     #[test]
     fn transport_disconnect_reason_is_first_writer_wins() {
         let session = test_session(Box::new(CloseTrackingWriter {
