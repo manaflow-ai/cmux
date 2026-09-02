@@ -486,6 +486,7 @@ struct WorkstreamTaskToolTodos: Sendable {
             let provisional = popProvisionalID(for: subject)
             if let provisional, provisional != authoritativeID {
                 todos.removeAll { $0.id == provisional }
+                unclaim(provisional)
             }
             claim(authoritativeID)
             upsert(WorkstreamTaskTodo(
@@ -565,6 +566,7 @@ struct WorkstreamTaskToolTodos: Sendable {
                 todos[provisionalIndex] = updated
                 provisionalIDsInOrder[ordinal - 1] = id
                 replaceProvisionalReference(from: provisional, to: id)
+                unclaim(provisional)
                 claim(id)
                 return .list(todos)
             }
@@ -702,6 +704,7 @@ struct WorkstreamTaskToolTodos: Sendable {
         todos[index] = WorkstreamTaskTodo(id: id, content: current.content, state: current.state)
         provisionalIDsInOrder[ordinal - 1] = id
         replaceProvisionalReference(from: provisional, to: id)
+        unclaim(provisional)
         claim(id)
         return id
     }

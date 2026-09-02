@@ -355,6 +355,23 @@ struct WorkstreamTaskToolTodoTests {
         #expect(store.ownedTaskIds(forWorkstream: "s1") == ["1"])
     }
 
+    @Test("TaskUpdate adoption retires provisional ownership")
+    func taskUpdateAdoptionRetiresProvisionalOwnership() {
+        var accumulator = WorkstreamTaskToolTodos()
+        _ = accumulator.applyPre(
+            tool: .taskCreate,
+            inputJSON: #"{"subject":"adopt me"}"#,
+            requestID: "create-pre"
+        )
+        _ = accumulator.applyPre(
+            tool: .taskUpdate,
+            inputJSON: #"{"taskId":"1","status":"completed"}"#,
+            requestID: "update-pre"
+        )
+
+        #expect(accumulator.ownedIDList == ["1"])
+    }
+
     @Test("Out-of-order completions retain later pending operations")
     func outOfOrderCompletionsRetainPendingCreates() {
         let store = WorkstreamStore(ringCapacity: 50)
