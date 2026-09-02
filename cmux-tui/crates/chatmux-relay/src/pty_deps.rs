@@ -1304,6 +1304,7 @@ pub fn valid_session(name: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::io;
     use std::os::unix::net::UnixStream;
     use std::sync::atomic::{AtomicUsize, Ordering as AtomicOrdering};
     use std::sync::{Arc as TestArc, Barrier, Mutex as TestMutex, mpsc};
@@ -1329,6 +1330,29 @@ mod tests {
         fn resume(&self) {}
         fn kill(&self) {
             self.kills.fetch_add(1, AtomicOrdering::Relaxed);
+        }
+    }
+
+    struct FailingWriter {
+        fail_write: bool,
+        fail_flush: bool,
+    }
+
+    impl Write for FailingWriter {
+        fn write(&mut self, data: &[u8]) -> io::Result<usize> {
+            if self.fail_write {
+                Err(io::Error::new(io::ErrorKind::BrokenPipe, "write failed"))
+            } else {
+                Ok(data.len())
+            }
+        }
+
+        fn flush(&mut self) -> io::Result<()> {
+            if self.fail_flush {
+                Err(io::Error::new(io::ErrorKind::BrokenPipe, "flush failed"))
+            } else {
+                Ok(())
+            }
         }
     }
 
@@ -1568,6 +1592,26 @@ mod tests {
             };
         }
         assert!(matches!(command_rx.recv(), Ok(PipeChildCommand::Kill)));
+    }
+
+    #[test]
+    fn writer_failure_discards_queued_bytes_for_pty_and_pipe_paths() {
+        for (mode, writer) in [
+            ("pty write", FailingWriter { fail_write: true, fail_flush: false }),
+            ("pipe flush", FailingWriter { fail_write: false, fail_flush: true }),
+        ] {
+            let (sender, receiver) = mpsc::sync_channel(PTY_WRITE_QUEUE_ITEMS);
+            let queued = Arc::new(AtomicU64::new(0));
+            for data in [b"in-flight".to_vec(), b"queued-one".to_vec(), b"queued-two".to_vec()] {
+                assert!(reserve_write_bytes(&queued, data.len()), "reserve failed for {mode}");
+                sender.send(data).expect("queue write");
+            }
+            drop(sender);
+
+            write_queue_loop(writer, receiver, Arc::clone(&queued));
+
+            assert_eq!(queued.load(Ordering::Acquire), 0, "stale bytes in {mode} path");
+        }
     }
 
     #[test]
