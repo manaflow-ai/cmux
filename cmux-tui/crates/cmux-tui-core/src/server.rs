@@ -13835,7 +13835,7 @@ mod tests {
     #[test]
     fn shutdown_terminates_even_for_transient_accept_error() {
         let error = std::io::Error::from(std::io::ErrorKind::Interrupted);
-        assert_eq!(accept_error_action(&error, true), AcceptErrorAction::Terminate);
+        assert_eq!(accept_error_action(&error, true), AcceptErrorAction::Shutdown);
     }
 
     #[cfg(unix)]
