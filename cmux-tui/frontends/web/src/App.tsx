@@ -71,6 +71,7 @@ function AppContent() {
       />
       <Sidebar
         open={drawer === "open"}
+        supportsMutations={!connection.isMacRuntime}
         workspaces={connection.view}
         onClose={() => dispatchDrawer("close")}
         onSelect={(...args) => {
@@ -84,6 +85,7 @@ function AppContent() {
       />
       <TerminalPane
         client={connection.client}
+        supportsMutations={!connection.isMacRuntime}
         clients={connection.clients}
         screen={connection.active}
         onRefreshClients={connection.refreshClients}
@@ -104,6 +106,7 @@ function AppContent() {
       />
       <StatusBar
         workspace={activeWorkspace}
+        supportsMutations={!connection.isMacRuntime}
         session={connection.info?.session ?? null}
         onSelectScreen={connection.selectScreen}
         onNewScreen={connection.mutations.newScreen}

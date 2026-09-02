@@ -30,8 +30,13 @@ extension Notification.Name {
 }
 
 private enum MobileHostEventSubscriptionTracker {
+    // Ghostty's synchronous PTY tee cannot await an actor. This existing lock
+    // protects a tiny, bounded subscription snapshot; network I/O and event
+    // delivery never occur while it is held.
     private static let lock = NSLock()
     private nonisolated(unsafe) static var topicCounts: [String: Int] = [:]
+    private nonisolated(unsafe) static var unfilteredTopicCounts: [String: Int] = [:]
+    private nonisolated(unsafe) static var surfaceTopicUUIDCounts: [String: [UUID: Int]] = [:]
 
     static func hasSubscribers(topic: String) -> Bool {
         lock.lock()
@@ -39,8 +44,48 @@ private enum MobileHostEventSubscriptionTracker {
         return (topicCounts[topic] ?? 0) > 0
     }
 
-    static func replace(previousTopics: Set<String>?, nextTopics: Set<String>?) {
-        let changedTopics = updateCounts(previousTopics: previousTopics, nextTopics: nextTopics)
+    static func hasSubscribers(topic: String, surfaceID: UUID) -> Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        guard MobileHostEventTopicPolicy.surfaceFilterableTopics.contains(topic) else {
+            return (topicCounts[topic] ?? 0) > 0
+        }
+        return (unfilteredTopicCounts[topic] ?? 0) > 0
+            || (surfaceTopicUUIDCounts[topic]?[surfaceID] ?? 0) > 0
+    }
+
+    static func hasTerminalOutputSubscribers(surfaceID: UUID) -> Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        return (unfilteredTopicCounts["terminal.bytes"] ?? 0) > 0
+            || (surfaceTopicUUIDCounts["terminal.bytes"]?[surfaceID] ?? 0) > 0
+            || (unfilteredTopicCounts["terminal.render_grid"] ?? 0) > 0
+            || (surfaceTopicUUIDCounts["terminal.render_grid"]?[surfaceID] ?? 0) > 0
+    }
+
+    @discardableResult
+    static func replace(
+        previousTopics: Set<String>?,
+        previousSurfaceID: String? = nil,
+        nextTopics: Set<String>?,
+        nextSurfaceID: String? = nil,
+        shouldNotify: Bool = true
+    ) -> Set<String> {
+        let changedTopics = updateCounts(
+            previousTopics: previousTopics,
+            previousSurfaceID: previousSurfaceID,
+            nextTopics: nextTopics,
+            nextSurfaceID: nextSurfaceID
+        )
+        if shouldNotify { notify(changedTopics: changedTopics) }
+        return changedTopics
+    }
+
+    /// Publishes a previously computed subscription change after any
+    /// synchronous admission fence has been released. Notification observers
+    /// may synchronously trigger teardown, so this must not run while a grant
+    /// admission lock is held.
+    static func notify(changedTopics: Set<String>) {
         guard !changedTopics.isEmpty else { return }
         NotificationCenter.default.post(
             name: .mobileHostEventSubscriptionsDidChange,
@@ -49,7 +94,12 @@ private enum MobileHostEventSubscriptionTracker {
         )
     }
 
-    private static func updateCounts(previousTopics: Set<String>?, nextTopics: Set<String>?) -> Set<String> {
+    private static func updateCounts(
+        previousTopics: Set<String>?,
+        previousSurfaceID: String?,
+        nextTopics: Set<String>?,
+        nextSurfaceID: String?
+    ) -> Set<String> {
         lock.lock()
         defer { lock.unlock() }
 
@@ -64,9 +114,21 @@ private enum MobileHostEventSubscriptionTracker {
             } else {
                 topicCounts[topic] = nextCount
             }
+            updateScopeCount(topic: topic, surfaceID: previousSurfaceID, delta: -1)
         }
         for topic in nextTopics ?? [] {
             topicCounts[topic] = (topicCounts[topic] ?? 0) + 1
+            updateScopeCount(topic: topic, surfaceID: nextSurfaceID, delta: 1)
+        }
+
+        // A scoped attachment can move between surfaces while the global
+        // topic count remains nonzero. The producer-demand observers still
+        // need a notification so they can discard the old surface's pending
+        // work and schedule the new scope.
+        if previousSurfaceID != nextSurfaceID {
+            changedTopics.formUnion(allTopics.filter {
+                MobileHostEventTopicPolicy.surfaceFilterableTopics.contains($0)
+            })
         }
 
         for topic in allTopics {
@@ -79,9 +141,26 @@ private enum MobileHostEventSubscriptionTracker {
         return changedTopics
     }
 
+    private static func updateScopeCount(topic: String, surfaceID: String?, delta: Int) {
+        guard MobileHostEventTopicPolicy.surfaceFilterableTopics.contains(topic) else { return }
+        guard let surfaceID else {
+            let count = max(0, (unfilteredTopicCounts[topic] ?? 0) + delta)
+            unfilteredTopicCounts[topic] = count == 0 ? nil : count
+            return
+        }
+        if let uuid = UUID(uuidString: surfaceID) {
+            var uuidCounts = surfaceTopicUUIDCounts[topic] ?? [:]
+            let uuidCount = max(0, (uuidCounts[uuid] ?? 0) + delta)
+            uuidCounts[uuid] = uuidCount == 0 ? nil : uuidCount
+            surfaceTopicUUIDCounts[topic] = uuidCounts.isEmpty ? nil : uuidCounts
+        }
+    }
+
     static func reset() {
         lock.lock()
         topicCounts.removeAll()
+        unfilteredTopicCounts.removeAll()
+        surfaceTopicUUIDCounts.removeAll()
         lock.unlock()
         NotificationCenter.default.post(
             name: .mobileHostEventSubscriptionsDidChange,
@@ -466,6 +545,10 @@ final class MobileHostService {
     private var readinessTimeoutTask: Task<Void, Never>?
     let mobileBrowserStreamCoordinator = MobileBrowserStreamCoordinator()
     let mobileSimulatorStreamCoordinator = MobileSimulatorStreamCoordinator()
+    /// Composition-root owner for the opt-in browser bridge. It is separate
+    /// from the iOS pairing listener so stopping one transport cannot revoke
+    /// or tear down the other one's sessions.
+    nonisolated let webClientBridgeService = WebClientBridgeService()
     #if DEBUG
     private var debugAcceptedStackAuthToken: String?
     #endif
@@ -548,25 +631,21 @@ final class MobileHostService {
     /// notification closures. This path only touches the connection registry,
     /// not actor-isolated listener state.
     ///
-    /// The event is encoded exactly once and admitted synchronously into each
-    /// connection's bounded queue. No per-connection task or payload copy
-    /// outlives this call, so emission cost stays O(connections) and pinned
-    /// memory stays O(queue capacity) no matter how far producers run ahead of
-    /// a slow, paused, or half-dead subscriber (issue #8842).
+    /// The event is encoded once per required wire variant and admitted
+    /// synchronously into each connection's bounded queue. No per-connection
+    /// task or payload copy outlives this call, so emission cost stays
+    /// O(connections) and pinned memory stays O(queue capacity) no matter how
+    /// far producers run ahead of a slow, paused, or half-dead subscriber
+    /// (issue #8842).
     nonisolated static func emitEvent(topic: String, payload: [String: Any]) {
         guard MobileHostEventSubscriptionTracker.hasSubscribers(topic: topic) else {
             return
         }
-        guard let frame = encodedEventFrame(topic: topic, payload: payload) else {
-            mobileHostLog.error(
-                "mobile host dropped unencodable event topic=\(topic, privacy: .public)"
-            )
-            return
-        }
+        let coalesceKey = eventCoalesceKey(topic: topic, payload: payload)
         deliverEventFrame(
-            frame,
             topic: topic,
-            coalesceKey: eventCoalesceKey(topic: topic, payload: payload),
+            payload: payload,
+            coalesceKey: coalesceKey,
             isFullRenderGridFrame: topic == MobileHostEventTopicPolicy.renderGridTopic
                 && payload["full"] as? Bool == true
         )
@@ -640,16 +719,60 @@ final class MobileHostService {
         }
     }
 
+    /// Browser terminal-byte variant. The numeric `seq` remains unchanged in
+    /// the shared/iOS frame; only subscribed web-grant connections receive its
+    /// exact decimal spelling.
+    nonisolated static func webTerminalBytePayload(
+        _ payload: [String: Any]
+    ) -> [String: Any]? {
+        guard let sequence = payload["seq"] as? UInt64 else { return nil }
+        var webPayload = payload
+        webPayload["seq"] = String(sequence)
+        return webPayload
+    }
+
     /// Fans one encoded event frame out to every registered connection through
     /// synchronous bounded admission.
     nonisolated private static func deliverEventFrame(
-        _ frame: Data,
         topic: String,
+        payload: [String: Any],
         coalesceKey: String?,
         isFullRenderGridFrame: Bool
     ) {
-        deliverEventFrames(topic: topic, coalesceKey: coalesceKey, stateSeq: nil) { _ in
-            (frame, isFullRenderGridFrame)
+        var frame: Data?
+        var browserFrame: Data?
+        deliverEventFrames(topic: topic, coalesceKey: coalesceKey, stateSeq: nil) { connection in
+            // Avoid serializing an event for connections whose current
+            // subscription snapshot cannot admit it. This matters for the
+            // terminal-byte hot path, where a scoped attachment should not
+            // force work for unrelated surfaces.
+            guard connection.eventQueue.accepts(
+                topic: topic,
+                coalesceKey: coalesceKey
+            ) else { return nil }
+            if topic == "terminal.bytes", connection.usesWebEventEncoding {
+                if browserFrame == nil,
+                   let browserPayload = webTerminalBytePayload(payload) {
+                    browserFrame = encodedEventFrame(topic: topic, payload: browserPayload)
+                }
+                guard let browserFrame else {
+                    mobileHostLog.error(
+                        "mobile host dropped browser terminal.bytes event: unexpected seq encoding"
+                    )
+                    return nil
+                }
+                return (browserFrame, isFullRenderGridFrame)
+            }
+            if frame == nil {
+                frame = encodedEventFrame(topic: topic, payload: payload)
+                if frame == nil {
+                    mobileHostLog.error(
+                        "mobile host dropped unencodable event topic=\(topic, privacy: .public)"
+                    )
+                }
+            }
+            guard let frame else { return nil }
+            return (frame, isFullRenderGridFrame)
         }
     }
 
@@ -724,6 +847,19 @@ final class MobileHostService {
 
     nonisolated static func hasEventSubscribers(topic: String) -> Bool {
         MobileHostEventSubscriptionTracker.hasSubscribers(topic: topic)
+    }
+
+    nonisolated static func hasEventSubscribers(topic: String, surfaceID: UUID) -> Bool {
+        MobileHostEventSubscriptionTracker.hasSubscribers(
+            topic: topic,
+            surfaceID: surfaceID
+        )
+    }
+
+    nonisolated static func hasTerminalOutputSubscribers(surfaceID: UUID) -> Bool {
+        MobileHostEventSubscriptionTracker.hasTerminalOutputSubscribers(
+            surfaceID: surfaceID
+        )
     }
 
     /// User-default key for the opt-in Mac-side iOS pairing listener.
@@ -1132,11 +1268,23 @@ final class MobileHostService {
 
     func stop() {
         MobileHostIrohRuntime.shared.setDesiredActive(false)
+        // Invalidate browser admission leases synchronously so a policy-flip
+        // teardown cannot race a new registry insertion while the actor cleanup
+        // task is awaiting connection closes.
+        MobileHostConnectionRegistry.shared.invalidateAllWebGrantAdmissions()
+        // This legacy lifecycle entry point is synchronous. The registry is
+        // invalidated below immediately; the actor task owns only listener,
+        // handshake, and grant cleanup and retains itself through completion.
+        Task { [webClientBridgeService] in
+            await webClientBridgeService.stop()
+        }
         stopLegacyListener(reason: "service stopped")
+        // Connection-owned close paths are the sole subscription decrement
+        // authority. Resetting counts here would let late old-generation
+        // closes erase demand registered by a fast replacement connection.
         for connection in MobileHostConnectionRegistry.shared.removeAll() {
             Task { await connection.close(reason: "service stopped") }
         }
-        MobileHostEventSubscriptionTracker.reset()
         MobileHostPublicStatusCache.removeAll()
         TerminalController.shared.clearAllMobileViewportReports(reason: "mobile.host.stopped")
         drainReadinessWaiters()
@@ -1259,7 +1407,7 @@ final class MobileHostService {
             // editing the preferred port before a restart must not flip this.
             usesEphemeralFallback: isRunning && listenerUsesEphemeralFallback,
             routes: routes,
-            activeConnectionCount: MobileHostConnectionRegistry.shared.count,
+            activeConnectionCount: MobileHostConnectionRegistry.shared.mobileConnectionCount,
             lastErrorDescription: lastErrorDescription
         )
     }
@@ -1362,11 +1510,22 @@ final class MobileHostService {
     nonisolated static func acceptTransport(
         _ transport: any CmxByteTransport,
         authorization: MobileHostConnectionAuthorizationContext,
+        connectionID: UUID? = nil,
+        webGrantAdmission: WebClientGrantAdmission? = nil,
         artifactTransfers: MobileHostIrohArtifactTransferRegistry? = nil,
         independentEventWriter: (any MobileHostIndependentEventWriting)? = nil,
         promoteUsableSession: @escaping @Sendable () async -> Bool = { true },
         remoteControlDisabledByPolicy: @escaping @Sendable () -> Bool = {
             MobileRemoteControlPolicy.isDisabled
+        },
+        webGrantAuthorization: @escaping @Sendable (UUID, MobileHostRPCRequest) async -> MobileHostRPCResult? = { _, _ in
+            .failure(MobileHostRPCError(
+                code: "unauthorized",
+                message: String(
+                    localized: "webClientBridge.error.grantUnavailable",
+                    defaultValue: "Browser grant is unavailable"
+                )
+            ))
         },
         isCurrent: @escaping @Sendable () async -> Bool
     ) async -> CmxIrohAdmittedConnectionExit {
@@ -1374,6 +1533,14 @@ final class MobileHostService {
             lifecycle: .explicitlyInvalidated,
             failure: .none
         )
+        // A browser authorization context is only meaningful with its
+        // revocation lease. Refuse malformed composition calls before creating
+        // a connection whose subscription path could otherwise bypass the
+        // synchronous grant fence.
+        guard !authorization.isWebGrant || webGrantAdmission != nil else {
+            await transport.close()
+            return expectedExit
+        }
         // Universal admission funnel for every transport (Iroh and the legacy
         // TCP listener): refuse here too, so races and already-open listeners
         // cannot admit a connection while the managed policy is enforced.
@@ -1390,10 +1557,12 @@ final class MobileHostService {
             return expectedExit
         }
 
-        let id = UUID()
+        let id = connectionID ?? UUID()
         let session = MobileHostConnection(
             id: id,
             transport: transport,
+            usesWebEventEncoding: authorization.isWebGrant,
+            webGrantAdmission: webGrantAdmission,
             independentEventWriter: independentEventWriter,
             authorizeRequest: { request in
                 await Self.connectionAuthorizationError(
@@ -1401,10 +1570,21 @@ final class MobileHostService {
                     authorization: authorization,
                     stackAuthorization: { request in
                         await MobileHostService.shared.authorizationError(for: request)
-                    }
+                    },
+                    webGrantAuthorization: webGrantAuthorization
                 )
             },
             onAuthorizedRequest: { request in
+                if authorization.isWebGrant {
+                    // Browser viewport reports must be cleaned up by the
+                    // server-owned connection identity; never retain a
+                    // caller-supplied id that could belong to another viewer.
+                    await MobileHostService.shared.recordClientID(
+                        "web:\(id.uuidString)",
+                        for: id
+                    )
+                    return
+                }
                 guard let clientID = Self.clientID(from: request.params) else {
                     return
                 }
@@ -1422,10 +1602,27 @@ final class MobileHostService {
                     return await Self.connectionStatusResult(
                         for: request,
                         authorization: authorization,
+                        webGrantAdmission: webGrantAdmission,
                         supportsArtifactLane: artifactTransfers != nil,
                         stackStatus: { request in
                             await MobileHostService.networkStatusResult(for: request)
                         }
+                    )
+                }
+                if authorization.isWebGrant {
+                    guard let webGrantAdmission else {
+                        return .failure(MobileHostRPCError(
+                            code: "revoked",
+                            message: String(
+                                localized: "webClientBridge.error.grantRevoked",
+                                defaultValue: "Browser grant has been revoked"
+                            )
+                        ))
+                    }
+                    return await TerminalController.shared.webClientBridgeHandleRPCAsync(
+                        request,
+                        admission: webGrantAdmission,
+                        connectionID: id
                     )
                 }
                 let result = await TerminalController.shared.mobileHostHandleRPC(
@@ -1433,7 +1630,8 @@ final class MobileHostService {
                     executionContext: MobileHostRPCExecutionContext(
                         connectionID: id,
                         authorization: authorization,
-                        artifactTransfers: artifactTransfers
+                        artifactTransfers: artifactTransfers,
+                        webGrantAdmission: webGrantAdmission
                     )
                 )
                 await MobileHostService.shared.recordCreatedResourcesIfNeeded(
@@ -1464,7 +1662,8 @@ final class MobileHostService {
             session,
             id: id,
             authorization: authorization,
-            limit: Self.maximumActiveConnectionCount
+            limit: Self.maximumActiveConnectionCount,
+            webGrantAdmission: webGrantAdmission
         ) else {
             mobileHostLog.error(
                 "mobile host rejected connection because an active connection quota was reached"
@@ -1479,7 +1678,16 @@ final class MobileHostService {
     nonisolated static func connectionAuthorizationError(
         for request: MobileHostRPCRequest,
         authorization: MobileHostConnectionAuthorizationContext,
-        stackAuthorization: @escaping @Sendable (MobileHostRPCRequest) async -> MobileHostRPCResult?
+        stackAuthorization: @escaping @Sendable (MobileHostRPCRequest) async -> MobileHostRPCResult?,
+        webGrantAuthorization: @escaping @Sendable (UUID, MobileHostRPCRequest) async -> MobileHostRPCResult? = { _, _ in
+            .failure(MobileHostRPCError(
+                code: "unauthorized",
+                message: String(
+                    localized: "webClientBridge.error.grantUnavailable",
+                    defaultValue: "Browser grant is unavailable"
+                )
+            ))
+        }
     ) async -> MobileHostRPCResult? {
         switch authorization {
         case .stackBearer:
@@ -1487,12 +1695,37 @@ final class MobileHostService {
             return await stackAuthorization(request)
         case .irohAdmission:
             return nil
+        case let .webGrant(grantID):
+            // Browser grants are connection credentials, not request fields.
+            // Check them for every request, including `mobile.host.status`, so
+            // a revoked client cannot use an already-open socket for one last
+            // unauthenticated probe.
+            guard MobileRemoteControlPolicy.isEnabled else {
+                return .failure(MobileHostRPCError(
+                    code: "remote_control_disabled",
+                    message: String(
+                        localized: "webClientBridge.error.remoteControlDisabled",
+                        defaultValue: "Remote control is disabled by managed policy."
+                    )
+                ))
+            }
+            guard TerminalController.webBridgeAllows(method: request.method) else {
+                return .failure(MobileHostRPCError(
+                    code: "method_not_found",
+                    message: String(
+                        localized: "webClientBridge.error.methodNotExposed",
+                        defaultValue: "Method is not exposed to browser clients"
+                    )
+                ))
+            }
+            return await webGrantAuthorization(grantID, request)
         }
     }
 
     nonisolated static func connectionStatusResult(
         for request: MobileHostRPCRequest,
         authorization: MobileHostConnectionAuthorizationContext,
+        webGrantAdmission: WebClientGrantAdmission? = nil,
         supportsArtifactLane: Bool = false,
         stackStatus: @escaping @Sendable (MobileHostRPCRequest) async -> MobileHostRPCResult
     ) async -> MobileHostRPCResult {
@@ -1514,6 +1747,23 @@ final class MobileHostService {
                 phonePushAdmission: phonePushStatus.0,
                 phonePushQueuePersistenceStatus: phonePushStatus.1
             )
+        case .webGrant:
+            // The bridge grant already authenticates the browser connection;
+            // expose the same identity-free host shape as a public probe and
+            // let the bridge add its protocol metadata at the handshake.
+            guard let webGrantAdmission,
+                  let result = webGrantAdmission.withValidAdmission({
+                      MobileHostPublicStatusCache.result(includeIdentity: false)
+                  }) else {
+                return .failure(MobileHostRPCError(
+                    code: "revoked",
+                    message: String(
+                        localized: "webClientBridge.error.grantRevoked",
+                        defaultValue: "Browser grant has been revoked"
+                    )
+                ))
+            }
+            return result
         }
     }
 
@@ -2033,8 +2283,14 @@ extension MobileHostService {
 
 actor MobileHostConnection {
     private static let maximumReceiveBufferByteCount = MobileSyncFrameCodec.defaultMaximumFrameByteCount + MobileSyncFrameCodec.headerByteCount
+    private static let maximumEventSubscriptionCount = 64
+    private static let maximumStreamIDUTF8ByteCount = 256
     private static let defaultFirstFrameTimeoutNanoseconds: UInt64 = 15 * 1_000_000_000
     private static let defaultIdleTimeoutNanoseconds: UInt64 = 30 * 1_000_000_000
+    /// Browser clients send a status heartbeat every 10 seconds. The server
+    /// owns a wider deadline so suspended tabs and half-open paths cannot hold
+    /// a web slot forever.
+    private static let defaultWebClientLeaseTimeoutNanoseconds: UInt64 = 45 * 1_000_000_000
     /// Bounded deadline for one control-lane event write. A peer that accepted
     /// the connection but stopped reading (TCP zero-window, QUIC flow-control
     /// stall) would otherwise pin the drain — and with it this connection's
@@ -2045,6 +2301,13 @@ actor MobileHostConnection {
         let topics: Set<String>
         let transport: MobileHostEventTransport
         let clientID: String?
+        let surfaceID: String?
+    }
+
+    private enum SubscriptionMutationOutcome: Sendable {
+        case applied(alreadySubscribed: Bool, changedTopics: Set<String>)
+        case limitReached
+        case revoked
     }
 
     private struct ResponseTask: Sendable {
@@ -2079,8 +2342,13 @@ actor MobileHostConnection {
     private let transport: any CmxByteTransport
     private let writer: MobileHostSerializedTransportWriter
     private let independentEventWriter: (any MobileHostIndependentEventWriting)?
+    /// Browser requests fence subscription mutations with the same synchronous
+    /// lease used by terminal mutations; legacy and Iroh connections leave it
+    /// nil and retain their existing behavior.
+    private let webGrantAdmission: WebClientGrantAdmission?
     private let firstFrameTimeoutNanoseconds: UInt64
     private let idleTimeoutNanoseconds: UInt64
+    private let webClientLeaseTimeoutNanoseconds: UInt64
     private let authorizeRequest: @Sendable (MobileHostRPCRequest) async -> MobileHostRPCResult?
     private let onAuthorizedRequest: @Sendable (MobileHostRPCRequest) async -> Void
     private let onUsableSession: @Sendable () async -> Bool
@@ -2092,6 +2360,8 @@ actor MobileHostConnection {
     /// fan-out. Nonisolated so ``MobileHostService/emitEvent(topic:payload:)``
     /// admits events without scheduling any per-event actor work.
     nonisolated let eventQueue: MobileHostConnectionEventQueue
+    /// Selects additive browser wire variants without parsing encoded frames.
+    nonisolated let usesWebEventEncoding: Bool
     private let eventSendStallTimeoutNanoseconds: UInt64
     /// Invalidates the pending event-send stall deadline: bumped when a send
     /// starts and again when it settles, so a deadline armed for send N can
@@ -2100,6 +2370,8 @@ actor MobileHostConnection {
     private var receiveBuffer = Data()
     private var firstFrameTimeoutTask: Task<Void, Never>?
     private var idleTimeoutTask: Task<Void, Never>?
+    private var webClientLeaseTask: Task<Void, Never>?
+    private var webClientLeaseGeneration: UInt64 = 0
     private var responseTasks: [UUID: ResponseTask] = [:]
     /// PTY-writing requests are ordered PER SURFACE: ordering is only a
     /// property of one terminal, and a connection-wide FIFO would let one
@@ -2127,10 +2399,13 @@ actor MobileHostConnection {
         id: UUID,
         connection: NWConnection,
         eventQueue: MobileHostConnectionEventQueue = MobileHostConnectionEventQueue(),
+        usesWebEventEncoding: Bool = false,
+        webClientLeaseTimeoutNanoseconds: UInt64 = MobileHostConnection.defaultWebClientLeaseTimeoutNanoseconds,
         firstFrameTimeoutNanoseconds: UInt64 = MobileHostConnection.defaultFirstFrameTimeoutNanoseconds,
         idleTimeoutNanoseconds: UInt64 = MobileHostConnection.defaultIdleTimeoutNanoseconds,
         eventSendStallTimeoutNanoseconds: UInt64 = MobileHostConnection.defaultEventSendStallTimeoutNanoseconds,
         independentEventWriter: (any MobileHostIndependentEventWriting)? = nil,
+        webGrantAdmission: WebClientGrantAdmission? = nil,
         authorizeRequest: @escaping @Sendable (MobileHostRPCRequest) async -> MobileHostRPCResult?,
         onAuthorizedRequest: @escaping @Sendable (MobileHostRPCRequest) async -> Void,
         onUsableSession: @escaping @Sendable () async -> Bool = { true },
@@ -2143,8 +2418,12 @@ actor MobileHostConnection {
         self.transport = transport
         self.writer = MobileHostSerializedTransportWriter(transport: transport)
         self.independentEventWriter = independentEventWriter
+        self.webGrantAdmission = webGrantAdmission
         self.firstFrameTimeoutNanoseconds = firstFrameTimeoutNanoseconds
         self.idleTimeoutNanoseconds = idleTimeoutNanoseconds
+        self.webClientLeaseTimeoutNanoseconds = usesWebEventEncoding
+            ? webClientLeaseTimeoutNanoseconds
+            : 0
         self.eventSendStallTimeoutNanoseconds = eventSendStallTimeoutNanoseconds
         self.authorizeRequest = authorizeRequest
         self.onAuthorizedRequest = onAuthorizedRequest
@@ -2153,16 +2432,20 @@ actor MobileHostConnection {
         self.onClose = onClose
         self.requestSimulatorFrameReplay = requestSimulatorFrameReplay
         self.eventQueue = eventQueue
+        self.usesWebEventEncoding = usesWebEventEncoding
     }
 
     init(
         id: UUID,
         transport: any CmxByteTransport,
         eventQueue: MobileHostConnectionEventQueue = MobileHostConnectionEventQueue(),
+        usesWebEventEncoding: Bool = false,
+        webClientLeaseTimeoutNanoseconds: UInt64 = MobileHostConnection.defaultWebClientLeaseTimeoutNanoseconds,
         firstFrameTimeoutNanoseconds: UInt64 = MobileHostConnection.defaultFirstFrameTimeoutNanoseconds,
         idleTimeoutNanoseconds: UInt64 = MobileHostConnection.defaultIdleTimeoutNanoseconds,
         eventSendStallTimeoutNanoseconds: UInt64 = MobileHostConnection.defaultEventSendStallTimeoutNanoseconds,
         independentEventWriter: (any MobileHostIndependentEventWriting)? = nil,
+        webGrantAdmission: WebClientGrantAdmission? = nil,
         authorizeRequest: @escaping @Sendable (MobileHostRPCRequest) async -> MobileHostRPCResult?,
         onAuthorizedRequest: @escaping @Sendable (MobileHostRPCRequest) async -> Void,
         onUsableSession: @escaping @Sendable () async -> Bool = { true },
@@ -2174,8 +2457,12 @@ actor MobileHostConnection {
         self.transport = transport
         self.writer = MobileHostSerializedTransportWriter(transport: transport)
         self.independentEventWriter = independentEventWriter
+        self.webGrantAdmission = webGrantAdmission
         self.firstFrameTimeoutNanoseconds = firstFrameTimeoutNanoseconds
         self.idleTimeoutNanoseconds = idleTimeoutNanoseconds
+        self.webClientLeaseTimeoutNanoseconds = usesWebEventEncoding
+            ? webClientLeaseTimeoutNanoseconds
+            : 0
         self.eventSendStallTimeoutNanoseconds = eventSendStallTimeoutNanoseconds
         self.authorizeRequest = authorizeRequest
         self.onAuthorizedRequest = onAuthorizedRequest
@@ -2184,6 +2471,7 @@ actor MobileHostConnection {
         self.onClose = onClose
         self.requestSimulatorFrameReplay = requestSimulatorFrameReplay
         self.eventQueue = eventQueue
+        self.usesWebEventEncoding = usesWebEventEncoding
     }
 
     /// Runs the receive loop for the complete transport lifetime.
@@ -2199,6 +2487,7 @@ actor MobileHostConnection {
         let task = Task { [weak self] in
             do {
                 try await transport.connect()
+                await self?.refreshWebClientLease()
                 mobileHostLog.debug(
                     "mobile host connection ready \(connectionID.uuidString, privacy: .public)"
                 )
@@ -2255,6 +2544,8 @@ actor MobileHostConnection {
         firstFrameTimeoutTask = nil
         idleTimeoutTask?.cancel()
         idleTimeoutTask = nil
+        webClientLeaseTask?.cancel()
+        webClientLeaseTask = nil
         receiveTask?.cancel()
         receiveTask = nil
         // Rejects all future admissions and releases every queued payload; the
@@ -2276,6 +2567,7 @@ actor MobileHostConnection {
         for subscription in previousSubscriptions where !subscription.topics.isEmpty {
             MobileHostEventSubscriptionTracker.replace(
                 previousTopics: subscription.topics,
+                previousSurfaceID: subscription.surfaceID,
                 nextTopics: nil
             )
         }
@@ -2288,6 +2580,7 @@ actor MobileHostConnection {
 
     private func handleReceive(data: Data) async {
         if !data.isEmpty {
+            refreshWebClientLease()
             idleTimeoutTask?.cancel()
             idleTimeoutTask = nil
             guard receiveBuffer.count + data.count <= Self.maximumReceiveBufferByteCount else {
@@ -2516,6 +2809,37 @@ actor MobileHostConnection {
         }
     }
 
+    /// Arms a server-owned lease for browser connections. A real client
+    /// heartbeat/request refreshes this one-shot deadline; a suspended tab or
+    /// half-open network path therefore cannot consume a web slot forever.
+    private func refreshWebClientLease() {
+        guard webClientLeaseTimeoutNanoseconds > 0, !isClosed else { return }
+        webClientLeaseGeneration &+= 1
+        let generation = webClientLeaseGeneration
+        webClientLeaseTask?.cancel()
+        let timeoutNanoseconds = webClientLeaseTimeoutNanoseconds
+        // This is the intended liveness deadline, not polling or state
+        // synchronization; cancellation is tied to each connection lifecycle.
+        webClientLeaseTask = Task { [weak self] in
+            do {
+                try await Task.sleep(nanoseconds: timeoutNanoseconds)
+                guard !Task.isCancelled else { return }
+                await self?.closeIfWebClientLeaseExpired(generation: generation)
+            } catch {}
+        }
+    }
+
+    private func closeIfWebClientLeaseExpired(generation: UInt64) async {
+        guard generation == webClientLeaseGeneration, !isClosed else { return }
+        await close(
+            reason: "web client lease expired",
+            exit: CmxIrohAdmittedConnectionExit(
+                lifecycle: .controlReadFailed,
+                failure: .timedOut
+            )
+        )
+    }
+
     private func closeIfIdleAfterFrame() async {
         guard didDecodeFirstFrame, subscriptions.isEmpty, !hasActiveResponseWork else {
             return
@@ -2643,12 +2967,91 @@ actor MobileHostConnection {
                     subscription?.transport.rawValue
                     ?? MobileHostEventTransport.control.rawValue,
             ])
-        case "mobile.events.subscribe":
-            let streamID = (request.params["stream_id"] as? String) ?? UUID().uuidString
-            let topicsArray = (request.params["topics"] as? [String]) ?? []
+        case "mobile.events.subscribe", "events.stream", "terminal.attach":
+            let streamID = ((request.params["stream_id"] as? String) ?? UUID().uuidString)
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !streamID.isEmpty,
+                  streamID.utf8.count <= Self.maximumStreamIDUTF8ByteCount else {
+                return .failure(MobileHostRPCError(
+                    code: "invalid_params",
+                    message: String(
+                        localized: "webClientBridge.error.invalidStreamID",
+                        defaultValue: "stream_id must contain 1 to 256 UTF-8 bytes"
+                    )
+                ))
+            }
+            let existingSubscription = subscriptions[streamID]
+            let topicsArray: [String]
+            let surfaceID: String?
+            switch request.method {
+            case "terminal.attach":
+                guard let rawSurfaceID = request.params["surface_id"] as? String,
+                      let parsedSurfaceID = UUID(uuidString: rawSurfaceID) else {
+                    return .failure(MobileHostRPCError(
+                        code: "invalid_params",
+                        message: String(
+                            localized: "webClientBridge.error.surfaceIDRequired",
+                            defaultValue: "surface_id must be a UUID"
+                        )
+                    ))
+                }
+                topicsArray = ["terminal.bytes"]
+                surfaceID = parsedSurfaceID.uuidString
+            case "events.stream":
+                topicsArray = (request.params["topics"] as? [String])
+                    ?? ["workspace.updated"]
+                let allowedTopics: Set<String> = ["workspace.updated"]
+                guard topicsArray.allSatisfy(allowedTopics.contains) else {
+                    return .failure(MobileHostRPCError(
+                        code: "invalid_params",
+                        message: String(
+                            localized: "webClientBridge.error.eventTopicsNotExposed",
+                            defaultValue: "events.stream contains a topic that is not exposed to browser clients"
+                        )
+                    ))
+                }
+                surfaceID = nil
+            default:
+                topicsArray = (request.params["topics"] as? [String]) ?? []
+                if let rawSurfaceID = request.params["surface_id"] {
+                    guard let rawSurfaceID = rawSurfaceID as? String,
+                          let parsedSurfaceID = UUID(uuidString: rawSurfaceID) else {
+                        return .failure(MobileHostRPCError(
+                            code: "invalid_params",
+                            message: String(
+                                localized: "webClientBridge.error.surfaceIDRequired",
+                                defaultValue: "surface_id must be a UUID"
+                            )
+                        ))
+                    }
+                    surfaceID = parsedSurfaceID.uuidString
+                } else {
+                    surfaceID = nil
+                }
+            }
             let topics = Set(topicsArray.filter { !$0.isEmpty })
             guard !topics.isEmpty else {
-                return .failure(MobileHostRPCError(code: "invalid_params", message: "topics is required"))
+                return .failure(MobileHostRPCError(
+                    code: "invalid_params",
+                    message: String(
+                        localized: "webClientBridge.error.topicsRequired",
+                        defaultValue: "topics is required"
+                    )
+                ))
+            }
+            // Fast-path the common full-connection case before any optional
+            // independent-lane probe. The mutation helper below repeats this
+            // check at the synchronous commit boundary because another RPC
+            // can fill the remaining slot while that probe awaits.
+            guard existingSubscription != nil
+                    || subscriptions.count < Self.maximumEventSubscriptionCount else {
+                return .failure(MobileHostRPCError(
+                    code: "resource_exhausted",
+                    message: String(
+                        localized: "webClientBridge.error.subscriptionLimit",
+                        defaultValue: "Too many event subscriptions are active on this connection"
+                    )
+                ))
             }
             // Report whether this stream id was already registered BEFORE the
             // idempotent replace. The phone's render-grid liveness probe
@@ -2656,8 +3059,6 @@ actor MobileHostConnection {
             // it the registration had been lost (events emitted in the gap
             // were never delivered), so it requests a catch-up replay instead
             // of trusting delta continuity.
-            let existingSubscription = subscriptions[streamID]
-            let alreadySubscribed = existingSubscription != nil
             let requestedTransport = request.params["event_transport"] as? String
             let selectedTransport: MobileHostEventTransport
             if let existingSubscription {
@@ -2677,23 +3078,37 @@ actor MobileHostConnection {
             } else {
                 selectedTransport = .control
             }
-            await subscribe(
+            let renderGridAnchor: MobileTerminalRenderGridFrame.Anchor? = topics.contains("terminal.render_grid")
+                ? ((request.params["render_grid_anchor"] as? String)
+                    == MobileTerminalRenderGridFrame.Anchor.screen.rawValue
+                    ? .screen
+                    : .viewport)
+                : nil
+            let mutation = replaceSubscriptionState(
                 streamID: streamID,
                 topics: topics,
                 transport: selectedTransport,
-                clientID: request.params["client_id"] as? String
+                clientID: request.params["client_id"] as? String,
+                surfaceID: surfaceID,
+                anchor: renderGridAnchor,
+                admission: webGrantAdmission
             )
-            if topics.contains("terminal.render_grid") {
-                // Anchor negotiation: "screen" clients own their local
-                // viewport/scrollback and receive active-area-anchored frames;
-                // everything else keeps the v1 viewport-mirror contract.
-                let anchor: MobileTerminalRenderGridFrame.Anchor =
-                    (request.params["render_grid_anchor"] as? String)
-                        == MobileTerminalRenderGridFrame.Anchor.screen.rawValue
-                    ? .screen
-                    : .viewport
-                MobileTerminalRenderGridAnchorRegistry.shared.set(anchor, connectionID: id)
+            let alreadySubscribed: Bool
+            switch mutation {
+            case .revoked:
+                return webGrantRevokedResult()
+            case .limitReached:
+                return .failure(MobileHostRPCError(
+                    code: "resource_exhausted",
+                    message: String(
+                        localized: "webClientBridge.error.subscriptionLimit",
+                        defaultValue: "Too many event subscriptions are active on this connection"
+                    )
+                ))
+            case let .applied(wasAlreadySubscribed, _):
+                alreadySubscribed = wasAlreadySubscribed
             }
+            await finishSubscriptionMutation()
             #if DEBUG
             cmuxDebugLog("mobile.subscribe streamID=\(streamID) topics=\(topics.sorted()) existing=\(alreadySubscribed) connID=\(self.id.uuidString)")
             #endif
@@ -2703,9 +3118,15 @@ actor MobileHostConnection {
                 "already_subscribed": alreadySubscribed,
                 "event_transport": selectedTransport.rawValue,
             ])
-        case "mobile.events.unsubscribe":
+        case "mobile.events.unsubscribe", "events.cancel":
             let streamID = request.params["stream_id"] as? String ?? ""
-            let removed = await unsubscribe(streamID: streamID)
+            guard let removed = removeSubscriptionState(
+                streamID: streamID,
+                admission: webGrantAdmission
+            ) else {
+                return webGrantRevokedResult()
+            }
+            await finishUnsubscribeMutation()
             return .ok([
                 "stream_id": streamID,
                 "removed": removed,
@@ -2713,6 +3134,16 @@ actor MobileHostConnection {
         default:
             return nil
         }
+    }
+
+    private func webGrantRevokedResult() -> MobileHostRPCResult {
+        .failure(MobileHostRPCError(
+            code: "revoked",
+            message: String(
+                localized: "webClientBridge.error.grantRevoked",
+                defaultValue: "Browser grant has been revoked"
+            )
+        ))
     }
 
     private static func readinessContribution(
@@ -2807,7 +3238,8 @@ actor MobileHostConnection {
              // counting that as interactive activity starves host work gated
              // on mobile quiet (e.g. TabManager background git/PR refresh).
              "mobile.events.subscribe", "mobile.events.unsubscribe",
-             "mobile.events.probe":
+             "mobile.events.probe", "events.stream", "events.cancel",
+             "terminal.attach":
             return false
         default:
             return true
@@ -2819,46 +3251,106 @@ actor MobileHostConnection {
         streamID: String,
         topics: Set<String>,
         transport: MobileHostEventTransport = .control,
-        clientID: String? = nil
+        clientID: String? = nil,
+        surfaceID: String? = nil
     ) async {
-        let previousTopics = subscriptions[streamID]?.topics
-        subscriptions[streamID] = EventSubscription(
+        guard case .applied = replaceSubscriptionState(
+            streamID: streamID,
             topics: topics,
             transport: transport,
-            clientID: clientID
-        )
-        if let usableEventSubscription,
-           usableEventSubscription.streamID == streamID,
-           !isLive(usableEventSubscription) {
-            self.usableEventSubscription = nil
+            clientID: clientID,
+            surfaceID: surfaceID,
+            anchor: nil,
+            admission: nil
+        ) else {
+            // Direct callers are existing mobile/Iroh paths; they have no
+            // browser admission and cannot hit the revocation outcome. The
+            // limit outcome is retained as a defensive no-op for this legacy
+            // helper, whose historical API has no error channel.
+            return
         }
-        eventQueue.updateSubscribedTopics(currentSubscribedTopics())
-        MobileHostEventSubscriptionTracker.replace(
-            previousTopics: previousTopics,
-            nextTopics: topics
-        )
-        idleTimeoutTask?.cancel()
-        idleTimeoutTask = nil
-        if currentSubscribedTopics().contains(MobileHostEventTopicPolicy.simulatorFrameTopic) {
-            await dispatchPendingSimulatorFrameReplay()
-        }
+        await finishSubscriptionMutation()
     }
 
     /// Remove a subscription by id. Returns true if it existed.
     @discardableResult
     func unsubscribe(streamID: String) async -> Bool {
-        let previousSubscription = subscriptions.removeValue(forKey: streamID)
-        let removed = previousSubscription != nil
-        if usableEventSubscription?.streamID == streamID {
-            usableEventSubscription = nil
-        }
-        eventQueue.updateSubscribedTopics(currentSubscribedTopics())
-        if let previousSubscription {
-            MobileHostEventSubscriptionTracker.replace(
-                previousTopics: previousSubscription.topics,
-                nextTopics: nil
+        let removed = removeSubscriptionState(streamID: streamID, admission: nil) ?? false
+        await finishUnsubscribeMutation()
+        return removed
+    }
+
+    /// Applies the synchronous portion of a subscription replacement. Browser
+    /// callers pass their admission lease so revocation either happens before
+    /// all state changes or after the complete replacement has committed.
+    private func replaceSubscriptionState(
+        streamID: String,
+        topics: Set<String>,
+        transport: MobileHostEventTransport,
+        clientID: String?,
+        surfaceID: String?,
+        anchor: MobileTerminalRenderGridFrame.Anchor?,
+        admission: WebClientGrantAdmission?
+    ) -> SubscriptionMutationOutcome {
+        let mutate: () -> SubscriptionMutationOutcome = {
+            let previousSubscription = self.subscriptions[streamID]
+            guard previousSubscription != nil
+                    || self.subscriptions.count < Self.maximumEventSubscriptionCount else {
+                return .limitReached
+            }
+            self.subscriptions[streamID] = EventSubscription(
+                topics: topics,
+                transport: transport,
+                clientID: clientID,
+                surfaceID: surfaceID
+            )
+            if let usableEventSubscription = self.usableEventSubscription,
+               usableEventSubscription.streamID == streamID,
+               !self.isLive(usableEventSubscription) {
+                self.usableEventSubscription = nil
+            }
+            self.updateEventQueueSubscriptionState()
+            let changedTopics = MobileHostEventSubscriptionTracker.replace(
+                previousTopics: previousSubscription?.topics,
+                previousSurfaceID: previousSubscription?.surfaceID,
+                nextTopics: topics,
+                nextSurfaceID: surfaceID,
+                shouldNotify: false
+            )
+            if let anchor {
+                // Anchor negotiation: "screen" clients own their local
+                // viewport/scrollback and receive active-area-anchored frames;
+                // everything else keeps the v1 viewport-mirror contract.
+                MobileTerminalRenderGridAnchorRegistry.shared.set(anchor, connectionID: self.id)
+            }
+            self.idleTimeoutTask?.cancel()
+            self.idleTimeoutTask = nil
+            return .applied(
+                alreadySubscribed: previousSubscription != nil,
+                changedTopics: changedTopics
             )
         }
+        let result: SubscriptionMutationOutcome
+        if let admission {
+            result = admission.withValidAdmission(mutate) ?? .revoked
+        } else {
+            result = mutate()
+        }
+        if case let .applied(_, changedTopics) = result {
+            MobileHostEventSubscriptionTracker.notify(changedTopics: changedTopics)
+        }
+        return result
+    }
+
+    /// Completes the asynchronous portion of an admitted subscription change.
+    private func finishSubscriptionMutation() async {
+        if currentSubscribedTopics().contains(MobileHostEventTopicPolicy.simulatorFrameTopic) {
+            await dispatchPendingSimulatorFrameReplay()
+        }
+    }
+
+    /// Applies the cleanup that may need to await an independent event lane.
+    private func finishUnsubscribeMutation() async {
         if !subscriptions.values.contains(where: {
             $0.transport == .irohServerEvents
         }) {
@@ -2867,7 +3359,43 @@ actor MobileHostConnection {
         if subscriptions.isEmpty {
             startIdleTimeout()
         }
-        return removed
+    }
+
+    /// Removes one subscription's synchronous state and tracker demand. A nil
+    /// return means a browser admission was invalidated before the mutation.
+    private func removeSubscriptionState(
+        streamID: String,
+        admission: WebClientGrantAdmission?
+    ) -> Bool? {
+        let mutate: () -> (removed: Bool, changedTopics: Set<String>) = {
+            let previousSubscription = self.subscriptions.removeValue(forKey: streamID)
+            let removed = previousSubscription != nil
+            if self.usableEventSubscription?.streamID == streamID {
+                self.usableEventSubscription = nil
+            }
+            self.updateEventQueueSubscriptionState()
+            let changedTopics: Set<String>
+            if let previousSubscription {
+                changedTopics = MobileHostEventSubscriptionTracker.replace(
+                    previousTopics: previousSubscription.topics,
+                    previousSurfaceID: previousSubscription.surfaceID,
+                    nextTopics: nil,
+                    shouldNotify: false
+                )
+            } else {
+                changedTopics = []
+            }
+            return (removed: removed, changedTopics: changedTopics)
+        }
+        let result: (removed: Bool, changedTopics: Set<String>)?
+        if let admission {
+            result = admission.withValidAdmission(mutate)
+        } else {
+            result = mutate()
+        }
+        guard let result else { return nil }
+        MobileHostEventSubscriptionTracker.notify(changedTopics: result.changedTopics)
+        return result.removed
     }
 
     /// Check whether this connection has any subscriber registered for `topic`.
@@ -2883,6 +3411,34 @@ actor MobileHostConnection {
     /// fan-out admission can check subscription without an actor hop.
     private func currentSubscribedTopics() -> Set<String> {
         subscriptions.values.reduce(into: Set<String>()) { $0.formUnion($1.topics) }
+    }
+
+    private func updateEventQueueSubscriptionState() {
+        let topics = currentSubscribedTopics()
+        var unfilteredTopics = Set<String>()
+        var allowedSurfaceIDsByTopic: [String: Set<String>] = [:]
+        for subscription in subscriptions.values {
+            guard let surfaceID = subscription.surfaceID else {
+                // An unscoped subscription wins over scoped subscriptions for
+                // the same topic, preserving the mobile client's existing
+                // connection-wide event contract.
+                unfilteredTopics.formUnion(subscription.topics)
+                continue
+            }
+            for topic in subscription.topics
+            where MobileHostEventTopicPolicy.surfaceFilterableTopics.contains(topic) {
+                allowedSurfaceIDsByTopic[topic, default: []].insert(surfaceID)
+            }
+        }
+        let filteredTopics = Set(allowedSurfaceIDsByTopic.keys).subtracting(unfilteredTopics)
+        allowedSurfaceIDsByTopic = allowedSurfaceIDsByTopic.filter {
+            !unfilteredTopics.contains($0.key)
+        }
+        eventQueue.updateSubscriptionState(
+            topics: topics,
+            allowedSurfaceIDsByTopic: allowedSurfaceIDsByTopic,
+            filteredTopics: filteredTopics
+        )
     }
 
     /// Encodes and enqueues one server-pushed event for this connection
@@ -3015,7 +3571,14 @@ actor MobileHostConnection {
                 if eventQueue.finishDrain() { continue }
                 return
             }
-            guard eventQueue.isSubscribed(topic: event.topic) else { continue }
+            // Subscription replacement can race a stalled writer. Re-check the
+            // complete topic/surface admission after dequeue and immediately
+            // before delivery so a frame admitted for an old terminal scope is
+            // never sent under a new scoped attachment.
+            guard eventQueue.accepts(
+                topic: event.topic,
+                coalesceKey: event.coalesceKey
+            ) else { continue }
             #if DEBUG
             let latencyWriteStart = event.stateSeq == nil ? nil : HostLatencyTrace.captureTime()
             #endif
@@ -3123,7 +3686,8 @@ actor MobileHostConnection {
             subscriptions[streamID] = EventSubscription(
                 topics: subscription.topics,
                 transport: .control,
-                clientID: subscription.clientID
+                clientID: subscription.clientID,
+                surfaceID: subscription.surfaceID
             )
         }
         if let usableEventSubscription,
@@ -3215,6 +3779,10 @@ extension MobileHostConnection {
         streamID: String
     ) -> MobileHostEventTransport? {
         subscriptions[streamID]?.transport
+    }
+
+    func debugSubscriptionSurfaceIDForTesting(streamID: String) -> String? {
+        subscriptions[streamID]?.surfaceID
     }
 
     func debugQueuedEventCountForTesting() -> Int {

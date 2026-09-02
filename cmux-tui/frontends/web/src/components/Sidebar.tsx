@@ -10,6 +10,7 @@ import { InlineRename } from "./InlineRename";
 
 interface SidebarProps {
   open: boolean;
+  supportsMutations?: boolean;
   workspaces: WorkspaceView[];
   onClose(): void;
   onSelect(workspaceId: Id, screenId: Id, surface: Id | null): void;
@@ -21,13 +22,14 @@ interface SidebarProps {
 
 interface WorkspaceRowProps {
   workspace: WorkspaceView;
+  supportsMutations: boolean;
   onSelect(workspaceId: Id, screenId: Id, surface: Id | null): void;
   onNewScreen(workspace: Id): void;
   onClose(workspace: Id): void;
   onRename(workspace: Id, name: string): void;
 }
 
-function WorkspaceRow({ workspace, onSelect, onNewScreen, onClose, onRename }: WorkspaceRowProps) {
+function WorkspaceRow({ workspace, supportsMutations, onSelect, onNewScreen, onClose, onRename }: WorkspaceRowProps) {
   const [menu, dispatchMenu] = useReducer(contextMenuReducer, { open: false });
   const [rename, dispatchRename] = useReducer(renameReducer, null);
   const trigger = useContextTrigger((point) => dispatchMenu({ type: "open", point }));
@@ -54,7 +56,7 @@ function WorkspaceRow({ workspace, onSelect, onNewScreen, onClose, onRename }: W
     >
       <span className="workspace-rail" aria-hidden="true">▎</span>
       <span className="workspace-name">
-        {rename?.kind === "workspace" && rename.id === workspace.id ? (
+        {supportsMutations && rename?.kind === "workspace" && rename.id === workspace.id ? (
           <InlineRename
             value={rename.value}
             onChange={(value) => dispatchRename({ type: "change", value })}
@@ -84,7 +86,7 @@ function WorkspaceRow({ workspace, onSelect, onNewScreen, onClose, onRename }: W
             {index + 1}
           </button>
         ))}
-        <button
+        {supportsMutations && <button
           aria-label={t("newScreen")}
           className="drawer-screen-chip new"
           onClick={(event) => {
@@ -94,20 +96,20 @@ function WorkspaceRow({ workspace, onSelect, onNewScreen, onClose, onRename }: W
           type="button"
         >
           +
-        </button>
+        </button>}
       </span>
-      {menu.open && (
+      {menu.open && supportsMutations && (
         <ContextMenu
           point={menu.point}
           onClose={() => dispatchMenu({ type: "close" })}
-          items={[
+          items={supportsMutations ? [
             {
               label: t("renameWorkspace"),
               onSelect: () => dispatchRename({ type: "begin", target: { kind: "workspace", id: workspace.id, value: workspace.name } }),
             },
             { label: t("newScreen"), onSelect: () => onNewScreen(workspace.id) },
             { label: t("closeWorkspace"), danger: true, onSelect: () => onClose(workspace.id) },
-          ]}
+          ] : []}
         />
       )}
     </div>
@@ -116,6 +118,7 @@ function WorkspaceRow({ workspace, onSelect, onNewScreen, onClose, onRename }: W
 
 export function Sidebar({
   open,
+  supportsMutations = true,
   workspaces,
   onClose,
   onSelect,
@@ -145,13 +148,14 @@ export function Sidebar({
             <WorkspaceRow
               key={workspace.id}
               workspace={workspace}
+              supportsMutations={supportsMutations}
               onSelect={onSelect}
               onNewScreen={onNewScreen}
               onClose={onCloseWorkspace}
               onRename={onRenameWorkspace}
             />
           ))}
-          <button className="new-workspace" onClick={onNewWorkspace} type="button">+ {t("newWorkspace")}</button>
+          {supportsMutations && <button className="new-workspace" onClick={onNewWorkspace} type="button">+ {t("newWorkspace")}</button>}
         </div>
       </nav>
     </aside>

@@ -115,6 +115,237 @@ extension MobileHostAuthorizationTests {
         #expect(finalRecordedIDs == [connectionID])
     }
 
+    @Test func testScopedTerminalAttachmentDoesNotReceiveOtherSurfaceBytes() async throws {
+        let control = RecordingMobileHostByteTransport()
+        let surfaceA = UUID()
+        let surfaceB = UUID()
+        let session = MobileHostConnection(
+            id: UUID(),
+            transport: control,
+            authorizeRequest: { _ in nil },
+            onAuthorizedRequest: { _ in },
+            handleRequest: { _ in .ok([:]) },
+            onClose: { _ in }
+        )
+        let result = await session.debugHandleSubscriptionRPCForTesting(
+            MobileHostRPCRequest(
+                id: "attach",
+                method: "terminal.attach",
+                params: [
+                    "stream_id": "surface-a",
+                    "surface_id": surfaceA.uuidString.lowercased(),
+                    "topics": ["terminal.bytes", "workspace.updated"],
+                ],
+                auth: nil
+            )
+        )
+        guard case let .ok(payload)? = result,
+              let object = payload as? [String: Any] else {
+            Issue.record("Expected scoped terminal attachment")
+            return
+        }
+        #expect(object["topics"] as? [String] == ["terminal.bytes"])
+        #expect(!(await session.sendEvent(
+            topic: "terminal.bytes",
+            payload: ["surface_id": surfaceB.uuidString, "seq": 0, "data_b64": "Yg=="]
+        )))
+        #expect(!(await session.sendEvent(
+            topic: "terminal.bytes",
+            payload: ["seq": 0, "data_b64": "Yw=="]
+        )))
+        #expect(await session.sendEvent(
+            topic: "terminal.bytes",
+            payload: ["surface_id": surfaceA.uuidString, "seq": 0, "data_b64": "YQ=="]
+        ))
+        #expect(await control.waitForSentBufferCount(1).count == 1)
+        await session.close(reason: "scoped attachment test complete")
+    }
+
+    @Test func testBrowserSubscriptionAliasesRejectUnscopedTerminalBytes() async {
+        let session = MobileHostConnection(
+            id: UUID(),
+            transport: RecordingMobileHostByteTransport(),
+            authorizeRequest: { _ in nil },
+            onAuthorizedRequest: { _ in },
+            handleRequest: { _ in .ok([:]) },
+            onClose: { _ in }
+        )
+        let missingSurface = await session.debugHandleSubscriptionRPCForTesting(
+            MobileHostRPCRequest(
+                id: "attach",
+                method: "terminal.attach",
+                params: [:],
+                auth: nil
+            )
+        )
+        guard case let .failure(missingSurfaceError)? = missingSurface else {
+            Issue.record("Expected terminal.attach to require a surface")
+            return
+        }
+        #expect(missingSurfaceError.code == "invalid_params")
+
+        let broadEvents = await session.debugHandleSubscriptionRPCForTesting(
+            MobileHostRPCRequest(
+                id: "events",
+                method: "events.stream",
+                params: ["topics": ["workspace.updated", "terminal.bytes"]],
+                auth: nil
+            )
+        )
+        guard case let .failure(broadEventsError)? = broadEvents else {
+            Issue.record("Expected events.stream to reject terminal bytes")
+            return
+        }
+        #expect(broadEventsError.code == "invalid_params")
+        await session.close(reason: "browser subscription alias test complete")
+    }
+
+    @Test func testEventSubscriptionsAreBoundedPerConnection() async {
+        let session = MobileHostConnection(
+            id: UUID(),
+            transport: RecordingMobileHostByteTransport(),
+            authorizeRequest: { _ in nil },
+            onAuthorizedRequest: { _ in },
+            handleRequest: { _ in .ok([:]) },
+            onClose: { _ in }
+        )
+        for index in 0..<64 {
+            let result = await session.debugHandleSubscriptionRPCForTesting(
+                MobileHostRPCRequest(
+                    id: index,
+                    method: "events.stream",
+                    params: ["stream_id": "events-\(index)"],
+                    auth: nil
+                )
+            )
+            guard case .ok? = result else {
+                Issue.record("Expected subscription \(index) to fit within the bound")
+                await session.close(reason: "subscription bound test failed")
+                return
+            }
+        }
+        let overflow = await session.debugHandleSubscriptionRPCForTesting(
+            MobileHostRPCRequest(
+                id: "overflow",
+                method: "events.stream",
+                params: ["stream_id": "events-overflow"],
+                auth: nil
+            )
+        )
+        guard case let .failure(error)? = overflow else {
+            Issue.record("Expected the subscription bound to reject overflow")
+            await session.close(reason: "subscription bound test failed")
+            return
+        }
+        #expect(error.code == "resource_exhausted")
+        await session.close(reason: "subscription bound test complete")
+    }
+
+    @Test func testScopedTerminalAttachmentGatesByteTeeDemandBySurface() async {
+        let surfaceA = UUID()
+        let surfaceB = UUID()
+        let session = MobileHostConnection(
+            id: UUID(),
+            transport: RecordingMobileHostByteTransport(),
+            authorizeRequest: { _ in nil },
+            onAuthorizedRequest: { _ in },
+            handleRequest: { _ in .ok([:]) },
+            onClose: { _ in }
+        )
+        await session.subscribe(
+            streamID: "surface-a",
+            topics: ["terminal.bytes"],
+            surfaceID: surfaceA.uuidString
+        )
+        #expect(MobileHostService.hasEventSubscribers(
+            topic: "terminal.bytes",
+            surfaceID: surfaceA
+        ))
+        #expect(!MobileHostService.hasEventSubscribers(
+            topic: "terminal.bytes",
+            surfaceID: surfaceB
+        ))
+
+        _ = await session.unsubscribe(streamID: "surface-a")
+        #expect(!MobileHostService.hasEventSubscribers(
+            topic: "terminal.bytes",
+            surfaceID: surfaceA
+        ))
+        await session.close(reason: "scoped byte tee demand test complete")
+    }
+
+    @Test func testLateOldConnectionClosePreservesReplacementSubscriptionDemand() async {
+        let surfaceID = UUID()
+        let oldConnection = MobileHostConnection(
+            id: UUID(),
+            transport: RecordingMobileHostByteTransport(),
+            authorizeRequest: { _ in nil },
+            onAuthorizedRequest: { _ in },
+            handleRequest: { _ in .ok([:]) },
+            onClose: { _ in }
+        )
+        let replacementConnection = MobileHostConnection(
+            id: UUID(),
+            transport: RecordingMobileHostByteTransport(),
+            authorizeRequest: { _ in nil },
+            onAuthorizedRequest: { _ in },
+            handleRequest: { _ in .ok([:]) },
+            onClose: { _ in }
+        )
+        await oldConnection.subscribe(
+            streamID: "old",
+            topics: ["terminal.bytes"],
+            surfaceID: surfaceID.uuidString
+        )
+        await replacementConnection.subscribe(
+            streamID: "replacement",
+            topics: ["terminal.bytes"],
+            surfaceID: surfaceID.uuidString
+        )
+
+        await oldConnection.close(reason: "old generation closed late")
+        #expect(MobileHostService.hasEventSubscribers(
+            topic: "terminal.bytes",
+            surfaceID: surfaceID
+        ))
+
+        await replacementConnection.close(reason: "replacement cleanup")
+        #expect(!MobileHostService.hasEventSubscribers(
+            topic: "terminal.bytes",
+            surfaceID: surfaceID
+        ))
+    }
+
+    @Test func testQueuedSurfaceEventIsRejectedAfterSubscriptionMovesToAnotherSurface() {
+        let queue = MobileHostConnectionEventQueue(
+            maximumEventCount: 4,
+            maximumByteCount: 1_000_000
+        )
+        queue.updateSubscriptionState(
+            topics: ["terminal.bytes"],
+            allowedSurfaceIDsByTopic: ["terminal.bytes": ["surface-a"]],
+            filteredTopics: ["terminal.bytes"]
+        )
+        #expect(queue.enqueue(
+            topic: "terminal.bytes",
+            coalesceKey: "surface-a",
+            isFullRenderGridFrame: false,
+            frame: Data("old".utf8)
+        ).admitted)
+
+        queue.updateSubscriptionState(
+            topics: ["terminal.bytes"],
+            allowedSurfaceIDsByTopic: ["terminal.bytes": ["surface-b"]],
+            filteredTopics: ["terminal.bytes"]
+        )
+        let queued = queue.dequeue()
+        #expect(queued != nil)
+        #expect(!queue.accepts(
+            topic: queued?.topic ?? "",
+            coalesceKey: queued?.coalesceKey
+        ))
+    }
+
     @Test func testDeadIndependentEventLaneFallsBackCurrentAndFutureEventsToControl() async throws {
         let control = RecordingMobileHostByteTransport()
         let independent = TestMobileHostIndependentEventWriter(

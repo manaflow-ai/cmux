@@ -10,13 +10,14 @@ import { InlineRename } from "./InlineRename";
 
 interface ScreenChipProps {
   screen: ScreenView;
+  supportsMutations: boolean;
   number: number;
   onSelect(): void;
   onClose(screen: Id): void;
   onRename(screen: Id, name: string): void;
 }
 
-function ScreenChip({ screen, number, onSelect, onClose, onRename }: ScreenChipProps) {
+function ScreenChip({ screen, supportsMutations, number, onSelect, onClose, onRename }: ScreenChipProps) {
   const [menu, dispatchMenu] = useReducer(contextMenuReducer, { open: false });
   const [rename, dispatchRename] = useReducer(renameReducer, null);
   const trigger = useContextTrigger((point) => dispatchMenu({ type: "open", point }));
@@ -27,7 +28,7 @@ function ScreenChip({ screen, number, onSelect, onClose, onRename }: ScreenChipP
   };
   return (
     <span className="screen-chip-wrap" {...trigger}>
-      {rename?.kind === "screen" && rename.id === screen.id ? (
+      {supportsMutations && rename?.kind === "screen" && rename.id === screen.id ? (
         <InlineRename
           value={rename.value}
           onChange={(value) => dispatchRename({ type: "change", value })}
@@ -39,7 +40,7 @@ function ScreenChip({ screen, number, onSelect, onClose, onRename }: ScreenChipP
           {screen.statusLabel ?? number}
         </button>
       )}
-      {menu.open && (
+      {menu.open && supportsMutations && (
         <ContextMenu
           point={menu.point}
           onClose={() => dispatchMenu({ type: "close" })}
@@ -58,6 +59,7 @@ function ScreenChip({ screen, number, onSelect, onClose, onRename }: ScreenChipP
 
 interface StatusBarProps {
   workspace: WorkspaceView | null;
+  supportsMutations?: boolean;
   session: string | null;
   onSelectScreen(workspaceId: Id, screenId: Id, surface: Id | null): void;
   onNewScreen(workspace: Id): void;
@@ -67,6 +69,7 @@ interface StatusBarProps {
 
 export function StatusBar({
   workspace,
+  supportsMutations = true,
   session,
   onSelectScreen,
   onNewScreen,
@@ -80,13 +83,14 @@ export function StatusBar({
         <ScreenChip
           key={screen.id}
           screen={screen}
+          supportsMutations={supportsMutations}
           number={index + 1}
           onSelect={() => onSelectScreen(...screenSelection(screen))}
           onClose={onCloseScreen}
           onRename={onRenameScreen}
         />
       ))}
-      {workspace && (
+      {workspace && supportsMutations && (
         <button className="new-screen" aria-label={t("newScreen")} onClick={() => onNewScreen(workspace.id)} type="button">+</button>
       )}
       <span className="session-badge">[{session ?? "—"}]</span>

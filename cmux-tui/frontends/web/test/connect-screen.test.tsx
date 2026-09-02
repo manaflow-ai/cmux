@@ -50,4 +50,71 @@ describe("ConnectScreen", () => {
     expect(screen.getByRole("status")).toHaveTextContent("123 456");
     expect(screen.getByRole("button", { name: "Waiting for approval…" })).toBeDisabled();
   });
+
+  it("collects a Mac bridge grant in the message body configuration", () => {
+    window.history.replaceState({}, "", "/?runtime=mac");
+    const onConnect = vi.fn();
+    render(<ConnectScreen connecting={false} error={null} pairing={null} onConnect={onConnect} />);
+    expect(screen.getByLabelText("Runtime")).toHaveValue("mac");
+    expect(screen.getByLabelText("WebSocket URL")).toHaveValue("ws://127.0.0.1:7683/cmux");
+    fireEvent.change(screen.getByLabelText("Mac bridge grant token"), {
+      target: { value: "cmux_web_test" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Connect" }));
+    expect(onConnect).toHaveBeenCalledWith({
+      url: "ws://127.0.0.1:7683/cmux",
+      token: "cmux_web_test",
+      runtime: "mac",
+    });
+  });
+
+  it("switches between independently remembered runtime endpoints", () => {
+    window.localStorage.setItem("cmux-tui.web.lastWebSocketUrl", "wss://tui.example.test:8443");
+    window.localStorage.setItem("cmux-mac.web.lastWebSocketUrl", "wss://mac.example.test/cmux");
+    render(<ConnectScreen connecting={false} error={null} pairing={null} onConnect={vi.fn()} />);
+    expect(screen.getByLabelText("WebSocket URL")).toHaveValue("wss://tui.example.test:8443");
+
+    fireEvent.change(screen.getByLabelText("Runtime"), { target: { value: "mac" } });
+    expect(screen.getByLabelText("WebSocket URL")).toHaveValue("wss://mac.example.test/cmux");
+  });
+
+  it("restores a manually selected Mac runtime without persisting its token", () => {
+    const first = render(
+      <ConnectScreen connecting={false} error={null} pairing={null} onConnect={vi.fn()} />,
+    );
+    fireEvent.change(screen.getByLabelText("Runtime"), { target: { value: "mac" } });
+    fireEvent.change(screen.getByLabelText("Mac bridge grant token"), {
+      target: { value: "cmux_web_secret" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Connect" }));
+    expect(window.location.search).toBe("?runtime=mac");
+    first.unmount();
+
+    render(<ConnectScreen connecting={false} error="Reconnect" pairing={null} onConnect={vi.fn()} />);
+    expect(screen.getByLabelText("Runtime")).toHaveValue("mac");
+    expect(screen.getByLabelText("Mac bridge grant token")).toHaveValue("");
+  });
+
+  it("never sends a Mac fragment grant to a TUI runtime", () => {
+    window.history.replaceState({}, "", "/?runtime=mac#token=cmux_web_secret");
+    const onConnect = vi.fn();
+    render(<ConnectScreen connecting={false} error={null} pairing={null} onConnect={onConnect} />);
+    expect(screen.getByLabelText("Mac bridge grant token")).toHaveValue("cmux_web_secret");
+
+    fireEvent.change(screen.getByLabelText("Runtime"), { target: { value: "tui" } });
+    fireEvent.click(screen.getByRole("button", { name: "Connect" }));
+
+    expect(onConnect).toHaveBeenCalledWith({
+      url: "ws://127.0.0.1:7681",
+      token: undefined,
+    });
+  });
+
+  it("never pre-fills a Mac grant from a TUI fragment credential", () => {
+    window.history.replaceState({}, "", "/#token=tui-secret");
+    render(<ConnectScreen connecting={false} error={null} pairing={null} onConnect={vi.fn()} />);
+
+    fireEvent.change(screen.getByLabelText("Runtime"), { target: { value: "mac" } });
+    expect(screen.getByLabelText("Mac bridge grant token")).toHaveValue("");
+  });
 });

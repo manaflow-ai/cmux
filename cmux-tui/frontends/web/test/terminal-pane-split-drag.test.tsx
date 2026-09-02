@@ -66,10 +66,13 @@ function screenView(ratio: number, zoomedPane: bigint | null = null): ScreenView
   };
 }
 
-function terminalPaneProps(onSetSplitRatio: (split: bigint, ratio: number) => Promise<boolean>) {
+function terminalPaneProps(
+  onSetSplitRatio: (split: bigint, ratio: number) => Promise<boolean>,
+  clients: ClientInfo[] = [],
+) {
   return {
     client: null as CmuxClient | null,
-    clients: [] as ClientInfo[],
+    clients,
     onRefreshClients: vi.fn(),
     onSetClientSizing: vi.fn(),
     onUseOnlyClientSizing: vi.fn(),
@@ -85,6 +88,24 @@ function terminalPaneProps(onSetSplitRatio: (split: bigint, ratio: number) => Pr
     onCloseSurface: vi.fn(),
     onRenamePane: vi.fn(),
     onRenameSurface: vi.fn(),
+  };
+}
+
+function clientInfo(client: bigint, self: boolean): ClientInfo {
+  return {
+    client,
+    transport: "ws",
+    name: self ? "browser" : "peer",
+    kind: "web",
+    connected_seconds: 1n,
+    attached: [7n],
+    sizes: [{
+      surface: 7n,
+      cols: self ? 100 : 80,
+      rows: self ? 30 : 24,
+      size_participating: true,
+    }],
+    self,
   };
 }
 
@@ -110,12 +131,75 @@ function terminalScreenView(): ScreenView {
 }
 
 describe("TerminalPane split dividers", () => {
+  it("renders the client sizing summary as a label in read-only mode", () => {
+    const props = terminalPaneProps(
+      vi.fn(async () => true),
+      [clientInfo(1n, true), clientInfo(2n, false)],
+    );
+    const { container, getByLabelText } = render(
+      <TerminalPane {...props} supportsMutations={false} screen={terminalScreenView()} />,
+    );
+
+    const label = getByLabelText(/clients/i);
+    expect(label.tagName).toBe("SPAN");
+    expect(label).toHaveClass("pane-clients-label");
+    expect(container.querySelector(".pane-clients-label button")).toBeNull();
+    expect(container.querySelector("button.pane-clients-trigger")).toBeNull();
+  });
+
+  it("leaves native context menus available in read-only mode", () => {
+    const props = terminalPaneProps(vi.fn(async () => true));
+    const { container } = render(
+      <TerminalPane {...props} supportsMutations={false} screen={terminalScreenView()} />,
+    );
+    const tab = container.querySelector<HTMLElement>(".tab-wrap");
+    const pane = container.querySelector<HTMLElement>(".terminal-panel");
+    expect(tab).not.toBeNull();
+    expect(pane).not.toBeNull();
+    expect(fireEvent.contextMenu(tab!, { clientX: 12, clientY: 20 })).toBe(true);
+    expect(fireEvent.contextMenu(pane!, { clientX: 24, clientY: 32 })).toBe(true);
+    expect(container.querySelector('[role="menu"]')).toBeNull();
+  });
+
   it("renders a divider for a split and hides it while zoomed", () => {
     const props = terminalPaneProps(vi.fn(async () => true));
     const { queryByRole, rerender } = render(<TerminalPane {...props} screen={screenView(0.5)} />);
     expect(queryByRole("separator")).toHaveAttribute("aria-orientation", "vertical");
     rerender(<TerminalPane {...props} screen={screenView(0.5, 1n)} />);
     expect(queryByRole("separator")).toBeNull();
+  });
+
+  it("renders Mac runtime dividers as non-interactive separators", () => {
+    const onSetSplitRatio = vi.fn(async () => true);
+    const props = terminalPaneProps(onSetSplitRatio);
+    const { container, getByRole } = render(
+      <TerminalPane {...props} supportsMutations={false} screen={screenView(0.5)} />,
+    );
+    const divider = getByRole("separator");
+    expect(divider).toHaveAttribute("aria-disabled", "true");
+    expect(divider).toHaveAttribute("tabindex", "-1");
+    expect(divider).toHaveClass("read-only");
+
+    fireEvent.keyDown(divider, { key: "ArrowRight" });
+    fireEvent.pointerDown(divider, {
+      button: 0,
+      clientX: 200,
+      pointerId: 1,
+      pointerType: "mouse",
+    });
+    fireEvent.pointerMove(divider, {
+      clientX: 300,
+      pointerId: 1,
+      pointerType: "mouse",
+    });
+    fireEvent.pointerUp(divider, {
+      clientX: 300,
+      pointerId: 1,
+      pointerType: "mouse",
+    });
+
+    expect(onSetSplitRatio).not.toHaveBeenCalled();
+    expect(container.querySelector<HTMLElement>(".pane-leaf")?.style.flex).toContain("50%");
   });
 
   it("exposes split state and resizes with the orientation arrow keys", async () => {
@@ -132,6 +216,27 @@ describe("TerminalPane split dividers", () => {
     fireEvent.keyDown(divider, { key: "ArrowRight" });
 
     await waitFor(() => expect(onSetSplitRatio).toHaveBeenCalledWith(42n, 0.55));
+  });
+
+  it("invalidates scheduled keyboard resize work when entering read-only mode", async () => {
+    vi.useFakeTimers();
+    try {
+      const onSetSplitRatio = vi.fn(async () => true);
+      const props = terminalPaneProps(onSetSplitRatio);
+      const { getByRole, rerender } = render(
+        <TerminalPane {...props} supportsMutations screen={screenView(0.5)} />,
+      );
+      fireEvent.keyDown(getByRole("separator"), { key: "ArrowRight" });
+
+      rerender(<TerminalPane {...props} supportsMutations={false} screen={screenView(0.5)} />);
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(100);
+      });
+
+      expect(onSetSplitRatio).not.toHaveBeenCalled();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("queues repeated arrow-key adjustments without dropping input", async () => {
