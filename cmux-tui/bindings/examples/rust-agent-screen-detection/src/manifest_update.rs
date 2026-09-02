@@ -11,10 +11,13 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
-use std::io::{Read, Write};
+use std::io::{self, Read, Write};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::time::{SystemTime, UNIX_EPOCH};
+
+#[cfg(unix)]
+use std::os::fd::AsRawFd;
 
 use serde::{Deserialize, Serialize};
 
@@ -29,6 +32,61 @@ const MAX_CATALOG_PATH_BYTES: usize = 512;
 const MAX_CATALOG_URL_BYTES: usize = 2 * 1024;
 const STATUS_FILE_NAME: &str = ".cmux-agent-detection-status.toml";
 const LEGACY_STATUS_FILE_NAME: &str = "status.toml";
+const UPDATE_LOCK_FILE_NAME: &str = ".cmux-agent-detection-update.lock";
+
+/// An OS-owned advisory lock for the whole explicit catalog transaction.
+/// Atomic renames protect individual files, but they cannot stop an older
+/// concurrent response from replacing a newer manifest after its version
+/// check. Unix flock releases this lock when the process exits, including a
+/// crash, so no stale PID cleanup protocol is needed.
+struct UpdateLock {
+    file: fs::File,
+}
+
+impl UpdateLock {
+    fn acquire(cache_dir: &Path) -> Result<Self, String> {
+        fs::create_dir_all(cache_dir)
+            .map_err(|error| format!("create {}: {error}", cache_dir.display()))?;
+        let path = cache_dir.join(UPDATE_LOCK_FILE_NAME);
+        let file = fs::OpenOptions::new()
+            .read(true)
+            .write(true)
+            .create(true)
+            .open(&path)
+            .map_err(|error| format!("open update lock {}: {error}", path.display()))?;
+        #[cfg(unix)]
+        {
+            // SAFETY: file owns a valid open descriptor for the lock path.
+            let result = unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) };
+            if result != 0 {
+                let error = io::Error::last_os_error();
+                return Err(format!(
+                    "another manifest catalog update is already using {}: {error}",
+                    cache_dir.display()
+                ));
+            }
+        }
+        #[cfg(not(unix))]
+        {
+            return Err("manifest catalog updates require a Unix advisory-lock backend".into());
+        }
+        Ok(Self { file })
+    }
+}
+
+impl Drop for UpdateLock {
+    fn drop(&mut self) {
+        #[cfg(unix)]
+        {
+            // SAFETY: this is the descriptor locked by acquire; dropping the
+            // file would also release it, but an explicit unlock makes the
+            // lifetime contract clear and testable.
+            unsafe {
+                libc::flock(self.file.as_raw_fd(), libc::LOCK_UN);
+            }
+        }
+    }
+}
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ManifestUpdateSummary {
@@ -92,6 +150,7 @@ struct ValidatedCatalogAgent {
 /// Fetch and validate a catalog and its manifests. This function does not
 /// mutate the cache until each individual manifest has passed validation.
 pub fn update_catalog(url: &str, cache_dir: &Path) -> Result<ManifestUpdateSummary, String> {
+    let _lock = UpdateLock::acquire(cache_dir)?;
     let check_time = now_unix();
     let mut status = load_status(cache_dir);
     status.last_check_unix = Some(check_time);
