@@ -1,8 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import {
   reportVmImageConfigError,
-  imageUsesBakedFreestyleSignedAdmin,
-  imageUsesFreestyleBetaPlatform,
   inferVmProviderForImage,
   listVmImageKinds,
   providerImageEnvKey,
@@ -26,123 +24,88 @@ describe("VM image resolver: request by kind", () => {
   const deployed = { VERCEL: "1", VERCEL_ENV: "production" };
 
   test("desktop images get their own env selector; single-variable providers share one", () => {
-    expect(providerImageEnvKey("blaxel")).toBe("BLAXEL_SANDBOX_IMAGE");
-    expect(providerImageEnvKey("blaxel", "base")).toBe("BLAXEL_SANDBOX_IMAGE");
-    expect(providerImageEnvKey("blaxel", "desktop")).toBe("BLAXEL_SANDBOX_DESKTOP_IMAGE");
-    expect(providerImageEnvKey("e2b", "desktop")).toBe("E2B_CMUXD_WS_TEMPLATE");
+    expect(providerImageEnvKey("freestyle")).toBe("FREESTYLE_SANDBOX_SNAPSHOT");
+    expect(providerImageEnvKey("freestyle", "base")).toBe("FREESTYLE_SANDBOX_SNAPSHOT");
+    // Freestyle ships no desktop image today, so it has no distinct
+    // `_IMAGE`-suffixed selector to split; the generic one serves both kinds.
     expect(providerImageEnvKey("freestyle", "desktop")).toBe("FREESTYLE_SANDBOX_SNAPSHOT");
   });
 
-  test("kind env var wins over the manifest kind default", () => {
+  test("the kind env var resolves a manifest image of that kind", () => {
     expect(
-      resolveVmImage("blaxel", undefined, {
+      resolveVmImage("freestyle", undefined, {
         ...deployed,
-        BLAXEL_SANDBOX_DESKTOP_IMAGE: "blaxel/xfce-vnc:latest",
-        BLAXEL_SANDBOX_IMAGE: "blaxel/base-image:latest",
-      }, { kind: "desktop" }),
-    ).toMatchObject({
-      image: "blaxel/xfce-vnc:latest",
-      imageVersion: "blaxel-bootstrap-20260820a",
-      kind: "desktop",
-    });
-    expect(
-      resolveVmImage("blaxel", undefined, {
-        ...deployed,
-        BLAXEL_SANDBOX_DESKTOP_IMAGE: "blaxel/xfce-vnc:latest",
-        BLAXEL_SANDBOX_IMAGE: "blaxel/base-image:latest",
-      }, { kind: "base" }),
-    ).toMatchObject({ image: "blaxel/base-image:latest", imageVersion: "blaxel-base-bootstrap-20260824a", kind: "base" });
-  });
-
-  test("a generic env selector of the other kind falls through to the kind default", () => {
-    // Production reality before kinds existed: BLAXEL_SANDBOX_IMAGE names the
-    // desktop devbox and no desktop-specific selector is set. A kind=base
-    // request must resolve the manifest base default, not 503 on the desktop
-    // image's kind mismatch (seen in prod 2026-08-30 21:58 UTC).
-    expect(
-      resolveVmImage("blaxel", undefined, {
-        ...deployed,
-        BLAXEL_SANDBOX_IMAGE: "sandbox/cmux-devbox:latest",
+        FREESTYLE_SANDBOX_SNAPSHOT: "sh-fb3dcf7b47894114889b10186626af5b",
       }, { kind: "base" }),
     ).toMatchObject({
-      image: "blaxel/base-image:latest",
-      imageVersion: "blaxel-base-bootstrap-20260824a",
+      image: "sh-fb3dcf7b47894114889b10186626af5b",
+      imageVersion: "freestyle-cmux-devbox-beta1",
       kind: "base",
     });
-    // The same env still serves desktop and kind-less requests unchanged.
-    expect(
-      resolveVmImage("blaxel", undefined, {
-        ...deployed,
-        BLAXEL_SANDBOX_IMAGE: "sandbox/cmux-devbox:latest",
-      }, { kind: "desktop" }),
-    ).toMatchObject({ image: "sandbox/cmux-devbox:latest", kind: "desktop" });
-    expect(
-      resolveVmImage("blaxel", undefined, {
-        ...deployed,
-        BLAXEL_SANDBOX_IMAGE: "sandbox/cmux-devbox:latest",
-      }),
-    ).toMatchObject({ image: "sandbox/cmux-devbox:latest" });
   });
 
   test("an explicitly requested image of the wrong kind still errors", () => {
     const err = captureImageConfigError(() =>
-      resolveVmImage("blaxel", "sandbox/cmux-devbox:latest", deployed, { kind: "base" }));
-    expect(err.reason).toMatch(/desktop image, not a base image/);
+      resolveVmImage("freestyle", "sh-fb3dcf7b47894114889b10186626af5b", deployed, { kind: "desktop" }));
+    expect(err.reason).toMatch(/base image, not a desktop image/);
   });
 
-  test("deployed runtimes fall back to the manifest kind default instead of throwing", () => {
-    // The nightly app's `vm base open` with no image and nothing configured for
-    // desktop used to 503; now the manifest default desktop image serves it.
-    expect(resolveVmImage("blaxel", undefined, deployed, { kind: "desktop" })).toMatchObject({
-      image: "sandbox/cmux-devbox:latest",
-      imageVersion: "blaxel-cmux-devbox-20260827a",
-      kind: "desktop",
-    });
-    // Without a kind, the legacy contract still requires the env selector.
-    expect(captureImageConfigError(() => resolveVmImage("blaxel", undefined, deployed))).toMatchObject({
-      envVar: "BLAXEL_SANDBOX_IMAGE",
+  test("freestyle ships no desktop image, so every desktop request fails closed", () => {
+    // The desktop kind and its noVNC wrapper are kept as a seam for Freestyle
+    // desktop support; until an image exists, the request must 503 with a
+    // config error rather than silently serving a base machine.
+    for (const provider of ["freestyle"] as const) {
+      const err = captureImageConfigError(() =>
+        resolveVmImage(provider, undefined, deployed, { kind: "desktop" }),
+      );
+      expect(err).toMatchObject({ provider, kind: "desktop", source: "default" });
+    }
+  });
+
+  test("freestyle has no usable image until the devbox snapshot is re-baked on the public platform", () => {
+    // The only freestyle manifest entry was baked against the retired
+    // beta-api endpoint and carries validationStatus "unknown", so it is
+    // neither a kind default nor a local-dev default. Creates fail closed.
+    const err = captureImageConfigError(() => resolveVmImage("freestyle", undefined, deployed));
+    expect(err).toMatchObject({
+      provider: "freestyle",
+      envVar: "FREESTYLE_SANDBOX_SNAPSHOT",
       source: "env",
     });
+    expect(captureImageConfigError(() => resolveVmImage("freestyle", undefined, {}))).toMatchObject({
+      provider: "freestyle",
+      reason: "no local default image is recorded for freestyle",
+    });
+    expect(listVmImageKinds("freestyle", deployed)).toEqual([]);
   });
 
-  test("the generic env selector serves a desktop request when it names a desktop image", () => {
+  test("an operator-set freestyle snapshot still resolves, so a re-bake is env-only", () => {
     expect(
-      resolveVmImage("blaxel", undefined, {
+      resolveVmImage("freestyle", undefined, {
         ...deployed,
-        BLAXEL_SANDBOX_IMAGE: "blaxel/xfce-vnc:latest",
-      }, { kind: "desktop" }),
-    ).toMatchObject({ image: "blaxel/xfce-vnc:latest", kind: "desktop" });
-  });
-
-  test("an explicit image overrides kind, but must match the kind it claims", () => {
-    expect(
-      resolveVmImage("blaxel", "blaxel/xfce-vnc:latest", deployed, { kind: "desktop" }),
-    ).toMatchObject({ image: "blaxel/xfce-vnc:latest", kind: "desktop" });
-    expect(captureImageConfigError(() =>
-      resolveVmImage("blaxel", "blaxel/xfce-vnc:latest", deployed, { kind: "base" }),
-    )).toMatchObject({
-      image: "blaxel/xfce-vnc:latest",
-      kind: "base",
-      source: "request",
-      reason: "blaxel/xfce-vnc:latest is a desktop image, not a base image",
+        FREESTYLE_SANDBOX_SNAPSHOT: "sh-fb3dcf7b47894114889b10186626af5b",
+      }),
+    ).toMatchObject({
+      provider: "freestyle",
+      image: "sh-fb3dcf7b47894114889b10186626af5b",
+      imageVersion: "freestyle-cmux-devbox-beta1",
     });
   });
 
   test("rejects unknown kinds with an actionable error", () => {
     const err = captureImageConfigError(() =>
-      resolveVmImage("blaxel", undefined, deployed, { kind: "gpu" as unknown as VmImageKind }),
+      resolveVmImage("freestyle", undefined, deployed, { kind: "gpu" as unknown as VmImageKind }),
     );
-    expect(err).toMatchObject({ provider: "blaxel", kind: "gpu", source: "request" });
-    expect(err.allowedImages).toEqual(["sandbox/cmux-devbox:latest", "blaxel/xfce-vnc:latest", "blaxel/base-image:latest"]);
+    expect(err).toMatchObject({ provider: "freestyle", kind: "gpu", source: "request" });
     expect(reportVmImageConfigError(err, deployed)).toMatchObject({
       message: 'Cloud VM image kind "gpu" is not supported.',
-      details: { imageRequested: false, kind: "gpu", source: "request", allowedKinds: ["desktop", "base"] },
+      // Nothing is flagged defaultForKind and `deployed` sets no selector, so
+      // no kind is currently servable.
+      details: { imageRequested: false, kind: "gpu", source: "request", allowedKinds: [] },
     });
   });
 
-  test("a kind with nothing configured names the env var and the allowed images", () => {
-    // freestyle ships no desktop image, so it exercises the unresolvable-kind
-    // error shape (blaxel base resolves from the manifest default now).
+  test("a kind with nothing configured names the env var and stays client-safe", () => {
     const err = captureImageConfigError(() =>
       resolveVmImage("freestyle", undefined, deployed, { kind: "desktop" }),
     );
@@ -155,7 +118,6 @@ describe("VM image resolver: request by kind", () => {
     });
     const report = reportVmImageConfigError(err, deployed);
     expect(report.message).toBe("No desktop Cloud VM image is available in this environment.");
-    // Deployed freestyle with no env selector serves no kind at all.
     expect(report.action).toContain("available: none");
     // Client-safe details name the kind and the source, never the env var or image ids.
     expect(report.details).toEqual({
@@ -174,99 +136,47 @@ describe("VM image resolver: request by kind", () => {
 
   test("client-requested unknown images stay strict and report imageRequested", () => {
     const err = captureImageConfigError(() =>
-      resolveVmImage("blaxel", "blaxel/unlisted:latest", deployed),
+      resolveVmImage("freestyle", "cmuxd-ws:unlisted", deployed),
     );
-    expect(err).toMatchObject({ image: "blaxel/unlisted:latest", source: "request" });
+    expect(err).toMatchObject({ image: "cmuxd-ws:unlisted", source: "request" });
     const report = reportVmImageConfigError(err, deployed);
-    expect(report.details).toEqual({ imageRequested: true, kind: undefined, source: "request", allowedKinds: ["desktop", "base"] });
+    expect(report.details).toEqual({ imageRequested: true, kind: undefined, source: "request", allowedKinds: [] });
     expect(report.message).toBe("The requested Cloud VM image is not available in this environment.");
-    expect(report.action).toContain("`kind`: desktop, base");
-    expect(report.operator).toMatchObject({ image: "blaxel/unlisted:latest", allowedImages: ["sandbox/cmux-devbox:latest", "blaxel/xfce-vnc:latest", "blaxel/base-image:latest"] });
-  });
-
-  test("local dev serves a kind from the local default only when the kinds agree", () => {
-    expect(resolveVmImage("blaxel", undefined, {}, { kind: "desktop" })).toMatchObject({
-      image: "sandbox/cmux-devbox:latest",
-      kind: "desktop",
-    });
-    expect(resolveVmImage("freestyle", undefined, {}, { kind: "base" })).toMatchObject({
-      image: "sh-b3jqa6o88qe6l738dw9z",
-      kind: "base",
-    });
-    expect(() => resolveVmImage("freestyle", undefined, {}, { kind: "desktop" })).toThrow(VmImageConfigError);
+    expect(report.operator).toMatchObject({ image: "cmuxd-ws:unlisted" });
   });
 
   test("derives a kind for stored images and lists the kinds a provider can serve", () => {
-    expect(vmImageKindFor("blaxel", "sandbox/cmux-devbox:latest")).toBe("desktop");
-    expect(vmImageKindFor("blaxel", "blaxel/xfce-vnc:latest")).toBe("desktop");
-    expect(vmImageKindFor("blaxel", "blaxel/base-image:latest")).toBe("base");
-    expect(vmImageKindFor("freestyle", "sh-b3jqa6o88qe6l738dw9z")).toBe("base");
+    // No manifest kind and no `xfce`/`devbox` in the id: the heuristic says base.
+    expect(vmImageKindFor("freestyle", "sh-fb3dcf7b47894114889b10186626af5b")).toBe("base");
 
-    expect(listVmImageKinds("blaxel", deployed)).toEqual([
-      { kind: "desktop", image: "sandbox/cmux-devbox:latest" },
-      { kind: "base", image: "blaxel/base-image:latest" },
-    ]);
-    expect(listVmImageKinds("blaxel", { ...deployed, BLAXEL_SANDBOX_IMAGE: "blaxel/base-image:latest" })).toEqual([
-      { kind: "desktop", image: "sandbox/cmux-devbox:latest" },
-      { kind: "base", image: "blaxel/base-image:latest" },
-    ]);
-    expect(listVmImageKinds("freestyle", {})).toEqual([
-      { kind: "base", image: "sh-b3jqa6o88qe6l738dw9z" },
+    // Nothing is flagged defaultForKind, so a kind only resolves from an env selector.
+    expect(listVmImageKinds("freestyle", deployed)).toEqual([]);
+    expect(listVmImageKinds("freestyle", { ...deployed, FREESTYLE_SANDBOX_SNAPSHOT: "sh-fb3dcf7b47894114889b10186626af5b" })).toEqual([
+      { kind: "base", image: "sh-fb3dcf7b47894114889b10186626af5b" },
     ]);
   });
 });
 
 describe("VM image resolver", () => {
-  test("uses manifest local defaults outside deployed runtimes", () => {
-    expect(resolveVmImage("e2b", undefined, {})).toMatchObject({
-      provider: "e2b",
-      image: "cmuxd-ws:tooling-20260509f",
-      imageVersion: "e2b-tooling-20260509f",
-    });
-    expect(resolveVmImage("freestyle", undefined, {})).toMatchObject({
+  test("freestyle has no local default until a validated snapshot lands in the manifest", () => {
+    // The only freestyle entry is defaultForLocalDev:false (baked on the
+    // retired beta endpoint), so local dev fails closed rather than booting it.
+    expect(() => resolveVmImage("freestyle", undefined, {})).toThrow(VmImageConfigError);
+    expect(captureImageConfigError(() => resolveVmImage("freestyle", undefined, {}))).toMatchObject({
       provider: "freestyle",
-      image: "sh-b3jqa6o88qe6l738dw9z",
-      imageVersion: "freestyle-signedadmin-20260625b",
-    });
-    expect(imageUsesBakedFreestyleSignedAdmin("freestyle", "sh-b3jqa6o88qe6l738dw9z")).toBe(true);
-  });
-
-  test("the baked beta devbox snapshot reads as a beta-platform image", () => {
-    expect(imageUsesFreestyleBetaPlatform("freestyle", "sh-fb3dcf7b47894114889b10186626af5b")).toBe(true);
-    expect(imageUsesFreestyleBetaPlatform("freestyle", "freestyle-cmux-devbox-beta1")).toBe(true);
-  });
-
-  test("legacy freestyle images never read as beta-platform images", () => {
-    // The freestyle driver dispatches creates on this flag; a legacy image
-    // reading as beta would boot the old snapshot on the wrong platform.
-    for (const image of [
-      "sc-mt237w1nd7c7673bd03m",
-      "sh-6ch5p9k23xrcx24056n8",
-      "sh-17agfasevrc18c8f15nn",
-      "sh-w2otfp1g287lzrpuc2gr",
-      "sh-b3jqa6o88qe6l738dw9z",
-    ]) {
-      expect(imageUsesFreestyleBetaPlatform("freestyle", image)).toBe(false);
-    }
-  });
-
-  test("daytona has no local default until a validated snapshot lands in the manifest", () => {
-    expect(() => resolveVmImage("daytona", undefined, {})).toThrow(VmImageConfigError);
-    expect(captureImageConfigError(() => resolveVmImage("daytona", undefined, {}))).toMatchObject({
-      provider: "daytona",
-      envVar: "DAYTONA_SANDBOX_SNAPSHOT",
-      reason: "no local default image is recorded for daytona",
+      envVar: "FREESTYLE_SANDBOX_SNAPSHOT",
+      reason: "no local default image is recorded for freestyle",
     });
   });
 
-  test("daytona local dev resolves DAYTONA_SANDBOX_SNAPSHOT even when unmanifested", () => {
+  test("local dev resolves FREESTYLE_SANDBOX_SNAPSHOT even when unmanifested", () => {
     expect(
-      resolveVmImage("daytona", undefined, {
-        DAYTONA_SANDBOX_SNAPSHOT: "cmuxd-ws-scratch",
+      resolveVmImage("freestyle", undefined, {
+        FREESTYLE_SANDBOX_SNAPSHOT: "sh-scratch",
       }),
     ).toMatchObject({
-      provider: "daytona",
-      image: "cmuxd-ws-scratch",
+      provider: "freestyle",
+      image: "sh-scratch",
       imageVersion: null,
       manifestEntry: null,
     });
@@ -280,19 +190,19 @@ describe("VM image resolver", () => {
       }),
     ).toThrow(VmImageConfigError);
     expect(captureImageConfigError(() =>
-      resolveVmImage("daytona", undefined, {
+      resolveVmImage("freestyle", undefined, {
         VERCEL: "1",
         VERCEL_ENV: "preview",
       }),
     )).toMatchObject({
-      provider: "daytona",
-      reason: "DAYTONA_SANDBOX_SNAPSHOT is required in deployed environments",
+      provider: "freestyle",
+      reason: "FREESTYLE_SANDBOX_SNAPSHOT is required in deployed environments",
     });
   });
 
   test("rejects unknown deployed images", () => {
     expect(() =>
-      resolveVmImage("e2b", "cmuxd-ws:unknown", {
+      resolveVmImage("freestyle", "sh-unknown", {
         VERCEL: "1",
         VERCEL_ENV: "production",
       }),
@@ -301,42 +211,36 @@ describe("VM image resolver", () => {
 
   test("resolves deployed env selectors through the manifest", () => {
     expect(
-      resolveVmImage("e2b", undefined, {
+      resolveVmImage("freestyle", undefined, {
         VERCEL: "1",
         VERCEL_ENV: "production",
-        E2B_CMUXD_WS_TEMPLATE: "cmuxd-ws:proxy-20260424a",
+        FREESTYLE_SANDBOX_SNAPSHOT: "sh-fb3dcf7b47894114889b10186626af5b",
       }),
     ).toMatchObject({
-      provider: "e2b",
-      image: "cmuxd-ws:proxy-20260424a",
-      imageVersion: "e2b-proxy-20260424a",
+      provider: "freestyle",
+      image: "sh-fb3dcf7b47894114889b10186626af5b",
+      imageVersion: "freestyle-cmux-devbox-beta1",
     });
   });
 
   test("accepts an env-configured image that is missing from the manifest", () => {
-    // Production drifted: BLAXEL_SANDBOX_IMAGE named an image the manifest did not
-    // list, and every base open failed with imageRequested: true even though the
-    // client sent no image. Operator config wins; only client requests are strict.
+    // Production drifted once: the provider's image selector named an image the
+    // manifest did not list, and every base open failed with imageRequested:
+    // true even though the client sent no image. Operator config wins; only
+    // client requests are strict.
     expect(
-      resolveVmImage("blaxel", undefined, {
+      resolveVmImage("freestyle", undefined, {
         VERCEL: "1",
         VERCEL_ENV: "production",
-        BLAXEL_SANDBOX_IMAGE: "blaxel/ops-override:custom",
+        FREESTYLE_SANDBOX_SNAPSHOT: "sh-ops-override",
       }),
     ).toMatchObject({
-      provider: "blaxel",
-      image: "blaxel/ops-override:custom",
+      provider: "freestyle",
+      image: "sh-ops-override",
       imageVersion: null,
       manifestEntry: null,
       kind: "base",
     });
-    expect(
-      resolveVmImage("blaxel", undefined, {
-        VERCEL: "1",
-        VERCEL_ENV: "production",
-        BLAXEL_SANDBOX_DESKTOP_IMAGE: "sandbox/cmux-devbox:next",
-      }, { kind: "desktop" }),
-    ).toMatchObject({ image: "sandbox/cmux-devbox:next", imageVersion: null, kind: "desktop" });
   });
 
   test("permits unmanifested images only when explicitly allowed", () => {
@@ -356,16 +260,12 @@ describe("VM image resolver", () => {
 });
 
 describe("provider inference from explicit images", () => {
-  test("a manifest image id uniquely owned by one provider infers that provider", () => {
-    expect(inferVmProviderForImage("blaxel/xfce-vnc:latest")).toBe("blaxel");
-    expect(inferVmProviderForImage("sandbox/cmux-devbox:latest")).toBe("blaxel");
-    expect(inferVmProviderForImage("sh-6ch5p9k23xrcx24056n8")).toBe("freestyle");
-    expect(inferVmProviderForImage("cmuxd-ws:tooling-20260509f")).toBe("e2b");
+  test("a manifest image id infers its provider", () => {
+    expect(inferVmProviderForImage("sh-fb3dcf7b47894114889b10186626af5b")).toBe("freestyle");
   });
 
   test("manifest versions infer their provider too", () => {
-    expect(inferVmProviderForImage("blaxel-bootstrap-20260820a")).toBe("blaxel");
-    expect(inferVmProviderForImage("freestyle-rpclease-20260502a")).toBe("freestyle");
+    expect(inferVmProviderForImage("freestyle-cmux-devbox-beta1")).toBe("freestyle");
   });
 
   test("unknown or absent images infer nothing", () => {
