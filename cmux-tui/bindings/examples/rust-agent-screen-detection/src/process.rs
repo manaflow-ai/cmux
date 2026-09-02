@@ -1419,6 +1419,35 @@ mod tests {
     }
 
     #[test]
+    fn attached_runtime_modes_are_not_treated_as_agent_commands() {
+        for (name, argv) in [
+            ("node", vec!["node", "-econsole.log('codex')", "claude"]),
+            ("bun", vec!["bun", "-pcodex", "claude"]),
+            ("python3.12", vec!["python3.12", "-msome_module", "codex"]),
+        ] {
+            let job =
+                ForegroundJob { process_group_id: 7, processes: vec![process(7, name, &argv)] };
+            assert!(
+                identify_job(ManifestSet::bundled(), &job).is_none(),
+                "attached runtime mode must not identify an agent: {argv:?}",
+            );
+        }
+    }
+
+    #[test]
+    fn package_path_in_attached_node_eval_is_not_an_agent_identity() {
+        let job = ForegroundJob {
+            process_group_id: 7,
+            processes: vec![process(
+                7,
+                "node",
+                &["node", "-e/tmp/node_modules/@qwen-code/qwen-code/dist/index.js"],
+            )],
+        };
+        assert!(identify_job(ManifestSet::bundled(), &job).is_none());
+    }
+
+    #[test]
     fn command_line_fallback_only_uses_the_executable_token() {
         let arbitrary_argument = ForegroundJob {
             process_group_id: 31,
