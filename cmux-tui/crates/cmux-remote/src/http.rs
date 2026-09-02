@@ -164,6 +164,7 @@ fn read_workspace_http_token(path: &Path) -> Result<WorkspaceHttpBearerToken, io
     read_workspace_http_token_contents(&mut file)
 }
 
+/// Validates the token file type, size, owner, and permissions from one opened descriptor.
 fn validate_workspace_http_token_metadata(metadata: &fs::Metadata) -> Result<(), io::Error> {
     if !metadata.is_file() {
         return Err(io::Error::new(
@@ -192,6 +193,7 @@ fn validate_workspace_http_token_metadata(metadata: &fs::Metadata) -> Result<(),
     Ok(())
 }
 
+/// Reads at most the configured token bound and rejects growth observed during the read.
 fn read_workspace_http_token_contents(
     file: &mut fs::File,
 ) -> Result<WorkspaceHttpBearerToken, io::Error> {
