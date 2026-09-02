@@ -913,6 +913,44 @@ mod tests {
     }
 
     #[test]
+    fn surface_and_pane_lookup_keep_first_match_after_tree_mutation() {
+        let mut tree = parse_tree(&json!({
+            "workspaces": [{
+                "id": 1,
+                "active": true,
+                "screens": [{
+                    "id": 2,
+                    "active": true,
+                    "active_pane": 3,
+                    "layout": {"type": "leaf", "pane": 3},
+                    "panes": [{
+                        "id": 3,
+                        "active_tab": 0,
+                        "tabs": [{"surface": 7, "title": "first"}]
+                    }]
+                }]
+            }, {
+                "id": 4,
+                "screens": [{
+                    "id": 5,
+                    "layout": {"type": "leaf", "pane": 3},
+                    "panes": [{
+                        "id": 3,
+                        "tabs": [{"surface": 7, "title": "duplicate"}]
+                    }]
+                }]
+            }]
+        }));
+
+        assert_eq!(tree.surface(7).map(|tab| tab.title.as_str()), Some("first"));
+        assert_eq!(tree.pane(3).map(|pane| pane.tabs[0].title.as_str()), Some("first"));
+
+        tree.retain_not_retired(&HashSet::from([7]));
+        assert!(tree.surface(7).is_none());
+        assert!(tree.pane(3).is_some());
+    }
+
+    #[test]
     fn terminal_resolution_ignores_internal_ids_and_browser_tabs() {
         let tree = parse_tree(&json!({
             "workspaces": [{
