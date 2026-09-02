@@ -424,7 +424,7 @@ struct AuthSnapshot {
     buffered_amount: Arc<dyn Fn() -> u64 + Send + Sync>,
 }
 
-enum NonterminalAuthorizationFailure {
+enum CloseAuthorizationFailure {
     Missing,
     Denied,
 }
@@ -1109,11 +1109,7 @@ impl Inner {
         drop(attachments);
         let live_auth = Self::auth_snapshot(context);
         attachments = self.attachments.lock().expect("attach lock");
-        if live_auth.trust.is_empty()
-            || (live_auth.trust == "observe"
-                && (live_auth.owner_user_id.is_none()
-                    || Some(actor) != live_auth.owner_user_id.as_deref()))
-        {
+        if !self.auth_allows_claim(&live_auth, actor, &cwd, 0) {
             drop(opening);
             drop(attachments);
             reservation.active = false;
@@ -1512,16 +1508,24 @@ impl Inner {
     }
 
     fn auth_allows(&self, auth: &AuthSnapshot, attachment: &Attachment) -> bool {
+        self.auth_allows_claim(auth, &attachment.actor_id, &attachment.cwd, attachment.auth_version)
+    }
+
+    fn auth_allows_claim(
+        &self,
+        auth: &AuthSnapshot,
+        actor_id: &str,
+        cwd: &Path,
+        minimum_version: u64,
+    ) -> bool {
         let owner = auth.owner_user_id.as_deref();
         let roots_allow_cwd = auth.roots.as_deref().is_none_or(|roots| {
-            roots.is_empty()
-                || scoped_cwd(attachment.cwd.to_str(), &self.home, Some(roots), None).is_ok()
+            roots.is_empty() || scoped_cwd(cwd.to_str(), &self.home, Some(roots), None).is_ok()
         });
-        auth.version >= attachment.auth_version
+        auth.version >= minimum_version
             && roots_allow_cwd
             && !auth.trust.is_empty()
-            && (auth.trust != "observe"
-                || (owner.is_some() && owner == Some(attachment.actor_id.as_str())))
+            && (auth.trust != "observe" || (owner.is_some() && owner == Some(actor_id)))
     }
 
     fn authorize_snapshot(
@@ -1599,51 +1603,52 @@ impl Inner {
         }
     }
 
-    /// Authorization failures for an explicit CLOSE are non-terminal. The
-    /// caller may have a stale or downgraded trust snapshot, but it must not
-    /// be able to retire an attachment it does not own.
-    fn authorize_snapshot_for_generation_nonterminal(
+    /// A CLOSE from the owning transport cannot operate after authority is
+    /// revoked. Retire that now-unauthorized attachment so it cannot retain a
+    /// resource slot or resume publication under stale authority.
+    fn authorize_snapshot_for_close(
         &self,
         pty_id: &str,
         auth: &AuthSnapshot,
         context: &FrameContext,
         action: &str,
         generation: u64,
-    ) -> Result<Attachment, NonterminalAuthorizationFailure> {
+    ) -> Result<Attachment, CloseAuthorizationFailure> {
         let attachment = self
             .attachments
             .lock()
             .expect("attach lock")
             .get(pty_id)
             .cloned()
-            .ok_or(NonterminalAuthorizationFailure::Missing)?;
+            .ok_or(CloseAuthorizationFailure::Missing)?;
         if generation != 0 && attachment.generation != generation {
-            return Err(NonterminalAuthorizationFailure::Missing);
+            return Err(CloseAuthorizationFailure::Missing);
         }
         if context.transport_id.is_some() && attachment.transport_id != context.transport_id {
-            return Err(NonterminalAuthorizationFailure::Missing);
+            return Err(CloseAuthorizationFailure::Missing);
         }
         if self.auth_allows(auth, &attachment) {
             Ok(attachment)
         } else {
-            send_pty_error(
+            self.emit_error_for_generation(
                 context,
                 pty_id,
+                attachment.generation,
+                &attachment.publication_gate,
                 "trust_revoked",
                 &format!("PTY {action} refused after trust change"),
             );
-            Err(NonterminalAuthorizationFailure::Denied)
+            Err(CloseAuthorizationFailure::Denied)
         }
     }
 
     fn close_authorized(&self, pty_id: &str, context: &FrameContext) {
         let auth = Self::auth_snapshot(context);
-        let attachment = match self
-            .authorize_snapshot_for_generation_nonterminal(pty_id, &auth, context, "close", 0)
+        let attachment = match self.authorize_snapshot_for_close(pty_id, &auth, context, "close", 0)
         {
             Ok(attachment) => attachment,
-            Err(NonterminalAuthorizationFailure::Denied) => return,
-            Err(NonterminalAuthorizationFailure::Missing) => {
+            Err(CloseAuthorizationFailure::Denied) => return,
+            Err(CloseAuthorizationFailure::Missing) => {
                 // A close may race the asynchronous open before its attachment
                 // is published. The transport fence ran at frame dispatch, so
                 // this exact owner can cancel the pending reservation now.
