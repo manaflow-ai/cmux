@@ -1297,6 +1297,67 @@ import Testing
         }
     }
 
+    @Test func cloudTreeRecognizesPrePlacementProjectionWithoutRemoteIDs() throws {
+        let machine = SurfaceMachineID.cloud("pre-placement")
+        let workspace = SurfaceRemoteWorkspace(id: "ws_main", name: "main", index: 0, focused: true)
+        let view = SurfaceRemoteView(tabID: "tab_shell", workspace: workspace)
+        let resource = SurfaceResource(
+            id: SurfaceResourceID(machine: machine, kind: .terminal, key: "term_shell"),
+            title: "shell",
+            detail: "/root",
+            lifecycle: .running,
+            agent: nil,
+            remoteWorkspace: workspace,
+            remoteViews: [view],
+            port: nil,
+            url: nil
+        )
+        let localWorkspaceID = UUID()
+        let snapshot = SurfaceCatalogSnapshot(
+            machines: [SurfaceMachineInfo(
+                id: machine,
+                name: machine.rawValue,
+                status: "running",
+                image: nil,
+                hasDesktop: false,
+                memoryMb: nil,
+                diskMb: nil,
+                linkState: .connected,
+                linkError: nil,
+                cpuPercent: nil,
+                memoryUsedMb: nil,
+                diskUsedMb: nil,
+                remoteWorkspaces: [workspace],
+                privateAddress: nil
+            )],
+            resources: [resource],
+            // This is the oldest archive shape. It has no remote placement
+            // coordinates, so the one-projection/one-view rule must preserve
+            // the existing local pane without inventing a tab.
+            projections: [SurfaceProjection(
+                resource: resource.id,
+                workspaceID: localWorkspaceID,
+                panelID: UUID()
+            )]
+        )
+
+        let nodes = CloudTreeNodeBuilder.nodes(
+            machines: [],
+            snapshot: snapshot,
+            localWorkspaces: [],
+            includeLocalMachine: false
+        )
+        let flattened = CloudTreeNodeBuilder.flattened(nodes)
+        let terminalNode = try #require(flattened.first {
+            $0.id == "machine:pre-placement/ws/ws_main/resource:pre-placement/terminal/term_shell/tab:tab_shell"
+        })
+        if case .terminal(let row) = terminalNode.kind {
+            #expect(row.isOpen)
+        } else {
+            Issue.record("expected the pre-placement terminal pointer row")
+        }
+    }
+
     @Test func cursorDecodingRejectsBooleanFractionalAndOverflowNumbers() {
         #expect(CloudVMCursor(wire: ["generation": "g1", "revision": NSNumber(value: true)]) == nil)
         #expect(CloudVMCursor(wire: ["generation": "g1", "revision": NSNumber(value: 1.5)]) == nil)
