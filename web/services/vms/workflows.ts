@@ -178,8 +178,9 @@ export async function runVmWorkflow<A>(
  * Drivers leave with a code deploy while the rows they wrote survive until an
  * operator runs the matching migration, so every read path must treat such a
  * row as unaddressable instead of asking the registry for a driver it no
- * longer has. The registry throws for an unknown id, and one surviving row was
- * enough to turn the whole machine list into a 500 when Blaxel was removed.
+ * longer has. The registry throws for an unknown id, and one surviving retired
+ * row was enough to turn the whole machine list into a 500 during a provider
+ * migration.
  */
 export function isRetiredProviderRow(row: Pick<CloudVmRow, "provider">): boolean {
   return !isProviderId(row.provider);

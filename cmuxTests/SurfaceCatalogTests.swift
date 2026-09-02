@@ -12,6 +12,34 @@ import Testing
 struct SurfaceCatalogTests {
     private struct TestTimeout: Error {}
 
+    @Test("Cloud rename ordering is shared across local windows")
+    func cloudRenameCoordinatorSerializesOneRemoteIdentity() async {
+        let coordinator = CloudRenameCoordinator()
+        let key = CloudRenameCoordinator.Key.tab(machine: .cloud("vm-1"), id: "tab-1")
+        let recorder = RenameEventRecorder()
+
+        let first = coordinator.enqueue(key: key, pendingName: "first") {
+            recorder.events.append("first-start")
+            await Task.yield()
+            recorder.events.append("first-end")
+        }
+        let second = coordinator.enqueue(key: key, pendingName: "second") {
+            recorder.events.append("second-start")
+            recorder.events.append("second-end")
+        }
+
+        #expect(coordinator.pendingName(for: key) == "second")
+        await second.value
+        await first.value
+        #expect(recorder.events == ["first-start", "first-end", "second-start", "second-end"])
+        #expect(coordinator.pendingName(for: key) == nil)
+    }
+
+    @MainActor
+    private final class RenameEventRecorder {
+        var events: [String] = []
+    }
+
     @Test("Explicit remote placement fails closed without view metadata")
     func explicitRemotePlacementFailsClosedWithoutViewMetadata() throws {
         let machine = SurfaceMachineID.cloud("vivid-newt")
@@ -199,6 +227,61 @@ struct SurfaceCatalogTests {
 
     private func terminal(_ machine: SurfaceMachineID, _ key: String, title: String = "shell") -> SurfaceResource {
         SurfaceResource(id: SurfaceResourceID(machine: machine, kind: .terminal, key: key), title: title, detail: "/root", lifecycle: .running, agent: nil, remoteWorkspace: nil, port: nil, url: nil)
+    }
+
+    @Test("Cloud delta patch preserves unaffected capability rows")
+    func cloudDeltaPatchPreservesUnaffectedRows() throws {
+        let machine = SurfaceMachineID.cloud("vivid-newt")
+        let catalog = SurfaceCatalog()
+        let provider = FakeProvider(machine: machine)
+        catalog.register(provider)
+
+        let snapshot: [String: Any] = [
+            "cursor": ["generation": "g1", "revision": "1"],
+            "workspaces": [["id": "ws", "name": "main"]],
+            "screens": [["id": "screen", "workspace_id": "ws"]],
+            "panes": [["id": "pane", "screen_id": "screen"]],
+            "tabs": [
+                ["id": "tab_one", "pane_id": "pane", "content_kind": "terminal", "content_id": "term_one", "name": "one"],
+                ["id": "tab_two", "pane_id": "pane", "content_kind": "terminal", "content_id": "term_two", "name": "two"],
+            ],
+            "terminals": [
+                ["id": "term_one", "tab_id": "tab_one", "tab_ids": ["tab_one"], "title": "old", "lifecycle": "running"],
+                ["id": "term_two", "tab_id": "tab_two", "tab_ids": ["tab_two"], "title": "untouched", "lifecycle": "running"],
+            ],
+            "agents": [],
+        ]
+        let initial = try #require(CmuxTuiSnapshotParser.state(fromSnapshot: snapshot, machine: machine))
+        let termOne = try #require(CmuxTuiSnapshotParser.resources(from: initial).first { $0.id.key == "term_one" })
+        let termTwo = try #require(CmuxTuiSnapshotParser.resources(from: initial).first { $0.id.key == "term_two" })
+        let port = CmuxTuiSnapshotParser.portBrowser(machine: machine, port: 3000)
+        catalog.replaceCloudState(initial, resources: [termOne, termTwo, port], info: provider.info)
+
+        let delta: [String: Any] = [
+            "changes": [[
+                "kind": "upsert",
+                "resource": "tab",
+                "id": "tab_one",
+                "value": ["id": "tab_one", "pane_id": "pane", "content_kind": "terminal", "content_id": "term_one", "name": "new"],
+            ]],
+        ]
+        let application = try #require(CmuxTuiSnapshotParser.applyingWithImpact(
+            deltaPayload: try JSONSerialization.data(withJSONObject: delta),
+            cursor: CloudVMCursor(generation: "g1", revision: 2),
+            to: initial
+        ))
+        let updated = try #require(CmuxTuiSnapshotParser.resources(from: application.state, matching: application.impact.resourceIDs).first { $0.id.key == "term_one" })
+        _ = catalog.applyCloudStateResourcePatch(
+            application.state,
+            resources: [updated],
+            affectedResourceIDs: application.impact.resourceIDs,
+            info: provider.info
+        )
+
+        #expect(catalog.snapshot.resources(on: machine).first { $0.id.key == "term_one" }?.title == "new")
+        #expect(catalog.snapshot.resources(on: machine).contains(termTwo))
+        #expect(catalog.snapshot.resources(on: machine).contains(port))
+        #expect(catalog.cloudStates[machine]?.cursor == CloudVMCursor(generation: "g1", revision: 2))
     }
 
     @Test func `Resource ID round trips through the wire form`() {

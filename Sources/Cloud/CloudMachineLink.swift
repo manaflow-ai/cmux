@@ -274,6 +274,20 @@ actor CloudMachineLink {
         _ = startEventsSubscription(socketPath: socketPath, cursor: eventsCursor)
     }
 
+    /// Marks a snapshot as the new synchronization boundary and resumes the event
+    /// feed when the previous feed exhausted its recovery budget. A healthy active
+    /// feed is left in place, so accepting a normal snapshot does not create a
+    /// second reader or lose events between two subscriptions.
+    func resumeEventsSubscription(from cursor: CloudVMCursor?) {
+        resetEventsRecovery()
+        replaceEventsCursor(cursor)
+        guard state == .connected,
+              let socketPath = connected?.socketPath,
+              eventsSubscriptionID == nil
+        else { return }
+        _ = startEventsSubscription(socketPath: socketPath, cursor: eventsCursor)
+    }
+
     /// Runs one cmux-tui command against the link's socket and returns its stdout.
     func run(arguments: [String], timeout: Duration = .seconds(30)) async throws -> Data {
         let process = Process()

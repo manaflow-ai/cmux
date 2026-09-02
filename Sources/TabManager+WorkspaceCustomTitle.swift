@@ -1,34 +1,6 @@
 import Foundation
 
 extension TabManager {
-    /// Enqueues one cloud rename behind the previous request for the same resource.
-    /// The generation check removes only the current tail, so a newer edit cannot be
-    /// discarded by an older completion.
-    func enqueueCloudRename(
-        key: String,
-        operation: @escaping @MainActor () async -> Void,
-        onFinished: @escaping @MainActor () -> Void = {}
-    ) {
-        let generation = (cloudRenameGenerations[key] ?? 0) &+ 1
-        cloudRenameGenerations[key] = generation
-        let previous = cloudRenameTasks[key]
-        let task = Task { @MainActor [weak self] in
-            if let previous {
-                await previous.value
-            }
-            guard !Task.isCancelled else {
-                onFinished()
-                return
-            }
-            await operation()
-            onFinished()
-            guard let self, self.cloudRenameGenerations[key] == generation else { return }
-            self.cloudRenameTasks[key] = nil
-            self.cloudRenameGenerations[key] = nil
-        }
-        cloudRenameTasks[key] = task
-    }
-
     /// Refreshes title chrome after a focused panel custom-title edit changed
     /// the automatic workspace title, then tells other title observers.
     func panelCustomTitleDidReconcileWorkspaceTitle(_ workspace: Workspace) {

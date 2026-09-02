@@ -374,7 +374,14 @@ import Testing
 
         var missingAgentIdentity = snapshot
         missingAgentIdentity["agents"] = [["terminal_id": "term_build", "state": "working"]]
-        #expect(CmuxTuiSnapshotParser.state(fromSnapshot: missingAgentIdentity, machine: Self.machine) == nil)
+        let legacyAgentState = CmuxTuiSnapshotParser.state(fromSnapshot: missingAgentIdentity, machine: Self.machine)
+        #expect(legacyAgentState?.agents == [CloudVMAgentState(id: nil, terminalID: "term_build", state: "working", source: nil)])
+
+        var duplicateAgentIDs = snapshot
+        duplicateAgentIDs["agents"] = (Self.sessionSnapshot["agents"] as! [[String: Any]]) + [
+            ["id": "agent_1", "terminal_id": "term_shell", "state": "working"],
+        ]
+        #expect(CmuxTuiSnapshotParser.state(fromSnapshot: duplicateAgentIDs, machine: Self.machine) == nil)
 
         var conflictingAgents = snapshot
         conflictingAgents["agents"] = (Self.sessionSnapshot["agents"] as! [[String: Any]]) + [
@@ -711,6 +718,76 @@ import Testing
         let notification = try #require(next.entity(kind: "notification", id: "notice-1"))
         let notificationObject = try #require(JSONSerialization.jsonObject(with: notification.payload) as? [String: Any])
         #expect(notificationObject["body"] as? String == "passed")
+
+        let application = try #require(CmuxTuiSnapshotParser.applyingWithImpact(
+            deltaPayload: deltaData,
+            cursor: CloudVMCursor(generation: "daemon-a", revision: 8),
+            to: state
+        ))
+        #expect(application.impact.resourceIDs.contains(SurfaceResourceID(machine: Self.machine, kind: .terminal, key: "term_build")))
+        #expect(!application.impact.requiresFullResourceRebuild)
+    }
+
+    @Test func legacyAgentDeltaUsesTerminalRelationshipIdentity() throws {
+        var snapshot = Self.sessionSnapshot
+        snapshot["cursor"] = ["generation": "daemon-a", "revision": "7"]
+        snapshot["agents"] = [["terminal_id": "term_build", "state": "working"]]
+        let state = try #require(CmuxTuiSnapshotParser.state(fromSnapshot: snapshot, machine: Self.machine))
+        let upsert: [String: Any] = [
+            "kind": "delta",
+            "changes": [[
+                "kind": "upsert",
+                "resource": "agent",
+                "value": ["terminal_id": "term_build", "state": "waiting"],
+            ]],
+        ]
+        let data = try JSONSerialization.data(withJSONObject: upsert)
+        let next = try #require(CmuxTuiSnapshotParser.applying(
+            deltaPayload: data,
+            cursor: CloudVMCursor(generation: "daemon-a", revision: 8),
+            to: state
+        ))
+        #expect(next.agents == [CloudVMAgentState(id: nil, terminalID: "term_build", state: "waiting", source: nil)])
+    }
+
+    @Test func deltaRejectsEnvelopeAndSequenceMismatches() throws {
+        var snapshot = Self.sessionSnapshot
+        snapshot["cursor"] = ["generation": "daemon-a", "revision": "7"]
+        let state = try #require(CmuxTuiSnapshotParser.state(fromSnapshot: snapshot, machine: Self.machine))
+        let baseChange: [String: Any] = [
+            "kind": "upsert",
+            "resource": "tab",
+            "id": "tab_1",
+            "value": [
+                "id": "tab_1", "pane_id": "pane_1", "content_kind": "terminal",
+                "content_id": "term_build", "name": "renamed",
+            ],
+        ]
+        func data(_ change: [String: Any], revision: Any = "8") throws -> Data {
+            try JSONSerialization.data(withJSONObject: [
+                "kind": "delta",
+                "cursor": ["generation": "daemon-a", "revision": revision],
+                "previous_revision": "7",
+                "revision": revision,
+                "changes": [change],
+            ])
+        }
+
+        var mismatchedEnvelope = baseChange
+        mismatchedEnvelope["sequence"] = 0
+        #expect(CmuxTuiSnapshotParser.applying(
+            deltaPayload: try data(mismatchedEnvelope, revision: "9"),
+            cursor: CloudVMCursor(generation: "daemon-a", revision: 8),
+            to: state
+        ) == nil)
+
+        var badSequence = baseChange
+        badSequence["sequence"] = 1
+        #expect(CmuxTuiSnapshotParser.applying(
+            deltaPayload: try data(badSequence),
+            cursor: CloudVMCursor(generation: "daemon-a", revision: 8),
+            to: state
+        ) == nil)
     }
 
     @Test func stateSyncRejectsGapsAndOpaqueGenerationOrdering() {
@@ -719,6 +796,7 @@ import Testing
         #expect(CloudVMStateSyncDecision.forSnapshot(incoming: CloudVMCursor(generation: "daemon-b", revision: 1), current: current) == .installSnapshot)
         #expect(CloudVMStateSyncDecision.forDelta(generation: "daemon-a", previousRevision: 6, revision: 8, current: current) == .fetchSnapshot)
         #expect(CloudVMStateSyncDecision.forDelta(generation: "daemon-a", previousRevision: 7, revision: 8, current: current) == .installSnapshot)
+        #expect(CloudVMStateSyncDecision.forDelta(generation: "daemon-a", previousRevision: 7, revision: 9, current: current) == .fetchSnapshot)
         #expect(CloudVMStateSyncDecision.forDelta(generation: "daemon-b", previousRevision: 7, revision: 8, current: current) == .fetchSnapshot)
     }
 

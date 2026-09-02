@@ -1,6 +1,83 @@
 import Foundation
 import Observation
 
+/// Remote rename requests are process-wide because one daemon workspace or tab can be
+/// projected into more than one local window. Keeping the lane here prevents two window
+/// owners from sending the same remote identity out of order.
+@MainActor
+final class CloudRenameCoordinator {
+    struct Key: Hashable, Sendable {
+        enum Scope: String, Hashable, Sendable {
+            case workspace
+            case tab
+        }
+
+        let machine: SurfaceMachineID
+        let scope: Scope
+        let remoteID: String
+
+        static func workspace(machine: SurfaceMachineID, id: String) -> Self {
+            Self(machine: machine, scope: .workspace, remoteID: id)
+        }
+
+        static func tab(machine: SurfaceMachineID, id: String) -> Self {
+            Self(machine: machine, scope: .tab, remoteID: id)
+        }
+    }
+
+    private struct Entry {
+        let generation: UInt64
+        let task: Task<Void, Never>
+    }
+
+    private struct PendingName {
+        let generation: UInt64
+        let value: String
+    }
+
+    private var entries: [Key: Entry] = [:]
+    private var pendingNames: [Key: PendingName] = [:]
+
+    func pendingName(for key: Key) -> String? {
+        pendingNames[key]?.value
+    }
+
+    /// Serializes one remote identity across every local window and retains only the
+    /// newest optimistic name. A failed operation can compensate its own local view;
+    /// an older completion cannot clear a newer intent or queue tail.
+    @discardableResult
+    func enqueue(
+        key: Key,
+        pendingName: String,
+        operation: @escaping @MainActor () async -> Void
+    ) -> Task<Void, Never> {
+        let generation = (entries[key]?.generation ?? 0) &+ 1
+        let previous = entries[key]?.task
+        pendingNames[key] = PendingName(generation: generation, value: pendingName)
+        let task = Task { @MainActor [weak self] in
+            if let previous {
+                await previous.value
+            }
+            guard !Task.isCancelled else {
+                self?.finish(key: key, generation: generation)
+                return
+            }
+            await operation()
+            self?.finish(key: key, generation: generation)
+        }
+        entries[key] = Entry(generation: generation, task: task)
+        return task
+    }
+
+    private func finish(key: Key, generation: UInt64) {
+        if pendingNames[key]?.generation == generation {
+            pendingNames[key] = nil
+        }
+        guard entries[key]?.generation == generation else { return }
+        entries[key] = nil
+    }
+}
+
 /// A provider owns the resources of one machine and knows how to put one on screen.
 /// Providers push resource changes into the catalog (`catalog.replaceResources`) and the
 /// catalog asks them to materialize a projection. They never track projections themselves.
@@ -127,6 +204,9 @@ final class SurfaceCatalog {
     /// part of the daemon document or its cursor.
     private(set) var cloudStateObservations: [SurfaceMachineID: CloudVMStateObservation] = [:]
     private var providers: [SurfaceMachineID: any SurfaceProvider] = [:]
+    /// The process-wide ordering owner for remote rename intents. A remote identity can
+    /// have projections in several local windows, so this cannot live in a TabManager.
+    let cloudRenameCoordinator = CloudRenameCoordinator()
     /// Materializations are asynchronous, so actor reentrancy can otherwise let two callers
     /// pass the reuse check before either provider has returned a projection.
     private var inFlightProjects: [MaterializationKey: SurfaceProjectionMaterialization] = [:]
@@ -313,6 +393,52 @@ final class SurfaceCatalog {
             info: info,
             observation: observation
         )
+    }
+
+    /// Commits a new cloud graph while replacing only the derived rows identified by
+    /// `affectedResourceIDs`. Rows outside that set, including synthetic display and port
+    /// capabilities, remain untouched. The graph, cursor, machine info, and affected rows are
+    /// still one catalog transaction, so an agent never observes a new cursor with mixed rows.
+    @discardableResult
+    func applyCloudStateResourcePatch(
+        _ state: CloudVMState,
+        resources list: [SurfaceResource],
+        affectedResourceIDs: Set<SurfaceResourceID>,
+        info: SurfaceMachineInfo,
+        observation: CloudVMStateObservation = .current
+    ) -> Set<SurfaceResourceID> {
+        guard case .cloud = state.machine else { return [] }
+        precondition(info.id == state.machine, "cloud state and machine info disagree")
+
+        var desired: [SurfaceResourceID: SurfaceResource] = [:]
+        desired.reserveCapacity(list.count)
+        for resource in list {
+            precondition(resource.machine == state.machine, "resource \(resource.id) reported by the wrong cloud state")
+            precondition(
+                affectedResourceIDs.contains(resource.id),
+                "resource \(resource.id) is outside the cloud delta impact set"
+            )
+            desired[resource.id] = resource
+        }
+
+        var changed = Set<SurfaceResourceID>()
+        let existingIDs = resources.keys.filter {
+            $0.machine == state.machine && affectedResourceIDs.contains($0)
+        }
+        for id in existingIDs where desired[id] == nil {
+            if resources.removeValue(forKey: id) != nil { changed.insert(id) }
+        }
+        for (id, resource) in desired where resources[id] != resource {
+            resources[id] = resource
+            changed.insert(id)
+        }
+
+        cloudStates[state.machine] = state
+        cloudStateObservations[state.machine] = observation
+        machines[state.machine] = info
+        resolvePendingRestoredProjections(on: state.machine)
+        notifyChange()
+        return changed
     }
 
     @discardableResult

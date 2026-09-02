@@ -10,9 +10,22 @@ import Foundation
 /// `workspaces[{id,name,focused}]`, `screens[{id,workspace_id}]`, `panes[{id,screen_id}]`,
 /// `tabs[{id,pane_id,name,content_kind,content_id}]`,
 /// `terminals[{id,tab_id,title,cwd?,lifecycle}]`,
-/// `agents[{id,terminal_id,state,source}]`.
+/// `agents[{id?,terminal_id,state,source}]`.
 /// A tab's `name` is the user-set label (`tab.rename`, persisted in the daemon's
 /// registry); the terminal's `title` is PTY-derived. A named view wins over the title.
+struct CloudVMStateDeltaImpact: Hashable, Sendable {
+    /// Resource identities whose derived rows can be rebuilt without touching unrelated rows.
+    var resourceIDs: Set<SurfaceResourceID> = []
+    /// Relationship changes can move many resources at once. These use the authoritative full
+    /// rebuild path instead of risking a partial placement update.
+    var requiresFullResourceRebuild = false
+}
+
+struct CloudVMStateDeltaApplication: Sendable {
+    let state: CloudVMState
+    let impact: CloudVMStateDeltaImpact
+}
+
 struct CmuxTuiSnapshotParser: Sendable {
     /// Chooses a stable destination for projecting a terminal that currently has no remote
     /// tab view. The session snapshot lists structural records separately, so selection walks
@@ -239,11 +252,18 @@ struct CmuxTuiSnapshotParser: Sendable {
             guard let rows = raw as? [[String: Any]] else { return false }
             var ids = Set<String>()
             for row in rows {
-                // Every row in a known collection is part of the identity graph.
-                // Dropping a row with a missing id is equivalent to accepting a
-                // partial snapshot, so it must trigger recovery instead.
-                guard let id = nonEmptyString(row["id"]), ids.insert(id).inserted else {
-                    return false
+                // Agent ids were added after the first public snapshot schema. Their stable
+                // relationship key is terminal_id, so an older daemon may omit id while the
+                // rest of the graph remains fully usable. Every other known row still needs a
+                // non-empty unique id because it is the identity used by deltas and projections.
+                if key == "agents" {
+                    if let rawID = row["id"], !(rawID is NSNull) {
+                        guard let id = nonEmptyString(rawID), ids.insert(id).inserted else { return false }
+                    }
+                } else {
+                    guard let id = nonEmptyString(row["id"]), ids.insert(id).inserted else {
+                        return false
+                    }
                 }
                 switch key {
                 case "screens":
@@ -291,37 +311,101 @@ struct CmuxTuiSnapshotParser: Sendable {
         return resources(fromSnapshot: snapshot, machine: state.machine)
     }
 
+    /// Re-derives only selected resource rows from the exact state bytes. Relationship maps
+    /// are built once because a tab rename can join through pane and screen, but unrelated
+    /// terminals and browsers are never allocated, sorted, or compared. The provider uses
+    /// this for row-local deltas and reserves the complete path for topology changes.
+    static func resources(
+        from state: CloudVMState,
+        matching resourceIDs: Set<SurfaceResourceID>
+    ) -> [SurfaceResource] {
+        guard let snapshot = state.snapshotObject() else { return [] }
+        return resources(fromSnapshot: snapshot, machine: state.machine, only: resourceIDs)
+    }
+
     /// Applies one contiguous `session.delta` batch to the complete raw graph,
-    /// then rebuilds every typed index from that one result. Upserts replace an
-    /// entity in place, deletes remove it, and unknown resource kinds refuse the
-    /// batch so the caller can fetch a fresh snapshot.
+    /// then rebuilds the typed indexes from that one result. The impact tells the
+    /// provider whether it can update selected resource rows or must rebuild all
+    /// relationships. Upserts replace an entity in place, deletes remove it, and
+    /// unknown resource kinds refuse the batch so the caller can fetch a snapshot.
     static func applying(
         deltaPayload: Data,
         cursor: CloudVMCursor,
         to state: CloudVMState
     ) -> CloudVMState? {
+        applyingWithImpact(deltaPayload: deltaPayload, cursor: cursor, to: state)?.state
+    }
+
+    static func applyingWithImpact(
+        deltaPayload: Data,
+        cursor: CloudVMCursor,
+        to state: CloudVMState
+    ) -> CloudVMStateDeltaApplication? {
         guard var snapshot = state.snapshotObject(),
               let delta = try? JSONSerialization.jsonObject(with: deltaPayload) as? [String: Any],
-              let changes = delta["changes"] as? [[String: Any]]
+              let changes = delta["changes"] as? [[String: Any]],
+              state.cursor.generation == cursor.generation,
+              state.cursor.revision < UInt64.max,
+              cursor.revision == state.cursor.revision + 1,
+              deltaEnvelopeMatches(delta, cursor: cursor, previousRevision: state.cursor.revision),
+              deltaSequencesAreValid(changes)
         else { return nil }
 
         for change in changes {
             guard let kind = nonEmptyString(change["kind"]),
                   let resource = nonEmptyString(change["resource"]),
-                  let id = nonEmptyString(change["id"]),
                   let storage = deltaStorage(for: resource)
             else { return nil }
 
+            // Agent ids were not present in the first public snapshot schema. Use the
+            // terminal relationship as the compatibility identity when an old daemon omits
+            // `id`; all other resources still require their explicit daemon id.
+            let value = change["value"] as? [String: Any]
+            let explicitID = nonEmptyString(change["id"])
+            if resource == "agent",
+               let explicitID,
+               let valueID = value.flatMap({ nonEmptyString($0["id"]) }),
+               valueID != explicitID {
+                return nil
+            }
+            if resource == "agent",
+               let changeTerminalID = nonEmptyString(change["terminal_id"]),
+               let valueTerminalID = value.flatMap({ nonEmptyString($0["terminal_id"]) }),
+               changeTerminalID != valueTerminalID {
+                return nil
+            }
+            let compatibilityID: String? = if resource == "agent" {
+                explicitID
+                    ?? nonEmptyString(change["terminal_id"])
+                    ?? value.flatMap { nonEmptyString($0["id"]) ?? nonEmptyString($0["terminal_id"]) }
+            } else {
+                explicitID
+            }
+            guard let id = compatibilityID else { return nil }
+
             switch kind {
             case "upsert":
-                guard let value = change["value"] as? [String: Any],
-                      nonEmptyString(value["id"]) == id else { return nil }
+                guard let value,
+                      resource == "agent" || nonEmptyString(value["id"]) == id
+                else { return nil }
                 switch storage {
                 case .single(let key):
                     snapshot[key] = value
                 case .collection(let key):
                     var values = (snapshot[key] as? [[String: Any]]) ?? []
-                    if let index = values.firstIndex(where: { nonEmptyString($0["id"]) == id }) {
+                    let index: Int?
+                    if resource == "agent" {
+                        // The terminal id is the stable key for legacy and current agent
+                        // rows. Prefer an explicit id, then fall back to that relationship.
+                        index = values.firstIndex {
+                            (explicitID != nil && nonEmptyString($0["id"]) == explicitID)
+                                || (nonEmptyString(value["terminal_id"]) != nil
+                                    && nonEmptyString($0["terminal_id"]) == nonEmptyString(value["terminal_id"]))
+                        }
+                    } else {
+                        index = values.firstIndex(where: { nonEmptyString($0["id"]) == id })
+                    }
+                    if let index {
                         values[index] = value
                     } else {
                         values.append(value)
@@ -341,7 +425,14 @@ struct CmuxTuiSnapshotParser: Sendable {
                     }
                 case .collection(let key):
                     var values = (snapshot[key] as? [[String: Any]]) ?? []
-                    values.removeAll { nonEmptyString($0["id"]) == id }
+                    if resource == "agent", explicitID == nil {
+                        let terminalID = nonEmptyString(change["terminal_id"])
+                            ?? (value.flatMap { nonEmptyString($0["terminal_id"]) })
+                        guard let terminalID else { return nil }
+                        values.removeAll { nonEmptyString($0["terminal_id"]) == terminalID }
+                    } else {
+                        values.removeAll { nonEmptyString($0["id"]) == id }
+                    }
                     snapshot[key] = values
                 }
             default:
@@ -352,7 +443,154 @@ struct CmuxTuiSnapshotParser: Sendable {
             "generation": cursor.generation,
             "revision": String(cursor.revision),
         ]
-        return Self.state(fromSnapshot: snapshot, machine: state.machine)
+        guard let next = Self.state(fromSnapshot: snapshot, machine: state.machine) else { return nil }
+        return CloudVMStateDeltaApplication(
+            state: next,
+            impact: deltaImpact(changes, previous: state, next: next)
+        )
+    }
+
+    private static func deltaImpact(
+        _ changes: [[String: Any]],
+        previous: CloudVMState,
+        next: CloudVMState
+    ) -> CloudVMStateDeltaImpact {
+        var impact = CloudVMStateDeltaImpact()
+        for change in changes {
+            guard let resource = nonEmptyString(change["resource"]) else {
+                impact.requiresFullResourceRebuild = true
+                continue
+            }
+            let value = change["value"] as? [String: Any]
+            guard let id = nonEmptyString(change["id"])
+                ?? (resource == "agent"
+                    ? nonEmptyString(change["terminal_id"])
+                        ?? value.flatMap { nonEmptyString($0["id"]) ?? nonEmptyString($0["terminal_id"]) }
+                    : nil)
+            else {
+                impact.requiresFullResourceRebuild = true
+                continue
+            }
+            switch resource {
+            case "terminal":
+                let old = previous.terminals.first { $0.id == id }
+                let current = next.terminals.first { $0.id == id }
+                // A terminal's tab list is a relationship change. Its title, lifecycle, and
+                // dimensions are row-local and can use the targeted path.
+                if old?.tabIDs != current?.tabIDs {
+                    impact.requiresFullResourceRebuild = true
+                }
+                impact.resourceIDs.insert(SurfaceResourceID(machine: next.machine, kind: .terminal, key: id))
+            case "browser":
+                let old = previous.browsers.first { $0.id == id }
+                let current = next.browsers.first { $0.id == id }
+                if old?.tabID != current?.tabID {
+                    impact.requiresFullResourceRebuild = true
+                }
+                impact.resourceIDs.insert(SurfaceResourceID(machine: next.machine, kind: .browser, key: id))
+            case "agent":
+                let explicitID = nonEmptyString(change["id"])
+                let valueTerminalID = (change["value"] as? [String: Any]).flatMap { nonEmptyString($0["terminal_id"]) }
+                let oldTerminalID = previous.agents.first {
+                    ($0.id == id) || (explicitID == nil && $0.terminalID == id)
+                }?.terminalID
+                // A reassigned agent changes two terminal rows: remove the old badge and
+                // publish the new one. Deletes only have the old relationship.
+                for terminalID in [oldTerminalID, valueTerminalID].compactMap({ $0 }) {
+                    impact.resourceIDs.insert(SurfaceResourceID(machine: next.machine, kind: .terminal, key: terminalID))
+                }
+            case "tab":
+                let old = previous.tabs.first { $0.id == id }
+                let current = next.tabs.first { $0.id == id }
+                guard current != nil || old != nil else {
+                    impact.requiresFullResourceRebuild = true
+                    continue
+                }
+                // A rename, focus, or index update stays on the same pane and content. A move
+                // or content replacement changes placement joins and needs the full path.
+                if let old,
+                   let current,
+                   old.paneID == current.paneID,
+                   old.contentKind == current.contentKind,
+                   old.contentID == current.contentID {
+                    if let resourceID = resourceID(for: current.contentKind, contentID: current.contentID, machine: next.machine) {
+                        impact.resourceIDs.insert(resourceID)
+                    }
+                } else {
+                    // Creation and deletion change the terminal/browser/display placement
+                    // graph even when the content id is known. A complete publication is the
+                    // only way to update the affected content's tab list and ordering.
+                    impact.requiresFullResourceRebuild = true
+                }
+            case "workspace", "screen", "pane", "machine", "session":
+                // These entities are join roots. Their change can alter the placement or
+                // ordering of many resources, so a complete rebuild is the safe boundary.
+                impact.requiresFullResourceRebuild = true
+            default:
+                // Opaque entities are retained in CloudVMState but do not produce surface rows.
+                break
+            }
+        }
+        return impact
+    }
+
+    /// Checks duplicated envelope metadata when the daemon included it in the
+    /// canonical payload. Older clients passed only `changes`, so absent
+    /// optional metadata remains compatible; a present mismatch is a recovery
+    /// barrier rather than a partially applied event.
+    private static func deltaEnvelopeMatches(
+        _ delta: [String: Any],
+        cursor: CloudVMCursor,
+        previousRevision: UInt64
+    ) -> Bool {
+        if let kind = delta["kind"] as? String, kind != "delta" { return false }
+        if delta["kind"] != nil, delta["kind"] as? String == nil { return false }
+        if let rawCursor = delta["cursor"] {
+            guard let object = rawCursor as? [String: Any],
+                  CloudVMCursor(wire: object) == cursor else { return false }
+        }
+        if let rawPrevious = delta["previous_revision"],
+           CloudWireNumber.unsigned(rawPrevious) != previousRevision {
+            return false
+        }
+        if let rawRevision = delta["revision"],
+           CloudWireNumber.unsigned(rawRevision) != cursor.revision {
+            return false
+        }
+        return true
+    }
+
+    /// Current daemons emit a zero-based sequence for every change. A legacy
+    /// delta may omit the field entirely, but mixing present and absent values,
+    /// repeating a sequence, or reordering it can hide a lost mutation.
+    private static func deltaSequencesAreValid(_ changes: [[String: Any]]) -> Bool {
+        var sawSequence = false
+        var sawMissing = false
+        for (index, change) in changes.enumerated() {
+            guard let raw = change["sequence"] else {
+                sawMissing = true
+                continue
+            }
+            guard let sequence = CloudWireNumber.unsigned(raw), sequence == UInt64(index) else {
+                return false
+            }
+            sawSequence = true
+        }
+        return !(sawSequence && sawMissing)
+    }
+
+    private static func resourceID(
+        for contentKind: String,
+        contentID: String,
+        machine: SurfaceMachineID
+    ) -> SurfaceResourceID? {
+        guard !contentID.isEmpty else { return nil }
+        switch contentKind {
+        case "terminal": return SurfaceResourceID(machine: machine, kind: .terminal, key: contentID)
+        case "browser": return SurfaceResourceID(machine: machine, kind: .browser, key: contentID)
+        case "display", "screen": return SurfaceResourceID(machine: machine, kind: .display, key: contentID)
+        default: return nil
+        }
     }
 
     /// Legacy entry point retained for callers that only have a one-shot snapshot.
@@ -382,7 +620,11 @@ struct CmuxTuiSnapshotParser: Sendable {
     /// (`tab_ids` joined through tabs → panes → screens → workspaces). A terminal with no
     /// resolvable view keeps an empty view list: it is alive in the machine's pool, not
     /// attributed to a workspace it is not in.
-    private static func resources(fromSnapshot snapshot: [String: Any], machine: SurfaceMachineID) -> [SurfaceResource] {
+    private static func resources(
+        fromSnapshot snapshot: [String: Any],
+        machine: SurfaceMachineID,
+        only resourceIDs: Set<SurfaceResourceID>? = nil
+    ) -> [SurfaceResource] {
         let screensRaw = (snapshot["screens"] as? [[String: Any]]) ?? []
         let panesRaw = (snapshot["panes"] as? [[String: Any]]) ?? []
         let tabsRaw = (snapshot["tabs"] as? [[String: Any]]) ?? []
@@ -428,6 +670,9 @@ struct CmuxTuiSnapshotParser: Sendable {
 
         var resources: [SurfaceResource] = []
         for raw in terminalsRaw {
+            guard let terminalID = nonEmptyString(raw["id"]) else { continue }
+            let resourceID = SurfaceResourceID(machine: machine, kind: .terminal, key: terminalID)
+            if let resourceIDs, !resourceIDs.contains(resourceID) { continue }
             guard var terminal = terminal(fromSnapshotEntry: raw, machine: machine, agents: agentByTerminal) else { continue }
             var tabIDs = uniquePreservingOrder((raw["tab_ids"] as? [String]) ?? [])
             if tabIDs.isEmpty, let single = raw["tab_id"] as? String, !single.isEmpty {
@@ -465,7 +710,9 @@ struct CmuxTuiSnapshotParser: Sendable {
         // (`browsers[{id,tab_id,url,title,status}]`) — a workspace holds more than
         // terminals, and the tree shows a browser inside the workspace that views it.
         for raw in (snapshot["browsers"] as? [[String: Any]]) ?? [] {
-            guard let id = raw["id"] as? String, !id.isEmpty else { continue }
+            guard let id = nonEmptyString(raw["id"]) else { continue }
+            let resourceID = SurfaceResourceID(machine: machine, kind: .browser, key: id)
+            if let resourceIDs, !resourceIDs.contains(resourceID) { continue }
             let urlString = (raw["url"] as? String) ?? ""
             let title = (raw["title"] as? String).flatMap { $0.isEmpty ? nil : $0 } ?? urlString
             var views: [SurfaceRemoteView] = []
@@ -523,6 +770,8 @@ struct CmuxTuiSnapshotParser: Sendable {
             ))
         }
         for contentID in displayOrder {
+            let resourceID = SurfaceResourceID(machine: machine, kind: .display, key: contentID)
+            if let resourceIDs, !resourceIDs.contains(resourceID) { continue }
             var display = Self.display(machine: machine, key: contentID)
             display.remoteViews = displayViews[contentID]
             display.remoteWorkspace = displayViews[contentID]?.first?.workspace

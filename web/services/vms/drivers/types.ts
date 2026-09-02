@@ -184,7 +184,11 @@ export type AttachTransport = "ssh" | "websocket" | "cmux-remote";
  */
 export type CmuxRemoteEndpoint = {
   transport: "cmux-remote";
-  /** `wss://<host>/v1/link?<provider-token>` — carries the ingress token, so it is never embedded in an invitation. */
+  /**
+   * Provider-reachable daemon route, normally `ws://[ipv6]:1337/v1/link` for Freestyle.
+   * A provider may return a token-bearing gateway URL, but the client must treat `route`
+   * as opaque and never construct or append credentials to it.
+   */
   route: string;
   /** Ingress token (hashed into the lease ledger, never persisted raw). */
   token: string;

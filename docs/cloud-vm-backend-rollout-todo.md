@@ -26,11 +26,12 @@ This is the scoped todo list for making the Cloud VM backend production-ready wi
 - No separate AWS app server is required for the current version.
 - A separate `manaflow/cmux-staging` Vercel project exists for staging.
 
-The active image is the validated Freestyle snapshot
-`freestyle-cmux-devbox-20260902b` (`sh-749d7644e9b04ca38c0718b56a9b767b`). The
-previous public snapshot `freestyle-cmux-devbox-20260902a`
-(`sh-08be343bf2b54b4bb0e5226b97eaa6c4`) is the rollback image. The retired beta
-snapshot is kept in the manifest only to preserve provenance.
+The checked-in image manifest is the source of truth for active and rollback
+images. Its newest validated Freestyle base entry is
+`freestyle-cmux-devbox-20260902c`
+(`sh-940ec3bc46224c019e5e8d9a97053293`). The entries ending in `b` and `a` are
+validated rollback images. The retired beta snapshot remains in the manifest
+only to preserve provenance.
 
 ## State and rename synchronization contract
 
@@ -56,9 +57,25 @@ browsers, and agents. The macOS app must not create a second remote graph.
 - Remote events reconcile every local projection that stores the exact remote
   workspace and tab IDs. Local write-through uses the same mutation path and
   never echoes a daemon-originated update back to the daemon.
+- Rename intents are serialized by `(machine, scope, remote_id)` in one
+  process-wide coordinator, so two local windows cannot send the same remote
+  tab or workspace out of order. A local binding or projection stores the
+  exact remote ID; legacy fallback is allowed only for one unambiguous view.
+- Delta publication uses an explicit impact set. Title, lifecycle, agent, and
+  same-placement tab changes rebuild only the affected resource rows. Any
+  relationship-root, creation, deletion, move, or content change rebuilds the
+  complete derived resource set. The raw graph is always updated first, so a
+  targeted row is still derived from the same authoritative bytes as a full
+  snapshot.
 - Freshness is explicit: `current`, `stale`, and `unavailable` are distinct
   states. A cached graph may be displayed as stale, but it may not authorize a
   new placement or rename.
+- Freestyle route selection reads the canonical `vpcs` addresses when that
+  field is present, uses the deprecated `networks` alias only when `vpcs` is
+  absent, and uses public IPv6 only for a machine with no private address list.
+  Private machines require the owner's WireGuard tunnel. `cmux-remote` Noise
+  enrollment remains the only session transport; legacy WebSocket and SSH
+  paths fail explicitly.
 
 Agent-facing controls are JSON-first and composable: `cmux vm tree --json`,
 `surface.catalog`, `surface.project`, `vm tab rename`, and the explicit

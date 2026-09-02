@@ -205,6 +205,19 @@ describe("Freestyle platform contract", () => {
     expect(() => freestyleCmuxRemoteRoute({ publicIpv6: "  " }, VM_ID)).toThrow("public IPv6");
   });
 
+  test("an explicit empty canonical vpcs list does not use stale legacy metadata", () => {
+    expect(
+      freestyleCmuxRemoteRoute(
+        {
+          publicIpv6: "2602:f75c:0:1::2a",
+          vpcs: [],
+          networks: [{ ipv6: "fd7a:115c:a1e0::b" }],
+        },
+        VM_ID,
+      ),
+    ).toBe("ws://[2602:f75c:0:1::2a]:1337/v1/link");
+  });
+
   test("daemon health requires a v6-table listener; start installs the dual-stack override", () => {
     // 0x0539 = 1337; a 0.0.0.0-bound daemon appears only in /proc/net/tcp and
     // is unreachable at the public IPv6, so it must be restarted.

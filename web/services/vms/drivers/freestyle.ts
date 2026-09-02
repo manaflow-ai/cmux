@@ -181,11 +181,12 @@ function freestyleClient(timeoutMs = DEFAULT_TIMEOUT_MS): Freestyle {
  *   owner's other machines and the owner's attached tunnel and nothing else.
  *   Opening 1337 to the Internet as well would hand back exactly the exposure
  *   the VPC exists to remove.
- * - Without a VPC — a machine created before private networking, or one
+ * - Without a VPC, a machine created before private networking, or one
  *   created while CMUX_VM_PRIVATE_NETWORK_ENABLED=0 rolls the feature back —
  *   inbound 1337 is opened publicly, because that is the only way such a
  *   machine is reachable at all. Session auth is the daemon's Noise device
- *   enrollment, the same posture the e2b driver builds by hand with iptables.
+ *   enrollment, so network reachability and session authorization remain
+ *   separate controls.
  */
 export function freestyleFirewallRules(options?: { publicDaemonIngress?: boolean }) {
   const rules: Array<{
@@ -1003,9 +1004,8 @@ export class FreestyleProvider implements VMProvider {
           span.setAttribute("cmux.vm.network.private", (data.vpcs ?? data.networks ?? []).length > 0);
           await this.ensureCmuxTuiRunning(vm, vmId);
           const invoke = this.cmuxTuiInvoke(vm);
-          // Direct-IPv6 carries no URL token; this one exists only for the
-          // lease ledger. The daemon's Noise enrollment is the session gate —
-          // the same trust model as E2B's public proxy route.
+          // Direct IPv6 carries no URL token. This value exists only for the
+          // lease ledger. The daemon's Noise enrollment is the session gate.
           const token = `cmux-freestyle-route-${randomBytes(32).toString("hex")}`;
           const expiresAtUnix = Math.floor(Date.now() / 1000) + ROUTE_TOKEN_TTL_SECONDS;
           let invitation: CmuxRemoteEndpoint["invitation"];

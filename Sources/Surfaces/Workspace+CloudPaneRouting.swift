@@ -134,20 +134,6 @@ extension Workspace {
 /// The pane leg lives in `Workspace.setPanelCustomTitle`; this type carries the
 /// workspace leg plus the pure target/name rules both legs and the tests share.
 enum CloudWorkspaceRenameWriteThrough {
-    /// A local title edit is an intent until the daemon echoes the same value.
-    /// These entries are process-local and short-lived. They prevent a refresh
-    /// between the edit and its command from erasing the user's text.
-    @MainActor private static var pendingWorkspaceNames: [String: String] = [:]
-    @MainActor private static var pendingTabNames: [String: String] = [:]
-
-    private static func workspaceIntentKey(machine: SurfaceMachineID, id: String) -> String {
-        "workspace:\(machine.rawValue)/\(id)"
-    }
-
-    private static func tabIntentKey(machine: SurfaceMachineID, id: String) -> String {
-        "tab:\(machine.rawValue)/\(id)"
-    }
-
     /// The one remote cmux-tui workspace a local workspace stands for. The persisted
     /// binding wins; otherwise the projected cloud resources decide, but only when
     /// every view agrees on a single remote workspace — a local workspace composing
@@ -160,11 +146,11 @@ enum CloudWorkspaceRenameWriteThrough {
         if let binding, let remote = binding.remoteWorkspaceID, !remote.isEmpty {
             return (.cloud(binding.vmID), remote)
         }
-        var seen = Set<String>()
+        var seen = Set<CloudRenameCoordinator.Key>()
         var found: (SurfaceMachineID, String)?
         for resource in projectedResources where !resource.machine.isLocal {
             for workspace in resource.remoteWorkspaces {
-                seen.insert("\(resource.machine.rawValue)\u{1F}\(workspace.id)")
+                seen.insert(.workspace(machine: resource.machine, id: workspace.id))
                 found = (resource.machine, workspace.id)
             }
         }
@@ -210,18 +196,15 @@ enum CloudWorkspaceRenameWriteThrough {
               ),
               let provider = catalog.provider(for: target.machine) else { return }
         let expectedTitle = workspace.customTitle
-        let key = "workspace:\(workspace.id.uuidString)"
-        let enqueue = workspace.owningTabManager ?? AppDelegate.shared?.tabManagerFor(tabId: workspace.id)
-        guard let enqueue else { return }
-        let intentKey = workspaceIntentKey(machine: target.machine, id: target.remoteWorkspaceID)
-        pendingWorkspaceNames[intentKey] = name
-        enqueue.enqueueCloudRename(key: key, operation: { [weak workspace, weak enqueue] in
+        let manager = workspace.owningTabManager ?? AppDelegate.shared?.tabManagerFor(tabId: workspace.id)
+        let key = CloudRenameCoordinator.Key.workspace(machine: target.machine, id: target.remoteWorkspaceID)
+        catalog.cloudRenameCoordinator.enqueue(key: key, pendingName: name, operation: { [weak workspace, weak manager] in
             do { try await provider.renameRemoteWorkspace(id: target.remoteWorkspaceID, name: name) }
             catch {
                 guard let workspace,
                       workspace.customTitle == expectedTitle,
-                      let enqueue else { return }
-                _ = enqueue.setCustomTitle(
+                      let manager else { return }
+                _ = manager.setCustomTitle(
                     tabId: workspace.id,
                     title: previousCustomTitle,
                     source: .user,
@@ -232,8 +215,6 @@ enum CloudWorkspaceRenameWriteThrough {
                 cmuxDebugLog("cloud.rename.workspace.failed ws=\(workspace.id) error=\(String(describing: error))")
                 #endif
             }
-        }, onFinished: {
-            if pendingWorkspaceNames[intentKey] == name { pendingWorkspaceNames[intentKey] = nil }
         })
     }
 
@@ -263,12 +244,9 @@ enum CloudWorkspaceRenameWriteThrough {
             #endif
             return
         }
-        let key = "terminal-tab:\(resource.machine.rawValue)/\(tabID)"
-        let enqueue = workspace.owningTabManager ?? AppDelegate.shared?.tabManagerFor(tabId: workspace.id)
-        guard let enqueue, let provider = catalog.provider(for: resource.machine) else { return }
-        let intentKey = tabIntentKey(machine: resource.machine, id: tabID)
-        pendingTabNames[intentKey] = name
-        enqueue.enqueueCloudRename(key: key, operation: { [weak workspace] in
+        guard let provider = catalog.provider(for: resource.machine) else { return }
+        let key = CloudRenameCoordinator.Key.tab(machine: resource.machine, id: tabID)
+        catalog.cloudRenameCoordinator.enqueue(key: key, pendingName: name, operation: { [weak workspace] in
             do { try await provider.renameRemoteTab(id: tabID, name: name) }
             catch {
                 guard let workspace,
@@ -284,8 +262,6 @@ enum CloudWorkspaceRenameWriteThrough {
                 cmuxDebugLog("cloud.rename.terminal.failed panel=\(panelID) error=\(String(describing: error))")
                 #endif
             }
-        }, onFinished: {
-            if pendingTabNames[intentKey] == name { pendingTabNames[intentKey] = nil }
         })
     }
 
@@ -315,6 +291,10 @@ enum CloudWorkspaceRenameWriteThrough {
             $0[$1.id] = $1
         }
         let localWorkspaces = AppDelegate.shared?.surfaceCatalogWorkspaces() ?? []
+        let localWorkspacesByID = Dictionary(
+            localWorkspaces.map { ($0.id, $0) },
+            uniquingKeysWith: { first, _ in first }
+        )
 
         for workspace in localWorkspaces {
             guard let binding = workspace.cloudVMBinding,
@@ -323,8 +303,8 @@ enum CloudWorkspaceRenameWriteThrough {
                   let remote = workspacesByID[remoteID]
             else { continue }
 
-            let intentKey = workspaceIntentKey(machine: machine, id: remoteID)
-            if let pending = pendingWorkspaceNames[intentKey], pending != remote.name {
+            let intentKey = CloudRenameCoordinator.Key.workspace(machine: machine, id: remoteID)
+            if let pending = catalog.cloudRenameCoordinator.pendingName(for: intentKey), pending != remote.name {
                 continue
             }
             let displayName = workspaceDisplayName(
@@ -344,7 +324,7 @@ enum CloudWorkspaceRenameWriteThrough {
         }
 
         for projection in snapshot.projections where projection.resource.machine == machine {
-            guard let workspace = localWorkspaces.first(where: { $0.id == projection.workspaceID }),
+            guard let workspace = localWorkspacesByID[projection.workspaceID],
                   workspace.panels[projection.panelID] != nil,
                   let resource = resourcesByID[projection.resource],
                   resource.kind == .terminal
@@ -359,8 +339,8 @@ enum CloudWorkspaceRenameWriteThrough {
                 tabID = nil
             }
             guard let tabID, let tab = tabsByID[tabID] else { continue }
-            let intentKey = tabIntentKey(machine: machine, id: tabID)
-            if let pending = pendingTabNames[intentKey], pending != (tab.name ?? "") {
+            let intentKey = CloudRenameCoordinator.Key.tab(machine: machine, id: tabID)
+            if let pending = catalog.cloudRenameCoordinator.pendingName(for: intentKey), pending != (tab.name ?? "") {
                 continue
             }
             _ = workspace.setPanelCustomTitle(

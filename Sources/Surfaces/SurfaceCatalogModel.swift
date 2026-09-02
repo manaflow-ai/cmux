@@ -454,6 +454,11 @@ enum CloudVMStateSyncDecision: Equatable, Sendable {
               generation == current.generation else { return .fetchSnapshot }
         guard revision > current.revision else { return .ignoreStale }
         guard previousRevision == current.revision else { return .fetchSnapshot }
+        // The daemon commits exactly one resource revision per session.delta.
+        // A larger jump means at least one committed transaction is missing,
+        // even when the advertised previous_revision happens to match.
+        guard previousRevision < UInt64.max,
+              revision == previousRevision + 1 else { return .fetchSnapshot }
         return .installSnapshot
     }
 }

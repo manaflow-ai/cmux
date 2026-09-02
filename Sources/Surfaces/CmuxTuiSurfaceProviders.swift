@@ -380,9 +380,8 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
             where reconnectableSessionIDs.contains(ObjectIdentifier(session)) {
                 session.reconnect(socketPath: connected.socketPath)
             }
-            for port in await ports(client: client, force: force) {
-                currentPorts.append(port)
-            }
+            await link.resumeEventsSubscription(from: cloudState?.cursor)
+            currentPorts = await ports(client: client, force: force)
         } catch {
             let status = await links.status(machineID: machineID)
             linkError = eventsFeedWarning ?? status?.error ?? CloudMachineLink.errorText(error)
@@ -481,30 +480,39 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
         }
     }
 
-    /// Applies a contiguous event to the catalog's canonical graph while touching only rows
-    /// whose derived value changed. Parsing the complete raw snapshot remains intentional: a tab,
-    /// pane, screen, or workspace relationship can change the placement of another resource.
-    /// The catalog diff preserves that correctness without a full row replacement.
+    /// Applies a contiguous event to the catalog's canonical graph. Row-local changes rebuild
+    /// only their affected terminal, browser, or display rows. A topology change crosses a
+    /// relationship boundary and uses the authoritative complete publication path.
     private func publishDelta(
         _ state: CloudVMState,
+        impact: CloudVMStateDeltaImpact,
         ports: [Int],
         reconcileTitles: Bool
     ) {
-        var pool: [SurfaceResource] = []
-        if summary.resolvedKind.hasDesktop {
-            pool.append(CmuxTuiSnapshotParser.display(machine: machine))
+        if impact.requiresFullResourceRebuild {
+            publish(state, ports: ports, reconcileTitles: reconcileTitles)
+            return
         }
-        var resources = CmuxTuiSnapshotParser.mergingDisplays(
-            pool: pool,
-            parsed: CmuxTuiSnapshotParser.resources(from: state)
-        )
-        resources.append(contentsOf: ports.map { CmuxTuiSnapshotParser.portBrowser(machine: machine, port: $0) })
-        if let snapshot = state.snapshotObject() {
-            tabByTerminal = CmuxTuiSnapshotParser.tabByTerminal(fromSnapshot: snapshot)
+
+        let affected = impact.resourceIDs
+        var resources = CmuxTuiSnapshotParser.resources(from: state, matching: affected)
+        // A desktop is a machine capability even when no workspace currently points at it.
+        // Include that pool row only when the delta actually touched a display identity.
+        if summary.resolvedKind.hasDesktop,
+           affected.contains(SurfaceResourceID(machine: machine, kind: .display, key: "display:1")) {
+            resources = CmuxTuiSnapshotParser.mergingDisplays(
+                pool: [CmuxTuiSnapshotParser.display(machine: machine)],
+                parsed: resources
+            )
         }
         info.remoteWorkspaces = Self.remoteWorkspaces(state)
         let previousIDs = Set(catalog.snapshot.resources(on: machine).map(\.id))
-        let changed = catalog.applyCloudStateDelta(state, resources: resources, info: info)
+        let changed = catalog.applyCloudStateResourcePatch(
+            state,
+            resources: resources,
+            affectedResourceIDs: affected,
+            info: info
+        )
         if reconcileTitles {
             CloudWorkspaceRenameWriteThrough.reconcileRemoteState(machine: machine, state: state)
         }
@@ -1212,6 +1220,7 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
                 eventsFeedWarning = nil
                 clearStateRecovery()
                 await link.setEventsCursor(incoming.cursor)
+                await link.resumeEventsSubscription(from: incoming.cursor)
                 info.linkState = .connected
                 info.linkError = nil
                 publish(incoming, ports: portsCache?.ports ?? [])
@@ -1228,19 +1237,23 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
             case .ignoreStale:
                 return
             case .fetchSnapshot:
-                await refresh(force: true)
+                // A gap is the same synchronization barrier as a malformed event. Route it
+                // through the single bounded recovery owner so a burst of out-of-order events
+                // cannot start one full snapshot request per line.
+                scheduleStateRecoveryRefresh()
             case .installSnapshot:
                 guard let current = cloudState,
                       cursor.revision == revision,
-                      let next = CmuxTuiSnapshotParser.applying(
+                      let application = CmuxTuiSnapshotParser.applyingWithImpact(
                         deltaPayload: payload,
                         cursor: cursor,
                         to: current
                       ),
-                      next.cursor == cursor else {
+                      application.state.cursor == cursor else {
                     scheduleStateRecoveryRefresh()
                     return
                 }
+                let next = application.state
                 cloudState = next
                 cloudStateInstallVersion &+= 1
                 eventsFeedWarning = nil
@@ -1249,7 +1262,12 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
                 info.linkState = .connected
                 info.linkError = nil
                 let titlesChanged = current.workspaces != next.workspaces || current.tabs != next.tabs
-                publishDelta(next, ports: portsCache?.ports ?? [], reconcileTitles: titlesChanged)
+                publishDelta(
+                    next,
+                    impact: application.impact,
+                    ports: portsCache?.ports ?? [],
+                    reconcileTitles: titlesChanged
+                )
             }
 
         case .streamEnded(let reason, _):
@@ -1260,7 +1278,7 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
             if reason == "events_recovery_exhausted" {
                 eventsFeedWarning = reason
             }
-            await refresh(force: true)
+            scheduleStateRecoveryRefresh()
 
         case .unknown:
             // An unknown item is a synchronization barrier, but it is not proof that the

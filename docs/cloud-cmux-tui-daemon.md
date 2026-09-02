@@ -102,11 +102,11 @@ The daemon's remote state dir must live on the persistent volume (the machine's
 home; Freestyle runs the daemon as root with `HOME=/root`, so the
 HOME-derived default `~/.local/state/cmux/remote` already qualifies. The
 non-root layout described below (`CMUX_CLOUD_LAYOUT`) is retained as a seam
-but no driver selects it today.)
-so daemon identity and enrolled devices survive sandbox resurrection. Session
-state (`--state`) lives there too, so workspace layout restores from the
-journal checkpoint after a daemon restart; running processes do not survive a
-restart, and clients see the generation change instead of a silent new shell.
+but no driver selects it today. This is what lets daemon identity and enrolled
+devices survive sandbox resurrection. Session state (`--state`) lives there
+too, so workspace layout restores from the journal checkpoint after a daemon
+restart. Running processes do not survive a restart, and clients see the
+generation change instead of a silent new shell.
 
 On a layout machine, the daemon watches the bindfs home view for mount events.
 If the view disappears, the supervisor stops the user daemon and exits with a
@@ -116,6 +116,57 @@ daemon. If repair fails, it detects the still-mounted `/cmux/home` backing path
 and runs the daemon there as root. Active terminals therefore do not continue
 writing into the disposable rootfs directory. No provider selects this layout
 today; it is kept for a future non-root cloud home.
+
+## State model and synchronization invariants
+
+`CloudVMState.rawSnapshot` is the one local copy of the daemon graph. Its typed
+workspace, screen, pane, tab, terminal, browser, agent, and opaque-entity arrays
+are indexes derived from those bytes. `SurfaceCatalog` stores that state with
+the derived surface rows in one main-actor transaction. No sidebar, CLI, or
+pane keeps a second remote graph.
+
+The cursor is `(generation, revision)`. A generation change means a daemon
+restart or replacement, so revision numbers are never compared across
+generations. A delta is accepted only when its generation matches, its
+`previous_revision` is the installed revision, its revision is exactly one
+higher, and its changes have a complete sequence. Any unknown, malformed, or
+out-of-order event triggers one coalesced snapshot repair. Recovery has a finite
+budget and exposes an error state when the feed remains incompatible.
+
+Derived-row work follows an explicit boundary. A title, lifecycle, agent badge,
+focus, index, or same-placement tab-name change rebuilds only the affected
+resource rows. A workspace, screen, pane, relationship, create, delete, move,
+or content change rebuilds all rows. The raw graph is committed first in both
+cases, so a small update and a full update have the same source of truth.
+
+Identity is always an ID, never a display name. A persisted
+`WorkspaceCloudVMBinding.remoteWorkspaceID` identifies the daemon workspace
+behind a local workspace. A persisted surface projection keeps its exact
+`remoteTabID`. When old state lacks either value, the app writes only if one
+unambiguous placement can be proved. Otherwise it leaves the local edit intact
+and reports the remote action as unavailable.
+
+The process-wide `CloudRenameCoordinator` serializes pending writes by
+`(machine, scope, remote ID)` across windows. Workspace renames use a daemon
+revision compare-and-set. `tab rename` changes one tab placement. The explicit
+`terminal rename` compatibility operation fans out to every tab placement of a
+terminal, fences each write, and compensates only when a fresh revision proves
+that no other client changed the completed tabs. A transport failure can still
+leave a partial fan-out, so the operation returns an explicit partial-operation
+error instead of silently claiming success.
+
+Freestyle is the active provider. A private-network VM is reached through its
+VPC address and requires the owner's WireGuard tunnel. A legacy or public-network
+VM is reached through its public IPv6 address. Both use the direct
+`cmux-remote` Noise session on `/v1/link`; the old bearer-token WebSocket and SSH
+attach paths are not fallback transports. The backend and the app treat the
+route as opaque, and the daemon's enrolled device key is the session authority.
+
+This model keeps all daemon fields available to agents through the redacted
+`surface.catalog` export while keeping credentials out of the export. It costs
+one immutable graph decode per accepted snapshot and a full rebuild at topology
+boundaries. Those costs are intentional: a cheaper row cache would create
+divergent IDs, stale placement decisions, and unsafe rename targets.
 
 ## Lease/auth integration with the attach-endpoint flow
 

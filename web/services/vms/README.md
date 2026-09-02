@@ -418,13 +418,14 @@ transport, `POST /api/vm/[id]/sessions`) answers `409 vm_attach_transport_unsupp
 See docs/cloud-cmux-tui-daemon.md for the design.
 
 Freestyle machines run the cmux-tui daemon and only the `cmux-remote`
-transport. The route is the VM's stable public IPv6 straight to the daemon
-(`ws://[<ipv6>]:1337/v1/link`): the platform has no HTTP ingress proxy to
-arbitrary VM ports, so the carrier is plain ws and the daemon's Noise
-enrollment is what gates sessions. The backend writes only a hash of attach
-tokens to Postgres; raw tokens are returned once to the Mac client. Machines
-created by the old cmuxd-remote drivers cannot serve this transport and need
-recreation.
+transport. For machines on the owner's private VPC, the route is the VPC IPv6
+address (`ws://[<vpc-ipv6>]:1337/v1/link`). A legacy machine without a VPC, or a
+machine created while `CMUX_VM_PRIVATE_NETWORK_ENABLED=0`, uses its stable
+public IPv6 instead. The platform has no HTTP ingress proxy to arbitrary VM
+ports, so the carrier is plain ws and the daemon's Noise enrollment gates
+sessions. The backend writes only a hash of attach tokens to Postgres; raw
+tokens are returned once to the Mac client. Machines created by the old
+cmuxd-remote drivers cannot serve this transport and need recreation.
 
 Operational note: before rollout, verify the deployed
 `CMUX_VM_DEFAULT_PROVIDER`, `CMUX_VM_FREESTYLE_ENABLED`, `FREESTYLE_API_KEY`,
