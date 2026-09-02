@@ -1073,6 +1073,35 @@ mod tests {
         let _ = tokio::fs::remove_dir_all(root).await;
     }
 
+    #[tokio::test]
+    async fn resolver_rejects_relative_override_and_path_entries() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let root = std::env::temp_dir().join(format!(
+            "cmux-relay-relative-executable-policy-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let cwd = root.join("launch");
+        let executable = cwd.join("bin/cmux-tui");
+        tokio::fs::create_dir_all(executable.parent().unwrap()).await.unwrap();
+        tokio::fs::write(&executable, b"#!/bin/sh\n").await.unwrap();
+        tokio::fs::set_permissions(&executable, std::fs::Permissions::from_mode(0o755))
+            .await
+            .unwrap();
+
+        let mut env = HashMap::new();
+        env.insert("CHATMUX_RELAY_CMUX_TUI".to_owned(), "bin/cmux-tui".to_owned());
+        env.insert("PATH".to_owned(), "bin".to_owned());
+        let deps = RealPtyDeps::new(env);
+
+        assert!(deps.resolve_cmux_tui(&cwd).await.is_none());
+        let _ = tokio::fs::remove_dir_all(root).await;
+    }
+
     #[test]
     fn subscribe_replay_stays_ahead_of_concurrent_output_and_exit() {
         let output = ThreadOutput::new();
