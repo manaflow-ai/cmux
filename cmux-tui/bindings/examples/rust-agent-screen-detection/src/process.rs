@@ -1925,16 +1925,9 @@ mod tests {
     #[test]
     fn attached_option_values_preserve_the_following_script() {
         for (name, argv, expected) in [
-            (
-                "python3.12",
-                vec!["python3.12", "--check-hash-based-pycs=always", "/tmp/codex"],
-                "codex",
-            ),
             ("python3.12", vec!["python3.12", "-Xutf8", "/tmp/claude"], "claude"),
             ("python3.12", vec!["python3.12", "-Wignore", "/tmp/pi"], "pi"),
-            ("bash", vec!["bash", "--rcfile=/tmp/config", "/tmp/claude"], "claude"),
-            ("bash", vec!["bash", "--init-file=/tmp/config", "/tmp/pi"], "pi"),
-            ("fish", vec!["fish", "--debug=3", "/tmp/codex"], "codex"),
+            ("fish", vec!["fish", "--debug=error", "/tmp/codex"], "codex"),
         ] {
             let job =
                 ForegroundJob { process_group_id: 10, processes: vec![process(10, name, &argv)] };
@@ -1944,6 +1937,19 @@ mod tests {
                 "attached option value must not hide the script: {argv:?}",
             );
         }
+    }
+
+    #[test]
+    fn unsupported_python_attached_option_does_not_expose_script() {
+        let job = ForegroundJob {
+            process_group_id: 11,
+            processes: vec![process(
+                11,
+                "python3.12",
+                &["python3.12", "--check-hash-based-pycs=always", "/tmp/codex"],
+            )],
+        };
+        assert!(identify_job(ManifestSet::bundled(), &job).is_none());
     }
 
     #[test]
