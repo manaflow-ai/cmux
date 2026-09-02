@@ -1402,6 +1402,10 @@ mod tests {
             ("node", vec!["node", "--inspect-port", "claude"]),
             ("python3.12", vec!["python3.12", "-S", "codex"]),
             ("python3.12", vec!["python3.12", "-o", "claude"]),
+            (
+                "python3.12",
+                vec!["python3.12", "-m", "some_module", "codex"],
+            ),
         ] {
             let job =
                 ForegroundJob { process_group_id: 7, processes: vec![process(7, name, &argv)] };
