@@ -1,5 +1,7 @@
 import AppKit
 import CmuxAppKitSupportUI
+import CmuxSettings
+import CmuxSettingsUI
 import SwiftUI
 
 /// Invisible popover content view that promotes the popover window to key as
@@ -149,6 +151,7 @@ struct SidebarWorkspaceTodoPopoverHost<Model: Equatable, PopoverContent: View>: 
     /// Builds the popover body from the latest model; the second argument
     /// closes the popover (footer buttons, Return/Esc handling).
     let content: (Model, @escaping @MainActor () -> Void) -> PopoverContent
+    @Environment(\.chromePalette) private var chromePalette
 
     func makeCoordinator() -> Coordinator {
         Coordinator(isPresented: $isPresented)
@@ -196,8 +199,8 @@ struct SidebarWorkspaceTodoPopoverHost<Model: Equatable, PopoverContent: View>: 
         coordinator.preferredEdge = preferredEdge
         coordinator.isPresentedBinding = $isPresented
         coordinator.acknowledge(isPresented: isPresented, requestToken: presentationRequestToken)
-        coordinator.update(model: model) { model, close in
-            AnyView(content(model, close))
+        coordinator.update(model: model, chromePalette: chromePalette) { model, close in
+            AnyView(content(model, close).environment(\.chromePalette, chromePalette))
         }
         if isPresented {
             coordinator.present()
@@ -233,8 +236,10 @@ struct SidebarWorkspaceTodoPopoverHost<Model: Equatable, PopoverContent: View>: 
         private let visibleUpdateScheduler = CmuxPopoverVisibleUpdateScheduler()
         private var popover: NSPopover?
         private var currentModel: Model?
+        private var currentChromePalette: ChromePalette?
         private var currentBuilder: ((Model, @escaping @MainActor () -> Void) -> AnyView)?
         private var lastRenderedModel: Model?
+        private var lastRenderedChromePalette: ChromePalette?
         private var lastRenderedPresentationCount: Int?
         /// Bumped on every hidden-to-shown transition; used as the SwiftUI
         /// view identity so each open gets fresh view-local state.
@@ -275,13 +280,16 @@ struct SidebarWorkspaceTodoPopoverHost<Model: Equatable, PopoverContent: View>: 
 
         func update(
             model: Model,
+            chromePalette: ChromePalette,
             builder: @escaping (Model, @escaping @MainActor () -> Void) -> AnyView
         ) {
             currentModel = model
+            currentChromePalette = chromePalette
             currentBuilder = builder
             // When hidden, defer rebuilding the hosting view until present().
             guard popover?.isShown == true else { return }
             guard lastRenderedModel != model
+                || lastRenderedChromePalette != chromePalette
                 || lastRenderedPresentationCount != presentationCount else { return }
             scheduleVisibleRefresh()
         }
@@ -294,7 +302,9 @@ struct SidebarWorkspaceTodoPopoverHost<Model: Equatable, PopoverContent: View>: 
         }
 
         private func refreshContent() {
-            guard let model = currentModel, let builder = currentBuilder else { return }
+            guard let model = currentModel,
+                  let chromePalette = currentChromePalette,
+                  let builder = currentBuilder else { return }
             let identity = presentationCount
             hostingController.rootView = AnyView(
                 builder(model) { [weak self] in
@@ -303,6 +313,7 @@ struct SidebarWorkspaceTodoPopoverHost<Model: Equatable, PopoverContent: View>: 
                 .id(identity)
             )
             lastRenderedModel = model
+            lastRenderedChromePalette = chromePalette
             lastRenderedPresentationCount = presentationCount
             hostingController.view.invalidateIntrinsicContentSize()
             hostingController.view.layoutSubtreeIfNeeded()

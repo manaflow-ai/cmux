@@ -885,6 +885,7 @@ private struct TitlebarControlButtonStyleBody: View {
     let foregroundColor: Color
     @State private var isHovering = false
     @Environment(\.isEnabled) private var isEnabled
+    @Environment(\.chromePalette) private var chromePalette
 
     var body: some View {
         configuration.label
@@ -896,7 +897,7 @@ private struct TitlebarControlButtonStyleBody: View {
                         .fill(foregroundColor.opacity(backgroundOpacity))
                 } else if config.buttonBackground {
                     RoundedRectangle(cornerRadius: config.buttonCornerRadius, style: .continuous)
-                        .fill(Color(nsColor: .controlBackgroundColor).opacity(0.45))
+                        .fill((chromePalette[.surfaceRaised]).cmuxColor.opacity(0.45))
                 }
             }
             .overlay {
@@ -981,28 +982,6 @@ private final class TitlebarControlRightClickNSView: NSView {
     }
 }
 
-private struct TitlebarNotificationBadge: View {
-    let unreadModel: SidebarUnreadModel
-    let config: TitlebarControlsStyleConfig
-    @Environment(\.cmuxGlobalFontMagnificationPercent) private var globalFontPercent
-
-    var body: some View {
-        let unreadCount = unreadModel.totalUnreadCount
-        if unreadCount > 0 {
-            Text("\(min(unreadCount, 99))")
-                .cmuxFont(
-                    size: titlebarNotificationBadgeFontSize(for: config)
-                        / max(1, GlobalFontMagnification.scale(for: globalFontPercent)),
-                    weight: .semibold
-                )
-                .foregroundColor(.white)
-                .frame(width: config.badgeSize, height: config.badgeSize)
-                .background(Circle().fill(cmuxAccentColor()))
-                .offset(x: config.badgeOffset.width, y: config.badgeOffset.height)
-        }
-    }
-}
-
 struct TitlebarControlsView: View {
     let unreadModel: SidebarUnreadModel
     let layoutModel: TitlebarControlsLayoutModel
@@ -1023,6 +1002,7 @@ struct TitlebarControlsView: View {
     private let titlebarShortcutHintYOffset = ShortcutHintDebugSettings.defaultTitlebarHintY
     private let alwaysShowShortcutHints = ShortcutHintDebugSettings().alwaysShowHints
     @LiveSetting(\.shortcuts.showModifierHoldHints) private var showModifierHoldHints
+    @Environment(\.chromePalette) private var chromePalette
 
     private struct TitlebarHintLayoutItem: Identifiable {
         let action: KeyboardShortcutSettings.Action
@@ -1064,7 +1044,7 @@ struct TitlebarControlsView: View {
         let style = layoutSnapshot.style
         let config = style.config
         let contentSize = layoutSnapshot.contentSize
-        let foregroundColor = Color(nsColor: titlebarControlForegroundNSColor(opacity: 1.0))
+        let foregroundColor = (chromePalette[.textPrimary]).cmuxColor
         controlsGroup(config: config, foregroundColor: foregroundColor)
             .padding(.leading, TitlebarControlsLayoutMetrics.hintLeadingPadding)
             .padding(.trailing, titlebarHintTrailingInset)
@@ -1221,12 +1201,12 @@ struct TitlebarControlsView: View {
         if config.groupBackground {
             paddedContent
                 .background(
-                    RoundedRectangle(cornerRadius: 12, style: .continuous)
-                        .fill(Color(nsColor: .controlBackgroundColor))
+                        RoundedRectangle(cornerRadius: 12, style: .continuous)
+                        .fill((chromePalette[.surfaceRaised]).cmuxColor)
                 )
                 .overlay(
-                    RoundedRectangle(cornerRadius: 12, style: .continuous)
-                        .stroke(Color(nsColor: .separatorColor).opacity(0.6), lineWidth: 1)
+                        RoundedRectangle(cornerRadius: 12, style: .continuous)
+                        .stroke((chromePalette[.border]).cmuxColor.opacity(0.6), lineWidth: 1)
                 )
                 .overlay(alignment: .topLeading) {
                     titlebarShortcutHintOverlay(items: hintLayoutItems, config: config)
@@ -1904,6 +1884,9 @@ final class TitlebarControlsAccessoryViewController: NSTitlebarAccessoryViewCont
     private let hostingView: NonDraggableHostingView<AnyView>
     private let containerView: NSView
     private let notificationStore: TerminalNotificationStore
+    private let settingsRuntime: SettingsRuntime?
+    private let initialChromePalette: ChromePalette
+    private let chromePaletteUpdates: ChromePaletteUpdateSource?
     private let layoutModel: TitlebarControlsLayoutModel
     private lazy var notificationsPopover: NSPopover = makeNotificationsPopover()
     private var pendingSizeUpdate = false
@@ -1923,11 +1906,17 @@ final class TitlebarControlsAccessoryViewController: NSTitlebarAccessoryViewCont
     init(
         notificationStore: TerminalNotificationStore,
         settingsRuntime: SettingsRuntime?,
-        layoutModel: TitlebarControlsLayoutModel
+        layoutModel: TitlebarControlsLayoutModel,
+        initialChromePalette: ChromePalette? = nil,
+        chromePaletteUpdates: ChromePaletteUpdateSource? = nil
     ) {
         let containerView = TitlebarAccessoryContainerView()
         self.containerView = containerView
         self.notificationStore = notificationStore
+        self.settingsRuntime = settingsRuntime
+        self.initialChromePalette = initialChromePalette
+            ?? ChromePaletteRuntimeResolver(runtime: settingsRuntime).resolve()
+        self.chromePaletteUpdates = chromePaletteUpdates
         self.layoutModel = layoutModel
         let prepareOriginatingAction: () -> AppDelegate.MainWindowContext? = { [weak containerView] in
             guard let appDelegate = AppDelegate.shared,
@@ -1969,9 +1958,11 @@ final class TitlebarControlsAccessoryViewController: NSTitlebarAccessoryViewCont
             visibilityMode: .alwaysVisible
         )
         hostingView = NonDraggableHostingView(
-            rootView: AnyView(
-                rootView.environment(\.settingsRuntime, settingsRuntime)
-            )
+            rootView: AnyView(rootView.chromePaletteHost(
+                initialPalette: self.initialChromePalette,
+                settingsRuntime: settingsRuntime,
+                updates: chromePaletteUpdates
+            ))
         )
 
         super.init(nibName: nil, bundle: nil)
@@ -2217,6 +2208,11 @@ final class TitlebarControlsAccessoryViewController: NSTitlebarAccessoryViewCont
                     openPhoneForwardingSettings(in: window)
                 }
             )
+            .chromePaletteHost(
+                initialPalette: self.initialChromePalette,
+                settingsRuntime: settingsRuntime,
+                updates: chromePaletteUpdates
+            )
         )
         hostingController.view.wantsLayer = true
         hostingController.view.layer?.backgroundColor = .clear
@@ -2330,19 +2326,21 @@ private struct NotificationsPopoverView: View {
     @State private var liveWidth: CGFloat?
     @State private var liveHeight: CGFloat?
     @State private var loadedWorkspaceTitles: [UUID: String]?
+    @Environment(\.chromePalette) private var chromePalette
 
     var body: some View {
         VStack(spacing: 0) {
             header
-            Divider()
+            Divider().overlay((chromePalette[.borderSubtle]).cmuxColor)
             phoneForwardingEntry
-            Divider()
+            Divider().overlay((chromePalette[.borderSubtle]).cmuxColor)
             content
         }
         .frame(width: clampedWidth, height: clampedHeight)
         .animation(nil, value: clampedWidth)
         .animation(nil, value: clampedHeight)
-        .background(Color(nsColor: .windowBackgroundColor))
+        .foregroundStyle((chromePalette[.textPrimary]).cmuxColor)
+        .background((chromePalette[.surface]).cmuxColor)
         .overlay(alignment: .bottomTrailing) {
             resizeHandle
         }
@@ -2438,10 +2436,10 @@ private struct NotificationsPopoverView: View {
             if unreadCount > 0 {
                 Text("\(unreadCount)")
                     .cmuxFont(size: 11, weight: .semibold)
-                    .foregroundColor(.white)
+                    .foregroundColor((chromePalette.textOnAccent).cmuxColor)
                     .padding(.horizontal, 6)
                     .padding(.vertical, 1)
-                    .background(Capsule().fill(cmuxAccentColor()))
+                    .background(Capsule().fill(chromePalette.cmuxAccentColor))
             }
             Spacer()
             Button(action: jumpToLatestUnread) {
@@ -2452,12 +2450,12 @@ private struct NotificationsPopoverView: View {
                     if !jumpToUnreadShortcut.displayString.isEmpty {
                         Text(jumpToUnreadShortcut.displayString)
                             .cmuxFont(size: 10.5, weight: .medium)
-                            .foregroundColor(.secondary)
+                            .foregroundColor((chromePalette.textSecondary).cmuxColor)
                             .padding(.horizontal, 4)
                             .padding(.vertical, 1)
                             .background(
                                 RoundedRectangle(cornerRadius: 3)
-                                    .fill(Color.secondary.opacity(0.15))
+                                    .fill((chromePalette[.surfaceHover]).cmuxColor.opacity(0.65))
                             )
                             // The button already exposes the shortcut via .accessibilityValue;
                             // hide this visual chip from VoiceOver so it isn't announced twice.
@@ -2470,9 +2468,11 @@ private struct NotificationsPopoverView: View {
             .buttonStyle(.plain)
             .background(
                 RoundedRectangle(cornerRadius: 5)
-                    .fill(Color.secondary.opacity(hasUnreadNotifications ? 0.12 : 0.05))
+                    .fill((chromePalette[.surfaceHover]).cmuxColor.opacity(hasUnreadNotifications ? 0.72 : 0.35))
             )
-            .foregroundColor(hasUnreadNotifications ? .primary : .secondary)
+            .foregroundColor(hasUnreadNotifications
+                ? (chromePalette[.textPrimary]).cmuxColor
+                : (chromePalette[.textSecondary]).cmuxColor)
             .accessibilityIdentifier("notificationsPopover.jumpToLatest")
             .accessibilityValue(jumpToUnreadShortcut.displayString)
             .safeHelp(
@@ -2491,9 +2491,11 @@ private struct NotificationsPopoverView: View {
             .buttonStyle(.plain)
             .background(
                 RoundedRectangle(cornerRadius: 5)
-                    .fill(Color.secondary.opacity(notificationStore.notificationMenuSnapshot.hasNotifications ? 0.12 : 0.05))
+                    .fill((chromePalette[.surfaceHover]).cmuxColor.opacity(notificationStore.notificationMenuSnapshot.hasNotifications ? 0.72 : 0.35))
             )
-            .foregroundColor(notificationStore.notificationMenuSnapshot.hasNotifications ? .primary : .secondary)
+            .foregroundColor(notificationStore.notificationMenuSnapshot.hasNotifications
+                ? (chromePalette[.textPrimary]).cmuxColor
+                : (chromePalette[.textSecondary]).cmuxColor)
             .accessibilityIdentifier("notificationsPopover.clearAll")
             .disabled(notificationStore.notificationMenuSnapshot.hasNotifications == false)
         }
@@ -2505,7 +2507,7 @@ private struct NotificationsPopoverView: View {
         Button(action: onOpenPhoneForwarding) {
             HStack(spacing: 8) {
                 CmuxSystemSymbolImage(systemName: "iphone", pointSize: 12, weight: .medium)
-                    .foregroundColor(.secondary)
+                    .foregroundColor((chromePalette[.textSecondary]).cmuxColor)
                 Text(
                     String(
                         localized: "notifications.forwardToPhone.title",
@@ -2515,7 +2517,7 @@ private struct NotificationsPopoverView: View {
                 .cmuxFont(size: 12, weight: .medium)
                 Spacer()
                 CmuxSystemSymbolImage(systemName: "chevron.right", pointSize: 9, weight: .semibold)
-                    .foregroundColor(.secondary)
+                    .foregroundColor((chromePalette[.textSecondary]).cmuxColor)
             }
             .contentShape(Rectangle())
             .padding(.horizontal, 14)
@@ -2586,11 +2588,13 @@ private struct NotificationsPopoverView: View {
                                         )
                                     }
                                 }
-                            }
+                            },
+                            chromePalette: chromePalette
                         )
                         .equatable()  // snapshot-boundary: skip unchanged rows (#5794)
                         if index < lastIndex {
                             Divider()
+                                .overlay((chromePalette[.borderSubtle]).cmuxColor)
                                 .opacity(0.4)
                                 .padding(.leading, 18)
                         }
@@ -2652,14 +2656,14 @@ private struct NotificationsPopoverView: View {
     private func emptyState(systemImage: String, title: String, subtitle: String?) -> some View {
         VStack(spacing: 10) {
             CmuxSystemSymbolImage(systemName: systemImage, pointSize: 30, weight: .light)
-                .foregroundColor(.secondary.opacity(0.7))
+                .foregroundColor((chromePalette[.textSecondary]).cmuxColor.opacity(0.7))
             Text(title)
                 .cmuxFont(size: 14, weight: .medium)
-                .foregroundColor(.primary)
+                .foregroundColor((chromePalette[.textPrimary]).cmuxColor)
             if let subtitle {
                 Text(subtitle)
                     .cmuxFont(size: 12)
-                    .foregroundColor(.secondary)
+                    .foregroundColor((chromePalette[.textSecondary]).cmuxColor)
                     .multilineTextAlignment(.center)
             }
         }
@@ -2702,6 +2706,8 @@ private struct NotificationsPopoverView: View {
 final class UpdateTitlebarAccessoryController {
     private let updateLog: UpdateLogStore
     private let settingsRuntime: SettingsRuntime?
+    private let initialChromePalette: ChromePalette
+    private let chromePaletteUpdates: ChromePaletteUpdateSource?
     private let layoutModel: TitlebarControlsLayoutModel
     private var didStart = false
     private let attachedWindows = NSHashTable<NSWindow>.weakObjects()
@@ -2717,10 +2723,15 @@ final class UpdateTitlebarAccessoryController {
     init(
         updateLog: UpdateLogStore,
         settingsRuntime: SettingsRuntime?,
-        layoutModel: TitlebarControlsLayoutModel
+        layoutModel: TitlebarControlsLayoutModel,
+        initialChromePalette: ChromePalette? = nil,
+        chromePaletteUpdates: ChromePaletteUpdateSource? = nil
     ) {
         self.updateLog = updateLog
         self.settingsRuntime = settingsRuntime
+        self.initialChromePalette = initialChromePalette
+            ?? ChromePaletteRuntimeResolver(runtime: settingsRuntime).resolve()
+        self.chromePaletteUpdates = chromePaletteUpdates
         self.layoutModel = layoutModel
     }
 
@@ -2916,7 +2927,9 @@ final class UpdateTitlebarAccessoryController {
             let controls = TitlebarControlsAccessoryViewController(
                 notificationStore: TerminalNotificationStore.shared,
                 settingsRuntime: settingsRuntime,
-                layoutModel: layoutModel
+                layoutModel: layoutModel,
+                initialChromePalette: initialChromePalette,
+                chromePaletteUpdates: chromePaletteUpdates
             )
             controls.layoutAttribute = .left
             controls.view.identifier = controlsIdentifier
@@ -3092,6 +3105,11 @@ final class UpdateTitlebarAccessoryController {
                     popover?.performClose(nil)
                     openPhoneForwardingSettings(in: window)
                 }
+            )
+            .chromePaletteHost(
+                initialPalette: initialChromePalette,
+                settingsRuntime: settingsRuntime,
+                updates: chromePaletteUpdates
             )
         )
 

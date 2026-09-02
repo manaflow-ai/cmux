@@ -16,6 +16,7 @@ import SwiftUI
 struct AppIconPickerRow: View {
     let selectedMode: AppIconMode
     let onSelect: (AppIconMode) -> Void
+    @Environment(\.chromePalette) private var chromePalette
 
     private let iconSize: CGFloat = 48
     private let autoIconSize: CGFloat = 36
@@ -27,7 +28,7 @@ struct AppIconPickerRow: View {
                     .cmuxFont(size: 13, weight: .medium)
                 Text(String(localized: "settings.app.appIcon.subtitle", defaultValue: "Dock and app switcher"))
                     .cmuxFont(.caption)
-                    .foregroundColor(.secondary)
+                    .foregroundColor(chromePalette.textSecondary.swiftUIColor)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
 
@@ -66,7 +67,7 @@ struct AppIconPickerRow: View {
 
                             Text(iconDisplayName(mode))
                                 .cmuxFont(size: 10)
-                                .foregroundColor(isSelected ? .primary : .secondary)
+                                .foregroundColor(isSelected ? chromePalette.textPrimary.swiftUIColor : chromePalette.textSecondary.swiftUIColor)
                         }
                         .padding(.vertical, 8)
                         .padding(.horizontal, 10)
@@ -74,12 +75,12 @@ struct AppIconPickerRow: View {
                         .background(
                             RoundedRectangle(cornerRadius: 8, style: .continuous)
                                 .fill(isSelected
-                                    ? Color.accentColor.opacity(0.12)
+                                    ? chromePalette.accent.swiftUIColor.opacity(0.12)
                                     : Color.clear)
                         )
                         .overlay(
                             RoundedRectangle(cornerRadius: 8, style: .continuous)
-                                .stroke(isSelected ? Color.accentColor : Color.clear, lineWidth: 2)
+                                .stroke(isSelected ? chromePalette.accent.swiftUIColor : Color.clear, lineWidth: 2)
                         )
                     }
                     .buttonStyle(.plain)

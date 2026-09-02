@@ -1,4 +1,6 @@
 import AppKit
+import CmuxSettings
+import CmuxSettingsUI
 import CmuxWorkspaces
 import SwiftUI
 
@@ -61,7 +63,7 @@ struct SidebarWorkspaceChecklistPopover: View {
     let actions: SidebarWorkspaceChecklistActions
     let onConsumeAddFieldActivation: () -> Void
     let onClose: @MainActor () -> Void
-
+    @Environment(\.chromePalette) private var chromePalette
     @State private var pendingItemText = ""
     @FocusState private var addFieldFocused: Bool
     @State private var editingItemId: UUID?
@@ -89,9 +91,7 @@ struct SidebarWorkspaceChecklistPopover: View {
     /// Row frames in ``Self/pointerSpaceName`` space (via preference); update
     /// on scroll/reflow so hover self-corrects under a resting pointer.
     @State private var itemRowFrames: [UUID: CGRect] = [:]
-
     private static let pointerSpaceName = "checklistPopoverPointerSpace"
-
     private func rederiveHover(frames: [UUID: CGRect]) {
         let hovered = pointerLocation.location.flatMap { point in
             frames.first { $0.value.contains(point) }?.key
@@ -195,13 +195,13 @@ struct SidebarWorkspaceChecklistPopover: View {
         HStack(alignment: .firstTextBaseline, spacing: 8) {
             Text(model.workspaceTitle)
                 .font(.system(size: 13, weight: .semibold))
-                .foregroundColor(.primary)
+                .foregroundColor((chromePalette[.textPrimary]).cmuxColor)
                 .lineLimit(1)
                 .truncationMode(.tail)
             Spacer(minLength: 8)
             Text(verbatim: "\(model.completedCount)/\(model.totalCount)")
                 .font(.system(size: 11).monospacedDigit())
-                .foregroundColor(.secondary)
+                .foregroundColor((chromePalette[.textSecondary]).cmuxColor)
         }
     }
 
@@ -249,7 +249,7 @@ struct SidebarWorkspaceChecklistPopover: View {
                     systemName: checkboxSymbolName(for: item.state),
                     pointSize: Self.checkboxPointSize
                 )
-                .foregroundColor(isCompleted ? .secondary : .primary)
+                .foregroundColor(isCompleted ? (chromePalette[.textSecondary]).cmuxColor : (chromePalette[.textPrimary]).cmuxColor)
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
@@ -267,7 +267,7 @@ struct SidebarWorkspaceChecklistPopover: View {
                 )
                 .textFieldStyle(.plain)
                 .font(.system(size: Self.itemFontSize))
-                .foregroundColor(.primary)
+                .foregroundColor((chromePalette[.textPrimary]).cmuxColor)
                 .focused($editFieldFocused)
                 .lineLimit(1...8)
                 .fixedSize(horizontal: false, vertical: true)
@@ -289,7 +289,7 @@ struct SidebarWorkspaceChecklistPopover: View {
                 // `firstLineCenterOffset`), not the whole wrapped block.
                 Text(item.text)
                     .font(.system(size: Self.itemFontSize))
-                    .foregroundColor(isCompleted ? .secondary : .primary)
+                    .foregroundColor(isCompleted ? (chromePalette[.textSecondary]).cmuxColor : (chromePalette[.textPrimary]).cmuxColor)
                     .strikethrough(isCompleted)
                     .opacity(isCompleted ? 0.6 : 1)
                     .multilineTextAlignment(.leading)
@@ -301,7 +301,7 @@ struct SidebarWorkspaceChecklistPopover: View {
             WorkspaceChecklistAttachmentMenu(
                 item: item,
                 iconPointSize: Self.checkboxPointSize - 2,
-                foregroundColor: .secondary,
+                foregroundColor: (chromePalette[.textSecondary]).cmuxColor,
                 countFont: .system(size: Self.itemFontSize - 1),
                 addAttachments: actions.addAttachments,
                 removeAttachment: actions.removeAttachment,
@@ -315,7 +315,7 @@ struct SidebarWorkspaceChecklistPopover: View {
         .padding(.vertical, 2)
         .background(
             RoundedRectangle(cornerRadius: 5)
-                .fill(highlightedItemId == item.id ? Color.primary.opacity(0.08) : Color.clear)
+                .fill(highlightedItemId == item.id ? (chromePalette[.surfaceHover]).cmuxColor.opacity(0.35) : Color.clear)
         )
         .contentShape(Rectangle())
         .onTapGesture {
@@ -372,7 +372,7 @@ struct SidebarWorkspaceChecklistPopover: View {
             actions.removeItem(item.id)
         } label: {
             CmuxSystemSymbolImage(systemName: "xmark.circle.fill", pointSize: Self.checkboxPointSize - 2)
-                .foregroundColor(.secondary)
+                .foregroundColor((chromePalette[.textSecondary]).cmuxColor)
                 .frame(width: Self.checkboxPointSize + 6, height: Self.checkboxPointSize + 6, alignment: .center)
                 .contentShape(Rectangle())
         }
@@ -395,7 +395,7 @@ struct SidebarWorkspaceChecklistPopover: View {
             // A `plus.circle` "add" affordance, not an empty checkbox, so the
             // add row never reads as a real (unchecked) item.
             CmuxSystemSymbolImage(systemName: "plus.circle", pointSize: Self.checkboxPointSize)
-                .foregroundColor(.secondary)
+                .foregroundColor((chromePalette[.textSecondary]).cmuxColor)
             TextField(
                 placeholder,
                 text: $pendingItemText,
@@ -403,7 +403,7 @@ struct SidebarWorkspaceChecklistPopover: View {
             )
             .font(.system(size: Self.itemFontSize))
             .textFieldStyle(.plain)
-            .foregroundColor(.primary)
+            .foregroundColor((chromePalette[.textPrimary]).cmuxColor)
             .focused($addFieldFocused)
             .lineLimit(1...8)
             .fixedSize(horizontal: false, vertical: true)
@@ -569,7 +569,7 @@ struct SidebarWorkspaceChecklistPopover: View {
                 Text(String(localized: "sidebar.checklist.openAsPane", defaultValue: "Open as Pane"))
                     .font(.system(size: 12))
             }
-            .foregroundColor(.secondary)
+            .foregroundColor((chromePalette[.textSecondary]).cmuxColor)
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(.horizontal, 12)
             .padding(.vertical, 8)

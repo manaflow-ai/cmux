@@ -1,6 +1,8 @@
 import CmuxWorkspaces
+import CmuxSettings
 import Foundation
 import SwiftUI
+import CmuxSettingsUI
 
 // MARK: - Status display names
 
@@ -198,6 +200,7 @@ struct SidebarWorkspaceTaskStatusGlyph: View {
     /// The secondary color used for the todo outline.
     let neutralColor: Color
     let fontScale: CGFloat
+    @Environment(\.chromePalette) private var chromePalette
 
     private static let baseSize: CGFloat = 9
     private static let slotWidth: CGFloat = 11
@@ -214,15 +217,15 @@ struct SidebarWorkspaceTaskStatusGlyph: View {
         case .neutral:
             return neutralColor
         case .working:
-            return cmuxAccentColor()
+            return (chromePalette[.agentWorking]).cmuxColor
         case .attention:
             // Loudest lane: full-strength attention accent between orange and red.
-            return Color(red: 1.0, green: 0.42, blue: 0.2)
+            return (chromePalette[.agentWarning]).cmuxColor
         case .review:
-            return .green
+            return (chromePalette[.agentSuccess]).cmuxColor
         case .done:
             // Muted gray-green so finished rows read as settled, not celebratory.
-            return Color(red: 0.45, green: 0.62, blue: 0.5)
+            return (chromePalette[.agentIdle]).cmuxColor
         }
     }
 
@@ -260,7 +263,10 @@ struct SidebarWorkspaceTaskStatusGlyph: View {
     }
 
     private var checkmarkColor: Color {
-        usesMonochrome ? Color.black.opacity(0.7) : Color.white
+        guard !usesMonochrome else { return Color.black.opacity(0.7) }
+        return chromePalette
+            .readableForeground(for: chromePalette.agentIdle)
+            .cmuxColor
     }
 }
 

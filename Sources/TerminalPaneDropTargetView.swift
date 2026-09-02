@@ -17,7 +17,12 @@ final class PaneDropTargetView: NSView {
     private let transferDropRouter = PaneTransferDropRouter()
     private let dropRoutingRegistration = PaneDropRoutingRegistration()
     private let dropZoneOverlayView = NSView(frame: .zero)
-    private lazy var dropZoneOverlayAnimator = PaneDropZoneOverlayAnimator(overlayView: dropZoneOverlayView)
+    private lazy var dropZoneOverlayAnimator = PaneDropZoneOverlayAnimator(
+        overlayView: dropZoneOverlayView,
+        initialPalette: AppDelegate.shared?.chromePaletteSnapshot()
+            ?? ChromePaletteRuntimeResolver(runtime: AppDelegate.shared?.settingsRuntime).resolve(),
+        updates: AppDelegate.shared?.makeChromePaletteUpdateSource()
+    )
 #if DEBUG
     private var lastHitTestSignature: String?
 #endif

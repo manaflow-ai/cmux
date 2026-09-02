@@ -1,4 +1,6 @@
 import CmuxFoundation
+import CmuxSettings
+import CmuxSettingsUI
 import Foundation
 import SwiftUI
 
@@ -9,6 +11,8 @@ struct SidebarWorkspaceDescriptionText: View {
     let isActive: Bool
     let activeForegroundColor: Color
     let fontScale: CGFloat
+    /// Immutable palette snapshot captured above the sidebar lazy-list boundary.
+    let chromePalette: ChromePalette
     private static let maxDisplayedLines = 12
     private static let maxDisplayedCharacters = 4096
 
@@ -78,7 +82,7 @@ struct SidebarWorkspaceDescriptionText: View {
     }
 
     private var foregroundColor: Color {
-        isActive ? activeForegroundColor : .secondary.opacity(0.95)
+        isActive ? activeForegroundColor : chromePalette.textSecondary.swiftUIColor.opacity(0.95)
     }
 
     private func logTextPreview(_ text: String, limit: Int = 120) -> String {

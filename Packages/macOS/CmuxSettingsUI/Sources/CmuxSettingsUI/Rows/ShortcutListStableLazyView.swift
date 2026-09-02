@@ -7,6 +7,7 @@ import SwiftUI
 @MainActor
 struct ShortcutListStableLazyView: View {
     @Environment(\.controlActiveState) private var controlActiveState
+    @Environment(\.chromePalette) private var chromePalette
 
     let model: ShortcutListModel
     @State private var measuredHeight: CGFloat = 0
@@ -38,7 +39,8 @@ struct ShortcutListStableLazyView: View {
                         onBareKeyRejected: { model.markBareKeyRejected(action) },
                         onClearOrRestore: { Task { await model.clearOrRestore(for: action) } },
                         onClearRejections: { model.clearRejections(for: action) }
-                    )
+                    ),
+                    chromePalette: chromePalette
                 )
                 .equatable()
             }

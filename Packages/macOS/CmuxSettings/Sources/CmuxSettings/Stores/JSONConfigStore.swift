@@ -120,6 +120,32 @@ public actor JSONConfigStore {
         }
     }
 
+    /// Reads, transforms, and writes one key as one actor-serialized mutation.
+    ///
+    /// Use this when a caller must merge with the latest persisted value. A
+    /// separate `value` followed by `set` can lose another writer's update
+    /// between the two actor hops; this operation keeps the read and write in
+    /// the same isolated turn.
+    ///
+    /// - Parameters:
+    ///   - key: The JSON setting to update.
+    ///   - transform: A pure transformation applied to the latest stored value.
+    /// - Returns: The value written to the store.
+    /// - Throws: Errors from the underlying JSON write.
+    public func update<Value: SettingCodable>(
+        _ key: JSONKey<Value>,
+        transform: @Sendable (Value) -> Value
+    ) throws -> Value {
+        // A view model may still hold its launch-time default while another
+        // writer has already persisted overrides, and a watcher event can be
+        // queued behind this actor. Force this merge to read the configured
+        // file before transforming so a stale cache can never erase tokens.
+        cacheValid = false
+        let updated = transform(value(for: key))
+        try set(updated, for: key)
+        return updated
+    }
+
     /// Removes the key's entry from the file. Parent objects that become
     /// empty are pruned. The file itself is not deleted even when no entries
     /// remain.

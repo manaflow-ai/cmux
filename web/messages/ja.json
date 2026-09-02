@@ -1832,6 +1832,7 @@
       "exampleConfig": "設定例",
       "metaTitle": "設定",
       "schemaDescriptions": {
+        "chromeColorHex": "大文字または小文字の6桁または8桁のsRGB 16進カラー。先頭の#は省略でき、末尾のペアは任意のアルファ値です。",
         "computerUse": {
           "description": "ローカルのコンピュータ操作ツールとメニューバー表示の設定です。",
           "enabled": "cmux ターミナルで起動した対応エージェントが、ローカルのコンピュータ操作ツールを接続できるようにします。",
@@ -1858,6 +1859,27 @@
             "monoSize": "codeSize の別名です。",
             "codeLineHeight": "Agent Chat のコードブロックで使う行高倍率です。"
           }
+        },
+        "chrome": {
+          "description": "cmuxが管理するアプリのChrome用の名前付きパレットとトークンごとの上書き。",
+          "theme": "組み込みのChromeパレット。既存のapp.appearance設定により、ライトまたはダークのバリエーションが選択されます。",
+          "overrides": "chrome.themeの上に重ねる、任意のトークン別16進カラー上書き。無効または不明な項目がある場合、オブジェクト全体が無視されます。",
+          "accent": "主要なアクセントカラー。",
+          "accentSoft": "控えめなアクセント背景。",
+          "surface": "Chromeの基本サーフェス。",
+          "surfaceRaised": "浮き上がったChromeサーフェス。",
+          "surfaceSelected": "選択された行またはタブのサーフェス。",
+          "surfaceHover": "ホバー時のサーフェス。",
+          "textPrimary": "Chromeの主要テキスト。",
+          "textSecondary": "Chromeの副次テキスト。",
+          "textTertiary": "Chromeの第3テキスト。",
+          "border": "Chromeの強い境界線。",
+          "borderSubtle": "Chromeの控えめな境界線。",
+          "agentIdle": "エージェントの待機中または中立ステータスのカラー。",
+          "agentWorking": "エージェントの実行中または進行状況のカラー。",
+          "agentSuccess": "エージェント成功のカラー。",
+          "agentWarning": "エージェント警告のカラー。",
+          "agentError": "エージェントエラーのカラー。"
         },
         "automation": {
           "ampIntegration": "Amp の cmux 連携フックを有効にします。無効にすると、バンドルされたプラグインは削除せずに非アクティブのままになります。",

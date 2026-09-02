@@ -1909,6 +1909,7 @@
       "settingsFileChords": "Use a string for a single shortcut or a two-item array for a chord. Example: [\"ctrl+b\", \"c\"] means press Ctrl+B, then C.",
       "exampleConfig": "Example config",
       "schemaDescriptions": {
+        "chromeColorHex": "Uppercase or lowercase 6- or 8-digit sRGB hex color; an optional leading # is accepted, and the optional final pair is alpha.",
         "computerUse": {
           "description": "Local computer-use tools and menu-bar visibility.",
           "enabled": "Allow supported agent launches in cmux terminals to attach the local computer-use tools.",
@@ -1935,6 +1936,27 @@
             "monoSize": "Alias for codeSize.",
             "codeLineHeight": "Line-height multiplier used for Agent Chat code blocks."
           }
+        },
+        "chrome": {
+          "description": "Named palette and per-token overrides for cmux-owned application chrome.",
+          "theme": "Built-in chrome palette. The existing app.appearance setting selects its light or dark variant.",
+          "overrides": "Optional token-to-hex color overrides layered over chrome.theme. Invalid or unknown entries are ignored as a complete object.",
+          "accent": "Primary accent color.",
+          "accentSoft": "Subtle accent background.",
+          "surface": "Base chrome surface.",
+          "surfaceRaised": "Raised chrome surface.",
+          "surfaceSelected": "Selected-row or selected-tab surface.",
+          "surfaceHover": "Hover surface.",
+          "textPrimary": "Primary chrome text.",
+          "textSecondary": "Secondary chrome text.",
+          "textTertiary": "Tertiary chrome text.",
+          "border": "Strong chrome border.",
+          "borderSubtle": "Subtle chrome border.",
+          "agentIdle": "Agent idle or status-neutral color.",
+          "agentWorking": "Agent working or progress color.",
+          "agentSuccess": "Agent success color.",
+          "agentWarning": "Agent warning color.",
+          "agentError": "Agent error color."
         },
         "automation": {
           "ampIntegration": "Enable cmux integration hooks for Amp. When disabled, the bundled plugin stays inactive without needing to be removed.",

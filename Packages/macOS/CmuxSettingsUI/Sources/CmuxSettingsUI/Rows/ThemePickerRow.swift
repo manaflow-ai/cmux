@@ -13,6 +13,7 @@ import SwiftUI
 struct ThemePickerRow: View {
     let selectedMode: AppearanceMode
     let onSelect: (AppearanceMode) -> Void
+    @Environment(\.chromePalette) private var chromePalette
 
     private let thumbWidth: CGFloat = 76
     private let thumbHeight: CGFloat = 50
@@ -51,7 +52,7 @@ struct ThemePickerRow: View {
                                             )
                                         GeometryReader { geo in
                                             Rectangle()
-                                                .fill(Color.primary.opacity(0.15))
+                                                .fill(chromePalette.textPrimary.swiftUIColor.opacity(0.15))
                                                 .frame(width: 1, height: geo.size.height)
                                                 .position(x: geo.size.width / 2, y: geo.size.height / 2)
                                         }
@@ -65,7 +66,7 @@ struct ThemePickerRow: View {
                             Text(themeDisplayName(mode))
                                 .cmuxFont(size: 10)
                                 .fontWeight(isSelected ? .semibold : .regular)
-                                .foregroundColor(isSelected ? .primary : .secondary)
+                                .foregroundColor(isSelected ? chromePalette.textPrimary.swiftUIColor : chromePalette.textSecondary.swiftUIColor)
                         }
                         .padding(.vertical, 8)
                         .padding(.horizontal, 10)
@@ -73,12 +74,12 @@ struct ThemePickerRow: View {
                         .background(
                             RoundedRectangle(cornerRadius: 8, style: .continuous)
                                 .fill(isSelected
-                                    ? Color.accentColor.opacity(0.12)
+                                    ? chromePalette.accent.swiftUIColor.opacity(0.12)
                                     : Color.clear)
                         )
                         .overlay(
                             RoundedRectangle(cornerRadius: 8, style: .continuous)
-                                .stroke(isSelected ? Color.accentColor : Color.clear, lineWidth: 2)
+                                .stroke(isSelected ? chromePalette.accent.swiftUIColor : Color.clear, lineWidth: 2)
                         )
                     }
                     .buttonStyle(.plain)

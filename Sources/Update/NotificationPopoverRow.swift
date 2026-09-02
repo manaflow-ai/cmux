@@ -1,10 +1,14 @@
 import CmuxFoundation
+import CmuxSettings
+import CmuxSettingsUI
 import SwiftUI
 
 struct NotificationPopoverRow: View, Equatable {
     // Closures excluded from ==; equality is the rendered snapshot only (#2586).
     nonisolated static func == (lhs: NotificationPopoverRow, rhs: NotificationPopoverRow) -> Bool {
-        lhs.notification == rhs.notification && lhs.workspaceTitle == rhs.workspaceTitle
+        lhs.notification == rhs.notification &&
+            lhs.workspaceTitle == rhs.workspaceTitle &&
+            lhs.chromePalette == rhs.chromePalette
     }
 
     let notification: TerminalNotification
@@ -12,6 +16,7 @@ struct NotificationPopoverRow: View, Equatable {
     let onOpen: () -> Void
     let onClear: () -> Void
     let onToggleRead: () -> Void
+    let chromePalette: ChromePalette
 
     @State private var isHovering: Bool = false
 
@@ -30,7 +35,7 @@ struct NotificationPopoverRow: View, Equatable {
             Button(action: onOpen) {
                 rowContent
                     .background(
-                        Color.primary.opacity(isHovering ? 0.11 : 0)
+                        (chromePalette[.surfaceHover]).cmuxColor.opacity(isHovering ? 0.8 : 0)
                     )
             }
             .buttonStyle(.plain)
@@ -93,7 +98,7 @@ struct NotificationPopoverRow: View, Equatable {
     private var rowContent: some View {
         HStack(spacing: 0) {
             Rectangle()
-                .fill(notification.isRead ? Color.clear : cmuxAccentColor())
+                .fill(notification.isRead ? Color.clear : chromePalette.cmuxAccentColor)
                 .frame(width: 2.5)
                 .padding(.vertical, 6)
 
@@ -102,7 +107,7 @@ struct NotificationPopoverRow: View, Equatable {
                     if let workspaceTitle, !workspaceTitle.isEmpty {
                         Text(workspaceTitle)
                             .cmuxFont(size: 12.5, weight: .semibold)
-                            .foregroundColor(.primary)
+                            .foregroundColor((chromePalette[.textPrimary]).cmuxColor)
                             .lineLimit(1)
                             .layoutPriority(1)
                             .accessibilityIdentifier(
@@ -111,13 +116,13 @@ struct NotificationPopoverRow: View, Equatable {
                     } else {
                         Text(notification.title)
                             .cmuxFont(size: 12.5, weight: .semibold)
-                            .foregroundColor(.primary)
+                            .foregroundColor((chromePalette[.textPrimary]).cmuxColor)
                             .lineLimit(1)
                     }
                     Spacer(minLength: 0)
                     Text(notification.createdAt.formatted(date: .omitted, time: .shortened))
                         .cmuxFont(size: 10.5)
-                        .foregroundColor(.secondary)
+                        .foregroundColor((chromePalette[.textSecondary]).cmuxColor)
                         .padding(.trailing, 34)
                         .layoutPriority(2)
                 }
@@ -125,14 +130,14 @@ struct NotificationPopoverRow: View, Equatable {
                 if let workspaceTitle, !workspaceTitle.isEmpty {
                     Text(notification.title)
                         .cmuxFont(size: 10.5, weight: .medium)
-                        .foregroundColor(.secondary)
+                        .foregroundColor((chromePalette[.textSecondary]).cmuxColor)
                         .lineLimit(1)
                 }
 
                 if !notification.body.isEmpty {
                     Text(notification.body)
                         .cmuxFont(size: 11.5)
-                        .foregroundColor(.secondary)
+                        .foregroundColor((chromePalette[.textSecondary]).cmuxColor)
                         .lineLimit(2)
                         .fixedSize(horizontal: false, vertical: true)
                 }
@@ -150,9 +155,9 @@ struct NotificationPopoverRow: View, Equatable {
         Button(action: onClear) {
             ZStack {
                 Circle()
-                    .fill(Color.primary.opacity(0.1))
+                    .fill((chromePalette[.surfaceHover]).cmuxColor.opacity(0.8))
                 CmuxSystemSymbolImage(systemName: "xmark", pointSize: 9, weight: .bold)
-                    .foregroundColor(.primary.opacity(0.7))
+                    .foregroundColor((chromePalette[.textPrimary]).cmuxColor.opacity(0.7))
             }
             .frame(width: 20, height: 20)
         }

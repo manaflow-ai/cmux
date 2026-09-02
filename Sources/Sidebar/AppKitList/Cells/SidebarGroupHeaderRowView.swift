@@ -1,5 +1,6 @@
 import AppKit
 import CmuxFoundation
+import CmuxSettings
 import SwiftUI
 
 /// Pure-AppKit group header cell for the sidebar workspace table.
@@ -27,6 +28,7 @@ final class SidebarGroupHeaderTableCellView: NSTableCellView {
     private let hintPill = SidebarShortcutHintPillView()
 
     private var model: SidebarGroupHeaderRowModel?
+    private var chromePalette = ChromePaletteRuntimeResolver(runtime: nil).resolve()
     private var actions: SidebarGroupHeaderRowActions?
     private var isPointerHovering = false
     private var contextMenuVisible = false
@@ -104,10 +106,28 @@ final class SidebarGroupHeaderTableCellView: NSTableCellView {
         contextMenuVisible = false
     }
 
-    func configurePresentation(model: SidebarGroupHeaderRowModel) {
+    func configurePresentation(
+        model: SidebarGroupHeaderRowModel,
+        chromePalette: ChromePalette? = nil
+    ) {
+        let chromePalette = chromePalette
+            ?? AppDelegate.shared?.chromePaletteSnapshot()
+            ?? ChromePaletteRuntimeResolver(runtime: AppDelegate.shared?.settingsRuntime).resolve()
+        let paletteChanged = self.chromePalette != chromePalette
         suspendPresentation()
-        guard self.model != model else { return }
+        guard self.model != model || paletteChanged else { return }
         self.model = model
+        self.chromePalette = chromePalette
+        applyModel(model)
+        needsLayout = true
+    }
+
+    /// Repaints the current pooled header for a palette-only settings change
+    /// without tearing down its menu/action presentation state.
+    func setChromePalette(_ palette: ChromePalette) {
+        guard chromePalette != palette else { return }
+        chromePalette = palette
+        guard let model else { return }
         applyModel(model)
         needsLayout = true
     }
@@ -117,18 +137,24 @@ final class SidebarGroupHeaderTableCellView: NSTableCellView {
     func configure(
         model: SidebarGroupHeaderRowModel,
         actions: SidebarGroupHeaderRowActions,
+        chromePalette: ChromePalette? = nil,
         isPointerHovering: Bool,
         contextMenuDidOpen: @escaping () -> Void,
         contextMenuDidClose: @escaping () -> Void
     ) {
+        let chromePalette = chromePalette
+            ?? AppDelegate.shared?.chromePaletteSnapshot()
+            ?? ChromePaletteRuntimeResolver(runtime: AppDelegate.shared?.settingsRuntime).resolve()
         let requiresFullApply = self.actions == nil
         let previous = self.model
+        let paletteChanged = self.chromePalette != chromePalette
         self.actions = actions
+        self.chromePalette = chromePalette
         self.contextMenuDidOpen = contextMenuDidOpen
         self.contextMenuDidClose = contextMenuDidClose
         let hoverChanged = self.isPointerHovering != isPointerHovering
         self.isPointerHovering = isPointerHovering
-        guard requiresFullApply || previous != model || hoverChanged else { return }
+        guard requiresFullApply || previous != model || hoverChanged || paletteChanged else { return }
         self.model = model
         applyModel(model)
         needsLayout = true
@@ -141,8 +167,6 @@ final class SidebarGroupHeaderTableCellView: NSTableCellView {
         defer { CATransaction.commit() }
         let metrics = SidebarWorkspaceGroupHeaderMetrics(fontScale: model.fontScale)
         let percent = model.globalFontMagnificationPercent
-        let colorScheme: ColorScheme = model.colorSchemeIsDark ? .dark : .light
-        let colorResolver = SidebarAppearanceColorResolver()
 
         pinImageView.isHidden = !model.isPinned
         if model.isPinned {
@@ -151,7 +175,7 @@ final class SidebarGroupHeaderTableCellView: NSTableCellView {
                 pointSize: GlobalFontMagnification.scaledSize(metrics.pinnedIconFontSize, percent: percent),
                 weight: .semibold
             )
-            pinImageView.contentTintColor = colorResolver.resolvedColor(.secondaryLabelColor, for: colorScheme)
+            pinImageView.contentTintColor = (chromePalette[.textSecondary]).cmuxNSColor
             pinImageView.toolTip = String(localized: "workspaceGroup.pinned.tooltip", defaultValue: "Pinned group")
         }
 
@@ -160,7 +184,7 @@ final class SidebarGroupHeaderTableCellView: NSTableCellView {
             pointSize: GlobalFontMagnification.scaledSize(metrics.chevronFontSize, percent: percent),
             weight: .semibold
         )
-        chevronButton.contentTintColor = colorResolver.resolvedColor(.secondaryLabelColor, for: colorScheme)
+        chevronButton.contentTintColor = (chromePalette[.textSecondary]).cmuxNSColor
         chevronButton.setAccessibilityLabel(
             model.isCollapsed
                 ? String(localized: "workspaceGroup.expand.a11y", defaultValue: "Expand group")
@@ -173,17 +197,14 @@ final class SidebarGroupHeaderTableCellView: NSTableCellView {
             pointSize: GlobalFontMagnification.scaledSize(metrics.iconFontSize, percent: percent),
             weight: .semibold
         )
-        iconImageView.contentTintColor = model.tintHex.flatMap { NSColor(hex: $0) }
-            ?? colorResolver.resolvedColor(.secondaryLabelColor, for: colorScheme)
+        iconImageView.contentTintColor = model.tintHex.flatMap { NSColor(hex: $0) } ?? (chromePalette[.textSecondary]).cmuxNSColor
 
         nameField.stringValue = model.name
         nameField.font = .systemFont(
             ofSize: GlobalFontMagnification.scaledSize(metrics.nameFontSize, percent: percent),
             weight: .semibold
         )
-        nameField.textColor = model.isAnchorActive
-            ? colorResolver.resolvedColor(.labelColor, for: colorScheme)
-            : colorResolver.resolvedColor(.labelColor, for: colorScheme, opacity: 0.9)
+        nameField.textColor = model.isAnchorActive ? (chromePalette[.textPrimary]).cmuxNSColor : (chromePalette[.textPrimary]).cmuxNSColor.withAlphaComponent(0.9)
 
         let showsBadge = model.anchorUnreadCount > 0
         unreadBadgeView.isHidden = !showsBadge
@@ -194,8 +215,8 @@ final class SidebarGroupHeaderTableCellView: NSTableCellView {
             )
             unreadBadgeView.configure(
                 count: model.anchorUnreadCount,
-                fillColor: .controlAccentColor,
-                textColor: .white,
+                fillColor: (chromePalette[.accent]).cmuxNSColor,
+                textColor: (chromePalette.textOnAccent).cmuxNSColor,
                 font: unreadBadgeFont
             )
             unreadBadgeView.setAccessibilityLabel(String.localizedStringWithFormat(
@@ -209,7 +230,7 @@ final class SidebarGroupHeaderTableCellView: NSTableCellView {
             pointSize: GlobalFontMagnification.scaledSize(metrics.plusFontSize, percent: percent),
             weight: .medium
         )
-        plusButton.contentTintColor = colorResolver.resolvedColor(.secondaryLabelColor, for: colorScheme)
+        plusButton.contentTintColor = (chromePalette[.textSecondary]).cmuxNSColor
         plusButton.setAccessibilityLabel(String(
             localized: "workspaceGroup.newWorkspaceInGroup.a11y",
             defaultValue: "New workspace in group"
@@ -220,9 +241,8 @@ final class SidebarGroupHeaderTableCellView: NSTableCellView {
             : 4
         backgroundView.layer?.backgroundColor = headerBackgroundColor(for: model).cgColor
 
-        let accent = cmuxAccentNSColor(for: colorScheme)
-        topDropIndicator.layer?.backgroundColor = accent.cgColor
-        bottomDropIndicator.layer?.backgroundColor = accent.cgColor
+        topDropIndicator.layer?.backgroundColor = chromePalette.cmuxAccentNSColor.cgColor
+        bottomDropIndicator.layer?.backgroundColor = chromePalette.cmuxAccentNSColor.cgColor
         topDropIndicator.isHidden = !model.topDropIndicatorVisible
         bottomDropIndicator.isHidden = !model.bottomDropIndicatorVisible
 
@@ -230,7 +250,8 @@ final class SidebarGroupHeaderTableCellView: NSTableCellView {
             text: model.shortcutHintText,
             fontSize: GlobalFontMagnification.scaledSize(9, percent: percent),
             emphasis: model.isAnchorActive ? 1.0 : 0.9,
-            representedIdentity: model.groupId
+            representedIdentity: model.groupId,
+            chromePalette: chromePalette
         )
 
         alphaValue = model.isBeingDragged ? 0.6 : 1
@@ -242,11 +263,8 @@ final class SidebarGroupHeaderTableCellView: NSTableCellView {
     /// Live drop-line painting during native reorder drags; see
     /// `SidebarWorkspaceRowTableCellView.paintControllerDropIndicator`.
     func paintControllerDropIndicator(top: Bool, bottom: Bool) {
-        let colorScheme: ColorScheme = model.map { $0.colorSchemeIsDark ? .dark : .light }
-            ?? SidebarAppearanceColorResolver().currentColorScheme()
-        let accent = cmuxAccentNSColor(for: colorScheme)
-        topDropIndicator.layer?.backgroundColor = accent.cgColor
-        bottomDropIndicator.layer?.backgroundColor = accent.cgColor
+        topDropIndicator.layer?.backgroundColor = chromePalette.cmuxAccentNSColor.cgColor
+        bottomDropIndicator.layer?.backgroundColor = chromePalette.cmuxAccentNSColor.cgColor
         topDropIndicator.isHidden = !top
         bottomDropIndicator.isHidden = !bottom
     }
@@ -276,14 +294,12 @@ final class SidebarGroupHeaderTableCellView: NSTableCellView {
     /// authoritative configure reconciles.
     func showOptimisticAnchorActive() {
         guard let model, !model.isAnchorActive else { return }
-        let colorScheme: ColorScheme = model.colorSchemeIsDark ? .dark : .light
-        let labelColor = SidebarAppearanceColorResolver().resolvedColor(.labelColor, for: colorScheme)
         CATransaction.begin()
         CATransaction.setDisableActions(true)
         backgroundView.layer?.cornerRadius = 4
-        backgroundView.layer?.backgroundColor = labelColor.withAlphaComponent(0.08).cgColor
+        backgroundView.layer?.backgroundColor = (chromePalette[.surfaceHover]).cmuxNSColor.withAlphaComponent(0.35).cgColor
         CATransaction.commit()
-        nameField.textColor = labelColor
+        nameField.textColor = (chromePalette[.textPrimary]).cmuxNSColor
     }
 
     /// Modifier-click preview: paints the same dim membership tint as an
@@ -306,12 +322,7 @@ final class SidebarGroupHeaderTableCellView: NSTableCellView {
         backgroundView.layer?.cornerRadius = 4
         backgroundView.layer?.backgroundColor = NSColor.clear.cgColor
         CATransaction.commit()
-        let colorScheme: ColorScheme = model.colorSchemeIsDark ? .dark : .light
-        nameField.textColor = SidebarAppearanceColorResolver().resolvedColor(
-            .labelColor,
-            for: colorScheme,
-            opacity: 0.9
-        )
+        nameField.textColor = (chromePalette[.textPrimary]).cmuxNSColor.withAlphaComponent(0.9)
     }
 
     /// Rollback for optimistic press paint: reapplies the stored model
@@ -327,12 +338,7 @@ final class SidebarGroupHeaderTableCellView: NSTableCellView {
 
     private func headerBackgroundColor(for model: SidebarGroupHeaderRowModel) -> NSColor {
         if model.isAnchorActive {
-            let colorScheme: ColorScheme = model.colorSchemeIsDark ? .dark : .light
-            return SidebarAppearanceColorResolver().resolvedColor(
-                .labelColor,
-                for: colorScheme,
-                opacity: 0.08
-            )
+            return (chromePalette[.surfaceHover]).cmuxNSColor.withAlphaComponent(0.35)
         }
         if model.isMultiSelected {
             return headerMultiSelectionBackgroundColor(for: model)
@@ -677,180 +683,5 @@ final class SidebarHeaderGlyphButton: NSButton {
                 self.isHidden = true
             })
         }
-    }
-}
-
-/// AppKit rendition of the sidebar shortcut-hint capsule. The outer view owns
-/// the shadow while the inner visual-effect view clips material to the capsule;
-/// putting both on one unclipped layer leaves a square material background.
-@MainActor
-final class SidebarShortcutHintPillView: NSView {
-    private static let horizontalPadding: CGFloat = 4
-    private static let visibilityAnimationKey = "shortcutHintVisibility"
-
-    private let materialView = NSVisualEffectView()
-    private let label = NSTextField(labelWithString: "")
-    private let reduceMotionProvider: () -> Bool
-    private var emphasis: Double = 1.0
-    private var representedIdentity: UUID?
-    private var isRevealed = false
-    private var visibilityGeneration: UInt64 = 0
-
-    init(
-        reduceMotionProvider: @escaping () -> Bool = {
-            NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
-        }
-    ) {
-        self.reduceMotionProvider = reduceMotionProvider
-        super.init(frame: .zero)
-        wantsLayer = true
-        layer?.shadowOpacity = 1
-        layer?.shadowRadius = 2
-        layer?.shadowOffset = CGSize(width: 0, height: -1)
-
-        materialView.material = .popover
-        materialView.state = .active
-        materialView.blendingMode = .withinWindow
-        materialView.wantsLayer = true
-        materialView.layer?.masksToBounds = true
-        materialView.layer?.borderWidth = 0.8
-        addSubview(materialView)
-
-        label.alignment = .center
-        label.lineBreakMode = .byClipping
-        materialView.addSubview(label)
-        layer?.opacity = 0
-        isHidden = true
-    }
-
-    required init?(coder: NSCoder) {
-        fatalError("init(coder:) has not been implemented")
-    }
-
-    func configure(
-        text: String?,
-        fontSize: CGFloat,
-        emphasis: Double,
-        representedIdentity: UUID? = nil
-    ) {
-        let identityChanged = self.representedIdentity != representedIdentity
-        self.representedIdentity = representedIdentity
-        guard let text else {
-            setRevealed(false, animated: !identityChanged)
-            return
-        }
-        self.emphasis = emphasis
-        label.stringValue = text
-        label.font = .monospacedDigitSystemFont(ofSize: fontSize, weight: .semibold)
-        label.textColor = .labelColor
-        materialView.layer?.borderColor = NSColor.white.withAlphaComponent(0.30 * emphasis).cgColor
-        layer?.shadowColor = NSColor.black.withAlphaComponent(0.22 * emphasis).cgColor
-        setRevealed(true, animated: !identityChanged)
-    }
-
-    func fittingPillSize() -> NSSize {
-        guard !isHidden else { return .zero }
-        let textSize = label.sidebarNaturalCellSize
-        return NSSize(
-            width: ceil(textSize.width) + Self.horizontalPadding * 2,
-            height: ceil(textSize.height) + 4
-        )
-    }
-
-    override func layout() {
-        super.layout()
-        let radius = bounds.height / 2
-        materialView.frame = bounds
-        materialView.layer?.cornerRadius = radius
-        label.frame = materialView.bounds.insetBy(dx: Self.horizontalPadding, dy: 2)
-        layer?.shadowPath = CGPath(
-            roundedRect: bounds,
-            cornerWidth: radius,
-            cornerHeight: radius,
-            transform: nil
-        )
-    }
-
-    override func hitTest(_ point: NSPoint) -> NSView? {
-        nil
-    }
-
-    func resetForReuse() {
-        representedIdentity = nil
-        isRevealed = false
-        visibilityGeneration &+= 1
-        applyImmediateVisibility(false)
-        label.stringValue = ""
-    }
-
-    private func setRevealed(_ revealed: Bool, animated: Bool = true) {
-        if !animated {
-            isRevealed = revealed
-            visibilityGeneration &+= 1
-            applyImmediateVisibility(revealed)
-            return
-        }
-        guard isRevealed != revealed else { return }
-        isRevealed = revealed
-        visibilityGeneration &+= 1
-        let generation = visibilityGeneration
-
-        if reduceMotionProvider() {
-            applyImmediateVisibility(revealed)
-            return
-        }
-
-        if revealed {
-            if isHidden {
-                layer?.opacity = 0
-                isHidden = false
-            }
-            animateOpacity(to: 1, generation: generation)
-        } else {
-            guard !isHidden else {
-                layer?.opacity = 0
-                return
-            }
-            animateOpacity(to: 0, generation: generation, hidesWhenFinished: true)
-        }
-    }
-
-    private func applyImmediateVisibility(_ revealed: Bool) {
-        layer?.removeAnimation(forKey: Self.visibilityAnimationKey)
-        CATransaction.begin()
-        CATransaction.setDisableActions(true)
-        layer?.opacity = revealed ? 1 : 0
-        CATransaction.commit()
-        isHidden = !revealed
-    }
-
-    private func animateOpacity(
-        to value: Float,
-        generation: UInt64,
-        hidesWhenFinished: Bool = false
-    ) {
-        guard let layer else { return }
-        let currentOpacity = layer.presentation()?.opacity ?? layer.opacity
-        let animation = CABasicAnimation(keyPath: "opacity")
-        animation.fromValue = currentOpacity
-        animation.toValue = value
-        animation.duration = ShortcutHintAnimation.visibilityDuration
-        animation.timingFunction = CAMediaTimingFunction(name: .easeOut)
-
-        CATransaction.begin()
-        CATransaction.setDisableActions(true)
-        if hidesWhenFinished {
-            CATransaction.setCompletionBlock { [weak self] in
-                Task { @MainActor [weak self] in
-                    guard let self,
-                          self.visibilityGeneration == generation,
-                          !self.isRevealed else { return }
-                    self.isHidden = true
-                }
-            }
-        }
-        layer.opacity = value
-        layer.add(animation, forKey: Self.visibilityAnimationKey)
-        CATransaction.commit()
     }
 }

@@ -40,4 +40,6 @@ struct SidebarWorkspaceGroupRowSnapshot {
     let topDropIndicatorVisible: Bool
     let bottomDropIndicatorVisible: Bool
     let shouldCollectWorkspaceDropTargets: Bool
+    /// Immutable palette snapshot captured above the lazy-list boundary.
+    let chromePalette: ChromePalette
 }

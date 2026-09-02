@@ -35,6 +35,12 @@ public final class JSONValueModel<Value: SettingCodable> {
     /// deallocates.
     @ObservationIgnored private let observation = SettingReadDriver<Value>()
 
+    /// Owns the most recent persistence task so synchronous SwiftUI bindings
+    /// do not leave an untracked operation behind. A new write supersedes the
+    /// previous task; the store actor still serializes operations that have
+    /// already reached it.
+    @ObservationIgnored private var pendingWriteTask: Task<Void, Never>?
+
     /// Creates a model bound to ``key`` in ``store``.
     ///
     /// - Parameters:
@@ -80,6 +86,10 @@ public final class JSONValueModel<Value: SettingCodable> {
         self.current = key.defaultValue
     }
 
+    deinit {
+        pendingWriteTask?.cancel()
+    }
+
     /// Starts the JSON change stream for the retained model.
     ///
     /// Idempotent: the first call starts observation and later calls are
@@ -92,39 +102,62 @@ public final class JSONValueModel<Value: SettingCodable> {
     }
 
     /// Persists the value. The observation stream is the single writer of
-    /// ``current``, which updates once the write lands and the store
-    /// yields it back. On failure ``lastWriteError`` is populated and
-    /// recorded in the error log. Synchronous because SwiftUI `Binding`
-    /// setters can't `await`.
-    public func set(_ value: Value) {
-        let keyID = key.id
-        Task { [weak self, store, key] in
-            do {
-                try await store.set(value, for: key)
-                await MainActor.run { self?.lastWriteError = nil }
-            } catch {
-                await MainActor.run {
-                    self?.lastWriteError = error
-                    self?.errorLog.record(error, keyID: keyID)
-                }
-            }
+    /// ``current``, which updates once the write lands and the store yields it
+    /// back. Synchronous bindings can ignore the returned task, while async
+    /// callers may await its ``Task/value`` to observe completion.
+    @discardableResult
+    public func set(_ value: Value) -> Task<Void, Never> {
+        enqueueWrite { store, key in
+            try await store.set(value, for: key)
+        }
+    }
+
+    /// Atomically transforms the latest persisted value and writes the result.
+    ///
+    /// Unlike ``set(_:)``, this operation does not base the write on the
+    /// view-model snapshot. It is intended for editors that merge one field
+    /// into a shared dictionary and must preserve concurrent changes.
+    ///
+    /// - Parameter transform: A pure transformation applied by the store actor.
+    @discardableResult
+    public func update(_ transform: @escaping @Sendable (Value) -> Value) -> Task<Void, Never> {
+        enqueueWrite { store, key in
+            _ = try await store.update(key, transform: transform)
         }
     }
 
     /// Removes the JSON entry (parents that become empty are pruned).
     /// ``current`` updates when the stream observes the reset.
-    public func reset() {
+    @discardableResult
+    public func reset() -> Task<Void, Never> {
+        enqueueWrite { store, key in
+            try await store.reset(key)
+        }
+    }
+
+    /// Enqueues one actor-isolated persistence operation and retains its task
+    /// for lifecycle cancellation. The closure runs on the main actor before
+    /// and after the store hop, so updates to ``lastWriteError`` stay isolated.
+    private func enqueueWrite(
+        _ operation: @escaping @Sendable (JSONConfigStore, JSONKey<Value>) async throws -> Void
+    ) -> Task<Void, Never> {
+        pendingWriteTask?.cancel()
         let keyID = key.id
-        Task { [weak self, store, key] in
+        let task = Task { @MainActor [weak self, store, key] in
             do {
-                try await store.reset(key)
-                await MainActor.run { self?.lastWriteError = nil }
+                try await operation(store, key)
+                guard !Task.isCancelled else { return }
+                self?.lastWriteError = nil
+            } catch is CancellationError {
+                // Cancellation is an expected lifecycle/supersession path;
+                // do not surface it as a settings write failure.
             } catch {
-                await MainActor.run {
-                    self?.lastWriteError = error
-                    self?.errorLog.record(error, keyID: keyID)
-                }
+                guard !Task.isCancelled else { return }
+                self?.lastWriteError = error
+                self?.errorLog.record(error, keyID: keyID)
             }
         }
+        pendingWriteTask = task
+        return task
     }
 }

@@ -3,6 +3,7 @@ import Bonsplit
 import CmuxAppKitSupportUI
 import CmuxFoundation
 import CmuxNotifications
+import CmuxSettings
 import SwiftUI
 
 /// Main-actor owner of the default sidebar table lifecycle and its AppKit interactions.
@@ -19,9 +20,9 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
         case invalid
     }
 
-    private weak var containerView: SidebarWorkspaceTableContainerView?
+    weak var containerView: SidebarWorkspaceTableContainerView?
     private let createdCellViews = NSHashTable<NSView>.weakObjects()
-    private var rows: [SidebarWorkspaceTableRowConfiguration] = []
+    var rows: [SidebarWorkspaceTableRowConfiguration] = []
     private var actions: SidebarWorkspaceTableActions?
     private var deferredRowClick: DeferredRowClick?
     /// SwiftUI-side wake-up for a parked click. A deferred click only lands
@@ -108,6 +109,7 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
     }
     private weak var unreadSource: SidebarUnreadModel?
     private var unreadSnapshot = SidebarUnreadSnapshot()
+    var chromePalette = ChromePaletteRuntimeResolver(runtime: nil).resolve()
     private var appliedUnreadSnapshot = SidebarUnreadSnapshot()
     private var hasPendingContentRefresh = false
     private var pendingForcedReloadViewportOrigin: CGPoint?
@@ -1351,60 +1353,12 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
                       tableView: tableView,
                       row: row,
                       size: draggingItem.draggingFrame.size,
-                      count: count
+                      count: count,
+                      chromePalette: chromePalette
                   ) else {
                 return
             }
             draggingItem.setDraggingFrame(draggingItem.draggingFrame, contents: image)
-        }
-    }
-
-    private func workspaceDragImage(
-        tableView: NSTableView,
-        row: Int,
-        size: NSSize,
-        count: Int
-    ) -> NSImage? {
-        let rowRect = tableView.rect(ofRow: row)
-        guard rowRect.width > 0,
-              rowRect.height > 0,
-              size.width > 0,
-              size.height > 0,
-              let representation = tableView.bitmapImageRepForCachingDisplay(in: rowRect) else {
-            return nil
-        }
-        tableView.cacheDisplay(in: rowRect, to: representation)
-        let rowImage = NSImage(size: rowRect.size)
-        rowImage.addRepresentation(representation)
-
-        return NSImage(size: size, flipped: false) { bounds in
-            rowImage.draw(in: bounds)
-
-            let badgeDiameter: CGFloat = 18
-            let badgeInset: CGFloat = 2
-            let badgeRect = NSRect(
-                x: bounds.maxX - badgeDiameter - badgeInset,
-                y: bounds.maxY - badgeDiameter - badgeInset,
-                width: badgeDiameter,
-                height: badgeDiameter
-            )
-            NSColor.controlAccentColor.setFill()
-            NSBezierPath(ovalIn: badgeRect).fill()
-
-            let countText = "\(count)" as NSString
-            let attributes: [NSAttributedString.Key: Any] = [
-                .font: NSFont.systemFont(ofSize: 10, weight: .semibold),
-                .foregroundColor: NSColor.white,
-            ]
-            let textSize = countText.size(withAttributes: attributes)
-            countText.draw(
-                at: NSPoint(
-                    x: badgeRect.midX - (textSize.width / 2),
-                    y: badgeRect.midY - (textSize.height / 2)
-                ),
-                withAttributes: attributes
-            )
-            return true
         }
     }
 
@@ -2452,7 +2406,7 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
             if cell.currentModelForMeasurement != model {
                 releasePumpHeightOverride(for: configuration.id, ownedBy: cell)
             }
-            cell.configurePresentation(model: model)
+            cell.configurePresentation(model: model, chromePalette: chromePalette)
             return
         }
         let rowId = configuration.id
@@ -2467,6 +2421,7 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
         cell.configure(
             model: model,
             actions: actions,
+            chromePalette: chromePalette,
             isPointerHovering: hoveredRowId == rowId && contextMenuRowId != rowId,
             contextMenuDidOpen: { [weak self] in
                 self?.contextMenuDidOpen(rowId: rowId)
@@ -2706,13 +2661,14 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
         let configuration = rows[row]
         guard let model = configuration.appKitGroupHeaderModel else { return }
         guard let actions = configuration.appKitGroupHeaderActions else {
-            cell.configurePresentation(model: model)
+            cell.configurePresentation(model: model, chromePalette: chromePalette)
             return
         }
         let rowId = configuration.id
         cell.configure(
             model: model,
             actions: actions,
+            chromePalette: chromePalette,
             isPointerHovering: hoveredRowId == rowId && contextMenuRowId != rowId,
             contextMenuDidOpen: { [weak self] in
                 self?.contextMenuDidOpen(rowId: rowId)

@@ -204,6 +204,22 @@ extension Array where Element == CuratedSettingEntry {
             .init(section: .sidebarAppearance, id: "show-ports", title: "Show Listening Ports in Sidebar", synonyms: "sidebar.showPorts localhost port listener dev server url"),
             .init(section: .sidebarAppearance, id: "show-log", title: "Show Latest Log in Sidebar", synonyms: "sidebar.showLog log status latest message imperative"),
             .init(section: .sidebarAppearance, id: "show-progress", title: "Show Progress in Sidebar", synonyms: "sidebar.showProgress progress bar percent status set_progress"),
+
+            // Chrome palette
+            .init(
+                section: .chrome,
+                id: "theme",
+                title: String(localized: "settings.chrome.theme", defaultValue: "Chrome Theme"),
+                paths: ["chrome.theme"],
+                synonyms: "chrome.theme chrome palette app chrome sidebar tab strip agent panel notification colors catppuccin gruvbox solarized light dark system"
+            ),
+            .init(
+                section: .chrome,
+                id: "token-overrides",
+                title: String(localized: "settings.chrome.overrides.title", defaultValue: "Token overrides"),
+                paths: ["chrome.overrides"],
+                synonyms: "chrome.overrides token color accent surface text border status agent hex custom color override"
+            ),
             .init(
                 section: .sidebarAppearance,
                 id: "show-agent-activity",

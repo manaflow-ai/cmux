@@ -112,6 +112,27 @@ struct JSONConfigStoreTests {
         #expect(store.snapshotValue(for: key) == "")
     }
 
+    @Test func updateReloadsBeforeMergingAStaleCache() async throws {
+        let (store, fileURL, catalog) = makeStore()
+        let key = catalog.chrome.overrides
+        let initial = try #require(ChromeTokenOverrides(hexValues: ["accent": "#112233"]))
+        try await store.set(initial, for: key)
+        // Prime the actor cache, then simulate another writer changing the file
+        // before the next editor commit. The merge must preserve that change.
+        _ = await store.value(for: key)
+        let external = ##"{"chrome":{"overrides":{"surface":"#445566"}}}"##
+        try Data(external.utf8).write(to: fileURL)
+
+        let merged = try await store.update(key) { current in
+            var values = current.values
+            values[.accent] = ChromeColor(hex: "#AABBCC")
+            return ChromeTokenOverrides(values)
+        }
+
+        #expect(merged[.surface] == ChromeColor(hex: "#445566"))
+        #expect(merged[.accent] == ChromeColor(hex: "#AABBCC"))
+    }
+
     @Test func snapshotMatchesAsyncRead() async throws {
         let (store, _, _) = makeStore()
         let key = JSONKey<String>(id: "automation.socketPassword", defaultValue: "")

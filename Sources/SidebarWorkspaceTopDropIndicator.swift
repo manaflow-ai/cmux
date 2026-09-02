@@ -1,3 +1,5 @@
+import CmuxSettings
+import CmuxSettingsUI
 import SwiftUI
 
 struct SidebarWorkspaceTopDropIndicator: View {
@@ -6,6 +8,7 @@ struct SidebarWorkspaceTopDropIndicator: View {
     let rowSpacing: CGFloat
     let isBottomEdge: Bool
     let leadingInset: CGFloat
+    @Environment(\.chromePalette) private var chromePalette
 
     init(
         isVisible: Bool,
@@ -24,7 +27,7 @@ struct SidebarWorkspaceTopDropIndicator: View {
     var body: some View {
         if isVisible {
             Rectangle()
-                .fill(cmuxAccentColor())
+                .fill(chromePalette.cmuxAccentColor)
                 .frame(height: 2)
                 .padding(.leading, Self.horizontalPadding + max(leadingInset, 0))
                 .padding(.trailing, Self.horizontalPadding)

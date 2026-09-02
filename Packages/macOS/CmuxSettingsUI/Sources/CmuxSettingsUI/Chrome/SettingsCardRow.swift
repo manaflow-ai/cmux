@@ -1,4 +1,5 @@
 import CmuxFoundation
+import CmuxSettings
 import SwiftUI
 
 /// One row inside a ``SettingsCard``: a left-aligned title (and
@@ -39,6 +40,7 @@ public struct SettingsCardRow<Trailing: View>: View {
     // host embedding without the index), in which case the row simply
     // doesn't participate in search navigation.
     @Environment(\.settingsSearchIndex) private var searchIndex
+    @Environment(\.chromePalette) private var chromePalette
 
     /// Anchor ids that make the row `scrollTo`-addressable and eligible
     /// for the search-result highlight pulse. An explicit
@@ -81,7 +83,7 @@ public struct SettingsCardRow<Trailing: View>: View {
                 if let subtitle {
                     Text(subtitle)
                         .cmuxFont(.caption)
-                        .foregroundColor(.secondary)
+                        .foregroundColor(chromePalette.textSecondary.swiftUIColor)
                         .lineLimit(2)
                 }
             }

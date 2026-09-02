@@ -1,4 +1,5 @@
 import CmuxFoundation
+import CmuxSettings
 import SwiftUI
 
 /// Tiny stylized desktop+windows thumbnail used by ``ThemePickerRow``.
@@ -11,6 +12,7 @@ import SwiftUI
 @MainActor
 struct ThemeWindowThumbnail: View {
     let isDark: Bool
+    @Environment(\.chromePalette) private var chromePalette
 
     var body: some View {
         GeometryReader { geo in
@@ -52,7 +54,7 @@ struct ThemeWindowThumbnail: View {
                     HStack {
                         Image(systemName: "applelogo")
                             .cmuxFont(size: max(height * 0.08, 6))
-                            .foregroundColor(isDark ? .white : .black)
+                            .foregroundColor(chromePalette.textPrimary.swiftUIColor)
                             .opacity(0.8)
                         Spacer()
                     }
@@ -71,7 +73,7 @@ struct ThemeWindowThumbnail: View {
                         Rectangle()
                             .fill(isDark ? Color(white: 0.15) : Color(white: 0.98))
                         RoundedRectangle(cornerRadius: max(width * 0.02, 2), style: .continuous)
-                            .fill(Color.accentColor)
+                            .fill(chromePalette.accent.swiftUIColor)
                             .frame(height: max(height * 0.12, 6))
                             .padding(max(width * 0.04, 4))
                     }
@@ -107,7 +109,7 @@ struct ThemeWindowThumbnail: View {
         .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
         .overlay(
             RoundedRectangle(cornerRadius: 14, style: .continuous)
-                .stroke(Color.primary.opacity(0.1), lineWidth: 1)
+                .stroke(chromePalette.borderSubtle.swiftUIColor.opacity(0.8), lineWidth: 1)
         )
     }
 }

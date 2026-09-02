@@ -1,5 +1,6 @@
 import AppKit
 import Bonsplit
+import CmuxSettings
 import Foundation
 
 @MainActor
@@ -218,20 +219,28 @@ typealias TerminalPaneDropRouting = PaneDropRouting
 @MainActor
 final class PaneDropZoneOverlayAnimator {
     private let overlayView: NSView
+    private var chromePaletteObservation: ChromePaletteDropOverlayObservation?
     private var displayedZone: DropZone?
     private var animationGeneration: UInt64 = 0
 
-    init(overlayView: NSView) {
+    init(
+        overlayView: NSView,
+        initialPalette: ChromePalette,
+        updates: ChromePaletteUpdateSource?
+    ) {
         self.overlayView = overlayView
-        Self.applyStyle(to: overlayView)
+        Self.applyStyle(to: overlayView, palette: initialPalette)
+        chromePaletteObservation = ChromePaletteDropOverlayObservation(
+            overlay: overlayView,
+            initialPalette: initialPalette,
+            updates: updates
+        )
     }
 
-    deinit {}
-
-    static func applyStyle(to view: NSView) {
+    static func applyStyle(to view: NSView, palette: ChromePalette) {
         view.wantsLayer = true
-        view.layer?.backgroundColor = cmuxAccentNSColor().withAlphaComponent(0.25).cgColor
-        view.layer?.borderColor = cmuxAccentNSColor().cgColor
+        view.layer?.backgroundColor = palette.cmuxAccentNSColor.withAlphaComponent(0.25).cgColor
+        view.layer?.borderColor = palette.cmuxAccentNSColor.cgColor
         view.layer?.borderWidth = 2
         view.layer?.cornerRadius = 8
         view.isHidden = true

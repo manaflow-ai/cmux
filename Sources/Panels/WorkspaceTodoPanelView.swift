@@ -1,5 +1,6 @@
 import AppKit
-import CmuxAppKitSupportUI
+import CmuxSettings
+import CmuxSettingsUI
 import CmuxWorkspaces
 import SwiftUI
 
@@ -18,10 +19,11 @@ struct WorkspaceTodoPanelView: View {
     @ObservedObject var panel: WorkspaceTodoPanel
     let isFocused: Bool
     let onRequestPanelFocus: () -> Void
+    @Environment(\.chromePalette) private var chromePalette
 
     var body: some View {
         ZStack(alignment: .topLeading) {
-            WorkspaceTodoPanelOpaqueBackground()
+            WorkspaceTodoPanelOpaqueBackground(color: chromePalette.surface)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             Group {
                 if let workspace = panel.workspace {
@@ -38,7 +40,7 @@ struct WorkspaceTodoPanelView: View {
                         defaultValue: "This workspace is no longer available."
                     ))
                     .font(.system(size: 13))
-                    .foregroundColor(.secondary)
+                    .foregroundColor((chromePalette[.textSecondary]).cmuxColor)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                 }
             }
@@ -87,39 +89,6 @@ enum WorkspaceTodoPaneKeyboardNavigationPolicy {
     }
 }
 
-private struct WorkspaceTodoPanelOpaqueBackground: NSViewRepresentable {
-    @Environment(\.colorScheme) private var colorScheme
-
-    func makeNSView(context: Context) -> WorkspaceTodoPanelOpaqueBackgroundView {
-        let view = WorkspaceTodoPanelOpaqueBackgroundView()
-        view.colorScheme = colorScheme
-        view.appearance = WindowAppearanceSnapshot.appKitAppearance(for: colorScheme)
-        return view
-    }
-
-    func updateNSView(_ nsView: WorkspaceTodoPanelOpaqueBackgroundView, context: Context) {
-        nsView.colorScheme = colorScheme
-        nsView.needsDisplay = true
-    }
-}
-
-private final class WorkspaceTodoPanelOpaqueBackgroundView: NSView {
-    var colorScheme: ColorScheme = .light {
-        didSet {
-            guard colorScheme != oldValue else { return }
-            appearance = WindowAppearanceSnapshot.appKitAppearance(for: colorScheme)
-            needsDisplay = true
-        }
-    }
-
-    override var isOpaque: Bool { true }
-
-    override func draw(_ dirtyRect: NSRect) {
-        WindowAppearanceSnapshot.resolvedColor(.windowBackgroundColor, for: colorScheme).setFill()
-        dirtyRect.fill()
-    }
-}
-
 /// The pane body once the workspace is resolved. Observes the workspace (for
 /// inferred-status recomputes) and its todo state (for override and checklist
 /// churn) directly.
@@ -130,6 +99,7 @@ private struct WorkspaceTodoPaneContent: View {
     let isFocused: Bool
     /// Open-or-focus bump; re-arms the add field when `isFocused` doesn't transition.
     let addFieldArmToken: Int
+    @Environment(\.chromePalette) private var chromePalette
 
     @State private var isStatusPopoverPresented = false
     @State private var pendingItemText = ""
@@ -175,7 +145,7 @@ private struct WorkspaceTodoPaneContent: View {
             )
             .padding(.horizontal, 14)
             .padding(.vertical, 10)
-            Divider()
+            Divider().overlay((chromePalette[.borderSubtle]).cmuxColor)
             let ordered = SidebarWorkspaceChecklistDisplayPolicy.orderedItems(todoState.checklist)
             ScrollViewReader { proxy in
                 ScrollView(.vertical) {
@@ -186,7 +156,7 @@ private struct WorkspaceTodoPaneContent: View {
                                 defaultValue: "No checklist items yet."
                             ))
                             .font(.system(size: Self.itemFontSize))
-                            .foregroundColor(.secondary)
+                            .foregroundColor((chromePalette[.textSecondary]).cmuxColor)
                             .padding(.vertical, 4)
                         }
                         ForEach(Array(ordered.enumerated()), id: \.element.id) { index, item in
@@ -211,13 +181,14 @@ private struct WorkspaceTodoPaneContent: View {
                     proxy.scrollTo(newValue, anchor: nil)
                 }
             }
-            Divider()
+            Divider().overlay((chromePalette[.borderSubtle]).cmuxColor)
             if todoControlsEnabled {
                 addItemRow
                     .padding(.horizontal, 14)
                     .padding(.vertical, 8)
             }
         }
+        .foregroundStyle((chromePalette[.textPrimary]).cmuxColor)
         // The add field is armed whenever the pane holds focus, so typing a
         // new item needs zero extra clicks after `cmux todo open`.
         .onAppear { if todoControlsEnabled, isFocused { addFieldFocused = true } }
@@ -252,8 +223,8 @@ private struct WorkspaceTodoPaneContent: View {
                         status: effective,
                         hasOverride: hasOverride,
                         usesMonochrome: false,
-                        monochromeColor: .primary,
-                        neutralColor: .secondary,
+                        monochromeColor: (chromePalette[.textPrimary]).cmuxColor,
+                        neutralColor: (chromePalette[.textSecondary]).cmuxColor,
                         fontScale: Self.headerGlyphFontScale
                     )
                     .contentShape(Rectangle().inset(by: -3))
@@ -286,19 +257,19 @@ private struct WorkspaceTodoPaneContent: View {
             }
             Text(title)
                 .font(.system(size: 13, weight: .semibold))
-                .foregroundColor(.primary)
+                .foregroundColor((chromePalette[.textPrimary]).cmuxColor)
                 .lineLimit(1)
                 .truncationMode(.tail)
             if let statusLabel {
                 Text(statusLabel)
                     .font(.system(size: 12))
-                    .foregroundColor(.secondary)
+                    .foregroundColor((chromePalette[.textSecondary]).cmuxColor)
             }
             Spacer(minLength: 8)
             if progress.totalCount > 0 {
                 Text(verbatim: "\(progress.completedCount)/\(progress.totalCount)")
                     .font(.system(size: 11).monospacedDigit())
-                    .foregroundColor(.secondary)
+                    .foregroundColor((chromePalette[.textSecondary]).cmuxColor)
             }
         }
     }
@@ -425,7 +396,7 @@ private struct WorkspaceTodoPaneContent: View {
             // A `plus.circle` "add" affordance, not an empty checkbox, so the
             // add row never reads as a real (unchecked) item.
             CmuxSystemSymbolImage(systemName: "plus.circle", pointSize: Self.checkboxPointSize)
-                .foregroundColor(.secondary)
+                .foregroundColor((chromePalette[.textSecondary]).cmuxColor)
             TextField(
                 String(localized: "sidebar.checklist.addItemPlaceholder", defaultValue: "New checklist item"),
                 text: $pendingItemText,
@@ -433,7 +404,7 @@ private struct WorkspaceTodoPaneContent: View {
             )
             .font(.system(size: Self.itemFontSize))
             .textFieldStyle(.plain)
-            .foregroundColor(.primary)
+            .foregroundColor((chromePalette[.textPrimary]).cmuxColor)
             .focused($addFieldFocused)
             .lineLimit(1...8)
             .fixedSize(horizontal: false, vertical: true)
@@ -523,6 +494,7 @@ private struct WorkspaceTodoPaneItemRow: View {
     let itemFontSize: CGFloat
     let checkboxPointSize: CGFloat
     let actions: WorkspaceTodoPaneItemRowActions
+    @Environment(\.chromePalette) private var chromePalette
 
     private var isCompleted: Bool { item.state == .completed }
 
@@ -545,7 +517,7 @@ private struct WorkspaceTodoPaneItemRow: View {
                     systemName: checkboxSymbolName(for: item.state),
                     pointSize: checkboxPointSize
                 )
-                .foregroundColor(isCompleted ? .secondary : .primary)
+                .foregroundColor(isCompleted ? (chromePalette[.textSecondary]).cmuxColor : (chromePalette[.textPrimary]).cmuxColor)
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
@@ -563,7 +535,7 @@ private struct WorkspaceTodoPaneItemRow: View {
                 )
                 .textFieldStyle(.plain)
                 .font(.system(size: itemFontSize))
-                .foregroundColor(.primary)
+                .foregroundColor((chromePalette[.textPrimary]).cmuxColor)
                 .focused(editFieldFocused)
                 .lineLimit(1...8)
                 .fixedSize(horizontal: false, vertical: true)
@@ -592,7 +564,7 @@ private struct WorkspaceTodoPaneItemRow: View {
                 // offset by `firstLineCenterOffset`), not the whole block.
                 Text(item.text)
                     .font(.system(size: itemFontSize))
-                    .foregroundColor(isCompleted ? .secondary : .primary)
+                    .foregroundColor(isCompleted ? (chromePalette[.textSecondary]).cmuxColor : (chromePalette[.textPrimary]).cmuxColor)
                     .strikethrough(isCompleted)
                     .opacity(isCompleted ? 0.6 : 1)
                     .multilineTextAlignment(.leading)
@@ -603,7 +575,7 @@ private struct WorkspaceTodoPaneItemRow: View {
             WorkspaceChecklistAttachmentMenu(
                 item: item,
                 iconPointSize: checkboxPointSize - 2,
-                foregroundColor: .secondary,
+                foregroundColor: (chromePalette[.textSecondary]).cmuxColor,
                 countFont: .system(size: itemFontSize - 1),
                 addAttachments: { _ in actions.addAttachments() },
                 removeAttachment: { _, attachmentId in actions.removeAttachment(attachmentId) },
@@ -615,7 +587,7 @@ private struct WorkspaceTodoPaneItemRow: View {
         .padding(.vertical, 2)
         .background(
             RoundedRectangle(cornerRadius: 5)
-                .fill(isHighlighted ? Color.primary.opacity(0.08) : Color.clear)
+                .fill(isHighlighted ? (chromePalette[.surfaceHover]).cmuxColor.opacity(0.35) : Color.clear)
         )
         .contentShape(Rectangle())
         .onTapGesture { handleRowTap() }

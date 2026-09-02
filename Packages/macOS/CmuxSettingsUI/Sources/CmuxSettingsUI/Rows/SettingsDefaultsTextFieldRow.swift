@@ -16,6 +16,7 @@ public struct SettingsDefaultsTextFieldRow: View {
     private let title: String
     private let placeholder: String
     private let subtitle: String?
+    @Environment(\.chromePalette) private var chromePalette
 
     @State private var draft: String = ""
     @State private var loaded: Bool = false
@@ -44,7 +45,7 @@ public struct SettingsDefaultsTextFieldRow: View {
             if let subtitle {
                 Text(subtitle)
                     .cmuxFont(.caption)
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(chromePalette.textSecondary.swiftUIColor)
             }
         }
         .task {

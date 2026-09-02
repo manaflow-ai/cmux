@@ -266,8 +266,8 @@ extension VerticalTabsSidebar {
             isFirstRow: renderContext.sidebarReorderIds.first == anchorId,
             isBeingDragged: dragState.draggedTabId == dragIdentity,
             topDropIndicatorVisible: topDropIndicatorVisible,
-            bottomDropIndicatorVisible: bottomDropIndicatorVisible,
-            shouldCollectWorkspaceDropTargets: shouldCollectWorkspaceDropTargets
+            bottomDropIndicatorVisible: bottomDropIndicatorVisible, shouldCollectWorkspaceDropTargets: shouldCollectWorkspaceDropTargets,
+            chromePalette: renderContext.environment.chromePalette
         )
     }
 
@@ -318,6 +318,7 @@ extension VerticalTabsSidebar {
             isBeingDragged: snapshot.isBeingDragged,
             topDropIndicatorVisible: snapshot.topDropIndicatorVisible,
             bottomDropIndicatorVisible: snapshot.bottomDropIndicatorVisible,
+            chromePalette: snapshot.chromePalette,
             actions: actions,
             onContextMenuAppear: {},
             onContextMenuDisappear: {}

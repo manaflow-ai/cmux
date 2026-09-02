@@ -10,6 +10,7 @@ public struct SettingsStepperRow: View {
     private let model: DefaultsValueModel<Int>
     private let title: String
     private let range: ClosedRange<Int>
+    @Environment(\.chromePalette) private var chromePalette
 
     public init(
         model: DefaultsValueModel<Int>,
@@ -30,7 +31,7 @@ public struct SettingsStepperRow: View {
                 Text(title)
                 Spacer()
                 Text("\(model.current)")
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(chromePalette.textSecondary.swiftUIColor)
                     .monospacedDigit()
             }
         }

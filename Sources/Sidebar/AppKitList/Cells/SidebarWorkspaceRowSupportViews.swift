@@ -4,58 +4,6 @@ import CmuxSidebar
 import CmuxWorkspaces
 import SwiftUI
 
-/// Row-owned color helpers that preserve native semantic variants while
-/// deriving selected colors from the row model (parity with SwiftUI).
-@MainActor
-struct SidebarRowPalette {
-    let model: SidebarWorkspaceRowModel
-
-    var colorScheme: ColorScheme { model.colorSchemeIsDark ? .dark : .light }
-
-    var selectedBackground: NSColor {
-        sidebarSelectedWorkspaceBackgroundNSColor(
-            for: colorScheme,
-            sidebarSelectionColorHex: model.settings.selectionColorHex
-        )
-    }
-
-    func selectedForeground(_ opacity: CGFloat) -> NSColor {
-        sidebarSelectedWorkspaceForegroundNSColor(on: selectedBackground, opacity: opacity)
-    }
-
-    /// Resolves semantic colors against the row's concrete cmux scheme.
-    func semantic(_ color: NSColor, opacity: CGFloat? = nil) -> NSColor {
-        SidebarAppearanceColorResolver().resolvedColor(
-            color,
-            for: colorScheme,
-            opacity: opacity
-        )
-    }
-
-    var primaryText: NSColor {
-        model.isActive ? selectedForeground(1.0) : semantic(.labelColor)
-    }
-
-    func secondary(
-        _ selectedOpacity: CGFloat = 0.75,
-        inactiveOpacity: CGFloat? = nil
-    ) -> NSColor {
-        model.isActive
-            ? selectedForeground(selectedOpacity)
-            : semantic(.secondaryLabelColor, opacity: inactiveOpacity)
-    }
-
-    /// Link color for row-owned text. AppKit paints `.link` runs in
-    /// `NSColor.linkColor` and ignores the row foreground, which is unreadable
-    /// on an active row because the sidebar selection background is the same
-    /// blue. Active rows therefore derive the link color from the selected
-    /// foreground so a custom `sidebarSelectionColorHex` stays legible.
-    var linkText: NSColor {
-        model.isActive ? selectedForeground(1.0) : semantic(.linkColor)
-    }
-
-}
-
 /// One-line attributed metadata label whose individual Markdown links route
 /// through the sidebar's existing workspace-selection and URL action path.
 /// The delegate consumes link clicks so AppKit never opens a destination on
@@ -367,10 +315,10 @@ final class SidebarRowIconTextLine: NSView {
         } else {
             switch log.level {
             case .info: color = palette.secondary(0.5)
-            case .progress: color = .systemBlue
-            case .success: color = .systemGreen
-            case .warning: color = .systemOrange
-            case .error: color = .systemRed
+            case .progress: color = (palette.chromePalette[.agentWorking]).cmuxNSColor
+            case .success: color = (palette.chromePalette[.agentSuccess]).cmuxNSColor
+            case .warning: color = (palette.chromePalette[.agentWarning]).cmuxNSColor
+            case .error: color = (palette.chromePalette[.agentError]).cmuxNSColor
             }
         }
         iconView.isHidden = false

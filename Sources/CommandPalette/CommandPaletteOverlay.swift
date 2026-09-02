@@ -1,4 +1,6 @@
 import CmuxFoundation
+import CmuxSettings
+import CmuxSettingsUI
 import Observation
 import SwiftUI
 
@@ -65,11 +67,14 @@ final class CommandPaletteOverlayRenderModel {
 struct CommandPaletteCommandListRenderView: View {
     let renderModel: CommandPaletteOverlayRenderModel
     let onRunResult: (String) -> Void
+    /// Immutable palette snapshot captured above the lazy result-row boundary.
+    let chromePalette: ChromePalette
 
     var body: some View {
         CommandPaletteCommandListRowsView(
             state: renderModel.commandList,
-            onRunResult: onRunResult
+            onRunResult: onRunResult,
+            chromePalette: chromePalette
         )
     }
 }
@@ -77,6 +82,7 @@ struct CommandPaletteCommandListRenderView: View {
 struct CommandPaletteCommandListRowsView: View {
     let state: CommandPaletteCommandListRenderState
     let onRunResult: (String) -> Void
+    let chromePalette: ChromePalette
     @State private var hoveredIndex: Int?
 
     private static let listMaxHeight: CGFloat = 450
@@ -95,7 +101,7 @@ struct CommandPaletteCommandListRowsView: View {
                     if state.shouldShowEmptyState {
                         Text(state.emptyStateText)
                             .cmuxFont(size: 13, weight: .regular)
-                            .foregroundStyle(.secondary)
+                            .foregroundStyle(chromePalette.textSecondary.swiftUIColor)
                             .frame(maxWidth: .infinity, alignment: .leading)
                             .padding(.horizontal, 12)
                             .padding(.vertical, 12)
@@ -109,16 +115,18 @@ struct CommandPaletteCommandListRowsView: View {
                         let isSelected = index == state.selectedIndex
                         let isHovered = hoveredIndex == index
                         let rowBackground: Color = isSelected
-                            ? cmuxAccentColor().opacity(0.12)
-                            : (isHovered ? Color.primary.opacity(0.08) : .clear)
+                            ? chromePalette.surfaceSelected.swiftUIColor
+                            : (isHovered ? chromePalette.surfaceHover.swiftUIColor.opacity(0.65) : .clear)
 
                         Button {
                             onRunResult(row.id)
                         } label: {
-                            ContentView.commandPaletteRenderResultLabelContent(
+                            CommandPaletteResultLabel(
                                 title: row.title,
                                 matchedIndices: row.matchedIndices,
-                                trailingLabel: row.trailingLabel
+                                trailingLabel: row.trailingLabel,
+                                chromePalette: chromePalette,
+                                isSelected: isSelected
                             )
                             .padding(.horizontal, 9)
                             .padding(.vertical, 2)

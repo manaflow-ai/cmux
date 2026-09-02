@@ -21,6 +21,7 @@ public struct SettingsToggleRow: View {
     private let model: DefaultsValueModel<Bool>
     private let title: String
     private let subtitle: String?
+    @Environment(\.chromePalette) private var chromePalette
 
     public init(
         model: DefaultsValueModel<Bool>,
@@ -42,7 +43,7 @@ public struct SettingsToggleRow: View {
                 if let subtitle {
                     Text(subtitle)
                         .cmuxFont(.caption)
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(chromePalette.textSecondary.swiftUIColor)
                 }
             }
         }

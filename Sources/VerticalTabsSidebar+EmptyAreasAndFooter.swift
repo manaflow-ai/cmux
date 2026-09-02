@@ -1,6 +1,8 @@
 import AppKit
 import CmuxAppKitSupportUI
 import CmuxFoundation
+import CmuxSettings
+import CmuxSettingsUI
 import CmuxSidebar
 import CmuxSidebarProviderKit
 import CmuxUpdater
@@ -189,20 +191,6 @@ enum SidebarFooterHelpIconDebugSettings {
 }
 #endif
 
-struct SidebarFooterCircularIcon: View {
-    let systemName: String
-    let style: SidebarFooterCircularIconStyle
-
-    var body: some View {
-        CmuxSystemSymbolImage(
-            systemName: systemName,
-            pointSize: style.pointSize,
-            weight: style.weight
-        )
-        .foregroundStyle(.secondary)
-    }
-}
-
 struct SidebarFooterHelpIcon: View {
     let style: SidebarFooterCircularIconStyle
 #if DEBUG
@@ -327,6 +315,7 @@ struct SidebarAccountMenuButton: View {
 private struct SidebarAccountPopover: View {
     let accountFlow: HostAccountFlow?
     let dismiss: () -> Void
+    @Environment(\.chromePalette) private var chromePalette
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
@@ -346,7 +335,7 @@ private struct SidebarAccountPopover: View {
                         if !identity.email.isEmpty && identity.email != identity.displayName {
                             Text(identity.email)
                                 .cmuxFont(size: 11)
-                                .foregroundStyle(.secondary)
+                                .foregroundStyle(chromePalette.textSecondary.swiftUIColor)
                                 .lineLimit(1)
                         }
                     }
@@ -446,6 +435,7 @@ struct SidebarAccountAvatar: View {
 
 struct SidebarMobileConnectButton: View {
     @EnvironmentObject private var tabManager: TabManager
+    @Environment(\.chromePalette) private var chromePalette
     private let title = String(localized: "command.mobileConnect.title", defaultValue: "Open Tailscale Pairing")
 #if DEBUG
     @AppStorage(SidebarFooterMobileIconDebugSettings.sizeKey)
@@ -472,7 +462,7 @@ struct SidebarMobileConnectButton: View {
                 )
             } label: {
                 CmuxSystemSymbolImage(systemName: "iphone", pointSize: iconSize, weight: .medium)
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(chromePalette.textSecondary.swiftUIColor)
                     .frame(
                         width: SidebarFooterButtonMetrics.buttonSize,
                         height: SidebarFooterButtonMetrics.buttonSize
@@ -491,6 +481,7 @@ struct SidebarMobileConnectButton: View {
 }
 
 private struct SidebarFooterIconButtonStyleBody: View {
+    @Environment(\.chromePalette) private var chromePalette
     let configuration: SidebarFooterIconButtonStyle.Configuration
 
     @Environment(\.isEnabled) private var isEnabled
@@ -519,7 +510,7 @@ private struct SidebarFooterIconButtonStyleBody: View {
         configuration.label
             .background(
                 RoundedRectangle(cornerRadius: 8, style: .continuous)
-                    .fill(Color.primary.opacity(backgroundOpacity))
+                    .fill(chromePalette.surfaceHover.swiftUIColor.opacity(backgroundOpacity))
             )
             .onHover { hovering in
                 isHovered = hovering
@@ -537,6 +528,7 @@ struct SidebarDevFooter: View {
     let onSendFeedback: () -> Void
     @AppStorage(DevBuildBannerDebugSettings.sidebarBannerVisibleKey)
     private var showSidebarDevBuildBanner = DevBuildBannerDebugSettings.defaultShowSidebarBanner
+    @Environment(\.chromePalette) private var chromePalette
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
@@ -544,7 +536,7 @@ struct SidebarDevFooter: View {
             if showSidebarDevBuildBanner {
                 Text(String(localized: "debug.devBuildBanner.title", defaultValue: "THIS IS A DEV BUILD"))
                     .cmuxFont(size: 11, weight: .semibold)
-                    .foregroundColor(.red)
+                    .foregroundColor(chromePalette.agentError.swiftUIColor)
             }
         }
         .padding(.leading, 6)
@@ -556,6 +548,7 @@ struct SidebarDevFooter: View {
 
 struct SidebarEmptyArea: View {
     @EnvironmentObject var tabManager: TabManager
+    @Environment(\.chromePalette) private var chromePalette
     let rowSpacing: CGFloat
     @Binding var selection: SidebarSelection
     @Binding var selectedTabIds: Set<UUID>
@@ -583,7 +576,7 @@ struct SidebarEmptyArea: View {
             .overlay(alignment: .top) {
                 if topDropIndicatorVisible {
                     Rectangle()
-                        .fill(cmuxAccentColor())
+                        .fill(chromePalette.cmuxAccentColor)
                         .frame(height: 2)
                         .padding(.horizontal, 8)
                         .offset(y: -(rowSpacing / 2))
@@ -663,6 +656,7 @@ private extension View {
 }
 
 struct ExtensionSidebarBrowserStackEmptyArea: View {
+    @Environment(\.chromePalette) private var chromePalette
     let rowSpacing: CGFloat
     let orderedRows: [ExtensionSidebarBrowserStackDropRow]
     let dragAutoScrollController: SidebarDragAutoScrollController
@@ -686,7 +680,7 @@ struct ExtensionSidebarBrowserStackEmptyArea: View {
             .overlay(alignment: .top) {
                 if shouldShowTopDropIndicator {
                     Rectangle()
-                        .fill(cmuxAccentColor())
+                        .fill(chromePalette.cmuxAccentColor)
                         .frame(height: 2)
                         .padding(.horizontal, 8)
                         .offset(y: -(rowSpacing / 2))

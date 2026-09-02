@@ -1297,6 +1297,47 @@
         }
       }
     },
+    "chrome": {
+      "title": "chrome",
+      "description": "Named palette and per-token overrides for cmux-owned application chrome.",
+      "descriptionKey": "schemaDescriptions.chrome.description",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "theme": {
+          "type": "string",
+          "enum": ["default", "catppuccin", "gruvbox", "solarized"],
+          "default": "default",
+          "description": "Built-in chrome palette. The existing app.appearance setting selects its light or dark variant.",
+          "descriptionKey": "schemaDescriptions.chrome.theme"
+        },
+        "overrides": {
+          "type": "object",
+          "default": {},
+          "description": "Optional token-to-hex color overrides layered over chrome.theme. Invalid or unknown entries are ignored as a complete object.",
+          "descriptionKey": "schemaDescriptions.chrome.overrides",
+          "additionalProperties": false,
+          "properties": {
+            "accent": { "$ref": "#/$defs/chromeColorHex", "description": "Primary accent color.", "descriptionKey": "schemaDescriptions.chrome.accent" },
+            "accentSoft": { "$ref": "#/$defs/chromeColorHex", "description": "Subtle accent background.", "descriptionKey": "schemaDescriptions.chrome.accentSoft" },
+            "surface": { "$ref": "#/$defs/chromeColorHex", "description": "Base chrome surface.", "descriptionKey": "schemaDescriptions.chrome.surface" },
+            "surfaceRaised": { "$ref": "#/$defs/chromeColorHex", "description": "Raised chrome surface.", "descriptionKey": "schemaDescriptions.chrome.surfaceRaised" },
+            "surfaceSelected": { "$ref": "#/$defs/chromeColorHex", "description": "Selected-row/tab surface.", "descriptionKey": "schemaDescriptions.chrome.surfaceSelected" },
+            "surfaceHover": { "$ref": "#/$defs/chromeColorHex", "description": "Hover surface.", "descriptionKey": "schemaDescriptions.chrome.surfaceHover" },
+            "textPrimary": { "$ref": "#/$defs/chromeColorHex", "description": "Primary chrome text.", "descriptionKey": "schemaDescriptions.chrome.textPrimary" },
+            "textSecondary": { "$ref": "#/$defs/chromeColorHex", "description": "Secondary chrome text.", "descriptionKey": "schemaDescriptions.chrome.textSecondary" },
+            "textTertiary": { "$ref": "#/$defs/chromeColorHex", "description": "Tertiary chrome text.", "descriptionKey": "schemaDescriptions.chrome.textTertiary" },
+            "border": { "$ref": "#/$defs/chromeColorHex", "description": "Strong chrome border.", "descriptionKey": "schemaDescriptions.chrome.border" },
+            "borderSubtle": { "$ref": "#/$defs/chromeColorHex", "description": "Subtle chrome border.", "descriptionKey": "schemaDescriptions.chrome.borderSubtle" },
+            "agentIdle": { "$ref": "#/$defs/chromeColorHex", "description": "Agent idle/status-neutral color.", "descriptionKey": "schemaDescriptions.chrome.agentIdle" },
+            "agentWorking": { "$ref": "#/$defs/chromeColorHex", "description": "Agent working/progress color.", "descriptionKey": "schemaDescriptions.chrome.agentWorking" },
+            "agentSuccess": { "$ref": "#/$defs/chromeColorHex", "description": "Agent success color.", "descriptionKey": "schemaDescriptions.chrome.agentSuccess" },
+            "agentWarning": { "$ref": "#/$defs/chromeColorHex", "description": "Agent warning color.", "descriptionKey": "schemaDescriptions.chrome.agentWarning" },
+            "agentError": { "$ref": "#/$defs/chromeColorHex", "description": "Agent error color.", "descriptionKey": "schemaDescriptions.chrome.agentError" }
+          }
+        }
+      }
+    },
     "automation": {
       "title": "automation",
       "description": "Socket control and automation settings from Settings > Automation.",
@@ -1880,6 +1921,12 @@
       "type": "string",
       "pattern": "^#[0-9A-Fa-f]{6}$",
       "description": "Uppercase or lowercase 6-digit hex color."
+    },
+    "chromeColorHex": {
+      "type": "string",
+      "pattern": "^#?[0-9A-Fa-f]{6}([0-9A-Fa-f]{2})?$",
+      "description": "Uppercase or lowercase 6- or 8-digit sRGB hex color, with an optional leading #; the optional final pair is alpha.",
+      "descriptionKey": "schemaDescriptions.chromeColorHex"
     },
     "colorHexOrNull": {
       "oneOf": [

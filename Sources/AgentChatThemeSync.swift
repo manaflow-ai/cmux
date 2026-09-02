@@ -1,6 +1,7 @@
 import AppKit
 import CMUXMobileCore
 import CmuxFoundation
+import CmuxSettings
 import Foundation
 import os
 
@@ -36,9 +37,12 @@ struct AgentChatThemePayload: Codable, Equatable {
         case source
     }
 
-    init(config: GhosttyConfig) {
+    init(config: GhosttyConfig, chromePalette: ChromePalette? = nil) {
         let terminalTheme = TerminalTheme(ghosttyConfig: config)
-        let webTheme = AgentSessionWebTheme.resolve(appearance: .fromConfig(config))
+        let webTheme = AgentSessionWebTheme.resolve(
+            appearance: .fromConfig(config),
+            chromePalette: chromePalette
+        )
         let trimmedFontFamily = config.fontFamily.trimmingCharacters(in: .whitespacesAndNewlines)
         let fontSize = Double(config.fontSize)
         background = terminalTheme.background
@@ -170,7 +174,10 @@ enum AgentChatThemeSync {
             }
         )
         config.backgroundBlur = GhosttyApp.shared.defaultBackgroundBlur
-        return AgentChatThemePayload(config: config)
+        return AgentChatThemePayload(
+            config: config,
+            chromePalette: AppDelegate.shared?.chromePaletteSnapshot()
+        )
     }
 
     static func themeURL(for baseURL: URL) -> URL {

@@ -9,7 +9,7 @@ enum SettingsNavigationTarget: String, CaseIterable, Identifiable {
     case mobile
     case cloudMachines
     case networking
-    case sidebarAppearance
+    case sidebarAppearance, chrome
     case customSidebars
     case betaFeatures
     case automation
@@ -46,6 +46,7 @@ enum SettingsNavigationTarget: String, CaseIterable, Identifiable {
             return String(localized: "settings.section.workspaceColors", defaultValue: "Workspace Colors")
         case .sidebarAppearance:
             return String(localized: "settings.section.sidebarAppearance", defaultValue: "Sidebar")
+        case .chrome: return String(localized: "settings.section.chrome", defaultValue: "Chrome")
         case .customSidebars:
             return String(localized: "settings.section.customSidebars", defaultValue: "Custom Sidebars")
         case .betaFeatures:
@@ -91,6 +92,7 @@ enum SettingsNavigationTarget: String, CaseIterable, Identifiable {
             return "paintpalette"
         case .sidebarAppearance:
             return "sidebar.left"
+        case .chrome: return "paintpalette.fill"
         case .customSidebars:
             return "sidebar.squares.left"
         case .betaFeatures:
@@ -136,6 +138,7 @@ enum SettingsNavigationTarget: String, CaseIterable, Identifiable {
             return "\(title) palette tabs"
         case .sidebarAppearance:
             return "\(title) sidebar details branches badges material terminal background"
+        case .chrome: return "\(title) theme palette colors accent surfaces text borders agent status catppuccin gruvbox solarized overrides"
         case .customSidebars:
             return "\(title) custom sidebars vibe swift json interpreted renderer in-process remote worker isolated"
         case .betaFeatures:
@@ -197,12 +200,6 @@ enum SettingsNavigationRequest {
             shouldHighlight: shouldHighlight
         )
     }
-}
-
-struct SettingsNavigationDestination {
-    let target: SettingsNavigationTarget
-    let anchorID: String
-    let shouldHighlight: Bool
 }
 
 struct SettingsSearchHighlightState: Equatable {
@@ -448,6 +445,8 @@ enum SettingsSearchIndex {
         setting(.sidebarAppearance, "notification-badge-position", String(localized: "settings.app.notificationBadgePosition", defaultValue: "Notification Badge Position"), "sidebar.notificationBadgePosition notification unread badge position left right leading trailing side"),
         setting(.sidebarAppearance, "show-metadata", String(localized: "settings.app.showMetadata", defaultValue: "Show Custom Metadata in Sidebar"), "report meta status block"),
         setting(.sidebarAppearance, "right-max-width", String(localized: "settings.sidebar.rightMaxWidth", defaultValue: "Dock Max Width"), "dock right sidebar max width terminal reservation cap logs lazygit"),
+        setting(.chrome, "theme", String(localized: "settings.chrome.theme", defaultValue: "Chrome Theme"), "chrome.theme theme palette app chrome sidebar tab strip agent panel notification colors catppuccin gruvbox solarized light dark system"),
+        setting(.chrome, "token-overrides", String(localized: "settings.chrome.overrides.title", defaultValue: "Token overrides"), "chrome.overrides token color accent surface text border status agent hex custom color override"),
         setting(.customSidebars, "enabled", String(localized: "settings.customSidebars.enabled", defaultValue: "Show Custom Sidebars"), "custom sidebars enable show vibe swift json interpreted picker"),
         setting(.customSidebars, "renderer", String(localized: "settings.customSidebars.renderer", defaultValue: "Renderer"), "renderer in-process in app remote worker isolated process hover focus typing input"),
         setting(.betaFeatures, "feed", String(localized: "settings.betaFeatures.feed", defaultValue: "Feed"), "feed right sidebar agent decisions permissions questions"),

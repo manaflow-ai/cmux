@@ -1,10 +1,6 @@
 import AppKit
+import CmuxSettings
 import Foundation
-
-extension Notification.Name {
-    /// Posted by SystemAppearanceObserver when NSApp.effectiveAppearance changes (#6385).
-    static let systemAppearanceDidChange = Notification.Name("cmux.systemAppearanceDidChange")
-}
 
 extension NSAppearance {
     /// True when this appearance resolves to a dark variant.

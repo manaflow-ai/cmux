@@ -188,6 +188,8 @@ struct SettingsRowAnchorResolutionTests {
         "setting:settingsJSON:open-file",
         "setting:settingsJSON:documentation",
         "setting:reset:reset-all",
+        "setting:chrome:theme",
+        "setting:chrome:token-overrides",
     ]
 
     @Test(arguments: rowConfigPaths)

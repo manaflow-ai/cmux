@@ -21,6 +21,8 @@ enum SettingsSearchAliasIndex {
             return localized("settings.search.alias.section.networking", defaultValue: "iroh relay relays server fleet provider region custom self hosted private network tailscale vpn direct peer")
         case .sidebarAppearance:
             return localized("settings.search.alias.section.sidebarAppearance", defaultValue: "sidebar left rail navigation details branches badges material terminal background")
+        case .chrome:
+            return localized("settings.search.alias.section.chrome", defaultValue: "chrome app chrome theme palette colors accent surfaces text borders agent status catppuccin gruvbox solarized overrides")
         case .customSidebars:
             return localized("settings.search.alias.section.customSidebars", defaultValue: "custom sidebars vibe code swift json interpreted renderer in-process remote worker isolated")
         case .betaFeatures:
@@ -138,6 +140,8 @@ enum SettingsSearchAliasIndex {
         "sidebarAppearance:notification-badge-position": localized("settings.search.alias.setting.app.notification-badge-position", defaultValue: "sidebar.notificationBadgePosition notification unread badge position left right leading trailing side workspace"),
         "sidebarAppearance:show-metadata": localized("settings.search.alias.setting.app.show-metadata", defaultValue: "sidebar.showCustomMetadata metadata meta report_meta status custom block"),
         "sidebarAppearance:right-max-width": localized("settings.search.alias.setting.sidebarAppearance.right-max-width", defaultValue: "sidebar.rightMaxWidth dock right sidebar max width terminal reservation cap logs lazygit"),
+        "chrome:theme": localized("settings.search.alias.setting.chrome.theme", defaultValue: "chrome.theme theme palette app chrome sidebar tab strip agent panel notification colors catppuccin gruvbox solarized light dark system"),
+        "chrome:token-overrides": localized("settings.search.alias.setting.chrome.token-overrides", defaultValue: "chrome.overrides token color accent surface text border status agent hex custom color override"),
         "betaFeatures:feed": localized("settings.search.alias.setting.betaFeatures.feed", defaultValue: "feed right sidebar agent decisions permissions questions approval beta unstable"),
         "betaFeatures:dock": localized("settings.search.alias.setting.betaFeatures.dock", defaultValue: "dock right sidebar terminal controls tui beta unstable"),
         "mobile:iOSPairingHost": localized("settings.search.alias.setting.mobile.iOSPairingHost", defaultValue: "ios iphone ipad mobile pairing local network permission sync"),

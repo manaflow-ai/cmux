@@ -1,5 +1,6 @@
 import AppKit
 import CmuxFoundation
+import CmuxSettings
 
 struct AgentSessionWebTheme: Equatable {
     let isDark: Bool
@@ -36,9 +37,12 @@ struct AgentSessionWebTheme: Equatable {
         ]
     }
 
-    static func resolve(appearance: PanelAppearance) -> AgentSessionWebTheme {
+    static func resolve(
+        appearance: PanelAppearance,
+        chromePalette: ChromePalette? = nil
+    ) -> AgentSessionWebTheme {
         let base = appearance.backgroundColor.markdownOpaqueSRGB
-        let isDark = !base.isLightColor
+        let isDark = chromePalette.map { $0.colorScheme == .dark } ?? !base.isLightColor
         let overlay: NSColor = isDark ? .white : .black
         let inverseOverlay: NSColor = isDark ? .black : .white
         let contentBackground = appearance.contentBackgroundColor
@@ -67,23 +71,63 @@ struct AgentSessionWebTheme: Equatable {
             .withAlphaComponent(inputAlpha)
             ?? base.withAlphaComponent(inputAlpha)
         let foreground = appearance.foregroundColor
-        let accent = cmuxAccentNSColor()
-        let danger = (NSColor(hex: isDark ? "#FF8D7E" : "#B3261E") ?? .systemRed)
+        var pageBackground = transparentContent ? "transparent" : contentBackground.markdownCSSColor
+        var surfaceBackground = surface.markdownCSSColor
+        var surfaceElevatedBackground = surfaceElevated.markdownCSSColor
+        var inputBackground = input.markdownCSSColor
+        var borderCSSColor = border.withAlphaComponent(border.alphaComponent * 0.72).markdownCSSColor
+        var borderStrongCSSColor = borderStrong.markdownCSSColor
+        var textCSSColor = foreground.markdownCSSColor
+        var mutedTextCSSColor = foreground.withAlphaComponent(0.58).markdownCSSColor
+        var softTextCSSColor = foreground.withAlphaComponent(0.78).markdownCSSColor
+        let defaultAccent = cmuxAccentNSColor(palette: chromePalette)
+        var accentCSSColor = (chromePalette.map {
+            Self.nsColor(for: $0.accent)
+        } ?? defaultAccent).markdownCSSColor
+        var accentSoftCSSColor = (chromePalette.map {
+            Self.nsColor(for: $0.accentSoft)
+        } ?? defaultAccent.withAlphaComponent(isDark ? 0.20 : 0.16)).markdownCSSColor
+        var dangerCSSColor = (chromePalette.map {
+            Self.nsColor(for: $0[.agentError])
+        } ?? (NSColor(hex: isDark ? "#FF8D7E" : "#B3261E") ?? .systemRed)).markdownCSSColor
+        if let chromePalette {
+            pageBackground = transparentContent ? "transparent" : Self.nsColor(for: chromePalette.surface).markdownCSSColor
+            surfaceBackground = Self.nsColor(for: chromePalette.surface).markdownCSSColor
+            surfaceElevatedBackground = Self.nsColor(for: chromePalette.surfaceRaised).markdownCSSColor
+            inputBackground = Self.nsColor(for: chromePalette.surfaceHover).markdownCSSColor
+            borderCSSColor = Self.nsColor(for: chromePalette.borderSubtle).markdownCSSColor
+            borderStrongCSSColor = Self.nsColor(for: chromePalette.border).markdownCSSColor
+            textCSSColor = Self.nsColor(for: chromePalette.textPrimary).markdownCSSColor
+            mutedTextCSSColor = Self.nsColor(for: chromePalette.textSecondary).markdownCSSColor
+            softTextCSSColor = Self.nsColor(for: chromePalette.textTertiary).markdownCSSColor
+            accentCSSColor = Self.nsColor(for: chromePalette.accent).markdownCSSColor
+            accentSoftCSSColor = Self.nsColor(for: chromePalette.accentSoft).markdownCSSColor
+            dangerCSSColor = Self.nsColor(for: chromePalette.agentError).markdownCSSColor
+        }
         return AgentSessionWebTheme(
             isDark: isDark,
-            pageBackground: transparentContent ? "transparent" : contentBackground.markdownCSSColor,
-            surfaceBackground: surface.markdownCSSColor,
-            surfaceElevatedBackground: surfaceElevated.markdownCSSColor,
-            inputBackground: input.markdownCSSColor,
-            border: border.withAlphaComponent(border.alphaComponent * 0.72).markdownCSSColor,
-            borderStrong: borderStrong.markdownCSSColor,
-            text: foreground.markdownCSSColor,
-            mutedText: foreground.withAlphaComponent(0.58).markdownCSSColor,
-            softText: foreground.withAlphaComponent(0.78).markdownCSSColor,
-            accent: accent.markdownCSSColor,
-            accentSoft: accent.withAlphaComponent(isDark ? 0.20 : 0.16).markdownCSSColor,
-            danger: danger.markdownCSSColor,
+            pageBackground: pageBackground,
+            surfaceBackground: surfaceBackground,
+            surfaceElevatedBackground: surfaceElevatedBackground,
+            inputBackground: inputBackground,
+            border: borderCSSColor,
+            borderStrong: borderStrongCSSColor,
+            text: textCSSColor,
+            mutedText: mutedTextCSSColor,
+            softText: softTextCSSColor,
+            accent: accentCSSColor,
+            accentSoft: accentSoftCSSColor,
+            danger: dangerCSSColor,
             shadow: isDark ? "rgba(0, 0, 0, 0.20)" : "rgba(0, 0, 0, 0.10)"
+        )
+    }
+
+    private static func nsColor(for color: ChromeColor) -> NSColor {
+        NSColor(
+            srgbRed: color.red,
+            green: color.green,
+            blue: color.blue,
+            alpha: color.alpha
         )
     }
 }

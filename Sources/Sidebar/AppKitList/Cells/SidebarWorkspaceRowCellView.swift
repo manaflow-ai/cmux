@@ -1,6 +1,7 @@
 import AppKit
 import Combine
 import CmuxFoundation
+import CmuxSettings
 import CmuxSidebar
 import CmuxWorkspaces
 import SwiftUI
@@ -58,7 +59,8 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
     private let statusPopoverPresenter = SidebarRowSwiftUIPopoverPresenter()
     private var lastStatusPopoverModel: SidebarWorkspaceStatusPopoverModel?
 
-    private var model: SidebarWorkspaceRowModel?
+    var model: SidebarWorkspaceRowModel?
+    var chromePalette = ChromePaletteRuntimeResolver(runtime: nil).resolve()
     private var actions: SidebarAppKitRowActions?
     private var isPointerHovering = false
     private var contextMenuVisible = false
@@ -309,18 +311,6 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
         return detachPresentation(commitEdits: commitEdits)
     }
 
-    func configurePresentation(model: SidebarWorkspaceRowModel) {
-        let previous = self.model
-        suspendPresentation()
-        guard previous != model else { return }
-        if previous?.workspaceId != model.workspaceId {
-            invalidateLinkAccessibility()
-        }
-        self.model = model
-        applyModel(model)
-        needsLayout = true
-    }
-
     override func setFrameSize(_ newSize: NSSize) {
         let changed = newSize != frame.size
         super.setFrameSize(newSize)
@@ -334,13 +324,16 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
     func configure(
         model: SidebarWorkspaceRowModel,
         actions: SidebarAppKitRowActions,
+        chromePalette: ChromePalette,
         isPointerHovering: Bool,
         contextMenuDidOpen: @escaping () -> Void,
         contextMenuDidClose: @escaping () -> Void
     ) {
         let requiresFullApply = self.actions == nil
         let previous = self.model
+        let paletteChanged = self.chromePalette != chromePalette
         self.actions = actions
+        self.chromePalette = chromePalette
         self.contextMenuDidOpen = contextMenuDidOpen
         self.contextMenuDidClose = contextMenuDidClose
         let hoverChanged = self.isPointerHovering != isPointerHovering
@@ -353,14 +346,14 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
             }
             lastStatusPopoverModel = nil
         }
-        guard requiresFullApply || previous != model || hoverChanged else { return }
+        guard requiresFullApply || previous != model || hoverChanged || paletteChanged else { return }
         self.model = model
         applyModel(model)
         needsLayout = true
     }
 
     /// Invalidates the only text views that vend row-owned web-link proxies.
-    private func invalidateLinkAccessibility() {
+    func invalidateLinkAccessibility() {
         descriptionView.invalidateLinkAccessibility()
         for view in markdownBlocks {
             view.invalidateLinkAccessibility()
@@ -368,10 +361,10 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
     }
 
     private func palette(_ model: SidebarWorkspaceRowModel) -> SidebarRowPalette {
-        SidebarRowPalette(model: model)
+        SidebarRowPalette(model: model, chromePalette: chromePalette)
     }
 
-    private func applyModel(_ model: SidebarWorkspaceRowModel) {
+    func applyModel(_ model: SidebarWorkspaceRowModel) {
 #if DEBUG
         applyModelProbeForTesting?(model)
 #endif
@@ -398,7 +391,7 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
         applyBackgroundStyle(style)
         if settings.activeTabIndicatorStyle == .solidFill, model.isActive {
             backgroundView.layer?.borderWidth = 1.5
-            backgroundView.layer?.borderColor = palette.semantic(.labelColor, opacity: 0.5).cgColor
+            backgroundView.layer?.borderColor = (chromePalette[.border]).cmuxNSColor.withAlphaComponent(0.5).cgColor
         } else {
             backgroundView.layer?.borderWidth = 0
         }
@@ -446,14 +439,14 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
             mediaMicView.image = RenderableSystemSymbol.configuredAppKitImage(
                 systemName: "mic.fill", pointSize: model.scaled(9), weight: nil
             )
-            mediaMicView.contentTintColor = .systemOrange
+            mediaMicView.contentTintColor = (chromePalette[.agentWarning]).cmuxNSColor
         }
         mediaCameraView.isHidden = !media.isUsingCamera
         if media.isUsingCamera {
             mediaCameraView.image = RenderableSystemSymbol.configuredAppKitImage(
                 systemName: "video.fill", pointSize: model.scaled(9), weight: nil
             )
-            mediaCameraView.contentTintColor = .systemGreen
+            mediaCameraView.contentTintColor = (chromePalette[.agentSuccess]).cmuxNSColor
         }
 
         // Manual task-status glyph (legacy `SidebarWorkspaceManualStatusIndicatorMenu`):
@@ -472,7 +465,8 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
                     colorScheme: palette.colorScheme
                 ),
                 monochromeColor: palette.secondary(0.8),
-                neutralColor: palette.secondary(0.8)
+                neutralColor: palette.secondary(0.8),
+                chromePalette: chromePalette
             )
         }
         reconcileStatusPopover(model: model, showsAnchor: showsStatusGlyph)
@@ -594,10 +588,11 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
             text: model.shortcutHintText,
             fontSize: model.scaled(9),
             emphasis: model.isActive ? 1.0 : 0.9,
-            representedIdentity: model.workspaceId
+            representedIdentity: model.workspaceId,
+            chromePalette: chromePalette
         )
-        topDropIndicator.layer?.backgroundColor = cmuxAccentNSColor(for: palette.colorScheme).cgColor
-        bottomDropIndicator.layer?.backgroundColor = cmuxAccentNSColor(for: palette.colorScheme).cgColor
+        topDropIndicator.layer?.backgroundColor = chromePalette.cmuxAccentNSColor.cgColor
+        bottomDropIndicator.layer?.backgroundColor = chromePalette.cmuxAccentNSColor.cgColor
         topDropIndicator.isHidden = !model.topDropIndicatorVisible
         bottomDropIndicator.isHidden = !model.bottomDropIndicatorVisible
         alphaValue = model.isBeingDragged ? 0.6 : 1
@@ -617,11 +612,8 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
     /// false, so no SwiftUI rows rebuild runs per gap change) and moves it
     /// with two direct view mutations instead of a full-list apply.
     func paintControllerDropIndicator(top: Bool, bottom: Bool) {
-        let colorScheme = model.map { $0.colorSchemeIsDark ? ColorScheme.dark : .light }
-            ?? SidebarAppearanceColorResolver().currentColorScheme()
-        let accent = cmuxAccentNSColor(for: colorScheme)
-        topDropIndicator.layer?.backgroundColor = accent.cgColor
-        bottomDropIndicator.layer?.backgroundColor = accent.cgColor
+        topDropIndicator.layer?.backgroundColor = chromePalette.cmuxAccentNSColor.cgColor
+        bottomDropIndicator.layer?.backgroundColor = chromePalette.cmuxAccentNSColor.cgColor
         topDropIndicator.isHidden = !top
         bottomDropIndicator.isHidden = !bottom
     }
@@ -642,11 +634,21 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
             if let hex = model.settings.notificationBadgeColorHex, let color = NSColor(hex: hex) {
                 return color
             }
-            return model.isActive
-                ? palette.primaryText.withAlphaComponent(0.25)
-                : cmuxAccentNSColor(for: palette.colorScheme)
+            return model.isActive ? palette.primaryText.withAlphaComponent(0.25) : chromePalette.cmuxAccentNSColor
         }()
-        let badgeText: NSColor = model.isActive ? palette.primaryText : .white
+        let badgeBackingSurface = model.isActive
+            ? palette.selectedBackground
+            : chromePalette.surface.cmuxNSColor
+        let visibleBadgeFill = cmuxCompositedNSColor(badgeFill, over: badgeBackingSurface)
+        let badgeText: NSColor = {
+            if model.settings.notificationBadgeColorHex != nil || model.isActive {
+                return cmuxReadableForegroundNSColor(on: visibleBadgeFill, opacity: 1)
+            }
+            // Preserve the palette's explicit accent foreground for the
+            // built-in accent fallback; custom and active fills above are
+            // derived from the fill that is actually painted.
+            return chromePalette.textOnAccent.cmuxNSColor
+        }()
         let badgeFont = NSFont.systemFont(ofSize: model.scaled(9), weight: .semibold)
 
         let leadingBadgeVisible = badgeVisible && model.settings.notificationBadgePosition == .leading
@@ -836,12 +838,8 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
             progressView.configure(
                 fraction: CGFloat(progress.value),
                 barHeight: max(3, 3 * model.fontScale),
-                trackColor: model.isActive
-                    ? palette.selectedForeground(0.15)
-                    : palette.semantic(.secondaryLabelColor, opacity: 0.2),
-                fillColor: model.isActive
-                    ? palette.selectedForeground(0.8)
-                    : cmuxAccentNSColor(for: palette.colorScheme),
+                trackColor: model.isActive ? palette.selectedForeground(0.15) : (chromePalette[.borderSubtle]).cmuxNSColor.withAlphaComponent(0.35),
+                fillColor: model.isActive ? palette.selectedForeground(0.8) : chromePalette.cmuxAccentNSColor,
                 labelText: progress.label,
                 labelFont: labelFont,
                 labelColor: palette.secondary(0.6)

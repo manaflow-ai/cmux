@@ -1,4 +1,6 @@
 import AppKit
+import CmuxSettings
+import CmuxSettingsUI
 import CmuxWorkspaces
 import SwiftUI
 
@@ -126,6 +128,7 @@ struct SidebarWorkspaceStatusPopover: View {
     /// Opts the workspace out (None): hide the status glyph.
     let onSelectNone: @MainActor () -> Void
     let onClose: @MainActor () -> Void
+    @Environment(\.chromePalette) private var chromePalette
 
     @State private var highlightedIndex: Int
     @FocusState private var isFocused: Bool
@@ -174,7 +177,7 @@ struct SidebarWorkspaceStatusPopover: View {
                     defaultValue: "Pinned status clears when activity changes"
                 ))
                 .font(.system(size: 10))
-                .foregroundColor(.secondary)
+                .foregroundColor((chromePalette[.textSecondary]).cmuxColor)
                 .padding(.horizontal, 8)
                 .padding(.top, 4)
             }
@@ -219,8 +222,8 @@ struct SidebarWorkspaceStatusPopover: View {
                         status: status,
                         hasOverride: false,
                         usesMonochrome: false,
-                        monochromeColor: .primary,
-                        neutralColor: .secondary,
+                        monochromeColor: (chromePalette[.textPrimary]).cmuxColor,
+                        neutralColor: (chromePalette[.textSecondary]).cmuxColor,
                         fontScale: Self.glyphFontScale
                     )
                 } else {
@@ -229,12 +232,12 @@ struct SidebarWorkspaceStatusPopover: View {
                 }
                 Text(lane.title)
                     .font(.system(size: 13))
-                    .foregroundColor(.primary)
+                    .foregroundColor((chromePalette[.textPrimary]).cmuxColor)
                     .lineLimit(1)
                 Spacer(minLength: 8)
                 if lane.isSelected {
                     CmuxSystemSymbolImage(systemName: "checkmark", pointSize: 10, weight: .semibold)
-                        .foregroundColor(.secondary)
+                        .foregroundColor((chromePalette[.textSecondary]).cmuxColor)
                 }
             }
             .padding(.horizontal, 6)
@@ -242,7 +245,7 @@ struct SidebarWorkspaceStatusPopover: View {
             .frame(maxWidth: .infinity, alignment: .leading)
             .background(
                 RoundedRectangle(cornerRadius: 5)
-                    .fill(index == highlightedIndex ? Color.primary.opacity(0.08) : Color.clear)
+                    .fill(index == highlightedIndex ? (chromePalette[.surfaceHover]).cmuxColor.opacity(0.35) : Color.clear)
             )
             .contentShape(Rectangle())
         }

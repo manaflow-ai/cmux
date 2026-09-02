@@ -1,14 +1,17 @@
 import Foundation
+import CmuxSettings
 import SwiftUI
 
 /// Mounts one immutable workspace-row projection below the lazy-list boundary.
 struct SidebarWorkspaceRowView: View {
     let snapshot: SidebarWorkspaceRowSnapshot
     let actions: SidebarWorkspaceRowActions
+    /// Immutable palette snapshot captured above the lazy-list boundary.
+    let chromePalette: ChromePalette
     let shouldCollectWorkspaceDropTargets: Bool
 
     var body: some View {
-        TabItemView(snapshot: snapshot, actions: actions)
+        TabItemView(snapshot: snapshot, actions: actions, chromePalette: chromePalette)
             .equatable()
             .id(snapshot.workspaceId)
             .accessibilityIdentifier("sidebarWorkspace.\(snapshot.workspaceId.uuidString)")

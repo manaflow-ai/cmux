@@ -833,6 +833,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     /// `ContentView` environment so `@LiveSetting` can resolve the stores it
     /// observes inside the sidebar.
     var settingsRuntime: SettingsRuntime?
+    /// Palette coordinator injected by the composition root.
+    ///
+    /// The coordinator owns the mutable snapshot and update streams; the
+    /// delegate retains only that scoped dependency so AppKit-created windows
+    /// can request an immutable presentation snapshot without introducing a
+    /// second process-wide palette store.
+    var chromePaletteRuntimeCoordinator: ChromePaletteRuntimeCoordinator?
     private var computerUseRuntimeService: ComputerUseRuntimeService?
     weak var fileExplorerState: FileExplorerState?
     weak var fullscreenControlsViewModel: TitlebarControlsViewModel?
@@ -926,7 +933,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private lazy var titlebarAccessoryController = UpdateTitlebarAccessoryController(
         updateLog: updateLog,
         settingsRuntime: settingsRuntime,
-        layoutModel: titlebarControlsLayoutModel
+        layoutModel: titlebarControlsLayoutModel,
+        initialChromePalette: chromePaletteSnapshot(),
+        chromePaletteUpdates: makeChromePaletteUpdateSource()
     )
     private let windowDecorationsController = WindowDecorationsController()
     private var menuBarExtraController: MenuBarExtraController?
@@ -1469,6 +1478,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             ]
         )
         AppIconLaunchState.markDidFinishLaunching()
+        chromePaletteRuntimeCoordinator?.refresh()
         AppearanceSettingsUserDefaultsObserver.shared.startObserving()
         systemAppearanceObserver.startObserving()
         BrowserSystemProxyWatcher.shared.startObserving()
@@ -9901,7 +9911,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             pullRequestProbeService: pullRequestProbeService,
             workspaceCustomizationStore: self.tabManager?.workspaceCustomizationStore
                 ?? WorkspaceCustomizationStore(defaults: .standard),
-            nativeSSHConnectionBroker: TerminalController.shared.nativeSSHConnectionBroker
+            nativeSSHConnectionBroker: TerminalController.shared.nativeSSHConnectionBroker,
+            chromePalette: chromePaletteSnapshot()
         )
         tabManager.windowId = windowId
         if let sessionWindowSnapshot {
@@ -9984,12 +9995,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             .environment(\.sessionDragRegistry, sessionDragRegistry)
             .environment(\.tabDragTransferRegistry, tabDragTransferRegistry)
             // AppKit hosts this ContentView in its own NSHostingView, which does
-            // not inherit the App scene's SwiftUI environment. Inject the
-            // settings runtime so `@LiveSetting` can resolve the stores it
-            // observes throughout the main window (e.g. the sidebar). The key is
-            // optional, so a nil runtime just leaves reads at their seeded
-            // catalog default.
-            .environment(\.settingsRuntime, settingsRuntime)
+            // not inherit the App scene's SwiftUI environment. The palette host
+            // exposes the runtime to settings descendants.
+            .chromePaletteHost(
+                initialPalette: chromePaletteSnapshot(),
+                settingsRuntime: settingsRuntime,
+                updates: makeChromePaletteUpdateSource()
+            )
             .cmuxFontMagnificationEnvironment()
 
         // Use the current key window's size for new windows so Cmd+Shift+N
