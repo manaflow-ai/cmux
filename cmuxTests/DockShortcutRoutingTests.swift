@@ -2541,11 +2541,23 @@ struct DockShortcutRoutingTests {
     func dockMenuSnapshotMatchesSharedDispatcher() async throws {
         try await AppContextSerialGate.withExclusiveAppContext {
             try await Self.withHarness { harness in
-                let first = try harness.dock.seedShortcutTestPanel(
-                    inPane: harness.rootPane
+                // Use the same live terminal surfaces that the menu command
+                // handles in production. The menu path commits focus and
+                // notification ownership, so a no-op fake Panel would not
+                // exercise the actual responder/portal boundary.
+                let first = try #require(
+                    harness.dock.newSurface(
+                        kind: .terminal,
+                        inPane: harness.rootPane,
+                        focus: true
+                    )
                 )
-                let second = try harness.dock.seedShortcutTestPanel(
-                    inPane: harness.rootPane
+                let second = try #require(
+                    harness.dock.newSurface(
+                        kind: .terminal,
+                        inPane: harness.rootPane,
+                        focus: true
+                    )
                 )
                 harness.dock.focusPanel(first.id)
                 harness.dock.refreshDockMenuCapabilities()
