@@ -60,6 +60,16 @@
     "genericBody": "Bitte versuche es erneut. Wenn das Problem bestehen bleibt, wende dich an den Support.",
     "backToSignIn": "Zur Anmeldung"
   },
+  "cloudPublicationAccess": {
+    "eyebrow": "cmux cloud",
+    "title": "Du hast keinen Zugriff",
+    "signedOutBody": "Melde dich bei cmux an, um diese Website anzusehen.",
+    "signIn": "Bei cmux anmelden",
+    "signedInAs": "Angemeldet als {identity}",
+    "invalidTitle": "Dieser Zugriffslink ist ungültig",
+    "invalidBody": "Kehre zur Website zurück und versuche es erneut.",
+    "footer": "Der Zugriff wird von cmux verwaltet."
+  },
   "common": {
     "downloadForMac": "Für Mac herunterladen",
     "viewOnGitHub": "Auf GitHub ansehen",

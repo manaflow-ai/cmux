@@ -60,6 +60,16 @@
     "genericBody": "Lütfen tekrar deneyin. Sorun devam ederse destek ekibiyle iletişime geçin.",
     "backToSignIn": "Girişe dön"
   },
+  "cloudPublicationAccess": {
+    "eyebrow": "cmux bulut",
+    "title": "Erişim izniniz yok",
+    "signedOutBody": "Bu siteyi görüntülemek için cmux'ta oturum açın.",
+    "signIn": "cmux'ta oturum aç",
+    "signedInAs": "{identity} olarak oturum açıldı",
+    "invalidTitle": "Bu erişim bağlantısı geçerli değil",
+    "invalidBody": "Siteye dönüp tekrar deneyin.",
+    "footer": "Erişim cmux tarafından yönetilir."
+  },
   "common": {
     "downloadForMac": "Mac için İndir",
     "viewOnGitHub": "GitHub'da Görüntüle",

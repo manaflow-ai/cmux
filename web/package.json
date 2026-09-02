@@ -69,7 +69,7 @@
     "@vercel/otel": "^2.1.2",
     "drizzle-orm": "1.0.0-beta.22",
     "effect": "^3.21.2",
-    "freestyle": "0.2.9",
+    "freestyle": "0.2.10",
     "fzstd": "^0.1.1",
     "next": "16.3.4",
     "next-intl": "^4.11.2",

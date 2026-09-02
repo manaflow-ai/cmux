@@ -111,7 +111,7 @@ const MODEL_PLANE_ENV_PATH = "/root/.config/cmux/model-plane.env";
  * the SDK's own default — the public api.freestyle.sh — is used. The
  * stack-token pair mirrors build-devbox-freestyle.ts for interactive use.
  */
-function freestyleClient(timeoutMs = DEFAULT_TIMEOUT_MS): Freestyle {
+export function freestyleClient(timeoutMs = DEFAULT_TIMEOUT_MS): Freestyle {
   const longFetch: typeof fetch = (input, init) =>
     fetch(input as Request, { ...(init ?? {}), signal: AbortSignal.timeout(timeoutMs) });
   const baseUrl = process.env.FREESTYLE_API_URL?.trim() || undefined;

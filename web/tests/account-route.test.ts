@@ -8,7 +8,11 @@ import {
   cloudVmBaseGenerations,
   cloudVmBases,
   cloudVmBillingGrants,
+  cloudVmDomains,
   cloudVmLeases,
+  cloudVmPublicationAuthCodes,
+  cloudVmPublications,
+  cloudVmPublicationSessions,
   cloudVmSessions,
   cloudVmUsageEvents,
   cloudVms,
@@ -69,6 +73,14 @@ const realDeletePrivateNetworkingForAccountDeletion =
 const realListUserVms = workflowsModule.listUserVms;
 const realRevokeUserIdentityLeasesForAccountDeletion = workflowsModule.revokeUserIdentityLeasesForAccountDeletion;
 const realRunVmWorkflow = workflowsModule.runVmWorkflow as (...args: unknown[]) => unknown;
+const publicationAccountDeletionModule = await import("../services/vm-publications/accountDeletion");
+const realDeleteVmPublicationRowsForAccountDeletion =
+  publicationAccountDeletionModule.deleteVmPublicationRowsForAccountDeletion;
+const realDeleteVmPublicationsForAccountDeletion =
+  publicationAccountDeletionModule.deleteVmPublicationsForAccountDeletion;
+type PublicationAccountDeletionTarget = Parameters<
+  NonNullable<Parameters<typeof realDeleteVmPublicationsForAccountDeletion>[0]["beforePublicationTeardown"]>
+>[0];
 type ListedAccountVm = string | {
   readonly providerVmId?: string | null;
   readonly provider?: ProviderId;
@@ -260,6 +272,24 @@ const runVmWorkflow = mock(async (...args: unknown[]) => {
   if (afterProviderError) throw afterProviderError;
   return undefined;
 });
+const deleteVmPublicationsForAccountDeletion = mock(async (...args: unknown[]) => {
+  const [input] = args as Parameters<typeof realDeleteVmPublicationsForAccountDeletion>;
+  const targets = publicationDeletionTargets.splice(0);
+  let providerRules = 0;
+  for (const target of targets) {
+    await input.beforePublicationTeardown?.(target);
+    routeEvents.push("delete-publication-rules");
+    if (publicationDeletionError) throw publicationDeletionError;
+    providerRules += 1;
+    await input.afterPublicationTeardown?.(target);
+  }
+  return { publications: targets.length, providerRules };
+});
+const deleteVmPublicationRowsForAccountDeletion = mock(async (...args: unknown[]) => {
+  await realDeleteVmPublicationRowsForAccountDeletion(
+    ...(args as Parameters<typeof realDeleteVmPublicationRowsForAccountDeletion>),
+  );
+});
 const deleteObject = mock(async (...args: unknown[]) => {
   const [objectKey] = args as [string];
   routeEvents.push("vault-delete");
@@ -371,6 +401,8 @@ let listedPersonalVmIds: ListedAccountVm[] = [];
 let listedPersonalVmIdsByBillingTeam: Record<string, ListedAccountVm[]> = {};
 let revokeIdentityLeasesError: unknown = null;
 let revokedIdentityLeaseCount = 2;
+let publicationDeletionTargets: PublicationAccountDeletionTarget[] = [];
+let publicationDeletionError: unknown = null;
 let stackUserSelectedTeam: unknown = null;
 let stackUserTeams: StackList = [];
 let stackUserClientReadOnlyMetadata: unknown = { cmuxPlan: "pro" };
@@ -629,6 +661,25 @@ mock.module("../services/vms/workflows", () => ({
   }) as typeof workflowsModule.runVmWorkflow,
 }));
 
+mock.module("../services/vm-publications/accountDeletion", () => ({
+  ...publicationAccountDeletionModule,
+  deleteVmPublicationsForAccountDeletion: ((
+    ...args: Parameters<typeof realDeleteVmPublicationsForAccountDeletion>
+  ) => {
+    const [input] = args;
+    if (useAccountRouteStubs && input.ownerUserId === ACCOUNT_USER_ID) {
+      return deleteVmPublicationsForAccountDeletion(input);
+    }
+    return realDeleteVmPublicationsForAccountDeletion(...args);
+  }) as typeof realDeleteVmPublicationsForAccountDeletion,
+  deleteVmPublicationRowsForAccountDeletion: ((
+    ...args: Parameters<typeof realDeleteVmPublicationRowsForAccountDeletion>
+  ) => {
+    if (useAccountRouteStubs) return deleteVmPublicationRowsForAccountDeletion(...args);
+    return realDeleteVmPublicationRowsForAccountDeletion(...args);
+  }) as typeof realDeleteVmPublicationRowsForAccountDeletion,
+}));
+
 const { DELETE } = await import("../app/api/account/route");
 
 beforeAll(() => {
@@ -663,6 +714,8 @@ beforeEach(() => {
   revokeUserIdentityLeasesForAccountDeletion.mockClear();
   destroyVm.mockClear();
   runVmWorkflow.mockClear();
+  deleteVmPublicationsForAccountDeletion.mockClear();
+  deleteVmPublicationRowsForAccountDeletion.mockClear();
   deleteObject.mockClear();
   cancelSubscription.mockClear();
   deleteCustomer.mockClear();
@@ -715,6 +768,8 @@ beforeEach(() => {
   listedPersonalVmIdsByBillingTeam = {};
   revokeIdentityLeasesError = null;
   revokedIdentityLeaseCount = 2;
+  publicationDeletionTargets = [];
+  publicationDeletionError = null;
   lastRevokeIdentityCall = null;
   stackUserSelectedTeam = null;
   stackUserTeams = [];
@@ -804,10 +859,16 @@ describe("account deletion route", () => {
     expect(transaction).toHaveBeenCalledTimes(4);
     expect(deletedTableCount).toBeGreaterThan(10);
     expect(deletedTables).toContain(cloudVmBillingGrants);
+    expect(deletedTables).toContain(cloudVmPublicationAuthCodes);
+    expect(deletedTables).toContain(cloudVmPublicationSessions);
+    expect(deletedTables).toContain(cloudVmPublications);
+    expect(deletedTables).not.toContain(cloudVmDomains);
     expect(deletedTables).toContain(devices);
     expect(deletedTables).toContain(proWelcomeFulfillments);
     const nonStripeUpdates = updatedRows.filter(({ table }) =>
-      table !== stripeSubscriptions && table !== stripeCustomers
+      table !== stripeSubscriptions &&
+      table !== stripeCustomers &&
+      table !== cloudVmDomains
     );
     expect(nonStripeUpdates.map(({ table, values }) => ({
       table,
@@ -913,6 +974,55 @@ describe("account deletion route", () => {
       "transaction",
       "transaction-lock",
     ]);
+  });
+
+  test("removes publication ingress before destroying its VM", async () => {
+    publicationDeletionTargets = [
+      {
+        publicationId: "00000000-0000-4000-8000-000000000100",
+        provider: "freestyle",
+        hostname: "account.preview.example.test",
+        providerTlsRuleId: "tls-rule-account",
+      },
+    ];
+
+    const response = await DELETE(accountDeletionRequest());
+
+    expect(response.status).toBe(200);
+    expect(deleteVmPublicationsForAccountDeletion).toHaveBeenCalled();
+    expect(routeEvents.indexOf("delete-publication-rules")).toBeGreaterThan(-1);
+    expect(routeEvents.indexOf("delete-publication-rules")).toBeLessThan(
+      routeEvents.indexOf("list-vms"),
+    );
+    expect(routeEvents.indexOf("delete-publication-rules")).toBeLessThan(
+      routeEvents.indexOf("destroy-vm"),
+    );
+  });
+
+  test("fails closed before VM teardown when publication ingress cleanup fails", async () => {
+    publicationDeletionTargets = [
+      {
+        publicationId: "00000000-0000-4000-8000-000000000101",
+        provider: "freestyle",
+        hostname: "account.preview.example.test",
+        providerTlsRuleId: "tls-rule-account",
+      },
+    ];
+    publicationDeletionError = new Error("Freestyle TLS delete unavailable");
+
+    const response = await DELETE(accountDeletionRequest());
+
+    expect(response.status).toBe(500);
+    expect(await response.json()).toEqual({
+      error: "account_delete_retryable",
+      retryable: true,
+      destroyedVms: 0,
+    });
+    expect(routeEvents).toContain("delete-publication-rules");
+    expect(routeEvents).not.toContain("list-vms");
+    expect(routeEvents).not.toContain("destroy-vm");
+    expect(deleteStackUser).not.toHaveBeenCalled();
+    expect(updateStackUser).toHaveBeenCalledTimes(1);
   });
 
   test("blocks cmux row deletion while a phone push delivery lease is active", async () => {

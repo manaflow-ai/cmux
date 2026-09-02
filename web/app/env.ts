@@ -245,6 +245,13 @@ export const env = createEnv({
     CMUX_VM_ALLOW_FREE_PROVISIONING: z.string().optional(),
     CMUX_VM_REQUIRE_PRO: z.string().optional(),
     CMUX_VM_DEFAULT_PLAN: z.string().optional(),
+    // Freestyle authenticates every protected-domain subrequest with this
+    // write-only token. Publication routes fail closed while it is absent.
+    CMUX_VM_PUBLICATION_FORWARD_AUTH_SECRET:
+      z.string().min(32).max(512).optional(),
+    // Canonical CMUX web origin used for the cross-domain sign-in handoff.
+    // Defaults to the request origin, but production can pin it explicitly.
+    CMUX_VM_PUBLICATION_AUTH_ORIGIN: z.string().url().optional(),
     // Hosted coderouter requires an active personal cmux Pro subscription.
     // Self-hosted deployments leave this unset (or set it to "0").
     CODEROUTER_HOSTED_PRO_REQUIRED: requireVercelProductionValue(
@@ -421,6 +428,12 @@ export const env = createEnv({
     CMUX_VM_ALLOW_FREE_PROVISIONING: trimEnv(process.env.CMUX_VM_ALLOW_FREE_PROVISIONING),
     CMUX_VM_REQUIRE_PRO: trimEnv(process.env.CMUX_VM_REQUIRE_PRO),
     CMUX_VM_DEFAULT_PLAN: trimEnv(process.env.CMUX_VM_DEFAULT_PLAN),
+    CMUX_VM_PUBLICATION_FORWARD_AUTH_SECRET: trimEnv(
+      process.env.CMUX_VM_PUBLICATION_FORWARD_AUTH_SECRET,
+    ),
+    CMUX_VM_PUBLICATION_AUTH_ORIGIN: trimEnv(
+      process.env.CMUX_VM_PUBLICATION_AUTH_ORIGIN,
+    ),
     CODEROUTER_HOSTED_PRO_REQUIRED: trimEnv(
       process.env.CODEROUTER_HOSTED_PRO_REQUIRED,
     ),

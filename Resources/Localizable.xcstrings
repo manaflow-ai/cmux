@@ -36313,6 +36313,20 @@
         }
       }
     },
+    "cli.cloud.domains.details": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"id: %1$@\nvm: %2$@:%3$@\naccess: %4$@\nstate: %5$@\nrouting revision: %6$@\ndomain: %7$@"}},"ja":{"stringUnit":{"state":"translated","value":"ID: %1$@\nVM: %2$@:%3$@\nアクセス: %4$@\n状態: %5$@\nルーティングリビジョン: %6$@\nドメイン: %7$@"}}}},
+    "cli.cloud.domains.empty": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"No published Cloud VM domains."}},"ja":{"stringUnit":{"state":"translated","value":"公開済みの Cloud VM ドメインはありません。"}}}},
+    "cli.cloud.domains.helpDescription": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Publish VM ports on generated or custom domains."}},"ja":{"stringUnit":{"state":"translated","value":"生成ドメインまたはカスタムドメインで VM ポートを公開します。"}}}},
+    "cli.cloud.domains.invalidAccess": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Access must be personal, team, or public."}},"ja":{"stringUnit":{"state":"translated","value":"アクセスは personal、team、または public で指定してください。"}}}},
+    "cli.cloud.domains.malformedResponse": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"The cmux app returned a publication response this CLI could not read."}},"ja":{"stringUnit":{"state":"translated","value":"cmux アプリから、この CLI では読み取れない公開レスポンスが返されました。"}}}},
+    "cli.cloud.domains.removed": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Removed publication %@."}},"ja":{"stringUnit":{"state":"translated","value":"公開 %@ を削除しました。"}}}},
+    "cli.cloud.domains.teamAccess": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"%1$@ (team %2$@)"}},"ja":{"stringUnit":{"state":"translated","value":"%1$@（チーム %2$@）"}}}},
+    "cli.cloud.domains.teamOnly": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"`--team` can only be used with team access."}},"ja":{"stringUnit":{"state":"translated","value":"`--team` は team アクセスでのみ使用できます。"}}}},
+    "cli.cloud.domains.teamRequired": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Team access requires `--team <id>`."}},"ja":{"stringUnit":{"state":"translated","value":"team アクセスには `--team <id>` が必要です。"}}}},
+    "cli.cloud.domains.unknown": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"unknown"}},"ja":{"stringUnit":{"state":"translated","value":"不明"}}}},
+    "cli.cloud.domains.usage": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Usage:\n  cmux cloud domains [list]\n  cmux cloud domains publish <vm> <port> [--domain <hostname>] [--access personal|team|public] [--team <id>]\n  cmux cloud domains verify <publication-id>\n  cmux cloud domains access <publication-id> <personal|team|public> [--team <id>]\n  cmux cloud domains rm <publication-id>\n\nAdd `--json` to any command for stable JSON output."}},"ja":{"stringUnit":{"state":"translated","value":"使用方法:\n  cmux cloud domains [list]\n  cmux cloud domains publish <vm> <port> [--domain <hostname>] [--access personal|team|public] [--team <id>]\n  cmux cloud domains verify <publication-id>\n  cmux cloud domains access <publication-id> <personal|team|public> [--team <id>]\n  cmux cloud domains rm <publication-id>\n\n安定した JSON 出力を得るには、各コマンドに `--json` を追加します。"}}}},
+    "cli.cloud.domains.verification.generated": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"verification: not required (cmux domain)"}},"ja":{"stringUnit":{"state":"translated","value":"検証: 不要（cmux ドメイン）"}}}},
+    "cli.cloud.domains.verificationState": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"verification: %@"}},"ja":{"stringUnit":{"state":"translated","value":"検証: %@"}}}},
+    "cli.cloud.domains.verifyHint": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"After updating DNS: cmux cloud domains verify %@"}},"ja":{"stringUnit":{"state":"translated","value":"DNS の更新後: cmux cloud domains verify %@"}}}},
     "cli.cloud.managedDisplayTarget": {
       "extractionState": "manual",
       "localizations": {
@@ -126745,6 +126759,10 @@
         }
       }
     },
+    "cloudVM.publication.error.invalidDNS": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Cloud VM publication response contained an invalid DNS instruction."}},"ja":{"stringUnit":{"state":"translated","value":"Cloud VM 公開レスポンスに無効な DNS 指示が含まれています。"}}}},
+    "cloudVM.publication.error.missingDNS": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Cloud VM publication verification response was missing DNS instructions."}},"ja":{"stringUnit":{"state":"translated","value":"Cloud VM 公開の検証レスポンスに DNS 指示がありません。"}}}},
+    "cloudVM.publication.error.missingFields": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Cloud VM publication response was missing required fields."}},"ja":{"stringUnit":{"state":"translated","value":"Cloud VM 公開レスポンスに必須フィールドがありません。"}}}},
+    "cloudVM.publication.error.missingList": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Cloud VM publication list response was missing `publications`."}},"ja":{"stringUnit":{"state":"translated","value":"Cloud VM 公開一覧レスポンスに `publications` がありません。"}}}},
     "cloudVM.error.requiresPro.action": {
       "extractionState": "manual",
       "localizations": {
@@ -243801,6 +243819,12 @@
         }
       }
     },
+    "socket.cloudVM.publication.create.invalidPort": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"vm.publication_create requires `port` between 1 and 65535."}},"ja":{"stringUnit":{"state":"translated","value":"vm.publication_create には 1 から 65535 の `port` が必要です。"}}}},
+    "socket.cloudVM.publication.create.missingVM": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"vm.publication_create requires `vmId`."}},"ja":{"stringUnit":{"state":"translated","value":"vm.publication_create には `vmId` が必要です。"}}}},
+    "socket.cloudVM.publication.idRequired": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"A publication id is required."}},"ja":{"stringUnit":{"state":"translated","value":"公開 ID が必要です。"}}}},
+    "socket.cloudVM.publication.invalidAccess": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"%@ requires `accessMode` to be personal, team, or public."}},"ja":{"stringUnit":{"state":"translated","value":"%@ の `accessMode` は personal、team、または public で指定してください。"}}}},
+    "socket.cloudVM.publication.teamOnly": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"%@ accepts `teamId` only when `accessMode` is team."}},"ja":{"stringUnit":{"state":"translated","value":"%@ で `teamId` を指定できるのは、`accessMode` が team の場合のみです。"}}}},
+    "socket.cloudVM.publication.teamRequired": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"%@ requires `teamId` when `accessMode` is team."}},"ja":{"stringUnit":{"state":"translated","value":"%@ で `accessMode` が team の場合は `teamId` が必要です。"}}}},
     "socket.cloudVM.sessionRejected": {
       "extractionState": "manual",
       "localizations": {

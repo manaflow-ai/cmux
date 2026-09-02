@@ -31,7 +31,7 @@
         "@vercel/otel": "^2.1.2",
         "drizzle-orm": "1.0.0-beta.22",
         "effect": "^3.21.2",
-        "freestyle": "0.2.9",
+        "freestyle": "0.2.10",
         "fzstd": "^0.1.1",
         "next": "16.3.4",
         "next-intl": "^4.11.2",
@@ -1372,7 +1372,7 @@
 
     "for-each": ["for-each@0.3.5", "", { "dependencies": { "is-callable": "^1.2.7" } }, "sha512-dKx12eRCVIzqCxFGplyFKJMPvLEWgmNtUrpTiJIR5u97zEhRG8ySrtboPHZXx7daLxQVrl643cTzbab2tkQjxg=="],
 
-    "freestyle": ["freestyle@0.2.9", "", { "dependencies": { "dotenv": "^17.4.2", "ws": "^8.18.0", "yargs": "^17.7.2" }, "bin": { "freestyle": "dist/cli/index.js" } }, "sha512-coFGZhYYh+anvcIeV1OoBtZl4xmy9mTTqAxD/mSpSbpudT9E83p5hDaOL5sAXuV+DGLyEhP4ZxiC+k1CNDBTTA=="],
+    "freestyle": ["freestyle@0.2.10", "", { "dependencies": { "dotenv": "^17.4.2", "ws": "^8.18.0", "yargs": "^17.7.2" }, "bin": { "freestyle": "dist/cli/index.js" } }, "sha512-LjyTUBARgSAbdTIVwuenSp7+aOLqPPE8gF2II6ixj8kx3dqdQOels4Vt9kO298ZpLpbZCbvTNyeUKu56m2+k4A=="],
 
     "fsevents": ["fsevents@2.3.2", "", { "os": "darwin" }, "sha512-xiqMQR4xAeHTuB9uWm+fFRcIOgKBMiOBP+eXiyT7jsgVCq1bkVygt00oASowB7EdtpOHaaPgKt812P9ab+DDKA=="],
 
