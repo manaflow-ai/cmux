@@ -78,7 +78,7 @@ derived herdr material.
 `src/detect/mod.rs` foreground process-group and wrapper discovery. It adds
 bounded traversal and `/proc` streaming, safer path candidates, attached
 runtime-mode parsing, positional-argument boundaries, direct shell-script and
-shell-word parsing, shell invocation-mode checks, and an explicit Linux
+shell-word parsing, runtime-specific shell invocation-mode checks, and an explicit Linux
 child-group fallback. Its strict Pi package-entrypoint check includes herdr's Windows fix
 from commit `b1ff4582e9688f52ffb943cfa8bee4871ae122e4`; the check is adapted to
 the replaceable manifest catalog. The reference package targets macOS and
