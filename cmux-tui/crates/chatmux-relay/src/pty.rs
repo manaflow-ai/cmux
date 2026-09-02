@@ -1423,6 +1423,7 @@ impl Inner {
             let Some(current) = attachments.get(pty_id) else { return };
             if current.generation != generation
                 || !Arc::ptr_eq(&current.publication_gate, publication_gate)
+                || current.close_pending.load(Ordering::SeqCst)
                 || (context.transport_id.is_some() && current.transport_id != context.transport_id)
             {
                 return;
@@ -1436,6 +1437,7 @@ impl Inner {
             if current.generation != generation
                 || !Arc::ptr_eq(&current.publication_gate, publication_gate)
                 || current.closing.load(Ordering::SeqCst)
+                || current.close_pending.load(Ordering::SeqCst)
             {
                 return;
             }
@@ -1450,6 +1452,7 @@ impl Inner {
             if current.generation != generation
                 || !Arc::ptr_eq(&current.publication_gate, publication_gate)
                 || current.closing.load(Ordering::SeqCst)
+                || current.close_pending.load(Ordering::SeqCst)
             {
                 return;
             }
@@ -1532,6 +1535,7 @@ impl Inner {
             if current.generation != generation
                 || !Arc::ptr_eq(&current.publication_gate, publication_gate)
                 || current.closing.load(Ordering::SeqCst)
+                || current.close_pending.load(Ordering::SeqCst)
             {
                 return;
             }
@@ -1544,6 +1548,7 @@ impl Inner {
             if current.generation != generation
                 || !Arc::ptr_eq(&current.publication_gate, publication_gate)
                 || current.closing.load(Ordering::SeqCst)
+                || current.close_pending.load(Ordering::SeqCst)
             {
                 return;
             }
@@ -1571,6 +1576,7 @@ impl Inner {
             if current.generation != generation
                 || !Arc::ptr_eq(&current.publication_gate, publication_gate)
                 || current.closing.load(Ordering::SeqCst)
+                || current.close_pending.load(Ordering::SeqCst)
             {
                 return;
             }
@@ -5481,6 +5487,13 @@ mod tests {
                 .get("p1")
                 .is_some_and(|attachment| attachment.close_pending.load(Ordering::SeqCst)),
             "detach must mark the generation as closing before draining control operations"
+        );
+        let sent_before_late_output = h.sent().len();
+        pty.emit("late output");
+        assert_eq!(
+            h.sent().len(),
+            sent_before_late_output,
+            "a pending-close attachment must not publish stale output"
         );
 
         let replacement = serde_json::json!({
