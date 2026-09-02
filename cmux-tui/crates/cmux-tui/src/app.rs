@@ -1170,7 +1170,11 @@ impl HostInputShutdown {
         // crossterm wrapper caps every poll at CROSSTERM_POLL_INTERVAL and
         // only calls read after poll reports a ready event, so joining here
         // cannot wait on an idle terminal read.
-        if let Some(reader) = self.reader.lock().unwrap().take()
+        let reader = {
+            let mut slot = self.reader.lock().unwrap();
+            slot.take()
+        };
+        if let Some(reader) = reader
             && reader.thread().id() != std::thread::current().id()
         {
             let _ = reader.join();
