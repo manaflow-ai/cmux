@@ -2803,7 +2803,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn reset_tombstone_covers_all_legal_lanes() {
+    async fn reset_tombstone_is_lane_specific() {
         let (client_endpoint, daemon_endpoint) = endpoint_pair();
         let client = ServiceMultiplexer::new(client_endpoint, EndpointRole::Client);
         let stream = client.open(Service::ProcessStream, BTreeMap::new()).await.unwrap();
@@ -2821,7 +2821,7 @@ mod tests {
         daemon_endpoint
             .send_frame(
                 None,
-                Lane::Interactive,
+                Lane::Control,
                 stream_id,
                 Bytes::from_static(b"late reset"),
                 FrameFlags::empty(),
@@ -2834,17 +2834,18 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn queue_full_tombstone_covers_all_legal_lanes() {
+    async fn queue_full_tombstone_is_lane_specific() {
         let streams = Mutex::new(HashMap::from([(1, test_registration(Service::ProcessStream))]));
         let closed = Mutex::new(ClosedStreams::default());
         reset_registered_stream(&streams, &closed, 1, Lane::Control, "queue full").await;
         let closed = closed.lock().await;
-        assert!(closed.contains_on(1, Lane::Interactive));
-        assert!(closed.contains_on(1, Lane::Bulk));
+        assert!(closed.contains_on(1, Lane::Control));
+        assert!(!closed.contains_on(1, Lane::Interactive));
+        assert!(!closed.contains_on(1, Lane::Bulk));
     }
 
     #[tokio::test]
-    async fn open_limit_tombstone_covers_all_legal_lanes() {
+    async fn open_limit_tombstone_is_lane_specific() {
         let (client_endpoint, daemon_endpoint) = endpoint_pair();
         let client = ServiceMultiplexer::new(client_endpoint, EndpointRole::Client);
         {
@@ -2869,7 +2870,7 @@ mod tests {
         daemon_endpoint
             .send_frame(
                 None,
-                Lane::Interactive,
+                Lane::Control,
                 stream_id,
                 Bytes::from_static(b"late open-limit"),
                 FrameFlags::empty(),
@@ -2908,7 +2909,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn dropped_stream_tombstone_covers_non_default_legal_lane() {
+    async fn dropped_stream_tombstone_is_lane_specific() {
         let (client_endpoint, daemon_endpoint) = endpoint_pair();
         let client = ServiceMultiplexer::new(client_endpoint, EndpointRole::Client);
         let stream = client.open(Service::WorkspaceRpc, BTreeMap::new()).await.unwrap();
@@ -2920,9 +2921,9 @@ mod tests {
         daemon_endpoint
             .send_frame(
                 None,
-                Lane::Bulk,
+                Lane::Control,
                 stream_id,
-                Bytes::from_static(b"late bulk drop"),
+                Bytes::from_static(b"late control drop"),
                 FrameFlags::empty(),
             )
             .await
