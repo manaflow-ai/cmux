@@ -2778,7 +2778,19 @@ mod tests {
             .await
         });
 
-        tokio::time::sleep(std::time::Duration::from_millis(25)).await;
+        let pid = tokio::time::timeout(std::time::Duration::from_secs(1), async {
+            loop {
+                if let Ok(pid) = std::fs::read_to_string(&pid_file)
+                    .ok()
+                    .and_then(|value| value.trim().parse::<libc::pid_t>().ok())
+                {
+                    break pid;
+                }
+                tokio::time::sleep(std::time::Duration::from_millis(5)).await;
+            }
+        })
+        .await
+        .expect("descendant pid marker");
         cancellation.cancel();
         let outcome = tokio::time::timeout(std::time::Duration::from_secs(2), worker)
             .await
@@ -2788,10 +2800,6 @@ mod tests {
             outcome,
             RunOutcome::Failed { message } if message == "process cancelled"
         ));
-        let pid = std::fs::read_to_string(&pid_file)
-            .ok()
-            .and_then(|value| value.trim().parse::<libc::pid_t>().ok())
-            .expect("descendant pid marker");
         tokio::time::timeout(std::time::Duration::from_secs(1), async {
             while unsafe { libc::kill(pid, 0) } == 0 {
                 tokio::time::sleep(std::time::Duration::from_millis(5)).await;
