@@ -981,22 +981,167 @@ enum RunOutcome {
     Failed { message: String },
 }
 
+struct CancelOnDrop(Option<tokio_util::sync::CancellationToken>);
+
+impl Drop for CancelOnDrop {
+    fn drop(&mut self) {
+        if let Some(token) = self.0.take() {
+            token.cancel();
+        }
+    }
+}
+
 #[cfg(unix)]
 struct ProcessGroupGuard {
     pid: Option<u32>,
     armed: bool,
+    termination_confirmed: bool,
 }
 
 #[cfg(unix)]
 impl Drop for ProcessGroupGuard {
     fn drop(&mut self) {
-        if self.armed {
-            // Cancellation drops Child without waiting. Kill the whole group
-            // so descendants cannot retain inherited output pipes or continue
-            // running after the relay has released its action permit.
+        if self.armed && !self.termination_confirmed {
+            // Keep the process-group identity armed until the direct child is
+            // reaped. Drop is only an emergency descendant-kill fallback.
             signal_process_tree(self.pid, true);
         }
     }
+}
+
+#[cfg(unix)]
+impl ProcessGroupGuard {
+    fn request_kill(&mut self) -> bool {
+        match signal_process_group_checked(self.pid, true) {
+            ProcessGroupSignal::Sent | ProcessGroupSignal::Gone => {
+                self.termination_confirmed = true;
+                true
+            }
+            ProcessGroupSignal::Failed => false,
+        }
+    }
+
+    fn mark_reaped(&mut self) {
+        // A hard group signal is issued before the leader is reaped. Once both
+        // events have happened, no numeric process-group identity remains in
+        // use by this action and the guard can be disarmed safely.
+        if self.termination_confirmed {
+            self.armed = false;
+        }
+    }
+}
+
+/// Resources whose lifetime must cover the direct child. In particular, a
+/// cancelled grep keeps its file-action permit and inherited descriptors until
+/// a detached reaper has awaited the child.
+#[derive(Default)]
+struct RunResources {
+    _file_permit: Option<tokio::sync::OwnedSemaphorePermit>,
+    #[cfg(unix)]
+    _path_guard: Option<std::fs::File>,
+    #[cfg(unix)]
+    _cwd_guard: Option<std::fs::File>,
+}
+
+struct DetachedReaper {
+    child: tokio::process::Child,
+    #[cfg(unix)]
+    process_group_guard: ProcessGroupGuard,
+    #[cfg(windows)]
+    job: Option<WindowsJob>,
+    resources: RunResources,
+}
+
+struct DetachedReaperSlot(Option<DetachedReaper>);
+
+impl Drop for DetachedReaperSlot {
+    fn drop(&mut self) {
+        // A thread can fail to start under process-wide resource pressure. Do
+        // not drop an unowned child or its permit in that case: dropping the
+        // guard could signal a reused process-group id, and releasing the
+        // permit would admit another untracked process.
+        if let Some(reaper) = self.0.take() {
+            std::mem::forget(reaper);
+        }
+    }
+}
+
+impl DetachedReaper {
+    fn spawn(self) {
+        // An OS thread survives Tokio runtime shutdown. It owns the Child
+        // handle until Tokio reports a successful reap, so the permit and
+        // descriptor guards cannot be released by runtime teardown.
+        let mut slot = DetachedReaperSlot(Some(self));
+        let _ = std::thread::Builder::new().name("chatmux-process-reaper".to_owned()).spawn(
+            move || {
+                let Some(reaper) = slot.0.take() else { return };
+                reaper.run();
+            },
+        );
+    }
+
+    fn run(mut self) {
+        #[cfg(unix)]
+        let group_kill_confirmed = self.process_group_guard.request_kill();
+        #[cfg(not(unix))]
+        let group_kill_confirmed = {
+            #[cfg(windows)]
+            if let Some(job) = self.job.as_ref() {
+                job.terminate();
+            }
+            true
+        };
+        if !reap_child_blocking(&mut self.child) || !group_kill_confirmed {
+            // A wait error is terminal for this owner. Retain every field so
+            // no permit is released and no guard can signal a reused PID.
+            std::mem::forget(self);
+            return;
+        }
+        #[cfg(unix)]
+        self.process_group_guard.mark_reaped();
+        drop(self.child);
+        #[cfg(windows)]
+        drop(self.job);
+        drop(self.resources);
+    }
+}
+
+fn reap_child_blocking(child: &mut tokio::process::Child) -> bool {
+    const MAX_WAIT_ERRORS: usize = 3;
+    let mut wait_errors = 0;
+    let mut delay = std::time::Duration::from_millis(5);
+    loop {
+        match child.try_wait() {
+            Ok(Some(_status)) => return true,
+            Ok(None) => {
+                wait_errors = 0;
+                std::thread::sleep(delay);
+                delay = (delay * 2).min(std::time::Duration::from_millis(100));
+            }
+            Err(_) if wait_errors < MAX_WAIT_ERRORS => {
+                wait_errors += 1;
+                std::thread::sleep(delay);
+            }
+            Err(_) => return false,
+        }
+    }
+}
+
+fn defer_reap(
+    child: tokio::process::Child,
+    #[cfg(unix)] process_group_guard: ProcessGroupGuard,
+    #[cfg(windows)] job: Option<WindowsJob>,
+    resources: RunResources,
+) {
+    DetachedReaper {
+        child,
+        #[cfg(unix)]
+        process_group_guard,
+        #[cfg(windows)]
+        job,
+        resources,
+    }
+    .spawn();
 }
 
 #[cfg(unix)]
@@ -1010,6 +1155,8 @@ async fn run_spec(
     cwd_fd: Option<ScopedCwdFd>,
     timeout_ms: u64,
     env: &HashMap<String, String>,
+    cancellation: Option<tokio_util::sync::CancellationToken>,
+    resources: RunResources,
 ) -> RunOutcome {
     use tokio::io::AsyncReadExt as _;
     let mut command = match &spec {
@@ -1075,13 +1222,15 @@ async fn run_spec(
     };
     let pid = child.id();
     #[cfg(unix)]
-    let mut process_group_guard = ProcessGroupGuard { pid, armed: true };
+    let mut process_group_guard =
+        ProcessGroupGuard { pid, armed: true, termination_confirmed: false };
     // Collect a little past the char cap (bytes over-approximate chars).
     let byte_cap = (MAX_OUTPUT_CHARS + 10_000) * 4;
     let mut stdout = child.stdout.take();
     let mut stderr = child.stderr.take();
     let mut output: Vec<u8> = Vec::new();
     let mut timed_out = false;
+    let mut cancelled = false;
     let deadline = tokio::time::sleep(std::time::Duration::from_millis(timeout_ms));
     tokio::pin!(deadline);
     let mut stdout_buf = [0_u8; 8_192];
@@ -1092,6 +1241,7 @@ async fn run_spec(
     let mut kill_deadline: Option<std::pin::Pin<Box<tokio::time::Sleep>>> = None;
     let mut drain_deadline: Option<std::pin::Pin<Box<tokio::time::Sleep>>> = None;
     let mut final_wait_deadline: Option<std::pin::Pin<Box<tokio::time::Sleep>>> = None;
+    let mut group_kill_confirmed = false;
     loop {
         // A timed-out process group still needs its escalation pass even when
         // the shell leader has already exited. Otherwise closing inherited
@@ -1105,6 +1255,25 @@ async fn run_spec(
             break;
         }
         tokio::select! {
+            () = async {
+                match cancellation.as_ref() {
+                    Some(token) => token.cancelled().await,
+                    None => std::future::pending().await,
+                }
+            }, if !cancelled => {
+                cancelled = true;
+                if exited.is_none() {
+                    #[cfg(unix)]
+                    if !signal_process_tree(pid, false) {
+                        let _ = child.start_kill();
+                    }
+                    #[cfg(not(unix))]
+                    signal_process_tree(pid, false);
+                }
+                kill_deadline = Some(Box::pin(tokio::time::sleep(
+                    std::time::Duration::from_millis(250),
+                )));
+            }
             read = async {
                 match stdout.as_mut() {
                     Some(stream) => stream.read(&mut stdout_buf).await,
@@ -1135,7 +1304,9 @@ async fn run_spec(
                     }
                 }
             }
-            status = child.wait(), if exited.is_none() => {
+            status = child.wait(), if exited.is_none()
+                && (group_kill_confirmed
+                    || (!timed_out && !cancelled && !stdout_open && !stderr_open)) => {
                 // The child is gone, but descendants may still own the output
                 // pipes. Preserve a timeout escalation that is already in
                 // flight, and bound the remaining drain after a timeout.
@@ -1148,14 +1319,38 @@ async fn run_spec(
                 match status {
                     Ok(status) => {
                         exited = Some(status.code().map(i64::from).unwrap_or(1));
-                        // `wait` has reaped the leader. Disarm before any
-                        // subsequent cancellation can target a reused PID.
                         #[cfg(unix)]
                         {
-                            process_group_guard.armed = false;
+                            if timed_out || cancelled {
+                                process_group_guard.mark_reaped();
+                            } else {
+                                // `wait` has reaped the leader. No cleanup was
+                                // requested, so disarm before the numeric PID
+                                // can be reused by an unrelated process.
+                                process_group_guard.armed = false;
+                            }
                         }
                     }
-                    Err(_) => exited = Some(1),
+                    Err(_) => {
+                        let outcome = if timed_out {
+                            RunOutcome::TimedOut
+                        } else if cancelled {
+                            RunOutcome::Failed { message: "process cancelled".to_owned() }
+                        } else {
+                            RunOutcome::Failed { message: "process failed to stop".to_owned() }
+                        };
+                        drop(stdout);
+                        drop(stderr);
+                        defer_reap(
+                            child,
+                            #[cfg(unix)]
+                            process_group_guard,
+                            #[cfg(windows)]
+                            job,
+                            resources,
+                        );
+                        return outcome;
+                    }
                 }
             }
             () = &mut deadline, if !timed_out => {
@@ -1164,9 +1359,7 @@ async fn run_spec(
                 // inherited stdout/stderr. Kill the whole POSIX process group
                 // so the supervisor gets its EXIT cleanup, then enforce a
                 // hard bound for processes that ignore TERM.
-                if exited.is_some() {
-                    signal_process_group(pid, false);
-                } else {
+                if exited.is_none() {
                     // The process group is the authoritative target. If the
                     // group disappeared before we could signal it, use the
                     // live Child handle instead of the numeric PID. A PID
@@ -1201,21 +1394,22 @@ async fn run_spec(
                     None => std::future::pending().await,
                 }
             }, if kill_deadline.is_some() => {
-                if exited.is_some() {
-                    signal_process_group(pid, true);
-                } else {
-                    // See the timeout branch above: never fall back to a
-                    // numeric PID after a process-group signal fails.
+                if exited.is_none() && !group_kill_confirmed {
                     #[cfg(unix)]
-                    if !signal_process_tree(pid, true) {
-                        let _ = child.start_kill();
+                    {
+                        group_kill_confirmed = process_group_guard.request_kill();
+                        if !group_kill_confirmed {
+                            let _ = child.start_kill();
+                        }
                     }
                     #[cfg(not(unix))]
-                    signal_process_tree(pid, true);
-                }
-                #[cfg(windows)]
-                if let Some(job) = job.as_ref() {
-                    job.terminate();
+                    {
+                        #[cfg(windows)]
+                        if let Some(job) = job.as_ref() {
+                            job.terminate();
+                        }
+                        group_kill_confirmed = true;
+                    }
                 }
                 kill_deadline = None;
                 if exited.is_none() {
@@ -1240,9 +1434,75 @@ async fn run_spec(
                     None => std::future::pending().await,
                 }
             }, if final_wait_deadline.is_some() && exited.is_none() => {
-                let _ = child.start_kill();
                 final_wait_deadline = None;
-                exited = Some(1);
+                // `start_kill` only sends the signal. Give the leader a final
+                // bounded chance to exit, then hand every child resource to a
+                // detached reaper. The action must not wait forever, and the
+                // permit and descriptor guards must not be released first.
+                #[cfg(unix)]
+                if !group_kill_confirmed {
+                    group_kill_confirmed = process_group_guard.request_kill();
+                }
+                #[cfg(windows)]
+                if !group_kill_confirmed {
+                    if let Some(job) = job.as_ref() {
+                        job.terminate();
+                    }
+                    group_kill_confirmed = true;
+                }
+                if !group_kill_confirmed {
+                    let outcome = if timed_out {
+                        RunOutcome::TimedOut
+                    } else if cancelled {
+                        RunOutcome::Failed { message: "process cancelled".to_owned() }
+                    } else {
+                        RunOutcome::Failed { message: "process failed to stop".to_owned() }
+                    };
+                    drop(stdout);
+                    drop(stderr);
+                    defer_reap(
+                        child,
+                        #[cfg(unix)]
+                        process_group_guard,
+                        #[cfg(windows)]
+                        job,
+                        resources,
+                    );
+                    return outcome;
+                }
+                let _ = child.start_kill();
+                match tokio::time::timeout(
+                    std::time::Duration::from_millis(250),
+                    child.wait(),
+                )
+                .await
+                {
+                    Ok(Ok(status)) => {
+                        exited = Some(status.code().map(i64::from).unwrap_or(1));
+                        #[cfg(unix)]
+                        process_group_guard.mark_reaped();
+                    }
+                    Ok(Err(_)) | Err(_) => {
+                        let outcome = if timed_out {
+                            RunOutcome::TimedOut
+                        } else if cancelled {
+                            RunOutcome::Failed { message: "process cancelled".to_owned() }
+                        } else {
+                            RunOutcome::Failed { message: "process failed to stop".to_owned() }
+                        };
+                        drop(stdout);
+                        drop(stderr);
+                        defer_reap(
+                            child,
+                            #[cfg(unix)]
+                            process_group_guard,
+                            #[cfg(windows)]
+                            job,
+                            resources,
+                        );
+                        return outcome;
+                    }
+                }
                 if stdout_open || stderr_open {
                     drain_deadline = Some(Box::pin(tokio::time::sleep(
                         std::time::Duration::from_millis(250),
@@ -1255,10 +1515,24 @@ async fn run_spec(
     drop(job);
     #[cfg(unix)]
     {
-        process_group_guard.armed = false;
+        if timed_out || cancelled {
+            process_group_guard.mark_reaped();
+            if process_group_guard.armed {
+                // A failed group signal leaves descendant ownership unknown.
+                // Keep the permit and guard leaked rather than releasing them
+                // or risking a signal to a recycled process-group id.
+                std::mem::forget(process_group_guard);
+                std::mem::forget(resources);
+            }
+        } else {
+            process_group_guard.armed = false;
+        }
     }
     if timed_out {
         return RunOutcome::TimedOut;
+    }
+    if cancelled {
+        return RunOutcome::Failed { message: "process cancelled".to_owned() };
     }
     let text = String::from_utf8_lossy(&output);
     RunOutcome::Done { exit_code: exited.unwrap_or(0), output: text.into_owned() }
@@ -1284,22 +1558,32 @@ where
 }
 
 #[cfg(unix)]
-fn signal_process_group(pid: Option<u32>, kill: bool) {
-    let Some(pid) = pid else { return };
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum ProcessGroupSignal {
+    Sent,
+    Gone,
+    Failed,
+}
+
+#[cfg(unix)]
+fn signal_process_group_checked(pid: Option<u32>, kill: bool) -> ProcessGroupSignal {
+    let Some(pid) = pid else { return ProcessGroupSignal::Gone };
     let signal = if kill { libc::SIGKILL } else { libc::SIGTERM };
-    // Once the leader has exited, never fall back to signalling its numeric
-    // PID: the operating system may have reused it while descendants keep
-    // the process group alive. The group id is the only safe target here.
-    unsafe {
-        libc::kill(-(pid as i32), signal);
+    // This call happens before the direct child is reaped. A successful hard
+    // signal covers every member currently in the group, and ESRCH confirms
+    // that there is no remaining group to clean up.
+    let result = unsafe { libc::kill(-(pid as i32), signal) };
+    if result == 0 {
+        ProcessGroupSignal::Sent
+    } else if std::io::Error::last_os_error().raw_os_error() == Some(libc::ESRCH) {
+        ProcessGroupSignal::Gone
+    } else {
+        ProcessGroupSignal::Failed
     }
 }
 
 #[cfg(not(unix))]
 fn signal_process_tree(_pid: Option<u32>, _kill: bool) {}
-
-#[cfg(not(unix))]
-fn signal_process_group(_pid: Option<u32>, _kill: bool) {}
 
 #[cfg(windows)]
 struct WindowsJob {
@@ -1790,12 +2074,9 @@ pub async fn perform_action(frame: &Value, context: &ActionContext) -> Value {
             };
             #[cfg(not(unix))]
             let command_cwd_fd = None;
-            let outcome = tokio::spawn(async move {
-                let _file_permit = file_permit;
-                #[cfg(unix)]
-                let _path_guard = _path_guard;
-                #[cfg(unix)]
-                let _cwd_guard = _cwd_guard;
+            let grep_cancellation = tokio_util::sync::CancellationToken::new();
+            let mut cancel_on_drop = CancelOnDrop(Some(grep_cancellation.clone()));
+            let grep_task = tokio::spawn(async move {
                 run_spec(
                     RunSpec::Argv {
                         file: "grep",
@@ -1813,11 +2094,21 @@ pub async fn perform_action(frame: &Value, context: &ActionContext) -> Value {
                     command_cwd_fd,
                     timeout_ms,
                     &env,
+                    Some(grep_cancellation),
+                    RunResources {
+                        _file_permit: Some(file_permit),
+                        #[cfg(unix)]
+                        _path_guard: Some(_path_guard),
+                        #[cfg(unix)]
+                        _cwd_guard: Some(_cwd_guard),
+                    },
                 )
                 .await
-            })
-            .await
-            .unwrap_or(RunOutcome::Failed { message: "process failed to start".to_owned() });
+            });
+            let outcome = grep_task
+                .await
+                .unwrap_or(RunOutcome::Failed { message: "process failed to start".to_owned() });
+            cancel_on_drop.0 = None;
             run_reply(version, &action_id, outcome, args.get("limit"), Some(200), timeout_ms)
         }
         "find" => {
@@ -1887,6 +2178,14 @@ pub async fn perform_action(frame: &Value, context: &ActionContext) -> Value {
                 command_cwd_fd,
                 timeout_ms,
                 &env,
+                None,
+                RunResources {
+                    _file_permit: None,
+                    #[cfg(unix)]
+                    _path_guard: Some(_path_guard),
+                    #[cfg(unix)]
+                    _cwd_guard: Some(_cwd_guard),
+                },
             )
             .await;
             run_reply(version, &action_id, outcome, args.get("limit"), Some(500), timeout_ms)
@@ -1928,6 +2227,14 @@ pub async fn perform_action(frame: &Value, context: &ActionContext) -> Value {
                 scoped_cwd_fd,
                 timeout_ms,
                 &env,
+                None,
+                RunResources {
+                    _file_permit: None,
+                    #[cfg(unix)]
+                    _path_guard: None,
+                    #[cfg(unix)]
+                    _cwd_guard: Some(_cwd_guard),
+                },
             )
             .await;
             run_reply(version, &action_id, outcome, None, None, timeout_ms)
@@ -2417,20 +2724,23 @@ mod tests {
         context.env = HashMap::from([
             ("PATH".to_owned(), format!("{}:/bin:/usr/bin", bin.display())),
             ("CMUX_GREP_STARTED".to_owned(), started.display().to_string()),
-            (
-                "CMUX_GREP_DESCENDANT_PID".to_owned(),
-                descendant_pid.display().to_string(),
-            ),
+            ("CMUX_GREP_DESCENDANT_PID".to_owned(), descendant_pid.display().to_string()),
         ]);
         let frame = json!({ "verb": "grep", "actionId": "grep-cancel", "allowedRoots": roots,
                             "args": { "path": ".", "pattern": "needle" }, "timeoutMs": 10000 });
         let file_slots = Arc::clone(&context.file_slots);
         let action = tokio::spawn(async move { perform_action(&frame, &context).await });
         tokio::time::timeout(std::time::Duration::from_secs(1), async {
-            while !started.exists() { tokio::task::yield_now().await; }
-        }).await.expect("grep child must start");
+            while !started.exists() {
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .expect("grep child must start");
         tokio::time::timeout(std::time::Duration::from_secs(1), async {
-            while !process_exists(&descendant_pid) { tokio::task::yield_now().await; }
+            while !process_exists(&descendant_pid) {
+                tokio::task::yield_now().await;
+            }
         })
         .await
         .expect("grep descendant must start");
@@ -2561,7 +2871,15 @@ mod tests {
         let env = scrubbed_env(&HashMap::from([("PATH".to_owned(), "/usr/bin:/bin".to_owned())]));
         let outcome = tokio::time::timeout(
             std::time::Duration::from_secs(2),
-            run_spec(RunSpec::Shell { command: "sleep 5 &" }, Path::new("/"), None, 20, &env),
+            run_spec(
+                RunSpec::Shell { command: "sleep 5 &" },
+                Path::new("/"),
+                None,
+                20,
+                &env,
+                None,
+                RunResources::default(),
+            ),
         )
         .await
         .expect("timeout cleanup must not wait for a descendant pipe");
