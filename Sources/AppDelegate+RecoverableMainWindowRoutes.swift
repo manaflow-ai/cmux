@@ -651,4 +651,13 @@ extension AppDelegate {
         }
         return result
     }
+
+    /// Returns one workspace by identity without enumerating every live tab.
+    /// Feed uses this after its ownership index narrows a task event to a
+    /// small candidate set.
+    @MainActor
+    func workspaceForAgentTodoRetirement(id: UUID) -> Workspace? {
+        guard let manager = tabManagerFor(tabId: id) else { return nil }
+        return manager.tabs.first { $0.id == id }
+    }
 }

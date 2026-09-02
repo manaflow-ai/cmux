@@ -12,6 +12,26 @@ import CmuxWorkspaces
 
 @Suite("Feed coordinator", .serialized)
 struct FeedCoordinatorTests {
+    @MainActor
+    @Test("Agent todo retirement looks up only the requested workspace")
+    func agentTodoRetirementUsesDirectWorkspaceLookup() {
+        let previousAppDelegate = AppDelegate.shared
+        let appDelegate = AppDelegate()
+        let manager = TabManager(autoWelcomeIfNeeded: false)
+        AppDelegate.shared = appDelegate
+        appDelegate.tabManager = manager
+        appDelegate.didAttemptStartupSessionRestore = true
+        let workspace = manager.addWorkspace(title: "Indexed owner", select: true)
+        defer {
+            manager.tabs.forEach { $0.teardownAllPanels() }
+            appDelegate.tabManager = nil
+            AppDelegate.shared = previousAppDelegate
+        }
+
+        #expect(appDelegate.workspaceForAgentTodoRetirement(id: workspace.id)?.id == workspace.id)
+        #expect(appDelegate.workspaceForAgentTodoRetirement(id: UUID()) == nil)
+    }
+
     @Test("Workspace-only blocking events retain their session surface")
     func workspaceOnlyAttentionUsesSessionSurface() {
         let workspaceID = UUID()
