@@ -44,7 +44,7 @@ function fakeFreestyle(input: { readonly probeExit: number }) {
   const vm = {
     exec: async ({ command }: { command: string }) => {
       execs.push(command);
-      const statusCode = command.includes("/v1/models") ? input.probeExit : 0;
+      const statusCode = command.includes("/api/coderouter/vm-usage/self") ? input.probeExit : 0;
       return { statusCode, stdout: "", stderr: statusCode === 0 ? "" : "probe failed" };
     },
     fs: {
@@ -258,7 +258,7 @@ describe("Freestyle platform contract", () => {
   test("edge probe is one bounded guest loop against the rule's host, with no token in it", () => {
     const command = freestyleEdgeProbeCommand("coderouter.dev");
     expect(command).toBe(
-      "for i in $(seq 1 30); do curl -fsS -o /dev/null --max-time 5 https://coderouter.dev/v1/models && exit 0; sleep 2; done; exit 1",
+      "for i in $(seq 1 30); do curl -fsS -o /dev/null --max-time 5 -H 'authorization: Bearer cmux-vm-edge-placeholder' https://coderouter.dev/api/coderouter/vm-usage/self && exit 0; sleep 2; done; exit 1",
     );
     expect(command).not.toContain("crt_");
     expect(() => freestyleEdgeProbeCommand("bad host")).toThrow(ProviderError);
@@ -306,7 +306,7 @@ describe("FreestyleProvider create with edge rules", () => {
         content: renderFreestyleModelPlaneEnvFile(PLACEHOLDER_ENVS)!,
       },
     ]);
-    expect(fake.execs.some((command) => command.includes("https://coderouter.dev/v1/models"))).toBe(true);
+    expect(fake.execs.some((command) => command.includes("https://coderouter.dev/api/coderouter/vm-usage/self"))).toBe(true);
     expect(fake.deletes).toEqual([]);
   });
 
@@ -331,7 +331,7 @@ describe("FreestyleProvider create with edge rules", () => {
     const fake = fakeFreestyle({ probeExit: 1 });
     await providerWith(fake).create({ image: "sh-devbox" });
     expect(fake.creates[0]).not.toHaveProperty("tls");
-    expect(fake.execs.some((command) => command.includes("/v1/models"))).toBe(false);
+    expect(fake.execs.some((command) => command.includes("/api/coderouter/vm-usage/self"))).toBe(false);
     expect(fake.writes).toEqual([]);
   });
 

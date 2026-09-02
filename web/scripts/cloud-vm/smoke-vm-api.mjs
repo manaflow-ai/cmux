@@ -245,13 +245,15 @@ try {
         if (response.status !== 200) throw new Error(`POST exec expected 200, got ${response.status}: ${text}`);
         return JSON.parse(text);
       };
-      const guestEnv = "export HOME=/root; export PATH=/opt/mise/shims:$PATH; . /root/.config/cmux/model-plane.env;";
+      const guestEnv = "export HOME=/root; . /etc/profile.d/mise.sh; . /etc/cmux/agent-config.sh;";
       const hosts = await exec("sed -n '/BEGIN freestyle-tls-egress/,/END freestyle-tls-egress/p' /etc/hosts");
       const steered = /coderouter/.test(hosts.stdout ?? "");
       // Any crt_ string under the agent config roots means a token leaked into the guest.
-      const leak = await exec("grep -rsl 'crt_' /root/.config/cmux /root/.codex /root/.pi /root/.config/opencode /etc/cmux /etc/environment /etc/profile.d 2>/dev/null; true");
+      const leak = await exec("grep -rslE 'crt_[A-Za-z0-9_-]{40,}' /root/.config/cmux /root/.codex /root/.pi /root/.config/opencode /etc/cmux /etc/environment /etc/profile.d 2>/dev/null; true");
       const tokenOnDisk = (leak.stdout ?? "").trim();
-      const models = await exec(`${guestEnv} curl -sS --max-time 20 -o /dev/null -w '%{http_code}' "$OPENAI_BASE_URL/models"`);
+      // /v1/models needs an upstream client_version query, so the self-usage
+      // route is the guest-side proof that the bound token arrived.
+      const models = await exec(`${guestEnv} curl -sS --max-time 20 -o /dev/null -w '%{http_code}' -H "authorization: Bearer $OPENAI_API_KEY" "$CMUX_CODEROUTER_URL/api/coderouter/vm-usage/self"`);
       const modelsStatus = (models.stdout ?? "").trim();
       const codex = await exec(`${guestEnv} cd /root && codex exec --skip-git-repo-check 'Reply with exactly the single word pong and nothing else.' 2>&1 | tail -20`, 240_000);
       const codexOut = `${codex.stdout ?? ""}${codex.stderr ?? ""}`;
@@ -266,7 +268,7 @@ try {
       const problems = [];
       if (!steered) problems.push("guest /etc/hosts is not steered to the edge for the coderouter origin");
       if (tokenOnDisk) problems.push(`route token found in guest files: ${tokenOnDisk}`);
-      if (modelsStatus !== "200") problems.push(`GET $OPENAI_BASE_URL/models from the guest returned ${modelsStatus || "nothing"}`);
+      if (modelsStatus !== "200") problems.push(`GET /api/coderouter/vm-usage/self from the guest returned ${modelsStatus || "nothing"}`);
       if (!edge.codexPong) problems.push(`codex turn through the edge did not answer: ${edge.codexTail}`);
       if (problems.length > 0) throw new Error(`edge check failed: ${problems.join("; ")}`);
     }

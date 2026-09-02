@@ -1,5 +1,6 @@
 import { Freestyle, FreestyleApiError, type TunnelData, type VmData, type Vm, type VpcData } from "freestyle";
 import { randomBytes } from "node:crypto";
+import { VM_PLACEHOLDER_API_KEY } from "../../coderouter/routeTokenAuth";
 import {
   ProviderError,
   type AttachEndpoint,
@@ -82,7 +83,8 @@ import {
 // /etc/cmux/agent-config.sh sources, holds only base URLs and placeholder
 // keys: no token is ever written into the guest. Injection becomes active
 // 20-30 s after boot, so bootstrap ends with a guest-side readiness probe of
-// https://<host>/v1/models and rolls the machine back if it never succeeds.
+// https://<host>/api/coderouter/vm-usage/self (a 200 proves the injected token
+// is bound to this machine) and rolls the machine back if it never succeeds.
 
 export const FREESTYLE_REMOTE_WS_BIND = `[::]:${CMUX_TUI_PORT}`;
 export const FREESTYLE_ATTACH_TRANSPORT: AttachTransport = "cmux-remote";
@@ -107,6 +109,8 @@ const ROUTE_TOKEN_TTL_SECONDS = 12 * 60 * 60;
 const MODEL_PLANE_ENV_PATH = "/root/.config/cmux/model-plane.env";
 /** Guest-side edge probe: 30 attempts x (5 s curl + 2 s sleep) worst case, under the 300 s exec cap. */
 const EDGE_PROBE_ATTEMPTS = 30;
+const EDGE_PROBE_PATH = "/api/coderouter/vm-usage/self";
+const EDGE_PROBE_URL = (host: string) => `https://${host}${EDGE_PROBE_PATH}`;
 const EDGE_PROBE_TIMEOUT_MS = 240_000;
 const ENV_NAME = /^[A-Za-z_][A-Za-z0-9_]*$/;
 const EDGE_DOMAIN = /^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+$/i;
@@ -299,7 +303,11 @@ export function freestyleEdgeProbeCommand(host: string): string {
   if (!EDGE_DOMAIN.test(host)) {
     throw new ProviderError("freestyle", `edge probe host ${JSON.stringify(host)} is not a bare host name`);
   }
-  return `for i in $(seq 1 ${EDGE_PROBE_ATTEMPTS}); do curl -fsS -o /dev/null --max-time 5 https://${host}/v1/models && exit 0; sleep 2; done; exit 1`;
+  // The self-usage route answers 200 only when the edge injected a token
+  // bound to this machine together with its vm id; the placeholder bearer is
+  // ignored by the server. /v1/models is not usable here: the upstream
+  // requires a client_version query the guest does not know.
+  return `for i in $(seq 1 ${EDGE_PROBE_ATTEMPTS}); do curl -fsS -o /dev/null --max-time 5 -H 'authorization: Bearer ${VM_PLACEHOLDER_API_KEY}' ${EDGE_PROBE_URL(host)} && exit 0; sleep 2; done; exit 1`;
 }
 
 /**
@@ -984,7 +992,7 @@ export class FreestyleProvider implements VMProvider {
       if (probe?.exitCode === 0) continue;
       throw new ProviderError(
         "freestyle",
-        `edge rule for ${rule.domain} in ${vmId} is inactive: the guest probe of https://${rule.domain}/v1/models did not succeed (exit ${probe?.exitCode ?? "n/a"})`,
+        `edge rule for ${rule.domain} in ${vmId} is inactive: the guest probe of ${EDGE_PROBE_URL(rule.domain)} did not succeed (exit ${probe?.exitCode ?? "n/a"})`,
       );
     }
   }
