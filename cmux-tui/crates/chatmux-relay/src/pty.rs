@@ -275,6 +275,7 @@ pub struct FrameContext {
     /// Read current trust and owner for an attachment. Session transports
     /// update this closure's backing state after trust acknowledgements.
     pub live_auth: Arc<dyn Fn() -> (String, Option<String>) + Send + Sync>,
+    pub live_authorized: Arc<dyn Fn(&str) -> bool + Send + Sync>,
     /// Identity of the transport this frame arrived on. The PtyManager is
     /// shared between the relay WebSocket and the managed tunnel listener;
     /// an attachment may only be written to, resized, flow-controlled, or
@@ -924,18 +925,12 @@ impl Inner {
         generation: u64,
         publication_gate: &Arc<Mutex<()>>,
     ) {
-        let auth = Self::auth_snapshot(context);
-        if self
-            .authorize_snapshot_for_generation(pty_id, &auth, context, "output", generation)
-            .is_none()
-        {
-            return;
-        }
         let gate = {
             let attachments = self.attachments.lock().expect("attach lock");
             let Some(current) = attachments.get(pty_id) else { return };
             if current.generation != generation
                 || !Arc::ptr_eq(&current.publication_gate, publication_gate)
+                || !(context.live_authorized)(&current.actor_id)
             {
                 return;
             }
@@ -957,7 +952,7 @@ impl Inner {
         if chunk.is_empty() {
             return;
         }
-        let buffered = (auth.buffered_amount)();
+        let buffered = (context.buffered_amount)();
         // Admit the complete frame before sending it. The socket may accept a
         // frame exactly at the cap, but must reject one that would push the
         // buffered amount over the cap.
@@ -1000,7 +995,7 @@ impl Inner {
             return;
         }
         self.emit_terminal_for_generation(pty_id, generation, publication_gate, || {
-            (auth.send)(json!({
+            (context.send)(json!({
             "version": PTY_PROTOCOL_VERSION,
             "type": "pty_exit",
             "ptyId": pty_id,
@@ -2619,6 +2614,8 @@ mod tests {
             let buffered = Arc::clone(&self.buffered);
             let live_trust = trust.to_owned();
             let live_owner = owner.clone();
+            let live_trust_for_auth = live_trust.clone();
+            let live_owner_for_auth = live_owner.clone();
             FrameContext {
                 send: Arc::new(move |frame| sent.lock().unwrap().push(frame)),
                 buffered_amount: Arc::new(move || buffered.load(Ordering::SeqCst)),
@@ -2626,6 +2623,10 @@ mod tests {
                 local_roots: None,
                 owner_user_id: owner,
                 live_auth: Arc::new(move || (live_trust.clone(), live_owner.clone())),
+                live_authorized: Arc::new(move |actor| {
+                    !live_trust_for_auth.is_empty()
+                        && (trust != "observe" || live_owner_for_auth.as_deref() == Some(actor))
+                }),
                 transport_id: None,
                 cancellation: CancellationToken::new(),
             }

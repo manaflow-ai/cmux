@@ -576,6 +576,7 @@ fn make_context(
     let pending_send = Arc::clone(pending);
     let pending_probe = Arc::clone(pending);
     let live_auth = Arc::clone(live_auth);
+    let live_auth_for_auth = Arc::clone(&live_auth);
     FrameContext {
         send: Arc::new(move |frame: Value| {
             let size = serde_json::to_string(&frame).map(|text| text.len() as u64).unwrap_or(0);
@@ -606,6 +607,14 @@ fn make_context(
         live_auth: Arc::new(move || {
             let auth = live_auth.lock().expect("auth lock");
             (auth.trust.clone(), auth.owner.clone())
+        }),
+        live_authorized: Arc::new({
+            let live_auth = live_auth_for_auth;
+            move |actor| {
+                let auth = live_auth.lock().expect("auth lock");
+                !auth.trust.is_empty()
+                    && (auth.trust != "observe" || auth.owner.as_deref() == Some(actor))
+            }
         }),
         transport_id: Some(transport_id.to_owned()),
         cancellation: cancellation.clone(),
