@@ -265,13 +265,15 @@ extension CMUXCLI {
             )
             printV2Payload(payload, jsonOutput: jsonOutput, idFormat: idFormat, fallbackText: String(localized: "cli.todo.output.focusUnchanged", defaultValue: "OK (focus unchanged)"))
         case "target":
-            let positional = rest.filter { !$0.hasPrefix("--") }
-            guard let selector = positional.first else {
-                throw CLIError(message: String(localized: "cli.todo.error.targetUsage", defaultValue: "Usage: cmux todo target <index|id> --command <agent command> [--cwd <directory>] [--agent <name>]"))
-            }
             let (cwdArg, rem0) = parseOption(rest, name: "--cwd")
             let (commandArg, rem1) = parseOption(rem0, name: "--command")
-            let (agentArg, _) = parseOption(rem1, name: "--agent")
+            let (agentArg, remainder) = parseOption(rem1, name: "--agent")
+            let positional = remainder.filter { $0 != "--" && !$0.hasPrefix("--") }
+            guard remainder.allSatisfy({ $0 == "--" || !$0.hasPrefix("--") }),
+                  positional.count == 1,
+                  let selector = positional.first else {
+                throw CLIError(message: String(localized: "cli.todo.error.targetUsage", defaultValue: "Usage: cmux todo target <index|id> --command <agent command> [--cwd <directory>] [--agent <name>]"))
+            }
             var targetParams = params
             for (key, value) in try workspaceTodoItemSelectorParams(selector) {
                 targetParams[key] = value
@@ -482,6 +484,7 @@ extension CMUXCLI {
       list                    Print items (1-based indexes) and progress
       queue|all [--status ...]
                               Aggregate every workspace's checklist
+      move <index|id> <newIndex>  Reorder an item (newIndex is 1-based)
       refresh                 Refresh the aggregate queue without changing focus
       dispatch <index|id>     Create the target workspace without changing focus
       reveal <index|id>       Reveal the owning workspace without selecting it
