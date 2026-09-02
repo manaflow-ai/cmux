@@ -3781,6 +3781,32 @@ mod tests {
         assert_eq!(fire_and_forget.load(AtomicOrdering::SeqCst), 0);
     }
 
+    #[test]
+    fn saturated_off_runtime_queue_retires_without_unreliable_send() {
+        let h = harness(None, None);
+        let ended = Arc::new(AtomicUsize::new(0));
+        let fire_and_forget = Arc::new(AtomicUsize::new(0));
+        let reliable = Arc::new(AtomicUsize::new(0));
+        let control: Arc<dyn ControlHandle> = Arc::new(OffRuntimeDetachControl {
+            ended: Arc::clone(&ended),
+            fire_and_forget: Arc::clone(&fire_and_forget),
+            reliable: Arc::clone(&reliable),
+        });
+        let lease = h.manager.inner.register_control_user(&control);
+        let task = DeferredDetach {
+            control,
+            lease,
+            params: json!({ "surface": 7, "lease": "lease-a" }),
+        };
+
+        release_off_runtime_detach(task, Err);
+
+        assert_eq!(ended.load(AtomicOrdering::SeqCst), 1);
+        assert_eq!(fire_and_forget.load(AtomicOrdering::SeqCst), 0);
+        assert_eq!(reliable.load(AtomicOrdering::SeqCst), 0);
+        assert!(h.manager.inner.control_users.lock().unwrap().is_empty());
+    }
+
     #[tokio::test]
     async fn missing_surface_refuses_with_typed_terminal_gone() {
         let cmux = CmuxTui { file: "/opt/cmux-tui".to_owned(), prefix: Vec::new() };
