@@ -664,8 +664,7 @@ final class TuiManualIOStderrStream: @unchecked Sendable {
         }
         lock.unlock()
         for line in lines {
-            if line.range(of: Data(#""diag""#.utf8)) != nil,
-               line.range(of: Data(#""resize""#.utf8)) != nil {
+            if isTuiManualIOResizeDiagLine(line) {
                 onResizeDiag()
             }
         }
@@ -682,6 +681,30 @@ final class TuiManualIOStderrStream: @unchecked Sendable {
     deinit {
         close()
     }
+}
+
+/// Returns true only for the relay's structured resize diagnostic. Matching
+/// the JSON shape prevents human-readable stderr text from releasing the
+/// resize scheduler before the relay applies the resize.
+func isTuiManualIOResizeDiagLine(_ line: Data) -> Bool {
+    guard
+        let object = try? JSONSerialization.jsonObject(with: line, options: [.fragmentsAllowed]),
+        let root = object as? [String: Any],
+        let diag = root["diag"] as? [String: Any],
+        let resize = diag["resize"] as? [String: Any],
+        let cols = resize["cols"],
+        let rows = resize["rows"],
+        isTuiManualIOJSONNumber(cols),
+        isTuiManualIOJSONNumber(rows)
+    else { return false }
+    return true
+}
+
+private func isTuiManualIOJSONNumber(_ value: Any) -> Bool {
+    guard let number = value as? NSNumber else { return false }
+    // JSONSerialization bridges booleans to NSNumber too. Compare the Core
+    // Foundation type IDs so a numeric char encoding is still accepted.
+    return CFGetTypeID(number) != CFBooleanGetTypeID()
 }
 
 /// Lock-guarded stderr accumulator: the relay prints its machine-readable
