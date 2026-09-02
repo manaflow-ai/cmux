@@ -35,8 +35,8 @@ Derived material and vendored material:
   process and folds its generic events.
 - `bindings/examples/rust-agent-screen-detection/src/process.rs`: bounded
   foreground process-group discovery and wrapper handling derived from
-  herdr's platform and detector modules, with platform fallbacks and stricter
-  candidate filtering added by manaflow.
+  herdr's platform and detector modules, with platform fallbacks, stricter
+  candidate filtering, and bounded `/proc` streaming added by manaflow.
 - `crates/cmux-tui-core/src/terminal_metadata.rs`: OSC string framing adapted
   from herdr's `src/pane/osc.rs`. Core retains only generic bounded OSC 9
   progress metadata; it has no agent or roster policy.

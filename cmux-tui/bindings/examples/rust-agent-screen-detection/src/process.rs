@@ -691,6 +691,9 @@ fn parse_agent_env_hint(environ: &[u8]) -> Option<String> {
 mod platform {
     use super::{ForegroundJob, ForegroundProcess};
     use std::collections::{HashSet, VecDeque};
+    use std::fs::File;
+    use std::io::Read;
+    use std::path::Path;
     use std::sync::OnceLock;
 
     const PROCESS_DETECTION_ENV: &str = "CMUX_AGENT_PROCESS_DETECTION";
@@ -722,12 +725,12 @@ mod platform {
         if pid == 0 {
             return None;
         }
-        let bytes = std::fs::read(format!("/proc/{pid}/environ")).ok()?;
-        super::parse_agent_env_hint(&bytes[..bytes.len().min(MAX_PROC_FILE_BYTES)])
+        let bytes = read_proc_file(format!("/proc/{pid}/environ"), MAX_PROC_FILE_BYTES)?;
+        super::parse_agent_env_hint(&bytes)
     }
 
     fn process_for_group(pid: u32, process_group_id: u32) -> Option<ForegroundProcess> {
-        let stat = std::fs::read_to_string(format!("/proc/{pid}/stat")).ok()?;
+        let stat = read_proc_text(format!("/proc/{pid}/stat"))?;
         let (pgrp, name) = parse_process_stat(&stat)?;
         if pgrp != process_group_id {
             return None;
@@ -743,7 +746,7 @@ mod platform {
     }
 
     fn foreground_process_group_id(pid: u32) -> Option<u32> {
-        let stat = std::fs::read_to_string(format!("/proc/{pid}/stat")).ok()?;
+        let stat = read_proc_text(format!("/proc/{pid}/stat"))?;
         let close = stat.rfind(')')?;
         let fields = stat.get(close + 1..)?.split_whitespace().collect::<Vec<_>>();
         let tpgid = fields.get(5)?.parse::<i32>().ok()?;
@@ -822,7 +825,7 @@ mod platform {
     }
 
     fn process_pgrp_and_comm(pid: u32) -> Option<(i32, String)> {
-        let stat = std::fs::read_to_string(format!("/proc/{pid}/stat")).ok()?;
+        let stat = read_proc_text(format!("/proc/{pid}/stat"))?;
         let open = stat.find('(')?;
         let close = stat.rfind(')')?;
         let comm = stat.get(open + 1..close)?.to_string();
@@ -841,10 +844,10 @@ mod platform {
     }
 
     fn process_argv(pid: u32) -> Vec<String> {
-        let Ok(bytes) = std::fs::read(format!("/proc/{pid}/cmdline")) else {
+        let Some(bytes) = read_proc_file(format!("/proc/{pid}/cmdline"), MAX_PROC_FILE_BYTES)
+        else {
             return Vec::new();
         };
-        let bytes = bytes.into_iter().take(MAX_PROC_FILE_BYTES).collect::<Vec<_>>();
         bytes
             .split(|byte| *byte == 0)
             .filter(|part| !part.is_empty())
@@ -888,11 +891,25 @@ mod platform {
     }
 
     fn task_children(pid: u32, tid: u32) -> Vec<u32> {
-        std::fs::read_to_string(format!("/proc/{pid}/task/{tid}/children"))
-            .unwrap_or_default()
-            .split_whitespace()
-            .filter_map(|child| child.parse().ok())
-            .collect()
+        let Some(text) = read_proc_text(format!("/proc/{pid}/task/{tid}/children")) else {
+            return Vec::new();
+        };
+        text.split_whitespace().filter_map(|child| child.parse().ok()).collect()
+    }
+
+    /// Read a proc file with a hard allocation bound. Reading one extra byte
+    /// distinguishes an exact-limit file from an oversized file without
+    /// allocating the unbounded file first.
+    fn read_proc_file(path: impl AsRef<Path>, max_bytes: usize) -> Option<Vec<u8>> {
+        let file = File::open(path).ok()?;
+        let read_limit = u64::try_from(max_bytes).ok()?.checked_add(1)?;
+        let mut bytes = Vec::with_capacity(max_bytes.min(8 * 1024));
+        file.take(read_limit).read_to_end(&mut bytes).ok()?;
+        (bytes.len() <= max_bytes).then_some(bytes)
+    }
+
+    fn read_proc_text(path: impl AsRef<Path>) -> Option<String> {
+        String::from_utf8(read_proc_file(path, MAX_PROC_FILE_BYTES)?).ok()
     }
 
     #[cfg(test)]

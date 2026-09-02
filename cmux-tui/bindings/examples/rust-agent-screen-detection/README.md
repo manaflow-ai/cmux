@@ -76,6 +76,11 @@ active manifests, a cache or override directory can contain at most 512
 entries, and each manifest is limited to 256 KiB. Rule and matcher limits are
 also enforced by the manifest validator.
 
+The selected plugin configuration is limited to 4 MiB and registry metadata to
+16 KiB before JSON parsing. On Linux, process files are streamed through a
+128 KiB limit before parsing; an oversized or invalid file fails closed and
+leaves name-based detection available when possible.
+
 The plugin manager stages the artifact and selected configuration with a local
 rollback guard. They are separate filesystem transactions, so a power loss
 between the two writes can leave a mismatched old/new pair. Startup validation

@@ -236,6 +236,10 @@ inspection remains a plugin concern, so a plugin can add wrapped runtime
 arguments and child processes without a daemon schema change. If the host does
 not permit inspection, the plugin must use the one-process fallback.
 
+The reference Linux backend streams `/proc` regular files through a 128 KiB
+bound before parsing. Oversized or invalid process files fail closed, so a
+malformed process cannot force an unbounded allocation in the detector.
+
 ### Manifests and updates
 
 An agent plugin package declares `kind = "agent"` in `cmux-plugin.toml`:
