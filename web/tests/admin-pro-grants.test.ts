@@ -575,6 +575,12 @@ describe("pending email grants", () => {
     expect(isPlausibleEmail("@example.com")).toBe(false);
     expect(isPlausibleEmail("pat@localhost")).toBe(false);
     expect(isPlausibleEmail("pat @example.com")).toBe(false);
+    expect(isPlausibleEmail("a@evil.com@manaflow.ai")).toBe(false);
+    expect(isPlausibleEmail('"quoted"@example.com')).toBe(false);
+    expect(isPlausibleEmail("pat\\x@example.com")).toBe(false);
+    expect(isPlausibleEmail("pat@example..com")).toBe(false);
+    expect(isPlausibleEmail("pat@-example.com")).toBe(true);
+    expect(isPlausibleEmail(`${"a".repeat(65)}@example.com`)).toBe(false);
   });
 
   test("createPendingEmailGrant canonicalizes the email and rejects junk", async () => {

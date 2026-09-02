@@ -12,6 +12,7 @@ import { cloudDb } from "../../db/client";
 import { adminPlanGrants } from "../../db/schema";
 import { getStackServerApp } from "../../app/lib/stack";
 import { canonicalizeEmailForMatching } from "../billing/emailMatching";
+import { isPlainEmailLocalPart } from "./access";
 import {
   AccountDeletionMutationBlockedError,
   AccountDeletionUserMutationInProgressError,
@@ -504,10 +505,10 @@ export type AdminGrantsDb = Pick<ReturnType<typeof cloudDb>, "select" | "insert"
 export function isPlausibleEmail(value: string): boolean {
   const trimmed = value.trim();
   if (trimmed.length < 3 || trimmed.length > 254) return false;
-  if (!/^[\x21-\x7e]+$/.test(trimmed)) return false;
   const at = trimmed.lastIndexOf("@");
   if (at <= 0 || at === trimmed.length - 1) return false;
-  return /^[a-z0-9.-]+\.[a-z]{2,}$/i.test(trimmed.slice(at + 1));
+  if (!isPlainEmailLocalPart(trimmed.slice(0, at))) return false;
+  return /^[a-z0-9-]+(\.[a-z0-9-]+)*\.[a-z]{2,}$/i.test(trimmed.slice(at + 1));
 }
 
 export async function listPendingEmailGrants(

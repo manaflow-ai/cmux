@@ -58,6 +58,10 @@ describe("admin access", () => {
       "a\\@evil.com@manaflow.ai",
       "a b@manaflow.ai",
       "a\tb@manaflow.ai",
+      "a,b@manaflow.ai",
+      "a(b)@manaflow.ai",
+      "a<b>@manaflow.ai",
+      `${"a".repeat(65)}@manaflow.ai`,
       "a\nb@manaflow.ai",
       `${"a".repeat(250)}@manaflow.ai`,
     ]) {

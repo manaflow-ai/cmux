@@ -34,7 +34,7 @@ export function isAdminEmail(email: string | null | undefined): boolean {
   if (at <= 0 || at === normalized.length - 1) return false;
   const local = normalized.slice(0, at);
   const domain = normalized.slice(at + 1).toLowerCase();
-  if (local.includes("@") || local.includes('"') || local.includes("\\")) return false;
+  if (!isPlainEmailLocalPart(local)) return false;
   if (!/^[a-z0-9.-]+$/.test(domain)) return false;
   return (ADMIN_EMAIL_DOMAINS as readonly string[]).includes(domain);
 }
@@ -44,4 +44,13 @@ export function isAdminUser(user: AdminAccessUser | null | undefined): boolean {
   if (user.isAnonymous !== false) return false;
   if (user.primaryEmailVerified !== true) return false;
   return isAdminEmail(user.primaryEmail);
+}
+
+/**
+ * Unquoted RFC 5322 local part: letters, digits, and the plain special
+ * characters. No whitespace, quotes, backslashes, or "@", so the domain after
+ * the last "@" is unambiguous.
+ */
+export function isPlainEmailLocalPart(local: string): boolean {
+  return local.length > 0 && local.length <= 64 && /^[A-Za-z0-9!#$%&'*+/=?^_`{|}~.-]+$/.test(local);
 }
