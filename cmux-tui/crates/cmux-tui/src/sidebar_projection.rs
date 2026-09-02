@@ -1,6 +1,7 @@
 //! Pure projection of mux resources into configurable native sidebar trees.
 
 use std::collections::{HashMap, HashSet};
+use std::sync::Arc;
 
 use cmux_tui_core::{PaneId, SurfaceId, WorkspaceId};
 
@@ -94,7 +95,7 @@ pub(crate) struct ProjectionRevision {
 
 struct CachedProjectionRows {
     revision: ProjectionRevision,
-    rows: Vec<ProjectionRow>,
+    rows: Arc<[ProjectionRow]>,
 }
 
 #[derive(Default)]
@@ -103,24 +104,38 @@ pub(crate) struct ProjectionRowsCache {
 }
 
 impl ProjectionRowsCache {
+    /// Remove all rows so the next lookup rebuilds every view.
     pub(crate) fn invalidate(&mut self) {
         self.entries.clear();
     }
 
+    /// Return rows for a matching view and revision without cloning row data.
+    pub(crate) fn get(
+        &self,
+        view_id: &str,
+        revision: &ProjectionRevision,
+    ) -> Option<Arc<[ProjectionRow]>> {
+        let cached = self.entries.get(view_id)?;
+        (cached.revision == *revision).then(|| Arc::clone(&cached.rows))
+    }
+
+    /// Reuse rows for a matching revision, or build and cache a new list.
     pub(crate) fn get_or_build(
         &mut self,
         view_id: &str,
-        revision: ProjectionRevision,
+        revision: &ProjectionRevision,
         build: impl FnOnce() -> Vec<ProjectionRow>,
-    ) -> Vec<ProjectionRow> {
-        if let Some(cached) = self.entries.get(view_id)
-            && cached.revision == revision
-        {
-            return cached.rows.clone();
+    ) -> Arc<[ProjectionRow]> {
+        if let Some(rows) = self.get(view_id, revision) {
+            return rows;
         }
         let rows = build();
+        let rows = Arc::<[ProjectionRow]>::from(rows);
         self.entries
-            .insert(view_id.to_string(), CachedProjectionRows { revision, rows: rows.clone() });
+            .insert(
+                view_id.to_string(),
+                CachedProjectionRows { revision: *revision, rows: Arc::clone(&rows) },
+            );
         rows
     }
 
@@ -338,6 +353,7 @@ fn append_level(
 mod tests {
     use super::*;
     use cmux_tui_core::{Node, SurfaceKind};
+    use std::sync::Arc;
 
     use crate::session::tree::{PaneView, ScreenView, TabView, WorkspaceView};
 
@@ -504,24 +520,74 @@ mod tests {
         };
         let mut cache = ProjectionRowsCache::default();
         let mut builds = 0;
-        let first = cache.get_or_build("tabs", revision, || {
+        let first = cache.get_or_build("tabs", &revision, || {
             builds += 1;
             rows(&view, &tree, &[], 0, &collapsed)
         });
-        let second = cache.get_or_build("tabs", revision, || {
+        let second = cache.get_or_build("tabs", &revision, || {
             builds += 1;
             rows(&view, &tree, &[], 0, &collapsed)
         });
 
         assert_eq!(first, second);
+        assert!(Arc::ptr_eq(&first, &second));
+        assert!(cache.get("tabs", &revision).is_some_and(|rows| Arc::ptr_eq(&rows, &first)));
         assert_eq!(builds, 1);
 
         let changed = ProjectionRevision { sidebar: 8, ..revision };
-        let third = cache.get_or_build("tabs", changed, || {
+        let third = cache.get_or_build("tabs", &changed, || {
             builds += 1;
             rows(&view, &tree, &[], 0, &collapsed)
         });
         assert_eq!(third, first);
+        assert!(!Arc::ptr_eq(&third, &first));
         assert_eq!(builds, 2);
+    }
+
+    #[test]
+    fn projection_cache_invalidate_forces_a_rebuild() {
+        let revision = ProjectionRevision {
+            tree_workspace: 1,
+            tree_pane: Some(2),
+            agents: None,
+            selected_workspace: 0,
+            sidebar: 3,
+            rail: 4,
+        };
+        let mut cache = ProjectionRowsCache::default();
+        let mut builds = 0;
+        let first = cache.get_or_build("view", &revision, || {
+            builds += 1;
+            vec![ProjectionRow {
+                resource: SidebarResourceKind::Workspaces,
+                depth: 0,
+                name: "first".into(),
+                subtitle: String::new(),
+                agent_state: None,
+                active: false,
+                branch: None,
+                expanded: false,
+                target: ProjectionTarget::Workspace { index: 0, id: 1 },
+            }]
+        });
+        cache.invalidate();
+        let second = cache.get_or_build("view", &revision, || {
+            builds += 1;
+            vec![ProjectionRow {
+                resource: SidebarResourceKind::Workspaces,
+                depth: 0,
+                name: "second".into(),
+                subtitle: String::new(),
+                agent_state: None,
+                active: false,
+                branch: None,
+                expanded: false,
+                target: ProjectionTarget::Workspace { index: 0, id: 1 },
+            }]
+        });
+
+        assert_eq!(builds, 2);
+        assert_eq!(second[0].name, "second");
+        assert!(!Arc::ptr_eq(&first, &second));
     }
 }
