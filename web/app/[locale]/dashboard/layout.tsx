@@ -1,7 +1,9 @@
+import { Suspense } from "react";
 import { StackProvider, StackTheme } from "@stackframe/stack";
 import { redirect } from "next/navigation";
 import { getStackServerApp, isStackConfigured } from "@/app/lib/stack";
 import { isVaultEnabled } from "@/services/vault/config";
+import { DashboardSkeleton } from "./components/dashboard-skeleton";
 import { DashboardQueryProvider } from "./components/query-provider";
 import { DashboardShell } from "./dashboard-shell";
 
@@ -22,17 +24,19 @@ export default async function DashboardLayout({
   }
 
   return (
-    <StackProvider app={getStackServerApp()}>
-      <StackTheme>
-        <DashboardQueryProvider>
-          {/* Keep the current tab mounted while fresh page data resolves.
-              The route has no loading.tsx boundary, so sibling tab
-              navigations keep this shell visible until the new page commits. */}
-          <DashboardShell vaultEnabled={isVaultEnabled()}>
-            {children}
-          </DashboardShell>
-        </DashboardQueryProvider>
-      </StackTheme>
-    </StackProvider>
+    <Suspense fallback={<DashboardSkeleton />}>
+      <StackProvider app={getStackServerApp()}>
+        <StackTheme>
+          <DashboardQueryProvider>
+            {/* This shared-layout boundary covers a cold dashboard entry. It is
+                above the work that reruns between sibling tabs, and the route
+                has no loading.tsx, so navigation keeps the current tab visible. */}
+            <DashboardShell vaultEnabled={isVaultEnabled()}>
+              {children}
+            </DashboardShell>
+          </DashboardQueryProvider>
+        </StackTheme>
+      </StackProvider>
+    </Suspense>
   );
 }
