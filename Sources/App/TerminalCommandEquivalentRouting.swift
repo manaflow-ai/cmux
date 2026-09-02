@@ -7,13 +7,6 @@ import AppKit
 /// performable Ghostty bindings and kitty-protocol application keys), so the
 /// window router offers the event to the terminal before asking the menu.
 struct TerminalCommandEquivalentRouter {
-    enum Command: String, Equatable {
-        case copy
-        case paste
-        case cut
-        case selectAll
-    }
-
     /// Identifies the standard Edit-menu command represented by `event`.
     /// Non-standard modifiers are intentionally excluded so cmux-owned custom
     /// shortcuts and Ghostty option/control bindings keep their normal routes.

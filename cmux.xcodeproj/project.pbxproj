@@ -2466,6 +2466,7 @@
 		B8835700000000000000000D /* TerminalClipboardInputSequencerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B8835700000000000000000E /* TerminalClipboardInputSequencerTests.swift */; };
 		B88357000000000000000013 /* TerminalClipboardRequestSurfaceIdentity.swift in Sources */ = {isa = PBXBuildFile; fileRef = B88357000000000000000014 /* TerminalClipboardRequestSurfaceIdentity.swift */; };
 		C2577000A1B2C3D4E5F60718 /* TerminalCmdClickUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C2577001A1B2C3D4E5F60718 /* TerminalCmdClickUITests.swift */; };
+		D11228000000000000000005 /* TerminalCommandEquivalentRouter+Command.swift in Sources */ = {isa = PBXBuildFile; fileRef = D11228000000000000000006 /* TerminalCommandEquivalentRouter+Command.swift */; };
 		D11228000000000000000003 /* TerminalCommandEquivalentRouting.swift in Sources */ = {isa = PBXBuildFile; fileRef = D11228000000000000000004 /* TerminalCommandEquivalentRouting.swift */; };
 		D11228000000000000000001 /* TerminalCommandEquivalentRoutingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D11228000000000000000002 /* TerminalCommandEquivalentRoutingTests.swift */; };
 		F87910190000000000000001 /* TerminalConfigurationReloadCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = F87910190000000000000002 /* TerminalConfigurationReloadCoordinator.swift */; };
@@ -5453,6 +5454,7 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 		B8835700000000000000000E /* TerminalClipboardInputSequencerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalClipboardInputSequencerTests.swift; sourceTree = "<group>"; };
 		B88357000000000000000014 /* TerminalClipboardRequestSurfaceIdentity.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalClipboardRequestSurfaceIdentity.swift; sourceTree = "<group>"; };
 		C2577001A1B2C3D4E5F60718 /* TerminalCmdClickUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalCmdClickUITests.swift; sourceTree = "<group>"; };
+		D11228000000000000000006 /* TerminalCommandEquivalentRouter+Command.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "App/TerminalCommandEquivalentRouter+Command.swift"; sourceTree = "<group>"; };
 		D11228000000000000000004 /* TerminalCommandEquivalentRouting.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/TerminalCommandEquivalentRouting.swift; sourceTree = "<group>"; };
 		D11228000000000000000002 /* TerminalCommandEquivalentRoutingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalCommandEquivalentRoutingTests.swift; sourceTree = "<group>"; };
 		F87910190000000000000002 /* TerminalConfigurationReloadCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalConfigurationReloadCoordinator.swift; sourceTree = "<group>"; };
@@ -7186,6 +7188,7 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 				D5671202D5671202D5671202 /* GhosttyTerminalScrollSpeed.swift */,
 				C54860070000000000000002 /* GhosttyNSViewSurfaceLinkCopy.swift */,
 				D11228000000000000000004 /* TerminalCommandEquivalentRouting.swift */,
+				D11228000000000000000006 /* TerminalCommandEquivalentRouter+Command.swift */,
 				C7261F010000000000000002 /* TerminalPointerFocusActivationPolicy.swift */,
 				C75100030000000000000002 /* TerminalSelectionTranslationAnchorView.swift */,
 				C75100020000000000000002 /* TerminalSelectionTranslation.swift */,
@@ -11173,6 +11176,7 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 				B8835A000000000000000001 /* TerminalClipboardInputSequencer+State.swift in Sources */,
 				B88357000000000000000005 /* TerminalClipboardInputSequencer.swift in Sources */,
 				B88357000000000000000013 /* TerminalClipboardRequestSurfaceIdentity.swift in Sources */,
+				D11228000000000000000005 /* TerminalCommandEquivalentRouter+Command.swift in Sources */,
 				D11228000000000000000003 /* TerminalCommandEquivalentRouting.swift in Sources */,
 				F87910190000000000000001 /* TerminalConfigurationReloadCoordinator.swift in Sources */,
 				F87930000000000000000001 /* TerminalConfigurationReloadEnqueueResult.swift in Sources */,
