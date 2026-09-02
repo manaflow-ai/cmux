@@ -28,8 +28,35 @@ pub struct TreeView {
 
 #[derive(Clone, Default)]
 pub(crate) struct TreeLocationIndex {
-    panes: HashMap<PaneId, (usize, usize, usize, usize, usize, usize)>,
-    surfaces: HashMap<SurfaceId, (usize, usize, usize, usize, usize, usize, usize, usize)>,
+    panes: HashMap<PaneId, PaneLocation>,
+    surfaces: HashMap<SurfaceId, SurfaceLocation>,
+}
+
+#[derive(Clone, Copy)]
+struct PaneLocation {
+    workspace_index: usize,
+    screen_index: usize,
+    pane_index: usize,
+    workspace_id: WorkspaceId,
+    previous_workspace: Option<WorkspaceId>,
+    screen_id: ScreenId,
+    previous_screen: Option<ScreenId>,
+    previous_pane: Option<PaneId>,
+}
+
+#[derive(Clone, Copy)]
+struct SurfaceLocation {
+    workspace_index: usize,
+    screen_index: usize,
+    pane_index: usize,
+    tab_index: usize,
+    workspace_id: WorkspaceId,
+    previous_workspace: Option<WorkspaceId>,
+    screen_id: ScreenId,
+    previous_screen: Option<ScreenId>,
+    pane_id: PaneId,
+    previous_pane: Option<PaneId>,
+    previous_tab: Option<SurfaceId>,
 }
 
 impl TreeLocationIndex {
@@ -38,26 +65,52 @@ impl TreeLocationIndex {
         for (workspace_index, workspace) in tree.workspaces.iter().enumerate() {
             for (screen_index, screen) in workspace.screens.iter().enumerate() {
                 for (pane_index, pane) in screen.panes.iter().enumerate() {
-                    index.panes.entry(pane.id).or_insert((
+                    index.panes.entry(pane.id).or_insert(PaneLocation {
                         workspace_index,
                         screen_index,
                         pane_index,
-                        tree.workspaces.len(),
-                        workspace.screens.len(),
-                        screen.panes.len(),
-                    ));
+                        workspace_id: workspace.id,
+                        previous_workspace: workspace_index
+                            .checked_sub(1)
+                            .and_then(|index| tree.workspaces.get(index))
+                            .map(|workspace| workspace.id),
+                        screen_id: screen.id,
+                        previous_screen: screen_index
+                            .checked_sub(1)
+                            .and_then(|index| workspace.screens.get(index))
+                            .map(|screen| screen.id),
+                        previous_pane: pane_index
+                            .checked_sub(1)
+                            .and_then(|index| screen.panes.get(index))
+                            .map(|pane| pane.id),
+                    });
                     for (tab_index, tab) in pane.tabs.iter().enumerate() {
                         // The previous scans selected the first duplicate in tree order.
-                        index.surfaces.entry(tab.surface).or_insert((
+                        index.surfaces.entry(tab.surface).or_insert(SurfaceLocation {
                             workspace_index,
                             screen_index,
                             pane_index,
                             tab_index,
-                            tree.workspaces.len(),
-                            workspace.screens.len(),
-                            screen.panes.len(),
-                            pane.tabs.len(),
-                        ));
+                            workspace_id: workspace.id,
+                            previous_workspace: workspace_index
+                                .checked_sub(1)
+                                .and_then(|index| tree.workspaces.get(index))
+                                .map(|workspace| workspace.id),
+                            screen_id: screen.id,
+                            previous_screen: screen_index
+                                .checked_sub(1)
+                                .and_then(|index| workspace.screens.get(index))
+                                .map(|screen| screen.id),
+                            pane_id: pane.id,
+                            previous_pane: pane_index
+                                .checked_sub(1)
+                                .and_then(|index| screen.panes.get(index))
+                                .map(|pane| pane.id),
+                            previous_tab: tab_index
+                                .checked_sub(1)
+                                .and_then(|index| pane.tabs.get(index))
+                                .map(|tab| tab.surface),
+                        });
                     }
                 }
             }
@@ -302,56 +355,71 @@ impl TreeView {
     }
 
     fn pane_location(&self, id: PaneId) -> Option<(usize, usize, usize)> {
-        let &(workspace_index, screen_index, pane_index, workspace_count, screen_count, pane_count) =
-            self.location_index().panes.get(&id)?;
-        if self.workspaces.len() != workspace_count {
-            return None;
-        }
+        let location = self.location_index().panes.get(&id)?;
+        let workspace_index = location.workspace_index;
+        let screen_index = location.screen_index;
+        let pane_index = location.pane_index;
         let workspace = self.workspaces.get(workspace_index)?;
-        if workspace.screens.len() != screen_count {
+        if workspace.id != location.workspace_id
+            || (workspace_index > 0
+                && self.workspaces.get(workspace_index - 1).map(|workspace| workspace.id)
+                    != location.previous_workspace)
+        {
             return None;
         }
         let screen = workspace.screens.get(screen_index)?;
-        if screen.panes.len() != pane_count {
+        if screen.id != location.screen_id
+            || (screen_index > 0
+                && workspace.screens.get(screen_index - 1).map(|screen| screen.id)
+                    != location.previous_screen)
+        {
             return None;
         }
-        screen
-            .panes
-            .get(pane_index)
-            .filter(|pane| pane.id == id)
-            .map(|_| (workspace_index, screen_index, pane_index))
+        screen.panes.get(pane_index).filter(|pane| pane.id == id)?;
+        if pane_index > 0
+            && screen.panes.get(pane_index - 1).map(|pane| pane.id) != location.previous_pane
+        {
+            return None;
+        }
+        Some((workspace_index, screen_index, pane_index))
     }
 
     fn surface_location(&self, id: SurfaceId) -> Option<(usize, usize, usize, usize)> {
-        let &(
-            workspace_index,
-            screen_index,
-            pane_index,
-            tab_index,
-            workspace_count,
-            screen_count,
-            pane_count,
-            tab_count,
-        ) = self.location_index().surfaces.get(&id)?;
-        if self.workspaces.len() != workspace_count {
-            return None;
-        }
+        let location = self.location_index().surfaces.get(&id)?;
+        let workspace_index = location.workspace_index;
+        let screen_index = location.screen_index;
+        let pane_index = location.pane_index;
+        let tab_index = location.tab_index;
         let workspace = self.workspaces.get(workspace_index)?;
-        if workspace.screens.len() != screen_count {
+        if workspace.id != location.workspace_id
+            || (workspace_index > 0
+                && self.workspaces.get(workspace_index - 1).map(|workspace| workspace.id)
+                    != location.previous_workspace)
+        {
             return None;
         }
         let screen = workspace.screens.get(screen_index)?;
-        if screen.panes.len() != pane_count {
+        if screen.id != location.screen_id
+            || (screen_index > 0
+                && workspace.screens.get(screen_index - 1).map(|screen| screen.id)
+                    != location.previous_screen)
+        {
             return None;
         }
         let pane = screen.panes.get(pane_index)?;
-        if pane.tabs.len() != tab_count {
+        if pane.id != location.pane_id
+            || (pane_index > 0
+                && screen.panes.get(pane_index - 1).map(|pane| pane.id) != location.previous_pane)
+        {
             return None;
         }
-        pane.tabs
-            .get(tab_index)
-            .filter(|tab| tab.surface == id)
-            .map(|_| (workspace_index, screen_index, pane_index, tab_index))
+        pane.tabs.get(tab_index).filter(|tab| tab.surface == id)?;
+        if tab_index > 0
+            && pane.tabs.get(tab_index - 1).map(|tab| tab.surface) != location.previous_tab
+        {
+            return None;
+        }
+        Some((workspace_index, screen_index, pane_index, tab_index))
     }
 
     pub(crate) fn invalidate_location_index(&mut self) {
