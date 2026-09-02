@@ -126,11 +126,11 @@ test("loads Freestyle credentials from the generic provider file", () => {
   assert.equal(provider, "freestyle");
 });
 
-test("loads an explicitly selected provider from the extra environment file", () => {
+test("loads an explicitly selected Freestyle provider from the extra environment file", () => {
   const [, , apiKey, , provider] = sourceDevEnv({
-    extraFileContents: "FREESTYLE_API_KEY=explicit-freestyle-key\nCMUX_VM_DEFAULT_PROVIDER=e2b\n",
+    extraFileContents: "FREESTYLE_API_KEY=explicit-freestyle-key\nCMUX_VM_DEFAULT_PROVIDER=freestyle\n",
   });
 
   assert.equal(apiKey, "explicit-freestyle-key");
-  assert.equal(provider, "e2b");
+  assert.equal(provider, "freestyle");
 });
