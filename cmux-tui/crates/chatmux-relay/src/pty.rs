@@ -3589,7 +3589,17 @@ mod tests {
     async fn close_requires_current_trust() {
         let h = harness(None, None);
         h.open("p1", "main", Value::Null, "supervised", h.owner.clone()).await;
-        h.frame_as(serde_json::json!({"type":"pty_close","ptyId":"p1"}), "", h.owner.clone()).await;
+        let mut revoked = h.context("", h.owner.clone());
+        let owner = h.owner.clone();
+        revoked.live_auth = Arc::new(move || LiveAuth {
+            trust: String::new(),
+            owner_user_id: owner.clone(),
+            version: 1,
+            ..Default::default()
+        });
+        h.manager
+            .handle_frame(&serde_json::json!({"type":"pty_close","ptyId":"p1"}), &revoked)
+            .await;
         assert!(h.sent().iter().any(|f| f["code"] == "trust_revoked"));
         assert!(!h.manager.has_attachment("p1"));
     }
