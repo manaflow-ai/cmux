@@ -27,8 +27,10 @@ describe("in-VM cmux shim", () => {
     // from the peer file once consumed.
     expect(GUEST_CMUX_SHIM).toContain("--invite-file");
     expect(GUEST_CMUX_SHIM).toContain("del(.invite)");
-    // Peer exec runs through a durable terminal on the peer.
-    expect(GUEST_CMUX_SHIM).toContain("workspace current run");
+    // Peer exec runs through a durable terminal on the peer, creating a
+    // workspace when the fresh session has none.
+    expect(GUEST_CMUX_SHIM).toContain('workspace "$target" run --on-exit close');
+    expect(GUEST_CMUX_SHIM).toContain("workspace create --name main");
   });
 
   test("install command is a safe atomic base64 write", () => {

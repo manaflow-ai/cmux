@@ -109,7 +109,13 @@ case "\${1:-}" in
         [ "\${1:-}" = "--" ] && shift
         [ "\$#" -gt 0 ] || die "usage: cmux vm exec <machine> -- <command…>" 2
         sock="\$(ensure_link "\$peer")"
-        exec "\$CMUX_TUI_BIN" --socket "\$sock" workspace current run --on-exit close -- "\$@"
+        # A fresh session has no current workspace; create one and run in it by id.
+        target=current
+        if ! "\$CMUX_TUI_BIN" --socket "\$sock" workspace current get >/dev/null 2>&1; then
+          created="\$("\$CMUX_TUI_BIN" --socket "\$sock" --json workspace create --name main 2>/dev/null | jq -r '.id // .workspace_id // .workspace.id // empty' | head -n 1)"
+          [ -n "\$created" ] && target="\$created"
+        fi
+        exec "\$CMUX_TUI_BIN" --socket "\$sock" workspace "\$target" run --on-exit close -- "\$@"
         ;;
       tui|tree|workspace|terminal|session|pane|tab|screen|browser|agent)
         # cmux vm <verb> <machine> [args…] → the same cmux-tui verb on the peer.
