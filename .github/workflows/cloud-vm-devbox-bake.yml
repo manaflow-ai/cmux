@@ -1,0 +1,148 @@
+name: Cloud VM devbox bake
+
+# Bakes the cmux Cloud devbox image on a provider, verifies it by booting one
+# machine from it, records the verified image id in
+# web/services/vms/images/manifest.json as the default for its kinds, and
+# opens a pull request with that manifest diff. Merging the PR is the
+# promotion: the checked-in manifest is what deployed runtimes serve when no
+# image env var overrides it.
+#
+# Manual only. A bake plus verify runs 10-20 minutes of real provider VM
+# time and creates (then deletes) one builder VM and one verify VM.
+
+on:
+  workflow_dispatch:
+    inputs:
+      provider:
+        description: Provider to bake on
+        required: true
+        default: freestyle
+        type: choice
+        options:
+          - freestyle
+      ref:
+        description: Git ref whose devbox definition to bake (default main)
+        required: false
+        default: main
+        type: string
+      slug:
+        description: Snapshot slug / tag (default cmux-devbox-<utc stamp>)
+        required: false
+        default: ""
+        type: string
+      kinds:
+        description: Machine kinds the image serves (comma-separated; default desktop,base)
+        required: false
+        default: ""
+        type: string
+      replace_slug:
+        description: Move an already-taken snapshot slug onto the new snapshot
+        required: false
+        default: false
+        type: boolean
+
+permissions:
+  contents: write
+  pull-requests: write
+
+concurrency:
+  group: cloud-vm-devbox-bake-${{ inputs.provider }}
+  cancel-in-progress: false
+
+jobs:
+  bake:
+    runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    # Provider API keys live in the production Cloud VM environment; the bake
+    # only creates and deletes its own builder/verify machines.
+    environment: cloud-vm-production
+    timeout-minutes: 60
+    defaults:
+      run:
+        working-directory: web
+    env:
+      FREESTYLE_API_KEY: ${{ secrets.FREESTYLE_API_KEY }}
+      # The bake runs from a branch created below; the preflight's stale
+      # checkout guard compares against origin/main, which is fetched.
+      CMUX_BAKE_ALLOW_BRANCH: "1"
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ inputs.ref }}
+          fetch-depth: 0
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Guard provider credentials
+        run: |
+          set -euo pipefail
+          if [ -z "${FREESTYLE_API_KEY:-}" ]; then
+            echo "::error::Missing cloud-vm-production secret FREESTYLE_API_KEY"
+            exit 1
+          fi
+
+      - name: Bake, verify, promote
+        id: promote
+        run: |
+          set -euo pipefail
+          args=("${{ inputs.provider }}" --out "$RUNNER_TEMP/promote.json")
+          if [ -n "${{ inputs.slug }}" ]; then args+=(--slug "${{ inputs.slug }}"); fi
+          if [ -n "${{ inputs.kinds }}" ]; then args+=(--kinds "${{ inputs.kinds }}"); fi
+          if [ "${{ inputs.replace_slug }}" = "true" ]; then args+=(--replace-slug); fi
+          bun scripts/promote-devbox-image.ts "${args[@]}" | tee "$RUNNER_TEMP/promote.log"
+          image_id=$(tail -n 1 "$RUNNER_TEMP/promote.log" | sed -n 's/^IMAGE_ID //p')
+          if [ -z "$image_id" ]; then
+            echo "::error::promote did not print IMAGE_ID"
+            exit 1
+          fi
+          echo "image_id=$image_id" >> "$GITHUB_OUTPUT"
+          echo "versions=$(jq -r '.versions | join(", ")' "$RUNNER_TEMP/promote.json")" >> "$GITHUB_OUTPUT"
+          echo "kinds=$(jq -r '.kinds | join(", ")' "$RUNNER_TEMP/promote.json")" >> "$GITHUB_OUTPUT"
+
+      - name: Manifest tests
+        run: bun test tests/vm-image-manifest.test.ts tests/vm-image-resolver.test.ts tests/cloud-vm-env-audit.test.ts
+
+      - name: Open pull request with the manifest diff
+        working-directory: .
+        env:
+          GH_TOKEN: ${{ github.token }}
+          IMAGE_ID: ${{ steps.promote.outputs.image_id }}
+          VERSIONS: ${{ steps.promote.outputs.versions }}
+          KINDS: ${{ steps.promote.outputs.kinds }}
+          PROVIDER: ${{ inputs.provider }}
+        run: |
+          set -euo pipefail
+          if git diff --quiet -- web/services/vms/images/manifest.json; then
+            echo "::error::promote left the manifest unchanged"
+            exit 1
+          fi
+          stamp=$(date -u +%Y%m%d-%H%M%S)
+          branch="devbox-bake/${PROVIDER}-${stamp}"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git checkout -b "$branch"
+          git add web/services/vms/images/manifest.json
+          git commit -m "cloud: promote ${PROVIDER} devbox image ${IMAGE_ID} (${KINDS})" \
+            -m "Baked and verified by the Cloud VM devbox bake workflow (run ${{ github.run_id }}) from ${{ inputs.ref }}. Manifest versions: ${VERSIONS}."
+          git push -u origin "$branch"
+          gh pr create \
+            --base main \
+            --head "$branch" \
+            --title "cloud: promote ${PROVIDER} devbox image ${IMAGE_ID}" \
+            --body "$(cat <<EOF
+          Baked, verified, and recorded by the **Cloud VM devbox bake** workflow ([run ${{ github.run_id }}](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})) from \`${{ inputs.ref }}\`.
+
+          - Provider: \`${PROVIDER}\`
+          - Image id: \`${IMAGE_ID}\`
+          - Kinds served (flagged \`defaultForKind\`): ${KINDS}
+          - Manifest versions: ${VERSIONS}
+
+          Merging this PR promotes the image: deployed runtimes serve the manifest default when no image env var overrides it. Rollback is a revert of this PR (the old entries stay listed) or an env override to a previous \`validationStatus: passed\` entry.
+
+          🤖 Generated with [Claude Code](https://claude.com/claude-code)
+          EOF
+          )"

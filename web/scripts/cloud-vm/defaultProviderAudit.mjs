@@ -54,12 +54,33 @@ export function auditProviderReadiness(provider, env, manifest) {
   }
 
   const envVar = entries[0].envVar;
-  const image = env[envVar]?.trim() || null;
+  let image = env[envVar]?.trim() || null;
+  let imageSource = "env";
   if (!image) {
-    problems.push(
-      `${envVar} is not set; deployed runtimes fail closed on imageless ` +
-      `creates for provider ${provider}`,
-    );
+    // No env override: deployed runtimes serve the manifest entry flagged
+    // defaultForKind (services/vms/images/resolver.ts), so the manifest is the
+    // source of truth and the env var is only a rollback override. Every kind
+    // default must be a validated entry.
+    const kindDefaults = entries.filter((entry) => entry.defaultForKind === true);
+    for (const entry of kindDefaults.filter((entry) => entry.validationStatus !== "passed")) {
+      problems.push(
+        `manifest default ${entry.version} (${entry.kind ?? "base"}) for ${provider} has ` +
+        `validationStatus ${entry.validationStatus}, not passed`,
+      );
+    }
+    const baseDefault = kindDefaults.find((entry) => (entry.kind ?? "base") === "base");
+    if (baseDefault) {
+      image = baseDefault.imageId;
+      imageSource = "manifest";
+    } else {
+      problems.push(
+        `${envVar} is not set and the manifest has no validated base default for ` +
+        `${provider}; deployed runtimes fail closed on imageless creates`,
+      );
+    }
+  }
+  if (!image) {
+    // Reported above.
   } else if (image === SENSITIVE_PLACEHOLDER) {
     problems.push(
       `${envVar} is stored as a Sensitive env var, so its value cannot be audited; ` +
@@ -106,7 +127,7 @@ export function auditProviderReadiness(provider, env, manifest) {
     problems.push(`${enabledKey} disables provider ${provider}, so the selected default cannot create VMs`);
   }
 
-  return { provider, envVar, image, problems };
+  return { provider, envVar, image, imageSource, problems };
 }
 
 function isFalseFlag(value) {

@@ -99,14 +99,18 @@ Default image policy:
   (`api.freestyle.sh`). Set `CMUX_VM_DEFAULT_PROVIDER=freestyle` (the local loader supplies
   this when unset); Freestyle is the only provider, so the override can only ever name it, rather than
   silent fallbacks.
-- The validated Freestyle devbox entry is `freestyle-cmux-devbox-20260902c`, image
-  `sh-940ec3bc46224c019e5e8d9a97053293`. It was baked and verified on the public platform
-  (`api.freestyle.sh`) from main `2526fbf0f2`, including the explicit Codex HTTP-only setting.
-  The retired beta entry remains only as a historical record and must not be selected. The
-  previous public entries `freestyle-cmux-devbox-20260902a` and `freestyle-cmux-devbox-20260902b`
-  remain in the manifest for rollback. When the shared Dockerfile epoch or tool pins change,
-  run `scripts/build-devbox-freestyle.ts`, verify the new snapshot, and append its id before
-  changing `FREESTYLE_SANDBOX_SNAPSHOT`.
+- **The committed manifest is the source of truth for the image users get.** The entry flagged
+  `defaultForKind` (today `freestyle-cmux-devbox-20260902c`, image
+  `sh-940ec3bc46224c019e5e8d9a97053293`, baked and verified on cmux's Freestyle account from main
+  `2526fbf0f2`) is what a deployment with no `FREESTYLE_SANDBOX_SNAPSHOT` serves; the env var is
+  the rollback override. Promotion is `bun run devbox:promote -- freestyle` (bake → verify →
+  manifest write → PR), or the **Cloud VM devbox bake** GitHub Action, which opens the PR;
+  merging promotes. See `services/vms/images/devbox/README.md`. The retired beta entry stays
+  listed for the record and is never a default; earlier public entries stay for rollback.
+- Snapshots are account-scoped: a manifest id is only bootable by the Freestyle account whose
+  `FREESTYLE_API_KEY` the deployment uses. `freestyle-cmux-devbox-20260902h` (the desktop devbox,
+  `ubuntu` work user, cmux login banner) is validated but listed as a non-default reference bake
+  for that reason; re-promote it under cmux's key to make it the default.
 - Baked agent tools are installed at image-build time. They are not auto-updated on VM startup, so
   startup latency stays bounded and the active image manifest remains the source of truth.
 - To update tool versions, rebuild the provider images and record the new template/snapshot IDs in

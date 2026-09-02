@@ -34,6 +34,8 @@ type Manifest = {
     imageId: string;
     envVar: string;
     validationStatus: string;
+    kind?: string;
+    defaultForKind?: boolean;
   }>;
 };
 
@@ -50,19 +52,27 @@ const realManifest = JSON.parse(
   ),
 ) as Manifest;
 
+// The manifest's validated base default (defaultForKind): what deployed
+// runtimes serve when FREESTYLE_SANDBOX_SNAPSHOT is unset.
+const freestyleBaseDefault = realManifest.images.find(
+  (entry) => entry.provider === "freestyle" && (entry.kind ?? "base") === "base" && entry.defaultForKind,
+)!;
+
 describe("cloud VM provider coherence audit", () => {
   test("an env default naming a removed provider fails on the code-default leg", () => {
     // The 2026-08-26 outage shape, and now also the stale-env shape: the
     // deployed CMUX_VM_DEFAULT_PROVIDER still names a provider that has been
     // removed, while shipped clients send the code default's image ids. The
-    // old key-presence audit passed this env.
+    // manifest default covers the missing snapshot env var; the missing API
+    // key still makes the code default unprovisionable.
     const result = auditCloudVmProviderCoherence(
       { CMUX_VM_DEFAULT_PROVIDER: "e2b" },
       realManifest,
     ) as Coherence;
     expect(result.selected?.provider).toBe("e2b");
     expect(result.codeDefault?.provider).toBe("freestyle");
-    expect(result.problems.join("\n")).toContain("FREESTYLE_SANDBOX_SNAPSHOT is not set");
+    expect(result.codeDefault).toMatchObject({ image: freestyleBaseDefault.imageId, imageSource: "manifest" });
+    expect(result.problems.join("\n")).toContain("FREESTYLE_API_KEY is not set");
   });
 
   test("no default provider set means the code default (freestyle) must be ready", () => {
@@ -72,8 +82,38 @@ describe("cloud VM provider coherence audit", () => {
     ) as Coherence;
     expect(result.selected?.provider).toBe("freestyle");
     expect(result.codeDefault).toBeNull();
-    expect(result.problems.join("\n")).toContain("FREESTYLE_SANDBOX_SNAPSHOT is not set");
+    expect(result.selected).toMatchObject({ image: freestyleBaseDefault.imageId, imageSource: "manifest" });
     expect(result.problems.join("\n")).toContain("FREESTYLE_API_KEY");
+  });
+
+  test("with no env selector, the manifest's validated base default is the deployed image", () => {
+    // The committed manifest is the source of truth (resolver defaultForKind);
+    // the env var is a rollback override. A clean env is one with the key set.
+    const result = auditProviderReadiness("freestyle", { FREESTYLE_API_KEY: "x" }, realManifest) as {
+      image: string | null;
+      imageSource: string;
+      problems: string[];
+    };
+    expect(result).toMatchObject({ image: freestyleBaseDefault.imageId, imageSource: "manifest", problems: [] });
+  });
+
+  test("a manifest without a validated base default fails closed on an unset selector", () => {
+    const stripped = {
+      images: realManifest.images.map((entry) => ({ ...entry, defaultForKind: false })),
+    };
+    const result = auditProviderReadiness("freestyle", { FREESTYLE_API_KEY: "x" }, stripped) as {
+      problems: string[];
+    };
+    expect(result.problems.join("\n")).toContain("FREESTYLE_SANDBOX_SNAPSHOT is not set and the manifest has no validated base default");
+    const unvalidated = {
+      images: realManifest.images.map((entry) =>
+        entry.defaultForKind ? { ...entry, validationStatus: "unknown" } : entry,
+      ),
+    };
+    const bad = auditProviderReadiness("freestyle", { FREESTYLE_API_KEY: "x" }, unvalidated) as {
+      problems: string[];
+    };
+    expect(bad.problems.join("\n")).toMatch(/manifest default .* has validationStatus unknown, not passed/);
   });
 
   test("the validated public-platform freestyle devbox passes as the default provider", () => {

@@ -1,7 +1,7 @@
 /**
- * Shared plumbing for the cmux Cloud devbox image bakes
- * (build-devbox-freestyle.ts)
- * and the post-bake verifier (verify-devbox-image.ts).
+ * Shared plumbing for the cmux Cloud devbox image bake
+ * (build-devbox-freestyle.ts), the post-bake verifier
+ * (verify-devbox-image.ts), and the promote step (promote-devbox-image.ts).
  *
  * The image source of truth is web/services/vms/images/devbox/: a plain
  * Dockerfile plus the files it COPYs. No daemon binary is baked: cmux-tui is
@@ -11,7 +11,7 @@
  */
 import { execSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -28,8 +28,32 @@ export const DEVBOX_TEMPLATE_FILES = [
   "chrome-managed-policy.json",
   "cmux-bashrc",
   "cmux-devbox-boot",
+  "cmux-motd",
   "seed-history",
 ] as const;
+
+/**
+ * The desktop layer (ported from the retired Blaxel cmux-devbox image): an
+ * openbox/TigerVNC desktop with a tint2 dock, Ghostty, Chrome, Thunar and
+ * noVNC on 6901. Baked by build-devbox-freestyle.ts (a full VM with
+ * systemd); the container providers stay shell-only.
+ */
+export const devboxDesktopDir = path.join(devboxDir, "desktop");
+export const DEVBOX_DESKTOP_FILES = [
+  "WALLPAPER.md",
+  "cmux-desktop-boot",
+  "cmux-desktop.service",
+  "ghostty-cmux.desktop",
+  "google-chrome-cmux.desktop",
+  "start-vnc.sh",
+  "thunar-cmux.desktop",
+  "tint2rc",
+  "wallpaper.jpg",
+] as const;
+
+/** Ghostty ships no upstream .deb; this community build is pinned by release tag. */
+export const DEVBOX_GHOSTTY_DEB_URL =
+  "https://github.com/mkasberg/ghostty-ubuntu/releases/download/1.3.1-0-ppa2/ghostty_1.3.1-0.ppa2_amd64_24.04.deb";
 
 const AGENT_PIN_ARGS: readonly { arg: string; pkg: string; binary: string }[] = [
   { arg: "CMUX_IMAGE_CLAUDE_CODE_VERSION", pkg: "@anthropic-ai/claude-code", binary: "claude" },
@@ -54,12 +78,31 @@ export function readDevboxDockerfile(): string {
   return readFileSync(devboxDockerfilePath, "utf8");
 }
 
+/** The cua computer-use driver pin, from the Dockerfile (never a second copy). */
+export function devboxCuaDriverVersion(dockerfile = readDevboxDockerfile()): string {
+  const version = /CUA_DRIVER_RS_VERSION=(\S+)/.exec(dockerfile)?.[1];
+  if (!version) throw new Error("devbox Dockerfile is missing CUA_DRIVER_RS_VERSION");
+  return version;
+}
+
 export function devboxImageEpoch(dockerfile = readDevboxDockerfile()): string {
   return /CMUX_IMAGE_EPOCH=([^\s"]+)/.exec(dockerfile)?.[1] ?? "none";
 }
 
 export function devboxTemplateFile(name: string): string {
   return readFileSync(path.join(devboxDir, name), "utf8");
+}
+
+export function devboxDesktopFile(name: string): string {
+  return readFileSync(path.join(devboxDesktopDir, name), "utf8");
+}
+
+/** Raw bytes of a devbox template file (`desktop/<name>` for the desktop layer). */
+export function devboxFileBytes(name: string): Uint8Array {
+  const file = name.startsWith("desktop/")
+    ? path.join(devboxDesktopDir, name.slice("desktop/".length))
+    : path.join(devboxDir, name);
+  return new Uint8Array(readFileSync(file));
 }
 
 export function fileBase64(name: string): string {
@@ -80,10 +123,17 @@ function git(args: string, cwd: string): string {
  * so there are no base64 embeds to drift-check. Branch bakes are deliberate
  * with CMUX_BAKE_ALLOW_BRANCH=1.
  */
-export function bakePreflight(): { sha: string; epoch: string } {
+export function bakePreflight(options: { desktop?: boolean } = {}): { sha: string; epoch: string } {
   for (const name of DEVBOX_TEMPLATE_FILES) {
     if (!existsSync(path.join(devboxDir, name))) {
       throw new Error(`bake refused: ${name} is missing from ${devboxDir}`);
+    }
+  }
+  if (options.desktop) {
+    for (const name of DEVBOX_DESKTOP_FILES) {
+      if (!existsSync(path.join(devboxDesktopDir, name))) {
+        throw new Error(`bake refused: desktop/${name} is missing from ${devboxDesktopDir}`);
+      }
     }
   }
   const allowBranch = process.env.CMUX_BAKE_ALLOW_BRANCH === "1";
@@ -140,23 +190,48 @@ export function bakeMetadata(
   };
 }
 
+export type DevboxProvider = "freestyle";
+export type DevboxImageKind = "desktop" | "base";
+
+/** One `images[]` row of services/vms/images/manifest.json, as the bake scripts emit it. */
+export type DevboxManifestEntry = {
+  provider: DevboxProvider;
+  version: string;
+  imageId: string;
+  envVar: string;
+  defaultForLocalDev: boolean;
+  kind?: DevboxImageKind;
+  defaultForKind?: boolean;
+  cmuxdRemoteCommit: string;
+  /** The cmux commit whose devbox definition produced this image. */
+  repoCommit?: string;
+  builtAt: string;
+  builderScriptVersion: string;
+  agentToolResolvedVersions: Record<string, string>;
+  validationStatus: "passed" | "failed" | "unknown";
+  notes?: string;
+};
+
 export function manifestEntrySkeleton(
-  provider: "freestyle",
+  provider: DevboxProvider,
   version: string,
   imageId: string,
   envVar: string,
   metadata: DevboxBakeMetadata,
   extraNotes = "",
-): Record<string, unknown> {
+  kind?: DevboxImageKind,
+): DevboxManifestEntry {
   return {
     provider,
     version,
     imageId,
     envVar,
     defaultForLocalDev: false,
+    ...(kind ? { kind } : {}),
     // The session daemon is cmux-tui, installed at create time from the pinned
     // artifacts manifest; no cmuxd-remote build is baked.
     cmuxdRemoteCommit: "none-cmux-tui",
+    repoCommit: metadata.repoCommit,
     builtAt: metadata.builtAt,
     builderScriptVersion: metadata.builderScriptVersion,
     agentToolResolvedVersions: metadata.agentToolResolvedVersions,
@@ -167,4 +242,162 @@ export function manifestEntrySkeleton(
       extraNotes,
     ].filter(Boolean).join(" "),
   };
+}
+
+/**
+ * The bake's machine-readable result. `--out <path>` on a bake script writes
+ * it there so promote-devbox-image.ts never has to scrape build logs.
+ */
+export type DevboxBakeResult = {
+  readonly provider: DevboxProvider;
+  readonly imageId: string;
+  readonly manifestEntry: DevboxManifestEntry;
+  readonly next: string;
+  readonly [extra: string]: unknown;
+};
+
+export function emitBakeResult(result: DevboxBakeResult): void {
+  console.log(JSON.stringify(result, null, 2));
+  const out = argValue("--out");
+  if (out) {
+    writeFileSync(out, `${JSON.stringify(result, null, 2)}\n`);
+    console.log(`bake result written to ${out}`);
+  }
+  // The last stdout line is the image id alone, so shell callers can
+  // `tail -n 1` it without parsing JSON.
+  console.log(`IMAGE_ID ${result.imageId}`);
+}
+
+// ---------------------------------------------------------------------------
+// Manifest promotion: the checked-in manifest is the source of truth for the
+// image users get, so "promote" is a pure edit of that file that a PR
+// carries. Only verified images are promotable, and a provider+kind has
+// exactly one default at a time.
+// ---------------------------------------------------------------------------
+
+export const imageManifestPath = path.join(webRoot, "services/vms/images/manifest.json");
+
+export type DevboxImageManifest = {
+  schemaVersion: number;
+  images: DevboxManifestEntry[];
+};
+
+export function readImageManifest(file = imageManifestPath): DevboxImageManifest {
+  const parsed = JSON.parse(readFileSync(file, "utf8")) as DevboxImageManifest;
+  if (parsed.schemaVersion !== 1 || !Array.isArray(parsed.images)) {
+    throw new Error(`${file}: unsupported image manifest shape`);
+  }
+  return parsed;
+}
+
+export function writeImageManifest(manifest: DevboxImageManifest, file = imageManifestPath): void {
+  writeFileSync(file, `${JSON.stringify(manifest, null, 2)}\n`);
+}
+
+export type PromoteImageOptions = {
+  /** Kinds this image serves. Each gets its own entry flagged `defaultForKind`. */
+  readonly kinds: readonly DevboxImageKind[];
+  /** Also make this image the provider's local-dev default (no env var set). */
+  readonly localDevDefault?: boolean;
+  /** Human-readable validation summary appended to `notes`. */
+  readonly validationNotes?: string;
+};
+
+/**
+ * Appends a verified image to the manifest as the default for every kind in
+ * `kinds`, demoting the provider's previous defaults for those kinds. Pure:
+ * returns a new manifest and never mutates the input. Existing entries are
+ * only ever flag-flipped, never removed, so rollback stays a one-line env or
+ * manifest change.
+ */
+export function promoteImageManifestEntry(
+  manifest: DevboxImageManifest,
+  entry: DevboxManifestEntry,
+  options: PromoteImageOptions,
+): DevboxImageManifest {
+  if (entry.validationStatus !== "passed") {
+    throw new Error(
+      `refusing to promote ${entry.provider} ${entry.imageId}: validationStatus is ` +
+        `${entry.validationStatus}, not passed (run verify-devbox-image.ts first)`,
+    );
+  }
+  if (options.kinds.length === 0) {
+    throw new Error(`refusing to promote ${entry.imageId}: no kinds given`);
+  }
+  const kinds = [...new Set(options.kinds)];
+  for (const kind of kinds) {
+    const clash = manifest.images.find((candidate) =>
+      candidate.provider === entry.provider &&
+      candidate.imageId === entry.imageId &&
+      (candidate.kind ?? "base") === kind
+    );
+    if (clash) {
+      throw new Error(
+        `refusing to promote ${entry.provider} ${entry.imageId}: already listed as ${clash.version} (${kind})`,
+      );
+    }
+  }
+  const demoted = manifest.images.map((candidate) => {
+    if (candidate.provider !== entry.provider) return candidate;
+    const next: DevboxManifestEntry = { ...candidate };
+    if (next.defaultForKind && kinds.includes(next.kind ?? "base")) next.defaultForKind = false;
+    if (options.localDevDefault && next.defaultForLocalDev) next.defaultForLocalDev = false;
+    return next;
+  });
+  const notes = [entry.notes, options.validationNotes].filter(Boolean).join(" ");
+  const promoted = kinds.map((kind, index): DevboxManifestEntry => ({
+    ...entry,
+    version: kinds.length > 1 && kind !== kinds[0] ? `${entry.version}-${kind}` : entry.version,
+    kind,
+    defaultForKind: true,
+    defaultForLocalDev: options.localDevDefault === true && index === 0,
+    ...(notes ? { notes } : {}),
+  }));
+  return { schemaVersion: manifest.schemaVersion, images: [...demoted, ...promoted] };
+}
+
+/**
+ * Invariants the checked-in manifest must hold; tests/vm-image-manifest.test.ts
+ * runs this against the real file, promote-devbox-image.ts against its output.
+ */
+export function imageManifestProblems(manifest: DevboxImageManifest): string[] {
+  const problems: string[] = [];
+  const defaults = new Map<string, DevboxManifestEntry[]>();
+  const localDefaults = new Map<string, DevboxManifestEntry[]>();
+  for (const entry of manifest.images) {
+    for (const field of ["provider", "version", "imageId", "envVar", "builtAt", "validationStatus"] as const) {
+      if (!entry[field]) problems.push(`${entry.version ?? entry.imageId ?? "?"}: missing ${field}`);
+    }
+    if (!["passed", "failed", "unknown"].includes(entry.validationStatus)) {
+      problems.push(`${entry.version}: validationStatus ${String(entry.validationStatus)} is not passed|failed|unknown`);
+    }
+    if (entry.kind !== undefined && entry.kind !== "desktop" && entry.kind !== "base") {
+      problems.push(`${entry.version}: kind ${String(entry.kind)} is not desktop|base`);
+    }
+    if (entry.defaultForKind) {
+      if (entry.validationStatus !== "passed") {
+        problems.push(`${entry.version}: defaultForKind but validationStatus is ${entry.validationStatus}`);
+      }
+      const key = `${entry.provider}/${entry.kind ?? "base"}`;
+      defaults.set(key, [...(defaults.get(key) ?? []), entry]);
+    }
+    if (entry.defaultForLocalDev) {
+      localDefaults.set(entry.provider, [...(localDefaults.get(entry.provider) ?? []), entry]);
+    }
+  }
+  const versions = manifest.images.map((entry) => `${entry.provider}/${entry.version}`);
+  for (const dup of versions.filter((v, i) => versions.indexOf(v) !== i)) {
+    problems.push(`${dup}: version listed more than once`);
+  }
+  for (const [key, entries] of defaults) {
+    if (entries.length > 1) {
+      problems.push(`${key}: ${entries.length} entries flagged defaultForKind (${entries.map((e) => e.version).join(", ")})`);
+    }
+  }
+  for (const [provider, entries] of localDefaults) {
+    if (entries.length > 1) {
+      problems.push(`${provider}: ${entries.length} entries flagged defaultForLocalDev (${entries.map((e) => e.version).join(", ")})`);
+    }
+  }
+  return problems;
 }

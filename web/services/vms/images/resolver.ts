@@ -83,11 +83,26 @@ export function listVmImageIds(provider: ProviderId): string[] {
     .map((entry) => entry.imageId);
 }
 
-export function findVmImageManifestEntry(provider: ProviderId, image: string): VmImageManifestEntry | null {
-  return typedManifest.images.find((candidate) =>
+/**
+ * The manifest entry for an image id or version. One image can be listed
+ * under more than one kind (a desktop image is a superset of a base one, so
+ * the Freestyle devbox serves both); with a `kind`, the entry of that kind
+ * wins, otherwise the first listing does.
+ */
+export function findVmImageManifestEntry(
+  provider: ProviderId,
+  image: string,
+  kind?: VmImageKind,
+): VmImageManifestEntry | null {
+  const matches = typedManifest.images.filter((candidate) =>
     candidate.provider === provider &&
     (candidate.imageId === image || candidate.version === image)
-  ) ?? null;
+  );
+  if (kind !== undefined) {
+    const ofKind = matches.find((candidate) => deriveVmImageKind(candidate, image) === kind);
+    if (ofKind) return ofKind;
+  }
+  return matches[0] ?? null;
 }
 
 /**
@@ -186,7 +201,7 @@ export function resolveVmImage(
     // requested kind from the manifest defaults instead of failing the
     // create on the mismatch. Client-requested images keep the strict check.
     if (kind !== undefined) {
-      const entry = findVmImageManifestEntry(provider, configured);
+      const entry = findVmImageManifestEntry(provider, configured, kind);
       if (entry && deriveVmImageKind(entry, configured) !== kind) {
         return resolveByKind(provider, kind, envVar, env);
       }
@@ -276,7 +291,7 @@ function resolveKnownOrAllowed(
   env: VmRuntimeEnv,
   kind: VmImageKind | undefined,
 ): VmImageSelection {
-  const entry = findVmImageManifestEntry(provider, image);
+  const entry = findVmImageManifestEntry(provider, image, kind);
   if (entry) {
     const selection = selectionFromEntry(entry);
     if (kind !== undefined && selection.kind !== kind) {
