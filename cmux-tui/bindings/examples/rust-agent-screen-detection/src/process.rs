@@ -355,6 +355,12 @@ fn runtime_path_arguments<'a>(runtime: &str, argv: &'a [String]) -> Vec<&'a str>
         if is_eval_flag(runtime, argument) {
             break;
         }
+        // `python -m` executes a module name, not a script path. The module
+        // and all following arguments are user data, so none may identify an
+        // agent executable.
+        if is_python_runtime(runtime) && argument == "-m" {
+            break;
+        }
         if argument.starts_with('-') {
             if runtime_option_takes_value(runtime, argument) {
                 index += 1;
@@ -389,7 +395,7 @@ fn runtime_option_takes_value(runtime: &str, argument: &str) -> bool {
                 | "--inspect-port"
         ),
         name if is_python_runtime(name) => {
-            matches!(argument, "-m" | "-W" | "-X" | "-S" | "-L" | "-o")
+            matches!(argument, "-m" | "-W" | "-X" | "-L" | "-o")
         }
         _ => false,
     }
