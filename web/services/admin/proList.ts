@@ -188,6 +188,9 @@ export async function listStripeTeamSubscriptions(
     readonly db?: ProListDb;
     readonly app?: ProListStackApp;
     readonly concurrency?: number;
+    /** No new name lookup starts once this instant (ms since epoch) has passed. */
+    readonly deadlineMs?: number;
+    readonly now?: () => number;
   } = {},
 ): Promise<CappedList<StripeTeamSubscription>> {
   const db = options.db ?? cloudDb();
@@ -220,10 +223,14 @@ export async function listStripeTeamSubscriptions(
     seen.add(row.teamId);
     return true;
   });
+  const now = options.now ?? Date.now;
   const resolved = await mapWithConcurrency(
     unique,
     options.concurrency ?? PRO_LIST_TEAM_LOOKUP_CONCURRENCY,
     async (row): Promise<StripeTeamSubscription> => {
+      if (options.deadlineMs !== undefined && now() > options.deadlineMs) {
+        throw new ProListTimeoutError(0);
+      }
       const team = await app.getTeam(row.teamId!).catch(() => null);
       return {
         teamId: row.teamId!,
@@ -239,7 +246,10 @@ export async function listStripeTeamSubscriptions(
   return { rows: resolved, truncated };
 }
 
-/** Runs `work` over `items` with at most `limit` in flight, preserving order. */
+/**
+ * Runs `work` over `items` with at most `limit` in flight, preserving order.
+ * The first rejection stops every worker from starting more items.
+ */
 export async function mapWithConcurrency<Item, Result>(
   items: readonly Item[],
   limit: number,
@@ -247,10 +257,16 @@ export async function mapWithConcurrency<Item, Result>(
 ): Promise<Result[]> {
   const results: Result[] = new Array(items.length);
   let next = 0;
+  let failed = false;
   const workers = Array.from({ length: Math.max(1, Math.min(limit, items.length)) }, async () => {
-    while (next < items.length) {
+    while (!failed && next < items.length) {
       const index = next++;
-      results[index] = await work(items[index]!);
+      try {
+        results[index] = await work(items[index]!);
+      } catch (error) {
+        failed = true;
+        throw error;
+      }
     }
   });
   await Promise.all(workers);
@@ -383,11 +399,14 @@ export async function loadProListSnapshot(
      * when the caller stops waiting: at most one in-flight statement.
      */
     readonly deadlineMs?: number;
+    /** Clock source, injectable for tests. */
+    readonly now?: () => number;
   } = {},
 ): Promise<ProListSnapshot> {
+  const now = options.now ?? Date.now;
   const guard = () => {
-    if (options.deadlineMs !== undefined && Date.now() > options.deadlineMs) {
-      throw new ProListTimeoutError(Math.max(0, options.deadlineMs - Date.now()));
+    if (options.deadlineMs !== undefined && now() > options.deadlineMs) {
+      throw new ProListTimeoutError(Math.max(0, options.deadlineMs - now()));
     }
   };
   // Each read's statement timeout is the smaller of the configured budget and
@@ -396,7 +415,7 @@ export async function loadProListSnapshot(
   const budgetFor = (): number | undefined => {
     const configured = options.statementTimeoutMs;
     if (options.deadlineMs === undefined) return configured;
-    const remaining = Math.max(1, options.deadlineMs - Date.now());
+    const remaining = Math.max(1, options.deadlineMs - now());
     return configured === undefined ? remaining : Math.min(configured, remaining);
   };
   try {
@@ -411,7 +430,12 @@ export async function loadProListSnapshot(
       await listStripeProSubscribers({ db: scoped }));
     guard();
     const teamSubscriptions = await withStatementTimeout(db, budgetFor(), async (scoped) =>
-      await listStripeTeamSubscriptions({ db: scoped, app: options.app }));
+      await listStripeTeamSubscriptions({
+        db: scoped,
+        app: options.app,
+        deadlineMs: options.deadlineMs,
+        now,
+      }));
     guard();
     const pendingGrants = await withStatementTimeout(db, budgetFor(), async (scoped) =>
       await listAllPendingEmailGrants({ db: scoped }),
@@ -453,22 +477,47 @@ export const PRO_LIST_RENDER_TIMEOUT_MS = 8_000;
  * budget is applied as a statement timeout, so the reads are cancelled by
  * Postgres rather than left running after the page gave up on them.
  */
+/** Clock and scheduler seam so timeout behavior is testable with virtual time. */
+export type ProListClock = {
+  now(): number;
+  /** Schedules `fn` after `ms`; returns a cancel function. */
+  schedule(fn: () => void, ms: number): () => void;
+};
+
+export const realProListClock: ProListClock = {
+  now: () => Date.now(),
+  schedule: (fn, ms) => {
+    const timer = setTimeout(fn, ms);
+    return () => clearTimeout(timer);
+  },
+};
+
+export type ProListLoadBudget = {
+  readonly statementTimeoutMs: number;
+  readonly deadlineMs: number;
+  readonly now: () => number;
+};
+
 export async function loadProListSnapshotWithin(
   timeoutMs: number = PRO_LIST_RENDER_TIMEOUT_MS,
-  load: (budget: { statementTimeoutMs: number; deadlineMs: number }) => Promise<ProListSnapshot> =
+  load: (budget: ProListLoadBudget) => Promise<ProListSnapshot> =
     (budget) => loadProListSnapshot(budget),
+  clock: ProListClock = realProListClock,
 ): Promise<ProListSnapshot> {
-  const deadlineMs = Date.now() + timeoutMs;
-  let timer: ReturnType<typeof setTimeout> | undefined;
+  const deadlineMs = clock.now() + timeoutMs;
+  let cancel: (() => void) | undefined;
   const timeout = new Promise<never>((_, reject) => {
-    timer = setTimeout(() => reject(new ProListTimeoutError(timeoutMs)), timeoutMs);
+    cancel = clock.schedule(() => reject(new ProListTimeoutError(timeoutMs)), timeoutMs);
   });
   try {
     // When the timer wins, the load is not awaited further; the deadline stops
-    // it from starting any new read and the statement timeout ends the one in
-    // flight, so at most one bounded statement outlives this call.
-    return await Promise.race([load({ statementTimeoutMs: timeoutMs, deadlineMs }), timeout]);
+    // it from starting any new read or name lookup and the statement timeout
+    // ends the one in flight, so at most one bounded statement outlives this.
+    return await Promise.race([
+      load({ statementTimeoutMs: timeoutMs, deadlineMs, now: () => clock.now() }),
+      timeout,
+    ]);
   } finally {
-    if (timer) clearTimeout(timer);
+    cancel?.();
   }
 }

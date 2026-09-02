@@ -7,6 +7,7 @@ import {
   loadProListSnapshotWithin,
   ProListDatabaseUnavailableError,
   ProListTimeoutError,
+  type ProListClock,
   withStatementTimeout,
   mapWithConcurrency,
   PRO_LIST_MAX_ROWS,
@@ -63,6 +64,29 @@ function fakeApp(input: {
     async listTeams(options) {
       calls.push({ kind: "teams", ...options });
       return page(input.teams ?? [], options) as never;
+    },
+  };
+}
+
+/** Virtual clock: time only moves when a test advances it; timers fire on demand. */
+function virtualClock(start = 1_000_000) {
+  let now = start;
+  const timers: Array<{ at: number; fn: () => void; cancelled: boolean }> = [];
+  const clock: ProListClock = {
+    now: () => now,
+    schedule: (fn, ms) => {
+      const timer = { at: now + ms, fn, cancelled: false };
+      timers.push(timer);
+      return () => { timer.cancelled = true; };
+    },
+  };
+  return {
+    clock,
+    advance(ms: number) {
+      now += ms;
+      for (const timer of timers) {
+        if (!timer.cancelled && timer.at <= now) { timer.cancelled = true; timer.fn(); }
+      }
     },
   };
 }
@@ -173,17 +197,17 @@ describe("Pro roster", () => {
 
   test("the page-render load is bounded by a timeout and passes the same budget to the reads", async () => {
     const snapshot = { subscribers: [], teamSubscriptions: [], pendingGrants: [], truncated: { subscribers: false, teamSubscriptions: false, pendingGrants: false } };
-    const budgets: number[] = [];
-    const before = Date.now();
+    const { clock, advance } = virtualClock(50_000);
+    const budgets: Array<[number, number]> = [];
     expect(await loadProListSnapshotWithin(1000, async (budget) => {
-      budgets.push(budget.statementTimeoutMs);
-      expect(budget.deadlineMs).toBeGreaterThanOrEqual(before + 1000);
+      budgets.push([budget.statementTimeoutMs, budget.deadlineMs]);
       return snapshot;
-    })).toBe(snapshot);
-    expect(budgets).toEqual([1000]);
-    await expect(
-      loadProListSnapshotWithin(5, () => new Promise(() => undefined)),
-    ).rejects.toBeInstanceOf(ProListTimeoutError);
+    }, clock)).toBe(snapshot);
+    expect(budgets).toEqual([[1000, 51_000]]);
+    const pending = loadProListSnapshotWithin(1000, () => new Promise(() => undefined), clock);
+    advance(999);
+    advance(1);
+    await expect(pending).rejects.toBeInstanceOf(ProListTimeoutError);
   });
 
   test("reads run under a scoped statement timeout when the client supports transactions", async () => {
@@ -244,32 +268,44 @@ describe("Pro roster", () => {
     const executed: string[] = [];
     const base = fakeDb(new Map());
     let now = 1_000_000;
-    const realNow = Date.now;
-    Date.now = () => now;
-    try {
-      const db: ProListDb = {
-        ...base,
-        transaction: async (operation) => {
-          const result = await operation({
-            select: base.select,
-            execute: (async (query: { queryChunks?: Array<{ value?: string[] }> }) => {
-              executed.push((query.queryChunks ?? []).map((chunk) => (chunk.value ?? []).join("")).join(""));
-              // Each read consumes 3 seconds of an 8 second deadline.
-              now += 3000;
-            }) as never,
-          });
-          return result;
-        },
-      };
-      await loadProListSnapshot({ db, app: fakeApp({}), statementTimeoutMs: 8000, deadlineMs: now + 8000 });
-      expect(executed).toEqual([
-        "set local statement_timeout = 8000",
-        "set local statement_timeout = 5000",
-        "set local statement_timeout = 2000",
-      ]);
-    } finally {
-      Date.now = realNow;
-    }
+    const db: ProListDb = {
+      ...base,
+      transaction: async (operation) => {
+        const result = await operation({
+          select: base.select,
+          execute: (async (query: { queryChunks?: Array<{ value?: string[] }> }) => {
+            executed.push((query.queryChunks ?? []).map((chunk) => (chunk.value ?? []).join("")).join(""));
+            // Each read consumes 3 seconds of an 8 second deadline.
+            now += 3000;
+          }) as never,
+        });
+        return result;
+      },
+    };
+    await loadProListSnapshot({ db, app: fakeApp({}), statementTimeoutMs: 8000, deadlineMs: now + 8000, now: () => now });
+    expect(executed).toEqual([
+      "set local statement_timeout = 8000",
+      "set local statement_timeout = 5000",
+      "set local statement_timeout = 2000",
+    ]);
+  });
+
+  test("team name lookups stop once the deadline has passed", async () => {
+    const subs = Array.from({ length: 6 }, (_, i) => ({
+      teamId: `t${i}`, subscriptionId: `sub_${i}`, status: "active", seats: 1, cancelAtPeriodEnd: false, currentPeriodEnd: null,
+    }));
+    let now = 0;
+    let lookups = 0;
+    const app: ProListStackApp = {
+      async getTeam(teamId) { lookups += 1; now += 10; return { id: teamId, displayName: teamId }; },
+      listUsers: async () => Object.assign([], { nextCursor: null }) as never,
+      listTeams: async () => Object.assign([], { nextCursor: null }) as never,
+    };
+    await expect(
+      listStripeTeamSubscriptions({ db: fakeDb(new Map([[stripeSubscriptions, subs]])), app, concurrency: 1, deadlineMs: 25, now: () => now }),
+    ).rejects.toBeInstanceOf(ProListTimeoutError);
+    // Three lookups fit before the deadline (0, 10, 20); the fourth never starts.
+    expect(lookups).toBe(3);
   });
 
   test("a missing database config becomes ProListDatabaseUnavailableError, a timeout stays a timeout", async () => {
@@ -278,14 +314,14 @@ describe("Pro roster", () => {
     } as unknown as ProListDb;
     await expect(loadProListSnapshot({ db: noConfig, app: fakeApp({}) })).rejects.toBeInstanceOf(ProListDatabaseUnavailableError);
     await expect(
-      loadProListSnapshot({ db: fakeDb(new Map()), app: fakeApp({}), deadlineMs: Date.now() - 1 }),
+      loadProListSnapshot({ db: fakeDb(new Map()), app: fakeApp({}), deadlineMs: 99, now: () => 100 }),
     ).rejects.toBeInstanceOf(ProListTimeoutError);
   });
 
   test("no read starts after the deadline has passed", async () => {
     const base = fakeDb(new Map());
     await expect(
-      loadProListSnapshot({ db: base, app: fakeApp({}), deadlineMs: Date.now() - 1 }),
+      loadProListSnapshot({ db: base, app: fakeApp({}), deadlineMs: 99, now: () => 100 }),
     ).rejects.toBeInstanceOf(ProListTimeoutError);
   });
 
