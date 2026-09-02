@@ -13,8 +13,6 @@ from __future__ import annotations
 
 import pathlib
 import re
-import shutil
-import subprocess
 import unittest
 
 import yaml
@@ -82,53 +80,6 @@ def assert_immutable_checkouts(test: unittest.TestCase, job: dict, expected_ref:
             test.assertIn("EXPECTED_SHA", str(verification.get("env", {})))
 
 
-def run_release_guard_with_stale_main_definition(script: str) -> subprocess.CompletedProcess[str]:
-    """Run the real release guard against a stale current-main workflow blob."""
-
-    event_sha = "a" * 40
-    workflow_sha = "b" * 40
-    main_sha = "c" * 40
-    harness = f"""
-const core = {{
-  setFailed(message) {{ throw new Error(message); }},
-  setOutput() {{}},
-  notice() {{}},
-}};
-const context = {{ repo: {{ owner: 'manaflow-ai', repo: 'cmux' }} }};
-const github = {{ rest: {{
-  repos: {{
-    compareCommits: async () => ({{ data: {{ status: 'ahead' }} }}),
-    getBranch: async () => ({{ data: {{ commit: {{ sha: '{main_sha}' }} }} }}),
-    getContent: async ({{ ref }}) => ({{ data: {{ type: 'file', sha: ref === '{main_sha}' ? 'blob-main' : 'blob-source' }} }}),
-  }},
-  git: {{ getRef: async () => ({{ data: {{ object: {{ type: 'commit', sha: '{event_sha}' }} }} }}) }},
-}} }};
-process.env.REPOSITORY = 'manaflow-ai/cmux';
-process.env.EVENT_NAME = 'push';
-process.env.EVENT_REF = 'refs/tags/v1.2.3';
-process.env.EVENT_REF_TYPE = 'tag';
-process.env.EVENT_SHA = '{event_sha}';
-process.env.WORKFLOW_SHA = '{workflow_sha}';
-process.env.WORKFLOW_REF = 'manaflow-ai/cmux/.github/workflows/release.yml@refs/tags/v1.2.3';
-process.env.REF_PROTECTED = 'true';
-(async () => {{
-  try {{
-{script}
-  }} catch (error) {{
-    console.error(error.message);
-    process.exitCode = 1;
-  }}
-}})();
-"""
-    return subprocess.run(
-        ["node", "--input-type=module"],
-        input=harness,
-        text=True,
-        capture_output=True,
-        check=False,
-    )
-
-
 class DispatchSourceGuardTests(unittest.TestCase):
     def test_actions_are_pinned_in_the_guard_workflows(self) -> None:
         for name, path in WORKFLOWS.items():
@@ -145,55 +96,34 @@ class DispatchSourceGuardTests(unittest.TestCase):
                             f"{name}/{job_name}: {uses!r} must use a full SHA",
                         )
 
-    def test_release_has_a_protected_immutable_source_gate(self) -> None:
+    def test_release_is_an_unprivileged_observer_only(self) -> None:
         document = load(WORKFLOWS["release"])
         self.assertEqual(document.get("permissions"), {})
-        self.assertNotIn("workflow_dispatch", triggers(document))
         self.assertIn("push", triggers(document))
         self.assertEqual(triggers(document)["push"]["tags"], ["v*"])
-        guard = document["jobs"]["validate-source"]
-        self.assertEqual(guard["runs-on"], "ubuntu-24.04")
-        self.assertEqual(guard["permissions"], {"contents": "read"})
-        script = "\n".join(str(step.get("with", {}).get("script", "")) for step in all_steps(guard))
-        self.assertIn("semantic version tag", script)
-        guard_env = "\n".join(str(step.get("env", {})) for step in all_steps(guard))
-        self.assertIn("REF_PROTECTED", guard_env)
-        self.assertIn("github.ref_type", guard_env)
-        self.assertIn("github.workflow_sha", guard_env)
-        self.assertIn("github.workflow_ref", guard_env)
-        self.assertIn("getBranch", script)
-        self.assertIn("compareCommits", script)
-        self.assertIn("expectedWorkflowRef", script)
-        self.assertIn("git.getRef", script)
-        self.assertIn("workflowComparison", script)
-        self.assertIn("workflowAtSource", script)
-        self.assertIn("workflowAtDefinition", script)
-        self.assertIn("workflowAtMain", script)
-        self.assertIn("stale workflow definition", script)
-        self.assertIn("source_sha", script)
-        self.assertEqual(
-            document["jobs"]["build-ghostty-cli-helper"]["permissions"],
-            {"contents": "read"},
-        )
-        self.assertEqual(
-            document["jobs"]["build-sign-notarize"]["permissions"],
-            {"contents": "write", "attestations": "write", "id-token": "write"},
-        )
-        for job_name in ("build-ghostty-cli-helper", "build-sign-notarize"):
-            job = document["jobs"][job_name]
-            self.assertIn("validate-source", dependency_names(job))
-            self.assertIn("github.ref_protected == true", job["if"])
-            assert_immutable_checkouts(
-                self,
-                job,
-                "${{ needs.validate-source.outputs.source_sha }}",
-            )
-
-        if shutil.which("node") is None:
-            self.skipTest("Node.js is required for the release guard fixture")
-        result = run_release_guard_with_stale_main_definition(script)
-        self.assertNotEqual(result.returncode, 0)
-        self.assertIn("stale workflow definition", result.stderr)
+        self.assertNotIn("workflow_dispatch", triggers(document))
+        self.assertEqual(set(document["jobs"]), {"announce"})
+        job = document["jobs"]["announce"]
+        self.assertEqual(job["runs-on"], "ubuntu-24.04")
+        self.assertEqual(job["permissions"], {})
+        self.assertEqual(len(all_steps(job)), 1)
+        step = all_steps(job)[0]
+        self.assertNotIn("uses", step)
+        self.assertIn("Emit queued release event", step["name"])
+        self.assertIn("Tag event queued for trusted protected-main release dispatcher", step["run"])
+        text = WORKFLOWS["release"].read_text(encoding="utf-8")
+        for forbidden in (
+            "secrets.",
+            "GITHUB_TOKEN",
+            "github.token",
+            "contents: write",
+            "actions/github-script",
+            "actions/checkout",
+            "workflow_dispatch",
+            "workflow_call",
+            "repository_dispatch",
+        ):
+            self.assertNotIn(forbidden, text)
 
     def test_nightly_uses_protected_sources_and_propagates_sha(self) -> None:
         document = load(WORKFLOWS["nightly"])

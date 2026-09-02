@@ -98,9 +98,12 @@ submodule. A maintainer must approve the environment before the release token
 is available.
 
 `nightly.yml` runs only from protected `main` pushes and schedules. `release.yml`
-runs only for protected semantic-version tag pushes. Both workflows resolve the
-event revision before any signing or publishing step and do not accept a
-caller-selected branch.
+is an unprivileged observer for semantic-version tag pushes. It has no token
+permissions, secrets, checkout, or release actions. A completed observer run
+starts `release-trusted.yml`, which GitHub resolves from protected `main`; that
+dispatcher validates the observer workflow, tag ref, source SHA, and main
+ancestry before any signing or publishing step. Release jobs use the validated
+source SHA and do not accept a caller-selected branch.
 
 ## Guard
 

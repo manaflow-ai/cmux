@@ -50,7 +50,7 @@ check_attestation_retry \
   'remote-daemon-assets/cmuxd-remote-manifest-${{ env.NIGHTLY_BUILD }}.json'
 
 check_attestation_retry \
-  "$ROOT_DIR/.github/workflows/release.yml" \
+  "$ROOT_DIR/.github/workflows/release-trusted.yml" \
   "Attest remote daemon release assets" \
   "attest-remote-daemon-release-assets" \
   "Retry remote daemon release asset attestation" \

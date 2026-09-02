@@ -6,7 +6,7 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 
 WORKFLOWS=(
-  "$ROOT_DIR/.github/workflows/release.yml"
+  "$ROOT_DIR/.github/workflows/release-trusted.yml"
   "$ROOT_DIR/.github/workflows/nightly.yml"
 )
 

@@ -355,7 +355,7 @@ check_signing_intermediate_imports() {
     exit 1
   fi
 
-  for file in "$ROOT_DIR/.github/workflows/nightly.yml" "$ROOT_DIR/.github/workflows/release.yml"; do
+  for file in "$ROOT_DIR/.github/workflows/nightly.yml" "$ROOT_DIR/.github/workflows/release-trusted.yml"; do
     if ! awk '
       /- name: Import signing cert/ { in_step=1; next }
       in_step && /^[[:space:]]*- name:/ { in_step=0 }
@@ -518,7 +518,7 @@ check_sentry_cli_install_portability() {
     exit 1
   fi
 
-  for file in "$ROOT_DIR/.github/workflows/nightly.yml" "$ROOT_DIR/.github/workflows/release.yml"; do
+  for file in "$ROOT_DIR/.github/workflows/nightly.yml" "$ROOT_DIR/.github/workflows/release-trusted.yml"; do
     if grep -Fq 'brew install getsentry/tools/sentry-cli' "$file"; then
       echo "FAIL: $(basename "$file") must not require Homebrew for sentry-cli on self-hosted signing runners"
       exit 1
@@ -620,7 +620,7 @@ EOF
 check_dmg_signing_uses_build_keychain() {
   local nightly_workflow="$ROOT_DIR/.github/workflows/nightly.yml"
   local nightly_helper="$ROOT_DIR/scripts/ci/notarize-nightly-dmg.sh"
-  local release_workflow="$ROOT_DIR/.github/workflows/release.yml"
+  local release_workflow="$ROOT_DIR/.github/workflows/release-trusted.yml"
 
   if ! grep -Fq './scripts/ci/notarize-nightly-dmg.sh \' "$nightly_workflow"; then
     echo "FAIL: nightly workflow must invoke the guarded notarization helper"
@@ -640,7 +640,7 @@ check_dmg_signing_uses_build_keychain() {
   done
 
   if grep -Eq -- '--identity([=[:space:]]|$)' "$release_workflow"; then
-    echo "FAIL: release.yml must not let create-dmg codesign outside build.keychain"
+    echo "FAIL: release-trusted.yml must not let create-dmg codesign outside build.keychain"
     exit 1
   fi
   if ! awk '
@@ -652,7 +652,7 @@ check_dmg_signing_uses_build_keychain() {
     in_dmg && /xcrun notarytool submit "\$(DMG_RELEASE|dmg_release)"/ { saw_notary=1 }
     END { exit !(saw_no_code_sign && saw_keychain && saw_identity && saw_verify && saw_notary) }
   ' "$release_workflow"; then
-    echo "FAIL: release.yml must sign DMGs explicitly with build.keychain before notarization"
+    echo "FAIL: release-trusted.yml must sign DMGs explicitly with build.keychain before notarization"
     exit 1
   fi
 
@@ -660,7 +660,7 @@ check_dmg_signing_uses_build_keychain() {
 }
 
 check_create_dmg_uses_run_local_npm_prefix() {
-  for file in "$ROOT_DIR/.github/workflows/nightly.yml" "$ROOT_DIR/.github/workflows/release.yml"; do
+  for file in "$ROOT_DIR/.github/workflows/nightly.yml" "$ROOT_DIR/.github/workflows/release-trusted.yml"; do
     if ! awk '
       /- name: Install build deps/ { in_step=1; next }
       in_step && /^[[:space:]]*- name:/ { in_step=0 }
@@ -701,8 +701,8 @@ check_gui_smoke_unsupported_launch_handling() {
     /scripts\/smoke-launch-macos-app\.sh/ && /CMUX_SMOKE_ALLOW_UNSUPPORTED_GUI=1/ { saw_launchservices=1 }
     /scripts\/smoke-launch-macos-app\.sh/ && /CMUX_SMOKE_DIRECT_EXEC=1/ { saw_direct_exec=1 }
     END { exit !(saw_launchservices && saw_direct_exec) }
-  ' "$ROOT_DIR/.github/workflows/release.yml"; then
-    echo "FAIL: release signing smoke must run LaunchServices smoke before direct exec CI launch mode"
+  ' "$ROOT_DIR/.github/workflows/release-trusted.yml"; then
+    echo "FAIL: trusted release signing smoke must run LaunchServices smoke before direct exec CI launch mode"
     exit 1
   fi
 
@@ -722,8 +722,8 @@ check_gui_smoke_unsupported_launch_handling() {
     fi
   done
 
-  if ! grep -Fq 'scripts/smoke-launch-macos-app.sh' "$ROOT_DIR/.github/workflows/release.yml"; then
-    echo "FAIL: release.yml signing workflow must run launch smoke"
+  if ! grep -Fq 'scripts/smoke-launch-macos-app.sh' "$ROOT_DIR/.github/workflows/release-trusted.yml"; then
+    echo "FAIL: release-trusted.yml signing workflow must run launch smoke"
     exit 1
   fi
 

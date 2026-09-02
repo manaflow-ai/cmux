@@ -3,7 +3,7 @@ set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 CI_FILE="$ROOT_DIR/.github/workflows/ci.yml"
-RELEASE_FILE="$ROOT_DIR/.github/workflows/release.yml"
+RELEASE_FILE="$ROOT_DIR/.github/workflows/release-trusted.yml"
 
 # nightly.yml is intentionally not covered here. It has its own helper-build
 # model and guards via test_ci_nightly_xcode_selection.sh plus
