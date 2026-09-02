@@ -27,7 +27,7 @@ pub trait ControlHandle: Send + Sync {
         params: Value,
     ) -> std::pin::Pin<Box<dyn Future<Output = Option<Value>> + Send + '_>>;
     /// Fire-and-forget (input/resize hot paths); the response line drops.
-    fn send(&self, cmd: &str, params: Value);
+    fn send(&self, cmd: &str, params: Value) -> bool;
     fn on_event(&self, handler: EventHandler);
     /// Fires on unexpected close only (not after `end()`).
     fn on_close(&self, handler: CloseHandler);
@@ -368,12 +368,12 @@ mod unix {
             })
         }
 
-        fn send(&self, cmd: &str, params: Value) {
+        fn send(&self, cmd: &str, params: Value) -> bool {
             if self.shared.closed.load(Ordering::SeqCst) {
-                return;
+                return false;
             }
             let id = self.next_id.fetch_add(1, Ordering::SeqCst);
-            let _ = self.enqueue_line(id, cmd, params, None);
+            self.enqueue_line(id, cmd, params, None)
         }
 
         fn on_event(&self, handler: EventHandler) {
@@ -528,7 +528,7 @@ mod tests {
         accepted_rx.await.expect("wait for control test server");
         let payload = "x".repeat(128 * 1024);
         for index in 0..8 {
-            control.send("send", json!({ "index": index, "payload": payload.clone() }));
+            let _ = control.send("send", json!({ "index": index, "payload": payload.clone() }));
         }
         release_tx.send(()).expect("release control test reader");
         let response = control.request("probe", json!({})).await;
