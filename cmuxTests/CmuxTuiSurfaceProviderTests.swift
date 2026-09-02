@@ -98,6 +98,67 @@ import Testing
         #expect(CmuxTuiSnapshotParser.tabNames(fromSnapshot: snapshot) == ["tab_1": "build loop"])
     }
 
+    @Test func vmOpenWorkspaceSelectorsPreferIdsAndRejectAmbiguousNames() {
+        let machine: [String: Any] = [
+            "id": "vivid-newt",
+            "remote_workspaces": [
+                ["id": "ws-id", "name": "other"],
+                // A mutable name can equal another workspace's id. The id wins.
+                ["id": "ws-other", "name": "ws-id"],
+                ["id": "ws-a", "name": "same"],
+                ["id": "ws-b", "name": "same"],
+            ],
+        ]
+
+        #expect(CMUXCLI.resolveVMRemoteWorkspaceSelector("ws-id", in: machine) == .resolved("ws-id"))
+        #expect(CMUXCLI.resolveVMRemoteWorkspaceSelector("other", in: machine) == .resolved("ws-id"))
+        #expect(CMUXCLI.resolveVMRemoteWorkspaceSelector("same", in: machine) == .ambiguous(["ws-a", "ws-b"]))
+        #expect(CMUXCLI.resolveVMRemoteWorkspaceSelector("missing", in: machine) == .notFound)
+        #expect(CMUXCLI.resolveVMRemoteWorkspaceSelector("ws-id", in: ["id": "vivid-newt"]) == .unavailable)
+    }
+
+    @Test func vmOpenWorkspaceUsesTheSelectedTabView() {
+        let resource: [String: Any] = [
+            "id": "vivid-newt/terminal/term_build",
+            "remote_views": [
+                [
+                    "tab_id": "tab_main",
+                    "workspace": ["id": "ws_main", "name": "main"],
+                    "focused": false,
+                ],
+                [
+                    "tab_id": "tab_api",
+                    "workspace": ["id": "ws_api", "name": "api"],
+                    "focused": true,
+                ],
+            ],
+        ]
+
+        #expect(CMUXCLI.vmRemoteView(in: resource, workspaceID: "ws_api")?["tab_id"] as? String == "tab_api")
+        #expect(CMUXCLI.vmRemoteView(in: resource, workspaceID: "ws_missing") == nil)
+
+        var duplicate = resource
+        duplicate["remote_views"] = [
+            [
+                "tab_id": "tab_a",
+                "workspace": ["id": "ws_main", "name": "main"],
+                "focused": false,
+            ],
+            [
+                "tab_id": "tab_b",
+                "workspace": ["id": "ws_main", "name": "main"],
+                "focused": true,
+            ],
+        ]
+        #expect(CMUXCLI.vmRemoteView(in: duplicate, workspaceID: "ws_main")?["tab_id"] as? String == "tab_b")
+
+        duplicate["remote_views"] = [
+            ["tab_id": "tab_a", "workspace": ["id": "ws_main", "name": "main"], "focused": false],
+            ["tab_id": "tab_b", "workspace": ["id": "ws_main", "name": "main"], "focused": false],
+        ]
+        #expect(CMUXCLI.vmRemoteView(in: duplicate, workspaceID: "ws_main") == nil)
+    }
+
     @Test func cloudRenameWriteThroughTargetsAndNames() throws {
         // The persisted binding wins over projections.
         let bound = CloudWorkspaceRenameWriteThrough.remoteTarget(
@@ -252,6 +313,30 @@ import Testing
             ) == nil
         )
         #expect(CmuxTuiSnapshotParser.resourceRevision(from: [:]) == nil)
+    @Test func synchronizableStateRejectsDuplicateIdentityRows() {
+        var snapshot = Self.sessionSnapshot
+        snapshot["cursor"] = ["generation": "g1", "revision": "1"]
+
+        var duplicateTabs = snapshot
+        duplicateTabs["tabs"] = (Self.sessionSnapshot["tabs"] as! [[String: Any]]) + [
+            ["id": "tab_1", "pane_id": "pane_2", "content_kind": "terminal", "content_id": "term_shell"],
+        ]
+        #expect(CmuxTuiSnapshotParser.state(fromSnapshot: duplicateTabs, machine: Self.machine) == nil)
+
+        var duplicateTerminals = snapshot
+        duplicateTerminals["terminals"] = (Self.sessionSnapshot["terminals"] as! [[String: Any]]) + [
+            ["id": "term_build", "tab_ids": ["tab_1"], "title": "ambiguous", "lifecycle": "running"],
+        ]
+        #expect(CmuxTuiSnapshotParser.state(fromSnapshot: duplicateTerminals, machine: Self.machine) == nil)
+
+        // A repeated tab reference in one terminal is harmless to identity, but
+        // it must not produce duplicate rename targets or duplicate tree rows.
+        var repeatedReference = snapshot
+        repeatedReference["terminals"] = [
+            ["id": "term_one", "tab_ids": ["tab_1", "tab_1"], "title": "one", "lifecycle": "running"],
+        ]
+        let state = CmuxTuiSnapshotParser.state(fromSnapshot: repeatedReference, machine: Self.machine)
+        #expect(state?.terminals.first?.tabIDs == ["tab_1"])
     }
 
     @Test func resourceKindWireFormAcceptsTheOldScreenName() throws {

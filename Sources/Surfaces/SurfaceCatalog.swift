@@ -936,7 +936,11 @@ final class SurfaceCatalog {
             return nil
         }
         if let tabID {
-            guard let view = views.first(where: { $0.tabID == tabID }) else {
+            let matches = views.filter { $0.tabID == tabID }
+            guard matches.count == 1, let view = matches.first else {
+                if matches.count > 1 {
+                    throw SurfaceCatalogError.unavailable(id, reason: "remote tab \(tabID) has ambiguous placement")
+                }
                 throw SurfaceCatalogError.unavailable(id, reason: "remote tab \(tabID) is no longer present")
             }
             if let workspaceID, view.workspace.id != workspaceID {

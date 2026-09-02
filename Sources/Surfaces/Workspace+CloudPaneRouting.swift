@@ -301,10 +301,10 @@ enum CloudWorkspaceRenameWriteThrough {
         guard case .cloud = machine else { return }
         let catalog = SurfaceCatalog.shared
         let snapshot = catalog.snapshot
-        // A malformed or buggy daemon must not crash the main actor by emitting
-        // duplicate ids. Keep the last record in wire order, matching the
-        // snapshot parser's upsert semantics, and let missing relationships fail
-        // closed below.
+        // Synchronizable snapshots reject duplicate identity rows at the parser
+        // boundary. Keep these defensive maps total for legacy callers that may
+        // construct a value directly; missing relationships still fail closed
+        // below instead of selecting a placement by array order.
         let workspacesByID = state.workspaces.reduce(into: [String: CloudVMWorkspaceState]()) {
             $0[$1.id] = $1
         }

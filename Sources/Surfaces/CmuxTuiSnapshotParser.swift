@@ -100,7 +100,8 @@ struct CmuxTuiSnapshotParser: Sendable {
     /// event stream.
     static func state(fromSnapshot snapshot: [String: Any], machine: SurfaceMachineID) -> CloudVMState? {
         guard let cursor = CloudVMCursor(snapshot: snapshot),
-              let rawSnapshot = canonicalJSONData(snapshot)
+              let rawSnapshot = canonicalJSONData(snapshot),
+              identityCollectionsAreUnique(in: snapshot)
         else { return nil }
 
         let workspaces = ((snapshot["workspaces"] as? [[String: Any]]) ?? []).enumerated().compactMap { index, raw -> CloudVMWorkspaceState? in
@@ -158,7 +159,7 @@ struct CmuxTuiSnapshotParser: Sendable {
         }
         let terminals = ((snapshot["terminals"] as? [[String: Any]]) ?? []).compactMap { raw -> CloudVMTerminalState? in
             guard let id = nonEmptyString(raw["id"]) else { return nil }
-            var tabIDs = (raw["tab_ids"] as? [String]) ?? []
+            var tabIDs = uniquePreservingOrder((raw["tab_ids"] as? [String]) ?? [])
             if tabIDs.isEmpty, let tabID = nonEmptyString(raw["tab_id"]) { tabIDs = [tabID] }
             return CloudVMTerminalState(
                 id: id,
@@ -223,6 +224,28 @@ struct CmuxTuiSnapshotParser: Sendable {
             agents: agents,
             otherEntities: otherEntities
         )
+    }
+
+    /// A remote graph is keyed by daemon IDs. Silently choosing the first or last
+    /// duplicate would make a rename or projection target depend on wire order.
+    /// Reject duplicate identity rows at the synchronization boundary so the
+    /// provider takes its bounded full-snapshot recovery path instead.
+    private static func identityCollectionsAreUnique(in snapshot: [String: Any]) -> Bool {
+        for key in ["workspaces", "screens", "panes", "tabs", "terminals", "browsers"] {
+            guard let raw = snapshot[key] else { continue }
+            guard let rows = raw as? [[String: Any]] else { return false }
+            var ids = Set<String>()
+            for row in rows {
+                guard let id = nonEmptyString(row["id"]) else { continue }
+                guard ids.insert(id).inserted else { return false }
+            }
+        }
+        return true
+    }
+
+    private static func uniquePreservingOrder(_ values: [String]) -> [String] {
+        var seen = Set<String>()
+        return values.filter { !$0.isEmpty && seen.insert($0).inserted }
     }
 
     /// Re-derives the compatibility resources from the exact state bytes. No
@@ -370,7 +393,7 @@ struct CmuxTuiSnapshotParser: Sendable {
         var resources: [SurfaceResource] = []
         for raw in terminalsRaw {
             guard var terminal = terminal(fromSnapshotEntry: raw, machine: machine, agents: agentByTerminal) else { continue }
-            var tabIDs = (raw["tab_ids"] as? [String]) ?? []
+            var tabIDs = uniquePreservingOrder((raw["tab_ids"] as? [String]) ?? [])
             if tabIDs.isEmpty, let single = raw["tab_id"] as? String, !single.isEmpty {
                 tabIDs = [single]
             }

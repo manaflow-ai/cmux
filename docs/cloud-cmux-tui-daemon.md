@@ -89,19 +89,14 @@ which is exactly the drop the spike (and any cloud client) must survive.
 Cloud-owned terminals live in the daemon's cmux-tui session (or detached),
 never on a connection-scoped lease.
 
-## Per-provider replacement
+## Freestyle delivery and state ownership
 
-One artifact replaces `cmuxd-remote-linux-amd64` everywhere:
-`cmux-tui-x86_64-unknown-linux-musl` from the existing package lane, pinned by
-sha256, from the artifacts manifest. Freestyle's delivery mechanism is a
-systemd unit in the VM snapshot running the `cmux-devbox-boot` supervisor, with
-the pinned binary baked at `/root/.cmux/bin/cmux-tui`. A Freestyle snapshot is
-a memory image, so the supervisor binds the daemon identity to the platform
-instance id (Firecracker MMDS `instance-id`) and mints a fresh identity on a
-clone; the bake parks the daemon before snapshotting so no live identity is
-ever shared. Create therefore runs no guest bootstrap. (Other providers had
-their own rows here — a template-baked binary and a snapshot entrypoint —
-until they were removed.)
+Freestyle is the only active provider. One pinned
+`cmux-tui-x86_64-unknown-linux-musl` artifact is installed by the Freestyle
+driver at create or restore time, then started by the snapshot's systemd unit.
+The active snapshot and its provenance are recorded in
+`web/services/vms/images/manifest.json`. There is no provider-specific daemon
+protocol or alternate image selector.
 
 The daemon's remote state dir must live on the persistent volume (the machine's
 home; Freestyle runs the daemon as root with `HOME=/root`, so the
@@ -124,33 +119,27 @@ today; it is kept for a future non-root cloud home.
 
 ## Lease/auth integration with the attach-endpoint flow
 
-`POST /api/vm/[id]/attach-endpoint` today returns
-`{transport:"websocket", url, headers, token, session_id, ...}` where `token`
-is a single-use lease the web tier wrote into the VM. With the cmux-tui
-daemon the endpoint returns `{transport:"cmux-remote", route, invitation?}`:
+`POST /api/vm/[id]/attach-endpoint` returns
+`{transport:"cmux-remote", route, token, expiresAtUnix, session, invitation?}`.
+The route is a direct Freestyle IPv6 address on port 1337 for machines with a
+private VPC, or the machine's public IPv6 for legacy public-network machines.
+The provider route token is recorded as a hash in the lease ledger and is not
+used as daemon session authentication. The cmux-tui Noise handshake and the
+enrolled device key authenticate the session. Private-network machines are
+reachable only when the owner's WireGuard tunnel is active.
 
-- `route` is the tokenized preview URL
-  (`wss://<preview-host>/v1/link?bl_preview_token=<token>`). The preview
-  token keeps its current minting and TTLs (12 h attach, 7 d open-port) and
-  its current role: it gates who can reach the listener at all. It is not the
-  session auth. Invitation route hints must be credential-free
-  (`credential_free_route_hints` rejects them), so the tokenized URL travels
-  only in the endpoint response, never inside an invitation.
+- `route` is a `ws://[address]:1337/v1/link` endpoint. It must never be copied
+  into a durable invitation or log. The route posture is read from the VM, so
+  changing the private-network feature flag cannot strand an existing VM.
 - `invitation` is present only when this client device is not yet enrolled
   with this VM's daemon. The endpoint execs `remote enroll create --ttl 300`
-  in the VM (exactly where it writes lease files today) and returns the
-  single-use `cmux://enroll/...` URI. The control plane then approves the
-  pending enrollment it just invited: poll `remote enroll pending` and
-  approve the matching `invitation_id`, which is what the spike script does.
-  A follow-up in cmux-remote makes this a non-racy single step: an
-  owner-created invitation with approval pre-granted (`approval_required` is
-  currently hardcoded `true` in `identity.rs`; the cloud control plane is the
-  owner, so pre-approval is the honest encoding of "the web tier already
-  authenticated this user").
+  in the VM and returns the single-use `cmux://enroll/...` URI. The Mac claims
+  it through `remote connect --invite-file`; the control plane approves the
+  matching invitation through `/cmux-remote/approve`. Approval and device
+  enrollment are separate from the short-lived provider lease.
 - After first enrollment the device key lives in the Mac's client state and
-  reattach needs only the fresh route. Revocation maps to the existing
-  ledger: revoking an attach revokes the device (`remote enroll revoke`) and
-  the preview token.
+  reattach needs only a fresh route and a valid device key. Revocation removes
+  the device enrollment and revokes the provider lease.
 
 Per-VM daemon identity plus per-user device keys give cloud attach the same
 model as every other cmux-tui remote (ssh, iroh, relay), which is what makes
@@ -197,24 +186,22 @@ shared catalog rather than a cloud-specific feature. Multi-attach is safe:
 daemon-side terminals accept multiple attachments and size to the minimum
 grid, matching current cmuxd-remote semantics.
 
-## Rollout
+## Rollout status
 
-Phase 1: ship the cmux-tui daemon alongside cmuxd-remote (second port),
-attach-endpoint returns both
-transports, macOS opts in behind a feature flag. Phase 2: default new
-attaches to `cmux-remote`, keep `websocket` as fallback for one release.
-Phase 3: delete the Go daemon path per provider, then the `daemon/remote`
-tree. Each phase is revertible by flipping the transport default; the two
-daemons share nothing in the VM but the process supervisor.
+The migration is complete for the active Freestyle path. New and restored
+machines install the pinned cmux-tui daemon, expose only `cmux-remote`, and
+use the manual-IO surface path. The old WebSocket PTY gateway and provider
+drivers are removed. Rollback means selecting the previous validated Freestyle
+snapshot in the image manifest, not switching to a second provider or daemon.
 
-Open items, in order: pre-approved invitations in `cmux-remote`; wire the
-attach endpoint (`web/services/vms/drivers/*.ts`) to inject and start the new
-daemon; land `feat-tui-manual-io`'s pump against a `remote connect
---headless` socket; the right-pane catalog. The spike deliberately excludes
-all four.
+Remaining rollout work is operational: run authenticated preview and staging
+create/attach/browser-proxy smoke after each deployment, measure Vercel create
+duration, rotate provider credentials, and finish browser-proxy and cleanup
+hardening. These checks must use the Mock provider in ordinary CI and the real
+Freestyle provider only in the explicit staging smoke job.
 
 
-## Cloud tree and agent routing (2026-08-26)
+## Cloud tree and agent routing (2026-09-02)
 
 The right sidebar's Cloud tab and the CLI share one view of a machine, built
 from the daemon's own session model rather than a cloud-specific catalog:
@@ -231,27 +218,36 @@ from the daemon's own session model rather than a cloud-specific catalog:
 
 The app keeps one headless `cmux-tui remote connect --headless` link per
 awake machine and reads `session current snapshot --json` plus the
-`session current events --jsonl` stream over that link's local socket; the
-tree is push-updated, never polled. Desktop and ports are not cmux-tui
-resources — they are the Mac's own nodes backed by `vm.desktop_open` /
-`vm.port_open` (the same `open-port` + browser-pane path as before).
+`session current events --jsonl` stream over that link's local socket. The
+tree is push-updated, with a bounded full-snapshot repair for a cursor gap or
+unknown event. Desktop and ports are Mac-owned nodes backed by
+`vm.desktop_open` and `vm.port_open`.
+
+The remote graph is keyed by stable daemon IDs. A resource may have several
+`remote_views`, so a terminal shown in two tabs is represented twice with
+`workspace_id` and `tab_id`, while the terminal identity stays one resource.
+The catalog exports its cursor and freshness state. A stale graph can be
+rendered for diagnosis but cannot authorize a new open or rename.
 
 Socket methods (the CLI, the sidebar tree, and agents all go through them):
 
 | Method | Params | Result |
 | --- | --- | --- |
-| `vm.tree` | `{id?, refresh?}` | `{machines: [{id, status, image, desktop, memory_mb?, disk_mb?, link: {state, error?}, workspaces: [{id, name, focused, terminals: [{id, title, cwd?, lifecycle, agent?: {state, source}, open_surface_id?}]}], ports: [{port, label?}]}]}` |
-| `vm.terminal_open` | `{id, terminal_id, workspace_id?, placement?, focus?}` | `{surface_id, workspace_id, reused}` — `workspace_id` is the local target; an existing pane showing the terminal is focused instead of duplicated |
+| `vm.tree` | `{id?, refresh?}` | JSON catalog with `cloud_states` and freshness cursors. Each terminal carries exact `remote_views: [{workspace_id, tab_id, focused}]`; workspaces remain present when empty. |
+| `vm.terminal_open` | `{id, terminal_id, remote_workspace_id?, remote_tab_id?, workspace_id?, placement?, focus?}` | `{surface_id, workspace_id, reused}` — exact remote placement is preserved; an existing pane with the same IDs is focused instead of duplicated |
 | `vm.terminal_new` | `{id, workspace_id?: ws_…, command?: [string], cwd?, name?, open?}` | `{terminal_id, workspace_id, surface_id?}` — a detached terminal in the machine's session |
 | `vm.desktop_open` | `{id, workspace_id?, focus?}` | `{surface_id, url}` |
 | `vm.port_open` | `{id, port, workspace_id?}` | `{surface_id, url}` |
 | `vm.link_socket` | `{id}` | `{socket_path, session}` — the headless link's local mux socket |
+| `vm.tab_rename` | `{id, tab_id, name}` | Renames one exact remote tab placement and publishes the resulting daemon event |
+| `vm.terminal_rename` | `{id, terminal_id, name}` | Explicit compatibility fan-out that renames every tab view of one terminal |
 
 CLI addresses are the tree's lines: `cmux vm tree`, then
 `cmux vm open <machine>[/<ws>[/<term>]]`, `cmux vm open <machine>:desktop`,
-`cmux vm open <machine>:port/<n>`. A terminal opens locally as a pane running
-`cmux-tui attach --terminal <term_…>` against the link socket, so one remote
-terminal renders in one pane with no session chrome.
+`cmux vm open <machine>:port/<n>`. A workspace name is accepted only when it
+is unique; IDs always win. A terminal opens locally as a pane running
+`cmux-tui attach --terminal <term_…>` against the link socket, with the exact
+remote workspace and tab IDs retained in the projection.
 
 Agents route work with the same primitives: `cmux vm route` prints the machine
 `vm run` would choose (sticky per directory → idle pool machine → sleeper →

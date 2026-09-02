@@ -31,6 +31,29 @@ struct SurfaceCatalogTests {
         }
     }
 
+    @Test("Duplicate remote tab placement fails closed")
+    func duplicateRemoteTabPlacementFailsClosed() throws {
+        let machine = SurfaceMachineID.cloud("vivid-newt")
+        let catalog = SurfaceCatalog()
+        let provider = FakeProvider(machine: machine)
+        catalog.register(provider)
+        let id = SurfaceResourceID(machine: machine, kind: .terminal, key: "term_1")
+        var resource = terminal(machine, "term_1")
+        let workspace = SurfaceRemoteWorkspace(id: "ws_1", name: "main", index: 0, focused: true)
+        resource.remoteViews = [
+            SurfaceRemoteView(tabID: "tab_1", workspace: workspace),
+            SurfaceRemoteView(tabID: "tab_1", workspace: workspace),
+        ]
+        catalog.upsert(resource)
+
+        #expect(throws: SurfaceCatalogError.unavailable(
+            id,
+            reason: "remote tab tab_1 has ambiguous placement"
+        )) {
+            try catalog.remoteView(for: id, tabID: "tab_1")
+        }
+    }
+
     /// Lets timeout behavior be tested without waiting on wall-clock time.
     private final class ImmediateClock: Clock, @unchecked Sendable {
         typealias Instant = ContinuousClock.Instant

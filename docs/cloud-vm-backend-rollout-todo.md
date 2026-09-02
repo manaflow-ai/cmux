@@ -2,9 +2,10 @@
 
 This is the scoped todo list for making the Cloud VM backend production-ready with application logic running in the existing Vercel `manaflow/cmux` project.
 
-> **2026-09-02:** every other Cloud VM provider has been removed; Freestyle is
-> the only one. Completed `[x]` items below are kept as a record of what was
-> done at the time and still name providers that no longer exist.
+> **2026-09-02:** Freestyle on the public platform (`api.freestyle.sh`) is the
+> only active Cloud VM provider. E2B, Blaxel, Daytona, the old `cmuxd-remote`
+> gateway, and Rivet actors are historical migration records. They are not
+> valid values for current deployment or dogfood commands.
 
 ## Current State
 
@@ -20,9 +21,51 @@ This is the scoped todo list for making the Cloud VM backend production-ready wi
   - `cloud_vms`
   - `cloud_vm_leases`
   - `cloud_vm_usage_events`
-- WebSocket PTY/browser proxy data paths talk to provider VM endpoints after the REST handshake.
+- WebSocket PTY and browser proxy data paths use the authenticated `cmux-remote`
+  link after the REST handshake.
 - No separate AWS app server is required for the current version.
 - A separate `manaflow/cmux-staging` Vercel project exists for staging.
+
+The active image is the validated Freestyle snapshot
+`freestyle-cmux-devbox-20260902b` (`sh-749d7644e9b04ca38c0718b56a9b767b`). The
+previous public snapshot `freestyle-cmux-devbox-20260902a`
+(`sh-08be343bf2b54b4bb0e5226b97eaa6c4`) is the rollback image. The retired beta
+snapshot is kept in the manifest only to preserve provenance.
+
+## State and rename synchronization contract
+
+The cmux-tui daemon owns the canonical remote graph: machines contain
+workspaces, workspaces contain tab views, and tab views point to terminals,
+browsers, and agents. The macOS app must not create a second remote graph.
+
+- `CloudMachineLink` owns one authenticated subscription per VM, its cursor,
+  reconnect policy, and bounded recovery.
+- `CloudVMState` is one immutable graph with a `(generation, revision)` cursor.
+  `SurfaceCatalog` installs that graph and its derived rows in one main-actor
+  transaction, so UI, CLI, and restored projections read the same version.
+- Full snapshots are authoritative. A delta is accepted only when it is
+  contiguous and complete. Unknown or malformed events are barriers, trigger a
+  coalesced snapshot repair, and stop after five barriers with an explicit
+  warning. Recovery never loops without a bound.
+- IDs are identity and names are labels. Resolve an exact ID first. Resolve a
+  name only when it is unique. Ambiguous or stale placement fails closed.
+- A tab rename changes one exact tab placement. A terminal rename is an
+  explicit compatibility operation that changes every placement of that
+  terminal. Workspace rename uses revision compare-and-set and retries once
+  only when no other client changed the old name.
+- Remote events reconcile every local projection that stores the exact remote
+  workspace and tab IDs. Local write-through uses the same mutation path and
+  never echoes a daemon-originated update back to the daemon.
+- Freshness is explicit: `current`, `stale`, and `unavailable` are distinct
+  states. A cached graph may be displayed as stale, but it may not authorize a
+  new placement or rename.
+
+Agent-facing controls are JSON-first and composable: `cmux vm tree --json`,
+`surface.catalog`, `surface.project`, `vm tab rename`, and the explicit
+`vm terminal rename` compatibility command. The full graph costs more parsing
+than a row-only cache, but it prevents divergent identity maps. Derived rows
+keep UI updates small. Bounded recovery caps provider and CPU use, with an
+operator-visible warning when the event stream remains incompatible.
 
 ## Current Blockers
 
@@ -42,11 +85,17 @@ This is the scoped todo list for making the Cloud VM backend production-ready wi
   - `OTEL_SERVICE_NAME`
   - `OTEL_EXPORTER_OTLP_ENDPOINT`
   - `OTEL_EXPORTER_OTLP_HEADERS`
-- [ ] Publish a new Freestyle snapshot with cmuxd-remote started with `--rpc-auth-lease-file`.
-- [ ] Resolve Freestyle snapshot creation returning provider `INTERNAL_ERROR`.
-- [ ] Promote the new Freestyle snapshot to staging and rerun Freestyle create/attach/browser proxy smoke.
-- [x] Keep Freestyle creates disabled and non-default until the current snapshot supports RPC/browser proxy.
-- [x] Use E2B as the staging and production default provider while Freestyle is blocked.
+- [x] Publish and validate the current Freestyle snapshot with the cmux-tui daemon.
+- [x] Promote the validated public snapshot configuration to the active provider
+  manifest and local dogfood environment.
+- [x] Verify Freestyle create/attach, `cmux-remote` session state, and tab/workspace
+  rename persistence against a live sandbox.
+- [ ] Run authenticated preview and staging create/attach/browser-proxy smoke
+  after the next deployment.
+- [ ] Decide whether provider create needs an asynchronous status flow after
+  measuring the Vercel function duration on a real Freestyle create.
+- [ ] Rotate the Freestyle key and complete the secret-leak audit before a broad
+  production rollout.
 
 ## Current Operational State
 
@@ -55,9 +104,10 @@ This is the scoped todo list for making the Cloud VM backend production-ready wi
 - [x] GitHub OIDC provider `token.actions.githubusercontent.com` exists in AWS.
 - [x] Staging migration role is scoped to `repo:manaflow-ai/cmux:environment:cloud-vm-staging` and the staging Aurora cluster resource id.
 - [x] Production migration role is scoped to `repo:manaflow-ai/cmux:environment:cloud-vm-production` and the production Aurora cluster resource id.
-- [x] Staging and production Cloud VM default provider are set to E2B.
-- [x] Freestyle creates are disabled in staging and production with `CMUX_VM_FREESTYLE_ENABLED=0`.
-- [x] Staging E2B create, WebSocket attach, and destroy smoke passed.
+- [x] Staging and production Cloud VM default provider are set to Freestyle.
+- [x] Freestyle creates are enabled in the verified deployment configuration.
+- [x] Freestyle create, `cmux-remote` attach, state recovery, and rename smoke passed
+  without creating a production VM during the audit.
 - [x] Production auth/list smoke passed without creating a production VM.
 - [x] Axiom/OpenTelemetry env is set and redeployed in staging and production.
 - [x] GitHub Cloud VM smoke workflows no longer require `VERCEL_TOKEN`.
@@ -77,18 +127,18 @@ These are already configured in Vercel for development, preview, and production:
 
 - [x] Use a dedicated Vercel staging project instead of sharing preview secrets.
 - [x] Add a global VM create kill switch, `CMUX_VM_CREATE_ENABLED`.
-- [x] Add per-provider kill switches:
-  - `CMUX_VM_E2B_ENABLED`
-  - `CMUX_VM_FREESTYLE_ENABLED`
-- [x] Set kill switches to enabled values in `manaflow/cmux` production and
-  `manaflow/cmux-staging` production.
+- [x] Add the Freestyle provider kill switch, `CMUX_VM_FREESTYLE_ENABLED`.
+- [x] Set the global and Freestyle create switches to enabled values in the
+  verified deployment configuration.
 - [ ] Add a preview allowlist before paid provider calls if preview uses real provider keys:
   - Stack user ids
   - Stack org ids later, if org billing exists
-- [ ] Set `CMUX_VM_DEFAULT_PROVIDER` in Vercel development, preview, and production.
-- [ ] Set `FREESTYLE_API_KEY` in Vercel preview and production.
-- [ ] Set `FREESTYLE_SANDBOX_SNAPSHOT` in Vercel preview and production.
-- [ ] Set Axiom/OpenTelemetry env in Vercel preview and production:
+- [x] Set `CMUX_VM_DEFAULT_PROVIDER=freestyle` in the verified local and deployed
+  environments.
+- [x] Set `FREESTYLE_API_KEY` and `FREESTYLE_SANDBOX_SNAPSHOT` in the verified
+  provider environments. Values are never printed by audit tools.
+- [x] Set Axiom/OpenTelemetry env in the verified staging and production
+  environments:
   - `OTEL_SERVICE_NAME`
   - `OTEL_EXPORTER_OTLP_ENDPOINT`
   - `OTEL_EXPORTER_OTLP_HEADERS`
@@ -99,13 +149,13 @@ These are already configured in Vercel for development, preview, and production:
   - `https://cmux.com`
   - the Vercel preview domain pattern used by this project
   - local `CMUX_PORT` development callback URLs
-- [ ] Redeploy Vercel preview after env injection.
-- [ ] Smoke test preview:
+- [ ] Redeploy Vercel preview after the rename branch merges.
+- [ ] Smoke test the deployed preview:
   - `cmux auth login`
   - `cmux vm new --provider freestyle`
   - `cmux vm attach <id>`
   - browser proxy against a simple HTTP server inside the VM
-- [ ] Redeploy production only after preview smoke tests pass.
+- [ ] Redeploy production only after preview and staging smoke tests pass.
 
 ## Phase 2: Local Secret Parity
 
@@ -131,24 +181,21 @@ These are already configured in Vercel for development, preview, and production:
 
 ## Phase 3: Image Manifest and Rollback
 
-Phase 1 should keep exact image IDs in Vercel env vars. This gives simple rollback by changing env vars and redeploying.
+Keep the exact Freestyle snapshot ID in `FREESTYLE_SANDBOX_SNAPSHOT`. This gives
+simple rollback by changing one env var and redeploying.
 
 - [x] Add a checked-in image manifest, `web/services/vms/images/manifest.json`.
 - [x] Stop relying on hardcoded default image ids in deployed environments. Production and preview
-  should fail closed if the active E2B/Freestyle image env vars are missing or not found in the
-  manifest.
-- [x] Record every known-good image version with:
+  fail closed if the active Freestyle snapshot env var is missing or invalid.
+- [x] Record every known-good Freestyle snapshot with:
   - image version
-  - E2B template id
   - Freestyle snapshot id
-  - cmuxd-remote commit
+  - cmux-tui daemon artifact provenance
   - build timestamp
   - builder script version
   - validation status
   - notes for known limitations
-- [x] Add docs for the active env selectors:
-  - `E2B_CMUXD_WS_TEMPLATE`
-  - `FREESTYLE_SANDBOX_SNAPSHOT`
+- [x] Add docs for the active env selector, `FREESTYLE_SANDBOX_SNAPSHOT`.
 - [x] Add docs for rollback:
   - choose previous known-good manifest entry
   - set Vercel env vars back to that entry
@@ -168,26 +215,26 @@ Phase 1 should keep exact image IDs in Vercel env vars. This gives simple rollba
 ## Phase 4: Image Build and Promotion Workflow
 
 - [x] Make image build script output a manifest entry instead of relying on chat notes.
-- [x] Build E2B template and Freestyle snapshot from the same cmuxd-remote commit.
+- [x] Build the Freestyle snapshot from the pinned cmux-tui daemon artifact.
 - [x] Record artifact provenance:
-  - cmuxd-remote git commit
-  - cmuxd-remote build command
+  - cmux-tui release/artifact manifest entry
+  - cmux-tui install and bootstrap command
   - binary SHA256
-  - R2 object key or build artifact URL used by Freestyle snapshot creation
-- [ ] Run provider smoke tests after image build:
+  - artifact URL used by Freestyle snapshot creation
+- [ ] Run Freestyle smoke tests after image build:
   - shell starts
   - WebSocket PTY authenticates
   - command execution works
   - browser proxy can reach an HTTP server inside the VM
   - locale/sudo/python sanity checks pass
-- [ ] Add the validated manifest entry in the same PR as any image id update.
-- [ ] Promote images in this order:
+- [ ] Add the validated manifest entry in the same PR as any snapshot ID update.
+- [ ] Promote the snapshot in this order:
   - preview/staging env vars
   - preview smoke tests
   - production env vars
   - production redeploy
   - production smoke tests
-- [ ] Do not delete old templates/snapshots during the same promotion.
+- [ ] Do not delete old Freestyle snapshots during the same promotion.
 
 ## Phase 5: VM Create Rate Limits
 
@@ -262,11 +309,12 @@ This should be a follow-up after the current VM PR unless billing becomes a laun
   - Freestyle dashboard/API budget alert
   - Vercel spend alert for function usage
 
-## Phase 7: Database and Rivet Removal Plan
+## Phase 7: Database Control Plane and Legacy Removal
 
-Target outcome: remove Rivet completely for the Cloud VM feature. The current VM API does not use
-Rivet for user-facing realtime, and the PTY/browser WebSockets already talk to provider VM endpoints
-after the Vercel REST handshake. Rivet is only a temporary stateful control-plane convenience.
+Postgres is the durable control plane for Cloud VMs. The current VM API has no
+Rivet dependency. PTY and browser traffic uses the authenticated `cmux-remote`
+link after the Vercel REST handshake. The remaining work is cleanup and
+operational proof, not a provider migration.
 
 - [x] Add Postgres as the durable control plane foundation for Cloud VMs.
 - [x] Use Drizzle for TypeScript schema and migrations.
@@ -297,7 +345,7 @@ after the Vercel REST handshake. Rivet is only a temporary stateful control-plan
   - a unique DB constraint on `(user_id, idempotency_key)`
   - `status = provisioning | running | failed | destroyed`
   - a provider VM id recorded once available
-- [x] Do not use Rivet for create retries. Vercel can safely retry when the request includes an
+- [x] Do not use an actor for create retries. Vercel can safely retry when the request includes an
   idempotency key and the DB row is the source of truth.
 - [x] Define create retry behavior:
   - first request inserts a `provisioning` row
@@ -318,8 +366,9 @@ after the Vercel REST handshake. Rivet is only a temporary stateful control-plan
   - expired lease cleanup
   - orphan provider VM cleanup
   - stuck provisioning cleanup
-- [x] No Rivet actor migration is needed for new Cloud VM state. If pre-merge actor state existed,
-  treat those VMs as pre-production and clean them up provider-side.
+- [x] No legacy actor migration is needed for new Cloud VM state. If pre-merge
+  actor state existed, treat those VMs as pre-production and clean them up
+  provider-side.
 - [x] Remove Rivet env requirements after the DB-backed routes are live:
   - `RIVET_ENDPOINT`
   - `RIVET_PUBLIC_ENDPOINT`
@@ -332,9 +381,10 @@ after the Vercel REST handshake. Rivet is only a temporary stateful control-plan
 
 ## Phase 8: CI/CD Guardrails
 
-- [ ] PR checks should run web typecheck and Bun tests.
+- [ ] PR checks should run web typecheck, Bun tests, and the remote-state contract tests.
 - [ ] PR checks should not call paid providers by default.
-- [ ] Provider tests should use a `MockVMProvider` by default.
+- [ ] Provider tests should use a `MockVMProvider` by default. Only the explicit
+  staging smoke job may call Freestyle.
 - [ ] Staging smoke tests may call real Freestyle with tiny quotas.
 - [ ] Vercel preview checks should verify the project root is still `web`.
 - [ ] Add a CI check that required deployed env var names are documented in `web/.env.example` and
@@ -351,14 +401,14 @@ after the Vercel REST handshake. Rivet is only a temporary stateful control-plan
 - [ ] Add or verify spans for:
   - VM create route
   - provider create
-  - actor create
+  - control-plane create transaction
   - attach endpoint minting
   - WebSocket attach
   - browser proxy startup
   - provider errors
   - rate-limit blocks
 - [ ] Add dashboards or saved queries for:
-  - VM create duration by provider
+  - VM create duration for Freestyle
   - provider failure rate
   - attach latency
   - browser proxy failures
@@ -378,11 +428,24 @@ after the Vercel REST handshake. Rivet is only a temporary stateful control-plan
 - [ ] Add production promotion instructions.
 - [ ] Add Vercel environment variable audit instructions.
 - [ ] Add `CMUX_VM_CREATE_ENABLED` and provider kill-switch docs.
-- [ ] Add security notes for:
-  - Stack Auth bearer plus refresh tokens
-  - internal Rivet header
-  - signed actor params
-  - provider attach lease handling
+- [x] Add security notes for Stack Auth bearer plus refresh tokens, provider
+  attach leases, and `cmux-remote` invitation/device-key handling.
+- [ ] Document secret redaction for provider keys, attach tokens, and daemon
+  startup commands.
 - [ ] Add a license/package-boundary note if future backend-only code is intended to use a different
   license from the rest of the repo.
-- [ ] Add a future `cmux-infra` or `backend-rollout` skill so agents follow this workflow consistently.
+- [ ] Add a future `cmux-infra` or `backend-rollout` skill so agents follow this
+  workflow consistently, including the state/rename contract above.
+
+## Historical migration record
+
+The following systems are retained only for auditability and rollback history:
+
+- E2B, Blaxel, and Daytona provider adapters and image selectors were removed.
+- The old `cmuxd-remote` WebSocket gateway and its lease-file protocol were
+  replaced by the cmux-tui daemon and `cmux-remote` transport.
+- Rivet actor routes and state were replaced by Postgres route handlers.
+
+Do not restore these names to deployment env, provider selection, or new image
+build instructions. Historical references in migration files, audit tests, and
+the daemon spike document must remain labelled as historical.

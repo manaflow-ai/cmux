@@ -59744,6 +59744,40 @@
         }
       }
     },
+    "cli.vm.open.workspaceAmbiguous": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ has multiple workspaces named '%2$@'. Use a workspace ID from cmux vm tree %1$@."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ には '%2$@' という名前のワークスペースが複数あります。cmux vm tree %1$@ のワークスペース ID を使用してください。"
+          }
+        }
+      }
+    },
+    "cli.vm.open.workspaceUnavailable": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Workspace state for %1$@ is unavailable. Reconnect and retry."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ のワークスペース状態を取得できません。再接続してから再試行してください。"
+          }
+        }
+      }
+    },
     "cli.vm.route.wouldProvision": {
       "extractionState": "manual",
       "localizations": {
