@@ -12,18 +12,45 @@ When we change the fork, update this document and the parent submodule SHA.
 
 ## Current fork changes
 
-The submodule pinned by this branch is `466f85867`, reachable from fork `main`.
-It carries the renderer/API compatibility pin plus the Fish SSH feature-gating
-fix (`fd13a3fc2`): the embedded Ghostty CLI wrapper is installed whenever
-either `ssh-env` or `ssh-terminfo` is enabled. The pin includes the prior fork
-changes below, including tokened iOS render dispositions, VT formatter cursor
-restoration, VT stream-boundary visibility, and Hangul canonical font
-resolution.
+The submodule pinned by this branch is `431f5fea0`, from
+https://github.com/manaflow-ai/ghostty/pull/213. It carries the clear-screen
+ordering fix on top of the renderer/API compatibility pin plus the Fish SSH
+feature-gating fix (`fd13a3fc2`): the embedded Ghostty CLI wrapper is installed
+whenever either `ssh-env` or `ssh-terminfo` is enabled. The pin includes the
+prior fork changes below, including tokened iOS render dispositions, VT
+formatter cursor restoration, VT stream-boundary visibility, and Hangul
+canonical font resolution. Merge PR #213 into fork `main` before landing this
+submodule pointer.
 
 The corresponding universal ReleaseFast GhosttyKit archive is published at
-https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-466f8586749216b686c5397d9f03e10eac1955c4-crashsubdir-cmux-crash-sentry-off-v1
-with SHA-256 `a27c76e786da0b625b4cab8c0e0ae052e559bbf598fecca1935087b262844afb`
+https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-431f5fea06418c60a73da44c30363fe565d50866-crashsubdir-cmux-crash-sentry-off-noi18n-v2
+with SHA-256 `ad8d03dc7fd71023ffb11175c160989723add6cc50ca7a6421c04e97665da116`
 pinned in `scripts/ghosttykit-checksums.txt`.
+
+### Clear-screen scrollback ordering
+
+- Pull request:
+  - https://github.com/manaflow-ai/ghostty/pull/213
+- Commit: `431f5fea0` (terminal: clear_screen erases scrollback after the
+  screen, not before)
+- Files:
+  - `src/terminal/Terminal.zig`
+  - `src/termio/Termio.zig`
+- Summary:
+  - `Terminal.clearScreen(history)` owns screen clearing. At a shell prompt it
+    erases the visible screen before scrollback, so one screen cannot survive.
+    Non-prompt behavior stays unchanged, and alternate-screen clear remains a
+    no-op.
+  - `Termio.clearScreen` delegates under the renderer mutex and emits a form
+    feed only when the terminal reports a prompt.
+- Conflict note:
+  - If upstream changes these clear-screen paths, preserve the visible-screen
+    then scrollback ordering and the alternate-screen no-op. Drop this fork
+    patch when an equivalent upstream fix lands.
+- Artifact:
+  - https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-431f5fea06418c60a73da44c30363fe565d50866-crashsubdir-cmux-crash-sentry-off-noi18n-v2
+  - SHA-256 `ad8d03dc7fd71023ffb11175c160989723add6cc50ca7a6421c04e97665da116`
+    is pinned in `scripts/ghosttykit-checksums.txt`.
 
 ### iOS tokened render disposition and nonblocking prompt reveal
 
