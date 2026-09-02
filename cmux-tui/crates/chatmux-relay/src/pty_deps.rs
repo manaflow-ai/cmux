@@ -1465,6 +1465,43 @@ mod tests {
     use std::sync::{Arc as TestArc, Barrier, Mutex as TestMutex, mpsc};
     use std::thread;
 
+    #[tokio::test]
+    async fn cancellation_before_pty_handoff_publishes_exit_to_late_subscriber() {
+        let deps = RealPtyDeps::new(HashMap::new());
+        let cancellation = CancellationToken::new();
+        cancellation.cancel();
+        let permit = OpenPermit::new(
+            std::sync::Arc::new(tokio::sync::Semaphore::new(1))
+                .acquire_owned()
+                .await
+                .expect("open permit"),
+        );
+        let handle = deps
+            .spawn_pty(
+                SpawnSpec {
+                    file: "/bin/sh".to_owned(),
+                    args: Vec::new(),
+                    cols: 80,
+                    rows: 24,
+                    cwd: std::env::temp_dir(),
+                    env: HashMap::new(),
+                    cancellation: cancellation.clone(),
+                },
+                cancellation,
+                permit,
+            )
+            .await;
+        let (exit_tx, exit_rx) = mpsc::channel();
+        handle.output.subscribe(
+            Arc::new(|_| {}),
+            Arc::new(move |code| exit_tx.send(code).expect("exit receiver is waiting")),
+        );
+        assert_eq!(
+            exit_rx.recv_timeout(Duration::from_secs(1)).expect("cancelled PTY must terminate"),
+            1
+        );
+    }
+
     struct TestControl {
         kills: TestArc<AtomicUsize>,
         drops: TestArc<AtomicUsize>,

@@ -1574,6 +1574,79 @@ mod cancellation_tests {
     }
 }
 
+#[cfg(test)]
+mod managed_hello_tests {
+    use super::*;
+    use futures_util::{SinkExt as _, StreamExt as _};
+    use tokio::net::TcpListener;
+    use tokio_tungstenite::accept_async;
+
+    #[tokio::test]
+    async fn invalid_managed_hello_trust_cannot_mutate_enrollment_state() {
+        let listener = TcpListener::bind("127.0.0.1:0").await.expect("bind test backend");
+        let address = listener.local_addr().expect("test backend address");
+        let server = tokio::spawn(async move {
+            let (stream, _) = listener.accept().await.expect("relay connection");
+            let mut socket = accept_async(stream).await.expect("websocket handshake");
+            let _ = socket.next().await.expect("hello frame");
+            socket
+                .send(Message::Text(
+                    serde_json::json!({
+                        "version": FRAME_VERSION,
+                        "type": "hello_accepted",
+                        "relayProtocolVersion": advertised_protocol(),
+                        "heartbeatIntervalMs": 1000,
+                        "machineName": "managed-test",
+                        "scope": "managed",
+                        "trust": "not-a-trust-level",
+                        "ownerUserId": "attacker-owner",
+                        "managedSessionToken": "new-managed-session-token-12345678901234567890"
+                    })
+                    .to_string()
+                    .into(),
+                ))
+                .await
+                .expect("send hello acceptance");
+        });
+
+        let original_token = "original-managed-token-12345678901234567890".to_owned();
+        let mut config = Config {
+            backend: format!("http://{address}"),
+            device_id: "device".to_owned(),
+            token: original_token.clone(),
+            trust: Some("supervised".to_owned()),
+            owner_user_id: Some("original-owner".to_owned()),
+            managed: Some(crate::config::ManagedIdentity {
+                client: "client".to_owned(),
+                org_id: "org".to_owned(),
+                target_ref: "target".to_owned(),
+                generation: "generation".to_owned(),
+                provider: "provider".to_owned(),
+            }),
+            ..Config::default()
+        };
+        let mut state = SessionState { first_connect: true, first_run: true, managed: true };
+        let runtime = SessionRuntime::new();
+        let cancellation = CancellationToken::new();
+        let result = relay_session(
+            &mut config,
+            Path::new("/tmp/cmux-relay-invalid-managed-hello-test.json"),
+            &mut state,
+            &runtime,
+            &cancellation,
+        )
+        .await;
+
+        assert!(result.is_err(), "invalid trust must reject the connection");
+        assert_eq!(config.token, original_token);
+        assert!(!config.enrollment_claimed);
+        assert_eq!(config.trust.as_deref(), Some("supervised"));
+        assert_eq!(config.owner_user_id.as_deref(), Some("original-owner"));
+        cancellation.cancel();
+        let _ = server.await;
+    }
+}
+
 #[cfg(all(test, unix))]
 mod tunnel_authority_tests {
     use super::{SessionRuntime, TunnelAuth, reconcile_tunnel_authority};
