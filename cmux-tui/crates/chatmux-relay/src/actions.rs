@@ -1140,7 +1140,7 @@ impl ProcessSupervisor {
             lifecycle.state = SupervisorState::Closing;
             std::mem::take(&mut lifecycle.tasks)
         };
-        for task in tasks {
+        for task in &tasks {
             task.cancellation.cancel();
         }
         for task in tasks {
@@ -1267,6 +1267,7 @@ async fn run_spec(
     let mut final_wait_deadline: Option<std::pin::Pin<Box<tokio::time::Sleep>>> = None;
     let mut wait_retry_deadline: Option<std::pin::Pin<Box<tokio::time::Sleep>>> = None;
     let mut group_kill_confirmed = false;
+    let mut scope_settled = false;
     let mut phase = ProcessPhase::Running;
     loop {
         // A timed-out process group still needs its escalation pass even when
@@ -1299,6 +1300,10 @@ async fn run_spec(
                     #[cfg(not(unix))]
                     signal_process_tree(pid, false);
                     kill_deadline = Some(Box::pin(tokio::time::sleep(
+                        std::time::Duration::from_millis(250),
+                    )));
+                } else if (stdout_open || stderr_open) && drain_deadline.is_none() {
+                    drain_deadline = Some(Box::pin(tokio::time::sleep(
                         std::time::Duration::from_millis(250),
                     )));
                 }
@@ -1337,12 +1342,13 @@ async fn run_spec(
                 if exited.is_none()
                     && wait_retry_deadline.is_none()
                     && kill_deadline.is_none()
-                    && phase.may_wait(timed_out, cancelled, stdout_open, stderr_open) => {
+                    && phase.may_wait(timed_out, cancelled, stdout_open, stderr_open)
+                    && (phase != ProcessPhase::Waiting || scope_settled) => {
                 // The child is gone, but descendants may still own the output
                 // pipes. Preserve a timeout escalation that is already in
                 // flight, and bound the remaining drain after a timeout.
                 final_wait_deadline = None;
-                if timed_out && (stdout_open || stderr_open) && drain_deadline.is_none() {
+                if (timed_out || cancelled) && (stdout_open || stderr_open) && drain_deadline.is_none() {
                     drain_deadline = Some(Box::pin(tokio::time::sleep(
                         std::time::Duration::from_millis(250),
                     )));
@@ -1430,11 +1436,20 @@ async fn run_spec(
                         if !group_kill_confirmed {
                             group_kill_confirmed = child.start_kill().is_ok();
                         }
+                        scope_settled = group_kill_confirmed;
                     }
                     #[cfg(not(unix))]
                     {
                         signal_process_tree(pid, true);
-                        group_kill_confirmed = true;
+                        #[cfg(windows)]
+                        {
+                            scope_settled = job.as_ref().map(WindowsJob::is_signaled).unwrap_or(true);
+                        }
+                        #[cfg(not(windows))]
+                        {
+                            scope_settled = true;
+                        }
+                        group_kill_confirmed = scope_settled;
                     }
                     phase = ProcessPhase::Waiting;
                 }
@@ -1590,6 +1605,17 @@ impl WindowsJob {
                 1,
             )
         };
+    }
+
+    fn is_signaled(&self) -> bool {
+        use std::os::windows::io::AsRawHandle;
+        const WAIT_OBJECT_0: u32 = 0;
+        unsafe {
+            windows_sys::Win32::System::Threading::WaitForSingleObject(
+                self.handle.as_raw_handle(),
+                0,
+            ) == WAIT_OBJECT_0
+        }
     }
 }
 
