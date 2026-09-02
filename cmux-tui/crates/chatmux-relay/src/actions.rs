@@ -2060,6 +2060,39 @@ mod tests {
         assert_eq!(clamp_timeout(Some(&json!(-5))), DEFAULT_TIMEOUT_MS);
     }
 
+    #[tokio::test]
+    async fn process_supervisor_closes_after_owned_task_finishes() {
+        let supervisor = Arc::new(ProcessSupervisor::new());
+        let completed = Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let task_completed = Arc::clone(&completed);
+        let outcome = supervisor
+            .spawn(async move {
+                tokio::time::sleep(std::time::Duration::from_millis(5)).await;
+                task_completed.store(true, std::sync::atomic::Ordering::Release);
+                RunOutcome::Done { exit_code: 0, output: String::new() }
+            })
+            .expect("open supervisor admits process");
+        supervisor.shutdown().await;
+        assert!(completed.load(std::sync::atomic::Ordering::Acquire));
+        assert!(matches!(outcome.await, Ok(RunOutcome::Done { exit_code: 0, .. })));
+        assert_eq!(supervisor.state(), SupervisorState::Closed);
+    }
+
+    #[tokio::test]
+    async fn process_supervisor_rejects_new_tasks_after_close() {
+        let supervisor = Arc::new(ProcessSupervisor::new());
+        supervisor.shutdown().await;
+        assert!(supervisor
+            .spawn(async { RunOutcome::Done { exit_code: 0, output: String::new() } })
+            .is_none());
+    }
+
+    #[test]
+    fn wait_error_state_distinguishes_already_reaped() {
+        assert_eq!(WaitState::from_wait_error(true), WaitState::AlreadyReaped);
+        assert_eq!(WaitState::from_wait_error(false), WaitState::Retry);
+    }
+
     #[test]
     fn scoped_file_capability_refusal_is_typed_and_fail_closed() {
         let roots = vec!["/srv/work".to_owned()];
