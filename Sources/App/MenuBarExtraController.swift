@@ -251,26 +251,48 @@ final class MenuBarExtraController: NSObject, NSMenuDelegate {
         let insertionIndex = menu.index(of: showNotificationsItem)
         guard insertionIndex >= 0 else { return }
 
-        for (offset, notification) in recentNotifications.enumerated() {
-            let tabTitle = AppDelegate.shared?.tabTitle(for: notification.tabId)
-            let item = makeNotificationItem(notification: notification, tabTitle: tabTitle)
-            menu.insertItem(item, at: insertionIndex + offset)
-            notificationItems.append(item)
+        // Group into Today / Yesterday / Earlier, inserting a section header
+        // before each group so the menu-bar list reads the same as the popover
+        // and in-app page. Headers are tracked in `notificationItems` so they
+        // are cleared and rebuilt together with the cards.
+        var offset = 0
+        for group in NotificationPresentation.grouped(recentNotifications) {
+            let header = makeSectionHeaderItem(title: group.title)
+            menu.insertItem(header, at: insertionIndex + offset)
+            notificationItems.append(header)
+            offset += 1
+            for notification in group.notifications {
+                let tabTitle = AppDelegate.shared?.tabTitle(for: notification.tabId)
+                let item = makeNotificationItem(notification: notification, tabTitle: tabTitle)
+                menu.insertItem(item, at: insertionIndex + offset)
+                notificationItems.append(item)
+                offset += 1
+            }
         }
     }
 
-    private func makeNotificationItem(notification: TerminalNotification, tabTitle: String?) -> NSMenuItem {
-        let item = NSMenuItem(title: "", action: #selector(openNotificationItemAction(_:)), keyEquivalent: "")
-        item.target = self
-        item.attributedTitle = MenuBarNotificationLineFormatter.attributedTitle(notification: notification, tabTitle: tabTitle)
-        item.toolTip = MenuBarNotificationLineFormatter.tooltip(notification: notification, tabTitle: tabTitle)
-        item.representedObject = NotificationMenuItemPayload(notification: notification)
+    private func makeSectionHeaderItem(title: String) -> NSMenuItem {
+        if #available(macOS 14.0, *) {
+            return NSMenuItem.sectionHeader(title: title)
+        }
+        let item = NSMenuItem(title: title, action: nil, keyEquivalent: "")
+        item.isEnabled = false
         return item
     }
 
-    @objc private func openNotificationItemAction(_ sender: NSMenuItem) {
-        guard let payload = sender.representedObject as? NotificationMenuItemPayload else { return }
-        onOpenNotification(payload.notification)
+    private func makeNotificationItem(notification: TerminalNotification, tabTitle: String?) -> NSMenuItem {
+        // Use a custom view so the notification can carry its own tinted "card"
+        // background — a native menu item can only style its text. The view
+        // owns the click (a custom item view doesn't route through the item's
+        // target/action), so it fires `onOpenNotification` on mouseDown.
+        let item = NSMenuItem(title: "", action: nil, keyEquivalent: "")
+        let onOpen = onOpenNotification
+        item.view = NotificationMenuItemView(notification: notification, tabTitle: tabTitle) {
+            onOpen(notification)
+        }
+        item.toolTip = MenuBarNotificationLineFormatter.tooltip(notification: notification, tabTitle: tabTitle)
+        item.representedObject = NotificationMenuItemPayload(notification: notification)
+        return item
     }
 
     @discardableResult
@@ -784,5 +806,249 @@ enum MenuBarIconRenderer {
             height: rect.height
         )
         (text as NSString).draw(in: textRect, withAttributes: attrs)
+    }
+}
+
+/// A premium-looking custom view for a notification row inside the menu-bar
+/// dropdown. A native `NSMenuItem` can only style its text, so it can't carry
+/// its own background; giving the item a custom `view` lets us draw a subtle
+/// tinted "card" behind each notification, an icon chip, and a relative
+/// timestamp so notifications stand out from the plain command items around
+/// them. Modeled on `MouseDownMenuItemView`: full-width so the highlight spans
+/// the menu, hover tracking, and `mouseDown` cancels menu tracking then fires
+/// the open action (a custom item view does not route through the item's
+/// target/action automatically).
+@MainActor
+final class NotificationMenuItemView: NSView {
+    private static let defaultWidth: CGFloat = 320
+    private static let cardInsetH: CGFloat = 6
+    private static let cardInsetV: CGFloat = 2
+    private static let cardCornerRadius: CGFloat = 8
+    private static let contentPadH: CGFloat = 10
+    private static let contentPadV: CGFloat = 8
+    private static let chipSize: CGFloat = 26
+    private static let chipCornerRadius: CGFloat = 6
+    private static let chipToTextSpacing: CGFloat = 10
+
+    private let notification: TerminalNotification
+    private let action: () -> Void
+
+    private let chipContainer = NSView()
+    private let chipImageView = NSImageView()
+    private let titleLabel = NSTextField(labelWithString: "")
+    private let timeLabel = NSTextField(labelWithString: "")
+    private let bodyLabel = NSTextField(labelWithString: "")
+    private let workspaceLabel = NSTextField(labelWithString: "")
+    private let unreadDot = NSView()
+
+    private var trackingArea: NSTrackingArea?
+    private var isHighlighted = false {
+        didSet {
+            guard oldValue != isHighlighted else { return }
+            needsDisplay = true
+            applyColors()
+        }
+    }
+
+    init(notification: TerminalNotification, tabTitle: String?, action: @escaping () -> Void) {
+        self.notification = notification
+        self.action = action
+        super.init(frame: NSRect(x: 0, y: 0, width: Self.defaultWidth, height: 44))
+        // Let the highlight/card span the full menu width like a native item.
+        autoresizingMask = [.width]
+        wantsLayer = true
+
+        let baseSize = GlobalFontMagnification.menuFont(ofSize: NSFont.systemFontSize).pointSize
+
+        chipContainer.wantsLayer = true
+        chipContainer.layer?.cornerRadius = Self.chipCornerRadius
+        chipContainer.translatesAutoresizingMaskIntoConstraints = false
+        chipImageView.translatesAutoresizingMaskIntoConstraints = false
+        chipImageView.imageScaling = .scaleProportionallyUpOrDown
+        let symbolConfig = NSImage.SymbolConfiguration(pointSize: baseSize - 1, weight: .semibold)
+        chipImageView.image = NSImage(
+            systemSymbolName: NotificationPresentation.symbolName(for: notification),
+            accessibilityDescription: nil
+        )?.withSymbolConfiguration(symbolConfig)
+        chipContainer.addSubview(chipImageView)
+
+        configureLabel(titleLabel, font: .systemFont(ofSize: baseSize, weight: .semibold), maxLines: 1)
+        configureLabel(timeLabel, font: .systemFont(ofSize: baseSize - 2), maxLines: 1)
+        configureLabel(bodyLabel, font: .systemFont(ofSize: baseSize - 1), maxLines: 2)
+        configureLabel(workspaceLabel, font: .systemFont(ofSize: baseSize - 2), maxLines: 1)
+
+        titleLabel.stringValue = notification.title
+        timeLabel.stringValue = NotificationPresentation.relativeTimeString(for: notification.createdAt)
+        let detail = notification.body.isEmpty ? notification.subtitle : notification.body
+        bodyLabel.stringValue = detail
+        bodyLabel.isHidden = detail.isEmpty
+        workspaceLabel.stringValue = tabTitle ?? ""
+        workspaceLabel.isHidden = (tabTitle ?? "").isEmpty
+
+        // Title takes remaining width and truncates; time hugs the trailing edge.
+        titleLabel.setContentHuggingPriority(.defaultLow, for: .horizontal)
+        titleLabel.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+        timeLabel.setContentHuggingPriority(.required, for: .horizontal)
+        timeLabel.setContentCompressionResistancePriority(.required, for: .horizontal)
+
+        unreadDot.wantsLayer = true
+        unreadDot.layer?.cornerRadius = 3.5
+        unreadDot.translatesAutoresizingMaskIntoConstraints = false
+        unreadDot.isHidden = notification.isRead
+
+        let titleRow = NSStackView(views: [titleLabel, unreadDot, timeLabel])
+        titleRow.orientation = .horizontal
+        titleRow.alignment = .centerY
+        titleRow.spacing = 6
+        titleRow.distribution = .fill
+        titleRow.setHuggingPriority(.defaultLow, for: .horizontal)
+
+        let textColumn = NSStackView(views: [titleRow, bodyLabel, workspaceLabel])
+        textColumn.orientation = .vertical
+        textColumn.alignment = .leading
+        textColumn.spacing = 2
+        textColumn.translatesAutoresizingMaskIntoConstraints = false
+        titleRow.translatesAutoresizingMaskIntoConstraints = false
+
+        addSubview(chipContainer)
+        addSubview(textColumn)
+
+        let leading = Self.cardInsetH + Self.contentPadH
+        let trailing = Self.cardInsetH + Self.contentPadH + 2
+        let top = Self.cardInsetV + Self.contentPadV
+        NSLayoutConstraint.activate([
+            chipContainer.leadingAnchor.constraint(equalTo: leadingAnchor, constant: leading),
+            chipContainer.topAnchor.constraint(equalTo: topAnchor, constant: top),
+            chipContainer.widthAnchor.constraint(equalToConstant: Self.chipSize),
+            chipContainer.heightAnchor.constraint(equalToConstant: Self.chipSize),
+            chipImageView.centerXAnchor.constraint(equalTo: chipContainer.centerXAnchor),
+            chipImageView.centerYAnchor.constraint(equalTo: chipContainer.centerYAnchor),
+
+            unreadDot.widthAnchor.constraint(equalToConstant: 7),
+            unreadDot.heightAnchor.constraint(equalToConstant: 7),
+
+            textColumn.leadingAnchor.constraint(equalTo: chipContainer.trailingAnchor, constant: Self.chipToTextSpacing),
+            textColumn.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -trailing),
+            textColumn.topAnchor.constraint(equalTo: topAnchor, constant: top),
+            // A vertical NSStackView with .leading alignment does not stretch its
+            // rows to the column width, so pin each row's width to the column.
+            // This right-aligns the time in the title row and gives the body a
+            // definite width to wrap within.
+            titleRow.widthAnchor.constraint(equalTo: textColumn.widthAnchor),
+            bodyLabel.widthAnchor.constraint(equalTo: textColumn.widthAnchor),
+            workspaceLabel.widthAnchor.constraint(equalTo: textColumn.widthAnchor),
+            // The view's bottom is the lower of the chip and the text column,
+            // plus the bottom inset — so short (title-only) and tall (title +
+            // 2-line body + workspace) notifications both size correctly.
+            bottomAnchor.constraint(greaterThanOrEqualTo: textColumn.bottomAnchor, constant: top),
+            bottomAnchor.constraint(greaterThanOrEqualTo: chipContainer.bottomAnchor, constant: top),
+        ])
+
+        setAccessibilityElement(true)
+        setAccessibilityRole(.menuItem)
+        let axParts = [notification.title, detail, tabTitle ?? ""].filter { !$0.isEmpty }
+        setAccessibilityLabel(axParts.joined(separator: ", "))
+
+        applyColors()
+
+        // Resolve the content height once so the menu allocates the right row
+        // height. Width is fixed to the default here; the menu sizes to its
+        // widest item, so this card (usually the widest) defines that width and
+        // the measured height holds. A wider menu only reduces body wrapping.
+        layoutSubtreeIfNeeded()
+        frame = NSRect(x: 0, y: 0, width: Self.defaultWidth, height: fittingSize.height)
+    }
+
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    private func configureLabel(_ label: NSTextField, font: NSFont, maxLines: Int) {
+        label.font = font
+        label.maximumNumberOfLines = maxLines
+        label.lineBreakMode = maxLines == 1 ? .byTruncatingTail : .byWordWrapping
+        if maxLines > 1 {
+            label.cell?.truncatesLastVisibleLine = true
+        }
+        label.translatesAutoresizingMaskIntoConstraints = false
+    }
+
+    override var mouseDownCanMoveWindow: Bool { false }
+
+    override func updateTrackingAreas() {
+        super.updateTrackingAreas()
+        if let trackingArea {
+            removeTrackingArea(trackingArea)
+        }
+        let area = NSTrackingArea(
+            rect: bounds,
+            options: [.mouseEnteredAndExited, .activeAlways, .inVisibleRect],
+            owner: self,
+            userInfo: nil
+        )
+        trackingArea = area
+        addTrackingArea(area)
+    }
+
+    override func mouseEntered(with event: NSEvent) { isHighlighted = true }
+    override func mouseExited(with event: NSEvent) { isHighlighted = false }
+
+    override func mouseDown(with event: NSEvent) {
+        isHighlighted = true
+        enclosingMenuItem?.menu?.cancelTrackingWithoutAnimation()
+        action()
+    }
+
+    override func viewDidChangeEffectiveAppearance() {
+        super.viewDidChangeEffectiveAppearance()
+        applyColors()
+        needsDisplay = true
+    }
+
+    private var isDark: Bool {
+        effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
+    }
+
+    private var cardFill: NSColor {
+        if notification.isRead {
+            return (isDark ? NSColor.white : NSColor.black).withAlphaComponent(isDark ? 0.06 : 0.045)
+        }
+        return NSColor.controlAccentColor.withAlphaComponent(isDark ? 0.22 : 0.12)
+    }
+
+    private func applyColors() {
+        let selectedText = NSColor.selectedMenuItemTextColor
+        if isHighlighted {
+            titleLabel.textColor = selectedText
+            timeLabel.textColor = selectedText.withAlphaComponent(0.85)
+            bodyLabel.textColor = selectedText.withAlphaComponent(0.9)
+            workspaceLabel.textColor = selectedText.withAlphaComponent(0.75)
+            chipContainer.layer?.backgroundColor = NSColor.white.withAlphaComponent(0.25).cgColor
+            chipImageView.contentTintColor = .white
+            unreadDot.layer?.backgroundColor = NSColor.white.cgColor
+        } else {
+            titleLabel.textColor = .labelColor
+            timeLabel.textColor = .tertiaryLabelColor
+            bodyLabel.textColor = .secondaryLabelColor
+            workspaceLabel.textColor = .tertiaryLabelColor
+            let chipFill: NSColor = notification.isRead
+                ? (isDark ? NSColor.white : NSColor.black).withAlphaComponent(0.10)
+                : NSColor.controlAccentColor.withAlphaComponent(isDark ? 0.35 : 0.18)
+            chipContainer.layer?.backgroundColor = chipFill.cgColor
+            chipImageView.contentTintColor = notification.isRead ? .secondaryLabelColor : .controlAccentColor
+            unreadDot.layer?.backgroundColor = NSColor.controlAccentColor.cgColor
+        }
+    }
+
+    override func draw(_ dirtyRect: NSRect) {
+        super.draw(dirtyRect)
+        let cardRect = bounds.insetBy(dx: Self.cardInsetH, dy: Self.cardInsetV)
+        let path = NSBezierPath(
+            roundedRect: cardRect,
+            xRadius: Self.cardCornerRadius,
+            yRadius: Self.cardCornerRadius
+        )
+        (isHighlighted ? NSColor.selectedContentBackgroundColor : cardFill).setFill()
+        path.fill()
     }
 }

@@ -52,31 +52,38 @@ struct NotificationsPage: View {
         // O(rows + tabs) rather than O(rows × tabs), which matters when many
         // notifications accumulate (issue #5794).
         let tabTitles = AppDelegate.shared?.tabTitlesByTabId() ?? [:]
+        // Group into Today / Yesterday / Earlier sections, preserving order.
+        let groups = NotificationPresentation.grouped(notificationStore.notifications)
         return ScrollView {
-            LazyVStack(spacing: 8) {
-                ForEach(notificationStore.notifications) { notification in
-                    NotificationRow(
-                        notification: notification,
-                        tabTitle: tabTitle(for: notification.tabId, in: tabTitles),
-                        isFocused: focusedNotificationId == notification.id,
-                        onOpen: {
-                            // SwiftUI action closures aren't guaranteed to be main-actor
-                            // isolated; hop to the main actor for window focus + tab selection.
-                            Task { @MainActor in
-                                _ = AppDelegate.shared?.openTerminalNotification(notification)
-                            }
-                        },
-                        onClear: {
-                            notificationStore.remove(id: notification.id)
-                        },
-                        focusedNotificationId: $focusedNotificationId
-                    )
-                    // Each NotificationRow renders heavily-modified nested stacks.
-                    // Equatable + .equatable() lets a NotificationStore publish that
-                    // touches one notification skip body re-evaluation for the other
-                    // rows, instead of re-laying out the whole LazyVStack on every
-                    // publish (issue #5794, same class as #2586 / #5752).
-                    .equatable()
+            LazyVStack(alignment: .leading, spacing: 8) {
+                ForEach(groups) { group in
+                    NotificationGroupHeader(title: group.title, count: group.notifications.count)
+                        .padding(.top, 2)
+                        .padding(.horizontal, 4)
+                    ForEach(group.notifications) { notification in
+                        NotificationRow(
+                            notification: notification,
+                            tabTitle: tabTitle(for: notification.tabId, in: tabTitles),
+                            isFocused: focusedNotificationId == notification.id,
+                            onOpen: {
+                                // SwiftUI action closures aren't guaranteed to be main-actor
+                                // isolated; hop to the main actor for window focus + tab selection.
+                                Task { @MainActor in
+                                    _ = AppDelegate.shared?.openTerminalNotification(notification)
+                                }
+                            },
+                            onClear: {
+                                notificationStore.remove(id: notification.id)
+                            },
+                            focusedNotificationId: $focusedNotificationId
+                        )
+                        // Each NotificationRow renders heavily-modified nested stacks.
+                        // Equatable + .equatable() lets a NotificationStore publish that
+                        // touches one notification skip body re-evaluation for the other
+                        // rows, instead of re-laying out the whole LazyVStack on every
+                        // publish (issue #5794, same class as #2586 / #5752).
+                        .equatable()
+                    }
                 }
             }
             .padding(16)
@@ -320,22 +327,25 @@ struct NotificationRow: View, Equatable {
         HStack(alignment: .top, spacing: 12) {
             Button(action: onOpen) {
                 HStack(alignment: .top, spacing: 12) {
-                    Circle()
-                        .fill(notification.isRead ? Color.clear : cmuxAccentColor())
-                        .frame(width: 8, height: 8)
-                        .overlay(
-                            Circle()
-                                .stroke(cmuxAccentColor().opacity(notification.isRead ? 0.2 : 1), lineWidth: 1)
-                        )
-                        .padding(.top, 6)
+                    NotificationIconChip(
+                        symbolName: NotificationPresentation.symbolName(for: notification),
+                        isUnread: !notification.isRead,
+                        size: 30
+                    )
 
                     VStack(alignment: .leading, spacing: 6) {
-                        HStack {
+                        HStack(spacing: 6) {
                             Text(notification.title)
                                 .cmuxFont(.headline)
                                 .foregroundColor(.primary)
-                            Spacer()
-                            Text(notification.createdAt.formatted(date: .omitted, time: .shortened))
+                            Spacer(minLength: 6)
+                            if !notification.isRead {
+                                Circle()
+                                    .fill(cmuxAccentColor())
+                                    .frame(width: 7, height: 7)
+                                    .accessibilityHidden(true)
+                            }
+                            Text(NotificationPresentation.relativeTimeString(for: notification.createdAt))
                                 .cmuxFont(.caption)
                                 .foregroundColor(.secondary)
                         }
@@ -378,8 +388,23 @@ struct NotificationRow: View, Equatable {
         }
         .padding(12)
         .background(
+            ZStack {
+                RoundedRectangle(cornerRadius: 10)
+                    .fill(Color(nsColor: .controlBackgroundColor))
+                // Unread cards get an accent wash so they stand out from read
+                // history at a glance.
+                if !notification.isRead {
+                    RoundedRectangle(cornerRadius: 10)
+                        .fill(cmuxAccentColor().opacity(0.10))
+                }
+            }
+        )
+        .overlay(
             RoundedRectangle(cornerRadius: 10)
-                .fill(Color(nsColor: .controlBackgroundColor))
+                .strokeBorder(
+                    notification.isRead ? Color.clear : cmuxAccentColor().opacity(0.35),
+                    lineWidth: 1
+                )
         )
     }
 }
