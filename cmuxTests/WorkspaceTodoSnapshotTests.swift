@@ -33,6 +33,14 @@ struct WorkspaceTodoSnapshotTests {
         snapshot.taskStatusOverride = "review"
         snapshot.taskStatusInferredAtOverride = "working"
         let itemID = UUID()
+        let boundWorkspaceID = UUID()
+        let taskRef = WorkspaceAgentTaskRef(workstreamId: "claude-session", taskId: "7")
+        let dispatchTarget = WorkspaceTaskDispatchTarget(
+            workingDirectory: "/tmp/project",
+            agentCommand: "claude --continue",
+            agentName: "claude"
+        )
+        let lastActivityAt = Date(timeIntervalSince1970: 123)
         let attachment = WorkspaceChecklistAttachment(
             displayName: "screenshot.png",
             filePath: "/tmp/screenshot.png",
@@ -47,7 +55,12 @@ struct WorkspaceTodoSnapshotTests {
                 text: "ship it",
                 state: "in-progress",
                 origin: "agent",
-                attachments: [attachment]
+                attachments: [attachment],
+                agentTaskRef: taskRef,
+                dispatchTarget: dispatchTarget,
+                boundWorkspaceID: boundWorkspaceID,
+                boundAgent: "claude",
+                lastActivityAt: lastActivityAt
             ),
         ]
         let data = try JSONEncoder().encode(snapshot)
@@ -60,7 +73,12 @@ struct WorkspaceTodoSnapshotTests {
                 text: "ship it",
                 state: "in-progress",
                 origin: "agent",
-                attachments: [attachment]
+                attachments: [attachment],
+                agentTaskRef: taskRef,
+                dispatchTarget: dispatchTarget,
+                boundWorkspaceID: boundWorkspaceID,
+                boundAgent: "claude",
+                lastActivityAt: lastActivityAt
             ),
         ])
         #expect(decoded.restoredTaskStatusOverride == WorkspaceTaskStatusOverride(
@@ -72,7 +90,12 @@ struct WorkspaceTodoSnapshotTests {
                 text: "ship it",
                 state: .inProgress,
                 origin: .agent,
-                attachments: [attachment]
+                attachments: [attachment],
+                agentTaskRef: taskRef,
+                dispatchTarget: dispatchTarget,
+                boundWorkspaceID: boundWorkspaceID,
+                boundAgent: "claude",
+                lastActivityAt: lastActivityAt
             ),
         ])
     }

@@ -49,6 +49,16 @@ public final class WorkstreamStore {
     /// carries forward prompt/preamble context from nearby telemetry rows.
     private var lastContextByWorkstream: [String: WorkstreamContext] = [:]
 
+    /// Running task lists keyed by agent workstream. The accumulator is
+    /// bounded and is only a transport projection; workspace checklists stay
+    /// authoritative in the app's `WorkspaceTodoState`.
+    private var taskToolTodosByWorkstream: [String: WorkstreamTaskToolTodos] = [:]
+    private var taskToolListCompletenessByWorkstream: [String: Bool] = [:]
+    private var taskToolWorkstreamsByRecency: [String] = []
+    /// Monotonic recovery epoch; increments whenever a task accumulator is evicted.
+    public private(set) var taskToolRecoveryEpoch: UInt64 = 0
+    private static let maxTrackedTaskToolWorkstreams = 64
+
     /// Creates a store for Feed workstream items.
     ///
     /// - Parameters:
@@ -153,6 +163,52 @@ public final class WorkstreamStore {
         }
     }
 
+    /// Returns the task ids this workstream has reported, including ids that
+    /// were deleted from its current list. The latter lets the workspace sync
+    /// retire stale rows without confusing another agent's task.
+    public func ownedTaskIds(forWorkstream workstreamId: String) -> [String] {
+        guard let accumulator = taskToolTodosByWorkstream[workstreamId] else { return [] }
+        return accumulator.ownedIDList
+    }
+
+    /// Returns the canonical workstream key used by task-tool state and
+    /// persisted checklist references for an incoming event.
+    public func normalizedWorkstreamID(for event: WorkstreamEvent) -> String {
+        normalizedWorkstreamID(rawValue: event.sessionId, source: event.source)
+    }
+
+    /// Applies the configured identity migration to an arbitrary persisted or
+    /// incoming workstream value.
+    ///
+    /// - Parameters:
+    ///   - rawValue: A legacy or already-canonical workstream value.
+    ///   - source: The producer/agent identity that owns the value.
+    /// - Returns: The canonical key used by task-tool state.
+    public func normalizedWorkstreamID(rawValue: String, source: String) -> String {
+        workstreamIDNormalizer(rawValue, source)
+    }
+
+    /// Seeds task-tool state from persisted workspace rows before applying a
+    /// resumed session's first status-only update.
+    public func seedTaskTodos(
+        forWorkstream workstreamId: String,
+        todos: [WorkstreamTaskTodo]
+    ) {
+        var accumulator = taskToolTodosByWorkstream[workstreamId] ?? WorkstreamTaskToolTodos()
+        accumulator.seed(with: todos)
+        taskToolTodosByWorkstream[workstreamId] = accumulator
+        taskToolListCompletenessByWorkstream[workstreamId] = false
+        touchTaskToolWorkstream(workstreamId)
+        trimTaskToolWorkstreams()
+    }
+
+    /// Whether the current accumulated task list is complete enough to drive
+    /// an automatic dispatched-task completion. A capped accumulator is only
+    /// a suffix and must fail closed.
+    public func isTaskListComplete(forWorkstream workstreamId: String) -> Bool {
+        taskToolListCompletenessByWorkstream[workstreamId] ?? false
+    }
+
     // MARK: - Actions
 
     /// Sends a user-initiated action through the transport and marks the
@@ -223,8 +279,12 @@ public final class WorkstreamStore {
         let parsedSource = WorkstreamSource(wireName: event.source)
         let source = parsedSource ?? .claude
         let sourceID = parsedSource == nil ? event.source : nil
-        let workstreamID = workstreamIDNormalizer(event.sessionId, event.source)
-        let (kind, payload) = decode(event: event, source: source)
+        let workstreamID = normalizedWorkstreamID(for: event)
+        let (kind, payload) = decode(
+            event: event,
+            source: source,
+            workstreamID: workstreamID
+        )
         let status: WorkstreamStatus = kind.isActionable ? .pending : .telemetry
         return WorkstreamItem(
             workstreamId: workstreamID,
@@ -295,7 +355,8 @@ public final class WorkstreamStore {
 
     private func decode(
         event: WorkstreamEvent,
-        source: WorkstreamSource
+        source: WorkstreamSource,
+        workstreamID: String
     ) -> (WorkstreamKind, WorkstreamPayload) {
         let toolInput = event.toolInputJSON ?? "{}"
         switch event.hookEventName {
@@ -328,16 +389,71 @@ public final class WorkstreamStore {
                 )
             )
         case .preToolUse:
-            return (.toolUse, .toolUse(toolName: event.toolName ?? "", toolInputJSON: toolInput))
-        case .postToolUse:
+            let toolName = event.toolName ?? ""
+            if let taskTool = WorkstreamTaskTool(rawValue: toolName) {
+                var accumulator = taskToolTodosByWorkstream[workstreamID] ?? WorkstreamTaskToolTodos()
+                let outcome: WorkstreamTaskToolOutcome
+                if event.toolResponseJSON != nil {
+                    outcome = accumulator.applyPost(
+                        tool: taskTool,
+                        inputJSON: event.toolInputJSON,
+                        responseJSON: event.toolResponseJSON,
+                        isError: event.isError ?? false,
+                        requestID: event.requestId
+                    )
+                } else {
+                    outcome = accumulator.applyPre(
+                        tool: taskTool,
+                        inputJSON: event.toolInputJSON,
+                        requestID: event.requestId
+                    )
+                }
+                if !outcome.producedList || (event.isError ?? false) {
+                    accumulator.invalidateCompleteness()
+                }
+                taskToolTodosByWorkstream[workstreamID] = accumulator
+                taskToolListCompletenessByWorkstream[workstreamID] =
+                    event.toolResponseJSON != nil
+                    && !(event.isError ?? false)
+                    && outcome.producedList
+                    ? accumulator.isComplete
+                    : false
+                touchTaskToolWorkstream(workstreamID)
+                trimTaskToolWorkstreams()
+                if case .list(let todos) = outcome {
+                    return (.todos, .todos(todos))
+                }
+            }
+            return (.toolUse, .toolUse(toolName: toolName, toolInputJSON: toolInput))
+        case .postToolUse, .postToolUseFailure:
+            let toolName = event.toolName ?? ""
+            let isError = event.hookEventName == .postToolUseFailure || (event.isError ?? false)
+            if let taskTool = WorkstreamTaskTool(rawValue: toolName) {
+                var accumulator = taskToolTodosByWorkstream[workstreamID] ?? WorkstreamTaskToolTodos()
+                let outcome = accumulator.applyPost(
+                    tool: taskTool,
+                    inputJSON: event.toolInputJSON,
+                    responseJSON: event.toolResponseJSON,
+                    isError: isError,
+                    requestID: event.requestId
+                )
+                if !outcome.producedList || isError {
+                    accumulator.invalidateCompleteness()
+                }
+                taskToolTodosByWorkstream[workstreamID] = accumulator
+                taskToolListCompletenessByWorkstream[workstreamID] =
+                    !isError && outcome.producedList
+                    ? accumulator.isComplete
+                    : false
+                touchTaskToolWorkstream(workstreamID)
+                trimTaskToolWorkstreams()
+                if case .list(let todos) = outcome {
+                    return (.todos, .todos(todos))
+                }
+            }
             return (
                 .toolResult,
-                .toolResult(toolName: event.toolName ?? "", resultJSON: toolInput, isError: event.isError ?? false)
-            )
-        case .postToolUseFailure:
-            return (
-                .toolResult,
-                .toolResult(toolName: event.toolName ?? "", resultJSON: toolInput, isError: true)
+                .toolResult(toolName: toolName, resultJSON: toolInput, isError: isError)
             )
         case .preCompact:
             return (.toolUse, .toolUse(toolName: titleProvider(event) ?? event.hookEventName.rawValue, toolInputJSON: toolInput))
@@ -366,7 +482,41 @@ public final class WorkstreamStore {
         case .stop:
             return (.stop, .stop(reason: Self.stopReason(from: event.toolInputJSON)))
         case .todoWrite:
-            return (.todos, .todos(Self.todos(from: event.toolInputJSON)))
+            let isError = event.isError ?? false
+            guard !isError else {
+                // A failed TodoWrite may still carry the attempted list. Do
+                // not let that uncommitted input replace the last known
+                // snapshot or appear as a successful `.todos` payload.
+                return (
+                    .toolResult,
+                    .toolResult(
+                        toolName: event.hookEventName.rawValue,
+                        resultJSON: toolInput,
+                        isError: true
+                    )
+                )
+            }
+            var accumulator = taskToolTodosByWorkstream[workstreamID] ?? WorkstreamTaskToolTodos()
+            let outcome = accumulator.applyPre(
+                tool: .todoWrite,
+                inputJSON: event.toolInputJSON,
+                requestID: event.requestId,
+                establishesCompleteness: true
+            )
+            if !outcome.producedList || (event.isError ?? false) {
+                accumulator.invalidateCompleteness()
+            }
+            taskToolTodosByWorkstream[workstreamID] = accumulator
+            taskToolListCompletenessByWorkstream[workstreamID] =
+                !(event.isError ?? false) && outcome.producedList
+                ? accumulator.isComplete
+                : false
+            touchTaskToolWorkstream(workstreamID)
+            trimTaskToolWorkstreams()
+            if case .list(let todos) = outcome {
+                return (.todos, .todos(todos))
+            }
+            return (.toolUse, .toolUse(toolName: event.hookEventName.rawValue, toolInputJSON: toolInput))
         case .notification:
             return (.toolResult, .toolResult(toolName: "notification", resultJSON: toolInput, isError: false))
         }
@@ -377,6 +527,22 @@ public final class WorkstreamStore {
             return tool
         }
         return titleProvider(event)
+    }
+
+    private func touchTaskToolWorkstream(_ workstreamId: String) {
+        taskToolWorkstreamsByRecency.removeAll { $0 == workstreamId }
+        taskToolWorkstreamsByRecency.append(workstreamId)
+    }
+
+    private func trimTaskToolWorkstreams() {
+        guard taskToolWorkstreamsByRecency.count > Self.maxTrackedTaskToolWorkstreams else { return }
+        let overflow = taskToolWorkstreamsByRecency.count - Self.maxTrackedTaskToolWorkstreams
+        taskToolRecoveryEpoch &+= 1
+        for workstreamId in taskToolWorkstreamsByRecency.prefix(overflow) {
+            taskToolTodosByWorkstream.removeValue(forKey: workstreamId)
+            taskToolListCompletenessByWorkstream.removeValue(forKey: workstreamId)
+        }
+        taskToolWorkstreamsByRecency.removeFirst(overflow)
     }
 
     private static func jsonObject(from json: String?) -> Any? {
@@ -471,37 +637,4 @@ public final class WorkstreamStore {
         return nil
     }
 
-    private static func todos(from json: String?) -> [WorkstreamTaskTodo] {
-        let rawTodos: [Any]
-        if let dict = jsonObject(from: json) as? [String: Any] {
-            rawTodos = dict["todos"] as? [Any] ?? []
-        } else {
-            rawTodos = jsonObject(from: json) as? [Any] ?? []
-        }
-        return rawTodos.enumerated().compactMap { idx, raw in
-            guard let dict = raw as? [String: Any] else { return nil }
-            let content = (dict["content"] as? String)
-                ?? (dict["text"] as? String)
-                ?? (dict["title"] as? String)
-                ?? ""
-            guard !content.isEmpty else { return nil }
-            let rawState = (dict["state"] as? String)
-                ?? (dict["status"] as? String)
-                ?? "pending"
-            let state: WorkstreamTaskTodo.State
-            switch rawState {
-            case "completed", "done":
-                state = .completed
-            case "inProgress", "in_progress", "active":
-                state = .inProgress
-            default:
-                state = .pending
-            }
-            return WorkstreamTaskTodo(
-                id: (dict["id"] as? String) ?? "todo\(idx)",
-                content: content,
-                state: state
-            )
-        }
-    }
 }

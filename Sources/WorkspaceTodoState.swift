@@ -23,4 +23,5 @@ final class WorkspaceTodoState: ObservableObject {
     @Published var statusHidden: Bool = true
     /// The persisted checklist, in display order.
     @Published var checklist: [WorkspaceChecklistItem] = []
+
 }

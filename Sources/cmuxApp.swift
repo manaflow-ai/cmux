@@ -974,6 +974,9 @@ struct cmuxApp: App {
             Button(String(localized: "menu.window.taskManager", defaultValue: "Task Manager...")) {
                 TaskManagerWindowController.shared.show()
             }
+            Button(String(localized: "menu.window.taskQueue", defaultValue: "Task Queue...")) {
+                AppDelegate.shared?.openTaskQueueWindow()
+            }
         }
         helpCommands
         historyCommands
@@ -1561,6 +1564,7 @@ private struct MainWindowBootstrapView: View {
 }
 
 private let cmuxAuxiliaryWindowIdentifiers: Set<String> = [
+    "cmux.workspaceTaskQueue",
     "cmux.settings",
     "cmux.about",
     "cmux.licenses",

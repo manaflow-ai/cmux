@@ -932,6 +932,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private var menuBarExtraController: MenuBarExtraController?
     private var transientGlobalSearchMenuBarExtraController: MenuBarExtraController?
     private var lastMenuBarExtraShouldInstall: Bool?
+    /// Owns the task-queue auxiliary window at the application composition root.
+    private lazy var workspaceTaskQueueWindowController = WorkspaceTaskQueueWindowController()
     /// App-owned computer-use graph; all runtime dependencies are injected here.
     private lazy var computerUseUXCoordinator: ComputerUseUXCoordinator = {
         guard let computerUseRuntimeService else {
@@ -10492,6 +10494,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     func openTaskManagerWindow() {
         TaskManagerWindowController.shared.show()
+    }
+
+    func openTaskQueueWindow() {
+        workspaceTaskQueueWindowController.show()
     }
 
     func captureMainWindowVisibilityRestoreTargetsForApplicationHide() {

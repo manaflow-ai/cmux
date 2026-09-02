@@ -25,6 +25,27 @@ public struct WorkstreamEvent: Codable, Sendable, Equatable {
     public let receivedAt: Date
     public let extraFieldsJSON: String?
 
+    /// The structured result forwarded by a PostToolUse hook, when present.
+    /// Hook producers keep this in the dynamic passthrough fields so older
+    /// wire consumers remain byte-compatible.
+    public var toolResponseJSON: String? {
+        guard let extraFieldsJSON,
+              let data = extraFieldsJSON.data(using: .utf8),
+              let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
+        else { return nil }
+        for key in ["tool_response", "toolResponse", "tool_result", "toolResult"] {
+            guard let value = object[key] else { continue }
+            if let string = value as? String { return string }
+            if let encoded = try? JSONSerialization.data(
+                withJSONObject: value,
+                options: [.sortedKeys, .fragmentsAllowed]
+            ) {
+                return String(data: encoded, encoding: .utf8)
+            }
+        }
+        return nil
+    }
+
     public init(
         sessionId: String,
         hookEventName: HookEventName,

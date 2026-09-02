@@ -139,6 +139,47 @@ import Testing
         }
     }
 
+    @Test func testTodoTargetParsesOptionsBeforeSelector() throws {
+        let cliPath = try bundledCLIPath()
+        let socketPath = "/tmp/cmux-todo-target-\(UUID().uuidString.prefix(8)).sock"
+        let responder = try UnixSocketResponder(
+            path: socketPath,
+            response: #"{"ok":true,"result":{"updated":true}}"#
+        )
+        defer { responder.stop() }
+
+        var environment = ProcessInfo.processInfo.environment
+        for key in Array(environment.keys) where key.hasPrefix("CMUX_") {
+            environment.removeValue(forKey: key)
+        }
+        environment["CMUX_SOCKET_PATH"] = socketPath
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+
+        let result = runProcess(
+            executablePath: cliPath,
+            arguments: [
+                "todo", "target", "--command", "claude", "1",
+                "--cwd", "/tmp/project", "--agent", "claude",
+            ],
+            environment: environment,
+            timeout: 5
+        )
+        XCTAssertFalse(result.timedOut, result.diagnostics)
+        XCTAssertEqual(result.status, 0, result.diagnostics)
+
+        let request = try XCTUnwrap(responder.receivedRequests.first)
+        let payload = try XCTUnwrap(
+            JSONSerialization.jsonObject(with: Data(request.utf8)) as? [String: Any]
+        )
+        XCTAssertEqual(payload["method"] as? String, "workspace.todo.queue.target")
+        let params = try XCTUnwrap(payload["params"] as? [String: Any])
+        XCTAssertEqual(params["index"] as? Int, 0)
+        let target = try XCTUnwrap(params["target"] as? [String: Any])
+        XCTAssertEqual(target["agent_command"] as? String, "claude")
+        XCTAssertEqual(target["working_directory"] as? String, "/tmp/project")
+        XCTAssertEqual(target["agent"] as? String, "claude")
+    }
+
     @Test func testSurfaceResumeSetCLIRejectsUnknownFlagWithoutReplacingBinding() throws {
         let cliPath = try bundledCLIPath()
         let socketPath = "/tmp/cmux-resume-flag-\(UUID().uuidString.prefix(8)).sock"

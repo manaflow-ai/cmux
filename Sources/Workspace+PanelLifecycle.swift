@@ -260,6 +260,20 @@ extension Workspace {
         return currentIdentity == recordedIdentity
     }
 
+    /// Returns the authoritative liveness of the workspace's recorded agent
+    /// processes. `nil` means no complete structured identity record exists,
+    /// so callers must retain any binding rather than infer that the workspace
+    /// is available for replacement.
+    func recordedAgentProcessLiveness() -> Bool? {
+        guard !agentPIDs.isEmpty,
+              agentPIDs.keys.allSatisfy({ agentPIDProcessIdentitiesByKey[$0] != nil }) else {
+            return nil
+        }
+        return agentPIDs.contains { key, pid in
+            isRecordedAgentPIDLive(key: key, pid: pid)
+        }
+    }
+
     /// Reads the identity the port scanner and session restore compare against.
     ///
     /// Delegates rather than reading the process table itself: a second reader
