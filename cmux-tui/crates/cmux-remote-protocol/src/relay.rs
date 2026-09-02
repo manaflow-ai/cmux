@@ -233,9 +233,6 @@ impl RelaySocketAttachment {
     }
 }
 
-#[allow(dead_code)]
-fn _lane_remains_endpoint_only(_: Lane) {}
-
 #[cfg(test)]
 mod tests {
     use super::*;
