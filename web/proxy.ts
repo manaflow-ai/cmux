@@ -12,11 +12,13 @@ import {
   remoteTmuxDocsLocales,
 } from "./i18n/locale-availability";
 import { buildAlternateLinkHeader } from "./i18n/seo";
+import { requestOrigin, requestWithOrigin } from "./app/lib/request-origin";
 
 const intlMiddleware = createMiddleware(routing);
 const localeSet = new Set<string>(routing.locales);
 
-export default function middleware(request: NextRequest) {
+export default function middleware(incomingRequest: NextRequest) {
+  const request = requestWithOrigin(incomingRequest);
   const host = request.headers.get("host") ?? "";
 
   // 301 redirect cmux.dev (and www.cmux.dev) to cmux.com, preserving path and query
@@ -370,10 +372,6 @@ function setFeatureWorkflowDocLinkHeader(
       featureWorkflowContentLocales,
     ),
   );
-}
-
-function requestOrigin(request: NextRequest) {
-  return request.nextUrl.origin;
 }
 
 function legacyOpenGraphImageRewritePath(pathname: string): string | undefined {

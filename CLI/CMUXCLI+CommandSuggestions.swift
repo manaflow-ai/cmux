@@ -212,6 +212,7 @@ extension CMUXCLI {
         "vm-pty-attach",
         "vm-pty-connect",
         "vm-ssh-attach",
+        "vpn",
         "wait-for",
         "welcome",
         "workspace",
