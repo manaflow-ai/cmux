@@ -29,26 +29,38 @@ struct OscCollector {
     body: Vec<u8>,
     /// Number of UTF-8 continuation bytes still expected after a lead byte.
     /// Raw C1 values share this byte range, so framing is recognized only at
-    /// code-point boundaries.
+    /// code-point boundaries. The first continuation also has a lead-specific
+    /// range, which rejects overlong encodings and surrogate encodings before
+    /// they can hide a C1 framing byte.
     utf8_continuations: u8,
+    utf8_min: u8,
+    utf8_max: u8,
 }
 
 impl OscCollector {
     fn observe(&mut self, bytes: &[u8], mut receive: impl FnMut(&[u8])) {
         for &byte in bytes {
             if self.utf8_continuations > 0 {
-                if is_utf8_continuation(byte) {
+                if (self.utf8_min..=self.utf8_max).contains(&byte) {
                     self.utf8_continuations -= 1;
                     if self.state == OscState::Body {
                         self.push(byte);
                     }
+                    // Only the first continuation is constrained by the
+                    // lead byte. Remaining continuation bytes use the full
+                    // UTF-8 continuation range.
+                    self.utf8_min = 0x80;
+                    self.utf8_max = 0xbf;
                     continue;
                 }
                 // An invalid or truncated UTF-8 sequence cannot hide the
                 // next control byte. Process this byte again as framing.
-                self.utf8_continuations = 0;
+                self.reset_utf8();
             }
-            self.utf8_continuations = utf8_continuation_count(byte);
+            let (continuations, min, max) = utf8_sequence_bounds(byte);
+            self.utf8_continuations = continuations;
+            self.utf8_min = min;
+            self.utf8_max = max;
             match self.state {
                 OscState::Ground => match byte {
                     0x1b => self.state = OscState::Escape,
@@ -148,26 +160,37 @@ impl OscCollector {
         receive(&self.body);
         self.body.clear();
         self.state = OscState::Ground;
+        self.reset_utf8();
     }
 
     fn cancel(&mut self) {
         self.body.clear();
         self.state = OscState::Ground;
+        self.reset_utf8();
+    }
+
+    fn reset_utf8(&mut self) {
         self.utf8_continuations = 0;
+        self.utf8_min = 0;
+        self.utf8_max = 0;
     }
 }
 
-fn is_utf8_continuation(byte: u8) -> bool {
-    (0x80..=0xbf).contains(&byte)
+fn utf8_sequence_bounds(byte: u8) -> (u8, u8, u8) {
+    match byte {
+        0xc2..=0xdf => (1, 0x80, 0xbf),
+        0xe0 => (2, 0xa0, 0xbf),
+        0xe1..=0xec | 0xee..=0xef => (2, 0x80, 0xbf),
+        0xed => (2, 0x80, 0x9f),
+        0xf0 => (3, 0x90, 0xbf),
+        0xf1..=0xf3 => (3, 0x80, 0xbf),
+        0xf4 => (3, 0x80, 0x8f),
+        _ => (0, 0, 0),
+    }
 }
 
 fn utf8_continuation_count(byte: u8) -> u8 {
-    match byte {
-        0xc2..=0xdf => 1,
-        0xe0..=0xef => 2,
-        0xf0..=0xf4 => 3,
-        _ => 0,
-    }
+    utf8_sequence_bounds(byte).0
 }
 
 fn is_string_opener(byte: u8) -> bool {
