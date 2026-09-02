@@ -4884,10 +4884,12 @@ fn cleanup_unclaimed_listener(listener: transport::Listener, path: &Path) {
     let Ok(identity) = SocketPathIdentity::capture(path) else { return };
     drop(listener);
 
-    if transport::connect(path).is_ok() || !identity.matches_path(path).unwrap_or(false) {
-        return;
+    match transport::connect(path) {
+        Ok(_) => return,
+        Err(error) if !connect_error_proves_stale(&error) => return,
+        Err(_) => {}
     }
-    let _ = std::fs::remove_file(path);
+    let _ = remove_path_if_identity(path, identity);
 }
 
 fn connect_error_proves_stale(error: &std::io::Error) -> bool {
