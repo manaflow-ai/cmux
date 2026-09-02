@@ -1121,7 +1121,10 @@ final class WindowTerminalPortal: NSObject {
         // carries the exact geometry the last pass left behind, so it dies
         // here in one cheap comparison; any real change differs somewhere
         // and syncs fully.
-        guard ensureInstalled() else { return }
+        guard ensureInstalled() else {
+            finishVisibleEntryGeometrySettlements()
+            return
+        }
         let hierarchyWasAlreadySettled = synchronizeLayoutHierarchy()
         synchronizeAllHostedViews(excluding: nil)
         reconcileVisibleHostedViewsAfterGeometrySync(reason: "portal.externalGeometrySync")
@@ -1513,6 +1516,7 @@ final class WindowTerminalPortal: NSObject {
         let becameHidden = !visibleInUI && entry.visibleInUI
         entry.visibleInUI = visibleInUI
         if becameVisible {
+            lastHierarchySyncSignature = nil
             entry.awaitingGeometrySettlement = true
             entry.hostedView?.beginPortalGeometrySettlement()
         } else if !visibleInUI {
@@ -1643,7 +1647,10 @@ final class WindowTerminalPortal: NSObject {
             return previousAnchor !== anchorView
         }()
         let becameVisible = (previousEntry?.visibleInUI ?? false) == false && visibleInUI
-        if becameVisible { hostedView.beginPortalGeometrySettlement() }
+        if becameVisible {
+            lastHierarchySyncSignature = nil
+            hostedView.beginPortalGeometrySettlement()
+        }
         let priorityIncreased = zPriority > (previousEntry?.zPriority ?? Int.min)
 #if DEBUG
         if previousEntry == nil || didChangeAnchor || becameVisible || priorityIncreased || hostedView.superview !== hostView {
@@ -1832,7 +1839,10 @@ final class WindowTerminalPortal: NSObject {
             // This callback is also the bind path's first settlement pass. Run
             // the hierarchy once and retain its fingerprint result so an
             // unstable first pass cannot flush an intermediate PTY size.
-            guard self.ensureInstalled(syncLayout: false) else { return }
+            guard self.ensureInstalled(syncLayout: false) else {
+                self.finishVisibleEntryGeometrySettlements()
+                return
+            }
             let hierarchyWasAlreadySettled = self.synchronizeLayoutHierarchy()
             self.synchronizeAllHostedViews(excluding: nil, syncLayout: false)
             if reconcileVisible {
