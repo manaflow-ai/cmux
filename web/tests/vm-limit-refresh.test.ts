@@ -17,7 +17,7 @@ function row(overrides: Partial<CloudVmRow>): CloudVmRow {
     userId: "user-limit-refresh",
     billingTeamId: "team-limit-refresh",
     billingPlanId: "pro",
-    provider: "blaxel",
+    provider: "freestyle",
     providerVmId: null,
     displayName: null,
     imageId: "snapshot-test",
@@ -35,8 +35,8 @@ function row(overrides: Partial<CloudVmRow>): CloudVmRow {
 }
 
 // Regression: refreshActiveLimitProviderStatuses returned early for every
-// non-Freestyle machine, so a stale `running` row on Blaxel (the prod default
-// provider) blocked creates until the 10-minute cron even though Blaxel has a
+// non-Freestyle machine, so a stale `running` row on another provider blocked
+// creates until the 10-minute cron even though that provider has a
 // status read. The lazy refresh on limit-exceeded must reconcile every
 // provider the gateway can report on, exactly like the cron path.
 describe("lazy active-limit provider refresh", () => {
@@ -47,10 +47,10 @@ describe("lazy active-limit provider refresh", () => {
       status: "running",
       providerVmId: "provider-vm-limit-refresh-new",
     });
-    const staleBlaxel = row({
+    const staleE2b = row({
       id: "00000000-0000-4000-8000-000000000103",
-      provider: "blaxel",
-      providerVmId: "provider-vm-stale-blaxel",
+      provider: "freestyle",
+      providerVmId: "provider-vm-stale",
       status: "running",
     });
     const staleFreestyle = row({
@@ -86,7 +86,7 @@ describe("lazy active-limit provider refresh", () => {
         // Deliberately return more rows than the requested limit. The workflow
         // keeps its own cap so alternate repository implementations cannot make
         // the synchronous retry unbounded.
-        return Effect.succeed([staleBlaxel, staleFreestyle, ...extraCandidates]);
+        return Effect.succeed([staleE2b, staleFreestyle, ...extraCandidates]);
       },
       markProviderObservedStatus: (update: ObservedStatusUpdate) => {
         observed.push(update);
@@ -103,7 +103,7 @@ describe("lazy active-limit provider refresh", () => {
 
     const providers = {
       create: () => Effect.succeed({
-        provider: "blaxel" as const,
+        provider: "freestyle" as const,
         providerVmId: "provider-vm-limit-refresh-new",
         status: "running" as const,
         image: "snapshot-test",
@@ -133,7 +133,7 @@ describe("lazy active-limit provider refresh", () => {
         billingTeamId: "team-limit-refresh",
         billingPlanId: "pro",
         maxActiveVms: 5,
-        provider: "blaxel",
+        provider: "freestyle",
         image: "snapshot-test",
       }).pipe(Effect.provide(layer)),
     );
@@ -142,12 +142,12 @@ describe("lazy active-limit provider refresh", () => {
     expect(beginCreateCalls).toBe(2);
     expect(candidateLimit).toBe(200);
     expect(statusCalls).toHaveLength(200);
-    // The refresh must probe BOTH stale rows; before the fix it skipped blaxel.
-    expect(statusCalls).toContainEqual(["blaxel", "provider-vm-stale-blaxel"]);
+    // The refresh must probe BOTH stale rows; before the fix it skipped non-freestyle.
+    expect(statusCalls).toContainEqual(["freestyle", "provider-vm-stale"]);
     expect(statusCalls).toContainEqual(["freestyle", "provider-vm-stale-freestyle"]);
     // And must durably record what the provider said so the recount can pass.
     const observedIds = observed.map((u) => u.providerVmId).sort();
-    expect(observedIds).toContain("provider-vm-stale-blaxel");
+    expect(observedIds).toContain("provider-vm-stale");
     expect(observedIds).toContain("provider-vm-stale-freestyle");
     expect(observedIds).toHaveLength(200);
     expect(new Set(observed.map((u) => u.status))).toEqual(new Set(["destroyed"]));
