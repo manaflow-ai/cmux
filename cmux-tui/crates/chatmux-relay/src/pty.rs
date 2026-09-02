@@ -27,6 +27,7 @@ use std::os::fd::AsRawFd;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
+use std::time::Duration;
 use tokio::sync::Notify;
 use tokio_util::sync::CancellationToken;
 
@@ -37,7 +38,7 @@ use bytes::Bytes;
 use serde_json::{Value, json};
 
 use crate::actions::{expand_path, scrubbed_env, validate_request_path};
-use crate::control::ControlHandle;
+use crate::control::{CONTROL_TIMEOUT_MS, ControlHandle};
 use crate::relay_wire::RelayPtyErrorCode;
 
 pub const PTY_PROTOCOL_VERSION: u64 = 4;
@@ -520,7 +521,11 @@ impl ControlLease {
                 let control = Arc::clone(&self.control);
                 let lease = Arc::clone(self);
                 handle.spawn(async move {
-                    let _ = control.send_reliable("detach-attached-view", params).await;
+                    let _ = tokio::time::timeout(
+                        Duration::from_millis(CONTROL_TIMEOUT_MS),
+                        control.send_reliable("detach-attached-view", params),
+                    )
+                    .await;
                     lease.finish_count();
                 });
                 return;
@@ -2682,7 +2687,6 @@ mod tests {
     use std::sync::atomic::{AtomicUsize, Ordering as AtomicOrdering};
     use std::sync::{Arc as TestArc, Barrier, Mutex as StdMutex};
     use std::thread;
-    use std::time::Duration;
 
     static NEXT_TEST_DIRECTORY: AtomicU64 = AtomicU64::new(0);
 
