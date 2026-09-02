@@ -131,6 +131,7 @@ jobs:
         if: >-
           runner.environment == 'github-hosted' &&
           success() &&
+          steps.admission.outputs.admitted == 'true' &&
           github.event_name == 'issue_comment' &&
           github.event.comment.body == 'I have read the CLA Document v2.2 and I hereby sign the CLA'
         uses: manaflow-ai/cla-github-action@212a0f2dd659b24b48a30ba35966e06dc41736af

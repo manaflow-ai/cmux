@@ -136,6 +136,7 @@ run_gate non-author-sign 0 true env COMMENT_BODY='I have read the CLA Document v
 run_gate ordinary-comment 0 false env COMMENT_BODY='Thanks for the review!'
 run_gate padded-comment 0 false env COMMENT_BODY=' recheck'
 run_gate uppercase-comment 0 false env COMMENT_BODY=RECHECK
+run_gate uppercase-signing-comment 0 false env COMMENT_BODY='I HAVE READ THE CLA DOCUMENT V2.2 AND I HEREBY SIGN THE CLA'
 run_gate bot-comment 1 none env COMMENT_AUTHOR_TYPE=Bot COMMENT_AUTHOR_LOGIN='github-actions[bot]'
 
 for action in opened edited reopened synchronize ready_for_review; do
