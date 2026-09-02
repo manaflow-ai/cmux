@@ -119,11 +119,22 @@ cmux vm rm <id>          # irreversible and unprompted
 
 ## Inside a machine
 
-The guest `cmux` binary is the machine's relay CLI: commands go to the connected cmux app on the user's Mac; they do not act inside the VM. The most useful verb for agents running on a machine:
+Every machine has its own in-VM `cmux` CLI (a shim over the machine's cmux-tui daemon). Local verbs use cmux-tui's grammar (`cmux <resource> <action>`) against the machine's own session — workspaces, terminals, panes:
 
 ```
-cmux notify --title "Build done" --subtitle "myrepo" --body "Tests green"
+cmux workspace current run -- bun test        # run a command in a durable terminal here
+cmux session current snapshot --json          # this machine's workspace/terminal tree
 ```
+
+`cmux vm …` inside a machine talks to OTHER machines the Mac linked to this one (`cmux vm link <this-machine> <peer>` on the Mac grants access):
+
+```
+cmux vm ls                          # linked peers and their link state
+cmux vm exec <peer> -- <command>    # run on the peer (durable terminal there)
+cmux vm tree <peer>                 # the peer's workspace/terminal snapshot
+```
+
+Machine-to-machine access is grant-based: no control-plane credential lives in any VM, and a machine can only reach peers the user's Mac explicitly linked.
 
 ## Rules
 

@@ -16,6 +16,7 @@ import {
   type VMStatus,
 } from "./types";
 import { recordSpanError, setSpanAttributes, withVmSpan } from "../telemetry";
+import { guestCliInstallCommand } from "../guestCli";
 import {
   CMUX_TUI_INSTALL_TIMEOUT_MS,
   CMUX_TUI_PORT,
@@ -522,8 +523,18 @@ export class FreestyleProvider implements VMProvider {
         throw new ProviderError("freestyle", `cmux-tui install in ${vmId} failed: ${errorMessage(err)}`);
       });
     if (envs) await this.writeModelPlaneEnv(vm, vmId, envs);
+    await this.installGuestCli(vm);
     await this.execOrThrow(vm, vmId, freestyleStartDaemonCommand(), 60_000);
     await waitForCmuxTuiReady(this.cmuxTuiInvoke(vm), "freestyle", vmId);
+  }
+
+  /**
+   * The in-VM `cmux` shim (guestCli.ts): local verbs over this machine's own
+   * cmux-tui daemon, `cmux vm …` verbs over linked peer machines. Best-effort:
+   * a machine without the shim still serves every Mac-driven verb.
+   */
+  private async installGuestCli(vm: Vm): Promise<void> {
+    await this.execResult(vm, guestCliInstallCommand(), 30_000);
   }
 
   /**
@@ -565,6 +576,7 @@ export class FreestyleProvider implements VMProvider {
           throw new ProviderError("freestyle", `cmux-tui install in ${vmId} failed: ${errorMessage(err)}`);
         });
     }
+    await this.installGuestCli(vm);
     await this.execOrThrow(vm, vmId, freestyleStartDaemonCommand(), 60_000);
     await waitForCmuxTuiReady(this.cmuxTuiInvoke(vm), "freestyle", vmId);
   }

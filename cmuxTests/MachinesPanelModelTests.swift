@@ -1015,3 +1015,60 @@ struct MachinesPanelPaidPlanTests {
         #expect(error.description.contains("Upgrade to cmux Pro"))
     }
 }
+
+// MARK: - VMCapabilities decoding (the client half of the provider contract)
+
+/// The client gates verbs on the server's capability object and must stay
+/// skew-safe in both directions: a missing flag reads as supported (an older
+/// server keeps its historical attempt-and-surface behavior), and unknown
+/// providers are described entirely by their capability set — no provider
+/// name appears in any gate.
+struct VMCapabilitiesDecodingTests {
+    @Test func fullServerObjectDecodes() {
+        let caps = VMCapabilities(json: [
+            "snapshot": true, "restore": true, "fork": false,
+            "exec": true, "stats": false, "ports": false, "desktop": false,
+            "attachTransports": ["cmux-remote"],
+        ])
+        #expect(caps.snapshot)
+        #expect(!caps.fork)
+        #expect(caps.exec)
+        #expect(!caps.stats)
+        #expect(!caps.ports)
+        #expect(!caps.desktop)
+        #expect(caps.attachTransports == ["cmux-remote"])
+        #expect(caps.cmuxRemote)
+        #expect(!caps.ssh)
+    }
+
+    @Test func missingFlagsReadAsSupported() {
+        // An older server sends only {snapshot, restore, fork}: the new flags
+        // default to true and the transport list to nil (attempt, don't gate).
+        let caps = VMCapabilities(json: ["snapshot": true, "restore": true, "fork": true])
+        #expect(caps.stats)
+        #expect(caps.ports)
+        #expect(caps.desktop)
+        #expect(caps.attachTransports == nil)
+        #expect(caps.ssh)
+        #expect(caps.cmuxRemote)
+    }
+
+    @Test func absentObjectIsAll() {
+        let caps = VMCapabilities(json: nil)
+        #expect(caps == .all)
+    }
+
+    @Test func socketEchoRoundTrips() {
+        // The socket worker's `vm ls --json` payload is rebuilt from the same
+        // struct; the wire object must carry every gate an agent needs.
+        let caps = VMCapabilities(
+            snapshot: true, restore: true, fork: false,
+            exec: true, stats: false, ports: false, desktop: false,
+            attachTransports: ["cmux-remote"])
+        let object = caps.jsonObject
+        #expect(object["fork"] as? Bool == false)
+        #expect(object["stats"] as? Bool == false)
+        #expect(object["ports"] as? Bool == false)
+        #expect(object["attach_transports"] as? [String] == ["cmux-remote"])
+    }
+}

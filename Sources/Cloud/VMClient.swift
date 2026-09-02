@@ -336,23 +336,54 @@ struct VMExecResult {
     let stderr: String
 }
 
-/// What a machine's provider can do; the app offers only verbs that can succeed
-/// (Checkpoint/Fork disappear from menus when false — a verb that answers 502
-/// "not implemented" is not a verb).
+/// What a machine's provider can do; the app and CLI offer only verbs that can
+/// succeed (Checkpoint/Fork disappear from menus when false — a verb that
+/// answers 502 "not implemented" is not a verb). This mirrors the server's
+/// VmCapabilities: the client never assumes a provider name, only its
+/// capability set, so any provider the server registers works unchanged.
 struct VMCapabilities: Equatable, Sendable {
     var snapshot: Bool
     var restore: Bool
     var fork: Bool
+    /// One-shot non-interactive command execution (`vm exec`, push/pull transport).
+    var exec: Bool
+    /// Live CPU/memory/disk readings (`vm stats`).
+    var stats: Bool
+    /// Token-gated preview URLs for arbitrary VM ports (`vm open <m>:port/<n>`).
+    var ports: Bool
+    /// A desktop (VNC) surface exists for this provider's machines.
+    var desktop: Bool
+    /// Session transports the provider can hand out (e.g. "cmux-remote", "ssh").
+    /// nil means the server predates transport reporting: attempt, don't gate.
+    var attachTransports: [String]?
 
-    static let all = VMCapabilities(snapshot: true, restore: true, fork: true)
+    var ssh: Bool { attachTransports?.contains("ssh") ?? true }
+    var cmuxRemote: Bool { attachTransports?.contains("cmux-remote") ?? true }
 
-    init(snapshot: Bool, restore: Bool, fork: Bool) {
+    static let all = VMCapabilities(
+        snapshot: true, restore: true, fork: true,
+        exec: true, stats: true, ports: true, desktop: true,
+        attachTransports: nil)
+
+    init(
+        snapshot: Bool, restore: Bool, fork: Bool,
+        exec: Bool = true, stats: Bool = true, ports: Bool = true, desktop: Bool = true,
+        attachTransports: [String]? = nil
+    ) {
         self.snapshot = snapshot
         self.restore = restore
         self.fork = fork
+        self.exec = exec
+        self.stats = stats
+        self.ports = ports
+        self.desktop = desktop
+        self.attachTransports = attachTransports
     }
 
-    /// `{snapshot, restore, fork}`; a missing object or flag reads as supported.
+    /// Decodes the server's capability object. A missing object or flag reads as
+    /// supported, so an older server (which only gated snapshot/restore/fork)
+    /// keeps its historical behavior: the client attempts the verb and surfaces
+    /// the server's answer.
     init(json: Any?) {
         let dict = json as? [String: Any]
         func flag(_ key: String) -> Bool {
@@ -360,7 +391,26 @@ struct VMCapabilities: Equatable, Sendable {
             if let number = dict?[key] as? NSNumber { return number.boolValue }
             return true
         }
-        self.init(snapshot: flag("snapshot"), restore: flag("restore"), fork: flag("fork"))
+        let transports = (dict?["attachTransports"] as? [Any])?.compactMap { $0 as? String }
+        self.init(
+            snapshot: flag("snapshot"), restore: flag("restore"), fork: flag("fork"),
+            exec: flag("exec"), stats: flag("stats"), ports: flag("ports"), desktop: flag("desktop"),
+            attachTransports: transports)
+    }
+
+    /// The wire shape echoed to CLI/socket clients (`vm ls --json` → `capabilities`).
+    var jsonObject: [String: Any] {
+        var object: [String: Any] = [
+            "snapshot": snapshot,
+            "restore": restore,
+            "fork": fork,
+            "exec": exec,
+            "stats": stats,
+            "ports": ports,
+            "desktop": desktop,
+        ]
+        if let attachTransports { object["attach_transports"] = attachTransports }
+        return object
     }
 }
 
@@ -698,6 +748,9 @@ actor VMClient {
         summary.kind = Self.decodeKind(obj["kind"])
         if let label = obj["displayName"] as? String, !label.isEmpty {
             summary.displayName = label
+        }
+        if obj["capabilities"] != nil {
+            summary.capabilities = VMCapabilities(json: obj["capabilities"])
         }
         return summary
     }

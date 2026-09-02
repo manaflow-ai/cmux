@@ -152,6 +152,14 @@ cmux vm restore <snapshot-id> [--detach]       # snapshot -> new tracked machine
 cmux vm promote-template <id>          # template-named snapshot for reuse
 ```
 
+## Machine-to-machine links (`vm link`)
+
+```bash
+cmux vm link <src> <dst>               # grant machine <src> a cmux-remote link to <dst>
+```
+
+After linking, the in-VM `cmux` on `<src>` can drive `<dst>` directly — `cmux vm exec <dst> -- <cmd>`, `cmux vm tree <dst>`, `cmux vm terminal <dst> …` — over the same transport the Mac uses. Grants are brokered by the Mac (route + single-use enrollment invitation, approved by the Mac); no control-plane credential ever enters a VM, and a machine reaches only peers you linked it to. Inside any machine, `cmux vm help` lists the peer verbs and `cmux vm ls` shows the granted links.
+
 ## SSH (provider-dependent)
 
 ```bash
@@ -159,4 +167,4 @@ cmux vm ssh <id>                       # cmux-managed SSH workspace (not on ever
 cmux vm ssh-info <id>                  # raw SSH endpoint details when available
 ```
 
-The default cmux Cloud provider attaches through the cmux-tui remote daemon, not SSH — when `ssh` errors, use `exec`, `agent`, or `open` instead.
+Every machine advertises its transports in `cmux vm ls --json` → `capabilities.attach_transports`. The default cmux Cloud provider attaches through the cmux-tui remote daemon, not SSH — when a machine has no `ssh` transport, the CLI says so up front; use `exec`, `agent`, or `open` instead.

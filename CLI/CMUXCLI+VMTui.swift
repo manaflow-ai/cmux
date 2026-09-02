@@ -1513,3 +1513,128 @@ extension CMUXCLI {
         }
     }
 }
+
+// MARK: - cmux vm link <src> <dst>  (grant one machine a cmux-remote link to another)
+
+extension CMUXCLI {
+    /// Machine-to-machine access: after `cmux vm link <src> <dst>`, the in-VM
+    /// `cmux vm …` verbs on <src> can drive <dst> (exec, tree, terminals) over
+    /// the same cmux-remote transport the Mac uses. The Mac brokers the grant —
+    /// it mints <dst>'s route plus a single-use enrollment invitation, pushes
+    /// the peer file into <src>, kicks the in-VM connect, and approves the
+    /// pending enrollment — so no control-plane credential ever enters a VM.
+    func runVMLinkCommand(rest: [String], client: SocketClient, jsonOutput: Bool) throws {
+        let ids = rest.filter { !$0.hasPrefix("-") }
+        guard ids.count == 2 else {
+            throw CLIError(message: """
+                Usage: cmux vm link <src-machine> <dst-machine>
+
+                Grants <src-machine> access to <dst-machine>: inside <src-machine>,
+                `cmux vm exec <dst-machine> -- <cmd>` (and vm tree/terminal/…) then work.
+
+                Examples:
+                  cmux vm ls
+                  cmux vm link vivid-newt quiet-otter
+                """)
+        }
+        let src = ids[0], dst = ids[1]
+        for id in [src, dst] {
+            guard id.range(of: "^[A-Za-z0-9._-]{1,128}$", options: .regularExpression) != nil else {
+                throw CLIError(message: "vm link: `\(id)` is not a machine id. Run `cmux vm ls`.")
+            }
+        }
+        guard src != dst else {
+            throw CLIError(message: "vm link: source and destination are the same machine.")
+        }
+
+        // 1. Mint dst's route + invitation. No device fingerprint: src's in-VM
+        //    client is a brand-new device, so an invitation is always wanted.
+        let info = try client.sendV2(
+            method: "vm.cmux_remote_info",
+            params: ["id": dst],
+            responseTimeout: 180
+        )
+        guard let route = info["route"] as? String, !route.isEmpty else {
+            throw CLIError(message: "vm link: \(dst) returned no cmux-remote route. Is the machine running? Try `cmux vm wait \(dst) --wake`.")
+        }
+        let session = (info["session"] as? String) ?? "cloud"
+        let invitation = info["invitation"] as? [String: Any]
+        let invitationId = invitation?["invitation_id"] as? String
+
+        // 2. Push the peer file into src (base64 through exec: no quoting games).
+        var peer: [String: Any] = ["machine": dst, "route": route, "session": session]
+        if let uri = invitation?["uri"] as? String { peer["invite"] = uri }
+        let peerB64 = Data(jsonString(peer).utf8).base64EncodedString()
+        let peerPath = "$HOME/.cmux/peers/\(dst).json"
+        let write = "umask 077 && mkdir -p \"$HOME/.cmux/peers\" && printf '%s' '\(peerB64)' | base64 -d > \"\(peerPath)\""
+        let writeResult = try client.sendV2(
+            method: "vm.exec",
+            params: ["id": src, "command": write, "timeout_ms": 30_000],
+            responseTimeout: 60
+        )
+        if let code = writeResult["exit_code"] as? Int, code != 0 {
+            let stderr = (writeResult["stderr"] as? String) ?? ""
+            throw CLIError(message: "vm link: writing the peer file on \(src) failed (exit \(code)). \(stderr)")
+        }
+
+        // 3. Kick the in-VM connect in the background — it must run while the
+        //    approve loop below answers its pending enrollment.
+        let kick = "nohup cmux vm connect \(shellQuote(dst)) >/tmp/cmux-vm-link-\(dst).log 2>&1 & printf started"
+        _ = try client.sendV2(
+            method: "vm.exec",
+            params: ["id": src, "command": kick, "timeout_ms": 15_000],
+            responseTimeout: 60
+        )
+
+        // 4. Approve the pending enrollment src's connect just minted.
+        if let invitationId {
+            var approved = false
+            let deadline = Date().addingTimeInterval(120)
+            while Date() < deadline {
+                Thread.sleep(forTimeInterval: 2)
+                guard let result = try? client.sendV2(
+                    method: "vm.cmux_remote_approve",
+                    params: ["id": dst, "invitation_id": invitationId],
+                    responseTimeout: 60
+                ) else { continue }
+                let state = result["state"] as? String
+                if state == "approved" || state == "already_enrolled" {
+                    approved = true
+                    break
+                }
+            }
+            guard approved else {
+                throw CLIError(message: """
+                    vm link: \(src) never claimed the enrollment invitation for \(dst).
+                    Check /tmp/cmux-vm-link-\(dst).log on \(src):
+                      cmux vm exec \(src) -- cat /tmp/cmux-vm-link-\(dst).log
+                    """)
+            }
+        }
+
+        // 5. Verify end to end: the in-VM connect is idempotent and exits 0
+        //    once the peer's local mux socket answers.
+        let verify = try client.sendV2(
+            method: "vm.exec",
+            params: ["id": src, "command": "cmux vm connect \(shellQuote(dst))", "timeout_ms": 60_000],
+            responseTimeout: 90
+        )
+        let verifyCode = (verify["exit_code"] as? Int) ?? -1
+        guard verifyCode == 0 else {
+            let stderr = (verify["stderr"] as? String) ?? ""
+            throw CLIError(message: "vm link: \(src) could not reach \(dst) after enrollment (exit \(verifyCode)). \(stderr)")
+        }
+
+        if jsonOutput {
+            print(jsonString([
+                "ok": true,
+                "src": src,
+                "dst": dst,
+                "route": route,
+                "enrolled": invitationId != nil,
+            ]))
+        } else {
+            print("OK linked \(src) -> \(dst). Inside \(src): cmux vm exec \(dst) -- <command>")
+        }
+    }
+}

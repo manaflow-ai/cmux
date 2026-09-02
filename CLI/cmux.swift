@@ -4596,10 +4596,15 @@ struct CMUXCLI {
               !trimmed.isEmpty else {
             return nil
         }
+        // The CLI never enumerates providers: the server's registry is the
+        // authority and answers 400 vm_invalid_provider for unknown ids, so a
+        // provider added server-side works here with no client update. Only the
+        // token shape is validated (it travels in a JSON body).
         let normalized = trimmed.lowercased()
-        guard normalized == "freestyle" else {
+        let validShape = normalized.range(of: "^[a-z0-9][a-z0-9-]{0,63}$", options: .regularExpression) != nil
+        guard validShape else {
             throw CLIError(message: """
-                vm new: unsupported Cloud VM service override.
+                vm new: `--provider` must be a lowercase provider id (letters, digits, dashes).
 
                 Try:
                   cmux vm new
@@ -6421,6 +6426,9 @@ struct CMUXCLI {
                 }
                 print((response["stdout"] as? String) ?? "")
 
+            case "link":
+                try runVMLinkCommand(rest: rest, client: client, jsonOutput: jsonOutput)
+
             case "handoff":
                 guard let vmId = rest.first else {
                     throw CLIError(message: "Usage: cmux vm handoff <id>")
@@ -6436,7 +6444,7 @@ struct CMUXCLI {
                 print("id:       \(vmId)")
                 print("provider: \(provider)")
                 print("status:   \(status)")
-                print("attach:   cmux vm ssh \(vmId)")
+                print("attach:   cmux vm shell \(vmId)")
                 print("inspect:  cmux vm tools \(vmId)")
 
             case "promote-template":
@@ -18255,7 +18263,7 @@ struct CMUXCLI {
             """
         case "vm", "cloud":
             return """
-            Usage: cmux \(command) <base|new|ls|tree|status|stats|rename|snapshot|fork|restore|rm|run|route|agent|prompt|exec|push|pull|wait|shell|tui|desktop|open|ports|tools|handoff|promote-template|attach|ssh|ssh-info> [args...]
+            Usage: cmux \(command) <base|new|ls|tree|status|stats|rename|snapshot|fork|restore|rm|run|route|agent|prompt|exec|push|pull|wait|shell|tui|desktop|open|link|ports|tools|handoff|promote-template|attach|ssh|ssh-info> [args...]
 
             Manage cloud VMs. `cloud` is an alias for `vm`. Requires `cmux auth login`.
 
@@ -18284,6 +18292,10 @@ struct CMUXCLI {
                                         Print the terminal's visible screen.
               terminal wait <machine> <term-id> --pattern <regex> [--timeout <s>]
                                         Block until the screen matches; exit 1 on timeout.
+              link <src> <dst>          Grant machine <src> access to machine <dst>:
+                                        inside <src>, `cmux vm exec <dst> -- <cmd>`,
+                                        `cmux vm tree <dst>`, and the other in-VM
+                                        `cmux vm` verbs then drive <dst> directly.
               prompt [--open <agent>]   Install the cmux-cloud skill file and print the
                                         kickoff prompt for any agent; --open starts a
                                         local claude|codex|opencode|pi terminal with it.
