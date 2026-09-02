@@ -836,6 +836,36 @@ mod tests {
     }
 
     #[test]
+    fn decoder_handles_many_frames_without_retaining_batch_storage() {
+        const MAX_FRAME_BYTES: usize = 8;
+        const FRAME_COUNT: usize = 2_048;
+
+        let mut stream = Vec::with_capacity(FRAME_COUNT * (HEADER_BYTES + 1));
+        for index in 0..FRAME_COUNT {
+            stream.extend_from_slice(&encode_tunnel_frame(
+                if index % 2 == 0 { FRAME_KIND_CONTROL } else { FRAME_KIND_PTY },
+                &[index as u8],
+            ));
+        }
+
+        let mut decoder = TunnelFrameDecoder::new(MAX_FRAME_BYTES);
+        let frames = decoder.push(&stream).expect("clean stream");
+
+        assert_eq!(frames.len(), FRAME_COUNT);
+        assert!(frames.iter().enumerate().all(|(index, frame)| {
+            frame.kind == if index % 2 == 0 { FRAME_KIND_CONTROL } else { FRAME_KIND_PTY }
+                && frame.payload == [index as u8]
+        }));
+        assert!(decoder.buffer.is_empty());
+        assert!(
+            decoder.buffer.capacity() <= MAX_FRAME_BYTES + HEADER_BYTES,
+            "decoder retained {} bytes for a {} byte max frame",
+            decoder.buffer.capacity(),
+            MAX_FRAME_BYTES
+        );
+    }
+
+    #[test]
     fn oversized_length_poisons_the_decoder() {
         let mut decoder = TunnelFrameDecoder::new(MAX_TUNNEL_FRAME_BYTES);
         let mut header = ((MAX_TUNNEL_FRAME_BYTES + 1) as u32).to_be_bytes().to_vec();
