@@ -7,8 +7,9 @@ an embedding libghostty view.
 
 `CmuxTerminalClientKit` wraps the C ABI. `CmuxTerminalClientModel` is pure
 Swift (result decoding, output event mapping) and carries the unit tests, so
-`swift test --package-path Packages/Shared/CmuxTerminalClient --filter CmuxTerminalClientModelTests`
-runs without the binary.
+`CMUX_TERMINAL_CLIENT_MODEL_ONLY=1 swift test --package-path Packages/Shared/CmuxTerminalClient`
+runs them without the binary (the variable drops the Kit and binary targets
+from the manifest for that invocation).
 
 The binary is `CmuxTerminalClient.xcframework`, built by
 `.github/workflows/cmux-terminal-client-xcframework.yml` and pinned in
