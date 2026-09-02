@@ -7445,6 +7445,50 @@ mod tests {
         assert!(events.try_iter().next().is_none());
     }
 
+    #[cfg(unix)]
+    #[test]
+    fn surface_exit_drops_cached_agent_before_a_stale_topology_can_restore_it() {
+        let tree = || {
+            parse_tree(&json!({
+                "workspaces": [{
+                    "id": 1,
+                    "screens": [{
+                        "id": 2,
+                        "layout": {"type": "leaf", "pane": 3},
+                        "panes": [{
+                            "id": 3,
+                            "tabs": [{"surface": 7, "title": "agent terminal"}],
+                        }],
+                    }],
+                }],
+            }))
+        };
+        let (client, _server) = UnixStream::pair().unwrap();
+        let session = socket_test_session(client);
+        session.tree.lock().unwrap().replace(tree(), 0);
+
+        session.handle_line(json!({
+            "event": "agent-changed",
+            "surface": 7,
+            "state": "working",
+            "source": "hook",
+            "session": "review",
+            "updated_at_ms": 41,
+        }));
+        assert_eq!(session.cached_agents().len(), 1);
+
+        session.handle_line(json!({"event": "surface-exited", "surface": 7}));
+        assert!(session.cached_agents().is_empty());
+
+        // A stale topology response can briefly show the exited surface again.
+        // The event seen before exit must not resurrect its agent row.
+        let mut cache = session.tree.lock().unwrap();
+        let title_generation = cache.title_generation();
+        cache.replace(tree(), title_generation);
+        cache.replace_agents(Vec::new(), 0);
+        assert!(cache.agents.is_empty());
+    }
+
     #[test]
     fn surface_event_scope_filters_before_remote_cache_invalidation() {
         let (session, _requests) = recording_acknowledging_session();
