@@ -1434,6 +1434,15 @@ mod tests {
     }
 
     #[test]
+    fn shell_escaped_agent_token_is_identified() {
+        let shell = ForegroundJob {
+            process_group_id: 7,
+            processes: vec![process(7, "bash", &["bash", "-lc", r"exec c\odex"])],
+        };
+        assert_eq!(identify_job(ManifestSet::bundled(), &shell).unwrap().0.id(), "codex");
+    }
+
+    #[test]
     fn runtime_option_values_are_not_treated_as_agent_commands() {
         for (name, argv) in [
             ("node", vec!["node", "--experimental-loader", "codex"]),
