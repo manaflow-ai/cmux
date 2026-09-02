@@ -13080,6 +13080,7 @@ impl App {
             .get(workspace_index)
             .and_then(|workspace| workspace.screens.get(screen_index))
             .and_then(|screen| screen.panes.get(pane_index))
+            .filter(|pane| pane.tabs.get(tab_index).is_some())
             .map(|pane| pane.id)
         else {
             return;
@@ -13254,6 +13255,9 @@ impl App {
         self.viewport_states.retain(|screen, _| live_screens.contains(screen));
         self.pane_focus_history.sync_membership(&tree);
         self.tree = tree;
+        let live_workspace_ids =
+            self.tree.workspaces().iter().map(|workspace| workspace.id).collect();
+        self.agent_generations.retain(|workspace_id, _| live_workspace_ids.contains(workspace_id));
         self.bump_sidebar_generation();
         self.sidebar_workspace_selection = selected_workspace
             .and_then(|selected| {
