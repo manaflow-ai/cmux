@@ -1741,8 +1741,14 @@ mod tests {
             // `-o` consumes an option name in POSIX shells; it cannot be
             // combined with `-c` to form a command flag.
             ("bash", vec!["bash", "-oc", "codex"]),
+            // A value-taking option after `c` is also not a command flag:
+            // bash consumes the remainder as the command text for `-c`, not
+            // as another option and a following script.
+            ("bash", vec!["bash", "-co", "codex"]),
             ("sh", vec!["sh", "-oc", "codex"]),
+            ("sh", vec!["sh", "-co", "codex"]),
             ("zsh", vec!["zsh", "-oc", "codex"]),
+            ("zsh", vec!["zsh", "-co", "codex"]),
             // Fish does not accept a repeated `c` short option.
             ("fish", vec!["fish", "-cc", "codex"]),
             // Fish options that take a value or exit cannot expose the next
