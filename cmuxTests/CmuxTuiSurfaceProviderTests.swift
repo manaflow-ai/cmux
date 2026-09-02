@@ -1230,6 +1230,73 @@ import Testing
         #expect(!CloudMachineLink.canRestartEventsSubscription(for: .snapshotOnly))
     }
 
+    @Test func cloudTreeRecognizesLegacyWorkspaceProjectionWithoutTabID() throws {
+        let machine = SurfaceMachineID.cloud("legacy-placement")
+        let workspace = SurfaceRemoteWorkspace(id: "ws_main", name: "main", index: 0, focused: true)
+        let view = SurfaceRemoteView(tabID: "tab_shell", workspace: workspace)
+        let resource = SurfaceResource(
+            id: SurfaceResourceID(machine: machine, kind: .terminal, key: "term_shell"),
+            title: "shell",
+            detail: "/root",
+            lifecycle: .running,
+            agent: nil,
+            remoteWorkspace: workspace,
+            remoteViews: [view],
+            port: nil,
+            url: nil
+        )
+        let localWorkspaceID = UUID()
+        let snapshot = SurfaceCatalogSnapshot(
+            machines: [SurfaceMachineInfo(
+                id: machine,
+                name: machine.rawValue,
+                status: "running",
+                image: nil,
+                hasDesktop: false,
+                memoryMb: nil,
+                diskMb: nil,
+                linkState: .connected,
+                linkError: nil,
+                cpuPercent: nil,
+                memoryUsedMb: nil,
+                diskUsedMb: nil,
+                remoteWorkspaces: [workspace],
+                privateAddress: nil
+            )],
+            resources: [resource],
+            // This is the pre-tab-id archive shape. The single current view is
+            // enough to recover its exact tab identity without guessing.
+            projections: [SurfaceProjection(
+                resource: resource.id,
+                workspaceID: localWorkspaceID,
+                panelID: UUID(),
+                remoteWorkspaceID: workspace.id
+            )]
+        )
+
+        let nodes = CloudTreeNodeBuilder.nodes(
+            machines: [],
+            snapshot: snapshot,
+            localWorkspaces: [],
+            includeLocalMachine: false
+        )
+        let flattened = CloudTreeNodeBuilder.flattened(nodes)
+        let workspaceNode = try #require(flattened.first { $0.id == "machine:legacy-placement/ws/ws_main" })
+        if case .workspace(_, _, _, let openIn) = workspaceNode.kind {
+            #expect(openIn == localWorkspaceID)
+        } else {
+            Issue.record("expected the legacy workspace row")
+        }
+        let terminalNode = try #require(flattened.first {
+            $0.id == "machine:legacy-placement/ws/ws_main/resource:legacy-placement/terminal/term_shell/tab:tab_shell"
+        })
+        if case .terminal(let row) = terminalNode.kind {
+            #expect(row.isOpen)
+        } else {
+            Issue.record("expected the legacy terminal pointer row")
+        }
+    }
+
     @Test func cursorDecodingRejectsBooleanFractionalAndOverflowNumbers() {
         #expect(CloudVMCursor(wire: ["generation": "g1", "revision": NSNumber(value: true)]) == nil)
         #expect(CloudVMCursor(wire: ["generation": "g1", "revision": NSNumber(value: 1.5)]) == nil)
