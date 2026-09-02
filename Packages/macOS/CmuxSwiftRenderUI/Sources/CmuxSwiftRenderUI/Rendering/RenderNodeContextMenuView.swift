@@ -69,8 +69,8 @@ final class RenderNodeContextMenuView: NSView {
     /// nothing presentable (no nodes, or separators only).
     func menuForPresentation() -> NSMenu? {
         let builder = RenderNodeContextMenuBuilder(dispatch: dispatch)
-        guard isMenuEnabled, builder.hasPresentableItems(nodes: nodes) else { return nil }
-        return builder.makeMenu(nodes: nodes)
+        guard isMenuEnabled else { return nil }
+        return builder.makeMenuIfPresentable(nodes: nodes)
     }
 
     /// Whether a descendant menu overlay also contains `point` (in the

@@ -28,12 +28,26 @@ struct RenderNodeContextMenuBuilder {
 
     /// Builds a menu whose items mirror `nodes`.
     func makeMenu(nodes: [RenderNode]) -> NSMenu {
+        makeMenuResult(nodes: nodes).menu
+    }
+
+    /// Builds a menu when `nodes` emit at least one non-separator item.
+    ///
+    /// The recursive append returns its emission state, so presentation does
+    /// not first scan the render tree and then walk it again to construct the
+    /// same menu.
+    func makeMenuIfPresentable(nodes: [RenderNode]) -> NSMenu? {
+        let result = makeMenuResult(nodes: nodes)
+        return result.emitted ? result.menu : nil
+    }
+
+    private func makeMenuResult(nodes: [RenderNode]) -> (menu: NSMenu, emitted: Bool) {
         let menu = NSMenu()
         // Enablement is decided by the IR (`.disabled`), not responder-chain
         // validation, so autoenable would re-disable every targeted item.
         menu.autoenablesItems = false
-        _ = append(nodes, to: menu, inheritedDisabled: false)
-        return menu
+        let emitted = append(nodes, to: menu, inheritedDisabled: false)
+        return (menu, emitted)
     }
 
     /// Returns whether `nodes` produce at least one non-separator menu item.
