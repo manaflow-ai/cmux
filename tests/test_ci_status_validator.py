@@ -4,11 +4,17 @@
 from __future__ import annotations
 
 import importlib.util
+import json
+import os
+import shutil
+import subprocess
+import tempfile
 from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[1]
 HELPER = ROOT / "scripts" / "ci" / "check_ci_status.py"
+CI_WORKFLOW = ROOT / ".github" / "workflows" / "ci.yml"
 spec = importlib.util.spec_from_file_location("check_ci_status", HELPER)
 assert spec and spec.loader
 module = importlib.util.module_from_spec(spec)
@@ -21,6 +27,7 @@ COMMON = tuple(module.COMMON_REQUIRED)
 
 def needs(outputs: dict[str, str], *, results: dict[str, str] | None = None) -> dict[str, object]:
     results = results or {}
+    outputs = dict(outputs)
     names = COMMON + ("linux-preflight", "tests") + ROUTE_JOBS
     return {
         name: {
@@ -37,6 +44,46 @@ def needs(outputs: dict[str, str], *, results: dict[str, str] | None = None) -> 
 
 
 ALL_FALSE = {route: "false" for route in module.ROUTE_NAMES}
+
+
+def _ci_status_script() -> str:
+    lines = CI_WORKFLOW.read_text(encoding="utf-8").splitlines()
+    in_job = False
+    for index, line in enumerate(lines):
+        if line == "  ci-status:":
+            in_job = True
+            continue
+        if in_job and line.startswith("  ") and not line.startswith("    ") and line.strip():
+            break
+        if in_job and line == "      - name: Check routed CI jobs":
+            for run_index in range(index + 1, len(lines)):
+                if lines[run_index] == "        run: |":
+                    body: list[str] = []
+                    for body_line in lines[run_index + 1 :]:
+                        if body_line.startswith("          "):
+                            body.append(body_line[10:])
+                            continue
+                        if not body_line.strip():
+                            body.append("")
+                            continue
+                        break
+                    return "\n".join(body)
+    raise AssertionError("ci-status invocation not found")
+
+
+def run_ci_status(needs_data: dict[str, object]) -> subprocess.CompletedProcess[str]:
+    with tempfile.TemporaryDirectory() as temp_dir:
+        helper = Path(temp_dir) / "scripts" / "ci" / "check_ci_status.py"
+        helper.parent.mkdir(parents=True)
+        shutil.copy2(HELPER, helper)
+        return subprocess.run(
+            ["bash", "-c", _ci_status_script()],
+            cwd=temp_dir,
+            env={**os.environ, "CI_NEEDS": json.dumps(needs_data)},
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+        )
 
 
 def test_docs_only_allows_inactive_routes_to_skip() -> None:
@@ -71,6 +118,19 @@ def test_missing_or_malformed_route_data_fails_closed() -> None:
     del malformed["changes"]["outputs"]["web"]
     failures = module.validate_needs(malformed)
     assert "changes.outputs.web: expected true or false" in failures
+
+
+def test_workflow_passes_serialized_needs_to_validator() -> None:
+    result = run_ci_status(needs(ALL_FALSE))
+    assert result.returncode == 0, result.stderr
+    assert "CI status contract passed (aggregate)." in result.stdout
+
+
+def test_workflow_fails_when_serialized_selected_job_is_skipped() -> None:
+    outputs = {**ALL_FALSE, "web": "true"}
+    result = run_ci_status(needs(outputs, results={"web-typecheck": "skipped"}))
+    assert result.returncode != 0
+    assert "web-typecheck: required for route web, got skipped" in result.stderr
 
 
 def test_preflight_requires_selected_linux_routes() -> None:
