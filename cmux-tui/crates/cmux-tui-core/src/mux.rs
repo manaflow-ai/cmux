@@ -2135,6 +2135,9 @@ pub struct Mux {
     /// Keeps a close from removing a just-created surface before legacy
     /// callers have resolved the committed public result back to its runtime.
     resource_creation_handoff: Mutex<()>,
+    /// Serializes the check-and-create sequence used when an attached local
+    /// frontend bootstraps an otherwise empty session.
+    initial_bootstrap: Mutex<()>,
     resource_creation_execution: Mutex<()>,
     resource_creation_active: AtomicBool,
     terminal_adoptions: Mutex<HashSet<String>>,
@@ -2502,6 +2505,7 @@ impl Mux {
             #[cfg(test)]
             terminal_exit_state_queries: AtomicU64::new(0),
             resource_creation_handoff: Mutex::new(()),
+            initial_bootstrap: Mutex::new(()),
             resource_creation_execution: Mutex::new(()),
             resource_creation_active: AtomicBool::new(false),
             terminal_adoptions: Mutex::new(HashSet::new()),
@@ -2548,6 +2552,10 @@ impl Mux {
         mux.retry_pending_agent_hooks()?;
         crate::journal_hooks::start(&mux)?;
         Ok(mux)
+    }
+
+    pub fn lock_initial_bootstrap(&self) -> MutexGuard<'_, ()> {
+        self.initial_bootstrap.lock().unwrap()
     }
 
     fn retry_pending_agent_hooks(&self) -> anyhow::Result<()> {
@@ -29084,4 +29092,41 @@ mod tests {
         mux.authorize_provider_workspace_authority(AUTHORITY_TWO).unwrap();
         *mux.workspace_close_after_selector_resolution.lock().unwrap() = None;
     }
+}
+#[test]
+fn initial_bootstrap_lock_serializes_concurrent_callers() {
+    use std::sync::{mpsc, Arc, Barrier};
+    use std::thread;
+
+    let mux = Mux::new("bootstrap-lock-test", SurfaceOptions::default());
+    let barrier = Arc::new(Barrier::new(2));
+    let (event_tx, event_rx) = mpsc::sync_channel(0);
+    let (release_tx, release_rx) = mpsc::sync_channel(0);
+    thread::scope(|scope| {
+        let first_barrier = barrier.clone();
+        let first_mux = mux.clone();
+        let first_event_tx = event_tx.clone();
+        scope.spawn(move || {
+            let _guard = first_mux.lock_initial_bootstrap();
+            first_event_tx.send(()).unwrap();
+            first_barrier.wait();
+            release_rx.recv().unwrap();
+        });
+
+        let second_barrier = barrier.clone();
+        let second_mux = mux.clone();
+        scope.spawn(move || {
+            second_barrier.wait();
+            let _guard = second_mux.lock_initial_bootstrap();
+            event_tx.send(()).unwrap();
+        });
+
+        // The first caller holds the lock while the second caller attempts to
+        // acquire it. The second event must therefore remain blocked until
+        // the first caller is released.
+        event_rx.recv().unwrap();
+        assert!(event_rx.try_recv().is_err());
+        release_tx.send(()).unwrap();
+        event_rx.recv().unwrap();
+    });
 }
