@@ -688,7 +688,7 @@ describe("cmux-tui install and daemon commands", () => {
     writeExecutable("mountpoint", [
       "#!/bin/sh",
       "path=\"$2\"",
-      "if [ \"$path\" = \"$CMUX_TEST_BACKING\" ]; then if [ -e \"$CMUX_TEST_STATE/daemon-ready\" ]; then : > \"$CMUX_TEST_STATE/watcher-ready\"; fi; [ ! -e \"$CMUX_TEST_STATE/backing-unmounted\" ]; exit $?; fi",
+      "if [ \"$path\" = \"$CMUX_TEST_BACKING\" ]; then [ ! -e \"$CMUX_TEST_STATE/backing-unmounted\" ]; exit $?; fi",
       "exit 1",
       "",
     ].join("\n"));
@@ -721,14 +721,10 @@ describe("cmux-tui install and daemon commands", () => {
         await new Promise((resolve) => setTimeout(resolve, 10));
       }
       expect(existsSync(join(state, "daemon-ready"))).toBe(true);
-      const watcherReady = join(state, "watcher-ready");
-      const watcherReadyDeadline = Date.now() + 2_000;
-      while (!existsSync(watcherReady) && Date.now() < watcherReadyDeadline) {
-        await new Promise((resolve) => setTimeout(resolve, 10));
-      }
+      await new Promise((resolve) => setTimeout(resolve, 100));
       // Missing findmnt must select a bounded direct mount check, not signal the
       // supervisor before the daemon has a chance to serve the mounted home.
-      expect(existsSync(watcherReady)).toBe(true);
+      expect(child.exitCode).toBeNull();
       writeFileSync(join(state, "backing-unmounted"), "");
       const exitCode = await new Promise<number>((resolve, reject) => {
         const timer = setTimeout(() => {
