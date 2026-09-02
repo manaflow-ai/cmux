@@ -337,6 +337,12 @@ enum CloudTreeNodeBuilder {
         var displays: [RemoteResourcePlacement] = []
     }
 
+    private struct RemotePlacementIdentity: Hashable {
+        let resource: SurfaceResourceID
+        let workspaceID: String
+        let tabID: String?
+    }
+
     /// Returns every current placement, with a nil view only for legacy
     /// providers that expose a workspace but no tab id. An explicit empty view
     /// array means the resource is detached and must not be invented in a
@@ -357,13 +363,6 @@ enum CloudTreeNodeBuilder {
         var seen = Set<SurfaceResourceID>()
         return placements.compactMap { placement in
             seen.insert(placement.resource.id).inserted ? placement.resource : nil
-        }
-    }
-
-    private static func uniqueIDs(_ resources: [SurfaceResource]) -> [SurfaceResourceID] {
-        var seen = Set<SurfaceResourceID>()
-        return resources.compactMap { resource in
-            seen.insert(resource.id).inserted ? resource.id : nil
         }
     }
 
@@ -488,14 +487,50 @@ enum CloudTreeNodeBuilder {
     static func nodeID(displaysPool machine: SurfaceMachineID) -> String { "machine:\(machine.rawValue)/displays" }
     static func nodeID(workspacesGroup machine: SurfaceMachineID) -> String { "machine:\(machine.rawValue)/workspaces" }
     static func nodeID(workspace: String, machine: SurfaceMachineID) -> String { "machine:\(machine.rawValue)/ws/\(workspace)" }
-    /// The local workspace that shows a remote workspace: the one holding the most of its
-    /// members' panes (at least one). Nil when none of them is open anywhere.
-    static func localWorkspaceShowing(_ members: [SurfaceResourceID], snapshot: SurfaceCatalogSnapshot) -> UUID? {
-        guard !members.isEmpty else { return nil }
-        let wanted = Set(members)
+    /// The local workspace that shows a remote workspace: the one holding the most
+    /// exact remote placements (at least one). A resource id alone is not enough
+    /// because one terminal can have views in several remote workspaces.
+    static func localWorkspaceShowing(
+        remoteWorkspaceID: String,
+        placements: [SurfaceResourcePlacement],
+        snapshot: SurfaceCatalogSnapshot
+    ) -> UUID? {
+        let wanted = Set(placements.compactMap { placement -> RemotePlacementIdentity? in
+            guard placement.remoteWorkspaceID == remoteWorkspaceID else { return nil }
+            return RemotePlacementIdentity(
+                resource: placement.resource,
+                workspaceID: remoteWorkspaceID,
+                tabID: placement.remoteTabID
+            )
+        })
+        guard !wanted.isEmpty else { return nil }
         var counts: [UUID: Int] = [:]
-        for projection in snapshot.projections where wanted.contains(projection.resource) {
-            counts[projection.workspaceID, default: 0] += 1
+        for projection in snapshot.projections {
+            let candidates = wanted.filter { $0.resource == projection.resource }
+            guard !candidates.isEmpty else { continue }
+            let resource = snapshot.resources.first { $0.id == projection.resource }
+            let resourcePlacements = wanted.filter { $0.resource == projection.resource }
+            let matches = candidates.contains { identity in
+                if projection.remoteWorkspaceID == identity.workspaceID {
+                    if let tabID = identity.tabID {
+                        return projection.remoteTabID == tabID
+                    }
+                    return projection.remoteTabID == nil
+                }
+                // A projection from an older session may lack both coordinates.
+                // Infer it only when the resource has exactly one remote view in
+                // total and the resource has one local projection.
+                guard projection.remoteWorkspaceID == nil,
+                      projection.remoteTabID == nil,
+                      resourcePlacements.count == 1,
+                      snapshot.projections(of: projection.resource).count == 1,
+                      resource?.remoteViews?.count == 1
+                else { return false }
+                return true
+            }
+            if matches {
+                counts[projection.workspaceID, default: 0] += 1
+            }
         }
         return counts.max { lhs, rhs in lhs.value != rhs.value ? lhs.value < rhs.value : lhs.key.uuidString > rhs.key.uuidString }?.key
     }
@@ -711,7 +746,6 @@ enum CloudTreeNodeBuilder {
                     let workspaceDisplayPlacements = displaysByWorkspace[workspace.id] ?? []
                     let workspaceBrowsers = uniqueResources(workspaceBrowserPlacements)
                     let workspaceDisplays = uniqueResources(workspaceDisplayPlacements)
-                    let members = uniqueIDs(pointed + workspaceBrowsers + workspaceDisplays)
                     let placements = terminalPlacements.map { placement in
                         SurfaceResourcePlacement(
                             resource: placement.resource.id,
@@ -734,12 +768,16 @@ enum CloudTreeNodeBuilder {
                     // Every workspace can reach the machine's screen: when no view
                     // pins a display yet, the machine's displays still show under
                     // the workspace, so its terminals and its desktop open from one
-                    // place. Implicit rows stay out of `members`/dragGroup — only
+                    // place. Implicit rows stay out of the drag group — only
                     // real pointers travel with the workspace's open/drag group.
                     let shownDisplayPlacements: [RemoteResourcePlacement] = workspaceDisplayPlacements.isEmpty
                         ? displays.map { RemoteResourcePlacement(resource: $0, workspace: workspace, view: nil) }
                         : workspaceDisplayPlacements
-                    let openInLocal = localWorkspaceShowing(members, snapshot: snapshot)
+                    let openInLocal = localWorkspaceShowing(
+                        remoteWorkspaceID: workspace.id,
+                        placements: placements,
+                        snapshot: snapshot
+                    )
                     return CloudTreeNode(
                         id: nodeID(workspace: workspace.id, machine: machine),
                         kind: .workspace(machine: machine, workspace, terminalCount: pointed.count, openIn: openInLocal),

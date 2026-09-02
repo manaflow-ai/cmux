@@ -428,21 +428,43 @@ final class MachinesPanelModelTests: XCTestCase {
         ])
         // A remote workspace already showing locally: its row marks it open and the click
         // jumps to that local workspace instead of opening a second copy.
+        let remoteSideLocalWorkspace = UUID()
         let openSnapshot = SurfaceCatalogSnapshot(
             machines: snapshot.machines,
             resources: snapshot.resources,
-            projections: snapshot.projections + [SurfaceProjection(resource: remoteA.id, workspaceID: local, panelID: UUID())]
+            projections: snapshot.projections + [
+                SurfaceProjection(
+                    resource: remoteA.id,
+                    workspaceID: local,
+                    panelID: UUID(),
+                    remoteWorkspaceID: ws0.id,
+                    remoteTabID: "tab_1"
+                ),
+                SurfaceProjection(
+                    resource: remoteA.id,
+                    workspaceID: remoteSideLocalWorkspace,
+                    panelID: UUID(),
+                    remoteWorkspaceID: ws1.id,
+                    remoteTabID: "tab_9"
+                ),
+            ]
         )
         let openNodes = CloudTreeNodeBuilder.nodes(
             machines: [machineSnapshot(id: "vivid-newt")],
             snapshot: openSnapshot,
-            localWorkspaces: [CloudTreeLocalWorkspace(id: local, title: "cmux90", isSelected: true)],
+            localWorkspaces: [
+                CloudTreeLocalWorkspace(id: local, title: "cmux90", isSelected: true),
+                CloudTreeLocalWorkspace(id: remoteSideLocalWorkspace, title: "remote side", isSelected: false),
+            ],
             includeLocalMachine: true
         )
         let openByID = Dictionary(CloudTreeNodeBuilder.flattened(openNodes).map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
         if case .workspace(_, _, _, let openIn) = openByID["machine:vivid-newt/ws/ws_main"]!.kind {
             XCTAssertEqual(openIn, local, "term_1's pane lives in the local workspace")
         } else { XCTFail("expected ws_main row") }
+        if case .workspace(_, _, _, let openIn) = openByID["machine:vivid-newt/ws/ws_side"]!.kind {
+            XCTAssertEqual(openIn, remoteSideLocalWorkspace, "term_1's second remote view uses its own local workspace")
+        } else { XCTFail("expected ws_side row") }
         if case .workspace(_, _, _, let openIn) = openByID["machine:vivid-newt/ws/ws_empty"]!.kind {
             XCTAssertNil(openIn, "nothing of it is open anywhere")
         } else { XCTFail("expected ws_empty row") }
@@ -457,7 +479,11 @@ final class MachinesPanelModelTests: XCTestCase {
         if case .display(_, let openIn, _) = openByID["machine:vivid-newt/ws/ws_empty/resource:vivid-newt/display/display:1"]!.kind {
             XCTAssertNil(openIn, "ws_empty shows nowhere locally")
         } else { XCTFail("expected ws_empty display row") }
-        XCTAssertNil(CloudTreeNodeBuilder.localWorkspaceShowing([], snapshot: openSnapshot))
+        XCTAssertNil(CloudTreeNodeBuilder.localWorkspaceShowing(
+            remoteWorkspaceID: wsEmpty.id,
+            placements: [],
+            snapshot: openSnapshot
+        ))
         // The workspace's open/drag group carries its display pointer with its terminals.
         XCTAssertEqual(
             CloudTreeNodeBuilder.flattened(nodes).first { $0.id == "machine:vivid-newt/ws/ws_side" }?.dragGroup?.resources,

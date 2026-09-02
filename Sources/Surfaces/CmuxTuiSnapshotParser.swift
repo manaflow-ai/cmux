@@ -748,11 +748,8 @@ struct CmuxTuiSnapshotParser: Sendable {
             // so it is not a surface. An exited terminal that still has a tab stays listed —
             // that one can be closed.
             if terminal.lifecycle == .exited, tabIDs.isEmpty { continue }
-            // A user-named view labels the terminal everywhere it shows; the PTY title
-            // is the fallback (first named tab in the daemon's canonical order).
-            if let name = tabIDs.compactMap({ nameOfTab[$0] }).first {
-                terminal.title = name
-            }
+            // Keep the PTY-derived title on the shared resource. User names belong to
+            // each SurfaceRemoteView, because one terminal can have different tab labels.
             terminal.remoteViews = tabIDs.compactMap { tabID in
                 guard let paneID = paneOfTab[tabID],
                       let screenID = screenOfPane[paneID],

@@ -73,7 +73,7 @@ import Testing
         #expect(detached.lifecycle == .running)
     }
 
-    @Test func userTabNameLabelsTheTerminalOverItsPtyTitle() throws {
+    @Test func userTabNameStaysOnTheIndividualRemoteView() throws {
         var snapshot = Self.sessionSnapshot
         snapshot["tabs"] = [
             ["id": "tab_1", "pane_id": "pane_1", "name": "build loop", "content_kind": "terminal", "content_id": "term_build"],
@@ -88,9 +88,11 @@ import Testing
         let resources = CmuxTuiSnapshotParser.terminals(fromSnapshot: snapshot, machine: Self.machine)
 
         // `tab rename` (the tree's Rename…, any TUI client) sets the tab's `name`,
-        // which the daemon persists and broadcasts; it beats the PTY-derived title.
+        // which the daemon persists and broadcasts for that view only.
         let build = try #require(resources.first { $0.id.key == "term_build" })
-        #expect(build.title == "build loop")
+        #expect(build.title == "cargo test")
+        #expect(build.remoteViews?.first?.name == "build loop")
+        #expect(build.remoteViews?.last?.name == nil)
 
         // An empty or absent name keeps the PTY title.
         let shell = try #require(resources.first { $0.id.key == "term_shell" })
@@ -792,7 +794,7 @@ import Testing
         #expect(next.tabs.first { $0.id == "tab_1" }?.name == "renamed")
         let terminal = try #require(CmuxTuiSnapshotParser.resources(from: next).first { $0.id.key == "term_build" })
         #expect(terminal.remoteViews?.first?.name == "renamed")
-        #expect(terminal.title == "renamed")
+        #expect(terminal.title == "cargo test")
         let notification = try #require(next.entity(kind: "notification", id: "notice-1"))
         let notificationObject = try #require(JSONSerialization.jsonObject(with: notification.payload) as? [String: Any])
         #expect(notificationObject["body"] as? String == "passed")
