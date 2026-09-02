@@ -820,6 +820,10 @@ struct DockControlDefinitionDecodingTests {
         let previousAppDelegate = AppDelegate.shared
         let appDelegate = AppDelegate()
         let manager = TabManager(autoWelcomeIfNeeded: false)
+        let defaults = UserDefaults.standard
+        let dockEnabledKey = RightSidebarBetaFeatureSettings.dockEnabledKey
+        let previousDockEnabled = defaults.object(forKey: dockEnabledKey)
+        defaults.set(true, forKey: dockEnabledKey)
         AppDelegate.shared = appDelegate
         appDelegate.tabManager = manager
         TerminalController.shared.setActiveTabManager(manager)
@@ -830,6 +834,11 @@ struct DockControlDefinitionDecodingTests {
             appDelegate.forgetRecoverableMainWindowRoute(windowId: windowId)
             manager.tabs.forEach { $0.teardownAllPanels() }
             AppDelegate.shared = previousAppDelegate
+            if let previousDockEnabled {
+                defaults.set(previousDockEnabled, forKey: dockEnabledKey)
+            } else {
+                defaults.removeObject(forKey: dockEnabledKey)
+            }
         }
 
         let workspace = try #require(manager.tabs.first)
