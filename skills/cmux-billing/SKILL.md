@@ -13,7 +13,8 @@ Read before changing billing, pricing, Stripe, Pro entitlement, checkout, webhoo
 - `/api/billing/portal` resolves the current Stack user, looks up their `stripe_customers` row, and creates a Stripe customer portal session returning to `/pricing`.
 - `/api/billing/subscription` cancels or resumes the active Stripe Pro subscription; `/dashboard/billing` renders localized in-dashboard plan state and self-serve actions.
 - `web/services/billing/purchase.ts` is the shared idempotent recorder used by `/api/billing/complete` and `/api/stripe/webhook`. It attaches email to the purchaser, records `billing_email_claims` on conflict, and never cross-grants based on an unverified email.
-- `cmuxPlan` in Stack `clientReadOnlyMetadata` is the only entitlement VM code reads; a `cmuxVmPlan` manual override wins. `resolveProPlanStatus` ORs legacy Stack products with active `stripe_subscriptions` rows.
+- `cmuxPlan` in Stack `clientReadOnlyMetadata` is the only entitlement VM code reads; a `cmuxVmPlan` manual override wins. `resolveProPlanStatus` reports Pro for an active `stripe_subscriptions` row or a paid `cmuxVmPlan` override (`pro`, `team`, `founders`); `billingManagement` stays Stripe-only, so a granted account shows Pro without a portal link.
+- `/dashboard/admin` (nav group `admin`) and `/api/admin/users` let verified `manaflow.ai` accounts search users and grant, change, or remove the `cmuxVmPlan` override. `services/admin/access.ts` is the gate, `services/admin/proGrants.ts` writes under the account-mutation lease and records `serverMetadata.cmuxAdminPlanGrant` (who, when, which plan). Non-admins get 404 on the page and 403 on the API.
 - `/api/stripe/webhook` is signature-verified, insert-first idempotent through `stripe_webhook_events`, safe for foreign events in the shared Stripe account, and gates cmux handling on `metadata.app === "cmux"`. Return 2xx only after durable writes; return 500 to make Stripe retry.
 
 ## Dev workflow
@@ -23,7 +24,7 @@ Read before changing billing, pricing, Stripe, Pro entitlement, checkout, webhoo
 - Per-branch Docker Postgres ports collide with other agents' containers. Use `--db-port` and never stop containers you did not create.
 - `/app-pricing` requires `cmux_app=1`. `cmux_scheme` threads the native deeplink return scheme; `cmux-dev-*` schemes are honored only for localhost requests.
 - Repeat dogfood: use a private window for a fresh anonymous buyer, and `web/scripts/stripe/dev-reset.sh <email>` to un-Pro a signed-in dev account before retesting checkout.
-- Fake payment, two ways: `web/scripts/stripe/dev-grant.sh <email>` writes `cmuxPlan: "pro"` directly (instant, no checkout; undo with dev-reset). For the full checkout path at $0, enter promotion code `CMUXDEV100` in test-mode checkout — a 100%-off forever coupon in the test account; `allow_promotion_codes` is already set on checkout sessions.
+- Fake payment, two ways: `web/scripts/stripe/dev-grant.sh <email>` writes `cmuxVmPlan: "pro"` directly (same override as the admin page) (instant, no checkout; undo with dev-reset). For the full checkout path at $0, enter promotion code `CMUXDEV100` in test-mode checkout — a 100%-off forever coupon in the test account; `allow_promotion_codes` is already set on checkout sessions.
 - Newer Stripe CLI prints `stripe config --list` as `key=value` (older builds used `key = 'value'`); dev-stack.sh and dev-reset.sh accept both. If key extraction fails, re-run `stripe login`.
 
 ## Test-mode resources

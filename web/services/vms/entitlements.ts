@@ -1,6 +1,6 @@
 import type { AuthedUser } from "./auth";
 import type { BillingCustomerType } from "./billingGateway";
-import { FOUNDERS_PLAN_ID, PRO_PLAN_ID, TEAM_PLAN_ID } from "../billing/pro";
+import { isPaidPlanId } from "../billing/pro";
 
 export type VmEntitlements = {
   readonly planId: string;
@@ -207,8 +207,7 @@ export function isVmFreeAccessExpired(
 
 /** A paid Cloud VM plan is Pro, Team, or Founder's Edition; everything else (free) is not. */
 export function isPaidVmPlan(planId: string): boolean {
-  const normalized = normalizedPlanId(planId);
-  return normalized === PRO_PLAN_ID || normalized === TEAM_PLAN_ID || normalized === FOUNDERS_PLAN_ID;
+  return isPaidPlanId(normalizedPlanId(planId));
 }
 
 /**

@@ -34,6 +34,12 @@ export const TEAM_PLAN_ID = "team";
 // Existing operator grants may still use `cmuxVmPlan: "founders"`.
 export const FOUNDERS_PLAN_ID = "founders";
 export const FREE_PLAN_ID = "free";
+/**
+ * Plan ids an operator may write to `clientReadOnlyMetadata.cmuxVmPlan` to
+ * grant Pro without a Stripe subscription. Mirrors `isPaidVmPlan` in
+ * services/vms/entitlements.ts so the desktop plan and the VM plan agree.
+ */
+export const PAID_PLAN_IDS = [PRO_PLAN_ID, TEAM_PLAN_ID, FOUNDERS_PLAN_ID] as const;
 export const PRO_ACCESS_ITEM_ID = "cmux-pro-access";
 export const ACTIVE_STRIPE_PRO_STATUSES = ["active", "trialing", "past_due"] as const;
 /** Subscription states that Stripe Billing Portal can manage or recover. */
@@ -187,13 +193,18 @@ export async function resolveProPlanStatus(
         hasLegacyQueryOverrides,
       )
     : null;
-  const isPro = user.id
+  const hasActiveStripePro = user.id
     ? options.hasActiveStripeSubscription
       ? await options.hasActiveStripeSubscription(user.id)
       : stripeBillingStatus
         ? stripeBillingStatus.hasActiveSubscription
         : await hasActiveStripeProSubscription(user.id)
     : false;
+  // An operator grant (`cmuxVmPlan` set to a paid plan by the admin dashboard
+  // or dev-grant.sh) is Pro everywhere, not only for Cloud VM limits. Billing
+  // management below still keys off Stripe state, since a granted account has
+  // no subscription for the portal to manage.
+  const isPro = hasActiveStripePro || isPaidPlanId(manualVmPlanOverride(metadata));
   // A customer row alone is not enough to open the portal. Stripe cannot start
   // a new subscription from the portal after a terminal cancellation (or when
   // the row has no subscription), so only recoverable subscription states keep
@@ -201,13 +212,13 @@ export async function resolveProPlanStatus(
   const hasStripeCustomer = user.id
     ? options.hasStripeCustomer
       ? await options.hasStripeCustomer(user.id)
-      : stripeBillingStatus?.hasCustomer ?? (isPro && !stripeBillingStatus)
+      : stripeBillingStatus?.hasCustomer ?? (hasActiveStripePro && !stripeBillingStatus)
     : false;
   const billingManagement: BillingManagementKind = stripeBillingStatus
-    ? isPro || isStripePortalRecoverable(stripeBillingStatus)
+    ? hasActiveStripePro || isStripePortalRecoverable(stripeBillingStatus)
       ? "stripe"
       : "none"
-    : isPro || hasStripeCustomer
+    : hasActiveStripePro || hasStripeCustomer
       ? "stripe"
       : "none";
   let metadataChanged = false;
@@ -215,11 +226,11 @@ export async function resolveProPlanStatus(
   if (
     user.id &&
     !hasManualVmPlanOverride &&
-    isPro !== (metadataPlanId === PRO_PLAN_ID)
+    hasActiveStripePro !== (metadataPlanId === PRO_PLAN_ID)
   ) {
     metadataChanged = await reconcileProMetadataIfAvailable(
       user.id,
-      isPro,
+      hasActiveStripePro,
       options.withFreshMetadataUser ?? withDefaultFreshProMetadataUser,
     );
   }
@@ -615,8 +626,21 @@ function proMetadataRecord(raw: unknown): Record<string, unknown> {
 }
 
 function hasManualVmOverride(metadata: Record<string, unknown>): boolean {
-  const override = metadata.cmuxVmPlan;
-  return typeof override === "string" && override.trim().length > 0;
+  return manualVmPlanOverride(metadata) !== null;
+}
+
+/** The operator-owned `cmuxVmPlan` override, normalized, or null when unset. */
+export function manualVmPlanOverride(raw: unknown): string | null {
+  const override = proMetadataRecord(raw).cmuxVmPlan;
+  if (typeof override !== "string") return null;
+  const normalized = override.trim().toLowerCase();
+  return normalized.length > 0 ? normalized : null;
+}
+
+/** True for plan ids that grant Pro access (pro, team, founders). */
+export function isPaidPlanId(planId: string | null | undefined): boolean {
+  if (typeof planId !== "string") return false;
+  return (PAID_PLAN_IDS as readonly string[]).includes(planId.trim().toLowerCase());
 }
 
 function planIdFromMetadata(metadata: Record<string, unknown>): string | null {

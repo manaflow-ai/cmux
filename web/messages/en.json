@@ -145,7 +145,9 @@
       "accountGroup": "account",
       "billing": "billing",
       "team": "team",
-      "testflight": "iOS TestFlight"
+      "testflight": "iOS TestFlight",
+      "adminGroup": "admin",
+      "adminPro": "pro access"
     },
     "home": {
       "title": "dashboard",
@@ -202,7 +204,8 @@
         "pendingBody": "Your plan is scheduled to end on {date}.",
         "monthlyPrice": "$30/mo",
         "annualPrice": "$24/mo, billed annually",
-        "legacyAnnualPrice": "$20/mo, billed annually"
+        "legacyAnnualPrice": "$20/mo, billed annually",
+        "grantedBody": "Pro access was granted to this account by the cmux team. There is no subscription to manage."
       },
       "team": {
         "name": "cmux Team",
@@ -282,6 +285,54 @@
         "viewPricing": "View pricing",
         "join": "Join iOS TestFlight",
         "leave": "Leave TestFlight"
+      }
+    },
+    "admin": {
+      "eyebrow": "admin",
+      "title": "pro access",
+      "description": "grant or remove Pro for any account. only verified {domain} accounts can open this page.",
+      "search": {
+        "label": "Find a user",
+        "placeholder": "email, name, or user id",
+        "button": "Search",
+        "searching": "Searching…",
+        "hint": "Matches primary email, display name, or exact user id. Up to 25 results."
+      },
+      "results": {
+        "user": "User",
+        "access": "Access",
+        "stripe": "Stripe",
+        "grant": "Manual grant",
+        "actions": "Actions",
+        "empty": "No users matched.",
+        "noEmail": "no email",
+        "verified": "verified",
+        "unverified": "unverified",
+        "noSubscription": "no subscription",
+        "cancelling": "cancels at period end"
+      },
+      "access": {
+        "pro": "Pro",
+        "free": "Free"
+      },
+      "grant": {
+        "none": "none",
+        "current": "{plan}",
+        "by": "{who} · {when}",
+        "stripeNote": "Pro comes from an active Stripe subscription. Removing it means cancelling in Stripe."
+      },
+      "actions": {
+        "grantPro": "Grant Pro",
+        "grantFounders": "Grant Founders",
+        "removeGrant": "Remove grant",
+        "saving": "Saving…"
+      },
+      "errors": {
+        "network": "Network error. Try again.",
+        "forbidden": "Your account is not an admin. Sign in with a verified manaflow.ai email.",
+        "notFound": "That user no longer exists.",
+        "conflict": "Another change to this account is in progress. Try again shortly.",
+        "generic": "The request failed. Try again shortly."
       }
     },
     "aiAccounts": {

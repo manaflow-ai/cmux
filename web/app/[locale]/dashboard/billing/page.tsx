@@ -155,6 +155,8 @@ export default async function DashboardBillingPage({
           subscription={subscription}
           canManageBilling={canManagePersonalBilling}
         />
+      ) : status.hasManualVmPlanOverride ? (
+        <GrantedPlan t={t} />
       ) : (
         <FreePlan t={t} showBillingPortal={canManagePersonalBilling} />
       )}
@@ -260,6 +262,17 @@ function FreePlan({
           {t("actions.viewPricing")}
         </Link>
       )}
+    </section>
+  );
+}
+
+// Pro granted by an operator (`cmuxVmPlan`), with no Stripe subscription to
+// manage. Shown so a granted account never reads as Free with an upgrade CTA.
+function GrantedPlan({ t }: { t: Awaited<ReturnType<typeof getTranslations>> }) {
+  return (
+    <section className="border border-border p-3">
+      <h2 className="text-sm font-medium">{t("pro.name")}</h2>
+      <p className="mt-2 max-w-2xl text-muted">{t("pro.grantedBody")}</p>
     </section>
   );
 }

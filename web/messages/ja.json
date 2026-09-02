@@ -145,7 +145,9 @@
       "accountGroup": "アカウント",
       "billing": "請求",
       "team": "チーム",
-      "testflight": "iOS TestFlight"
+      "testflight": "iOS TestFlight",
+      "adminGroup": "管理",
+      "adminPro": "Pro アクセス"
     },
     "home": {
       "title": "ダッシュボード",
@@ -202,7 +204,8 @@
         "pendingBody": "プランは{date}に終了する予定です。",
         "monthlyPrice": "$30/月",
         "annualPrice": "$24/月（年払い）",
-        "legacyAnnualPrice": "$20/月（年払い）"
+        "legacyAnnualPrice": "$20/月（年払い）",
+        "grantedBody": "このアカウントの Pro アクセスは cmux チームによって付与されています。管理するサブスクリプションはありません。"
       },
       "team": {
         "name": "cmux Team",
@@ -282,6 +285,54 @@
         "viewPricing": "料金を見る",
         "join": "iOS TestFlightに参加",
         "leave": "TestFlightから退出"
+      }
+    },
+    "admin": {
+      "eyebrow": "管理",
+      "title": "Pro アクセス",
+      "description": "任意のアカウントに Pro を付与または解除します。このページを開けるのは確認済みの {domain} アカウントのみです。",
+      "search": {
+        "label": "ユーザーを検索",
+        "placeholder": "メール、名前、またはユーザー ID",
+        "button": "検索",
+        "searching": "検索中…",
+        "hint": "メインのメール、表示名、または完全一致のユーザー ID で検索します。最大 25 件。"
+      },
+      "results": {
+        "user": "ユーザー",
+        "access": "アクセス",
+        "stripe": "Stripe",
+        "grant": "手動付与",
+        "actions": "操作",
+        "empty": "一致するユーザーはいません。",
+        "noEmail": "メールなし",
+        "verified": "確認済み",
+        "unverified": "未確認",
+        "noSubscription": "サブスクリプションなし",
+        "cancelling": "期間終了時に解約"
+      },
+      "access": {
+        "pro": "Pro",
+        "free": "Free"
+      },
+      "grant": {
+        "none": "なし",
+        "current": "{plan}",
+        "by": "{who} · {when}",
+        "stripeNote": "Pro は有効な Stripe サブスクリプションによるものです。解除するには Stripe で解約してください。"
+      },
+      "actions": {
+        "grantPro": "Pro を付与",
+        "grantFounders": "Founders を付与",
+        "removeGrant": "付与を解除",
+        "saving": "保存中…"
+      },
+      "errors": {
+        "network": "ネットワークエラーです。もう一度お試しください。",
+        "forbidden": "このアカウントは管理者ではありません。確認済みの manaflow.ai メールでサインインしてください。",
+        "notFound": "そのユーザーは存在しません。",
+        "conflict": "このアカウントへの別の変更が進行中です。しばらくしてからお試しください。",
+        "generic": "リクエストに失敗しました。しばらくしてからお試しください。"
       }
     },
     "aiAccounts": {
