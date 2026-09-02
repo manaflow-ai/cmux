@@ -519,11 +519,40 @@ mod unix {
     /// leave the interactive child detached from its parent.
     struct SpawnedPtyChild {
         child: Option<Box<dyn cmux_pty::Child + Send + Sync>>,
+        process_groups: [Option<libc::pid_t>; 2],
+    }
+
+    fn validated_process_groups(
+        groups: impl IntoIterator<Item = Option<libc::pid_t>>,
+        host_group: libc::pid_t,
+    ) -> Vec<libc::pid_t> {
+        let mut valid = Vec::new();
+        for group in groups.into_iter().flatten() {
+            if group > 0 && group != host_group && !valid.contains(&group) {
+                valid.push(group);
+            }
+        }
+        valid
+    }
+
+    fn signal_validated_process_groups(
+        groups: impl IntoIterator<Item = Option<libc::pid_t>>,
+        host_group: libc::pid_t,
+        signal: libc::c_int,
+        mut send: impl FnMut(libc::pid_t, libc::c_int),
+    ) {
+        for group in validated_process_groups(groups, host_group) {
+            send(group, signal);
+        }
     }
 
     impl SpawnedPtyChild {
-        fn new(child: Box<dyn cmux_pty::Child + Send + Sync>) -> Self {
-            Self { child: Some(child) }
+        fn new(
+            child: Box<dyn cmux_pty::Child + Send + Sync>,
+            process_group_leader: Option<libc::pid_t>,
+        ) -> Self {
+            let child_pid = child.process_id().and_then(|pid| libc::pid_t::try_from(pid).ok());
+            Self { child: Some(child), process_groups: [child_pid, process_group_leader] }
         }
 
         fn child(&self) -> &dyn cmux_pty::Child {
@@ -549,8 +578,25 @@ mod unix {
 
     impl Drop for SpawnedPtyChild {
         fn drop(&mut self) {
+            let host_group = unsafe { libc::getpgrp() };
+            let groups = validated_process_groups(self.process_groups, host_group);
+            signal_validated_process_groups(
+                groups.iter().copied().map(Some),
+                host_group,
+                libc::SIGKILL,
+                |group, signal| {
+                    // SAFETY: the group was returned by the PTY or child, is
+                    // positive, and is not the terminal-host process group.
+                    let _ = unsafe { libc::killpg(group, signal) };
+                },
+            );
             if let Some(child) = self.child.as_deref_mut() {
-                let _ = child.kill();
+                // A valid process group already includes the child. Avoid a
+                // second direct PID signal, which could target a recycled PID
+                // if the group vanished before this guard was dropped.
+                if groups.is_empty() {
+                    let _ = child.kill();
+                }
                 let _ = child.wait();
             }
         }
@@ -4921,7 +4967,8 @@ mod unix {
             command.cwd(cwd);
         }
         let cmux_pty::SpawnedPty { master, child } = pty.spawn(command)?;
-        let mut child = SpawnedPtyChild::new(child);
+        let process_group_leader = master.process_group_leader();
+        let mut child = SpawnedPtyChild::new(child, process_group_leader);
         let pid = child.child().process_id();
         let killer = child.child().clone_killer();
         let pty_poll_fd = master.as_raw_fd().context("open terminal-host PTY poll fd")?;
@@ -6301,7 +6348,7 @@ mod unix {
         fn spawned_pty_child_disarm_prevents_late_kill() {
             let kills = Arc::new(AtomicUsize::new(0));
             let child = GuardTestChild { kills: Arc::clone(&kills) };
-            let mut guard = SpawnedPtyChild::new(Box::new(child));
+            let mut guard = SpawnedPtyChild::new(Box::new(child), None);
             let _ = guard.wait_and_disarm();
             drop(guard);
             assert_eq!(kills.load(Ordering::Relaxed), 0);
@@ -6310,13 +6357,14 @@ mod unix {
         #[test]
         fn startup_child_cleanup_excludes_host_process_group() {
             let host_group = unsafe { libc::getpgrp() };
-            assert_eq!(
-                validated_process_groups(
-                    [Some(host_group), Some(host_group + 1), Some(0), Some(-1)],
-                    host_group,
-                ),
-                vec![host_group + 1]
+            let mut signaled = Vec::new();
+            signal_validated_process_groups(
+                [Some(host_group), Some(host_group + 1), Some(0), Some(-1)],
+                host_group,
+                libc::SIGKILL,
+                |group, signal| signaled.push((group, signal)),
             );
+            assert_eq!(signaled, vec![(host_group + 1, libc::SIGKILL)]);
         }
 
         fn exited_host_fixture_with_parser_at(
