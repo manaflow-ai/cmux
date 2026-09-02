@@ -4106,11 +4106,23 @@ struct PipeIoRelay {
     stdin: Option<std::process::ChildStdin>,
     stdout: std::sync::Arc<std::sync::Mutex<Vec<u8>>>,
     stderr: std::sync::Arc<std::sync::Mutex<Vec<u8>>>,
+    stdout_drain: Option<std::thread::JoinHandle<()>>,
+    stderr_drain: Option<std::thread::JoinHandle<()>>,
 }
 
 #[cfg(unix)]
 impl PipeIoRelay {
     fn start(server: &HeadlessServer, terminal: &str, cols: u16, rows: u16) -> Self {
+        Self::start_with_stderr_delay(server, terminal, cols, rows, Duration::ZERO)
+    }
+
+    fn start_with_stderr_delay(
+        server: &HeadlessServer,
+        terminal: &str,
+        cols: u16,
+        rows: u16,
+        stderr_delay: Duration,
+    ) -> Self {
         let mut child = Command::new(bin())
             .args(["attach", "--socket"])
             .arg(&server.socket)
@@ -4135,10 +4147,22 @@ impl PipeIoRelay {
         let out = child.stdout.take().unwrap();
         let err = child.stderr.take().unwrap();
         let stdout_sink = stdout.clone();
-        std::thread::spawn(move || drain_into(out, stdout_sink));
+        let stdout_drain = std::thread::spawn(move || drain_into(out, stdout_sink));
         let stderr_sink = stderr.clone();
-        std::thread::spawn(move || drain_into(err, stderr_sink));
-        Self { child, stdin, stdout, stderr }
+        let stderr_drain = std::thread::spawn(move || {
+            if !stderr_delay.is_zero() {
+                std::thread::sleep(stderr_delay);
+            }
+            drain_into(err, stderr_sink);
+        });
+        Self {
+            child,
+            stdin,
+            stdout,
+            stderr,
+            stdout_drain: Some(stdout_drain),
+            stderr_drain: Some(stderr_drain),
+        }
     }
 
     fn send_input(&mut self, bytes: &[u8]) {
@@ -4188,8 +4212,15 @@ impl PipeIoRelay {
         let deadline = Instant::now() + Duration::from_secs(20);
         while Instant::now() < deadline {
             if let Some(status) = self.child.try_wait().unwrap() {
-                // Let the drain threads observe EOF.
-                std::thread::sleep(Duration::from_millis(100));
+                // Child EOF is the completion signal for both drain threads.
+                // Join them before reading stderr so the final exit record
+                // cannot race the test's parser.
+                if let Some(drain) = self.stdout_drain.take() {
+                    drain.join().expect("stdout drain thread panicked");
+                }
+                if let Some(drain) = self.stderr_drain.take() {
+                    drain.join().expect("stderr drain thread panicked");
+                }
                 let stderr_text =
                     String::from_utf8_lossy(&self.stderr.lock().unwrap()).into_owned();
                 let exit_line = stderr_text
@@ -4354,6 +4385,25 @@ fn pipe_io_startup_connect_failure_reports_daemon_lost() {
     let value: serde_json::Value = serde_json::from_str(exit_line).unwrap();
     assert_eq!(value["exit"]["reason"], "daemon-lost");
     let _ = fs::remove_dir_all(&dir);
+}
+
+#[cfg(unix)]
+#[test]
+fn pipe_io_wait_for_exit_waits_for_delayed_stderr_drain() {
+    let server = HeadlessServer::start("pipe-io-drain-join");
+    let terminal = pipe_io_terminal(&server);
+
+    let mut relay = PipeIoRelay::start_with_stderr_delay(
+        &server,
+        &terminal,
+        80,
+        24,
+        Duration::from_millis(500),
+    );
+    relay.stdin = None;
+    let (code, exit) = relay.wait_for_exit();
+    assert_eq!(code, 0, "stdin EOF must be a clean detach, got {exit}");
+    assert_eq!(exit["exit"]["reason"], "parent-closed");
 }
 
 #[cfg(unix)]
