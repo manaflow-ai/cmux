@@ -358,6 +358,13 @@ jobs:
             rm -rf "$cache_path"
           fi
 
+      # Bundle once here, not per sign variant, so every variant carries the same
+      # cmux-tui build and the download happens a single time.
+      - name: Bundle the cmux-tui client
+        run: |
+          set -euo pipefail
+          ./scripts/install-cmux-tui-client.sh build-universal/Build/Products/Release/cmux.app
+
       - name: Strip unsigned nightly app before transfer
         run: |
           set -euo pipefail
@@ -508,11 +515,6 @@ jobs:
           mkdir -p "$(dirname "$DEST")"
           install -m 755 nightly-inputs/ghostty/ghostty "$DEST"
           echo "Injected Ghostty CLI helper architectures: $(lipo -archs "$DEST")"
-
-      - name: Bundle the cmux-tui client
-        run: |
-          set -euo pipefail
-          ./scripts/install-cmux-tui-client.sh build-universal/Build/Products/Release/cmux.app
 
       - name: Run bundled Ghostty theme picker helper regression
         run: |
