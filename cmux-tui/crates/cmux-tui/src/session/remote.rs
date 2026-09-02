@@ -3,7 +3,7 @@
 
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::fs;
-use std::io::{self, BufRead, BufReader, Read, Write};
+use std::io::{self, BufRead, BufReader, Write};
 use std::net::Shutdown;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
@@ -386,11 +386,23 @@ impl RemoteTreeCache {
     fn replace_agents(&mut self, agents: Vec<AgentInfo>, refresh_generation: u64) {
         self.agents = agents;
         let updates = std::mem::take(&mut self.agent_updates);
-        for update in updates.into_values() {
-            if update.generation > refresh_generation
-                && self.surface_tabs.contains_key(&update.agent.surface)
-            {
-                self.replace_agent(update.agent);
+        for (surface, update) in updates {
+            if self.surface_tabs.contains_key(&surface) {
+                // A pending update may have been observed during an earlier
+                // refresh whose topology omitted this surface. Reapply it
+                // only when it is newer than the current snapshot boundary.
+                // An equal-or-older update was already included in the
+                // boundary and must not resurrect an agent omitted by the
+                // authoritative roster response when a stale topology
+                // briefly shows the surface again.
+                if update.generation > refresh_generation {
+                    self.replace_agent(update.agent);
+                }
+            } else if update.generation > refresh_generation {
+                // The topology response can lag the event stream. Keep a
+                // newer event until a later topology confirms the surface is
+                // gone instead of dropping it at this refresh boundary.
+                self.agent_updates.insert(surface, update);
             }
         }
     }
@@ -1679,7 +1691,7 @@ fn remote_reader_end_reason(result: &io::Result<Option<String>>) -> Option<Strin
     }
 }
 
-fn remote_reader_message_too_large(message: &mut String) -> String {
+fn remote_reader_message_too_large(message: &mut str) -> String {
     let reason = format!(
         "remote session message exceeds the \
          {REMOTE_SESSION_MESSAGE_MAX_BYTES}-byte limit"
@@ -1890,9 +1902,15 @@ impl RemoteSession {
                 if message.len() > REMOTE_SESSION_MESSAGE_MAX_BYTES {
                     break Some(remote_reader_message_too_large(&mut message));
                 }
-                let value = serde_json::from_str::<Value>(&message);
+                let value = match serde_json::from_str::<Value>(&message) {
+                    Ok(value) => value,
+                    Err(error) => {
+                        let reason = format!("remote JSON decode failed: {error}");
+                        zeroize_string(&mut message);
+                        break Some(reason);
+                    }
+                };
                 zeroize_string(&mut message);
-                let Ok(value) = value else { continue };
                 let Some(session) = reader_session.upgrade() else { break None };
                 session.handle_line(value);
             };
@@ -6824,6 +6842,81 @@ mod tests {
 
     #[cfg(unix)]
     #[test]
+    fn malformed_json_cancels_a_pending_request_and_preserves_decode_reason() {
+        let (client, server) = UnixStream::pair().unwrap();
+        let (release_tx, release_rx) = channel();
+        let peer = std::thread::spawn(move || {
+            let mut peer = BufReader::new(server);
+            for expected_command in ["identify", "set-client-info", "subscribe"] {
+                let mut line = String::new();
+                peer.read_line(&mut line).unwrap();
+                let request: Value = serde_json::from_str(&line).unwrap();
+                assert_eq!(request["cmd"], expected_command);
+                let data = if expected_command == "identify" {
+                    json!({
+                        "app": "cmux-tui",
+                        "protocol": SUPPORTED_PROTOCOL_VERSION,
+                        "capabilities": ["browser-pointer-frame-guard-v1"],
+                    })
+                } else {
+                    Value::Null
+                };
+                writeln!(
+                    peer.get_mut(),
+                    "{}",
+                    json!({"id": request["id"], "ok": true, "data": data})
+                )
+                .unwrap();
+            }
+
+            let mut line = String::new();
+            peer.read_line(&mut line).unwrap();
+            let request: Value = serde_json::from_str(&line).unwrap();
+            assert_eq!(request["cmd"], "wait-for-malformed");
+            peer.get_mut().write_all(b"not-json\n").unwrap();
+            release_rx.recv().unwrap();
+        });
+        let session = RemoteSession::connect_stream(Box::new(client)).unwrap();
+        let request_session = session.clone();
+        let (done_tx, done_rx) = channel();
+        let request = std::thread::spawn(move || {
+            done_tx.send(request_session.request(json!({"cmd": "wait-for-malformed"}))).unwrap();
+        });
+
+        let result = match done_rx.recv_timeout(Duration::from_secs(2)) {
+            Ok(result) => result,
+            Err(error) => {
+                session.begin_shutdown();
+                request.join().unwrap();
+                release_tx.send(()).unwrap();
+                peer.join().unwrap();
+                panic!("malformed JSON did not cancel the request promptly: {error}");
+            }
+        };
+        request.join().unwrap();
+        release_tx.send(()).unwrap();
+        peer.join().unwrap();
+
+        let error = result.unwrap_err();
+        assert!(
+            matches!(
+                error.downcast_ref::<RemoteRequestError>(),
+                Some(RemoteRequestError::Shutdown)
+            ),
+            "expected shutdown after malformed JSON canceled the request, got {error:?}"
+        );
+        assert!(
+            session
+                .transport_disconnect_reason()
+                .is_some_and(|reason| reason.starts_with("remote JSON decode failed:")),
+            "malformed JSON decode reason was not preserved: {:?}",
+            session.transport_disconnect_reason()
+        );
+        assert!(session.pending.lock().unwrap().is_empty());
+    }
+
+    #[cfg(unix)]
+    #[test]
     fn shutdown_cancels_response_wait_before_ordered_release_write() {
         let (client, server) = UnixStream::pair().unwrap();
         let session = socket_test_session(client);
@@ -7614,6 +7707,88 @@ mod tests {
         cache.replace_agents(Vec::new(), refresh_generation);
 
         assert!(cache.agents.is_empty());
+    }
+
+    #[test]
+    fn agent_refresh_does_not_resurrect_after_confirmed_omission() {
+        let tree = parse_tree(&json!({
+            "workspaces": [{
+                "id": 1,
+                "screens": [{
+                    "id": 2,
+                    "layout": {"type": "leaf", "pane": 3},
+                    "panes": [{
+                        "id": 3,
+                        "tabs": [{"surface": 4, "title": "agent terminal"}],
+                    }],
+                }],
+            }],
+        }));
+        let mut cache = RemoteTreeCache::default();
+        cache.replace(tree.clone(), 0);
+
+        // The event races the first refresh and is retained while the
+        // topology omits the surface.
+        let refresh_generation = cache.agent_generation();
+        cache.update_agent(AgentInfo {
+            surface: 4,
+            state: "working".into(),
+            source: "hook".into(),
+            session: Some("review".into()),
+            agent: None,
+            updated_at_ms: 41,
+        });
+        cache.replace(TreeView::default(), cache.title_generation());
+        cache.replace_agents(Vec::new(), refresh_generation);
+
+        // A later refresh confirms the agent is absent. A stale topology may
+        // briefly show the surface again, but the old event must not return.
+        let confirmed_generation = cache.agent_generation();
+        cache.replace(tree, cache.title_generation());
+        cache.replace_agents(Vec::new(), confirmed_generation);
+
+        assert!(cache.agents.is_empty());
+        assert!(cache.agent_updates.is_empty());
+    }
+
+    #[test]
+    fn agent_refresh_retains_updates_when_topology_temporarily_omits_surface() {
+        let tree = parse_tree(&json!({
+            "workspaces": [{
+                "id": 1,
+                "screens": [{
+                    "id": 2,
+                    "layout": {"type": "leaf", "pane": 3},
+                    "panes": [{
+                        "id": 3,
+                        "tabs": [{"surface": 4, "title": "agent terminal"}],
+                    }],
+                }],
+            }],
+        }));
+        let mut cache = RemoteTreeCache::default();
+        cache.replace(tree.clone(), 0);
+        let refresh_generation = cache.agent_generation();
+        let update = AgentInfo {
+            surface: 4,
+            state: "working".into(),
+            source: "hook".into(),
+            session: Some("review".into()),
+            updated_at_ms: 41,
+        };
+        cache.update_agent(update.clone());
+
+        // The tree response can lag the event stream and omit a live surface.
+        cache.replace(TreeView::default(), cache.title_generation());
+        cache.replace_agents(Vec::new(), refresh_generation);
+
+        assert_eq!(cache.agent_updates.get(&4).map(|pending| &pending.agent), Some(&update));
+
+        // A later topology response makes the pending event visible again.
+        cache.replace(tree, cache.title_generation());
+        cache.replace_agents(Vec::new(), refresh_generation);
+
+        assert_eq!(cache.agents, vec![update]);
     }
 
     #[test]

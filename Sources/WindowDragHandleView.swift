@@ -813,7 +813,6 @@ enum MinimalModeSidebarControlActionSlot: Int, CaseIterable {
     case toggleSidebar
     case showNotifications
     case newTab
-    case cloudVM
     case focusHistoryBack
     case focusHistoryForward
 
@@ -825,8 +824,6 @@ enum MinimalModeSidebarControlActionSlot: Int, CaseIterable {
             return "titlebarControl.showNotifications"
         case .newTab:
             return "titlebarControl.newTab"
-        case .cloudVM:
-            return "titlebarControl.cloudVM"
         case .focusHistoryBack:
             return "titlebarControl.focusHistoryBack"
         case .focusHistoryForward:
@@ -842,8 +839,6 @@ enum MinimalModeSidebarControlActionSlot: Int, CaseIterable {
             return String(localized: "titlebar.notifications.accessibilityLabel", defaultValue: "Notifications")
         case .newTab:
             return String(localized: "titlebar.newWorkspace.accessibilityLabel", defaultValue: "New Workspace")
-        case .cloudVM:
-            return String(localized: "titlebar.cloudVM.accessibilityLabel", defaultValue: "Cloud VM")
         case .focusHistoryBack:
             return String(localized: "menu.history.focusBack", defaultValue: "Focus Back")
         case .focusHistoryForward:
@@ -859,8 +854,6 @@ enum MinimalModeSidebarControlActionSlot: Int, CaseIterable {
             return "showNotifications"
         case .newTab:
             return "newTab"
-        case .cloudVM:
-            return "cloudVM"
         case .focusHistoryBack:
             return "focusHistoryBack"
         case .focusHistoryForward:
@@ -870,7 +863,7 @@ enum MinimalModeSidebarControlActionSlot: Int, CaseIterable {
 
     var acceptsContextMenu: Bool {
         switch self {
-        case .toggleSidebar, .newTab, .cloudVM, .focusHistoryBack, .focusHistoryForward:
+        case .toggleSidebar, .newTab, .focusHistoryBack, .focusHistoryForward:
             return true
         case .showNotifications:
             return false

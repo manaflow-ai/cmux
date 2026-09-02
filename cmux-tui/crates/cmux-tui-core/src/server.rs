@@ -13277,7 +13277,7 @@ mod tests {
         assert_eq!(result, 0, "mkfifo failed: {}", std::io::Error::last_os_error());
 
         let (sender, receiver) = std::sync::mpsc::channel();
-        let acquire_socket = socket.clone();
+        let acquire_socket = socket;
         let acquire = std::thread::spawn(move || {
             sender.send(SocketStartLock::acquire(&acquire_socket, Instant::now())).unwrap();
         });
