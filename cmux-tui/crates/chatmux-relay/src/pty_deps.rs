@@ -10,7 +10,6 @@
 
 use std::collections::{HashMap, VecDeque};
 use std::fs::File;
-use std::future::Future;
 use std::io::{Read, Write};
 use std::mem::{offset_of, size_of};
 use std::os::fd::AsRawFd;
@@ -40,19 +39,14 @@ const PIPE_READ_POLL_MS: i32 = 100;
 // This is distinct from the relay's lower-level CONTROL_MIN_PROTOCOL floor.
 const DAEMON_LIFECYCLE_PROTOCOL_MIN: u64 = 12;
 
-async fn collect_dir_names<F, Fut>(mut next_entry: F) -> Result<Vec<String>, ()>
-where
-    F: FnMut() -> Fut,
-    Fut: Future<Output = Result<Option<String>, ()>>,
-{
-    let mut names = Vec::new();
-    loop {
-        match next_entry().await? {
-            Some(name) => names.push(name),
-            None => break,
+fn append_dir_name(names: &mut Vec<String>, entry: Result<Option<String>, ()>) -> Result<bool, ()> {
+    match entry? {
+        Some(name) => {
+            names.push(name);
+            Ok(true)
         }
+        None => Ok(false),
     }
-    Ok(names)
 }
 
 async fn control_ready(control: &Arc<dyn ControlHandle>, session: &str) -> bool {
@@ -973,14 +967,18 @@ impl PtyDeps for RealPtyDeps {
 
     async fn read_dir(&self, path: &Path) -> Result<Vec<String>, ()> {
         let mut entries = tokio::fs::read_dir(path).await.map_err(|_| ())?;
-        collect_dir_names(|| async {
-            entries
+        let mut names = Vec::new();
+        loop {
+            let entry = entries
                 .next_entry()
                 .await
                 .map(|entry| entry.map(|entry| entry.file_name().to_string_lossy().into_owned()))
-                .map_err(|_| ())
-        })
-        .await
+                .map_err(|_| ());
+            if !append_dir_name(&mut names, entry)? {
+                break;
+            }
+        }
+        Ok(names)
     }
 
     fn socket_dir(&self) -> PathBuf {
@@ -1065,17 +1063,13 @@ mod tests {
         assert!(error.contains("invalid session"));
     }
 
-    #[tokio::test]
-    async fn directory_entry_read_errors_fail_closed() {
-        let mut calls = 0;
-        let result = collect_dir_names(|| {
-            calls += 1;
-            async { Err::<Option<String>, ()>(()) }
-        })
-        .await;
+    #[test]
+    fn directory_entry_read_errors_fail_closed() {
+        let mut names = vec!["before-error".to_owned()];
+        let result = append_dir_name(&mut names, Err(()));
 
         assert_eq!(result, Err(()));
-        assert_eq!(calls, 1, "stop after the first directory read error");
+        assert_eq!(names, vec!["before-error".to_owned()]);
     }
 
     #[test]
