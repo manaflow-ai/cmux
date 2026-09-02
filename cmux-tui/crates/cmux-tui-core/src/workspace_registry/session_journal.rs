@@ -175,6 +175,8 @@ pub(crate) struct JournalRestoreCursor {
 
 #[cfg(test)]
 static JOURNAL_SEGMENT_DECODE_COUNT: AtomicUsize = AtomicUsize::new(0);
+#[cfg(test)]
+static JOURNAL_SEGMENT_CONTENT_LOAD_COUNT: AtomicUsize = AtomicUsize::new(0);
 
 #[cfg(test)]
 fn reset_journal_segment_decode_count() {
@@ -184,6 +186,16 @@ fn reset_journal_segment_decode_count() {
 #[cfg(test)]
 fn journal_segment_decode_count() -> usize {
     JOURNAL_SEGMENT_DECODE_COUNT.load(Ordering::Relaxed)
+}
+
+#[cfg(test)]
+fn reset_journal_segment_content_load_count() {
+    JOURNAL_SEGMENT_CONTENT_LOAD_COUNT.store(0, Ordering::Relaxed);
+}
+
+#[cfg(test)]
+fn journal_segment_content_load_count() -> usize {
+    JOURNAL_SEGMENT_CONTENT_LOAD_COUNT.load(Ordering::Relaxed)
 }
 
 impl SessionJournalReader {
@@ -1358,6 +1370,8 @@ fn query_session_journal_after_subjects(
 type JournalSegmentRow = (String, i64, i64, i64, String, Vec<u8>, i64, Vec<u8>);
 
 fn journal_segment_row(row: &Row<'_>) -> rusqlite::Result<JournalSegmentRow> {
+    #[cfg(test)]
+    JOURNAL_SEGMENT_CONTENT_LOAD_COUNT.fetch_add(1, Ordering::Relaxed);
     Ok((
         row.get(0)?,
         row.get(1)?,
@@ -2304,7 +2318,9 @@ mod tests {
         let reader =
             SessionJournalReader::open(&registry.session_journal_database_path().unwrap()).unwrap();
         reset_journal_segment_decode_count();
+        reset_journal_segment_content_load_count();
         let mut cursor = reader.restore_cursor(0).unwrap();
+        assert_eq!(journal_segment_content_load_count(), 0);
         let mut replayed = Vec::new();
         loop {
             let page = cursor.next_page(1).unwrap();
@@ -2317,6 +2333,7 @@ mod tests {
         cursor.finish().unwrap();
         assert_eq!(replayed, [1, 2, 3, 4]);
         assert_eq!(journal_segment_decode_count(), 1);
+        assert_eq!(journal_segment_content_load_count(), 1);
 
         drop(registry);
         fs::remove_dir_all(root).unwrap();
