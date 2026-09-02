@@ -2703,6 +2703,13 @@ struct DockShortcutRoutingTests {
                     destinations.first?.id ==
                         DockSplitStore.dockMoveNewWorkspaceDestinationId
                 )
+                #expect(
+                    harness.dock.bonsplitController
+                        .tabContextMoveToNewWorkspaceAvailabilityProvider?(
+                            tabId,
+                            harness.rootPane
+                        ) == true
+                )
                 harness.dock.refreshDockMenuCapabilities()
                 #expect(harness.dock.menuCapabilities.canMoveToNewWorkspace)
 

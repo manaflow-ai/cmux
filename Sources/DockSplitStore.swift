@@ -423,6 +423,16 @@ final class DockSplitStore: BonsplitDelegate, FilePreviewTabMetadataHost {
         self.bonsplitController.tabContextMoveDestinationsProvider = { [weak self] tabId, _ in
             self?.dockTabMoveDestinations(for: tabId) ?? []
         }
+        // A Dock may validly become empty after its final surface moves to a
+        // workspace. Keep Bonsplit's default multi-tab policy for ordinary
+        // controllers, but explicitly enable the built-in destination for
+        // every live Dock tab so the visible context-menu item matches the
+        // Dock's provider-supplied move destinations.
+        self.bonsplitController.tabContextMoveToNewWorkspaceAvailabilityProvider = {
+            [weak self] tabId, _ in
+            guard let self else { return false }
+            return self.panel(for: tabId) != nil
+        }
         // Drop the controller's default welcome tab so the root pane starts
         // empty and renders the in-app create affordance until config seeds it.
         for tabId in bonsplitController.allTabIds {
