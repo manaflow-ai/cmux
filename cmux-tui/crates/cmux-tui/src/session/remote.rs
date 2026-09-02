@@ -3293,7 +3293,10 @@ impl RemoteSession {
         let (stalled_token, pipe_io_owned) = {
             let tap = self.pipe_io_tap.lock().unwrap();
             let Some(tap) = tap.as_ref() else { return false };
-            if tap.surface != surface || !Arc::ptr_eq(&tap.token, &tap_token) {
+            if tap.surface != surface {
+                return false;
+            }
+            if !Arc::ptr_eq(&tap.token, &tap_token) {
                 // A replacement relay won the ownership race while the
                 // payload was being built. Drop the stale event rather than
                 // forwarding it to the new relay, but keep the ownership
