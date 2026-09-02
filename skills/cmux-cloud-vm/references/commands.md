@@ -74,8 +74,8 @@ Policy (shared with `run` and `agent`): the machine bound to the directory → a
 ## Lifecycle
 
 ```bash
-cmux vm new --detach                   # new Desktop machine (screen + shell), headless create
-cmux vm new --base --detach            # shell-only machine
+cmux vm new --detach                   # new machine with the deployment's default kind (base today)
+cmux vm new --base --detach            # request a base machine explicitly
 cmux vm new --size 16g --detach        # memory preset: 2g|4g|8g|16g|24g|32g or raw MB (disk follows memory, 16 GB max)
 cmux vm new --name "build box" --detach # display label; the id stays the address
 cmux vm wait <id> [--timeout <sec>] [--wake]   # block until ready; --wake also wakes it
@@ -83,6 +83,11 @@ cmux vm rename <id> <label>            # display label; the id stays the address
 cmux vm rename <id> --clear
 cmux vm rm <id>                        # PERMANENT delete of machine + data (aliases: destroy, delete)
 ```
+
+`vm new` uses the default kind advertised by `cmux vm ls --json`. The current
+cmux manifest advertises `base` only. Request `desktop` only after
+`limits.imageKinds` includes it; otherwise the server fails closed with an
+image configuration error.
 
 Without `--detach`, `vm new`, `vm fork`, and `vm restore` also open the machine as a workspace in the user's app.
 
@@ -108,7 +113,7 @@ cmux vm agent --agent claude --sync -- "run the tests and fix failures"        #
 cmux vm agent --agent codex --machine <id> -- exec "summarize work/app"        # flag/subcommand-led args pass through
 cmux vm agent --agent opencode --no-open --json -- "add a README"              # headless; {terminal_id, workspace_id, reattach}
 cmux vm agent --agent pi --name "pi: docs" --cwd ~/src/app --sync -- "write docs for src/"
-# agents: claude | codex | opencode | pi (preinstalled under /root/.npm-global/bin)
+# agents: claude | codex | opencode | pi (current Freestyle images link the baked binaries into /usr/local/bin)
 
 cmux vm exec <id> -- <command...>      # one command; remote exit code passes through; ~30 s default cap
 cmux vm exec <id> --json -- ls -la     # {stdout, stderr, exit_code}

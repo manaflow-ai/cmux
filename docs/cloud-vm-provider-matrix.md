@@ -24,6 +24,34 @@ The checked-in image manifest is the source of truth for images that current cmu
 
 The manifest retains old image entries for rollback and audit history. Listing an image does not change its guest contents, so a legacy snapshot without cmux-tui is not itself cmux-remote-ready; attach can install or heal cmux-tui, and a failed repair requires recreation from a current manifest entry. Current create relies on the baked image and supervisor. Restore starts from the snapshot and best-effort heals the daemon.
 
+### Image and tooling state
+
+The checked-in manifest selects `freestyle-cmux-devbox-20260902e` as the
+current `base` default. It records the pinned agent versions and the baked
+cmux-tui commit. The validated desktop entries (`freestyle-cmux-devbox-20260902h`
+and the sized `i-*` entries) are reference bakes from another Freestyle
+account, so this deployment does not advertise `desktop` in `limits.imageKinds`.
+Current Freestyle creates use the baked tools and supervisor; create does not
+install tools after boot. The work user is `ubuntu`; the pinned agent binaries
+are linked in `/usr/local/bin`. Older snapshots can need attach-time healing or
+recreation from a current manifest entry.
+
+Provider image rules are not interchangeable. Before adding a provider row,
+check its official image documentation:
+
+- [Freestyle base snapshots](https://www.freestyle.sh/docs/vms/base-snapshots)
+  capture the source VM's memory and disk, and new snapshots are private to the
+  account that creates them.
+- [Daytona snapshots](https://www.daytona.io/docs/snapshots/) require an
+  existing image reference for Linux VM snapshots; Dockerfile and declarative
+  builds are not supported for that VM path.
+- [E2B template builds](https://e2b.dev/docs/sdk-reference/cli/v1.0.9/template)
+  build a sandbox template from a Dockerfile. The [JavaScript template API](https://e2b.dev/docs/sdk-reference/js-sdk/v2.4.3/template)
+  also supports Dockerfile and code templates.
+- [Blaxel sandbox templates](https://docs.blaxel.ai/Sandboxes/Templates)
+  require a custom image to include the sandbox API, unless the SDK builder
+  injects it during the build.
+
 ## Capability and error guidance
 
 1. Run `cmux vm ls --json`. Treat each machine's `capabilities` object as the server answer for snapshot, restore, and fork operations.
