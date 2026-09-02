@@ -49,9 +49,6 @@ public nonisolated enum SocketAuthenticationChallenge {
         else {
             return false
         }
-        if let ok = object["ok"] as? Bool {
-            return ok
-        }
-        return object["error"] == nil
+        return (object["ok"] as? Bool) == true
     }
 }
