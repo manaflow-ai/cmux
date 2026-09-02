@@ -39,6 +39,10 @@ const CODEX_SESSION_END_HANDOFF_WAIT: Duration = Duration::from_millis(2_500);
 /// Hidden mode: the detached child on platforms without `fork`. The request id
 /// arrives as the first stdin line and the encoded request follows.
 const DETACHED_MODE_ARG: &str = "__detached-append";
+/// Hidden mode: the Windows detached child reads a complete request from a
+/// private spool file, so it does not depend on the provider process keeping
+/// a pipe open after the hook returns.
+const DETACHED_SPOOL_MODE_ARG: &str = "__detached-append-spool";
 
 #[derive(Debug, PartialEq, Eq)]
 struct Args {
@@ -51,6 +55,16 @@ fn main() -> ExitCode {
     let arguments = env::args().skip(1).collect::<Vec<_>>();
     if arguments.len() == 1 && arguments[0] == DETACHED_MODE_ARG {
         return match detached_child_from_stdin() {
+            Ok(()) => ExitCode::SUCCESS,
+            Err(error) => {
+                eprintln!("cmux-tui-hook: {error:#}");
+                ExitCode::FAILURE
+            }
+        };
+    }
+    #[cfg(not(unix))]
+    if arguments.len() == 2 && arguments[0] == DETACHED_SPOOL_MODE_ARG {
+        return match detach::detached_child_from_spool(Path::new(&arguments[1])) {
             Ok(()) => ExitCode::SUCCESS,
             Err(error) => {
                 eprintln!("cmux-tui-hook: {error:#}");
@@ -735,20 +749,145 @@ mod detach {
 
 #[cfg(not(unix))]
 mod detach {
-    use std::io::{Read, Write};
-    use std::path::Path;
+    use std::fs::{self, File, OpenOptions};
+    use std::io::{BufRead, BufReader, Read};
+    use std::path::{Path, PathBuf};
     use std::process::{Command, Stdio};
     use std::sync::mpsc;
-    use std::time::Duration;
+    use std::time::{Duration, SystemTime};
 
-    use anyhow::Context;
+    use anyhow::{anyhow, bail, Context};
 
-    use super::{DETACHED_MODE_ARG, Handoff};
+    use super::{Handoff, DETACHED_SPOOL_MODE_ARG, MAX_MESSAGE_BYTES};
 
-    /// Respawns this helper detached from the provider's console and process
-    /// group with the request on its stdin, then waits (bounded) for the
-    /// child's one-byte confirmation that the request reached the server
-    /// socket, giving the same ordering and backpressure as the fork path.
+    const MAX_SPOOL_CLEANUP_ENTRIES: usize = 128;
+    const MAX_SPOOL_REQUEST_ID_BYTES: usize = 256;
+    const SPOOL_STALE_AFTER: Duration = Duration::from_secs(60 * 60);
+
+    fn spool_root() -> anyhow::Result<PathBuf> {
+        #[cfg(windows)]
+        {
+            let base = std::env::var_os("LOCALAPPDATA")
+                .filter(|value| !value.is_empty())
+                .context("LOCALAPPDATA is required for the Windows hook spool")?;
+            Ok(PathBuf::from(base).join("cmux").join("hook-spool"))
+        }
+        #[cfg(not(windows))]
+        {
+            Ok(std::env::temp_dir().join("cmux-hook-spool"))
+        }
+    }
+
+    /// Remove stale files left by a provider crash before child spawn.
+    pub(super) fn cleanup_stale_spool_files(root: &Path) {
+        let now = SystemTime::now();
+        let Ok(entries) = fs::read_dir(root) else {
+            return;
+        };
+        for entry in entries.flatten().take(MAX_SPOOL_CLEANUP_ENTRIES) {
+            let path = entry.path();
+            if !matches!(path.extension().and_then(|value| value.to_str()), Some("tmp" | "req")) {
+                continue;
+            }
+            let Ok(modified) = entry.metadata().and_then(|metadata| metadata.modified()) else {
+                continue;
+            };
+            if now.duration_since(modified).unwrap_or_default() >= SPOOL_STALE_AFTER {
+                let _ = fs::remove_file(path);
+            }
+        }
+    }
+
+    /// Publish a complete request by atomic rename, so the child never reads
+    /// a partially written payload.
+    pub(super) fn write_spooled_request(
+        root: &Path,
+        request_id: &str,
+        encoded: &[u8],
+    ) -> anyhow::Result<PathBuf> {
+        fs::create_dir_all(root)
+            .with_context(|| format!("create hook spool {}", root.display()))?;
+        cleanup_stale_spool_files(root);
+        let temporary = root.join(format!(".{request_id}.tmp"));
+        let ready = root.join(format!("{request_id}.req"));
+        let result = (|| -> anyhow::Result<PathBuf> {
+            let mut file = OpenOptions::new().write(true).create_new(true).open(&temporary)?;
+            std::io::Write::write_all(&mut file, request_id.as_bytes())?;
+            std::io::Write::write_all(&mut file, b"\n")?;
+            std::io::Write::write_all(&mut file, encoded)?;
+            file.sync_all()?;
+            drop(file);
+            fs::rename(&temporary, &ready)?;
+            Ok(ready.clone())
+        })();
+        if result.is_err() {
+            let _ = fs::remove_file(&temporary);
+            let _ = fs::remove_file(&ready);
+        }
+        result
+    }
+
+    pub(super) fn read_spooled_request(path: &Path) -> anyhow::Result<(String, Vec<u8>)> {
+        let file =
+            File::open(path).with_context(|| format!("open hook spool {}", path.display()))?;
+        let mut reader = BufReader::new(file);
+        let mut request_id = String::new();
+        let request_id_bytes = reader
+            .by_ref()
+            .take((MAX_SPOOL_REQUEST_ID_BYTES + 1) as u64)
+            .read_line(&mut request_id)
+            .context("read spooled request id")?;
+        if request_id_bytes > MAX_SPOOL_REQUEST_ID_BYTES {
+            bail!("spooled request id exceeds 256 bytes");
+        }
+        let request_id = request_id.trim_end_matches(['\r', '\n']).to_owned();
+        if request_id.is_empty() {
+            bail!("spooled request id is empty");
+        }
+        let mut encoded = Vec::new();
+        reader
+            .take(MAX_MESSAGE_BYTES as u64 + 1)
+            .read_to_end(&mut encoded)
+            .context("read spooled request")?;
+        if encoded.len() > MAX_MESSAGE_BYTES {
+            bail!("spooled request exceeds 4 MiB");
+        }
+        Ok((request_id, encoded))
+    }
+
+    pub(super) struct SpoolFileGuard(PathBuf);
+
+    impl SpoolFileGuard {
+        pub(super) fn new(path: PathBuf) -> Self {
+            Self(path)
+        }
+    }
+
+    impl Drop for SpoolFileGuard {
+        fn drop(&mut self) {
+            let _ = fs::remove_file(&self.0);
+        }
+    }
+
+    /// Deliver a complete request after the provider process has returned.
+    pub(super) fn detached_child_from_spool(path: &Path) -> anyhow::Result<()> {
+        let _file = SpoolFileGuard(path.to_owned());
+        let (request_id, encoded) = read_spooled_request(path)?;
+        let socket = std::env::var_os("CMUX_TUI_SOCKET")
+            .filter(|value| !value.is_empty())
+            .map(PathBuf::from)
+            .context("CMUX_TUI_SOCKET is required in detached spool mode")?;
+        super::append_with_receipt(
+            &socket,
+            &request_id,
+            &encoded,
+            &super::confirm_handoff_on_stdout,
+        )
+    }
+
+    /// Respawn this helper detached from the provider's console and process
+    /// group. The child receives a complete spool path, not a parent-owned
+    /// stdin pipe.
     pub(super) fn append_detached(
         socket: &Path,
         request_id: &str,
@@ -758,42 +897,56 @@ mod detach {
         use std::os::windows::process::CommandExt;
         const DETACHED_PROCESS: u32 = 0x0000_0008;
         const CREATE_NEW_PROCESS_GROUP: u32 = 0x0000_0200;
-        let exe = std::env::current_exe().context("locate hook helper")?;
-        let mut command = Command::new(exe);
-        command
-            .arg(DETACHED_MODE_ARG)
-            .env("CMUX_TUI_SOCKET", socket)
-            .stdin(Stdio::piped())
-            .stdout(Stdio::piped())
-            .stderr(Stdio::null());
-        command.creation_flags(DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP);
+        let socket = socket.to_path_buf();
         let (sender, receiver) = mpsc::sync_channel(1);
         let request_id = request_id.to_owned();
         let encoded = encoded.to_owned();
         std::thread::spawn(move || {
-            let result =
-                (|| -> anyhow::Result<(super::DetachedChildGuard, std::process::ChildStdout)> {
-                    let mut child = super::DetachedChildGuard::new(
-                        command.spawn().context("spawn detached hook child")?,
-                    );
-                    let mut stdin = child
-                        .child_mut()
-                        .stdin
-                        .take()
-                        .context("detached hook child has no stdin")?;
-                    stdin.write_all(request_id.as_bytes())?;
-                    stdin.write_all(b"\n")?;
-                    stdin.write_all(&encoded)?;
-                    stdin.flush()?;
-                    drop(stdin);
-                    let stdout = child
-                        .child_mut()
-                        .stdout
-                        .take()
-                        .context("detached hook child has no stdout")?;
-                    Ok((child, stdout))
-                })();
-            let _ = sender.send(result);
+            let result = (|| -> anyhow::Result<Option<(
+                super::DetachedChildGuard,
+                std::process::ChildStdout,
+            )>> {
+                let root = spool_root()?;
+                let spool = write_spooled_request(&root, &request_id, &encoded)?;
+                if deadline.is_some_and(|deadline| deadline <= std::time::Instant::now()) {
+                    let _ = fs::remove_file(&spool);
+                    return Ok(None);
+                }
+                let exe = std::env::current_exe().context("locate hook helper")?;
+                let mut child = match Command::new(exe)
+                    .arg(DETACHED_SPOOL_MODE_ARG)
+                    .arg(&spool)
+                    .env("CMUX_TUI_SOCKET", &socket)
+                    .stdin(Stdio::null())
+                    .stdout(Stdio::piped())
+                    .stderr(Stdio::null())
+                    .creation_flags(DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP)
+                    .spawn()
+                {
+                    Ok(child) => super::DetachedChildGuard::new(child),
+                    Err(error) => {
+                        let _ = fs::remove_file(&spool);
+                        return Err(error).context("spawn detached hook child");
+                    }
+                };
+                let stdout = match child.child_mut().stdout.take() {
+                    Some(stdout) => stdout,
+                    None => {
+                        let _ = fs::remove_file(&spool);
+                        return Err(anyhow!("detached hook child has no stdout"));
+                    }
+                };
+                Ok(Some((child, stdout)))
+            })();
+            match sender.send(result) {
+                Ok(()) => {}
+                Err(mpsc::SendError(Ok(Some((child, stdout))))) => {
+                    drop(stdout);
+                    child.release();
+                }
+                Err(mpsc::SendError(Ok(None))) => {}
+                Err(mpsc::SendError(Err(_))) => {}
+            }
         });
         let setup = match deadline {
             Some(deadline) => receiver
@@ -801,9 +954,13 @@ mod detach {
                 .map_err(|_| ()),
             None => receiver.recv().map_err(|_| ()),
         };
-        let (mut child, mut stdout) = match setup {
+        let setup = match setup {
             Ok(result) => result?,
             Err(_) => return Ok(Handoff::TimedOut),
+        };
+        let (mut child, mut stdout) = match setup {
+            Some(result) => result,
+            None => return Ok(Handoff::TimedOut),
         };
         // Pipe reads have no timeout on Windows; a reader thread plus a
         // bounded channel wait gives the same absolute deadline as poll(2).
@@ -934,5 +1091,40 @@ mod tests {
         );
 
         assert!(matches!(result, Err(AppendAttemptError::Fatal(_))));
+    }
+}
+
+#[cfg(target_os = "windows")]
+#[cfg(test)]
+mod windows_spool_tests {
+    use super::detach::{cleanup_stale_spool_files, read_spooled_request, write_spooled_request};
+
+    #[test]
+    fn spool_file_retains_complete_request_after_parent_handles_close() {
+        let root = tempfile::tempdir().unwrap();
+        let request_id = "request_spool_test";
+        let encoded = b"{\"protocol\":\"cmux.protocol/2\"}\n";
+
+        let path = write_spooled_request(root.path(), request_id, encoded).unwrap();
+        let loaded = read_spooled_request(&path).unwrap();
+
+        assert_eq!(loaded.0, request_id);
+        assert_eq!(loaded.1, encoded);
+        cleanup_stale_spool_files(root.path());
+        assert!(root.path().join(format!("{request_id}.req")).exists());
+
+        let guard = super::detach::SpoolFileGuard::new(path);
+        drop(guard);
+        assert!(!root.path().join(format!("{request_id}.req")).exists());
+    }
+
+    #[test]
+    fn rejects_overlong_spooled_request_id() {
+        let root = tempfile::tempdir().unwrap();
+        let path = root.path().join("oversized.req");
+        let oversized = format!("{}\n{{}}", "r".repeat(1024));
+        std::fs::write(&path, oversized).unwrap();
+
+        assert!(read_spooled_request(&path).is_err());
     }
 }
