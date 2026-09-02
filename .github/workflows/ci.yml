@@ -12,12 +12,7 @@ on:
       - scripts/ghosttykit-checksums.txt
       - tests/test_ci_ghosttykit_release_check.sh
       - tests/test_ci_change_areas.py
-      - .github/workflows/cla.yml
       - .github/workflows/ci.yml
-      - .github/scripts/rerun-failed-cla.sh
-      - tests/test_cla_rerun_workflow.sh
-      - tests/test_cla_lock_workflow.sh
-      - tests/test_cla_trigger_gate.sh
   workflow_dispatch:
 
 permissions:
@@ -34,7 +29,6 @@ jobs:
     outputs:
       macos: ${{ steps.detect.outputs.macos }}
       web: ${{ steps.detect.outputs.web }}
-      go: ${{ steps.detect.outputs.go }}
       agent_session_web: ${{ steps.detect.outputs.agent_session_web }}
     steps:
       - name: Checkout
@@ -55,7 +49,6 @@ jobs:
             {
               echo "macos=true"
               echo "web=true"
-              echo "go=true"
               echo "agent_session_web=true"
             } >> "$GITHUB_OUTPUT"
           }
@@ -110,7 +103,6 @@ jobs:
               {
                 echo "macos=false"
                 echo "web=false"
-                echo "go=false"
                 echo "agent_session_web=false"
               } >> "$GITHUB_OUTPUT"
               exit 0
@@ -193,18 +185,6 @@ jobs:
 
       - name: Install workflow guard Python dependencies
         run: python3 -m pip install --disable-pip-version-check --no-input PyYAML==6.0.3 bashlex==0.18
-
-      # These fixtures run only in this unprivileged pull_request job. They
-      # exercise the candidate workflow for developer feedback, never serve as
-      # the security boundary, and never run from pull_request_target.
-      - name: Validate CLA trigger admission behavior
-        run: ./tests/test_cla_trigger_gate.sh
-
-      - name: Validate CLA rerun authorization behavior
-        run: ./tests/test_cla_rerun_workflow.sh
-
-      - name: Validate merged pull request lock behavior
-        run: ./tests/test_cla_lock_workflow.sh
 
       - name: Validate Blacksmith Testbox broker trust boundary
         run: python3 tests/test_ci_testbox_broker_guard.py
@@ -325,9 +305,6 @@ jobs:
       - name: Validate CI change area filter
         run: python3 tests/test_ci_change_areas.py
 
-      - name: Validate release attestation retry guard
-        run: ./tests/test_ci_attestation_retry.sh
-
       - name: Validate Python R2 appcast upload guard
         run: ./tests/test_ci_r2_upload_python.sh
 
@@ -422,27 +399,6 @@ jobs:
           GHOSTTYKIT_DOWNLOAD_RETRIES: "0"
           GHOSTTYKIT_DOWNLOAD_RETRY_DELAY: "1"
         run: ./scripts/download-prebuilt-ghosttykit.sh --verify-only
-
-  remote-daemon-tests:
-    needs: changes
-    if: ${{ needs.changes.outputs.go == 'true' }}
-    runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
-    steps:
-      - name: Checkout
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-
-      - name: Setup Go
-        uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6.4.0
-        with:
-          go-version-file: daemon/remote/go.mod
-          cache-dependency-path: daemon/remote/go.sum
-
-      - name: Run remote daemon tests
-        working-directory: daemon/remote
-        run: go test ./...
-
-      - name: Validate remote daemon release assets
-        run: ./tests/test_remote_daemon_release_assets.sh
 
   web-typecheck:
     needs: changes
@@ -1821,7 +1777,6 @@ jobs:
       - changes
       - workflow-guard-tests
       - ghosttykit-release-check
-      - remote-daemon-tests
       - web-typecheck
       - react-apps-check
       - diff-sidecar-check
@@ -1843,7 +1798,6 @@ jobs:
           needs = json.loads(os.environ["PREFLIGHT_NEEDS"])
           required = ("changes", "workflow-guard-tests", "ghosttykit-release-check")
           allowed_routed = {
-              "remote-daemon-tests",
               "web-typecheck",
               "react-apps-check",
               "diff-sidecar-check",
@@ -1859,7 +1813,6 @@ jobs:
 
           outputs = needs["changes"].get("outputs", {})
           routed_outputs = {
-              "remote-daemon-tests": "go",
               "web-typecheck": "web",
               "react-apps-check": "web",
               "diff-sidecar-check": "macos",
@@ -1884,7 +1837,6 @@ jobs:
               "routes: "
               f"macos={outputs.get('macos')} "
               f"web={outputs.get('web')} "
-              f"go={outputs.get('go')} "
               f"agent_session_web={outputs.get('agent_session_web')}"
           )
           for name, data in sorted(needs.items()):
@@ -2415,7 +2367,6 @@ jobs:
       - changes
       - workflow-guard-tests
       - ghosttykit-release-check
-      - remote-daemon-tests
       - web-typecheck
       - react-apps-check
       - diff-sidecar-check

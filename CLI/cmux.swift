@@ -4320,7 +4320,7 @@ struct CMUXCLI {
     // never pins an image id unless the person passes `--image`: a pinned id
     // that drifted from the web deploy's manifest failed every create with
     // `vm_image_config_error`.
-    /// `--size` spellings → memory in MB. vCPUs scale with memory on Blaxel.
+    /// `--size` spellings → memory in MB. vCPUs scale with memory.
     private static let cloudVMSizeAliases: [String: Int] = [
         "2g": 2048, "2gb": 2048, "small": 2048,
         "4g": 4096, "4gb": 4096, "medium": 4096,
@@ -4623,7 +4623,7 @@ struct CMUXCLI {
             return nil
         }
         let normalized = trimmed.lowercased()
-        guard normalized == "e2b" || normalized == "freestyle" || normalized == "daytona" || normalized == "blaxel" else {
+        guard normalized == "freestyle" else {
             throw CLIError(message: """
                 vm new: unsupported Cloud VM service override.
 
@@ -5666,20 +5666,26 @@ struct CMUXCLI {
                     print("\(pad(row.0, nameWidth))  \(labelCell)\(pad(row.2, stateWidth))  \(pad(row.3, providerWidth))  \(row.4)")
                 }
                 if let limits = response["limits"] as? [String: Any],
-                   let maxActiveVms = limits["maxActiveVms"] as? Int,
                    let planId = limits["planId"] as? String {
-                    if maxActiveVms == 1 {
+                    // Absent or null means the plan has no active-machine cap.
+                    if let maxActiveVms = limits["maxActiveVms"] as? Int, maxActiveVms == 1 {
                         let format = String(
                             localized: "cli.vm.list.planMeter.single",
                             defaultValue: "%1$d of 1 machine on the %2$@ plan"
                         )
                         print(String(format: format, vms.count, planId))
-                    } else {
+                    } else if let maxActiveVms = limits["maxActiveVms"] as? Int {
                         let format = String(
                             localized: "cli.vm.list.planMeter",
                             defaultValue: "%1$d of %2$d machines on the %3$@ plan"
                         )
                         print(String(format: format, vms.count, maxActiveVms, planId))
+                    } else {
+                        let format = String(
+                            localized: "cli.vm.list.planMeter.unlimited",
+                            defaultValue: "%1$d machines on the %2$@ plan, no limit"
+                        )
+                        print(String(format: format, vms.count, planId))
                     }
                     // Free plans: the backend says when access to the fleet closes;
                     // the footer counts down to it so the lock never comes as a surprise.
@@ -5887,11 +5893,15 @@ struct CMUXCLI {
                 let (nameOpt, rem1b) = parseOption(rem1a, name: "--name")
                 let (windowOpt, rem2) = parseOption(rem1b, name: "--window")
                 let detach = hasFlag(rem2, name: "--detach") || hasFlag(rem2, name: "-d")
-                // A machine comes with its screen: new machines boot the desktop image
-                // (xfce + noVNC) unless the person asks for a shell-only box with --base.
-                // --desktop stays accepted for scripts written against the old default.
-                let base = hasFlag(rem2, name: "--base") || hasFlag(rem2, name: "--no-desktop")
-                let desktop = !base
+                // No provider ships a desktop image right now, so a bare `vm new`
+                // asks for a shell-only machine; requesting `--desktop` anyway fails
+                // closed with a server-side image config error rather than silently
+                // handing back a screenless box. Flip this back to desktop-by-default
+                // once a desktop image lands in the manifest.
+                // `--base`/`--no-desktop` stay accepted for scripts written against
+                // the old desktop default.
+                _ = hasFlag(rem2, name: "--base") || hasFlag(rem2, name: "--no-desktop")
+                let desktop = hasFlag(rem2, name: "--desktop")
                 let (sizeOpt, rem3) = parseOption(rem2, name: "--size")
                 let memoryMb: Int?
                 if let sizeOpt {
@@ -5917,8 +5927,8 @@ struct CMUXCLI {
                         vm new: unknown flag '\(unknown)'.
 
                         Known flags:
-                          --base            shell-only machine (no desktop)
-                          --desktop         machine with a screen (default)
+                          --base            shell-only machine (no desktop, the default)
+                          --desktop         machine with a screen (no image available yet)
                           --size <2g|4g|8g|16g|24g|32g>
                           --name <label>    display label (the id stays the address)
                           --image <image-id>  explicit image override (normally omit)
@@ -5956,8 +5966,8 @@ struct CMUXCLI {
                 }
                 if let normalizedProvider { params["provider"] = normalizedProvider }
                 // Size is independent of the image/provider override. Providers that do
-                // not expose sizing ignore this optional field; Blaxel uses it for runtime
-                // memory and the backend applies the plan ceiling.
+                // not expose sizing ignore this optional field; providers that do use it
+                // for runtime memory get it, and the backend applies the plan ceiling.
                 if let memoryMb { params["memory_mb"] = memoryMb }
                 // The persistent per-machine home is keyed off whether the *person*
                 // overrode the image/provider (`imageOptRaw`), not the CLI-injected
@@ -5969,8 +5979,8 @@ struct CMUXCLI {
                     providerOption: providerOpt
                 )
                 // The persistent-default create sends no provider override: the backend's
-                // CMUX_VM_DEFAULT_PROVIDER decides, with Blaxel as the default. An explicit
-                // provider remains available for deliberate rollback/provider experiments.
+                // CMUX_VM_DEFAULT_PROVIDER decides, with Freestyle as the default. An
+                // explicit provider remains available for deliberate rollback/experiments.
                 if usesPersistentDefaultCloud {
                     // Every new machine is its own persistent computer: the backend mounts a
                     // volume derived from the machine's generated name, so `vm new` mints a
@@ -13087,7 +13097,7 @@ struct CMUXCLI {
         logVMTiming(
             "base.open",
             vmID: (response["id"] as? String) ?? "?",
-            provider: (response["provider"] as? String) ?? "blaxel",
+            provider: (response["provider"] as? String) ?? "freestyle",
             startedAt: vmCreateStartedAt
         )
 
@@ -13097,7 +13107,7 @@ struct CMUXCLI {
         }
 
         let id = (response["id"] as? String) ?? "?"
-        let provider = (response["provider"] as? String) ?? "blaxel"
+        let provider = (response["provider"] as? String) ?? "freestyle"
         let image = (response["image"] as? String) ?? "?"
         let base = response["base"] as? [String: Any]
         let generation = (base?["generation"] as? Int) ?? (base?["generation"] as? NSNumber)?.intValue
@@ -13177,7 +13187,7 @@ struct CMUXCLI {
         logVMTiming(
             "base.reset",
             vmID: (response["id"] as? String) ?? "?",
-            provider: (response["provider"] as? String) ?? "blaxel",
+            provider: (response["provider"] as? String) ?? "freestyle",
             startedAt: vmCreateStartedAt
         )
 
@@ -13187,7 +13197,7 @@ struct CMUXCLI {
         }
 
         let id = (response["id"] as? String) ?? "?"
-        let provider = (response["provider"] as? String) ?? "blaxel"
+        let provider = (response["provider"] as? String) ?? "freestyle"
         let image = (response["image"] as? String) ?? "?"
         let base = response["base"] as? [String: Any]
         let generation = (base?["generation"] as? Int) ?? (base?["generation"] as? NSNumber)?.intValue
