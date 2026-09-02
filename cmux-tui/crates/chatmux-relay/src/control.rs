@@ -12,6 +12,7 @@ pub const CONTROL_TIMEOUT_MS: u64 = 3_000;
 const MAX_CONTROL_LINE_BYTES: usize = 1_048_576;
 const MAX_WRITER_QUEUE: usize = 256;
 const MAX_PENDING_REQUESTS: usize = 256;
+const MAX_EVENT_QUEUE: usize = 1_024;
 
 pub type EventHandler = Box<dyn Fn(&Value) + Send + Sync>;
 pub type CloseHandler = Box<dyn Fn() + Send + Sync>;
@@ -44,7 +45,7 @@ mod unix {
     use super::*;
     use std::collections::HashMap;
     use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
-    use std::sync::{Arc, Mutex};
+    use std::sync::{Arc, Mutex, Weak};
     use std::time::Duration;
 
     use tokio::io::{AsyncReadExt as _, AsyncWriteExt as _};
@@ -62,7 +63,7 @@ mod unix {
 
     struct Shared {
         pending: Mutex<HashMap<u64, oneshot::Sender<Value>>>,
-        event_handler: Mutex<Option<EventHandler>>,
+        event_handler: Mutex<Option<Arc<dyn Fn(&Value) + Send + Sync>>>,
         close_handler: Mutex<Option<CloseHandler>>,
         closed: AtomicBool,
         deliberate: AtomicBool,
@@ -73,6 +74,12 @@ mod unix {
         read_done: Notify,
         #[cfg(test)]
         read_waiting: Mutex<Option<oneshot::Sender<()>>>,
+        dispatch_tx: std::sync::mpsc::SyncSender<Dispatch>,
+    }
+
+    enum Dispatch {
+        Event(Value),
+        Closed,
     }
 
     impl Shared {
@@ -86,12 +93,12 @@ mod unix {
             // broadcast wakeup so either task can observe closure without
             // consuming the other's permit.
             self.closed_notify.notify_waiters();
-            if !self.deliberate.load(Ordering::SeqCst)
-                && let Some(handler) =
-                    self.close_handler.lock().expect("control close lock").as_ref()
-            {
-                handler();
-            }
+            // Serialize marker enqueue with on_close registration. The event
+            // worker may receive the marker immediately, so the handler must
+            // be either installed before enqueue or installed by on_close
+            // while the worker waits on this same mutex.
+            let _close_handler = self.close_handler.lock().expect("control close lock");
+            let _ = self.dispatch_tx.try_send(Dispatch::Closed);
         }
     }
 
@@ -125,6 +132,7 @@ mod unix {
             stream.as_raw_fd()
         };
         let (read_half, write_half) = stream.into_split();
+        let (dispatch_tx, dispatch_rx) = std::sync::mpsc::sync_channel(MAX_EVENT_QUEUE);
         let shared = Arc::new(Shared {
             pending: Mutex::new(HashMap::new()),
             event_handler: Mutex::new(None),
@@ -138,7 +146,51 @@ mod unix {
             read_done: Notify::new(),
             #[cfg(test)]
             read_waiting: Mutex::new(None),
+            dispatch_tx,
         });
+        let weak_shared: Weak<Shared> = Arc::downgrade(&shared);
+        std::thread::Builder::new()
+            .name("chatmux-relay-control-events".to_owned())
+            .spawn(move || {
+                loop {
+                    let dispatch = match dispatch_rx.recv_timeout(Duration::from_millis(50)) {
+                        Ok(dispatch) => dispatch,
+                        Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
+                            let Some(shared) = weak_shared.upgrade() else { break };
+                            if shared.closed.load(Ordering::SeqCst) {
+                                Dispatch::Closed
+                            } else {
+                                continue;
+                            }
+                        }
+                        Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => break,
+                    };
+                    let Some(shared) = weak_shared.upgrade() else { break };
+                    match dispatch {
+                        Dispatch::Event(event) => {
+                            // Closure is settled before the marker is queued,
+                            // but events already in the FIFO still belong to
+                            // the stream and must be delivered first.
+                            let handler =
+                                shared.event_handler.lock().expect("control event lock").clone();
+                            if let Some(handler) = handler {
+                                handler(&event);
+                            }
+                        }
+                        Dispatch::Closed => {
+                            if !shared.deliberate.load(Ordering::SeqCst) {
+                                let handler =
+                                    shared.close_handler.lock().expect("control close lock").take();
+                                if let Some(handler) = handler {
+                                    handler();
+                                }
+                            }
+                            break;
+                        }
+                    }
+                }
+            })
+            .expect("spawn control event worker");
         // Keep one async writer for every connection. The queue makes the
         // synchronous `send` API safe without spawning one task per input;
         // `write_all` below waits for socket backpressure and never exposes a
@@ -267,11 +319,11 @@ mod unix {
                 });
                 if let Some(sender) = waiting {
                     let _ = sender.send(parsed);
-                } else if parsed.get("event").and_then(Value::as_str).is_some()
-                    && let Some(handler) =
-                        shared.event_handler.lock().expect("control event lock").as_ref()
-                {
-                    handler(&parsed);
+                } else if parsed.get("event").and_then(Value::as_str).is_some() {
+                    if shared.dispatch_tx.try_send(Dispatch::Event(parsed)).is_err() {
+                        shared.settle_closed();
+                        break 'read_loop;
+                    }
                 }
                 // Responses to fire-and-forget sends fall through silently.
             }
@@ -369,11 +421,22 @@ mod unix {
         }
 
         fn on_event(&self, handler: EventHandler) {
-            *self.shared.event_handler.lock().expect("control event lock") = Some(handler);
+            *self.shared.event_handler.lock().expect("control event lock") =
+                Some(Arc::from(handler));
         }
 
         fn on_close(&self, handler: CloseHandler) {
-            *self.shared.close_handler.lock().expect("control close lock") = Some(handler);
+            let mut slot = self.shared.close_handler.lock().expect("control close lock");
+            if self.shared.closed.load(Ordering::SeqCst) {
+                if self.shared.deliberate.load(Ordering::SeqCst) {
+                    return;
+                }
+                *slot = Some(handler);
+                drop(slot);
+                let _ = self.shared.dispatch_tx.try_send(Dispatch::Closed);
+            } else {
+                *slot = Some(handler);
+            }
         }
 
         fn pause(&self) {
@@ -403,7 +466,7 @@ mod unix {
 mod tests {
     use super::*;
     use serde_json::json;
-    use std::sync::Arc;
+    use std::sync::{Arc, Mutex};
     use std::time::Duration;
     use tokio::io::{AsyncBufReadExt as _, AsyncReadExt as _, AsyncWriteExt as _};
     use tokio::net::UnixListener;
@@ -486,6 +549,61 @@ mod tests {
             .await
             .expect("second waiter wakes")
             .expect("second waiter joins");
+    }
+
+    #[tokio::test]
+    async fn event_callbacks_run_in_wire_order() {
+        let socket_path = std::env::temp_dir()
+            .join(format!("chatmux-relay-control-events-{}.sock", std::process::id()));
+        let _ = std::fs::remove_file(&socket_path);
+        let listener = UnixListener::bind(&socket_path).expect("bind control event test socket");
+        let (accepted_tx, accepted_rx) = oneshot::channel();
+        let (start_tx, start_rx) = oneshot::channel();
+        let server = tokio::spawn(async move {
+            let (mut stream, _) = listener.accept().await.expect("accept control event socket");
+            accepted_tx.send(()).expect("tell client that socket is accepted");
+            start_rx.await.expect("wait for event handler");
+            stream
+                .write_all(b"{\"event\":\"first\"}\n{\"event\":\"second\"}\n")
+                .await
+                .expect("write control events");
+            let mut bytes = Vec::new();
+            stream.read_to_end(&mut bytes).await.expect("read client close");
+        });
+
+        let control =
+            connect_control(&socket_path, 3_000).await.expect("connect control event test socket");
+        accepted_rx.await.expect("wait for control event server");
+        let seen = Arc::new(Mutex::new(Vec::new()));
+        let (done_tx, done_rx) = oneshot::channel();
+        let done_tx = Arc::new(Mutex::new(Some(done_tx)));
+        let seen_for_handler = Arc::clone(&seen);
+        let done_tx_for_handler = Arc::clone(&done_tx);
+        control.on_event(Box::new(move |event| {
+            let mut seen = seen_for_handler.lock().expect("event record lock");
+            seen.push(event["event"].as_str().expect("event name").to_owned());
+            if seen.len() == 2 {
+                if let Some(done_tx) = done_tx_for_handler.lock().expect("event done lock").take() {
+                    let _ = done_tx.send(());
+                }
+            }
+        }));
+        start_tx.send(()).expect("start control event stream");
+
+        tokio::time::timeout(Duration::from_secs(1), done_rx)
+            .await
+            .expect("ordered event callbacks complete")
+            .expect("ordered event callback signal");
+        assert_eq!(
+            *seen.lock().expect("event record lock"),
+            vec!["first".to_owned(), "second".to_owned()]
+        );
+        control.end();
+        tokio::time::timeout(Duration::from_secs(1), server)
+            .await
+            .expect("server observes client close")
+            .expect("join control event server");
+        let _ = std::fs::remove_file(socket_path);
     }
 
     #[tokio::test]

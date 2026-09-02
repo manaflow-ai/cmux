@@ -21,10 +21,11 @@
 
 use std::collections::{HashMap, VecDeque};
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 use std::sync::{Arc, Condvar, Mutex};
 use std::thread::ThreadId;
-use tokio::sync::Notify;
+use std::time::{Duration, Instant};
+use tokio::sync::{Notify, oneshot};
 use tokio_util::sync::CancellationToken;
 
 use async_trait::async_trait;
@@ -55,6 +56,8 @@ const MAX_ALLOWED_ROOTS: usize = 32;
 const MAX_ALLOWED_ROOT_BYTES: usize = 16 * 1024;
 const MAX_ENUM_SURFACES: usize = 8;
 const RAW_ATTACH_BACKLOG_CAP: usize = 1024 * 1024;
+const MAX_OUTPUT_CHUNK_BYTES: usize = 256 * 1024;
+const CONTROL_OPERATION_DRAIN_TIMEOUT: Duration = Duration::from_millis(250);
 const PTY_INPUT_B64_CAP: usize = 4 * 1024 * 1024;
 
 /// Random lowercase-hex identity for transports and tunnel attachments.
@@ -287,11 +290,6 @@ pub struct FrameContext {
     pub cancellation: CancellationToken,
 }
 
-/// Reconciled machine authority at a single route decision.
-///
-/// The version makes a route snapshot explicit. Roots are checked again for
-/// every output/control operation, so a root rotation cannot leave an old PTY
-/// usable merely because its trust level stayed unchanged.
 #[derive(Clone, Debug, Default)]
 pub struct LiveAuth {
     pub trust: String,
@@ -349,13 +347,15 @@ struct ShellInner {
 }
 
 /// A reentrant publication gate for one attachment generation. The gate
-/// serializes route publication and control operations across threads while
-/// allowing an outbound/control callback to synchronously re-enter the same
-/// route (for example, a test sink that closes the PTY). A callback must not
-/// synchronously wait for another thread that needs this same gate.
+/// serializes route publication and control-operation admission across
+/// threads while allowing an outbound/control callback to synchronously
+/// re-enter the same route (for example, a test sink that closes the PTY).
+/// A callback must not synchronously wait for another thread that needs this
+/// same gate.
 struct RouteGate {
     state: Mutex<RouteGateState>,
     changed: Condvar,
+    async_changed: Notify,
 }
 
 #[derive(Default)]
@@ -371,7 +371,11 @@ struct RouteGuard<'a> {
 
 impl RouteGate {
     fn new() -> Self {
-        Self { state: Mutex::new(RouteGateState::default()), changed: Condvar::new() }
+        Self {
+            state: Mutex::new(RouteGateState::default()),
+            changed: Condvar::new(),
+            async_changed: Notify::new(),
+        }
     }
 
     fn lock(&self) -> RouteGuard<'_> {
@@ -384,6 +388,28 @@ impl RouteGate {
         state.depth += 1;
         drop(state);
         RouteGuard { gate: self, owner }
+    }
+
+    /// Acquire the gate without blocking a Tokio worker. The critical
+    /// sections protected by this gate never await, so the polling thread is
+    /// stable for the lifetime of the guard and can safely re-enter through a
+    /// synchronous callback.
+    async fn lock_async(&self) -> RouteGuard<'_> {
+        loop {
+            let owner = std::thread::current().id();
+            let notified = self.async_changed.notified();
+            tokio::pin!(notified);
+            notified.as_mut().enable();
+            {
+                let mut state = self.state.lock().expect("route gate lock");
+                if state.owner.is_none_or(|current| current == owner) {
+                    state.owner = Some(owner);
+                    state.depth += 1;
+                    return RouteGuard { gate: self, owner };
+                }
+            }
+            notified.await;
+        }
     }
 
     fn held_by_current_thread(&self) -> bool {
@@ -403,6 +429,7 @@ impl Drop for RouteGuard<'_> {
         if state.depth == 0 {
             state.owner = None;
             self.gate.changed.notify_all();
+            self.gate.async_changed.notify_waiters();
         }
     }
 }
@@ -410,6 +437,7 @@ impl Drop for RouteGuard<'_> {
 #[derive(Clone)]
 struct Attachment {
     closing: Arc<AtomicBool>,
+    close_pending: Arc<AtomicBool>,
     /// Releases this attachment (detach a viewer, close a control stream,
     /// kill a viewer PTY) — never kills a shared session.
     control: Arc<dyn PtyControl>,
@@ -420,6 +448,108 @@ struct Attachment {
     transport_id: Option<String>,
     generation: u64,
     publication_gate: Arc<RouteGate>,
+    control_ops: Arc<ControlOperationState>,
+}
+
+struct ControlOperationState {
+    active: AtomicUsize,
+    wait_lock: Mutex<()>,
+    owners: Mutex<HashMap<ThreadId, usize>>,
+    changed: Condvar,
+    async_changed: Notify,
+}
+
+impl ControlOperationState {
+    fn new() -> Self {
+        Self {
+            active: AtomicUsize::new(0),
+            wait_lock: Mutex::new(()),
+            owners: Mutex::new(HashMap::new()),
+            changed: Condvar::new(),
+            async_changed: Notify::new(),
+        }
+    }
+
+    fn begin(&self) {
+        let _wait = self.wait_lock.lock().expect("control operation wait lock");
+        self.active.fetch_add(1, Ordering::AcqRel);
+        let owner = std::thread::current().id();
+        *self.owners.lock().expect("control operation owners lock").entry(owner).or_default() += 1;
+    }
+
+    fn end(&self) {
+        let _wait = self.wait_lock.lock().expect("control operation wait lock");
+        let owner = std::thread::current().id();
+        let mut owners = self.owners.lock().expect("control operation owners lock");
+        if let Some(count) = owners.get_mut(&owner) {
+            *count -= 1;
+            if *count == 0 {
+                owners.remove(&owner);
+            }
+        }
+        if self.active.fetch_sub(1, Ordering::AcqRel) == 1 {
+            self.changed.notify_all();
+            self.async_changed.notify_waiters();
+        }
+    }
+
+    fn owned_by_current_thread(&self) -> bool {
+        self.owners
+            .lock()
+            .expect("control operation owners lock")
+            .contains_key(&std::thread::current().id())
+    }
+
+    fn wait_sync_timeout(&self, timeout: Option<Duration>) -> bool {
+        if self.owned_by_current_thread() {
+            return true;
+        }
+        let deadline = timeout.map(|duration| Instant::now() + duration);
+        let mut guard = self.wait_lock.lock().expect("control operation wait lock");
+        while self.active.load(Ordering::Acquire) != 0 {
+            if let Some(deadline) = deadline {
+                let remaining = deadline.saturating_duration_since(Instant::now());
+                if remaining.is_zero() {
+                    return false;
+                }
+                let (next, result) =
+                    self.changed.wait_timeout(guard, remaining).expect("control operation wait");
+                guard = next;
+                if result.timed_out() {
+                    return false;
+                }
+            } else {
+                guard = self.changed.wait(guard).expect("control operation wait");
+            }
+        }
+        true
+    }
+
+    async fn wait_async(&self) {
+        if self.owned_by_current_thread() {
+            return;
+        }
+        loop {
+            if self.active.load(Ordering::Acquire) == 0 {
+                return;
+            }
+            let notified = self.async_changed.notified();
+            tokio::pin!(notified);
+            notified.as_mut().enable();
+            if self.active.load(Ordering::Acquire) == 0 {
+                return;
+            }
+            notified.await;
+        }
+    }
+}
+
+struct ControlOperationLease(Arc<ControlOperationState>);
+
+impl Drop for ControlOperationLease {
+    fn drop(&mut self) {
+        self.0.end();
+    }
 }
 
 struct Inner {
@@ -553,15 +683,17 @@ impl PtyManager {
                     return;
                 };
                 if let Some(attachment) = self.inner.authorize(pty_id, context, "input") {
-                    self.inner.with_live_attachment(
-                        pty_id,
-                        &attachment,
-                        context,
-                        "input",
-                        |control| {
-                            control.write(&data);
-                        },
-                    );
+                    self.inner
+                        .with_live_attachment_async(
+                            pty_id,
+                            &attachment,
+                            context,
+                            "input",
+                            |control| {
+                                control.write(&data);
+                            },
+                        )
+                        .await;
                 }
             }
             "pty_resize" => {
@@ -575,15 +707,17 @@ impl PtyManager {
                     return;
                 };
                 if let Some(attachment) = self.inner.authorize(pty_id, context, "resize") {
-                    self.inner.with_live_attachment(
-                        pty_id,
-                        &attachment,
-                        context,
-                        "resize",
-                        |control| {
-                            control.resize(cols, rows);
-                        },
-                    );
+                    self.inner
+                        .with_live_attachment_async(
+                            pty_id,
+                            &attachment,
+                            context,
+                            "resize",
+                            |control| {
+                                control.resize(cols, rows);
+                            },
+                        )
+                        .await;
                 }
             }
             "pty_flow" => {
@@ -593,19 +727,21 @@ impl PtyManager {
                 }
                 let pause = frame.get("pause").and_then(Value::as_bool).unwrap_or(false);
                 if let Some(attachment) = self.inner.authorize(pty_id, context, "flow") {
-                    self.inner.with_live_attachment(
-                        pty_id,
-                        &attachment,
-                        context,
-                        "flow",
-                        |control| {
-                            if pause {
-                                control.pause();
-                            } else {
-                                control.resume();
-                            }
-                        },
-                    );
+                    self.inner
+                        .with_live_attachment_async(
+                            pty_id,
+                            &attachment,
+                            context,
+                            "flow",
+                            |control| {
+                                if pause {
+                                    control.pause();
+                                } else {
+                                    control.resume();
+                                }
+                            },
+                        )
+                        .await;
                 }
             }
             "pty_close" => {
@@ -613,7 +749,7 @@ impl PtyManager {
                 if !self.inner.transport_owns(pty_id, context.transport_id.as_deref()) {
                     return;
                 }
-                self.inner.close_authorized(pty_id, context);
+                self.inner.close_authorized_async(pty_id, context).await;
             }
             "surface_list" => self.inner.clone().list_surfaces(frame, context).await,
             _ => {}
@@ -656,6 +792,12 @@ impl PtyManager {
         self.detach_matching(|owner| owner == Some(transport_id));
     }
 
+    /// Async transport teardown. Gate contention yields to Tokio instead of
+    /// blocking the connection worker while a publication callback finishes.
+    pub async fn detach_transport_async(&self, transport_id: &str) {
+        self.detach_matching_async(|owner| owner == Some(transport_id)).await;
+    }
+
     fn detach_matching(&self, owns: impl Fn(Option<&str>) -> bool) {
         // Openings first: close() records cancellation for a reserved id, so
         // a late open cannot install an attachment after its transport died.
@@ -681,6 +823,32 @@ impl PtyManager {
         ids.extend(attachment_ids.into_iter().filter(|(_, owner, _)| owns(owner.as_deref())));
         for (id, owner, generation) in ids {
             self.inner.close_if_transport(&id, owner.as_deref(), Some(generation));
+        }
+    }
+
+    async fn detach_matching_async(&self, owns: impl Fn(Option<&str>) -> bool) {
+        let opening_ids: Vec<(String, Option<String>, u64)> = {
+            let opening = self.inner.opening_state.lock().expect("opening state lock");
+            opening
+                .ids
+                .iter()
+                .map(|(id, entry)| (id.clone(), entry.transport_id.clone(), entry.generation))
+                .collect()
+        };
+        let attachment_ids: Vec<(String, Option<String>, u64)> = {
+            let attachments = self.inner.attachments.lock().expect("attach lock");
+            attachments
+                .iter()
+                .map(|(id, attachment)| {
+                    (id.clone(), attachment.transport_id.clone(), attachment.generation)
+                })
+                .collect()
+        };
+        let mut ids: Vec<(String, Option<String>, u64)> =
+            opening_ids.into_iter().filter(|(_, owner, _)| owns(owner.as_deref())).collect();
+        ids.extend(attachment_ids.into_iter().filter(|(_, owner, _)| owns(owner.as_deref())));
+        for (id, owner, generation) in ids {
+            self.inner.close_if_transport_async(&id, owner.as_deref(), Some(generation)).await;
         }
     }
 }
@@ -730,9 +898,6 @@ impl Inner {
             return;
         }
         let fail = |code: &str, message: &str| send_pty_error(context, &pty_id, code, message);
-        // One monotonic domain spans reservation and attachment publication.
-        // A generation can therefore never be mistaken for a different phase
-        // of the same PTY id.
         let opening_generation = self.next_generation.fetch_add(1, Ordering::Relaxed);
         // Do not inspect the route gate while holding the attachment map. The
         // normal publication path takes RouteGate -> attachments, so this
@@ -755,18 +920,13 @@ impl Inner {
         } else {
             let mut opening = self.opening_state.lock().expect("opening state lock");
             let attachments = self.attachments.lock().expect("attach lock");
-            let attached = attachments
-                .get(&pty_id)
-                .is_some_and(|attachment| !attachment.closing.load(Ordering::SeqCst));
+            let attached = attachments.get(&pty_id).is_some_and(|attachment| {
+                !attachment.closing.load(Ordering::SeqCst)
+                    || attachment.close_pending.load(Ordering::SeqCst)
+            });
             if attached || opening.ids.contains_key(&pty_id) {
                 Err(("bad_request", "ptyId is already attached".to_owned()))
-            } else if attachments
-                .values()
-                .filter(|attachment| !attachment.closing.load(Ordering::SeqCst))
-                .count()
-                + opening.ids.len()
-                >= self.max_ptys
-            {
+            } else if attachments.values().count() + opening.ids.len() >= self.max_ptys {
                 Err((
                     "session_limit",
                     format!("this relay caps concurrent terminals at {}", self.max_ptys),
@@ -941,10 +1101,6 @@ impl Inner {
             }
         };
 
-        // A provider may ignore the cancellation token while opening. Never
-        // publish a PTY after its transport has gone away; `Opened::drop`
-        // closes the provider handle and `OpeningReservation::drop` releases
-        // the id reservation.
         if context.cancellation.is_cancelled() {
             return;
         }
@@ -960,6 +1116,7 @@ impl Inner {
             opening.ids.remove(&pty_id);
             drop(opening);
             drop(attachments);
+            reservation.active = false;
             opened.closing.store(true, Ordering::SeqCst);
             opened.control.kill();
             return;
@@ -972,7 +1129,7 @@ impl Inner {
         {
             drop(attachments);
             drop(opening);
-            let _previous_publication = previous_gate.lock();
+            let _previous_publication = previous_gate.lock_async().await;
             opening = self.opening_state.lock().expect("opening state lock");
             attachments = self.attachments.lock().expect("attach lock");
             if opening.cancelled.get(&pty_id) == Some(&opening_generation) {
@@ -1007,6 +1164,7 @@ impl Inner {
             pty_id.clone(),
             Attachment {
                 closing: opened.closing,
+                close_pending: Arc::new(AtomicBool::new(false)),
                 control: Arc::clone(&opened.control),
                 actor_id: actor.to_owned(),
                 cwd: cwd.clone(),
@@ -1014,6 +1172,7 @@ impl Inner {
                 transport_id: context.transport_id.clone(),
                 generation: opened.generation,
                 publication_gate: Arc::clone(&opened.publication_gate),
+                control_ops: Arc::new(ControlOperationState::new()),
             },
         );
         opening.ids.remove(&pty_id);
@@ -1023,8 +1182,6 @@ impl Inner {
             previous.closing.store(true, Ordering::SeqCst);
             previous.control.kill();
         }
-        // Ownership transferred to the attachment. The guard remains on the
-        // Opened value only to keep the deferred start closure alive.
         opened.cleanup.claimed.store(true, Ordering::Release);
         reservation.active = false;
         let mut opened_frame = serde_json::Map::new();
@@ -1042,7 +1199,33 @@ impl Inner {
 
         // Output only AFTER pty_opened (ordering): banner, then scrollback
         // replay, then live bytes.
-        (opened.start)();
+        let generation = opened.generation;
+        let publication_gate = Arc::clone(&opened.publication_gate);
+        let start = opened.start;
+        // Do not hold the frame handler open for the lifetime of a live PTY
+        // stream. Wait only until the sink is installed, then let the
+        // generation fence and control kill own its lifecycle.
+        let (started_tx, started_rx) = oneshot::channel();
+        let start_result = std::thread::Builder::new()
+            .name("chatmux-relay-pty-start".to_owned())
+            .spawn(move || {
+                start(Box::new(move || {
+                    let _ = started_tx.send(());
+                }));
+            });
+        if start_result.is_err() {
+            self.emit_error_for_generation_async(
+                context,
+                &pty_id,
+                generation,
+                &publication_gate,
+                "failed",
+                "PTY output start could not be scheduled",
+            )
+            .await;
+            return;
+        }
+        let _ = started_rx.await;
     }
 
     /// Build the per-attachment emit closures (output + exit framing).
@@ -1088,18 +1271,12 @@ impl Inner {
         generation: u64,
         publication_gate: &Arc<RouteGate>,
     ) {
-        let mut auth = Self::auth_snapshot(context);
-        if self
-            .authorize_snapshot_for_generation(pty_id, &auth, context, "output", generation)
-            .is_none()
-        {
-            return;
-        }
         let gate = {
             let attachments = self.attachments.lock().expect("attach lock");
             let Some(current) = attachments.get(pty_id) else { return };
             if current.generation != generation
                 || !Arc::ptr_eq(&current.publication_gate, publication_gate)
+                || (context.transport_id.is_some() && current.transport_id != context.transport_id)
             {
                 return;
             }
@@ -1143,13 +1320,24 @@ impl Inner {
             );
             return;
         }
-        auth = live_auth;
         // Zero-byte chunks carry nothing and historically crashed the web
         // terminal's write path (D-R6-1); never put an empty frame on the wire.
         if chunk.is_empty() {
             return;
         }
-        let buffered = (auth.buffered_amount)();
+        if chunk.len() > MAX_OUTPUT_CHUNK_BYTES {
+            drop(_publication);
+            self.emit_error_for_generation(
+                context,
+                pty_id,
+                generation,
+                publication_gate,
+                "failed",
+                "pty output chunk exceeds the relay frame budget",
+            );
+            return;
+        }
+        let buffered = (live_auth.buffered_amount)();
         // Admit the complete frame before sending it. The socket may accept a
         // frame exactly at the cap, but must reject one that would push the
         // buffered amount over the cap.
@@ -1168,7 +1356,7 @@ impl Inner {
             );
             return;
         }
-        (auth.send)(json!({
+        (live_auth.send)(json!({
             "version": PTY_PROTOCOL_VERSION,
             "type": "pty_output",
             "ptyId": pty_id,
@@ -1274,6 +1462,51 @@ impl Inner {
         });
     }
 
+    async fn emit_error_for_generation_async(
+        &self,
+        context: &FrameContext,
+        pty_id: &str,
+        generation: u64,
+        publication_gate: &Arc<RouteGate>,
+        code: &str,
+        message: &str,
+    ) {
+        let gate = {
+            let attachments = self.attachments.lock().expect("attach lock");
+            let Some(current) = attachments.get(pty_id) else { return };
+            if current.generation != generation
+                || !Arc::ptr_eq(&current.publication_gate, publication_gate)
+            {
+                return;
+            }
+            Arc::clone(&current.publication_gate)
+        };
+        let _publication = gate.lock_async().await;
+        let attachment = {
+            let mut attachments = self.attachments.lock().expect("attach lock");
+            let Some(current) = attachments.get(pty_id) else { return };
+            if current.generation != generation
+                || !Arc::ptr_eq(&current.publication_gate, publication_gate)
+                || current.closing.load(Ordering::SeqCst)
+            {
+                return;
+            }
+            current.closing.store(true, Ordering::SeqCst);
+            current.clone()
+        };
+        send_pty_error(context, pty_id, code, message);
+        let mut attachments = self.attachments.lock().expect("attach lock");
+        if attachments.get(pty_id).is_some_and(|current| {
+            current.generation == generation
+                && Arc::ptr_eq(&current.publication_gate, publication_gate)
+        }) {
+            attachments.remove(pty_id);
+        }
+        drop(attachments);
+        drop(_publication);
+        attachment.control.kill();
+    }
+
     fn emit_terminal_for_generation(
         &self,
         pty_id: &str,
@@ -1319,20 +1552,6 @@ impl Inner {
         // Terminal publication retires the viewer. Killing is idempotent for
         // an already-exited PTY and releases an overflowed or revoked one.
         attachment.control.kill();
-    }
-
-    /// Detach, NOT kill: idempotent, unknown ptyId tolerated.
-    fn close(&self, pty_id: &str) {
-        // Match `open`'s lock order. If opening still owns the reservation,
-        // record cancellation and let it dispose the newly opened PTY.
-        let mut opening = self.opening_state.lock().expect("opening state lock");
-        if opening.ids.contains_key(pty_id) {
-            let generation = opening.ids.get(pty_id).expect("opening entry").generation;
-            opening.cancelled.insert(pty_id.to_owned(), generation);
-            return;
-        }
-        drop(opening);
-        self.close_exact(pty_id, None, None);
     }
 
     fn close_if_transport(
@@ -1437,6 +1656,7 @@ impl Inner {
             if current.generation != attachment.generation
                 || !Arc::ptr_eq(&current.publication_gate, &attachment.publication_gate)
                 || current.closing.load(Ordering::SeqCst)
+                || current.close_pending.load(Ordering::SeqCst)
             {
                 return;
             }
@@ -1454,6 +1674,48 @@ impl Inner {
             );
             return;
         }
+        attachment.control_ops.begin();
+        let _operation = ControlOperationLease(Arc::clone(&attachment.control_ops));
+        operation(attachment.control.as_ref());
+    }
+
+    async fn with_live_attachment_async(
+        &self,
+        pty_id: &str,
+        attachment: &Attachment,
+        context: &FrameContext,
+        action: &str,
+        operation: impl FnOnce(&dyn PtyControl),
+    ) {
+        let _publication = attachment.publication_gate.lock_async().await;
+        {
+            let attachments = self.attachments.lock().expect("attach lock");
+            let Some(current) = attachments.get(pty_id) else { return };
+            if current.generation != attachment.generation
+                || !Arc::ptr_eq(&current.publication_gate, &attachment.publication_gate)
+                || current.closing.load(Ordering::SeqCst)
+                || current.close_pending.load(Ordering::SeqCst)
+            {
+                return;
+            }
+        }
+        let live_auth = Self::auth_snapshot(context);
+        if !self.auth_allows(&live_auth, attachment) {
+            drop(_publication);
+            self.emit_error_for_generation_async(
+                context,
+                pty_id,
+                attachment.generation,
+                &attachment.publication_gate,
+                "trust_revoked",
+                &format!("PTY {action} refused after trust change"),
+            )
+            .await;
+            return;
+        }
+        attachment.control_ops.begin();
+        let _operation = ControlOperationLease(Arc::clone(&attachment.control_ops));
+        drop(_publication);
         operation(attachment.control.as_ref());
     }
 
@@ -1559,6 +1821,95 @@ impl Inner {
         self.close_exact_authorized(pty_id, &attachment, context);
     }
 
+    async fn close_authorized_async(&self, pty_id: &str, context: &FrameContext) {
+        let auth = Self::auth_snapshot(context);
+        let attachment = match self
+            .authorize_snapshot_for_generation_nonterminal(pty_id, &auth, context, "close", 0)
+        {
+            Ok(attachment) => attachment,
+            Err(NonterminalAuthorizationFailure::Denied) => return,
+            Err(NonterminalAuthorizationFailure::Missing) => {
+                self.close_if_transport_async(pty_id, context.transport_id.as_deref(), None).await;
+                return;
+            }
+        };
+        if context.transport_id.is_some() && attachment.transport_id != context.transport_id {
+            return;
+        }
+        self.close_exact_authorized_async(pty_id, &attachment, context).await;
+    }
+
+    async fn close_if_transport_async(
+        &self,
+        pty_id: &str,
+        transport_id: Option<&str>,
+        generation: Option<u64>,
+    ) {
+        let mut opening = self.opening_state.lock().expect("opening state lock");
+        if let Some(entry) = opening.ids.get(pty_id) {
+            let owns_opening =
+                transport_id.is_none() || entry.transport_id.as_deref() == transport_id;
+            if generation.is_none_or(|expected| entry.generation == expected) && owns_opening {
+                opening.cancelled.insert(pty_id.to_owned(), entry.generation);
+            }
+        }
+        drop(opening);
+        let Some(attachment) = self.attachments.lock().expect("attach lock").get(pty_id).cloned()
+        else {
+            return;
+        };
+        if generation.is_none_or(|expected| attachment.generation == expected)
+            && attachment.transport_id.as_deref() == transport_id
+        {
+            let publication_gate = Arc::clone(&attachment.publication_gate);
+            let _publication = publication_gate.lock_async().await;
+            let Some(current) = self.attachments.lock().expect("attach lock").get(pty_id).cloned()
+            else {
+                return;
+            };
+            if generation.is_some_and(|expected| current.generation != expected)
+                || !Arc::ptr_eq(&current.publication_gate, &publication_gate)
+                || current.transport_id.as_deref() != transport_id
+            {
+                return;
+            }
+            current.close_pending.store(true, Ordering::SeqCst);
+            drop(_publication);
+            let _ = tokio::time::timeout(
+                CONTROL_OPERATION_DRAIN_TIMEOUT,
+                attachment.control_ops.wait_async(),
+            )
+            .await;
+            let _publication = publication_gate.lock_async().await;
+            let Some(current) = self.attachments.lock().expect("attach lock").get(pty_id).cloned()
+            else {
+                return;
+            };
+            if generation.is_some_and(|expected| current.generation != expected)
+                || !Arc::ptr_eq(&current.publication_gate, &publication_gate)
+                || !current.close_pending.load(Ordering::SeqCst)
+            {
+                return;
+            }
+            let removed = {
+                let mut attachments = self.attachments.lock().expect("attach lock");
+                let Some(current) = attachments.get(pty_id) else { return };
+                if generation.is_some_and(|expected| current.generation != expected)
+                    || !Arc::ptr_eq(&current.publication_gate, &publication_gate)
+                    || !current.close_pending.load(Ordering::SeqCst)
+                    || current.closing.load(Ordering::SeqCst)
+                {
+                    return;
+                }
+                let removed = attachments.remove(pty_id).expect("attachment still present");
+                removed.closing.store(true, Ordering::SeqCst);
+                removed
+            };
+            drop(_publication);
+            removed.control.kill();
+        }
+    }
+
     fn close_exact_authorized(
         &self,
         pty_id: &str,
@@ -1589,22 +1940,26 @@ impl Inner {
         };
         let live_auth = Self::auth_snapshot(context);
         if !self.auth_allows(&live_auth, &current) {
+            current.close_pending.store(false, Ordering::SeqCst);
             drop(_publication);
-            self.emit_error_for_generation(
+            send_pty_error(
                 context,
                 pty_id,
-                attachment.generation,
-                &attachment.publication_gate,
                 "trust_revoked",
                 "PTY close refused after trust change",
             );
             return;
         }
+        current.close_pending.store(true, Ordering::SeqCst);
+        drop(_publication);
+        let _ = current.control_ops.wait_sync_timeout(Some(CONTROL_OPERATION_DRAIN_TIMEOUT));
+        let _publication = gate.lock();
         let removed = {
             let mut attachments = self.attachments.lock().expect("attach lock");
             let Some(current) = attachments.get(pty_id) else { return };
             if current.generation != attachment.generation
                 || !Arc::ptr_eq(&current.publication_gate, &gate)
+                || !current.close_pending.load(Ordering::SeqCst)
                 || current.closing.load(Ordering::SeqCst)
             {
                 return;
@@ -1617,14 +1972,79 @@ impl Inner {
         removed.control.kill();
     }
 
-    fn close_if_generation(&self, pty_id: &str, generation: u64) {
-        let Some(attachment) = self.attachments.lock().expect("attach lock").get(pty_id).cloned()
+    async fn close_exact_authorized_async(
+        &self,
+        pty_id: &str,
+        attachment: &Attachment,
+        context: &FrameContext,
+    ) {
+        let gate = {
+            let attachments = self.attachments.lock().expect("attach lock");
+            let Some(current) = attachments.get(pty_id) else { return };
+            if current.generation != attachment.generation
+                || !Arc::ptr_eq(&current.publication_gate, &attachment.publication_gate)
+            {
+                return;
+            }
+            Arc::clone(&current.publication_gate)
+        };
+        let _publication = gate.lock_async().await;
+        let Some(current) = self.attachments.lock().expect("attach lock").get(pty_id).cloned()
         else {
             return;
         };
-        if attachment.generation == generation {
-            self.close_exact(pty_id, Some(generation), Some(&attachment.publication_gate));
+        if current.generation != attachment.generation
+            || !Arc::ptr_eq(&current.publication_gate, &gate)
+            || current.closing.load(Ordering::SeqCst)
+        {
+            return;
         }
+        current.close_pending.store(true, Ordering::SeqCst);
+        drop(_publication);
+        let _ = tokio::time::timeout(
+            CONTROL_OPERATION_DRAIN_TIMEOUT,
+            attachment.control_ops.wait_async(),
+        )
+        .await;
+        let _publication = gate.lock_async().await;
+        let Some(current) = self.attachments.lock().expect("attach lock").get(pty_id).cloned()
+        else {
+            return;
+        };
+        if current.generation != attachment.generation
+            || !Arc::ptr_eq(&current.publication_gate, &gate)
+            || !current.close_pending.load(Ordering::SeqCst)
+        {
+            return;
+        }
+        let live_auth = Self::auth_snapshot(context);
+        if !self.auth_allows(&live_auth, &current) {
+            current.close_pending.store(false, Ordering::SeqCst);
+            drop(_publication);
+            send_pty_error(
+                context,
+                pty_id,
+                "trust_revoked",
+                "PTY close refused after trust change",
+            );
+            return;
+        }
+        let removed = {
+            let mut attachments = self.attachments.lock().expect("attach lock");
+            let Some(current) = attachments.get(pty_id) else { return };
+            if current.generation != attachment.generation
+                || !Arc::ptr_eq(&current.publication_gate, &gate)
+                || !current.close_pending.load(Ordering::SeqCst)
+                || current.closing.load(Ordering::SeqCst)
+            {
+                return;
+            }
+            let removed = attachments.remove(pty_id).expect("attachment still present");
+            removed.closing.store(true, Ordering::SeqCst);
+            removed
+        };
+        drop(_publication);
+        removed.control.kill();
     }
 
     fn close_exact(
@@ -1657,6 +2077,8 @@ impl Inner {
             attachment.closing.store(true, Ordering::SeqCst);
             attachment
         };
+        let _ = attachment.control_ops.wait_sync_timeout(Some(CONTROL_OPERATION_DRAIN_TIMEOUT));
+        drop(_publication);
         attachment.control.kill();
     }
 }
@@ -1670,7 +2092,7 @@ struct Opened {
     generation: u64,
     publication_gate: Arc<RouteGate>,
     cleanup: Arc<OpenedCleanup>,
-    start: Box<dyn FnOnce() + Send>,
+    start: Box<dyn FnOnce(Box<dyn FnOnce() + Send>) + Send>,
 }
 
 struct OpenedCleanup {
@@ -1681,8 +2103,6 @@ struct OpenedCleanup {
 impl Drop for OpenedCleanup {
     fn drop(&mut self) {
         if !self.claimed.swap(true, Ordering::AcqRel) {
-            // Any open that never reaches publication still owns a live PTY.
-            // Drop is the cancellation-safe fallback for every early return.
             self.control.kill();
         }
     }
@@ -1698,21 +2118,28 @@ impl ControlGuard {
         Self(Some(control))
     }
 
+    fn end(&mut self) {
+        if let Some(control) = self.0.take() {
+            control.end();
+        }
+    }
+
     fn disarm(&mut self) -> Arc<dyn ControlHandle> {
         self.0.take().expect("control guard owns a connection")
     }
 }
 
 async fn request_control_with_cancellation(
-    control: &Arc<dyn ControlHandle>,
+    control_guard: &mut ControlGuard,
     cmd: &str,
     params: Value,
     cancellation: &CancellationToken,
 ) -> Option<Value> {
+    let control = control_guard.0.as_ref()?.clone();
     tokio::select! {
         response = control.request(cmd, params) => response,
         _ = cancellation.cancelled() => {
-            control.end();
+            control_guard.end();
             None
         }
     }
@@ -1720,9 +2147,7 @@ async fn request_control_with_cancellation(
 
 impl Drop for ControlGuard {
     fn drop(&mut self) {
-        if let Some(control) = self.0.take() {
-            control.end();
-        }
+        self.end();
     }
 }
 
@@ -1739,9 +2164,18 @@ fn drive_handle(
     on_exit: ExitSink,
 ) {
     if let Some(banner) = banner {
-        on_data(Bytes::from(banner));
+        emit_bounded_bytes(&on_data, Bytes::from(banner));
     }
     output.subscribe(on_data, on_exit);
+}
+
+fn emit_bounded_bytes(on_data: &DataSink, bytes: Bytes) {
+    let mut offset = 0;
+    while offset < bytes.len() {
+        let end = (offset + MAX_OUTPUT_CHUNK_BYTES).min(bytes.len());
+        on_data(bytes.slice(offset..end));
+        offset = end;
+    }
 }
 
 impl Inner {
@@ -1770,59 +2204,71 @@ impl Inner {
                 .connect_control(&ensured.socket_path)
                 .await
                 .map_err(|_| "cannot inspect existing daemon cwd".to_owned())?;
-            let _control_guard = ControlGuard::new(Arc::clone(&control));
-            let Some(listed) = control.request("list-workspaces", json!({})).await else {
-                control.end();
+            let mut control_guard = ControlGuard::new(Arc::clone(&control));
+            let Some(listed) = request_control_with_cancellation(
+                &mut control_guard,
+                "list-workspaces",
+                json!({}),
+                &context.cancellation,
+            )
+            .await
+            else {
+                control_guard.end();
                 return Err("cannot inspect existing daemon surfaces".to_owned());
             };
             if listed.get("ok").and_then(Value::as_bool) != Some(true) {
-                control.end();
+                control_guard.end();
                 return Err("cannot inspect existing daemon surfaces".to_owned());
             }
             let Some(data) = listed.get("data").and_then(Value::as_object) else {
-                control.end();
+                control_guard.end();
                 return Err("cannot inspect existing daemon surfaces".to_owned());
             };
             if !data.get("workspaces").is_some_and(Value::is_array) {
-                control.end();
+                control_guard.end();
                 return Err("cannot inspect existing daemon surfaces".to_owned());
             }
             if !workspace_shape_valid(listed.get("data")) {
-                control.end();
+                control_guard.end();
                 return Err("cannot inspect existing daemon surfaces".to_owned());
             }
             let tabs = match collect_pty_tabs_strict(listed.get("data")) {
                 Ok(tabs) => tabs,
                 Err(_) => {
-                    control.end();
+                    control_guard.end();
                     return Err("cannot inspect existing daemon surfaces".to_owned());
                 }
             };
             if tabs.len() > MAX_ENUM_TERMINALS || (tabs.is_empty() && !ensured.created) {
-                control.end();
+                control_guard.end();
                 return Err("cannot prove existing daemon cwd is within allowed roots".to_owned());
             }
             for tab in tabs {
-                let Some(info) =
-                    control.request("process-info", json!({ "surface": tab.surface_id })).await
+                let Some(info) = request_control_with_cancellation(
+                    &mut control_guard,
+                    "process-info",
+                    json!({ "surface": tab.surface_id }),
+                    &context.cancellation,
+                )
+                .await
                 else {
-                    control.end();
+                    control_guard.end();
                     return Err("cannot inspect existing surface cwd".to_owned());
                 };
                 if info.get("ok").and_then(Value::as_bool) != Some(true) {
-                    control.end();
+                    control_guard.end();
                     return Err("cannot inspect existing surface cwd".to_owned());
                 }
                 let Some(actual) =
                     info.get("data").and_then(|v| v.get("cwd")).and_then(Value::as_str)
                 else {
-                    control.end();
+                    control_guard.end();
                     return Err(
                         "cannot prove existing surface cwd is within allowed roots".to_owned()
                     );
                 };
                 if actual.is_empty() || !Path::new(actual).is_absolute() {
-                    control.end();
+                    control_guard.end();
                     return Err(
                         "cannot prove existing surface cwd is within allowed roots".to_owned()
                     );
@@ -1835,11 +2281,11 @@ impl Inner {
                 )
                 .is_err()
                 {
-                    control.end();
+                    control_guard.end();
                     return Err("existing surface cwd is outside allowed roots".to_owned());
                 }
             }
-            control.end();
+            control_guard.end();
         }
         let mut args = cmux_tui.prefix.clone();
         args.extend([
@@ -1878,7 +2324,10 @@ impl Inner {
                 control: Arc::clone(&control),
                 claimed: AtomicBool::new(false),
             }),
-            start: Box::new(move || drive_handle(output, banner, on_data, on_exit)),
+            start: Box::new(move |ready| {
+                ready();
+                drive_handle(output, banner, on_data, on_exit);
+            }),
         })
     }
 
@@ -2031,20 +2480,36 @@ impl Inner {
         });
 
         let start_session = Arc::clone(&shell_session);
-        let start: Box<dyn FnOnce() + Send> = Box::new(move || {
+        let start_gate = Arc::clone(&publication_gate);
+        let start: Box<dyn FnOnce(Box<dyn FnOnce() + Send>) + Send> = Box::new(move |ready| {
+            let _publication = start_gate.lock();
             let (banner, replay, alive) = {
-                let inner = start_session.inner.lock().expect("shell inner lock");
+                let mut inner = start_session.inner.lock().expect("shell inner lock");
                 let banner = created.then(|| start_session.banner.clone()).flatten();
-                let replay = (!created && inner.ring_size > 0).then(|| {
-                    inner.ring.iter().flat_map(|c| c.iter().copied()).collect::<Vec<u8>>()
-                });
+                // Clone the retained chunks, not their bytes. `Bytes` clones
+                // share the backing storage, so a large scrollback replay
+                // does not allocate one contiguous buffer before framing.
+                let replay = (!created && inner.ring_size > 0)
+                    .then(|| inner.ring.iter().cloned().collect::<Vec<Bytes>>());
+                if inner.alive && !released.load(Ordering::SeqCst) {
+                    inner.viewers.push(ViewerSink {
+                        id: viewer_id,
+                        on_data: Arc::clone(&on_data),
+                        on_exit: Arc::clone(&on_exit),
+                    });
+                }
                 (banner, replay, inner.alive)
             };
+            // The viewer is installed while the publication gate is held.
+            // Subsequent PTY output therefore waits behind replay callbacks.
+            ready();
             if let Some(banner) = banner {
-                on_data(Bytes::from(banner));
+                emit_bounded_bytes(&on_data, Bytes::from(banner));
             }
             if let Some(replay) = replay {
-                on_data(Bytes::from(replay));
+                for chunk in replay {
+                    emit_bounded_bytes(&on_data, chunk);
+                }
             }
             if released.load(Ordering::SeqCst) {
                 return;
@@ -2052,10 +2517,6 @@ impl Inner {
             if !alive {
                 on_exit(0);
                 return;
-            }
-            let mut inner = start_session.inner.lock().expect("shell inner lock");
-            if !released.load(Ordering::SeqCst) && inner.alive {
-                inner.viewers.push(ViewerSink { id: viewer_id, on_data, on_exit });
             }
         });
 
@@ -2256,6 +2717,15 @@ impl TerminalStream {
         on_data: Arc<dyn Fn(Bytes) + Send + Sync>,
         on_exit: Arc<dyn Fn(i64) + Send + Sync>,
     ) {
+        self.go_live_with_ready(on_data, on_exit, || {});
+    }
+
+    fn go_live_with_ready(
+        &self,
+        on_data: Arc<dyn Fn(Bytes) + Send + Sync>,
+        on_exit: Arc<dyn Fn(i64) + Send + Sync>,
+        ready: impl FnOnce(),
+    ) {
         let should_drain = {
             let mut state = self.state.lock().expect("terminal stream lock");
             state.live_data = Some(Arc::clone(&on_data));
@@ -2263,6 +2733,7 @@ impl TerminalStream {
             state.backlog_bytes = 0;
             Self::start_delivery(&mut state)
         };
+        ready();
         if should_drain {
             self.drain();
         }
@@ -2475,7 +2946,13 @@ impl Inner {
         };
         let mut control_guard = ControlGuard::new(Arc::clone(&control));
 
-        let identify = control.request("identify", json!({})).await;
+        let identify = request_control_with_cancellation(
+            &mut control_guard,
+            "identify",
+            json!({}),
+            &context.cancellation,
+        )
+        .await;
         let info = identify.as_ref().filter(|v| v.get("ok").and_then(Value::as_bool) == Some(true));
         let protocol = info
             .and_then(|v| v.get("data"))
@@ -2483,7 +2960,7 @@ impl Inner {
             .and_then(Value::as_i64)
             .unwrap_or(0);
         if protocol < CONTROL_MIN_PROTOCOL {
-            control.end();
+            control_guard.end();
             return Ok(None);
         }
         let capabilities: Vec<String> = info
@@ -2501,7 +2978,13 @@ impl Inner {
             None
         };
         if surface_id.is_none() {
-            let listed = control.request("list-workspaces", json!({})).await;
+            let listed = request_control_with_cancellation(
+                &mut control_guard,
+                "list-workspaces",
+                json!({}),
+                &context.cancellation,
+            )
+            .await;
             let tabs = listed
                 .as_ref()
                 .filter(|v| v.get("ok").and_then(Value::as_bool) == Some(true))
@@ -2513,7 +2996,7 @@ impl Inner {
                 .map(|tab| tab.surface_id);
         }
         let Some(surface_id) = surface_id else {
-            control.end();
+            control_guard.end();
             // Typed refusal: the terminal died with its process (or its tab
             // closed) — permanent, so clients render an ended state and
             // never offer a retry.
@@ -2528,7 +3011,13 @@ impl Inner {
         let roots_scoped = context.local_roots.as_deref().is_some_and(|r| !r.is_empty())
             || server_roots.is_some_and(|r| !r.is_empty());
         if roots_scoped {
-            let info = control.request("process-info", json!({ "surface": surface_id })).await;
+            let info = request_control_with_cancellation(
+                &mut control_guard,
+                "process-info",
+                json!({ "surface": surface_id }),
+                &context.cancellation,
+            )
+            .await;
             let actual = info
                 .as_ref()
                 .filter(|v| v.get("ok").and_then(Value::as_bool) == Some(true))
@@ -2536,14 +3025,14 @@ impl Inner {
                 .and_then(|v| v.get("cwd"))
                 .and_then(Value::as_str);
             if actual.is_none_or(|value| value.is_empty() || !Path::new(value).is_absolute()) {
-                control.end();
+                control_guard.end();
                 return Err((
                     RelayPtyErrorCode::Failed,
                     "cannot prove existing surface cwd is within allowed roots".to_owned(),
                 ));
             }
             let Some(actual) = actual else {
-                control.end();
+                control_guard.end();
                 return Err((
                     RelayPtyErrorCode::Failed,
                     "cannot prove existing surface cwd is within allowed roots".to_owned(),
@@ -2552,7 +3041,7 @@ impl Inner {
             if scoped_cwd(Some(actual), &self.home, context.local_roots.as_deref(), server_roots)
                 .is_err()
             {
-                control.end();
+                control_guard.end();
                 return Err((
                     RelayPtyErrorCode::Failed,
                     "existing surface cwd is outside allowed roots".to_owned(),
@@ -2592,14 +3081,14 @@ impl Inner {
             json!({ "surface": surface_id })
         };
         let attached = request_control_with_cancellation(
-            &control,
+            &mut control_guard,
             "attach-surface",
             attach_params,
             &context.cancellation,
         )
         .await;
         if attached.as_ref().and_then(|v| v.get("ok")).and_then(Value::as_bool) != Some(true) {
-            control.end();
+            control_guard.end();
             let reason = attached
                 .as_ref()
                 .and_then(|v| v.get("error"))
@@ -2652,7 +3141,7 @@ impl Inner {
                 control: Arc::clone(&proxy),
                 claimed: AtomicBool::new(false),
             }),
-            start: Box::new(move || start_stream.go_live(on_data, on_exit)),
+            start: Box::new(move |ready| start_stream.go_live_with_ready(on_data, on_exit, ready)),
         }))
     }
 
@@ -3042,6 +3531,20 @@ mod tests {
         ensure_socket_path: Option<PathBuf>,
         control: Option<Arc<dyn ControlHandle>>,
     ) -> Harness {
+        harness_with_control_and_max_ptys(resolve, read_dir, ensure_socket_path, control, MAX_PTYS)
+    }
+
+    fn harness_with_max_ptys(max_ptys: usize) -> Harness {
+        harness_with_control_and_max_ptys(None, None, None, None, max_ptys)
+    }
+
+    fn harness_with_control_and_max_ptys(
+        resolve: Option<CmuxTui>,
+        read_dir: Option<Vec<String>>,
+        ensure_socket_path: Option<PathBuf>,
+        control: Option<Arc<dyn ControlHandle>>,
+        max_ptys: usize,
+    ) -> Harness {
         let home = TestDirectory::new("harness");
         let home_path = home.path.clone();
         let env = env_map(&home_path);
@@ -3060,7 +3563,7 @@ mod tests {
             deps,
             home_path.clone(),
             env,
-            MAX_PTYS,
+            max_ptys,
             SCROLLBACK_LIMIT,
             OUTPUT_BUFFER_CAP,
         );
@@ -3627,6 +4130,59 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn large_scrollback_replay_is_split_into_bounded_frames() {
+        let home = TestDirectory::new("large-scrollback");
+        let home_path = home.path.clone();
+        let env = env_map(&home_path);
+        let recorded = Arc::new(StdMutex::new(Recorded::default()));
+        let deps = Arc::new(FakeDeps {
+            env: env.clone(),
+            recorded: Arc::clone(&recorded),
+            resolve: None,
+            socket_dir: PathBuf::from("/run/cmux-tui-501"),
+            read_dir: None,
+            ensure_socket_path: None,
+            control: None,
+        });
+        let manager = PtyManager::with_limits(
+            deps,
+            home_path.clone(),
+            env,
+            MAX_PTYS,
+            MAX_OUTPUT_CHUNK_BYTES * 2 + 5,
+            OUTPUT_BUFFER_CAP,
+        );
+        let h = Harness {
+            manager,
+            recorded,
+            sent: Arc::new(StdMutex::new(Vec::new())),
+            buffered: Arc::new(AtomicU64::new(0)),
+            owner: Some("user_owner".to_owned()),
+            home: home_path,
+            _home: home,
+        };
+        h.open("p1", "main", Value::Null, "supervised", h.owner.clone()).await;
+        let pty = h.spawned()[0].clone();
+        h.frame(serde_json::json!({ "type": "pty_close", "ptyId": "p1" })).await;
+        pty.emit(&"x".repeat(MAX_OUTPUT_CHUNK_BYTES * 2 + 5));
+        let before = h.sent().len();
+        h.open("p2", "main", Value::Null, "supervised", h.owner.clone()).await;
+        let frames: Vec<Value> = h.sent()[before..]
+            .iter()
+            .filter(|frame| frame["type"] == "pty_output")
+            .cloned()
+            .collect();
+        assert!(frames.len() >= 2);
+        assert!(frames.iter().all(|frame| {
+            BASE64
+                .decode(frame["dataB64"].as_str().unwrap_or_default())
+                .map(|bytes| bytes.len() <= MAX_OUTPUT_CHUNK_BYTES)
+                .unwrap_or(false)
+        }));
+        assert!(!h.sent().iter().any(|frame| frame["code"] == "failed"));
+    }
+
+    #[tokio::test]
     async fn second_open_adds_a_viewer_output_fans_out_to_both() {
         let h = harness(None, None);
         h.open("p1", "main", Value::Null, "supervised", h.owner.clone()).await;
@@ -3765,6 +4321,44 @@ mod tests {
         fn end(&self) {}
     }
 
+    struct HangingControl {
+        ended: Arc<AtomicUsize>,
+    }
+
+    impl ControlHandle for HangingControl {
+        fn request(
+            &self,
+            _cmd: &str,
+            _params: Value,
+        ) -> std::pin::Pin<Box<dyn Future<Output = Option<Value>> + Send + '_>> {
+            Box::pin(std::future::pending())
+        }
+        fn send(&self, _cmd: &str, _params: Value) {}
+        fn on_event(&self, _handler: EventHandler) {}
+        fn on_close(&self, _handler: CloseHandler) {}
+        fn pause(&self) {}
+        fn resume(&self) {}
+        fn end(&self) {
+            self.ended.fetch_add(1, Ordering::SeqCst);
+        }
+    }
+
+    #[tokio::test]
+    async fn cancelled_control_request_ends_guard_once() {
+        let ended = Arc::new(AtomicUsize::new(0));
+        let control: Arc<dyn ControlHandle> =
+            Arc::new(HangingControl { ended: Arc::clone(&ended) });
+        let mut guard = ControlGuard::new(control);
+        let cancellation = CancellationToken::new();
+        cancellation.cancel();
+        assert!(
+            request_control_with_cancellation(&mut guard, "identify", Value::Null, &cancellation)
+                .await
+                .is_none()
+        );
+        assert_eq!(ended.load(Ordering::SeqCst), 1);
+    }
+
     #[tokio::test]
     async fn missing_surface_refuses_with_typed_terminal_gone() {
         let cmux = CmuxTui { file: "/opt/cmux-tui".to_owned(), prefix: Vec::new() };
@@ -3864,6 +4458,12 @@ mod tests {
         let close = serde_json::json!({ "version": 4, "type": "pty_close", "ptyId": "p1" });
         h.manager.handle_frame(&close, &denied).await;
         assert!(h.manager.has_attachment("p1"));
+        assert!(!h.spawned()[0].state.lock().unwrap().killed);
+        assert!(
+            h.sent()
+                .iter()
+                .any(|frame| { frame["type"] == "pty_error" && frame["code"] == "trust_revoked" })
+        );
     }
 
     #[tokio::test]
@@ -4061,10 +4661,12 @@ mod tests {
         let manager = PtyManager { inner: Arc::clone(&h.manager.inner) };
         let replacement_for_task = replacement.clone();
         let frame_for_replacement = frame.clone();
+        let (started, started_rx) = tokio::sync::oneshot::channel();
         let replacement_task = tokio::spawn(async move {
+            let _ = started.send(());
             manager.handle_frame(&frame_for_replacement, &replacement_for_task).await;
         });
-        tokio::task::yield_now().await;
+        started_rx.await.expect("replacement task started");
         assert!(
             !replacement_task.is_finished(),
             "same-ID replacement must wait for the closing publication"
@@ -4077,6 +4679,45 @@ mod tests {
         exit.join().expect("exit callback");
         replacement_task.await.expect("replacement open");
         h.manager.handle_frame(&frame, &replacement).await;
+        assert!(h.sent().iter().any(|frame| {
+            frame["type"] == "pty_opened" && frame["ptyId"] == "p1" && frame["created"] == false
+        }));
+    }
+
+    #[tokio::test]
+    async fn closing_attachment_counts_toward_capacity_until_publication_returns() {
+        let h = harness_with_max_ptys(1);
+        let entered = TestArc::new(Barrier::new(2));
+        let release = TestArc::new(Barrier::new(2));
+        let context =
+            blocking_terminal_context(&h, TestArc::clone(&entered), TestArc::clone(&release));
+        let frame = serde_json::json!({
+            "version": 4,
+            "type": "pty_open",
+            "ptyId": "p1",
+            "session": "main",
+            "cols": 80,
+            "rows": 24,
+            "actorId": "user_owner",
+        });
+        h.manager.handle_frame(&frame, &context).await;
+        let pty = h.spawned()[0].clone();
+        let exit = thread::spawn(move || pty.exit(7));
+        entered.wait();
+
+        let replacement = h.context("supervised", h.owner.clone());
+        h.manager.handle_frame(&frame, &replacement).await;
+        assert_eq!(h.manager.attachment_count(), 1);
+        assert!(
+            h.sent()
+                .iter()
+                .any(|frame| { frame["type"] == "pty_error" && frame["code"] == "session_limit" })
+        );
+
+        release.wait();
+        exit.join().expect("exit callback");
+        h.manager.handle_frame(&frame, &replacement).await;
+        assert_eq!(h.manager.attachment_count(), 1);
         assert!(h.sent().iter().any(|frame| {
             frame["type"] == "pty_opened" && frame["ptyId"] == "p1" && frame["created"] == false
         }));
@@ -4105,13 +4746,23 @@ mod tests {
         entered.wait();
 
         let replacement = h.context("supervised", h.owner.clone());
-        h.manager.handle_frame(&frame, &replacement).await;
+        let manager = PtyManager { inner: Arc::clone(&h.manager.inner) };
+        let replacement_for_task = replacement.clone();
+        let frame_for_replacement = frame.clone();
+        let (started, started_rx) = tokio::sync::oneshot::channel();
+        let replacement_task = tokio::spawn(async move {
+            let _ = started.send(());
+            manager.handle_frame(&frame_for_replacement, &replacement_for_task).await;
+        });
+        started_rx.await.expect("replacement task started");
+        assert!(!replacement_task.is_finished());
         assert!(!h.sent().iter().any(|frame| {
             frame["type"] == "pty_opened" && frame["ptyId"] == "p1" && frame["created"] == false
         }));
 
         release.wait();
         output.join().expect("output callback");
+        replacement_task.await.expect("replacement open");
         h.buffered.store(0, Ordering::SeqCst);
         h.manager.handle_frame(&frame, &replacement).await;
         assert!(h.sent().iter().any(|frame| {
@@ -4142,7 +4793,13 @@ mod tests {
 
         let close_context = h.context("supervised", h.owner.clone());
         let manager = h.manager.inner.clone();
-        let close = thread::spawn(move || manager.close_authorized("p1", &close_context));
+        let started = TestArc::new(Barrier::new(2));
+        let close_started = TestArc::clone(&started);
+        let close = thread::spawn(move || {
+            close_started.wait();
+            manager.close_authorized("p1", &close_context);
+        });
+        started.wait();
         assert!(!close.is_finished(), "close must wait for the publication gate");
 
         release.wait();
@@ -4265,9 +4922,13 @@ mod tests {
 
         let close_context = h.context("supervised", h.owner.clone());
         let manager = PtyManager { inner: Arc::clone(&h.manager.inner) };
+        let close_started = TestArc::new(Barrier::new(2));
+        let close_started_in_thread = TestArc::clone(&close_started);
         let close = thread::spawn(move || {
+            close_started_in_thread.wait();
             manager.inner.close_authorized("p1", &close_context);
         });
+        close_started.wait();
         assert!(!close.is_finished(), "close must wait for the in-flight control operation");
 
         h.manager.handle_frame(&frame, &h.context("supervised", h.owner.clone())).await;
@@ -4281,6 +4942,189 @@ mod tests {
         h.manager.handle_frame(&frame, &h.context("supervised", h.owner.clone())).await;
         assert!(h.sent().iter().any(|frame| {
             frame["type"] == "pty_opened" && frame["ptyId"] == "p1" && frame["created"] == false
+        }));
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn async_close_waits_for_control_operation_across_workers() {
+        let h = harness(None, None);
+        let frame = serde_json::json!({
+            "version": 4,
+            "type": "pty_open",
+            "ptyId": "p1",
+            "session": "main",
+            "cols": 80,
+            "rows": 24,
+            "actorId": "user_owner",
+        });
+        h.manager.handle_frame(&frame, &h.context("supervised", h.owner.clone())).await;
+        let pty = h.spawned()[0].clone();
+        let entered = TestArc::new(Barrier::new(2));
+        let release = TestArc::new(Barrier::new(2));
+        {
+            let mut state = pty.state.lock().unwrap();
+            state.write_entered = Some(TestArc::clone(&entered));
+            state.write_release = Some(TestArc::clone(&release));
+        }
+        let input = serde_json::json!({
+            "version": 4,
+            "type": "pty_input",
+            "ptyId": "p1",
+            "dataB64": b64("held"),
+        });
+        let input_task = tokio::spawn({
+            let manager = h.manager.clone();
+            let context = h.context("supervised", h.owner.clone());
+            async move { manager.handle_frame(&input, &context).await }
+        });
+        entered.wait();
+        let (started, started_rx) = tokio::sync::oneshot::channel();
+        let close_task = tokio::spawn({
+            let manager = h.manager.clone();
+            let context = h.context("supervised", h.owner.clone());
+            let started = started;
+            async move {
+                let _ = started.send(());
+                manager
+                    .handle_frame(
+                        &serde_json::json!({ "type": "pty_close", "ptyId": "p1" }),
+                        &context,
+                    )
+                    .await;
+            }
+        });
+        started_rx.await.expect("close task started");
+        assert!(!close_task.is_finished(), "close waits for the in-flight control operation");
+        release.wait();
+        input_task.await.expect("input operation");
+        close_task.await.expect("close operation");
+        assert!(!h.manager.has_attachment("p1"));
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn async_route_gate_wait_does_not_block_unrelated_tasks() {
+        let gate = Arc::new(RouteGate::new());
+        let (entered_tx, entered_rx) = std::sync::mpsc::channel();
+        let (release_tx, release_rx) = std::sync::mpsc::channel();
+        let held_gate = Arc::clone(&gate);
+        let owner = thread::spawn(move || {
+            let _guard = held_gate.lock();
+            entered_tx.send(()).expect("gate owner entered");
+            release_rx.recv().expect("gate owner released");
+        });
+        entered_rx.recv().expect("gate owner entered");
+
+        let waiter_gate = Arc::clone(&gate);
+        let waiter = tokio::spawn(async move {
+            let _guard = waiter_gate.lock_async().await;
+        });
+        let tick = tokio::spawn(async { 17_u8 });
+        assert_eq!(tick.await.expect("unrelated task"), 17);
+        release_tx.send(()).expect("release gate owner");
+        waiter.await.expect("async gate waiter");
+        owner.join().expect("gate owner");
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn async_transport_detach_does_not_block_unrelated_tasks() {
+        let h = harness(None, None);
+        let entered = TestArc::new(Barrier::new(2));
+        let release = TestArc::new(Barrier::new(2));
+        let mut context =
+            blocking_terminal_context(&h, TestArc::clone(&entered), TestArc::clone(&release));
+        context.transport_id = Some("transport-a".to_owned());
+        let frame = serde_json::json!({
+            "version": 4,
+            "type": "pty_open",
+            "ptyId": "p1",
+            "session": "main",
+            "cols": 80,
+            "rows": 24,
+            "actorId": "user_owner",
+        });
+        h.manager.handle_frame(&frame, &context).await;
+        let pty = h.spawned()[0].clone();
+        let output = thread::spawn(move || pty.emit("live"));
+        entered.wait();
+
+        let manager = h.manager.clone();
+        let (started, started_rx) = tokio::sync::oneshot::channel();
+        let detach = tokio::spawn(async move {
+            let _ = started.send(());
+            manager.detach_transport_async("transport-a").await;
+        });
+        started_rx.await.expect("detach task started");
+        assert!(!detach.is_finished(), "detach must wait for the publication gate");
+
+        let tick = tokio::spawn(async { 17_u8 });
+        assert_eq!(tick.await.expect("unrelated task"), 17);
+
+        release.wait();
+        output.join().expect("output callback");
+        detach.await.expect("transport detach");
+        assert!(!h.manager.has_attachment("p1"));
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn long_lived_start_does_not_block_close_or_subsequent_frames() {
+        let h = harness(None, None);
+        let frame = serde_json::json!({
+            "version": 4,
+            "type": "pty_open",
+            "ptyId": "p1",
+            "session": "main",
+            "cols": 80,
+            "rows": 24,
+            "actorId": "user_owner",
+        });
+        h.manager.handle_frame(&frame, &h.context("supervised", h.owner.clone())).await;
+        let shell = h.spawned()[0].clone();
+        shell.emit("replay");
+        h.manager
+            .handle_frame(
+                &serde_json::json!({ "type": "pty_close", "ptyId": "p1" }),
+                &h.context("supervised", h.owner.clone()),
+            )
+            .await;
+
+        let entered = TestArc::new(Barrier::new(2));
+        let release = TestArc::new(Barrier::new(2));
+        let context =
+            blocking_terminal_context(&h, TestArc::clone(&entered), TestArc::clone(&release));
+        let open = tokio::spawn({
+            let manager = h.manager.clone();
+            let context = context.clone();
+            let frame = frame.clone();
+            async move { manager.handle_frame(&frame, &context).await }
+        });
+        open.await.expect("replacement open");
+        entered.wait();
+        let output_during_start = thread::spawn(move || shell.emit("during-start"));
+
+        let (started, started_rx) = tokio::sync::oneshot::channel();
+        let close = tokio::spawn({
+            let manager = h.manager.clone();
+            let context = h.context("supervised", h.owner.clone());
+            async move {
+                let _ = started.send(());
+                manager
+                    .handle_frame(
+                        &serde_json::json!({ "type": "pty_close", "ptyId": "p1" }),
+                        &context,
+                    )
+                    .await;
+            }
+        });
+        started_rx.await.expect("close task started");
+        assert!(!close.is_finished(), "close must wait for the replay callback");
+
+        release.wait();
+        output_during_start.join().expect("output during start");
+        close.await.expect("close after replay");
+        assert!(!h.manager.has_attachment("p1"));
+        assert!(h.sent().iter().any(|frame| {
+            frame["type"] == "pty_output"
+                && from_b64(frame["dataB64"].as_str().unwrap_or_default()) == "during-start"
         }));
     }
 }
