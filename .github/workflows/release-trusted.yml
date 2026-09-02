@@ -46,7 +46,7 @@ jobs:
           script: |
             const { owner, repo } = context.repo;
             const shaPattern = /^[0-9a-f]{40}$/;
-            const tagPattern = /^v\d+\.\d+\.\d+(?:-[0-9A-Za-z][0-9A-Za-z.-]*)?(?:\+[0-9A-Za-z][0-9A-Za-z.-]*)?$/;
+            const tagPattern = /^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(?:-([0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*))?(?:\+([0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*))?$/;
             const fail = (message) => {
               core.setFailed(message);
               throw new Error(message);
@@ -151,7 +151,9 @@ jobs:
             requireText('Observer run conclusion', run.conclusion, 'success');
             if (run.id !== runId || eventRun.id !== runId) fail('workflow_run identity changed while reading the API');
             requireText('Observer source branch', run.head_branch, eventRun.head_branch);
-            if (!tagPattern.test(run.head_branch || '')) fail(`Release source is not a semantic version tag: ${run.head_branch}`);
+            const tagMatch = tagPattern.exec(run.head_branch || '');
+            if (!tagMatch) fail(`Release source is not a semantic version tag: ${run.head_branch}`);
+            const isPrerelease = Boolean(tagMatch[4]);
             requireSha('Observer source SHA', run.head_sha);
             requireText('Observer source SHA', run.head_sha, eventRun.head_sha);
             const tagName = run.head_branch;
@@ -217,7 +219,7 @@ jobs:
 
             core.setOutput('source_sha', run.head_sha);
             core.setOutput('tag_name', tagName);
-            core.setOutput('is_prerelease', String(tagName.includes('-')));
+            core.setOutput('is_prerelease', String(isPrerelease));
             core.setOutput('observer_run_id', String(runId));
             core.notice(`Validated protected-main release source ${run.head_sha} for ${tagName}`);
 
@@ -326,6 +328,7 @@ jobs:
       id-token: write
     env:
       RELEASE_TAG: ${{ needs.validate-source.outputs.tag_name }}
+      IS_PRERELEASE: ${{ needs.validate-source.outputs.is_prerelease }}
     # Build the app on macOS 26 so SDK-gated SwiftUI Liquid Glass code compiles
     # into stable releases. The real universal Ghostty CLI helper is built on
     # macOS 15 above because Zig 0.15.2 cannot link it on macOS 26.
@@ -564,6 +567,7 @@ jobs:
           APPLE_CERTIFICATE_BASE64: ${{ secrets.APPLE_CERTIFICATE_BASE64 }}
           APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
         run: |
+          set -euo pipefail
           if [ -z "$APPLE_CERTIFICATE_BASE64" ]; then
             echo "Missing APPLE_CERTIFICATE_BASE64 secret" >&2
             exit 1
@@ -572,13 +576,38 @@ jobs:
             echo "Missing APPLE_CERTIFICATE_PASSWORD secret" >&2
             exit 1
           fi
+          umask 077
+          runner_temp="${RUNNER_TEMP:?RUNNER_TEMP is required}"
+          [[ -d "$runner_temp" && ! -L "$runner_temp" ]] || {
+            echo "RUNNER_TEMP must be a real directory" >&2
+            exit 1
+          }
+          cert_path="$(mktemp "$runner_temp/cmux-signing-cert.XXXXXX")"
+          [[ -f "$cert_path" && ! -L "$cert_path" ]] || {
+            echo "mktemp did not create a regular certificate file" >&2
+            exit 1
+          }
+          trap 'rm -f -- "$cert_path"' EXIT
+          keychain_list_backup="$(mktemp "$runner_temp/cmux-keychain-list.XXXXXX")"
+          [[ -f "$keychain_list_backup" && ! -L "$keychain_list_backup" ]] || {
+            echo "mktemp did not create a regular keychain-list file" >&2
+            exit 1
+          }
+          # Publish the path before any command that can fail. The always-run
+          # cleanup step then has enough state to restore the search list.
+          echo "CMUX_KEYCHAIN_LIST_BACKUP=$keychain_list_backup" >> "$GITHUB_ENV"
+          # Keep this backup until the final cleanup step restores the user's
+          # search list. It contains paths only, never key material.
+          security list-keychains -d user > "$keychain_list_backup"
           KEYCHAIN_PASSWORD="$(uuidgen)"
-          echo "$APPLE_CERTIFICATE_BASE64" | base64 --decode > /tmp/cert.p12
+          printf '%s' "$APPLE_CERTIFICATE_BASE64" | base64 --decode > "$cert_path"
+          chmod 600 "$cert_path"
           security delete-keychain build.keychain >/dev/null 2>&1 || true
           security create-keychain -p "$KEYCHAIN_PASSWORD" build.keychain
+          echo "CMUX_KEYCHAIN_CREATED=true" >> "$GITHUB_ENV"
           security set-keychain-settings -lut 21600 build.keychain
           security unlock-keychain -p "$KEYCHAIN_PASSWORD" build.keychain
-          security import /tmp/cert.p12 -k build.keychain -P "$APPLE_CERTIFICATE_PASSWORD" -T /usr/bin/codesign -T /usr/bin/security
+          security import "$cert_path" -k build.keychain -P "$APPLE_CERTIFICATE_PASSWORD" -T /usr/bin/codesign -T /usr/bin/security
           ./scripts/import-apple-developer-id-intermediates.sh build.keychain
           security set-key-partition-list -S apple-tool:,apple: -s -k "$KEYCHAIN_PASSWORD" build.keychain
           security list-keychains -d user -s build.keychain
@@ -856,7 +885,7 @@ jobs:
             const tag = process.env.RELEASE_TAG;
             const expectedSha = process.env.EXPECTED_SHA;
             const shaPattern = /^[0-9a-f]{40}$/;
-            if (!/^v\d+\.\d+\.\d+(?:-[0-9A-Za-z][0-9A-Za-z.-]*)?(?:\+[0-9A-Za-z][0-9A-Za-z.-]*)?$/.test(tag || '')) {
+            if (!/^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(?:-([0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*))?(?:\+([0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*))?$/.test(tag || '')) {
               core.setFailed(`Invalid validated release tag: ${tag}`);
               return;
             }
@@ -930,9 +959,12 @@ jobs:
 
           # Prerelease artifacts must never replace the stable appcast. The
           # GitHub release still receives the signed prerelease assets above.
-          if [[ "$RELEASE_TAG" == *-* ]]; then
+          if [[ "${IS_PRERELEASE:-}" == true ]]; then
             echo "Skipping R2 stable upload for prerelease $RELEASE_TAG"
             exit 0
+          elif [[ "${IS_PRERELEASE:-}" != false ]]; then
+            echo "Refusing R2 stable upload: missing or invalid prerelease classification" >&2
+            exit 1
           fi
 
           # Guard: only upload if this tag is the highest stable SemVer
@@ -992,6 +1024,37 @@ jobs:
 
       - name: Cleanup keychain
         if: always()
+        shell: bash
         run: |
-          security delete-keychain build.keychain >/dev/null 2>&1 || true
-          rm -f /tmp/cert.p12
+          set +e
+          restore_status=0
+          backup="${CMUX_KEYCHAIN_LIST_BACKUP:-}"
+          keychain_created="${CMUX_KEYCHAIN_CREATED:-false}"
+          if [[ "$keychain_created" == true ]]; then
+            security delete-keychain build.keychain >/dev/null 2>&1 || true
+          fi
+          if [[ -n "$backup" && -f "$backup" && ! -L "$backup" ]]; then
+            keychains=()
+            while IFS= read -r entry; do
+              # `security list-keychains` prints one quoted path per line.
+              entry="${entry#\"}"
+              entry="${entry%\"}"
+              entry="${entry#"${entry%%[![:space:]]*}"}"
+              entry="${entry%"${entry##*[![:space:]]}"}"
+              [[ -n "$entry" ]] && keychains+=("$entry")
+            done < "$backup"
+            if ((${#keychains[@]} > 0)); then
+              security list-keychains -d user -s "${keychains[@]}" || restore_status=$?
+            else
+              echo "No previous keychain search list was captured" >&2
+              restore_status=1
+            fi
+            rm -f -- "$backup" || restore_status=$?
+          elif [[ -n "$backup" || "$keychain_created" == true ]]; then
+            echo "Cannot restore keychain search list: backup path is missing or not a regular file" >&2
+            restore_status=1
+          fi
+          if ((restore_status != 0)); then
+            echo "Failed to restore the keychain search list" >&2
+            exit "$restore_status"
+          fi
