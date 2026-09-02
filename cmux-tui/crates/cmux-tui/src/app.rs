@@ -10192,9 +10192,9 @@ impl App {
         self.focus == FocusTarget::ProjectionRail(index)
     }
 
-    pub(crate) fn projection_rows(&mut self, index: usize) -> Vec<ProjectionRow> {
+    pub(crate) fn projection_rows(&mut self, index: usize) -> Arc<[ProjectionRow]> {
         let Some(spec) = self.config.sidebar.views.get(index).cloned() else {
-            return Vec::new();
+            return Arc::from([]);
         };
         let empty_collapsed = HashSet::new();
         let collapsed = self

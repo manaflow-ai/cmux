@@ -1,6 +1,7 @@
 //! Pure projection of mux resources into configurable native sidebar trees.
 
 use std::collections::{HashMap, HashSet};
+use std::sync::Arc;
 
 use cmux_tui_core::{PaneId, SurfaceId, WorkspaceId};
 
@@ -94,7 +95,7 @@ pub(crate) struct ProjectionRevision {
 
 struct CachedProjectionRows {
     revision: ProjectionRevision,
-    rows: Vec<ProjectionRow>,
+    rows: Arc<[ProjectionRow]>,
 }
 
 #[derive(Default)]
@@ -112,15 +113,17 @@ impl ProjectionRowsCache {
         view_id: &str,
         revision: ProjectionRevision,
         build: impl FnOnce() -> Vec<ProjectionRow>,
-    ) -> Vec<ProjectionRow> {
+    ) -> Arc<[ProjectionRow]> {
         if let Some(cached) = self.entries.get(view_id)
             && cached.revision == revision
         {
-            return cached.rows.clone();
+            return Arc::clone(&cached.rows);
         }
-        let rows = build();
-        self.entries
-            .insert(view_id.to_string(), CachedProjectionRows { revision, rows: rows.clone() });
+        let rows: Arc<[ProjectionRow]> = build().into();
+        self.entries.insert(
+            view_id.to_string(),
+            CachedProjectionRows { revision, rows: Arc::clone(&rows) },
+        );
         rows
     }
 
