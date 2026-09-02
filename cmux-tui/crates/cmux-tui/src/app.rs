@@ -28590,7 +28590,7 @@ mod tests {
 
     #[test]
     fn first_pane_index_preserves_screen_pane_lookup_semantics() {
-        let pane = |name| PaneView {
+        let pane = |name: &str| PaneView {
             id: 7,
             resource_id: None,
             short_id: name.to_string(),
