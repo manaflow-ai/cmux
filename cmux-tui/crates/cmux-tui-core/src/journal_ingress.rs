@@ -1505,6 +1505,58 @@ mod tests {
     }
 
     #[test]
+    fn retryable_sqlite_wait_releases_mux_before_backoff() {
+        let root = std::env::temp_dir().join(format!(
+            "cmux-terminal-journal-retry-release-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()
+        ));
+        let mux = Mux::open_persistent(
+            "terminal-journal-retry-release",
+            crate::SurfaceOptions::default(),
+            &root,
+        )
+        .unwrap();
+        let database_path = std::fs::read_dir(&root)
+            .unwrap()
+            .filter_map(Result::ok)
+            .map(|entry| entry.path().join("workspace-registry.sqlite3"))
+            .find(|path| path.is_file())
+            .expect("persistent journal database");
+        let blocker = rusqlite::Connection::open(database_path).unwrap();
+        blocker.execute_batch("BEGIN IMMEDIATE;").unwrap();
+
+        mux.journal_terminal_output(
+            Arc::new(public_id("term", 16, TerminalPublicId::parse)),
+            Arc::from("retry-release-generation"),
+            b"retry while sqlite is locked".to_vec(),
+        );
+
+        let deadline = Instant::now() + Duration::from_secs(5);
+        while Arc::strong_count(&mux) > 1 && Instant::now() < deadline {
+            std::thread::yield_now();
+        }
+        assert_eq!(
+            Arc::strong_count(&mux),
+            1,
+            "retryable SQLite backoff must not retain the owning Mux"
+        );
+
+        blocker.execute_batch("ROLLBACK;").unwrap();
+        mux.flush_terminal_journal().unwrap();
+        let records = mux.session_journal_after(0, 1024).unwrap().records;
+        assert!(records.iter().any(|record| {
+            record.kind == "terminal.output"
+                && record.terminal_output.as_deref()
+                    == Some(b"retry while sqlite is locked".as_slice())
+        }));
+
+        drop(blocker);
+        drop(mux);
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
     fn shutdown_has_a_deadline_when_the_journal_stays_locked() {
         let root = std::env::temp_dir().join(format!(
             "cmux-terminal-journal-locked-shutdown-{}-{}",
