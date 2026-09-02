@@ -72,6 +72,50 @@ impl Default for ProjectionRailState {
     }
 }
 
+/// Revisions that determine whether a projection row list is still valid.
+/// Tree and agent revisions come from the session snapshots, while the
+/// sidebar revision covers presentation state such as selection and collapse.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct ProjectionRevision {
+    pub tree_workspace: u64,
+    pub tree_pane: Option<u64>,
+    pub agents: u64,
+    pub sidebar: u64,
+}
+
+struct CachedProjectionRows {
+    revision: ProjectionRevision,
+    rows: Vec<ProjectionRow>,
+}
+
+#[derive(Default)]
+pub(crate) struct ProjectionRowsCache {
+    entries: HashMap<String, CachedProjectionRows>,
+}
+
+impl ProjectionRowsCache {
+    pub(crate) fn get_or_build(
+        &mut self,
+        view_id: &str,
+        revision: ProjectionRevision,
+        build: impl FnOnce() -> Vec<ProjectionRow>,
+    ) -> Vec<ProjectionRow> {
+        if let Some(cached) = self.entries.get(view_id)
+            && cached.revision == revision
+        {
+            return cached.rows.clone();
+        }
+        let rows = build();
+        self.entries
+            .insert(view_id.to_string(), CachedProjectionRows { revision, rows: rows.clone() });
+        rows
+    }
+
+    pub(crate) fn retain_view_ids(&mut self, view_ids: &HashSet<String>) {
+        self.entries.retain(|view_id, _| view_ids.contains(view_id));
+    }
+}
+
 #[derive(Clone, Copy)]
 struct ProjectionContext {
     workspace: usize,
