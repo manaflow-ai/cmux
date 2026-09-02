@@ -1,5 +1,8 @@
 # cmux vm command reference
 
+For provider, image-generation, snapshot, and attach-transport limits, see
+[Cloud VM provider and transport matrix](../../../docs/cloud-vm-provider-matrix.md).
+
 `cloud` is an alias for `vm` (`cmux cloud ls` == `cmux vm ls`). The global `--json` flag works on every subcommand and may appear before or after the subcommand. All of this requires the cmux app running and a signed-in account.
 
 ## Discovery: the cloud tree

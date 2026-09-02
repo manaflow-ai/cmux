@@ -5,6 +5,10 @@ description: Route work to cmux Cloud machines (persistent cloud VMs) from the C
 
 # cmux Cloud Machines
 
+Provider and image-generation limits are in the [Cloud VM provider and
+transport matrix](../../docs/cloud-vm-provider-matrix.md). Check that matrix
+before selecting an attach transport or checkpoint operation.
+
 Everything the Cloud sidebar can do, from the CLI — plus agent-only primitives (`route`, `run`, `agent`, `exec`, `push`, `pull`, `wait`). Requires the cmux app running and a signed-in account (`cmux auth status`, `cmux auth login`). All of it is plain CLI, so it works for Claude Code, Codex, OpenCode, Pi, or any harness — and `cmux vm prompt` bootstraps an agent that has no skill loaded: it installs the app-bundled cmux-cloud skill at `~/.config/cmux/skills/cmux-cloud.md` and prints a kickoff prompt pointing at it (`--open <agent>` starts a local agent terminal with that prompt directly).
 
 ## What a machine is

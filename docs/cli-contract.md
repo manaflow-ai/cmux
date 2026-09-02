@@ -1,5 +1,8 @@
 # cmux CLI Contract
 
+Cloud VM provider, image, snapshot, and transport compatibility is documented
+in [Cloud VM provider and transport matrix](cloud-vm-provider-matrix.md).
+
 This document is the compatibility contract for migrating `CLI/cmux.swift` to
 Swift ArgumentParser. The migration should preserve command names, aliases,
 global flags, exit behavior, socket routing, and no-socket help behavior unless
