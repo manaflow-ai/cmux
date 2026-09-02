@@ -133,8 +133,8 @@ impl TunnelFrameDecoder {
     pub fn new(max_frame_bytes: usize) -> TunnelFrameDecoder {
         let max_frame_bytes = max_frame_bytes.clamp(1, MAX_TUNNEL_FRAME_BYTES);
         TunnelFrameDecoder {
-            storage_capacity: max_frame_bytes + HEADER_BYTES,
-            buffer: BytesMut::with_capacity(max_frame_bytes + HEADER_BYTES),
+            storage_capacity: 0,
+            buffer: BytesMut::new(),
             failed: false,
             max_frame_bytes,
         }
