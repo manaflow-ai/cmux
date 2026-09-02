@@ -296,6 +296,9 @@ struct RemoteTreeCache {
     title_updates: HashMap<SurfaceId, TitleUpdate>,
     agent_generation: u64,
     agent_updates: HashMap<SurfaceId, AgentUpdate>,
+    // Surface IDs are monotonic. Keep a tombstone so a stale roster snapshot
+    // received after retirement cannot restore the agent row.
+    retired_agents: HashSet<SurfaceId>,
 }
 
 #[derive(Clone, Copy)]
@@ -384,9 +387,14 @@ impl RemoteTreeCache {
     }
 
     fn replace_agents(&mut self, agents: Vec<AgentInfo>, refresh_generation: u64) {
-        self.agents = agents;
+        let retired_agents = &self.retired_agents;
+        self.agents =
+            agents.into_iter().filter(|agent| !retired_agents.contains(&agent.surface)).collect();
         let updates = std::mem::take(&mut self.agent_updates);
         for (surface, update) in updates {
+            if self.retired_agents.contains(&surface) {
+                continue;
+            }
             if self.surface_tabs.contains_key(&surface) {
                 // A pending update may have been observed during an earlier
                 // refresh whose topology omitted this surface. Reapply it
@@ -408,6 +416,9 @@ impl RemoteTreeCache {
     }
 
     fn update_agent(&mut self, agent: AgentInfo) {
+        if self.retired_agents.contains(&agent.surface) {
+            return;
+        }
         self.agent_generation = self.agent_generation.saturating_add(1);
         self.agent_updates.insert(
             agent.surface,
@@ -425,6 +436,7 @@ impl RemoteTreeCache {
     }
 
     fn remove_agent(&mut self, surface: SurfaceId) {
+        self.retired_agents.insert(surface);
         self.agents.retain(|agent| agent.surface != surface);
         self.agent_updates.remove(&surface);
     }
