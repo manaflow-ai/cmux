@@ -340,6 +340,21 @@ def verify_ci_workflow_revision(
     )
 
 
+def _dedupe_pr_numbers(numbers: Iterable[object]) -> list[int]:
+    """Keep one unambiguous PR number and reject cross-PR workflow runs."""
+
+    unique = list(
+        dict.fromkeys(
+            number
+            for number in numbers
+            if isinstance(number, int) and not isinstance(number, bool) and number > 0
+        )
+    )
+    if len(unique) > 1:
+        raise GateError("workflow run is associated with multiple pull requests")
+    return unique
+
+
 def _event_target(
     api: GitHubAPI, event_name: str, event: Mapping[str, Any]
 ) -> tuple[Mapping[str, Any], str, int, int | None]:
@@ -372,20 +387,17 @@ def _event_target(
         pull_requests = run.get("pull_requests")
         if not isinstance(pull_requests, list):
             raise GateError("workflow run API response is missing pull requests")
-        numbers = [item.get("number") for item in pull_requests if isinstance(item, Mapping)]
-        numbers = [number for number in numbers if isinstance(number, int) and not isinstance(number, bool)]
+        numbers = _dedupe_pr_numbers(
+            item.get("number") for item in pull_requests if isinstance(item, Mapping)
+        )
         if not numbers:
             pull_payload = api.get(
                 f"repos/{api.repository}/commits/{event_head}/pulls?per_page=100"
             )
             if isinstance(pull_payload, list):
-                numbers = [
-                    item.get("number")
-                    for item in pull_payload
-                    if isinstance(item, Mapping)
-                    and isinstance(item.get("number"), int)
-                    and not isinstance(item.get("number"), bool)
-                ]
+                numbers = _dedupe_pr_numbers(
+                    item.get("number") for item in pull_payload if isinstance(item, Mapping)
+                )
         if not numbers:
             raise GateError("workflow run is not associated with a pull request")
         pr_number = numbers[0]

@@ -42,7 +42,9 @@ CODEOWNERS entries for `/.github/workflows/**`, `/scripts/ci/**`, and
 The gate validates CI conclusions, not the contents of every test process.
 An approved maintainer could still weaken the pull-request workflow. The
 code-owner rule is defense in depth; keep it active and review workflow edits
-as security-sensitive changes.
+as security-sensitive changes. The gate helper itself is imported only from
+the `.ci-trusted` checkout of the base commit, so a pull request cannot replace
+the code that evaluates its own checks.
 
 To roll back, remove only the `ci-status-gate` required-check rule, keep the
 base-owned workflow and validator, and investigate the failing snapshot. Do
