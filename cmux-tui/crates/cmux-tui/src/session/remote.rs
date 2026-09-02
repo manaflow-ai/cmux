@@ -8,7 +8,7 @@ use std::net::Shutdown;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::mpsc::{Receiver, RecvTimeoutError, Sender, channel};
-use std::sync::{Arc, Condvar, Mutex, Weak};
+use std::sync::{Arc, Condvar, Mutex, OnceLock, Weak};
 use std::time::{Duration, Instant};
 
 use base64::Engine;
@@ -1279,6 +1279,51 @@ impl WorkerCompletion {
         }
         *done
     }
+
+    fn is_done(&self) -> bool {
+        *self.done.lock().unwrap_or_else(|poison| poison.into_inner())
+    }
+
+    fn wait_forever(&self) {
+        let mut done = self.done.lock().unwrap_or_else(|poison| poison.into_inner());
+        while !*done {
+            done = self.changed.wait(done).unwrap_or_else(|poison| poison.into_inner());
+        }
+    }
+}
+
+fn enqueue_worker_reap(
+    handle: std::thread::JoinHandle<()>,
+    completion: Arc<WorkerCompletion>,
+) -> Result<(), std::thread::JoinHandle<()>> {
+    type ReapRequest = (std::thread::JoinHandle<()>, Arc<WorkerCompletion>);
+    static REAPER: OnceLock<std::sync::mpsc::SyncSender<ReapRequest>> = OnceLock::new();
+    let sender = REAPER.get_or_init(|| {
+        let (sender, receiver) = std::sync::mpsc::sync_channel::<ReapRequest>(64);
+        let Ok(_) =
+            std::thread::Builder::new().name("remote-worker-reaper".into()).spawn(move || {
+                while let Ok((handle, completion)) = receiver.recv() {
+                    completion.wait_forever();
+                    let _ = handle.join();
+                }
+            })
+        else {
+            return sender;
+        };
+        sender
+    });
+    try_enqueue_worker_reap(sender, handle, completion)
+}
+
+fn try_enqueue_worker_reap(
+    sender: &std::sync::mpsc::SyncSender<(std::thread::JoinHandle<()>, Arc<WorkerCompletion>)>,
+    handle: std::thread::JoinHandle<()>,
+    completion: Arc<WorkerCompletion>,
+) -> Result<(), std::thread::JoinHandle<()>> {
+    sender.try_send((handle, completion)).map_err(|error| match error {
+        std::sync::mpsc::TrySendError::Full((handle, _))
+        | std::sync::mpsc::TrySendError::Disconnected((handle, _)) => handle,
+    })
 }
 
 struct WorkerCompletionGuard(Arc<WorkerCompletion>);
@@ -1473,9 +1518,36 @@ impl InteractiveWriter {
         if let Some(handle) = handle {
             if self.shared.worker_completion.wait(remote_write_timeout()) {
                 let _ = handle.join();
-            } else {
+            } else if let Err(handle) =
+                enqueue_worker_reap(handle, self.shared.worker_completion.clone())
+            {
                 *self.worker.lock().unwrap_or_else(|poison| poison.into_inner()) = Some(handle);
             }
+        }
+    }
+
+    fn join_worker_if_done(&self) {
+        let current = std::thread::current().id();
+        let handle = {
+            let mut worker = self.worker.lock().unwrap_or_else(|poison| poison.into_inner());
+            if worker.as_ref().is_some_and(|handle| handle.thread().id() == current) {
+                return;
+            }
+            let Some(handle) = worker.take() else {
+                return;
+            };
+            if !self.shared.worker_completion.is_done() {
+                if let Err(handle) =
+                    enqueue_worker_reap(handle, self.shared.worker_completion.clone())
+                {
+                    *worker = Some(handle);
+                }
+                return;
+            }
+            Some(handle)
+        };
+        if let Some(handle) = handle {
+            let _ = handle.join();
         }
     }
 
@@ -1506,7 +1578,6 @@ impl InteractiveWriter {
                 "remote writer did not close before its deadline",
             ));
         }
-        self.join_worker();
     }
 }
 
@@ -1521,7 +1592,7 @@ impl Drop for InteractiveWriter {
                 "remote writer owner was dropped",
             ));
         }
-        self.join_worker();
+        self.join_worker_if_done();
     }
 }
 
@@ -3067,6 +3138,7 @@ impl RemoteSession {
         self.begin_shutdown();
         self.interactive_writer.close();
         self.interactive_writer.abort_transport();
+        self.interactive_writer.join_worker();
         self.join_reader_worker();
     }
 
@@ -3075,6 +3147,7 @@ impl RemoteSession {
         let handle = {
             let mut worker = self.reader_worker.lock().unwrap_or_else(|poison| poison.into_inner());
             if worker.as_ref().is_some_and(|handle| handle.thread().id() == current) {
+                worker.take();
                 return;
             }
             worker.take()
@@ -3082,7 +3155,8 @@ impl RemoteSession {
         if let Some(handle) = handle {
             if self.reader_completion.wait(remote_write_timeout()) {
                 let _ = handle.join();
-            } else {
+            } else if let Err(handle) = enqueue_worker_reap(handle, self.reader_completion.clone())
+            {
                 *self.reader_worker.lock().unwrap_or_else(|poison| poison.into_inner()) =
                     Some(handle);
             }
@@ -3694,7 +3768,9 @@ fn local_hostname() -> Option<String> {
 
 impl Drop for RemoteSession {
     fn drop(&mut self) {
-        self.disconnect_transport();
+        self.interactive_writer.request_close();
+        self.interactive_writer.abort_transport();
+        self.interactive_writer.join_worker_if_done();
         let Some(dir) = self.frame_dump_dir.as_deref() else {
             return;
         };
@@ -6534,6 +6610,28 @@ mod tests {
         writer_exited_rx
             .recv_timeout(Duration::from_millis(100))
             .expect("transport shutdown must join the writer");
+    }
+
+    #[test]
+    fn worker_reaper_returns_ownership_when_queue_is_saturated() {
+        let (sender, receiver) = std::sync::mpsc::sync_channel(0);
+        let completion = Arc::new(WorkerCompletion::new());
+        let handle = std::thread::spawn(|| {});
+        let returned = try_enqueue_worker_reap(&sender, handle, completion)
+            .expect_err("a zero-capacity queue must return the handle");
+        drop(receiver);
+        returned.join().expect("returned worker handle remains joinable");
+    }
+
+    #[test]
+    fn worker_reaper_returns_ownership_when_queue_is_disconnected() {
+        let (sender, receiver) = std::sync::mpsc::sync_channel(1);
+        drop(receiver);
+        let completion = Arc::new(WorkerCompletion::new());
+        let handle = std::thread::spawn(|| {});
+        let returned = try_enqueue_worker_reap(&sender, handle, completion)
+            .expect_err("a disconnected queue must return the handle");
+        returned.join().expect("returned worker handle remains joinable");
     }
 
     #[cfg(unix)]
