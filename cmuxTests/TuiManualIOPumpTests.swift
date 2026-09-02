@@ -58,6 +58,40 @@ struct TuiManualIOPumpTests {
     }
 
     @Test
+    func resizeDiagnosticRequiresObjectWithNumericGrid() {
+        #expect(
+            isTuiManualIOResizeDiagLine(
+                Data(#"{"diag":{"resize":{"cols":120,"rows":30}}}"#.utf8)
+            )
+        )
+        #expect(
+            !isTuiManualIOResizeDiagLine(
+                Data(#"{"diag":{"resize":false}}"#.utf8)
+            )
+        )
+        #expect(
+            !isTuiManualIOResizeDiagLine(
+                Data(#"{"diag":{"resize":null}}"#.utf8)
+            )
+        )
+        #expect(
+            !isTuiManualIOResizeDiagLine(
+                Data(#"{"diag":{"resize":42}}"#.utf8)
+            )
+        )
+        #expect(
+            !isTuiManualIOResizeDiagLine(
+                Data(#"{"diag":{"resize":{"cols":120,"rows":"30"}}}"#.utf8)
+            )
+        )
+        #expect(
+            !isTuiManualIOResizeDiagLine(
+                Data(#"{"diag":{"resize":{"cols":120}}}"#.utf8)
+            )
+        )
+    }
+
+    @Test
     func nextActionRespawnsOnlyForRecoverableExits() {
         #expect(policy.nextAction(after: .terminalEnded) == .end)
         #expect(policy.nextAction(after: .daemonLost) == .retry)
