@@ -1959,7 +1959,7 @@ line_regex = ["^working$", "^missing line$"]
 
         assert_eq!(idle.state, ScreenState::Idle);
         assert!(idle.matched_rule.is_none());
-        assert_eq!(idle.fallback_reason.as_deref(), Some(DEFAULT_KNOWN_AGENT_IDLE_FALLBACK));
+        assert_eq!(idle.fallback_reason.as_deref(), Some("known_agent_idle_fallback"));
         assert!(!idle.visible_working);
     }
 
