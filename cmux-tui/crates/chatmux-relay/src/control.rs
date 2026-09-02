@@ -13,6 +13,7 @@ const MAX_CONTROL_LINE_BYTES: usize = 1_048_576;
 const MAX_WRITER_QUEUE: usize = 256;
 const MAX_PENDING_REQUESTS: usize = 256;
 const MAX_EVENT_QUEUE: usize = 1_024;
+const MAX_EVENT_QUEUE_BYTES: usize = MAX_CONTROL_LINE_BYTES;
 
 pub type EventHandler = Box<dyn Fn(&Value) + Send + Sync>;
 pub type CloseHandler = Box<dyn Fn() + Send + Sync>;
@@ -44,7 +45,7 @@ pub use unix::connect_control;
 mod unix {
     use super::*;
     use std::collections::HashMap;
-    use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+    use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
     use std::sync::{Arc, Mutex};
     use std::time::Duration;
 
@@ -76,10 +77,11 @@ mod unix {
         read_waiting: Mutex<Option<oneshot::Sender<()>>>,
         dispatch_tx: std::sync::mpsc::SyncSender<Dispatch>,
         close_signal_tx: std::sync::mpsc::SyncSender<()>,
+        queued_event_bytes: AtomicUsize,
     }
 
     enum Dispatch {
-        Event(Value),
+        Event { value: Value, bytes: usize },
         Closed,
     }
 
@@ -103,6 +105,44 @@ mod unix {
             // Keep closure delivery independent from the bounded event FIFO.
             // The event queue may be full while the worker is in a callback.
             let _ = self.close_signal_tx.try_send(());
+        }
+
+        fn reserve_event_bytes(&self, bytes: usize) -> bool {
+            if bytes > MAX_EVENT_QUEUE_BYTES {
+                return false;
+            }
+            let mut current = self.queued_event_bytes.load(Ordering::Acquire);
+            loop {
+                let Some(next) = current.checked_add(bytes) else { return false };
+                if next > MAX_EVENT_QUEUE_BYTES {
+                    return false;
+                }
+                match self.queued_event_bytes.compare_exchange_weak(
+                    current,
+                    next,
+                    Ordering::AcqRel,
+                    Ordering::Acquire,
+                ) {
+                    Ok(_) => return true,
+                    Err(observed) => current = observed,
+                }
+            }
+        }
+
+        fn release_event_bytes(&self, bytes: usize) -> bool {
+            let mut current = self.queued_event_bytes.load(Ordering::Acquire);
+            loop {
+                let Some(next) = current.checked_sub(bytes) else { return false };
+                match self.queued_event_bytes.compare_exchange_weak(
+                    current,
+                    next,
+                    Ordering::AcqRel,
+                    Ordering::Acquire,
+                ) {
+                    Ok(_) => return true,
+                    Err(observed) => current = observed,
+                }
+            }
         }
     }
 
@@ -153,6 +193,7 @@ mod unix {
             read_waiting: Mutex::new(None),
             dispatch_tx,
             close_signal_tx,
+            queued_event_bytes: AtomicUsize::new(0),
         });
         let worker_shared = Arc::clone(&shared);
         std::thread::Builder::new()
@@ -181,7 +222,11 @@ mod unix {
                         Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => break,
                     };
                     match dispatch {
-                        Dispatch::Event(event) => {
+                        Dispatch::Event { value: event, bytes } => {
+                            if !shared.release_event_bytes(bytes) {
+                                shared.settle_closed();
+                                break;
+                            }
                             // Closure is settled before the marker is queued,
                             // but events already in the FIFO still belong to
                             // the stream and must be delivered first.
@@ -200,7 +245,13 @@ mod unix {
                     // cannot be lost when the event FIFO is full. Drain all
                     // events accepted before EOF, then invoke close once.
                     if close_signal_rx.try_recv().is_ok() || shared.closed.load(Ordering::SeqCst) {
-                        while let Ok(Dispatch::Event(event)) = dispatch_rx.try_recv() {
+                        while let Ok(Dispatch::Event { value: event, bytes }) =
+                            dispatch_rx.try_recv()
+                        {
+                            if !shared.release_event_bytes(bytes) {
+                                shared.settle_closed();
+                                break;
+                            }
                             let handler =
                                 shared.event_handler.lock().expect("control event lock").clone();
                             if let Some(handler) = handler {
@@ -342,7 +393,17 @@ mod unix {
                 if let Some(sender) = waiting {
                     let _ = sender.send(parsed);
                 } else if parsed.get("event").and_then(Value::as_str).is_some() {
-                    if shared.dispatch_tx.try_send(Dispatch::Event(parsed)).is_err() {
+                    let bytes = line.len();
+                    if !shared.reserve_event_bytes(bytes) {
+                        shared.settle_closed();
+                        break 'read_loop;
+                    }
+                    if shared
+                        .dispatch_tx
+                        .try_send(Dispatch::Event { value: parsed, bytes })
+                        .is_err()
+                    {
+                        let _ = shared.release_event_bytes(bytes);
                         shared.settle_closed();
                         break 'read_loop;
                     }
@@ -453,9 +514,8 @@ mod unix {
                 if self.shared.deliberate.load(Ordering::SeqCst) {
                     return;
                 }
-                *slot = Some(handler);
                 drop(slot);
-                let _ = self.shared.dispatch_tx.try_send(Dispatch::Closed);
+                handler();
             } else {
                 *slot = Some(handler);
             }
