@@ -10247,10 +10247,14 @@ impl App {
         if !self.prepare_pty_input_before_mutation() {
             return Ok(());
         }
+        let previous_surface = self.tree.active_surface();
         if !self.tree.select_surface(target.surface) {
             return Ok(());
         }
         self.follow_sidebar_workspace(target.workspace);
+        if previous_surface != Some(target.surface) {
+            self.bump_sidebar_generation();
+        }
         self.pane_focus_history.record(target.pane);
         self.claim_active_terminal_geometry(true);
         Ok(())
@@ -10273,14 +10277,16 @@ impl App {
         if index >= self.tree.workspaces.len() || !self.prepare_pty_input_before_mutation() {
             return;
         }
+        let changed = self.tree.active_workspace != index;
         self.follow_sidebar_workspace(index);
         self.tree.active_workspace = index;
-        self.bump_sidebar_generation();
+        if changed {
+            self.bump_sidebar_generation();
+        }
         self.select_workspace_for_client(Some(index), None);
     }
 
     fn activate_projection_target(&mut self, target: ProjectionTarget) -> anyhow::Result<()> {
-        self.bump_sidebar_generation();
         match target {
             ProjectionTarget::Workspace { index, .. } => {
                 self.activate_workspace(index);
@@ -10289,6 +10295,11 @@ impl App {
                 if !self.prepare_pty_input_before_mutation() {
                     return Ok(());
                 }
+                let previous = (
+                    self.tree.active_workspace,
+                    self.tree.active_workspace().map(|workspace| workspace.active_screen),
+                    self.tree.active_screen().map(|screen| screen.active_pane),
+                );
                 self.follow_sidebar_workspace(workspace);
                 self.tree.active_workspace = workspace;
                 if let Some(workspace_view) = self.tree.workspaces.get_mut(workspace) {
@@ -10296,6 +10307,14 @@ impl App {
                     if let Some(screen_view) = workspace_view.screens.get_mut(screen) {
                         screen_view.active_pane = pane;
                     }
+                }
+                let current = (
+                    self.tree.active_workspace,
+                    self.tree.active_workspace().map(|workspace| workspace.active_screen),
+                    self.tree.active_screen().map(|screen| screen.active_pane),
+                );
+                if previous != current {
+                    self.bump_sidebar_generation();
                 }
                 self.pane_focus_history.record(pane);
                 self.claim_active_terminal_geometry(true);
@@ -12866,6 +12885,7 @@ impl App {
         else {
             return;
         };
+        let changed = self.tree.active_surface() != Some(surface);
         self.tree.active_workspace = workspace_index;
         let Some(workspace) = self.tree.workspaces.get_mut(workspace_index) else { return };
         workspace.active_screen = screen_index;
@@ -12874,6 +12894,9 @@ impl App {
         screen.active_pane = pane_id;
         if let Some(pane) = screen.panes.get_mut(pane_index) {
             pane.active_tab = tab_index;
+        }
+        if changed {
+            self.bump_sidebar_generation();
         }
         self.pane_focus_history.record(pane_id);
         self.claim_active_terminal_geometry(true);
@@ -21805,15 +21828,19 @@ impl App {
 
     fn focus_pane_after_input(&mut self, pane: PaneId) {
         if self.prepare_pty_input_before_mutation() {
-            let focused = if let Some(screen) = self.tree.active_workspace_mut_screen()
+            let (focused, changed) = if let Some(screen) = self.tree.active_workspace_mut_screen()
                 && screen.panes.iter().any(|candidate| candidate.id == pane)
             {
+                let changed = screen.active_pane != pane;
                 screen.active_pane = pane;
-                true
+                (true, changed)
             } else {
-                false
+                (false, false)
             };
             if focused {
+                if changed {
+                    self.bump_sidebar_generation();
+                }
                 self.pane_focus_history.record(pane);
                 self.claim_active_terminal_geometry(true);
             }
@@ -21827,10 +21854,12 @@ impl App {
         delta: Option<isize>,
     ) {
         let pane = pane.or_else(|| self.active_pane());
+        let mut changed = false;
         if let Some(pane_id) = pane
             && let Some(pane) = self.tree.pane_mut(pane_id)
             && !pane.tabs.is_empty()
         {
+            let previous = pane.active_tab;
             if let Some(index) = index.filter(|index| *index < pane.tabs.len()) {
                 pane.active_tab = index;
             } else if let Some(delta) = delta {
@@ -21838,15 +21867,21 @@ impl App {
                     .rem_euclid(pane.tabs.len() as isize))
                     as usize;
             }
+            changed = pane.active_tab != previous;
+        }
+        if changed {
+            self.bump_sidebar_generation();
         }
         self.claim_active_terminal_geometry(true);
     }
 
     fn select_screen_for_client(&mut self, index: Option<usize>, delta: Option<isize>) {
         let mut selected = false;
+        let mut changed = false;
         if let Some(workspace) = self.tree.active_workspace_mut()
             && !workspace.screens.is_empty()
         {
+            let previous = workspace.active_screen;
             if let Some(index) = index.filter(|index| *index < workspace.screens.len()) {
                 workspace.active_screen = index;
                 selected = true;
@@ -21856,6 +21891,10 @@ impl App {
                     as usize;
                 selected = true;
             }
+            changed = workspace.active_screen != previous;
+        }
+        if changed {
+            self.bump_sidebar_generation();
         }
         if selected && let Some(active) = self.active_pane() {
             self.pane_focus_history.record(active);
@@ -21865,7 +21904,9 @@ impl App {
 
     fn select_workspace_for_client(&mut self, index: Option<usize>, delta: Option<isize>) {
         let mut selected = false;
+        let mut changed = false;
         if !self.tree.workspaces.is_empty() {
+            let previous = self.tree.active_workspace;
             if let Some(index) = index.filter(|index| *index < self.tree.workspaces.len()) {
                 self.tree.active_workspace = index;
                 selected = true;
@@ -21875,6 +21916,10 @@ impl App {
                     as usize;
                 selected = true;
             }
+            changed = self.tree.active_workspace != previous;
+        }
+        if changed {
+            self.bump_sidebar_generation();
         }
         if selected && let Some(active) = self.active_pane() {
             self.pane_focus_history.record(active);
