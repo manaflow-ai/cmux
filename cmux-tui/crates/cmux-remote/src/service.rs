@@ -2877,6 +2877,16 @@ mod tests {
             )
             .await
             .unwrap();
+        daemon_endpoint
+            .send_frame(
+                None,
+                Lane::Interactive,
+                stream_id,
+                Bytes::from_static(b"late open-limit data"),
+                FrameFlags::empty(),
+            )
+            .await
+            .unwrap();
         assert!(tokio::time::timeout(Duration::from_millis(25), fatal.changed()).await.is_err());
         assert!(fatal.borrow().is_none());
         client.shutdown().await;
