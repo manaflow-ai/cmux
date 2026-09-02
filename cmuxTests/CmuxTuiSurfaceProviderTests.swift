@@ -215,6 +215,14 @@ import Testing
         inconsistent["key"] = "stale-key"
         #expect(CMUXCLI.resolveVMRemoteTerminalPlacement("vivid-newt/terminal/term_build", machine: "vivid-newt", workspaceID: "ws_api", in: ["resources": [inconsistent]]) == .resolved(terminalID: "term_build", tabID: "tab_api"))
 
+        // A catalog key must be a key, never a complete resource id. A malformed
+        // explicit key must fall back to the canonical id, or fail closed when no
+        // canonical id exists.
+        var fullIDKey = resource
+        fullIDKey["key"] = "vivid-newt/terminal/term_build"
+        #expect(CMUXCLI.vmTerminalID(in: fullIDKey, machine: "vivid-newt") == "term_build")
+        #expect(CMUXCLI.vmTerminalID(in: ["key": "vivid-newt/terminal/term_build"], machine: "vivid-newt") == nil)
+
         var duplicate = resource
         duplicate["remote_views"] = [
             ["tab_id": "tab_a", "workspace": ["id": "ws_main"], "focused": false],
