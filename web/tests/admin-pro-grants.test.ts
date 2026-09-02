@@ -720,12 +720,13 @@ describe("pending email grants", () => {
       },
     );
     expect(applied).toBe(0);
-    // The revoke clears the claimer's grant itself, and finalization rolls
-    // back again because the applied row was revoked in flight.
-    expect(calls).toEqual([{ plan: "pro" }, { plan: null }, { plan: null }]);
+    // The revoke clears the claimer's grant itself and releases the claim
+    // marker, so finalization sees nothing left to compensate.
+    expect(calls).toEqual([{ plan: "pro" }, { plan: null }]);
     const row = rows[0]!;
     expect(row.revokedAt).toBeInstanceOf(Date);
     expect(row.appliedAt).toBeNull();
+    expect(row.appliedUserId).toBeNull();
   });
 
   test("a fresh claim by another sign-in is not claimed twice, a stale one is", async () => {
@@ -860,6 +861,29 @@ describe("pending email grants", () => {
       stripeBillingStatus: async () => noStripe, unlessAuditNewerThan: new Date("2026-09-02T13:00:00.000Z"),
     });
     expect(target.clientReadOnlyMetadata).toEqual({ cmuxVmPlan: "pro" });
+  });
+
+  test("a claim stolen after the TTL is neither finalized nor compensated by the original sign-in", async () => {
+    const rows: GrantRow[] = [];
+    const db = fakeGrantsDb(rows);
+    await createPendingEmailGrant({ email: "pat@example.com", plan: "pro", admin, db });
+    const seen: SetManualPlanGrantInput[] = [];
+    const applied = await applyPendingEmailGrants(
+      { id: "u9", primaryEmail: "pat@example.com" },
+      {
+        db,
+        grant: async (input) => {
+          seen.push(input);
+          // Another sign-in steals the claim while our write is in flight.
+          rows[0]!.appliedUserId = "u2";
+          rows[0]!.claimedAt = new Date();
+        },
+      },
+    );
+    expect(applied).toBe(0);
+    expect(seen.map((input) => input.plan)).toEqual(["pro"]);
+    expect(rows[0]!.appliedAt).toBeNull();
+    expect(rows[0]!.appliedUserId).toBe("u2");
   });
 
   test("a failed compensating clear is retried at the user's next sign-in", async () => {

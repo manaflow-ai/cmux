@@ -271,6 +271,20 @@ describe("resolveProPlanStatus", () => {
     });
   });
 
+  test("clears a stale non-pro paid mirror when no Stripe Pro row backs it", async () => {
+    for (const stale of ["founders", "team", "PRO"]) {
+      const user = metadataUser({ cmuxPlan: stale }, "user-stale");
+      const status = await resolveProPlanStatus(user, {
+        hasActiveStripeSubscription: async () => false,
+        hasStripeCustomer: async () => false,
+        withFreshMetadataUser: async (_userId, operation) => operation(user, mutationLease()),
+      });
+      expect(status.isPro).toBe(false);
+      expect(status.metadataChanged).toBe(true);
+      expect(user.updates).toEqual([{}]);
+    }
+  });
+
   test("reports Pro from a paid manual override without a Stripe subscription", async () => {
     for (const override of ["pro", "founders", "Team"]) {
       const user = metadataUser({ cmuxVmPlan: override }, "user-granted");

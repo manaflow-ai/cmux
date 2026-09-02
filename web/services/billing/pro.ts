@@ -90,7 +90,9 @@ export async function syncProPlanMetadata(
     if (current === PRO_PLAN_ID) return metadata as ProMetadataJson;
     metadata.cmuxPlan = PRO_PLAN_ID;
   } else {
-    if (current !== PRO_PLAN_ID) return metadata as ProMetadataJson;
+    // Any paid mirror value is stale once no Stripe Pro row backs it; VM
+    // entitlements read cmuxPlan whenever no override is set.
+    if (!isPaidPlanId(typeof current === "string" ? current : null)) return metadata as ProMetadataJson;
     delete metadata.cmuxPlan;
   }
   // Existing metadata came from Stack as JSON; the only value added is a string.
@@ -161,7 +163,7 @@ export async function reconcileProPlanMetadata(
   const isPro = user.id
     ? await (options.hasActiveStripeSubscription ?? hasActiveStripeProSubscription)(user.id)
     : false;
-  if (isPro === (metadata.cmuxPlan === PRO_PLAN_ID)) return false;
+  if (!proMirrorNeedsReconcile(isPro, planIdFromMetadata(metadata))) return false;
   if (!user.id) return false;
   return await reconcileProMetadataIfAvailable(
     user.id,
@@ -226,7 +228,7 @@ export async function resolveProPlanStatus(
   if (
     user.id &&
     !hasManualVmPlanOverride &&
-    hasActiveStripePro !== (metadataPlanId === PRO_PLAN_ID)
+    proMirrorNeedsReconcile(hasActiveStripePro, metadataPlanId)
   ) {
     metadataChanged = await reconcileProMetadataIfAvailable(
       user.id,
@@ -309,12 +311,21 @@ async function reconcileFreshProMetadata(
   if (
     metadata.cmuxAccountDeleting === true ||
     hasManualVmOverride(metadata) ||
-    isPro === (metadata.cmuxPlan === PRO_PLAN_ID)
+    !proMirrorNeedsReconcile(isPro, planIdFromMetadata(metadata))
   ) {
     return false;
   }
   await syncProPlanMetadata(user, isPro, lease);
   return true;
+}
+
+/**
+ * The `cmuxPlan` mirror needs a write when Pro is active but the mirror is
+ * not "pro", or when Pro is inactive but the mirror still names a paid plan
+ * (a stale "pro", "team", or "founders" value would keep VM access alive).
+ */
+function proMirrorNeedsReconcile(isPro: boolean, mirrorPlanId: string | null): boolean {
+  return isPro ? mirrorPlanId !== PRO_PLAN_ID : isPaidPlanId(mirrorPlanId);
 }
 
 const withDefaultFreshProMetadataUser: FreshProMetadataUserMutation = async (

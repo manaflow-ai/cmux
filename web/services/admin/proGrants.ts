@@ -900,13 +900,22 @@ export async function applyPendingEmailGrants(
     }
   }
 
+  // Finalize only rows this sign-in still owns: a claim stolen after the TTL
+  // belongs to that later sign-in, which finalizes (or compensates) itself.
   const done = await db
     .update(adminPlanGrants)
     .set({ appliedAt: now() })
-    .where(and(inArray(adminPlanGrants.id, claimedIds), isNull(adminPlanGrants.revokedAt)))
+    .where(
+      and(
+        inArray(adminPlanGrants.id, claimedIds),
+        eq(adminPlanGrants.appliedUserId, user.id),
+        isNull(adminPlanGrants.appliedAt),
+        isNull(adminPlanGrants.revokedAt),
+      ),
+    )
     .returning({ id: adminPlanGrants.id });
   const finalized = new Set(done.map((row) => row.id));
-  if (plan !== null && !finalized.has(newest.id)) {
+  if (plan !== null && !finalized.has(newest.id) && await wasRevokedWhileOwned(db, newest.id, user.id)) {
     // Revoked while the write was in flight: the revoke wins. The row stays
     // revoked with applied_user_id set until this clear succeeds, and
     // retryRevokedGrantCleanup retries it at the user's next sign-in.
@@ -923,6 +932,23 @@ export async function applyPendingEmailGrants(
       .where(eq(adminPlanGrants.id, newest.id));
   }
   return finalized.size;
+}
+
+async function wasRevokedWhileOwned(db: AdminGrantsDb, grantId: string, userId: string): Promise<boolean> {
+  const rows = await db
+    .select({ id: adminPlanGrants.id })
+    .from(adminPlanGrants)
+    .where(
+      and(
+        eq(adminPlanGrants.id, grantId),
+        eq(adminPlanGrants.appliedUserId, userId),
+        isNull(adminPlanGrants.appliedAt),
+        isNotNull(adminPlanGrants.revokedAt),
+      ),
+    )
+    .orderBy(desc(adminPlanGrants.createdAt))
+    .limit(1);
+  return rows.length > 0;
 }
 
 /**
