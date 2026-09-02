@@ -362,13 +362,13 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
             if [ ! -p "$cmux_ssh_auth_term_event_ack_fifo" ] || ! exec 10<> "$cmux_ssh_auth_term_event_ack_fifo"; then return 0; fi
             exec 9<> "$cmux_ssh_auth_term_event_fifo" || return 0
             cmux_ssh_auth_term_event_writer=
-            # macOS /bin/sh accepts only an integer read timeout. Retry the
-            # blocking read through the remaining cleanup deadline so a TERM
-            # handler that is delayed by scheduler pressure can still publish
-            # its replacement marker. The FIFO stays open across retries.
+            # macOS /bin/sh accepts only an integer read timeout. Start this
+            # bounded grace after TERM so scheduler pressure can delay the
+            # handler without blocking cleanup forever. The FIFO stays open
+            # across retries.
             cmux_ssh_auth_term_event_wait_start=${SECONDS:-0}
             while [ "$cmux_ssh_auth_term_event_received" != 1 ] &&
-                  [ "$((${SECONDS:-0} - cmux_ssh_auth_term_event_wait_start))" -lt 2 ]; do
+                  [ "$((${SECONDS:-0} - cmux_ssh_auth_term_event_wait_start))" -lt 5 ]; do
               if IFS= read -r -t 1 cmux_ssh_auth_term_event_writer <&9; then
                 # The FIFO directory and payload both carry the random,
                 # per-attempt nonce. Process ownership is established by the
@@ -514,7 +514,6 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
                 input&.close
                 output&.close
               end
-            end
           ' "$cmux_ssh_auth_signal_name" "$cmux_ssh_auth_signal_input" \
               "$cmux_ssh_auth_signal_output" >/dev/null 2>&1
           }
@@ -858,7 +857,27 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
     /// - Parameter command: Foreground authentication command to execute under zsh.
     /// - Returns: A zsh command suitable for embedding in a startup script.
     public func classifyingTransientFailure(in command: String) -> String {
-        let nestedCommand = "/usr/bin/env LC_ALL=C LANG=C /bin/zsh -fc \(shellQuote(command))"
+        // `script` closes descriptors inherited from its launcher. Reopen the
+        // per-attempt marker in the shell it starts, before replacing that
+        // shell with the authentication command, so detached descendants keep
+        // the ownership capability.
+        let markerBootstrap = """
+        if [ -n "${CMUX_SSH_AUTH_EVENT_TOKEN:-}" ]; then
+          case "$CMUX_SSH_AUTH_EVENT_TOKEN" in
+            ''|*[!A-Za-z0-9_-]*) ;;
+            *)
+              cmux_ssh_auth_marker_path="${TMPDIR:-/tmp}/cmux-ssh-auth-marker.$CMUX_SSH_AUTH_EVENT_TOKEN"
+              if [ -f "$cmux_ssh_auth_marker_path" ]; then
+                # zsh's managed descriptors are close-on-exec. Use a fixed
+                # descriptor so the marker survives the nested env/zsh exec.
+                exec 7<> "$cmux_ssh_auth_marker_path" 2>/dev/null || true
+              fi
+              ;;
+          esac
+        fi
+        exec /usr/bin/env LC_ALL=C LANG=C /bin/zsh -fc \(shellQuote(command))
+        """
+        let nestedCommand = "/bin/zsh -fc \(shellQuote(markerBootstrap))"
         let classifierProgram = """
         {
           cmux_ssh_auth_line = tolower(cmux_ssh_auth_overlap $0)
@@ -899,9 +918,11 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
             // helper can then enter a bounded read without blocking on FIFO
             // setup, while the completion payload still has a happens-before
             // edge after the TERM handler exits.
+            "cmux_ssh_auth_completion_event_fd=",
+            "cmux_ssh_auth_completion_ack_fd=",
             "cmux_ssh_auth_completion_fds_open=0",
-            "cmux_ssh_auth_prepare_signal_completion() { cmux_ssh_auth_completion_fds_open=0; if [ -n \"$cmux_ssh_auth_event_token\" ] && [ -p \"$cmux_ssh_auth_term_event_fifo\" ] && [ -p \"$cmux_ssh_auth_term_event_ack_fifo\" ] && exec 8<> \"$cmux_ssh_auth_term_event_fifo\" 2>/dev/null && exec 10<> \"$cmux_ssh_auth_term_event_ack_fifo\" 2>/dev/null; then cmux_ssh_auth_completion_fds_open=1; else exec 8>&- 2>/dev/null || true; exec 10>&- 2>/dev/null || true; fi; }",
-            "cmux_ssh_auth_signal_completion() { if [ \"$cmux_ssh_auth_completion_fds_open\" = 1 ]; then cmux_ssh_auth_marker_cleanup_deferred=1; printf '%s\\n' \"$cmux_ssh_auth_event_token\" >&8 2>/dev/null || true; cmux_ssh_auth_completion_ack=; IFS= read -r -t 2 cmux_ssh_auth_completion_ack <&10 || true; fi; exec 8>&- 2>/dev/null || true; exec 10>&- 2>/dev/null || true; cmux_ssh_auth_completion_fds_open=0; }",
+            "cmux_ssh_auth_prepare_signal_completion() { cmux_ssh_auth_completion_fds_open=0; if [ -n \"$cmux_ssh_auth_event_token\" ] && [ -p \"$cmux_ssh_auth_term_event_fifo\" ] && [ -p \"$cmux_ssh_auth_term_event_ack_fifo\" ] && exec {cmux_ssh_auth_completion_event_fd}<> \"$cmux_ssh_auth_term_event_fifo\" 2>/dev/null && exec {cmux_ssh_auth_completion_ack_fd}<> \"$cmux_ssh_auth_term_event_ack_fifo\" 2>/dev/null; then cmux_ssh_auth_completion_fds_open=1; else exec {cmux_ssh_auth_completion_event_fd}>&- 2>/dev/null || true; exec {cmux_ssh_auth_completion_ack_fd}>&- 2>/dev/null || true; cmux_ssh_auth_completion_event_fd=; cmux_ssh_auth_completion_ack_fd=; fi; }",
+            "cmux_ssh_auth_signal_completion() { if [ \"$cmux_ssh_auth_completion_fds_open\" = 1 ]; then cmux_ssh_auth_marker_cleanup_deferred=1; printf '%s\\n' \"$cmux_ssh_auth_event_token\" >&$cmux_ssh_auth_completion_event_fd 2>/dev/null || true; cmux_ssh_auth_completion_ack=; IFS= read -r -t 2 cmux_ssh_auth_completion_ack <&$cmux_ssh_auth_completion_ack_fd || true; fi; if [ -n \"${cmux_ssh_auth_completion_event_fd:-}\" ]; then exec {cmux_ssh_auth_completion_event_fd}>&- 2>/dev/null || true; fi; if [ -n \"${cmux_ssh_auth_completion_ack_fd:-}\" ]; then exec {cmux_ssh_auth_completion_ack_fd}>&- 2>/dev/null || true; fi; cmux_ssh_auth_completion_event_fd=; cmux_ssh_auth_completion_ack_fd=; cmux_ssh_auth_completion_fds_open=0; }",
             "cmux_ssh_auth_capture_cleanup() {",
             "  if [ -n \"${cmux_ssh_auth_classifier_guard_fd:-}\" ]; then",
             "    exec {cmux_ssh_auth_classifier_guard_fd}>&-",
@@ -938,7 +959,11 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
             "exec {cmux_ssh_auth_classifier_guard_fd}<> \"$cmux_ssh_auth_classifier_fifo\" || exit 255",
             "( exec {cmux_ssh_auth_classifier_guard_fd}>&-; zmodload zsh/system || exit 255; exec {cmux_ssh_auth_classifier_fd}< \"$cmux_ssh_auth_classifier_fifo\" || exit 255; while sysread -i \"$cmux_ssh_auth_classifier_fd\" -s 4096 cmux_ssh_auth_classifier_chunk; do print -r -- \"$cmux_ssh_auth_classifier_chunk\"; done; exec {cmux_ssh_auth_classifier_fd}<&- ) | ( exec {cmux_ssh_auth_classifier_guard_fd}>&-; LC_ALL=C /usr/bin/awk -v cmux_ssh_auth_classification=\"$cmux_ssh_auth_capture_state\" -v cmux_ssh_auth_transient_pattern=\(shellQuote(transientFailurePattern)) -v cmux_ssh_auth_permanent_pattern=\(shellQuote(permanentFailurePattern)) \(shellQuote(classifierProgram)) ) &",
             "cmux_ssh_auth_classifier_pid=$!",
-            "( exec {cmux_ssh_auth_classifier_guard_fd}>&-; exec /usr/bin/script -q -F \"$cmux_ssh_auth_classifier_fifo\" \(nestedCommand) <&0 >&2 ) &",
+            // In event mode the helper must keep `script` alive until the
+            // nested TERM handler publishes its completion marker. Ignore
+            // only the helper's HUP/TERM signals in that mode; ordinary
+            // wrappers retain their normal signal behavior.
+            "( exec {cmux_ssh_auth_classifier_guard_fd}>&-; if [ -n \"$cmux_ssh_auth_event_token\" ]; then trap '' HUP TERM; fi; exec /usr/bin/script -q -F \"$cmux_ssh_auth_classifier_fifo\" \(nestedCommand) <&0 >&2 ) &",
             "cmux_ssh_auth_command_pid=$!",
             "wait \"$cmux_ssh_auth_command_pid\"",
             "cmux_ssh_auth_capture_status=$?",
