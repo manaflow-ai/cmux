@@ -128,6 +128,22 @@ awk -F '\t' -v candidate="$candidate" '$1 == candidate { print $2; found = 1 } E
 EOF
 chmod 0755 "$fake_stat"
 
+fake_mv="$tmp/mv"
+cat > "$fake_mv" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+
+/bin/mv "$@"
+destination=""
+for argument in "$@"; do
+  destination="$argument"
+done
+if [[ "${CMUX_TEST_MV_MODE:-normal}" == publish-marker && "$destination" == *.reclaim ]]; then
+  printf 'published-after-move\n' > "$destination/owner"
+fi
+EOF
+chmod 0755 "$fake_mv"
+
 make_root() {
   test_root="$(mktemp -d "$tmp/root.XXXXXX")"
 }
@@ -165,6 +181,7 @@ run_retention() {
   CMUX_TUI_HOSTED_RETENTION_MAX_CANDIDATES="${test_max_candidates:-10000}" \
   CMUX_TUI_HOSTED_RETENTION_LSOF="${test_lsof_command:-$fake_lsof}" \
   CMUX_TUI_HOSTED_RETENTION_STAT="$fake_stat" \
+  CMUX_TEST_MV_MODE="${test_mv_mode:-normal}" \
   CMUX_TEST_LSOF_MODE="${test_lsof_mode:-inactive}" \
   CMUX_TEST_ACTIVE_COMMIT="${test_active_commit:-}" \
   CMUX_TEST_LSOF_STATE="${test_lsof_state:-$tmp/lsof-state}" \
@@ -457,6 +474,40 @@ expect_success
 assert_missing "$active_commit"
 assert_missing "$old_commit"
 assert_missing .retention.lock
+
+# Reclaim must not delete a marker published after the atomic move. Restore the
+# moved lock and fail closed when publication races with stale recovery.
+make_baseline
+mkdir "$test_root/.retention.lock"
+set_old_mtime "$test_root/.retention.lock"
+printf '.retention.lock\t100\n' >> "$tmp/stat-map"
+test_dry_run=0
+test_confirm=1
+test_mv_mode=publish-marker
+expect_failure 2
+assert_exists .retention.lock
+[[ "$(<"$test_root/.retention.lock/owner")" == published-after-move ]] || {
+  echo "concurrent owner marker was not preserved" >&2
+  exit 1
+}
+
+# A stale lock with unexpected contents must retain its owner marker when
+# quarantine cleanup cannot remove the extra entry.
+make_baseline
+mkdir "$test_root/.retention.lock"
+printf '999999\t1\told-token\n' > "$test_root/.retention.lock/owner"
+printf x > "$test_root/.retention.lock/extra"
+set_old_mtime "$test_root/.retention.lock"
+printf '.retention.lock\t100\n' >> "$tmp/stat-map"
+test_dry_run=0
+test_confirm=1
+test_mv_mode=normal
+expect_failure 2
+assert_exists .retention.lock
+[[ "$(<"$test_root/.retention.lock/owner")" == $'999999\t1\told-token' ]] || {
+  echo "stale lock owner marker was lost" >&2
+  exit 1
+}
 
 # A live owner remains exclusive even when its lock is old.
 make_baseline
