@@ -47,10 +47,10 @@ const MAX_BLOB: usize = crate::surface::VT_REPLAY_MAX_BYTES;
 const MAX_ARGV: usize = 256;
 const MAX_ENV: usize = 1024;
 const MAX_RENDERER_CAPABILITY_TTL: std::time::Duration = std::time::Duration::from_secs(60);
-pub(crate) const CONTROL_RESPONSE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(2);
-const HOST_HANDSHAKE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(2);
-const HOST_CONNECT_RETRY_WINDOW: std::time::Duration = std::time::Duration::from_secs(1);
-const HOST_CONNECT_RETRY_INTERVAL: std::time::Duration = std::time::Duration::from_millis(10);
+pub(crate) const CONTROL_RESPONSE_TIMEOUT: std::time::Duration = crate::budgets::HOST_CONTROL_RESPONSE;
+const HOST_HANDSHAKE_TIMEOUT: std::time::Duration = crate::budgets::HOST_HANDSHAKE;
+const HOST_CONNECT_RETRY_WINDOW: std::time::Duration = crate::budgets::HOST_CONNECT_WINDOW;
+const HOST_CONNECT_RETRY_INTERVAL: std::time::Duration = crate::budgets::HOST_CONNECT_INTERVAL;
 const TERMINAL_HOST_PUBLICATION_LOCK_FILE: &str = ".publication.lock";
 // Keep live PTY backpressure independent from the extra headroom needed by
 // one maximum Resized + Colors + targeted acknowledgement transition.
@@ -62,7 +62,7 @@ const MAX_HOST_CLIENT_STATE_QUEUED_BYTES: usize = MAX_FRAME_PAYLOAD
     + 3 * crate::terminal_host_protocol::HEADER_LEN;
 const MAX_HOST_CLIENT_QUEUED_BYTES: usize =
     MAX_HOST_CLIENT_OUTPUT_QUEUED_BYTES + MAX_HOST_CLIENT_STATE_QUEUED_BYTES;
-const HOST_SNAPSHOT_BOUNDARY_TIMEOUT: std::time::Duration = std::time::Duration::from_millis(1500);
+const HOST_SNAPSHOT_BOUNDARY_TIMEOUT: std::time::Duration = crate::budgets::HOST_SNAPSHOT_BOUNDARY;
 const MAX_SMART_RETAINED_BYTES: usize = 8 * 1024 * 1024;
 const MAX_SMART_RETAINED_FRAMES: usize = 4096;
 const HOST_PARSER_QUEUE_CAPACITY: usize = 256;
@@ -433,13 +433,13 @@ mod unix {
     use super::*;
 
     static RECORD_TEMP_SEQUENCE: AtomicU64 = AtomicU64::new(1);
-    const HOST_TERMINATE_GRACE: Duration = Duration::from_millis(250);
-    const HOST_KILL_WAIT: Duration = Duration::from_secs(2);
-    const HOST_PTY_DRAIN_GRACE: Duration = Duration::from_millis(250);
-    const HOST_FORCED_DRAIN_WINDOW: Duration = Duration::from_millis(100);
-    const HOST_LAUNCH_ROLLBACK_WAIT: Duration = Duration::from_secs(4);
-    const HOST_LAUNCH_OWNER_TIMEOUT: Duration = Duration::from_secs(5);
-    const HOST_CLIENT_WRITE_TIMEOUT: Duration = Duration::from_secs(2);
+    const HOST_TERMINATE_GRACE: Duration = crate::budgets::HOST_TERMINATE_GRACE;
+    const HOST_KILL_WAIT: Duration = crate::budgets::HOST_KILL_WAIT;
+    const HOST_PTY_DRAIN_GRACE: Duration = crate::budgets::HOST_PTY_DRAIN;
+    const HOST_FORCED_DRAIN_WINDOW: Duration = crate::budgets::HOST_FORCED_DRAIN;
+    const HOST_LAUNCH_ROLLBACK_WAIT: Duration = crate::budgets::HOST_LAUNCH_ROLLBACK;
+    const HOST_LAUNCH_OWNER_TIMEOUT: Duration = crate::budgets::HOST_LAUNCH_OWNER;
+    const HOST_CLIENT_WRITE_TIMEOUT: Duration = crate::budgets::HOST_CLIENT_WRITE;
     const HOST_HANDSHAKE_TRANSIENT_RETRIES: usize = 1;
     const HOST_EXIT_PERSIST_RETRY_MIN: Duration = Duration::from_millis(100);
     const HOST_EXIT_PERSIST_RETRY_MAX: Duration = Duration::from_secs(5);

@@ -103,7 +103,7 @@ The public resource roots are:
 ```text
 server   machine  session  client  workspace  screen  pane  tab
 terminal browser  notification  agent  sidebar
-pairing  projection  provider  raw
+pairing  projection  provider  raw  diag
 ```
 
 Structural resources may be addressed directly by opaque ID or through their
@@ -357,6 +357,21 @@ plugin names are slugs matching `[a-z0-9-_]+`.
 `provider authority install` is a local Linux host-administration action. It
 installs the credential for an already running provider-managed session and is
 not a transported resource operation or cross-machine discovery API.
+
+## Diagnostics
+
+```text
+cmux diag budgets [--json]
+```
+
+`diag budgets` runs locally and needs no session. It prints every named timing
+and size budget that the daemon, terminal hosts, and clients enforce: the
+dotted `name`, the `value` and `unit` (`ms` or `bytes`), the interaction
+`stage` it belongs to (`accept`, `durable`, `settle`, `frame`, `client`, or
+`planned` for a budget reserved by design and not yet enforced), a one-line
+`purpose`, and the code `site` that holds the value. The constants live in
+`cmux_tui_core::budgets`; a timeout error names the budget it exhausted. The
+verb is CLI-local and is not a raw protocol command or a resource operation.
 
 ## Raw access
 

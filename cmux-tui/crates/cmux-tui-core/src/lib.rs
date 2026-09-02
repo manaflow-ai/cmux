@@ -30,6 +30,7 @@ mod sidebar_resource;
 mod surface;
 mod workspace_registry;
 
+pub mod budgets;
 pub mod layout;
 pub mod platform;
 pub mod server;

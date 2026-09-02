@@ -26,9 +26,9 @@ use serde_json::Value;
 
 /// Total time an ensure may spend probing, spawning, and waiting for the
 /// owner to accept clients. Matches the lifecycle CLI exchange deadline.
-pub(crate) const ENSURE_DEADLINE: Duration = Duration::from_secs(10);
+pub(crate) const ENSURE_DEADLINE: Duration = cmux_tui_core::budgets::OWNER_ENSURE;
 
-const POLL_INTERVAL: Duration = Duration::from_millis(25);
+const POLL_INTERVAL: Duration = cmux_tui_core::budgets::OWNER_POLL;
 
 /// The reaper's only job is clearing a zombie when the owner exits early
 /// (a lost bind race or a crash), and `terminate` reaps synchronously
