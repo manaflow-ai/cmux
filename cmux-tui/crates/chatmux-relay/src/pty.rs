@@ -3110,6 +3110,33 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn open_uses_live_auth_for_initial_admission() {
+        let h = harness(None, None);
+        let live_auth =
+            Arc::new(StdMutex::new(("observe".to_owned(), Some("different-owner".to_owned()))));
+        let mut context = h.context("supervised", h.owner.clone());
+        let live_auth_for_context = Arc::clone(&live_auth);
+        context.live_auth = Arc::new(move || live_auth_for_context.lock().unwrap().clone());
+        let frame = serde_json::json!({
+            "version": 4,
+            "type": "pty_open",
+            "ptyId": "p1",
+            "session": "main",
+            "cols": 80,
+            "rows": 24,
+            "actorId": "user_owner",
+        });
+
+        h.manager.handle_frame(&frame, &context).await;
+
+        let sent = h.sent();
+        assert_eq!(sent.len(), 1);
+        assert_eq!(sent[0]["type"], "pty_error");
+        assert_eq!(sent[0]["code"], "trust_refused");
+        assert_eq!(h.manager.opening_count(), 0);
+    }
+
+    #[tokio::test]
     async fn shell_open_output_input_resize_flow_round_trip() {
         let h = harness(None, None);
         h.open("p1", "main", Value::Null, "supervised", h.owner.clone()).await;
@@ -3434,10 +3461,99 @@ mod tests {
         assert_eq!(h.sent()[0]["type"], "pty_opened");
     }
 
+    #[tokio::test]
+    async fn raw_attach_capability_error_is_product_facing() {
+        let cmux = CmuxTui { file: "/opt/cmux-tui".to_owned(), prefix: Vec::new() };
+        let control: Arc<dyn ControlHandle> = Arc::new(AttachFailureControl {
+            set_client_info_ok: false,
+            include_lease: false,
+            ended: Arc::new(AtomicUsize::new(0)),
+        });
+        let h = harness_with_control(Some(cmux), None, None, Some(control));
+        h.open("p1", "work", serde_json::json!({ "surface": "7" }), "supervised", h.owner.clone())
+            .await;
+
+        let error = h.sent().into_iter().find(|frame| ty(frame) == "pty_error").unwrap();
+        assert_eq!(
+            error["message"],
+            "this terminal cannot be attached; update cmux-tui and try again"
+        );
+        assert!(!error["message"].as_str().unwrap().contains("control"));
+        assert!(!error["message"].as_str().unwrap().contains("view-attachment"));
+    }
+
+    #[tokio::test]
+    async fn raw_attach_missing_lease_error_is_product_facing() {
+        let cmux = CmuxTui { file: "/opt/cmux-tui".to_owned(), prefix: Vec::new() };
+        let control: Arc<dyn ControlHandle> = Arc::new(AttachFailureControl {
+            set_client_info_ok: true,
+            include_lease: false,
+            ended: Arc::new(AtomicUsize::new(0)),
+        });
+        let h = harness_with_control(Some(cmux), None, None, Some(control));
+        h.open("p1", "work", serde_json::json!({ "surface": "7" }), "supervised", h.owner.clone())
+            .await;
+
+        let error = h.sent().into_iter().find(|frame| ty(frame) == "pty_error").unwrap();
+        assert_eq!(
+            error["message"],
+            "this terminal cannot be attached; update cmux-tui and try again"
+        );
+        assert!(!error["message"].as_str().unwrap().contains("attach-surface"));
+    }
+
     /// Scripted control plane: identifies at the protocol floor and lists a
     /// workspace tree WITHOUT the requested terminal — the JS harness's
     /// "closed tab" shape.
     struct GoneControl;
+
+    struct AttachFailureControl {
+        set_client_info_ok: bool,
+        include_lease: bool,
+        ended: Arc<AtomicUsize>,
+    }
+
+    impl ControlHandle for AttachFailureControl {
+        fn request(
+            &self,
+            cmd: &str,
+            _params: Value,
+        ) -> std::pin::Pin<Box<dyn Future<Output = Option<Value>> + Send + '_>> {
+            let response = match cmd {
+                "identify" => Some(json!({
+                    "ok": true,
+                    "data": {
+                        "protocol": CONTROL_MIN_PROTOCOL,
+                        "capabilities": [
+                            VIEW_ATTACHMENT_LEASE_CAPABILITY,
+                            VIEW_ATTACHMENT_DETACH_CAPABILITY,
+                        ],
+                    },
+                })),
+                "set-client-info" => Some(json!({ "ok": self.set_client_info_ok })),
+                "attach-surface" => {
+                    let data =
+                        if self.include_lease { json!({ "lease": "lease-a" }) } else { json!({}) };
+                    Some(json!({ "ok": true, "data": data }))
+                }
+                _ => None,
+            };
+            Box::pin(async move { response })
+        }
+
+        fn send(&self, _cmd: &str, _params: Value) -> bool {
+            true
+        }
+
+        fn on_event(&self, _handler: EventHandler) {}
+        fn on_close(&self, _handler: CloseHandler) {}
+        fn pause(&self) {}
+        fn resume(&self) {}
+
+        fn end(&self) {
+            self.ended.fetch_add(1, AtomicOrdering::SeqCst);
+        }
+    }
 
     impl ControlHandle for GoneControl {
         fn request(
