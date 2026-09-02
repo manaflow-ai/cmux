@@ -384,6 +384,12 @@ function cmuxTuiSupervisedDaemonInvocation(
     `if [ "$cmux_tui_killer_polls" -ge ${CMUX_TUI_CHILD_SHUTDOWN_GRACE_POLLS} ] && kill -0 "$cmux_tui_terminate_pid" 2>/dev/null; then kill -KILL "$cmux_tui_terminate_pid" 2>/dev/null || true; fi ) &`,
     `cmux_tui_killer_pid=$!;`,
     `wait "$cmux_tui_terminate_pid" 2>/dev/null || true;`,
+    // Cancel the helper as soon as the child is reaped so it can never act on
+    // a reused pid. KILL rather than TERM: dash forks the helper with the
+    // parent's TERM trap still inherited and resets it afterwards, so a TERM
+    // that lands in that window is dropped. The helper holds at most one
+    // 20 ms sleep, so a KILL orphans nothing that matters.
+    `kill -KILL "$cmux_tui_killer_pid" 2>/dev/null || true;`,
     `wait "$cmux_tui_killer_pid" 2>/dev/null || true;`,
     `}`,
   ].join(" ");
