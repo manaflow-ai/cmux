@@ -17,7 +17,7 @@ use std::time::{Duration, Instant};
 use cmux_tui_core::platform::transport;
 use serde_json::{Value, json};
 
-use super::{GlobalArgs, OutputMode};
+use crate::cli::{GlobalArgs, OutputMode};
 
 const READ_LIMIT: usize = 16 * 1024 * 1024;
 const RPC_TIMEOUT: Duration = Duration::from_secs(20);
@@ -25,13 +25,13 @@ const RPC_TIMEOUT: Duration = Duration::from_secs(20);
 const VISIBILITY_GRACE: Duration = Duration::from_secs(2);
 
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub(super) struct BenchPlan {
+pub(crate) struct BenchPlan {
     pub creates_per_client: usize,
     pub clients: usize,
     pub typing_probes: usize,
 }
 
-pub(super) fn run(global: GlobalArgs, plan: BenchPlan) -> i32 {
+pub(crate) fn run(global: GlobalArgs, plan: BenchPlan) -> i32 {
     match execute(&global, &plan) {
         Ok(report) => match global.output {
             OutputMode::Human => {
@@ -40,9 +40,9 @@ pub(super) fn run(global: GlobalArgs, plan: BenchPlan) -> i32 {
                 let _ = out.flush();
                 0
             }
-            output => super::wire::print_local_success(&report.to_json(), output),
+            output => crate::cli::wire::print_local_success(&report.to_json(), output),
         },
-        Err(error) => super::wire::print_local_error(
+        Err(error) => crate::cli::wire::print_local_error(
             &json!({"code":"bench.failed","message":error,"details":{},"retryable":false}),
             global.output,
             3,
