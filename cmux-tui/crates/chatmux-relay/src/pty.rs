@@ -234,7 +234,7 @@ fn scoped_cwd(
 fn open_pinned_directory(path: &Path) -> Result<(File, Vec<DirectoryIdentity>), String> {
     use std::ffi::CString;
     use std::os::unix::ffi::OsStrExt;
-    use std::os::unix::fs::{MetadataExt, OpenOptionsExt};
+    use std::os::unix::fs::MetadataExt;
     use std::os::unix::io::FromRawFd;
 
     // Linux O_PATH avoids requiring read permission. Darwin's O_EXEC combined
@@ -247,14 +247,15 @@ fn open_pinned_directory(path: &Path) -> Result<(File, Vec<DirectoryIdentity>), 
     #[cfg(not(any(target_os = "linux", target_os = "macos")))]
     const ACCESS_MODE: libc::c_int = libc::O_RDONLY;
     let flags = ACCESS_MODE | libc::O_DIRECTORY | libc::O_NOFOLLOW | libc::O_CLOEXEC;
-    let mut parent = std::fs::OpenOptions::new()
-        // Rust requires an access mode on the builder before it invokes the
-        // OS open call. O_EXEC remains the effective Darwin mode because
-        // custom_flags only adds non-O_ACCMODE bits.
-        .read(true)
-        .custom_flags(flags)
-        .open("/")
-        .map_err(|_| "cwd is not accessible".to_owned())?;
+    let root = CString::new("/").expect("literal root path has no NUL");
+    // SAFETY: `root` is a valid NUL-terminated path and `flags` requests a
+    // directory descriptor with the platform-specific access mode above.
+    let root_fd = unsafe { libc::open(root.as_ptr(), flags) };
+    if root_fd < 0 {
+        return Err("cwd is not accessible".to_owned());
+    }
+    // SAFETY: `root_fd` is a newly-owned descriptor from `open`.
+    let mut parent = unsafe { File::from_raw_fd(root_fd) };
     let mut expected_path = PathBuf::from("/");
     let mut ancestry = Vec::new();
     for component in path.components() {
