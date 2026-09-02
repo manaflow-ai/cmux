@@ -491,7 +491,10 @@ function boundParams(node: unknown, out: unknown[] = []): unknown[] {
   if (typeof node === "string") out.push(node);
   if (node && typeof node === "object") {
     const record = node as { value?: unknown; queryChunks?: unknown[]; constructor?: { name?: string } };
-    if (record.constructor?.name === "Param") out.push(record.value);
+    if (record.constructor?.name === "Param") {
+      if (Array.isArray(record.value)) out.push(...record.value);
+      else out.push(record.value);
+    }
     if (Array.isArray(record.queryChunks)) for (const chunk of record.queryChunks) boundParams(chunk, out);
   }
   return out;
@@ -615,7 +618,16 @@ describe("pending email grants", () => {
     expect(listed.map((row) => row.email)).toEqual(["a@example.com"]);
   });
 
-  test("applyPendingEmailGrants applies the newest open grant and closes all of them", async () => {
+  test("a new grant for the same email supersedes the earlier open one", async () => {
+    const rows: GrantRow[] = [];
+    const db = fakeGrantsDb(rows);
+    await createPendingEmailGrant({ email: "pat@example.com", plan: "pro", admin, db });
+    await createPendingEmailGrant({ email: "pat@example.com", plan: "founders", admin, db });
+    expect(rows.map((row) => [row.plan, row.revokedAt !== null])).toEqual([["pro", true], ["founders", false]]);
+    expect((await listPendingEmailGrants("pat", { db })).map((row) => row.plan)).toEqual(["founders"]);
+  });
+
+  test("applyPendingEmailGrants applies the open grant and closes it", async () => {
     const rows: GrantRow[] = [];
     const db = fakeGrantsDb(rows);
     await createPendingEmailGrant({ email: "pat@example.com", plan: "pro", admin, db });
@@ -626,11 +638,12 @@ describe("pending email grants", () => {
       { id: "u9", primaryEmail: "Pat@Example.com" },
       { db, grant: async (input) => { grants.push(input); return undefined; } },
     );
-    expect(applied).toBe(2);
+    expect(applied).toBe(1);
     expect(grants).toEqual([
       { targetUserId: "u9", plan: "founders", admin: { id: "admin-1", primaryEmail: "lawrence@manaflow.ai" } },
     ]);
-    expect(rows.filter((row) => row.email === "pat@example.com").every((row) => row.appliedUserId === "u9")).toBe(true);
+    expect(rows.find((row) => row.plan === "founders")?.appliedUserId).toBe("u9");
+    expect(rows.find((row) => row.plan === "pro" && row.email === "pat@example.com")?.appliedAt).toBeNull();
     expect(rows.find((row) => row.email === "other@example.com")?.appliedAt).toBeNull();
     // Second sign-in finds nothing open.
     expect(await applyPendingEmailGrants({ id: "u9", primaryEmail: "pat@example.com" }, { db, grant: async () => undefined })).toBe(0);

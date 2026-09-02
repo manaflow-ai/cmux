@@ -6,7 +6,7 @@
 // the account falls back to its real Stripe state. Who granted what is kept in
 // `serverMetadata.cmuxAdminPlanGrant`, which end users cannot read.
 
-import { and, desc, eq, ilike, isNull, lt, or } from "drizzle-orm";
+import { and, desc, eq, ilike, inArray, isNull, lt, or } from "drizzle-orm";
 
 import { cloudDb } from "../../db/client";
 import { adminPlanGrants } from "../../db/schema";
@@ -560,6 +560,18 @@ export async function createPendingEmailGrant(input: {
   }
   const db = input.db ?? cloudDb();
   const email = canonicalizeEmailForMatching(input.email);
+  // One open grant per email: a new grant supersedes any earlier open one, so
+  // sign-in never has more than one row to apply and the newest plan wins.
+  await db
+    .update(adminPlanGrants)
+    .set({ revokedAt: new Date() })
+    .where(
+      and(
+        eq(adminPlanGrants.email, email),
+        isNull(adminPlanGrants.appliedAt),
+        isNull(adminPlanGrants.revokedAt),
+      ),
+    );
   const [row] = await db
     .insert(adminPlanGrants)
     .values({
@@ -663,6 +675,9 @@ export async function revokePendingEmailGrant(input: {
  * Called from the after-sign-in callback, which only runs it once Stack
  * reports the mailbox verified. The newest grant wins when several are open.
  *
+ * Work is bounded: createPendingEmailGrant keeps at most one open row per
+ * email, and claim, finalize, and release are each a single statement.
+ *
  * Protocol, so that a revoke always wins until the grant is durably applied:
  * 1. claim: set applied_user_id and claimed_at on open rows that are
  *    unclaimed, claimed by this same user, or whose claim is older than
@@ -727,14 +742,13 @@ export async function applyPendingEmailGrants(
     throw error;
   }
   if (claimed.length === 0) return 0;
+  const claimedIds = claimed.map((row) => row.id);
   const releaseClaims = async () => {
-    for (const row of claimed) {
-      await db
-        .update(adminPlanGrants)
-        .set({ appliedUserId: null, claimedAt: null })
-        .where(and(eq(adminPlanGrants.id, row.id), isNull(adminPlanGrants.appliedAt)))
-        .catch(() => undefined);
-    }
+    await db
+      .update(adminPlanGrants)
+      .set({ appliedUserId: null, claimedAt: null })
+      .where(and(inArray(adminPlanGrants.id, claimedIds), isNull(adminPlanGrants.appliedAt)))
+      .catch(() => undefined);
   };
 
   const newest = [...claimed].sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime())[0]!;
@@ -752,16 +766,12 @@ export async function applyPendingEmailGrants(
     }
   }
 
-  const finalizedAt = now();
-  const finalized = new Set<string>();
-  for (const row of claimed) {
-    const done = await db
-      .update(adminPlanGrants)
-      .set({ appliedAt: finalizedAt })
-      .where(and(eq(adminPlanGrants.id, row.id), isNull(adminPlanGrants.revokedAt)))
-      .returning({ id: adminPlanGrants.id });
-    if (done.length > 0) finalized.add(row.id);
-  }
+  const done = await db
+    .update(adminPlanGrants)
+    .set({ appliedAt: now() })
+    .where(and(inArray(adminPlanGrants.id, claimedIds), isNull(adminPlanGrants.revokedAt)))
+    .returning({ id: adminPlanGrants.id });
+  const finalized = new Set(done.map((row) => row.id));
   if (plan !== null && !finalized.has(newest.id)) {
     // Revoked while the write was in flight: the revoke wins.
     await grant({
