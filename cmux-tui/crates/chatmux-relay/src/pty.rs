@@ -1523,9 +1523,9 @@ async fn request_control_with_cancellation(
 
 impl Drop for ControlGuard {
     fn drop(&mut self) {
-        if let Some(control) = self.0.take() {
-            control.end();
-        }
+        // Callers explicitly choose `end_control_if_unshared` on every
+        // failure path. An unconditional end here could tear down a control
+        // connection that already has other attachment leases.
     }
 }
 
