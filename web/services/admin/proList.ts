@@ -375,3 +375,32 @@ export async function loadProListSnapshot(
     throw error;
   }
 }
+
+export class ProListTimeoutError extends Error {
+  constructor(readonly afterMs: number) {
+    super(`Pro roster snapshot took longer than ${afterMs}ms`);
+    this.name = "ProListTimeoutError";
+  }
+}
+
+/** Default budget for the server-rendered roster before the page falls back to a retry state. */
+export const PRO_LIST_RENDER_TIMEOUT_MS = 8_000;
+
+/**
+ * Bounds how long the page render waits for the roster. A stalled database
+ * must not hold the admin page; the client shows a retry instead.
+ */
+export async function loadProListSnapshotWithin(
+  timeoutMs: number = PRO_LIST_RENDER_TIMEOUT_MS,
+  load: () => Promise<ProListSnapshot> = () => loadProListSnapshot(),
+): Promise<ProListSnapshot> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const timeout = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => reject(new ProListTimeoutError(timeoutMs)), timeoutMs);
+  });
+  try {
+    return await Promise.race([load(), timeout]);
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
+}

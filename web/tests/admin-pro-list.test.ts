@@ -3,6 +3,8 @@ import { describe, expect, test } from "bun:test";
 import {
   isValidScanCursor,
   listAllPendingEmailGrants,
+  loadProListSnapshotWithin,
+  ProListTimeoutError,
   mapWithConcurrency,
   PRO_LIST_MAX_ROWS,
   listStripeProSubscribers,
@@ -164,6 +166,14 @@ describe("Pro roster", () => {
     expect(rows.map((row) => row.displayName)).toEqual(subs.map((sub) => `Team ${sub.teamId}`));
     expect(peak).toBeLessThanOrEqual(4);
     expect(await mapWithConcurrency([], 3, async () => 1)).toEqual([]);
+  });
+
+  test("the page-render load is bounded by a timeout", async () => {
+    const snapshot = { subscribers: [], teamSubscriptions: [], pendingGrants: [], truncated: { subscribers: false, teamSubscriptions: false, pendingGrants: false } };
+    expect(await loadProListSnapshotWithin(1000, async () => snapshot)).toBe(snapshot);
+    await expect(
+      loadProListSnapshotWithin(5, () => new Promise(() => undefined)),
+    ).rejects.toBeInstanceOf(ProListTimeoutError);
   });
 
   test("isValidScanCursor accepts opaque tokens and rejects junk", () => {
