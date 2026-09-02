@@ -1,5 +1,6 @@
 public import Foundation
 import CmuxSettings
+import os
 
 #if canImport(LocalAuthentication)
 import LocalAuthentication
@@ -33,7 +34,7 @@ public nonisolated enum SocketCredentialSource: Equatable, Sendable {
 /// immutable and invoked while that lock is held.
 public final class SocketCredentialResolver: @unchecked Sendable {
     /// Reads the first available password from the supplied keychain services.
-    public typealias KeychainPasswordProvider = (_ services: [String]) -> String?
+    public typealias KeychainPasswordProvider = @Sendable (_ services: [String]) -> String?
 
     private enum ResolutionState {
         case unresolved
@@ -46,18 +47,17 @@ public final class SocketCredentialResolver: @unchecked Sendable {
     private let explicitPassword: String?
     private let environment: [String: String]
     private let socketPath: String
-    private let filePasswordProvider: () -> String?
+    private let filePasswordProvider: @Sendable () -> String?
     private let keychainPasswordProvider: KeychainPasswordProvider
     /// Shared mode state for clients targeting this route.
     public let authenticationModeCoordinator: SocketAuthenticationModeCoordinator
     // The resolver is shared by synchronous CLI and detached readiness paths.
     // Security's lookup and SocketClient's send are synchronous; an actor hop
     // would require a blocking bridge and could reorder the auth retry. This
-    // lock is the synchronous single-flight boundary: it guards state and one
-    // source invocation, never socket I/O, so concurrent paths cannot create
-    // duplicate LocalAuthentication contexts.
-    private let resolutionLock = NSLock()
-    private var resolutionState = ResolutionState.unresolved
+    // heap-stable lock is the synchronous single-flight boundary: it guards
+    // state and one source invocation, never socket I/O, so concurrent paths
+    // cannot create duplicate LocalAuthentication contexts.
+    private let resolutionState = OSAllocatedUnfairLock<ResolutionState>(initialState: .unresolved)
 
     /// Creates a resolver with injectable file and keychain sources.
     ///
@@ -69,15 +69,16 @@ public final class SocketCredentialResolver: @unchecked Sendable {
         socketPath: String,
         environment: [String: String] = ProcessInfo.processInfo.environment,
         fileManager: FileManager = .default,
-        filePasswordProvider: (() -> String?)? = nil,
+        filePasswordProvider: (@Sendable () -> String?)? = nil,
         keychainPasswordProvider: KeychainPasswordProvider? = nil,
         authenticationModeCoordinator: SocketAuthenticationModeCoordinator? = nil
     ) {
         self.explicitPassword = Self.normalized(explicitPassword)
         self.environment = environment
         self.socketPath = socketPath
+        let defaultPasswordFileURL = SocketControlPasswordStore.defaultPasswordFileURL(fileManager: fileManager)
         self.filePasswordProvider = filePasswordProvider ?? {
-            Self.loadFromFile(fileManager: fileManager)
+            Self.loadFromFile(url: defaultPasswordFileURL)
         }
         self.keychainPasswordProvider = keychainPasswordProvider ?? { services in
             Self.loadFromKeychain(services: services)
@@ -95,28 +96,28 @@ public final class SocketCredentialResolver: @unchecked Sendable {
 
     /// The source selected so far, or the immediate source without forcing a deferred read.
     public var source: SocketCredentialSource? {
-        resolutionLock.lock()
-        defer { resolutionLock.unlock() }
-        switch resolutionState {
-        case .unresolved:
-            if explicitPassword != nil { return .explicit }
-            if Self.normalized(environment["CMUX_SOCKET_PASSWORD"]) != nil { return .environment }
-            return nil
-        case let .resolved(_, source):
-            return source
+        resolutionState.withLock { state in
+            switch state {
+            case .unresolved:
+                if explicitPassword != nil { return .explicit }
+                if Self.normalized(environment["CMUX_SOCKET_PASSWORD"]) != nil { return .environment }
+                return nil
+            case let .resolved(_, source):
+                return source
+            }
         }
     }
 
     /// The resolved password when a deferred demand has completed, without
     /// starting a new lookup.
     public var resolvedPassword: String? {
-        resolutionLock.lock()
-        defer { resolutionLock.unlock() }
-        switch resolutionState {
-        case .unresolved:
-            return immediatePassword
-        case let .resolved(password, _):
-            return password
+        resolutionState.withLock { state in
+            switch state {
+            case .unresolved:
+                return immediatePassword
+            case let .resolved(password, _):
+                return password
+            }
         }
     }
 
@@ -145,36 +146,36 @@ public final class SocketCredentialResolver: @unchecked Sendable {
 
     /// Resolves the credential chain without starting a source read after the deadline.
     public func resolve(deadline: Date?) -> String? {
-        resolutionLock.lock()
-        defer { resolutionLock.unlock() }
-        guard !Self.deadlineExpired(deadline) else { return nil }
-        switch resolutionState {
-        case let .resolved(password, _):
-            return password
-        case .unresolved:
-            break
-        }
+        resolutionState.withLock { state in
+            guard !Self.deadlineExpired(deadline) else { return nil }
+            switch state {
+            case let .resolved(password, _):
+                return password
+            case .unresolved:
+                break
+            }
 
-        if let explicitPassword {
-            resolutionState = .resolved(password: explicitPassword, source: .explicit)
-            return explicitPassword
+            if let explicitPassword {
+                state = .resolved(password: explicitPassword, source: .explicit)
+                return explicitPassword
+            }
+            if let environmentPassword = Self.normalized(environment["CMUX_SOCKET_PASSWORD"]) {
+                state = .resolved(password: environmentPassword, source: .environment)
+                return environmentPassword
+            }
+            if let filePassword = Self.normalized(filePasswordProvider()) {
+                state = .resolved(password: filePassword, source: .file)
+                return filePassword
+            }
+            guard !Self.deadlineExpired(deadline) else { return nil }
+            let services = Self.keychainServices(socketPath: socketPath, environment: environment)
+            if let keychainPassword = Self.normalized(keychainPasswordProvider(services)) {
+                state = .resolved(password: keychainPassword, source: .keychain)
+                return keychainPassword
+            }
+            state = .resolved(password: nil, source: nil)
+            return nil
         }
-        if let environmentPassword = Self.normalized(environment["CMUX_SOCKET_PASSWORD"]) {
-            resolutionState = .resolved(password: environmentPassword, source: .environment)
-            return environmentPassword
-        }
-        if let filePassword = Self.normalized(filePasswordProvider()) {
-            resolutionState = .resolved(password: filePassword, source: .file)
-            return filePassword
-        }
-        guard !Self.deadlineExpired(deadline) else { return nil }
-        let services = Self.keychainServices(socketPath: socketPath, environment: environment)
-        if let keychainPassword = Self.normalized(keychainPasswordProvider(services)) {
-            resolutionState = .resolved(password: keychainPassword, source: .keychain)
-            return keychainPassword
-        }
-        resolutionState = .resolved(password: nil, source: nil)
-        return nil
     }
 
     /// Returns scoped and unscoped legacy keychain service names in lookup order.
@@ -199,9 +200,9 @@ public final class SocketCredentialResolver: @unchecked Sendable {
         return deadline.timeIntervalSinceNow <= 0
     }
 
-    private static func loadFromFile(fileManager: FileManager) -> String? {
-        guard let passwordURL = SocketControlPasswordStore.defaultPasswordFileURL(fileManager: fileManager),
-              let data = try? Data(contentsOf: passwordURL),
+    private static func loadFromFile(url: URL?) -> String? {
+        guard let url,
+              let data = try? Data(contentsOf: url),
               let value = String(data: data, encoding: .utf8) else {
             return nil
         }

@@ -1,4 +1,5 @@
 public import Foundation
+import os
 
 /// Memoizes one keychain lookup per service scope for a CLI process.
 ///
@@ -9,8 +10,7 @@ private final class KeychainLookupMemoizer: @unchecked Sendable {
         case resolved(String?)
     }
 
-    private let lock = NSLock()
-    private var states: [String: State] = [:]
+    private let states = OSAllocatedUnfairLock<[String: State]>(initialState: [:])
 
     /// Returns the cached result for a service scope, loading it once when needed.
     ///
@@ -23,30 +23,33 @@ private final class KeychainLookupMemoizer: @unchecked Sendable {
         services: [String],
         provider: SocketCredentialResolver.KeychainPasswordProvider
     ) -> String? {
-        lock.lock()
-        defer { lock.unlock() }
-        let key = services.joined(separator: "\u{1f}")
-        if case let .resolved(password) = states[key] {
+        states.withLock { state in
+            let key = services.joined(separator: "\u{1f}")
+            if case let .resolved(password) = state[key] {
+                return password
+            }
+            let password = provider(services)
+            state[key] = .resolved(password)
             return password
         }
-        let password = provider(services)
-        states[key] = .resolved(password)
-        return password
     }
 }
 
 /// Owns credential resolvers for one CLI process.
 public final class SocketCredentialResolutionSession: @unchecked Sendable {
     private let environment: [String: String]
-    private let filePasswordProvider: (() -> String?)?
+    private let filePasswordProvider: (@Sendable () -> String?)?
     private let keychainPasswordProvider: SocketCredentialResolver.KeychainPasswordProvider
     // Resolver publication is called from synchronous CLI setup, while the
-    // resulting resolver may be handed to detached readiness work. This lock
-    // protects only the tiny dictionary publication section; source I/O stays
-    // inside each resolver's single-flight boundary below.
-    private let resolverLock = NSLock()
-    private var resolvers: [String: SocketCredentialResolver] = [:]
-    private var authenticationModeCoordinators: [String: SocketAuthenticationModeCoordinator] = [:]
+    // resulting resolver may be handed to detached readiness work. This
+    // heap-stable lock protects only the tiny dictionary publication section;
+    // source I/O stays inside each resolver's single-flight boundary below.
+    private struct State {
+        var resolvers: [String: SocketCredentialResolver] = [:]
+        var authenticationModeCoordinators: [String: SocketAuthenticationModeCoordinator] = [:]
+    }
+
+    private let state = OSAllocatedUnfairLock<State>(initialState: State())
 
     /// Creates a process-scoped resolution session.
     /// - Parameters:
@@ -55,7 +58,7 @@ public final class SocketCredentialResolutionSession: @unchecked Sendable {
     ///   - keychainPasswordProvider: An optional injected keychain source for tests.
     public init(
         environment: [String: String] = ProcessInfo.processInfo.environment,
-        filePasswordProvider: (() -> String?)? = nil,
+        filePasswordProvider: (@Sendable () -> String?)? = nil,
         keychainPasswordProvider: SocketCredentialResolver.KeychainPasswordProvider? = nil
     ) {
         self.environment = environment.filter {
@@ -92,31 +95,31 @@ public final class SocketCredentialResolutionSession: @unchecked Sendable {
             )
         }
 
-        resolverLock.lock()
-        defer { resolverLock.unlock() }
-        if let existing = resolvers[socketPath] {
-            return existing
+        return state.withLock { state in
+            if let existing = state.resolvers[socketPath] {
+                return existing
+            }
+            let resolver = SocketCredentialResolver(
+                explicitPassword: nil,
+                socketPath: socketPath,
+                environment: environment,
+                filePasswordProvider: filePasswordProvider,
+                keychainPasswordProvider: self.keychainPasswordProvider,
+                authenticationModeCoordinator: modeCoordinator
+            )
+            state.resolvers[socketPath] = resolver
+            return resolver
         }
-        let resolver = SocketCredentialResolver(
-            explicitPassword: nil,
-            socketPath: socketPath,
-            environment: environment,
-            filePasswordProvider: filePasswordProvider,
-            keychainPasswordProvider: self.keychainPasswordProvider,
-            authenticationModeCoordinator: modeCoordinator
-        )
-        resolvers[socketPath] = resolver
-        return resolver
     }
 
     private func authenticationModeCoordinator(for socketPath: String) -> SocketAuthenticationModeCoordinator {
-        resolverLock.lock()
-        defer { resolverLock.unlock() }
-        if let existing = authenticationModeCoordinators[socketPath] {
-            return existing
+        state.withLock { state in
+            if let existing = state.authenticationModeCoordinators[socketPath] {
+                return existing
+            }
+            let coordinator = SocketAuthenticationModeCoordinator()
+            state.authenticationModeCoordinators[socketPath] = coordinator
+            return coordinator
         }
-        let coordinator = SocketAuthenticationModeCoordinator()
-        authenticationModeCoordinators[socketPath] = coordinator
-        return coordinator
     }
 }

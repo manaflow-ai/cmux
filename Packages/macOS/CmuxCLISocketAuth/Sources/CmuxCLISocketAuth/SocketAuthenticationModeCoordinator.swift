@@ -1,4 +1,5 @@
 import Foundation
+import os
 
 /// The authentication mode observed for one local control-socket route.
 public nonisolated enum SocketAuthenticationMode: Equatable, Sendable {
@@ -22,49 +23,46 @@ public nonisolated enum SocketAuthenticationMode: Equatable, Sendable {
 /// after any client observes a challenge. The lock serializes the small state
 /// transition; socket I/O remains in the caller.
 public final class SocketAuthenticationModeCoordinator: @unchecked Sendable {
-    private let lock = NSLock()
-    private var mode: SocketAuthenticationMode = .unknown
+    // This synchronous compare-and-set state is read from blocking CLI hooks;
+    // an actor would force a semaphore bridge around the socket write path.
+    private let mode = OSAllocatedUnfairLock<SocketAuthenticationMode>(initialState: .unknown)
 
     /// Creates an initially unknown route coordinator.
     public init() {}
 
     /// Returns the latest mode observation.
     public var current: SocketAuthenticationMode {
-        lock.lock()
-        defer { lock.unlock() }
-        return mode
+        mode.withLock { $0 }
     }
 
     /// Claims the one probe permitted for an unknown route.
     /// - Returns: `true` only for the client that should perform the probe.
     public func claimProbe() -> Bool {
-        lock.lock()
-        defer { lock.unlock() }
-        guard mode == .unknown else { return false }
-        mode = .probing
-        return true
+        mode.withLock { state in
+            guard state == .unknown else { return false }
+            state = .probing
+            return true
+        }
     }
 
     /// Records a successful credential-free response.
     public func recordCredentialFree() {
-        lock.lock()
-        defer { lock.unlock() }
-        guard mode != .passwordRequired else { return }
-        mode = .credentialFree
+        mode.withLock { state in
+            guard state != .passwordRequired else { return }
+            state = .credentialFree
+        }
     }
 
     /// Records the local socket authentication challenge.
     public func recordPasswordRequired() {
-        lock.lock()
-        mode = .passwordRequired
-        lock.unlock()
+        mode.withLock { $0 = .passwordRequired }
     }
 
     /// Records a failed probe without making later one-way sends blocking.
     public func recordProbeFailure() {
-        lock.lock()
-        defer { lock.unlock() }
-        guard mode == .probing else { return }
-        mode = .probeFailed
+        mode.withLock { state in
+            guard state == .probing else { return }
+            state = .probeFailed
+        }
     }
 }
