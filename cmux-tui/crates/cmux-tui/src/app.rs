@@ -2817,10 +2817,57 @@ impl OrderedSession {
         label: &'static str,
         operation: impl FnOnce(Session) -> anyhow::Result<()> + Send + 'static,
     ) {
-        self.enqueue_with_completion(label, MutationImpact::Destination, move |session| {
-            operation(session)?;
-            Ok(None)
-        });
+        self.enqueue_destination_mutation_targeting(
+            label,
+            crate::pty_input::MutationTargets::new(),
+            operation,
+        );
+    }
+
+    /// A destination mutation that destroys `targets`. Input to those
+    /// surfaces is ordered around the mutation on the PTY input worker; input
+    /// to every other surface is not (see `pty_input` module docs).
+    fn enqueue_destination_mutation_targeting(
+        &self,
+        label: &'static str,
+        targets: crate::pty_input::MutationTargets,
+        operation: impl FnOnce(Session) -> anyhow::Result<()> + Send + 'static,
+    ) {
+        self.enqueue_with_completion_internal(
+            label,
+            MutationImpact::Destination,
+            None,
+            None,
+            targets,
+            move |session| {
+                operation(session)?;
+                Ok(None)
+            },
+        );
+    }
+
+    fn surfaces_in_pane(&self, pane: PaneId) -> crate::pty_input::MutationTargets {
+        self.inner
+            .tree()
+            .workspaces
+            .iter()
+            .flat_map(|workspace| workspace.screens.iter())
+            .flat_map(|screen| screen.panes.iter())
+            .filter(|candidate| candidate.id == pane)
+            .flat_map(|pane| pane.tabs.iter().map(|tab| tab.surface))
+            .collect()
+    }
+
+    fn surfaces_in_workspace(&self, workspace: WorkspaceId) -> crate::pty_input::MutationTargets {
+        self.inner
+            .tree()
+            .workspaces
+            .iter()
+            .filter(|candidate| candidate.id == workspace)
+            .flat_map(|workspace| workspace.screens.iter())
+            .flat_map(|screen| screen.panes.iter())
+            .flat_map(|pane| pane.tabs.iter().map(|tab| tab.surface))
+            .collect()
     }
 
     fn enqueue_with_completion(
@@ -2843,7 +2890,14 @@ impl OrderedSession {
         + Send
         + 'static,
     ) {
-        self.enqueue_with_completion_internal(label, impact, semantic_intent, None, operation);
+        self.enqueue_with_completion_internal(
+            label,
+            impact,
+            semantic_intent,
+            None,
+            crate::pty_input::MutationTargets::new(),
+            operation,
+        );
     }
 
     fn enqueue_creation_with_completion_for_semantic_intent(
@@ -2868,6 +2922,7 @@ impl OrderedSession {
             MutationImpact::Destination,
             semantic_intent,
             Some(kind),
+            crate::pty_input::MutationTargets::new(),
             move |session| {
                 let surface = operation(session)?;
                 Ok(Some(kind.completion(surface)))
@@ -2881,6 +2936,7 @@ impl OrderedSession {
         impact: MutationImpact,
         semantic_intent: Option<u64>,
         creation_attempt: Option<CreationCompletionKind>,
+        target_surfaces: crate::pty_input::MutationTargets,
         operation: impl FnOnce(Session) -> anyhow::Result<Option<SessionCompletionAction>>
         + Send
         + 'static,
@@ -2895,8 +2951,9 @@ impl OrderedSession {
             .then(|| self.destination_mutation_started.fetch_add(1, Ordering::AcqRel) + 1);
         let destination_mutation_committed = self.destination_mutation_committed.clone();
         let settlement = pending.clone();
-        self.operations.enqueue_session_mutation_with_settlement(
+        self.operations.enqueue_session_mutation_with_settlement_targeting(
             label,
+            target_surfaces,
             self.remote,
             move || settlement.publish_deferred(),
             move || {
@@ -3568,7 +3625,17 @@ impl OrderedSession {
     }
 
     pub fn close_screen(&self, screen: ScreenId) {
-        self.enqueue_destination_mutation("close screen", move |session| {
+        let targets = self
+            .inner
+            .tree()
+            .workspaces
+            .iter()
+            .flat_map(|workspace| workspace.screens.iter())
+            .filter(|candidate| candidate.id == screen)
+            .flat_map(|screen| screen.panes.iter())
+            .flat_map(|pane| pane.tabs.iter().map(|tab| tab.surface))
+            .collect();
+        self.enqueue_destination_mutation_targeting("close screen", targets, move |session| {
             session.close_screen(screen)
         });
     }
@@ -3725,9 +3792,11 @@ impl OrderedSession {
     }
 
     pub fn close_surface(&self, surface: SurfaceId) {
-        self.enqueue_destination_mutation("close tab", move |session| {
-            session.close_surface(surface)
-        });
+        self.enqueue_destination_mutation_targeting(
+            "close tab",
+            std::iter::once(surface).collect(),
+            move |session| session.close_surface(surface),
+        );
     }
 
     pub fn clear_history(
@@ -3788,7 +3857,11 @@ impl OrderedSession {
     }
 
     pub fn close_pane(&self, pane: PaneId) {
-        self.enqueue_destination_mutation("close pane", move |session| session.close_pane(pane));
+        self.enqueue_destination_mutation_targeting(
+            "close pane",
+            self.surfaces_in_pane(pane),
+            move |session| session.close_pane(pane),
+        );
     }
 
     pub fn swap_pane(&self, pane: PaneId, target: PaneId) {
@@ -3796,9 +3869,11 @@ impl OrderedSession {
     }
 
     pub fn close_workspace(&self, workspace: WorkspaceId) {
-        self.enqueue_destination_mutation("close workspace", move |session| {
-            session.close_workspace(workspace)
-        });
+        self.enqueue_destination_mutation_targeting(
+            "close workspace",
+            self.surfaces_in_workspace(workspace),
+            move |session| session.close_workspace(workspace),
+        );
     }
 
     pub fn mark_workspaces_provider_managed(&self) -> anyhow::Result<()> {
@@ -3810,9 +3885,11 @@ impl OrderedSession {
     }
 
     pub fn close_provider_managed_workspace(&self, workspace: WorkspaceId, key: String) {
-        self.enqueue_destination_mutation("close managed workspace", move |session| {
-            session.close_provider_managed_workspace(workspace, key)
-        });
+        self.enqueue_destination_mutation_targeting(
+            "close managed workspace",
+            self.surfaces_in_workspace(workspace),
+            move |session| session.close_provider_managed_workspace(workspace, key),
+        );
     }
 
     pub fn rename_surface(&self, surface: SurfaceId, name: String) {

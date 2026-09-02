@@ -6,6 +6,25 @@
 //! unrelated panes to keep accepting input while preserving each surface's
 //! order. Consecutive byte-stream writes are batched, motion is coalesced, and
 //! every accepted mouse press reserves its release capacity.
+//!
+//! Ordering rule for session mutations (the "per-target barrier"):
+//!
+//! * Session mutations form one lane of their own. They run off the worker
+//!   thread, one at a time, in enqueue order. A mutation never waits for, and
+//!   is never waited on by, input to a surface it does not name.
+//! * A mutation names the surfaces it destroys as its targets. Input to a
+//!   target that was enqueued before the mutation runs first; input to a
+//!   target enqueued after the mutation waits for it, and then fails closed
+//!   against the retired surface exactly as before. A mutation with no
+//!   targets (a create, a rename, a layout change) blocks no surface input.
+//! * Input to the surface a create will produce does not exist yet from this
+//!   queue's point of view. The frontend defers it by semantic intent until
+//!   the created surface is known, so that ordering is the frontend's job.
+//!
+//! The old rule made every mutation a global barrier: a keystroke to an
+//! existing pane waited for a create round trip to a different pane. The
+//! frontend contract in `plans/cmux-tui-zero-wait-interaction.md` (hq) forbids
+//! that; unrelated input must reach its PTY within one frame.
 
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::sync::{Arc, Condvar, Mutex};
@@ -94,10 +113,15 @@ pub struct PtyInputEvent {
     coalesce_key: Option<MutationCoalesceKey>,
     failure_surface_id: Option<SurfaceId>,
     concurrent_surface_operation: bool,
+    /// Surfaces a session mutation destroys. Input to these lanes is ordered
+    /// around the mutation; every other lane ignores it.
+    target_surfaces: MutationTargets,
     remote: bool,
     reservation_id: Option<u64>,
     remote_release_attempts: u8,
 }
+
+pub type MutationTargets = SmallVec<[SurfaceId; 4]>;
 
 impl PtyInputEvent {
     pub fn input(
@@ -121,6 +145,7 @@ impl PtyInputEvent {
             coalesce_key: None,
             failure_surface_id: None,
             concurrent_surface_operation: false,
+            target_surfaces: MutationTargets::new(),
             remote,
             reservation_id: None,
             remote_release_attempts: 0,
@@ -202,10 +227,22 @@ impl PtyInputEvent {
             coalesce_key: identity.coalesce_key,
             failure_surface_id: identity.failure_surface_id,
             concurrent_surface_operation: identity.concurrent_surface_operation,
+            target_surfaces: identity.target_surfaces.clone(),
             remote,
             reservation_id: None,
             remote_release_attempts: 0,
         }
+    }
+
+    fn is_session_mutation(&self) -> bool {
+        self.kind == PtyInputKind::Mutation && !self.concurrent_surface_operation
+    }
+
+    fn target_lanes(&self) -> impl Iterator<Item = PtyInputLane> + '_ {
+        let session_generation = self.session_generation;
+        self.target_surfaces
+            .iter()
+            .map(move |surface_id| PtyInputLane { session_generation, surface_id: *surface_id })
     }
 
     fn queued_byte_len(&self) -> usize {
@@ -246,6 +283,9 @@ struct QueueState {
     release_reservations: ReleaseReservations,
     in_flight: Option<InFlightInput>,
     in_flight_surface_operations: HashMap<PtyInputLane, usize>,
+    /// The one session mutation currently executing off the worker thread,
+    /// with the lanes it blocks and its retained byte budget.
+    in_flight_mutation: Option<InFlightMutation>,
     failed_lanes: HashSet<PtyInputLane>,
     retired_in_flight_lanes: HashSet<PtyInputLane>,
     failed_remote_generations: HashSet<u64>,
@@ -262,6 +302,7 @@ impl Default for QueueState {
             release_reservations: ReleaseReservations::default(),
             in_flight: None,
             in_flight_surface_operations: HashMap::new(),
+            in_flight_mutation: None,
             failed_lanes: HashSet::new(),
             retired_in_flight_lanes: HashSet::new(),
             failed_remote_generations: HashSet::new(),
@@ -331,6 +372,12 @@ struct InFlightInput {
     kind: PtyInputKind,
 }
 
+#[derive(Debug, Clone)]
+struct InFlightMutation {
+    targets: Vec<PtyInputLane>,
+    bytes: usize,
+}
+
 #[derive(Default)]
 struct SharedQueue {
     state: Mutex<QueueState>,
@@ -353,12 +400,13 @@ pub struct PtyInputSender {
     session_generation: u64,
 }
 
-#[derive(Clone, Copy, Default)]
+#[derive(Clone, Default)]
 struct PtyMutationIdentity {
     coalesce_key: Option<MutationCoalesceKey>,
     failure_surface_id: Option<SurfaceId>,
     retained_bytes: usize,
     concurrent_surface_operation: bool,
+    target_surfaces: MutationTargets,
 }
 
 impl PtyInputDispatcher {
@@ -423,6 +471,7 @@ impl PtyInputDispatcher {
         self.sender.queue.changed.notify_all();
         while (!state.events.is_empty()
             || state.in_flight.is_some()
+            || state.in_flight_mutation.is_some()
             || !state.in_flight_surface_operations.is_empty())
             && Instant::now() < deadline
         {
@@ -432,6 +481,7 @@ impl PtyInputDispatcher {
         }
         let drained = state.events.is_empty()
             && state.in_flight.is_none()
+            && state.in_flight_mutation.is_none()
             && state.in_flight_surface_operations.is_empty();
         let canceled = if drained {
             Vec::new()
@@ -520,8 +570,10 @@ impl PtyInputSender {
             return (PtyInputEnqueueResult::Oversized, None);
         }
         let reserves_release = event.kind == PtyInputKind::Press;
-        let active_operations = state.in_flight_surface_operations.len();
-        let active_bytes = state.in_flight_surface_operations.values().copied().sum::<usize>();
+        let active_operations = state.in_flight_surface_operations.len()
+            + usize::from(state.in_flight_mutation.is_some());
+        let active_bytes = state.in_flight_surface_operations.values().copied().sum::<usize>()
+            + state.in_flight_mutation.as_ref().map_or(0, |mutation| mutation.bytes);
         let available_capacity = PTY_OPERATION_QUEUE_CAPACITY.saturating_sub(active_operations);
         let available_bytes = MAX_QUEUED_BYTES.saturating_sub(active_bytes);
         let QueueState { events, queued_bytes, release_reservations, .. } = &mut *state;
@@ -590,6 +642,27 @@ impl PtyInputSender {
         );
     }
 
+    #[cfg(test)]
+    pub fn enqueue_session_mutation_targeting(
+        &self,
+        label: &'static str,
+        target_surfaces: &[SurfaceId],
+        remote: bool,
+        operation: impl FnOnce() -> anyhow::Result<()> + Send + 'static,
+    ) {
+        let _ = self.enqueue_mutation(
+            label,
+            PtyMutationIdentity {
+                target_surfaces: target_surfaces.iter().copied().collect(),
+                ..Default::default()
+            },
+            remote,
+            None,
+            None,
+            operation,
+        );
+    }
+
     pub fn enqueue_session_mutation_with_settlement(
         &self,
         label: &'static str,
@@ -597,9 +670,28 @@ impl PtyInputSender {
         after_operation: impl FnOnce() + Send + 'static,
         operation: impl FnOnce() -> anyhow::Result<()> + Send + 'static,
     ) {
+        self.enqueue_session_mutation_with_settlement_targeting(
+            label,
+            MutationTargets::new(),
+            remote,
+            after_operation,
+            operation,
+        );
+    }
+
+    /// Enqueue a session mutation that destroys `target_surfaces`. Input to
+    /// those surfaces is ordered around the mutation; see the module doc.
+    pub fn enqueue_session_mutation_with_settlement_targeting(
+        &self,
+        label: &'static str,
+        target_surfaces: MutationTargets,
+        remote: bool,
+        after_operation: impl FnOnce() + Send + 'static,
+        operation: impl FnOnce() -> anyhow::Result<()> + Send + 'static,
+    ) {
         let _ = self.enqueue_mutation(
             label,
-            PtyMutationIdentity::default(),
+            PtyMutationIdentity { target_surfaces, ..Default::default() },
             remote,
             None,
             Some(Box::new(after_operation)),
@@ -680,6 +772,7 @@ impl PtyInputSender {
         after_operation: Option<Box<dyn FnOnce() + Send>>,
         operation: impl FnOnce() -> anyhow::Result<()> + Send + 'static,
     ) -> PtyInputEnqueueResult {
+        let failure_surface_id = identity.failure_surface_id;
         let result = self.enqueue(PtyInputEvent::mutation_for_surface(
             label,
             identity,
@@ -691,7 +784,7 @@ impl PtyInputSender {
         if result != PtyInputEnqueueResult::Accepted {
             (self.on_failure)(PtyOperationFailure {
                 session_generation: self.session_generation,
-                surface_id: identity.failure_surface_id,
+                surface_id: failure_surface_id,
                 kind: None,
                 reservation_id: None,
                 label,
@@ -899,7 +992,7 @@ fn worker(queue: Arc<SharedQueue>, on_failure: Arc<dyn Fn(PtyOperationFailure) +
             }
         };
 
-        if event.concurrent_surface_operation {
+        if event.concurrent_surface_operation || event.is_session_mutation() {
             spawn_surface_operation(queue.clone(), on_failure.clone(), event);
         } else {
             process_event(queue.clone(), on_failure.clone(), event);
@@ -909,15 +1002,32 @@ fn worker(queue: Arc<SharedQueue>, on_failure: Arc<dyn Fn(PtyOperationFailure) +
 
 fn dequeue_ready_event(state: &mut QueueState) -> Option<PtyInputEvent> {
     let mut ready_index = None;
+    // Lanes that later queued work must not overtake: a lane with an
+    // in-flight or earlier-queued blocked operation, or a lane named as the
+    // target of an in-flight or earlier-queued session mutation.
     let mut blocked_queued_lanes = HashSet::new();
+    // Session mutations are one FIFO lane: at most one in flight, and an
+    // earlier queued mutation that cannot run yet holds every later one.
+    let mut mutation_blocked = state.in_flight_mutation.is_some();
+    if let Some(mutation) = &state.in_flight_mutation {
+        blocked_queued_lanes.extend(mutation.targets.iter().copied());
+    }
     for (index, event) in state.events.iter().enumerate() {
-        if event.kind == PtyInputKind::Mutation && !event.concurrent_surface_operation {
-            if index == 0 && state.in_flight_surface_operations.is_empty() {
+        if event.is_session_mutation() {
+            let target_busy = event.target_lanes().any(|lane| {
+                blocked_queued_lanes.contains(&lane)
+                    || state.in_flight_surface_operations.contains_key(&lane)
+                    || state.in_flight.is_some_and(|input| input.lane == Some(lane))
+            });
+            if !mutation_blocked && !target_busy {
                 ready_index = Some(index);
+                break;
             }
-            // A session mutation is a global ordering barrier. If earlier
-            // surface work keeps it from running, later input must wait too.
-            break;
+            // Not ready: it stays the barrier for later mutations and for
+            // later input to the surfaces it will destroy, and nothing else.
+            mutation_blocked = true;
+            blocked_queued_lanes.extend(event.target_lanes());
+            continue;
         }
         let lane = event
             .ordering_lane()
@@ -947,6 +1057,12 @@ fn dequeue_ready_event(state: &mut QueueState) -> Option<PtyInputEvent> {
         let lane =
             event.ordering_lane().expect("concurrent surface operation has an ordering lane");
         assert!(state.in_flight_surface_operations.insert(lane, event.queued_byte_len()).is_none());
+    } else if event.is_session_mutation() {
+        debug_assert!(state.in_flight_mutation.is_none(), "two session mutations in flight");
+        state.in_flight_mutation = Some(InFlightMutation {
+            targets: event.target_lanes().collect(),
+            bytes: event.queued_byte_len(),
+        });
     } else {
         state.in_flight = Some(InFlightInput { lane: event.ordering_lane(), kind: event.kind });
     }
@@ -962,7 +1078,13 @@ fn spawn_surface_operation(
     let worker_pending = pending.clone();
     let worker_queue = queue.clone();
     let worker_failure = on_failure.clone();
-    let spawn = std::thread::Builder::new().name("mux-surface-operation".into()).spawn(move || {
+    let name = if pending.lock().unwrap().as_ref().is_some_and(PtyInputEvent::is_session_mutation)
+    {
+        "mux-session-mutation"
+    } else {
+        "mux-surface-operation"
+    };
+    let spawn = std::thread::Builder::new().name(name.into()).spawn(move || {
         let event = worker_pending.lock().unwrap().take().unwrap();
         process_event(worker_queue, worker_failure, event);
     });
@@ -978,11 +1100,11 @@ fn fail_surface_operation_spawn(
     mut event: PtyInputEvent,
     error: std::io::Error,
 ) {
-    let lane = event.ordering_lane().expect("concurrent surface operation has an ordering lane");
+    let lane = event.ordering_lane();
     let after_operation = event.after_operation.take();
     on_failure(PtyOperationFailure {
         session_generation: event.session_generation,
-        surface_id: Some(lane.surface_id),
+        surface_id: lane.map(|lane| lane.surface_id).or(event.failure_surface_id),
         kind: None,
         reservation_id: None,
         label: event.label,
@@ -991,8 +1113,12 @@ fn fail_surface_operation_spawn(
         delivery: PtyOperationDelivery::KnownNotDelivered,
     });
     let mut state = queue.state.lock().unwrap();
-    state.in_flight_surface_operations.remove(&lane);
-    state.retired_in_flight_lanes.remove(&lane);
+    if let Some(lane) = lane {
+        state.in_flight_surface_operations.remove(&lane);
+        state.retired_in_flight_lanes.remove(&lane);
+    } else {
+        state.in_flight_mutation = None;
+    }
     queue.changed.notify_all();
     drop(state);
     if let Some(after_operation) = after_operation {
@@ -1010,6 +1136,7 @@ fn process_event(
     mut event: PtyInputEvent,
 ) {
     let concurrent_surface = event.concurrent_surface_operation;
+    let session_mutation = event.is_session_mutation();
     let ordering_lane = event.ordering_lane();
     let kind = (event.kind != PtyInputKind::Mutation).then_some(event.kind);
     let surface_id = kind.map(|_| event.surface_id).or(event.failure_surface_id);
@@ -1180,6 +1307,8 @@ fn process_event(
     let mut state = queue.state.lock().unwrap();
     if let Some(lane) = concurrent_surface.then_some(ordering_lane).flatten() {
         state.in_flight_surface_operations.remove(&lane);
+    } else if session_mutation {
+        state.in_flight_mutation = None;
     } else {
         state.in_flight = None;
     }
@@ -1550,7 +1679,9 @@ mod tests {
             sender.enqueue(event(7, 1, PtyInputKind::Motion)),
             PtyInputEnqueueResult::Accepted
         );
-        for _ in 0..PTY_OPERATION_QUEUE_CAPACITY - 1 {
+        // The executing blocker holds one slot of the bounded queue, like any
+        // in-flight operation, so one fewer fill reaches the capacity.
+        for _ in 0..PTY_OPERATION_QUEUE_CAPACITY - 2 {
             assert_eq!(
                 sender.enqueue(PtyInputEvent::mutation("fill", None, false, || Ok(()))),
                 PtyInputEnqueueResult::Accepted
@@ -1999,7 +2130,7 @@ mod tests {
     }
 
     #[test]
-    fn session_mutation_blocks_later_input_behind_surface_operation() {
+    fn targeted_session_mutation_blocks_later_input_to_its_target_behind_surface_operation() {
         let dispatcher = PtyInputDispatcher::spawn(|_| {}).unwrap();
         let sender = dispatcher.sender();
         let (started_tx, started_rx) = std::sync::mpsc::channel();
@@ -2022,22 +2153,142 @@ mod tests {
         );
         started_rx.recv_timeout(Duration::from_secs(1)).unwrap();
 
+        // The close targets surface 41, so it waits for the in-flight work on
+        // 41, and input to 41 enqueued after the close waits for the close.
         let mutation_tx = order_tx.clone();
-        sender.enqueue_session_mutation("close pane", false, move || {
+        sender.enqueue_session_mutation_targeting("close pane", &[41], false, move || {
             mutation_tx.send("mutation").unwrap();
             Ok(())
         });
-        let mut input = event(42, 1, PtyInputKind::Ordered);
+        let mut input = event(41, 1, PtyInputKind::Ordered);
         input.after_operation = Some(Box::new(move || order_tx.send("input").unwrap()));
         assert_eq!(sender.enqueue(input), PtyInputEnqueueResult::Accepted);
 
         assert!(
             order_rx.recv_timeout(Duration::from_millis(50)).is_err(),
-            "input overtook the earlier session mutation"
+            "input overtook the earlier session mutation on its own surface"
         );
         unblock_tx.send(()).unwrap();
         assert_eq!(order_rx.recv_timeout(Duration::from_secs(1)).unwrap(), "mutation");
         assert_eq!(order_rx.recv_timeout(Duration::from_secs(1)).unwrap(), "input");
+    }
+
+    #[test]
+    fn slow_untargeted_session_mutation_does_not_delay_input_to_other_surfaces() {
+        let dispatcher = PtyInputDispatcher::spawn(|_| {}).unwrap();
+        let sender = dispatcher.sender();
+        let (started_tx, started_rx) = std::sync::mpsc::channel();
+        let (unblock_tx, unblock_rx) = std::sync::mpsc::channel();
+        let (input_tx, input_rx) = std::sync::mpsc::channel();
+        let (mutation_tx, mutation_rx) = std::sync::mpsc::channel();
+
+        // A create: it names no surface because its surface does not exist.
+        sender.enqueue_session_mutation("new tab", false, move || {
+            started_tx.send(()).unwrap();
+            let _ = unblock_rx.recv();
+            mutation_tx.send(()).unwrap();
+            Ok(())
+        });
+        started_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+
+        let mut input = event(7, 1, PtyInputKind::Ordered);
+        input.after_operation = Some(Box::new(move || input_tx.send(()).unwrap()));
+        assert_eq!(sender.enqueue(input), PtyInputEnqueueResult::Accepted);
+
+        input_rx
+            .recv_timeout(Duration::from_secs(1))
+            .expect("input to an unrelated surface waited for a create round trip");
+        assert!(mutation_rx.try_recv().is_err(), "the create completed before it was unblocked");
+        unblock_tx.send(()).unwrap();
+        mutation_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+    }
+
+    #[test]
+    fn input_to_a_close_target_enqueued_before_the_close_runs_first() {
+        let dispatcher = PtyInputDispatcher::spawn(|_| {}).unwrap();
+        let sender = dispatcher.sender();
+        let (started_tx, started_rx) = std::sync::mpsc::channel();
+        let (unblock_tx, unblock_rx) = std::sync::mpsc::channel();
+        let (order_tx, order_rx) = std::sync::mpsc::channel();
+
+        // Hold the worker on an unrelated blocking surface operation so the
+        // queue can be populated deterministically before anything runs.
+        assert_eq!(
+            sender.enqueue_surface_operation_with_retained_bytes(
+                "blocking surface operation",
+                9,
+                false,
+                0,
+                move || {
+                    started_tx.send(()).unwrap();
+                    let _ = unblock_rx.recv();
+                    Ok(())
+                },
+            ),
+            PtyInputEnqueueResult::Accepted
+        );
+        started_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+
+        let (hold_tx, hold_rx) = std::sync::mpsc::channel::<()>();
+        let hold_input_tx = order_tx.clone();
+        let mut earlier = event(41, 1, PtyInputKind::Ordered);
+        earlier.mutation = Some(Box::new(move || {
+            let _ = hold_rx.recv();
+            Ok(())
+        }));
+        earlier.after_operation = Some(Box::new(move || hold_input_tx.send("earlier").unwrap()));
+        assert_eq!(sender.enqueue(earlier), PtyInputEnqueueResult::Accepted);
+        let mutation_tx = order_tx.clone();
+        sender.enqueue_session_mutation_targeting("close tab", &[41], false, move || {
+            mutation_tx.send("close").unwrap();
+            Ok(())
+        });
+        let mut later = event(41, 2, PtyInputKind::Ordered);
+        later.after_operation = Some(Box::new(move || order_tx.send("later").unwrap()));
+        assert_eq!(sender.enqueue(later), PtyInputEnqueueResult::Accepted);
+
+        // While the earlier input is executing on the worker, the close must
+        // not start: its target lane is busy.
+        std::thread::sleep(Duration::from_millis(30));
+        assert!(order_rx.try_recv().is_err());
+        hold_tx.send(()).unwrap();
+        assert_eq!(order_rx.recv_timeout(Duration::from_secs(1)).unwrap(), "earlier");
+        assert_eq!(order_rx.recv_timeout(Duration::from_secs(1)).unwrap(), "close");
+        assert_eq!(order_rx.recv_timeout(Duration::from_secs(1)).unwrap(), "later");
+        unblock_tx.send(()).unwrap();
+    }
+
+    #[test]
+    fn session_mutations_stay_in_enqueue_order() {
+        let dispatcher = PtyInputDispatcher::spawn(|_| {}).unwrap();
+        let sender = dispatcher.sender();
+        let (started_tx, started_rx) = std::sync::mpsc::channel();
+        let (unblock_tx, unblock_rx) = std::sync::mpsc::channel();
+        let (order_tx, order_rx) = std::sync::mpsc::channel();
+
+        let first_tx = order_tx.clone();
+        sender.enqueue_session_mutation("split", false, move || {
+            started_tx.send(()).unwrap();
+            let _ = unblock_rx.recv();
+            first_tx.send("first").unwrap();
+            Ok(())
+        });
+        started_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+        let second_tx = order_tx.clone();
+        sender.enqueue_session_mutation("rename", false, move || {
+            second_tx.send("second").unwrap();
+            Ok(())
+        });
+        sender.enqueue_session_mutation_targeting("close tab", &[3], false, move || {
+            order_tx.send("third").unwrap();
+            Ok(())
+        });
+
+        assert!(order_rx.recv_timeout(Duration::from_millis(50)).is_err());
+        unblock_tx.send(()).unwrap();
+        assert_eq!(order_rx.recv_timeout(Duration::from_secs(1)).unwrap(), "first");
+        assert_eq!(order_rx.recv_timeout(Duration::from_secs(1)).unwrap(), "second");
+        assert_eq!(order_rx.recv_timeout(Duration::from_secs(1)).unwrap(), "third");
     }
 
     #[test]
