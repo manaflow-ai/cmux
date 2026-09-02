@@ -1,5 +1,5 @@
 import Foundation
-import XCTest
+@_implementationOnly import XCTest
 
 extension CLINotifyProcessIntegrationRegressionTests {
     func testAntigravityPreInvocationStopBalancesRepeatedInvocationsAndNestedPairs() throws {
