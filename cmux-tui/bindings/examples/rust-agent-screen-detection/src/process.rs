@@ -230,7 +230,7 @@ fn wrapped_agent_from_argv(runtime: &str, argv: &[String]) -> Option<String> {
                     .find_map(|argument| path_candidates(argument).into_iter().next())
             }
         }
-        "sh" | "bash" | "zsh" | "fish" => shell_wrapped_agent(argv),
+        "sh" | "bash" | "zsh" | "fish" => shell_wrapped_agent(runtime, argv),
         "cmd" => windows_cmd_agent(argv),
         "powershell" | "pwsh" => powershell_agent(argv),
         // tmux is a process-group transport, not an agent wrapper. Its
@@ -240,9 +240,40 @@ fn wrapped_agent_from_argv(runtime: &str, argv: &[String]) -> Option<String> {
     }
 }
 
-fn shell_wrapped_agent(argv: &[String]) -> Option<String> {
-    let command = shell_command_argument(argv)?;
-    command_first_path_candidate(&shell_words(&command))
+fn shell_wrapped_agent(runtime: &str, argv: &[String]) -> Option<String> {
+    let mut index = 1;
+    while let Some(argument) = argv.get(index) {
+        let flag = normalized_flag(argument);
+        if argument == "--" {
+            return argv
+                .get(index + 1)
+                .and_then(|script| path_candidates(script).into_iter().next());
+        }
+        if is_shell_command_flag(&flag) {
+            // A command flag consumes the next argv element as shell text.
+            // `None` is also the safe result when the value is missing.
+            return argv
+                .get(index + 1)
+                .and_then(|command| command_first_path_candidate(&shell_words(command)));
+        }
+        if argument.starts_with('-') || (runtime == "zsh" && argument.starts_with('+')) {
+            if shell_option_takes_value(runtime, &flag) {
+                index = index.saturating_add(2);
+                continue;
+            }
+            if shell_option_without_value(runtime, &flag) {
+                index += 1;
+                continue;
+            }
+            // Unknown options may consume the next value. Failing closed is
+            // safer than treating that value as an agent executable.
+            return None;
+        }
+        // For `sh /path/to/agent`, the first positional value is the script.
+        // Later values are script arguments and must not affect identity.
+        return path_candidates(argument).into_iter().next();
+    }
+    None
 }
 
 fn windows_cmd_agent(argv: &[String]) -> Option<String> {
@@ -294,19 +325,87 @@ fn powershell_agent(argv: &[String]) -> Option<String> {
     None
 }
 
-fn shell_command_argument(argv: &[String]) -> Option<String> {
-    argv.iter().enumerate().skip(1).find_map(|(index, argument)| {
-        let flag = argument.trim_matches('"').to_ascii_lowercase();
-        let is_command = flag == "-c"
-            || flag == "--command"
-            || (flag.starts_with('-')
-                && flag
-                    .chars()
-                    .skip(1)
-                    .all(|character| matches!(character, 'i' | 'l' | 'o' | 'g' | 'c'))
-                && flag.ends_with('c'));
-        is_command.then(|| argv.get(index + 1)).flatten().cloned()
-    })
+fn is_shell_command_flag(flag: &str) -> bool {
+    flag == "-c"
+        || flag == "--command"
+        || (flag.starts_with('-')
+            && flag
+                .chars()
+                .skip(1)
+                .all(|character| matches!(character, 'i' | 'l' | 'o' | 'g' | 'c'))
+            && flag.ends_with('c'))
+}
+
+fn shell_option_takes_value(runtime: &str, flag: &str) -> bool {
+    match runtime {
+        "bash" => matches!(flag, "-o" | "-O" | "--rcfile" | "--init-file"),
+        "zsh" => matches!(flag, "-o" | "+o" | "--cmd" | "--command"),
+        "fish" => {
+            matches!(flag, "-C" | "--command" | "--init-command" | "--features" | "--debug-level")
+        }
+        "sh" => flag == "-o",
+        _ => false,
+    }
+}
+
+fn shell_option_without_value(runtime: &str, flag: &str) -> bool {
+    if flag.starts_with("--") {
+        return match runtime {
+            "bash" => matches!(
+                flag,
+                "--login"
+                    | "--noprofile"
+                    | "--norc"
+                    | "--posix"
+                    | "--restricted"
+                    | "--verbose"
+                    | "--xtrace"
+                    | "--noediting"
+                    | "--help"
+                    | "--version"
+            ),
+            "zsh" => matches!(flag, "--login" | "--no-rcs" | "--sh" | "--emacs" | "--vi"),
+            "fish" => matches!(flag, "--no-config" | "--no-editing" | "--help" | "--version"),
+            "sh" => matches!(flag, "--login" | "--posix" | "--restricted" | "--verbose"),
+            _ => false,
+        };
+    }
+
+    // These are the portable short shell switches that do not consume the
+    // next argument. `-o` and `-O` are deliberately excluded because they
+    // take a value in bash, zsh, and POSIX sh.
+    let Some(characters) = flag.strip_prefix('-').filter(|value| !value.is_empty()) else {
+        return false;
+    };
+    if characters.chars().any(|character| matches!(character, 'o' | 'c')) {
+        return false;
+    }
+    match runtime {
+        "bash" | "zsh" | "sh" => characters.chars().all(|character| {
+            matches!(
+                character,
+                'a' | 'b'
+                    | 'e'
+                    | 'f'
+                    | 'h'
+                    | 'i'
+                    | 'l'
+                    | 'm'
+                    | 'n'
+                    | 'p'
+                    | 'r'
+                    | 's'
+                    | 't'
+                    | 'u'
+                    | 'v'
+                    | 'x'
+            )
+        }),
+        "fish" => characters
+            .chars()
+            .all(|character| matches!(character, 'h' | 'i' | 'l' | 'n' | 'p' | 'q' | 'v')),
+        _ => false,
+    }
 }
 
 /// Return only the executable token from a shell command. Scanning every
