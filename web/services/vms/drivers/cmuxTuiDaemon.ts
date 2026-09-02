@@ -296,6 +296,10 @@ const CMUX_TUI_MOUNT_WATCH_INTERVAL_SECONDS = 1;
 // Keep the restart path bounded, then force the child down so the provider can
 // start the durable fallback.
 const CMUX_TUI_CHILD_SHUTDOWN_GRACE_SECONDS = 2;
+const CMUX_TUI_CHILD_SHUTDOWN_POLL_SECONDS = 0.02;
+const CMUX_TUI_CHILD_SHUTDOWN_GRACE_POLLS = Math.round(
+  CMUX_TUI_CHILD_SHUTDOWN_GRACE_SECONDS / CMUX_TUI_CHILD_SHUTDOWN_POLL_SECONDS,
+);
 
 /**
  * Runs a layout daemon with an event-driven mount watcher. A persistent mount
@@ -364,24 +368,19 @@ function cmuxTuiSupervisedDaemonInvocation(
     `cmux_tui_terminate_pid="$1";`,
     `if [ -z "$cmux_tui_terminate_pid" ]; then return 0; fi;`,
     `kill -TERM "$cmux_tui_terminate_pid" 2>/dev/null || true;`,
-    // The killer sleeps in a background child and waits on it, so its TERM trap
-    // can reap that sleep instead of leaving it orphaned for the grace period.
-    `( trap 'kill "$cmux_tui_killer_sleep_pid" 2>/dev/null; exit 0' TERM;`,
-    `sleep ${CMUX_TUI_CHILD_SHUTDOWN_GRACE_SECONDS} & cmux_tui_killer_sleep_pid=$!;`,
-    `wait "$cmux_tui_killer_sleep_pid" 2>/dev/null;`,
+    // The grace-period helper polls the child instead of sleeping for the whole
+    // period and being signalled: once the supervisor's wait reaps the child,
+    // kill -0 fails and the helper exits on its own within one poll interval.
+    // Nothing is signalled, so there is no race with dash's trap reset (a TERM
+    // that lands while a forked subshell still carries the parent's trap is
+    // dropped) and no orphaned sleep. A child that ignores TERM is KILLed at
+    // the end of the grace period as before.
+    `( cmux_tui_killer_polls=0;`,
+    `while [ "$cmux_tui_killer_polls" -lt ${CMUX_TUI_CHILD_SHUTDOWN_GRACE_POLLS} ] && kill -0 "$cmux_tui_terminate_pid" 2>/dev/null; do`,
+    `sleep ${CMUX_TUI_CHILD_SHUTDOWN_POLL_SECONDS}; cmux_tui_killer_polls=$((cmux_tui_killer_polls + 1)); done;`,
     `kill -KILL "$cmux_tui_terminate_pid" 2>/dev/null || true ) &`,
     `cmux_tui_killer_pid=$!;`,
     `wait "$cmux_tui_terminate_pid" 2>/dev/null || true;`,
-    // TERM first so the killer can reap its sleep, then KILL as the fallback:
-    // dash (Ubuntu /bin/sh) forks the killer with the parent's TERM trap still
-    // inherited and only resets it afterwards, so a TERM that lands in that
-    // window is recorded as a pending trap and dropped. A child that exits
-    // promptly makes the parent reach this line inside that window; without the
-    // KILL the killer then sleeps out the whole grace period before the
-    // supervisor can continue. In that window the killer has not forked its
-    // sleep yet, so the KILL orphans nothing.
-    `kill -TERM "$cmux_tui_killer_pid" 2>/dev/null || true;`,
-    `kill -KILL "$cmux_tui_killer_pid" 2>/dev/null || true;`,
     `wait "$cmux_tui_killer_pid" 2>/dev/null || true;`,
     `}`,
   ].join(" ");
