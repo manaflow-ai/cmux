@@ -76,13 +76,14 @@ struct SurfaceResourceGroup: Hashable, Codable, Sendable {
     init(from decoder: any Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         title = try container.decode(String.self, forKey: .title)
-        remoteWorkspaceID = try container.decodeIfPresent(String.self, forKey: .remoteWorkspaceID)
+        let decodedRemoteWorkspaceID = try container.decodeIfPresent(String.self, forKey: .remoteWorkspaceID)
+        remoteWorkspaceID = decodedRemoteWorkspaceID
         if let decoded = try container.decodeIfPresent([SurfaceResourcePlacement].self, forKey: .placements) {
             placements = decoded
         } else {
             let ids = try container.decodeIfPresent([SurfaceResourceID].self, forKey: .resources) ?? []
             placements = ids.map {
-                SurfaceResourcePlacement(resource: $0, remoteWorkspaceID: remoteWorkspaceID)
+                SurfaceResourcePlacement(resource: $0, remoteWorkspaceID: decodedRemoteWorkspaceID)
             }
         }
     }
