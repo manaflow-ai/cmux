@@ -15,6 +15,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 HELPER = ROOT / "scripts" / "ci" / "detect_ci_change_areas.py"
 CI_WORKFLOW = ROOT / ".github" / "workflows" / "ci.yml"
+GATE_WORKFLOW = ROOT / ".github" / "workflows" / "ci-status-gate.yml"
 PERF_ACTIVATION_WORKFLOW = ROOT / ".github" / "workflows" / "perf-activation.yml"
 
 spec = importlib.util.spec_from_file_location("detect_ci_change_areas", HELPER)
@@ -858,13 +859,14 @@ def test_agent_session_web_resources_runs_only_for_agent_session_web_area() -> N
 
 def test_legacy_ci_status_context_is_preserved_during_gate_migration() -> None:
     advisory = workflow_job_block("ci-status-advisory")
-    compatibility = workflow_job_block("ci-status")
+    compatibility = workflow_job_block("ci-status", GATE_WORKFLOW)
 
     assert "ci-status-validator-canary" not in advisory
-    assert "if: ${{ always() }}" in compatibility
-    assert "needs: ci-status-advisory" in compatibility
+    assert "ci-status:" not in CI_WORKFLOW.read_text(encoding="utf-8")
+    assert "if: ${{ always() &&" in compatibility
+    assert "needs: ci-status-gate" in compatibility
     assert "timeout-minutes: 5" in compatibility
-    assert "ADVISORY_RESULT" in compatibility
+    assert "GATE_RESULT" in compatibility
     assert "exit 1" in compatibility
 
 

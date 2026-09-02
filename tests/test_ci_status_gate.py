@@ -202,6 +202,9 @@ def test_workflow_is_base_owned_and_read_only() -> None:
     assert "workflow_run:" in text
     assert "pull_request:" not in text
     assert "ci-status-gate:" in text
+    assert "ci-status:" in text
+    assert "needs: ci-status-gate" in text
+    assert "GATE_RESULT" in text
     assert "actions: read" in text
     assert "checks: read" in text
     assert "pull-requests: read" in text

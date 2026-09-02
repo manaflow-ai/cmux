@@ -16,10 +16,11 @@ and `ci-status-validator-canary` job are diagnostic only and must not be added
 to branch protection. The advisory jobs may execute pull-request code, but
 they have read-only permissions and do not control mergeability.
 
-During rollout, the untrusted workflow also publishes the legacy `ci-status`
-context. It mirrors `ci-status-advisory` only so an existing required-check
-rule does not become permanently pending. Remove that compatibility job in the
-same ruleset update that makes `ci-status-gate` required.
+During rollout, the base-owned gate workflow also publishes the legacy
+`ci-status` context. It mirrors `ci-status-gate` only so an existing
+required-check rule does not become permanently pending. Remove that alias in
+the same ruleset update that makes `ci-status-gate` required. The untrusted
+`pull_request` workflow must never publish the `ci-status` name.
 
 The base-owned gate compares the blob SHA for `.github/workflows/ci.yml` at
 the live base and head commits. A changed workflow definition is rejected

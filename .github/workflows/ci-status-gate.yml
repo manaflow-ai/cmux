@@ -64,3 +64,25 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           GITHUB_REPOSITORY: ${{ github.repository }}
         run: python3 .ci-trusted/scripts/ci/ci_status_gate.py
+
+  ci-status:
+    name: ci-status
+    needs: ci-status-gate
+    # Keep the historical required context until the ruleset switches to
+    # ci-status-gate. This alias is also base-owned, so PR workflow edits
+    # cannot forge the legacy result.
+    if: ${{ always() && (github.event_name == 'pull_request_target' || (github.event_name == 'workflow_run' && github.event.workflow_run.event == 'pull_request')) }}
+    runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    steps:
+      - name: Mirror trusted gate result
+        env:
+          GATE_RESULT: ${{ needs.ci-status-gate.result }}
+        run: |
+          set -euo pipefail
+          if [[ "$GATE_RESULT" != "success" ]]; then
+            echo "::error::Legacy ci-status context mirrors ci-status-gate: $GATE_RESULT" >&2
+            exit 1
+          fi
