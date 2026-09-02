@@ -1933,6 +1933,42 @@ mod tests {
     }
 
     #[cfg(unix)]
+    #[tokio::test(flavor = "current_thread")]
+    async fn connection_cancellation_wins_while_file_open_is_blocked() {
+        use std::os::unix::ffi::OsStrExt as _;
+        use tokio_util::sync::CancellationToken;
+
+        let root = scratch("blocked-open-cancellation");
+        let fifo = root.join("blocked.fifo");
+        let fifo_name = std::ffi::CString::new(fifo.as_os_str().as_bytes()).unwrap();
+        assert_eq!(unsafe { libc::mkfifo(fifo_name.as_ptr(), 0o600) }, 0);
+
+        let roots = vec![root.display().to_string()];
+        let context = ctx("supervised", Some(roots.clone()), root.clone());
+        let cancellation = CancellationToken::new();
+        let worker_cancellation = cancellation.clone();
+        let worker_fifo = fifo.clone();
+        let unblock = std::thread::spawn(move || {
+            std::thread::sleep(std::time::Duration::from_millis(25));
+            worker_cancellation.cancel();
+            std::thread::sleep(std::time::Duration::from_millis(175));
+            std::fs::OpenOptions::new().write(true).open(worker_fifo).unwrap()
+        });
+
+        let frame = json!({ "verb": "read", "actionId": "blocked", "allowedRoots": roots,
+                            "args": { "path": "blocked.fifo" } });
+        let result = tokio::select! {
+            biased;
+            _ = cancellation.cancelled() => None,
+            result = perform_action(&frame, &context) => Some(result),
+        };
+
+        assert!(result.is_none(), "connection cancellation must not wait for a blocked file open");
+        drop(unblock.join().unwrap());
+        std::fs::remove_dir_all(&root).ok();
+    }
+
+    #[cfg(unix)]
     #[tokio::test]
     async fn grep_accepts_a_regular_file_path() {
         let root = scratch("grep-file");
