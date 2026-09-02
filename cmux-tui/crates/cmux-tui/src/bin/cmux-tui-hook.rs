@@ -761,6 +761,7 @@ mod detach {
     use super::{DETACHED_SPOOL_MODE_ARG, Handoff, MAX_MESSAGE_BYTES};
 
     const MAX_SPOOL_CLEANUP_ENTRIES: usize = 128;
+    const MAX_SPOOL_REQUEST_ID_BYTES: usize = 256;
     const SPOOL_STALE_AFTER: Duration = Duration::from_secs(60 * 60);
 
     fn spool_root() -> anyhow::Result<PathBuf> {
@@ -831,7 +832,14 @@ mod detach {
             File::open(path).with_context(|| format!("open hook spool {}", path.display()))?;
         let mut reader = BufReader::new(file);
         let mut request_id = String::new();
-        reader.read_line(&mut request_id).context("read spooled request id")?;
+        let request_id_bytes = reader
+            .by_ref()
+            .take((MAX_SPOOL_REQUEST_ID_BYTES + 1) as u64)
+            .read_line(&mut request_id)
+            .context("read spooled request id")?;
+        if request_id_bytes > MAX_SPOOL_REQUEST_ID_BYTES {
+            bail!("spooled request id exceeds 256 bytes");
+        }
         let request_id = request_id.trim_end_matches(['\r', '\n']).to_owned();
         if request_id.is_empty() {
             bail!("spooled request id is empty");
@@ -848,6 +856,12 @@ mod detach {
     }
 
     pub(super) struct SpoolFileGuard(PathBuf);
+
+    impl SpoolFileGuard {
+        pub(super) fn new(path: PathBuf) -> Self {
+            Self(path)
+        }
+    }
 
     impl Drop for SpoolFileGuard {
         fn drop(&mut self) {
