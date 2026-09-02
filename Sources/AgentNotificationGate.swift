@@ -63,6 +63,7 @@ struct AgentNotificationMeta {
         guard let known = AgentNotifyCategory(rawValue: String(fields[0].dropFirst(2))) else {
             return nil
         }
+        let pending: Bool
         switch fields[1].dropFirst(2) {
         case "1": pending = true
         case "0": pending = false
