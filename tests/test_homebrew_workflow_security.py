@@ -75,11 +75,19 @@ def _base_fixture() -> tuple[dict[str, object], dict[str, object]]:
             "ref": f"refs/tags/{tag}",
             "object": {"type": "commit", "sha": sha},
         },
+        f"repos/{repository}/compare/main...{sha}": {
+            "status": "behind",
+            "ahead_by": 0,
+            "base_commit": {"sha": "c" * 40},
+            "commits": [],
+        },
         f"repos/{repository}/releases/tags/{tag}": release,
-        f"repos/{repository}/releases/assets/{asset['id']}": asset,
+        f"repos/{repository}/releases/assets/{asset['id']}": dict(asset),
         f"repos/{repository}/releases/latest": {"tag_name": tag, "draft": False, "prerelease": False},
     }
     event = {
+        "action": "completed",
+        "repository": {"full_name": repository},
         "workflow_run": {
             "id": run_id,
             "name": run["name"],
@@ -91,8 +99,8 @@ def _base_fixture() -> tuple[dict[str, object], dict[str, object]]:
             "run_attempt": 1,
             "head_branch": tag,
             "head_sha": sha,
-            "repository": {"full_name": repository},
-            "head_repository": {"full_name": repository},
+            "repository": {"id": 1, "full_name": repository},
+            "head_repository": {"id": 1, "full_name": repository},
         }
     }
     return event, api
@@ -119,6 +127,7 @@ def _write_fake_gh(directory: Path, api: dict[str, object]) -> None:
             if endpoint is None:
                 print("missing API endpoint", file=sys.stderr)
                 raise SystemExit(2)
+            endpoint = endpoint.split("?", 1)[0]
             data = json.loads(
                 (pathlib.Path(__file__).parent / "api.json").read_text()
             )
@@ -157,6 +166,11 @@ class HomebrewPublisherSecurityTests(unittest.TestCase):
                     "GITHUB_EVENT_NAME": event_name,
                     "GITHUB_REPOSITORY": "manaflow-ai/cmux",
                     "GITHUB_REF": ref,
+                    "GITHUB_WORKFLOW": "Update Homebrew Cask",
+                    "GITHUB_WORKFLOW_SHA": "d" * 40,
+                    "GITHUB_WORKFLOW_REF": (
+                        "manaflow-ai/cmux/.github/workflows/update-homebrew.yml@refs/heads/main"
+                    ),
                     "GITHUB_OUTPUT": str(output_path),
                     "GH_TOKEN": "fixture-token",
                 }
@@ -182,13 +196,7 @@ class HomebrewPublisherSecurityTests(unittest.TestCase):
         triggers = document["on"]
         self.assertEqual(triggers["workflow_run"]["workflows"], ["Release macOS app"])
         self.assertEqual(triggers["workflow_run"]["types"], ["completed"])
-        self.assertEqual(
-            triggers["workflow_dispatch"]["inputs"]["version"]["required"], "true"
-        )
-        self.assertEqual(
-            triggers["workflow_dispatch"]["inputs"]["source_run_id"]["required"],
-            "true",
-        )
+        self.assertNotIn("workflow_dispatch", triggers)
         jobs = document["jobs"]
         self.assertEqual(jobs["validate-source"]["runs-on"], "ubuntu-24.04")
         self.assertEqual(jobs["publish-cask"]["runs-on"], "ubuntu-24.04")
@@ -198,12 +206,21 @@ class HomebrewPublisherSecurityTests(unittest.TestCase):
         self.assertEqual(
             jobs["publish-cask"]["permissions"], {"actions": "read", "contents": "read"}
         )
+        self.assertEqual(jobs["publish-cask"]["environment"]["name"], "homebrew-cask")
+        self.assertIn("secrets.HOMEBREW_CASK_TAP_TOKEN", text)
+        self.assertNotIn("secrets.HOMEBREW_TAP_TOKEN", text)
         self.assertNotIn("vars.LINUX_RUNNER", text)
         for job in jobs.values():
             for step in job.get("steps", []):
                 self.assertNotIn("${{", step.get("run", ""))
                 if step.get("uses", "").startswith("actions/checkout@"):
                     self.assertEqual(step.get("with", {}).get("persist-credentials"), "false")
+                    expected_ref = (
+                        "main"
+                        if step.get("with", {}).get("path") == "homebrew-cmux"
+                        else "${{ github.workflow_sha }}"
+                    )
+                    self.assertEqual(step.get("with", {}).get("ref"), expected_ref)
 
     def test_valid_workflow_run_is_accepted(self) -> None:
         event, api = _base_fixture()
@@ -212,6 +229,30 @@ class HomebrewPublisherSecurityTests(unittest.TestCase):
         self.assertIn("skip=false", result.stdout)
         self.assertIn("tag=v1.2.3", result.stdout)
         self.assertIn("release_sha=" + "a" * 40, result.stdout)
+
+    def test_workflow_run_payload_must_bind_every_provenance_field(self) -> None:
+        event, api = _base_fixture()
+        del event["workflow_run"]["workflow_id"]
+        result = self.run_validator(event, api)
+        self.assertNotEqual(result.returncode, 0)
+
+    def test_different_source_workflow_is_rejected(self) -> None:
+        event, api = _base_fixture()
+        event["workflow_run"]["workflow_id"] = 999
+        api["repos/manaflow-ai/cmux/actions/runs/123456789"]["workflow_id"] = 999
+        result = self.run_validator(event, api)
+        self.assertNotEqual(result.returncode, 0)
+
+    def test_workflow_run_must_execute_from_main(self) -> None:
+        event, api = _base_fixture()
+        result = self.run_validator(event, api, ref="refs/heads/attacker")
+        self.assertNotEqual(result.returncode, 0)
+
+    def test_source_run_repository_ids_are_required(self) -> None:
+        event, api = _base_fixture()
+        del api["repos/manaflow-ai/cmux/actions/runs/123456789"]["repository"]["id"]
+        result = self.run_validator(event, api)
+        self.assertNotEqual(result.returncode, 0)
 
     def test_failed_source_run_is_rejected(self) -> None:
         event, api = _base_fixture()
@@ -234,9 +275,30 @@ class HomebrewPublisherSecurityTests(unittest.TestCase):
         result = self.run_validator(event, api)
         self.assertNotEqual(result.returncode, 0)
 
+    def test_unmerged_release_commit_is_rejected(self) -> None:
+        event, api = _base_fixture()
+        api["repos/manaflow-ai/cmux/compare/main..." + "a" * 40]["status"] = "ahead"
+        api["repos/manaflow-ai/cmux/compare/main..." + "a" * 40]["ahead_by"] = 1
+        result = self.run_validator(event, api)
+        self.assertNotEqual(result.returncode, 0)
+
     def test_asset_digest_mismatch_is_rejected(self) -> None:
         event, api = _base_fixture()
-        api["repos/manaflow-ai/cmux/releases/assets/987654321"]["digest"] = "sha256:" + "d" * 64
+        api["repos/manaflow-ai/cmux/releases/tags/v1.2.3"]["assets"][0]["digest"] = (
+            "sha256:" + "d" * 64
+        )
+        result = self.run_validator(event, api)
+        self.assertNotEqual(result.returncode, 0)
+
+    def test_noncanonical_asset_url_is_rejected(self) -> None:
+        event, api = _base_fixture()
+        attacker_url = "https://attacker.invalid/cmux-macos.dmg"
+        api["repos/manaflow-ai/cmux/releases/tags/v1.2.3"]["assets"][0][
+            "browser_download_url"
+        ] = attacker_url
+        api["repos/manaflow-ai/cmux/releases/assets/987654321"][
+            "browser_download_url"
+        ] = attacker_url
         result = self.run_validator(event, api)
         self.assertNotEqual(result.returncode, 0)
 
@@ -254,18 +316,14 @@ class HomebrewPublisherSecurityTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn("skip=true", result.stdout)
 
-    def test_manual_dispatch_requires_main_and_matching_source_run(self) -> None:
+    def test_manual_dispatch_is_rejected(self) -> None:
         event, api = _base_fixture()
-        event = {"inputs": {"version": "1.2.3", "source_run_id": "123456789"}}
         result = self.run_validator(event, api, event_name="workflow_dispatch")
-        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertNotEqual(result.returncode, 0)
 
-        result = self.run_validator(
-            event,
-            api,
-            event_name="workflow_dispatch",
-            ref="refs/heads/feature",
-        )
+    def test_malformed_event_payload_is_rejected(self) -> None:
+        _, api = _base_fixture()
+        result = self.run_validator([], api)  # type: ignore[arg-type]
         self.assertNotEqual(result.returncode, 0)
 
     def test_revalidation_cannot_accept_changed_digest(self) -> None:

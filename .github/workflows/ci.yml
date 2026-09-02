@@ -14,10 +14,13 @@ on:
       - tests/test_ci_change_areas.py
       - .github/workflows/cla.yml
       - .github/workflows/ci.yml
+      - .github/workflows/update-homebrew.yml
       - .github/scripts/rerun-failed-cla.sh
+      - .github/scripts/validate-homebrew-release.sh
       - tests/test_cla_rerun_workflow.sh
       - tests/test_cla_lock_workflow.sh
       - tests/test_cla_trigger_gate.sh
+      - tests/test_homebrew_workflow_security.py
   workflow_dispatch:
 
 permissions:
@@ -205,6 +208,9 @@ jobs:
 
       - name: Validate merged pull request lock behavior
         run: ./tests/test_cla_lock_workflow.sh
+
+      - name: Validate Homebrew release publisher provenance
+        run: python3 tests/test_homebrew_workflow_security.py -v
 
       - name: Validate Blacksmith Testbox broker trust boundary
         run: python3 tests/test_ci_testbox_broker_guard.py
