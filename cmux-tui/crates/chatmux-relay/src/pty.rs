@@ -28,7 +28,7 @@ use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 use std::sync::{Arc, Condvar, Mutex};
 use std::thread::ThreadId;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 use tokio::sync::{Notify, oneshot};
 use tokio_util::sync::CancellationToken;
 
@@ -618,11 +618,16 @@ impl ControlOperationState {
         if self.owned_by_current_thread() {
             return true;
         }
+        let deadline = timeout.map(|duration| Instant::now() + duration);
         let mut guard = self.wait_lock.lock().expect("control operation wait lock");
         while self.active.load(Ordering::Acquire) != 0 {
-            if let Some(timeout) = timeout {
+            if let Some(deadline) = deadline {
+                let remaining = deadline.saturating_duration_since(Instant::now());
+                if remaining.is_zero() {
+                    return false;
+                }
                 let (next, result) =
-                    self.changed.wait_timeout(guard, timeout).expect("control operation wait");
+                    self.changed.wait_timeout(guard, remaining).expect("control operation wait");
                 guard = next;
                 if result.timed_out() {
                     return false;
