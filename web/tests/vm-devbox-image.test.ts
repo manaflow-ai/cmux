@@ -167,6 +167,15 @@ describe("devbox image template", () => {
     }
   });
 
+  test("bakes ble.sh cache seeds for every shared devbox provider", () => {
+    // The shared bashrc guard is useful only when each bake creates the seed.
+    for (const term of ["xterm-256color", "screen-256color", "tmux-256color", "linux"]) {
+      expect(dockerfile).toContain(`test -s /etc/cmux/blesh-cache-seed/blesh/*/term.${term}`);
+    }
+    expect(dockerfile).toContain("/usr/local/share/blesh/cache.d/0");
+    expect(readScript("build-devbox-freestyle.ts")).toContain("blesh-cache-seed");
+  });
+
   test("stays within the E2B Dockerfile-parser restrictions", () => {
     // The E2B translation strips backslash escape sequences inside RUN
     // strings (printf '\n' corrupts written files), would turn ENTRYPOINT

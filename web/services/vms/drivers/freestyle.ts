@@ -3,7 +3,9 @@ import { createHash, createPrivateKey, createPublicKey, randomBytes, sign, verif
 import {
   ProviderError,
   type AttachOptions,
+  type CmuxRemoteApprovalOptions,
   type CreateOptions,
+  type ExecOptions,
   type ExecResult,
   type AttachEndpoint,
   type SSHEndpoint,
@@ -285,7 +287,7 @@ export class FreestyleProvider implements VMProvider {
   async exec(
     vmId: string,
     command: string,
-    opts?: { timeoutMs?: number },
+    opts?: ExecOptions,
   ): Promise<ExecResult> {
     if (isFreestyleBetaVmId(vmId)) return this.beta.exec(vmId, command, opts);
     const timeoutMs = normalizeExecTimeout(opts?.timeoutMs);
@@ -621,14 +623,18 @@ export class FreestyleProvider implements VMProvider {
     return this.beta.openCmuxRemote(vmId, options);
   }
 
-  async approveCmuxRemoteEnrollment(vmId: string, invitationId: string): Promise<CmuxRemoteApprovalResult> {
+  async approveCmuxRemoteEnrollment(
+    vmId: string,
+    invitationId: string,
+    options?: CmuxRemoteApprovalOptions,
+  ): Promise<CmuxRemoteApprovalResult> {
     if (!this.isBetaMachine(vmId)) {
       throw new ProviderError(
         "freestyle",
         `approveCmuxRemoteEnrollment(${vmId}) is not supported on legacy-platform freestyle machines (no cmux-tui daemon).`,
       );
     }
-    return this.beta.approveCmuxRemoteEnrollment(vmId, invitationId);
+    return this.beta.approveCmuxRemoteEnrollment(vmId, invitationId, options);
   }
 
   async openSSH(vmId: string): Promise<SSHEndpoint> {
