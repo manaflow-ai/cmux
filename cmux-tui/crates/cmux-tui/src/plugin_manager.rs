@@ -1011,6 +1011,15 @@ mod tests {
         }
         assert!(is_safe_plugin_build_env_name("PATH"));
         assert!(is_safe_plugin_build_env_name("LC_CTYPE"));
+        for name in [
+            "RUSTUP_HOME",
+            "RUSTUP_TOOLCHAIN",
+            "CARGO_HOME",
+            "CARGO_BUILD_TARGET",
+            "RUSTFLAGS",
+        ] {
+            assert!(is_safe_plugin_build_env_name(name), "toolchain environment name: {name}");
+        }
     }
 
     #[test]
