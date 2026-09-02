@@ -1352,25 +1352,18 @@ impl Inner {
         }
         tokio::select! {
             _ = context.cancellation.cancelled() => {
-                self.emit_error_for_generation_async(
-                    context,
-                    &pty_id,
-                    generation,
-                    &publication_gate,
-                    "failed",
-                    "PTY output start cancelled",
-                ).await;
+                // Do not wait for the publication gate here. The start owner
+                // drops below and retires the attachment from its detached
+                // cleanup thread, while this request must finish promptly on
+                // transport cancellation.
+                send_pty_error(context, &pty_id, "failed", "PTY output start cancelled");
             }
             result = tokio::time::timeout(PTY_START_TIMEOUT, started_rx) => {
                 if result.is_err() {
-                    self.emit_error_for_generation_async(
-                        context,
-                        &pty_id,
-                        generation,
-                        &publication_gate,
-                        "failed",
-                        "PTY output start timed out",
-                    ).await;
+                    // The cleanup owner handles the gated retirement. Keep
+                    // the timeout path independent from that gate so a stuck
+                    // output callback cannot strand the opening request.
+                    send_pty_error(context, &pty_id, "failed", "PTY output start timed out");
                 }
             }
         }
