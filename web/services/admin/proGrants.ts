@@ -6,7 +6,7 @@
 // the account falls back to its real Stripe state. Who granted what is kept in
 // `serverMetadata.cmuxAdminPlanGrant`, which end users cannot read.
 
-import { and, desc, eq, isNull } from "drizzle-orm";
+import { and, desc, eq, ilike, isNull } from "drizzle-orm";
 
 import { cloudDb } from "../../db/client";
 import { adminPlanGrants } from "../../db/schema";
@@ -526,19 +526,26 @@ export async function listPendingEmailGrants(
       createdAt: adminPlanGrants.createdAt,
     })
     .from(adminPlanGrants)
-    .where(and(isNull(adminPlanGrants.appliedAt), isNull(adminPlanGrants.revokedAt)))
+    .where(
+      and(
+        isNull(adminPlanGrants.appliedAt),
+        isNull(adminPlanGrants.revokedAt),
+        ilike(adminPlanGrants.email, `%${escapeLikePattern(trimmed)}%`),
+      ),
+    )
     .orderBy(desc(adminPlanGrants.createdAt))
-    .limit(200);
-  return rows
-    .filter((row) => row.email.includes(trimmed))
-    .slice(0, ADMIN_USER_SEARCH_LIMIT)
-    .map((row) => ({
-      id: row.id,
-      email: row.email,
-      plan: row.plan,
-      grantedByEmail: row.grantedByEmail ?? null,
-      createdAt: row.createdAt.toISOString(),
-    }));
+    .limit(ADMIN_USER_SEARCH_LIMIT);
+  return rows.map((row) => ({
+    id: row.id,
+    email: row.email,
+    plan: row.plan,
+    grantedByEmail: row.grantedByEmail ?? null,
+    createdAt: row.createdAt.toISOString(),
+  }));
+}
+
+function escapeLikePattern(value: string): string {
+  return value.replace(/[\\%_]/g, (char) => `\\${char}`);
 }
 
 export async function createPendingEmailGrant(input: {
@@ -619,69 +626,79 @@ export async function revokePendingEmailGrant(input: {
  * Applies every open grant addressed to the user's verified primary email.
  * Called from the after-sign-in callback, which only runs it once Stack
  * reports the mailbox verified. The newest grant wins when several are open.
+ *
+ * Rows are claimed first with a conditional update that requires them to be
+ * still open, so a revoke that lands after the read but before the apply
+ * wins: a revoked row is never claimed, and only claimed rows are applied.
+ * If the metadata write fails, the claim is released so the next sign-in
+ * retries.
  */
 export async function applyPendingEmailGrants(
   user: { readonly id: string; readonly primaryEmail?: string | null },
   options: {
     readonly db?: AdminGrantsDb;
     readonly grant?: (input: SetManualPlanGrantInput) => Promise<unknown>;
+    readonly now?: () => Date;
   } = {},
 ): Promise<number> {
   if (!user.primaryEmail) return 0;
   const db = options.db ?? cloudDb();
   const email = canonicalizeEmailForMatching(user.primaryEmail);
-  let rows: Array<{
+  const claimedAt = (options.now ?? (() => new Date()))();
+  let claimed: Array<{
     id: string;
     plan: string;
     grantedByUserId: string;
     grantedByEmail: string | null;
+    createdAt: Date;
   }>;
   try {
-    rows = await openGrantsForEmail(db, email);
+    claimed = await db
+      .update(adminPlanGrants)
+      .set({ appliedAt: claimedAt, appliedUserId: user.id })
+      .where(
+        and(
+          eq(adminPlanGrants.email, email),
+          isNull(adminPlanGrants.appliedAt),
+          isNull(adminPlanGrants.revokedAt),
+        ),
+      )
+      .returning({
+        id: adminPlanGrants.id,
+        plan: adminPlanGrants.plan,
+        grantedByUserId: adminPlanGrants.grantedByUserId,
+        grantedByEmail: adminPlanGrants.grantedByEmail,
+        createdAt: adminPlanGrants.createdAt,
+      });
   } catch (error) {
     // No table yet (migration pending) or no database: nothing to apply.
     if (isMissingGrantsTableError(error) || isMissingDatabaseConfigError(error)) return 0;
     throw error;
   }
-  if (rows.length === 0) return 0;
-  const newest = rows[0]!;
+  if (claimed.length === 0) return 0;
+  const newest = [...claimed].sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime())[0]!;
   if (isAdminGrantablePlanId(newest.plan)) {
-    await (options.grant ?? setManualPlanGrant)({
-      targetUserId: user.id,
-      plan: newest.plan,
-      admin: { id: newest.grantedByUserId, primaryEmail: newest.grantedByEmail },
-    });
+    try {
+      await (options.grant ?? setManualPlanGrant)({
+        targetUserId: user.id,
+        plan: newest.plan,
+        admin: { id: newest.grantedByUserId, primaryEmail: newest.grantedByEmail },
+      });
+    } catch (error) {
+      for (const row of claimed) {
+        await db
+          .update(adminPlanGrants)
+          .set({ appliedAt: null, appliedUserId: null })
+          .where(and(eq(adminPlanGrants.id, row.id), eq(adminPlanGrants.appliedUserId, user.id)))
+          .catch(() => undefined);
+      }
+      throw error;
+    }
   }
-  const appliedAt = new Date();
-  for (const row of rows) {
-    await db
-      .update(adminPlanGrants)
-      .set({ appliedAt, appliedUserId: user.id })
-      .where(eq(adminPlanGrants.id, row.id));
-  }
-  return rows.length;
+  return claimed.length;
 }
 
 function isMissingDatabaseConfigError(error: unknown): boolean {
   return error instanceof Error && /DATABASE_URL is required/.test(error.message);
 }
 
-async function openGrantsForEmail(db: AdminGrantsDb, email: string) {
-  return await db
-    .select({
-      id: adminPlanGrants.id,
-      plan: adminPlanGrants.plan,
-      grantedByUserId: adminPlanGrants.grantedByUserId,
-      grantedByEmail: adminPlanGrants.grantedByEmail,
-    })
-    .from(adminPlanGrants)
-    .where(
-      and(
-        eq(adminPlanGrants.email, email),
-        isNull(adminPlanGrants.appliedAt),
-        isNull(adminPlanGrants.revokedAt),
-      ),
-    )
-    .orderBy(desc(adminPlanGrants.createdAt))
-    .limit(20);
-}

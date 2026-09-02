@@ -486,6 +486,8 @@ type GrantRow = {
 
 /** Collects bound parameter values from a drizzle SQL condition. */
 function boundParams(node: unknown, out: unknown[] = []): unknown[] {
+  // Template values in sql`...` stay raw JS strings until query build time.
+  if (typeof node === "string") out.push(node);
   if (node && typeof node === "object") {
     const record = node as { value?: unknown; queryChunks?: unknown[]; constructor?: { name?: string } };
     if (record.constructor?.name === "Param") out.push(record.value);
@@ -497,21 +499,32 @@ function boundParams(node: unknown, out: unknown[] = []): unknown[] {
 /** Minimal in-memory double for the admin_plan_grants queries the service issues. */
 function fakeGrantsDb(rows: GrantRow[]): AdminGrantsDb {
   const isOpen = (row: GrantRow) => !row.appliedAt && !row.revokedAt;
+  const matches = (condition: unknown) => {
+    const params = boundParams(condition).filter((value): value is string => typeof value === "string");
+    const like = params.find((value) => value.startsWith("%") && value.endsWith("%"));
+    const email = params.find((value) => value.includes("@") && !value.startsWith("%")) ?? null;
+    const ids = new Set(params.filter((value) => /^g\d+$/.test(value)));
+    const userIds = new Set(params.filter((value) => /^u\d+$/.test(value)));
+    return (row: GrantRow) =>
+      (ids.size === 0 || ids.has(row.id)) &&
+      (userIds.size === 0 || userIds.has(row.appliedUserId ?? "")) &&
+      (email === null || row.email === email) &&
+      (like === undefined || row.email.includes(like.slice(1, -1).replace(/\\(.)/g, "$1"))) &&
+      (email === null && like === undefined ? true : isOpen(row) || ids.size > 0);
+  };
   return {
     select: () => ({
       from: () => ({
-        where: (condition: unknown) => {
-          const params = boundParams(condition).filter((value): value is string => typeof value === "string");
-          const email = params.find((value) => value.includes("@")) ?? null;
-          return {
-            orderBy: () => ({
-              limit: async () =>
-                rows
-                  .filter((row) => isOpen(row) && (email === null || row.email === email))
-                  .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime()),
-            }),
-          };
-        },
+        where: (condition: unknown) => ({
+          orderBy: () => ({
+            limit: async (limit: number) =>
+              rows
+                .filter(matches(condition))
+                .filter(isOpen)
+                .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime())
+                .slice(0, limit),
+          }),
+        }),
       }),
     }),
     insert: () => ({
@@ -535,11 +548,18 @@ function fakeGrantsDb(rows: GrantRow[]): AdminGrantsDb {
     }),
     update: () => ({
       set: (values: Partial<GrantRow>) => ({
-        where: async (condition: unknown) => {
-          const ids = new Set(boundParams(condition));
-          for (const row of rows) {
-            if (ids.has(row.id)) Object.assign(row, values);
-          }
+        where: (condition: unknown) => {
+          const predicate = matches(condition);
+          const requireOpen = boundParams(condition).some(
+            (value) => typeof value === "string" && value.includes("@"),
+          );
+          const hit = rows.filter((row) => predicate(row) && (!requireOpen || isOpen(row)));
+          const run = async () => {
+            for (const row of hit) Object.assign(row, values);
+            return hit;
+          };
+          const promise = run();
+          return Object.assign(promise, { returning: async () => await promise });
         },
       }),
     }),
@@ -601,6 +621,26 @@ describe("pending email grants", () => {
     expect(await applyPendingEmailGrants({ id: "u9", primaryEmail: "pat@example.com" }, { db, grant: async () => undefined })).toBe(0);
   });
 
+  test("applyPendingEmailGrants never applies a row revoked before the claim, and releases the claim on failure", async () => {
+    const rows: GrantRow[] = [];
+    const db = fakeGrantsDb(rows);
+    await createPendingEmailGrant({ email: "pat@example.com", plan: "pro", admin, db });
+    await revokePendingEmailGrant({ grantId: "g1", db });
+    const grants: unknown[] = [];
+    expect(
+      await applyPendingEmailGrants({ id: "u9", primaryEmail: "pat@example.com" }, { db, grant: async (input) => { grants.push(input); } }),
+    ).toBe(0);
+    expect(grants).toEqual([]);
+
+    await createPendingEmailGrant({ email: "pat@example.com", plan: "pro", admin, db });
+    await expect(
+      applyPendingEmailGrants({ id: "u9", primaryEmail: "pat@example.com" }, { db, grant: async () => { throw new Error("stack down"); } }),
+    ).rejects.toThrow("stack down");
+    const row = rows.find((candidate) => candidate.id === "g2")!;
+    expect(row.appliedAt).toBeNull();
+    expect(row.appliedUserId).toBeNull();
+  });
+
   test("applyPendingEmailGrants ignores users without an email", async () => {
     expect(await applyPendingEmailGrants({ id: "u1", primaryEmail: null }, { db: fakeGrantsDb([]) })).toBe(0);
   });
@@ -619,14 +659,12 @@ describe("isMissingGrantsTableError", () => {
 
   test("applyPendingEmailGrants treats a missing table as nothing to apply", async () => {
     const db = {
-      select: () => ({
-        from: () => ({
+      update: () => ({
+        set: () => ({
           where: () => ({
-            orderBy: () => ({
-              limit: async () => {
-                throw Object.assign(new Error("Failed query"), { cause: { code: "42P01" } });
-              },
-            }),
+            returning: async () => {
+              throw Object.assign(new Error("Failed query"), { cause: { code: "42P01" } });
+            },
           }),
         }),
       }),

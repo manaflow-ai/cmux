@@ -158,11 +158,18 @@ function adminDbMock() {
       }),
       update: (table: unknown) => ({
         set: (values: Record<string, unknown>) => ({
-          where: async () => {
-            if (table === adminPlanGrants) {
-              for (const row of pendingGrantRows) Object.assign(row, values);
-            }
-            if (table === stripeSubscriptions) subscriptionUpdates.push(values);
+          where: () => {
+            const run = async () => {
+              if (table === adminPlanGrants) {
+                const hit = pendingGrantRows.filter((row) => !row.appliedAt && !row.revokedAt);
+                for (const row of hit) Object.assign(row, values);
+                return hit;
+              }
+              if (table === stripeSubscriptions) subscriptionUpdates.push(values);
+              return [];
+            };
+            const promise = run();
+            return Object.assign(promise, { returning: async () => await promise });
           },
         }),
       }),
