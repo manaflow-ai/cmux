@@ -1099,6 +1099,7 @@ __all__ = [
     "SessionSnapshotItem",
     "SessionDelta",
     "SessionEvent",
+    "JournalAppendResult",
     "JournalAuthority",
     "JournalClass",
     "JournalEventSchema",

@@ -6,6 +6,7 @@ import com.cmux.Ids;
 import com.cmux.Secret;
 import com.cmux.Selector;
 import com.cmux.raw.Json;
+import java.math.BigDecimal;
 import java.math.BigInteger;
 import java.util.ArrayList;
 import java.util.Base64;
@@ -134,7 +135,7 @@ public final class Wire {
     public static Object encode(Object value) {
         if (value == null || value instanceof String || value instanceof Boolean ||
                 value instanceof Byte || value instanceof Short || value instanceof Integer ||
-                value instanceof Long || value instanceof BigInteger ||
+                value instanceof Long || value instanceof BigInteger || value instanceof BigDecimal ||
                 value instanceof Float || value instanceof Double) {
             return value;
         }

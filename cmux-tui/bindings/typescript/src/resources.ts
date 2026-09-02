@@ -1683,14 +1683,11 @@ function sessionJournalRecord(value: unknown): SessionJournalRecord {
   if (!Array.isArray(payload.subjects)) {
     throw new CmuxProtocolError("journal subjects must be an array");
   }
-  const subjects = payload.subjects.map((subjectValue, index) => {
-    const subjectPayload = record(subjectValue, `journal subject ${index}`);
-    strictObject(subjectPayload, ["kind", "id"], "journal subject");
-    return Object.freeze({
-      kind: requiredString(subjectPayload, "kind"),
-      id: requiredString(subjectPayload, "id"),
-    });
-  });
+  if (payload.subjects.length > 64) {
+    throw new CmuxProtocolError("journal subjects must contain at most 64 entries");
+  }
+  const subjects = payload.subjects.map((subjectValue, index) =>
+    journalSubject(subjectValue, `journal subject ${index}`));
   return Object.freeze({
     sequence: requiredDecimal(payload, "sequence"),
     eventId: requiredString(payload, "event_id"),

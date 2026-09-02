@@ -7404,7 +7404,7 @@ pub const TerminalScreenResult = struct {
     cursor_col: u16,
     cursor_visible: bool,
     /// Coalesced PTY output revision. Null means unavailable.
-    revision: ?u64,
+    revision: ?u64 = null,
     /// Bounded OSC 9 progress payload. Null means unavailable.
     osc_progress: ?[]const u8 = null,
     /// Catalog-defined forward-compatible fields.
@@ -9463,10 +9463,23 @@ fn decodeJournalProducerPutResult(
             "event_id",
         },
     );
+    const producer_id = try journalBoundedString(
+        object,
+        "producer_id",
+        max_journal_component_bytes,
+    );
+    const namespace_ = try journalBoundedString(object, "namespace", 128);
+    const namespace_prefix = "plugin.";
+    if (namespace_.len != namespace_prefix.len + producer_id.len or
+        !std.mem.startsWith(u8, namespace_, namespace_prefix) or
+        !std.mem.eql(u8, namespace_[namespace_prefix.len..], producer_id))
+    {
+        return error.InvalidJournalProducerNamespace;
+    }
     return .{
-        .producer_id = try journalBoundedString(object, "producer_id", max_journal_component_bytes),
+        .producer_id = producer_id,
         .manifest_version = try objectUnsigned(u32, object, "manifest_version", 1),
-        .namespace_ = try journalBoundedString(object, "namespace", 128),
+        .namespace_ = namespace_,
         .sequence = try journalDecimalString(object, "sequence"),
         .event_id = try journalBoundedString(object, "event_id", 128),
     };

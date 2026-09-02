@@ -1855,16 +1855,16 @@ def _journal_record(value: Any) -> SessionJournalRecord:
     subject_values = payload.get("subjects")
     if not isinstance(subject_values, list):
         raise ProtocolError("journal subjects must be an array")
+    if len(subject_values) > 64:
+        raise ProtocolError("journal subjects must contain at most 64 entries")
     subjects = []
     for subject_value in subject_values:
-        subject = _mapping(subject_value, "journal subject")
-        _strict_object(subject, ("kind", "id"), "journal subject")
-        subjects.append(
-            JournalSubject(
-                _required_string(subject, "kind"),
-                _required_string(subject, "id"),
-            )
-        )
+        try:
+            subjects.append(_journal_subject(subject_value))
+        except ProtocolError:
+            raise
+        except (TypeError, ValueError) as error:
+            raise ProtocolError(f"journal subject is invalid: {error}") from error
     return SessionJournalRecord(
         _required_decimal(payload, "sequence"),
         _required_string(payload, "event_id"),

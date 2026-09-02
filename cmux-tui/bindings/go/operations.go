@@ -441,6 +441,7 @@ func (s *Session) PutJournalProducer(ctx context.Context, manifest JournalProduc
 		return MutationResult[JournalProducerPutResult]{}, err
 	}
 	input := s.route.params()
+	merge(input, options.Extra)
 	input["manifest"] = manifest
 	return mutationValue[JournalProducerPutResult](
 		ctx, s.client, wirev2.SessionJournalProducerPut, input, options,
@@ -459,6 +460,7 @@ func (s *Session) AppendJournal(ctx context.Context, event JournalIngress, optio
 		return MutationResult[JournalAppendResult]{}, err
 	}
 	input := s.route.params()
+	merge(input, options.Extra)
 	input["event"] = event
 	return mutationValue[JournalAppendResult](
 		ctx, s.client, wirev2.SessionJournalAppend, input, options,
