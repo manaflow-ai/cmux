@@ -2718,6 +2718,13 @@ mod tests {
         }
         assert_eq!(next_wait_retry(&mut retries), WaitRetryAction::Escalate);
     }
+
+    #[cfg(windows)]
+    #[test]
+    fn successful_windows_owner_cleanup_does_not_terminate_job() {
+        assert!(!windows_job_should_terminate(false));
+        assert!(windows_job_should_terminate(true));
+    }
     #[tokio::test]
     async fn exec_receives_scoped_process_environment_values() {
         let root = scratch("procenv");
