@@ -28541,6 +28541,7 @@ mod tests {
             workspace_revision: 1,
             pane_revision: Some(1),
             active_workspace: 0,
+            ..TreeView::default()
         };
 
         app.reclip_viewport_panes();
@@ -28743,6 +28744,7 @@ mod tests {
             workspace_revision: 1,
             pane_revision: Some(1),
             active_workspace: 0,
+            ..TreeView::default()
         };
         let started_at = Instant::now();
         let mut motion = ViewportMotion::new(started_at);

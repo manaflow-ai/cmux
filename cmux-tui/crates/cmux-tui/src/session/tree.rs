@@ -409,6 +409,7 @@ pub fn tree_from_state_with_notifications(
         workspace_revision: state.workspace_revision,
         pane_revision: Some(state.pane_revision),
         active_workspace: state.active_workspace,
+        location_index: OnceLock::new(),
         workspaces: state
             .workspaces
             .iter()
