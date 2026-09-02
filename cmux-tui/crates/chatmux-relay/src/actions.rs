@@ -1734,7 +1734,7 @@ pub async fn perform_action(frame: &Value, context: &ActionContext) -> Value {
 
     match verb.as_str() {
         "grep" => {
-            let _file_permit = match Arc::clone(&context.file_slots).try_acquire_owned() {
+            let file_permit = match Arc::clone(&context.file_slots).try_acquire_owned() {
                 Ok(permit) => permit,
                 Err(_) => {
                     return fail(
@@ -1789,25 +1789,34 @@ pub async fn perform_action(frame: &Value, context: &ActionContext) -> Value {
             };
             #[cfg(not(unix))]
             let command_cwd_fd = None;
-            let outcome = run_spec(
-                RunSpec::Argv {
-                    file: "grep",
-                    args: vec![
-                        "-rIn".to_owned(),
-                        "--exclude-dir=.git".to_owned(),
-                        "--exclude-dir=node_modules".to_owned(),
-                        "-e".to_owned(),
-                        pattern.to_owned(),
-                        "--".to_owned(),
-                        process_path,
-                    ],
-                },
-                Path::new(&command_cwd_path),
-                command_cwd_fd,
-                timeout_ms,
-                &env,
-            )
-            .await;
+            let outcome = tokio::spawn(async move {
+                let _file_permit = file_permit;
+                #[cfg(unix)]
+                let _path_guard = _path_guard;
+                #[cfg(unix)]
+                let _cwd_guard = _cwd_guard;
+                run_spec(
+                    RunSpec::Argv {
+                        file: "grep",
+                        args: vec![
+                            "-rIn".to_owned(),
+                            "--exclude-dir=.git".to_owned(),
+                            "--exclude-dir=node_modules".to_owned(),
+                            "-e".to_owned(),
+                            pattern.to_owned(),
+                            "--".to_owned(),
+                            process_path,
+                        ],
+                    },
+                    Path::new(&command_cwd_path),
+                    command_cwd_fd,
+                    timeout_ms,
+                    &env,
+                )
+                .await
+            })
+            .await
+            .unwrap_or(RunOutcome::Failed { message: "process failed to start".to_owned() });
             run_reply(version, &action_id, outcome, args.get("limit"), Some(200), timeout_ms)
         }
         "find" => {
