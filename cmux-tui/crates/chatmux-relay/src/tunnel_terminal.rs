@@ -317,6 +317,10 @@ impl Connection {
         if self.finished.swap(true, Ordering::SeqCst) {
             return;
         }
+        // Peer and parent shutdown do not owe a wire frame. Interrupt a
+        // writer that may be blocked on a non-reading peer before waking its
+        // receive loop with the end marker.
+        self.writer_done.cancel();
         let _ = self.writer_tx.send(WriterMessage::End);
         self.done.cancel();
     }
@@ -542,12 +546,16 @@ async fn serve_connection(stream: TcpStream, manager: Arc<PtyManager>, parent: C
     let mut writer = {
         let connection = Arc::clone(&connection);
         tokio::spawn(async move {
-            while let Some(message) = writer_rx.recv().await {
+            while let Some(message) = tokio::select! {
+                biased;
+                _ = connection.writer_done.cancelled() => None,
+                message = writer_rx.recv() => message,
+            } {
                 match message {
                     WriterMessage::Frame(frame) => {
                         let written = tokio::select! {
                             result = write_half.write_all(&frame) => result,
-                            _ = connection.writer_done.cancelled() => break,
+                            _ = connection.writer_done.cancelled() => return,
                         };
                         // Every dequeued frame added exactly its length at
                         // enqueue, so this never underflows.
@@ -643,28 +651,16 @@ async fn serve_connection(stream: TcpStream, manager: Arc<PtyManager>, parent: C
                             }
                             match dispatch_tx.try_send(frame) {
                                 Ok(()) => {}
-                                Err(mpsc::error::TrySendError::Full(frame)) => {
-                                    // A decoder burst may contain more frames than the
-                                    // bounded queue. Apply backpressure only when full,
-                                    // while retaining cancellation responsiveness.
-                                    tokio::select! {
-                                        biased;
-                                        _ = parent.cancelled() => {
-                                            connection.finish();
-                                            break 'reader;
-                                        }
-                                        _ = connection.done.cancelled() => break 'reader,
-                                        _ = &mut open_deadline, if !connection.opened_seen.load(Ordering::SeqCst) => {
-                                            connection.protocol_error("bad_request", "open timed out");
-                                            break 'reader;
-                                        }
-                                        result = dispatch_tx.send(frame) => {
-                                            if result.is_err() {
-                                                connection.finish();
-                                                break 'reader;
-                                            }
-                                        }
-                                    }
+                                Err(mpsc::error::TrySendError::Full(_frame)) => {
+                                    // Never wait for a stalled operation here. A full
+                                    // queue is a typed refusal, so the reader can keep
+                                    // observing peer EOF and parent cancellation.
+                                    eprintln!("Tunnel dispatch queue is full; closing connection");
+                                    connection.protocol_error(
+                                        "busy",
+                                        "terminal is busy; reconnect and retry",
+                                    );
+                                    break 'reader;
                                 }
                                 Err(mpsc::error::TrySendError::Closed(_)) => {
                                     connection.finish();
