@@ -766,6 +766,74 @@ TEST("journal producer decoders reject oversized arrays before item parsing") {
         std::string::npos);
 }
 
+TEST("journal encoders reject out-of-range enum values") {
+    const auto manifest = [] {
+        cmux::JournalProducerManifest value;
+        value.producer_id = "screen-detector";
+        value.namespace_ = "plugin.screen-detector";
+        value.manifest_version = 1;
+        value.max_sensitivity = cmux::JournalSensitivity::sensitive;
+        value.permissions = {"journal.append.plugin.screen-detector"};
+        value.events.push_back(cmux::JournalEventSchema{
+            "plugin.screen-detector.state.changed",
+            1,
+            cmux::JournalClass::state,
+            cmux::JournalReplayPolicy::required,
+            cmux::JournalSensitivity::sensitive,
+            cmux::Json(cmux::Json::Object{}),
+        });
+        return value;
+    }();
+
+    auto invalid_class = manifest;
+    invalid_class.events.front().class_ =
+        static_cast<cmux::JournalClass>(99);
+    CHECK(!invalid_class.to_json());
+
+    auto invalid_replay = manifest;
+    invalid_replay.events.front().replay =
+        static_cast<cmux::JournalReplayPolicy>(99);
+    CHECK(!invalid_replay.to_json());
+
+    auto invalid_event_sensitivity = manifest;
+    invalid_event_sensitivity.events.front().sensitivity =
+        static_cast<cmux::JournalSensitivity>(99);
+    CHECK(!invalid_event_sensitivity.to_json());
+
+    auto invalid_manifest_sensitivity = manifest;
+    invalid_manifest_sensitivity.max_sensitivity =
+        static_cast<cmux::JournalSensitivity>(99);
+    CHECK(!invalid_manifest_sensitivity.to_json());
+
+    cmux::JournalIngress ingress{
+        "screen-detector",
+        1,
+        "plugin.screen-detector.state.changed",
+        1,
+        std::nullopt,
+        {},
+        static_cast<cmux::JournalSensitivity>(99),
+        cmux::Json(cmux::Json::Object{}),
+        std::nullopt,
+        std::nullopt,
+    };
+    CHECK(!ingress.to_json());
+
+    cmux::SessionJournalOptions invalid_filter;
+    invalid_filter.filter.classes.push_back(
+        static_cast<cmux::JournalClass>(99));
+    CHECK(!invalid_filter.to_params());
+
+    invalid_filter = {};
+    invalid_filter.filter.max_sensitivity =
+        static_cast<cmux::JournalSensitivity>(99);
+    CHECK(!invalid_filter.to_params());
+
+    invalid_filter = {};
+    invalid_filter.start = static_cast<cmux::JournalStart>(99);
+    CHECK(!invalid_filter.to_params());
+}
+
 TEST("session auxiliary options reject invalid values before I/O") {
     auto state = std::make_shared<FakeState>();
     auto client = client_for(state);
