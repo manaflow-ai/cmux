@@ -466,8 +466,6 @@ struct MachinesPanelView: View {
                     sessionRejectedState
                 case .requiresPro:
                     requiresProState
-                case .notConfigured:
-                    notConfiguredState
                 case .unreachable:
                     unreachableState
                 }
@@ -529,25 +527,6 @@ struct MachinesPanelView: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .accessibilityIdentifier("CloudMachinesEmptyState")
-    }
-
-    @ViewBuilder
-    private var notConfiguredState: some View {
-        Image(systemName: "exclamationmark.cloud")
-            .font(.system(size: 26, weight: .light))
-            .foregroundColor(.secondary.opacity(0.55))
-        Text(String(localized: "machines.notConfigured.title", defaultValue: "Cloud is not configured"))
-            .cmuxFont(size: 13, weight: .semibold)
-            .foregroundColor(.primary.opacity(0.85))
-        Text(String(
-            localized: "machines.notConfigured.subtitle",
-            defaultValue: "Restart cmux. If this continues, reinstall or update the app."
-        ))
-        .cmuxFont(size: 12)
-        .foregroundColor(.secondary)
-        .multilineTextAlignment(.center)
-        .padding(.horizontal, 24)
-        .accessibilityIdentifier("CloudMachinesNotConfiguredView")
     }
 
     /// Free plans: "Upgrade to use more than 1 machine" — the ceiling plus the

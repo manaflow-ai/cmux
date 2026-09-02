@@ -364,8 +364,6 @@ final class MachinesPanelViewModel: ObservableObject {
         case sessionRejected
         /// HTTP 402: the plan gates Cloud access.
         case requiresPro
-        /// The app composition root did not install the Cloud client.
-        case notConfigured
         /// Everything else — retrying may help.
         case unreachable
     }
@@ -710,17 +708,6 @@ final class MachinesPanelViewModel: ObservableObject {
         listProblem = nil
         hasLoadedOnce = false
         isLoading = false
-    }
-
-    /// Completes a load when the composition root did not install the Cloud runtime.
-    func completeMissingClientLoad() {
-        lastErrorDescription = String(
-            localized: "machines.notConfigured.title",
-            defaultValue: "Cloud is not configured"
-        )
-        listProblem = .notConfigured
-        isLoading = false
-        hasLoadedOnce = true
     }
 
     private func performRefresh() async -> Bool {

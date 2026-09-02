@@ -127992,40 +127992,6 @@
         }
       }
     },
-    "machines.notConfigured.subtitle": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Restart cmux. If this continues, reinstall or update the app."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "cmux を再起動してください。問題が続く場合は、アプリを再インストールまたはアップデートしてください。"
-          }
-        }
-      }
-    },
-    "machines.notConfigured.title": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Cloud is not configured"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "クラウドが設定されていません"
-          }
-        }
-      }
-    },
     "machines.unavailable.stale": {
       "extractionState": "manual",
       "localizations": {
