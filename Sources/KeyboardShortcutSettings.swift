@@ -854,7 +854,7 @@ enum KeyboardShortcutSettings {
         excluding currentAction: Action
     ) -> Action? {
         for action in Action.allCases where action != currentAction {
-            let configuredShortcut = shortcut(for: action)
+            let configuredShortcut = conflictResolutionShortcut(for: action)
             if action.conflicts(
                 with: proposedShortcut,
                 proposedAction: currentAction,

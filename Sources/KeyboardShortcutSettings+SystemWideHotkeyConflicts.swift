@@ -2,6 +2,54 @@ import Foundation
 
 /// System-wide shortcut conflict helpers extracted from `KeyboardShortcutSettings.swift`, which sits at its file-length budget.
 extension KeyboardShortcutSettings {
+    /// Resolves one action for conflict comparison without consulting any
+    /// other action's effective binding. Conflict validation is intentionally
+    /// a graph walk over these action-local snapshots; using `shortcut(for:)`
+    /// here would re-enter system-wide reservation lookup and recursively
+    /// initialize its static state.
+    static func conflictResolutionShortcut(for action: Action) -> StoredShortcut {
+        let managedBySettingsFile = settingsFileStore.isManagedByFile(action)
+        let candidate: StoredShortcut? = if managedBySettingsFile {
+            settingsFileStore.override(for: action)
+        } else if let data = UserDefaults.standard.data(forKey: action.defaultsKey) {
+            try? JSONDecoder().decode(StoredShortcut.self, from: data)
+        } else {
+            nil
+        }
+
+        if managedBySettingsFile,
+           candidate == nil,
+           action == .showHideAllWindows {
+            return .unbound
+        }
+        if let candidate {
+            if candidate.isUnbound {
+                return .unbound
+            }
+            if case let .accepted(normalized) = action
+                .resolvedRecordedShortcutIgnoringConflicts(
+                    candidate,
+                    checkingSystemWideConflicts: false
+                ) {
+                return normalized
+            }
+            // Show/Hide must fail closed for an invalid explicit binding; it
+            // must never silently register its system-wide default instead.
+            if action == .showHideAllWindows {
+                return .unbound
+            }
+        }
+
+        guard case let .accepted(normalizedDefault) = action
+            .resolvedRecordedShortcutIgnoringConflicts(
+                action.defaultShortcut,
+                checkingSystemWideConflicts: false
+            ) else {
+            return .unbound
+        }
+        return normalizedDefault
+    }
+
     static func reservedSystemWideHotkeyShortcuts(
         excluding currentAction: Action,
         alsoExcluding ignoredActions: Set<Action> = []
@@ -10,7 +58,7 @@ extension KeyboardShortcutSettings {
 
         for action in Action.allCases
         where action != currentAction && !ignoredActions.contains(action) {
-            let shortcut = systemWideConflictShortcut(for: action)
+            let shortcut = conflictResolutionShortcut(for: action)
             guard !shortcut.isUnbound else { continue }
             if shortcut.hasChord {
                 reserved.append(StoredShortcut(first: shortcut.firstStroke))
@@ -63,12 +111,7 @@ extension KeyboardShortcutSettings {
     }
 
     static func systemWideConflictShortcut(for action: Action) -> StoredShortcut {
-        switch action {
-        case .showHideAllWindows:
-            return SystemWideHotkeySettings.shortcut()
-        default:
-            return KeyboardShortcutSettings.shortcut(for: action)
-        }
+        conflictResolutionShortcut(for: action)
     }
 
     static let hardcodedSystemWideHotkeyConflicts: [StoredShortcut] = [
