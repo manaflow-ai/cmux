@@ -6,6 +6,8 @@
 //! snapshots, prefix arming, the current layout, hit map, selection, and
 //! menu/prompt overlays).
 
+#[cfg(test)]
+use std::cell::Cell;
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::io::Write;
 use std::panic::AssertUnwindSafe;
@@ -98,6 +100,11 @@ use crate::ui::{
     ReusableRowBuffer, horizontal_drag_offset, horizontal_offset_at, horizontal_thumb_geometry,
     thumb_geometry, viewport_drag_offset, viewport_jump_offset, viewport_thumb_geometry,
 };
+
+#[cfg(test)]
+thread_local! {
+    static GRAPHICS_ROUTE_COMPARISONS: Cell<usize> = const { Cell::new(0) };
+}
 
 const DEFERRED_INPUT_CAPACITY: usize = 512;
 const CROSSTERM_POLL_INTERVAL: Duration = Duration::from_millis(100);
@@ -12561,6 +12568,8 @@ impl App {
         processed: GraphicIdentity,
         pending: GraphicIdentity,
     ) -> bool {
+        #[cfg(test)]
+        GRAPHICS_ROUTE_COMPARISONS.with(|count| count.set(count.get().saturating_add(1)));
         if !processed.same_pointer_layout(pending) {
             return false;
         }
@@ -32200,6 +32209,39 @@ mod tests {
         assert!(app.pointer_route_is_stale_for_mouse(&covered));
         assert!(app.pointer_route_is_stale_for_mouse(&newly_covered));
         assert!(!app.pointer_route_is_stale_for_mouse(&unchanged));
+    }
+
+    #[test]
+    fn graphics_changed_rect_bound_stays_within_linear_comparison_budget() {
+        let mux = Mux::new("graphics-diff-complexity-test", SurfaceOptions::default());
+        let mut app = test_app(Session::Local(mux));
+        let count = 512usize;
+        let previous = (0..count)
+            .map(|index| GraphicIdentity {
+                session_generation: app.session_generation,
+                surface: index as SurfaceId,
+                rect: Rect { x: index as u16, y: 1, width: 1, height: 1 },
+                seq: index as u64,
+                pointer_frame_seq: None,
+            })
+            .collect::<Vec<_>>();
+        let next = (0..count)
+            .map(|index| GraphicIdentity {
+                session_generation: app.session_generation,
+                surface: (count + index) as SurfaceId,
+                rect: Rect { x: (count + index) as u16, y: 1, width: 1, height: 1 },
+                seq: (count + index) as u64,
+                pointer_frame_seq: None,
+            })
+            .collect::<Vec<_>>();
+
+        super::GRAPHICS_ROUTE_COMPARISONS.with(|comparisons| comparisons.set(0));
+        assert!(app.graphics_changed_rect_bound(&previous, &next).is_some());
+        let comparisons = super::GRAPHICS_ROUTE_COMPARISONS.with(std::cell::Cell::get);
+        assert!(
+            comparisons <= count.saturating_mul(8),
+            "graphics diff compared {comparisons} pairs for {count} entries"
+        );
     }
 
     #[test]
