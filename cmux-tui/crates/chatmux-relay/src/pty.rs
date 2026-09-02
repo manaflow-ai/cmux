@@ -1123,28 +1123,50 @@ impl Inner {
         generation: u64,
         publication_gate: &Arc<Mutex<()>>,
     ) {
-        let gate = {
+        let (gate, revoked_before_gate) = {
             let attachments = self.attachments.lock().expect("attach lock");
             let Some(current) = attachments.get(pty_id) else { return };
             if current.generation != generation
                 || !Arc::ptr_eq(&current.publication_gate, publication_gate)
-                || !(context.live_authorized)(&current.actor_id)
             {
                 return;
             }
-            Arc::clone(&current.publication_gate)
+            (Arc::clone(&current.publication_gate), !(context.live_authorized)(&current.actor_id))
         };
+        if revoked_before_gate {
+            self.emit_error_for_generation(
+                context,
+                pty_id,
+                generation,
+                publication_gate,
+                "trust_revoked",
+                "PTY output refused after trust change",
+            );
+            return;
+        }
         let _publication = gate.lock().expect("attachment publication lock");
-        {
+        let revoked = {
             let attachments = self.attachments.lock().expect("attach lock");
             let Some(current) = attachments.get(pty_id) else { return };
             if current.generation != generation
                 || !Arc::ptr_eq(&current.publication_gate, publication_gate)
                 || current.closing.load(Ordering::SeqCst)
-                || !(context.live_authorized)(&current.actor_id)
             {
                 return;
             }
+            !(context.live_authorized)(&current.actor_id)
+        };
+        if revoked {
+            drop(_publication);
+            self.emit_error_for_generation(
+                context,
+                pty_id,
+                generation,
+                publication_gate,
+                "trust_revoked",
+                "PTY output refused after trust change",
+            );
+            return;
         }
         // Zero-byte chunks carry nothing and historically crashed the web
         // terminal's write path (D-R6-1); never put an empty frame on the wire.
