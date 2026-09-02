@@ -6840,6 +6840,22 @@ mod tests {
     }
 
     #[test]
+    fn pipe_io_forward_does_not_construct_payload_without_matching_tap() {
+        let session = test_session(Box::new(CloseTrackingWriter {
+            closed: Arc::new(AtomicBool::new(false)),
+        }));
+        let constructed = Arc::new(AtomicBool::new(false));
+        let marker = constructed.clone();
+
+        assert!(!session.pipe_io_forward(7, || {
+            marker.store(true, Ordering::Release);
+            PipeIoEvent::Output(vec![0; 1024])
+        }));
+
+        assert!(!constructed.load(Ordering::Acquire));
+    }
+
+    #[test]
     fn transport_disconnect_reason_is_first_writer_wins() {
         let session = test_session(Box::new(CloseTrackingWriter {
             closed: Arc::new(AtomicBool::new(false)),

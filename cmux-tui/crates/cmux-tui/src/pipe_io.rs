@@ -536,6 +536,14 @@ mod tests {
         assert!(parse_request("not json").is_err());
         assert!(parse_request(r#"{"input":"@@not-base64@@"}"#).is_err());
         assert!(parse_request(r#"{"resize":{"cols":100}}"#).is_err());
+        for resize in ["false", "null", "42", "\"30x100\"", "[]"] {
+            assert!(
+                parse_request(&format!(r#"{{"resize":{resize}}}"#)).is_err(),
+                "accepted scalar resize {resize}"
+            );
+        }
+        assert!(parse_request(r#"{"resize":{"cols":"100","rows":30}}"#).is_err());
+        assert!(parse_request(r#"{"resize":{"cols":100,"rows":false}}"#).is_err());
     }
 
     #[test]
