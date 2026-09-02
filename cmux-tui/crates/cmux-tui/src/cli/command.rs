@@ -4553,7 +4553,7 @@ mod tests {
 
         assert_eq!(cases.len(), 118);
         let catalog = operation_catalog();
-        assert_eq!(catalog["operations"].as_object().unwrap().len(), 125);
+        assert_eq!(catalog["operations"].as_object().unwrap().len(), 127);
         let mut seen = std::collections::BTreeSet::new();
         let mut covered_fields = BTreeMap::<&str, std::collections::BTreeSet<String>>::new();
         for (args, expected) in &cases {
