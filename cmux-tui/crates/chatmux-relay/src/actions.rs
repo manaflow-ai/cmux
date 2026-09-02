@@ -1234,6 +1234,7 @@ async fn run_spec(
     let mut drain_deadline: Option<std::pin::Pin<Box<tokio::time::Sleep>>> = None;
     let mut final_wait_deadline: Option<std::pin::Pin<Box<tokio::time::Sleep>>> = None;
     let mut wait_retry_deadline: Option<std::pin::Pin<Box<tokio::time::Sleep>>> = None;
+    let mut group_kill_confirmed = false;
     loop {
         // A timed-out process group still needs its escalation pass even when
         // the shell leader has already exited. Otherwise closing inherited
@@ -1295,7 +1296,10 @@ async fn run_spec(
                 }
             }
             status = child.wait(),
-                if exited.is_none() && wait_retry_deadline.is_none() && kill_deadline.is_none() => {
+                if exited.is_none()
+                    && wait_retry_deadline.is_none()
+                    && kill_deadline.is_none()
+                    && (group_kill_confirmed || (!timed_out && !cancelled && !stdout_open && !stderr_open)) => {
                 // The child is gone, but descendants may still own the output
                 // pipes. Preserve a timeout escalation that is already in
                 // flight, and bound the remaining drain after a timeout.
@@ -1380,11 +1384,17 @@ async fn run_spec(
                     // See the timeout branch above: never fall back to a
                     // numeric PID after a process-group signal fails.
                     #[cfg(unix)]
-                    if !signal_process_tree(pid, true) {
-                        let _ = child.start_kill();
+                    {
+                        group_kill_confirmed = signal_process_tree(pid, true);
+                        if !group_kill_confirmed {
+                            group_kill_confirmed = child.start_kill().is_ok();
+                        }
                     }
                     #[cfg(not(unix))]
-                    signal_process_tree(pid, true);
+                    {
+                        signal_process_tree(pid, true);
+                        group_kill_confirmed = true;
+                    }
                 }
                 #[cfg(windows)]
                 if let Some(job) = job.as_ref() {
