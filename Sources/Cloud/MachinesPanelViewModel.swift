@@ -729,6 +729,17 @@ final class MachinesPanelViewModel: ObservableObject {
             }
             lastErrorDescription = String(describing: error)
             listProblem = Self.classifyListFailure(error)
+        } catch is CancellationError {
+            // URLSession cancellation is a normal lifecycle transition (for
+            // example, sign-out cancels an in-flight refresh). Do not publish
+            // a new error state after the owner has already reset its state.
+            isLoading = false
+            return
+        } catch let error as URLError where error.code == .cancelled {
+            // Foundation commonly surfaces Task cancellation as URLError
+            // .cancelled rather than CancellationError.
+            isLoading = false
+            return
         } catch {
             lastErrorDescription = String(describing: error)
             // An unknown error proves neither a transport failure nor an auth

@@ -112,7 +112,7 @@ struct MachinesPanelView: View {
                     HStack(spacing: 5) {
                         Image(systemName: "exclamationmark.triangle")
                             .font(.system(size: 10, weight: .semibold))
-                        Text(String(localized: "machines.unavailable.stale", defaultValue: "Cloud unreachable \u{2014} showing last known"))
+                        Text(staleListLabel)
                             .cmuxFont(size: 11)
                             .lineLimit(1)
                             .truncationMode(.tail)
@@ -160,6 +160,34 @@ struct MachinesPanelView: View {
         }
         .rightSidebarChromeBar()
         .rightSidebarChromeBottomBorder(backgroundColor: chromeBackgroundColor)
+    }
+
+    /// Short status copy for a stale fleet while the latest list request is
+    /// failing. Keep the banner aligned with the structured list problem so a
+    /// loaded machine list cannot regress to the transport-only wording.
+    private var staleListLabel: String {
+        switch viewModel.listProblem ?? .serverError {
+        case .sessionRejected:
+            return String(
+                localized: "machines.sessionRejected.stale",
+                defaultValue: "Cloud session rejected \u{2014} showing last known"
+            )
+        case .requiresPro:
+            return String(
+                localized: "machines.requiresPro.stale",
+                defaultValue: "Cloud plan required \u{2014} showing last known"
+            )
+        case .serverError:
+            return String(
+                localized: "machines.serverError.stale",
+                defaultValue: "Cloud service error \u{2014} showing last known"
+            )
+        case .unreachable:
+            return String(
+                localized: "machines.unavailable.stale",
+                defaultValue: "Cloud unreachable \u{2014} showing last known"
+            )
+        }
     }
 
     @ViewBuilder
