@@ -1452,6 +1452,15 @@ mod tests {
     }
 
     #[test]
+    fn shell_option_values_are_not_treated_as_script_agents() {
+        let shell = ForegroundJob {
+            process_group_id: 7,
+            processes: vec![process(7, "bash", &["bash", "--rcfile", "/tmp/codex"])],
+        };
+        assert!(identify_job(ManifestSet::bundled(), &shell).is_none());
+    }
+
+    #[test]
     fn runtime_option_values_are_not_treated_as_agent_commands() {
         for (name, argv) in [
             ("node", vec!["node", "--experimental-loader", "codex"]),
