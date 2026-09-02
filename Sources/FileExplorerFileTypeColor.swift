@@ -25,119 +25,189 @@ enum FileExplorerFileTypeColor {
     /// What a row is, mapped to the ANSI slot that carries the same meaning in
     /// a terminal listing: directories take the slot `ls` uses for `di`,
     /// executables the one it uses for `ex`, and so on.
+    ///
+    /// Every slot from 1 to 15 is spoken for, exactly once, and a test enforces
+    /// that. Slot 0 is the only one left out: it is the terminal's own
+    /// near-black, so anything painted with it disappears into the background.
+    ///
+    /// The split is deliberately finer than "code / not code", because the
+    /// classes that dominate a source checkout are the ones worth telling
+    /// apart. Lumping every language into one green and every `.json`,
+    /// `Makefile` and `README` into one yellow leaves a repo looking like three
+    /// colours no matter how many the palette has. So scripts separate from
+    /// source, build files from plain config, prose from spreadsheets, and
+    /// lockfiles from the caches nobody reads.
     enum Kind: CaseIterable {
-        case directory, symlink, executable, archive, media, document
-        case source, config, markup, data, muted, plain
+        case secret, source, config, markup, data, document, generated
+        case muted, archive, script, build, directory, media, symlink, office
 
-        /// Index into the 16-colour ANSI palette. Slot 0 is deliberately unused:
-        /// it is the terminal's own near-black and would be invisible.
+        /// Index into the 16-colour ANSI palette.
         var paletteSlot: Int {
             switch self {
-            case .directory: 12   // blue, bright  -- `di`
-            case .symlink: 14     // cyan, bright  -- `ln`
-            case .executable: 10  // green, bright -- `ex`
-            case .archive: 9      // red, bright   -- `*.tar.gz` and friends
-            case .media: 13       // magenta, bright
-            case .document: 11    // yellow, bright
-            case .source: 2       // green
-            case .config: 3       // yellow
-            case .markup: 4       // blue
-            case .data: 6         // cyan
-            case .muted: 8        // black, bright -- build output, caches
-            case .plain: 15       // white, bright -- the fallback
+            case .secret: 1        // red            -- keys, certs, .env
+            case .source: 2        // green          -- code
+            case .config: 3        // yellow         -- json, yaml, toml, ini
+            case .markup: 4        // blue           -- html, css, templates
+            case .data: 5          // magenta        -- csv, parquet, sqlite
+            case .document: 6      // cyan           -- md, rst, txt, README
+            case .generated: 7     // white          -- lockfiles, generated code
+            case .muted: 8         // bright black   -- build output, caches
+            case .archive: 9       // bright red     -- zip, tar.gz, dmg
+            case .script: 10       // bright green   -- sh, zsh, ps1  (`ex`)
+            case .build: 11        // bright yellow  -- Makefile, Dockerfile
+            case .directory: 12    // bright blue                     (`di`)
+            case .media: 13        // bright magenta -- images, audio, fonts
+            case .symlink: 14      // bright cyan                     (`ln`)
+            case .office: 15       // bright white   -- pdf, docx, xlsx
             }
         }
     }
 
     // MARK: - Tables
 
-    /// Extension -> class. The ~180 that actually turn up in a listing, not an
-    /// exhaustive registry: anything unlisted falls back to `.plain`, which is
-    /// the correct answer for a file nothing recognises.
+    /// Extension -> class. The ~220 that actually turn up in a listing, not an
+    /// exhaustive registry: anything unlisted returns nil and keeps the
+    /// ordinary label colour, which is the right answer for a file nothing
+    /// recognises.
     ///
     /// Compound suffixes are listed explicitly. Longest-match is applied at
     /// lookup, so `foo.tar.gz` is an archive rather than whatever `.gz` says.
     static let extensions: [String: Kind] = mapping([
-        .archive: """
-            7z bz2 gz lz4 lzma rar tar tgz txz tbz2 xz z zip zst jar war ear \
-            deb rpm apk dmg iso pkg cab msi crx \
-            tar.gz tar.bz2 tar.xz tar.zst tar.lz4 tar.lzma
-            """,
-        .media: """
-            png jpg jpeg gif bmp webp avif tiff tif svg ico heic raw psd ai \
-            mp3 m4a flac wav ogg opus aac wma mid \
-            mp4 mkv webm mov avi wmv flv m4v mpg mpeg 3gp \
-            ttf otf woff woff2 eot blend fbx obj stl glb gltf
-            """,
-        .document: """
-            pdf epub mobi azw3 djvu doc docx odt rtf xls xlsx ods \
-            ppt pptx odp md markdown adoc rst tex org txt log
-            """,
-        .data: """
+        (.secret, """
+            pem key crt cer der p12 pfx jks keystore gpg asc kbx pub \
+            ppk netrc htpasswd
+            """),
+        (.source, """
+            c h cc cpp cxx hpp hh rs go py pyi rb pl pm php java kt kts scala \
+            swift m mm js jsx mjs cjs ts tsx vue svelte lua ex exs erl hs \
+            clj cljs cljc ml mli fs fsx nim zig d dart r jl sql gleam v \
+            el scm rkt asm s cs vb groovy tcl f90 f95 pas ada cob
+            """),
+        (.script, """
+            sh bash zsh fish ksh csh ps1 psm1 bat cmd awk sed expect \
+            applescript scpt
+            """),
+        (.config, """
+            json json5 jsonc yaml yml toml ini cfg conf config properties env \
+            xml plist tf tfvars hcl nix bazel bzl proto graphql gql \
+            editorconfig gitignore gitattributes gitmodules dockerignore \
+            npmrc nvmrc babelrc eslintrc prettierrc
+            """),
+        (.build, """
+            gradle cmake mk make dockerfile bazelrc mill sbt cabal \
+            podspec gemspec nuspec csproj vcxproj xcconfig entitlements
+            """),
+        (.generated, """
+            lock sum snap pb generated d.ts min.js min.css \
+            pb.go pb.cc pb.h
+            """),
+        (.markup, """
+            html htm xhtml shtml css scss sass less styl \
+            hbs mustache ejs pug jade haml erb njk liquid twig jinja jinja2
+            """),
+        (.data, """
             csv tsv psv parquet parq orc avro arrow feather \
             db sqlite sqlite3 duckdb mdb rdb dump \
             ndjson jsonl h5 hdf5 npy npz pkl pickle mat sav dta rds \
             ipynb geojson kml gpx
-            """,
-        .source: """
-            c h cc cpp cxx hpp hh rs go py pyi rb pl pm php java kt kts scala \
-            swift m mm js jsx mjs cjs ts tsx vue svelte lua ex exs erl hs \
-            clj cljs cljc ml mli fs fsx nim zig d dart r jl sql gleam v \
-            sh bash zsh fish ps1 bat cmd awk sed vim el scm rkt asm s
-            """,
-        .config: """
-            json json5 jsonc yaml yml toml ini cfg conf config properties env \
-            xml plist lock sum mod gradle cmake mk make dockerfile \
-            tf tfvars hcl nix bazel bzl proto graphql gql editorconfig \
-            gitignore gitattributes gitmodules npmrc nvmrc babelrc eslintrc \
-            prettierrc dockerignore
-            """,
-        .markup: """
-            html htm xhtml shtml css scss sass less styl \
-            hbs mustache ejs pug jade haml erb njk liquid twig
-            """,
-        .muted: """
-            bak old orig rej tmp temp swp swo swn pyc pyo pyd o a so dylib dll \
-            class cache map min dSYM
-            """,
+            """),
+        (.document, """
+            md markdown mdx adoc asciidoc rst tex org txt text log nfo \
+            wiki creole pod rdoc
+            """),
+        (.office, """
+            pdf epub mobi azw3 djvu doc docx odt rtf pages \
+            xls xlsx ods numbers ppt pptx odp keynote
+            """),
+        (.archive, """
+            7z bz2 gz lz4 lzma rar tar tgz txz tbz2 xz z zip zst jar war ear \
+            deb rpm apk dmg iso pkg cab msi crx xpi \
+            tar.gz tar.bz2 tar.xz tar.zst tar.lz4 tar.lzma
+            """),
+        (.media, """
+            png jpg jpeg gif bmp webp avif tiff tif svg ico icns heic raw \
+            psd ai sketch fig xcf \
+            mp3 m4a flac wav ogg opus aac wma mid midi \
+            mp4 mkv webm mov avi wmv flv m4v mpg mpeg 3gp \
+            ttf otf woff woff2 eot blend fbx obj stl glb gltf usdz
+            """),
+        (.muted, """
+            bak old orig rej tmp temp swp swo swn pyc pyo pyd o a so dylib \
+            dll lib exp ilk pdb class cache map dSYM nib xcuserstate \
+            DS_Store localized
+            """),
     ])
 
     /// Whole filenames that carry more meaning than their extension does --
-    /// `Makefile` has none at all, and a README is a document wherever it sits.
+    /// `Makefile` has none at all, and a README is prose wherever it sits.
     static let filenames: [String: Kind] = mapping([
-        .config: """
+        (.build, """
             Makefile makefile GNUmakefile Dockerfile Containerfile Vagrantfile \
-            Justfile justfile Brewfile Rakefile Gemfile Procfile CMakeLists.txt \
+            Justfile justfile Brewfile Rakefile Gemfile Procfile Taskfile \
+            CMakeLists.txt meson.build BUILD WORKSPACE \
             package.json tsconfig.json Cargo.toml go.mod pyproject.toml \
             requirements.txt setup.py setup.cfg flake.nix shell.nix default.nix
-            """,
-        .document: """
+            """),
+        (.generated, """
+            package-lock.json yarn.lock pnpm-lock.yaml bun.lockb bun.lock \
+            Cargo.lock go.sum Gemfile.lock poetry.lock Pipfile.lock \
+            composer.lock flake.lock uv.lock
+            """),
+        (.secret, """
+            .env .env.local .env.production .env.development .envrc \
+            id_rsa id_ed25519 id_ecdsa known_hosts authorized_keys \
+            credentials .netrc .npmrc.local secrets.yaml secrets.yml
+            """),
+        (.document, """
             README README.md README.txt LICENSE LICENCE COPYING CHANGELOG \
-            CHANGELOG.md CONTRIBUTING.md CODE_OF_CONDUCT.md AUTHORS NOTICE \
-            CLAUDE.md AGENTS.md
-            """,
+            CHANGELOG.md CONTRIBUTING.md CODE_OF_CONDUCT.md SECURITY.md \
+            AUTHORS NOTICE TODO CLAUDE.md AGENTS.md
+            """),
     ])
 
-    /// Directory names worth separating from the source you are looking for.
-    /// Deliberately short: only build output, caches and tool metadata, whose
-    /// names are unambiguous. Generic names (`src`, `lib`, `app`, `bin`) are
-    /// left alone -- their meaning is project-specific and guessing wrong is
-    /// worse than leaving them the ordinary directory colour.
+    /// Directory name -> class. Matched EXACTLY, not as a suffix, so ordinary
+    /// project folders can be listed without `lib` also repainting `zlib`.
     static let directories: [String: Kind] = mapping([
-        .muted: """
+        (.source, """
+            src source lib libs app apps pkg pkgs internal cmd crates \
+            packages components modules hooks services handlers models
+            """),
+        (.script, "bin scripts sbin tools"),
+        (.document, "docs doc documentation man manual guides adr rfcs"),
+        (.data, "data datasets fixtures seeds migrations schema db database"),
+        (.media, "assets static public images img media icons fonts audio video"),
+        (.config, "config .config conf etc settings deploy infra terraform"),
+        (.markup, "templates views layouts partials styles stylesheets css"),
+        (.secret, "secrets .ssh certs keys credentials"),
+        (.generated, """
+            .git .github .gitlab .circleci .husky .idea .vscode .vs \
+            generated gen proto-gen
+            """),
+        (.archive, "archive archives backup backups"),
+        (.muted, """
             node_modules __pycache__ .pytest_cache .mypy_cache .ruff_cache \
             .parcel-cache .turbo .gradle .terraform .tox .eggs .venv venv \
-            .next .nuxt .svelte-kit site-packages DerivedData CMakeFiles \
-            target dist build out coverage htmlcov Pods vendor
-            """,
-        .config: ".git .github .gitlab .circleci .husky .idea .vscode",
+            virtualenv .next .nuxt .svelte-kit site-packages DerivedData \
+            CMakeFiles target dist build out coverage htmlcov Pods vendor \
+            tmp temp .cache .DS_Store obj bin.out
+            """),
     ])
 
-    private static func mapping(_ groups: [Kind: String]) -> [String: Kind] {
+    /// Flattens the whitespace-separated groups above into one lookup.
+    ///
+    /// Takes an ORDERED array rather than a `[Kind: String]` dictionary on
+    /// purpose. A dictionary literal has unspecified iteration order, so a name
+    /// listed under two classes -- `obj` is both a 3D model and a linker object
+    /// file -- would resolve to whichever class happened to be visited last,
+    /// and could differ between launches. Here a duplicate is a programmer
+    /// error and trips immediately.
+    private static func mapping(_ groups: [(Kind, String)]) -> [String: Kind] {
         var out: [String: Kind] = [:]
         for (kind, names) in groups {
             for name in names.split(whereSeparator: \.isWhitespace) {
-                out[String(name)] = kind
+                let key = String(name)
+                assert(out[key] == nil, "\(key) is listed under two classes")
+                out[key] = kind
             }
         }
         return out
