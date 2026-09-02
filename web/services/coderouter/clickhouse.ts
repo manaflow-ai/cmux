@@ -88,6 +88,9 @@ export async function insertRows(
         dependencies.timeoutMs?.insert ?? INSERT_TIMEOUT_MS,
       ),
     });
+    // Drain the body inside the try: an unread body that the timeout signal
+    // later aborts surfaces as an unhandled rejection in Bun.
+    await response.arrayBuffer().catch(() => undefined);
     if (!response.ok) return { ok: false, reason: "status", status: response.status };
     return { ok: true };
   } catch {

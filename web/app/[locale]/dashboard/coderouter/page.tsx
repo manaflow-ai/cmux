@@ -229,6 +229,15 @@ export default async function CoderouterOverviewPage({ params, searchParams }: P
         usage={await loadMachineUsage(selectedTeam.id)}
       />
 
+      {selectedTeam.manageAccounts ? (
+        <section className="mb-4">
+          <div className="mb-2">
+            <h2 className="text-sm font-medium">{t("addAccountsTitle")}</h2>
+          </div>
+          <AddAiAccountForms />
+        </section>
+      ) : null}
+
       {accountState.kind === "notConfigured" ? (
         <StatusPanel title={t("notConfiguredTitle")} body={t("notConfiguredBody")} />
       ) : accountState.kind === "migrationPending" ? (
@@ -237,15 +246,6 @@ export default async function CoderouterOverviewPage({ params, searchParams }: P
         <StatusPanel title={t("loadErrorTitle")} body={t("loadErrorBody")} />
       ) : (
         <div>
-          {selectedTeam.manageAccounts ? (
-            <section className="mb-4">
-              <div className="mb-2">
-                <h2 className="text-sm font-medium">{t("addAccountsTitle")}</h2>
-              </div>
-              <AddAiAccountForms />
-            </section>
-          ) : null}
-
           <section>
             <div className="mb-2">
               <h2 className="text-sm font-medium">{t("accountsTitle")}</h2>
