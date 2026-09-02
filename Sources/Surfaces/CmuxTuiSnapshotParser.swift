@@ -369,6 +369,7 @@ struct CmuxTuiSnapshotParser: Sendable {
             // `id`; all other resources still require their explicit daemon id.
             let value = change["value"] as? [String: Any]
             let explicitID = nonEmptyString(change["id"])
+            let valueTerminalID = value.flatMap { nonEmptyString($0["terminal_id"]) }
             if resource == "agent",
                let explicitID,
                let valueID = value.flatMap({ nonEmptyString($0["id"]) }),
@@ -377,7 +378,7 @@ struct CmuxTuiSnapshotParser: Sendable {
             }
             if resource == "agent",
                let changeTerminalID = nonEmptyString(change["terminal_id"]),
-               let valueTerminalID = value.flatMap({ nonEmptyString($0["terminal_id"]) }),
+               let valueTerminalID,
                changeTerminalID != valueTerminalID {
                 return nil
             }
@@ -402,18 +403,52 @@ struct CmuxTuiSnapshotParser: Sendable {
                     var values = (snapshot[key] as? [[String: Any]]) ?? []
                     let index: Int?
                     if resource == "agent" {
-                        // The terminal id is the stable key for legacy and current agent
-                        // rows. Prefer an explicit id, then fall back to that relationship.
-                        index = values.firstIndex {
-                            (explicitID != nil && nonEmptyString($0["id"]) == explicitID)
-                                || (nonEmptyString(value["terminal_id"]) != nil
-                                    && nonEmptyString($0["terminal_id"]) == nonEmptyString(value["terminal_id"]))
+                        // The terminal id is the stable key for legacy rows. An explicit
+                        // id with no existing id match and a changed terminal is ambiguous:
+                        // it may be a new agent, or an id-less legacy agent being reassigned.
+                        // Appending in that case leaves a stale badge, so force a snapshot.
+                        guard let value, let valueTerminalID else { return nil }
+                        let idIndex = explicitID.flatMap { id in
+                            values.firstIndex { nonEmptyString($0["id"]) == id }
+                        }
+                        let terminalIndex = values.firstIndex {
+                            nonEmptyString($0["terminal_id"]) == valueTerminalID
+                        }
+                        if let idIndex {
+                            if let terminalIndex, terminalIndex != idIndex { return nil }
+                            index = idIndex
+                        } else if let terminalIndex {
+                            // A legacy row can safely acquire an explicit id only when
+                            // the relationship still points at that exact terminal.
+                            if explicitID != nil,
+                               nonEmptyString(values[terminalIndex]["id"]) != nil {
+                                return nil
+                            }
+                            index = terminalIndex
+                        } else {
+                            // Without a relationship match, an explicit id cannot prove
+                            // that any existing id-less row is unrelated to this upsert.
+                            let hasUnidentifiedLegacyRow = values.contains {
+                                nonEmptyString($0["id"]) == nil
+                            }
+                            guard explicitID == nil || !hasUnidentifiedLegacyRow else { return nil }
+                            index = nil
                         }
                     } else {
                         index = values.firstIndex(where: { nonEmptyString($0["id"]) == id })
                     }
                     if let index {
-                        values[index] = value
+                        var storedValue = value
+                        // Preserve a known explicit id when an older daemon omits it
+                        // from a relationship-keyed update. This keeps future deltas
+                        // addressable without inventing a new identity.
+                        if resource == "agent",
+                           explicitID == nil,
+                           let existingID = nonEmptyString(values[index]["id"]),
+                           nonEmptyString(storedValue["id"]) == nil {
+                            storedValue["id"] = existingID
+                        }
+                        values[index] = storedValue
                     } else {
                         values.append(value)
                     }
@@ -432,11 +467,34 @@ struct CmuxTuiSnapshotParser: Sendable {
                     }
                 case .collection(let key):
                     var values = (snapshot[key] as? [[String: Any]]) ?? []
-                    if resource == "agent", explicitID == nil {
-                        let terminalID = nonEmptyString(change["terminal_id"])
-                            ?? (value.flatMap { nonEmptyString($0["terminal_id"]) })
-                        guard let terminalID else { return nil }
-                        values.removeAll { nonEmptyString($0["terminal_id"]) == terminalID }
+                    if resource == "agent" {
+                        let terminalID = nonEmptyString(change["terminal_id"]) ?? valueTerminalID
+                        if let explicitID {
+                            if let index = values.firstIndex(where: { nonEmptyString($0["id"]) == explicitID }) {
+                                if let terminalID,
+                                   nonEmptyString(values[index]["terminal_id"]) != terminalID {
+                                    return nil
+                                }
+                                values.remove(at: index)
+                            } else if let terminalID,
+                                      let index = values.firstIndex(where: {
+                                          nonEmptyString($0["id"]) == nil
+                                              && nonEmptyString($0["terminal_id"]) == terminalID
+                                      }) {
+                                // A legacy id-less row is deletable only when its
+                                // relationship supplies the missing identity.
+                                values.remove(at: index)
+                            } else {
+                                return nil
+                            }
+                        } else {
+                            guard let terminalID,
+                                  let index = values.firstIndex(where: {
+                                      nonEmptyString($0["terminal_id"]) == terminalID
+                                  })
+                            else { return nil }
+                            values.remove(at: index)
+                        }
                     } else {
                         values.removeAll { nonEmptyString($0["id"]) == id }
                     }

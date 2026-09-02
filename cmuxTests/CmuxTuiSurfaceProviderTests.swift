@@ -841,6 +841,25 @@ import Testing
             to: state
         ))
         #expect(next.agents == [CloudVMAgentState(id: nil, terminalID: "term_build", state: "waiting", source: nil)])
+
+        // An explicit id moving to a different terminal cannot be matched to the
+        // old id-less row. Appending it would leave a stale agent badge, so the
+        // parser must force a full snapshot instead.
+        let reassignment: [String: Any] = [
+            "kind": "delta",
+            "changes": [[
+                "kind": "upsert",
+                "resource": "agent",
+                "id": "agent_new",
+                "value": ["id": "agent_new", "terminal_id": "term_shell", "state": "working"],
+            ]],
+        ]
+        let reassignmentData = try JSONSerialization.data(withJSONObject: reassignment)
+        #expect(CmuxTuiSnapshotParser.applying(
+            deltaPayload: reassignmentData,
+            cursor: CloudVMCursor(generation: "daemon-a", revision: 8),
+            to: state
+        ) == nil)
     }
 
     @Test func deltaRejectsEnvelopeAndSequenceMismatches() throws {
