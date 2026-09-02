@@ -1350,8 +1350,16 @@ JournalSubject parse_journal_subject(const Json& value) {
         {"kind", "id"},
         {"kind", "id"},
         "journal subject");
+    auto kind = bounded_string(
+        field(object, "kind", "journal subject"),
+        "journal subject kind",
+        1,
+        64);
+    if (!journal_detail::valid_component(kind)) {
+        fail("journal subject kind must be a lowercase component");
+    }
     return {
-        bounded_string(field(object, "kind", "journal subject"), "journal subject kind", 1, 128),
+        std::move(kind),
         bounded_string(field(object, "id", "journal subject"), "journal subject id", 1, 512),
     };
 }
