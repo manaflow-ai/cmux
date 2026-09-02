@@ -766,7 +766,7 @@ pub(crate) fn middle_truncate(input: &str, max_width: usize) -> String {
     let back_width = keep_width / 2;
     let graphemes = input.graphemes(true).collect::<Vec<_>>();
     let mut front = String::new();
-    let mut width = 0;
+    let mut width: usize = 0;
     for grapheme in graphemes.iter().copied() {
         let grapheme_width = usize::from(grapheme.cell_width());
         if width.saturating_add(grapheme_width) > front_width {

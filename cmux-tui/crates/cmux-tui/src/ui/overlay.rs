@@ -710,7 +710,7 @@ fn label_width(label: &str) -> u16 {
 }
 
 fn grapheme_prefix_end(input: &str, max_width: usize) -> usize {
-    let mut width = 0;
+    let mut width: usize = 0;
     let mut end = 0;
     for (index, grapheme) in input.grapheme_indices(true) {
         let grapheme_width = usize::from(grapheme.cell_width());

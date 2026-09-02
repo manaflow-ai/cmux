@@ -3206,8 +3206,8 @@ fn resolve_status_segments(raw: Vec<RawStatusSegment>, side: &str) -> Vec<Status
             (Some(text), None) => {
                 // Bound per-draw expansion work on the render path.
                 let mut bounded = String::new();
-                let mut width = 0;
-                let mut scalar_count = 0;
+                let mut width: usize = 0;
+                let mut scalar_count: usize = 0;
                 for grapheme in text.graphemes(true) {
                     let grapheme_width = usize::from(grapheme.cell_width());
                     let grapheme_scalars = grapheme.chars().count();
