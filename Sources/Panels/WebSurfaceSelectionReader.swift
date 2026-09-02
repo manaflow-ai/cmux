@@ -337,11 +337,19 @@ final class WebSurfaceSelectionReader {
             captureQueued = false;
             const targetWindow = targetDocument.defaultView;
             if (!targetWindow) return;
-            // A collapsed selectionchange while the document is unfocused is
-            // WebKit's native-focus handoff signal. When the page still owns
-            // focus, an empty range is an intentional page-side clear.
-            capture(targetWindow, targetDocument.hasFocus());
+            // `selectionchange` is observational. WebKit emits a collapsed
+            // event before `blur` when native focus moves to another cmux
+            // surface, so consulting `document.hasFocus()` here can erase a
+            // valid snapshot before the focus handoff has settled. Concrete
+            // page interactions (pointer/keyboard/select) and input events
+            // own clearing instead; a later non-empty event replaces the
+            // retained immutable snapshot.
+            capture(targetWindow);
           });
+        };
+        const reconcileInput = () => {
+          const targetWindow = targetDocument.defaultView;
+          if (targetWindow) capture(targetWindow, true);
         };
         const clearForInteraction = () => clear();
         // A collapsed selectionchange is not itself a clear signal: WebKit
@@ -357,7 +365,7 @@ final class WebSurfaceSelectionReader {
           if (keyChangesSelection(event)) clear();
         }, true);
         targetDocument.addEventListener('focusin', captureDocument, true);
-        targetDocument.addEventListener('input', captureDocument, true);
+        targetDocument.addEventListener('input', reconcileInput, true);
         const invalidateForNavigation = () => clear(targetDocument);
         targetDocument.defaultView?.addEventListener('hashchange', invalidateForNavigation, true);
         targetDocument.defaultView?.addEventListener('popstate', invalidateForNavigation, true);

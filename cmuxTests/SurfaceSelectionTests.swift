@@ -221,6 +221,24 @@ struct SurfaceSelectionTests {
         #expect(window.firstResponder === neighboringFirstResponder)
         #expect(window.makeFirstResponder(panel.webView))
 
+        // WebKit can emit a collapsed selectionchange before native focus
+        // leaves the web view. That event is observational and must not erase
+        // the snapshot that an agent reads from the neighboring surface.
+        let simulatedFocusHandoff = try await panel.evaluateJavaScript(
+            """
+            (() => {
+              window.getSelection().removeAllRanges();
+              document.dispatchEvent(new Event('selectionchange'));
+              return document.hasFocus();
+            })()
+            """
+        )
+        #expect(simulatedFocusHandoff as? Bool == true)
+        let retainedAfterCollapsedSelectionChange = try snapshot(
+            from: await panel.readSurfaceSelection()
+        )
+        #expect(retainedAfterCollapsedSelectionChange.text == "selected browser words")
+
         let clearedBrowserSelection = try await panel.evaluateJavaScript(
             """
             (() => {
