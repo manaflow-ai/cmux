@@ -14184,6 +14184,25 @@ mod tests {
 
     #[cfg(unix)]
     #[test]
+    fn socket_claim_accepts_a_bound_unix_listener_without_fd_identity() {
+        let dir = TestSocketDir::create("socket-claim-unix-fd-identity");
+        let path = dir.path().join("mux.sock");
+        let listener = transport::listen(&path).unwrap();
+
+        let lease = ServedSocketLease::claim_bound(path.clone(), &listener)
+            .expect("Unix listener claims must tolerate unavailable fd identity");
+        lease.cleanup();
+
+        assert!(
+            path.exists(),
+            "an unverified Unix listener lease must leave its publication for the next owner"
+        );
+        drop(listener);
+        std::fs::remove_file(path).unwrap();
+    }
+
+    #[cfg(unix)]
+    #[test]
     fn socket_claim_rejects_a_path_replaced_before_claim() {
         let dir = TestSocketDir::create("socket-claim-replaced-before-claim");
         let path = dir.path().join("mux.sock");
