@@ -40,8 +40,9 @@ enum SessionPersistencePolicy {
 
     static func sanitizedSidebarWidth(_ candidate: Double?, defaults: UserDefaults = .standard) -> Double {
         let resolvedMinimum = resolvedMinimumSidebarWidth(defaults: defaults)
-        let fallback = min(max(defaultSidebarWidth, resolvedMinimum), maximumSidebarWidth)
-        guard let candidate, candidate.isFinite else { return fallback }
+        guard let candidate, candidate.isFinite else {
+            return min(resolvedMinimum, maximumSidebarWidth)
+        }
         return min(max(candidate, resolvedMinimum), maximumSidebarWidth)
     }
 
