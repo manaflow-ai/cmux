@@ -43,6 +43,7 @@ struct TerminalCommandEquivalentRoutingTests {
 
     private final class TerminalProbeView: GhosttyNSView {
         private(set) var menuMissEvents: [NSEvent] = []
+        private(set) var performKeyEquivalentEvents: [NSEvent] = []
         private(set) var copyActionCount = 0
         var performAfterMenuMissResult = true
         var consumeUnavailableCopyResult = false
@@ -61,6 +62,11 @@ struct TerminalCommandEquivalentRoutingTests {
                 return true
             }
             return performAfterMenuMissResult
+        }
+
+        override func performKeyEquivalent(with event: NSEvent) -> Bool {
+            performKeyEquivalentEvents.append(event)
+            return NSApp.mainMenu?.performKeyEquivalent(with: event) == true
         }
 
         override func copy(_ sender: Any?) {
@@ -112,6 +118,7 @@ struct TerminalCommandEquivalentRoutingTests {
         #expect(window.performKeyEquivalent(with: pasteEvent))
         #expect(window.performKeyEquivalent(with: shiftedPasteEvent))
         #expect(terminal.menuMissEvents.map { KeyboardLayout.normalizedCharacters(for: $0) } == ["c"])
+        #expect(terminal.performKeyEquivalentEvents.map { KeyboardLayout.normalizedCharacters(for: $0) } == ["v", "v"])
         #expect(menuProbe.actions == ["paste", "paste"])
     }
 

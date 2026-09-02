@@ -50,12 +50,12 @@ struct TerminalCommandEquivalentRouter {
             return false
         }
 
-        // Keep performable paste bindings inside AppKit's menu transaction.
-        // Ghostty's keyDown fallback can otherwise request the clipboard once
-        // through interpretKeyEvents and again through ghostty_surface_key.
-        if command == .paste,
-           NSApp.mainMenu?.performKeyEquivalent(with: event) == true {
-            return true
+        // Let Ghostty classify paste bindings before the menu. Its existing
+        // key-equivalent path keeps performable clipboard bindings in AppKit's
+        // menu transaction while preserving `all` and custom bindings that
+        // must claim Cmd+V before the menu.
+        if command == .paste {
+            return terminalView.performKeyEquivalent(with: event)
         }
 
         // Preserve the unavailable-Copy safety path before offering Cmd+C to
