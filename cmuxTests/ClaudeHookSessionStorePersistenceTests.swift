@@ -33,13 +33,17 @@ struct ClaudeHookSessionStorePersistenceTests {
             surfaceTargets: [Self.surfaceId: Self.workspaceId]
         )
         var environment = Harness.hookEnvironment(context: context)
+        environment["CMUX_AGENT_HOOK_STATE_DIR"] = context.root.path
         environment["CMUX_WORKSPACE_ID"] = Self.workspaceId
         environment["CMUX_SURFACE_ID"] = Self.surfaceId
-        environment["CMUX_CLAUDE_PID"] = "43210"
 
         let result = Harness.runHookProcess(
             context: context,
-            arguments: ["hooks", "claude", "prompt-submit"],
+            arguments: [
+                "hooks", "claude", "prompt-submit",
+                "--workspace", Self.workspaceId,
+                "--surface", Self.surfaceId,
+            ],
             environment: environment,
             standardInput: "{\"session_id\":\"\(sessionId)\",\"turn_id\":\"turn-1\",\"hook_event_name\":\"UserPromptSubmit\",\"cwd\":\"\(context.root.path)\"}"
         )
@@ -57,6 +61,7 @@ struct ClaudeHookSessionStorePersistenceTests {
         let context = try Harness.makeContext(name: "hook-store-legacy")
         defer { context.cleanup() }
         let sessionId = "legacy-session"
+        let now = Date().timeIntervalSince1970
         let legacyJSON = """
         {
           "version": 1,
@@ -67,8 +72,8 @@ struct ClaudeHookSessionStorePersistenceTests {
               "surfaceId": "\(Self.surfaceId)",
               "cwd": "\(context.root.path)",
               "isRestorable": true,
-              "startedAt": 1,
-              "updatedAt": 2
+              "startedAt": \(now),
+              "updatedAt": \(now)
             }
           }
         }
@@ -82,13 +87,17 @@ struct ClaudeHookSessionStorePersistenceTests {
             surfaceTargets: [Self.surfaceId: Self.workspaceId]
         )
         var environment = Harness.hookEnvironment(context: context)
+        environment["CMUX_AGENT_HOOK_STATE_DIR"] = context.root.path
         environment["CMUX_WORKSPACE_ID"] = Self.workspaceId
         environment["CMUX_SURFACE_ID"] = Self.surfaceId
-        environment["CMUX_CLAUDE_PID"] = "43211"
 
         let result = Harness.runHookProcess(
             context: context,
-            arguments: ["hooks", "claude", "prompt-submit"],
+            arguments: [
+                "hooks", "claude", "prompt-submit",
+                "--workspace", Self.workspaceId,
+                "--surface", Self.surfaceId,
+            ],
             environment: environment,
             standardInput: "{\"session_id\":\"\(sessionId)\",\"turn_id\":\"turn-legacy\",\"hook_event_name\":\"UserPromptSubmit\",\"cwd\":\"\(context.root.path)\"}"
         )
