@@ -526,7 +526,9 @@ impl ControlLease {
                 return;
             }
             if !self.control.send("detach-attached-view", params) {
-                return;
+                // No Tokio runtime is available for the reliable path. The
+                // transport is already closing, so retire local ownership.
+                // Runtime callers use send_reliable above before this point.
             }
         }
         self.finish_count();

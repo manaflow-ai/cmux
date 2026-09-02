@@ -521,22 +521,28 @@ async fn serve_connection(stream: TcpStream, manager: Arc<PtyManager>, parent: C
     let dispatch_done = connection.done.clone();
     let mut dispatcher = tokio::spawn(async move {
         while let Some(frame) = dispatch_rx.recv().await {
+            let admitted_open = frame.kind == FRAME_KIND_CONTROL
+                && parse_tunnel_client_frame(&frame.payload)
+                    .is_some_and(|parsed| matches!(parsed, ClientFrame::Open { .. }));
             let operation_connection = Arc::clone(&dispatch_connection);
             let operation_context = dispatch_context.clone();
             let mut operation = tokio::spawn(async move {
                 handle_client_frame(&operation_connection, &operation_context, frame).await;
             });
-            tokio::select! {
-                biased;
-                _ = dispatch_done.cancelled() => {
-                    // A dropped JoinHandle detaches the operation. Abort and
-                    // join it so its cancellation-aware PTY guards reach a
-                    // defined boundary before this connection returns.
-                    operation.abort();
-                    let _ = (&mut operation).await;
-                    break;
+            if admitted_open {
+                // Once admitted, let OPEN finish so a remote attach receives
+                // its lease and can run ordered cancellation cleanup.
+                let _ = (&mut operation).await;
+            } else {
+                tokio::select! {
+                    biased;
+                    _ = dispatch_done.cancelled() => {
+                        operation.abort();
+                        let _ = (&mut operation).await;
+                        break;
+                    }
+                    _ = &mut operation => {}
                 }
-                _ = &mut operation => {}
             }
         }
     });
