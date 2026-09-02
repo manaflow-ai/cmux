@@ -19,6 +19,8 @@
 //! ```
 
 use std::collections::{BTreeMap, HashMap, HashSet, VecDeque};
+#[cfg(unix)]
+use std::ffi::CString;
 use std::io::{BufRead, BufReader, Read, Write};
 #[cfg(unix)]
 use std::mem::{offset_of, size_of};
@@ -29,6 +31,9 @@ use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 use std::sync::{Arc, Condvar, Mutex, Weak};
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
+
+#[cfg(unix)]
+use std::os::unix::ffi::OsStrExt;
 
 fn retry_accept_error(kind: std::io::ErrorKind) -> bool {
     // A queued client can terminate before accept completes. Keep serving
@@ -63,6 +68,23 @@ fn retry_accept_os_error(error: &std::io::Error) -> bool {
         #[cfg(all(not(unix), not(windows)))]
         Some(_) => false,
         None => false,
+    }
+}
+
+#[derive(Debug, PartialEq, Eq)]
+enum AcceptErrorAction {
+    Retry,
+    Shutdown,
+    Terminate,
+}
+
+fn accept_error_action(error: &std::io::Error, shutting_down: bool) -> AcceptErrorAction {
+    if shutting_down {
+        AcceptErrorAction::Shutdown
+    } else if !retry_accept_os_error(error) {
+        AcceptErrorAction::Terminate
+    } else {
+        AcceptErrorAction::Retry
     }
 }
 
@@ -4895,13 +4917,180 @@ fn windows_socket_identity(path: &Path) -> std::io::Result<(u32, u64)> {
 /// probe. The second identity check avoids removing a replacement that appears
 /// after the initial probe.
 fn cleanup_unclaimed_listener(listener: transport::Listener, path: &Path) {
-    drop(listener);
-
-    let Ok(identity) = SocketPathIdentity::capture(path) else { return };
-    if transport::connect(path).is_ok() || !identity.matches_path(path).unwrap_or(false) {
+    // Do not unlink a path that was replaced before this listener could claim
+    // it. Unix compares the pathname with the listener's open file descriptor;
+    // unsupported platforms fail closed and leave the path for its owner.
+    if listener.matches_path(path).ok() != Some(Some(true)) {
         return;
     }
-    let _ = std::fs::remove_file(path);
+    let Ok(identity) = SocketPathIdentity::capture(path) else { return };
+    drop(listener);
+
+    match transport::connect(path) {
+        Ok(_) => return,
+        Err(error) if !connect_error_proves_stale(&error) => return,
+        Err(_) => {}
+    }
+    let _ = remove_path_if_identity(path, identity);
+}
+
+fn connect_error_proves_stale(error: &std::io::Error) -> bool {
+    matches!(error.kind(), std::io::ErrorKind::ConnectionRefused | std::io::ErrorKind::NotFound)
+}
+
+#[cfg(unix)]
+fn rename_no_replace(from: &Path, to: &Path) -> std::io::Result<()> {
+    let from = CString::new(from.as_os_str().as_bytes())
+        .map_err(|_| std::io::Error::new(std::io::ErrorKind::InvalidInput, "path has NUL"))?;
+    let to = CString::new(to.as_os_str().as_bytes())
+        .map_err(|_| std::io::Error::new(std::io::ErrorKind::InvalidInput, "path has NUL"))?;
+
+    #[cfg(target_vendor = "apple")]
+    {
+        // SAFETY: both pointers reference live NUL-terminated path strings.
+        // RENAME_EXCL leaves an existing target intact.
+        if unsafe { libc::renamex_np(from.as_ptr(), to.as_ptr(), libc::RENAME_EXCL) } == 0 {
+            return Ok(());
+        }
+    }
+    #[cfg(any(target_os = "linux", target_os = "android"))]
+    {
+        // SAFETY: both pointers reference live NUL-terminated path strings.
+        // RENAME_NOREPLACE leaves an existing target intact.
+        if unsafe {
+            libc::syscall(
+                libc::SYS_renameat2,
+                libc::AT_FDCWD,
+                from.as_ptr(),
+                libc::AT_FDCWD,
+                to.as_ptr(),
+                libc::RENAME_NOREPLACE,
+            )
+        } == 0
+        {
+            return Ok(());
+        }
+    }
+    #[cfg(not(any(target_vendor = "apple", target_os = "linux", target_os = "android")))]
+    {
+        let _ = (from, to);
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::Unsupported,
+            "atomic no-replace rename is unavailable on this Unix target",
+        ));
+    }
+    Err(std::io::Error::last_os_error())
+}
+
+#[cfg(unix)]
+static CLEANUP_TOMBSTONE_COUNTER: AtomicU64 = AtomicU64::new(0);
+
+#[cfg(unix)]
+fn move_to_cleanup_tombstone(path: &Path) -> std::io::Result<Option<PathBuf>> {
+    let Some(name) = path.file_name() else { return Ok(None) };
+    for _ in 0..128 {
+        let counter = CLEANUP_TOMBSTONE_COUNTER.fetch_add(1, Ordering::Relaxed);
+        let mut tombstone_name = name.to_os_string();
+        tombstone_name.push(format!(".cmux-cleanup-{}-{counter}", std::process::id()));
+        let tombstone = path.with_file_name(tombstone_name);
+        match rename_no_replace(path, &tombstone) {
+            Ok(()) => return Ok(Some(tombstone)),
+            Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => continue,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+            Err(error) => return Err(error),
+        }
+    }
+    Err(std::io::Error::new(
+        std::io::ErrorKind::AlreadyExists,
+        "could not allocate a cleanup tombstone",
+    ))
+}
+
+/// Remove a publication only after atomically moving it to a private
+/// tombstone. A successor can bind the original path during this operation,
+/// but it is never unlinked: no-replace restore leaves that successor intact.
+fn remove_path_if_identity(
+    path: &Path,
+    observed_identity: SocketPathIdentity,
+) -> std::io::Result<bool> {
+    #[cfg(unix)]
+    {
+        let Some(tombstone) = move_to_cleanup_tombstone(path)? else { return Ok(false) };
+        let matches = match observed_identity.matches_path(&tombstone) {
+            Ok(matches) => matches,
+            Err(error) => {
+                let _ = rename_no_replace(&tombstone, path);
+                return Err(error);
+            }
+        };
+        if matches {
+            match std::fs::remove_file(&tombstone) {
+                Ok(()) => return Ok(true),
+                Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(false),
+                Err(error) => {
+                    let _ = rename_no_replace(&tombstone, path);
+                    return Err(error);
+                }
+            }
+        }
+        match rename_no_replace(&tombstone, path) {
+            Ok(()) => {}
+            Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {}
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+            Err(error) => return Err(error),
+        }
+        return Ok(false);
+    }
+    #[cfg(not(unix))]
+    {
+        let _ = (path, observed_identity);
+        // Without an atomic no-replace rename, fail closed rather than unlink
+        // a path after a check that an external binder can race.
+        Ok(false)
+    }
+}
+
+#[cfg(unix)]
+fn remove_non_socket_path(path: &Path) -> std::io::Result<bool> {
+    let Some(tombstone) = move_to_cleanup_tombstone(path)? else { return Ok(false) };
+    let metadata = match std::fs::symlink_metadata(&tombstone) {
+        Ok(metadata) => metadata,
+        Err(error) => {
+            let _ = rename_no_replace(&tombstone, path);
+            return Err(error);
+        }
+    };
+    use std::os::unix::fs::FileTypeExt;
+    if metadata.file_type().is_socket() {
+        match rename_no_replace(&tombstone, path) {
+            Ok(()) => return Ok(false),
+            Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => return Ok(false),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(false),
+            Err(error) => return Err(error),
+        }
+    }
+    match std::fs::remove_file(&tombstone) {
+        Ok(()) => Ok(true),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(false),
+        Err(error) => {
+            let _ = rename_no_replace(&tombstone, path);
+            Err(error)
+        }
+    }
+}
+
+#[cfg(not(unix))]
+fn remove_non_socket_path(path: &Path) -> std::io::Result<bool> {
+    let _ = path;
+    Ok(false)
+}
+
+/// Remove a stale socket only when the path still names the observed socket.
+fn remove_stale_socket_if_unchanged(
+    path: &Path,
+    observed_identity: SocketPathIdentity,
+) -> std::io::Result<bool> {
+    remove_path_if_identity(path, observed_identity)
 }
 
 struct ListenerControl {
@@ -4937,6 +5126,26 @@ impl ServedSocketLease {
     pub fn claim(path: PathBuf) -> std::io::Result<Self> {
         let identity = SocketPathIdentity::capture(&path)?;
         Ok(Self { path, identity, linked: true, listener: None })
+    }
+
+    /// Capture a bound listener only while its pathname still names it.
+    ///
+    /// Platforms without a listener identity keep the listener usable but
+    /// return an unlinked lease. Such leases stop the listener and leave the
+    /// publication in place, so an unverified path is never removed.
+    pub fn claim_bound(path: PathBuf, listener: &transport::Listener) -> std::io::Result<Self> {
+        let identity = SocketPathIdentity::capture(&path)?;
+        let linked = match listener.matches_path(&path)? {
+            Some(true) => true,
+            Some(false) => {
+                return Err(std::io::Error::new(
+                    std::io::ErrorKind::AddrNotAvailable,
+                    "session socket path changed while claiming listener",
+                ));
+            }
+            None => false,
+        };
+        Ok(Self { path, identity, linked, listener: None })
     }
 
     /// Return the public path owned by this lease.
@@ -4975,13 +5184,7 @@ impl ServedSocketLease {
         // Keep the start lock while closing this listener. A successor cannot
         // bind and reuse its identity between shutdown and the fenced check.
         self.stop_listener();
-        if self.identity.matches_path(&self.path)? {
-            match std::fs::remove_file(&self.path) {
-                Ok(()) => {}
-                Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
-                Err(error) => return Err(error),
-            }
-        }
+        let _ = remove_path_if_identity(&self.path, self.identity)?;
         Ok(())
     }
 
@@ -5264,16 +5467,40 @@ pub fn serve_paused(mux: Arc<Mux>, path: Option<PathBuf>) -> anyhow::Result<Pend
     let start_lock = SocketStartLock::acquire(&path, Instant::now() + START_LOCK_DEADLINE)?;
     // Refuse to clobber a live socket; remove a stale one.
     if path.exists() {
+        let stale_identity = match SocketPathIdentity::capture(&path) {
+            Ok(identity) => Some(identity),
+            Err(error)
+                if matches!(
+                    error.kind(),
+                    std::io::ErrorKind::NotFound | std::io::ErrorKind::InvalidData
+                ) =>
+            {
+                None
+            }
+            Err(error) => return Err(error.into()),
+        };
         match transport::connect(&path) {
             Ok(_) => anyhow::bail!(
                 "session socket {} is already in use (another instance running?)",
                 path.display()
             ),
-            Err(_) => std::fs::remove_file(&path)?,
+            Err(error) if connect_error_proves_stale(&error) => {
+                if let Some(identity) = stale_identity {
+                    if !remove_stale_socket_if_unchanged(&path, identity)? && path.exists() {
+                        anyhow::bail!(
+                            "session socket {} changed during stale recovery",
+                            path.display()
+                        );
+                    }
+                } else {
+                    let _ = remove_non_socket_path(&path)?;
+                }
+            }
+            Err(error) => return Err(error).context("session socket probe failed"),
         }
     }
     let listener = transport::listen(&path)?;
-    let lease = match ServedSocketLease::claim(path.clone()) {
+    let lease = match ServedSocketLease::claim_bound(path.clone(), &listener) {
         Ok(lease) => lease,
         Err(error) => {
             cleanup_unclaimed_listener(listener, &path);
@@ -5308,8 +5535,16 @@ pub fn serve_paused(mux: Arc<Mux>, path: Option<PathBuf>) -> anyhow::Result<Pend
                     stream
                 }
                 Ok(None) => break,
-                Err(_) if server_shutdown.load(Ordering::Acquire) => break,
-                Err(error) if retry_accept_os_error(&error) => {
+                Err(error)
+                    if accept_error_action(&error, server_shutdown.load(Ordering::Acquire))
+                        == AcceptErrorAction::Shutdown =>
+                {
+                    break;
+                }
+                Err(error)
+                    if accept_error_action(&error, server_shutdown.load(Ordering::Acquire))
+                        == AcceptErrorAction::Retry =>
+                {
                     if !accept_retry_allowed(transient_accept_failures) {
                         eprintln!(
                             "cmux-tui: listener accept retry limit exceeded after {transient_accept_failures} failures: {error}"
@@ -13594,6 +13829,24 @@ mod tests {
         assert!(!accept_retry_allowed(ACCEPT_RETRY_LIMIT));
     }
 
+    #[test]
+    fn transient_accept_error_keeps_service_running() {
+        let error = std::io::Error::from(std::io::ErrorKind::ConnectionReset);
+        assert_eq!(accept_error_action(&error, false), AcceptErrorAction::Retry);
+    }
+
+    #[test]
+    fn fatal_accept_error_terminates_service() {
+        let error = std::io::Error::from(std::io::ErrorKind::PermissionDenied);
+        assert_eq!(accept_error_action(&error, false), AcceptErrorAction::Terminate);
+    }
+
+    #[test]
+    fn shutdown_terminates_even_for_transient_accept_error() {
+        let error = std::io::Error::from(std::io::ErrorKind::Interrupted);
+        assert_eq!(accept_error_action(&error, true), AcceptErrorAction::Shutdown);
+    }
+
     #[cfg(unix)]
     #[test]
     fn listener_accept_retries_descriptor_exhaustion() {
@@ -14019,6 +14272,105 @@ mod tests {
         assert!(transport::connect(&path).is_ok(), "failed claim removed a live replacement");
         drop(replacement);
         std::fs::remove_file(&path).unwrap();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn socket_claim_accepts_a_bound_unix_listener_without_fd_identity() {
+        let dir = TestSocketDir::create("socket-claim-unix-fd-identity");
+        let path = dir.path().join("mux.sock");
+        let listener = transport::listen(&path).unwrap();
+
+        let lease = ServedSocketLease::claim_bound(path.clone(), &listener)
+            .expect("Unix listener claims must tolerate unavailable fd identity");
+        lease.cleanup();
+
+        assert!(
+            path.exists(),
+            "an unverified Unix listener lease must leave its publication for the next owner"
+        );
+        drop(listener);
+        std::fs::remove_file(path).unwrap();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn socket_claim_leaves_a_replaced_path_unlinked() {
+        let dir = TestSocketDir::create("socket-claim-replaced-before-claim");
+        let path = dir.path().join("mux.sock");
+        let listener = transport::listen(&path).unwrap();
+
+        std::fs::remove_file(&path).unwrap();
+        let replacement = transport::listen(&path).unwrap();
+
+        let lease = ServedSocketLease::claim_bound(path.clone(), &listener)
+            .expect("Unix listener claims must tolerate unavailable fd identity");
+
+        drop(listener);
+        lease.cleanup();
+        assert!(transport::connect(&path).is_ok(), "claim cleanup disrupted the replacement");
+        drop(replacement);
+        std::fs::remove_file(&path).unwrap();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn stale_socket_cleanup_preserves_a_replacement_bound_after_probe() {
+        let dir = TestSocketDir::create("stale-socket-replacement-after-probe");
+        let path = dir.path().join("mux.sock");
+        let stale = transport::listen(&path).unwrap();
+        let stale_identity = SocketPathIdentity::capture(&path).unwrap();
+
+        std::fs::remove_file(&path).unwrap();
+        let replacement = transport::listen(&path).unwrap();
+
+        assert!(
+            !remove_stale_socket_if_unchanged(&path, stale_identity).unwrap(),
+            "stale cleanup removed a successor bound after the failed probe"
+        );
+        assert!(transport::connect(&path).is_ok(), "stale cleanup disrupted the replacement");
+
+        drop(stale);
+        drop(replacement);
+        std::fs::remove_file(&path).unwrap();
+    }
+
+    #[test]
+    fn stale_socket_cleanup_only_accepts_definitive_connect_failures() {
+        assert!(connect_error_proves_stale(&std::io::Error::new(
+            std::io::ErrorKind::ConnectionRefused,
+            "refused",
+        )));
+        assert!(connect_error_proves_stale(&std::io::Error::new(
+            std::io::ErrorKind::NotFound,
+            "missing",
+        )));
+        for kind in [
+            std::io::ErrorKind::PermissionDenied,
+            std::io::ErrorKind::WouldBlock,
+            std::io::ErrorKind::ResourceBusy,
+            std::io::ErrorKind::TimedOut,
+            std::io::ErrorKind::Other,
+        ] {
+            assert!(
+                !connect_error_proves_stale(&std::io::Error::new(kind, "not definitive")),
+                "{kind:?} must not trigger stale-socket removal"
+            );
+        }
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn bound_listener_claim_keeps_unverified_windows_path_unowned() {
+        let dir = TestSocketDir::create("windows-claim-without-identity");
+        let path = dir.path().join("mux.sock");
+        let listener = transport::listen(&path).unwrap();
+
+        let lease = ServedSocketLease::claim_bound(path.clone(), &listener).unwrap();
+        lease.cleanup();
+        assert!(path.exists(), "unverified Windows cleanup removed the publication");
+        drop(listener);
+        std::fs::remove_file(path).unwrap();
     }
 
     #[cfg(unix)]

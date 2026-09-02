@@ -54,6 +54,14 @@ pub mod transport {
         pub fn accept_with_wake(&self, wake: &ListenerWake) -> io::Result<Option<Box<dyn Stream>>> {
             self.inner.accept_with_wake(&wake.inner)
         }
+
+        /// Compare the pathname with this listener's bound object.
+        ///
+        /// `Some(false)` means the path names a different object. `None` means
+        /// this platform cannot expose a stable listener identity.
+        pub fn matches_path(&self, path: &Path) -> io::Result<Option<bool>> {
+            self.inner.matches_path(path)
+        }
     }
 
     impl ListenerWake {
@@ -106,6 +114,16 @@ pub mod transport {
             pub(super) fn accept(&self) -> io::Result<Box<dyn Stream>> {
                 let (stream, _) = self.inner.accept()?;
                 Ok(Box::new(stream))
+            }
+
+            pub(super) fn matches_path(&self, _path: &Path) -> io::Result<Option<bool>> {
+                // UnixListener does not expose a stable identity that can be
+                // compared with the pathname's filesystem entry. In
+                // particular, fstat on the listener can report the socket's
+                // kernel inode rather than the pathname inode. Cleanup still
+                // fences removals with the pathname identity captured before
+                // the listener was published, so leave this lease unlinked.
+                Ok(None)
             }
 
             pub(super) fn wake_handle(&self) -> io::Result<ListenerWake> {
@@ -252,6 +270,13 @@ pub mod transport {
             pub(super) fn accept(&self) -> io::Result<Box<dyn Stream>> {
                 let (stream, _) = self.inner.accept()?;
                 Ok(Box::new(stream))
+            }
+
+            pub(super) fn matches_path(&self, _path: &Path) -> io::Result<Option<bool>> {
+                // Winsock does not expose a stable filesystem identity for an
+                // AF_UNIX listener handle. Path identity checks remain the
+                // available fallback on Windows.
+                Ok(None)
             }
 
             pub(super) fn wake_handle(&self) -> io::Result<ListenerWake> {
