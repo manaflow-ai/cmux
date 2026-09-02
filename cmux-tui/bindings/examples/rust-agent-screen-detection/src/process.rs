@@ -374,21 +374,30 @@ fn is_shell_command_flag(runtime: &str, flag: &str) -> bool {
         return matches!(runtime, "bash" | "sh" | "zsh" | "fish");
     }
 
-    let Some(mut characters) = flag.strip_prefix('-').map(str::chars) else {
+    let Some(characters) = flag.strip_prefix('-').map(str::chars) else {
         return false;
     };
-    // `c` is special only as the final short option. A repeated c, or a
-    // command marker before another character, is not a command-mode flag.
-    if characters.next_back() != Some('c') {
-        return false;
+    // Bash, sh, and zsh accept `c` anywhere in a short-option cluster. Fish
+    // requires it to be the final short option. Value-taking, no-execute,
+    // exit-only, and unknown options remain invalid on either side of `c`.
+    let mut characters = characters.peekable();
+    let mut command_count = 0;
+    while let Some(character) = characters.next() {
+        if character == 'c' {
+            command_count += 1;
+            if runtime == "fish" && characters.peek().is_some() {
+                return false;
+            }
+            continue;
+        }
+        if !matches!(
+            shell_short_option_kind(runtime, character),
+            Some(ShellOptionKind::Safe | ShellOptionKind::NoScript)
+        ) {
+            return false;
+        }
     }
-    characters.all(|character| {
-        character != 'c'
-            && matches!(
-                shell_short_option_kind(runtime, character),
-                Some(ShellOptionKind::Safe | ShellOptionKind::NoScript)
-            )
-    })
+    command_count == 1
 }
 
 fn shell_short_option_kind(runtime: &str, option: char) -> Option<ShellOptionKind> {
