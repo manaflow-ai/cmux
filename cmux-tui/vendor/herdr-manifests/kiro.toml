@@ -1,0 +1,63 @@
+id = "kiro"
+version = "2026.08.01.1"
+min_engine_version = 1
+updated_at = "2026-08-01T00:00:00Z"
+aliases = ["kiro-cli"]
+
+[[rules]]
+id = "tool_approval"
+state = "blocked"
+priority = 300
+region = "whole_recent"
+visible_blocker = true
+contains = ["requires approval"]
+any = [
+  { contains = ["yes, single permission"] },
+  { contains = ["trust, always allow"] },
+  { contains = ["no (tab to edit)"] },
+  { contains = ["esc to close"] },
+]
+
+[[rules]]
+id = "subagent_approval"
+state = "blocked"
+priority = 290
+region = "whole_recent"
+visible_blocker = true
+contains = ["pending from subagents"]
+any = [
+  { contains = ["tool approval"] },
+  { contains = ["tool approvals"] },
+]
+all = [
+  { any = [{ contains = ["approve all pending"] }, { contains = ["configure individually"] }, { contains = ["exit (cancel subagents)"] }] },
+]
+
+[[rules]]
+id = "prompt_idle"
+state = "idle"
+priority = 200
+region = "bottom_non_empty_lines(5)"
+visible_idle = true
+contains = ["ask a question or describe a task", "/copy to clipboard"]
+not = [
+  { contains = ["kiro is working"] },
+  { contains = ["esc to cancel"] },
+]
+
+[[rules]]
+id = "kiro_working_marker"
+state = "working"
+priority = 100
+region = "whole_recent"
+visible_working = true
+contains = ["kiro is working"]
+
+[[rules]]
+id = "tool_spinner_working"
+state = "working"
+priority = 90
+region = "whole_recent"
+visible_working = true
+contains = ["esc to cancel"]
+line_regex = ['^\s*(◔|◑|◕|●)\s+\p{Alphabetic}']

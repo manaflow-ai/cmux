@@ -30,6 +30,7 @@ getrandom.workspace = true
 rusqlite.workspace = true
 fs4.workspace = true
 sha2.workspace = true
+toml.workspace = true
 zeroize.workspace = true
 url.workspace = true
 

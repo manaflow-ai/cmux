@@ -886,6 +886,112 @@ impl WorkspaceRegistry {
         query_session_journal_after(&self.connection, sequence, limit)
     }
 
+    /// Persisted fold position of one journal reducer: (version, cursor,
+    /// snapshot). A version mismatch on load discards the snapshot so the
+    /// reducer re-folds from the journal head.
+    pub(crate) fn journal_reducer_state(
+        &self,
+        reducer_id: &str,
+    ) -> anyhow::Result<Option<(u32, u64, String)>> {
+        Ok(self
+            .journal_reducer_state_with_order(reducer_id)?
+            .map(|(version, cursor, _ordering_token, snapshot)| (version, cursor, snapshot)))
+    }
+
+    pub(crate) fn journal_reducer_state_with_order(
+        &self,
+        reducer_id: &str,
+    ) -> anyhow::Result<Option<(u32, u64, u64, String)>> {
+        let raw = self
+            .connection
+            .query_row(
+                "SELECT value FROM meta WHERE key = ?1",
+                [format!("journal_reducer.{reducer_id}")],
+                |row| row.get::<_, String>(0),
+            )
+            .optional()?;
+        let Some(raw) = raw else { return Ok(None) };
+        let value: Value = serde_json::from_str(&raw)
+            .with_context(|| format!("journal reducer state for {reducer_id} is not JSON"))?;
+        let version = value.get("version").and_then(Value::as_u64).unwrap_or(0) as u32;
+        let cursor = value
+            .get("cursor")
+            .and_then(Value::as_str)
+            .and_then(|cursor| cursor.parse::<u64>().ok())
+            .unwrap_or(0);
+        // Older reducer rows predate the ordering token. Their cursor is the
+        // best available ordering, and new writes immediately persist the
+        // explicit token.
+        let ordering_token = value
+            .get("ordering_token")
+            .and_then(Value::as_str)
+            .and_then(|token| token.parse::<u64>().ok())
+            .unwrap_or(cursor);
+        let snapshot =
+            value.get("snapshot").and_then(Value::as_str).map(str::to_string).unwrap_or_default();
+        Ok(Some((version, cursor, ordering_token, snapshot)))
+    }
+
+    /// Durably record a reducer's fold position and state snapshot. Cursor
+    /// values are stored as strings so 64-bit sequences survive JSON. The
+    /// caller supplies a durable ordering token for equal-cursor writes.
+    pub(crate) fn put_journal_reducer_state_ordered(
+        &self,
+        reducer_id: &str,
+        version: u32,
+        cursor: u64,
+        ordering_token: u64,
+        snapshot: &str,
+    ) -> anyhow::Result<()> {
+        // The ordering token is a durable write sequence for snapshots that
+        // share a journal cursor. Strict comparison rejects late writes.
+        let value = serde_json::json!({
+            "version": version,
+            "cursor": cursor.to_string(),
+            "ordering_token": ordering_token.to_string(),
+            "snapshot": snapshot,
+        });
+        self.connection.execute(
+            "INSERT INTO meta(key, value) VALUES(?1, ?2)
+             ON CONFLICT(key) DO UPDATE SET value = excluded.value
+             WHERE COALESCE(CAST(json_extract(meta.value, '$.ordering_token') AS INTEGER),
+                            CAST(json_extract(meta.value, '$.cursor') AS INTEGER), 0)
+                   < CAST(json_extract(excluded.value, '$.ordering_token') AS INTEGER)",
+            params![format!("journal_reducer.{reducer_id}"), value.to_string()],
+        )?;
+        Ok(())
+    }
+
+    pub(crate) fn clear_journal_reducer_state(
+        &self,
+        reducer_id: &str,
+        version: u32,
+        snapshot: &str,
+    ) -> anyhow::Result<u64> {
+        // A reset is an explicit state transition, so it must bypass the
+        // cursor guard even when the previous cursor is nonzero. Advance the
+        // ordering token so in-flight writes from the old state stay stale.
+        let ordering_token = self
+            .journal_reducer_state_with_order(reducer_id)?
+            .map(|(_, _, token, _)| {
+                token.checked_add(1).context("journal reducer ordering token exhausted")
+            })
+            .transpose()?
+            .unwrap_or(0);
+        let value = serde_json::json!({
+            "version": version,
+            "cursor": "0",
+            "ordering_token": ordering_token.to_string(),
+            "snapshot": snapshot,
+        });
+        self.connection.execute(
+            "INSERT INTO meta(key, value) VALUES(?1, ?2)
+             ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+            params![format!("journal_reducer.{reducer_id}"), value.to_string()],
+        )?;
+        Ok(ordering_token)
+    }
+
     /// The most recently started journal output stream for one terminal:
     /// its generation and the exclusive end offset of its journaled bytes.
     pub(crate) fn terminal_stream_latest(
@@ -1969,6 +2075,96 @@ mod tests {
                 .to_string()
                 .contains("exceeds")
         );
+    }
+
+    #[test]
+    fn reducer_state_cursor_does_not_regress_on_late_write() {
+        let registry = WorkspaceRegistry::in_memory("reducer-cursor-monotonic").unwrap();
+        registry
+            .put_journal_reducer_state_ordered(
+                "agent_roster",
+                3,
+                10,
+                10,
+                r#"{"entries":{"new":{}}}"#,
+            )
+            .unwrap();
+        registry
+            .put_journal_reducer_state_ordered("agent_roster", 3, 9, 9, r#"{"entries":{"old":{}}}"#)
+            .unwrap();
+
+        let (_, cursor, snapshot) =
+            registry.journal_reducer_state("agent_roster").unwrap().unwrap();
+        assert_eq!(cursor, 10);
+        assert!(snapshot.contains("new"));
+    }
+
+    #[test]
+    fn reducer_state_equal_cursor_uses_a_durable_ordering_token() {
+        let registry = WorkspaceRegistry::in_memory("reducer-cursor-ordering-token").unwrap();
+        registry
+            .put_journal_reducer_state_ordered(
+                "agent_roster",
+                3,
+                10,
+                1,
+                r#"{"entries":{"first":{}}}"#,
+            )
+            .unwrap();
+        registry
+            .put_journal_reducer_state_ordered(
+                "agent_roster",
+                3,
+                10,
+                2,
+                r#"{"entries":{"retired":{}}}"#,
+            )
+            .unwrap();
+        registry
+            .put_journal_reducer_state_ordered(
+                "agent_roster",
+                3,
+                10,
+                1,
+                r#"{"entries":{"stale":{}}}"#,
+            )
+            .unwrap();
+
+        let (_, cursor, snapshot) =
+            registry.journal_reducer_state("agent_roster").unwrap().unwrap();
+        assert_eq!(cursor, 10);
+        assert!(snapshot.contains("retired"));
+        assert!(!snapshot.contains("stale"));
+    }
+
+    #[test]
+    fn reducer_state_clear_overrides_a_monotonic_cursor() {
+        let registry = WorkspaceRegistry::in_memory("reducer-cursor-clear").unwrap();
+        registry
+            .put_journal_reducer_state_ordered(
+                "agent_roster",
+                3,
+                10,
+                10,
+                r#"{"entries":{"stale":{}}}"#,
+            )
+            .unwrap();
+        registry.clear_journal_reducer_state("agent_roster", 3, r#"{"entries":{}}"#).unwrap();
+        registry
+            .put_journal_reducer_state_ordered(
+                "agent_roster",
+                3,
+                10,
+                10,
+                r#"{"entries":{"late":{}}}"#,
+            )
+            .unwrap();
+
+        let (_, cursor, ordering_token, snapshot) =
+            registry.journal_reducer_state_with_order("agent_roster").unwrap().unwrap();
+        assert_eq!(cursor, 0);
+        assert_eq!(ordering_token, 11);
+        assert_eq!(snapshot, r#"{"entries":{}}"#);
     }
 
     #[test]

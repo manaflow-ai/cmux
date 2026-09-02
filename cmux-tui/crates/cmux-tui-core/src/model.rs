@@ -871,6 +871,10 @@ pub struct State {
     pub(crate) terminal_catalog: HashMap<TerminalPublicId, Arc<Surface>>,
     /// Reverse lookup for catalog owners addressed by daemon-local runtime ID.
     pub(crate) terminal_catalog_by_runtime: HashMap<SurfaceId, TerminalPublicId>,
+    /// Monotonic topology revision for the terminal catalog. Consumers use
+    /// this to invalidate cached terminal snapshots only when membership
+    /// changes, instead of rebuilding indexes on every scan tick.
+    pub(crate) terminal_catalog_revision: u64,
     pub(crate) split_screens: HashMap<SplitId, (usize, usize, ScreenId)>,
     pub(crate) resource_indexes: PublicSlotIndexes,
 }

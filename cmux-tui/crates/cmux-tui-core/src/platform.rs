@@ -738,6 +738,43 @@ pub fn foreground_cwd(pid: u32) -> Option<String> {
     process_cwd(foreground_process_group(pid)?)
 }
 
+/// Executable name of a terminal's live foreground process group leader
+/// (see [`foreground_cwd`] for the leader resolution contract). Used by
+/// screen detection to decide whether the pane runs a known agent CLI.
+/// Returns `None` when the leader is gone, the child has no controlling
+/// terminal, or the platform denies the lookup.
+pub fn foreground_process_name(pid: u32) -> Option<String> {
+    process_name(foreground_process_group(pid)?)
+}
+
+#[cfg(target_os = "linux")]
+fn process_name(pid: u32) -> Option<String> {
+    // Resolve the kernel-owned executable path. argv[0] and /proc/comm are
+    // caller-controlled or truncated, so they cannot establish agent
+    // identity. Manifest matching accepts absolute executable paths.
+    let path = std::fs::read_link(format!("/proc/{pid}/exe")).ok()?;
+    (!path.as_os_str().is_empty()).then(|| path.to_string_lossy().into_owned())
+}
+
+#[cfg(target_os = "macos")]
+fn process_name(pid: u32) -> Option<String> {
+    let pid = libc::c_int::try_from(pid).ok()?;
+    let mut path = [0u8; libc::PROC_PIDPATHINFO_MAXSIZE as usize];
+    // SAFETY: proc_pidpath writes at most `path.len()` bytes and returns
+    // the written byte count (0 on failure).
+    let written = unsafe { libc::proc_pidpath(pid, path.as_mut_ptr().cast(), path.len() as u32) };
+    if written <= 0 {
+        return None;
+    }
+    let path = std::str::from_utf8(&path[..written as usize]).ok()?;
+    (!path.is_empty()).then(|| path.to_string())
+}
+
+#[cfg(not(any(target_os = "linux", target_os = "macos")))]
+fn process_name(_pid: u32) -> Option<String> {
+    None
+}
+
 #[cfg(target_os = "linux")]
 fn foreground_process_group(pid: u32) -> Option<u32> {
     let stat = std::fs::read_to_string(format!("/proc/{pid}/stat")).ok()?;
@@ -1313,5 +1350,14 @@ mod tests {
     fn local_hostname_decoder_accepts_non_utf8_os_bytes() {
         assert_eq!(decode_local_hostname(b"host\xff"), Some("host�".to_string()));
         assert_eq!(decode_local_hostname(b""), None);
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn linux_process_name_uses_kernel_executable_path() {
+        let pid = std::process::id();
+        let expected = std::fs::read_link(format!("/proc/{pid}/exe")).unwrap();
+        assert_eq!(process_name(pid), Some(expected.to_string_lossy().into_owned()));
+        assert_eq!(process_name(u32::MAX), None);
     }
 }

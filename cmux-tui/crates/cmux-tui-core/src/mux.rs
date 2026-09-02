@@ -854,6 +854,7 @@ pub enum MuxEvent {
         state: Arc<str>,
         source: Arc<str>,
         session: Option<Arc<str>>,
+        agent: Option<Arc<str>>,
         updated_at_ms: u64,
     },
     Bell(SurfaceId),
@@ -1104,6 +1105,241 @@ fn agent_state_for_hook_kind(kind: &str) -> Option<AgentState> {
     })
 }
 
+/// A stored projection state string as its typed form; unknown spellings
+/// degrade to `Unknown`, which every agents view hides.
+fn parse_projection_agent_state(value: &str) -> AgentState {
+    match value {
+        "working" => AgentState::Working,
+        "blocked" => AgentState::Blocked,
+        "idle" => AgentState::Idle,
+        "done" => AgentState::Done,
+        _ => AgentState::Unknown,
+    }
+}
+
+/// The agent roster host: reducer state plus its journal fold cursor.
+/// Lock ordering rule: roster writers acquire `agent_roster_fold`, then the
+/// registry lock, then this host lock. Commit paths only read after their
+/// registry/state locks, so the fold guard prevents cross-path inversions.
+#[derive(Debug, Clone, Default)]
+struct AgentRosterHost {
+    roster: crate::journal_reducers::AgentRoster,
+    cursor: u64,
+    ordering_token: u64,
+    /// Deltas produced while replaying the journal before the Mux exists.
+    /// Startup must apply these to durable projections after resources are
+    /// materialized; advancing the cursor alone is not sufficient because
+    /// the live fold has no tail left to read.
+    pending_projection_deltas: Vec<PendingRosterProjection>,
+    #[cfg_attr(not(test), allow(dead_code))]
+    needs_projection_rebuild: bool,
+}
+
+#[derive(Debug, Clone)]
+struct PendingRosterProjection {
+    delta: crate::journal_reducers::RosterDelta,
+    kind: String,
+    screen_detect: bool,
+    sequence: u64,
+}
+
+fn retained_journal_tail_has_gap(cursor: u64, first_sequence: Option<u64>) -> bool {
+    // Subtraction avoids overflow at the upper sequence bound and rejects
+    // both skipped records and an unexpectedly repeated/rewound sequence.
+    first_sequence.is_some_and(|sequence| sequence.checked_sub(cursor) != Some(1))
+}
+
+fn retained_tail_anchor(first_sequence: u64) -> Option<u64> {
+    first_sequence.checked_sub(1)
+}
+
+fn roster_from_durable_projections(
+    registry: &WorkspaceRegistry,
+    prior: &crate::journal_reducers::AgentRoster,
+) -> anyhow::Result<crate::journal_reducers::AgentRoster> {
+    let mut roster = crate::journal_reducers::AgentRoster::default();
+    for projection in registry.public_agent_projections(None, None)? {
+        if projection.state == AgentState::Done.as_str() {
+            continue;
+        }
+        let agent = prior
+            .entries
+            .get(projection.terminal_id.as_str())
+            .and_then(|entry| entry.agent.clone());
+        if projection.source == AgentSource::Detected.as_str() && agent.is_none() {
+            continue;
+        }
+        roster.entries.insert(
+            projection.terminal_id.to_string(),
+            crate::journal_reducers::RosterEntry {
+                state: projection.state,
+                source: projection.source,
+                session: projection.source_session,
+                agent,
+                updated_at_ms: projection.updated_at_ms,
+            },
+        );
+    }
+    Ok(roster)
+}
+
+/// Restore the roster from its persisted snapshot and fold the journal tail
+/// committed after the cursor. A reducer-version mismatch discards the
+/// snapshot and re-folds from the journal head. Replay happens before runtime
+/// resources are materialized, so every reducer delta is retained for the
+/// startup projection repair pass.
+fn restore_agent_roster(registry: &WorkspaceRegistry) -> anyhow::Result<AgentRosterHost> {
+    use crate::journal_reducers::{
+        AGENT_ROSTER_REDUCER_ID, AGENT_ROSTER_REDUCER_VERSION, AgentRoster, RosterEvent,
+    };
+    let mut reset_persisted_state = false;
+    let mut host = match registry.journal_reducer_state_with_order(AGENT_ROSTER_REDUCER_ID)? {
+        Some((version, cursor, ordering_token, snapshot))
+            if version == AGENT_ROSTER_REDUCER_VERSION =>
+        {
+            // Never keep a cursor whose snapshot was rejected. The cursor is
+            // only meaningful together with the state it follows; retaining
+            // it would skip the journal prefix needed to rebuild the roster.
+            match AgentRoster::restore(&snapshot) {
+                Some(roster) => AgentRosterHost {
+                    roster,
+                    cursor,
+                    ordering_token,
+                    needs_projection_rebuild: false,
+                },
+                None => {
+                    reset_persisted_state = true;
+                    AgentRosterHost::default()
+                }
+            }
+        }
+        Some(_) => {
+            reset_persisted_state = true;
+            AgentRosterHost::default()
+        }
+        None => AgentRosterHost::default(),
+    };
+    if reset_persisted_state {
+        let empty_snapshot = AgentRoster::default().snapshot().to_string();
+        host.ordering_token = registry.clear_journal_reducer_state(
+            AGENT_ROSTER_REDUCER_ID,
+            AGENT_ROSTER_REDUCER_VERSION,
+            &empty_snapshot,
+        )?;
+    }
+    let started_at = host.cursor;
+    loop {
+        let page = match registry.session_journal_after(host.cursor, 512) {
+            Ok(page) => page,
+            Err(error) => {
+                // A journal read can fail transiently. Preserve the last
+                // valid snapshot, or rebuild from durable projections when
+                // the snapshot was already reset. Never expose a default
+                // empty host solely because one read failed.
+                eprintln!("cmux-tui: agent roster snapshot cannot be replayed: {error}");
+                // Keep a valid snapshot visible when the journal read is a
+                // transient failure. If the snapshot was already reset,
+                // rebuild the live roster from durable projections instead
+                // of exposing an empty host.
+                if host.roster.entries.is_empty()
+                    && let Ok(roster) = roster_from_durable_projections(registry, &host.roster)
+                {
+                    host.roster = roster;
+                }
+                return Ok(host);
+            }
+        };
+        if page.records.is_empty() {
+            if page.head_sequence > host.cursor {
+                // A retained journal can advance its head beyond a stale
+                // reducer cursor. Do not trust the snapshot at that cursor,
+                // because replay would otherwise skip the retained prefix.
+                eprintln!(
+                    "cmux-tui: agent roster cursor {} is behind retained journal head {}; resetting",
+                    host.cursor, page.head_sequence
+                );
+                let empty_snapshot = AgentRoster::default().snapshot().to_string();
+                let ordering_token = registry.clear_journal_reducer_state(
+                    AGENT_ROSTER_REDUCER_ID,
+                    AGENT_ROSTER_REDUCER_VERSION,
+                    &empty_snapshot,
+                )?;
+                let roster = roster_from_durable_projections(registry, &host.roster)?;
+                return Ok(AgentRosterHost {
+                    roster,
+                    cursor: page.head_sequence,
+                    ordering_token,
+                    needs_projection_rebuild: false,
+                    ..AgentRosterHost::default()
+                });
+            }
+            break;
+        }
+        if retained_journal_tail_has_gap(host.cursor, page.records.first().map(|r| r.sequence)) {
+            eprintln!(
+                "cmux-tui: agent roster cursor {} is not contiguous with retained journal tail {}; resetting",
+                host.cursor, page.records[0].sequence
+            );
+            let first_sequence = page.records[0].sequence;
+            let Some(anchor) = retained_tail_anchor(first_sequence) else {
+                return Ok(AgentRosterHost::default());
+            };
+            let empty_snapshot = AgentRoster::default().snapshot().to_string();
+            let ordering_token = registry.clear_journal_reducer_state(
+                AGENT_ROSTER_REDUCER_ID,
+                AGENT_ROSTER_REDUCER_VERSION,
+                &empty_snapshot,
+            )?;
+            // Preserve active durable projections while replaying the
+            // retained tail. This avoids erasing live agents whose original
+            // journal records were pruned before the reducer cursor.
+            let prior_roster = host.roster.clone();
+            host.roster = roster_from_durable_projections(registry, &prior_roster)?;
+            host.cursor = anchor;
+            host.ordering_token = ordering_token;
+            host.needs_projection_rebuild = true;
+            continue;
+        }
+        for record in &page.records {
+            let deltas = host.roster.apply(&RosterEvent::from_record(record));
+            if !deltas.is_empty() {
+                host.needs_projection_rebuild = true;
+                let screen_detect = record.payload.get("native_event").and_then(Value::as_str)
+                    == Some(crate::screen_detect::SCREEN_DETECT_NATIVE_EVENT)
+                    && record
+                        .payload
+                        .get("adapter")
+                        .and_then(|adapter| adapter.get("id"))
+                        .and_then(Value::as_str)
+                        != Some(crate::journal_reducers::SOCKET_REPORT_ADAPTER);
+                host.pending_projection_deltas.extend(deltas.into_iter().map(|delta| {
+                    PendingRosterProjection {
+                        delta,
+                        kind: record.kind.clone(),
+                        screen_detect,
+                        sequence: record.sequence,
+                    }
+                }));
+            }
+            host.cursor = host.cursor.max(record.sequence);
+            host.ordering_token = host.ordering_token.saturating_add(1);
+        }
+    }
+    // When replay produced deltas, defer the snapshot write until the Mux can
+    // repair durable projections. Persisting the advanced cursor first would
+    // make a crash during that repair skip the retained events forever.
+    if host.cursor != started_at && !host.needs_projection_rebuild {
+        registry.put_journal_reducer_state_ordered(
+            AGENT_ROSTER_REDUCER_ID,
+            AGENT_ROSTER_REDUCER_VERSION,
+            host.cursor,
+            host.ordering_token,
+            &host.roster.snapshot().to_string(),
+        )?;
+    }
+    Ok(host)
+}
+
 #[derive(Debug, Clone)]
 pub struct AgentRecord {
     pub surface: SurfaceId,
@@ -1111,6 +1347,9 @@ pub struct AgentRecord {
     pub state: AgentState,
     pub source: AgentSource,
     pub session: Option<String>,
+    /// The reporting adapter id (`claude`, `codex`, ...) when a hook has
+    /// claimed the terminal; absent for socket-only reports.
+    pub agent: Option<String>,
     pub updated_at_ms: u64,
 }
 
@@ -1183,7 +1422,18 @@ struct TerminalAgentRecord {
     state: AgentState,
     source: AgentSource,
     session: Option<String>,
+    agent: Option<String>,
     updated_at_ms: u64,
+}
+
+/// Who initiated an agent projection commit: a direct socket/SDK report
+/// (which must echo its intent into the journal so the roster fold sees
+/// it), or the roster fold itself applying a journal-derived delta (which
+/// must not echo, or every hook event would append a second record).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum AgentReportOrigin {
+    Direct,
+    RosterFold,
 }
 
 enum AgentReportTarget<'a> {
@@ -1999,6 +2249,10 @@ pub struct Mux {
     workspace_registry: SignaledMutex<WorkspaceRegistry>,
     session_public_id: SessionPublicId,
     state: Mutex<State>,
+    /// Cached terminal snapshot keyed by the catalog topology revision. Arc
+    /// sharing keeps the scanner hot path from cloning every terminal and
+    /// public ID on each 100 ms tick.
+    screen_detect_snapshot: Mutex<Option<(u64, Arc<Vec<(TerminalPublicId, Arc<Surface>)>>)>>,
     subscribers: MuxEventBroadcaster,
     config_reload: Mutex<ConfigReloadState>,
     config_reload_changed: Condvar,
@@ -2090,6 +2344,11 @@ pub struct Mux {
     sidebar_plugin: Mutex<SidebarPluginRuntime>,
     agent_records: Mutex<HashMap<TerminalPublicId, TerminalAgentRecord>>,
     agent_hook_fences: Mutex<HashMap<TerminalPublicId, HookFence>>,
+    /// Serializes every roster fold and explicit retirement. The guard is
+    /// acquired before the registry and roster locks, so journal catch-up,
+    /// snapshot writes, side effects, and purge use one global order.
+    agent_roster_fold: Mutex<()>,
+    agent_roster: Mutex<AgentRosterHost>,
     /// Nonterminal notifications remain placement-local. Terminal unread
     /// state is keyed separately by stable content identity so every view of
     /// one terminal shares the same attention marker.
@@ -2362,6 +2621,7 @@ impl Mux {
             terminal_notifications,
             notification_ledger,
         } = restore_public_projections(&state, registry.public_projections()?)?;
+        let agent_roster = restore_agent_roster(&registry)?;
         let journal_producers = registry.journal_producer_manifests()?;
         let session_public_id = registry.session_id().clone();
         let journal_kernel = crate::journal_kernel::JournalKernel::new(
@@ -2378,6 +2638,7 @@ impl Mux {
             workspace_registry: SignaledMutex::new(registry),
             session_public_id,
             state: Mutex::new(state),
+            screen_detect_snapshot: Mutex::new(None),
             subscribers: MuxEventBroadcaster::default(),
             config_reload: Mutex::new(ConfigReloadState::default()),
             config_reload_changed: Condvar::new(),
@@ -2469,6 +2730,8 @@ impl Mux {
             sidebar_plugin: Mutex::new(SidebarPluginRuntime::default()),
             agent_records: Mutex::new(agent_records),
             agent_hook_fences: Mutex::new(agent_hook_fences),
+            agent_roster_fold: Mutex::new(()),
+            agent_roster: Mutex::new(agent_roster),
             placement_notifications: Mutex::new(HashMap::new()),
             terminal_notifications: Mutex::new(terminal_notifications),
             notification_ledger: Mutex::new(notification_ledger),
@@ -2523,6 +2786,7 @@ impl Mux {
                 }
             }
         }
+        mux.rebuild_agent_roster_projections();
         let recovery_deadline = Instant::now() + Duration::from_secs(15);
         while mux.reconcile_interrupted_resource_creations()? {
             if Instant::now() >= recovery_deadline {
@@ -2533,7 +2797,78 @@ impl Mux {
         }
         mux.retry_pending_agent_hooks()?;
         crate::journal_hooks::start(&mux)?;
+        crate::screen_detect::scanner::start(&mux);
         Ok(mux)
+    }
+
+    /// Startup replay can rebuild the roster before resource projections are
+    /// available. Re-fold the journal after materialization when that occurs,
+    /// so screen-detection deltas repair durable projections before exposing
+    /// the restored session. Hook projections are restored separately.
+    fn rebuild_agent_roster_projections(&self) {
+        // Startup repair shares the live fold's lock order. The journal
+        // ingress thread starts before resource materialization, so a fresh
+        // callback can otherwise race this replay and overtake its deltas.
+        let _fold = self.agent_roster_fold.lock().unwrap();
+        let (needs_rebuild, pending) = {
+            let mut host = self.agent_roster.lock().unwrap();
+            if !host.needs_projection_rebuild {
+                return;
+            }
+            host.needs_projection_rebuild = false;
+            (true, std::mem::take(&mut host.pending_projection_deltas))
+        };
+        debug_assert!(needs_rebuild);
+        // Startup replay happens before resource surfaces are materialized,
+        // so the normal live fold cannot apply its deltas. Replay the exact
+        // reducer outputs now, after materialization, preserving source and
+        // sequence metadata for idempotent projection commits.
+        let pending_for_retry = pending.clone();
+        for index in 0..pending.len() {
+            let current = pending[index].clone();
+            if let Err(error) = self.apply_roster_delta(
+                current.delta,
+                &current.kind,
+                current.screen_detect,
+                current.sequence,
+            ) {
+                eprintln!(
+                    "cmux-tui: startup agent roster projection repair failed at sequence {}: {error}",
+                    current.sequence
+                );
+                // Keep the rebuild marker set. A subsequent terminal
+                // availability signal or restart will retry the repair from
+                // the durable journal snapshot instead of silently exposing
+                // an incomplete projection.
+                let mut host = self.agent_roster.lock().unwrap();
+                host.needs_projection_rebuild = true;
+                // Preserve this delta and all later deltas. They must be
+                // retried in journal order after the transient failure.
+                host.pending_projection_deltas.extend(pending.into_iter().skip(index));
+                break;
+            }
+        }
+        let host = self.agent_roster.lock().unwrap();
+        if !host.needs_projection_rebuild {
+            let snapshot = host.roster.snapshot().to_string();
+            let cursor = host.cursor;
+            let ordering_token = host.ordering_token;
+            drop(host);
+            if let Err(error) =
+                self.workspace_registry.lock().unwrap().put_journal_reducer_state_ordered(
+                    crate::journal_reducers::AGENT_ROSTER_REDUCER_ID,
+                    crate::journal_reducers::AGENT_ROSTER_REDUCER_VERSION,
+                    cursor,
+                    ordering_token,
+                    &snapshot,
+                )
+            {
+                eprintln!("cmux-tui: persisting repaired agent roster snapshot failed: {error}");
+                let mut host = self.agent_roster.lock().unwrap();
+                host.needs_projection_rebuild = true;
+                host.pending_projection_deltas = pending_for_retry;
+            }
+        }
     }
 
     fn retry_pending_agent_hooks(&self) -> anyhow::Result<()> {
@@ -2553,7 +2888,7 @@ impl Mux {
         Ok(())
     }
 
-    fn retry_pending_agent_hooks_for_terminal(
+    pub(crate) fn retry_pending_agent_hooks_for_terminal(
         &self,
         terminal_id: &TerminalPublicId,
     ) -> anyhow::Result<()> {
@@ -2576,12 +2911,185 @@ impl Mux {
         Ok(())
     }
 
+    pub(crate) fn screen_detect_pending_for_terminal(
+        &self,
+        terminal_id: &TerminalPublicId,
+    ) -> bool {
+        self.workspace_registry
+            .lock()
+            .unwrap()
+            .pending_agent_hook_projections_for_terminal(terminal_id)
+            .map(|rows| {
+                rows.into_iter().any(|(_, origin, _, _, ingress)| {
+                    origin == "screen-detect"
+                        && ingress
+                            .subjects
+                            .iter()
+                            .any(|subject| subject.kind == "terminal" && subject.id == terminal_id)
+                })
+            })
+            .unwrap_or(false)
+    }
+
+    /// Return whether any durable agent projection is waiting for this
+    /// terminal. Screen detection is one producer, but roster-fold retries
+    /// also need a terminal availability signal so a scanner pass can drain
+    /// their side effects instead of leaving them stranded until restart.
+    pub(crate) fn agent_hook_pending_for_terminal(&self, terminal_id: &TerminalPublicId) -> bool {
+        self.workspace_registry
+            .lock()
+            .unwrap()
+            .pending_agent_hook_projections_for_terminal(terminal_id)
+            .map(|rows| !rows.is_empty())
+            .unwrap_or(false)
+    }
+
+    pub(crate) fn agent_roster_source_for_terminal(
+        &self,
+        terminal_id: &TerminalPublicId,
+    ) -> Option<AgentSource> {
+        self.agent_roster
+            .lock()
+            .unwrap()
+            .roster
+            .entries
+            .get(terminal_id.as_str())
+            .map(|entry| entry.agent_source())
+    }
+
+    pub(crate) fn agent_roster_agent_for_terminal(
+        &self,
+        terminal_id: &TerminalPublicId,
+    ) -> Option<String> {
+        self.agent_roster
+            .lock()
+            .unwrap()
+            .roster
+            .entries
+            .get(terminal_id.as_str())
+            .and_then(|entry| entry.agent.clone())
+    }
+
+    pub(crate) fn discard_screen_detect_pending_for_terminal(
+        &self,
+        terminal_id: &TerminalPublicId,
+    ) {
+        let _fold = self.agent_roster_fold.lock().unwrap();
+        let mut registry = self.workspace_registry.lock().unwrap();
+        if let Ok(rows) = registry.pending_agent_hook_projections_for_terminal(terminal_id) {
+            for (producer, origin, key, _, _) in rows {
+                if origin == "screen-detect" {
+                    let _ = registry.clear_agent_hook_pending(&producer, &origin, &key);
+                }
+            }
+        }
+    }
+
     fn retry_pending_agent_hooks_rows(
         &self,
         pending: Vec<(String, String, String, u64, crate::JournalIngress)>,
     ) -> anyhow::Result<usize> {
+        const ECHO_ORIGIN: &str = "agent-report-echo";
+        const SCREEN_ORIGIN: &str = "screen-detect";
+        const ROSTER_FOLD_ORIGIN: &str = "agent-roster-fold";
         let mut applied = 0;
         for (producer_id, origin, key, sequence, ingress) in pending {
+            // Echo rows represent a journal admission that failed after the
+            // public projection committed. Retry the append itself, not the
+            // hook projector, because the echo uses the neutral
+            // agent.state.changed kind.
+            if origin == ECHO_ORIGIN || origin == SCREEN_ORIGIN {
+                match self.append_journal_ingress(&ingress, &origin, &key) {
+                    Ok(_) => {
+                        if self
+                            .workspace_registry
+                            .lock()
+                            .unwrap()
+                            .clear_agent_hook_pending(&producer_id, &origin, &key)
+                            .is_ok()
+                        {
+                            applied += 1;
+                        } else {
+                            self.report_internal_diagnostic("agent echo retry cleanup deferred");
+                        }
+                    }
+                    Err(error) => {
+                        if self
+                            .workspace_registry
+                            .lock()
+                            .unwrap()
+                            .enqueue_agent_hook_pending(
+                                &producer_id,
+                                &origin,
+                                &key,
+                                sequence,
+                                &ingress,
+                                AGENT_HOOK_RETRY_ERROR,
+                                AgentHookRetryClass::Transient,
+                            )
+                            .is_err()
+                        {
+                            self.report_internal_diagnostic(
+                                "agent echo retry bookkeeping deferred",
+                            );
+                        }
+                        eprintln!("cmux-tui: retrying the agent echo failed: {error}");
+                    }
+                }
+                continue;
+            }
+            if origin == ROSTER_FOLD_ORIGIN {
+                match self.apply_agent_hook_record(&ingress, sequence) {
+                    Ok(()) => {
+                        let cleared = self
+                            .workspace_registry
+                            .lock()
+                            .unwrap()
+                            .clear_agent_hook_pending(&producer_id, &origin, &key)
+                            .is_ok();
+                        if cleared {
+                            let commit = crate::JournalAppendCommit {
+                                sequence,
+                                event_id: key.clone(),
+                                replayed: true,
+                            };
+                            self.fold_agent_roster(&ingress, &commit);
+                            applied += 1;
+                        } else {
+                            self.report_internal_diagnostic("agent roster retry cleanup deferred");
+                        }
+                    }
+                    Err(error) if agent_hook_terminal_gone(&error) => {
+                        let _ = self.workspace_registry.lock().unwrap().clear_agent_hook_pending(
+                            &producer_id,
+                            &origin,
+                            &key,
+                        );
+                    }
+                    Err(error) => {
+                        if self
+                            .workspace_registry
+                            .lock()
+                            .unwrap()
+                            .enqueue_agent_hook_pending(
+                                &producer_id,
+                                &origin,
+                                &key,
+                                sequence,
+                                &ingress,
+                                AGENT_HOOK_RETRY_ERROR,
+                                agent_hook_retry_class(&error),
+                            )
+                            .is_err()
+                        {
+                            self.report_internal_diagnostic(
+                                "agent roster retry bookkeeping deferred",
+                            );
+                        }
+                    }
+                }
+                continue;
+            }
             match self.apply_agent_hook_record(&ingress, sequence) {
                 Ok(()) => {
                     if self
@@ -5460,6 +5968,9 @@ impl Mux {
                 "agent hook projection applied; retry bookkeeping cleanup deferred",
             );
         }
+        if !commit.replayed {
+            self.fold_agent_roster(ingress, &commit);
+        }
         Ok(commit)
     }
 
@@ -5476,6 +5987,16 @@ impl Mux {
         sequence: u64,
     ) -> anyhow::Result<()> {
         if ingress.producer_id != crate::agent_hooks::AGENT_HOOK_PRODUCER_ID {
+            return Ok(());
+        }
+        // Screen-detection events reuse the agent-hook envelope and the
+        // `agent.session.ended` kind for process exits. They are owned by
+        // the roster reducer, not the hook fence projector; otherwise a
+        // detected process exit would create a Hook `Done` fence and could
+        // suppress a later real hook lifecycle.
+        if ingress.payload.get("native_event").and_then(Value::as_str)
+            == Some(crate::screen_detect::SCREEN_DETECT_NATIVE_EVENT)
+        {
             return Ok(());
         }
         let Some(state) = agent_state_for_hook_kind(&ingress.kind) else { return Ok(()) };
@@ -5567,6 +6088,13 @@ impl Mux {
             applied_sequence: sequence,
             ended: state == AgentState::Done,
         };
+        let agent_adapter = ingress
+            .payload
+            .get("adapter")
+            .and_then(|adapter| adapter.get("id"))
+            .and_then(Value::as_str)
+            .filter(|adapter| !adapter.is_empty())
+            .map(str::to_owned);
         self.report_agent_with_sequence_lock(
             surface,
             state,
@@ -5575,6 +6103,8 @@ impl Mux {
             true,
             Some(hook_state),
             Some(sequence),
+            AgentReportOrigin::RosterFold,
+            agent_adapter,
         )?;
         fences.insert(
             terminal_id.clone(),
@@ -5596,6 +6126,342 @@ impl Mux {
             }
         }
         Ok(())
+    }
+
+    /// Fold one fresh `agent.*` journal commit into the roster reducer and
+    /// apply the resulting deltas (projection commits, change broadcasts).
+    /// The roster is derived state: this fold plus the startup tail replay
+    /// are its only writers, so the journal fully determines it. Best
+    /// effort by design: a hook may outlive its terminal, and a journal
+    /// append must never start failing because a view cannot update.
+    fn fold_agent_roster(
+        &self,
+        ingress: &crate::JournalIngress,
+        _commit: &crate::JournalAppendCommit,
+    ) {
+        use crate::journal_reducers::{
+            AGENT_ROSTER_REDUCER_ID, AGENT_ROSTER_REDUCER_VERSION, RosterEvent,
+            SOCKET_REPORT_ADAPTER,
+        };
+        if ingress.producer_id != crate::agent_hooks::AGENT_HOOK_PRODUCER_ID {
+            return;
+        }
+        // One fold owns the complete catch-up transaction. This prevents a
+        // later callback from overtaking an earlier one, and keeps every
+        // side effect in the same order as the durable reducer snapshot.
+        let _fold = self.agent_roster_fold.lock().unwrap();
+        loop {
+            // Consume one record at a time. The reducer cursor is persisted
+            // only after that record's side effects succeed, so a partial
+            // page failure cannot roll back already committed records and
+            // replay their broadcasts on every retry.
+            let (record, previous_host, deltas, screen_detect) = {
+                let mut registry = self.workspace_registry.lock().unwrap();
+                let mut host = self.agent_roster.lock().unwrap();
+                let page = match registry.session_journal_after(host.cursor, 512) {
+                    Ok(page) => page,
+                    Err(error) => {
+                        eprintln!(
+                            "cmux-tui: reading the committed agent journal tail failed: {error}"
+                        );
+                        return;
+                    }
+                };
+                let Some(record) = page.records.into_iter().next() else { break };
+                let previous_host = host.clone();
+                let deltas = host.roster.apply(&RosterEvent::from_record(&record));
+                host.cursor = host.cursor.max(record.sequence);
+                host.ordering_token = host.ordering_token.saturating_add(1);
+                let echo = record
+                    .payload
+                    .get("adapter")
+                    .and_then(|adapter| adapter.get("id"))
+                    .and_then(Value::as_str)
+                    == Some(SOCKET_REPORT_ADAPTER);
+                let screen_detect = record.payload.get("native_event").and_then(Value::as_str)
+                    == Some(crate::screen_detect::SCREEN_DETECT_NATIVE_EVENT);
+                (record, previous_host, deltas, !echo && screen_detect)
+            };
+            let mut side_effects_failed = false;
+            if screen_detect && !deltas.is_empty() {
+                for delta in deltas {
+                    if let Err(error) =
+                        self.apply_roster_delta(delta, &record.kind, true, record.sequence)
+                    {
+                        eprintln!("cmux-tui: agent roster side effect failed: {error}");
+                        side_effects_failed = true;
+                    }
+                }
+            }
+            if side_effects_failed {
+                // Leave the durable cursor at the last fully applied record.
+                // A later journal wake retries this record only; previous
+                // records already have durable progress and are not replayed.
+                let mut registry = self.workspace_registry.lock().unwrap();
+                *self.agent_roster.lock().unwrap() = previous_host;
+                drop(registry);
+                self.enqueue_agent_roster_retry(&record);
+                return;
+            }
+            let mut registry = self.workspace_registry.lock().unwrap();
+            let host = self.agent_roster.lock().unwrap();
+            let cursor = host.cursor;
+            let ordering_token = host.ordering_token;
+            let snapshot = host.roster.snapshot().to_string();
+            let persist_result = registry.put_journal_reducer_state_ordered(
+                AGENT_ROSTER_REDUCER_ID,
+                AGENT_ROSTER_REDUCER_VERSION,
+                cursor,
+                ordering_token,
+                &snapshot,
+            );
+            drop(host);
+            drop(registry);
+            if let Err(error) = persist_result {
+                eprintln!("cmux-tui: persisting the agent roster snapshot failed: {error}");
+                *self.agent_roster.lock().unwrap() = previous_host;
+                self.enqueue_agent_roster_retry(&record);
+                return;
+            }
+        }
+    }
+
+    fn enqueue_agent_roster_retry(&self, record: &crate::workspace_registry::SessionJournalRecord) {
+        const ROSTER_FOLD_ORIGIN: &str = "agent-roster-fold";
+        let ingress = crate::JournalIngress {
+            producer_id: record.producer.id.clone(),
+            manifest_version: crate::agent_hooks::AGENT_HOOK_MANIFEST_VERSION,
+            kind: record.kind.clone(),
+            schema_version: record.schema_version,
+            occurred_at_ms: None,
+            subjects: record.subjects.clone(),
+            sensitivity: Some(record.sensitivity),
+            payload: record.payload.clone(),
+            causation_id: record.causation_id.clone(),
+            correlation_id: record.correlation_id.clone(),
+        };
+        let key = format!("agent-roster-fold-{}", record.sequence);
+        if let Err(error) = self.workspace_registry.lock().unwrap().enqueue_agent_hook_pending(
+            &ingress.producer_id,
+            ROSTER_FOLD_ORIGIN,
+            &key,
+            record.sequence,
+            &ingress,
+            AGENT_HOOK_RETRY_ERROR,
+            AgentHookRetryClass::Transient,
+        ) {
+            eprintln!("cmux-tui: staging the failed agent roster fold failed: {error}");
+        }
+    }
+
+    /// Apply one roster delta's side effects: the durable agent projection
+    /// commit and the agent-changed broadcast remote frontends converge on.
+    /// A removal commits the done state (history keeps the exit; the roster
+    /// already dropped the live entry).
+    fn apply_roster_delta(
+        &self,
+        delta: crate::journal_reducers::RosterDelta,
+        kind: &str,
+        screen_detect: bool,
+        sequence: u64,
+    ) -> anyhow::Result<()> {
+        use crate::journal_reducers::RosterDelta;
+        let (terminal_id, state, source, session, agent_adapter) = match delta {
+            RosterDelta::Upsert { terminal_id, entry } => (
+                terminal_id,
+                entry.agent_state(),
+                entry.agent_source(),
+                entry.session.clone(),
+                entry.agent,
+            ),
+            RosterDelta::Remove { terminal_id } => {
+                let source = if screen_detect { AgentSource::Detected } else { AgentSource::Hook };
+                (terminal_id, AgentState::Done, source, None, None)
+            }
+        };
+        let Ok(terminal_id) = TerminalPublicId::parse(&terminal_id) else { return Ok(()) };
+        let Some(surface) = self.resource_surface_for_terminal(&terminal_id) else { return Ok(()) };
+        // The journal sequence makes retries of a partially applied record
+        // replay the same mutation, so already committed deltas are
+        // idempotent while the reducer cursor remains behind that record.
+        let mutation = match WorkspaceMutation::new(
+            format!("roster-{sequence}-{terminal_id}"),
+            "journal-reducer",
+        ) {
+            Ok(mutation) => mutation,
+            Err(_) => return Ok(()),
+        };
+        let fingerprint = serde_json::json!({
+            "operation":"agent.report",
+            "surface":surface,
+            "state":state.as_str(),
+            "source":source.as_str(),
+            "source_session":session,
+        });
+        self.commit_agent_report(
+            AgentReportTarget::Surface(surface),
+            state,
+            source,
+            session,
+            None,
+            &mutation,
+            &fingerprint,
+            false,
+            None,
+            None,
+            AgentReportOrigin::RosterFold,
+            agent_adapter,
+        )
+        .map(|_| ())
+        .with_context(|| format!("agent projection update for {terminal_id} ({kind}) failed"))
+    }
+
+    /// Build the direct socket/SDK agent report journal intent. The caller
+    /// stages this intent before committing the public projection, then admits
+    /// it after the projection commit so crash recovery can converge both
+    /// durable views.
+    fn prepare_agent_report_echo(
+        &self,
+        terminal_id: &TerminalPublicId,
+        state: AgentState,
+        source: AgentSource,
+        session: Option<&str>,
+        updated_at_ms: u64,
+    ) -> (String, crate::JournalIngress) {
+        use crate::journal_reducers::{
+            DIRECT_REPORT_ADAPTER, DIRECT_REPORT_NATIVE_EVENT, SOCKET_REPORT_ADAPTER,
+            SOCKET_REPORT_NATIVE_EVENT,
+        };
+        let (adapter_id, native_event) = if source == AgentSource::Socket {
+            (SOCKET_REPORT_ADAPTER, SOCKET_REPORT_NATIVE_EVENT)
+        } else {
+            (DIRECT_REPORT_ADAPTER, DIRECT_REPORT_NATIVE_EVENT)
+        };
+        let ingress = crate::JournalIngress {
+            producer_id: crate::agent_hooks::AGENT_HOOK_PRODUCER_ID.into(),
+            manifest_version: crate::agent_hooks::AGENT_HOOK_MANIFEST_VERSION,
+            kind: "agent.state.changed".into(),
+            schema_version: 1,
+            occurred_at_ms: None,
+            subjects: vec![crate::JournalSubject {
+                kind: "terminal".into(),
+                id: terminal_id.to_string(),
+            }],
+            sensitivity: Some(crate::JournalSensitivity::Sensitive),
+            payload: serde_json::json!({
+                "format": crate::agent_hooks::AGENT_HOOK_FORMAT,
+                "adapter": {"id": adapter_id, "version": 1},
+                "native_event": native_event,
+                "normalized": {
+                    "state": state.as_str(),
+                    // Socket echoes are forced to socket authority in the
+                    // reducer. Non-socket direct reports use the dedicated
+                    // direct adapter so their explicit source survives.
+                    "source": source.as_str(),
+                    "source_session": session,
+                    // The direct commit's timestamp, so the roster mirrors
+                    // the projection exactly instead of stamping fold time.
+                    "updated_at_ms": updated_at_ms.to_string(),
+                },
+                "native": {},
+            }),
+            causation_id: None,
+            correlation_id: None,
+        };
+        let idempotency_key =
+            format!("agent-report-echo-{}", crate::workspace_registry::new_uuid_v4());
+        (idempotency_key, ingress)
+    }
+
+    /// Snapshot of live terminals for the screen-detection scanner.
+    pub(crate) fn screen_detect_terminals(
+        &self,
+    ) -> (u64, Arc<Vec<(TerminalPublicId, Arc<Surface>)>>) {
+        let revision = self.state.lock().unwrap().terminal_catalog_revision;
+        {
+            let snapshot = self.screen_detect_snapshot.lock().unwrap();
+            if let Some((cached_revision, terminals)) = snapshot.as_ref()
+                && *cached_revision == revision
+            {
+                return (revision, terminals.clone());
+            }
+        }
+        // Only clone the catalog when its topology revision changed. The
+        // steady state takes one scalar state read and one Arc clone.
+        let catalog = self.state.lock().unwrap().terminal_catalog.clone();
+        let mut snapshot = self.screen_detect_snapshot.lock().unwrap();
+        if let Some((cached_revision, terminals)) = snapshot.as_ref()
+            && *cached_revision == revision
+        {
+            return (revision, terminals.clone());
+        }
+        let terminals = Arc::new(catalog.into_iter().collect());
+        *snapshot = Some((revision, terminals.clone()));
+        (revision, terminals)
+    }
+
+    /// Journal one screen-detected agent state transition. The payload
+    /// wears the agent-hook shape with the manifest id as the adapter and
+    /// `native_event = "ScreenDetect"`; the roster fold reads the explicit
+    /// state exactly like the socket echo, but with source `detected`.
+    pub(crate) fn append_screen_detect_event(
+        &self,
+        emission: &crate::screen_detect::ScreenDetectEmission,
+    ) -> anyhow::Result<()> {
+        let kind = if emission.state == AgentState::Done {
+            "agent.session.ended"
+        } else {
+            "agent.state.changed"
+        };
+        let ingress = crate::JournalIngress {
+            producer_id: crate::agent_hooks::AGENT_HOOK_PRODUCER_ID.into(),
+            manifest_version: crate::agent_hooks::AGENT_HOOK_MANIFEST_VERSION,
+            kind: kind.into(),
+            schema_version: 1,
+            occurred_at_ms: None,
+            subjects: vec![crate::JournalSubject {
+                kind: "terminal".into(),
+                id: emission.terminal_id.clone(),
+            }],
+            sensitivity: Some(crate::JournalSensitivity::Sensitive),
+            payload: serde_json::json!({
+                "format": crate::agent_hooks::AGENT_HOOK_FORMAT,
+                "adapter": {"id": emission.agent, "version": 1},
+                "native_event": crate::screen_detect::SCREEN_DETECT_NATIVE_EVENT,
+                "normalized": {"state": emission.state.as_str()},
+                "native": {},
+            }),
+            causation_id: None,
+            correlation_id: None,
+        };
+        let idempotency_key = format!("screen-detect-{}", crate::workspace_registry::new_uuid_v4());
+        match self.append_journal_ingress(&ingress, "screen-detect", &idempotency_key) {
+            Ok(_) => Ok(()),
+            Err(error) => {
+                let staged = self
+                    .workspace_registry
+                    .lock()
+                    .unwrap()
+                    .enqueue_agent_hook_pending(
+                        &ingress.producer_id,
+                        "screen-detect",
+                        &idempotency_key,
+                        0,
+                        &ingress,
+                        AGENT_HOOK_RETRY_ERROR,
+                        AgentHookRetryClass::Transient,
+                    )
+                    .is_ok();
+                if staged {
+                    eprintln!(
+                        "cmux-tui: screen-detected state queued after journal failure: {error}"
+                    );
+                    Err(error)
+                } else {
+                    Err(error)
+                }
+            }
+        }
     }
 
     pub(crate) fn journal_hook_states(
@@ -8445,6 +9311,7 @@ impl Mux {
     ) -> Option<Arc<Surface>> {
         let mut state = self.state.lock().unwrap();
         let removed = state.terminal_catalog.remove(terminal_id)?;
+        state.terminal_catalog_revision = state.terminal_catalog_revision.saturating_add(1);
         if let Some(runtime_id) = removed.terminal_runtime_id() {
             state.terminal_catalog_by_runtime.remove(&runtime_id);
         }
@@ -8946,7 +9813,17 @@ impl Mux {
         source: AgentSource,
         session: Option<String>,
     ) -> anyhow::Result<AgentRecord> {
-        self.report_agent_with_sequence_lock(surface, state, source, session, false, None, None)
+        self.report_agent_with_sequence_lock(
+            surface,
+            state,
+            source,
+            session,
+            false,
+            None,
+            None,
+            AgentReportOrigin::Direct,
+            None,
+        )
     }
 
     fn report_agent_with_sequence_lock(
@@ -8958,6 +9835,8 @@ impl Mux {
         sequence_lock_held: bool,
         hook_state: Option<crate::workspace_registry::AgentHookProjectionState>,
         journal_sequence: Option<u64>,
+        origin: AgentReportOrigin,
+        agent_adapter: Option<String>,
     ) -> anyhow::Result<AgentRecord> {
         let mutation = WorkspaceMutation::new(
             format!("raw-agent-{}", crate::workspace_registry::new_uuid_v4()),
@@ -8981,6 +9860,8 @@ impl Mux {
             sequence_lock_held,
             hook_state.as_ref(),
             journal_sequence,
+            origin,
+            agent_adapter,
         )?;
         let record = record.context("fresh raw agent report unexpectedly replayed")?;
         if source != AgentSource::Hook {
@@ -9021,6 +9902,8 @@ impl Mux {
             false,
             None,
             None,
+            AgentReportOrigin::Direct,
+            None,
         );
         if result.is_ok() && source != AgentSource::Hook {
             let _ = self.retry_pending_agent_hooks_for_terminal(terminal_id);
@@ -9041,6 +9924,8 @@ impl Mux {
         sequence_lock_held: bool,
         hook_state: Option<&crate::workspace_registry::AgentHookProjectionState>,
         journal_sequence: Option<u64>,
+        origin: AgentReportOrigin,
+        agent_adapter: Option<String>,
     ) -> anyhow::Result<(ResourcePatchCommit, Option<AgentRecord>)> {
         // Hook replay already owns this guard to serialize sequence checks and
         // projection commits. Other report sources acquire it before the
@@ -9165,20 +10050,57 @@ impl Mux {
         });
         let now = now_ms();
         let mut records = self.agent_records.lock().unwrap();
-        let socket_report_ignored = records.get(&terminal_id).is_some_and(|existing| {
-            existing.source == AgentSource::Hook
-                && source == AgentSource::Socket
-                && !effective_hook_state.is_some_and(|state| state.ended)
-        });
+        // Hook and screen-detected state are stronger agent truth than a
+        // direct socket report. Check the durable projection as well as the
+        // in-memory cache so arbitration survives a restart.
+        let durable_stronger =
+            registry.public_agent_projections(Some(&terminal_id), None)?.into_iter().next().filter(
+                |projection| {
+                    (projection.source == AgentSource::Hook.as_str()
+                        || projection.source == AgentSource::Detected.as_str())
+                        && projection.state != AgentState::Done.as_str()
+                        && source == AgentSource::Socket
+                },
+            );
+        let socket_report_ignored = source == AgentSource::Socket
+            && !effective_hook_state.is_some_and(|state| state.ended)
+            && (records.get(&terminal_id).is_some_and(|existing| {
+                existing.source == AgentSource::Hook || existing.source == AgentSource::Detected
+            }) || durable_stronger.is_some());
         let record = match records.get(&terminal_id) {
             Some(existing) if socket_report_ignored => existing.clone(),
+            None if socket_report_ignored => match durable_stronger {
+                Some(existing) => TerminalAgentRecord {
+                    state: parse_projection_agent_state(&existing.state),
+                    source: if existing.source == AgentSource::Detected.as_str() {
+                        AgentSource::Detected
+                    } else {
+                        AgentSource::Hook
+                    },
+                    session: existing.source_session,
+                    agent: None,
+                    updated_at_ms: existing.updated_at_ms,
+                },
+                None => TerminalAgentRecord {
+                    state: agent_state,
+                    source,
+                    session: source_session,
+                    agent: agent_adapter.clone(),
+                    updated_at_ms: now,
+                },
+            },
             _ => TerminalAgentRecord {
                 state: agent_state,
                 source,
                 session: source_session,
+                agent: agent_adapter.clone(),
                 updated_at_ms: now,
             },
         };
+        // The cache guard is only needed to choose the effective record.
+        // Release it before continuing with registry commits and the direct
+        // echo path, which can re-enter hook projection code.
+        drop(records);
         // A socket report that is intentionally ignored by the hook-owned
         // record must persist that effective record, not the discarded socket
         // identity. Otherwise durable and in-memory projections diverge.
@@ -9216,7 +10138,32 @@ impl Mux {
                 "value":public_value,
             }])
         };
-        let commit = match journal_sequence {
+        // Record the direct report's journal intent before committing its
+        // public projection. The pending row is the crash fence: a restart
+        // can admit the exact echo and fold the roster even if the process
+        // dies between these two durable writes.
+        let echo_intent = if origin == AgentReportOrigin::Direct && !socket_report_ignored {
+            let (idempotency_key, ingress) = self.prepare_agent_report_echo(
+                &terminal_id,
+                record.state,
+                record.source,
+                record.session.as_deref(),
+                record.updated_at_ms,
+            );
+            registry.enqueue_agent_hook_pending(
+                &ingress.producer_id,
+                "agent-report-echo",
+                &idempotency_key,
+                0,
+                &ingress,
+                AGENT_HOOK_RETRY_ERROR,
+                AgentHookRetryClass::Transient,
+            )?;
+            Some((idempotency_key, ingress))
+        } else {
+            None
+        };
+        let commit_result = match journal_sequence {
             Some(sequence) => registry.commit_agent_projection_with_hook_state_and_sequence(
                 mutation,
                 fingerprint,
@@ -9226,7 +10173,7 @@ impl Mux {
                 &deltas,
                 effective_hook_state,
                 sequence,
-            )?,
+            ),
             None => registry.commit_agent_projection_with_hook_state(
                 mutation,
                 fingerprint,
@@ -9235,7 +10182,20 @@ impl Mux {
                 &value,
                 &deltas,
                 effective_hook_state,
-            )?,
+            ),
+        };
+        let commit = match commit_result {
+            Ok(commit) => commit,
+            Err(error) => {
+                if let Some((idempotency_key, _)) = echo_intent.as_ref() {
+                    let _ = registry.clear_agent_hook_pending(
+                        crate::agent_hooks::AGENT_HOOK_PRODUCER_ID,
+                        "agent-report-echo",
+                        idempotency_key,
+                    );
+                }
+                return Err(error);
+            }
         };
         if !commit.replayed {
             if let (Some(direct_state), Some(sequence_guard)) =
@@ -9252,10 +10212,6 @@ impl Mux {
             }
         }
         state.resource_revision = commit.revision;
-        if !commit.replayed {
-            records.insert(terminal_id.clone(), record.clone());
-        }
-        drop(records);
         drop(state);
         drop(registry);
         let agent = AgentRecord {
@@ -9264,19 +10220,125 @@ impl Mux {
             state: record.state,
             source: record.source,
             session: record.session,
+            agent: record.agent.or(agent_adapter),
             updated_at_ms: record.updated_at_ms,
         };
+        // The echo append re-enters the hook projector, which acquires the
+        // fence lock. Release this report's sequence guard before re-entry.
+        drop(sequence_guard);
+        if !commit.replayed {
+            let mut records = self.agent_records.lock().unwrap();
+            if agent.state == AgentState::Done {
+                records.remove(&agent.terminal_id);
+            } else if !socket_report_ignored {
+                records.insert(agent.terminal_id.clone(), agent.clone());
+            }
+        }
         if !commit.replayed {
             self.publish_resource_event();
-            self.emit(MuxEvent::AgentChanged {
-                surface: agent.surface,
-                state: Arc::from(agent.state.as_str()),
-                source: Arc::from(agent.source.as_str()),
-                session: agent.session.as_deref().map(Arc::from),
-                updated_at_ms: agent.updated_at_ms,
-            });
+            if !socket_report_ignored {
+                self.emit(MuxEvent::AgentChanged {
+                    surface: agent.surface,
+                    state: Arc::from(agent.state.as_str()),
+                    source: Arc::from(agent.source.as_str()),
+                    session: agent.session.as_deref().map(Arc::from),
+                    agent: agent.agent.as_deref().map(Arc::from),
+                    updated_at_ms: agent.updated_at_ms,
+                });
+            }
+            if let Some((idempotency_key, ingress)) = echo_intent {
+                // The intent row was staged before the public projection.
+                // Admit the exact journal event now; if this fails, the
+                // durable row retries it and the fallback keeps this process
+                // visible until the roster catches up.
+                if let Err(error) =
+                    self.append_journal_ingress(&ingress, "agent-report-echo", &idempotency_key)
+                {
+                    eprintln!(
+                        "cmux-tui: journaling an agent report for {} failed: {error}",
+                        agent.terminal_id
+                    );
+                    self.materialize_direct_report_in_roster(&agent);
+                }
+            }
         }
         Ok((commit, Some(agent)))
+    }
+
+    /// Keep a committed direct report visible while its journal echo waits in
+    /// the durable retry queue. The later echo is idempotent because it
+    /// carries the same state, source, session, and timestamp.
+    fn materialize_direct_report_in_roster(&self, agent: &AgentRecord) {
+        let _fold = self.agent_roster_fold.lock().unwrap();
+        let mut registry = self.workspace_registry.lock().unwrap();
+        let mut host = self.agent_roster.lock().unwrap();
+        if agent.state == AgentState::Done {
+            if let Some(existing) = host.roster.entries.get(agent.terminal_id.as_str()) {
+                let rank = |source: &str| match source {
+                    "hook" => 3_u8,
+                    "detected" => 2,
+                    "socket" => 1,
+                    _ => 0,
+                };
+                if rank(&existing.source) > rank(agent.source.as_str())
+                    || (existing.source == agent.source.as_str()
+                        && existing.updated_at_ms > agent.updated_at_ms)
+                {
+                    return;
+                }
+            }
+            if !host.roster.retire_terminal(agent.terminal_id.as_str()) {
+                return;
+            }
+            host.ordering_token = host.ordering_token.saturating_add(1);
+            if let Err(error) = registry.put_journal_reducer_state_ordered(
+                crate::journal_reducers::AGENT_ROSTER_REDUCER_ID,
+                crate::journal_reducers::AGENT_ROSTER_REDUCER_VERSION,
+                host.cursor,
+                host.ordering_token,
+                &host.roster.snapshot().to_string(),
+            ) {
+                eprintln!("cmux-tui: persisting the direct agent roster fallback failed: {error}");
+            }
+            return;
+        }
+        let entry = crate::journal_reducers::RosterEntry {
+            state: agent.state.as_str().to_string(),
+            source: agent.source.as_str().to_string(),
+            session: agent.session.clone(),
+            agent: agent.agent.clone(),
+            updated_at_ms: agent.updated_at_ms,
+        };
+        if let Some(existing) = host.roster.entries.get(agent.terminal_id.as_str()) {
+            let rank = |source: &str| match source {
+                "hook" => 3_u8,
+                "detected" => 2,
+                "socket" => 1,
+                _ => 0,
+            };
+            // The journal echo is only a durability retry. It must not
+            // overwrite a stronger or newer entry that arrived while the
+            // direct projection was being admitted.
+            if rank(&existing.source) > rank(&entry.source)
+                || (existing.source == entry.source && existing.updated_at_ms > entry.updated_at_ms)
+            {
+                return;
+            }
+        }
+        if host.roster.entries.get(agent.terminal_id.as_str()) == Some(&entry) {
+            return;
+        }
+        host.roster.entries.insert(agent.terminal_id.to_string(), entry);
+        host.ordering_token = host.ordering_token.saturating_add(1);
+        if let Err(error) = registry.put_journal_reducer_state_ordered(
+            crate::journal_reducers::AGENT_ROSTER_REDUCER_ID,
+            crate::journal_reducers::AGENT_ROSTER_REDUCER_VERSION,
+            host.cursor,
+            host.ordering_token,
+            &host.roster.snapshot().to_string(),
+        ) {
+            eprintln!("cmux-tui: persisting the direct agent roster fallback failed: {error}");
+        }
     }
 
     /// Drop per-surface metadata for a surface that has left the tree.
@@ -9296,6 +10358,7 @@ impl Mux {
     }
 
     fn purge_terminal_side_tables(&self, terminal_id: &TerminalPublicId) {
+        let _fold = self.agent_roster_fold.lock().unwrap();
         let pending_cleanup = {
             let mut registry = self.workspace_registry.lock().unwrap();
             registry.purge_agent_hook_pending_for_terminal(terminal_id)
@@ -9306,6 +10369,24 @@ impl Mux {
         // The registry guard is dropped before acquiring the fence guard.
         self.agent_hook_fences.lock().unwrap().remove(terminal_id);
         self.agent_records.lock().unwrap().remove(terminal_id);
+        // Terminal lifecycle does not flow through `agent.*` journal events
+        // yet, so a closed terminal retires its roster entry explicitly.
+        // Keep registry before roster and persist while both are held. The
+        // fold guard makes this retirement atomic with catch-up side effects.
+        let mut registry = self.workspace_registry.lock().unwrap();
+        let mut host = self.agent_roster.lock().unwrap();
+        if host.roster.retire_terminal(terminal_id.as_str()) {
+            host.ordering_token = host.ordering_token.saturating_add(1);
+            if let Err(error) = registry.put_journal_reducer_state_ordered(
+                crate::journal_reducers::AGENT_ROSTER_REDUCER_ID,
+                crate::journal_reducers::AGENT_ROSTER_REDUCER_VERSION,
+                host.cursor,
+                host.ordering_token,
+                &host.roster.snapshot().to_string(),
+            ) {
+                eprintln!("cmux-tui: persisting the agent roster snapshot failed: {error}");
+            }
+        }
         self.terminal_notifications.lock().unwrap().remove(terminal_id);
     }
 
@@ -9333,7 +10414,7 @@ impl Mux {
         surface: Option<SurfaceId>,
         state: Option<AgentState>,
     ) -> Vec<AgentRecord> {
-        let records = self.agent_records.lock().unwrap().clone();
+        let entries = self.agent_roster.lock().unwrap().roster.entries.clone();
         let state_snapshot = self.state.lock().unwrap();
         let requested_terminal = surface.and_then(|surface| {
             state_snapshot
@@ -9342,9 +10423,10 @@ impl Mux {
                 .or_else(|| state_snapshot.terminal_runtime_by_id(surface))
                 .and_then(|surface| surface.terminal_public_id().cloned())
         });
-        let mut records = records
+        let mut records = entries
             .into_iter()
-            .filter_map(|(terminal_id, record)| {
+            .filter_map(|(terminal_id, entry)| {
+                let terminal_id = TerminalPublicId::parse(terminal_id).ok()?;
                 let representative = state_snapshot
                     .placements_of_content(&ContentPublicId::Terminal(terminal_id.clone()))
                     .first()
@@ -9355,10 +10437,11 @@ impl Mux {
                 Some(AgentRecord {
                     surface: representative,
                     terminal_id,
-                    state: record.state,
-                    source: record.source,
-                    session: record.session,
-                    updated_at_ms: record.updated_at_ms,
+                    state: entry.agent_state(),
+                    source: entry.agent_source(),
+                    session: entry.session,
+                    agent: entry.agent,
+                    updated_at_ms: entry.updated_at_ms,
                 })
             })
             .collect::<Vec<_>>();
@@ -16228,6 +17311,7 @@ fn register_terminal_runtime_checked(
             }
         }
         state.terminal_catalog.insert(terminal_id.clone(), surface.clone());
+        state.terminal_catalog_revision = state.terminal_catalog_revision.saturating_add(1);
     }
     state.terminal_catalog_by_runtime.insert(runtime_id, terminal_id.clone());
     Ok(())
@@ -16243,6 +17327,9 @@ fn remove_terminal_content_from_state(
     terminal_id: &TerminalPublicId,
 ) -> (Option<Arc<Surface>>, Vec<Arc<Surface>>, bool) {
     let runtime = state.terminal_catalog.remove(terminal_id);
+    if runtime.is_some() {
+        state.terminal_catalog_revision = state.terminal_catalog_revision.saturating_add(1);
+    }
     if let Some(runtime_id) = runtime.as_ref().and_then(|runtime| runtime.terminal_runtime_id()) {
         state.terminal_catalog_by_runtime.remove(&runtime_id);
     }
@@ -16703,6 +17790,7 @@ fn restore_resource_state(
             surfaces: HashMap::new(),
             terminal_catalog: HashMap::new(),
             terminal_catalog_by_runtime: HashMap::new(),
+            terminal_catalog_revision: 0,
             split_screens: HashMap::new(),
             resource_indexes: indexes,
         },
@@ -21863,7 +22951,9 @@ mod tests {
         assert_eq!(filtered[0].session.as_deref(), Some("hook-session"));
         assert!(mux.list_agents(Some(surface.id), Some(AgentState::Done)).is_empty());
         assert_eq!(mux.with_state(|state| state.resource_revision), initial_revision + 3);
-        assert_eq!(mux.resource_event_epoch(), initial_epoch + 3);
+        // Each fresh direct report publishes twice on the shared change
+        // epoch: its resource commit and its journal echo.
+        assert_eq!(mux.resource_event_epoch(), initial_epoch + 6);
         assert_eq!(mux.resource_agent_projection_count_for_test().unwrap(), 1);
         let resource_events = mux.resource_events_after(initial_revision).unwrap();
         assert_eq!(resource_events.batches.len(), 3);
@@ -21967,7 +23057,9 @@ mod tests {
         assert_eq!(ignored.source, AgentSource::Hook);
         assert_eq!(ignored.session.as_deref(), Some("hook-session"));
         assert_eq!(mux.with_state(|state| state.resource_revision), created_revision + 3);
-        assert_eq!(mux.resource_event_epoch(), initial_epoch + 3);
+        // Each fresh direct report publishes twice on the shared change
+        // epoch: its resource commit and its journal echo.
+        assert_eq!(mux.resource_event_epoch(), initial_epoch + 6);
         assert_eq!(mux.resource_agent_projection_count_for_test().unwrap(), 1);
 
         let batches = mux.resource_events_after(created_revision).unwrap().batches;
@@ -22379,6 +23471,45 @@ mod tests {
                 .is_empty()
         );
         assert_eq!(mux.list_agents(Some(surface.id), None)[0].source, AgentSource::Hook);
+    }
+
+    #[test]
+    fn terminal_pending_signal_includes_roster_fold_rows() {
+        use crate::screen_detect::manifest::ManifestSet;
+        use crate::screen_detect::scanner::ProcessLookup;
+        use crate::screen_detect::{ScreenDetectTracker, scanner};
+
+        let mux = test_mux();
+        let surface = mux.new_workspace(None, None).unwrap();
+        let terminal_id = surface.terminal_public_id().cloned().expect("workspace terminal");
+        let ingress = crate::agent_hooks::agent_hook_journal_ingress(
+            "claude",
+            "UserPromptSubmit",
+            Some(&terminal_id.to_string()),
+            serde_json::json!({}),
+        )
+        .unwrap();
+        mux.workspace_registry
+            .lock()
+            .unwrap()
+            .enqueue_agent_hook_pending(
+                crate::agent_hooks::AGENT_HOOK_PRODUCER_ID,
+                "agent-roster-fold",
+                "agent-roster-fold-test",
+                1,
+                &ingress,
+                AGENT_HOOK_RETRY_ERROR,
+                AgentHookRetryClass::Transient,
+            )
+            .unwrap();
+
+        // Scanner wake admission must include roster-fold rows, not only
+        // screen-detect rows, so failed roster side effects converge.
+        assert!(mux.agent_hook_pending_for_terminal(&terminal_id));
+        let mut tracker = ScreenDetectTracker::default();
+        let shell = |_: &Surface| ProcessLookup::Name("zsh".to_string());
+        scanner::scan(&mux, &mut tracker, ManifestSet::bundled(), Instant::now(), &shell);
+        assert!(!mux.agent_hook_pending_for_terminal(&terminal_id));
     }
 
     #[test]
@@ -23162,6 +24293,442 @@ mod tests {
                 .unwrap()
                 .is_empty()
         );
+    }
+
+    #[test]
+    fn raw_socket_report_reaches_the_roster_through_its_journal_echo() {
+        let mux = test_mux();
+        let surface = mux.new_workspace(None, None).unwrap();
+        mux.report_agent(
+            surface.id,
+            AgentState::Working,
+            AgentSource::Socket,
+            Some("probe".into()),
+        )
+        .unwrap();
+        let records = mux.list_agents(Some(surface.id), None);
+        assert_eq!(records.len(), 1);
+        assert_eq!(records[0].state, AgentState::Working);
+        assert_eq!(records[0].source, AgentSource::Socket);
+        assert_eq!(records[0].session.as_deref(), Some("probe"));
+        // The roster only folds journal events, so the record's presence
+        // proves the direct report echoed its intent into the journal.
+        let echoes = mux
+            .workspace_registry
+            .lock()
+            .unwrap()
+            .session_journal_after(0, 512)
+            .unwrap()
+            .records
+            .into_iter()
+            .filter(|record| record.kind == "agent.state.changed")
+            .count();
+        assert_eq!(echoes, 1);
+    }
+
+    #[test]
+    fn roster_fold_catches_up_across_multiple_journal_pages() {
+        let mux = test_mux();
+        let surface = mux.new_workspace(None, None).unwrap();
+        let terminal_id = surface.terminal_public_id().cloned().expect("workspace terminal");
+        for index in 0..513 {
+            let ingress = crate::agent_hooks::agent_hook_journal_ingress(
+                "claude",
+                if index % 2 == 0 { "UserPromptSubmit" } else { "Stop" },
+                Some(&terminal_id.to_string()),
+                serde_json::json!({"session_id":"page-test"}),
+            )
+            .unwrap();
+            mux.append_journal_ingress(&ingress, "page-test", &format!("page-{index}")).unwrap();
+        }
+        let (cursor, journal_count) = {
+            let registry = mux.workspace_registry.lock().unwrap();
+            let mut after = 0;
+            let mut count = 0;
+            loop {
+                let page = registry.session_journal_after(after, 512).unwrap();
+                if page.records.is_empty() {
+                    break;
+                }
+                count += page.records.len();
+                after = page.records.last().unwrap().sequence;
+            }
+            (mux.agent_roster.lock().unwrap().cursor, count)
+        };
+        assert_eq!(cursor as usize, journal_count);
+    }
+
+    #[test]
+    fn pending_agent_echo_is_retried_as_journal_admission() {
+        let mux = test_mux();
+        let surface = mux.new_workspace(None, None).unwrap();
+        let terminal_id = surface.terminal_public_id().cloned().expect("workspace terminal");
+        let ingress = crate::JournalIngress {
+            producer_id: crate::agent_hooks::AGENT_HOOK_PRODUCER_ID.into(),
+            manifest_version: crate::agent_hooks::AGENT_HOOK_MANIFEST_VERSION,
+            kind: "agent.state.changed".into(),
+            schema_version: 1,
+            occurred_at_ms: None,
+            subjects: vec![crate::JournalSubject {
+                kind: "terminal".into(),
+                id: terminal_id.to_string(),
+            }],
+            sensitivity: Some(crate::JournalSensitivity::Sensitive),
+            payload: serde_json::json!({
+                "format": crate::agent_hooks::AGENT_HOOK_FORMAT,
+                "adapter": {"id": crate::journal_reducers::SOCKET_REPORT_ADAPTER, "version": 1},
+                "native_event": crate::journal_reducers::SOCKET_REPORT_NATIVE_EVENT,
+                "normalized": {"state": "working", "source": "socket"},
+                "native": {},
+            }),
+            causation_id: None,
+            correlation_id: None,
+        };
+        mux.workspace_registry
+            .lock()
+            .unwrap()
+            .enqueue_agent_hook_pending(
+                &ingress.producer_id,
+                "agent-report-echo",
+                "echo-retry-test",
+                0,
+                &ingress,
+                AGENT_HOOK_RETRY_ERROR,
+                crate::workspace_registry::AgentHookRetryClass::Transient,
+            )
+            .unwrap();
+        mux.retry_pending_agent_hooks().unwrap();
+        assert!(
+            mux.workspace_registry
+                .lock()
+                .unwrap()
+                .pending_agent_hook_projections()
+                .unwrap()
+                .is_empty()
+        );
+        let echoes = mux
+            .workspace_registry
+            .lock()
+            .unwrap()
+            .session_journal_after(0, 512)
+            .unwrap()
+            .records
+            .iter()
+            .filter(|record| {
+                record
+                    .payload
+                    .get("adapter")
+                    .and_then(|adapter| adapter.get("id"))
+                    .and_then(Value::as_str)
+                    == Some(crate::journal_reducers::SOCKET_REPORT_ADAPTER)
+            })
+            .count();
+        assert_eq!(echoes, 1);
+    }
+
+    #[test]
+    fn screen_detect_scan_drives_the_roster_through_journal_events() {
+        use crate::screen_detect::manifest::ManifestSet;
+        use crate::screen_detect::scanner::ProcessLookup;
+        use crate::screen_detect::{ScreenDetectTracker, scanner};
+
+        let mux = test_mux();
+        let surface = mux.new_workspace(None, None).unwrap();
+        let surface_id = surface.id;
+        let terminal_id = surface.terminal_public_id().cloned().expect("workspace terminal");
+        let mut tracker = ScreenDetectTracker::default();
+        let manifests = ManifestSet::bundled();
+        let t0 = Instant::now();
+        let step = |milliseconds: u64| t0 + Duration::from_millis(milliseconds);
+        let shell = |_: &Surface| ProcessLookup::Name("zsh".to_string());
+        let codex = |_: &Surface| ProcessLookup::Name("codex".to_string());
+        let unknown = |_: &Surface| ProcessLookup::Unknown;
+        let gone = |_: &Surface| ProcessLookup::Exited;
+
+        // A shell pane never enters the roster, quiesced or not.
+        scanner::scan(&mux, &mut tracker, manifests, step(0), &shell);
+        scanner::scan(&mux, &mut tracker, manifests, step(400), &shell);
+        assert!(mux.list_agents(Some(surface_id), None).is_empty());
+
+        // codex launches: the identity edge emits immediately, without
+        // waiting for output quiescence.
+        scanner::scan(&mux, &mut tracker, manifests, step(500), &codex);
+        let records = mux.list_agents(Some(surface_id), None);
+        assert_eq!(records.len(), 1);
+        assert_eq!(records[0].state, AgentState::Idle);
+        assert_eq!(records[0].source, AgentSource::Detected);
+        assert_eq!(records[0].agent.as_deref(), Some("codex"));
+
+        // A changed screen must not be evaluated with a cached identity. The
+        // process can replace itself with `exec` while retaining its PID, so
+        // each scan refreshes process metadata before making a decision.
+        surface.apply_stream_output_for_test(b"$ rm -rf build\r\nAllow command?\r\n").unwrap();
+        scanner::scan(&mux, &mut tracker, manifests, step(900), &gone);
+        assert!(mux.list_agents(Some(surface_id), None).is_empty());
+
+        // A transient process lookup miss fails closed. A later successful
+        // lookup can create a fresh detected generation.
+        scanner::scan(&mux, &mut tracker, manifests, step(1_000), &unknown);
+        assert!(mux.list_agents(Some(surface_id), None).is_empty());
+
+        // New output re-arms the debounce; the blocked screen lands after
+        // quiescence.
+        surface.apply_stream_output_for_test(b"$ rm -rf build\r\nAllow command?\r\n").unwrap();
+        scanner::scan(&mux, &mut tracker, manifests, step(1_100), &codex);
+        assert_eq!(mux.list_agents(Some(surface_id), None)[0].state, AgentState::Idle);
+        scanner::scan(&mux, &mut tracker, manifests, step(1_500), &codex);
+        let records = mux.list_agents(Some(surface_id), None);
+        assert_eq!(records[0].state, AgentState::Blocked);
+        assert_eq!(records[0].source, AgentSource::Detected);
+
+        // Steady state re-scans journal nothing (edge-triggered).
+        let journal_len = |mux: &Mux| {
+            mux.workspace_registry
+                .lock()
+                .unwrap()
+                .session_journal_after(0, 512)
+                .unwrap()
+                .records
+                .len()
+        };
+        let before = journal_len(&mux);
+        scanner::scan(&mux, &mut tracker, manifests, step(1_600), &codex);
+        scanner::scan(&mux, &mut tracker, manifests, step(2_000), &codex);
+        assert_eq!(journal_len(&mux), before);
+
+        // Replaying the committed journal reproduces the live roster.
+        let records = mux.workspace_registry.lock().unwrap().session_journal_after(0, 512).unwrap();
+        let mut replayed = crate::journal_reducers::AgentRoster::default();
+        for record in &records.records {
+            replayed.apply(&crate::journal_reducers::RosterEvent::from_record(record));
+        }
+        assert_eq!(replayed.entries, mux.agent_roster.lock().unwrap().roster.entries);
+
+        // The codex process leaves the pane: session-ended-equivalent
+        // removal, immediately (exit is an identity edge).
+        scanner::scan(&mux, &mut tracker, manifests, step(2_500), &gone);
+        assert!(mux.list_agents(Some(surface_id), None).is_empty());
+        assert!(mux.agent_hook_fences.lock().unwrap().is_empty());
+        let projection = mux
+            .workspace_registry
+            .lock()
+            .unwrap()
+            .public_agent_projections(Some(&terminal_id), None)
+            .unwrap();
+        assert_eq!(projection.len(), 1);
+        assert_eq!(projection[0].source, "detected");
+        assert_eq!(projection[0].state, "done");
+    }
+
+    #[test]
+    fn screen_detect_events_lose_to_live_hooks_end_to_end() {
+        use crate::screen_detect::manifest::ManifestSet;
+        use crate::screen_detect::{ScreenDetectTracker, scanner};
+
+        let mux = test_mux();
+        let surface = mux.new_workspace(None, None).unwrap();
+        let surface_id = surface.id;
+        let terminal_id = mux.with_state(|state| {
+            match state.resource_indexes.content_ids.get(&surface_id).unwrap() {
+                ContentPublicId::Terminal(terminal_id) => terminal_id.clone(),
+                ContentPublicId::Browser(_) => panic!("workspace opened a browser"),
+            }
+        });
+        // A live claude hook owns the terminal.
+        let ingress = crate::agent_hooks::agent_hook_journal_ingress(
+            "claude",
+            "UserPromptSubmit",
+            Some(&terminal_id.to_string()),
+            serde_json::json!({"session_id":"native-1"}),
+        )
+        .unwrap();
+        mux.append_journal_ingress(&ingress, "test", "hook-vs-screen").unwrap();
+
+        // Screen detection sees claude too; its state must not flap the
+        // fresh hook entry.
+        let mut tracker = ScreenDetectTracker::default();
+        let manifests = ManifestSet::bundled();
+        let t0 = Instant::now();
+        let claude =
+            |_: &Surface| crate::screen_detect::scanner::ProcessLookup::Name("claude".to_string());
+        scanner::scan(&mux, &mut tracker, manifests, t0, &claude);
+        scanner::scan(&mux, &mut tracker, manifests, t0 + Duration::from_millis(400), &claude);
+        let records = mux.list_agents(Some(surface_id), None);
+        assert_eq!(records.len(), 1);
+        assert_eq!(records[0].source, AgentSource::Hook);
+        assert_eq!(records[0].state, AgentState::Working);
+    }
+
+    #[test]
+    fn agent_roster_rederives_from_the_journal_head_without_its_snapshot() {
+        let root = std::env::temp_dir()
+            .join(format!("cmux-roster-rederive-{}", crate::workspace_registry::new_uuid_v4()));
+        let session = "roster-rederive";
+        let (terminal_id, live_entries) = {
+            let registry = WorkspaceRegistry::open(&root, session).unwrap();
+            let mux = Mux::from_workspace_registry(
+                session.into(),
+                SurfaceOptions::default(),
+                registry,
+                ProviderWorkspaceState::default(),
+                true,
+            )
+            .unwrap();
+            let surface = mux.new_workspace(None, None).unwrap();
+            let terminal_id = mux.with_state(|state| {
+                match state.resource_indexes.content_ids.get(&surface.id).unwrap() {
+                    ContentPublicId::Terminal(terminal_id) => terminal_id.clone(),
+                    ContentPublicId::Browser(_) => panic!("workspace opened a browser"),
+                }
+            });
+            let append = |event: &str, key: &str| {
+                let ingress = crate::agent_hooks::agent_hook_journal_ingress(
+                    "claude",
+                    event,
+                    Some(&terminal_id.to_string()),
+                    serde_json::json!({"session_id":"native-1"}),
+                )
+                .unwrap();
+                mux.append_journal_ingress(&ingress, "test", key).unwrap();
+            };
+            append("SessionStart", "rederive-1");
+            append("UserPromptSubmit", "rederive-2");
+            let entries = mux.agent_roster.lock().unwrap().roster.entries.clone();
+            assert_eq!(entries.len(), 1);
+            assert_eq!(entries[terminal_id.as_str()].state, "working");
+            mux.shutdown();
+            (terminal_id, entries)
+        };
+
+        // Wipe the persisted reducer state so the reopen cannot lean on the
+        // snapshot: an identical roster proves it derives from the journal.
+        let registry = WorkspaceRegistry::open(&root, session).unwrap();
+        registry
+            .clear_journal_reducer_state(crate::journal_reducers::AGENT_ROSTER_REDUCER_ID, 0, "")
+            .unwrap();
+        let reopened = Mux::from_workspace_registry(
+            session.into(),
+            SurfaceOptions::default(),
+            registry,
+            ProviderWorkspaceState::default(),
+            true,
+        )
+        .unwrap();
+        let rederived = reopened.agent_roster.lock().unwrap().roster.entries.clone();
+        assert_eq!(rederived, live_entries);
+        let repaired_projection = reopened
+            .workspace_registry
+            .lock()
+            .unwrap()
+            .public_agent_projections(Some(&terminal_id), None)
+            .unwrap();
+        assert_eq!(repaired_projection.len(), 1);
+        assert_eq!(repaired_projection[0].state, AgentState::Working.as_str());
+
+        // Folding the tail after an ended session removes the entry, and
+        // that removal survives the next reopen through the snapshot.
+        let ingress = crate::agent_hooks::agent_hook_journal_ingress(
+            "claude",
+            "SessionEnd",
+            Some(&terminal_id.to_string()),
+            serde_json::json!({"session_id":"native-1"}),
+        )
+        .unwrap();
+        reopened.append_journal_ingress(&ingress, "test", "rederive-3").unwrap();
+        assert!(reopened.agent_roster.lock().unwrap().roster.entries.is_empty());
+        reopened.shutdown();
+        drop(reopened);
+
+        let registry = WorkspaceRegistry::open(&root, session).unwrap();
+        let final_mux = Mux::from_workspace_registry(
+            session.into(),
+            SurfaceOptions::default(),
+            registry,
+            ProviderWorkspaceState::default(),
+            true,
+        )
+        .unwrap();
+        assert!(final_mux.agent_roster.lock().unwrap().roster.entries.is_empty());
+        final_mux.shutdown();
+        drop(final_mux);
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn invalid_agent_roster_snapshot_clears_its_cursor() {
+        let root = std::env::temp_dir().join(format!(
+            "cmux-roster-invalid-snapshot-{}",
+            crate::workspace_registry::new_uuid_v4()
+        ));
+        let session = "roster-invalid-snapshot";
+        let registry = WorkspaceRegistry::open(&root, session).unwrap();
+        registry
+            .put_journal_reducer_state_ordered(
+                crate::journal_reducers::AGENT_ROSTER_REDUCER_ID,
+                crate::journal_reducers::AGENT_ROSTER_REDUCER_VERSION,
+                42,
+                42,
+                r#"{"entries":{"term_a":{"state":"working","source":"detected","session":null,"agent":null,"updated_at_ms":1}}}"#,
+            )
+            .unwrap();
+
+        let host = restore_agent_roster(&registry).unwrap();
+        assert_eq!(host.cursor, 0, "an invalid snapshot must not retain its cursor");
+        assert!(host.roster.entries.is_empty());
+        let persisted = registry
+            .journal_reducer_state(crate::journal_reducers::AGENT_ROSTER_REDUCER_ID)
+            .unwrap()
+            .unwrap();
+        assert_eq!(persisted.1, 0, "reset state must clear the persisted cursor");
+
+        drop(registry);
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn retained_journal_tail_gap_is_detected_even_when_tail_is_non_empty() {
+        assert!(!retained_journal_tail_has_gap(0, Some(1)));
+        assert!(!retained_journal_tail_has_gap(41, Some(42)));
+        assert!(retained_journal_tail_has_gap(0, Some(2)));
+        assert!(retained_journal_tail_has_gap(41, Some(43)));
+        assert!(!retained_journal_tail_has_gap(42, None));
+        assert_eq!(retained_tail_anchor(2), Some(1));
+        assert_eq!(retained_tail_anchor(1), Some(0));
+        assert_eq!(retained_tail_anchor(0), None);
+    }
+
+    #[test]
+    fn unreplayable_agent_roster_cursor_fails_closed() {
+        let root = std::env::temp_dir()
+            .join(format!("cmux-roster-unreplayable-{}", crate::workspace_registry::new_uuid_v4()));
+        let session = "roster-unreplayable";
+        let registry = WorkspaceRegistry::open(&root, session).unwrap();
+        // The snapshot is valid, but its cursor points past the retained
+        // journal head. Keep that valid state visible instead of replacing it
+        // with an empty host when no newer records are retained.
+        registry
+            .put_journal_reducer_state_ordered(
+                crate::journal_reducers::AGENT_ROSTER_REDUCER_ID,
+                crate::journal_reducers::AGENT_ROSTER_REDUCER_VERSION,
+                42,
+                42,
+                r#"{"entries":{"term_a":{"state":"working","source":"hook","session":null,"agent":"claude","updated_at_ms":1}}}"#,
+            )
+            .unwrap();
+
+        let host = restore_agent_roster(&registry).unwrap();
+        assert_eq!(host.cursor, 42, "a valid snapshot cursor must remain intact");
+        assert_eq!(host.ordering_token, 42);
+        assert_eq!(host.roster.entries["term_a"].state, AgentState::Working.as_str());
+        let persisted = registry
+            .journal_reducer_state(crate::journal_reducers::AGENT_ROSTER_REDUCER_ID)
+            .unwrap()
+            .unwrap();
+        assert_eq!(persisted.1, 42);
+        assert!(persisted.2.contains("term_a"));
+
+        drop(registry);
+        std::fs::remove_dir_all(root).unwrap();
     }
 
     #[test]
