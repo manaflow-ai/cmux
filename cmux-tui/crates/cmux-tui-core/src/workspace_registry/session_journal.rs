@@ -13,6 +13,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 const JOURNAL_RECORD_SCHEMA_VERSION: u32 = 1;
 const MAX_JOURNAL_PAGE_SIZE: usize = 1024;
 pub(super) const MAX_JOURNAL_SEGMENT_UNCOMPRESSED_BYTES: usize = 16 * 1024 * 1024;
+const MAX_JOURNAL_SEGMENT_COMPRESSED_BYTES: usize = 32 * 1024 * 1024;
 pub(super) const MAX_JOURNAL_CONTENT_BYTES: usize = 256 * 1024;
 const MIGRATION_EVENT_ID: &str = "event_session_journal_v9_migration";
 const MIGRATION_EVENT_KIND: &str = "session.journal.migrated";
@@ -165,7 +166,7 @@ pub(crate) struct JournalRestoreCursor {
     connection: Connection,
     source_sequence: u64,
     target_head: u64,
-    segments: VecDeque<JournalSegmentRow>,
+    segments: VecDeque<String>,
     decoded_segment: Option<DecodedJournalSegment>,
     record_offset: usize,
     active_sequence: u64,
@@ -234,14 +235,13 @@ impl SessionJournalReader {
             "cursor.invalid: journal sequence {source_sequence} is ahead of {target_head}"
         );
         let mut statement = self.connection.prepare(
-            "SELECT segment_id, start_sequence, end_sequence, record_count, codec,
-                    content, uncompressed_bytes, sha256
+            "SELECT segment_id
              FROM journal_segments
              WHERE end_sequence > ?1
              ORDER BY start_sequence ASC",
         )?;
         let segments = statement
-            .query_map([i64::try_from(source_sequence)?], journal_segment_row)?
+            .query_map([i64::try_from(source_sequence)?], |row| row.get(0))?
             .collect::<Result<VecDeque<_>, _>>()?;
         drop(statement);
         Ok(JournalRestoreCursor {
@@ -286,10 +286,10 @@ impl JournalRestoreCursor {
                 continue;
             }
 
-            let Some(segment) = self.segments.pop_front() else {
+            let Some(segment_id) = self.segments.pop_front() else {
                 break;
             };
-            let decoded = decode_journal_segment(segment)?;
+            let decoded = decode_journal_segment(self.load_segment(&segment_id)?)?;
             if let Some(previous_end) = self.previous_segment_end {
                 anyhow::ensure!(
                     decoded.start_sequence == previous_end + 1,
@@ -342,6 +342,22 @@ impl JournalRestoreCursor {
             self.active_sequence
         );
         Ok(SessionJournalPage { head_sequence: self.target_head, records })
+    }
+
+    fn load_segment(&self, segment_id: &str) -> anyhow::Result<JournalSegmentRow> {
+        let mut statement = self.connection.prepare(
+            "SELECT segment_id, start_sequence, end_sequence, record_count, codec,
+                    content, uncompressed_bytes, sha256
+             FROM journal_segments
+             WHERE segment_id = ?1
+               AND length(content) <= ?2",
+        )?;
+        statement
+            .query_row(
+                params![segment_id, i64::try_from(MAX_JOURNAL_SEGMENT_COMPRESSED_BYTES)?],
+                journal_segment_row,
+            )
+            .with_context(|| format!("load journal segment {segment_id}"))
     }
 
     fn validate_and_advance(
