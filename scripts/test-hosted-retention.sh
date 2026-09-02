@@ -168,6 +168,16 @@ make_artifact() {
   printf '%s\n' "$commit" > "$test_root/$commit/cmux-tui"
 }
 
+# A symlinked checkout ancestor must never redirect artifact publication or
+# cleanup outside the checkout.
+make_root
+mkdir -p "$tmp/external-target"
+ln -s "$tmp/external-target" "$test_root/cmux-tui"
+if cmux_hosted_retention_validate_no_symlink_ancestors "$test_root" cmux-tui target hosted; then
+  echo "symlinked artifact ancestor was accepted" >&2
+  exit 1
+fi
+
 write_stat_map() {
   : > "$tmp/stat-map"
   for entry in "$@"; do
