@@ -398,12 +398,15 @@ impl Connection {
                 if let Some(message) = frame.get("message").and_then(Value::as_str) {
                     error["message"] = Value::from(message);
                 }
-                self.send_control(&error);
                 // Non-fatal errors (an oversized input frame) keep the
                 // attachment; a refused open or a dropped attachment ends
                 // the connection.
                 if !self.manager.has_attachment(&self.pty_id) {
-                    self.finish();
+                    // The refusal is the terminal frame for this connection.
+                    // Keep it on the mandatory drain path before closing.
+                    self.finish_with_control(&error);
+                } else {
+                    self.send_control(&error);
                 }
             }
             _ => {}
