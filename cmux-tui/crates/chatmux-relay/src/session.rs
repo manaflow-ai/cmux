@@ -1307,8 +1307,8 @@ mod tests {
 
 #[cfg(test)]
 mod owner_identity_tests {
-    use super::reconcile_owner_user_id;
-    use crate::config::Config;
+    use super::{reconcile_owner_user_id, reconcile_owner_user_id_and_persist};
+    use crate::config::{Config, load_config, save_config};
 
     #[test]
     fn reconnect_without_owner_clears_previous_owner() {
@@ -1320,6 +1320,27 @@ mod owner_identity_tests {
         reconcile_owner_user_id(&mut config, None);
 
         assert_eq!(config.owner_user_id, None);
+    }
+
+    #[test]
+    fn ownerless_reconnect_persists_before_restart() {
+        let path = std::env::temp_dir().join(format!(
+            "chatmux-relay-owner-reconnect-{}.json",
+            std::process::id()
+        ));
+        let mut config = Config {
+            device_id: "device".to_owned(),
+            token: "token".to_owned(),
+            owner_user_id: Some("previous-owner".to_owned()),
+            ..Config::default()
+        };
+        save_config(&path, &config).expect("initial config saves");
+
+        reconcile_owner_user_id_and_persist(&mut config, None, &path, false);
+
+        let reloaded = load_config(&path).expect("persisted config loads");
+        assert_eq!(reloaded.owner_user_id, None);
+        std::fs::remove_file(path).ok();
     }
 }
 
