@@ -359,10 +359,10 @@ fn bootstrap_mutation_id() -> anyhow::Result<String> {
 }
 
 fn initial_bootstrap(tree: &TreeView) -> InitialBootstrap {
-    if tree.workspaces.is_empty() {
+    if tree.workspaces().is_empty() {
         return InitialBootstrap::FirstWorkspace;
     }
-    if tree.workspaces.iter().all(|workspace| workspace.screens.is_empty()) {
+    if tree.workspaces().iter().all(|workspace| workspace.screens.is_empty()) {
         return InitialBootstrap::ShellInActiveWorkspace;
     }
     InitialBootstrap::LayoutIntact
@@ -715,9 +715,9 @@ impl Session {
                     }
                     InitialBootstrap::ShellInActiveWorkspace => {
                         let workspace = tree
-                            .workspaces
+                            .workspaces()
                             .get(tree.active_workspace)
-                            .or_else(|| tree.workspaces.first())
+                            .or_else(|| tree.workspaces().first())
                             .expect("bare-session bootstrap requires at least one workspace")
                             .id;
                         mux.create_terminal_in_workspace(workspace, None, None, None, size)?;
@@ -732,7 +732,7 @@ impl Session {
                     InitialBootstrap::FirstWorkspace => {
                         remote.request(with_size(json!({"cmd": "new-workspace"}), size))?;
                         anyhow::ensure!(
-                            !remote.refresh_tree()?.workspaces.is_empty(),
+                            !remote.refresh_tree()?.workspaces().is_empty(),
                             "remote session did not expose the workspace it created"
                         );
                     }
@@ -798,7 +798,7 @@ impl Session {
                         let refreshed = remote.refresh_tree()?;
                         if let Some(create_result) = create_result {
                             let bootstrapped = refreshed
-                                .workspaces
+                                .workspaces()
                                 .iter()
                                 .any(|workspace| !workspace.screens.is_empty());
                             if !bootstrapped {
