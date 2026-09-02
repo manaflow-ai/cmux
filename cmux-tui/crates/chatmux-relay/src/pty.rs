@@ -1816,8 +1816,11 @@ impl Inner {
             ControlRequestOutcome::Response(response) => response,
             // The attachment cancellation belongs to this open request. Do
             // not end the shared control connection while another attachment
-            // may still be using it.
+            // may still be using it. Ask the server to retire this stream;
+            // older peers treat the request as a no-op and still keep the
+            // connection available for other attachments.
             ControlRequestOutcome::Cancelled => {
+                control.send("detach-attached-view", json!({ "surface": surface_id }));
                 return Err((RelayPtyErrorCode::Failed, "attach-surface cancelled".to_owned()));
             }
         };
@@ -2087,6 +2090,7 @@ mod tests {
     struct ConcurrentAttachControl {
         attach_requests: AtomicUsize,
         attach_started: Notify,
+        detach_requests: AtomicUsize,
         ends: AtomicUsize,
     }
 
@@ -2116,7 +2120,11 @@ mod tests {
             }
         }
 
-        fn send(&self, _cmd: &str, _params: Value) {}
+        fn send(&self, cmd: &str, _params: Value) {
+            if cmd == "detach-attached-view" {
+                self.detach_requests.fetch_add(1, AtomicOrdering::SeqCst);
+            }
+        }
         fn on_event(&self, _handler: EventHandler) {}
         fn on_close(&self, _handler: CloseHandler) {}
         fn pause(&self) {}
@@ -2131,6 +2139,7 @@ mod tests {
         let control = TestArc::new(ConcurrentAttachControl {
             attach_requests: AtomicUsize::new(0),
             attach_started: Notify::new(),
+            detach_requests: AtomicUsize::new(0),
             ends: AtomicUsize::new(0),
         });
         let h = harness_with_control(
@@ -2182,6 +2191,7 @@ mod tests {
         second_task.await.expect("concurrent attach task must not panic");
 
         assert_eq!(control.ends.load(AtomicOrdering::SeqCst), 0);
+        assert_eq!(control.detach_requests.load(AtomicOrdering::SeqCst), 1);
         let sent = h.sent();
         assert!(sent.iter().any(|frame| frame["ptyId"] == "p1" && frame["type"] == "pty_error"));
         assert!(sent.iter().any(|frame| frame["ptyId"] == "p2" && frame["type"] == "pty_opened"));
