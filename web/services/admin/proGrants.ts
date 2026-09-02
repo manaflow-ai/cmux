@@ -500,7 +500,11 @@ function defaultWithFreshTeam(app: AdminStackApp): FreshAdminTeamMutation {
 // ---------------------------------------------------------------------------
 // Pending grants for emails without a Stack user yet
 
-export type AdminGrantsDb = Pick<ReturnType<typeof cloudDb>, "select" | "insert" | "update">;
+export type AdminGrantsDb = Pick<ReturnType<typeof cloudDb>, "select" | "insert" | "update"> & {
+  transaction<Result>(
+    operation: (tx: Pick<ReturnType<typeof cloudDb>, "select" | "insert" | "update">) => Promise<Result>,
+  ): Promise<Result>;
+};
 
 export function isPlausibleEmail(value: string): boolean {
   const trimmed = value.trim();
@@ -562,31 +566,37 @@ export async function createPendingEmailGrant(input: {
   const email = canonicalizeEmailForMatching(input.email);
   // One open grant per email: a new grant supersedes any earlier open one, so
   // sign-in never has more than one row to apply and the newest plan wins.
-  await db
-    .update(adminPlanGrants)
-    .set({ revokedAt: new Date() })
-    .where(
-      and(
-        eq(adminPlanGrants.email, email),
-        isNull(adminPlanGrants.appliedAt),
-        isNull(adminPlanGrants.revokedAt),
-      ),
-    );
-  const [row] = await db
-    .insert(adminPlanGrants)
-    .values({
-      email,
-      plan: input.plan,
-      grantedByUserId: input.admin.id,
-      grantedByEmail: input.admin.primaryEmail ?? null,
-    })
-    .returning({
-      id: adminPlanGrants.id,
-      email: adminPlanGrants.email,
-      plan: adminPlanGrants.plan,
-      grantedByEmail: adminPlanGrants.grantedByEmail,
-      createdAt: adminPlanGrants.createdAt,
-    });
+  // Supersede and insert commit together, and the partial unique index on
+  // open emails makes a concurrent second grant fail instead of leaving two
+  // open rows.
+  const row = await db.transaction(async (tx) => {
+    await tx
+      .update(adminPlanGrants)
+      .set({ revokedAt: new Date() })
+      .where(
+        and(
+          eq(adminPlanGrants.email, email),
+          isNull(adminPlanGrants.appliedAt),
+          isNull(adminPlanGrants.revokedAt),
+        ),
+      );
+    const [inserted] = await tx
+      .insert(adminPlanGrants)
+      .values({
+        email,
+        plan: input.plan,
+        grantedByUserId: input.admin.id,
+        grantedByEmail: input.admin.primaryEmail ?? null,
+      })
+      .returning({
+        id: adminPlanGrants.id,
+        email: adminPlanGrants.email,
+        plan: adminPlanGrants.plan,
+        grantedByEmail: adminPlanGrants.grantedByEmail,
+        createdAt: adminPlanGrants.createdAt,
+      });
+    return inserted;
+  });
   if (!row) throw new Error("admin_plan_grants insert returned no row");
   return {
     id: row.id,

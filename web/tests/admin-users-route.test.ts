@@ -181,13 +181,16 @@ function adminDbMock() {
   // The lease helper owns the account_mutation_leases writes; everything else
   // goes to the recorders above.
   const leaseDb = withAccountMutationLeaseSupport(base);
-  return {
+  const composed = {
     ...leaseDb,
     insert: (table: unknown) =>
       table === accountMutationLeases ? leaseDb.insert(table) : base.insert(table),
     update: (table: unknown) =>
       table === accountMutationLeases ? leaseDb.update(table) : base.update(table),
+    transaction: async <Result,>(operation: (tx: unknown) => Promise<Result>) =>
+      await operation(composed),
   };
+  return composed;
 }
 
 mock.module("../db/client", () => ({

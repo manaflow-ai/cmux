@@ -489,6 +489,10 @@ type GrantRow = {
 function boundParams(node: unknown, out: unknown[] = []): unknown[] {
   // Template values in sql`...` stay raw JS strings until query build time.
   if (typeof node === "string") out.push(node);
+  if (Array.isArray(node)) {
+    for (const item of node) boundParams(item, out);
+    return out;
+  }
   if (node && typeof node === "object") {
     const record = node as { value?: unknown; queryChunks?: unknown[]; constructor?: { name?: string } };
     if (record.constructor?.name === "Param") {
@@ -514,7 +518,8 @@ function fakeGrantsDb(rows: GrantRow[]): AdminGrantsDb {
       (like === undefined || row.email.includes(like.slice(1, -1).replace(/\\(.)/g, "$1"))) &&
       (email === null && like === undefined ? true : isOpen(row) || ids.size > 0);
   };
-  return {
+  const db = {
+    transaction: async <Result,>(operation: (tx: AdminGrantsDb) => Promise<Result>) => await operation(db),
     select: () => ({
       from: () => ({
         where: (condition: unknown) => ({
@@ -576,6 +581,7 @@ function fakeGrantsDb(rows: GrantRow[]): AdminGrantsDb {
       }),
     }),
   } as unknown as AdminGrantsDb;
+  return db;
 }
 
 describe("pending email grants", () => {

@@ -741,6 +741,10 @@ export const adminPlanGrants = pgTable(
   },
   (table) => [
     index("admin_plan_grants_email_idx").on(table.email),
+    // At most one open (unapplied, unrevoked) grant per canonical email.
+    uniqueIndex("admin_plan_grants_open_email_unique")
+      .on(table.email)
+      .where(sql`${table.appliedAt} is null and ${table.revokedAt} is null`),
   ],
 );
 
