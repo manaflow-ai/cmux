@@ -1372,7 +1372,7 @@ impl Inner {
                 );
             }
             result = tokio::time::timeout(PTY_START_TIMEOUT, started_rx) => {
-                if result.is_ok() {
+                if matches!(result, Ok(Ok(()))) {
                     // Commit readiness only after this task receives the
                     // signal. If cancellation wins before that point,
                     // StartOwner::drop retains ownership and retires the
@@ -2108,11 +2108,27 @@ impl Inner {
             if drained.is_err() {
                 let manager = Arc::clone(self);
                 let pty_id = pty_id.to_owned();
-                let transport_id = transport_id.map(str::to_owned);
+                let publication_gate = Arc::clone(&publication_gate);
                 tokio::spawn(async move {
-                    manager
-                        .close_if_transport_async(&pty_id, transport_id.as_deref(), generation)
-                        .await;
+                    attachment.control_ops.wait_async().await;
+                    let _publication = publication_gate.lock_async().await;
+                    let removed = {
+                        let mut attachments = manager.attachments.lock().expect("attach lock");
+                        let Some(current) = attachments.get(&pty_id) else { return };
+                        if generation.is_some_and(|expected| current.generation != expected)
+                            || !Arc::ptr_eq(&current.publication_gate, &publication_gate)
+                            || !current.close_pending.load(Ordering::SeqCst)
+                            || current.closing.load(Ordering::SeqCst)
+                        {
+                            return;
+                        }
+                        let removed =
+                            attachments.remove(&pty_id).expect("attachment still present");
+                        removed.closing.store(true, Ordering::SeqCst);
+                        removed
+                    };
+                    drop(_publication);
+                    removed.control.kill();
                 });
                 return;
             }
