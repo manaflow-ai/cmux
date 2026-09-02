@@ -2230,7 +2230,7 @@ mod tests {
         .await;
         assert_eq!(ls["ok"], true, "{ls}");
         let listing = ls["result"]["listing"].as_str().unwrap();
-        assert!(listing.contains("…[5 more entries]"));
+        assert!(listing.contains("…[more entries omitted]"));
         assert_eq!(listing.lines().count(), MAX_LISTING_ENTRIES + 1);
         std::fs::remove_dir_all(&root).ok();
     }
@@ -2275,7 +2275,7 @@ mod tests {
         .await;
 
         let output = listing["result"]["listing"].as_str().unwrap();
-        assert!(output.ends_with("\n…[1 more entries]"));
+        assert!(output.ends_with("\n…[more entries omitted]"));
         assert_eq!(output.matches(".txt").count(), MAX_LISTING_ENTRIES);
         std::fs::remove_dir_all(&root).ok();
     }
@@ -2293,6 +2293,28 @@ mod tests {
         .await;
         assert_eq!(read["ok"], false);
         assert_eq!(read["code"], "path_forbidden");
+        std::fs::remove_dir_all(&root).ok();
+    }
+
+    #[tokio::test]
+    async fn grep_returns_busy_when_file_action_capacity_is_exhausted() {
+        let root = scratch("grep-capacity");
+        std::fs::write(root.join("note.txt"), "needle").unwrap();
+        let roots = vec![root.display().to_string()];
+        let context = ctx("supervised", Some(roots.clone()), root.clone());
+        let _capacity = Arc::clone(&context.file_slots)
+            .try_acquire_many_owned(MAX_BLOCKING_FILE_ACTIONS as u32)
+            .unwrap();
+
+        let grep = perform_action(
+            &json!({ "verb": "grep", "actionId": "grep-busy", "allowedRoots": roots,
+                     "args": { "path": ".", "pattern": "needle" } }),
+            &context,
+        )
+        .await;
+
+        assert_eq!(grep["ok"], false);
+        assert_eq!(grep["code"], "busy");
         std::fs::remove_dir_all(&root).ok();
     }
 
