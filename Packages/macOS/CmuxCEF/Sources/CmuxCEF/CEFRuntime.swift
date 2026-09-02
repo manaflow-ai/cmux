@@ -102,6 +102,12 @@ public enum CEFRuntime {
                         let initialized = cmux_cef_initialize(&shimOptions) != 0
                         if initialized {
                             CEFMessagePump.startDraining()
+                            // CEF's external pump callback is edge-triggered and
+                            // may have no pending edge yet when initialization
+                            // returns. Prime one UI-thread iteration so startup
+                            // work (including the first browser-create callback)
+                            // cannot remain stranded behind a missed schedule.
+                            CEFMessagePump.pumpNow()
                         }
                         return initialized
                     }
@@ -133,21 +139,46 @@ private nonisolated func cefScheduleWorkTrampoline(_ delayMilliseconds: Int64) {
 /// Driver for CEF's externally pumped message loop.
 ///
 /// CEF supplies the next message-loop deadline through its schedule callback.
-/// Keeping one coalesced one-shot timer for that deadline avoids a process-wide
-/// polling loop while still honoring CEF's external-pump contract.
+/// A coalesced one-shot timer honors that deadline, while a low-cost liveness
+/// drain is kept only after CEF has initialized because the callback is
+/// edge-triggered and can miss work posted during an active iteration.
 @MainActor
 enum CEFMessagePump {
+    private static var drainTimer: Timer?
     private static var scheduledTimer: Timer?
     private static var scheduleGeneration: UInt64 = 0
+    private static var isPumping = false
 
     /// Arms the callback-driven pump after successful initialization.
     ///
-    /// There is deliberately no repeating timer: CEF schedules each required
-    /// `cef_do_message_loop_work` invocation through `scheduleWork` below.
+    /// The repeating drain provides liveness for CEF's edge-triggered callback;
+    /// `scheduleWork` below adds a coalesced timer for requested deadlines.
     static func startDraining() {
+        drainTimer?.invalidate()
+        let timer = Timer(timeInterval: 1.0 / 60.0, repeats: true) { _ in
+            MainActor.assumeIsolated {
+                pumpNow()
+            }
+        }
+        // CEF's schedule callback is edge-triggered: work posted while a
+        // callback is already in flight may not produce another edge. Keep a
+        // liveness drain only after CEF has initialized, and cover resize/menu
+        // tracking modes so the browser cannot stall during AppKit tracking.
+        RunLoop.main.add(timer, forMode: .common)
+        drainTimer = timer
         scheduledTimer?.invalidate()
         scheduledTimer = nil
         scheduleGeneration &+= 1
+    }
+
+    /// Stops all external-pump timers before CEF shutdown.
+    static func stopDraining() {
+        drainTimer?.invalidate()
+        drainTimer = nil
+        scheduledTimer?.invalidate()
+        scheduledTimer = nil
+        scheduleGeneration &+= 1
+        isPumping = false
     }
 
     /// Honors CEF's requested next pump deadline.
@@ -169,12 +200,23 @@ enum CEFMessagePump {
             MainActor.assumeIsolated {
                 guard scheduleGeneration == generation else { return }
                 scheduledTimer = nil
-                cmux_cef_do_work()
+                pumpNow()
             }
         }
         // Common modes keep CEF responsive while the user resizes a window or
         // tracks a menu, without waking the app when CEF has no work queued.
         RunLoop.main.add(timer, forMode: .common)
         scheduledTimer = timer
+    }
+
+    /// Runs one CEF iteration while preventing a nested AppKit run loop from
+    /// re-entering the external pump. CEF may synchronously spin AppKit while
+    /// creating or closing a chrome-style window, and nested iterations can
+    /// otherwise recurse through the same schedule callback indefinitely.
+    static func pumpNow() {
+        guard !isPumping else { return }
+        isPumping = true
+        cmux_cef_do_work()
+        isPumping = false
     }
 }
