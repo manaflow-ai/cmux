@@ -1269,6 +1269,8 @@ async fn run_spec(
     let mut group_kill_confirmed = false;
     let mut scope_settled = false;
     let mut phase = ProcessPhase::Running;
+    #[cfg(windows)]
+    let mut job_settle_deadline: Option<std::pin::Pin<Box<tokio::time::Sleep>>> = None;
     loop {
         // A timed-out process group still needs its escalation pass even when
         // the shell leader has already exited. Otherwise closing inherited
@@ -1343,7 +1345,7 @@ async fn run_spec(
                     && wait_retry_deadline.is_none()
                     && kill_deadline.is_none()
                     && phase.may_wait(timed_out, cancelled, stdout_open, stderr_open)
-                    && (phase != ProcessPhase::Waiting || scope_settled) => {
+                    && (!cfg!(windows) || phase != ProcessPhase::Waiting || scope_settled) => {
                 // The child is gone, but descendants may still own the output
                 // pipes. Preserve a timeout escalation that is already in
                 // flight, and bound the remaining drain after a timeout.
@@ -1436,7 +1438,11 @@ async fn run_spec(
                         if !group_kill_confirmed {
                             group_kill_confirmed = child.start_kill().is_ok();
                         }
-                        scope_settled = group_kill_confirmed;
+                        // Unix PGID signaling cannot prove descendant settlement;
+                        // the owned Child can still be waited safely after the
+                        // escalation attempt, while descendants remain scoped
+                        // by the process-group guard until owner shutdown.
+                        scope_settled = true;
                     }
                     #[cfg(not(unix))]
                     {
@@ -1444,6 +1450,11 @@ async fn run_spec(
                         #[cfg(windows)]
                         {
                             scope_settled = job.as_ref().map(WindowsJob::is_signaled).unwrap_or(true);
+                            if !scope_settled {
+                                job_settle_deadline = Some(Box::pin(tokio::time::sleep(
+                                    std::time::Duration::from_millis(10),
+                                )));
+                            }
                         }
                         #[cfg(not(windows))]
                         {
@@ -1485,6 +1496,22 @@ async fn run_spec(
                 if stdout_open || stderr_open {
                     drain_deadline = Some(Box::pin(tokio::time::sleep(
                         std::time::Duration::from_millis(250),
+                    )));
+                }
+            }
+            #[cfg(windows)]
+            () = async {
+                match job_settle_deadline.as_mut() {
+                    Some(timer) => timer.as_mut().await,
+                    None => std::future::pending().await,
+                }
+            }, if job_settle_deadline.is_some() && !scope_settled => {
+                if job.as_ref().map(WindowsJob::is_signaled).unwrap_or(true) {
+                    scope_settled = true;
+                    job_settle_deadline = None;
+                } else {
+                    job_settle_deadline = Some(Box::pin(tokio::time::sleep(
+                        std::time::Duration::from_millis(10),
                     )));
                 }
             }
