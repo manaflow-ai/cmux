@@ -271,7 +271,9 @@ struct CloudTreeNativeDragOwnershipTests {
 
     private static let nodeActions = CloudTreeNodeActions(
         project: { _, _, _ in },
+        projectRemoteView: { _, _, _, _ in },
         projectInLocalWorkspace: { _, _ in },
+        projectRemoteViewInLocalWorkspace: { _, _, _ in },
         newTerminal: { _, _ in },
         openGroup: { _, _, _, _ in },
         openGroupAsWorkspace: { _, _, _ in },
@@ -279,7 +281,7 @@ struct CloudTreeNativeDragOwnershipTests {
         closeTerminal: { _ in },
         closeWorkspace: { _, _ in },
         renameWorkspace: { _, _ in },
-        renameTerminal: { _ in },
+        renameTerminal: { _, _ in },
         selectLocalWorkspace: { _ in },
         copyToPasteboard: { _ in },
         refresh: {}

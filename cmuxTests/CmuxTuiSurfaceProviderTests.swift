@@ -396,6 +396,8 @@ import Testing
         // Rename takes the name via --name (verified live; positional is usage.invalid).
         #expect(CloudTuiCommandLine.renameWorkspaceArguments(socketPath: "/k.sock", workspaceID: "ws_main", name: "backend work") ==
             ["--socket", "/k.sock", "--json", "workspace", "ws_main", "rename", "--name", "backend work"])
+        #expect(CloudTuiCommandLine.renameWorkspaceArguments(socketPath: "/k.sock", workspaceID: "ws_main", name: "backend work", expectedRevision: 7) ==
+            ["--socket", "/k.sock", "--json", "--expected-revision", "7", "workspace", "ws_main", "rename", "--name", "backend work"])
         // Verified live: the flat `set-default-colors` verb is `usage.invalid` in the v2
         // resource CLI; the session-scoped form below is the one machines accept.
         #expect(CloudTuiCommandLine.setDefaultColorsArguments(socketPath: "/k.sock", foreground: "#d8dee9", background: "#171b2e") ==
@@ -406,6 +408,8 @@ import Testing
         #expect(CloudTuiCommandLine.setDefaultColorsArguments(socketPath: "/k.sock", foreground: nil, background: nil) == nil)
         #expect(CloudTuiCommandLine.renameTabArguments(socketPath: "/k.sock", tabID: "tab_1", name: "db shell") ==
             ["--socket", "/k.sock", "--json", "tab", "tab_1", "rename", "--name", "db shell"])
+        #expect(CloudTuiCommandLine.renameTabArguments(socketPath: "/k.sock", tabID: "tab_1", name: "db shell", expectedRevision: 9) ==
+            ["--socket", "/k.sock", "--json", "--expected-revision", "9", "tab", "tab_1", "rename", "--name", "db shell"])
     }
 
     @Test func clientPathsMirrorTheCLI() throws {
@@ -515,5 +519,186 @@ import Testing
         let untouched = CmuxTuiSnapshotParser.mergingDisplays(pool: pool, parsed: resources.filter { $0.kind != .display })
         #expect(untouched.filter { $0.kind == .display }.count == 1)
         #expect(untouched.first { $0.kind == .display }?.remoteViews == nil)
+    }
+
+    @Test func revisionedStateRetainsTheWholeRemoteDocumentAndAppliesTabDelta() throws {
+        var snapshot = Self.sessionSnapshot
+        snapshot["cursor"] = ["generation": "daemon-a", "revision": "7"]
+        snapshot["clients"] = [["id": "client-1", "session_id": "session-1", "transport": "unix"]]
+        snapshot["notifications"] = [["id": "notice-1", "title": "Build", "body": "done"]]
+        let state = try #require(CmuxTuiSnapshotParser.state(fromSnapshot: snapshot, machine: Self.machine))
+        #expect(state.cursor == CloudVMCursor(generation: "daemon-a", revision: 7))
+        #expect(state.tabs.first { $0.id == "tab_1" }?.name == nil)
+        #expect(state.panes.first { $0.id == "pane_1" }?.tabIDs == ["tab_1", "tab_3"])
+        #expect(state.entity(kind: "clients", id: "client-1") != nil)
+        #expect(state.entity(kind: "notifications", id: "notice-1") != nil)
+        #expect(state.entity(kind: "tab", id: "tab_1")?.kind == "tabs")
+        #expect(state.entities(kind: "tabs").count == 4)
+        #expect(state.entities(kind: "cursor").isEmpty)
+        #expect(!state.otherEntities.contains { $0.kind == "cursor" })
+        #expect(state.snapshotObject()?["clients"] as? [[String: Any]] != nil)
+
+        let deltaObject: [String: Any] = [
+            "kind": "delta",
+            "previous_revision": "7",
+            "revision": "8",
+            "changes": [[
+                "kind": "upsert",
+                "resource": "tab",
+                "id": "tab_1",
+                "value": [
+                    "id": "tab_1", "pane_id": "pane_1", "name": "renamed",
+                    "content_kind": "terminal", "content_id": "term_build", "index": 0, "focused": true,
+                ],
+            ], [
+                "kind": "upsert",
+                "resource": "notification",
+                "id": "notice-1",
+                "value": [
+                    "id": "notice-1", "title": "Build", "body": "passed", "unread": false,
+                ],
+            ]],
+        ]
+        let deltaData = try JSONSerialization.data(withJSONObject: deltaObject)
+        let next = try #require(CmuxTuiSnapshotParser.applying(
+            deltaPayload: deltaData,
+            cursor: CloudVMCursor(generation: "daemon-a", revision: 8),
+            to: state
+        ))
+        #expect(next.cursor == CloudVMCursor(generation: "daemon-a", revision: 8))
+        #expect(next.tabs.first { $0.id == "tab_1" }?.name == "renamed")
+        let terminal = try #require(CmuxTuiSnapshotParser.resources(from: next).first { $0.id.key == "term_build" })
+        #expect(terminal.remoteViews?.first?.name == "renamed")
+        #expect(terminal.title == "renamed")
+        let notification = try #require(next.entity(kind: "notification", id: "notice-1"))
+        let notificationObject = try #require(JSONSerialization.jsonObject(with: notification.payload) as? [String: Any])
+        #expect(notificationObject["body"] as? String == "passed")
+    }
+
+    @Test func stateSyncRejectsGapsAndOpaqueGenerationOrdering() {
+        let current = CloudVMCursor(generation: "daemon-a", revision: 7)
+        #expect(CloudVMStateSyncDecision.forSnapshot(incoming: CloudVMCursor(generation: "daemon-a", revision: 6), current: current) == .ignoreStale)
+        #expect(CloudVMStateSyncDecision.forSnapshot(incoming: CloudVMCursor(generation: "daemon-b", revision: 1), current: current) == .installSnapshot)
+        #expect(CloudVMStateSyncDecision.forDelta(generation: "daemon-a", previousRevision: 6, revision: 8, current: current) == .fetchSnapshot)
+        #expect(CloudVMStateSyncDecision.forDelta(generation: "daemon-a", previousRevision: 7, revision: 8, current: current) == .installSnapshot)
+        #expect(CloudVMStateSyncDecision.forDelta(generation: "daemon-b", previousRevision: 7, revision: 8, current: current) == .fetchSnapshot)
+    }
+
+    @Test func cursorDecodingRejectsBooleanFractionalAndOverflowNumbers() {
+        #expect(CloudVMCursor(wire: ["generation": "g1", "revision": NSNumber(value: true)]) == nil)
+        #expect(CloudVMCursor(wire: ["generation": "g1", "revision": NSNumber(value: 1.5)]) == nil)
+        #expect(CloudVMCursor(wire: ["generation": "g1", "revision": NSNumber(value: -1)]) == nil)
+        #expect(CloudVMCursor(wire: ["generation": "g1", "revision": NSNumber(value: 8)]) == CloudVMCursor(generation: "g1", revision: 8))
+        #expect(CloudVMCursor(wire: ["generation": "g1", "revision": " 9 "]) == CloudVMCursor(generation: "g1", revision: 9))
+    }
+
+    @Test func staleCloudStateExportLabelsLastKnownDocument() throws {
+        var snapshot = Self.sessionSnapshot
+        snapshot["cursor"] = ["generation": "g1", "revision": "3"]
+        snapshot["pairing_requests"] = [[
+            "id": "pairing-1",
+            "code": "123456",
+            "peer": "agent",
+            "access_token": "do-not-export",
+        ]]
+        let state = try #require(CmuxTuiSnapshotParser.state(fromSnapshot: snapshot, machine: Self.machine))
+        let payload = TerminalController.surfaceCloudStatePayload(
+            state,
+            observation: .stale(reason: "asleep")
+        )
+        #expect(payload["freshness"] as? String == "stale")
+        #expect(payload["stale_reason"] as? String == "asleep")
+        #expect((payload["cursor"] as? [String: Any])?["revision"] as? String == "3")
+        let exportedSnapshot = try #require(payload["snapshot"] as? [String: Any])
+        let pairing = try #require((exportedSnapshot["pairing_requests"] as? [[String: Any]])?.first)
+        #expect(pairing["code"] as? String == "[REDACTED]")
+        #expect(pairing["access_token"] as? String == "[REDACTED]")
+        let rawPairing = try #require((state.snapshotObject()?["pairing_requests"] as? [[String: Any]])?.first)
+        #expect(rawPairing["code"] as? String == "123456")
+    }
+
+    @Test func rootDeletionForcesAFullSnapshot() throws {
+        var snapshot = Self.sessionSnapshot
+        snapshot["cursor"] = ["generation": "g1", "revision": "3"]
+        let state = try #require(CmuxTuiSnapshotParser.state(fromSnapshot: snapshot, machine: Self.machine))
+        let delta: [String: Any] = [
+            "kind": "delta",
+            "previous_revision": "3",
+            "revision": "4",
+            "changes": [[
+                "kind": "delete",
+                "resource": "session",
+                "id": "session-1",
+            ]],
+        ]
+        let data = try JSONSerialization.data(withJSONObject: delta)
+        #expect(CmuxTuiSnapshotParser.applying(
+            deltaPayload: data,
+            cursor: CloudVMCursor(generation: "g1", revision: 4),
+            to: state
+        ) == nil)
+    }
+
+    @Test func eventEnvelopeParsingKeepsCursorAndCanonicalPayload() throws {
+        let snapshotLine = #"{"type":"stream_item","cursor":{"generation":"g1","revision":"4"},"item":{"kind":"snapshot","reset_reason":"initial","snapshot":{"workspaces":[]}}}"#
+        guard case .snapshot(let cursor, let reason, let payload) = CloudMachineLink.parseChangeLine(snapshotLine) else {
+            Issue.record("expected a snapshot event")
+            return
+        }
+        #expect(cursor == CloudVMCursor(generation: "g1", revision: 4))
+        #expect(reason == "initial")
+        let object = try #require(JSONSerialization.jsonObject(with: payload) as? [String: Any])
+        #expect((object["cursor"] as? [String: Any])?["revision"] as? String == "4")
+
+        let deltaLine = #"{"type":"stream_item","item":{"kind":"delta","cursor":{"generation":"g1","revision":"5"},"previous_revision":"4","revision":"5","changes":[]}}"#
+        guard case .delta(let deltaCursor, let previous, let revision, _) = CloudMachineLink.parseChangeLine(deltaLine) else {
+            Issue.record("expected a delta event")
+            return
+        }
+        #expect(deltaCursor == CloudVMCursor(generation: "g1", revision: 5))
+        #expect(previous == 4)
+        #expect(revision == 5)
+
+        guard case .unknown = CloudMachineLink.parseChangeLine(
+            #"{"type":"stream_item","item":{"kind":"delta","cursor":{"generation":"g1","revision":true},"previous_revision":"4","revision":"5","changes":[]}}"#
+        ) else {
+            Issue.record("boolean cursor revision must be a synchronization barrier")
+            return
+        }
+
+        guard case .streamEnded(let streamReason, let endCursor) = CloudMachineLink.parseChangeLine(#"{"type":"stream_end","reason":"gap","cursor":{"generation":"g1","revision":"5"}}"#) else {
+            Issue.record("expected a stream end")
+            return
+        }
+        #expect(streamReason == "gap")
+        #expect(endCursor == CloudVMCursor(generation: "g1", revision: 5))
+    }
+
+    @Test func placementGroupsRoundTripExactTabAndRejectLegacyAmbiguity() throws {
+        let resource = SurfaceResourceID(machine: Self.machine, kind: .terminal, key: "term_build")
+        let view = SurfaceRemoteView(
+            tabID: "tab_4",
+            workspace: SurfaceRemoteWorkspace(id: "ws_api", name: "api", index: 1, focused: false),
+            screenID: "screen_2",
+            paneID: "pane_2",
+            name: "api shell",
+            index: 0,
+            focused: true
+        )
+        let group = SurfaceResourceGroup(
+            title: "api",
+            placements: [SurfaceResourcePlacement(resource: resource, remoteView: view)],
+            remoteWorkspaceID: "ws_api"
+        )
+        let decoded = try JSONDecoder().decode(SurfaceResourceGroup.self, from: JSONEncoder().encode(group))
+        #expect(decoded == group)
+        #expect(decoded.placements.first?.remoteTabID == "tab_4")
+
+        let legacy = try JSONDecoder().decode(
+            SurfaceResourceGroup.self,
+            from: Data(#"{"title":"api","resources":["vivid-newt/terminal/term_build"],"remoteWorkspaceID":"ws_api"}"#.utf8)
+        )
+        #expect(legacy.placements.first?.remoteTabID == nil)
+        #expect(legacy.placements.first?.remoteWorkspaceID == "ws_api")
     }
 }
