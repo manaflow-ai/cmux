@@ -330,7 +330,8 @@ enum CloudWorkspaceRenameWriteThrough {
             let displayName = workspaceDisplayName(
                 machine: machine,
                 remoteName: remote.name,
-                localWorkspace: workspace
+                currentTitleSource: workspace.effectiveCustomTitleSource,
+                currentCustomTitle: workspace.customTitle
             )
             let manager = workspace.owningTabManager ?? AppDelegate.shared?.tabManagerFor(tabId: workspace.id)
             _ = manager?.setCustomTitle(
@@ -375,13 +376,14 @@ enum CloudWorkspaceRenameWriteThrough {
     private static func workspaceDisplayName(
         machine: SurfaceMachineID,
         remoteName: String,
-        localWorkspace: Workspace
+        currentTitleSource: Workspace.CustomTitleSource?,
+        currentCustomTitle: String?
     ) -> String {
         // Preserve the machine prefix only for a title this feature created.
         // A user-entered title remains exact after the daemon echoes it.
         let prefix = "\(machine.rawValue): "
-        if localWorkspace.effectiveCustomTitleSource == .remote,
-           localWorkspace.customTitle?.hasPrefix(prefix) == true {
+        if currentTitleSource == .remote,
+           currentCustomTitle?.hasPrefix(prefix) == true {
             return prefix + remoteName
         }
         return remoteName
