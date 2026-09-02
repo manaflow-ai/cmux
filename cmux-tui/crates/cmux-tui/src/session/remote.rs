@@ -3618,12 +3618,14 @@ impl Drop for RemoteSession {
 
 fn private_dump_file(path: &Path) -> io::Result<fs::File> {
     let mut options = fs::OpenOptions::new();
-    options.write(true).create(true).truncate(true);
+    options.write(true).create(true);
     #[cfg(unix)]
     {
         use std::os::unix::fs::OpenOptionsExt;
         options.mode(0o600).custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK);
     }
+    #[cfg(not(unix))]
+    options.truncate(true);
     let file = options.open(path)?;
     #[cfg(unix)]
     {
@@ -3640,6 +3642,9 @@ fn private_dump_file(path: &Path) -> io::Result<fs::File> {
                 format!("dump target is not a private regular file: {}", path.display()),
             ));
         }
+        // Truncate only after validating the opened descriptor, so a hard
+        // link cannot cause data loss in another file.
+        file.set_len(0)?;
         // `mode` only applies when the file is new. Set permissions through
         // the opened descriptor so existing files are also private without a
         // path-based symlink race.
