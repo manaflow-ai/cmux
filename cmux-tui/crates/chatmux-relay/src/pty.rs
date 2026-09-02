@@ -2400,6 +2400,17 @@ impl Drop for ControlEndOnDrop {
     }
 }
 
+/// Run potentially blocking PTY teardown away from the async executor. A
+/// drop can happen on a Tokio worker during cancellation, so never invoke the
+/// provider's kill implementation inline on that path.
+fn schedule_control_kill(control: Arc<dyn PtyControl>) {
+    if let Ok(handle) = tokio::runtime::Handle::try_current() {
+        handle.spawn_blocking(move || control.kill());
+    } else {
+        std::thread::spawn(move || control.kill());
+    }
+}
+
 impl Drop for Opened {
     fn drop(&mut self) {
         if self.cleanup_on_drop {
@@ -2407,7 +2418,7 @@ impl Drop for Opened {
                 closing.store(true, Ordering::SeqCst);
             }
             if let Some(control) = &self.control {
-                control.kill();
+                schedule_control_kill(Arc::clone(control));
             }
         }
     }
@@ -4555,16 +4566,12 @@ mod tests {
         };
         let drop_task = tokio::spawn(async move { drop(opened) });
 
-        tokio::task::spawn_blocking(move || entered.wait())
-            .await
-            .expect("kill must start");
+        tokio::task::spawn_blocking(move || entered.wait()).await.expect("kill must start");
         assert!(
             tokio::time::timeout(Duration::from_millis(100), drop_task).await.is_ok(),
             "Opened::drop must not wait for a blocking PTY kill"
         );
-        tokio::task::spawn_blocking(move || release.wait())
-            .await
-            .expect("kill release");
+        tokio::task::spawn_blocking(move || release.wait()).await.expect("kill release");
     }
 
     #[tokio::test]
