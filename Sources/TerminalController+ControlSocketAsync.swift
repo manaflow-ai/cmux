@@ -151,6 +151,15 @@ extension TerminalController {
             return Self.v2Encoder.response(id: request.id, coordinatorResult)
         }
 
+        if request.method == "sidebar.custom.render" {
+            // Preparation stays on this socket task; the AppKit/SwiftUI mount
+            // suspends through an async main-actor hop and resumes here with
+            // the encoded response. Do not fall through to the synchronous
+            // worker compatibility dispatcher, which would block this task
+            // behind the main actor during rendering.
+            return await v2CustomSidebarRenderAsync(request: request)
+        }
+
         if Self.socketWorkerCoordinatorHopMethods.contains(request.method) {
             let response = await v2MainAsync {
                 self.socketWorkerV2Response(handling: request)

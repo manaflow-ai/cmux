@@ -1167,6 +1167,20 @@ class TerminalController {
             if let workspaceParamError = v2UnsupportedWorkspaceAliasError(method: request.method, params: request.params) {
                 return v2Result(id: request.id, workspaceParamError)
             }
+            if request.method == "sidebar.custom.render" {
+                cmuxDebugLog("socket.sidebar.custom.render rejected by synchronous dispatcher; async dispatch required")
+                // Rendering is intentionally async-only for socket workers:
+                // the async dispatcher suspends across the AppKit mount, while
+                // this legacy synchronous seam must never wait on v2MainSync.
+                return Self.v2Encoder.error(
+                    id: parsedRequest.id,
+                    code: "async_required",
+                    message: String(
+                        localized: "socket.sidebar.custom.render.asyncRequired",
+                        defaultValue: "Custom sidebar rendering could not start. Retry with `cmux sidebar render <name>`."
+                    )
+                )
+            }
             if Self.socketWorkerCoordinatorHopMethods.contains(request.method) {
                 // Mirror processParsedV2Command's tail: one main hop for the
                 // command body, encode after the hop on this worker thread.
@@ -2616,6 +2630,8 @@ class TerminalController {
         // Feed (workstream): feed.jump/feed.list handled by ControlCommandCoordinator.
         case "sidebar.custom.open":
             return v2Result(id: id, self.v2CustomSidebarOpen(params: params))
+        case "sidebar.custom.render":
+            return v2Result(id: id, self.v2CustomSidebarRender(params: params))
 
         // Surfaces / input: surface.list/current/focus/split/respawn/create/close/move/
         // reorder handled by ControlCommandCoordinator (surface.move forwards to the
@@ -2798,6 +2814,7 @@ class TerminalController {
             "system.identify",
             "system.tree",
             "sidebar.custom.open",
+            "sidebar.custom.render",
             "system.top",
             "system.memory",
             "caffeine.status",

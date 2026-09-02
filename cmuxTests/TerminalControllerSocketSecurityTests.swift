@@ -906,6 +906,60 @@ final class TerminalControllerSocketSecurityTests {
         XCTAssertEqual(v1Replies, ["ERROR: Terminal surface not found"])
     }
 
+    @Test func testCustomSidebarRenderUsesAsyncSocketPath() async throws {
+        XCTAssertFalse(
+            TerminalController.socketWorkerCoordinatorHopMethods.contains("sidebar.custom.render")
+        )
+        let socketPath = makeSocketPath("sidebar-render-worker")
+        let tabManager = TabManager()
+        TerminalController.shared.start(
+            tabManager: tabManager,
+            socketPath: socketPath,
+            accessMode: .allowAll
+        )
+        try waitForSocket(at: socketPath)
+
+        let name = "__cmux-missing-\(UUID().uuidString)"
+        let params: [String: Any] = [
+            "name": name,
+            "width": 32,
+            "height": 24,
+            "output": NSTemporaryDirectory() + "\(name).png",
+        ]
+        let requestLine = try makeV2RequestLine(
+            method: "sidebar.custom.render",
+            params: params
+        )
+
+        // The synchronous in-process compatibility seam must reject the
+        // worker-only render method without entering v2MainSync.
+        let inline = try decodeV2Envelope(
+            TerminalController.shared.handleSocketLine(requestLine)
+        )
+        let inlineError = try XCTUnwrap(inline["error"] as? [String: Any])
+        XCTAssertEqual(inlineError["code"] as? String, "invalid_dispatch")
+        XCTAssertEqual(
+            inlineError["message"] as? String,
+            "sidebar.custom.render must run off the main thread"
+        )
+
+        // A real socket connection uses the async dispatcher and still
+        // reaches preparation (the unique name is intentionally missing).
+        let worker = try await sendV2RequestAsync(
+            method: "sidebar.custom.render",
+            params: params,
+            to: socketPath
+        )
+        XCTAssertEqual(worker["ok"] as? Bool, true)
+        let result = try XCTUnwrap(worker["result"] as? [String: Any])
+        XCTAssertEqual(result["render_ok"] as? Bool, false)
+        XCTAssertEqual(result["error_count"] as? Int, 1)
+        XCTAssertNotEqual(
+            result["error"] as? String,
+            "sidebar.custom.render requires the asynchronous socket dispatcher"
+        )
+    }
+
     @Test func testV1SetStatusIsServicedOnWorkerLaneWhileMainThreadIsBlocked() throws {
         let socketPath = makeSocketPath("v1-status-worker")
         let manager = TabManager()
