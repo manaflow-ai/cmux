@@ -293,34 +293,42 @@ actor CloudWireGuardHub {
         // Readiness is the hub's own `hub-ready` stdout line (the same contract as a
         // sidecar's `connection-snapshot` line): whichever comes first of that line,
         // the process exiting, or the bounded timeout decides the start.
+        //
+        // A one-shot resolved by three detached racers, NOT withTaskGroup: an
+        // AsyncStream `for await` does not observe task cancellation, so a task group
+        // would block forever draining the stdout reader after the winner is picked.
+        // Here the loser readers linger until the stream finishes (process exit) and
+        // are never awaited, so `start` returns the moment the first racer resolves.
         let lines = process.stdoutLines
         let sleep = configuration.sleep
         let readyTimeout = configuration.readyTimeout
-        let outcome: Result<CloudWireGuardHubReadyEvent, Error> = await withTaskGroup(of: Result<CloudWireGuardHubReadyEvent, Error>.self) { group in
-            group.addTask {
-                for await line in lines {
-                    if let event = CloudWireGuardHubReadyEvent(line: line) { return .success(event) }
+        let resolved = CloudLinkFirstValue<Result<CloudWireGuardHubReadyEvent, Error>>()
+        let reader = Task.detached {
+            for await line in lines {
+                if let event = CloudWireGuardHubReadyEvent(line: line) {
+                    resolved.resolve(.success(event))
+                    return
                 }
-                return .failure(HubError.notReady("stdout closed before hub-ready"))
             }
-            group.addTask {
-                if let status = await exit.result {
-                    return .failure(HubError.exitedDuringStart(status: status, output: process.outputTail))
-                }
-                return .failure(HubError.notReady("hub exited"))
-            }
-            group.addTask {
-                do {
-                    try await sleep(readyTimeout)
-                } catch {
-                    return .failure(CancellationError())
-                }
-                return .failure(HubError.notReady("no hub-ready line within \(readyTimeout)"))
-            }
-            let first = await group.next() ?? .failure(HubError.notReady("no readiness signal"))
-            group.cancelAll()
-            return first
+            resolved.resolve(.failure(HubError.notReady("stdout closed before hub-ready")))
         }
+        let watcher = Task.detached {
+            if let status = await exit.result {
+                resolved.resolve(.failure(HubError.exitedDuringStart(status: status, output: process.outputTail)))
+            }
+        }
+        let timer = Task.detached {
+            do {
+                try await sleep(readyTimeout)
+                resolved.resolve(.failure(HubError.notReady("no hub-ready line within \(readyTimeout)")))
+            } catch {
+                // Cancelled once readiness resolved; nothing to report.
+            }
+        }
+        let outcome = await resolved.result ?? .failure(HubError.notReady("no readiness signal"))
+        reader.cancel()
+        watcher.cancel()
+        timer.cancel()
         #if DEBUG
         cmuxDebugLog("cloud.hub.start.outcome \(String(describing: outcome))")
         #endif
