@@ -199,6 +199,51 @@ mod tests {
     }
 
     #[test]
+    fn utf8_continuation_bytes_are_not_c1_framing() {
+        let mut metadata = TerminalMetadata::default();
+        // U+00DD is encoded as C3 9D. The continuation byte is numerically
+        // equal to C1 OSC, but it is ordinary text in this stream.
+        metadata.observe_output("Ý".as_bytes());
+        let mut first = b"\x1b]9;before".to_vec();
+        first.extend_from_slice("Ýafter\x07".as_bytes());
+        metadata.observe_output(&first);
+        assert_eq!(metadata.osc_progress(), "beforeÝafter");
+
+        // U+00DC is encoded as C3 9C. It must not terminate an OSC payload.
+        let mut second = b"\x1b]9;left".to_vec();
+        second.extend_from_slice("Üright\x07".as_bytes());
+        metadata.observe_output(&second);
+        assert_eq!(metadata.osc_progress(), "leftÜright");
+    }
+
+    #[test]
+    fn c1_string_openers_are_isolated_from_osc() {
+        let mut metadata = TerminalMetadata::default();
+        for opener in [0x90, 0x98, 0x9e, 0x9f] {
+            let mut bytes = vec![opener];
+            bytes.extend_from_slice(b"payload \x9d9;leaked\x9c");
+            metadata.observe_output(&bytes);
+        }
+        assert_eq!(metadata.osc_progress(), "");
+        metadata.observe_output(b"\x1b]9;valid\x07");
+        assert_eq!(metadata.osc_progress(), "valid");
+    }
+
+    #[test]
+    fn can_and_sub_cancel_all_string_states() {
+        let mut metadata = TerminalMetadata::default();
+        for cancel in [0x18, 0x1a] {
+            metadata.observe_output(&[0x1b, b']', b'9', b';', b'b', b'a', cancel]);
+            metadata.observe_output(b"\x1b]9;valid\x07");
+            assert_eq!(metadata.osc_progress(), "valid");
+
+            metadata.observe_output(&[0x90, b'\x9d', cancel]);
+            metadata.observe_output(b"\x1b]9;valid-again\x07");
+            assert_eq!(metadata.osc_progress(), "valid-again");
+        }
+    }
+
+    #[test]
     fn discards_oversized_bodies_and_bounds_text() {
         let mut metadata = TerminalMetadata::default();
         let mut body = b"\x1b]9;".to_vec();
