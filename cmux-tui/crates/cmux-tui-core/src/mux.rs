@@ -5813,8 +5813,7 @@ impl Mux {
             .with_context(|| format!("journal checkpoint {selector:?} does not exist"))?;
         let mut reducer = crate::journal_checkpoint::RestoreReducer::new(&checkpoint)?;
 
-        let database_path =
-            self.workspace_registry.lock().unwrap().session_journal_database_path();
+        let database_path = self.workspace_registry.lock().unwrap().session_journal_database_path();
         if let Some(database_path) = database_path {
             let reader = crate::workspace_registry::SessionJournalReader::open(&database_path)?;
             let mut cursor = reader.restore_cursor(checkpoint.source_sequence)?;
