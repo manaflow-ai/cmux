@@ -958,6 +958,7 @@ fn run(mux: Weak<Mux>, receivers: JournalIngressReceivers) {
         let mut pending = VecDeque::from([batch]);
         while let Some(mut batch) = pending.pop_front() {
             let mut delay = JOURNAL_RETRY_INITIAL_DELAY;
+            let mut nonretryable_delay = JOURNAL_NONRETRYABLE_RETRY_DELAY;
             let mut reported_error = None;
             let mut uncompleted_nonretryable_failures = 0_usize;
             let retry_deadline = batch
@@ -1035,10 +1036,8 @@ fn run(mux: Weak<Mux>, receivers: JournalIngressReceivers) {
                             if receivers.state.pause_nonretryable_failure_for_test() {
                                 continue;
                             }
-                            wait_for_journal_retry(
-                                mux,
-                                JOURNAL_NONRETRYABLE_RETRY_DELAY.min(remaining),
-                            );
+                            wait_for_journal_retry(mux, nonretryable_delay.min(remaining));
+                            nonretryable_delay = next_nonretryable_retry_delay(nonretryable_delay);
                             continue;
                         } else if batch[0].completion.is_none() {
                             let failure = receivers.state.fail(format!(
@@ -1083,6 +1082,10 @@ fn wait_for_journal_retry_after_release(
 
 fn next_journal_retry_delay(delay: Duration) -> Duration {
     delay.saturating_mul(2).min(JOURNAL_RETRY_MAX_DELAY)
+}
+
+fn next_nonretryable_retry_delay(delay: Duration) -> Duration {
+    next_journal_retry_delay(delay)
 }
 
 fn admit_batch_commit(
