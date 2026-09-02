@@ -608,7 +608,7 @@ jobs:
           # search list. It contains paths only, never key material.
           security list-keychains -d user > "$keychain_list_backup"
           KEYCHAIN_PASSWORD="$(uuidgen)"
-          printf '%s' "$APPLE_CERTIFICATE_BASE64" | base64 --decode > "$cert_path"
+          printf '%s' "$APPLE_CERTIFICATE_BASE64" | base64 -D > "$cert_path"
           chmod 600 "$cert_path"
           keychain_dir="$(mktemp -d "$runner_temp/cmux-signing-keychain.XXXXXX")"
           [[ -d "$keychain_dir" && ! -L "$keychain_dir" ]] || {
@@ -747,7 +747,7 @@ jobs:
           TMP_PROFILE="$(mktemp /tmp/cmux-release-profile.XXXXXX)"
           TMP_PLIST="$(mktemp /tmp/cmux-release-profile.XXXXXX.plist)"
           trap 'rm -f "$TMP_PROFILE" "$TMP_PLIST"' EXIT
-          echo "$APPLE_RELEASE_PROVISIONING_PROFILE_BASE64" | base64 --decode > "$TMP_PROFILE"
+          echo "$APPLE_RELEASE_PROVISIONING_PROFILE_BASE64" | base64 -D > "$TMP_PROFILE"
           security cms -D -i "$TMP_PROFILE" > "$TMP_PLIST"
           APP_ID="$(/usr/libexec/PlistBuddy -c "Print :Entitlements:com.apple.application-identifier" "$TMP_PLIST")"
           if [ "$APP_ID" != "7WLXT3NR37.com.cmuxterm.app" ]; then
