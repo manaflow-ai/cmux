@@ -546,7 +546,7 @@ impl PtyManager {
     }
 
     fn detach_matching(&self, owns: impl Fn(Option<&str>) -> bool) {
-        // Openings first: close() records cancellation for a reserved id, so
+        // Openings first: close_if_transport records cancellation for a reserved id, so
         // a late open cannot install an attachment after its transport died.
         let mut ids: Vec<(String, Option<String>)> = {
             let opening = self.inner.opening_state.lock().expect("opening state lock");
@@ -1058,19 +1058,6 @@ impl Inner {
         attachment.control.kill();
     }
 
-    /// Detach, NOT kill: idempotent, unknown ptyId tolerated.
-    fn close(&self, pty_id: &str) {
-        // Match `open`'s lock order. If opening still owns the reservation,
-        // record cancellation and let it dispose the newly opened PTY.
-        let mut opening = self.opening_state.lock().expect("opening state lock");
-        if opening.ids.contains_key(pty_id) {
-            opening.cancelled.insert(pty_id.to_owned());
-            return;
-        }
-        drop(opening);
-        self.close_exact(pty_id, None, None);
-    }
-
     fn close_if_transport(&self, pty_id: &str, transport_id: Option<&str>) {
         let mut opening = self.opening_state.lock().expect("opening state lock");
         if let Some(owner) = opening.ids.get(pty_id) {
@@ -1192,16 +1179,6 @@ impl Inner {
             return;
         }
         self.close_exact(pty_id, Some(attachment.generation), Some(&attachment.publication_gate));
-    }
-
-    fn close_if_generation(&self, pty_id: &str, generation: u64) {
-        let Some(attachment) = self.attachments.lock().expect("attach lock").get(pty_id).cloned()
-        else {
-            return;
-        };
-        if attachment.generation == generation {
-            self.close_exact(pty_id, Some(generation), Some(&attachment.publication_gate));
-        }
     }
 
     fn close_exact(

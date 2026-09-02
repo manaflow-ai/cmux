@@ -607,10 +607,9 @@ enum PipeChildCommand {
 }
 
 /// A degraded pipe-mode shell (no TTY) used when PTY allocation fails.
-/// The child itself remains owned by the wait thread. The control only sends
-/// commands to that owner and retains the child's stdin for input.
+/// The child itself remains owned by the wait thread. The control queues stdin
+/// writes and sends commands to that owner.
 struct PipeControl {
-    stdin: Mutex<Option<std::process::ChildStdin>>,
     stdin_tx: Option<mpsc::SyncSender<Vec<u8>>>,
     stdin_bytes: Arc<AtomicU64>,
     command_tx: mpsc::Sender<PipeChildCommand>,
@@ -625,13 +624,6 @@ impl PtyControl for PipeControl {
             {
                 self.stdin_bytes.fetch_sub(data.len() as u64, Ordering::AcqRel);
             }
-            return;
-        }
-        if let Ok(mut guard) = self.stdin.lock()
-            && let Some(stdin) = guard.as_mut()
-        {
-            let _ = stdin.write_all(data);
-            let _ = stdin.flush();
         }
     }
     fn resize(&self, _cols: u16, _rows: u16) {}
@@ -811,7 +803,7 @@ fn pump_pty(
     completion.reader_finished();
 }
 
-fn spawn_pipe_mode(spec: &SpawnSpec, reason: &str) -> PtyHandle {
+fn spawn_pipe_mode(spec: &SpawnSpec, reason: impl std::fmt::Display) -> PtyHandle {
     let output = ThreadOutput::new();
     let mut command = std::process::Command::new(&spec.file);
     command.args(&spec.args).current_dir(&spec.cwd).env_clear();
@@ -833,7 +825,7 @@ fn spawn_pipe_mode(spec: &SpawnSpec, reason: &str) -> PtyHandle {
         Ok(mut child) => {
             let stdin = child.stdin.take();
             let stdin_bytes = Arc::new(AtomicU64::new(0));
-            let (stdin_tx, stdin_for_control) = match stdin {
+            let stdin_tx = match stdin {
                 Some(mut stdin) => {
                     let (tx, rx) = mpsc::sync_channel::<Vec<u8>>(PTY_WRITE_QUEUE_ITEMS);
                     let stdin_bytes_for_thread = Arc::clone(&stdin_bytes);
@@ -847,14 +839,13 @@ fn spawn_pipe_mode(spec: &SpawnSpec, reason: &str) -> PtyHandle {
                             stdin_bytes_for_thread.fetch_sub(len, Ordering::AcqRel);
                         }
                     });
-                    (Some(tx), None)
+                    Some(tx)
                 }
-                None => (None, None),
+                None => None,
             };
             let pid = child.id() as libc::pid_t;
             let (command_tx, command_rx) = mpsc::channel();
             let control = Arc::new(PipeControl {
-                stdin: Mutex::new(stdin_for_control),
                 stdin_tx,
                 stdin_bytes,
                 command_tx: command_tx.clone(),
@@ -1035,9 +1026,7 @@ impl PtyDeps for RealPtyDeps {
             }
             let handle = match spawn_real_pty(&spec) {
                 Ok(handle) => handle,
-                Err(error) if !spec.cancellation.is_cancelled() => {
-                    spawn_pipe_mode(&spec, &error.to_string())
-                }
+                Err(error) if !spec.cancellation.is_cancelled() => spawn_pipe_mode(&spec, &error),
                 Err(_) => {
                     task_output.push_exit(1);
                     return PtyHandle {
@@ -1367,7 +1356,6 @@ mod tests {
     fn pipe_control_sends_one_kill_request_to_owned_child() {
         let (command_tx, command_rx) = mpsc::channel();
         let control = PipeControl {
-            stdin: Mutex::new(None),
             stdin_tx: None,
             stdin_bytes: Arc::new(AtomicU64::new(0)),
             command_tx,
@@ -1403,7 +1391,6 @@ mod tests {
         let (command_tx, command_rx) = mpsc::channel();
         {
             let control = PipeControl {
-                stdin: Mutex::new(None),
                 stdin_tx: None,
                 stdin_bytes: Arc::new(AtomicU64::new(0)),
                 command_tx,
