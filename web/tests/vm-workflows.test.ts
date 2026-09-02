@@ -194,6 +194,42 @@ describe("VM Effect workflows", () => {
     });
   });
 
+  test("passes persisted provider metadata to the exec driver", async () => {
+    const vm = testCloudVmRow({
+      id: "00000000-0000-4000-8000-000000000119",
+      userId: "user-workflow-exec-metadata",
+      provider: "blaxel",
+      providerVmId: "provider-vm-exec-metadata",
+      status: "running",
+      providerMetadata: { homeVolume: "cmux-home-user-workflow-exec-metadata" },
+    });
+    const repo = testWorkflowRepo({ vm });
+    let receivedOptions: unknown;
+    const provider: VmProviderGatewayShape = {
+      ...unusedProviderGateway(),
+      exec: (_provider, _vmId, _command, options) =>
+        Effect.sync(() => {
+          receivedOptions = options;
+          return { exitCode: 0, stdout: "ok", stderr: "" };
+        }),
+    };
+
+    const result = await Effect.runPromise(
+      execVm({
+        userId: "user-workflow-exec-metadata",
+        providerVmId: "provider-vm-exec-metadata",
+        command: "printf ok",
+        timeoutMs: 1000,
+      }).pipe(Effect.provide(workflowLayer(repo, provider))),
+    );
+
+    expect(result).toEqual({ exitCode: 0, stdout: "ok", stderr: "" });
+    expect(receivedOptions).toEqual({
+      timeoutMs: 1000,
+      providerMetadata: { homeVolume: "cmux-home-user-workflow-exec-metadata" },
+    });
+  });
+
   test("exec failure with running provider status propagates the original error without retry", async () => {
     const vm = testCloudVmRow({
       id: "00000000-0000-4000-8000-000000000102",

@@ -99,6 +99,56 @@ describe("BlaxelProvider session transport", () => {
     expect(sandboxEnvs({ LANG: "en_US.UTF-8" })).toEqual([{ name: "LANG", value: "C.UTF-8" }]);
   });
 
+  test("uses persisted home metadata when the sandbox omits its volume list", async () => {
+    const previousKey = process.env.BL_API_KEY;
+    const previousWorkspace = process.env.BL_WORKSPACE;
+    process.env.BL_API_KEY = "test-key";
+    process.env.BL_WORKSPACE = "cmux";
+    const originalFetch = globalThis.fetch;
+    const processBodies: string[] = [];
+    globalThis.fetch = (async (input: string | URL | Request, init?: RequestInit) => {
+      const url = typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
+      const method = init?.method ?? "GET";
+      if (method === "GET" && url.endsWith("/sandboxes/machine-with-hidden-volume")) {
+        // Some provider responses omit spec.volumes even though the VM row still
+        // has the authoritative volume marker from create.
+        return new Response(JSON.stringify({
+          status: "DEPLOYED",
+          metadata: { url: "https://sandbox-api.test" },
+          spec: { runtime: { image: "sandbox/cmux-devbox:latest" } },
+        }), { status: 200 });
+      }
+      if (method === "POST" && url === "https://sandbox-api.test/process") {
+        processBodies.push(typeof init?.body === "string" ? JSON.parse(init.body).command : "");
+        return new Response(JSON.stringify({ status: "completed", exitCode: 0, stdout: "ok", stderr: "" }), { status: 200 });
+      }
+      return new Response(JSON.stringify({ error: `unexpected ${method} ${url}` }), { status: 500 });
+    }) as typeof fetch;
+    try {
+      const result = await new BlaxelProvider().exec(
+        "machine-with-hidden-volume",
+        "printf ok",
+        // The option is deliberately expressed as an unknown-compatible object
+        // in the failing-test commit; the implementation commit adds it to the
+        // shared driver contract.
+        { timeoutMs: 1000, providerMetadata: { homeVolume: "cmux-home-machine-with-hidden-volume" } } as {
+          timeoutMs?: number;
+        },
+      );
+      expect(result).toEqual({ exitCode: 0, stdout: "ok", stderr: "" });
+      expect(processBodies).toHaveLength(1);
+      expect(processBodies[0]).toContain("if ! mountpoint -q /root");
+      expect(processBodies[0]).toContain("exit 75");
+      expect(processBodies[0]).not.toContain("else cd /home/cmux 2>/dev/null; exec env HOME=/home/cmux");
+    } finally {
+      globalThis.fetch = originalFetch;
+      if (previousKey === undefined) delete process.env.BL_API_KEY;
+      else process.env.BL_API_KEY = previousKey;
+      if (previousWorkspace === undefined) delete process.env.BL_WORKSPACE;
+      else process.env.BL_WORKSPACE = previousWorkspace;
+    }
+  });
+
   test("the smart-sleep watcher only knows the cmux-tui daemon", () => {
     expect(SMART_SLEEP_SCRIPT).toContain("pidof cmux-tui");
     expect(SMART_SLEEP_SCRIPT).toContain("0539");
