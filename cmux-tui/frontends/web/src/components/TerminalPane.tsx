@@ -16,6 +16,7 @@ import { RenderTerminal } from "./RenderTerminal";
 
 interface TerminalPaneProps {
   client: CmuxClient | null;
+  supportsMutations?: boolean;
   clients: ClientInfo[];
   screen: ScreenView | null;
   onRefreshClients(): void;
@@ -60,13 +61,14 @@ interface TabButtonProps {
   tab: Tab;
   index: number;
   pane: LivePane;
+  supportsMutations: boolean;
   onSelect(): void;
   onNewTab(): void;
   onClose(surface: Id): void;
   onRename(surface: Id, name: string): void;
 }
 
-function TabButton({ tab, index, pane, onSelect, onNewTab, onClose, onRename }: TabButtonProps) {
+function TabButton({ tab, index, pane, supportsMutations, onSelect, onNewTab, onClose, onRename }: TabButtonProps) {
   const [menu, dispatchMenu] = useReducer(contextMenuReducer, { open: false });
   const [rename, dispatchRename] = useReducer(renameReducer, null);
   const trigger = useContextTrigger((point) => dispatchMenu({ type: "open", point }));
@@ -81,7 +83,7 @@ function TabButton({ tab, index, pane, onSelect, onNewTab, onClose, onRename }: 
 
   return (
     <span className="tab-wrap" {...trigger}>
-      {rename?.kind === "surface" && rename.id === tab.surface ? (
+      {supportsMutations && rename?.kind === "surface" && rename.id === tab.surface ? (
         <InlineRename
           value={rename.value}
           onChange={(value) => dispatchRename({ type: "change", value })}
@@ -94,7 +96,7 @@ function TabButton({ tab, index, pane, onSelect, onNewTab, onClose, onRename }: 
           <span className="tab-label">{label}</span>
         </button>
       )}
-      {menu.open && (
+      {menu.open && supportsMutations && (
         <ContextMenu
           point={menu.point}
           onClose={() => dispatchMenu({ type: "close" })}
@@ -122,6 +124,7 @@ interface PaneLeafProps extends Omit<TerminalPaneProps, "screen" | "onSetSplitRa
 
 function PaneLeaf({
   client,
+  supportsMutations = true,
   clients,
   pane,
   paneId,
@@ -201,7 +204,7 @@ function PaneLeaf({
     >
       <div className="tab-bar">
         <span className="pane-corner" aria-hidden="true">┌</span>
-        {rename?.kind === "pane" && rename.id === paneId && (
+        {supportsMutations && rename?.kind === "pane" && rename.id === paneId && (
           <InlineRename
             value={rename.value}
             onChange={(value) => dispatchRename({ type: "change", value })}
@@ -215,13 +218,14 @@ function PaneLeaf({
             tab={candidate}
             index={index}
             pane={pane}
+            supportsMutations={supportsMutations}
             onSelect={() => onSelectTab(paneId, index, candidate.surface)}
             onNewTab={() => onNewTab(paneId)}
             onClose={onCloseSurface}
             onRename={onRenameSurface}
           />
         ))}
-        <button className="new-tab" aria-label={t("newTab")} onClick={() => onNewTab(paneId)} type="button"> + </button>
+        {supportsMutations && <button className="new-tab" aria-label={t("newTab")} onClick={() => onNewTab(paneId)} type="button"> + </button>}
         <span className="pane-rule" aria-hidden="true" />
         <span className="pane-corner" aria-hidden="true">┐</span>
       </div>
@@ -279,14 +283,14 @@ function PaneLeaf({
         <span className="pane-rule" />
         <span className="pane-corner" aria-hidden="true">┘</span>
       </div>
-      {clientMenu.open && clientMenuSummary && (
+      {supportsMutations && clientMenu.open && clientMenuSummary && (
         <ContextMenu
           point={clientMenu.point}
           onClose={() => dispatchClientMenu({ type: "close" })}
           items={clientMenuItems}
         />
       )}
-      {menu.open && (
+      {supportsMutations && menu.open && (
         <ContextMenu
           point={menu.point}
           onClose={() => dispatchMenu({ type: "close" })}
@@ -400,6 +404,7 @@ function LayoutStackNode({
 }
 
 function LayoutGroupNode({ node, screen, paneById, basis, ...actions }: LayoutGroupNodeProps) {
+  const supportsMutations = actions.supportsMutations ?? true;
   const style = basis === undefined ? undefined : { flex: `0 0 ${basis}%` };
   const authoritativeRatio = node.firstPercent / 100;
   const target = splitDividerTarget(node);
@@ -434,11 +439,13 @@ function LayoutGroupNode({ node, screen, paneById, basis, ...actions }: LayoutGr
   // ratio renders; the stale record is cleared lazily on the next pointerdown.
   const keyboardRequestActive = keyboardResize.current?.split === target.split
     && (keyboardResize.current.inFlightRatio !== null || keyboardResize.current.scheduled !== null);
-  const pendingConfirmed = !keyboardRequestActive
+  const pendingConfirmed = supportsMutations
+    && !keyboardRequestActive
     && pendingRatio !== null
     && target.split === pendingRatio.split
     && Math.abs(authoritativeRatio - pendingRatio.ratio) <= 1e-6;
-  const pendingValid = !pendingConfirmed
+  const pendingValid = supportsMutations
+    && !pendingConfirmed
     && pendingRatio !== null
     && target.split === pendingRatio.split
     && pendingRatio.validRatios.some((ratio) => Math.abs(authoritativeRatio - ratio) <= 1e-6);
@@ -454,7 +461,9 @@ function LayoutGroupNode({ node, screen, paneById, basis, ...actions }: LayoutGr
     setPendingRatio(null);
   }, [pendingConfirmed]);
 
-  const firstRatio = previewRatio ?? (pendingValid && pendingRatio !== null ? pendingRatio.ratio : authoritativeRatio);
+  const firstRatio = supportsMutations
+    ? previewRatio ?? (pendingValid && pendingRatio !== null ? pendingRatio.ratio : authoritativeRatio)
+    : authoritativeRatio;
   const firstPercent = firstRatio * 100;
   const secondPercent = 100 - firstPercent;
   const dividerStyle = node.direction === "row"
@@ -462,6 +471,7 @@ function LayoutGroupNode({ node, screen, paneById, basis, ...actions }: LayoutGr
     : { top: `${firstPercent}%` };
 
   const commitRatio = (previousRatio: number, nextRatio: number) => {
+    if (!supportsMutations) return;
     const ratio = splitRatioToCommit(previousRatio, nextRatio);
     if (ratio === null) {
       setPreviewRatio(null);
@@ -533,12 +543,14 @@ function LayoutGroupNode({ node, screen, paneById, basis, ...actions }: LayoutGr
           aria-valuemin={5}
           aria-valuenow={Math.round(firstPercent)}
           aria-orientation={node.direction === "row" ? "vertical" : "horizontal"}
-          className="split-divider"
+          aria-disabled={!supportsMutations}
+          className={`split-divider${supportsMutations ? "" : " read-only"}`}
           ref={reconcileDividerRef}
           role="separator"
           style={dividerStyle}
-          tabIndex={0}
+          tabIndex={supportsMutations ? 0 : -1}
           onKeyDown={(event) => {
+            if (!supportsMutations) return;
             const delta = node.direction === "row"
               ? event.key === "ArrowLeft" ? -0.05 : event.key === "ArrowRight" ? 0.05 : null
               : event.key === "ArrowUp" ? -0.05 : event.key === "ArrowDown" ? 0.05 : null;
@@ -580,6 +592,7 @@ function LayoutGroupNode({ node, screen, paneById, basis, ...actions }: LayoutGr
             scheduleKeyboardResize(resize);
           }}
           onPointerDown={(event) => {
+            if (!supportsMutations) return;
             if (event.pointerType === "mouse" && event.button !== 0) return;
             if (pendingRatio && pendingValid) return;
             keyboardGeneration.current += 1;
@@ -601,6 +614,7 @@ function LayoutGroupNode({ node, screen, paneById, basis, ...actions }: LayoutGr
             };
           }}
           onPointerMove={(event) => {
+            if (!supportsMutations) return;
             if (!drag.current || drag.current.pointerId !== event.pointerId) return;
             event.preventDefault();
             const ratio = splitRatioFromPointer(node.direction, event, drag.current.bounds);
@@ -609,6 +623,7 @@ function LayoutGroupNode({ node, screen, paneById, basis, ...actions }: LayoutGr
             setPreviewRatio(ratio);
           }}
           onPointerUp={(event) => {
+            if (!supportsMutations) return;
             const currentDrag = drag.current;
             if (!currentDrag || currentDrag.pointerId !== event.pointerId) return;
             event.preventDefault();
@@ -622,6 +637,7 @@ function LayoutGroupNode({ node, screen, paneById, basis, ...actions }: LayoutGr
             commitRatio(currentDrag.initialRatio, nextRatio);
           }}
           onPointerCancel={(event) => {
+            if (!supportsMutations) return;
             if (!drag.current || drag.current.pointerId !== event.pointerId) return;
             drag.current = null;
             setPreviewRatio(null);

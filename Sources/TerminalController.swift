@@ -1554,6 +1554,13 @@ class TerminalController {
             return v2Result(id: request.id, v2MobileCompatibleTagsGet())
         case "mobile.compatible_tags.set":
             return v2Result(id: request.id, v2MobileCompatibleTagsSet(params: request.params))
+        case "web.bridge.start", "web.bridge.stop", "web.bridge.status",
+             "web.bridge.grant.create", "web.bridge.grant.list", "web.bridge.grant.revoke":
+            return webClientBridgeSocketResponse(
+                method: request.method,
+                id: request.id,
+                params: request.params
+            )
         case "system.ping":
             return v2Ok(id: request.id, result: ["pong": true])
         case "system.capabilities":
@@ -2831,6 +2838,8 @@ class TerminalController {
             "mobile.browser.forward",
             "mobile.browser.reload",
             "mobile.terminal.viewport", "mobile.events.subscribe", "mobile.events.unsubscribe",
+            "web.bridge.start", "web.bridge.stop", "web.bridge.status",
+            "web.bridge.grant.create", "web.bridge.grant.list", "web.bridge.grant.revoke",
             "terminal.create",
             "terminal.input",
             "terminal.paste",
@@ -15506,8 +15515,10 @@ class TerminalController {
             "workspace_id": resolved.workspace.id.uuidString,
             "surface_id": surfaceId.uuidString,
             "seq": seq,
+            "seq_decimal": String(seq),
         ]
-        if let renderGrid,
+        let preferByteReplay = v2Bool(params, "prefer_bytes") == true
+        if !preferByteReplay, let renderGrid,
            let renderGridObject = try? renderGrid.jsonObject() {
             payload["columns"] = renderGrid.columns
             payload["rows"] = renderGrid.rows

@@ -118,6 +118,34 @@ describe("TerminalPane split dividers", () => {
     expect(queryByRole("separator")).toBeNull();
   });
 
+  it("renders Mac runtime dividers as non-interactive separators", () => {
+    const onSetSplitRatio = vi.fn(async () => true);
+    const props = terminalPaneProps(onSetSplitRatio);
+    const { container, getByRole } = render(
+      <TerminalPane {...props} supportsMutations={false} screen={screenView(0.5)} />,
+    );
+    const divider = getByRole("separator");
+    expect(divider).toHaveAttribute("aria-disabled", "true");
+    expect(divider).toHaveAttribute("tabindex", "-1");
+    expect(divider).toHaveClass("read-only");
+
+    fireEvent.keyDown(divider, { key: "ArrowRight" });
+    fireEvent.pointerDown(divider, {
+      button: 0,
+      clientX: 200,
+      pointerId: 1,
+      pointerType: "mouse",
+    });
+    fireEvent.pointerUp(divider, {
+      clientX: 300,
+      pointerId: 1,
+      pointerType: "mouse",
+    });
+
+    expect(onSetSplitRatio).not.toHaveBeenCalled();
+    expect(container.querySelector<HTMLElement>(".pane-leaf")?.style.flex).toContain("50%");
+  });
+
   it("exposes split state and resizes with the orientation arrow keys", async () => {
     const onSetSplitRatio = vi.fn(async () => true);
     const props = terminalPaneProps(onSetSplitRatio);

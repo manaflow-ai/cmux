@@ -72,6 +72,21 @@ final class MobileTerminalByteTee {
     // shared` can construct it without hopping to the main actor.
     nonisolated private init() {}
 
+    /// Builds the shared terminal-byte wire payload. Browser-specific sequence
+    /// encoding is selected once during event fan-out, only when a subscribed
+    /// web-grant connection needs it.
+    nonisolated static func eventPayload(
+        surfaceID: UUID,
+        sequence: UInt64,
+        data: Data
+    ) -> [String: Any] {
+        [
+            "surface_id": surfaceID.uuidString,
+            "seq": sequence,
+            "data_b64": data.base64EncodedString(),
+        ]
+    }
+
     /// Non-isolated entry point called from the C tee trampoline. Safe
     /// to invoke from any thread.
     nonisolated func append(surfaceID: UUID, bytes: UnsafeBufferPointer<UInt8>) {
@@ -88,8 +103,7 @@ final class MobileTerminalByteTee {
         // and calls `noteTerminalBytes` to schedule the post-parse tick.
         // Iroh application-lane demand keeps its lock-free gate.
         guard
-            MobileHostService.hasEventSubscribers(topic: "terminal.bytes")
-                || MobileHostService.hasEventSubscribers(topic: "terminal.render_grid")
+            MobileHostService.hasTerminalOutputSubscribers(surfaceID: surfaceID)
                 || laneDemand.loadAcquire()
         else {
             return
@@ -209,16 +223,19 @@ final class MobileTerminalByteTee {
         // The check is the same O(1) subscription read used elsewhere; the
         // `seq`/render-grid work above stays unconditional so render-grid
         // subscribers keep correct sequence continuity.
-        guard MobileHostService.hasEventSubscribers(topic: "terminal.bytes") else { return }
+        guard MobileHostService.hasEventSubscribers(
+            topic: "terminal.bytes",
+            surfaceID: surfaceID
+        ) else { return }
 
         // JSON+base64 stopgap for the wire format. A future commit can
         // switch to a binary opcode on the same connection if PTY
         // throughput becomes a bottleneck.
-        let payload: [String: Any] = [
-            "surface_id": surfaceID.uuidString,
-            "seq": chunkSeq,
-            "data_b64": data.base64EncodedString(),
-        ]
+        let payload = Self.eventPayload(
+            surfaceID: surfaceID,
+            sequence: chunkSeq,
+            data: data
+        )
         MobileHostService.shared.emitEvent(topic: "terminal.bytes", payload: payload)
     }
 

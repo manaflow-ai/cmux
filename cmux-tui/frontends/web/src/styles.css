@@ -120,6 +120,7 @@ button { color: inherit; touch-action: manipulation; }
 .stack-pane-header:focus-visible { outline: 1px solid var(--border-active); outline-offset: -1px; }
 .stack-pane-title { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .split-divider { position: absolute; z-index: 5; padding: 0; border: 0; background: var(--border-inactive); touch-action: none; user-select: none; -webkit-user-select: none; }
+.split-divider.read-only { pointer-events: none; cursor: default !important; }
 .split-divider::before { position: absolute; content: ""; }
 .pane-group.row > .split-divider { top: 0; bottom: 0; width: 1px; transform: translateX(-0.5px); cursor: col-resize; }
 .pane-group.row > .split-divider::before { top: 0; bottom: 0; left: 50%; width: 24px; transform: translateX(-50%); }

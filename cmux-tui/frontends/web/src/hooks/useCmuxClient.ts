@@ -23,11 +23,13 @@ import {
 import { reconnectTransition, type ReconnectState } from "../lib/reconnect";
 import { SUPPORTED_PROTOCOL, supportsProtocol } from "../lib/protocol";
 import { activeScreen, locateSurface, SurfaceTitleReconciler, treeToViewModel } from "../lib/tree";
+import { MacRuntimeClient } from "../lib/macRuntimeClient";
 import { t } from "../i18n";
 
 export interface ConnectionConfig {
   url: string;
   token?: string;
+  runtime?: "tui" | "mac";
 }
 
 export interface Toast extends NotificationEvent {}
@@ -127,24 +129,7 @@ export function useCmuxClient() {
       titleReconciler = new SurfaceTitleReconciler();
       let dropHandled = false;
       let canReconnect = false;
-      const transport = new WebSocketTransport(config.url, {
-        authToken: config.token ?? pairingCredential.current,
-        maxInboundMessageBytes: RENDER_ATTACH_MAX_ENCODED_CHARS,
-        onPairingChallenge: (pairing) => {
-          if (!cancelled) {
-            setState((current) => ({ ...current, status: "pairing", pairing, error: null }));
-          }
-        },
-        onPairingCredential: (credential) => {
-          pairingCredential.current = credential;
-        },
-        onAuthenticationRejected: () => {
-          if (!config.token) pairingCredential.current = undefined;
-        },
-      });
-      const client = new CmuxClient({ transport });
-      activeClient = client;
-
+      const isMacRuntime = config.runtime === "mac";
       const scheduleRetry = () => {
         if (cancelled || dropHandled) return;
         dropHandled = true;
@@ -159,14 +144,51 @@ export function useCmuxClient() {
         }));
         retryTimer = setTimeout(() => void start(true, step.attempt), step.delayMs);
       };
-      transport.onClose(() => {
-        if (canReconnect) scheduleRetry();
-      });
 
       try {
+        const transport = isMacRuntime ? null : new WebSocketTransport(config.url, {
+          authToken: config.token ?? pairingCredential.current,
+          maxInboundMessageBytes: RENDER_ATTACH_MAX_ENCODED_CHARS,
+          onPairingChallenge: (pairing) => {
+            if (!cancelled) {
+              setState((current) => ({ ...current, status: "pairing", pairing, error: null }));
+            }
+          },
+          onPairingCredential: (credential) => {
+            pairingCredential.current = credential;
+          },
+          onAuthenticationRejected: () => {
+            if (!config.token) pairingCredential.current = undefined;
+          },
+        });
+        const macClient = isMacRuntime
+          ? new MacRuntimeClient(config.url, config.token ?? "")
+          : null;
+        // MacRuntimeClient mirrors the CmuxClient methods this shared shell calls;
+        // protocol 6 keeps it on the byte-terminal path, and the UI suppresses
+        // mutation methods the bridge intentionally does not expose.
+        const client = macClient
+          ? macClient as unknown as CmuxClient
+          : new CmuxClient({ transport: transport! });
+        activeClient = client;
+        if (macClient) {
+          macClient.onClose(() => {
+            if (canReconnect) scheduleRetry();
+          });
+        } else {
+          transport!.onClose(() => {
+            if (canReconnect) scheduleRetry();
+          });
+        }
+
         const info = await client.identify();
-        if (info.app !== "cmux-tui") throw new Error(t("wrongApp", { app: info.app }));
-        if (!supportsProtocol(info.protocol)) {
+        if (!isMacRuntime && info.app !== "cmux-tui") {
+          throw new Error(t("wrongApp", { app: info.app }));
+        }
+        if (isMacRuntime && info.protocol !== 6) {
+          throw new Error(t("wrongProtocol", { required: 6, protocol: info.protocol }));
+        }
+        if (!isMacRuntime && !supportsProtocol(info.protocol)) {
           throw new Error(t("wrongProtocol", {
             required: SUPPORTED_PROTOCOL,
             protocol: info.protocol,
@@ -175,7 +197,9 @@ export function useCmuxClient() {
         // Presence commands are additive (7c5a9e3e60); a protocol-6 server
         // predating them still serves everything else, so degrade instead of
         // failing the whole connect.
-        await client.setClientInfo(browserClientName(), "web").catch(() => undefined);
+        if (!isMacRuntime) {
+          await client.setClientInfo(browserClientName(), "web").catch(() => undefined);
+        }
         const events = await client.subscribe();
         const [tree, clients] = await Promise.all([
           client.listWorkspaces(),
@@ -260,10 +284,24 @@ export function useCmuxClient() {
           }
         })();
       } catch (error) {
-        client.close();
+        void activeClient?.close();
+        activeClient = null;
         if (cancelled) return;
         if (reconnecting) {
-          scheduleRetry();
+          if (isMacRuntime && previousAttempt >= 5) {
+            setState({
+              status: "error",
+              client: null,
+              info: null,
+              tree: null,
+              clients: [],
+              error: t("macBridgeReconnectFailed"),
+              reconnect: null,
+              pairing: null,
+            });
+          } else {
+            scheduleRetry();
+          }
         } else {
           setState({
             status: "error",
@@ -338,6 +376,9 @@ export function useCmuxClient() {
   const selectTab = useCallback(async (pane: Id, index: number, surface: Id) => {
     await runMutation(async (client) => {
       await client.selectTab({ pane, index: BigInt(index) });
+      if (client instanceof MacRuntimeClient) {
+        await refreshRef.current?.();
+      }
       setUnread((current) => {
         const next = new Set(current);
         next.delete(surface);
@@ -414,6 +455,7 @@ export function useCmuxClient() {
   );
   return {
     ...state,
+    isMacRuntime: config?.runtime === "mac",
     view,
     active: activeScreen(view),
     toasts,

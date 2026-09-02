@@ -40,4 +40,18 @@ describe("useCmuxClient", () => {
     expect(rawMocks.transportOptions[0]?.maxInboundMessageBytes).toBe(32 * 1024 * 1024);
     unmount();
   });
+
+  it("surfaces a synchronous Mac WebSocket constructor failure", async () => {
+    const { result, unmount } = renderHook(() => useCmuxClient());
+
+    act(() => result.current.connect({
+      url: "https://not-a-websocket.example",
+      runtime: "mac",
+      token: "cmux_web_test",
+    }));
+
+    await waitFor(() => expect(result.current.status).toBe("error"));
+    expect(result.current.error).toBeTruthy();
+    unmount();
+  });
 });

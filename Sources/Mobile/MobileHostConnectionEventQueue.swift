@@ -124,6 +124,8 @@ final class MobileHostConnectionEventQueue: @unchecked Sendable {
     private let maximumEventCount: Int
     private let maximumByteCount: Int
     private var subscribedTopics: Set<String> = []
+    private var surfaceFilterTopics: Set<String> = []
+    private var allowedSurfaceIDsByTopic: [String: Set<String>] = [:]
     private var queuedEvents: [QueuedEvent] = []
     private var queuedByteCount = 0
     private var drainActive = false
@@ -161,10 +163,28 @@ final class MobileHostConnectionEventQueue: @unchecked Sendable {
     }
 
     /// Replaces the subscribed-topic snapshot used for synchronous admission.
-    /// The owning connection calls this on subscribe/unsubscribe/close.
+    /// Direct queue tests use this unfiltered form; production connections
+    /// publish topics and surface filters atomically through
+    /// ``updateSubscriptionState(topics:allowedSurfaceIDsByTopic:filteredTopics:)``.
     func updateSubscribedTopics(_ topics: Set<String>) {
+        updateSubscriptionState(
+            topics: topics,
+            allowedSurfaceIDsByTopic: [:],
+            filteredTopics: []
+        )
+    }
+
+    /// Atomically publishes topic membership and per-surface admission.
+    /// A topic with no filter remains connection-wide.
+    func updateSubscriptionState(
+        topics: Set<String>,
+        allowedSurfaceIDsByTopic: [String: Set<String>],
+        filteredTopics: Set<String>
+    ) {
         lock.lock()
         subscribedTopics = topics
+        self.allowedSurfaceIDsByTopic = allowedSurfaceIDsByTopic
+        surfaceFilterTopics = filteredTopics
         lock.unlock()
     }
 
@@ -172,6 +192,15 @@ final class MobileHostConnectionEventQueue: @unchecked Sendable {
         lock.lock()
         defer { lock.unlock() }
         return subscribedTopics.contains(topic)
+    }
+
+    /// Returns whether the current subscription snapshot admits this event.
+    /// Used to avoid building connection-specific wire variants for peers that
+    /// will reject the topic or surface.
+    func accepts(topic: String, coalesceKey: String?) -> Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        return acceptsLocked(topic: topic, coalesceKey: coalesceKey)
     }
 
     /// Synchronous bounded admission. Safe to call from any thread; never
@@ -184,7 +213,7 @@ final class MobileHostConnectionEventQueue: @unchecked Sendable {
         frame: Data
     ) -> MobileHostEventEnqueueResult {
         lock.lock()
-        guard !isClosed, subscribedTopics.contains(topic) else {
+        guard acceptsLocked(topic: topic, coalesceKey: coalesceKey) else {
             lock.unlock()
             return .rejected
         }
@@ -371,7 +400,16 @@ final class MobileHostConnectionEventQueue: @unchecked Sendable {
         resyncAfterDrainSurfaceIDs.removeAll()
         simulatorFrameReplayAfterDrainPanelIDs.removeAll()
         subscribedTopics.removeAll()
+        surfaceFilterTopics.removeAll()
+        allowedSurfaceIDsByTopic.removeAll()
         lock.unlock()
+    }
+
+    private func acceptsLocked(topic: String, coalesceKey: String?) -> Bool {
+        guard !isClosed, subscribedTopics.contains(topic) else { return false }
+        guard surfaceFilterTopics.contains(topic) else { return true }
+        guard let coalesceKey else { return false }
+        return allowedSurfaceIDsByTopic[topic, default: []].contains(coalesceKey)
     }
 
     private func hasRoomLocked(for frame: Data) -> Bool {

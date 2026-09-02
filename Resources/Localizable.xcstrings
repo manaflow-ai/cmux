@@ -272847,6 +272847,328 @@
           }
         }
       }
+    },
+    "cli.serveWeb.active": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "active" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "有効" } }
+      }
+    },
+    "cli.serveWeb.connectionsLabel": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "connections" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "接続数" } }
+      }
+    },
+    "cli.serveWeb.endpointLabel": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "endpoint" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "エンドポイント" } }
+      }
+    },
+    "cli.serveWeb.grantLabel": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "grant" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "許可ID" } }
+      }
+    },
+    "cli.serveWeb.grantsLabel": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "grants" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "ブラウザ許可" } }
+      }
+    },
+    "cli.serveWeb.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Usage: cmux serve-web [start|status|pair|grants|revoke|stop] [options]\n\nStart the opt-in Mac browser bridge on an explicit loopback or\nTailscale address. start prints a one-time per-client grant token;\ntokens are never put in a URL.\n\nOptions:\n  --bind <127.0.0.1|100.64.x.x>  Explicit listener address\n  --port <n>                     TCP port (default: 7683)\n  --label <name>                 Label for a new grant" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "使用方法: cmux serve-web [start|status|pair|grants|revoke|stop] [オプション]\n\n明示したループバックまたはTailscaleアドレスで、オプトインのMacブラウザ\nブリッジを開始します。startはクライアントごとの一度だけの許可トークンを\n表示します。トークンをURLに含めることはありません。\n\nオプション:\n  --bind <127.0.0.1|100.64.x.x>  明示するリスナーアドレス\n  --port <n>                     TCPポート（既定値: 7683）\n  --label <name>                 新しい許可のラベル" } }
+      }
+    },
+    "cli.serveWeb.invalidPort": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "--port must be between 0 and 65535" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "--port は 0 から 65535 の範囲で指定してください" } }
+      }
+    },
+    "cli.serveWeb.listening": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "cmux web client listening" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "cmuxウェブクライアントが待機中です" } }
+      }
+    },
+    "cli.serveWeb.noGrants": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "No browser grants" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "ブラウザ許可はありません" } }
+      }
+    },
+    "cli.serveWeb.protocolLabel": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "protocol" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "プロトコル" } }
+      }
+    },
+    "cli.serveWeb.revokeLabel": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "revoke" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "取り消し" } }
+      }
+    },
+    "cli.serveWeb.revoked": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "revoked" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "取り消し済み" } }
+      }
+    },
+    "cli.serveWeb.revokedGrantLabel": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Revoked browser grant" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "取り消したブラウザ許可" } }
+      }
+    },
+    "cli.serveWeb.revokeUsage": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Usage: cmux serve-web revoke <grant-id>" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "使用方法: cmux serve-web revoke <grant-id>" } }
+      }
+    },
+    "cli.serveWeb.running": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "running" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "実行中" } }
+      }
+    },
+    "cli.serveWeb.secureProxyHint": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "  secure:   HTTPS-hosted pages need a private TLS proxy (for example: tailscale serve)" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "  セキュア接続: HTTPSで配信されるページにはプライベートTLSプロキシが必要です（例: tailscale serve）" } }
+      }
+    },
+    "cli.serveWeb.stopComplete": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "cmux web client stopped" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "cmuxウェブクライアントを停止しました" } }
+      }
+    },
+    "cli.serveWeb.stopped": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "stopped" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "停止中" } }
+      }
+    },
+    "cli.serveWeb.tokenLabel": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "token" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "トークン" } }
+      }
+    },
+    "cli.serveWeb.trustedClientHint": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "  safety:   paste this token only into a trusted cmux web client" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "  安全性: このトークンは信頼できるcmuxウェブクライアントだけに貼り付けてください" } }
+      }
+    },
+    "cli.serveWeb.unavailable": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "(unavailable)" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "（利用不可）" } }
+      }
+    },
+    "cli.serveWeb.usage": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Usage: cmux serve-web [start|status|pair|grants|revoke|stop] [options]" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "使用方法: cmux serve-web [start|status|pair|grants|revoke|stop] [options]" } }
+      }
+    },
+    "webClientBridge.defaultGrantLabel": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Browser client" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "ブラウザクライアント" } }
+      }
+    },
+    "webClientBridge.error.addressMustBeString": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "address must be a string" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "addressは文字列で指定してください" } }
+      }
+    },
+    "webClientBridge.error.bindFailed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Unable to bind the web client listener." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "ウェブクライアントのリスナーをバインドできませんでした。" } }
+      }
+    },
+    "webClientBridge.error.bindTimeout": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Web client listener did not become ready." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "ウェブクライアントのリスナーを開始できませんでした。" } }
+      }
+    },
+    "webClientBridge.error.eventTopicsNotExposed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "events.stream contains a topic that is not exposed to browser clients" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "events.streamにブラウザクライアントへ公開されていないトピックが含まれています" } }
+      }
+    },
+    "webClientBridge.error.grantFailed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Unable to create browser grant." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "ブラウザ許可を作成できませんでした。" } }
+      }
+    },
+    "webClientBridge.error.grantIDMustBeUUID": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "grant_id must be a UUID" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "grant_idにはUUIDを指定してください" } }
+      }
+    },
+    "webClientBridge.error.grantLimit": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Too many active browser grants; revoke one before pairing another." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "有効なブラウザ許可が多すぎます。別のクライアントを接続する前に1つ取り消してください。" } }
+      }
+    },
+    "webClientBridge.error.grantNotFound": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Browser grant not found or already revoked." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "ブラウザ許可が見つからないか、すでに取り消されています。" } }
+      }
+    },
+    "webClientBridge.error.grantRevoked": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Browser grant has been revoked" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "ブラウザ許可は取り消されています" } }
+      }
+    },
+    "webClientBridge.error.grantUnavailable": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Browser grant is unavailable" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "ブラウザ許可を利用できません" } }
+      }
+    },
+    "webClientBridge.error.invalidBindAddress": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Web client bind address must be loopback or a Tailscale 100.64.0.0/10 address; wildcard addresses are refused." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "ウェブクライアントのバインド先には、ループバックまたはTailscaleの100.64.0.0/10アドレスを指定してください。ワイルドカードアドレスは使用できません。" } }
+      }
+    },
+    "webClientBridge.error.invalidPort": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Web client port must be between 0 and 65535." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "ウェブクライアントのポートは0から65535の範囲で指定してください。" } }
+      }
+    },
+    "webClientBridge.error.invalidStreamID": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "stream_id must contain 1 to 256 UTF-8 bytes" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "stream_idは1〜256バイトのUTF-8文字列で指定してください" } }
+      }
+    },
+    "webClientBridge.error.labelMustBeString": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "label must be a string" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "labelは文字列で指定してください" } }
+      }
+    },
+    "webClientBridge.error.methodNotExposed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Method is not exposed to browser clients" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "このメソッドはブラウザクライアントには公開されていません" } }
+      }
+    },
+    "webClientBridge.error.notRunning": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Start the web client bridge before creating a browser grant." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "ブラウザ許可を作成する前にウェブクライアントブリッジを開始してください。" } }
+      }
+    },
+    "webClientBridge.error.remoteControlDisabled": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Remote control is disabled by managed policy." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "管理ポリシーによりリモート操作が無効になっています。" } }
+      }
+    },
+    "webClientBridge.error.portMustBeInteger": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "port must be an integer" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "portには整数を指定してください" } }
+      }
+    },
+    "webClientBridge.error.surfaceIDRequired": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "surface_id must be a UUID" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "surface_idにはUUIDを指定してください" } }
+      }
+    },
+    "webClientBridge.error.startSuperseded": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Web client bridge startup was replaced by a newer request." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "ウェブクライアントブリッジの起動は、より新しいリクエストに置き換えられました。" } }
+      }
+    },
+    "webClientBridge.error.subscriptionLimit": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Too many event subscriptions are active on this connection" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "この接続で有効なイベント購読が多すぎます" } }
+      }
+    },
+    "webClientBridge.error.topicsRequired": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "topics is required" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "topicsを指定してください" } }
+      }
+    },
+    "webClientBridge.error.unknownMethod": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Unknown web bridge method" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "不明なウェブブリッジメソッドです" } }
+      }
     }
   },
   "version": "1.0"

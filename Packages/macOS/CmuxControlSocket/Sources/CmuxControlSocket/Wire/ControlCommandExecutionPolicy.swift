@@ -111,6 +111,15 @@ public enum ControlCommandExecutionPolicy: Sendable, Equatable {
         // event through thread-safe MobileHostService statics.
         "mobile.compatible_tags.get",
         "mobile.compatible_tags.set",
+        // Browser bridge lifecycle and grant operations are actor-backed and
+        // may wait for Network.framework listener readiness or connection
+        // teardown; keep them off the main actor.
+        "web.bridge.start",
+        "web.bridge.stop",
+        "web.bridge.status",
+        "web.bridge.grant.create",
+        "web.bridge.grant.list",
+        "web.bridge.grant.revoke",
         // Panel artifact reads are mobile data-plane file IO for non-terminal
         // surfaces. Keep them on the worker lane so markdown/file-preview panes
         // reach TerminalController's mobile.panel.artifact.* dispatcher instead

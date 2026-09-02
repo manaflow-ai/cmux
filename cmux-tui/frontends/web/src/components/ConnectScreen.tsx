@@ -1,7 +1,10 @@
 import { useState, type FormEvent } from "react";
 import { t } from "../i18n";
 import type { ConnectionConfig } from "../hooks/useCmuxClient";
-import { initialConnectionConfig, rememberWebSocketUrl } from "../lib/connectionDefaults";
+import {
+  initialConnectionConfig,
+  rememberWebSocketUrl,
+} from "../lib/connectionDefaults";
 import type { PairingChallenge } from "cmux/raw";
 
 interface ConnectScreenProps {
@@ -20,8 +23,11 @@ function removeTokenFragment(hash: string): string {
 }
 
 export function ConnectScreen({ connecting, error, pairing, onConnect }: ConnectScreenProps) {
+  const runtimeHint = new URLSearchParams(window.location.search).get("runtime") === "mac"
+    ? "mac"
+    : "tui";
   const [initial] = useState(() => {
-    const config = initialConnectionConfig(window.location, window.localStorage);
+    const config = initialConnectionConfig(window.location, window.localStorage, runtimeHint);
     // Consume the one-tap socket query and credential fragment once. The token
     // never enters the HTTP request and lives in memory only from here on.
     const params = new URLSearchParams(window.location.search);
@@ -39,20 +45,64 @@ export function ConnectScreen({ connecting, error, pairing, onConnect }: Connect
     }
     return config;
   });
+  const [runtime, setRuntime] = useState<"tui" | "mac">(runtimeHint);
   const [url, setUrl] = useState(initial.url);
+  const [tuiToken] = useState(runtimeHint === "tui" ? initial.token : "");
+  const [bridgeToken, setBridgeToken] = useState(runtimeHint === "mac" ? initial.token : "");
   const submit = (event: FormEvent) => {
     event.preventDefault();
     const normalizedUrl = url.trim();
-    rememberWebSocketUrl(normalizedUrl, window.localStorage);
-    onConnect({ url: normalizedUrl, token: initial.token || undefined });
+    rememberWebSocketUrl(normalizedUrl, window.localStorage, runtime);
+    const locationParams = new URLSearchParams(window.location.search);
+    if (runtime === "mac") locationParams.set("runtime", "mac");
+    else locationParams.delete("runtime");
+    const persistedSearch = locationParams.toString();
+    window.history.replaceState(
+      null,
+      "",
+      window.location.pathname
+        + (persistedSearch ? `?${persistedSearch}` : "")
+        + window.location.hash,
+    );
+    const config: ConnectionConfig = {
+      url: normalizedUrl,
+      token: runtime === "mac" ? bridgeToken.trim() || undefined : tuiToken || undefined,
+    };
+    if (runtime === "mac") config.runtime = "mac";
+    onConnect(config);
   };
 
   return (
     <main className="connect-shell">
-      <form className="connect-card" onSubmit={submit}>
+      <form autoComplete="off" className="connect-card" onSubmit={submit}>
         <div className="brand-mark" aria-hidden="true">›_</div>
         <h1>{t("appName")}</h1>
         <p>{t("appTagline")}</p>
+        <label>
+          <span>{t("runtime")}</span>
+          <select
+            value={runtime}
+            onChange={(event) => {
+              const nextRuntime = event.target.value as "tui" | "mac";
+              const currentSuggested = initialConnectionConfig(
+                window.location,
+                window.localStorage,
+                runtime,
+              ).url;
+              if (url === currentSuggested) {
+                setUrl(initialConnectionConfig(
+                  window.location,
+                  window.localStorage,
+                  nextRuntime,
+                ).url);
+              }
+              setRuntime(nextRuntime);
+            }}
+          >
+            <option value="tui">{t("runtimeTui")}</option>
+            <option value="mac">{t("runtimeMac")}</option>
+          </select>
+        </label>
         <label>
           <span>{t("wsUrl")}</span>
           <input
@@ -66,6 +116,22 @@ export function ConnectScreen({ connecting, error, pairing, onConnect }: Connect
             enterKeyHint="go"
           />
         </label>
+        {runtime === "mac" && (
+          <label>
+            <span>{t("bridgeToken")}</span>
+            <input
+              type="password"
+              value={bridgeToken}
+              onChange={(event) => setBridgeToken(event.target.value)}
+              required
+              autoComplete="off"
+              autoCapitalize="off"
+              autoCorrect="off"
+              spellCheck={false}
+              placeholder={t("bridgeTokenHelp")}
+            />
+          </label>
+        )}
         {pairing && (
           <div className="pairing-code" role="status">
             <span>{t("pairingPrompt")}</span>
