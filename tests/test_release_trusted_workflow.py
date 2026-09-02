@@ -286,7 +286,7 @@ class ReleaseTrustedWorkflowTests(unittest.TestCase):
         self.assertIn("gh api", r2_recheck["run"])
         self.assertIn("skip_r2_upload", r2_recheck["if"])
         r2_upload = next(step for step in sign_steps if step.get("name") == "Upload release appcast to R2")
-        self.assertIn('[[ "$IS_PRERELEASE" == true ]]', r2_upload["run"])
+        self.assertIn('[[ "${IS_PRERELEASE:-}" == true ]]', r2_upload["run"])
         self.assertNotIn('RELEASE_TAG" == *-*', r2_upload["run"])
 
         release_upload = next(step for step in sign_steps if step.get("name") == "Upload release asset")
