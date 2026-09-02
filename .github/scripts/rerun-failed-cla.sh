@@ -594,16 +594,16 @@ if ! candidate_list_json="$(jq -c \
             (.base.sha | type == "string") and
             (.base.sha | test("^[0-9a-f]{40}$")) and
             .base.sha == $base_sha and
-            ((.base.repo.full_name // "") == "" or
-             .base.repo.full_name == $repo) and
+            (.base.repo.full_name | type == "string") and
+            .base.repo.full_name == $repo and
             (.base.repo.id | type == "number") and
             .base.repo.id == $repo_id and
             .head.ref == $head_ref and
             .head.sha == $sha and
             (.head.repo.id | type == "number") and
             .head.repo.id == $head_repo_id and
-            ((.head.repo.full_name // "") == "" or
-             .head.repo.full_name == $head_repo)
+            (.head.repo.full_name | type == "string") and
+            .head.repo.full_name == $head_repo
           )
           end;
       [ .[] | .workflow_runs[]?
@@ -805,16 +805,16 @@ if [[ "${candidate_count}" == "0" ]]; then
            (.base.sha | type == "string") and
            (.base.sha | test("^[0-9a-f]{40}$")) and
            .base.sha == $base_sha and
-           ((.base.repo.full_name // "") == "" or
-            .base.repo.full_name == $repo) and
+           (.base.repo.full_name | type == "string") and
+           .base.repo.full_name == $repo and
            (.base.repo.id | type == "number") and
            .base.repo.id == $repo_id and
            .head.ref == $head_ref and
            .head.sha == $sha and
            (.head.repo.id | type == "number") and
            .head.repo.id == $head_repo_id and
-           ((.head.repo.full_name // "") == "" or
-            .head.repo.full_name == $head_repo)
+           (.head.repo.full_name | type == "string") and
+           .head.repo.full_name == $head_repo
          )
          end;
      [ .[] | .workflow_runs[]?
@@ -1058,16 +1058,16 @@ validate_exact_run_payload() {
             (.base.sha | type == "string") and
             (.base.sha | test("^[0-9a-f]{40}$")) and
             .base.sha == $base_sha and
-            ((.base.repo.full_name // "") == "" or
-             .base.repo.full_name == $repo) and
+            (.base.repo.full_name | type == "string") and
+            .base.repo.full_name == $repo and
             (.base.repo.id | type == "number") and
             .base.repo.id == $repo_id and
             .head.ref == $head_ref and
             .head.sha == $sha and
             (.head.repo.id | type == "number") and
             .head.repo.id == $head_repo_id and
-            ((.head.repo.full_name // "") == "" or
-             .head.repo.full_name == $head_repo)
+            (.head.repo.full_name | type == "string") and
+            .head.repo.full_name == $head_repo
           )
           end;
       (.id | type == "number") and
