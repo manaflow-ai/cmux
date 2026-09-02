@@ -12,6 +12,9 @@ import Testing
 /// it never invokes the ratatui renderer or inspects source text.
 @Suite
 struct CloudManualMirrorTransportTests {
+    private let commands = CloudTuiManualIOCommand()
+    private let parser = CloudTuiLegacySnapshotParser()
+
     @Test
     func rawAttachFramesDeliverOutputAndResizeReplay() throws {
         let decoder = CloudTuiManualIOFrameDecoder()
@@ -43,18 +46,18 @@ struct CloudManualMirrorTransportTests {
 
     @Test
     func inputAndResizeCommandsTargetTheRemotePtyWithoutRendering() throws {
-        let attach = try #require(CloudTuiManualIOCommand.attach(surfaceID: 17, columns: 120, rows: 40))
+        let attach = try #require(commands.attach(surfaceID: 17, columns: 120, rows: 40))
         #expect(attach["cmd"] as? String == "attach-surface")
         #expect(attach["surface"] as? UInt64 == 17)
         #expect(attach["cols"] as? UInt64 == 120)
         #expect(attach["rows"] as? UInt64 == 40)
 
-        let input = CloudTuiManualIOCommand.input(surfaceID: 17, bytes: Data("claude\r".utf8))
+        let input = commands.input(surfaceID: 17, bytes: Data("claude\r".utf8))
         #expect(input["cmd"] as? String == "send")
         #expect(input["surface"] as? UInt64 == 17)
         #expect(input["bytes"] as? String == Data("claude\r".utf8).base64EncodedString())
 
-        let resize = CloudTuiManualIOCommand.resize(surfaceID: 17, columns: 160, rows: 52)
+        let resize = commands.resize(surfaceID: 17, columns: 160, rows: 52)
         #expect(resize["cmd"] as? String == "resize-surface")
         #expect(resize["surface"] as? UInt64 == 17)
         #expect(resize["cols"] as? UInt64 == 160)
@@ -63,12 +66,12 @@ struct CloudManualMirrorTransportTests {
 
     @Test
     func capabilityHandshakeAndLeasedResizeUseExactAttachment() throws {
-        let identify = CloudTuiManualIOCommand.identify(requestID: 4)
+        let identify = commands.identify(requestID: 4)
         #expect(identify["cmd"] as? String == "identify")
         #expect(identify["id"] as? UInt64 == 4)
 
         let resize = try #require(
-            CloudTuiManualIOCommand.resizeAttachedView(
+            commands.resizeAttachedView(
                 surfaceID: 17,
                 lease: "lease-token",
                 columns: 160,
@@ -82,7 +85,7 @@ struct CloudManualMirrorTransportTests {
         #expect(resize["rows"] as? UInt64 == 52)
 
         let release = try #require(
-            CloudTuiManualIOCommand.releaseAttachedViewSize(
+            commands.releaseAttachedViewSize(
                 surfaceID: 17,
                 lease: "lease-token"
             )
@@ -90,7 +93,7 @@ struct CloudManualMirrorTransportTests {
         #expect(release["cmd"] as? String == "release-attached-view-size")
         #expect(release["lease"] as? String == "lease-token")
         #expect(
-            CloudTuiManualIOCommand.resizeAttachedView(
+            commands.resizeAttachedView(
                 surfaceID: 17,
                 lease: "",
                 columns: 160,
@@ -98,7 +101,7 @@ struct CloudManualMirrorTransportTests {
             ) == nil
         )
         #expect(
-            CloudTuiManualIOCommand.resizeAttachedView(
+            commands.resizeAttachedView(
                 surfaceID: 17,
                 lease: "lease-token",
                 columns: 10_001,
@@ -152,7 +155,7 @@ struct CloudManualMirrorTransportTests {
 
     @Test
     func geometryClaimCommandMakesThePaneReportAuthoritative() {
-        let command = CloudTuiManualIOCommand.claimGeometry(surfaceID: 17, requestID: 9)
+        let command = commands.claimGeometry(surfaceID: 17, requestID: 9)
         #expect(command["cmd"] as? String == "set-client-sizing")
         #expect(command["surface"] as? UInt64 == 17)
         #expect(command["enabled"] as? Bool == true)
@@ -162,7 +165,7 @@ struct CloudManualMirrorTransportTests {
 
     @Test
     func hiddenMirrorsReleaseTheirSizingReport() {
-        let command = CloudTuiManualIOCommand.releaseSizing(surfaceID: 17)
+        let command = commands.releaseSizing(surfaceID: 17)
         #expect(command["cmd"] as? String == "release-surface-size")
         #expect(command["surface"] as? UInt64 == 17)
         #expect(command["id"] as? UInt64 == 0)
@@ -184,7 +187,7 @@ struct CloudManualMirrorTransportTests {
         ]
         let data = try JSONSerialization.data(withJSONObject: tree)
         #expect(
-            CloudTuiLegacySnapshotParser.surfaceID(from: data, terminalID: "term_remote") == 17
+            parser.surfaceID(from: data, terminalID: "term_remote") == 17
         )
     }
 
@@ -211,7 +214,7 @@ struct CloudManualMirrorTransportTests {
             "surface": 23,
             "terminal_id": "0123456789abcdef0123456789abcdef",
         ])
-        #expect(CloudTuiLegacySnapshotParser.resolvedSurfaceID(from: data) == 23)
+        #expect(parser.resolvedSurfaceID(from: data) == 23)
     }
 
     private static func line(_ object: [String: Any]) -> Data {

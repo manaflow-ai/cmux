@@ -12,14 +12,20 @@ import Foundation
 final class CloudTuiManualIOInputRouter: @unchecked Sendable {
     private var surfaceID: UInt64
     private let queue: DispatchQueue
+    private let commandBuilder: CloudTuiManualIOCommand
     private var connection: CloudTuiManualIOConnection?
     private var pendingLines: [Data] = []
     private let pendingByteLimit = 256 * 1024
     private var pendingByteCount = 0
 
-    init(surfaceID: UInt64, queue: DispatchQueue = DispatchQueue(label: "com.cmux.cloud-manual-io-input", qos: .userInitiated)) {
+    init(
+        surfaceID: UInt64,
+        queue: DispatchQueue = DispatchQueue(label: "com.cmux.cloud-manual-io-input", qos: .userInitiated),
+        commandBuilder: CloudTuiManualIOCommand = CloudTuiManualIOCommand()
+    ) {
         self.surfaceID = surfaceID
         self.queue = queue
+        self.commandBuilder = commandBuilder
     }
 
     /// Updates the numeric surface target after a cmux-tui daemon restart.
@@ -71,20 +77,20 @@ final class CloudTuiManualIOInputRouter: @unchecked Sendable {
                 // mirror session uses positive ids for handshake/resize state,
                 // so an input acknowledgement can never be mistaken for one
                 // of its state-machine responses.
-                command = CloudTuiManualIOCommand.input(
+                command = commandBuilder.input(
                     surfaceID: surfaceID,
                     bytes: bytes,
                     requestID: 0
                 )
             case .namedKey(let name):
                 guard let key = Self.protocolKeyName(for: name) else { return }
-                command = CloudTuiManualIOCommand.namedKey(
+                command = commandBuilder.namedKey(
                     surfaceID: surfaceID,
                     key: key,
                     requestID: 0
                 )
             }
-            guard let line = CloudTuiManualIOCommand.line(command) else { return }
+            guard let line = commandBuilder.line(command) else { return }
             if let connection {
                 connection.send(line: line)
                 return

@@ -37,6 +37,7 @@ final class CloudTuiManualMirrorSession {
 
     private weak var surface: TerminalSurface?
     private let onNeedsReconnect: @MainActor () -> Void
+    private let commandBuilder: CloudTuiManualIOCommand
     private var connection: CloudTuiManualIOConnection?
     private var eventTask: Task<Void, Never>?
     private var connectTask: Task<Void, Never>?
@@ -70,6 +71,7 @@ final class CloudTuiManualMirrorSession {
         terminalID: String,
         remoteSurfaceID: UInt64,
         initiallyClaimsGeometry: Bool = true,
+        commandBuilder: CloudTuiManualIOCommand = CloudTuiManualIOCommand(),
         onNeedsReconnect: @escaping @MainActor () -> Void
     ) {
         self.machineID = machineID
@@ -77,7 +79,11 @@ final class CloudTuiManualMirrorSession {
         self.remoteSurfaceID = remoteSurfaceID
         geometryClaimEligible = initiallyClaimsGeometry
         self.onNeedsReconnect = onNeedsReconnect
-        inputRouter = CloudTuiManualIOInputRouter(surfaceID: remoteSurfaceID)
+        self.commandBuilder = commandBuilder
+        inputRouter = CloudTuiManualIOInputRouter(
+            surfaceID: remoteSurfaceID,
+            commandBuilder: commandBuilder
+        )
     }
 
     /// Binds the local Ghostty surface. The pane installs the same callbacks
@@ -113,14 +119,14 @@ final class CloudTuiManualMirrorSession {
             // the attachment remains the fallback for an older peer.
             if let connection, attachResponseReceived {
                 if let remoteLease,
-                   let command = CloudTuiManualIOCommand.releaseAttachedViewSize(
+                   let command = commandBuilder.releaseAttachedViewSize(
                        surfaceID: remoteSurfaceID,
                        lease: remoteLease
                    ) {
                     connection.send(command)
                 } else {
                     connection.send(
-                        CloudTuiManualIOCommand.releaseSizing(
+                        commandBuilder.releaseSizing(
                             surfaceID: remoteSurfaceID
                         )
                     )
@@ -308,7 +314,7 @@ final class CloudTuiManualMirrorSession {
             // legacy peer does not understand the command, close remains the
             // cleanup fence and releases the client attachment anyway.
             connection.send(
-                CloudTuiManualIOCommand.detachAttachedView(
+                commandBuilder.detachAttachedView(
                     surfaceID: remoteSurfaceID,
                     lease: remoteLease,
                     requestID: takeRequestID()
@@ -511,7 +517,7 @@ final class CloudTuiManualMirrorSession {
     private func sendIdentify(on connection: CloudTuiManualIOConnection) {
         let requestID = takeRequestID()
         pendingRequests[requestID] = .identify
-        connection.send(CloudTuiManualIOCommand.identify(requestID: requestID))
+        connection.send(commandBuilder.identify(requestID: requestID))
     }
 
     private func sendClientInfoAndAttach() {
@@ -528,7 +534,7 @@ final class CloudTuiManualMirrorSession {
         let requestID = takeRequestID()
         pendingRequests[requestID] = .clientInfo
         connection.send(
-            CloudTuiManualIOCommand.setClientInfo(
+            commandBuilder.setClientInfo(
                 name: "cmux cloud terminal",
                 kind: "native-mirror",
                 requestID: requestID
@@ -544,7 +550,7 @@ final class CloudTuiManualMirrorSession {
         let initialGrid = serverCapabilities.contains("attach-initial-size")
             ? resizeScheduler.desired
             : nil
-        guard let command = CloudTuiManualIOCommand.attach(
+        guard let command = commandBuilder.attach(
             surfaceID: remoteSurfaceID,
             columns: initialGrid?.columns,
             rows: initialGrid?.rows,
@@ -568,7 +574,7 @@ final class CloudTuiManualMirrorSession {
         let requestID = takeRequestID()
         pendingRequests[requestID] = .resize
         if let remoteLease,
-           let command = CloudTuiManualIOCommand.resizeAttachedView(
+           let command = commandBuilder.resizeAttachedView(
                surfaceID: remoteSurfaceID,
                lease: remoteLease,
                columns: grid.columns,
@@ -578,7 +584,7 @@ final class CloudTuiManualMirrorSession {
             connection.send(command)
         } else {
             connection.send(
-                CloudTuiManualIOCommand.resize(
+                commandBuilder.resize(
                     surfaceID: remoteSurfaceID,
                     columns: grid.columns,
                     rows: grid.rows,
@@ -601,7 +607,7 @@ final class CloudTuiManualMirrorSession {
         let requestID = takeRequestID()
         pendingRequests[requestID] = .claim
         connection.send(
-            CloudTuiManualIOCommand.claimGeometry(
+            commandBuilder.claimGeometry(
                 surfaceID: remoteSurfaceID,
                 requestID: requestID
             )
