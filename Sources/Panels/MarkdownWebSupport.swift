@@ -462,6 +462,10 @@ final class MarkdownRendererSession {
     func renderedText() async -> String? {
         await ownedCoordinator.renderedText()
     }
+
+    func readSurfaceSelection(filePath: String) async -> SurfaceSelectionReadResult {
+        await ownedCoordinator.readSurfaceSelection(filePath: filePath)
+    }
 }
 
 extension NSColor {

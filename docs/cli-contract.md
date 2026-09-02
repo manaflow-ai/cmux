@@ -138,7 +138,8 @@ Environment:
 | `select-workspace` | Select a workspace. |
 | `rename-workspace`, `rename-window` | Rename a workspace. `rename-window` is a compatibility alias. |
 | `current-workspace` | Print current workspace information. |
-| `read-screen` | Read terminal text from a surface. |
+| `read-selection` | Read the active selection from a terminal, file preview, Markdown, or browser surface. Plain output includes available source context; `--json` returns the complete socket response. |
+| `read-screen` | Read terminal text from a surface. `--selection` is a text-only compatibility alias for `read-selection`. |
 | `send` | Send text to a terminal surface. |
 | `send-key` | Send one key to a terminal surface. |
 | `send-panel` | Send text to a panel/surface. |
@@ -179,6 +180,73 @@ Environment:
 | `ssh-pty-attach` | Internal helper used by SSH terminal startup scripts to bridge a local terminal surface to a remote PTY session. |
 | `ssh-session-end` | Internal helper that clears remote SSH session state. |
 | `__tmux-compat` | Internal tmux compatibility dispatcher. |
+
+## Surface Selection Contract
+
+`surface.read_selection` is a v2 worker-lane socket method advertised by
+`system.capabilities` and printed by `cmux capabilities`. It accepts the usual
+surface routing selectors (`window_id`, `workspace_id`, `surface_id`,
+`terminal_id`, `tab_id`, and `pane_id`) without focusing a window, workspace,
+pane, or surface.
+
+Successful responses use one shape across surface kinds:
+
+```json
+{
+  "has_selection": true,
+  "kind": "filepreview",
+  "text": "let answer = 42",
+  "base64": "bGV0IGFuc3dlciA9IDQy",
+  "file_path": "/Users/me/project/Answer.swift",
+  "line_range": { "start": 7, "end": 7 },
+  "workspace_id": "...",
+  "workspace_ref": "workspace:1",
+  "surface_id": "...",
+  "surface_ref": "surface:2",
+  "window_id": "...",
+  "window_ref": "window:1"
+}
+```
+
+- `has_selection`, `kind`, `text`, and `base64` are always present.
+- Selection text is capped at 1 MiB before it crosses the socket boundary;
+  browser and native text selections are shortened with a visible ellipsis,
+  while a terminal selection that exceeds Ghostty's bounded work budget is
+  reported as temporarily unavailable.
+- `file_path` is present for native file/Markdown selections and Markdown
+  preview selections.
+- `line_range` is present when a native text view can map the selection back to
+  source lines. `start` and `end` are one-based and inclusive. Selecting a line
+  terminator keeps that terminator on its source line.
+- `url` is present for browser selections.
+- The normal workspace, surface, and window identity fields are always emitted;
+  absent window identity values are JSON `null`.
+- A supported surface with no active selection succeeds with
+  `has_selection: false`, empty `text`, and empty `base64`. Unsupported surface
+  kinds return `not_supported`; a selectable surface whose live view is no
+  longer available returns `unavailable`.
+
+Terminal selections come from Ghostty's live selection API. Text file previews
+and Markdown text mode read their native text view. Markdown preview and browser
+surfaces read the page selection, including editable text controls; password
+input selections are never exposed. Non-text file preview modes do not claim
+selection support.
+
+`cmux read-selection` prints available kind, file, line, or URL context followed
+by the selected text. A supported surface with no selection still exits zero and
+prints the explicit `Has selection: false` marker. `cmux read-selection --json`
+preserves the complete response for scripts. `cmux read-screen --selection`
+uses the same socket path but omits source metadata, and cannot be combined with
+`--scrollback` or `--lines`.
+
+Examples:
+
+```bash
+cmux read-selection --surface surface:2
+cmux read-selection --surface surface:2 --json
+cmux read-screen --surface surface:2 --selection
+cmux rpc surface.read_selection '{"surface_id":"83F4E6A4-5246-4DB8-A412-9CE7B059FA6C"}'
+```
 
 ## Command Families
 
