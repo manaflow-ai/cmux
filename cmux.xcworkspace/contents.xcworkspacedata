@@ -220,6 +220,9 @@
          location = "group:CmuxTestSupport">
       </FileRef>
       <FileRef
+         location = "group:CmuxTuiManualIO">
+      </FileRef>
+      <FileRef
          location = "group:CmuxUpdater">
       </FileRef>
       <FileRef

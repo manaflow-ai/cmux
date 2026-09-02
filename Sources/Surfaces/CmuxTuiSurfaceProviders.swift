@@ -11,6 +11,7 @@ final class CmuxTuiSurfaceProviderRegistry {
     private var catalog: SurfaceCatalog?
     private var providers: [String: CmuxTuiSurfaceProvider] = [:]
     private let links: CloudMachineLinkManager
+    private let manualIOService: CloudTuiManualIOService
     private var pollTask: Task<Void, Never>?
     private var accessObserver: NSObjectProtocol?
     private var themeObserver: NSObjectProtocol?
@@ -18,8 +19,12 @@ final class CmuxTuiSurfaceProviderRegistry {
     /// Same cadence as the Machines panel's list refresh.
     private let pollInterval: Duration = .seconds(45)
 
-    init(links: CloudMachineLinkManager = CloudMachineLinkManager()) {
+    init(
+        links: CloudMachineLinkManager = CloudMachineLinkManager(),
+        manualIOService: CloudTuiManualIOService? = nil
+    ) {
         self.links = links
+        self.manualIOService = manualIOService ?? CloudTuiManualIOService()
     }
 
     /// Registers this Mac's cloud machines with the catalog and starts polling.
@@ -114,7 +119,12 @@ final class CmuxTuiSurfaceProviderRegistry {
             if let provider = providers[summary.id] {
                 provider.update(summary: summary)
             } else {
-                let provider = CmuxTuiSurfaceProvider(summary: summary, links: links, catalog: catalog)
+                let provider = CmuxTuiSurfaceProvider(
+                    summary: summary,
+                    links: links,
+                    catalog: catalog,
+                    manualIOService: manualIOService
+                )
                 providers[summary.id] = provider
                 catalog.register(provider)
             }
@@ -168,6 +178,7 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
 
     private var summary: VMSummary
     private let links: CloudMachineLinkManager
+    private let manualIOService: CloudTuiManualIOService
     private unowned let catalog: SurfaceCatalog
     private var changeWatcher: Task<Void, Never>?
     private var refreshDebounce: Task<Void, Never>?
@@ -185,11 +196,17 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
     /// no longer resolves in cmux-tui) can still be closed through its tab.
     private var tabByTerminal: [String: String] = [:]
 
-    init(summary: VMSummary, links: CloudMachineLinkManager, catalog: SurfaceCatalog) {
+    init(
+        summary: VMSummary,
+        links: CloudMachineLinkManager,
+        catalog: SurfaceCatalog,
+        manualIOService: CloudTuiManualIOService
+    ) {
         machineID = summary.id
         self.summary = summary
         self.links = links
         self.catalog = catalog
+        self.manualIOService = manualIOService
         info = Self.info(from: summary, linkState: summary.status == "running" ? .connecting : .asleep, linkError: nil, stats: nil)
     }
 
@@ -392,8 +409,7 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
         let created: (workspaceID: UUID, panelID: UUID)
         switch resource.kind {
         case .terminal:
-            let command = try await attachCommand(terminalID: resource.id.key)
-            created = try SurfacePaneFactory.makeTerminalPane(initialCommand: command, workingDirectory: nil, at: destination, focus: focus)
+            created = try await openTerminalPane(terminalID: resource.id.key, at: destination, focus: focus)
         case .display, .browser:
             let desktop = resource.kind == .display
             guard let port = resource.port ?? (desktop ? CmuxTuiSnapshotParser.desktopPort : nil) else {
@@ -538,12 +554,39 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
         )
     }
 
-    private func attachCommand(terminalID: String) async throws -> String {
+    /// One decision point for how a cloud terminal renders in a pane, shared
+    /// by fresh materialization and restored-pane re-projection. Manual IO
+    /// (the default): a manual-mirror surface fed by `attach --pipe-io`
+    /// against the machine link's socket, with the pump's reconnect state
+    /// machine. Fallback (toggle off, or a bundled client that predates
+    /// `--pipe-io`): the exec attach pane running the full TUI renderer.
+    private func openTerminalPane(
+        terminalID: String,
+        at destination: SurfaceDestination,
+        focus: Bool
+    ) async throws -> (workspaceID: UUID, panelID: UUID) {
         let connected = try await links.connected(machineID: machineID)
         guard let clientURL = CloudTuiClientPaths.clientURL() else {
             throw CloudMachineLinkManager.ManagerError.clientMissing
         }
-        return CloudTuiCommandLine.attachShellCommand(clientPath: clientURL.path, socketPath: connected.socketPath, terminalID: terminalID)
+        if manualIOService.isEnabled,
+           await manualIOService.clientSupportsPipeIO(clientURL: clientURL) {
+            let attach = CloudTuiManualIOAttach(
+                clientPath: clientURL.path,
+                socketPath: connected.socketPath,
+                terminalID: terminalID,
+                resolveSocketPath: { [links, machineID] in
+                    try await links.connected(machineID: machineID).socketPath
+                }
+            )
+            return try SurfacePaneFactory.makeCloudTuiTerminalPane(attach: attach, at: destination, focus: focus)
+        }
+        let command = CloudTuiCommandLine.attachShellCommand(
+            clientPath: clientURL.path,
+            socketPath: connected.socketPath,
+            terminalID: terminalID
+        )
+        return try SurfacePaneFactory.makeTerminalPane(initialCommand: command, workingDirectory: nil, at: destination, focus: focus)
     }
 
     /// The tokened wrapper URL the control plane mints for a port; the desktop adds the
@@ -641,10 +684,8 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
                 Task { @MainActor [weak self] in
                     guard let self else { return }
                     do {
-                        let command = try await self.attachCommand(terminalID: terminal.id.key)
-                        let created = try SurfacePaneFactory.makeTerminalPane(
-                            initialCommand: command,
-                            workingDirectory: nil,
+                        let created = try await self.openTerminalPane(
+                            terminalID: terminal.id.key,
                             at: .tab(workspaceID: projection.workspaceID, paneID: paneID, index: nil),
                             focus: false
                         )

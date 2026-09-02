@@ -460,6 +460,14 @@ extension Workspace {
                 panelID: panelId
             )
         }
+        // A manual-IO pump follows its panel: a detach transfer keeps the
+        // panel (and pump) alive; every other discard stops the relay. This
+        // also covers terminal respawn, where `closePanel` is false but the
+        // old panel is still being torn down. The daemon-side terminal stays
+        // alive in the machine's session.
+        if !preservesTerminalForTransfer {
+            (panel as? TerminalPanel)?.stopCloudTuiManualIO()
+        }
         if closePanel {
             panel?.close()
         }

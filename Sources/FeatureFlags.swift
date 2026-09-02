@@ -63,6 +63,7 @@ final class CmuxFeatureFlags {
     private static let appKitSidebarListDefault = true
     private static let mobileTerminalFilesChipDefault = true
     private nonisolated static let mobileTaskComposerDefault = true
+    private nonisolated static let cloudTerminalManualIODefault = true
 
     private static let overrideKeyPrefix = "cmux.flags.override."
     private static let remoteCacheKeyPrefix = "cmux.flags.remote."
@@ -186,6 +187,25 @@ final class CmuxFeatureFlags {
             defaultValue: "Enables the iOS New Task composer, including task model discovery, directory picking, and attachment staging."
         ),
         defaultWhenUnavailable: CmuxFeatureFlags.mobileTaskComposerDefault
+    )
+
+    // FLAG(key: cloud-terminal-manual-io-enabled-release, owner: lawrencecchen,
+    //      reviewBy: 2026-10-01, defaultWhenUnavailable: true)
+    // Controls the cloud terminal transport. When enabled, capable clients use
+    // the manual-mirror byte path, which keeps Ghostty's parser and input modes
+    // authoritative in the desktop surface. A remote false value is the
+    // emergency fallback to the exec PTY bridge.
+    nonisolated static let cloudTerminalManualIOFlag = CmuxFeatureFlagDefinition(
+        key: "cloud-terminal-manual-io-enabled-release",
+        title: String(
+            localized: "featureFlags.cloudTerminalManualIO.title",
+            defaultValue: "Cloud terminal manual I/O"
+        ),
+        flagDescription: String(
+            localized: "featureFlags.cloudTerminalManualIO.description",
+            defaultValue: "Uses the manual-mirror byte path for cloud terminals, with the exec PTY bridge as a compatibility fallback."
+        ),
+        defaultWhenUnavailable: CmuxFeatureFlags.cloudTerminalManualIODefault
     )
 
     // Order is load-bearing for the positional typed accessors below. Flags
@@ -312,6 +332,7 @@ final class CmuxFeatureFlags {
 
             CmuxFeatureFlags.mobileTerminalFilesChipFlag,
             CmuxFeatureFlags.mobileTaskComposerFlag,
+            CmuxFeatureFlags.cloudTerminalManualIOFlag,
         ]
     }()
 
@@ -372,6 +393,10 @@ final class CmuxFeatureFlags {
 
     var isMobileTaskComposerEnabled: Bool {
         effectiveValue(for: Self.mobileTaskComposerFlag)
+    }
+
+    var isCloudTerminalManualIOEnabled: Bool {
+        effectiveValue(for: Self.cloudTerminalManualIOFlag)
     }
 
     /// Effective values mirrored for nonisolated readers: the mobile host
