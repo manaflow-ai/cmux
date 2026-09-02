@@ -92,8 +92,8 @@ Image policy:
   `expectNoCloudVmImplementationLeaks` in `tests/vm-route-auth.test.ts`).
 - Local development and every deployed runtime serve the same `defaultForKind` entry; there is no
   separate local default and nothing to copy into `.env`.
-- Today's base default is `freestyle-cmux-devbox-20260902c`, image
-  `sh-940ec3bc46224c019e5e8d9a97053293`, baked and verified on cmux's Freestyle account from main
+- Today's base default is `freestyle-cmux-devbox-20260902d`, image
+  `sh-570d005387b74030ad7d8f51e855f288`, baked and verified on cmux's Freestyle account from main
   `2526fbf0f2`. The retired beta entry stays listed for the record and is never a default; earlier
   public entries stay for rollback.
 - Snapshots are account-scoped: a manifest id is only bootable by the Freestyle account whose
