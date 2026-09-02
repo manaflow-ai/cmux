@@ -2072,7 +2072,7 @@ mod tests {
         let multiplexer = ServiceMultiplexer::new(endpoint.clone(), EndpointRole::Client);
         let open = tokio::spawn({
             let multiplexer = multiplexer.clone();
-            async move { multiplexer.open(Service::MuxControl, BTreeMap::new()).await }
+            async move { multiplexer.open(Service::ProcessStream, BTreeMap::new()).await }
         });
         endpoint.wait_for(&endpoint.open_active, true).await;
 
@@ -2095,6 +2095,9 @@ mod tests {
         })
         .await
         .unwrap();
+        let closed = multiplexer.closed.lock().await;
+        assert!(closed.contains_on(1, Lane::Control));
+        assert!(closed.contains_on(1, Lane::Interactive));
     }
 
     #[tokio::test]
