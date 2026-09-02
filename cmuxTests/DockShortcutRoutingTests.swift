@@ -1711,7 +1711,7 @@ struct DockShortcutRoutingTests {
                     in: harness.window
                 )
 
-                harness.dock.focusPanel(first.id)
+                harness.dock.focusPanel(first)
                 harness.appDelegate.noteMainPanelKeyboardFocusIntent(
                     workspaceId: harness.mainWorkspace.id,
                     panelId: mainPanelId,
