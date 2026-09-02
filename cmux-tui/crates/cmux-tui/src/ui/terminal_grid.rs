@@ -191,21 +191,30 @@ fn cropped_cursor_position(
     live_rows: usize,
 ) -> Option<(u16, u16)> {
     let mut x = cursor.x;
+    let row = rows.get(cursor.y as usize)?;
     if x > 0
-        && rows
-            .get(cursor.y as usize)
-            .and_then(|row| row.get(x as usize))
-            .is_some_and(|cell| cell.width == CellWidth::SpacerTail)
-        && rows
-            .get(cursor.y as usize)
-            .and_then(|row| row.get((x - 1) as usize))
-            .is_some_and(|cell| cell.width == CellWidth::Wide)
+        && row.get(x as usize).is_some_and(|cell| cell.width == CellWidth::SpacerTail)
+        && row.get((x - 1) as usize).is_some_and(|cell| cell.width == CellWidth::Wide)
     {
         x -= 1;
     }
 
-    (x >= source_x && usize::from(x - source_x) < live_cols && (cursor.y as usize) < live_rows)
-        .then_some((x - source_x, cursor.y))
+    if x < source_x || usize::from(x - source_x) >= live_cols || (cursor.y as usize) >= live_rows {
+        return None;
+    }
+
+    // A wide lead is drawable only when its trailing spacer is also inside
+    // the crop. This matches partial_wide_cell, which blanks split pairs.
+    if row.get(x as usize).is_some_and(|cell| cell.width == CellWidth::Wide)
+        && (usize::from(x - source_x).saturating_add(1) >= live_cols
+            || !row
+                .get(x.saturating_add(1) as usize)
+                .is_some_and(|cell| cell.width == CellWidth::SpacerTail))
+    {
+        return None;
+    }
+
+    Some((x - source_x, cursor.y))
 }
 
 fn partial_wide_cell(
