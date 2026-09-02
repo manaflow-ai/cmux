@@ -364,36 +364,26 @@ export async function POST(request: Request): Promise<Response> {
         });
 
         const maxMemoryMb = maxMemoryMbForPlan(entitlements.planId, process.env);
-        const memoryMb =
-          candidate.memoryMb === undefined
-            ? defaultMemoryMbForPlan(entitlements.planId, process.env)
-            : candidate.memoryMb as number;
-        if (memoryMb > maxMemoryMb) {
-          return vmErrorResponse({
-            error: "vm_memory_exceeds_plan",
-            status: 400,
-            message: "The requested Cloud VM size exceeds this plan's memory limit.",
-            action: `Choose a size at or below ${maxMemoryMb} MB, or upgrade the plan before retrying.`,
-            details: { requestedMemoryMb: memoryMb, maxMemoryMb, planId: entitlements.planId },
-          });
-        }
         const memoryOptionsMb = memoryOptionsMbForPlan(entitlements.planId, process.env);
-        if (!memoryOptionsMb.includes(memoryMb)) {
-          // The pricing page promises every machine is the plan machine, so a
-          // smaller request is refused rather than quietly under-delivered.
-          // The plan default is always accepted, so operator overrides cannot
-          // make an omitted size fail.
-          return vmErrorResponse({
-            error: "vm_memory_unsupported",
-            status: 400,
-            message: "The requested Cloud VM size is not offered.",
-            action: `Omit \`memoryMb\`, or choose one of: ${memoryOptionsMb.join(", ")} MB.`,
-            details: { requestedMemoryMb: memoryMb, memoryOptionsMb: [...memoryOptionsMb], planId: entitlements.planId },
-          });
-        }
+        const planMemoryMb = defaultMemoryMbForPlan(entitlements.planId, process.env);
+        const requestedMemoryMb = candidate.memoryMb as number | undefined;
+        // Every plan sells exactly the plan machine, so a size the plan does
+        // not offer resolves to that machine instead of failing the create.
+        // Clients ship their own size table and always trail the server: the
+        // 2026-09-02 pricing change (#11610) left every installed nightly
+        // sending its old 24 GB default and the server rejecting each create
+        // with `vm_memory_exceeds_plan` until the next nightly published. The
+        // server owns the machine spec, so a stale client must still get a
+        // machine; the mismatch is recorded on the span for Axiom.
+        const memoryMb =
+          requestedMemoryMb === undefined || memoryOptionsMb.includes(requestedMemoryMb)
+            ? requestedMemoryMb ?? planMemoryMb
+            : planMemoryMb;
         setSpanAttributes(span, {
           "cmux.vm.memory_mb": memoryMb,
           "cmux.vm.max_memory_mb": maxMemoryMb,
+          "cmux.vm.memory_requested_mb": requestedMemoryMb,
+          "cmux.vm.memory_coerced": requestedMemoryMb !== undefined && requestedMemoryMb !== memoryMb,
         });
 
         // Resolve provider/image only after the paid-plan boundary. A free or

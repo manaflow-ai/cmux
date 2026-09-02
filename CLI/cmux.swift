@@ -4307,7 +4307,7 @@ struct CMUXCLI {
     // `vm_image_config_error`.
     /// `--size` spellings → memory in MB. Every plan sells exactly the plan
     /// machine (5 vCPU / 20 GB / 200 GB), so 20g is the only preset; the
-    /// backend refuses other sizes with `vm_memory_unsupported`.
+    /// backend resolves any other size to the plan machine.
     private static let cloudVMSizeAliases: [String: Int] = [
         "20g": 20480, "20gb": 20480,
     ]
