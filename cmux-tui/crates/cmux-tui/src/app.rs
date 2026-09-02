@@ -4220,10 +4220,11 @@ struct PaneSizeLease {
 }
 
 fn first_pane_by_id(panes: &[PaneView]) -> HashMap<PaneId, &PaneView> {
-    panes.iter().fold(HashMap::with_capacity(panes.len()), |mut index, pane| {
+    let mut index = HashMap::with_capacity(panes.len());
+    for pane in panes {
         index.entry(pane.id).or_insert(pane);
-        index
-    })
+    }
+    index
 }
 
 impl PaneArea {
