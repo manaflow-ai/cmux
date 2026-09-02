@@ -269,6 +269,17 @@ private struct DockKeyboardFocusBridge: NSViewRepresentable {
         nsView.ownsDockBrowserFocus = { [weak store] responder, window in
             store?.browserPanel(owning: responder, in: window) != nil
         }
+        nsView.ownsDockTerminalFocus = { [weak store] responder, window in
+            guard let store,
+                  store.scope == .global,
+                  let ghosttyView = responder.cmuxStrictOwningGhosttyView(),
+                  ghosttyView.window === window,
+                  let surfaceId = ghosttyView.terminalSurface?.id,
+                  store.containsPanel(surfaceId) else {
+                return false
+            }
+            return true
+        }
         nsView.registerWithKeyboardFocusCoordinatorIfNeeded()
     }
 }
@@ -276,6 +287,7 @@ private struct DockKeyboardFocusBridge: NSViewRepresentable {
 final class DockKeyboardFocusView: NSView {
     var focusFirstControl: (() -> Bool)?
     var ownsDockBrowserFocus: ((NSResponder, NSWindow) -> Bool)?
+    var ownsDockTerminalFocus: ((NSResponder, NSWindow) -> Bool)?
     override var acceptsFirstResponder: Bool { true }
     override var canBecomeKeyView: Bool { true }
 
@@ -285,8 +297,11 @@ final class DockKeyboardFocusView: NSView {
 
     func ownsKeyboardFocus(_ responder: NSResponder) -> Bool {
         if responder === self { return true }
-        if let window, ownsDockBrowserFocus?(responder, window) == true { return true }
+        guard let window else { return false }
+        if ownsDockBrowserFocus?(responder, window) == true { return true }
+        if ownsDockTerminalFocus?(responder, window) == true { return true }
         guard let ghosttyView = responder.cmuxStrictOwningGhosttyView(),
+              ghosttyView.window === window,
               let surfaceId = ghosttyView.terminalSurface?.id else {
             return false
         }

@@ -318,6 +318,8 @@ extension DockSplitStore {
         guard let tab = controller.selectedTab(inPane: pane) else {
             // Pane focus can legitimately land on an empty pane while a split
             // is being assembled. Keep menu validation in sync with that state.
+            cancelDockPointerInteraction()
+            noteKeyboardFocusIntent(window: dockInteractionWindow())
             refreshDockMenuCapabilities()
             applyVisibilityToAllPanels()
             return
