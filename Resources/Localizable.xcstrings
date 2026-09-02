@@ -35994,6 +35994,74 @@
         }
       }
     },
+    "cli.terminal.viewport.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Set or reset a per-connection terminal render viewport. The PTY and Mac pane are not resized; the override is cleared when this socket disconnects."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "接続ごとのターミナル表示ビューポートを設定またはリセットします。PTYとMacのペインはサイズ変更されず、このソケットが切断されると上書きが解除されます。"
+          }
+        }
+      }
+    },
+    "cli.terminal.viewport.commandLine": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "terminal viewport <columns> <rows> [--surface <id>] | reset"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "terminal viewport <columns> <rows> [--surface <id>] | reset"
+          }
+        }
+      }
+    },
+    "cli.terminal.viewport.resetUsage": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "terminal viewport reset does not accept dimensions or additional arguments"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "terminal viewport reset には寸法や追加の引数を指定できません"
+          }
+        }
+      }
+    },
+    "cli.terminal.viewport.usage": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Usage: cmux terminal viewport <columns> <rows> [--surface <id>] | reset\n       cmux terminal viewport --width <pixels> --height <pixels> [--surface <id>] [--pixels]"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "使用法: cmux terminal viewport <columns> <rows> [--surface <id>] | reset\n       cmux terminal viewport --width <pixels> --height <pixels> [--surface <id>] [--pixels]"
+          }
+        }
+      }
+    },
     "cli.browser.profile.error.emptySelector": {
       "extractionState": "manual",
       "localizations": {
@@ -245705,6 +245773,91 @@
           "stringUnit": {
             "state": "translated",
             "value": "ターミナルサーフェスは利用できなくなっています。開き直すか、新しいターミナルセッションを作成してください。"
+          }
+        }
+      }
+    },
+    "socket.terminal.viewport.invalidDimensions": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Provide positive columns and rows, or positive width and height in pixels."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "正の列数と行数、または正のピクセル幅と高さを指定してください。"
+          }
+        }
+      }
+    },
+    "socket.terminal.readText.failed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Failed to read terminal text"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ターミナルテキストの読み取りに失敗しました"
+          }
+        }
+      }
+    },
+    "socket.terminal.readText.invalidLines": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "lines must be greater than 0"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "lines は 0 より大きい値である必要があります"
+          }
+        }
+      }
+    },
+    "socket.terminal.viewport.surfaceNotFound": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Terminal surface not found"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ターミナルサーフェスが見つかりません"
+          }
+        }
+      }
+    },
+    "socket.terminal.viewport.unknownMethod": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Unknown terminal viewport method"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "不明なターミナルビューポートメソッドです"
           }
         }
       }

@@ -28,6 +28,8 @@ extension TerminalController {
         "surface.list",
         "surface.current",
         "surface.read_text",
+        "terminal.viewport.set",
+        "terminal.viewport.reset",
         "surface.resume.set",
         "surface.resume.get",
         "surface.resume.clear",
@@ -72,6 +74,8 @@ extension TerminalController {
         "surface.resume.get",
         "surface.resume.clear",
         "surface.read_text",
+        "terminal.viewport.set",
+        "terminal.viewport.reset",
         "notification.create_for_target",
     ]
 

@@ -408,6 +408,7 @@ extension GhosttySurfaceView {
             stateSeq: frame.stateSeq,
             renderEpoch: frame.renderEpoch,
             renderRevision: frame.renderRevision,
+            emissionRevision: frame.emissionRevision,
             expectedCursorColor: frame.terminalCursorColor,
             configuredCursorColor: configuredCursorColor,
             anchor: frame.anchor

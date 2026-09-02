@@ -46,7 +46,8 @@ extension MobileShellComposite {
         columns: Int,
         rows: Int,
         renderEpoch: String?,
-        renderRevisionFloor: UInt64?
+        renderRevisionFloor: UInt64?,
+        renderEmissionRevisionFloor: UInt64?
     )? {
         guard let preparation = prepareTerminalViewport(
             surfaceID: surfaceID,
@@ -112,7 +113,8 @@ extension MobileShellComposite {
         columns: Int,
         rows: Int,
         renderEpoch: String?,
-        renderRevisionFloor: UInt64?
+        renderRevisionFloor: UInt64?,
+        renderEmissionRevisionFloor: UInt64?
     )? {
         let preparedWorkspaceID = preparation.workspaceID
         let surfaceID = preparation.surfaceID
@@ -157,7 +159,8 @@ extension MobileShellComposite {
                 columns: columns,
                 rows: rows,
                 renderEpoch: nil,
-                renderRevisionFloor: nil
+                renderRevisionFloor: nil,
+                renderEmissionRevisionFloor: nil
             )
         }
         guard let client = remoteClient else {
@@ -282,7 +285,8 @@ extension MobileShellComposite {
                 columns: grid.columns,
                 rows: grid.rows,
                 renderEpoch: payload.renderEpoch,
-                renderRevisionFloor: payload.renderRevisionFloor
+                renderRevisionFloor: payload.renderRevisionFloor,
+                renderEmissionRevisionFloor: payload.renderEmissionRevisionFloor
             )
         } catch {
             guard viewportReportGenerationsBySequenceKey[sequenceKey] == requestGeneration else {

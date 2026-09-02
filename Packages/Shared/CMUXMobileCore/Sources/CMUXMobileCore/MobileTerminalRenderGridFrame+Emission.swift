@@ -16,19 +16,22 @@ extension MobileTerminalRenderGridFrame {
     /// ``renderGridEmission(comparedTo:fullScrollbackTarget:)`` for the next
     /// full producer snapshot.
     public var emissionState: MobileTerminalRenderGridEmissionState {
-        MobileTerminalRenderGridEmissionState(
+        let content = renderedContent()
+        return MobileTerminalRenderGridEmissionState(
             renderEpoch: renderEpoch,
             renderRevision: renderRevision,
+            emissionRevision: emissionRevision,
             columns: columns,
             rows: rows,
             stateSeq: stateSeq,
             activeScreen: activeScreen,
             terminalTheme: terminalTheme,
             terminalConfigTheme: terminalConfigTheme,
-            rowSignatures: rowSignatures(),
+            rowSignatures: content.rowSignatures,
             anchor: anchor,
             historyRows: historyRows,
-            rowSpaceRevision: rowSpaceRevision
+            rowSpaceRevision: rowSpaceRevision,
+            content: content
         )
     }
 
@@ -81,10 +84,12 @@ extension MobileTerminalRenderGridFrame {
         fullScrollbackTarget: Int = 0,
         allowScrollbackRequest: Bool = true
     ) throws -> Emission {
-        let nextSignatures = rowSignatures()
+        let nextContent = renderedContent()
+        let nextSignatures = nextContent.rowSignatures
         let nextState = MobileTerminalRenderGridEmissionState(
             renderEpoch: renderEpoch,
             renderRevision: renderRevision,
+            emissionRevision: emissionRevision,
             columns: columns,
             rows: rows,
             stateSeq: stateSeq,
@@ -94,7 +99,8 @@ extension MobileTerminalRenderGridFrame {
             rowSignatures: nextSignatures,
             anchor: anchor,
             historyRows: historyRows,
-            rowSpaceRevision: rowSpaceRevision
+            rowSpaceRevision: rowSpaceRevision,
+            content: nextContent
         )
         func fullEmission() throws -> Emission {
             if allowScrollbackRequest,
@@ -154,7 +160,10 @@ extension MobileTerminalRenderGridFrame {
                 scrolledRows: rows + carried,
                 carryScrollbackSpans: true,
                 deltaBaseHistoryRows: previous.historyRows,
-                deltaBaseRenderRevision: previous.renderRevision
+                deltaBaseRenderRevision: previous.renderRevision,
+                deltaBaseEmissionRevision: previous.emissionRevision > 0
+                    ? previous.emissionRevision
+                    : nil
             )
             return .emit(frame: deltaFrame, state: nextState)
         }
@@ -180,15 +189,18 @@ extension MobileTerminalRenderGridFrame {
             }
         }
 
-        if changedRows.isEmpty, scrolled == 0, previous.stateSeq == stateSeq {
+        let cursorChanged = previous.content?.cursor != nextContent.cursor
+        if changedRows.isEmpty,
+           scrolled == 0,
+           previous.stateSeq == stateSeq,
+           !cursorChanged {
             return .none
         }
 
-        // Row repaints under DEC origin mode stay full snapshots, but a
-        // cursor-only advance (no changed rows) does not need one: the delta
-        // replay disables origin mode before its absolute cursor move, and a
-        // full-screen app holding DECOM would otherwise promote every
-        // keystroke tick into a full-grid payload.
+        // Row repaints under DEC origin mode stay full snapshots. A cursor-only
+        // advance remains a small delta: the replay disables origin mode before
+        // its absolute cursor move, avoiding a full-grid payload for every
+        // keystroke tick in a full-screen app holding DECOM.
         if !changedRows.isEmpty, modes.contains(where: { $0.isDECOriginMode && $0.on }) {
             return try fullEmission()
         }
@@ -198,7 +210,10 @@ extension MobileTerminalRenderGridFrame {
             full: false,
             scrolledRows: scrolled,
             deltaBaseHistoryRows: anchor == .screen ? previous.historyRows : nil,
-            deltaBaseRenderRevision: previous.renderRevision
+            deltaBaseRenderRevision: previous.renderRevision,
+            deltaBaseEmissionRevision: previous.emissionRevision > 0
+                ? previous.emissionRevision
+                : nil
         )
         return .emit(frame: deltaFrame, state: nextState)
     }

@@ -15,7 +15,7 @@ func terminalOutputApplicationPath(
     if let frame = chunk.sourceRenderGridFrame {
         guard frame.surfaceID == expectedSurfaceID,
               !frame.renderEpoch.isEmpty,
-              frame.renderRevision > 0 else {
+              frame.renderRevision > 0 || frame.emissionRevision > 0 else {
             return .rejectUnverified
         }
         return .verifiedReplay

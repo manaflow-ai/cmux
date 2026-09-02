@@ -30,6 +30,98 @@ private func chainFrame(
     #expect(MobileTerminalRenderGridRevisionContinuity.admits(delta, delivered: delivered))
 }
 
+@Test func revisionContinuityUsesEmissionIdentityWhenContentRevisionRepeats() throws {
+    let deliveredFrame = try MobileTerminalRenderGridFrame(
+        surfaceID: "terminal-a",
+        stateSeq: 7,
+        renderEpoch: "epoch-1",
+        renderRevision: 3,
+        emissionRevision: 12,
+        columns: 8,
+        rows: 2,
+        full: true,
+        rowSpans: [.init(row: 0, column: 0, text: "same")]
+    )
+    let delivered = MobileTerminalRenderGridRevisionContinuity(delivered: deliveredFrame)
+    let delta = try MobileTerminalRenderGridFrame(
+        surfaceID: "terminal-a",
+        stateSeq: 7,
+        renderEpoch: "epoch-1",
+        renderRevision: 3,
+        emissionRevision: 13,
+        columns: 8,
+        rows: 2,
+        full: false,
+        clearedRows: [0],
+        rowSpans: [.init(row: 0, column: 0, text: "same")],
+        deltaBaseRenderRevision: 3,
+        deltaBaseEmissionRevision: 12
+    )
+
+    #expect(MobileTerminalRenderGridRevisionContinuity.admits(delta, delivered: delivered))
+}
+
+@Test func revisionContinuityRejectsMismatchedEmissionBase() throws {
+    let deliveredFrame = try MobileTerminalRenderGridFrame(
+        surfaceID: "terminal-a",
+        stateSeq: 7,
+        renderEpoch: "epoch-1",
+        renderRevision: 3,
+        emissionRevision: 12,
+        columns: 8,
+        rows: 2,
+        full: true,
+        rowSpans: [.init(row: 0, column: 0, text: "same")]
+    )
+    let delivered = MobileTerminalRenderGridRevisionContinuity(delivered: deliveredFrame)
+    let delta = try MobileTerminalRenderGridFrame(
+        surfaceID: "terminal-a",
+        stateSeq: 7,
+        renderEpoch: "epoch-1",
+        renderRevision: 3,
+        emissionRevision: 14,
+        columns: 8,
+        rows: 2,
+        full: false,
+        clearedRows: [0],
+        rowSpans: [.init(row: 0, column: 0, text: "same")],
+        deltaBaseRenderRevision: 3,
+        deltaBaseEmissionRevision: 13
+    )
+
+    #expect(!MobileTerminalRenderGridRevisionContinuity.admits(delta, delivered: delivered))
+}
+
+@Test func revisionContinuityDoesNotSynthesizeEmissionIdentityForUnemittedFrame() throws {
+    let deliveredFrame = try MobileTerminalRenderGridFrame(
+        surfaceID: "terminal-a",
+        stateSeq: 7,
+        renderEpoch: "epoch-1",
+        renderRevision: 3,
+        columns: 8,
+        rows: 2,
+        full: true,
+        rowSpans: [.init(row: 0, column: 0, text: "project")]
+    )
+    let delivered = MobileTerminalRenderGridRevisionContinuity(delivered: deliveredFrame)
+    let delta = try MobileTerminalRenderGridFrame(
+        surfaceID: "terminal-a",
+        stateSeq: 8,
+        renderEpoch: "epoch-1",
+        renderRevision: 4,
+        emissionRevision: 2,
+        columns: 8,
+        rows: 2,
+        full: false,
+        clearedRows: [0],
+        rowSpans: [.init(row: 0, column: 0, text: "live")],
+        deltaBaseEmissionRevision: 1
+    )
+
+    #expect(!delivered.emissionIdentityAvailable)
+    #expect(!MobileTerminalRenderGridRevisionContinuity.admits(delta, delivered: delivered))
+}
+
 @Test func revisionContinuityRejectsDeltaAfterMissedFrame() throws {
     let delivered = MobileTerminalRenderGridRevisionContinuity(
         delivered: try chainFrame(revision: 7, full: true)
@@ -91,6 +183,49 @@ private func chainFrame(
     let epochlessDelta = try chainFrame(revision: 8, epoch: "", baseRevision: 7)
 
     #expect(MobileTerminalRenderGridRevisionContinuity.admits(epochlessDelta, delivered: nil))
+}
+
+@Test func revisionContinuityFallsBackForEpochlessEmissionDelta() throws {
+    let delivered = MobileTerminalRenderGridRevisionContinuity(
+        renderEpoch: "",
+        renderRevision: 7
+    )
+    let epochlessDelta = try MobileTerminalRenderGridFrame(
+        surfaceID: "terminal-a",
+        stateSeq: 8,
+        renderEpoch: "",
+        renderRevision: 8,
+        emissionRevision: 2,
+        columns: 8,
+        rows: 2,
+        full: false,
+        clearedRows: [0],
+        rowSpans: [.init(row: 0, column: 0, text: "legacy")],
+        deltaBaseRenderRevision: 7,
+        deltaBaseEmissionRevision: 1
+    )
+
+    // Epochless producers cannot authenticate emission identity; the legacy
+    // render-revision/history path remains the compatibility fallback.
+    #expect(MobileTerminalRenderGridRevisionContinuity.admits(epochlessDelta, delivered: delivered))
+}
+
+@Test func revisionContinuityRejectsEpochlessEmissionOnlyDelta() throws {
+    let epochlessDelta = try MobileTerminalRenderGridFrame(
+        surfaceID: "terminal-a",
+        stateSeq: 8,
+        renderEpoch: "",
+        renderRevision: 8,
+        emissionRevision: 2,
+        columns: 8,
+        rows: 2,
+        full: false,
+        clearedRows: [0],
+        rowSpans: [.init(row: 0, column: 0, text: "legacy")],
+        deltaBaseEmissionRevision: 1
+    )
+
+    #expect(!MobileTerminalRenderGridRevisionContinuity.admits(epochlessDelta, delivered: nil))
 }
 
 @Test func revisionContinuityRoundTripsThroughCoding() throws {
