@@ -3702,8 +3702,7 @@ fn private_dump_file(directory: &fs::File, name: &str) -> io::Result<fs::File> {
         ));
     }
     // Exclusive creation means an existing hard link or symlink is never
-    // opened, and no previously existing file is truncated. The temporary
-    // file is atomically renamed into the deterministic final name below.
+    // opened, and no previously existing file is truncated.
     file.set_permissions(fs::Permissions::from_mode(0o600))?;
     Ok(file)
 }
@@ -3716,47 +3715,26 @@ where
     use std::ffi::CString;
     use std::os::fd::AsRawFd;
 
-    static NEXT_TEMP_ID: AtomicU64 = AtomicU64::new(0);
     let final_name = CString::new(name)
         .map_err(|_| io::Error::new(io::ErrorKind::InvalidInput, "invalid dump file name"))?;
-    let (mut file, temp) = 'allocate: loop {
-        for _ in 0..16 {
-            let id = NEXT_TEMP_ID.fetch_add(1, Ordering::Relaxed);
-            let temp = format!(".{name}.tmp-{}-{id}", std::process::id());
-            let file = match private_dump_file(directory, &temp) {
-                Ok(file) => break 'allocate (file, temp),
-                Err(error) if error.kind() == io::ErrorKind::AlreadyExists => continue,
-                Err(error) => return Err(error),
+    let mut file = match private_dump_file(directory, name) {
+        Ok(file) => file,
+        Err(error) if error.kind() == io::ErrorKind::AlreadyExists => {
+            // Replace only through the validated directory descriptor. This
+            // avoids truncating a hard link and leaves no crash-prone temp
+            // files behind.
+            let status = unsafe {
+                libc::unlinkat(directory.as_raw_fd(), final_name.as_ptr(), 0)
             };
+            if status != 0 {
+                return Err(error);
+            }
+            private_dump_file(directory, name)?
         }
-        return Err(io::Error::new(io::ErrorKind::AlreadyExists, "could not allocate a private dump file"));
+        Err(error) => return Err(error),
     };
-    let result = (|| {
-        write_contents(&mut file)?;
-        file.sync_all()?;
-        drop(file);
-        let temp_name = CString::new(temp.as_str()).expect("generated temp name has no NUL");
-        let status = unsafe {
-            libc::renameat(
-                directory.as_raw_fd(),
-                temp_name.as_ptr(),
-                directory.as_raw_fd(),
-                final_name.as_ptr(),
-            )
-        };
-        if status != 0 {
-            return Err(io::Error::last_os_error());
-        }
-        Ok(())
-    })();
-    if result.is_ok() {
-        return Ok(());
-    }
-    let temp_name = CString::new(temp.as_str()).expect("generated temp name has no NUL");
-    unsafe {
-        libc::unlinkat(directory.as_raw_fd(), temp_name.as_ptr(), 0);
-    }
-    result
+    write_contents(&mut file)?;
+    file.sync_all()
 }
 
 fn parse_kitty_image_aliases(
