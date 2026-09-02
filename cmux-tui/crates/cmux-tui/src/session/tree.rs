@@ -749,6 +749,7 @@ fn parse_layout(value: &Value) -> Option<Node> {
 
 fn parse_pane(value: &Value) -> Option<PaneView> {
     let raw_active_tab = value.get("active_tab").and_then(|v| v.as_u64()).unwrap_or(0) as usize;
+    let active_tab_is_declared = value.get("active_tab").is_some();
     let mut active_tab = None;
     Some(PaneView {
         id: value.get("id")?.as_u64()?,
@@ -829,7 +830,7 @@ fn parse_pane(value: &Value) -> Option<PaneView> {
                     .collect()
             })
             .unwrap_or_default(),
-        active_tab: active_tab.unwrap_or(0),
+        active_tab: if active_tab_is_declared { active_tab.unwrap_or(usize::MAX) } else { 0 },
     })
 }
 
@@ -942,15 +943,28 @@ pub(super) fn parse_tree_with_capabilities(
             active_screen: 0,
         };
         if let Some(screens) = ws.get("screens").and_then(|v| v.as_array()) {
+            let mut active_screen = None;
+            let mut active_screen_is_invalid = false;
             for screen in screens {
-                if let Some(parsed) = parse_screen(screen, capabilities) {
-                    let parsed_index = view.screens.len();
-                    if screen.get("active").and_then(|v| v.as_bool()) == Some(true) {
-                        view.active_screen = parsed_index;
+                let is_active = screen.get("active").and_then(|v| v.as_bool()) == Some(true);
+                match parse_screen(screen, capabilities) {
+                    Some(parsed) => {
+                        if is_active {
+                            active_screen = Some(view.screens.len());
+                            active_screen_is_invalid = false;
+                        }
+                        view.screens.push(parsed);
                     }
-                    view.screens.push(parsed);
+                    None => {
+                        if is_active {
+                            active_screen = None;
+                            active_screen_is_invalid = true;
+                        }
+                    }
                 }
             }
+            view.active_screen = active_screen
+                .unwrap_or_else(|| if active_screen_is_invalid { usize::MAX } else { 0 });
         }
         tree.workspaces.push(view);
     }
