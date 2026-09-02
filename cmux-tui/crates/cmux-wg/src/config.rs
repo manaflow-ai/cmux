@@ -418,7 +418,7 @@ mod tests {
         );
         let config = WgConfig::parse_wg_quick(&text).unwrap();
         assert_eq!(config.mtu, DEFAULT_MTU);
-        assert_eq!(config.endpoint.unwrap().to_string(), "vpn.example.com:51820");
+        assert_eq!(config.endpoint.as_ref().unwrap().to_string(), "vpn.example.com:51820");
         // Interface addresses keep their host bits; allowed networks drop them.
         assert_eq!(config.addresses[0].to_string(), "10.1.0.2/24");
         assert_eq!(config.addresses[1].to_string(), "fdaa::2/64");
@@ -445,7 +445,10 @@ mod tests {
         let missing_key = format!(
             "[Interface]\nAddress=10.1.0.2/32\n[Peer]\nPublicKey={KEY_B}\nAllowedIPs=10.1.0.0/24\n"
         );
-        assert_eq!(WgConfig::parse_wg_quick(&missing_key), Err(ConfigError::MissingPrivateKey));
+        assert_eq!(
+            WgConfig::parse_wg_quick(&missing_key).unwrap_err(),
+            ConfigError::MissingPrivateKey
+        );
 
         let bad_key = format!(
             "[Interface]\nPrivateKey=short\nAddress=10.1.0.2/32\n[Peer]\nPublicKey={KEY_B}\nAllowedIPs=10.1.0.0/24\n"
@@ -457,7 +460,7 @@ mod tests {
         let two_peers = format!(
             "[Interface]\nPrivateKey={KEY_A}\nAddress=10.1.0.2/32\n[Peer]\nPublicKey={KEY_B}\nAllowedIPs=10.1.0.0/24\n[Peer]\nPublicKey={KEY_B}\nAllowedIPs=10.2.0.0/24\n"
         );
-        assert_eq!(WgConfig::parse_wg_quick(&two_peers), Err(ConfigError::MultiplePeers));
+        assert_eq!(WgConfig::parse_wg_quick(&two_peers).unwrap_err(), ConfigError::MultiplePeers);
 
         let small_mtu = format!(
             "[Interface]\nPrivateKey={KEY_A}\nAddress=10.1.0.2/32\nMTU=100\n[Peer]\nPublicKey={KEY_B}\nAllowedIPs=10.1.0.0/24\n"
@@ -484,14 +487,14 @@ mod tests {
         ));
 
         let stray = format!("PrivateKey={KEY_A}\n");
-        assert_eq!(WgConfig::parse_wg_quick(&stray), Err(ConfigError::MalformedLine(1)));
+        assert_eq!(WgConfig::parse_wg_quick(&stray).unwrap_err(), ConfigError::MalformedLine(1));
 
         let three_addresses = format!(
             "[Interface]\nPrivateKey={KEY_A}\nAddress=10.1.0.2/32, 10.1.0.3/32, 10.1.0.4/32\n[Peer]\nPublicKey={KEY_B}\nAllowedIPs=10.1.0.0/24\n"
         );
         assert_eq!(
-            WgConfig::parse_wg_quick(&three_addresses),
-            Err(ConfigError::TooManyAddresses { maximum: 2 })
+            WgConfig::parse_wg_quick(&three_addresses).unwrap_err(),
+            ConfigError::TooManyAddresses { maximum: 2 }
         );
     }
 }

@@ -48,6 +48,12 @@ const MAX_WRITE_CHUNK_BYTES: usize = 64 * 1024;
 const STREAM_CHANNEL_DEPTH: usize = 32;
 /// Pending accepted connections a listener holds before refusing more.
 const LISTENER_BACKLOG: usize = 16;
+/// Spare LISTEN sockets kept per port. smoltcp has no accept queue: each
+/// listening socket becomes exactly one connection. A small pool lets a burst
+/// of concurrent SYNs (one per lane) each land on its own socket instead of
+/// being reset, and each is refilled the moment it leaves LISTEN so a retransmit
+/// of an in-progress SYN matches the existing half-open rather than a spare.
+const LISTEN_SPARES: usize = 8;
 /// Commands in flight before `connect`/`listen` callers wait.
 const COMMAND_DEPTH: usize = 64;
 /// WireGuard timer resolution; boringtun's own device uses the same.
@@ -56,8 +62,17 @@ const TIMER_TICK: Duration = Duration::from_millis(250);
 const TCP_TIMEOUT: Duration = Duration::from_secs(60);
 /// Largest datagram or packet buffer: the UDP payload maximum.
 const BUFFER_BYTES: usize = 65_535;
-/// First ephemeral port; wraps to itself.
+/// The ephemeral port range (IANA 49152-65535); allocation starts at a random
+/// port inside it and wraps, as a real stack does.
 const FIRST_EPHEMERAL_PORT: u16 = 49_152;
+const EPHEMERAL_PORT_COUNT: u16 = u16::MAX - FIRST_EPHEMERAL_PORT;
+
+fn random_ephemeral_port() -> u16 {
+    let mut seed = [0u8; 2];
+    // A failure here only weakens port randomization, never correctness.
+    let _ = getrandom::fill(&mut seed);
+    FIRST_EPHEMERAL_PORT + (u16::from_le_bytes(seed) % EPHEMERAL_PORT_COUNT)
+}
 
 #[derive(Debug)]
 pub enum WgError {
@@ -409,7 +424,8 @@ struct Conn {
 
 struct Listener {
     port: u16,
-    handle: SocketHandle,
+    /// Sockets in LISTEN or SYN-RECEIVED for this port.
+    handles: Vec<SocketHandle>,
     accept: mpsc::Sender<WgStream>,
 }
 
@@ -499,7 +515,7 @@ impl Driver {
             commands,
             wake,
             epoch,
-            next_port: FIRST_EPHEMERAL_PORT,
+            next_port: random_ephemeral_port(),
             scratch: vec![0u8; BUFFER_BYTES + 32],
         })
     }
@@ -653,7 +669,9 @@ impl Driver {
             self.sockets.get_mut::<tcp::Socket>(conn.handle).abort();
         }
         for listener in &self.listeners {
-            self.sockets.get_mut::<tcp::Socket>(listener.handle).abort();
+            for handle in &listener.handles {
+                self.sockets.get_mut::<tcp::Socket>(*handle).abort();
+            }
         }
         let now = self.now();
         self.iface.poll(now, &mut self.device, &mut self.sockets);
@@ -676,10 +694,10 @@ impl Driver {
     }
 
     fn allocate_port(&mut self) -> u16 {
-        for _ in 0..(u16::MAX - FIRST_EPHEMERAL_PORT) {
+        for _ in 0..EPHEMERAL_PORT_COUNT {
             let port = self.next_port;
             self.next_port =
-                if self.next_port == u16::MAX { FIRST_EPHEMERAL_PORT } else { self.next_port + 1 };
+                if self.next_port >= u16::MAX - 1 { FIRST_EPHEMERAL_PORT } else { self.next_port + 1 };
             let in_use = self.conns.iter().any(|conn| {
                 self.sockets
                     .get::<tcp::Socket>(conn.handle)
@@ -736,9 +754,12 @@ impl Driver {
         if self.listeners.iter().any(|listener| listener.port == port) {
             return Err(WgError::ListenerBusy(port));
         }
-        let handle = self.listening_socket(port)?;
+        let mut handles = Vec::with_capacity(LISTEN_SPARES);
+        for _ in 0..LISTEN_SPARES {
+            handles.push(self.listening_socket(port)?);
+        }
         let (accept_tx, accept_rx) = mpsc::channel(LISTENER_BACKLOG);
-        self.listeners.push(Listener { port, handle, accept: accept_tx });
+        self.listeners.push(Listener { port, handles, accept: accept_tx });
         Ok(WgListener { port, incoming: accept_rx })
     }
 
@@ -779,34 +800,69 @@ impl Driver {
     fn process_listeners(&mut self) {
         let mut index = 0;
         while index < self.listeners.len() {
-            let port = self.listeners[index].port;
-            let handle = self.listeners[index].handle;
             if self.listeners[index].accept.is_closed() {
-                self.sockets.get_mut::<tcp::Socket>(handle).abort();
-                self.sockets.remove(handle);
+                for handle in std::mem::take(&mut self.listeners[index].handles) {
+                    self.sockets.get_mut::<tcp::Socket>(handle).abort();
+                    self.sockets.remove(handle);
+                }
                 self.listeners.swap_remove(index);
                 continue;
             }
-            let established = {
-                let socket = self.sockets.get::<tcp::Socket>(handle);
-                (socket.state() == tcp::State::Established)
-                    .then(|| (socket.local_endpoint(), socket.remote_endpoint()))
-            };
-            if let Some((Some(local), Some(remote))) = established {
-                let local = socket_addr(local);
-                let remote = socket_addr(remote);
-                let accept = self.listeners[index].accept.clone();
-                let (conn, stream) = self.bridge(handle, local, remote);
-                self.conns
-                    .push(Conn { pending_stream: Some((Handoff::Accept(accept), stream)), ..conn });
-                match self.listening_socket(port) {
-                    Ok(replacement) => self.listeners[index].handle = replacement,
-                    Err(_) => {
-                        self.listeners.swap_remove(index);
-                        continue;
+            let port = self.listeners[index].port;
+            let handles = std::mem::take(&mut self.listeners[index].handles);
+            let mut still_listening = Vec::with_capacity(handles.len());
+            let mut listen_count = 0;
+            let mut half_open = 0;
+            for handle in handles {
+                let (state, endpoints) = {
+                    let socket = self.sockets.get::<tcp::Socket>(handle);
+                    (socket.state(), (socket.local_endpoint(), socket.remote_endpoint()))
+                };
+                match state {
+                    tcp::State::Established => {
+                        let (Some(local), Some(remote)) = endpoints else {
+                            self.sockets.remove(handle);
+                            continue;
+                        };
+                        let accept = self.listeners[index].accept.clone();
+                        let (conn, stream) =
+                            self.bridge(handle, socket_addr(local), socket_addr(remote));
+                        self.conns.push(Conn {
+                            pending_stream: Some((Handoff::Accept(accept), stream)),
+                            ..conn
+                        });
+                    }
+                    tcp::State::Listen => {
+                        listen_count += 1;
+                        still_listening.push(handle);
+                    }
+                    tcp::State::SynReceived => {
+                        half_open += 1;
+                        still_listening.push(handle);
+                    }
+                    // The handshake fell apart (peer reset, timeout): drop it.
+                    _ => {
+                        self.sockets.remove(handle);
                     }
                 }
             }
+            // Refill only while no handshake is in flight. A new Listen socket
+            // added beside a live half-open can be assigned a lower socket slot
+            // (freed by a closed connection), and smoltcp would then route a
+            // retransmitted SYN to that Listen socket instead of the existing
+            // half-open, spawning a duplicate that never completes.
+            if half_open == 0 {
+                while listen_count < LISTEN_SPARES {
+                    match self.listening_socket(port) {
+                        Ok(handle) => {
+                            still_listening.push(handle);
+                            listen_count += 1;
+                        }
+                        Err(_) => break,
+                    }
+                }
+            }
+            self.listeners[index].handles = still_listening;
             index += 1;
         }
     }
@@ -840,7 +896,12 @@ impl Driver {
                     self.conns.swap_remove(index);
                     continue;
                 } else {
+                    // Still in the handshake: no owner yet, so nothing to move
+                    // and no EOF to detect (`may_recv` is false before
+                    // Established).
                     conn.pending_stream = Some((handoff, stream));
+                    index += 1;
+                    continue;
                 }
             }
 

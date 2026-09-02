@@ -27,7 +27,8 @@
 mod config;
 mod device;
 mod net;
-#[cfg(any(test, feature = "test-support"))]
+/// Two-peer loopback harness. Test support for this crate and its dependents;
+/// it links no code into a binary that does not call it.
 pub mod testing;
 
 pub use config::{ConfigError, DEFAULT_MTU, Endpoint, InterfaceAddress, WgConfig};

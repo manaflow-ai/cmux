@@ -21,8 +21,15 @@ use tokio::net::TcpStream;
 
 use crate::link::LinkError;
 
+/// The bounds a dialed carrier must satisfy. Blanket-implemented, so any
+/// Tokio stream qualifies; the trait exists only because a trait object can
+/// name one non-auto trait.
+pub trait DialedIo: AsyncRead + AsyncWrite + Send + Sync + Unpin {}
+
+impl<T: AsyncRead + AsyncWrite + Send + Sync + Unpin + ?Sized> DialedIo for T {}
+
 /// A connected, ordered byte stream to the dialed host.
-pub type DialedStream = Box<dyn AsyncRead + AsyncWrite + Send + Sync + Unpin>;
+pub type DialedStream = Box<dyn DialedIo>;
 
 /// Produces a byte stream to `host:port`. Implementations own the carrier only.
 #[async_trait]
