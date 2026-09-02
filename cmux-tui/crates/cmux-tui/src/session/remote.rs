@@ -319,7 +319,7 @@ struct AgentUpdate {
 impl RemoteTreeCache {
     fn replace(&mut self, view: TreeView, refresh_generation: u64) {
         self.surface_tabs.clear();
-        for (workspace_index, workspace) in view.workspaces.iter().enumerate() {
+        for (workspace_index, workspace) in view.workspaces().iter().enumerate() {
             for (screen_index, screen) in workspace.screens.iter().enumerate() {
                 for (pane_index, pane) in screen.panes.iter().enumerate() {
                     for (tab_index, tab) in pane.tabs.iter().enumerate() {
@@ -358,25 +358,10 @@ impl RemoteTreeCache {
     }
 
     fn update_view_title(&mut self, surface_id: SurfaceId, title: String) -> bool {
-        let Some([workspace, screen, pane, tab]) = self.surface_tabs.get(&surface_id).copied()
-        else {
+        let Some(location) = self.surface_tabs.get(&surface_id).copied() else {
             return false;
         };
-        let Some(tab) = self
-            .view
-            .workspaces
-            .get_mut(workspace)
-            .and_then(|workspace| workspace.screens.get_mut(screen))
-            .and_then(|screen| screen.panes.get_mut(pane))
-            .and_then(|pane| pane.tabs.get_mut(tab))
-        else {
-            return false;
-        };
-        if tab.surface != surface_id {
-            return false;
-        }
-        tab.title = title;
-        true
+        self.view.update_surface_title_at(surface_id, location, &title).is_some()
     }
 
     fn title_generation(&self) -> u64 {
@@ -3500,7 +3485,7 @@ impl RemoteSession {
         );
         drop(capabilities);
         let raw_surface_ids = tree
-            .workspaces
+            .workspaces()
             .iter()
             .flat_map(|workspace| workspace.screens.iter())
             .flat_map(|screen| screen.panes.iter())
@@ -3515,7 +3500,7 @@ impl RemoteSession {
         let mut tree = tree;
         tree.retain_not_retired(&retired_surface_ids);
         let live_surface_ids = tree
-            .workspaces
+            .workspaces()
             .iter()
             .flat_map(|workspace| workspace.screens.iter())
             .flat_map(|screen| screen.panes.iter())
@@ -3742,7 +3727,7 @@ fn dump_mirror(surface: &RemoteSurface) -> String {
 }
 
 fn browser_sources_from_tree(tree: &TreeView) -> HashMap<SurfaceId, BrowserSource> {
-    tree.workspaces
+    tree.workspaces()
         .iter()
         .flat_map(|ws| ws.screens.iter())
         .flat_map(|screen| screen.panes.iter())
@@ -3752,7 +3737,7 @@ fn browser_sources_from_tree(tree: &TreeView) -> HashMap<SurfaceId, BrowserSourc
 }
 
 fn browser_source_from_tree(tree: &TreeView, id: SurfaceId) -> Option<BrowserSource> {
-    tree.workspaces
+    tree.workspaces()
         .iter()
         .flat_map(|ws| ws.screens.iter())
         .flat_map(|screen| screen.panes.iter())
@@ -6154,7 +6139,7 @@ mod tests {
         session.ensure_initial(Some((80, 24))).unwrap();
 
         assert!(
-            session.tree().workspaces.iter().all(|workspace| workspace.screens.is_empty()),
+            session.tree().workspaces().iter().all(|workspace| workspace.screens.is_empty()),
             "an unguarded create must never run"
         );
     }
@@ -7917,9 +7902,11 @@ mod tests {
             0,
         );
 
+        assert!(cache.view.location_index.get().is_none());
         assert!(cache.update_title(4, "server title".to_string()));
-        assert_eq!(cache.view.workspaces[0].screens[0].panes[0].tabs[0].title, "server title");
-        assert_eq!(cache.view.workspaces[1].screens[0].panes[0].tabs[0].title, "other title");
+        assert!(cache.view.location_index.get().is_none());
+        assert_eq!(cache.view.workspaces()[0].screens[0].panes[0].tabs[0].title, "server title");
+        assert_eq!(cache.view.workspaces()[1].screens[0].panes[0].tabs[0].title, "other title");
         assert!(!cache.update_title(99, "missing".to_string()));
     }
 
@@ -7947,7 +7934,7 @@ mod tests {
         assert!(cache.update_title(4, "event title".to_string()));
         cache.replace(tree("stale snapshot"), refresh_generation);
 
-        assert_eq!(cache.view.workspaces[0].screens[0].panes[0].tabs[0].title, "event title");
+        assert_eq!(cache.view.workspaces()[0].screens[0].panes[0].tabs[0].title, "event title");
     }
 
     #[test]
@@ -7974,7 +7961,7 @@ mod tests {
         let refresh_generation = cache.title_generation();
         cache.replace(tree("fresh snapshot"), refresh_generation);
 
-        assert_eq!(cache.view.workspaces[0].screens[0].panes[0].tabs[0].title, "fresh snapshot");
+        assert_eq!(cache.view.workspaces()[0].screens[0].panes[0].tabs[0].title, "fresh snapshot");
     }
 
     #[test]
