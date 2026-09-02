@@ -1908,7 +1908,9 @@ mod tests {
     fn python_exit_options_do_not_expose_following_tokens() {
         for argv in [
             vec!["python3.12", "-h", "codex"],
+            vec!["python3.12", "-?", "codex"],
             vec!["python3.12", "-V", "claude"],
+            vec!["python3.12", "-VV", "claude"],
             vec!["python3.12", "--help", "/tmp/pi"],
             vec!["python3.12", "--version", "/tmp/codex"],
         ] {
