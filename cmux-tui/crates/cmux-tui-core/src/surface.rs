@@ -5550,7 +5550,12 @@ impl Surface {
             return Err(ghostty_vt::Error::InvalidValue);
         };
         let mut term = pty.term.lock().unwrap();
-        if pty.dead.load(Ordering::Acquire) {
+        // An exited terminal has no live tap, but its final replay remains
+        // useful. Other dead states can represent an incomplete host loss.
+        if pty.dead.load(Ordering::Acquire)
+            && pty.host_connection_state.load(Ordering::Acquire)
+                != TerminalHostConnectionState::Exited as u8
+        {
             return Err(ghostty_vt::Error::NoValue);
         }
         let (tap, stream) =
@@ -5595,7 +5600,10 @@ impl Surface {
             .and_then(|mux| mux.claim_render_attachment())
             .ok_or(ghostty_vt::Error::OutOfSpace)?;
         let mut term = pty.term.lock().unwrap();
-        if pty.dead.load(Ordering::Acquire) {
+        if pty.dead.load(Ordering::Acquire)
+            && pty.host_connection_state.load(Ordering::Acquire)
+                != TerminalHostConnectionState::Exited as u8
+        {
             return Err(ghostty_vt::Error::NoValue);
         }
         let generation = pty.render_generation.load(Ordering::Acquire);
@@ -6500,6 +6508,10 @@ impl PtySurface {
     /// retaining the exited surface as a stable, snapshot-renderable tab.
     fn finish_hosted_exit(&self) {
         let mut term = self.term.lock().unwrap();
+        // Attach takes the same terminal lock. Publish Exited first so an
+        // attacher can observe either a live terminal or its final snapshot.
+        self.host_connection_state
+            .store(TerminalHostConnectionState::Exited as u8, Ordering::Release);
         if self.dead.swap(true, Ordering::AcqRel) {
             return;
         }
