@@ -977,7 +977,7 @@ mod tests {
 
     #[cfg(unix)]
     #[test]
-    fn setup_handoff_timeout_releases_a_late_child() {
+    fn append_detached_setup_timeout_releases_a_late_child() {
         use std::process::{Command, Stdio};
         use std::sync::{Arc, Barrier};
 
