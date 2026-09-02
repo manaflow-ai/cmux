@@ -999,11 +999,24 @@ fn plugin_is_selected(
     // can intentionally share a working directory. Do not mark both active
     // when only their common cwd matches.
     if let Some(selected_command) = selection.command.as_deref() {
-        return resolved_run_command(manifest, dir)
-            .ok()
-            .is_some_and(|expected_command| commands_match(selected_command, &expected_command));
+        let selected_command = configured_command(selection, selected_command);
+        return resolved_run_command(manifest, dir).ok().zip(selected_command).is_some_and(
+            |(expected_command, selected_command)| {
+                commands_match(&selected_command, &expected_command)
+            },
+        );
     }
     selection.cwd.as_deref().is_some_and(|cwd| same_path(cwd, dir))
+}
+
+fn configured_command(selection: &SelectedPluginConfig, command: &[String]) -> Option<Vec<String>> {
+    let mut command = command.to_vec();
+    let first = PathBuf::from(command.first()?);
+    if first.is_relative() {
+        let cwd = selection.cwd.as_deref()?;
+        command[0] = canonical_path(&cwd.join(first)).ok()?.display().to_string();
+    }
+    Some(command)
 }
 
 fn commands_match(left: &[String], right: &[String]) -> bool {
