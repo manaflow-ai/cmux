@@ -1904,7 +1904,6 @@ impl Inner {
             return;
         }
         let _delivery = attachment.delivery_gate.lock().expect("attachment delivery lock");
-        let exit_live = Arc::new(AtomicBool::new(true));
         let removed = {
             let _state = self.tunnel_state.lock().expect("tunnel state lock");
             let mut attachments = self.attachments.lock().expect("attach lock");
@@ -1925,7 +1924,7 @@ impl Inner {
                         "ptyId": pty_id,
                         "code": code,
                     }),
-                    Arc::clone(&exit_live),
+                    Arc::clone(&attachment.delivery_live),
                 );
                 // A normal PTY exit ends new publication but keeps the live
                 // token for frames already queued. The writer must preserve
