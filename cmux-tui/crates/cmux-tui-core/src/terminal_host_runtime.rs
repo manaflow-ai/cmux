@@ -6364,9 +6364,24 @@ mod unix {
                 [Some(host_group), Some(host_group + 1), Some(0), Some(-1)],
                 host_group,
                 libc::SIGKILL,
-                |group, signal| signaled.push((group, signal)),
+                |group, signal| {
+                    signaled.push((group, signal));
+                    true
+                },
             );
             assert_eq!(signaled, vec![(host_group + 1, libc::SIGKILL)]);
+        }
+
+        #[test]
+        fn startup_child_cleanup_reports_group_signal_failure() {
+            let host_group = unsafe { libc::getpgrp() };
+            let all_succeeded = signal_validated_process_groups(
+                [Some(host_group + 1)],
+                host_group,
+                libc::SIGKILL,
+                |_group, _signal| false,
+            );
+            assert!(!all_succeeded);
         }
 
         fn exited_host_fixture_with_parser_at(
