@@ -17,6 +17,15 @@ describe("direct dev backend host forwarding", () => {
     ).toBe("https://cmux-dev-backend-1.tail137216.ts.net:3916");
   });
 
+  test("normalizes direct transport values before selecting the configured origin", () => {
+    expect(
+      requestOrigin(request("https://0.0.0.0:3916"), {
+        CMUX_DEV_BACKEND_TRANSPORT: "  DIRECT ",
+        CMUX_WWW_ORIGIN: "https://cmux-dev-backend-1.tail137216.ts.net:3916/",
+      }),
+    ).toBe("https://cmux-dev-backend-1.tail137216.ts.net:3916");
+  });
+
   test("keeps the Next origin for the SSH transport", () => {
     expect(
       requestOrigin(request("http://127.0.0.1:3916"), {
