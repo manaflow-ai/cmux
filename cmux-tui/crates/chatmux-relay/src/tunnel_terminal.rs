@@ -545,7 +545,7 @@ async fn serve_connection(stream: TcpStream, manager: Arc<PtyManager>, parent: C
     let mut decoder = TunnelFrameDecoder::new(MAX_TUNNEL_FRAME_BYTES);
     let open_deadline = tokio::time::sleep(OPEN_TIMEOUT);
     tokio::pin!(open_deadline);
-    loop {
+    'reader: loop {
         tokio::select! {
             biased;
             _ = parent.cancelled() => {
@@ -570,7 +570,14 @@ async fn serve_connection(stream: TcpStream, manager: Arc<PtyManager>, parent: C
                 match decoder.push(&buffer[..count]) {
                     Ok(frames) => {
                         for frame in frames {
-                            handle_client_frame(&connection, &context, frame).await;
+                            tokio::select! {
+                                biased;
+                                _ = &mut open_deadline, if !connection.opened_seen.load(Ordering::SeqCst) => {
+                                    connection.protocol_error("bad_request", "open timed out");
+                                    break 'reader;
+                                }
+                                _ = handle_client_frame(&connection, &context, frame) => {}
+                            }
                         }
                     }
                     Err(_) => {
@@ -1051,7 +1058,8 @@ mod tests {
 
     #[tokio::test]
     async fn open_deadline_cancels_a_slow_manager_open() {
-        let rig = rig_with_limits_and_spawn_delay(8, OPEN_TIMEOUT + Duration::from_millis(50)).await;
+        let rig =
+            rig_with_limits_and_spawn_delay(8, OPEN_TIMEOUT + Duration::from_millis(50)).await;
         let stream = connect(&rig).await;
         let (mut read, mut write) = stream.into_split();
         let mut decoder = TunnelFrameDecoder::new(MAX_TUNNEL_FRAME_BYTES);
