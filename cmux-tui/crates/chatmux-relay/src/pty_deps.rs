@@ -556,7 +556,6 @@ struct MasterControl {
     master: Mutex<Box<dyn MasterPty + Send>>,
     writer_tx: mpsc::SyncSender<Vec<u8>>,
     writer_bytes: Arc<AtomicU64>,
-    killer: Mutex<Box<dyn cmux_pty::ChildKiller + Send + Sync>>,
     lifecycle: Arc<ChildLifecycle>,
     process_group: libc::pid_t,
 }
@@ -567,9 +566,9 @@ impl Drop for MasterControl {
         // been aborted. Terminate only while the wait thread still owns a
         // live child, and never after it has observed exit with WNOWAIT.
         if self.lifecycle.begin_termination_and_force_kill() {
-            if let Ok(mut killer) = self.killer.lock() {
-                let _ = killer.kill();
-            }
+            // `Drop` can run on the reactor when an async open is cancelled.
+            // Use the nonblocking process-group signal API here; the blocking
+            // ChildKiller handle remains owned by the wait thread below.
             force_kill_process_group(self.process_group);
         }
     }
@@ -595,9 +594,6 @@ impl PtyControl for MasterControl {
     fn resume(&self) {}
     fn kill(&self) {
         if self.lifecycle.begin_termination_and_force_kill() {
-            if let Ok(mut killer) = self.killer.lock() {
-                let _ = killer.kill();
-            }
             force_kill_process_group(self.process_group);
         }
     }
@@ -722,7 +718,6 @@ fn spawn_real_pty(spec: &SpawnSpec) -> anyhow::Result<PtyHandle> {
             writer_bytes_for_thread.fetch_sub(len, Ordering::AcqRel);
         }
     });
-    let killer = child_cleanup.child().clone_killer();
     let pid = child_cleanup.child().process_id().unwrap_or(0) as libc::pid_t;
     // cmux-pty starts the child in its own session. Keep the child PID as the
     // stable process-group target; the foreground group can change when an
@@ -733,7 +728,6 @@ fn spawn_real_pty(spec: &SpawnSpec) -> anyhow::Result<PtyHandle> {
         master: Mutex::new(master),
         writer_tx,
         writer_bytes,
-        killer: Mutex::new(killer),
         lifecycle: Arc::clone(&lifecycle),
         process_group,
     });
