@@ -472,7 +472,7 @@ struct CmuxTuiSnapshotParser: Sendable {
                         // id with no existing id match and a changed terminal is ambiguous:
                         // it may be a new agent, or an id-less legacy agent being reassigned.
                         // Appending in that case leaves a stale badge, so force a snapshot.
-                        guard let value, let valueTerminalID else { return nil }
+                        guard let valueTerminalID else { return nil }
                         let idIndex = explicitID.flatMap { id in
                             values.firstIndex { nonEmptyString($0["id"]) == id }
                         }
