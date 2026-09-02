@@ -303,6 +303,10 @@ actor CloudWireGuardHub {
         let sleep = configuration.sleep
         let readyTimeout = configuration.readyTimeout
         let resolved = CloudLinkFirstValue<Result<CloudWireGuardHubReadyEvent, Error>>()
+        // The reader resolves only on success. Stdout closing without a hub-ready line
+        // means the process exited (the watcher reports the status) or the pipe closed
+        // while it lived (the timer reports it), so failure attribution stays with them
+        // and an exit-before-ready always surfaces the exit status, not "stdout closed".
         let reader = Task.detached {
             for await line in lines {
                 if let event = CloudWireGuardHubReadyEvent(line: line) {
@@ -310,7 +314,6 @@ actor CloudWireGuardHub {
                     return
                 }
             }
-            resolved.resolve(.failure(HubError.notReady("stdout closed before hub-ready")))
         }
         let watcher = Task.detached {
             if let status = await exit.result {

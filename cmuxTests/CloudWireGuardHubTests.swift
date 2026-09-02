@@ -356,6 +356,8 @@ struct CloudWireGuardHubTests {
         let status = await h.hub.status()
         #expect(!status.running)
         #expect(status.leases == 0)
+        // The exit status is the attributed failure, not the incidental stdout EOF that
+        // ends the reader at the same moment.
         #expect(status.lastError?.contains("status 3") == true)
     }
 
