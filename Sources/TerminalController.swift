@@ -692,11 +692,11 @@ class TerminalController {
         }
     }
 
-    nonisolated static func withSocketCommandPolicyStack<T>(_ stack: [Bool], _ body: () -> T) -> T {
+    nonisolated static func withSocketCommandPolicyStack<T>(_ stack: [Bool], _ body: () throws -> T) rethrows -> T {
         let previous = currentSocketCommandFocusAllowanceStack()
         setCurrentSocketCommandFocusAllowanceStack(stack)
         defer { setCurrentSocketCommandFocusAllowanceStack(previous) }
-        return body()
+        return try body()
     }
 
     /// The stack of socket command keys currently executing on this thread
