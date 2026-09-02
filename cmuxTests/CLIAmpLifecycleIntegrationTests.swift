@@ -158,7 +158,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
         XCTAssertTrue(
             idleErrorCommands.contains {
                 $0.hasPrefix("notify_target_async \(context.workspaceId) \(context.surfaceId) Amp|")
-                    && $0.contains("Amp reported an error")
+                    && $0.contains("The task reported an error")
             },
             "Amp idle-after-error did not use agent error notification delivery: \(idleErrorCommands)"
         )

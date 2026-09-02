@@ -17,6 +17,79 @@ public actor AmpHookSessionRepository: AmpHookSessionReading {
         let snapshots: [AmpHookSessionSnapshot]
     }
 
+    /// Keeps only the best page-sized window while a source is scanned.
+    ///
+    /// The root is the least-recent snapshot in the retained window, so a
+    /// refresh does not need to sort the entire (unbounded) hook-store file.
+    private struct SnapshotHeap {
+        private let capacity: Int
+        private var values: [AmpHookSessionSnapshot] = []
+
+        init(capacity: Int) {
+            self.capacity = capacity
+        }
+
+        mutating func insert(_ value: AmpHookSessionSnapshot) {
+            guard capacity > 0 else { return }
+            if values.count < capacity {
+                values.append(value)
+                siftUp(from: values.count - 1)
+                return
+            }
+            guard let worst = values.first, Self.isWorse(worst, than: value) else {
+                return
+            }
+            values[0] = value
+            siftDown(from: 0)
+        }
+
+        func ordered() -> [AmpHookSessionSnapshot] {
+            values.sorted { Self.isBetter($0, than: $1) }
+        }
+
+        private static func isBetter(
+            _ lhs: AmpHookSessionSnapshot,
+            than rhs: AmpHookSessionSnapshot
+        ) -> Bool {
+            if lhs.modified != rhs.modified {
+                return lhs.modified > rhs.modified
+            }
+            return lhs.sessionID < rhs.sessionID
+        }
+
+        private static func isWorse(
+            _ lhs: AmpHookSessionSnapshot,
+            than rhs: AmpHookSessionSnapshot
+        ) -> Bool {
+            isBetter(rhs, than: lhs)
+        }
+
+        private mutating func siftUp(from start: Int) {
+            var child = start
+            while child > 0 {
+                let parent = (child - 1) / 2
+                guard Self.isWorse(values[child], than: values[parent]) else { break }
+                values.swapAt(child, parent)
+                child = parent
+            }
+        }
+
+        private mutating func siftDown(from start: Int) {
+            var parent = start
+            while true {
+                let left = parent * 2 + 1
+                guard left < values.count else { return }
+                let right = left + 1
+                let worstChild = right < values.count && Self.isWorse(values[right], than: values[left])
+                    ? right
+                    : left
+                guard Self.isWorse(values[worstChild], than: values[parent]) else { return }
+                values.swapAt(parent, worstChild)
+                parent = worstChild
+            }
+        }
+    }
+
     // Justification: Foundation documents FileManager's methods as thread-safe,
     // and actor isolation serializes every access to this injected instance.
     private nonisolated(unsafe) let fileManager: FileManager
@@ -64,19 +137,25 @@ public actor AmpHookSessionRepository: AmpHookSessionReading {
         let allSnapshots = try snapshots(at: sourceURL)
         let needle = query.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
         let directoryFilter = Self.normalizedWorkingDirectory(workingDirectory)
-        let filtered = allSnapshots.lazy.filter { snapshot in
+        guard offset <= Int.max - limit else { return [] }
+        var page = SnapshotHeap(capacity: offset + limit)
+        for snapshot in allSnapshots {
             if let directoryFilter, snapshot.workingDirectory != directoryFilter {
-                return false
+                continue
             }
-            guard !needle.isEmpty else { return true }
-            let haystack = [
-                snapshot.sessionID,
-                snapshot.title ?? "",
-                snapshot.workingDirectory ?? "",
-            ].joined(separator: " ").lowercased()
-            return haystack.range(of: needle, options: [.literal]) != nil
+            if !needle.isEmpty {
+                let haystack = [
+                    snapshot.sessionID,
+                    snapshot.title ?? "",
+                    snapshot.workingDirectory ?? "",
+                ].joined(separator: " ").lowercased()
+                guard haystack.range(of: needle, options: [.literal]) != nil else {
+                    continue
+                }
+            }
+            page.insert(snapshot)
         }
-        return Array(filtered.dropFirst(offset).prefix(limit))
+        return Array(page.ordered().dropFirst(offset).prefix(limit))
     }
 
     private func snapshots(at sourceURL: URL) throws -> [AmpHookSessionSnapshot] {
@@ -152,11 +231,7 @@ public actor AmpHookSessionRepository: AmpHookSessionReading {
                 modified: Date(timeIntervalSince1970: record.updatedAt ?? record.startedAt ?? 0)
             ))
         }
-        return snapshots.sorted { lhs, rhs in
-            lhs.modified == rhs.modified
-                ? lhs.sessionID < rhs.sessionID
-                : lhs.modified > rhs.modified
-        }
+        return snapshots
     }
 
     private static func trustedLaunchCommand(

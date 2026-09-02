@@ -207,6 +207,25 @@ const thread = {
     }
   }
 };
+let replacementStateSubscriber = null;
+let replacementTitleSubscriber = null;
+const replacementThread = {
+  id: "T-amp-session-test",
+  state: {
+    get: async () => "awaiting-approval",
+    subscribe(cb) {
+      replacementStateSubscriber = cb;
+      return { unsubscribe() { unsubscribeCount += 1; } };
+    }
+  },
+  title: {
+    get: async () => "Replacement Amp title",
+    subscribe(cb) {
+      replacementTitleSubscriber = cb;
+      return { unsubscribe() { unsubscribeCount += 1; } };
+    }
+  }
+};
 let secondStateSubscriber = null;
 let secondState = "idle";
 const secondThread = {
@@ -259,7 +278,14 @@ mod.default({
     handlers.set(name, handler);
   },
   thread,
-  activeThread
+  activeThread,
+  threads: {
+    get(id) {
+      if (id === replacementThread.id) return replacementThread;
+      if (id === thread.id) return thread;
+      return { id };
+    }
+  }
 });
 if (typeof stateSubscriber !== "function" || typeof titleSubscriber !== "function") {
   throw new Error("initial active thread was not reconciled at plugin startup");
@@ -384,6 +410,33 @@ await stateSubscriber(currentState);
 currentState = "idle";
 await stateSubscriber(currentState);
 
+// Amp may replace a thread handle without changing its native ID. The new
+// handle is authoritative; observers and deferred reads from the old handle
+// must not continue to mutate the shared lifecycle or title.
+await waitForLifecycleState("T-amp-session-test", "idle", 1);
+await waitForLifecycleState("T-amp-session-test", "awaiting-approval", 1);
+const staleStateSubscriber = stateSubscriber;
+const staleTitleSubscriber = titleSubscriber;
+const replacementActiveValue = { id: replacementThread.id };
+const idleBeforeReplacement = lifecycleStateCount("T-amp-session-test", "idle");
+const awaitingBeforeReplacement = lifecycleStateCount("T-amp-session-test", "awaiting-approval");
+selectThread(replacementActiveValue);
+if (typeof replacementStateSubscriber !== "function" || typeof replacementTitleSubscriber !== "function") {
+  throw new Error("same-ID active-thread replacement was not rebound");
+}
+await waitForLifecycleState("T-amp-session-test", "awaiting-approval", awaitingBeforeReplacement + 1);
+await waitForInputFragment('"title":"Replacement Amp title"');
+staleStateSubscriber("idle");
+staleTitleSubscriber("Stale replacement title");
+await new Promise((resolve) => setTimeout(resolve, 20));
+if (lifecycleStateCount("T-amp-session-test", "idle") !== idleBeforeReplacement) {
+  throw new Error("a stale same-ID state observer mutated the replacement lifecycle");
+}
+if (readJsonRecords().some((payload) => payload.title === "Stale replacement title")) {
+  throw new Error("a stale same-ID title observer overwrote the replacement title");
+}
+selectThread(thread);
+
 titleGetter = async () => "Updated Amp title";
 await handlers.get("agent.start")({ thread, message: "settle first", id: "msg-user-2" }, ctx);
 currentState = "running";
@@ -429,7 +482,7 @@ await waitForProjectedStatus(runningStatusFragment, runningStatusCount + 1);
 selectThread(thread);
 secondState = "awaiting-approval";
 await secondStateSubscriber(secondState);
-const needsInputStatusFragment = "needs input --icon bell.fill --color #4C8DFF";
+const needsInputStatusFragment = "__cmux_amp_status_needs_input --icon bell.fill --color #4C8DFF";
 const needsInputStatusCount = statusCount(needsInputStatusFragment);
 selectThread(secondThread);
 await waitForProjectedStatus(needsInputStatusFragment, needsInputStatusCount + 1);
@@ -482,7 +535,7 @@ await handlers.get("agent.end")({
 }, { thread: thirdThread });
 thirdState = "error";
 await thirdStateSubscriber(thirdState);
-const errorStatusFragment = "error --icon xmark.circle --color #ff5555";
+const errorStatusFragment = "__cmux_amp_status_error --icon xmark.circle --color #ff5555";
 const errorStatusCount = statusCount(errorStatusFragment);
 selectThread(thirdThread);
 await waitForProjectedStatus(errorStatusFragment, errorStatusCount + 1);
@@ -491,7 +544,7 @@ selectThread(null);
 await waitForCommandCount("clear-status amp", clearCountBeforeNoActiveThread + 1);
 secondState = "running";
 await secondStateSubscriber(secondState);
-const activeStatusMarker = "set-status amp error --icon xmark.circle --color #ff5555";
+const activeStatusMarker = "set-status amp __cmux_amp_status_error --icon xmark.circle --color #ff5555";
 const activeStatusCount = commandCount(activeStatusMarker);
 selectThread(thirdThread);
 await waitForCommandCount(activeStatusMarker, activeStatusCount + 1);

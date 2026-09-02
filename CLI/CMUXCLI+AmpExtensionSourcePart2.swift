@@ -48,6 +48,34 @@ export default function (amp: PluginAPI) {
     threadTouchOrder.delete(threadId);
     threadTouchOrder.set(threadId, ++threadTouchSequence);
   }
+  function invalidateThreadObservers(threadId: string): void {
+    try { titleSubscriptions.get(threadId)?.unsubscribe?.(); } catch (_) {}
+    try { stateSubscriptions.get(threadId)?.unsubscribe?.(); } catch (_) {}
+    try { resumableStateSubscriptions.get(threadId)?.unsubscribe?.(); } catch (_) {}
+    titleSubscriptions.delete(threadId);
+    stateSubscriptions.delete(threadId);
+    resumableStateSubscriptions.delete(threadId);
+    resumableSubscriptionOrder.delete(threadId);
+    observedTitleThreads.delete(threadId);
+    titleLookupTokens.set(threadId, (titleLookupTokens.get(threadId) || 0) + 1);
+    const lifecycle = lifecycleByThread.get(threadId);
+    if (lifecycle) {
+      // Invalidate reads and callbacks that belong to the replaced Amp object.
+      lifecycle.stateReadVersion += 1;
+      lifecycle.observationVersion += 1;
+    }
+  }
+  function rememberThread(threadId: string, thread: AmpThread): AmpThread {
+    const previous = threadById.get(threadId);
+    const hasObservable = Boolean(thread.state || thread.title);
+    if (previous && previous !== thread && hasObservable) {
+      invalidateThreadObservers(threadId);
+    }
+    // A sparse event context must not replace a richer active-thread handle.
+    if (previous && previous !== thread && !hasObservable) return previous;
+    threadById.set(threadId, thread);
+    return thread;
+  }
   function retainResumableSubscription(threadId: string, subscription: { unsubscribe?: () => void }): void {
     resumableStateSubscriptions.set(threadId, subscription);
     resumableSubscriptionOrder.delete(threadId);
@@ -128,7 +156,13 @@ export default function (amp: PluginAPI) {
   function threadFrom(event: { thread?: AmpThread } | undefined, ctx?: AmpThreadContext): AmpThread | undefined {
     const thread = ctx?.thread || event?.thread || rootThread;
     const threadId = firstString(thread?.id);
-    if (thread && threadId) threadById.set(threadId, thread);
+    if (thread && threadId) {
+      // Event payloads are commonly sparse `{ id }` views. Do not replace a
+      // richer handle (and its observers) with that view.
+      if (!threadById.has(threadId) || thread.state || thread.title) {
+        threadById.set(threadId, thread);
+      }
+    }
     return thread;
   }
   function threadIdFrom(event: { thread?: AmpThread } | undefined, ctx?: AmpThreadContext): string | null {
@@ -271,6 +305,7 @@ export default function (amp: PluginAPI) {
       .then((value) => {
         if (titleLookupTokens.get(threadId) !== token) return;
         if ((titleVersions.get(threadId) || 0) !== startVersion) return;
+        if (threadById.get(threadId) !== thread) return;
         const candidate = normalizedTitle(value);
         if (!candidate) return;
         if (observedTitleThreads.has(threadId) && titleByThread.get(threadId) !== candidate) return;
@@ -283,7 +318,9 @@ export default function (amp: PluginAPI) {
     const observable = thread?.title;
     if (!observable?.subscribe || titleSubscriptions.has(threadId)) return;
     try {
+      const observedThread = thread;
       const subscription = observable.subscribe((value) => {
+        if (threadById.get(threadId) !== observedThread) return;
         const title = rememberTitle(threadId, value);
         if (!title) return;
         observedTitleThreads.add(threadId);
@@ -433,7 +470,9 @@ export default function (amp: PluginAPI) {
     void Promise.resolve(lookup)
       .then((value) => {
         const current = lifecycleByThread.get(threadId);
-        if (current === lifecycle && version === current.stateReadVersion) {
+        if (current === lifecycle
+          && version === current.stateReadVersion
+          && (!thread || threadById.get(threadId) === thread)) {
           reconcileThreadState(threadId, value);
         }
       })
@@ -447,7 +486,9 @@ export default function (amp: PluginAPI) {
     const alreadySubscribed = stateSubscriptions.has(threadId);
     if (observable.subscribe && !alreadySubscribed) {
       try {
+        const observedThread = thread;
         const subscription = observable.subscribe((value) => {
+          if (observedThread && threadById.get(threadId) !== observedThread) return;
           const lifecycle = lifecycleByThread.get(threadId) || lifecycleFor(threadId);
           if (!lifecycle) return;
           restoreResumableSubscription(threadId);
@@ -472,18 +513,32 @@ export default function (amp: PluginAPI) {
       value?: AmpThread | null;
       thread?: AmpThread | null;
     } | null;
-    const candidate = value && typeof value === "object" && firstString((value as AmpThread).id)
+    const directCandidate = value && typeof value === "object" && firstString((value as AmpThread).id)
       ? value as AmpThread
-      : wrapped?.current || wrapped?.value || wrapped?.thread || activeThread?.current || undefined;
-    const threadId = firstString(value, candidate?.id, activeThread?.current?.id);
+      : undefined;
+    const wrappedCandidate = wrapped?.current || wrapped?.value || wrapped?.thread || undefined;
+    const activeCandidate = activeThread?.current || undefined;
+    const candidate = directCandidate || wrappedCandidate;
+    const threadId = firstString(
+      value,
+      candidate?.id,
+      activeCandidate?.id,
+      threadById.get(firstString(value) || "")?.id,
+    );
     if (!threadId) return undefined;
-    const remembered = threadById.get(threadId);
-    if (remembered) return remembered;
+    // The active observable (or its wrapper) is authoritative for the current
+    // selection. Sparse active values need a fresh full handle from
+    // `threads.get`; otherwise a same-ID replacement could inherit stale
+    // state/title observers from the bounded cache.
+    if (candidate
+      && firstString(candidate.id) === threadId
+      && (candidate.state || candidate.title)) return candidate;
     try {
       const resolved = threads?.get?.(threadId);
       if (resolved) return resolved;
     } catch (_) {}
-    return candidate;
+    if (activeCandidate && firstString(activeCandidate.id) === threadId) return activeCandidate;
+    return threadById.get(threadId);
   }
   function reconcileActiveThread(value: unknown): void {
     const thread = threadFromActiveValue(value);
@@ -500,9 +555,11 @@ export default function (amp: PluginAPI) {
       clearStatus();
       return;
     }
-    if (thread) threadById.set(threadId, thread);
-    watchThreadTitle(threadId, thread);
-    watchThreadState(threadId, thread);
+    const previous = threadById.get(threadId);
+    const boundThread = thread ? rememberThread(threadId, thread) : previous;
+    watchThreadTitle(threadId, boundThread);
+    watchThreadState(threadId, boundThread);
+    if (boundThread && boundThread !== previous) resolveThreadTitle(threadId, boundThread);
     projectThreadPresentation(threadId);
   }
   const activeThreadSubscription = (() => {

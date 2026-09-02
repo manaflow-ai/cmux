@@ -171,7 +171,7 @@ struct AmpVaultRegistrationTests {
         #expect(entry.cwd == "/tmp/amp repo")
         #expect(entry.fileURL == nil)
 
-        let resume = try #require(entry.resumeCommand)
+        let resume = try #require(entry.copyResumeCommand)
         #expect(resume.contains("CMUX_AMP_WRAPPER_SHIM"))
         #expect(resume.contains("T-newer"))
         #expect(resume.contains("--mode"))
@@ -204,7 +204,7 @@ struct AmpVaultRegistrationTests {
             storeURL: validStoreURL
         )
         #expect(entries.map(\.title) == ["Amp session in amp project", "Amp session"])
-        #expect(entries.last?.resumeCommand?.contains("T-generic") == true)
+        #expect(entries.last?.copyResumeCommand?.contains("T-generic") == true)
 
         let malformedDirectory = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-amp-malformed-\(UUID().uuidString)", isDirectory: true)
@@ -226,7 +226,7 @@ struct AmpVaultRegistrationTests {
         )
 
         #expect(malformedEntries == [])
-        #expect(malformedErrors.snapshot() == ["Amp session history is unavailable"])
+        #expect(malformedErrors.snapshot() == ["Session history is unavailable"])
         #expect(!malformedErrors.snapshot().joined().contains(malformedURL.path))
     }
 

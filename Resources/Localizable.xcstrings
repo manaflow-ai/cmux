@@ -4407,6 +4407,23 @@
         }
       }
     },
+    "agent.generic.notification.body.taskReportedError": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The task reported an error"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "タスクがエラーを報告しました"
+          }
+        }
+      }
+    },
     "agent.generic.notification.body.waitingForInput": {
       "extractionState": "manual",
       "localizations": {
@@ -4437,6 +4454,131 @@
           "stringUnit": {
             "state": "translated",
             "value": "%@ エラー"
+          }
+        }
+      }
+    },
+    "agent.generic.notification.status.interrupted": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تمت المقاطعة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Prekinuto"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Afbrudt"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Unterbrochen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Interrupted"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Interrumpido"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Interrompu"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Interrotto"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "中断"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "បានផ្អាក"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "중단됨"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Avbrutt"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Przerwano"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Interrompido"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Прервано"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ถูกขัดจังหวะ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kesildi"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Перервано"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已中断"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已中斷"
           }
         }
       }
@@ -157669,121 +157811,121 @@
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "سجل جلسات Amp غير متاح"
+            "value": "سجل الجلسات غير متاح"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "Historija Amp sesija nije dostupna"
+            "value": "Historija sesija nije dostupna"
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Amp-sessionshistorikken er ikke tilgængelig"
+            "value": "Sessionshistorikken er ikke tilgængelig"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Der Amp-Sitzungsverlauf ist nicht verfügbar"
+            "value": "Der Sitzungsverlauf ist nicht verfügbar"
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Amp session history is unavailable"
+            "value": "Session history is unavailable"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "El historial de sesiones de Amp no está disponible"
+            "value": "El historial de sesiones no está disponible"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "L’historique des sessions Amp est indisponible"
+            "value": "L’historique des sessions est indisponible"
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "La cronologia delle sessioni Amp non è disponibile"
+            "value": "La cronologia delle sessioni non è disponibile"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "Amp のセッション履歴を利用できません"
+            "value": "セッション履歴を利用できません"
           }
         },
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "មិនអាចប្រើប្រវត្តិសម័យ Amp បានទេ"
+            "value": "មិនអាចប្រើប្រវត្តិសម័យបានទេ"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "Amp 세션 기록을 사용할 수 없습니다"
+            "value": "세션 기록을 사용할 수 없습니다"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "Amp-øktloggen er utilgjengelig"
+            "value": "Økthistorikken er utilgjengelig"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Historia sesji Amp jest niedostępna"
+            "value": "Historia sesji jest niedostępna"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "O histórico de sessões do Amp não está disponível"
+            "value": "O histórico de sessões não está disponível"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "История сеансов Amp недоступна"
+            "value": "История сеансов недоступна"
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "ไม่สามารถใช้ประวัติเซสชัน Amp ได้"
+            "value": "ไม่สามารถใช้ประวัติเซสชันได้"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Amp oturum geçmişi kullanılamıyor"
+            "value": "Oturum geçmişi kullanılamıyor"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "Історія сеансів Amp недоступна"
+            "value": "Історія сеансів недоступна"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "Amp 会话历史记录不可用"
+            "value": "会话历史记录不可用"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "Amp 工作階段歷史記錄無法使用"
+            "value": "工作階段歷史記錄無法使用"
           }
         }
       }

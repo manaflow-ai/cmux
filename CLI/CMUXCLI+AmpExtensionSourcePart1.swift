@@ -208,12 +208,12 @@ const COLOR = {
 } as const;
 
 const PRESENTATION = {
-  idle: { label: "idle", icon: "circle", color: COLOR.idle },
-  thinking: { label: "thinking", icon: "brain", color: COLOR.thinking },
-  needsInput: { label: "needs input", icon: "bell.fill", color: COLOR.needsInput },
-  done: { label: "done", icon: "checkmark.circle", color: COLOR.done },
-  error: { label: "error", icon: "xmark.circle", color: COLOR.error },
-  interrupted: { label: "interrupted", icon: "pause.circle", color: COLOR.interrupted },
+  idle: { label: "__cmux_amp_status_idle", icon: "circle", color: COLOR.idle },
+  thinking: { label: "__cmux_amp_status_thinking", icon: "brain", color: COLOR.thinking },
+  needsInput: { label: "__cmux_amp_status_needs_input", icon: "bell.fill", color: COLOR.needsInput },
+  done: { label: "__cmux_amp_status_done", icon: "checkmark.circle", color: COLOR.done },
+  error: { label: "__cmux_amp_status_error", icon: "xmark.circle", color: COLOR.error },
+  interrupted: { label: "__cmux_amp_status_interrupted", icon: "pause.circle", color: COLOR.interrupted },
 } as const satisfies Record<string, AmpStatusPresentation>;
 
 function workspaceArgs(): string[] {

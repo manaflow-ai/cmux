@@ -82,7 +82,7 @@ struct ManagedAgentWrapperDescriptor: Equatable, Sendable {
                 }
             }
         case .hermesSession:
-            AgentRestoreCLIArgument(rawValue: sessionID) != nil
+            return AgentRestoreCLIArgument(rawValue: sessionID) != nil
         }
     }
 

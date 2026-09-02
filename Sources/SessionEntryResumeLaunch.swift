@@ -164,10 +164,20 @@ extension SessionEntry {
                 registration: nil,
                 permissionMode: nil
             )
-        case .registered(let registration):
-            components = SessionEntryResumeSnapshotComponents(
+        case let .registered(registration, launchCommand):
+            let capturedLaunch = launchCommand ?? AgentLaunchCommandSnapshot(
+                launcher: registration.id,
+                executablePath: nil,
                 arguments: [registration.defaultExecutable],
-                environment: [:],
+                workingDirectory: resumeWorkingDirectory,
+                environment: nil,
+                source: "vault"
+            )
+            components = SessionEntryResumeSnapshotComponents(
+                arguments: capturedLaunch.arguments.isEmpty
+                    ? [registration.defaultExecutable]
+                    : capturedLaunch.arguments,
+                environment: capturedLaunch.environment ?? [:],
                 registration: registration,
                 permissionMode: nil
             )

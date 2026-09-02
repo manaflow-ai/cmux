@@ -720,7 +720,7 @@ extension SessionIndexStore {
         switch registration.sessionIdSource {
         case .argvOption:
             needsNativeSessionID = true
-        case .piSessionFile, .grokSessionDirectory, .cmuxHookStore:
+        case .piSessionFile, .grokSessionDirectory, .persistedStore, .cmuxHookStore:
             needsNativeSessionID = false
         }
         forEachJSONLine(url: url, maxBytes: 512 * 1024) { object in

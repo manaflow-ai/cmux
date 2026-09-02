@@ -31,7 +31,7 @@ struct AmpHookSessionStoreFile: Decodable {
         }
     }
 
-    init(from decoder: Decoder) throws {
+    init(from decoder: any Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         _ = try container.decodeIfPresent(Int.self, forKey: .version)
         let records = try container.nestedContainer(keyedBy: SessionKey.self, forKey: .sessions)

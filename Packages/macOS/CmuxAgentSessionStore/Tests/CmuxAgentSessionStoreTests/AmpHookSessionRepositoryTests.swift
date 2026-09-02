@@ -31,6 +31,15 @@ struct AmpHookSessionRepositoryTests {
         #expect(all.first?.workingDirectory == "/tmp/amp")
         #expect(all.first?.launchCommand?.executablePath == "/opt/amp/bin/amp")
 
+        let boundedPage = try await repository.snapshots(
+            at: fixture.url,
+            matching: "",
+            workingDirectory: nil,
+            offset: 1,
+            limit: 1
+        )
+        #expect(boundedPage.map(\.sessionID) == ["T-older"])
+
         let page = try await repository.snapshots(
             at: fixture.url,
             matching: "ship",

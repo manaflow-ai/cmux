@@ -50,7 +50,7 @@ extension SessionIndexStore {
             } catch {
                 errorBag.add(String(
                     localized: "sessionIndex.error.ampStoreRead",
-                    defaultValue: "Amp session history is unavailable"
+                    defaultValue: "Session history is unavailable"
                 ))
                 return []
             }
