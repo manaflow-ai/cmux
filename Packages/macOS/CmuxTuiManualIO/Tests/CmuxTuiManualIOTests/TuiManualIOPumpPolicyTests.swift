@@ -8,6 +8,8 @@ struct TuiManualIOPumpPolicyTests {
         let policy = TuiManualIOPumpPolicy()
         #expect(policy.relayExit(status: 2, stderrText: #"{"exit":{"reason":"daemon-lost"}}"#) == .daemonLost)
         #expect(policy.relayExit(status: 2, stderrText: "usage error") == .failure)
+        #expect(policy.relayExit(status: 0, stderrText: nil) == .failure)
+        #expect(policy.relayExit(status: 0, stderrText: #"{"exit":{"reason":"unknown"}}"#) == .failure)
     }
 
     @Test

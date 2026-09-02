@@ -7418,6 +7418,30 @@ mod tests {
     }
 
     #[test]
+    fn standard_tree_refresh_does_not_wait_indefinitely_for_another_refresh_lock() {
+        let session = test_session(Box::new(CloseTrackingWriter {
+            closed: Arc::new(AtomicBool::new(false)),
+        }));
+        let _refresh = session.tree_refresh.lock();
+        let started = Instant::now();
+        let error = match session.refresh_tree() {
+            Err(error) => error,
+            Ok(_) => panic!("a contended refresh lock unexpectedly completed"),
+        };
+
+        assert!(matches!(
+            error.downcast_ref::<RemoteRequestError>(),
+            Some(RemoteRequestError::Timeout)
+        ));
+        assert!(
+            started.elapsed() < REMOTE_REQUEST_TIMEOUT + Duration::from_millis(100),
+            "refresh lock deadline was exceeded by {:?}",
+            started.elapsed()
+        );
+        assert!(session.pending.lock().unwrap().is_empty());
+    }
+
+    #[test]
     fn bounded_tree_refresh_aborts_a_blocked_ordered_write() {
         let (stream, control) = BlockingWriteStream::new();
         let session = blocking_test_session(stream);
