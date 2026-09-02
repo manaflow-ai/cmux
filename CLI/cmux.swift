@@ -1336,6 +1336,9 @@ final class ClaudeHookSessionStore {
                 lastNotificationStatus: lastNotificationStatus,
                 updateLastNotificationStatus: updateLastNotificationStatus,
                 runtimeStatus: depthAfterStop == 0 ? runtimeWhenClosed : runtimeStatus,
+                // Some authoritative-boundary callers omit updateRuntimeStatus;
+                // this OR keeps their idle/running result persisted and is
+                // intentionally load-bearing rather than redundant.
                 updateRuntimeStatus: shouldUpdateRuntimeStatus
                     || (promptDepthPolicy.closesActivePrompt && depthAfterStop == 0),
                 now: now
@@ -35542,16 +35545,22 @@ export default CMUXSessionRestore;
             let antigravityHasActiveBackgroundWork = hasActiveAntigravityBackgroundWork()
             var hasActiveBackgroundWork = antigravityHasActiveBackgroundWork || codexHasActiveBackgroundWork
             let stopNotificationStatus: AgentHookNotificationStatus = (codexFailure == nil && antigravityFailure == nil) ? .idle : .error
-            var lifecycleAfterStop: AgentHibernationLifecycleState = {
+            func lifecycleAndRuntimeStatus(
+                hasActiveBackgroundWork: Bool,
+                stopNotificationStatus: AgentHookNotificationStatus
+            ) -> (AgentHibernationLifecycleState, AgentHookRuntimeStatus?) {
                 if hasActiveBackgroundWork && stopNotificationStatus == .idle {
-                    return .running
+                    return (.running, .running)
                 }
-                return stopNotificationStatus == .idle ? .idle : .needsInput
-            }()
-            var runtimeStatusAfterStop: AgentHookRuntimeStatus? =
-                hasActiveBackgroundWork && stopNotificationStatus == .idle
-                    ? .running
-                    : runtimeStatus(for: stopNotificationStatus)
+                return (
+                    stopNotificationStatus == .idle ? .idle : .needsInput,
+                    runtimeStatus(for: stopNotificationStatus)
+                )
+            }
+            var (lifecycleAfterStop, runtimeStatusAfterStop) = lifecycleAndRuntimeStatus(
+                hasActiveBackgroundWork: hasActiveBackgroundWork,
+                stopNotificationStatus: stopNotificationStatus
+            )
             var staleIdleStopHasNewerRunningSession = lifecycleAfterStop == .idle &&
                 hasNewerRunningSession(workspaceId: workspaceId, surfaceId: surfaceId)
             // Current tokenized launches settle only from CodexTurnLedger. Keep
@@ -35661,12 +35670,10 @@ export default CMUXSessionRestore;
             if def.name == "codex" {
                 codexHasActiveBackgroundWork = (codexStopDecision?.activeChildCount ?? 0) > 0
                 hasActiveBackgroundWork = antigravityHasActiveBackgroundWork || codexHasActiveBackgroundWork
-                lifecycleAfterStop = hasActiveBackgroundWork && stopNotificationStatus == .idle
-                    ? .running
-                    : (stopNotificationStatus == .idle ? .idle : .needsInput)
-                runtimeStatusAfterStop = hasActiveBackgroundWork && stopNotificationStatus == .idle
-                    ? .running
-                    : runtimeStatus(for: stopNotificationStatus)
+                (lifecycleAfterStop, runtimeStatusAfterStop) = lifecycleAndRuntimeStatus(
+                    hasActiveBackgroundWork: hasActiveBackgroundWork,
+                    stopNotificationStatus: stopNotificationStatus
+                )
                 staleIdleStopHasNewerRunningSession = lifecycleAfterStop == .idle &&
                     hasNewerRunningSession(workspaceId: workspaceId, surfaceId: surfaceId)
             }

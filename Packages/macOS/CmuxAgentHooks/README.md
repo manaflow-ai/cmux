@@ -13,5 +13,6 @@ state.endAuthoritativePrompt()
 ```
 
 The package has no AppKit, CLI, filesystem, or process dependencies, so its
-state transitions can be tested with `swift test --package-path` independently
-of the cmux application.
+state transitions can be tested with `swift test --package-path
+Packages/macOS/CmuxAgentHooks` from the repository root, independently of the
+cmux application.
