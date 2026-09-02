@@ -20,9 +20,9 @@ import { enforceBrowserMutationProtection } from "../../../../services/vms/route
 /**
  * POST /api/admin/email-grants { email, plan: "pro" | "founders" }
  *
- * Grants directly when exactly one non-anonymous Stack user owns the email.
- * Otherwise records a pending grant that is applied at that email's next
- * verified sign-in.
+ * Grants directly when exactly one non-anonymous Stack user owns the email
+ * with a verified mailbox. Otherwise records a pending grant that is applied
+ * at that email's next verified sign-in.
  */
 export async function POST(request: NextRequest) {
   const protection = enforceBrowserMutationProtection(request);
@@ -39,9 +39,15 @@ export async function POST(request: NextRequest) {
     return adminJsonResponse({ error: "invalid_body" }, 400);
   }
 
+  // Only a VERIFIED owner of the address is granted directly. An unverified
+  // account can be registered by anyone with someone else's email, so those
+  // wait in the pending table until a verified sign-in claims the grant.
   const canonical = canonicalizeEmailForMatching(email);
   const matches = (await searchAdminUsers(email)).filter(
-    (user) => user.email && canonicalizeEmailForMatching(user.email) === canonical,
+    (user) =>
+      user.emailVerified &&
+      user.email &&
+      canonicalizeEmailForMatching(user.email) === canonical,
   );
   if (matches.length === 1) {
     const user = await setManualPlanGrant({

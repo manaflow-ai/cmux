@@ -431,6 +431,18 @@ describe("admin email grants route", () => {
     expect(pendingGrantRows).toEqual([]);
   });
 
+  test("keeps the grant pending when the only matching account is unverified", async () => {
+    directory = [stackUser({ id: "u1", primaryEmail: "pat@example.com", primaryEmailVerified: false })];
+    const response = await POST_EMAIL_GRANTS(
+      postRequest({ email: "pat@example.com", plan: "pro" }, {}, "/api/admin/email-grants"),
+    );
+    expect(response.status).toBe(200);
+    const body = (await response.json()) as { pendingGrant?: Record<string, unknown>; user?: unknown };
+    expect(body.user).toBeUndefined();
+    expect(body.pendingGrant).toMatchObject({ email: "pat@example.com", plan: "pro" });
+    expect(directory[0]?.updates).toEqual([]);
+  });
+
   test("records a pending grant for an unknown email and can revoke it", async () => {
     const response = await POST_EMAIL_GRANTS(
       postRequest({ email: "future@example.com", plan: "pro" }, {}, "/api/admin/email-grants"),

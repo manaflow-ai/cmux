@@ -550,13 +550,17 @@ function fakeGrantsDb(rows: GrantRow[]): AdminGrantsDb {
       set: (values: Partial<GrantRow>) => ({
         where: (condition: unknown) => {
           const predicate = matches(condition);
-          const requireOpen = boundParams(condition).some(
-            (value) => typeof value === "string" && value.includes("@"),
-          );
-          const hit = rows.filter((row) => predicate(row) && (!requireOpen || isOpen(row)));
+          const isClaim = "appliedUserId" in values && values.appliedUserId !== null && !("appliedAt" in values);
+          const isFinalize = "appliedAt" in values && values.appliedAt !== null;
+          const isRevoke = "revokedAt" in values;
+          const hit = rows.filter((row) =>
+            predicate(row) &&
+            (!isClaim || (isOpen(row) && row.appliedUserId === null)) &&
+            (!isFinalize || row.revokedAt === null) &&
+            (!isRevoke || row.appliedAt === null));
           const run = async () => {
             for (const row of hit) Object.assign(row, values);
-            return hit;
+            return hit.map((row) => ({ ...row }));
           };
           const promise = run();
           return Object.assign(promise, { returning: async () => await promise });
@@ -645,6 +649,36 @@ describe("pending email grants", () => {
     const row = rows.find((candidate) => candidate.id === "g2")!;
     expect(row.appliedAt).toBeNull();
     expect(row.appliedUserId).toBeNull();
+  });
+
+  test("a revoke that lands while the grant write is in flight wins and the grant is rolled back", async () => {
+    const rows: GrantRow[] = [];
+    const db = fakeGrantsDb(rows);
+    await createPendingEmailGrant({ email: "pat@example.com", plan: "pro", admin, db });
+    const calls: Array<{ plan: unknown }> = [];
+    const applied = await applyPendingEmailGrants(
+      { id: "u9", primaryEmail: "pat@example.com" },
+      {
+        db,
+        grant: async (input) => {
+          calls.push({ plan: input.plan });
+          if (input.plan !== null) await revokePendingEmailGrant({ grantId: "g1", db });
+        },
+      },
+    );
+    expect(applied).toBe(0);
+    expect(calls).toEqual([{ plan: "pro" }, { plan: null }]);
+    const row = rows[0]!;
+    expect(row.revokedAt).toBeInstanceOf(Date);
+    expect(row.appliedAt).toBeNull();
+  });
+
+  test("a row claimed by an in-flight sign-in is not claimed twice", async () => {
+    const rows: GrantRow[] = [];
+    const db = fakeGrantsDb(rows);
+    await createPendingEmailGrant({ email: "pat@example.com", plan: "pro", admin, db });
+    rows[0]!.appliedUserId = "u1";
+    expect(await applyPendingEmailGrants({ id: "u2", primaryEmail: "pat@example.com" }, { db, grant: async () => undefined })).toBe(0);
   });
 
   test("applyPendingEmailGrants ignores users without an email", async () => {

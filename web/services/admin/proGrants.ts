@@ -628,11 +628,13 @@ export async function revokePendingEmailGrant(input: {
  * Called from the after-sign-in callback, which only runs it once Stack
  * reports the mailbox verified. The newest grant wins when several are open.
  *
- * Rows are claimed first with a conditional update that requires them to be
- * still open, so a revoke that lands after the read but before the apply
- * wins: a revoked row is never claimed, and only claimed rows are applied.
- * If the metadata write fails, the claim is released so the next sign-in
- * retries.
+ * Protocol, so that a revoke always wins until the grant is durably applied:
+ * 1. claim: set applied_user_id on open, unclaimed rows (applied_at stays
+ *    NULL, so the rows still count as pending and can still be revoked);
+ * 2. write the metadata grant for the newest claimed row;
+ * 3. finalize: set applied_at on claimed rows that are still unrevoked;
+ * 4. if the applied row was revoked during 2, remove the grant again.
+ * A failed write releases the claim so the next sign-in retries.
  */
 export async function applyPendingEmailGrants(
   user: { readonly id: string; readonly primaryEmail?: string | null },
@@ -644,8 +646,9 @@ export async function applyPendingEmailGrants(
 ): Promise<number> {
   if (!user.primaryEmail) return 0;
   const db = options.db ?? cloudDb();
+  const grant = options.grant ?? setManualPlanGrant;
+  const now = options.now ?? (() => new Date());
   const email = canonicalizeEmailForMatching(user.primaryEmail);
-  const claimedAt = (options.now ?? (() => new Date()))();
   let claimed: Array<{
     id: string;
     plan: string;
@@ -656,12 +659,13 @@ export async function applyPendingEmailGrants(
   try {
     claimed = await db
       .update(adminPlanGrants)
-      .set({ appliedAt: claimedAt, appliedUserId: user.id })
+      .set({ appliedUserId: user.id })
       .where(
         and(
           eq(adminPlanGrants.email, email),
           isNull(adminPlanGrants.appliedAt),
           isNull(adminPlanGrants.revokedAt),
+          isNull(adminPlanGrants.appliedUserId),
         ),
       )
       .returning({
@@ -677,26 +681,50 @@ export async function applyPendingEmailGrants(
     throw error;
   }
   if (claimed.length === 0) return 0;
+  const releaseClaims = async () => {
+    for (const row of claimed) {
+      await db
+        .update(adminPlanGrants)
+        .set({ appliedUserId: null })
+        .where(and(eq(adminPlanGrants.id, row.id), isNull(adminPlanGrants.appliedAt)))
+        .catch(() => undefined);
+    }
+  };
+
   const newest = [...claimed].sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime())[0]!;
-  if (isAdminGrantablePlanId(newest.plan)) {
+  const plan = isAdminGrantablePlanId(newest.plan) ? newest.plan : null;
+  if (plan !== null) {
     try {
-      await (options.grant ?? setManualPlanGrant)({
+      await grant({
         targetUserId: user.id,
-        plan: newest.plan,
+        plan,
         admin: { id: newest.grantedByUserId, primaryEmail: newest.grantedByEmail },
       });
     } catch (error) {
-      for (const row of claimed) {
-        await db
-          .update(adminPlanGrants)
-          .set({ appliedAt: null, appliedUserId: null })
-          .where(and(eq(adminPlanGrants.id, row.id), eq(adminPlanGrants.appliedUserId, user.id)))
-          .catch(() => undefined);
-      }
+      await releaseClaims();
       throw error;
     }
   }
-  return claimed.length;
+
+  const finalizedAt = now();
+  const finalized = new Set<string>();
+  for (const row of claimed) {
+    const done = await db
+      .update(adminPlanGrants)
+      .set({ appliedAt: finalizedAt })
+      .where(and(eq(adminPlanGrants.id, row.id), isNull(adminPlanGrants.revokedAt)))
+      .returning({ id: adminPlanGrants.id });
+    if (done.length > 0) finalized.add(row.id);
+  }
+  if (plan !== null && !finalized.has(newest.id)) {
+    // Revoked while the write was in flight: the revoke wins.
+    await grant({
+      targetUserId: user.id,
+      plan: null,
+      admin: { id: newest.grantedByUserId, primaryEmail: newest.grantedByEmail },
+    });
+  }
+  return finalized.size;
 }
 
 function isMissingDatabaseConfigError(error: unknown): boolean {
