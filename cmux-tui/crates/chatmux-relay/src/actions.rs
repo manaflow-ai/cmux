@@ -1745,7 +1745,8 @@ pub async fn perform_action(frame: &Value, context: &ActionContext) -> Value {
             };
             let raw =
                 args.get("path").and_then(Value::as_str).filter(|p| !p.is_empty()).unwrap_or(".");
-            let pattern = args.get("pattern").and_then(Value::as_str).unwrap_or_default();
+            let pattern =
+                args.get("pattern").and_then(Value::as_str).unwrap_or_default().to_owned();
             if pattern.is_empty() {
                 return fail("failed", "grep: pattern is required");
             }
@@ -1803,7 +1804,7 @@ pub async fn perform_action(frame: &Value, context: &ActionContext) -> Value {
                             "--exclude-dir=.git".to_owned(),
                             "--exclude-dir=node_modules".to_owned(),
                             "-e".to_owned(),
-                            pattern.to_owned(),
+                            pattern,
                             "--".to_owned(),
                             process_path,
                         ],

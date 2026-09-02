@@ -389,6 +389,42 @@
         "conflict": "このアカウントへの別の変更が進行中か、メールが複数のアカウントに一致します。",
         "billing": "請求機能は現在利用できません。",
         "generic": "リクエストに失敗しました。しばらくしてからお試しください。"
+      },
+      "list": {
+        "title": "すべての Pro ユーザー",
+        "description": "Pro アクセスを持つすべてのアカウントとその理由: 請求ミラーの有効な Stripe サブスクリプション、アカウント一覧を走査して見つけた手動付与、初回サインイン待ちの付与。",
+        "load": "一覧を読み込む",
+        "reload": "再読み込み",
+        "loading": "読み込み中…",
+        "stats": {
+          "proUsers": "Pro ユーザー",
+          "subscribers": "Stripe 契約者",
+          "userGrants": "手動付与",
+          "teams": "チーム",
+          "pending": "保留中の付与"
+        },
+        "scanUsers": "アカウント",
+        "scanTeams": "チーム",
+        "scanProgress": "手動付与を探して{label}を走査中… {scanned} 件確認。",
+        "scanDone": "{scanned} 件の{label}を走査しました。",
+        "scanFailed": "{label}の走査は {scanned} 件で停止しました。",
+        "scanTruncated": "一覧の終端に達する前にページ上限に達しました。",
+        "scanning": "走査中…",
+        "empty": "なし。",
+        "sections": {
+          "subscribers": "Stripe Pro 契約者 ({count})",
+          "userGrants": "手動付与ユーザー ({count})",
+          "teams": "Team アクセスを持つチーム ({count})",
+          "pending": "保留中のメール付与 ({count})"
+        },
+        "periodEnd": "期間終了",
+        "userId": "ユーザー ID",
+        "teamId": "チーム ID",
+        "source": "ソース",
+        "detail": "詳細",
+        "sourceStripe": "Stripe サブスクリプション",
+        "sourceGrant": "手動付与",
+        "seats": "{count} シート"
       }
     },
     "aiAccounts": {

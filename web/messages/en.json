@@ -389,6 +389,42 @@
         "conflict": "Another change to this account is in progress, or the email matches several accounts.",
         "billing": "Billing is not available right now.",
         "generic": "The request failed. Try again shortly."
+      },
+      "list": {
+        "title": "All Pro users",
+        "description": "Every account with Pro access and why: active Stripe subscriptions from the billing mirror, manual grants found by walking the account directory, and grants waiting for a first sign-in.",
+        "load": "Load list",
+        "reload": "Reload",
+        "loading": "Loading…",
+        "stats": {
+          "proUsers": "Pro users",
+          "subscribers": "Stripe subscribers",
+          "userGrants": "Manual grants",
+          "teams": "Teams",
+          "pending": "Pending grants"
+        },
+        "scanUsers": "accounts",
+        "scanTeams": "teams",
+        "scanProgress": "Scanning {label} for manual grants… {scanned} checked.",
+        "scanDone": "Scanned {scanned} {label} for manual grants.",
+        "scanFailed": "Scan of {label} stopped after {scanned}.",
+        "scanTruncated": "Reached the page limit before the end of the directory.",
+        "scanning": "Scanning…",
+        "empty": "None.",
+        "sections": {
+          "subscribers": "Stripe Pro subscribers ({count})",
+          "userGrants": "Manual user grants ({count})",
+          "teams": "Teams with Team access ({count})",
+          "pending": "Pending email grants ({count})"
+        },
+        "periodEnd": "Period end",
+        "userId": "User id",
+        "teamId": "Team id",
+        "source": "Source",
+        "detail": "Detail",
+        "sourceStripe": "Stripe subscription",
+        "sourceGrant": "Manual grant",
+        "seats": "{count, plural, =1 {1 seat} other {# seats}}"
       }
     },
     "aiAccounts": {

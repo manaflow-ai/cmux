@@ -196,19 +196,30 @@ type FreestyleNetworkAddress = {
  * Private wins unconditionally, and deliberately never falls back: a machine on
  * a VPC has no public inbound rule, so a public route for it would not be a
  * degraded path but a guaranteed timeout with a misleading address in the
- * error. IPv6 is preferred within the network only because the daemon binds
- * `[::]` — the IPv4 address is the honest second choice on a network whose v6
- * allocation was declined, not a fallback for an unreachable v6.
+ * error.
+ *
+ * Within the network, IPv4 is preferred, because only the v4 path is reliable
+ * over the WireGuard tunnel. The tunnel routes the VPC's v4 prefix as a subnet,
+ * so it reaches any member the moment that member exists; its v6 path does not
+ * pick up members created after the tunnel came up. A VM created into an
+ * established tunnel therefore answers on its private v4 and blackholes on its
+ * private v6 from the same Mac, while both work VM-to-VM inside the VPC. With
+ * v6 first, every freshly created machine spent the full 60s connect timeout
+ * and surfaced as "Command timed out"; only machines predating the tunnel
+ * connected. Preferring v4 also matches the app's own `preferredPrivateAddress`
+ * (v4 then v6), so the address a person copies from the sidebar is the address
+ * the daemon is dialed on. The public fallback below stays v6 — Freestyle
+ * allocates no public v4 at all.
  */
 export function freestyleCmuxRemoteRoute(addresses: FreestyleRouteAddresses, vmId: string): string {
   const networks = addresses.vpcs ?? addresses.networks ?? [];
   for (const network of networks) {
-    const ipv6 = network.ipv6?.trim();
-    if (ipv6) return `ws://[${ipv6}]:${CMUX_TUI_PORT}/v1/link`;
-  }
-  for (const network of networks) {
     const ipv4 = network.ipv4?.trim();
     if (ipv4) return `ws://${ipv4}:${CMUX_TUI_PORT}/v1/link`;
+  }
+  for (const network of networks) {
+    const ipv6 = network.ipv6?.trim();
+    if (ipv6) return `ws://[${ipv6}]:${CMUX_TUI_PORT}/v1/link`;
   }
   if (networks.length > 0) {
     throw new ProviderError(
