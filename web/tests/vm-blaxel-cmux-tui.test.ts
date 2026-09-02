@@ -193,6 +193,103 @@ describe("cmux-tui install and daemon commands", () => {
     }
   });
 
+  test("fails closed when the mount poller returns an error", async () => {
+    const root = mkdtempSync(join(tmpdir(), "cmux-tui-poll-failure-"));
+    const fakeBin = join(root, "fake-bin");
+    const home = join(root, "home");
+    const backing = join(root, "backing");
+    const state = join(root, "state");
+    mkdirSync(fakeBin, { recursive: true });
+    mkdirSync(join(home, ".cmux", "bin"), { recursive: true });
+    mkdirSync(backing, { recursive: true });
+    mkdirSync(state, { recursive: true });
+    const writeExecutable = (name: string, contents: string) => {
+      const file = join(fakeBin, name);
+      writeFileSync(file, contents);
+      chmodSync(file, 0o755);
+    };
+    writeExecutable("mountpoint", [
+      "#!/bin/sh",
+      "path=\"$2\"",
+      "if [ \"$path\" = \"$CMUX_TEST_BACKING\" ] || [ \"$path\" = \"$CMUX_TEST_HOME\" ]; then exit 0; fi",
+      "exit 1",
+      "",
+    ].join("\n"));
+    // A supported findmnt that fails at runtime must restart the supervisor,
+    // not make its polling loop consume a CPU indefinitely.
+    writeExecutable("findmnt", [
+      "#!/bin/sh",
+      "case \"$1\" in",
+      "  --help) printf '%s\\n' '--poll'; exit 0 ;;",
+      "  --poll=*) exit 1 ;;",
+      "esac",
+      "exit 1",
+      "",
+    ].join("\n"));
+    writeExecutable("id", [
+      "#!/bin/sh",
+      "if [ \"$1\" = \"-u\" ] && [ \"$2\" = \"cmux\" ]; then printf '1001\\n'; exit 0; fi",
+      "exit 1",
+      "",
+    ].join("\n"));
+    writeExecutable("sudo", "#!/bin/sh\nexit 0\n");
+    writeExecutable("runuser", [
+      "#!/bin/sh",
+      "while [ \"$#\" -gt 0 ] && [ \"$1\" != \"--\" ]; do shift; done",
+      "[ \"$#\" -gt 0 ] && shift",
+      "[ \"$1\" = \"env\" ] && shift",
+      "while [ \"$#\" -gt 0 ]; do",
+      "  case \"$1\" in *=*) export \"$1\"; shift ;; *) break ;; esac",
+      "done",
+      "exec \"$@\"",
+      "",
+    ].join("\n"));
+    const daemonBinary = join(home, ".cmux", "bin", "cmux-tui");
+    writeFileSync(daemonBinary, [
+      "#!/bin/sh",
+      "trap ': > \"$CMUX_TEST_STATE/daemon-term\"; exit 0' TERM INT HUP",
+      ": > \"$CMUX_TEST_STATE/daemon-ready\"",
+      "while :; do :; done",
+      "",
+    ].join("\n"));
+    chmodSync(daemonBinary, 0o755);
+    const layout = { user: "cmux", home, volumeBackingPath: backing } as const;
+    const command = cmuxTuiDaemonCommand(undefined, layout, { persistentVolumeExpected: true });
+    let child: ReturnType<typeof spawn> | undefined;
+    try {
+      child = spawn("/bin/sh", ["-c", command], {
+        env: {
+          ...process.env,
+          PATH: [fakeBin, process.env.PATH || ""].join(":"),
+          CMUX_TEST_HOME: home,
+          CMUX_TEST_BACKING: backing,
+          CMUX_TEST_STATE: state,
+        },
+        stdio: "ignore",
+      });
+      const exitCode = await new Promise<number>((resolve, reject) => {
+        const timer = setTimeout(() => {
+          child?.kill("SIGKILL");
+          reject(new Error("findmnt failure supervisor test timed out"));
+        }, 2_000);
+        child?.once("error", (error) => {
+          clearTimeout(timer);
+          reject(error);
+        });
+        child?.once("exit", (code) => {
+          clearTimeout(timer);
+          resolve(code ?? -1);
+        });
+      });
+      expect(exitCode).toBe(75);
+      expect(existsSync(join(state, "daemon-ready"))).toBe(true);
+      expect(existsSync(join(state, "daemon-term"))).toBe(true);
+    } finally {
+      child?.kill("SIGKILL");
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
   test("selects the persistent binary for layout installs", () => {
     const command = cmuxTuiInstallCommand(
       { url: URL, sha256: SHA, commit: COMMIT, builtAt: null },
