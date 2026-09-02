@@ -79,7 +79,19 @@ extension TerminalPasteboardService: TerminalImagePasteWriting {
     /// cap, or cannot be written. The temp file is registered as owned so the
     /// usual cleanup paths reclaim it.
     public func saveImageData(_ data: Data, fileExtension: String) -> String? {
-        guard !data.isEmpty, data.count <= Self.maxClipboardImageSize else { return nil }
+        saveImageDataFileURL(data, fileExtension: fileExtension)
+            .map(\.path.terminalShellEscaped)
+    }
+
+    /// Writes raw image bytes to an owned temporary file and returns its URL.
+    public func saveImageDataFileURL(
+        _ data: Data,
+        fileExtension: String
+    ) -> URL? {
+        guard !data.isEmpty,
+              data.count <= Self.maximumImageDataByteCount else {
+            return nil
+        }
 
         let fileURL = temporaryImageFileURL(fileExtension: sanitizedImageFileExtension(fileExtension))
         do {
@@ -89,7 +101,7 @@ extension TerminalPasteboardService: TerminalImagePasteWriting {
             return nil
         }
         registerOwnedTemporaryImageFile(fileURL)
-        return fileURL.path.terminalShellEscaped
+        return fileURL
     }
 }
 
@@ -101,7 +113,7 @@ extension TerminalPasteboardService {
 
         var fileURLs: [URL] = []
         for representation in representations {
-            guard representation.data.count <= Self.maxClipboardImageSize else {
+            guard representation.data.count <= Self.maximumImageDataByteCount else {
 #if DEBUG
                 logDebugEvent("terminal.paste.image.rejected reason=tooLarge bytes=\(representation.data.count)")
 #endif

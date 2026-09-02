@@ -7417,6 +7417,74 @@ struct CMUXCLI {
             let payload = try client.sendV2(method: "surface.send_text", params: params)
             printV2Payload(payload, jsonOutput: jsonOutput, idFormat: idFormat, fallbackText: v2SendSummary(payload, idFormat: idFormat))
 
+        case "agent-submit":
+            let (wsArg, rem0) = parseOption(commandArgs, name: "--workspace")
+            let (sfArg, rem1) = parseOption(rem0, name: "--surface")
+            let (windowOpt, rem2) = parseOption(rem1, name: "--window")
+            let windowRaw = windowOpt ?? windowId
+            let environment = ProcessInfo.processInfo.environment
+            let surfaceArg = sfArg
+                ?? (wsArg == nil && windowRaw == nil
+                    ? environment["CMUX_SURFACE_ID"]
+                    : nil)
+            let workspaceArg = wsArg
+                ?? Self.callerWorkspaceForSurfaceHandle(
+                    surfaceArg,
+                    windowRaw: windowRaw
+                )
+                ?? (windowRaw == nil
+                    ? environment["CMUX_WORKSPACE_ID"]
+                    : nil)
+            let promptArgs = rem2.first == "--" ? Array(rem2.dropFirst()) : rem2
+            let text = promptArgs.joined(separator: " ")
+            guard !text.trimmingCharacters(
+                in: .whitespacesAndNewlines
+            ).isEmpty else {
+                throw CLIError(message: String(
+                    localized: "cli.agentSubmit.error.missingText",
+                    defaultValue: "agent-submit requires prompt text"
+                ))
+            }
+            let winID = try normalizeWindowHandle(windowRaw, client: client)
+            let workspaceID = try normalizeWorkspaceHandle(
+                workspaceArg,
+                client: client,
+                windowHandle: winID,
+                allowCurrent: workspaceArg == nil && winID != nil
+            )
+            guard let workspaceID else {
+                throw CLIError(message: String(
+                    localized: "cli.agentSubmit.error.missingWorkspace",
+                    defaultValue: "agent-submit requires --workspace outside a cmux workspace"
+                ))
+            }
+            var params: [String: Any] = [
+                "workspace_id": workspaceID,
+                "text": text,
+            ]
+            if let surfaceID = try normalizeSurfaceHandle(
+                surfaceArg,
+                client: client,
+                workspaceHandle: workspaceID,
+                windowHandle: winID
+            ) {
+                params["surface_id"] = surfaceID
+            }
+            let payload = try client.sendV2(
+                method: "workspace.agent_submit",
+                params: params,
+                responseTimeout: 75
+            )
+            printV2Payload(
+                payload,
+                jsonOutput: jsonOutput,
+                idFormat: idFormat,
+                fallbackText: String(
+                    localized: "cli.agentSubmit.success",
+                    defaultValue: "Prompt submitted"
+                )
+            )
+
         case "send-key":
             let (wsArg, rem0) = parseOption(commandArgs, name: "--workspace")
             let (sfArg, rem1) = parseOption(rem0, name: "--surface")
@@ -20020,6 +20088,20 @@ struct CMUXCLI {
               cmux send "echo hello"
               cmux send --surface surface:2 "ls -la\\n"
             """
+        case "agent-submit":
+            return String(localized: "cli.help.agentSubmit", defaultValue: """
+            Usage: cmux agent-submit [--workspace <id|ref|index>] [--surface <id|ref|index>] [--window <id|ref|index>] [--] <text>
+
+            Submit one complete prompt to an agent terminal. All calls are serialized globally, preserving FIFO order within each workspace. If uncertain human input may remain in the terminal TUI, the command fails with rejected_composer_busy and leaves it unchanged. Native TextBox drafts are preserved as separate future submissions. agent_scope_unavailable means the agent terminal is not ready for automation yet.
+
+            Flags:
+              --workspace <id|ref|index>   Target workspace (default: $CMUX_WORKSPACE_ID)
+              --surface <id|ref|index>     Agent surface when the workspace has more than one
+              --window <id|ref|index>      Window context for workspace/surface refs and indexes
+
+            Example:
+              cmux agent-submit --workspace workspace:2 "Run the focused tests"
+            """)
         case "send-key":
             return """
             Usage: cmux send-key [flags] [--] <key>
@@ -40944,6 +41026,7 @@ export default CMUXSessionRestore;
           current-workspace [--window <id|ref|index>]
           read-screen [--workspace <id|ref|index>] [--surface <id|ref|index>] [--window <id|ref|index>] [--scrollback] [--lines <n>]
           send [--workspace <id|ref|index>] [--surface <id|ref|index>] [--window <id|ref|index>] <text>
+          \(String(localized: "cli.agentSubmit.usageLine", defaultValue: "agent-submit [--workspace <id|ref|index>] [--surface <id|ref|index>] [--window <id|ref|index>] <text>"))
           send-key [--workspace <id|ref|index>] [--surface <id|ref|index>] [--window <id|ref|index>] <key>
           send-panel --panel <id|ref|index> [--workspace <id|ref|index>] [--window <id|ref|index>] <text>
           send-key-panel --panel <id|ref|index> [--workspace <id|ref|index>] [--window <id|ref|index>] <key>

@@ -16,6 +16,7 @@ final class FakeTerminalSurfaceNativeView: NSView {
     var runtimeInputDeferralCallCount = 0
     var deferredRuntimeInputs: [() -> Void] = []
     var deferredRuntimeInputBytes: [Int] = []
+    private var deferredRuntimeInputHumanFlags: [Bool] = []
     var mobileMouseButtonEvents: [String] = []
 
     func toggleKeyboardCopyMode() -> Bool { false }
@@ -31,14 +32,36 @@ final class FakeTerminalSurfaceNativeView: NSView {
         estimatedBytes: Int,
         replay: @escaping () -> Void
     ) -> Bool {
+        deferRuntimeInputDuringClipboardRead(
+            estimatedBytes: estimatedBytes,
+            isHumanInput: true,
+            replay: replay
+        )
+    }
+
+    func deferRuntimeInputDuringClipboardRead(
+        estimatedBytes: Int,
+        isHumanInput: Bool,
+        replay: @escaping () -> Void
+    ) -> Bool {
         runtimeInputDeferralCallCount += 1
         let shouldDefer = runtimeInputDeferralResponses.isEmpty
             ? shouldDeferRuntimeInput
             : runtimeInputDeferralResponses.removeFirst()
         guard shouldDefer else { return false }
         deferredRuntimeInputBytes.append(estimatedBytes)
-        deferredRuntimeInputs.append(replay)
+        deferredRuntimeInputHumanFlags.append(isHumanInput)
+        deferredRuntimeInputs.append { [weak self] in
+            if let self, !self.deferredRuntimeInputHumanFlags.isEmpty {
+                self.deferredRuntimeInputHumanFlags.removeFirst()
+            }
+            replay()
+        }
         return true
+    }
+
+    func hasDeferredHumanInputDuringClipboardRead() -> Bool {
+        deferredRuntimeInputHumanFlags.contains(true)
     }
 
     func positionMobilePointer(

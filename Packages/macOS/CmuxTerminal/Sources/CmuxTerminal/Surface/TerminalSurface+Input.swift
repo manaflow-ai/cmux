@@ -8,7 +8,48 @@ internal import CMUXDebugLog
 
 // MARK: - Socket/API input: send paths, pending queues, parsing
 
+private enum PendingSocketInputDeliveryResult {
+    case delivered
+    case deferred
+    case failed
+}
+
 extension TerminalSurface {
+    /// The single agent-process identity that owns prompt-input tracking.
+    @MainActor
+    public var currentPromptInputAgentScope: String? {
+        promptInputLedger.currentAgentScope
+    }
+
+    /// Whether this surface has an app-owned prompt awaiting hook matching.
+    @MainActor
+    public var hasPendingProgrammaticPromptSubmission: Bool {
+        promptInputLedger.hasPendingProgrammaticSubmission
+            || (pendingSocketInputQueue + deferredPromptSubmissionRetries)
+                .contains { input in
+                    guard case .promptSubmission(
+                        _,
+                        _,
+                        _,
+                        let hookRecordingSource,
+                        _,
+                        _,
+                        _
+                    ) = input else {
+                        return false
+                    }
+                    return hookRecordingSource != nil
+                }
+    }
+
+    @MainActor
+    private var hasQueuedHumanPromptSubmission: Bool {
+        (pendingSocketInputQueue + deferredPromptSubmissionRetries).contains {
+            if case .humanPromptSubmission = $0 { return true }
+            return false
+        }
+    }
+
     /// Returns the transport-owned name for a physical manual-I/O key, if any.
     @MainActor
     public func manualInputKeyName(for event: ghostty_input_key_s) -> String? {
@@ -41,11 +82,15 @@ extension TerminalSurface {
     @MainActor
     func deferInputDuringRuntimeClipboardRead(
         estimatedBytes: Int,
-        replay: @escaping () -> Void
+        isHumanInput: Bool = true,
+        replay: @escaping () -> Void,
+        onDiscard: @escaping () -> Void = {}
     ) -> Bool {
         surfaceView.deferRuntimeInputDuringClipboardRead(
             estimatedBytes: estimatedBytes,
-            replay: replay
+            isHumanInput: isHumanInput,
+            replay: replay,
+            onDiscard: onDiscard
         )
     }
 
@@ -53,6 +98,137 @@ extension TerminalSurface {
     @MainActor
     public func didAcceptExplicitInput() {
         onExplicitInput?()
+    }
+
+    /// Records unowned input that may belong to a human's agent composer.
+    ///
+    /// Generic socket/mobile input records through this same ledger below.
+    /// Attributed compound submissions deliberately use
+    /// ``sendPromptSubmission``
+    /// instead, so their hooks cannot consume an unowned human boundary.
+    ///
+    /// - Parameter mutation: The conservatively modeled composer mutation.
+    @MainActor
+    public func recordHumanPromptInput(
+        _ mutation: HumanPromptInputMutation
+    ) {
+        promptInputLedger.recordHumanInput(mutation)
+    }
+
+    /// Classifies and records a forwarded physical or synthetic key without
+    /// inspecting rendered terminal state.
+    @MainActor
+    public func recordHumanPromptKey(
+        keycode: UInt32,
+        mods: ghostty_input_mods_e
+    ) {
+        promptInputLedger.recordHumanInput(
+            promptInputMutation(keycode: keycode, mods: mods)
+        )
+    }
+
+    /// Records text that an external transport already accepted as generic
+    /// terminal input.
+    ///
+    /// Remote transports bypass ``sendInputResult(_:)`` but still share this
+    /// surface's agent-composer ownership. Return is a recoverable submission
+    /// boundary only for agents whose cached submit chord is plain Return; a
+    /// configured multiline agent treats it as unknown input.
+    @MainActor
+    public func recordAcceptedUnownedPromptInput(_ text: String) {
+        guard !text.isEmpty else { return }
+        let hasReturn = text.unicodeScalars.contains { scalar in
+            scalar.value == 0x0A || scalar.value == 0x0D
+        }
+        guard hasReturn else {
+            promptInputLedger.recordHumanInput(.unknown)
+            return
+        }
+
+        var hasUnknownInput = false
+        var previousWasCR = false
+        let returnMutation: HumanPromptInputMutation =
+            controlReturnIsPromptSubmissionBoundary
+                ? .unknown
+                : .submissionBoundary
+        for scalar in text.unicodeScalars {
+            switch scalar.value {
+            case 0x0D:
+                if hasUnknownInput {
+                    promptInputLedger.recordHumanInput(.unknown)
+                    hasUnknownInput = false
+                }
+                promptInputLedger.recordHumanInput(returnMutation)
+                previousWasCR = true
+            case 0x0A:
+                if !previousWasCR {
+                    if hasUnknownInput {
+                        promptInputLedger.recordHumanInput(.unknown)
+                        hasUnknownInput = false
+                    }
+                    promptInputLedger.recordHumanInput(returnMutation)
+                }
+                previousWasCR = false
+            default:
+                hasUnknownInput = true
+                previousWasCR = false
+            }
+        }
+        if hasUnknownInput {
+            promptInputLedger.recordHumanInput(.unknown)
+        }
+    }
+
+    /// Records a named key that an external transport already accepted.
+    @MainActor
+    public func recordAcceptedUnownedPromptKey(_ keyName: String) {
+        let mutation = pendingKeyEvent(for: keyName).map {
+            promptInputMutation(for: $0)
+        } ?? .unknown
+        promptInputLedger.recordHumanInput(mutation)
+    }
+
+    /// Aligns composer ownership with the currently bound agent process.
+    /// Claude's plain Return is treated as an interior newline during its
+    /// initial binding, so provisional Return boundaries remain fail-closed.
+    @MainActor
+    public func synchronizePromptInputAgentScope(
+        _ scope: String?,
+        controlReturnIsPromptSubmissionBoundary:
+            Bool? = nil
+    ) {
+        let previousScope = promptInputLedger.currentAgentScope
+        if let controlReturnIsPromptSubmissionBoundary {
+            self.controlReturnIsPromptSubmissionBoundary =
+                controlReturnIsPromptSubmissionBoundary
+        }
+        promptInputLedger.synchronizeAgentScope(
+            scope,
+            provisionalSubmissionBoundariesAreReliable:
+                !self.controlReturnIsPromptSubmissionBoundary
+        )
+        if previousScope != scope {
+            // A prompt retained across a process replacement can only replay
+            // once its original scope is bound again. Reconcile that queue at
+            // the same ownership transition instead of waiting for a new
+            // runtime-surface creation event.
+            flushPendingSocketInputIfNeeded()
+        }
+    }
+
+    /// Matches an agent `UserPromptSubmit` hook to a known input boundary.
+    @MainActor
+    @discardableResult
+    public func confirmPromptSubmission(message: String?)
+        -> PromptSubmissionConfirmationOrigin
+    {
+        promptInputLedger.confirmSubmission(message: message)
+    }
+
+    /// Whether human terminal input may still be present in the current agent composer.
+    @MainActor
+    public var hasUnconfirmedHumanPromptInput: Bool {
+        promptInputLedger.hasUnconfirmedHumanInput
     }
 
     /// Closes Find as an explicit user action, cancelling any deferred viewport restoration first.
@@ -115,6 +291,7 @@ extension TerminalSurface {
             guard allowsRuntimeSurfaceCreation() else { return false }
             let queued = enqueuePendingSocketInput(.pasteText(data))
             if queued {
+                promptInputLedger.recordHumanInput(.unknown)
                 requestInputDemandSurfaceStartIfNeeded()
                 didAcceptExplicitInput()
             }
@@ -125,6 +302,7 @@ extension TerminalSurface {
         }
         guard !ghostty_surface_process_exited(liveSurface) else { return false }
         writeTextData(data, to: liveSurface)
+        promptInputLedger.recordHumanInput(.unknown)
         didAcceptExplicitInput()
         return true
     }
@@ -187,6 +365,7 @@ extension TerminalSurface {
             }
         }
         if handled {
+            promptInputLedger.recordHumanInput(.unknown)
             didAcceptExplicitInput()
         }
         return handled
@@ -197,9 +376,35 @@ extension TerminalSurface {
     @MainActor
     @discardableResult
     public func sendNamedKey(_ keyName: String) -> NamedKeySendResult {
+        sendNamedKeyWithOwnership(keyName, recordPromptInput: true)
+    }
+
+    /// Sends a named key owned by an app control without recording it as human
+    /// composer input.
+    ///
+    /// Mobile chat interrupts use this path for Esc and Ctrl-C. The key still
+    /// follows the normal runtime and clipboard sequencing rules, but it does
+    /// not create an unconfirmed human composer mutation.
+    @MainActor
+    @discardableResult
+    public func sendAppOwnedNamedKeyResult(
+        _ keyName: String
+    ) -> NamedKeySendResult {
+        sendNamedKeyWithOwnership(keyName, recordPromptInput: false)
+    }
+
+    @MainActor
+    @discardableResult
+    private func sendNamedKeyWithOwnership(
+        _ keyName: String,
+        recordPromptInput: Bool
+    ) -> NamedKeySendResult {
         guard let event = pendingKeyEvent(for: keyName) else { return .unknownKey }
         didReceiveExplicitInput()
-        let result = sendNamedKeyAfterExplicitInput(event)
+        let result = sendNamedKeyAfterExplicitInput(
+            event,
+            recordPromptInput: recordPromptInput
+        )
         if result.accepted {
             hibernationRecorder.recordTerminalInput(
                 workspaceId: tabId,
@@ -211,19 +416,34 @@ extension TerminalSurface {
 
     @MainActor
     private func sendNamedKeyAfterExplicitInput(
-        _ event: PendingKeyEvent
+        _ event: PendingKeyEvent,
+        recordPromptInput: Bool
     ) -> NamedKeySendResult {
         if deferInputDuringRuntimeClipboardRead(
             estimatedBytes: PendingSocketInput.key(event).estimatedBytes,
+            isHumanInput: recordPromptInput,
             replay: { [weak self] in
-                _ = self?.sendNamedKeyAfterExplicitInput(event)
+                _ = self?.sendNamedKeyAfterExplicitInput(
+                    event,
+                    recordPromptInput: recordPromptInput
+                )
             }
         ) {
             return .queued
         }
         guard surface != nil else {
             guard allowsRuntimeSurfaceCreation() else { return .surfaceUnavailable }
-            guard enqueuePendingSocketInput(.key(event)) else { return .inputQueueFull }
+            let pendingInput: PendingSocketInput = recordPromptInput
+                ? .key(event)
+                : .appOwnedKey(event)
+            guard enqueuePendingSocketInput(pendingInput) else {
+                return .inputQueueFull
+            }
+            if recordPromptInput {
+                promptInputLedger.recordHumanInput(
+                    promptInputMutation(for: event)
+                )
+            }
             requestInputDemandSurfaceStartIfNeeded()
             didAcceptExplicitInput()
             return .queued
@@ -233,6 +453,11 @@ extension TerminalSurface {
         }
         guard !ghostty_surface_process_exited(liveSurface) else { return .processExited }
         sendKeyEvent(surface: liveSurface, keycode: event.keycode, mods: event.mods)
+        if recordPromptInput {
+            promptInputLedger.recordHumanInput(
+                promptInputMutation(for: event)
+            )
+        }
         didAcceptExplicitInput()
         return .sent
     }
@@ -277,9 +502,34 @@ extension TerminalSurface {
     @MainActor
     @discardableResult
     public func sendInputResult(_ text: String) -> InputSendResult {
+        sendInputResultWithOwnership(text, recordPromptInput: true)
+    }
+
+    /// Sends input owned by an app control without recording it as human
+    /// composer input.
+    ///
+    /// Mobile chat answers are terminal control actions, not text typed into
+    /// the agent composer. They still use the normal explicit-input and
+    /// clipboard sequencing paths, but cannot make a later automation prompt
+    /// fail closed as if a human had started a draft.
+    @MainActor
+    @discardableResult
+    public func sendAppOwnedInputResult(_ text: String) -> InputSendResult {
+        sendInputResultWithOwnership(text, recordPromptInput: false)
+    }
+
+    @MainActor
+    @discardableResult
+    private func sendInputResultWithOwnership(
+        _ text: String,
+        recordPromptInput: Bool
+    ) -> InputSendResult {
         guard !text.isEmpty else { return .sent }
         didReceiveExplicitInput()
-        let result = sendInputAfterExplicitInput(text)
+        let result = sendInputAfterExplicitInput(
+            text,
+            recordPromptInput: recordPromptInput
+        )
         if result.accepted {
             hibernationRecorder.recordTerminalInput(
                 workspaceId: tabId,
@@ -290,19 +540,33 @@ extension TerminalSurface {
     }
 
     @MainActor
-    private func sendInputAfterExplicitInput(_ text: String) -> InputSendResult {
+    private func sendInputAfterExplicitInput(
+        _ text: String,
+        recordPromptInput: Bool
+    ) -> InputSendResult {
+        let events = Self.parsedSocketInputEvents(for: text)
         if deferInputDuringRuntimeClipboardRead(
             estimatedBytes: text.utf8.count,
+            isHumanInput: recordPromptInput,
             replay: { [weak self] in
-                _ = self?.sendInputAfterExplicitInput(text)
+                _ = self?.sendInputAfterExplicitInput(
+                    text,
+                    recordPromptInput: recordPromptInput
+                )
             }
         ) {
             return .queued
         }
         guard surface != nil else {
             guard allowsRuntimeSurfaceCreation() else { return .surfaceUnavailable }
-            let queued = enqueuePendingSocketInput(text)
+            let queued = enqueuePendingSocketInput(
+                events,
+                isHumanInput: recordPromptInput
+            )
             if queued {
+                if recordPromptInput {
+                    recordPromptInputMutations(for: events)
+                }
                 requestInputDemandSurfaceStartIfNeeded()
                 didAcceptExplicitInput()
             }
@@ -315,35 +579,420 @@ extension TerminalSurface {
         var validatedSurface: ghostty_surface_t? = liveSurface
         var validatedGeneration: UInt64? = runtimeSurfaceGeneration
         var queuedInput = false
-        for input in Self.pendingSocketInputs(for: text) {
-            queuedInput = deliverPendingSocketInput(
+        for input in Self.pendingSocketInputs(
+            for: events,
+            isHumanInput: recordPromptInput
+        ) {
+            let deliveryResult = deliverPendingSocketInput(
                 input,
                 validatedSurface: &validatedSurface,
                 validatedGeneration: &validatedGeneration
-            ) || queuedInput
+            )
+            if case .deferred = deliveryResult {
+                queuedInput = true
+            }
+        }
+        if recordPromptInput {
+            recordPromptInputMutations(for: events)
         }
         didAcceptExplicitInput()
         return queuedInput ? .queued : .sent
     }
 
+    /// Atomically delivers one composed prompt as optional app-owned
+    /// preparation keys, bracketed-paste text, and exactly one named submit
+    /// key.
+    ///
+    /// Guarded callers require an authoritative agent scope before admission,
+    /// so a deferred transaction can never be retargeted to an unknown
+    /// process.
+    @MainActor
+    @discardableResult
+    public func sendPromptSubmission(
+        _ text: String,
+        submitKey: String,
+        preparationKeys: [String] = [],
+        rejectIfHumanComposerBusy: Bool = true,
+        hookRecordingSource: String? = nil,
+        hookConfirmsHumanInput: Bool = false,
+        recordHumanPromptInput: Bool = false,
+        agentInputScope: String? = nil,
+        deliveryReceipt: PromptSubmissionDeliveryReceipt? = nil
+    ) -> PromptSubmissionSendResult {
+        let data = Data(text.utf8)
+        guard let submitEvent = pendingKeyEvent(for: submitKey) else {
+            deliveryReceipt?.finish(.unknownKey)
+            return .unknownKey
+        }
+        let preparationEvents = preparationKeys.compactMap {
+            pendingKeyEvent(for: $0)
+        }
+        guard preparationEvents.count == preparationKeys.count else {
+            deliveryReceipt?.finish(.unknownKey)
+            return .unknownKey
+        }
+        if rejectIfHumanComposerBusy,
+           (promptInputLedger.hasUnconfirmedHumanInput
+            || hasQueuedHumanPromptSubmission) {
+            deliveryReceipt?.finish(.composerBusy)
+            return .composerBusy
+        }
+        if rejectIfHumanComposerBusy,
+           surfaceView.hasDeferredHumanInputDuringClipboardRead() {
+            deliveryReceipt?.finish(.composerBusy)
+            return .composerBusy
+        }
+        let hookConfirmedHumanInputSnapshot = !recordHumanPromptInput
+            && hookConfirmsHumanInput
+            ? promptInputLedger.humanInputSnapshot
+            : nil
+        let validatesAgentScope = !recordHumanPromptInput
+            && rejectIfHumanComposerBusy
+        let admittedAgentInputScope: String?
+        if validatesAgentScope {
+            guard let scope = agentInputScope
+                    ?? promptInputLedger.currentAgentScope else {
+                deliveryReceipt?.finish(.agentScopeUnavailable)
+                return .agentScopeUnavailable
+            }
+            admittedAgentInputScope = scope
+        } else {
+            admittedAgentInputScope = nil
+        }
+        let estimatedBytes = preparationEvents.reduce(
+            data.count + submitEvent.queuedByteCost
+        ) { byteCount, event in
+            byteCount + event.queuedByteCost
+        }
+        let pendingPromptInput: PendingSocketInput = recordHumanPromptInput
+            ? .humanPromptSubmission(
+                preparationKeys: preparationEvents,
+                text: data,
+                submitKey: submitEvent
+            )
+            : .promptSubmission(
+                preparationKeys: preparationEvents,
+                text: data,
+                submitKey: submitEvent,
+                hookRecordingSource: hookRecordingSource,
+                hookConfirmedHumanInputSnapshot:
+                    hookConfirmedHumanInputSnapshot,
+                agentInputScope: admittedAgentInputScope,
+                deliveryReceipt: deliveryReceipt
+            )
+        if !deferredPromptSubmissionRetries.isEmpty {
+            return .inputQueueFull
+        }
+        if deliveryReceipt == nil {
+            deferredPromptSubmissionRetries = [pendingPromptInput]
+            deferredPromptSubmissionRetryBytes = pendingPromptInput.estimatedBytes
+            deferredPromptSubmissionRetryRounds = 0
+        }
+
+        // Admission captures the human-input generation before the compound
+        // transaction can wait behind a runtime clipboard read. The replay
+        // closure intentionally calls the post-admission helper directly so
+        // it cannot recapture a newer generation or split the transaction.
+        if deferInputDuringRuntimeClipboardRead(
+            estimatedBytes: estimatedBytes,
+            isHumanInput: recordHumanPromptInput,
+            replay: { [weak self] in
+                guard let self else {
+                    deliveryReceipt?.finish(.surfaceUnavailable)
+                    return
+                }
+                let result = self.sendPromptSubmissionAfterAdmission(
+                    text,
+                    data: data,
+                    preparationEvents: preparationEvents,
+                    submitEvent: submitEvent,
+                    hookRecordingSource: hookRecordingSource,
+                    recordHumanPromptInput: recordHumanPromptInput,
+                    admittedAgentInputScope: admittedAgentInputScope,
+                    hookConfirmedHumanInputSnapshot:
+                        hookConfirmedHumanInputSnapshot,
+                    deliveryReceipt: deliveryReceipt
+                )
+                if result == .sent {
+                    deliveryReceipt?.finish(.sent)
+                    if deliveryReceipt == nil {
+                        self.clearDeferredPromptSubmissionRetry()
+                    }
+                } else if result == .queued {
+                    if deliveryReceipt == nil {
+                        self.clearDeferredPromptSubmissionRetry()
+                    }
+                } else if let receiptLessInput =
+                            deliveryReceipt == nil ? pendingPromptInput : nil {
+                    self.clearDeferredPromptSubmissionRetry()
+                    _ = self.retainDeferredPromptSubmission(receiptLessInput)
+                    self.requestInputDemandSurfaceStartIfNeeded()
+                } else if result != .queued {
+                    deliveryReceipt?.finish(result)
+                }
+            },
+            onDiscard: { [weak self] in
+                guard let self else {
+                    deliveryReceipt?.cancel()
+                    return
+                }
+                if let deliveryReceipt {
+                    deliveryReceipt.finish(.surfaceUnavailable)
+                } else {
+                    self.clearDeferredPromptSubmissionRetry()
+                    _ = self.retainDeferredPromptSubmission(
+                        pendingPromptInput
+                    )
+                }
+            }
+        ) {
+            hibernationRecorder.recordTerminalInput(
+                workspaceId: tabId,
+                panelId: id
+            )
+            return .queued
+        }
+        clearDeferredPromptSubmissionRetry()
+
+        let result = sendPromptSubmissionAfterAdmission(
+            text,
+            data: data,
+            preparationEvents: preparationEvents,
+            submitEvent: submitEvent,
+            hookRecordingSource: hookRecordingSource,
+            recordHumanPromptInput: recordHumanPromptInput,
+            admittedAgentInputScope: admittedAgentInputScope,
+            hookConfirmedHumanInputSnapshot:
+                hookConfirmedHumanInputSnapshot,
+            deliveryReceipt: deliveryReceipt
+        )
+        if result != .queued {
+            deliveryReceipt?.finish(result)
+        }
+        if result.accepted {
+            hibernationRecorder.recordTerminalInput(
+                workspaceId: tabId,
+                panelId: id
+            )
+        }
+        return result
+    }
+
+    @MainActor
+    @discardableResult
+    private func sendPromptSubmissionAfterAdmission(
+        _ text: String,
+        data: Data,
+        preparationEvents: [PendingKeyEvent],
+        submitEvent: PendingKeyEvent,
+        hookRecordingSource: String?,
+        recordHumanPromptInput: Bool,
+        admittedAgentInputScope: String?,
+        hookConfirmedHumanInputSnapshot:
+            TerminalPromptInputLedger.HumanInputSnapshot?,
+        deliveryReceipt: PromptSubmissionDeliveryReceipt?
+    ) -> PromptSubmissionSendResult {
+        if deliveryReceipt?.isCancelled == true {
+            return .surfaceUnavailable
+        }
+        if let admittedAgentInputScope,
+           promptInputLedger.currentAgentScope != admittedAgentInputScope {
+            return .agentScopeUnavailable
+        }
+        guard surface != nil else {
+            guard allowsRuntimeSurfaceCreation() else {
+                return .surfaceUnavailable
+            }
+            let pendingInput: PendingSocketInput = recordHumanPromptInput
+                ? .humanPromptSubmission(
+                    preparationKeys: preparationEvents,
+                    text: data,
+                    submitKey: submitEvent
+                )
+                : .promptSubmission(
+                    preparationKeys: preparationEvents,
+                    text: data,
+                    submitKey: submitEvent,
+                    hookRecordingSource: hookRecordingSource,
+                    hookConfirmedHumanInputSnapshot:
+                        hookConfirmedHumanInputSnapshot,
+                    agentInputScope: admittedAgentInputScope,
+                    deliveryReceipt: deliveryReceipt
+                )
+            guard enqueuePendingSocketInput(pendingInput) else {
+                return .inputQueueFull
+            }
+            didReceiveExplicitInput()
+            didAcceptExplicitInput()
+            requestInputDemandSurfaceStartIfNeeded()
+            return .queued
+        }
+        guard let liveSurface = liveSurfaceForSocketWrite(
+            reason: "socket.sendPromptSubmission"
+        ) else {
+            return .surfaceUnavailable
+        }
+        guard !ghostty_surface_process_exited(liveSurface) else {
+            return .processExited
+        }
+
+        guard deliveryReceipt?.beginDelivery() ?? true else {
+            return .surfaceUnavailable
+        }
+        didReceiveExplicitInput()
+        for preparationEvent in preparationEvents {
+            sendKeyEvent(
+                surface: liveSurface,
+                keycode: preparationEvent.keycode,
+                mods: preparationEvent.mods
+            )
+        }
+        writeTextData(data, to: liveSurface)
+        sendKeyEvent(
+            surface: liveSurface,
+            keycode: submitEvent.keycode,
+            mods: submitEvent.mods
+        )
+        if recordHumanPromptInput {
+            recordHumanPromptSubmissionInput(
+                preparationEvents: preparationEvents,
+                text: data,
+                submitEvent: submitEvent
+            )
+        } else {
+            promptInputLedger.recordProgrammaticSubmission(
+                message: text,
+                source: hookRecordingSource,
+                confirmsHumanInputSnapshot:
+                    hookConfirmedHumanInputSnapshot
+            )
+        }
+        didAcceptExplicitInput()
+        return .sent
+    }
+
+    @MainActor
+    private func recordHumanPromptSubmissionInput(
+        preparationEvents: [PendingKeyEvent],
+        text: Data,
+        submitEvent: PendingKeyEvent
+    ) {
+        for _ in preparationEvents {
+            promptInputLedger.recordHumanInput(.unknown)
+        }
+        if !text.isEmpty {
+            promptInputLedger.recordHumanInput(.unknown)
+        }
+        promptInputLedger.recordHumanInput(
+            promptInputMutation(for: submitEvent)
+        )
+    }
+
     @MainActor
     private func enqueuePendingSocketInput(_ text: String) -> Bool {
-        enqueuePendingSocketInputs(Self.pendingSocketInputs(for: text))
+        enqueuePendingSocketInput(Self.parsedSocketInputEvents(for: text))
+    }
+
+    @MainActor
+    private func enqueuePendingSocketInput(
+        _ events: [ParsedSocketInput],
+        isHumanInput: Bool = true
+    ) -> Bool {
+        enqueuePendingSocketInputs(
+            Self.pendingSocketInputs(
+                for: events,
+                isHumanInput: isHumanInput
+            )
+        )
     }
 
     private static func pendingSocketInputs(
-        for text: String
+        for text: String,
+        isHumanInput: Bool = true
     ) -> [PendingSocketInput] {
-        parsedSocketInputEvents(for: text).compactMap { event in
+        pendingSocketInputs(
+            for: parsedSocketInputEvents(for: text),
+            isHumanInput: isHumanInput
+        )
+    }
+
+    private static func pendingSocketInputs(
+        for events: [ParsedSocketInput],
+        isHumanInput: Bool = true
+    ) -> [PendingSocketInput] {
+        events.compactMap { event in
             switch event {
             case .rawBytes(let data):
-                return data.isEmpty ? nil : .inputText(data)
+                guard !data.isEmpty else { return nil }
+                return isHumanInput
+                    ? .inputText(data)
+                    : .appOwnedInputText(data)
             case .terminalBytes(let data):
                 return data.isEmpty ? nil : .processOutput(data)
             case .key(let event):
-                return .key(event)
+                return isHumanInput ? .key(event) : .appOwnedKey(event)
             }
         }
+    }
+
+    @MainActor
+    private func recordPromptInputMutations(
+        for events: [ParsedSocketInput]
+    ) {
+        for event in events {
+            switch event {
+            case .rawBytes(let data):
+                promptInputLedger.recordHumanInput(
+                    data.count == 1 && data.first == 0x0D
+                        && !controlReturnIsPromptSubmissionBoundary
+                        ? .submissionBoundary
+                        : .unknown
+                )
+            case .key(let event):
+                promptInputLedger.recordHumanInput(
+                    promptInputMutation(for: event)
+                )
+            case .terminalBytes:
+                break
+            }
+        }
+    }
+
+    @MainActor
+    private func promptInputMutation(
+        for event: PendingKeyEvent
+    ) -> HumanPromptInputMutation {
+        promptInputMutation(keycode: event.keycode, mods: event.mods)
+    }
+
+    @MainActor
+    private func promptInputMutation(
+        keycode: UInt32,
+        mods: ghostty_input_mods_e
+    ) -> HumanPromptInputMutation {
+        guard keycode == UInt32(kVK_Return)
+                || keycode == UInt32(kVK_ANSI_KeypadEnter) else {
+            return .unknown
+        }
+        let relevantModifierMask =
+            GHOSTTY_MODS_SHIFT.rawValue
+                | GHOSTTY_MODS_CTRL.rawValue
+                | GHOSTTY_MODS_ALT.rawValue
+                | GHOSTTY_MODS_SUPER.rawValue
+        let relevantModifiers = mods.rawValue & relevantModifierMask
+        if relevantModifiers == GHOSTTY_MODS_NONE.rawValue {
+            // Claude's multiline composer uses Ctrl-Return as the submit
+            // chord. A plain Return inserts an interior line break and must
+            // stay unknown so its hook cannot confirm that boundary.
+            return controlReturnIsPromptSubmissionBoundary
+                ? .unknown
+                : .submissionBoundary
+        }
+        if controlReturnIsPromptSubmissionBoundary,
+           relevantModifiers == GHOSTTY_MODS_CTRL.rawValue {
+            return .submissionBoundary
+        }
+        return .unknown
     }
 
     /// Splits socket text into ordered raw-byte, terminal-byte, and key
@@ -853,6 +1502,8 @@ extension TerminalSurface {
         let pendingKeys = pendingSocketInputQueue.reduce(into: 0) { count, item in
             if case .key = item {
                 count += 1
+            } else if case .appOwnedKey = item {
+                count += 1
             }
         }
         logDebugEvent(
@@ -863,6 +1514,56 @@ extension TerminalSurface {
         return true
     }
 
+    /// Drops pending input because this surface will not receive another
+    /// runtime write, completing any agent-submit receipts instead of leaving
+    /// the global socket lane occupied forever.
+    @MainActor
+    func discardPendingSocketInput(
+        with result: PromptSubmissionSendResult = .surfaceUnavailable
+    ) {
+        let queued = pendingSocketInputQueue
+            + deferredPromptSubmissionRetries
+        pendingSocketInputQueue.removeAll(keepingCapacity: false)
+        pendingSocketInputBytes = 0
+        deferredPromptSubmissionRetries.removeAll(keepingCapacity: false)
+        deferredPromptSubmissionRetryBytes = 0
+        deferredPromptSubmissionRetryRounds = 0
+        for input in queued {
+            finishPendingPromptDelivery(input, with: result)
+        }
+    }
+
+    @MainActor
+    private func clearDeferredPromptSubmissionRetry() {
+        deferredPromptSubmissionRetries.removeAll(keepingCapacity: false)
+        deferredPromptSubmissionRetryBytes = 0
+        deferredPromptSubmissionRetryRounds = 0
+    }
+
+    @MainActor
+    @discardableResult
+    private func retainDeferredPromptSubmission(
+        _ input: PendingSocketInput
+    ) -> Bool {
+        let bytes = input.estimatedBytes
+        guard deferredPromptSubmissionRetries.count
+                < maxDeferredPromptSubmissionRetries,
+              bytes <= maxPendingSocketInputBytes,
+              deferredPromptSubmissionRetryBytes + bytes
+                <= maxPendingSocketInputBytes else {
+            return false
+        }
+        if deferredPromptSubmissionRetries.isEmpty {
+            deferredPromptSubmissionRetryRounds = max(
+                1,
+                deferredPromptSubmissionRetryRounds
+            )
+        }
+        deferredPromptSubmissionRetries.append(input)
+        deferredPromptSubmissionRetryBytes += bytes
+        return true
+    }
+
     @MainActor
     func flushPendingSocketInputIfNeeded() {
         guard let liveSurface = liveSurfaceForSocketWrite(
@@ -870,24 +1571,71 @@ extension TerminalSurface {
         ) else {
             return
         }
-        let queued = pendingSocketInputQueue
+        if !deferredPromptSubmissionRetries.isEmpty {
+            if deferredPromptSubmissionRetryRounds >= 3 {
+                let expired = deferredPromptSubmissionRetries
+                clearDeferredPromptSubmissionRetry()
+                for input in expired {
+                    finishPendingPromptDelivery(
+                        input,
+                        with: .agentScopeUnavailable
+                    )
+                }
+#if DEBUG
+                logDebugEvent(
+                    "surface.socket_input.expire_deferred_prompt surface=\(id.uuidString.prefix(8)) " +
+                    "items=\(expired.count)"
+                )
+#endif
+            } else {
+                deferredPromptSubmissionRetryRounds += 1
+            }
+        }
+        let queued = deferredPromptSubmissionRetries
+            + pendingSocketInputQueue
         let queuedBytes = pendingSocketInputBytes
         pendingSocketInputQueue.removeAll(keepingCapacity: false)
         pendingSocketInputBytes = 0
+        deferredPromptSubmissionRetries.removeAll(keepingCapacity: false)
+        deferredPromptSubmissionRetryBytes = 0
         guard !queued.isEmpty else { return }
 
         var validatedSurface: ghostty_surface_t? = liveSurface
         var validatedGeneration: UInt64? = runtimeSurfaceGeneration
         var queuedKeys = 0
-        for item in queued {
+        var retainedItems: [PendingSocketInput] = []
+        for (index, item) in queued.enumerated() {
             if case .key = item {
                 queuedKeys += 1
+            } else if case .appOwnedKey = item {
+                queuedKeys += 1
             }
-            _ = deliverPendingSocketInput(
+            let deliveryResult = deliverPendingSocketInput(
                 item,
                 validatedSurface: &validatedSurface,
                 validatedGeneration: &validatedGeneration
             )
+            if case .failed = deliveryResult,
+               shouldRetainPendingPromptAfterFailure(item) {
+                retainedItems.append(item)
+                // A receipt-less prompt that cannot replay is still the
+                // oldest admitted transaction. Keep the untouched suffix
+                // behind it instead of allowing later prompts to overtake it.
+                retainedItems.append(contentsOf: queued.dropFirst(index + 1))
+                break
+            }
+        }
+        if !retainedItems.isEmpty {
+            // Keep an admitted prompt available for the original process
+            // scope instead of silently dropping a caller-visible `queued`
+            // transaction after a restart/rebind.
+            for item in retainedItems {
+                guard retainDeferredPromptSubmission(item) else { break }
+            }
+        }
+        if deferredPromptSubmissionRetries.isEmpty,
+           retainedItems.isEmpty {
+            deferredPromptSubmissionRetryRounds = 0
         }
 #if DEBUG
         logDebugEvent(
@@ -898,8 +1646,30 @@ extension TerminalSurface {
     }
 
     @MainActor
+    private func shouldRetainPendingPromptAfterFailure(
+        _ input: PendingSocketInput
+    ) -> Bool {
+        switch input {
+        case .promptSubmission(
+            _, _, _, _, _, _, let deliveryReceipt
+        ):
+            guard deliveryReceipt == nil,
+                  !input.isCancelledPromptSubmission else {
+                return false
+            }
+            return true
+        case .humanPromptSubmission:
+            return true
+        default:
+            return false
+        }
+    }
+
+    @MainActor
     @discardableResult
-    private func deliverPendingSocketInput(_ input: PendingSocketInput) -> Bool {
+    private func deliverPendingSocketInput(
+        _ input: PendingSocketInput
+    ) -> PendingSocketInputDeliveryResult {
         var validatedSurface: ghostty_surface_t?
         var validatedGeneration: UInt64?
         return deliverPendingSocketInput(
@@ -915,14 +1685,43 @@ extension TerminalSurface {
         _ input: PendingSocketInput,
         validatedSurface: inout ghostty_surface_t?,
         validatedGeneration: inout UInt64?
-    ) -> Bool {
+    ) -> PendingSocketInputDeliveryResult {
+        guard !input.isCancelledPromptSubmission else {
+            return .failed
+        }
         if deferInputDuringRuntimeClipboardRead(
             estimatedBytes: input.estimatedBytes,
+            isHumanInput: input.isHumanInput,
             replay: { [weak self] in
-                _ = self?.deliverPendingSocketInput(input)
+                guard let self else {
+                    input.completePromptSubmissionDelivery(
+                        with: .surfaceUnavailable
+                    )
+                    return
+                }
+                let deliveryResult = self.deliverPendingSocketInput(input)
+                if case .failed = deliveryResult,
+                   self.shouldRetainPendingPromptAfterFailure(input) {
+                    _ = self.retainDeferredPromptSubmission(input)
+                }
+            },
+            onDiscard: { [weak self] in
+                guard let self else {
+                    input.completePromptSubmissionDelivery(
+                        with: .surfaceUnavailable
+                    )
+                    return
+                }
+                if self.shouldRetainPendingPromptAfterFailure(input) {
+                    _ = self.retainDeferredPromptSubmission(input)
+                } else {
+                    input.completePromptSubmissionDelivery(
+                        with: .surfaceUnavailable
+                    )
+                }
             }
         ) {
-            return true
+            return .deferred
         }
         let surface: ghostty_surface_t
         if let cachedSurface = validatedSurface,
@@ -934,18 +1733,29 @@ extension TerminalSurface {
             guard let currentSurface = liveSurfaceForSocketWrite(
                 reason: "socket.flushPendingInput.item"
             ) else {
+                finishPendingPromptDelivery(
+                    input,
+                    with: .surfaceUnavailable
+                )
                 validatedSurface = nil
                 validatedGeneration = nil
-                return false
+                return .failed
             }
             surface = currentSurface
             validatedSurface = currentSurface
             validatedGeneration = runtimeSurfaceGeneration
         }
+        if case .promptSubmission = input,
+           ghostty_surface_process_exited(surface) {
+            finishPendingPromptDelivery(input, with: .processExited)
+            return .failed
+        }
         switch input {
         case .pasteText(let chunk):
             writeTextData(chunk, to: surface)
         case .inputText(let chunk):
+            writeInputTextData(chunk, to: surface)
+        case .appOwnedInputText(let chunk):
             writeInputTextData(chunk, to: surface)
         case .processOutput(let chunk):
             writeProcessOutputData(chunk, to: surface)
@@ -955,9 +1765,83 @@ extension TerminalSurface {
                 keycode: event.keycode,
                 mods: event.mods
             )
+        case .appOwnedKey(let event):
+            sendKeyEvent(
+                surface: surface,
+                keycode: event.keycode,
+                mods: event.mods
+            )
+        case .promptSubmission(
+            let preparationKeys,
+            let text,
+            let submitKey,
+            let hookRecordingSource,
+            let hookConfirmedHumanInputSnapshot,
+            let admittedAgentInputScope,
+            let deliveryReceipt
+        ):
+            if let admittedAgentInputScope,
+               promptInputLedger.currentAgentScope != admittedAgentInputScope {
+                deliveryReceipt?.finish(.agentScopeUnavailable)
+                return .failed
+            }
+            guard deliveryReceipt?.beginDelivery() ?? true else {
+                return .failed
+            }
+            for preparationKey in preparationKeys {
+                sendKeyEvent(
+                    surface: surface,
+                    keycode: preparationKey.keycode,
+                    mods: preparationKey.mods
+                )
+            }
+            writeTextData(text, to: surface)
+            sendKeyEvent(
+                surface: surface,
+                keycode: submitKey.keycode,
+                mods: submitKey.mods
+            )
+            promptInputLedger.recordProgrammaticSubmission(
+                message: String(decoding: text, as: UTF8.self),
+                source: hookRecordingSource,
+                confirmsHumanInputSnapshot:
+                    hookConfirmedHumanInputSnapshot
+            )
+            deliveryReceipt?.finish(.sent)
+        case .humanPromptSubmission(
+            let preparationKeys,
+            let text,
+            let submitKey
+        ):
+            for preparationKey in preparationKeys {
+                sendKeyEvent(
+                    surface: surface,
+                    keycode: preparationKey.keycode,
+                    mods: preparationKey.mods
+                )
+            }
+            writeTextData(text, to: surface)
+            sendKeyEvent(
+                surface: surface,
+                keycode: submitKey.keycode,
+                mods: submitKey.mods
+            )
+            recordHumanPromptSubmissionInput(
+                preparationEvents: preparationKeys,
+                text: text,
+                submitEvent: submitKey
+            )
         case .keyText(let text):
             _ = sendKeyText(text, to: surface)
         }
-        return false
+        return .delivered
+    }
+
+    @MainActor
+    private func finishPendingPromptDelivery(
+        _ input: PendingSocketInput,
+        with result: PromptSubmissionSendResult
+    ) {
+        input.completePromptSubmissionDelivery(with: result)
     }
 }

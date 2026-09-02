@@ -1459,7 +1459,7 @@ class TabManager: ObservableObject {
            terminalPanel.surface.surface != nil {
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
                 UserDefaults.standard.set(true, forKey: AccountCatalogSection().welcomeShown.userDefaultsKey)
-                terminalPanel.sendText("cmux welcome\n")
+                _ = terminalPanel.sendAppOwnedInputResult("cmux welcome\n")
             }
             return
         }
@@ -1479,7 +1479,7 @@ class TabManager: ObservableObject {
             panelsCancellable?.cancel()
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
                 UserDefaults.standard.set(true, forKey: AccountCatalogSection().welcomeShown.userDefaultsKey)
-                terminalPanel.sendText("cmux welcome\n")
+                _ = terminalPanel.sendAppOwnedInputResult("cmux welcome\n")
             }
         }
 

@@ -55,7 +55,7 @@ extension TerminalPasteboardService {
         }
         guard let fileSize = sourceValues.fileSize,
               fileSize > 0,
-              fileSize <= Self.maxClipboardImageSize else {
+              fileSize <= Self.maximumImageDataByteCount else {
             throw CocoaError(.fileReadTooLarge)
         }
 

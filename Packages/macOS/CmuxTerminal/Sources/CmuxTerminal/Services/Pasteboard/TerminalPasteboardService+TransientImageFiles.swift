@@ -88,7 +88,7 @@ extension TerminalPasteboardService {
         guard Darwin.fstat(sourceDescriptor, &metadata) == 0,
               metadata.st_mode & mode_t(S_IFMT) == mode_t(S_IFREG),
               metadata.st_size > 0,
-              metadata.st_size <= off_t(Self.maxClipboardImageSize) else {
+              metadata.st_size <= off_t(Self.maximumImageDataByteCount) else {
             return nil
         }
 
@@ -115,7 +115,7 @@ extension TerminalPasteboardService {
                 upToCount: Self.transientImageCopyChunkSize
             ), !chunk.isEmpty {
                 copiedByteCount += chunk.count
-                guard copiedByteCount <= Self.maxClipboardImageSize else {
+                guard copiedByteCount <= Self.maximumImageDataByteCount else {
                     throw TransientImageCopyError.exceedsSizeLimit
                 }
                 try destinationHandle.write(contentsOf: chunk)

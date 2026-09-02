@@ -54,6 +54,9 @@ public final class TerminalSurface: Identifiable, ObservableObject {
     public typealias NamedKeySendResult = CmuxTerminalCore.NamedKeySendResult
     public typealias InputSendResult = CmuxTerminalCore.InputSendResult
     public typealias AgentCommandShimSet = TerminalSurfaceAgentCommandShimSet
+    /// The result of one compound prompt paste-and-submit transaction.
+    public typealias PromptSubmissionSendResult =
+        CmuxTerminalCore.PromptSubmissionSendResult
     public typealias CmuxContextEnvironment = TerminalSurfaceCmuxContextEnvironment
     private var runtimeSurface: ghostty_surface_t?
     var runtimeControllingTTYName: String?
@@ -321,6 +324,15 @@ public final class TerminalSurface: Identifiable, ObservableObject {
     var pendingSocketInputQueue: [PendingSocketInput] = []
     var pendingSocketInputBytes: Int = 0
     let maxPendingSocketInputBytes = 1_048_576
+    // A clipboard-deferred receipt-less compound prompt gets one bounded
+    // retry lane so a transient scope/surface failure cannot consume a
+    // caller-visible `queued` admission.
+    var deferredPromptSubmissionRetries: [PendingSocketInput] = []
+    var deferredPromptSubmissionRetryBytes = 0
+    var deferredPromptSubmissionRetryRounds = 0
+    let maxDeferredPromptSubmissionRetries = 64
+    var promptInputLedger = TerminalPromptInputLedger()
+    var controlReturnIsPromptSubmissionBoundary = false
     var backgroundSurfaceStartQueued = false
     var backgroundSurfaceStartSource: RuntimeSurfaceCreationSource = .normal
     var paneHostAttachCreationSource: RuntimeSurfaceCreationSource = .normal
@@ -699,6 +711,17 @@ public final class TerminalSurface: Identifiable, ObservableObject {
     deinit {
         agentCommandShimInstallTask?.cancel()
         agentCommandShimCompletionTask?.cancel()
+        for input in pendingSocketInputQueue {
+            input.completePromptSubmissionDelivery(with: .surfaceUnavailable)
+        }
+        for input in deferredPromptSubmissionRetries {
+            input.completePromptSubmissionDelivery(with: .surfaceUnavailable)
+        }
+        pendingSocketInputQueue.removeAll(keepingCapacity: false)
+        pendingSocketInputBytes = 0
+        deferredPromptSubmissionRetries.removeAll(keepingCapacity: false)
+        deferredPromptSubmissionRetryBytes = 0
+        deferredPromptSubmissionRetryRounds = 0
         retireSurfaceRegistryRegistrationIfNeeded()
         markPortalLifecycleClosed(reason: "deinit")
         // Mirror closeHeadlessStartupWindowIfNeeded: deinit is nonisolated, so

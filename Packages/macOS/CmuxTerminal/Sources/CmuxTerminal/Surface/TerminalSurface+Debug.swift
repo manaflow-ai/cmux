@@ -156,14 +156,16 @@ extension TerminalSurface {
             into: (keyEvents: 0, pasteTextItems: 0, inputTextItems: 0, processOutputItems: 0)
         ) { counts, item in
             switch item {
-            case .key, .keyText:
+            case .key, .appOwnedKey, .keyText:
                 counts.keyEvents += 1
             case .pasteText:
                 counts.pasteTextItems += 1
-            case .inputText:
+            case .inputText, .appOwnedInputText:
                 counts.inputTextItems += 1
             case .processOutput:
                 counts.processOutputItems += 1
+            case .promptSubmission, .humanPromptSubmission:
+                break
             }
         }
         return (

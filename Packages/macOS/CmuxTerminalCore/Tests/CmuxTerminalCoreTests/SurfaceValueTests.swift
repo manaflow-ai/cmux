@@ -36,9 +36,91 @@ import GhosttyKit
         let data = Data("hello".utf8)
         #expect(PendingSocketInput.pasteText(data).estimatedBytes == 5)
         #expect(PendingSocketInput.inputText(data).estimatedBytes == 5)
+        #expect(PendingSocketInput.appOwnedInputText(data).estimatedBytes == 5)
         #expect(PendingSocketInput.processOutput(data).estimatedBytes == 5)
         let key = PendingKeyEvent(keycode: 53, mods: GHOSTTY_MODS_NONE, label: "escape")
         #expect(PendingSocketInput.key(key).estimatedBytes == 6)
+        #expect(PendingSocketInput.appOwnedKey(key).estimatedBytes == 6)
+        #expect(
+            PendingSocketInput.humanPromptSubmission(
+                preparationKeys: [],
+                text: data,
+                submitKey: key
+            ).estimatedBytes == 12
+        )
+        let preparationKeys = ["ctrl+a", "ctrl+k", "ctrl+u"].map {
+            PendingKeyEvent(
+                keycode: 0,
+                mods: GHOSTTY_MODS_CTRL,
+                label: $0
+            )
+        }
+        #expect(
+            PendingSocketInput.promptSubmission(
+                preparationKeys: preparationKeys,
+                text: data,
+                submitKey: key,
+                hookRecordingSource: "workspace.agent_submit",
+                hookConfirmedHumanInputSnapshot: nil,
+                agentInputScope: "agent:test",
+                deliveryReceipt: nil
+            ).estimatedBytes == 29
+        )
+    }
+
+    @Test func appOwnedPendingInputDoesNotLookHumanDuringReplay() {
+        let data = Data("answer".utf8)
+        let key = PendingKeyEvent(
+            keycode: 53,
+            mods: GHOSTTY_MODS_NONE,
+            label: "escape"
+        )
+
+        #expect(!PendingSocketInput.appOwnedInputText(data).isHumanInput)
+        #expect(!PendingSocketInput.appOwnedKey(key).isHumanInput)
+        #expect(PendingSocketInput.inputText(data).isHumanInput)
+        #expect(PendingSocketInput.key(key).isHumanInput)
+        #expect(
+            PendingSocketInput.humanPromptSubmission(
+                preparationKeys: [],
+                text: data,
+                submitKey: key
+            ).isHumanInput
+        )
+    }
+
+    @Test func queuedPromptCarriesAdmissionTimeHumanSnapshot() {
+        var ledger = TerminalPromptInputLedger()
+        ledger.synchronizeAgentScope("agent:test")
+        ledger.recordHumanInput(.unknown)
+        let snapshot = ledger.humanInputSnapshot
+        let input = PendingSocketInput.promptSubmission(
+            preparationKeys: [],
+            text: Data("prompt".utf8),
+            submitKey: PendingKeyEvent(
+                keycode: 36,
+                mods: GHOSTTY_MODS_NONE,
+                label: "return"
+            ),
+            hookRecordingSource: "workspace.prompt_submit",
+            hookConfirmedHumanInputSnapshot: snapshot,
+            agentInputScope: "agent:test",
+            deliveryReceipt: nil
+        )
+
+        guard case .promptSubmission(
+            _,
+            _,
+            _,
+            _,
+            let queuedSnapshot,
+            _,
+            _
+        ) = input else {
+            Issue.record("Expected compound prompt")
+            return
+        }
+        #expect(queuedSnapshot == snapshot)
     }
 }
 

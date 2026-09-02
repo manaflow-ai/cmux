@@ -55,6 +55,36 @@ public protocol TerminalSurfaceNativeViewing: NSView, TerminalSurfaceHosting {
         replay: @escaping () -> Void
     ) -> Bool
 
+    /// Defers runtime input with an ownership hint used to reject an
+    /// automation transaction that was admitted after an earlier human event
+    /// already entered the clipboard buffer.
+    ///
+    /// - Parameters:
+    ///   - estimatedBytes: Approximate retained payload size for queue bounds.
+    ///   - isHumanInput: Whether the deferred mutation can change a human
+    ///     terminal composer. App-owned controls pass `false`.
+    ///   - replay: The input mutation to retry after the clipboard read ends.
+    /// - Returns: Whether the input was accepted for deferred replay.
+    @discardableResult
+    func deferRuntimeInputDuringClipboardRead(
+        estimatedBytes: Int,
+        isHumanInput: Bool,
+        replay: @escaping () -> Void
+    ) -> Bool
+
+    /// Defers runtime input and reports when teardown discards its replay.
+    @discardableResult
+    func deferRuntimeInputDuringClipboardRead(
+        estimatedBytes: Int,
+        isHumanInput: Bool,
+        replay: @escaping () -> Void,
+        onDiscard: @escaping () -> Void
+    ) -> Bool
+
+    /// Whether an earlier human-owned event is buffered for this surface's
+    /// current clipboard-read epoch.
+    func hasDeferredHumanInputDuringClipboardRead() -> Bool
+
     /// Positions the native pointer at the center of a mobile-selected cell.
     func positionMobilePointer(
         on surface: ghostty_surface_t,
@@ -86,6 +116,38 @@ public extension TerminalSurfaceNativeViewing {
     ) -> Bool {
         false
     }
+
+    /// Preserves the legacy deferral seam for hosts that do not classify
+    /// runtime mutations.
+    @discardableResult
+    func deferRuntimeInputDuringClipboardRead(
+        estimatedBytes: Int,
+        isHumanInput _: Bool,
+        replay: @escaping () -> Void
+    ) -> Bool {
+        deferRuntimeInputDuringClipboardRead(
+            estimatedBytes: estimatedBytes,
+            replay: replay
+        )
+    }
+
+    /// Hosts without clipboard sequencing cannot discard a deferred replay.
+    @discardableResult
+    func deferRuntimeInputDuringClipboardRead(
+        estimatedBytes: Int,
+        isHumanInput: Bool,
+        replay: @escaping () -> Void,
+        onDiscard _: @escaping () -> Void
+    ) -> Bool {
+        deferRuntimeInputDuringClipboardRead(
+            estimatedBytes: estimatedBytes,
+            isHumanInput: isHumanInput,
+            replay: replay
+        )
+    }
+
+    /// Hosts without clipboard sequencing have no buffered human events.
+    func hasDeferredHumanInputDuringClipboardRead() -> Bool { false }
 
     /// Uses Ghostty's point-space pointer API for the selected grid cell.
     func positionMobilePointer(
