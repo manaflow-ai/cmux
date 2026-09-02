@@ -2,30 +2,6 @@ internal import CmuxMobileRPC
 internal import CmuxMobileShellModel
 internal import Foundation
 
-/// The single admission outcome for an authenticated Mac: channel/tag
-/// compatibility (``MobileMacBuildCompatibilityPolicy``) first, then the
-/// release-lane version floor (``MobileMacCompatPolicy``).
-enum MacBuildAdmissionVerdict: Equatable {
-    case allowed
-    case buildIncompatible
-    case macAppVersionTooOld(MobileMacCompatPolicy.Violation)
-}
-
-#if DEBUG
-/// Dogfood switch for the release-lane version gate, which otherwise never
-/// fires in development builds (they only admit development-tag Macs).
-/// Launch the tagged Mac with `CMUX_DEBUG_MOBILE_APP_VERSION=<old version>`
-/// and the phone/simulator with `CMUX_DEBUG_FORCE_MAC_COMPAT=1` (or the
-/// launch argument `-CMUXDebugForceMacCompat YES`); the gate then evaluates
-/// the dev Mac with its channel derived from the reported version grammar.
-enum MobileMacCompatDebugOverride {
-    static var forceEvaluation: Bool {
-        ProcessInfo.processInfo.environment["CMUX_DEBUG_FORCE_MAC_COMPAT"] == "1"
-            || UserDefaults.standard.bool(forKey: "CMUXDebugForceMacCompat")
-    }
-}
-#endif
-
 @MainActor
 extension MobileShellComposite {
     /// Whether authenticated host status belongs to this iOS build's audience.
@@ -81,7 +57,7 @@ extension MobileShellComposite {
             return MobileMacCompatPolicy.constrainedChannel(instanceTag: instanceTag)
         case .development?:
             #if DEBUG
-            guard MobileMacCompatDebugOverride.forceEvaluation else { return nil }
+            guard mobileMacCompatDebugOverrideForcesEvaluation() else { return nil }
             return macAppVersion?.contains("-nightly.") == true ? .nightly : .stable
             #else
             return nil

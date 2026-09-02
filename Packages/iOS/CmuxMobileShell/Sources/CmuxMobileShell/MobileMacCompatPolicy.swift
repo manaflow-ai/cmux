@@ -1,42 +1,5 @@
 public import Foundation
 
-/// A Mac build version stamp as reported through authenticated host status:
-/// either a released dotted version (`0.64.22`) or a nightly stamp
-/// (`0.64.22-nightly.3345650013201`, where the counter is the GitHub run id
-/// plus a two-digit attempt and is therefore globally monotonic).
-public struct MobileMacBuildVersionStamp: Equatable, Sendable {
-    /// The dotted numeric base version.
-    public let base: MobileMacAppVersion
-    /// The monotonic nightly build counter, present only on nightly stamps.
-    public let nightlyBuild: UInt64?
-
-    /// Parses a reported marketing version, accepting the released and the
-    /// nightly grammar only. Anything else (empty, custom suffixes) is `nil`.
-    public init?(parsing string: String) {
-        let trimmed = string.trimmingCharacters(in: .whitespacesAndNewlines)
-        if let released = MobileMacAppVersion(parsing: trimmed) {
-            base = released
-            nightlyBuild = nil
-            return
-        }
-        let marker = "-nightly."
-        guard let markerRange = trimmed.range(of: marker),
-              let parsedBase = MobileMacAppVersion(parsing: String(trimmed[..<markerRange.lowerBound]))
-        else {
-            return nil
-        }
-        let counter = trimmed[markerRange.upperBound...]
-        guard !counter.isEmpty,
-              counter.utf8.allSatisfy({ (48 ... 57).contains($0) }),
-              let build = UInt64(counter)
-        else {
-            return nil
-        }
-        base = parsedBase
-        nightlyBuild = build
-    }
-}
-
 /// The minimum Mac app versions one iOS build accepts, fetched from
 /// `GET /api/mobile-mac-compat` (authoritative, cached per origin) with
 /// ``baked`` as the compiled-in fallback for devices that have never fetched.
@@ -55,6 +18,11 @@ public struct MobileMacCompatPolicy: Equatable, Sendable {
         /// stamp's base equals ``minBaseVersion`` (a greater base is newer).
         public let minBuild: UInt64
 
+        /// Creates a nightly minimum from its base version and counter.
+        ///
+        /// - Parameters:
+        ///   - minBaseVersion: The nightly stamp's base version at the minimum.
+        ///   - minBuild: The minimum monotonic nightly build counter.
         public init(minBaseVersion: MobileMacAppVersion, minBuild: UInt64) {
             self.minBaseVersion = minBaseVersion
             self.minBuild = minBuild
@@ -75,6 +43,13 @@ public struct MobileMacCompatPolicy: Equatable, Sendable {
         /// The minimum nightly-channel build; `nil` leaves nightly unconstrained.
         public let nightly: NightlyRequirement?
 
+        /// Creates one tier of the policy.
+        ///
+        /// - Parameters:
+        ///   - minIOSVersion: The inclusive minimum iOS version of the tier.
+        ///   - maxIOSVersion: The optional inclusive maximum iOS version.
+        ///   - stableMinVersion: The minimum stable-channel Mac version.
+        ///   - nightly: The minimum nightly-channel build, or `nil`.
         public init(
             minIOSVersion: MobileMacAppVersion,
             maxIOSVersion: MobileMacAppVersion? = nil,
@@ -90,7 +65,9 @@ public struct MobileMacCompatPolicy: Equatable, Sendable {
 
     /// The Mac release channel a version constraint applies to.
     public enum Channel: Equatable, Sendable {
+        /// The stable release lane (`default` and legacy untagged Macs).
         case stable
+        /// The nightly release lane.
         case nightly
     }
 
@@ -98,15 +75,21 @@ public struct MobileMacCompatPolicy: Equatable, Sendable {
     /// needs: the channel, the Mac's reported version (nil when the Mac
     /// predates version reporting), and the tier minimum for that channel.
     public struct Violation: Equatable, Sendable {
+        /// The release lane whose minimum the Mac missed.
         public let channel: Channel
+        /// The Mac's reported version, or `nil` when it predates reporting.
         public let macAppVersion: String?
         /// The minimum version to present: the stable minimum, or the nightly
         /// minimum rendered in the nightly stamp grammar.
         public let requiredVersionDisplay: String
     }
 
+    /// The tiers of the policy, ascending by ``Tier/minIOSVersion``.
     public let tiers: [Tier]
 
+    /// Creates a policy from its tiers.
+    ///
+    /// - Parameter tiers: The tiers, ascending by minimum iOS version.
     public init(tiers: [Tier]) {
         self.tiers = tiers
     }

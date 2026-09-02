@@ -101,10 +101,26 @@ describe("mobile-mac-compat route", () => {
     expect(validateList(list)).toEqual(list);
   });
 
-  test("rejects empty entries", () => {
+  test("accepts an empty entries list (the remote kill switch)", () => {
+    // Devices treat a fetched empty list as "no Mac version limit for
+    // anyone", so emergency retraction must be publishable.
     const list: MobileMacCompatList = { ...base, entries: [] };
+    expect(validateList(list)).toEqual(list);
+  });
+
+  test("rejects a nightly counter beyond the client's UInt64 range", () => {
+    const list: MobileMacCompatList = {
+      ...base,
+      entries: [
+        {
+          minIOSVersion: "1.0.0",
+          stableMinVersion: "0.64.23",
+          nightly: { minBaseVersion: "0.64.22", minBuild: "18446744073709551616" },
+        },
+      ],
+    };
     expect(() => validateList(list)).toThrow(
-      "entries must list at least one tier",
+      "entries[0].nightly.minBuild must fit in an unsigned 64-bit integer, got 18446744073709551616",
     );
   });
 

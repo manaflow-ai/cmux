@@ -16,6 +16,7 @@ import Observation
 @MainActor
 @Observable
 public final class MobileMacCompatCenter {
+    /// Fetches the payload bytes for a request URL (injectable for tests).
     public typealias Loader = @Sendable (URL) async throws -> Data
 
     static let cacheKey = "dev.cmux.mobile.macCompat.remoteList.v1"
@@ -29,6 +30,13 @@ public final class MobileMacCompatCenter {
     /// launch or a cached previous one), else the compiled-in fallback.
     public private(set) var policy: MobileMacCompatPolicy
 
+    /// Creates the center for one API origin.
+    ///
+    /// - Parameters:
+    ///   - apiBaseURL: The API origin the list is fetched from; `nil` or
+    ///     empty disables fetching (the baked fallback stays).
+    ///   - defaults: The store backing the per-origin payload cache.
+    ///   - loader: The payload loader; `nil` uses the shared URLSession one.
     public init(
         apiBaseURL: String?,
         defaults: UserDefaults = .standard,

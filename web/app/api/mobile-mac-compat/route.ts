@@ -30,18 +30,18 @@ const ETAG = `"${createHash("sha256").update(PAYLOAD).digest("base64url")}"`;
 /**
  * Validates the reviewed list before it can be served: download URLs are
  * absolute https URLs on cmux-owned or cmux-release hosts, every version is
- * dotted numeric, nightly build counters are plain digits with no leading
- * zero, and entries are nonempty and strictly ascending by minIOSVersion so
- * the device's tier selection (greatest tier <= app version) is well
- * defined.
+ * dotted numeric in the client's one-to-three-component grammar, nightly
+ * build counters are plain digits within the client's UInt64 range, and
+ * entries are strictly ascending by minIOSVersion so the device's tier
+ * selection (greatest tier <= app version) is well defined. An EMPTY entries
+ * list is deliberately valid: it is the remote kill switch that lifts every
+ * constraint on devices (see MobileMacCompatPolicy.decode), so emergency
+ * retraction must be publishable.
  */
 export function validateList(input: MobileMacCompatList): MobileMacCompatList {
   downloadURL(input.downloads.stable, "downloads.stable");
   downloadURL(input.downloads.nightly, "downloads.nightly");
 
-  if (input.entries.length === 0) {
-    throw new Error("entries must list at least one tier");
-  }
   let previous: MobileMacCompatEntry | undefined;
   for (const [index, entry] of input.entries.entries()) {
     const path = `entries[${index}]`;
@@ -96,6 +96,17 @@ function build(input: string | undefined, path: string): void {
   // lexicographic), so a zero-padded counter would break the comparison.
   if (value.length > 1 && value.startsWith("0")) {
     throw new Error(`${path} must not have a leading zero, got ${value}`);
+  }
+  // The client parses the counter with UInt64 and discards the ENTIRE
+  // payload when parsing fails, so a counter beyond UInt64 would strand
+  // every device on its stale cached policy. No leading zeros (checked
+  // above), so same-length strings compare numerically.
+  const uint64Max = "18446744073709551615";
+  if (
+    value.length > uint64Max.length ||
+    (value.length === uint64Max.length && value > uint64Max)
+  ) {
+    throw new Error(`${path} must fit in an unsigned 64-bit integer, got ${value}`);
   }
 }
 
