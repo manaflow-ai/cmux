@@ -430,8 +430,20 @@ fn validate_git_source(source: &str) -> anyhow::Result<()> {
     if source.bytes().any(|byte| byte == 0 || byte.is_ascii_control()) {
         anyhow::bail!("plugin git URL must not contain NUL or control characters");
     }
-    if source.contains("::") {
-        anyhow::bail!("plugin git URL must not use a custom Git transport");
+    if let Some(separator) = source.find("::") {
+        // Git's custom transport syntax is `<protocol>::<address>`. Require
+        // a protocol-shaped prefix, and ignore separators inside a URL's
+        // authority or path (for example, an IPv6 literal).
+        let protocol = &source[..separator];
+        if !protocol.is_empty()
+            && !protocol.contains("://")
+            && protocol.bytes().enumerate().all(|(index, byte)| {
+                byte.is_ascii_alphanumeric() || (index > 0 && matches!(byte, b'+' | b'-' | b'.'))
+            })
+            && protocol.bytes().next().is_some_and(|byte| byte.is_ascii_alphabetic())
+        {
+            anyhow::bail!("plugin git URL must not use a custom Git transport");
+        }
     }
 
     // Git receives this value as a process argument. Reject URL forms that
