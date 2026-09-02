@@ -68,6 +68,7 @@ enum ClaudeHookLiveDeliveryHarness {
     static func hookEnvironment(context: Context) -> [String: String] {
         [
             "HOME": context.root.path,
+            "CFFIXED_USER_HOME": context.root.path,
             "PATH": "/usr/bin:/bin:/usr/sbin:/sbin",
             "CMUX_SOCKET_PATH": context.socketPath,
             "CMUX_CLAUDE_HOOK_STATE_PATH": context.storeURL.path,
