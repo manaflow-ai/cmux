@@ -16,10 +16,15 @@ cmux server start [START OPTIONS]
 cmux attach [START OPTIONS] [--terminal <terminal-id>]
 cmux relay [ROUTING OPTIONS]
 cmux machine-agent [OPTIONS]
+cmux wg hub --config <wg-quick file> --socket <unix socket>
 ```
 
 `relay` copies private protocol bytes between standard I/O and one session
-socket. Machine connectors use it as a transport primitive. `attach` opens the
+socket. Machine connectors use it as a transport primitive. `wg hub` owns one
+in-process WireGuard tunnel and serves SOCKS5 CONNECT on an owner-only Unix
+socket so several `remote connect --wireguard-hub <socket>` clients share one
+key; it prints one `hub-ready` JSON line when listening and removes the socket
+on SIGTERM or SIGINT. `attach` opens the
 complete session TUI. `attach --terminal <terminal-id>` resolves an exact ID
 from `cmux terminal list` and renders only that terminal, without session
 chrome or unrelated event traffic. Startup attach does not accept internal

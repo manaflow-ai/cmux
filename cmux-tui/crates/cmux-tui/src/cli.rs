@@ -48,6 +48,7 @@ const REMOTE_COMMANDS: &[&str] = &[
     "remote-sidecar",
     "remote-stop",
     "install-self",
+    "wg",
 ];
 
 /// Maps the actions accepted after the `remote` noun to their direct command
@@ -428,6 +429,7 @@ USAGE
   cmux [START OPTIONS]
   cmux attach [START OPTIONS]
   cmux relay [ROUTING OPTIONS]
+  cmux wg hub --config <wg-quick file> --socket <unix socket>
 ";
 
 const ROOT_HELP_PROCESS_SUFFIX: &str = "\
@@ -450,6 +452,7 @@ PROCESS HELP
   cmux help start
   cmux attach --help
   cmux relay --help
+  cmux wg hub --help
   cmux machine-agent --help
 
 RESOURCE SCOPES

@@ -27,9 +27,9 @@ use cmux_remote::identity::{
     MAX_INVITATION_URI_BYTES, credential_free_route_hint, default_state_dir,
 };
 use cmux_remote::provider::{
-    IrohPathMode, ProviderError, ROUTING_DIRECT_ADDRS, ROUTING_NODE_ID, ROUTING_RELAY_URL,
-    RelayCredentialSource, SshProvider, SshProviderConfig, SupportedClientAuthModes,
-    sanitized_route,
+    Dialer, IrohPathMode, ProviderError, ROUTING_DIRECT_ADDRS, ROUTING_NODE_ID,
+    ROUTING_RELAY_URL, RelayCredentialSource, SocksDialer, SshProvider, SshProviderConfig,
+    SupportedClientAuthModes, WireGuardDialer, sanitized_route,
 };
 use cmux_remote::secure_directory::{DirectoryAccess, ensure_secure_directory};
 use cmux_remote::ssh_bootstrap::{BUILD_IDENTITY, DISTRIBUTION_VERSION, NPM_BOOTSTRAP_VERSION};
@@ -99,6 +99,7 @@ fn run_inner(
         Some("remote-sidecar") => run_remote_sidecar(&args[1..]),
         Some("remote-stop") => run_remote_stop(&args[1..]),
         Some("install-self") => run_install_self(&args[1..]),
+        Some("wg") => run_wg(&args[1..]),
         Some("remote") => Err(anyhow!(catalog().remote_client.remote_lifecycle_help)),
         _ => Err(anyhow!("unknown remote command\n\n{usage}")),
     }
@@ -132,6 +133,10 @@ fn remote_help_requested(args: &[String]) -> bool {
         "--ssh-binary",
         "--remote-binary",
         "--remote-state-dir",
+        "--wireguard-config",
+        "--wireguard-hub",
+        "--config",
+        "--socket",
         "--ssh-arg",
         "--workspace-root",
         "--host",
@@ -186,6 +191,7 @@ fn remote_help(command: Option<&str>) -> &'static str {
         Some("remote-link") => client.remote_link_help,
         Some("remote-stop") => catalog().remote.remote_stop_help,
         Some("install-self") => client.install_self_help,
+        Some("wg") => client.wg_hub_help,
         Some("remote") => client.remote_lifecycle_help,
         _ => client.command_help,
     }
@@ -209,6 +215,7 @@ struct ConnectFlags {
     routing: BTreeMap<String, String>,
     iroh_path: IrohPathMode,
     wireguard_config: Option<PathBuf>,
+    wireguard_hub: Option<PathBuf>,
     headless: bool,
     json: bool,
     ssh_session: String,
@@ -438,6 +445,12 @@ fn parse_connect_flags(args: &[String]) -> anyhow::Result<ConnectFlags> {
                     return Err(anyhow!(catalog().remote_client.option_once("--wireguard-config")));
                 }
             }
+            "--wireguard-hub" => {
+                let path = PathBuf::from(value("--wireguard-hub")?);
+                if flags.wireguard_hub.replace(path).is_some() {
+                    return Err(anyhow!(catalog().remote_client.option_once("--wireguard-hub")));
+                }
+            }
             "--headless" => flags.headless = true,
             "--json" => flags.json = true,
             "--session" => flags.ssh_session = value("--session")?,
@@ -494,6 +507,9 @@ fn parse_connect_flags(args: &[String]) -> anyhow::Result<ConnectFlags> {
     }
     if flags.json && !flags.headless {
         return Err(anyhow!(catalog().remote_client.json_requires_headless));
+    }
+    if flags.wireguard_config.is_some() && flags.wireguard_hub.is_some() {
+        return Err(anyhow!(catalog().remote_client.wireguard_hub_conflict));
     }
     Ok(flags)
 }
@@ -600,11 +616,13 @@ fn start_connected(mut flags: ConnectFlags) -> anyhow::Result<ConnectedRuntime> 
         .join("client");
     let store = ClientIdentityStore::load_or_create(&client_root)?;
     let async_runtime = tokio_runtime()?;
-    let wireguard = flags
-        .wireguard_config
-        .take()
-        .map(|path| start_wireguard(&async_runtime, &path))
-        .transpose()?;
+    let direct_dialer: Option<Arc<dyn Dialer>> = match (flags.wireguard_config.take(), flags.wireguard_hub.take()) {
+        (Some(path), _) => {
+            Some(Arc::new(WireGuardDialer::new(start_wireguard(&async_runtime, &path)?)))
+        }
+        (None, Some(socket)) => Some(Arc::new(SocksDialer::new(socket))),
+        (None, None) => None,
+    };
     let mut relay_routes = client_relay_options(
         flags.route.as_deref(),
         std::mem::take(&mut flags.relay_routes),
@@ -644,8 +662,12 @@ fn start_connected(mut flags: ConnectFlags) -> anyhow::Result<ConnectedRuntime> 
         maximum_frame_bytes: crate::remote_runtime::MAX_CARRIER_FRAME_BYTES,
     };
     let relay_route_names = relay_routes.keys().cloned().collect::<Vec<_>>();
-    let providers =
-        Arc::new(client_provider_registry(ssh.clone(), relay_routes, flags.iroh_path, wireguard)?);
+    let providers = Arc::new(client_provider_registry(
+        ssh.clone(),
+        relay_routes,
+        flags.iroh_path,
+        direct_dialer,
+    )?);
     let explicit_route = flags.route.take();
     let explicit_route_for_refresh = explicit_route.clone();
     let (route_strings, auth, expected_daemon, known, carrier_auth) = if let Some(invitation) =
@@ -1634,6 +1656,81 @@ fn read_invitation_ticket_file(path: &Path) -> anyhow::Result<String> {
         .to_string())
 }
 
+struct WgHubFlags {
+    config: PathBuf,
+    socket: PathBuf,
+}
+
+fn parse_wg_hub_flags(args: &[String]) -> anyhow::Result<WgHubFlags> {
+    let mut config = None;
+    let mut socket = None;
+    let mut index = 0;
+    while index < args.len() {
+        let argument = args[index].as_str();
+        index += 1;
+        let mut value = |name: &str| -> anyhow::Result<PathBuf> {
+            let value = args
+                .get(index)
+                .cloned()
+                .ok_or_else(|| anyhow!(catalog().remote_client.option_needs_value(name)))?;
+            index += 1;
+            Ok(PathBuf::from(value))
+        };
+        match argument {
+            "--config" => {
+                if config.replace(value("--config")?).is_some() {
+                    return Err(anyhow!(catalog().remote_client.option_once("--config")));
+                }
+            }
+            "--socket" => {
+                if socket.replace(value("--socket")?).is_some() {
+                    return Err(anyhow!(catalog().remote_client.option_once("--socket")));
+                }
+            }
+            "-h" | "--help" => return Err(anyhow!(catalog().remote_client.help_invalid_options)),
+            other => return Err(anyhow!(catalog().remote_client.unknown_option(other))),
+        }
+    }
+    Ok(WgHubFlags {
+        config: config.ok_or_else(|| anyhow!(catalog().remote_client.wg_hub_option_required("--config")))?,
+        socket: socket.ok_or_else(|| anyhow!(catalog().remote_client.wg_hub_option_required("--socket")))?,
+    })
+}
+
+/// `cmux-tui wg hub --config <wg-quick> --socket <unix path>`: own one
+/// WireGuard tunnel and serve SOCKS5 CONNECT for sidecars on a Unix socket.
+///
+/// Prints one JSON readiness line, then runs until SIGTERM or SIGINT, and
+/// removes the socket on the way out. Every error before readiness exits
+/// non-zero through the caller.
+fn run_wg(args: &[String]) -> anyhow::Result<()> {
+    match args.first().map(String::as_str) {
+        Some("hub") => {}
+        Some(action) => return Err(anyhow!(catalog().remote_client.unknown_action("wg", action))),
+        None => return Err(anyhow!(catalog().remote_client.wg_hub_help)),
+    }
+    let flags = parse_wg_hub_flags(&args[1..])?;
+    let async_runtime = tokio_runtime()?;
+    let net = start_wireguard(&async_runtime, &flags.config)?;
+    let hub = async_runtime
+        .block_on(cmux_remote::wireguard_hub::serve_wireguard_hub(net, flags.socket.clone()))
+        .map_err(|error| anyhow!(catalog().remote_client.wireguard_hub_serve_failed(&error.to_string())))?;
+    let ready = serde_json::json!({
+        "event": "hub-ready",
+        "socket": hub.path().display().to_string(),
+        "routes": hub.routes().iter().map(ToString::to_string).collect::<Vec<_>>(),
+    });
+    println!("{}", serde_json::to_string(&ready)?);
+    let _ = io::stdout().flush();
+    async_runtime
+        .block_on(crate::wait_for_shutdown_signal_async())
+        .map_err(|error| anyhow!(catalog().remote_client.wireguard_hub_signal_failed(&error.to_string())))?;
+    async_runtime
+        .block_on(hub.shutdown())
+        .map_err(|error| anyhow!(catalog().remote_client.wireguard_hub_serve_failed(&error.to_string())))?;
+    Ok(())
+}
+
 /// A wg-quick file is small; anything larger is not one.
 const MAX_WIREGUARD_CONFIG_BYTES: usize = 16 * 1024;
 
@@ -1753,7 +1850,12 @@ fn print_admin_response(action: &str, response: AdminResponse, json: bool) -> an
 }
 
 /// Advertised by `remote-probe --json` so a control plane can choose routes the client can use.
-pub const PROBE_CAPABILITIES: &[&str] = &["direct-ws-user-agent"];
+///
+/// `direct-ws-user-agent`: direct WebSocket dials carry a User-Agent, which
+/// hosted ingress on branded machine domains requires.
+/// `wireguard-hub`: `remote connect --wireguard-hub` and `wg hub` exist, so the
+/// app may reach private-network machines through a shared in-process tunnel.
+pub const PROBE_CAPABILITIES: &[&str] = &["direct-ws-user-agent", "wireguard-hub"];
 
 fn run_probe(args: &[String]) -> anyhow::Result<()> {
     let value = serde_json::json!({
@@ -2616,6 +2718,33 @@ mod tests {
     #[test]
     fn probe_capabilities_include_direct_ws_user_agent() {
         assert!(super::PROBE_CAPABILITIES.contains(&"direct-ws-user-agent"));
+        assert!(super::PROBE_CAPABILITIES.contains(&"wireguard-hub"));
+    }
+
+    #[test]
+    fn wireguard_config_and_hub_are_mutually_exclusive() {
+        let both = ["ws://[fd00::1]:1337/v1/link", "--wireguard-config", "/tmp/a.conf", "--wireguard-hub", "/tmp/hub.sock"]
+            .map(str::to_string);
+        let error = super::parse_connect_flags(&both).unwrap_err();
+        assert_eq!(error.to_string(), catalog().remote_client.wireguard_hub_conflict);
+        let hub_only = ["ws://[fd00::1]:1337/v1/link", "--wireguard-hub", "/tmp/hub.sock"].map(str::to_string);
+        let flags = super::parse_connect_flags(&hub_only).unwrap();
+        assert_eq!(flags.wireguard_hub, Some(PathBuf::from("/tmp/hub.sock")));
+        assert!(flags.wireguard_config.is_none());
+    }
+
+    #[test]
+    fn wg_hub_flags_require_config_and_socket() {
+        let full = ["hub", "--config", "/tmp/wg.conf", "--socket", "/tmp/wg.sock"].map(str::to_string);
+        let flags = super::parse_wg_hub_flags(&full[1..]).unwrap();
+        assert_eq!(flags.config, PathBuf::from("/tmp/wg.conf"));
+        assert_eq!(flags.socket, PathBuf::from("/tmp/wg.sock"));
+        let missing = ["--config", "/tmp/wg.conf"].map(str::to_string);
+        assert!(super::parse_wg_hub_flags(&missing).is_err());
+        let unknown = ["--config", "/tmp/wg.conf", "--socket", "/tmp/s", "--bogus"].map(str::to_string);
+        assert!(super::parse_wg_hub_flags(&unknown).is_err());
+        let not_hub = ["frobnicate"].map(str::to_string);
+        assert!(super::run_wg(&not_hub).is_err());
     }
 
     use super::*;
