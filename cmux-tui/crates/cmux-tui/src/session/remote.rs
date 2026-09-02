@@ -1243,8 +1243,53 @@ struct InteractiveWriterShared {
     state: Mutex<InteractiveWriteQueueState>,
     changed: Condvar,
     metrics: InteractiveWriteMetrics,
+    worker_completion: Arc<WorkerCompletion>,
     #[cfg(test)]
     wait_until_written_gate: Mutex<Option<InteractiveWaitUntilWrittenGate>>,
+}
+
+struct WorkerCompletion {
+    done: Mutex<bool>,
+    changed: Condvar,
+}
+
+impl WorkerCompletion {
+    fn new() -> Self {
+        Self { done: Mutex::new(false), changed: Condvar::new() }
+    }
+
+    fn mark_done(&self) {
+        *self.done.lock().unwrap_or_else(|poison| poison.into_inner()) = true;
+        self.changed.notify_all();
+    }
+
+    fn wait(&self, timeout: Duration) -> bool {
+        let deadline = Instant::now() + timeout;
+        let mut done = self.done.lock().unwrap_or_else(|poison| poison.into_inner());
+        while !*done {
+            let remaining = deadline.saturating_duration_since(Instant::now());
+            if remaining.is_zero() {
+                break;
+            }
+            let (next, timeout) = self
+                .changed
+                .wait_timeout(done, remaining)
+                .unwrap_or_else(|poison| poison.into_inner());
+            done = next;
+            if timeout.timed_out() {
+                break;
+            }
+        }
+        *done
+    }
+}
+
+struct WorkerCompletionGuard(Arc<WorkerCompletion>);
+
+impl Drop for WorkerCompletionGuard {
+    fn drop(&mut self) {
+        self.0.mark_done();
+    }
 }
 
 #[cfg(test)]
@@ -1270,13 +1315,15 @@ impl InteractiveWriter {
             state: Mutex::new(InteractiveWriteQueueState::default()),
             changed: Condvar::new(),
             metrics: InteractiveWriteMetrics::default(),
+            worker_completion: Arc::new(WorkerCompletion::new()),
             #[cfg(test)]
             wait_until_written_gate: Mutex::new(None),
         });
         let worker_shared = shared.clone();
+        let worker_completion = shared.worker_completion.clone();
         let worker = std::thread::Builder::new()
             .name("remote-input-writer".into())
-            .spawn(move || interactive_writer_worker(worker_shared, writer))?;
+            .spawn(move || interactive_writer_worker(worker_shared, writer, worker_completion))?;
         Ok(Self { shared, abort, worker: Mutex::new(Some(worker)) })
     }
 
@@ -1427,7 +1474,11 @@ impl InteractiveWriter {
             worker.take()
         };
         if let Some(handle) = handle {
-            let _ = handle.join();
+            if self.shared.worker_completion.wait(remote_write_timeout()) {
+                let _ = handle.join();
+            } else {
+                *self.worker.lock().unwrap_or_else(|poison| poison.into_inner()) = Some(handle);
+            }
         }
     }
 
@@ -1480,7 +1531,9 @@ impl Drop for InteractiveWriter {
 fn interactive_writer_worker(
     shared: Arc<InteractiveWriterShared>,
     mut writer: Box<dyn RemoteMessageWriter>,
+    worker_completion: Arc<WorkerCompletion>,
 ) {
+    let _completion = WorkerCompletionGuard(worker_completion);
     loop {
         let write = {
             let mut state = shared.state.lock().unwrap_or_else(|poison| poison.into_inner());
@@ -1592,6 +1645,7 @@ enum DisconnectState {
 pub struct RemoteSession {
     interactive_writer: InteractiveWriter,
     reader_worker: Mutex<Option<std::thread::JoinHandle<()>>>,
+    reader_completion: Arc<WorkerCompletion>,
     /// The first terminal state wins. Local shutdown is kept separate from a
     /// reader failure so closing our own transport does not report a fake
     /// remote diagnostic.
@@ -1954,6 +2008,7 @@ impl RemoteSession {
         let session = Arc::new(RemoteSession {
             interactive_writer,
             reader_worker: Mutex::new(None),
+            reader_completion: Arc::new(WorkerCompletion::new()),
             disconnect_state: Mutex::new(DisconnectState::default()),
             pending: Mutex::new(PendingRemoteRequests::default()),
             next_id: AtomicU64::new(1),
@@ -1986,8 +2041,10 @@ impl RemoteSession {
         });
 
         let reader_session = Arc::downgrade(&session);
+        let reader_completion = session.reader_completion.clone();
         let reader_worker =
             std::thread::Builder::new().name("remote-reader".into()).spawn(move || {
+                let _completion = WorkerCompletionGuard(reader_completion);
                 let mut report_progress = |partial: &[u8]| {
                     if let Some(session) = reader_session.upgrade() {
                         session.report_read_progress(partial);
@@ -3029,7 +3086,12 @@ impl RemoteSession {
             worker.take()
         };
         if let Some(handle) = handle {
-            let _ = handle.join();
+            if self.reader_completion.wait(remote_write_timeout()) {
+                let _ = handle.join();
+            } else {
+                *self.reader_worker.lock().unwrap_or_else(|poison| poison.into_inner()) =
+                    Some(handle);
+            }
         }
     }
 
@@ -3946,6 +4008,7 @@ fn test_session_with_writer(
     Arc::new(RemoteSession {
         interactive_writer: InteractiveWriter::spawn(writer, Arc::new(NoopTransportAbort)).unwrap(),
         reader_worker: Mutex::new(None),
+        reader_completion: Arc::new(WorkerCompletion::new()),
         disconnect_state: Mutex::new(DisconnectState::default()),
         pending: Mutex::new(PendingRemoteRequests::default()),
         next_id: AtomicU64::new(1),
@@ -5189,6 +5252,7 @@ mod tests {
         Arc::new(RemoteSession {
             interactive_writer: InteractiveWriter::spawn(writer, abort).unwrap(),
             reader_worker: Mutex::new(None),
+            reader_completion: Arc::new(WorkerCompletion::new()),
             disconnect_state: Mutex::new(DisconnectState::default()),
             pending: Mutex::new(PendingRemoteRequests::default()),
             next_id: AtomicU64::new(1),
