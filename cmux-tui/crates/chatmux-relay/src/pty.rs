@@ -26,7 +26,7 @@ use std::fs::File;
 use std::os::fd::AsRawFd;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, OnceLock};
 use std::time::Duration;
 use tokio::sync::Notify;
 use tokio_util::sync::CancellationToken;
@@ -489,7 +489,79 @@ struct ControlLease {
     released: AtomicBool,
 }
 
+struct DeferredDetach {
+    control: Arc<dyn ControlHandle>,
+    lease: Arc<ControlLease>,
+    params: Value,
+}
+
+const DEFERRED_DETACH_QUEUE: usize = 256;
+const DEFERRED_DETACH_WORKERS: usize = 4;
+static DEFERRED_DETACH_TX: OnceLock<std::sync::mpsc::SyncSender<DeferredDetach>> = OnceLock::new();
+
+fn enqueue_off_runtime_detach(task: DeferredDetach) -> Result<(), DeferredDetach> {
+    let sender = DEFERRED_DETACH_TX.get_or_init(|| {
+        let (sender, receiver) = std::sync::mpsc::sync_channel(DEFERRED_DETACH_QUEUE);
+        let receiver = Arc::new(Mutex::new(receiver));
+        for worker_id in 0..DEFERRED_DETACH_WORKERS {
+            let receiver = Arc::clone(&receiver);
+            let _ = std::thread::Builder::new()
+                .name(format!("cmux-relay-detach-{worker_id}"))
+                .spawn(move || {
+                    let runtime =
+                        tokio::runtime::Builder::new_current_thread().enable_all().build();
+                    while let Ok(task) = receiver.lock().expect("detach queue lock").recv() {
+                        if let Ok(runtime) = &runtime {
+                            let _ = runtime
+                                .block_on(detach_control_with_deadline(&task.control, task.params));
+                        } else {
+                            let _ = task.control.send("detach-attached-view", task.params);
+                        }
+                        task.lease.finish_count();
+                    }
+                });
+        }
+        // A failed spawn drops the receiver with its closure, so enqueue
+        // reports failure and the caller retires ownership synchronously.
+        sender
+    });
+    sender.try_send(task).map_err(|error| error.into_inner())
+}
+
+/// Retire a detach that cannot enter the bounded worker queue. A shared
+/// control still needs an explicit per-surface detach, while the final lease
+/// uses control shutdown as its authoritative cleanup path.
+fn release_off_runtime_detach(
+    task: DeferredDetach,
+    enqueue: impl FnOnce(DeferredDetach) -> Result<(), DeferredDetach>,
+) {
+    if let Err(task) = enqueue(task) {
+        task.lease.retire_surface(task.params);
+    }
+}
+
 impl ControlLease {
+    /// Retire one surface after its reliable detach could not be queued.
+    /// Keep the detach on a shared control, then release this lease. The
+    /// final lease closes the control instead of queuing bytes that shutdown
+    /// could discard.
+    fn retire_surface(&self, params: Value) {
+        let Some(inner) = self.inner.upgrade() else { return };
+        let mut users = inner.control_users.lock().expect("control users lock");
+        let Some(state) = users.get_mut(&self.key) else { return };
+        if !Arc::ptr_eq(&state.control, &self.control) {
+            return;
+        }
+        if state.count > 1 {
+            let _ = self.control.send("detach-attached-view", params);
+        }
+        state.count = state.count.saturating_sub(1);
+        if state.count == 0 {
+            users.remove(&self.key);
+            self.control.end();
+        }
+    }
+
     fn finish_count(&self) {
         let Some(inner) = self.inner.upgrade() else { return };
         let mut users = inner.control_users.lock().expect("control users lock");
@@ -523,20 +595,21 @@ impl ControlLease {
                 let control = Arc::clone(&self.control);
                 let lease = Arc::clone(self);
                 handle.spawn(async move {
-                    let _ = tokio::time::timeout(
-                        Duration::from_millis(CONTROL_TIMEOUT_MS),
-                        control.send_reliable("detach-attached-view", params),
-                    )
-                    .await;
+                    let _ = detach_control_with_deadline(&control, params).await;
                     lease.finish_count();
                 });
                 return;
             }
-            if !self.control.send("detach-attached-view", params) {
-                // No Tokio runtime is available for the reliable path. The
-                // transport is already closing, so retire local ownership.
-                // Runtime callers use send_reliable above before this point.
-            }
+            // PTY callbacks can run on a non-Tokio thread. Use one bounded
+            // worker queue so rapid release churn cannot create one OS thread
+            // and runtime per attachment.
+            let task = DeferredDetach {
+                control: Arc::clone(&self.control),
+                lease: Arc::clone(self),
+                params,
+            };
+            release_off_runtime_detach(task, enqueue_off_runtime_detach);
+            return;
         }
         self.finish_count();
     }
@@ -1515,6 +1588,14 @@ async fn request_control_with_cancellation(
     control.request(cmd, params).await
 }
 
+async fn detach_control_with_deadline(control: &Arc<dyn ControlHandle>, params: Value) -> bool {
+    tokio::time::timeout(
+        Duration::from_millis(CONTROL_TIMEOUT_MS),
+        control.send_reliable("detach-attached-view", params),
+    )
+    .await
+    .unwrap_or(false)
+}
 // ---------------------------------------------------------------------------
 // A viewer PTY control that pumps its events into the framing sinks
 // ---------------------------------------------------------------------------
@@ -2429,12 +2510,11 @@ impl Inner {
         if context.cancellation.is_cancelled() {
             if detach_supported {
                 if let Some(lease) = lease.as_deref() {
-                    let _ = control
-                        .send_reliable(
-                            "detach-attached-view",
-                            json!({ "surface": surface_id, "lease": lease }),
-                        )
-                        .await;
+                    let _ = detach_control_with_deadline(
+                        &control,
+                        json!({ "surface": surface_id, "lease": lease }),
+                    )
+                    .await;
                 }
             }
             self.end_control_if_unshared(&control);
@@ -3618,6 +3698,69 @@ mod tests {
         }
     }
 
+    struct OffRuntimeDetachControl {
+        ended: Arc<AtomicUsize>,
+        fire_and_forget: Arc<AtomicUsize>,
+        reliable: Arc<AtomicUsize>,
+    }
+
+    struct SharedDetachControl {
+        ended: Arc<AtomicUsize>,
+        detached: Arc<StdMutex<Vec<Value>>>,
+    }
+
+    impl ControlHandle for SharedDetachControl {
+        fn request(
+            &self,
+            _cmd: &str,
+            _params: Value,
+        ) -> std::pin::Pin<Box<dyn Future<Output = Option<Value>> + Send + '_>> {
+            Box::pin(async { Some(json!({ "ok": true })) })
+        }
+        fn send(&self, cmd: &str, params: Value) -> bool {
+            if cmd == "detach-attached-view" {
+                self.detached.lock().expect("detached surfaces lock").push(params);
+            }
+            true
+        }
+        fn on_event(&self, _handler: EventHandler) {}
+        fn on_close(&self, _handler: CloseHandler) {}
+        fn pause(&self) {}
+        fn resume(&self) {}
+        fn end(&self) {
+            self.ended.fetch_add(1, AtomicOrdering::SeqCst);
+        }
+    }
+
+    impl ControlHandle for OffRuntimeDetachControl {
+        fn request(
+            &self,
+            _cmd: &str,
+            _params: Value,
+        ) -> std::pin::Pin<Box<dyn Future<Output = Option<Value>> + Send + '_>> {
+            Box::pin(async { Some(json!({ "ok": true })) })
+        }
+        fn send(&self, _cmd: &str, _params: Value) -> bool {
+            self.fire_and_forget.fetch_add(1, AtomicOrdering::SeqCst);
+            true
+        }
+        fn send_reliable(
+            &self,
+            _cmd: &str,
+            _params: Value,
+        ) -> std::pin::Pin<Box<dyn Future<Output = bool> + Send + '_>> {
+            self.reliable.fetch_add(1, AtomicOrdering::SeqCst);
+            Box::pin(async { true })
+        }
+        fn on_event(&self, _handler: EventHandler) {}
+        fn on_close(&self, _handler: CloseHandler) {}
+        fn pause(&self) {}
+        fn resume(&self) {}
+        fn end(&self) {
+            self.ended.fetch_add(1, AtomicOrdering::SeqCst);
+        }
+    }
+
     #[test]
     fn control_leases_detach_each_surface_and_end_once_after_last_release() {
         let h = harness(None, None);
@@ -3653,6 +3796,98 @@ mod tests {
         })
         .await
         .expect("stalled detach must not retain the control lease");
+        assert_eq!(ended.load(AtomicOrdering::SeqCst), 1);
+        assert!(h.manager.inner.control_users.lock().unwrap().is_empty());
+    }
+
+    #[tokio::test]
+    async fn canceled_detach_returns_after_deadline() {
+        let ended = Arc::new(AtomicUsize::new(0));
+        let control: Arc<dyn ControlHandle> = Arc::new(StalledDetachControl { ended });
+        let result = tokio::time::timeout(
+            Duration::from_millis(CONTROL_TIMEOUT_MS + 500),
+            detach_control_with_deadline(&control, json!({ "surface": 7, "lease": "lease-a" })),
+        )
+        .await
+        .expect("canceled detach must not retain the session");
+        assert!(!result, "a stalled detach has no writer acceptance");
+    }
+
+    #[tokio::test]
+    async fn off_runtime_release_waits_for_detach_acceptance_before_end() {
+        let h = harness(None, None);
+        let ended = Arc::new(AtomicUsize::new(0));
+        let fire_and_forget = Arc::new(AtomicUsize::new(0));
+        let reliable = Arc::new(AtomicUsize::new(0));
+        let control: Arc<dyn ControlHandle> = Arc::new(OffRuntimeDetachControl {
+            ended: Arc::clone(&ended),
+            fire_and_forget: Arc::clone(&fire_and_forget),
+            reliable: Arc::clone(&reliable),
+        });
+        let lease = h.manager.inner.register_control_user(&control);
+        std::thread::spawn(move || lease.release(7, Some("lease-a"), true))
+            .join()
+            .expect("release thread");
+        tokio::time::timeout(Duration::from_millis(500), async {
+            while ended.load(AtomicOrdering::SeqCst) == 0 {
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .expect("off-runtime release must finish");
+        assert_eq!(reliable.load(AtomicOrdering::SeqCst), 1);
+        assert_eq!(fire_and_forget.load(AtomicOrdering::SeqCst), 0);
+    }
+
+    #[test]
+    fn saturated_off_runtime_queue_retires_without_unreliable_send() {
+        let h = harness(None, None);
+        let ended = Arc::new(AtomicUsize::new(0));
+        let fire_and_forget = Arc::new(AtomicUsize::new(0));
+        let reliable = Arc::new(AtomicUsize::new(0));
+        let control: Arc<dyn ControlHandle> = Arc::new(OffRuntimeDetachControl {
+            ended: Arc::clone(&ended),
+            fire_and_forget: Arc::clone(&fire_and_forget),
+            reliable: Arc::clone(&reliable),
+        });
+        let lease = h.manager.inner.register_control_user(&control);
+        let task =
+            DeferredDetach { control, lease, params: json!({ "surface": 7, "lease": "lease-a" }) };
+
+        release_off_runtime_detach(task, Err);
+
+        assert_eq!(ended.load(AtomicOrdering::SeqCst), 1);
+        assert_eq!(fire_and_forget.load(AtomicOrdering::SeqCst), 0);
+        assert_eq!(reliable.load(AtomicOrdering::SeqCst), 0);
+        assert!(h.manager.inner.control_users.lock().unwrap().is_empty());
+    }
+
+    #[test]
+    fn saturated_off_runtime_queue_retires_shared_surface_with_detach() {
+        let h = harness(None, None);
+        let ended = Arc::new(AtomicUsize::new(0));
+        let detached = Arc::new(StdMutex::new(Vec::new()));
+        let control: Arc<dyn ControlHandle> = Arc::new(SharedDetachControl {
+            ended: Arc::clone(&ended),
+            detached: Arc::clone(&detached),
+        });
+        let released = h.manager.inner.register_control_user(&control);
+        let retained = h.manager.inner.register_control_user(&control);
+        let task = DeferredDetach {
+            control,
+            lease: released,
+            params: json!({ "surface": 7, "lease": "lease-a" }),
+        };
+
+        release_off_runtime_detach(task, Err);
+
+        let detached = detached.lock().expect("detached surfaces lock");
+        assert_eq!(detached.as_slice(), &[json!({ "surface": 7, "lease": "lease-a" })]);
+        assert_eq!(ended.load(AtomicOrdering::SeqCst), 0);
+        let users = h.manager.inner.control_users.lock().unwrap();
+        assert_eq!(users.values().next().expect("shared control user").count, 1);
+        drop(users);
+        retained.finish_count();
         assert_eq!(ended.load(AtomicOrdering::SeqCst), 1);
         assert!(h.manager.inner.control_users.lock().unwrap().is_empty());
     }
