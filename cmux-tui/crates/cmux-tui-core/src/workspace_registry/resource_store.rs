@@ -850,7 +850,7 @@ impl WorkspaceRegistry {
         resource_patch_replay(&self.connection, mutation, operation, &fingerprint)
     }
 
-    pub fn commit_agent_projection(
+    pub(crate) fn commit_agent_projection(
         &mut self,
         mutation: &WorkspaceMutation,
         fingerprint: &Value,
