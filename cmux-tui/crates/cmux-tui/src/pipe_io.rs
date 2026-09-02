@@ -24,7 +24,7 @@
 use std::borrow::Cow;
 use std::io::{BufRead, Write};
 use std::path::Path;
-use std::sync::Arc;
+use std::sync::{Arc, Weak};
 use std::time::{Duration, Instant};
 
 use base64::Engine as _;
@@ -334,76 +334,90 @@ fn read_pipe_io_line(reader: &mut impl BufRead, line: &mut String) -> std::io::R
 /// Forwards embedder requests from stdin until EOF, then reports the closed
 /// parent through the shared event queue.
 fn spawn_stdin_pump(handle: PipeIoSurfaceHandle, lifecycle_sender: Sender<PipeIoEvent>) {
+    let remote = Arc::downgrade(&handle.remote);
+    let surface = handle.surface;
     std::thread::Builder::new()
         .name("pipe-io-stdin".into())
         .spawn(move || {
             let stdin = std::io::stdin();
             let mut reader = stdin.lock();
-            let mut line = String::new();
-            loop {
-                let Ok(bytes_read) = read_pipe_io_line(&mut reader, &mut line) else { break };
-                if bytes_read == 0 {
-                    break;
-                }
-                if line.trim().is_empty() {
-                    continue;
-                }
-                match parse_request(&line) {
-                    Ok(PipeIoRequest::Input(bytes)) => {
-                        if handle.write_bytes(&bytes).is_err() {
-                            // The transport owns loss reporting; input can
-                            // only stop early.
-                            break;
-                        }
-                    }
-                    Ok(PipeIoRequest::Resize { cols, rows }) => {
-                        // Diagnostics only; the exit JSON stays the final
-                        // stderr line and embedders skip lines without an
-                        // "exit" key.
-                        match handle.resize(cols, rows) {
-                            Ok(accepted) => eprintln!(
-                                "{}",
-                                serde_json::json!({
-                                    "diag": {"resize": {"cols": cols, "rows": rows, "accepted": accepted}}
-                                })
-                            ),
-                            Err(error) => eprintln!(
-                                "{}",
-                                serde_json::json!({
-                                    "diag": {"resize": {"cols": cols, "rows": rows, "error": error.to_string()}}
-                                })
-                            ),
-                        }
-                    }
-                    Ok(PipeIoRequest::ClaimGeometry) => {
-                        // Claims only establish ownership. Enqueue them on
-                        // the same ordered writer as input so a claim cannot
-                        // overtake the keystroke that follows it, and avoid a
-                        // new blocking thread for every claim.
-                        match handle.remote.notify_claim_terminal_geometry(handle.surface) {
-                            Ok(()) => eprintln!(
-                                "{}",
-                                serde_json::json!({"diag": {"claim": {"accepted": true}}})
-                            ),
-                            Err(error) => eprintln!(
-                                "{}",
-                                serde_json::json!({
-                                    "diag": {"claim": {"error": error.to_string()}}
-                                })
-                            ),
-                        }
-                    }
-                    Ok(PipeIoRequest::Unknown) => {}
-                    // A malformed line means the embedder side is broken;
-                    // stop consuming rather than misinterpreting input.
-                    Err(_) => break,
-                }
-            }
-            // Lifecycle has its own one-slot channel, so a full byte queue
-            // cannot delay the parent-close signal.
-            let _ = lifecycle_sender.send(PipeIoEvent::StdinClosed);
+            run_stdin_pump(&mut reader, &remote, surface, &lifecycle_sender);
         })
         .expect("spawn pipe-io stdin pump");
+}
+
+fn run_stdin_pump(
+    reader: &mut impl BufRead,
+    remote: &Weak<RemoteSession>,
+    surface: SurfaceId,
+    lifecycle_sender: &Sender<PipeIoEvent>,
+) {
+    let mut line = String::new();
+    loop {
+        let Ok(bytes_read) = read_pipe_io_line(reader, &mut line) else { break };
+        if bytes_read == 0 {
+            break;
+        }
+        if line.trim().is_empty() {
+            continue;
+        }
+        match parse_request(&line) {
+            Ok(PipeIoRequest::Input(bytes)) => {
+                let Some(remote) = remote.upgrade() else { break };
+                let handle = PipeIoSurfaceHandle { remote, surface };
+                if handle.write_bytes(&bytes).is_err() {
+                    // The transport owns loss reporting; input can only stop
+                    // early.
+                    break;
+                }
+            }
+            Ok(PipeIoRequest::Resize { cols, rows }) => {
+                let Some(remote) = remote.upgrade() else { break };
+                let handle = PipeIoSurfaceHandle { remote, surface };
+                // Diagnostics only; the exit JSON stays the final stderr line
+                // and embedders skip lines without an "exit" key.
+                match handle.resize(cols, rows) {
+                    Ok(accepted) => eprintln!(
+                        "{}",
+                        serde_json::json!({
+                            "diag": {"resize": {"cols": cols, "rows": rows, "accepted": accepted}}
+                        })
+                    ),
+                    Err(error) => eprintln!(
+                        "{}",
+                        serde_json::json!({
+                            "diag": {"resize": {"cols": cols, "rows": rows, "error": error.to_string()}}
+                        })
+                    ),
+                }
+            }
+            Ok(PipeIoRequest::ClaimGeometry) => {
+                let Some(remote) = remote.upgrade() else { break };
+                // Claims only establish ownership. Enqueue them on the same
+                // ordered writer as input so a claim cannot overtake the
+                // keystroke that follows it, and avoid a new blocking thread
+                // for every claim.
+                match remote.notify_claim_terminal_geometry(surface) {
+                    Ok(()) => {
+                        eprintln!("{}", serde_json::json!({"diag": {"claim": {"accepted": true}}}))
+                    }
+                    Err(error) => eprintln!(
+                        "{}",
+                        serde_json::json!({
+                            "diag": {"claim": {"error": error.to_string()}}
+                        })
+                    ),
+                }
+            }
+            Ok(PipeIoRequest::Unknown) => {}
+            // A malformed line means the embedder side is broken; stop
+            // consuming rather than misinterpreting input.
+            Err(_) => break,
+        }
+    }
+    // Lifecycle has its own one-slot channel, so a full byte queue cannot
+    // delay the parent-close signal.
+    let _ = lifecycle_sender.send(PipeIoEvent::StdinClosed);
 }
 
 fn pump_events_to_stdout(
@@ -652,7 +666,7 @@ mod tests {
     #[test]
     fn stdin_pump_stops_without_retaining_a_gone_remote_session() {
         let (lifecycle_sender, lifecycle_receiver) = mpsc::channel();
-        let mut input = Cursor::new(br#"{"input":"aGk="}\n"#.to_vec());
+        let mut input = Cursor::new(b"{\"input\":\"aGk=\"}\n".to_vec());
 
         run_stdin_pump(&mut input, &Weak::new(), 7, &lifecycle_sender);
 
