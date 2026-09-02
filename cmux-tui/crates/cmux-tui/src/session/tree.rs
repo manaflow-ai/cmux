@@ -749,7 +749,7 @@ fn parse_layout(value: &Value) -> Option<Node> {
 
 fn parse_pane(value: &Value) -> Option<PaneView> {
     let raw_active_tab = value.get("active_tab").and_then(|v| v.as_u64()).unwrap_or(0) as usize;
-    let mut active_tab = raw_active_tab;
+    let mut active_tab = None;
     Some(PaneView {
         id: value.get("id")?.as_u64()?,
         resource_id: value
@@ -821,7 +821,7 @@ fn parse_pane(value: &Value) -> Option<PaneView> {
                             notification: tab.get("notification").and_then(parse_notification),
                         })?;
                         if raw_index == raw_active_tab {
-                            active_tab = compact_index;
+                            active_tab = Some(compact_index);
                         }
                         compact_index += 1;
                         Some(parsed)
@@ -829,7 +829,7 @@ fn parse_pane(value: &Value) -> Option<PaneView> {
                     .collect()
             })
             .unwrap_or_default(),
-        active_tab,
+        active_tab: active_tab.unwrap_or(0),
     })
 }
 
