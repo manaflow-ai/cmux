@@ -713,46 +713,61 @@ def assert_cla_action_transition!(base_ref:, candidate_ref:, base_workflow_diges
 end
 
 def run_action_transition_regression_matrix!
-  legacy_workflow_digest = LEGACY_CLA_WORKFLOW_DIGEST
-  legacy_script_digest = LEGACY_CLA_RERUN_DIGEST
+  fc608_workflow_digest = LEGACY_CLA_WORKFLOW_DIGEST
+  fc608_script_digest = LEGACY_CLA_RERUN_DIGEST
+  fc608_helper_path = ".github/scripts/rerun-failed-cla.sh"
+  # b4d3 was the last pre-v3-policy revision. It used a different, reviewed
+  # helper path, so a reference must never be paired with fc608 bytes.
+  b4d3_workflow_digest = "e03fa7a1d41eb5d59843807bf3a3bd153f5f7ab343f78e521d1d43cbecc43891"
+  b4d3_script_digest = "580ea1130f9745be686e428e45aa39c93ad290ca48736330c429e3206d9211ec"
+  b4d3_helper_path = ".github/scripts/refresh-cla-check.sh"
   unrelated_workflow_digest = "0" * 64
   unrelated_script_digest = "1" * 64
   final = CLA_ACTION_FINAL
   cases = [
     ["fc608 legacy no-op", CLA_ACTION_LEGACY_REFS.fetch(0), CLA_ACTION_LEGACY_REFS.fetch(0), false,
-     legacy_workflow_digest, legacy_script_digest, true],
+     fc608_workflow_digest, fc608_script_digest, fc608_helper_path, true],
     ["b4d3 legacy no-op", CLA_ACTION_LEGACY_REFS.fetch(1), CLA_ACTION_LEGACY_REFS.fetch(1), false,
-     legacy_workflow_digest, legacy_script_digest, true],
+     b4d3_workflow_digest, b4d3_script_digest, b4d3_helper_path, true],
     ["fc608 to final", CLA_ACTION_LEGACY_REFS.fetch(0), final, true,
-     legacy_workflow_digest, legacy_script_digest, true],
+     fc608_workflow_digest, fc608_script_digest, fc608_helper_path, true],
     ["b4d3 to final", CLA_ACTION_LEGACY_REFS.fetch(1), final, true,
-     legacy_workflow_digest, legacy_script_digest, true],
-    ["final policy update", final, final, true, unrelated_workflow_digest, unrelated_script_digest, true],
-    ["final no-op", final, final, false, unrelated_workflow_digest, unrelated_script_digest, true],
+     b4d3_workflow_digest, b4d3_script_digest, b4d3_helper_path, true],
+    ["final policy update", final, final, true, unrelated_workflow_digest, unrelated_script_digest,
+     fc608_helper_path, true],
+    ["final no-op", final, final, false, unrelated_workflow_digest, unrelated_script_digest,
+     fc608_helper_path, true],
     ["legacy downgrade", CLA_ACTION_LEGACY_REFS.fetch(0), CLA_ACTION_LEGACY_REFS.fetch(1), true,
-     legacy_workflow_digest, legacy_script_digest, false],
+     fc608_workflow_digest, fc608_script_digest, fc608_helper_path, false],
     ["legacy changed old pin", CLA_ACTION_LEGACY_REFS.fetch(0), CLA_ACTION_LEGACY_REFS.fetch(0), true,
-     legacy_workflow_digest, legacy_script_digest, false],
+     fc608_workflow_digest, fc608_script_digest, fc608_helper_path, false],
     ["final downgrade", final, CLA_ACTION_LEGACY_REFS.fetch(0), true,
-     unrelated_workflow_digest, unrelated_script_digest, false],
+     unrelated_workflow_digest, unrelated_script_digest, fc608_helper_path, false],
     ["unknown base", "manaflow-ai/cla-github-action@#{'a' * 40}", final, true,
-     unrelated_workflow_digest, unrelated_script_digest, false],
+     unrelated_workflow_digest, unrelated_script_digest, fc608_helper_path, false],
     ["unknown candidate", final, "manaflow-ai/cla-github-action@#{'b' * 40}", true,
-     unrelated_workflow_digest, unrelated_script_digest, false],
+     unrelated_workflow_digest, unrelated_script_digest, fc608_helper_path, false],
     ["legacy wrong workflow digest", CLA_ACTION_LEGACY_REFS.fetch(0), final, true,
-     unrelated_workflow_digest, legacy_script_digest, false],
+     unrelated_workflow_digest, fc608_script_digest, fc608_helper_path, false],
     ["legacy wrong helper digest", CLA_ACTION_LEGACY_REFS.fetch(0), final, true,
-     legacy_workflow_digest, unrelated_script_digest, false]
+     fc608_workflow_digest, unrelated_script_digest, fc608_helper_path, false],
+    ["b4d3 paired with fc608 bytes", CLA_ACTION_LEGACY_REFS.fetch(1), final, true,
+     fc608_workflow_digest, fc608_script_digest, fc608_helper_path, false],
+    ["fc608 paired with b4d3 bytes", CLA_ACTION_LEGACY_REFS.fetch(0), final, true,
+     b4d3_workflow_digest, b4d3_script_digest, b4d3_helper_path, false],
+    ["b4d3 wrong helper path", CLA_ACTION_LEGACY_REFS.fetch(1), final, true,
+     b4d3_workflow_digest, b4d3_script_digest, fc608_helper_path, false]
   ]
 
   failures = []
-  cases.each do |name, base_ref, candidate_ref, policy_changed, workflow_digest, script_digest, expected|
+  cases.each do |name, base_ref, candidate_ref, policy_changed, workflow_digest, script_digest, helper_path, expected|
     actual = begin
       assert_cla_action_transition!(
         base_ref: base_ref,
         candidate_ref: candidate_ref,
         base_workflow_digest: workflow_digest,
         base_script_digest: script_digest,
+        base_script_path: helper_path,
         policy_changed: policy_changed
       )
       true
@@ -762,7 +777,36 @@ def run_action_transition_regression_matrix!
     failures << "#{name}: expected #{expected}, got #{actual}" unless actual == expected
   end
   fail!("CLA action transition regression matrix failed: #{failures.join('; ')}") unless failures.empty?
-  puts "PASS: CLA action transition regression matrix (#{cases.length} cases)"
+
+  fixtures = {
+    "fc608 workflow fixture" => <<~YAML,
+      name: fixture
+      on: {}
+      permissions: {}
+      env: {}
+      jobs:
+        cla:
+          steps:
+            - uses: #{CLA_ACTION_LEGACY_REFS.fetch(0)}
+    YAML
+    "b4d3 workflow fixture" => <<~YAML
+      name: fixture
+      on: {}
+      permissions: {}
+      env: {}
+      jobs:
+        cla:
+          steps:
+            - uses: #{CLA_ACTION_LEGACY_REFS.fetch(1)}
+    YAML
+  }
+  fixture_failures = fixtures.each_with_object([]) do |(name, raw), errors|
+    expected = name.start_with?("fc608") ? CLA_ACTION_LEGACY_REFS.fetch(0) : CLA_ACTION_LEGACY_REFS.fetch(1)
+    actual = cla_action_reference(raw, name)
+    errors << "#{name}: expected #{expected}, got #{actual}" unless actual == expected
+  end
+  fail!("CLA action fixture reference regression failed: #{fixture_failures.join('; ')}") unless fixture_failures.empty?
+  puts "PASS: CLA action transition regression matrix (#{cases.length} cases, #{fixtures.length} fixtures)"
 end
 
 def guard_script_digest(raw)
