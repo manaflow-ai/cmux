@@ -2738,6 +2738,54 @@ mod tests {
         .expect("timeout cleanup must not wait for a descendant pipe");
         assert!(matches!(outcome, RunOutcome::TimedOut));
     }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn cancellation_reports_failure_and_kills_descendant() {
+        use tokio_util::sync::CancellationToken;
+
+        let pid_file =
+            std::env::temp_dir().join(format!("chatmux-cancel-pid-{}", std::process::id()));
+        let command = format!("sleep 5 & echo $! > {}; wait", pid_file.display());
+        let env = scrubbed_env(&HashMap::from([("PATH".to_owned(), "/usr/bin:/bin".to_owned())]));
+        let cancellation = CancellationToken::new();
+        let worker_cancellation = cancellation.clone();
+        let worker = tokio::spawn(async move {
+            run_spec(
+                RunSpec::Shell { command: &command },
+                Path::new("/"),
+                None,
+                30_000,
+                &env,
+                Some(worker_cancellation),
+            )
+            .await
+        });
+
+        tokio::time::sleep(std::time::Duration::from_millis(25)).await;
+        cancellation.cancel();
+        let outcome = tokio::time::timeout(std::time::Duration::from_secs(2), worker)
+            .await
+            .expect("cancellation cleanup must complete")
+            .expect("runner task must join");
+        assert!(matches!(
+            outcome,
+            RunOutcome::Failed { message } if message == "process cancelled"
+        ));
+        let pid = std::fs::read_to_string(&pid_file)
+            .ok()
+            .and_then(|value| value.trim().parse::<libc::pid_t>().ok())
+            .expect("descendant pid marker");
+        tokio::time::timeout(std::time::Duration::from_secs(1), async {
+            while unsafe { libc::kill(pid, 0) } == 0 {
+                tokio::time::sleep(std::time::Duration::from_millis(5)).await;
+            }
+        })
+        .await
+        .expect("descendant must be gone after cancellation");
+        std::fs::remove_file(pid_file).ok();
+    }
+
     #[tokio::test]
     async fn exec_receives_scoped_process_environment_values() {
         let root = scratch("procenv");
