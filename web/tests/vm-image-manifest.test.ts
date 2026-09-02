@@ -5,6 +5,7 @@ import {
   readImageManifest,
   type DevboxImageManifest,
   type DevboxManifestEntry,
+  type DevboxProvider,
 } from "../scripts/devbox-image-common";
 
 // The checked-in image manifest (services/vms/images/manifest.json) is the
@@ -56,7 +57,7 @@ describe("promoteImageManifestEntry", () => {
         defaultForLocalDev: true,
       }),
       passedEntry({ version: "freestyle-old-base", imageId: "sh-old", kind: "base", defaultForKind: true }),
-      passedEntry({ provider: "e2b", version: "e2b-x", imageId: "cmux-devbox:x", envVar: "E2B_CMUXD_WS_TEMPLATE", kind: "base", defaultForKind: true }),
+      passedEntry({ provider: "e2b" as DevboxProvider, version: "e2b-x", imageId: "cmux-devbox:x", envVar: "E2B_CMUXD_WS_TEMPLATE", kind: "base", defaultForKind: true }),
     ],
   };
 

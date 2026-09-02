@@ -81,4 +81,20 @@ struct CmuxInternalHostnamesTests {
         let current = "127.0.0.1 localhost\n"
         #expect(CmuxInternalHostnames.mergedHostsFile(current: current, body: "") == current)
     }
+
+    @Test("A port link is always the raw private address, never the .internal name")
+    func directPortURLUsesTheRawAddress() {
+        // Deliberately not the `.internal` name: it only resolves once
+        // `cmux vpn hosts` has synced `/etc/hosts`, and a link that only
+        // sometimes works is worse than one that always does.
+        #expect(CmuxInternalHostnames.directPortURL(privateAddress: "10.0.0.2", port: 8000) == "http://10.0.0.2:8000")
+    }
+
+    @Test("Brackets an IPv6 address the way every URL scheme requires")
+    func directPortURLBracketsIPv6() {
+        #expect(
+            CmuxInternalHostnames.directPortURL(privateAddress: "fd60:1e5e:6720::3", port: 22)
+                == "http://[fd60:1e5e:6720::3]:22"
+        )
+    }
 }
