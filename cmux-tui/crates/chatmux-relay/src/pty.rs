@@ -1973,15 +1973,35 @@ impl Inner {
 
     async fn close_authorized_async(&self, pty_id: &str, context: &FrameContext) {
         let auth = Self::auth_snapshot(context);
-        let attachment = match self.authorize_snapshot_for_close(pty_id, &auth, context, "close", 0)
-        {
-            Ok(attachment) => attachment,
-            Err(CloseAuthorizationFailure::Denied) => return,
-            Err(CloseAuthorizationFailure::Missing) => {
-                self.close_if_transport_async(pty_id, context.transport_id.as_deref(), None).await;
-                return;
-            }
+        let Some(attachment) = self.attachments.lock().expect("attach lock").get(pty_id).cloned()
+        else {
+            self.close_if_transport_async(pty_id, context.transport_id.as_deref(), None).await;
+            return;
         };
+        if context.transport_id.is_some() && attachment.transport_id != context.transport_id {
+            return;
+        }
+        if !self.auth_allows(&auth, &attachment) {
+            if auth.version > attachment.auth_version {
+                self.emit_error_for_generation_async(
+                    context,
+                    pty_id,
+                    attachment.generation,
+                    &attachment.publication_gate,
+                    "trust_revoked",
+                    "PTY close refused after trust change",
+                )
+                .await;
+            } else {
+                send_pty_error(
+                    context,
+                    pty_id,
+                    "trust_revoked",
+                    "PTY close refused after trust change",
+                );
+            }
+            return;
+        }
         if context.transport_id.is_some() && attachment.transport_id != context.transport_id {
             return;
         }
