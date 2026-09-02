@@ -21,6 +21,7 @@ struct TitlebarInteractiveControlTests {
         }
     }
 
+    /// Creates a deterministic left-button event for titlebar hit-testing fixtures.
     private static func makeLeftMouseDownEvent(location: NSPoint, window: NSWindow, clickCount: Int = 1) -> NSEvent {
         guard let event = NSEvent.mouseEvent(
             with: .leftMouseDown,
@@ -248,7 +249,8 @@ struct TitlebarInteractiveControlTests {
 
     /// A click in the transparent portion of the primary segment must invoke
     /// the same action as a click on the painted plus glyph.
-    @Test func primarySegmentUsesWholeFrameAsHitTarget() {
+    @Test
+    func primarySegmentUsesWholeFrameAsHitTarget() {
         _ = NSApplication.shared
 
         let defaultsSuiteName = "TitlebarInteractiveControlTests.\(UUID().uuidString)"
