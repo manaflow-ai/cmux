@@ -766,9 +766,38 @@ mod tests {
 
     #[test]
     fn codex_session_end_handoff_stays_below_the_codex_hook_cap() {
-        assert!(handoff_wait("codex", "SessionEnd") < Duration::from_secs(3));
-        assert!(handoff_wait("codex", "Stop") > SOCKET_TIMEOUT);
-        assert!(handoff_wait("claude", "SessionEnd") > SOCKET_TIMEOUT);
+        let started = Instant::now();
+        assert_eq!(
+            handoff_wait_from(
+                started,
+                started + Duration::from_millis(100),
+                "codex",
+                "SessionEnd",
+            ),
+            Duration::from_millis(2_400),
+        );
+        assert_eq!(
+            handoff_wait_from(started, started, "codex", "Stop"),
+            HANDOFF_WAIT,
+        );
+        assert_eq!(
+            handoff_wait_from(started, started, "claude", "SessionEnd"),
+            HANDOFF_WAIT,
+        );
+    }
+
+    #[test]
+    fn codex_session_end_handoff_deadline_starts_at_hook_launch() {
+        let started = Instant::now();
+        assert_eq!(
+            handoff_wait_from(
+                started,
+                started + Duration::from_millis(2_600),
+                "codex",
+                "SessionEnd",
+            ),
+            Duration::ZERO,
+        );
     }
 
     #[test]
