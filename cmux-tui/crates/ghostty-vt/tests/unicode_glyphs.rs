@@ -302,36 +302,46 @@ fn unicode_corpus_preserves_text_and_cell_geometry() {
 
 #[test]
 fn unicode_corpus_resize_and_replay_preserve_cells() {
-    let transcript = UNICODE_CORPUS.iter().map(|case| case.text).collect::<Vec<_>>().join("\r\n");
+    for &case in UNICODE_CORPUS {
+        // Keep each case isolated. A zero-scrollback terminal would otherwise
+        // evict earlier rows from a multi-case transcript before replay.
+        let mut source = Terminal::new(32, 4, 0, Callbacks::default()).unwrap();
+        source.vt_write(format!("\x1b[?2027h{}", case.text).as_bytes());
+        source.resize(20, 4, 8, 16).unwrap();
 
-    let mut source = Terminal::new(32, 4, 0, Callbacks::default()).unwrap();
-    source.vt_write(format!("\x1b[?2027h{transcript}").as_bytes());
-    source.resize(20, 4, 8, 16).unwrap();
+        let mut source_state = RenderState::new().unwrap();
+        source_state.update(&mut source).unwrap();
+        let source_frame = source_state.build_frame().unwrap();
+        assert_eq!(row_text(source_frame.styled_row(0).unwrap()), case.text, "case {}", case.id);
 
-    let mut source_state = RenderState::new().unwrap();
-    source_state.update(&mut source).unwrap();
-    let source_frame = source_state.build_frame().unwrap();
-    let replay = source.vt_replay().unwrap();
+        let replay = source.vt_replay().unwrap();
+        let mut restored = Terminal::new(20, 4, 0, Callbacks::default()).unwrap();
+        restored.apply_vt_replay(&replay).unwrap();
+        let mut restored_state = RenderState::new().unwrap();
+        restored_state.update(&mut restored).unwrap();
+        let restored_frame = restored_state.build_frame().unwrap();
 
-    let mut restored = Terminal::new(20, 4, 0, Callbacks::default()).unwrap();
-    restored.apply_vt_replay(&replay).unwrap();
-    let mut restored_state = RenderState::new().unwrap();
-    restored_state.update(&mut restored).unwrap();
-    let restored_frame = restored_state.build_frame().unwrap();
-
-    assert_eq!(restored_frame.size, source_frame.size);
-    assert_eq!(restored_frame.styled_rows().len(), source_frame.styled_rows().len());
-    for (row_index, (source_row, restored_row)) in
-        source_frame.styled_rows().iter().zip(restored_frame.styled_rows()).enumerate()
-    {
+        assert_eq!(restored_frame.size, source_frame.size, "case {}", case.id);
         assert_eq!(
-            row_signature(restored_row),
-            row_signature(source_row),
-            "resize/replay changed cell roles in row {row_index}"
+            restored_frame.styled_rows().len(),
+            source_frame.styled_rows().len(),
+            "case {} row count",
+            case.id
         );
-        assert!(
-            !row_text(restored_row).contains('\u{FFFD}'),
-            "resize/replay introduced U+FFFD in row {row_index}"
-        );
+        for (row_index, (source_row, restored_row)) in
+            source_frame.styled_rows().iter().zip(restored_frame.styled_rows()).enumerate()
+        {
+            assert_eq!(
+                row_signature(restored_row),
+                row_signature(source_row),
+                "case {} resize/replay changed cell roles in row {row_index}",
+                case.id
+            );
+            assert!(
+                !row_text(restored_row).contains('\u{FFFD}'),
+                "case {} resize/replay introduced U+FFFD in row {row_index}",
+                case.id
+            );
+        }
     }
 }
