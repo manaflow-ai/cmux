@@ -122,6 +122,38 @@ final class FileExplorerStateModePersistenceTests: XCTestCase {
         XCTAssertNil(RightSidebarMode.from(cliArgument: "unknown"))
     }
 
+    /// #11707: Beads is a built-in right-sidebar rail, so it must parse from the
+    /// CLI (including the trimming/casing path), stay in the mode bar regardless
+    /// of the feed/dock/machines flags, persist, and never become a pane mode.
+    func testBeadsModeIsRegisteredEverywhere() {
+        XCTAssertEqual(RightSidebarMode.from(cliArgument: "beads"), .beads)
+        XCTAssertEqual(RightSidebarMode.from(cliArgument: " Beads "), .beads)
+        XCTAssertEqual(RightSidebarMode.beads.rawValue, "beads")
+        XCTAssertFalse(RightSidebarMode.beads.canOpenAsPane)
+        XCTAssertNil(RightSidebarMode.beads.shortcutAction)
+
+        // Built-in rail: available with every beta flag off, like Files/Find/Vault.
+        XCTAssertTrue(
+            RightSidebarMode.beads.isAvailable(feedEnabled: false, dockEnabled: false, machinesEnabled: false)
+        )
+        XCTAssertTrue(
+            RightSidebarMode.availableModes(feedEnabled: false, dockEnabled: false, machinesEnabled: false)
+                .contains(.beads)
+        )
+
+        withSavedRightSidebarModeDefaults {
+            let defaults = UserDefaults.standard
+            defaults.set(RightSidebarMode.beads.rawValue, forKey: modeKey)
+            defaults.set(false, forKey: feedEnabledKey)
+            defaults.set(false, forKey: dockEnabledKey)
+
+            let state = FileExplorerState()
+
+            XCTAssertEqual(state.mode, .beads)
+            XCTAssertEqual(defaults.string(forKey: modeKey), RightSidebarMode.beads.rawValue)
+        }
+    }
+
     private func withSavedRightSidebarModeDefaults(_ body: () -> Void) {
         let defaults = UserDefaults.standard
         let previousMode = defaults.object(forKey: modeKey)

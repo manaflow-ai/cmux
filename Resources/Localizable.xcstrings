@@ -155987,6 +155987,40 @@
         }
       }
     },
+    "rightSidebar.beads.empty": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Beads"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Beads"
+          }
+        }
+      }
+    },
+    "rightSidebar.beads.emptyHint": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Switch here with: cmux right-sidebar set beads"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux right-sidebar set beads で切り替えできます"
+          }
+        }
+      }
+    },
     "rightSidebar.close.accessibilityLabel": {
       "extractionState": "manual",
       "localizations": {
@@ -156051,6 +156085,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "カスタムサイドバーが見つかりません"
+          }
+        }
+      }
+    },
+    "rightSidebar.mode.beads": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Beads"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Beads"
           }
         }
       }
