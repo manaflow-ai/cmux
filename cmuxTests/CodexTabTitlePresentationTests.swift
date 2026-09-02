@@ -262,4 +262,108 @@ struct CodexTabTitlePresentationTests {
         #expect(dock.bonsplitController.tab(tabId)?.title == "Pinned lane")
         #expect(dock.bonsplitController.tab(tabId)?.isLoading == false)
     }
+
+    @Test(
+        "Dock persistence keeps the transferred title before another terminal title arrives",
+        arguments: [false, true]
+    )
+    func dockPersistenceKeepsTransferredTitle(isRemoteTerminal: Bool) throws {
+        let source = Workspace()
+        let dock = DockSplitStore(
+            workspaceId: UUID(),
+            baseDirectoryProvider: { nil }
+        )
+        defer {
+            dock.closeAllPanels()
+            source.teardownAllPanels()
+        }
+        let panelId = try #require(source.focusedPanelId)
+        let terminal = try #require(source.panels[panelId] as? TerminalPanel)
+        terminal.updateTitle("runtime-title")
+        #expect(
+            source.updatePanelTitle(
+                panelId: panelId,
+                title: "Configured lane"
+            )
+        )
+        if isRemoteTerminal {
+            source.activeRemoteTerminalSurfaceIds.insert(panelId)
+        }
+
+        let transfer = try #require(source.detachSurface(panelId: panelId))
+        #expect(transfer.isRemoteTerminal == isRemoteTerminal)
+        let dockPane = try #require(dock.bonsplitController.allPaneIds.first)
+        #expect(
+            dock.attachDetachedSurface(
+                transfer,
+                inPane: dockPane,
+                focus: false
+            ) == panelId
+        )
+
+        let roundTripped = try #require(
+            dock.detachSurface(panelId: panelId)
+        )
+        #expect(roundTripped.title == "Configured lane")
+        #expect(roundTripped.cachedTitle == "Configured lane")
+        roundTripped.panel.close()
+    }
+
+    @Test("renaming a running auto-titled Dock tab claims the stable title")
+    func dockRenameClaimsStableAutoTitle() throws {
+        let source = Workspace()
+        let dock = DockSplitStore(
+            workspaceId: UUID(),
+            baseDirectoryProvider: { nil }
+        )
+        defer {
+            dock.closeAllPanels()
+            source.teardownAllPanels()
+        }
+        let panelId = try #require(source.focusedPanelId)
+        #expect(
+            source.setPanelCustomTitle(
+                panelId: panelId,
+                title: "Generated lane",
+                source: .auto
+            )
+        )
+        source.setAgentLifecycle(
+            key: "codex",
+            panelId: panelId,
+            lifecycle: .running
+        )
+
+        let transfer = try #require(source.detachSurface(panelId: panelId))
+        let dockPane = try #require(dock.bonsplitController.allPaneIds.first)
+        #expect(
+            dock.attachDetachedSurface(
+                transfer,
+                inPane: dockPane,
+                focus: false
+            ) == panelId
+        )
+        let tabId = try #require(dock.surfaceId(forPanelId: panelId))
+        #expect(dock.bonsplitController.tab(tabId)?.title == "◐ Generated lane")
+        let stableTitle = try #require(
+            dock.stableDockTerminalTabTitle(panelId: panelId)?.title
+        )
+        #expect(stableTitle == "Generated lane")
+
+        #expect(
+            dock.setDockPanelCustomTitle(
+                panelId: panelId,
+                title: stableTitle
+            )
+        )
+        #expect(dock.bonsplitController.tab(tabId)?.title == "Generated lane")
+        #expect(dock.bonsplitController.tab(tabId)?.isLoading == true)
+
+        let roundTripped = try #require(
+            dock.detachSurface(panelId: panelId)
+        )
+        #expect(roundTripped.customTitle == "Generated lane")
+        #expect(roundTripped.customTitleSource == .user)
+        roundTripped.panel.close()
+    }
 }
