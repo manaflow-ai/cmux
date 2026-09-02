@@ -688,6 +688,28 @@ mod tests {
                     crate::localization::catalog_for_locale("en_US.UTF-8"),
                     |_, _| false,
                 );
+        })
+            .unwrap();
+        assert_eq!(cursor, None);
+
+        // A lead at the right crop edge is also blanked because its spacer
+        // falls outside the live width, so it must not receive a cursor.
+        let mut output = RatatuiTerminal::new(TestBackend::new(1, 1)).unwrap();
+        let mut cursor = None;
+        output
+            .draw(|frame| {
+                cursor = draw_render_frame_with_catalog(
+                    frame,
+                    HorizontalViewport {
+                        rect: Rect { x: 0, y: 0, width: 1, height: 1 },
+                        source_x: 1,
+                    },
+                    &render,
+                    &Theme::default(),
+                    &ChromeTheme::dark(),
+                    crate::localization::catalog_for_locale("en_US.UTF-8"),
+                    |_, _| false,
+                );
             })
             .unwrap();
         assert_eq!(cursor, None);
