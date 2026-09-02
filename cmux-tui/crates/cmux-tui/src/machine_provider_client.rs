@@ -13,12 +13,14 @@ use std::collections::{BTreeMap, HashMap, VecDeque};
 use std::fmt;
 #[cfg(unix)]
 use std::io::{self, BufRead, BufReader, Write};
-#[cfg(unix)]
+#[cfg(all(unix, test))]
 use std::path::Path;
 #[cfg(unix)]
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+#[cfg(all(unix, test))]
+use std::sync::mpsc::Receiver;
 #[cfg(unix)]
-use std::sync::mpsc::{self, Receiver, RecvTimeoutError, SyncSender, TrySendError};
+use std::sync::mpsc::{self, RecvTimeoutError, SyncSender, TrySendError};
 #[cfg(unix)]
 use std::sync::{Arc, Condvar, Mutex, Weak};
 #[cfg(unix)]
@@ -605,6 +607,9 @@ pub(crate) struct ProviderClient {
 
 #[cfg(unix)]
 impl ProviderClient {
+    /// Test-only unauthenticated connection. Runtime callers go through
+    /// `connect_authenticated_with` so every generation performs `hello`.
+    #[cfg(test)]
     pub(crate) fn connect(socket_path: impl AsRef<Path>) -> ProviderResult<Self> {
         let (control, streams) =
             UnixProviderConnector::open_unauthenticated(socket_path.as_ref().to_path_buf())?;
@@ -638,6 +643,8 @@ impl ProviderClient {
         Ok(Self { inner })
     }
 
+    /// Test-only Unix-socket convenience over `connect_authenticated_with`.
+    #[cfg(test)]
     pub(crate) fn connect_authenticated(
         socket_path: impl AsRef<Path>,
         token: BearerToken,
@@ -924,6 +931,8 @@ impl ProviderClient {
     }
 
     /// Subscribe to revision invalidations. Receivers are removed after drop.
+    /// The runtime fetches snapshots on demand and does not subscribe yet.
+    #[cfg(test)]
     pub(crate) fn subscribe_snapshot_changes(&self) -> ProviderResult<Receiver<u64>> {
         self.ensure_live()?;
         let (sender, receiver) = mpsc::sync_channel(1);
@@ -1020,7 +1029,7 @@ impl ProviderClient {
 
         drop(deadline);
         Ok(RemoteTransport::new(
-            Box::new(BoundedRemoteReader { inner: reader, guard: guard.clone() }),
+            Box::new(BoundedRemoteReader { inner: reader, _guard: guard.clone() }),
             Box::new(BoundedRemoteWriter { inner: writer, guard: guard.clone() }),
             Arc::new(ProviderRemoteAbort { guard }),
         ))
@@ -1427,7 +1436,8 @@ fn write_json_frame<W: Write, T: Serialize>(
 #[cfg(unix)]
 struct BoundedRemoteReader {
     inner: BufReader<Box<dyn io::Read + Send>>,
-    guard: ProviderIoGuard,
+    /// Keeps the endpoint cleanup alive for as long as the reader exists.
+    _guard: ProviderIoGuard,
 }
 
 #[cfg(unix)]
