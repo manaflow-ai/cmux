@@ -1431,6 +1431,10 @@ async fn run_spec(
             }, if final_wait_deadline.is_some() && exited.is_none() => {
                 final_wait_deadline = None;
                 wait_retry_deadline = None;
+                // SIGKILL should reap the leader, but keep a terminal state
+                // when wait remains pending so this branch cannot re-enable
+                // the gated child.wait future forever.
+                exited = Some(1);
                 if stdout_open || stderr_open {
                     drain_deadline = Some(Box::pin(tokio::time::sleep(
                         std::time::Duration::from_millis(250),
