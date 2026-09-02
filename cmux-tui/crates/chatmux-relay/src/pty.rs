@@ -1365,7 +1365,12 @@ impl Inner {
         if context.transport_id.is_some() && attachment.transport_id != context.transport_id {
             return;
         }
-        self.close_exact(pty_id, Some(attachment.generation), Some(&attachment.publication_gate));
+        self.close_exact_authorized(
+            pty_id,
+            Some(attachment.generation),
+            Some(&attachment.publication_gate),
+            context,
+        );
     }
 
     fn close_exact(
@@ -1398,6 +1403,59 @@ impl Inner {
             attachment.closing.store(true, Ordering::SeqCst);
             attachment
         };
+        attachment.control.kill();
+    }
+
+    fn close_exact_authorized(
+        &self,
+        pty_id: &str,
+        generation: Option<u64>,
+        publication_gate: Option<&Arc<Mutex<()>>>,
+        context: &FrameContext,
+    ) {
+        let gate = {
+            let attachments = self.attachments.lock().expect("attach lock");
+            let Some(current) = attachments.get(pty_id) else { return };
+            if generation.is_some_and(|expected| current.generation != expected)
+                || publication_gate
+                    .is_some_and(|expected| !Arc::ptr_eq(&current.publication_gate, expected))
+            {
+                return;
+            }
+            Arc::clone(&current.publication_gate)
+        };
+        let _publication = gate.lock().expect("attachment publication lock");
+        let (attachment, authorized) = {
+            let attachments = self.attachments.lock().expect("attach lock");
+            let Some(current) = attachments.get(pty_id) else { return };
+            if generation.is_some_and(|expected| current.generation != expected)
+                || !Arc::ptr_eq(&current.publication_gate, &gate)
+                || current.closing.load(Ordering::SeqCst)
+            {
+                return;
+            }
+            let attachment = current.clone();
+            let authorized = (context.live_authorized)(&current.actor_id);
+            current.closing.store(true, Ordering::SeqCst);
+            (attachment, authorized)
+        };
+        if !authorized {
+            send_pty_error(
+                context,
+                pty_id,
+                "trust_revoked",
+                "PTY close refused after trust change",
+            );
+        }
+        let mut attachments = self.attachments.lock().expect("attach lock");
+        if attachments.get(pty_id).is_some_and(|current| {
+            current.generation == attachment.generation
+                && Arc::ptr_eq(&current.publication_gate, &gate)
+        }) {
+            attachments.remove(pty_id);
+        }
+        drop(attachments);
+        drop(_publication);
         attachment.control.kill();
     }
 }
