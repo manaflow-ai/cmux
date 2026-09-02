@@ -48,11 +48,11 @@ struct TuiManualIOPumpTests {
     }
 
     @Test
-    func relayExitTreatsUnknownStatusAsFailureAndBareZeroAsEnded() {
-        // Exit 0 with no reason line: the relay contract says 0 means "do
-        // not respawn", so a missing line must not turn into a retry loop.
-        #expect(policy.relayExit(status: 0, stderrText: nil) == .terminalEnded)
-        #expect(policy.relayExit(status: 0, stderrText: "garbage") == .terminalEnded)
+    func relayExitTreatsUnknownStatusAndReasonAsFailure() {
+        // Exit 0 without an explicit protocol reason is unexplained. It must
+        // not suppress reconnects for malformed or truncated relay output.
+        #expect(policy.relayExit(status: 0, stderrText: nil) == .failure)
+        #expect(policy.relayExit(status: 0, stderrText: "garbage") == .failure)
         #expect(policy.relayExit(status: 1, stderrText: "usage: ...") == .failure)
         #expect(policy.relayExit(status: -1, stderrText: nil) == .failure)
     }
