@@ -3,7 +3,7 @@ import { notFound, redirect } from "next/navigation";
 
 import { getStackServerApp, isStackConfigured } from "@/app/lib/stack";
 import { localizedVaultPath, vaultSignInHref } from "@/app/lib/vault-auth";
-import { ADMIN_EMAIL_DOMAIN, isAdminUser } from "@/services/admin/access";
+import { ADMIN_EMAIL_DOMAINS, isAdminUser } from "@/services/admin/access";
 
 import { AdminProPanel } from "./admin-pro-panel";
 
@@ -36,7 +36,7 @@ export default async function DashboardAdminPage({
         <p className="text-xs font-medium text-muted">{t("eyebrow")}</p>
         <h1 className="mt-1 text-sm font-medium">{t("title")}</h1>
         <p className="mt-1 max-w-2xl text-muted">
-          {t("description", { domain: ADMIN_EMAIL_DOMAIN })}
+          {t("description", { domains: ADMIN_EMAIL_DOMAINS.join(", ") })}
         </p>
       </div>
       <AdminProPanel />

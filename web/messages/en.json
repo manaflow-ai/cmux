@@ -290,7 +290,7 @@
     "admin": {
       "eyebrow": "admin",
       "title": "pro access",
-      "description": "grant or remove Pro for any account. only verified {domain} accounts can open this page.",
+      "description": "grant or remove Pro for any account. only verified {domains} accounts can open this page.",
       "search": {
         "label": "Find a user",
         "placeholder": "email, name, or user id",
@@ -329,7 +329,7 @@
       },
       "errors": {
         "network": "Network error. Try again.",
-        "forbidden": "Your account is not an admin. Sign in with a verified manaflow.ai email.",
+        "forbidden": "Your account is not an admin. Sign in with a verified cmux.com, manaflow.ai, or manaflow.com email.",
         "notFound": "That user no longer exists.",
         "conflict": "Another change to this account is in progress. Try again shortly.",
         "generic": "The request failed. Try again shortly."

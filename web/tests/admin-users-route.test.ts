@@ -127,16 +127,28 @@ describe("admin users route", () => {
     expect(listUsers).not.toHaveBeenCalled();
   });
 
-  test("GET returns 403 for non-admin and unverified manaflow.ai callers", async () => {
-    currentUser = stackUser({ id: "user", primaryEmail: "pat@example.com" });
-    expect((await GET(getRequest("pat"))).status).toBe(403);
-    currentUser = stackUser({
-      id: "unverified",
-      primaryEmail: "impostor@manaflow.ai",
-      primaryEmailVerified: false,
-    });
-    expect((await GET(getRequest("pat"))).status).toBe(403);
+  test("GET returns 403 for non-admin, lookalike, and unverified company callers", async () => {
+    for (const user of [
+      stackUser({ id: "user", primaryEmail: "pat@example.com" }),
+      stackUser({ id: "lookalike", primaryEmail: "pat@manaflow.ai.evil.com" }),
+      stackUser({ id: "subdomain", primaryEmail: "pat@sub.cmux.com" }),
+      stackUser({ id: "unverified", primaryEmail: "impostor@manaflow.ai", primaryEmailVerified: false }),
+      stackUser({ id: "unverified-cmux", primaryEmail: "impostor@cmux.com", primaryEmailVerified: false }),
+      stackUser({ id: "no-email", primaryEmail: null }),
+    ]) {
+      currentUser = user;
+      expect((await GET(getRequest("pat"))).status).toBe(403);
+      expect((await POST(postRequest({ userId: "u1", plan: "pro" }))).status).toBe(403);
+    }
     expect(listUsers).not.toHaveBeenCalled();
+    expect(directory[0]?.updates).toEqual([]);
+  });
+
+  test("GET admits verified admins on every company domain", async () => {
+    for (const email of ["a@cmux.com", "b@manaflow.ai", "c@manaflow.com"]) {
+      currentUser = stackUser({ id: "admin", primaryEmail: email });
+      expect((await GET(getRequest("pat"))).status).toBe(200);
+    }
   });
 
   test("GET rejects short queries", async () => {
