@@ -703,6 +703,7 @@ final class WindowTerminalPortal: NSObject {
         weak var hostedView: GhosttySurfaceScrollView?
         weak var anchorView: NSView?
         var visibleInUI: Bool
+        var awaitingGeometrySettlement: Bool
         var zPriority: Int
         var transientRecoveryRetriesRemaining: Int
     }
@@ -1024,7 +1025,8 @@ final class WindowTerminalPortal: NSObject {
         }
     }
 
-    private func synchronizeLayoutHierarchy() {
+    @discardableResult
+    private func synchronizeLayoutHierarchy() -> Bool {
         // Idempotence at the choke point. Several paths funnel here (window
         // notifications, anchor geometry callbacks, deferred full syncs,
         // transient recovery), each forcing subtree layout — and each layout
@@ -1035,7 +1037,7 @@ final class WindowTerminalPortal: NSObject {
         // and the echo dies here, whichever path carried it. AppKit still
         // runs pending inner layout before display on its own.
         let signature = externalGeometrySignature()
-        if let last = lastHierarchySyncSignature, last == signature { return }
+        if let last = lastHierarchySyncSignature, last == signature { return true }
 #if DEBUG
         RemoteTmuxSizingDiagnostics.fullHierarchySyncCount += 1
 #endif
@@ -1045,6 +1047,7 @@ final class WindowTerminalPortal: NSObject {
         hostView.layoutSubtreeIfNeeded()
         _ = synchronizeHostFrameToReference()
         lastHierarchySyncSignature = externalGeometrySignature()
+        return false
     }
 
     private var lastHierarchySyncSignature: ExternalGeometrySignature?
@@ -1119,9 +1122,14 @@ final class WindowTerminalPortal: NSObject {
         // here in one cheap comparison; any real change differs somewhere
         // and syncs fully.
         guard ensureInstalled() else { return }
-        synchronizeLayoutHierarchy()
+        let hierarchyWasAlreadySettled = synchronizeLayoutHierarchy()
         synchronizeAllHostedViews(excluding: nil)
         reconcileVisibleHostedViewsAfterGeometrySync(reason: "portal.externalGeometrySync")
+        if hierarchyWasAlreadySettled {
+            finishVisibleEntryGeometrySettlements()
+        } else if entriesByHostedId.values.contains(where: { $0.visibleInUI && $0.awaitingGeometrySettlement }) {
+            scheduleExternalGeometrySynchronize(forceImmediate: false)
+        }
     }
 
 #if DEBUG
@@ -1483,6 +1491,7 @@ final class WindowTerminalPortal: NSObject {
     func hideEntry(forHostedId hostedId: ObjectIdentifier) {
         guard var entry = entriesByHostedId[hostedId] else { return }
         entry.visibleInUI = false
+        entry.awaitingGeometrySettlement = false
         entry.transientRecoveryRetriesRemaining = 0
         entriesByHostedId[hostedId] = entry
         entry.hostedView?.isHidden = true
@@ -1501,7 +1510,14 @@ final class WindowTerminalPortal: NSObject {
         let becameVisible = visibleInUI && !entry.visibleInUI
         let becameHidden = !visibleInUI && entry.visibleInUI
         entry.visibleInUI = visibleInUI
-        if !visibleInUI { entry.transientRecoveryRetriesRemaining = 0 }
+        if becameVisible {
+            entry.awaitingGeometrySettlement = true
+            entry.hostedView?.beginPortalGeometrySettlement()
+        } else if !visibleInUI {
+            entry.awaitingGeometrySettlement = false
+            entry.hostedView?.finishPortalGeometrySettlement()
+            entry.transientRecoveryRetriesRemaining = 0
+        }
         entriesByHostedId[hostedId] = entry
         // A view that just became visible may still hold the frame it was
         // born with (bind can seed from a pre-settle anchor reading, and a
@@ -1615,6 +1631,7 @@ final class WindowTerminalPortal: NSObject {
             hostedView: hostedView,
             anchorView: anchorView,
             visibleInUI: visibleInUI,
+            awaitingGeometrySettlement: visibleInUI,
             zPriority: zPriority,
             transientRecoveryRetriesRemaining: 0
         )
@@ -1624,6 +1641,7 @@ final class WindowTerminalPortal: NSObject {
             return previousAnchor !== anchorView
         }()
         let becameVisible = (previousEntry?.visibleInUI ?? false) == false && visibleInUI
+        if becameVisible { hostedView.beginPortalGeometrySettlement() }
         let priorityIncreased = zPriority > (previousEntry?.zPriority ?? Int.min)
 #if DEBUG
         if previousEntry == nil || didChangeAnchor || becameVisible || priorityIncreased || hostedView.superview !== hostView {
@@ -1785,6 +1803,16 @@ final class WindowTerminalPortal: NSObject {
                     deferSurfaceRefresh(forHostedId: hostedId, reason: reason + ".deferred")
                 }
             }
+        }
+    }
+
+    private func finishVisibleEntryGeometrySettlements() {
+        for hostedId in entriesByHostedId.keys {
+            guard var entry = entriesByHostedId[hostedId], entry.visibleInUI,
+                  entry.awaitingGeometrySettlement, let hostedView = entry.hostedView else { continue }
+            entry.awaitingGeometrySettlement = false
+            entriesByHostedId[hostedId] = entry
+            hostedView.finishPortalGeometrySettlement()
         }
     }
 
