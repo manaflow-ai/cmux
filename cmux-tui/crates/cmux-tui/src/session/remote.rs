@@ -424,6 +424,11 @@ impl RemoteTreeCache {
         }
     }
 
+    fn remove_agent(&mut self, surface: SurfaceId) {
+        self.agents.retain(|agent| agent.surface != surface);
+        self.agent_updates.remove(&surface);
+    }
+
     fn agent_generation(&self) -> u64 {
         self.agent_generation
     }
@@ -3328,6 +3333,7 @@ impl RemoteSession {
     }
 
     pub fn retire_surface(&self, id: SurfaceId) {
+        self.tree.lock().unwrap().remove_agent(id);
         let _cell_pixel_lifecycle = self.cell_pixel_lifecycle.lock().unwrap();
         self.retired_surfaces.lock().unwrap().insert(id);
         let surface = self.surfaces.lock().unwrap().remove(&id);
