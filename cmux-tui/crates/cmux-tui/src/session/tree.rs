@@ -1065,38 +1065,53 @@ mod tests {
 
     #[test]
     fn indexed_lookup_fails_closed_after_direct_public_topology_mutation() {
-        let mut tree = parse_tree(&json!({
-            "workspaces": [{
-                "id": 1,
-                "active": true,
-                "screens": [{
-                    "id": 2,
+        let tree = || {
+            parse_tree(&json!({
+                "workspaces": [{
+                    "id": 1,
                     "active": true,
-                    "active_pane": 3,
-                    "layout": {"type": "leaf", "pane": 3},
-                    "panes": [{
-                        "id": 3,
-                        "active_tab": 0,
-                        "tabs": [
-                            {"surface": 7, "title": "first"},
-                            {"surface": 8, "title": "retained"}
-                        ]
+                    "screens": [{
+                        "id": 2,
+                        "active": true,
+                        "active_pane": 3,
+                        "layout": {"type": "leaf", "pane": 3},
+                        "panes": [{
+                            "id": 3,
+                            "active_tab": 0,
+                            "tabs": [
+                                {"surface": 7, "title": "first"},
+                                {"surface": 8, "title": "retained"}
+                            ]
+                        }]
                     }]
                 }]
-            }]
-        }));
+            }))
+        };
 
-        assert_eq!(tree.pane(3).map(|pane| pane.tabs[0].surface), Some(7));
-        let duplicate_pane = tree.workspaces[0].screens[0].panes[0].clone();
-        tree.workspaces[0].screens[0].panes.push(duplicate_pane);
-        assert!(tree.pane(3).is_none());
+        let mut appended = tree();
+        assert!(appended.surface(7).is_some());
+        let tab = appended.workspaces[0].screens[0].panes[0].tabs[0].clone();
+        appended.workspaces[0].screens[0].panes[0].tabs.push(tab);
+        assert!(appended.surface(7).is_some());
 
-        assert_eq!(tree.surface(8).map(|tab| tab.title.as_str()), Some("retained"));
-        let duplicate = tree.workspaces[0].screens[0].panes[0].tabs[1].clone();
-        tree.workspaces[0].screens[0].panes[0].tabs.insert(0, duplicate);
+        let mut inserted = tree();
+        assert!(inserted.surface(8).is_some());
+        let tab = inserted.workspaces[0].screens[0].panes[0].tabs[0].clone();
+        inserted.workspaces[0].screens[0].panes[0].tabs.insert(0, tab);
+        assert!(inserted.surface(8).is_none());
+        assert!(!inserted.select_surface(8));
 
-        assert!(tree.surface(8).is_none());
-        assert!(!tree.select_surface(8));
+        let mut removed = tree();
+        assert!(removed.surface(8).is_some());
+        removed.workspaces[0].screens[0].panes[0].tabs.remove(0);
+        assert!(removed.surface(8).is_none());
+        assert!(!removed.select_surface(8));
+
+        let mut replaced = tree();
+        assert!(replaced.surface(8).is_some());
+        replaced.workspaces[0].screens[0].panes[0].tabs[0].surface = 8;
+        assert!(replaced.surface(8).is_none());
+        assert!(!replaced.select_surface(8));
     }
 
     #[test]
