@@ -564,4 +564,14 @@ mod tests {
         assert_eq!(shown, "界");
         assert_eq!(cursor, 2);
     }
+
+    #[test]
+    fn visible_cursor_counts_halfwidth_sound_marks_as_terminal_cells() {
+        let mut input = text_input("ｶﾞa");
+
+        let (shown, cursor) = input.visible_text_and_cursor(4);
+
+        assert_eq!(shown, "ｶﾞa");
+        assert_eq!(cursor, 3);
+    }
 }
