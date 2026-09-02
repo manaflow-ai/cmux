@@ -688,7 +688,7 @@ describe("cmux-tui install and daemon commands", () => {
     writeExecutable("mountpoint", [
       "#!/bin/sh",
       "path=\"$2\"",
-      "if [ \"$path\" = \"$CMUX_TEST_BACKING\" ]; then [ ! -e \"$CMUX_TEST_STATE/backing-unmounted\" ]; exit $?; fi",
+      "if [ \"$path\" = \"$CMUX_TEST_BACKING\" ]; then if [ -e \"$CMUX_TEST_STATE/daemon-ready\" ]; then : > \"$CMUX_TEST_STATE/fallback-watch-ready\"; fi; [ ! -e \"$CMUX_TEST_STATE/backing-unmounted\" ]; exit $?; fi",
       "exit 1",
       "",
     ].join("\n"));
@@ -721,7 +721,11 @@ describe("cmux-tui install and daemon commands", () => {
         await new Promise((resolve) => setTimeout(resolve, 10));
       }
       expect(existsSync(join(state, "daemon-ready"))).toBe(true);
-      await new Promise((resolve) => setTimeout(resolve, 100));
+      const watcherDeadline = Date.now() + 2_000;
+      while (!existsSync(join(state, "fallback-watch-ready")) && Date.now() < watcherDeadline) {
+        await new Promise((resolve) => setTimeout(resolve, 10));
+      }
+      expect(existsSync(join(state, "fallback-watch-ready"))).toBe(true);
       // Missing findmnt must select a bounded direct mount check, not signal the
       // supervisor before the daemon has a chance to serve the mounted home.
       expect(child.exitCode).toBeNull();

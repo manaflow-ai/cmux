@@ -262,6 +262,9 @@ describe("devbox image template", () => {
     }
     // The image must prove generation in a throwaway HOME and ship none.
     expect(dockerfile).toContain("test ! -e /root/.codex/config.toml");
+    expect(dockerfile).toContain(
+      "grep -q 'supports_websockets = false' /tmp/agent-config-check/.codex/config.toml",
+    );
     expect(dockerfile).toContain("test ! -e /root/.pi/agent/models.json");
     expect(dockerfile).toContain("test ! -e /root/.config/opencode/opencode.json");
     expect(dockerfile).toContain("test ! -e /root/.config/cmux/model-plane.env");
@@ -297,6 +300,9 @@ describe("devbox image template", () => {
       expect(codex).toContain('model_provider = "cmux"');
       expect(codex).toContain('base_url = "https://example.invalid/v1"');
       expect(codex).toContain('wire_api = "responses"');
+      // The /v1 plane is HTTP-only; pin the Responses WebSocket transport off
+      // instead of relying on the custom-provider default.
+      expect(codex).toContain("supports_websockets = false");
       expect(codex).toContain('persistence = "save-all"');
       const plane = readFileSync(path.join(home, ".config/cmux/model-plane.env"), "utf8");
       expect(plane).toContain("export OPENAI_API_KEY='crt_test'");
