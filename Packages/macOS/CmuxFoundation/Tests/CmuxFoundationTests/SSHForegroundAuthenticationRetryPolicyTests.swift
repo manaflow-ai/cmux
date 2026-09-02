@@ -429,8 +429,10 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
         defer { removeStandardErrorCapture(stderrCapture) }
         process.standardError = stderrCapture.handle
 
+        let startedAt = Date.now
         try process.run()
-        try waitForExit(process, stderrCapture: stderrCapture, timeout: 8)
+        try waitForExit(process, stderrCapture: stderrCapture, timeout: 10)
+        let elapsed = Date.now.timeIntervalSince(startedAt)
 
         let processIDs = try String(contentsOf: pidLog, encoding: .utf8)
             .split(separator: "\n")
@@ -442,6 +444,13 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
 
         #expect(process.terminationStatus == 0)
         #expect(processIDs.count == 25)
+        // The helper has one shared two-second discovery budget plus a bounded
+        // force pass. Keep a wall-clock assertion so a per-node timeout or a
+        // signal-handler hang cannot pass on eventual process termination.
+        #expect(
+            elapsed < 5,
+            "Foreground authentication cleanup took \(elapsed) seconds instead of one bounded deadline"
+        )
         let processStates = processIDs.map(processLiveness)
         #expect(!processStates.contains(.unknown))
         #expect(!processStates.contains(.live))
