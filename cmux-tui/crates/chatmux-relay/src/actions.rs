@@ -1030,7 +1030,7 @@ impl ProcessTreeOwner {
 
         let mut keeper_command = tokio::process::Command::new("/bin/sh");
         keeper_command
-            .args(["-c", "while read -r _; do :; done"])
+            .args(["-c", "trap '' TERM HUP INT; while read -r _; do :; done"])
             .env_clear()
             .env("PATH", "/usr/bin:/bin")
             .stdin(std::process::Stdio::piped())
