@@ -180,6 +180,9 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
     /// reader. Remote generations are opaque, so a response from an older
     /// request must not replace a generation installed later in the same turn.
     private var cloudStateInstallVersion: UInt64 = 0
+    /// A failed event feed must remain visible even when a one-shot snapshot succeeds. The
+    /// snapshot is current at that instant, but it cannot prove future changes will arrive.
+    private var eventsError: String?
     private var changeWatcher: Task<Void, Never>?
     /// Identity of the link owned by `changeWatcher`. A provider can replace a
     /// dead link during refresh; the old stream must not clear or restart the
@@ -366,8 +369,8 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
             }
         } catch {
             let status = await links.status(machineID: machineID)
-            linkState = status?.state ?? .error
-            linkError = status?.error ?? CloudMachineLink.errorText(error)
+            linkError = eventsError ?? status?.error ?? CloudMachineLink.errorText(error)
+            linkState = eventsError == nil ? (status?.state ?? .error) : .error
             #if DEBUG
             cmuxDebugLog("cloud.provider.refreshFailed machine=\(machineID) state=\(linkState) error=\(String(reflecting: error))")
             #endif
@@ -385,9 +388,9 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
             // current. A failed read keeps the graph for diagnosis but marks it
             // stale, so agents can see it without treating it as writable truth.
             let stateAdvancedDuringRead = cloudStateInstallVersion != requestVersion
-            let observation: CloudVMStateObservation = (snapshotReadSucceeded || stateAdvancedDuringRead)
+            let observation: CloudVMStateObservation = (snapshotReadSucceeded || stateAdvancedDuringRead) && eventsError == nil
                 ? .current
-                : .stale(reason: info.linkError ?? info.linkState.rawValue)
+                : .stale(reason: eventsError ?? info.linkError ?? info.linkState.rawValue)
             publish(
                 cloudState,
                 ports: currentPorts,
@@ -452,6 +455,40 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
         catalog.replaceCloudState(state, resources: resources, info: info, observation: observation)
         if reconcileTitles {
             CloudWorkspaceRenameWriteThrough.reconcileRemoteState(machine: machine, state: state)
+        }
+    }
+
+    /// Applies a contiguous event to the catalog's canonical graph while touching only rows
+    /// whose derived value changed. Parsing the complete raw snapshot remains intentional: a tab,
+    /// pane, screen, or workspace relationship can change the placement of another resource.
+    /// The catalog diff preserves that correctness without a full row replacement.
+    private func publishDelta(
+        _ state: CloudVMState,
+        ports: [Int],
+        reconcileTitles: Bool
+    ) {
+        var pool: [SurfaceResource] = []
+        if summary.resolvedKind.hasDesktop {
+            pool.append(CmuxTuiSnapshotParser.display(machine: machine))
+        }
+        var resources = CmuxTuiSnapshotParser.mergingDisplays(
+            pool: pool,
+            parsed: CmuxTuiSnapshotParser.resources(from: state)
+        )
+        resources.append(contentsOf: ports.map { CmuxTuiSnapshotParser.portBrowser(machine: machine, port: $0) })
+        if let snapshot = state.snapshotObject() {
+            tabByTerminal = CmuxTuiSnapshotParser.tabByTerminal(fromSnapshot: snapshot)
+        }
+        info.remoteWorkspaces = Self.remoteWorkspaces(state)
+        let previousIDs = Set(catalog.snapshot.resources(on: machine).map(\.id))
+        let changed = catalog.applyCloudStateDelta(state, resources: resources, info: info)
+        if reconcileTitles {
+            CloudWorkspaceRenameWriteThrough.reconcileRemoteState(machine: machine, state: state)
+        }
+        // A newly restored terminal may need its attach pane materialized. Existing rows do not
+        // need a full projection scan for every title event.
+        if changed.contains(where: { $0.kind == .terminal && !previousIDs.contains($0) }) {
+            reprojectRestoredPanes()
         }
     }
 
@@ -939,16 +976,12 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
         )
     }
 
-    /// Compatibility fallback for callers that only have a terminal identity.
-    /// Context-aware callers pass a view explicitly. When they do not, prefer the
-    /// single view, then the sole focused view, and finally daemon order. The
-    /// fallback is deterministic and the resulting tab id is persisted in the
-    /// projection, so it cannot drift on the next rename.
+    /// Compatibility fallback for callers that only have a terminal identity. A terminal with
+    /// several views has no safe implicit placement. Returning nil keeps the projection
+    /// placement-neutral until a caller supplies an exact tab id.
     private static func defaultRemoteView(for resource: SurfaceResource) -> SurfaceRemoteView? {
-        guard let views = resource.remoteViews, !views.isEmpty else { return nil }
-        if views.count == 1 { return views[0] }
-        let focused = views.filter { $0.focused == true }
-        return focused.count == 1 ? focused[0] : views[0]
+        guard let views = resource.remoteViews, views.count == 1 else { return nil }
+        return views[0]
     }
 
     private func attachCommand(terminalID: String) async throws -> String {
@@ -1051,6 +1084,7 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
                 return
             }
             if installSnapshotIfNewer(incoming) {
+                eventsError = nil
                 await link.setEventsCursor(incoming.cursor)
                 info.linkState = .connected
                 info.linkError = nil
@@ -1083,20 +1117,28 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
                 }
                 cloudState = next
                 cloudStateInstallVersion &+= 1
+                eventsError = nil
                 await link.setEventsCursor(next.cursor)
                 info.linkState = .connected
                 info.linkError = nil
-                publish(next, ports: portsCache?.ports ?? [])
-                reprojectRestoredPanes()
+                let titlesChanged = current.workspaces != next.workspaces || current.tabs != next.tabs
+                publishDelta(next, ports: portsCache?.ports ?? [], reconcileTitles: titlesChanged)
             }
 
-        case .streamEnded, .unknown:
+        case .streamEnded(let reason, _):
             // A stream gap, unknown item, or transport end is a full-state
             // barrier. The snapshot command is the only safe recovery source;
-            // only after it installs do we resume from the accepted cursor.
+            // CloudMachineLink owns bounded event-feed recovery. The provider
+            // must not independently restart the same stream.
+            if reason == "events_recovery_exhausted" {
+                eventsError = reason
+            }
             await refresh(force: true)
-            guard let current = await links.link(machineID: machineID), current === link else { return }
-            await current.restartEventsSubscription(from: cloudState?.cursor)
+
+        case .unknown:
+            // An unknown item is a synchronization barrier, but it is not proof that the
+            // transport is dead. Refresh the complete snapshot and keep the existing stream.
+            await refresh(force: true)
         }
     }
 

@@ -276,8 +276,9 @@ final class SurfaceCatalog {
     }
 
     /// Installs one complete cloud graph and all of its derived resource rows as
-    /// one catalog transaction. Observers can never see a new cursor paired with
-    /// resource rows from the previous revision.
+    /// one catalog transaction. Equal rows are retained, so observers can never
+    /// see a new cursor paired with resource rows from the previous revision and
+    /// a title-only snapshot does not rebuild every row.
     func replaceCloudState(
         _ state: CloudVMState,
         resources list: [SurfaceResource],
@@ -286,18 +287,68 @@ final class SurfaceCatalog {
     ) {
         guard case .cloud = state.machine else { return }
         precondition(info.id == state.machine, "cloud state and machine info disagree")
-        for id in Array(resources.keys.filter { $0.machine == state.machine }) {
-            resources[id] = nil
-        }
+        _ = installCloudStateRows(
+            state,
+            resources: list,
+            info: info,
+            observation: observation
+        )
+    }
+
+    /// Installs a contiguous delta without replacing equal rows. The daemon graph is still
+    /// committed atomically with its derived rows, but a title-only event updates one resource
+    /// instead of rebuilding every sidebar row and projection input.
+    @discardableResult
+    func applyCloudStateDelta(
+        _ state: CloudVMState,
+        resources list: [SurfaceResource],
+        info: SurfaceMachineInfo,
+        observation: CloudVMStateObservation = .current
+    ) -> Set<SurfaceResourceID> {
+        guard case .cloud = state.machine else { return [] }
+        precondition(info.id == state.machine, "cloud state and machine info disagree")
+        return installCloudStateRows(
+            state,
+            resources: list,
+            info: info,
+            observation: observation
+        )
+    }
+
+    @discardableResult
+    private func installCloudStateRows(
+        _ state: CloudVMState,
+        resources list: [SurfaceResource],
+        info: SurfaceMachineInfo,
+        observation: CloudVMStateObservation
+    ) -> Set<SurfaceResourceID> {
+        guard case .cloud = state.machine else { return [] }
+        precondition(info.id == state.machine, "cloud state and machine info disagree")
+
+        var desired: [SurfaceResourceID: SurfaceResource] = [:]
+        desired.reserveCapacity(list.count)
         for resource in list {
             precondition(resource.machine == state.machine, "resource \(resource.id) reported by the wrong cloud state")
-            resources[resource.id] = resource
+            desired[resource.id] = resource
+        }
+
+        let existingIDs = resources.keys.filter { $0.machine == state.machine }
+        var changed = Set<SurfaceResourceID>()
+        for id in existingIDs where desired[id] == nil {
+            if resources.removeValue(forKey: id) != nil { changed.insert(id) }
+        }
+        for (id, resource) in desired {
+            if resources[id] != resource {
+                resources[id] = resource
+                changed.insert(id)
+            }
         }
         cloudStates[state.machine] = state
         cloudStateObservations[state.machine] = observation
         machines[state.machine] = info
         resolvePendingRestoredProjections(on: state.machine)
         notifyChange()
+        return changed
     }
 
     func clearCloudState(on machine: SurfaceMachineID) {

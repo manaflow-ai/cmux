@@ -242,32 +242,22 @@ extension SurfaceCatalog {
         for member: SurfaceResourcePlacement,
         fallbackWorkspaceID: String?
     ) throws -> SurfaceRemoteView? {
-        guard let resource = resources[member.resource], let views = resource.remoteViews else {
+        // Unknown resources are skipped by the group projector. Once a resource exists,
+        // delegate placement validation to the catalog's single resolver so explicit IDs
+        // cannot silently fall back when remote view metadata is absent.
+        guard resources[member.resource] != nil else {
             return nil
         }
         if let tabID = member.remoteTabID {
-            guard let view = views.first(where: { $0.tabID == tabID }) else {
-                throw SurfaceCatalogError.unavailable(
-                    member.resource,
-                    reason: "remote tab \(tabID) is no longer present"
-                )
-            }
-            if let declaredWorkspace = member.remoteWorkspaceID ?? fallbackWorkspaceID,
-               view.workspace.id != declaredWorkspace {
-                throw SurfaceCatalogError.unavailable(
-                    member.resource,
-                    reason: "remote tab \(tabID) is not in workspace \(declaredWorkspace)"
-                )
-            }
-            return view
+            return try remoteView(
+                for: member.resource,
+                tabID: tabID,
+                workspaceID: member.remoteWorkspaceID ?? fallbackWorkspaceID
+            )
         }
         let workspaceID = member.remoteWorkspaceID ?? fallbackWorkspaceID
         guard let workspaceID else { return nil }
-        let matches = views.filter { $0.workspace.id == workspaceID }
-        guard matches.count <= 1 else {
-            throw SurfaceCatalogError.ambiguousRemotePlacement(member.resource, workspaceID: workspaceID)
-        }
-        return matches.first
+        return try remoteView(for: member.resource, workspaceID: workspaceID)
     }
 
     /// How a group becomes a new local workspace: the machinery a caller injects so the

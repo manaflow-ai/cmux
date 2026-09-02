@@ -584,6 +584,14 @@ import Testing
         #expect(CloudVMStateSyncDecision.forDelta(generation: "daemon-b", previousRevision: 7, revision: 8, current: current) == .fetchSnapshot)
     }
 
+    @Test func eventRecoveryUsesPositiveCappedBackoff() {
+        let policy = CloudMachineLinkEventsRecoveryPolicy.standard
+        #expect(policy.delay(forAttempt: 1) == .milliseconds(250))
+        #expect(policy.delay(forAttempt: 5) == .seconds(4))
+        #expect(policy.delay(forAttempt: 6) == nil)
+        #expect(policy.delays.allSatisfy { $0 > .zero })
+    }
+
     @Test func cursorDecodingRejectsBooleanFractionalAndOverflowNumbers() {
         #expect(CloudVMCursor(wire: ["generation": "g1", "revision": NSNumber(value: true)]) == nil)
         #expect(CloudVMCursor(wire: ["generation": "g1", "revision": NSNumber(value: 1.5)]) == nil)

@@ -12,6 +12,25 @@ import Testing
 struct SurfaceCatalogTests {
     private struct TestTimeout: Error {}
 
+    @Test("Explicit remote placement fails closed without view metadata")
+    func explicitRemotePlacementFailsClosedWithoutViewMetadata() throws {
+        let machine = SurfaceMachineID.cloud("vivid-newt")
+        let catalog = SurfaceCatalog()
+        let provider = FakeProvider(machine: machine)
+        catalog.register(provider)
+        let id = SurfaceResourceID(machine: machine, kind: .terminal, key: "term_1")
+        var resource = terminal(machine, "term_1")
+        resource.remoteViews = nil
+        catalog.upsert(resource)
+
+        #expect(throws: SurfaceCatalogError.unavailable(
+            id,
+            reason: "remote placement data is unavailable"
+        )) {
+            try catalog.remoteView(for: id, tabID: "tab_1")
+        }
+    }
+
     /// Lets timeout behavior be tested without waiting on wall-clock time.
     private final class ImmediateClock: Clock, @unchecked Sendable {
         typealias Instant = ContinuousClock.Instant

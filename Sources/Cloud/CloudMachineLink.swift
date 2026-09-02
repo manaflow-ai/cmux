@@ -1,5 +1,30 @@
 import Foundation
 
+/// Bounded recovery for the event side channel. The command socket remains usable while the
+/// feed is repaired, but a broken child process must never create an infinite spawn loop.
+struct CloudMachineLinkEventsRecoveryPolicy: Sendable, Equatable {
+    static let standard = Self(delays: [
+        .milliseconds(250),
+        .milliseconds(500),
+        .seconds(1),
+        .seconds(2),
+        .seconds(4),
+    ])
+
+    let delays: [Duration]
+
+    init(delays: [Duration]) {
+        precondition(!delays.isEmpty)
+        precondition(delays.allSatisfy { $0 > .zero })
+        self.delays = delays
+    }
+
+    func delay(forAttempt attempt: Int) -> Duration? {
+        guard attempt > 0, attempt <= delays.count else { return nil }
+        return delays[attempt - 1]
+    }
+}
+
 /// One headless cmux-tui link to a cloud machine's daemon: a `remote connect --headless`
 /// client process whose local mux socket the app drives for snapshots, events, and
 /// terminal creation. The pane's own `vm-tui-connect` link is separate; this one belongs
@@ -81,6 +106,11 @@ actor CloudMachineLink {
     private var eventsSubscriptionID: UUID?
     private var eventsReaderTask: Task<Void, Never>?
     private var eventsCursor: CloudVMCursor?
+    private let eventsRecoveryClock: any Clock<Duration>
+    private let eventsRecoveryPolicy: CloudMachineLinkEventsRecoveryPolicy
+    private var eventsRecoveryTask: Task<Void, Never>?
+    private var eventsRecoveryAttempt = 0
+    private(set) var eventsRecoveryExhausted = false
     private var inviteFileURL: URL?
     private var stderrTail: [String] = []
 
@@ -89,10 +119,18 @@ actor CloudMachineLink {
     let changes: AsyncStream<Change>
     private let changesContinuation: AsyncStream<Change>.Continuation
 
-    init(machineID: String, clientURL: URL, paths: CloudTuiClientPaths) {
+    init(
+        machineID: String,
+        clientURL: URL,
+        paths: CloudTuiClientPaths,
+        eventsRecoveryClock: any Clock<Duration> = ContinuousClock(),
+        eventsRecoveryPolicy: CloudMachineLinkEventsRecoveryPolicy = .standard
+    ) {
         self.machineID = machineID
         self.clientURL = clientURL
         self.paths = paths
+        self.eventsRecoveryClock = eventsRecoveryClock
+        self.eventsRecoveryPolicy = eventsRecoveryPolicy
         (changes, changesContinuation) = AsyncStream<Change>.makeStream(bufferingPolicy: .bufferingNewest(1))
     }
 
@@ -102,6 +140,7 @@ actor CloudMachineLink {
     func connect(route: String, session: String, invitationURI: String?, timeout: Duration = .seconds(60)) async throws -> Connected {
         if let connected, state == .connected { return connected }
         eventsCursor = nil
+        resetEventsRecovery()
         try paths.ensureStateDir()
         var inviteFilePath: String?
         if let invitationURI, !invitationURI.isEmpty {
@@ -187,6 +226,10 @@ actor CloudMachineLink {
         eventsReaderTask = nil
         eventsProcess?.terminate()
         eventsProcess = nil
+        eventsRecoveryTask?.cancel()
+        eventsRecoveryTask = nil
+        eventsRecoveryAttempt = 0
+        eventsRecoveryExhausted = false
         process?.terminate()
         process = nil
         connected = nil
@@ -205,7 +248,14 @@ actor CloudMachineLink {
            current.revision >= cursor.revision {
             return
         }
+        let acceptedFromActiveStream = eventsSubscriptionID != nil
         eventsCursor = cursor
+        // The owner accepted a valid event. This is the success boundary for recovery.
+        if acceptedFromActiveStream {
+            eventsRecoveryAttempt = 0
+            eventsRecoveryTask?.cancel()
+            eventsRecoveryTask = nil
+        }
     }
 
     /// Replaces the resume point exactly at a recovery boundary. Unlike
@@ -219,8 +269,9 @@ actor CloudMachineLink {
     /// on journal overflow, daemon restart, or a transient local socket close.
     func restartEventsSubscription(from cursor: CloudVMCursor? = nil) {
         guard state == .connected, let socketPath = connected?.socketPath else { return }
+        resetEventsRecovery()
         replaceEventsCursor(cursor ?? eventsCursor)
-        startEventsSubscription(socketPath: socketPath, cursor: eventsCursor)
+        _ = startEventsSubscription(socketPath: socketPath, cursor: eventsCursor)
     }
 
     /// Runs one cmux-tui command against the link's socket and returns its stdout.
@@ -267,8 +318,9 @@ actor CloudMachineLink {
 
     // MARK: - internals
 
-    private func startEventsSubscription(socketPath: String, cursor: CloudVMCursor?) {
-        guard !socketPath.isEmpty else { return }
+    @discardableResult
+    private func startEventsSubscription(socketPath: String, cursor: CloudVMCursor?) -> Bool {
+        guard !socketPath.isEmpty else { return false }
         eventsSubscriptionID = nil
         eventsReaderTask?.cancel()
         eventsReaderTask = nil
@@ -288,7 +340,8 @@ actor CloudMachineLink {
         } catch {
             eventsSubscriptionID = nil
             changesContinuation.yield(.streamEnded(reason: "events_spawn_failed", cursor: eventsCursor))
-            return
+            scheduleEventsRecovery()
+            return false
         }
         eventsProcess = process
         let lines = CloudLinkPipe.lines(from: stdout.fileHandleForReading)
@@ -301,6 +354,7 @@ actor CloudMachineLink {
             }
             await self?.eventReaderDidEnd(subscriptionID: subscriptionID, receivedStreamEnd: receivedStreamEnd)
         }
+        return true
     }
 
     private func eventChange(_ change: Change, subscriptionID: UUID) {
@@ -314,6 +368,7 @@ actor CloudMachineLink {
             // A stream-end cursor is only a transport observation. Advancing to
             // it here could skip journal entries when recovery is required.
             changesContinuation.yield(.streamEnded(reason: reason, cursor: cursor))
+            finishEventsSubscription(subscriptionID: subscriptionID, reason: nil)
             return
         case .unknown:
             // Unknown data is a barrier. Its cursor cannot be trusted because the
@@ -327,12 +382,68 @@ actor CloudMachineLink {
 
     private func eventReaderDidEnd(subscriptionID: UUID, receivedStreamEnd: Bool) {
         guard eventsSubscriptionID == subscriptionID else { return }
+        finishEventsSubscription(
+            subscriptionID: subscriptionID,
+            reason: receivedStreamEnd ? nil : "eof"
+        )
+    }
+
+    /// Ends one event child and schedules its single bounded recovery owner. The subscription
+    /// UUID makes late reader callbacks harmless after a replacement has started.
+    private func finishEventsSubscription(subscriptionID: UUID, reason: String?) {
+        guard eventsSubscriptionID == subscriptionID else { return }
         eventsSubscriptionID = nil
         eventsReaderTask = nil
+        eventsProcess?.terminate()
         eventsProcess = nil
-        if !receivedStreamEnd {
-            changesContinuation.yield(.streamEnded(reason: "eof", cursor: eventsCursor))
+        if let reason {
+            changesContinuation.yield(.streamEnded(reason: reason, cursor: eventsCursor))
         }
+        scheduleEventsRecovery()
+    }
+
+    private func resetEventsRecovery() {
+        eventsRecoveryTask?.cancel()
+        eventsRecoveryTask = nil
+        eventsRecoveryAttempt = 0
+        eventsRecoveryExhausted = false
+    }
+
+    private func scheduleEventsRecovery() {
+        guard state == .connected,
+              connected != nil,
+              eventsSubscriptionID == nil,
+              !eventsRecoveryExhausted,
+              eventsRecoveryTask == nil
+        else { return }
+
+        guard let delay = eventsRecoveryPolicy.delay(forAttempt: eventsRecoveryAttempt + 1) else {
+            eventsRecoveryExhausted = true
+            changesContinuation.yield(.streamEnded(reason: "events_recovery_exhausted", cursor: eventsCursor))
+            return
+        }
+        eventsRecoveryAttempt += 1
+        let clock = eventsRecoveryClock
+        let socketPath = connected!.socketPath
+        eventsRecoveryTask = Task { [weak self, clock, delay, socketPath] in
+            do {
+                try await clock.sleep(for: delay)
+            } catch {
+                return
+            }
+            guard !Task.isCancelled else { return }
+            await self?.recoverEventsSubscription(socketPath: socketPath)
+        }
+    }
+
+    private func recoverEventsSubscription(socketPath: String) {
+        eventsRecoveryTask = nil
+        guard state == .connected,
+              connected?.socketPath == socketPath,
+              eventsSubscriptionID == nil,
+              !eventsRecoveryExhausted
+        else { return }
+        _ = startEventsSubscription(socketPath: socketPath, cursor: eventsCursor)
     }
 
     private func drainStderr(_ handle: FileHandle) {
@@ -355,6 +466,8 @@ actor CloudMachineLink {
         eventsReaderTask = nil
         eventsProcess?.terminate()
         eventsProcess = nil
+        eventsRecoveryTask?.cancel()
+        eventsRecoveryTask = nil
         process = nil
         connected = nil
         removeInviteFile()
