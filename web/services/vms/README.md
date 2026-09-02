@@ -1,6 +1,6 @@
 # Cloud VMs service
 
-Backend for `cmux vm new/ls/rm/exec/attach` and the sidebar Cloud VM surface. Stack Auth gates every public route. Provider API keys stay server-side. Blaxel, E2B, and Daytona machines attach through the cmux-tui remote daemon (transport `cmux-remote`); Freestyle still serves the legacy `cmuxd-remote` WebSocket PTY with short-lived leases, and older Freestyle VMs can fall back to its SSH gateway.
+Backend for `cmux vm new/ls/rm/exec/attach` and the sidebar Cloud VM surface. Stack Auth gates every public route. Provider API keys stay server-side. Every machine — Freestyle, E2B, Daytona — attaches through the cmux-tui remote daemon (transport `cmux-remote`). The legacy `cmuxd-remote` WebSocket PTY and the Freestyle SSH gateway are gone.
 
 ## Layout
 
@@ -9,7 +9,7 @@ services/vms/
   auth.ts             Stack Auth request verification helpers
   billingGateway.ts   Stack Auth VM create-credit reservations
   entitlements.ts     Team plan and active VM limit resolution
-  drivers/            Provider SDK adapters for E2B, Freestyle, and Daytona
+  drivers/            Provider SDK adapters for Freestyle, E2B, and Daytona
   images/             Checked-in known-good provider image manifest
   errors.ts           Typed Effect errors for VM workflows
   config.ts           Runtime kill switches and deployment guards
@@ -28,7 +28,6 @@ db/
 - `/api/vm/:id`, authenticated `DELETE` destroy.
 - `/api/vm/:id/exec`, authenticated `POST` command execution.
 - `/api/vm/:id/attach-endpoint`, authenticated `POST` PTY/RPC attach lease minting.
-- `/api/vm/:id/ssh-endpoint`, authenticated `POST` legacy Freestyle SSH attach.
 
 There is no raw actor or provider protocol endpoint. The old `/api/rivet/*` gateway has been removed.
 
@@ -69,8 +68,8 @@ the provider, provider image id, cmux image version, build metadata, and validat
 Default image policy:
 
 - Production and staging select images with `E2B_CMUXD_WS_TEMPLATE`,
-  `FREESTYLE_SANDBOX_SNAPSHOT`, `DAYTONA_SANDBOX_SNAPSHOT`, and for Blaxel `BLAXEL_SANDBOX_IMAGE`
-  (base machines) plus `BLAXEL_SANDBOX_DESKTOP_IMAGE` (desktop machines).
+  `FREESTYLE_SANDBOX_SNAPSHOT`, and `DAYTONA_SANDBOX_SNAPSHOT`. A provider that ships a
+  desktop image also gets a `_DESKTOP_IMAGE` selector; none does today.
 - Clients request a machine **kind** (`kind: "desktop" | "base"` on `POST /api/vm`,
   `POST /api/vm/base/open`, and `POST /api/vm/base/reset`) rather than pinning an image id. With
   no `image`, the resolver picks the kind's env var, then the manifest entry flagged
@@ -88,9 +87,15 @@ Default image policy:
   `expectNoCloudVmImplementationLeaks` in `tests/vm-route-auth.test.ts`).
 - Local development uses the manifest entry marked `defaultForLocalDev` when the provider env var
   is unset.
-- The current intended default provider is Blaxel. Set `CMUX_VM_DEFAULT_PROVIDER=blaxel` (the local
-  loader supplies this when unset); Freestyle, E2B, and Daytona remain explicit rollback/provider
-  overrides rather than silent fallbacks.
+- The current intended default provider is Freestyle on the public platform
+  (`api.freestyle.sh`). Set `CMUX_VM_DEFAULT_PROVIDER=freestyle` (the local loader supplies
+  this when unset); E2B and Daytona remain explicit rollback/provider overrides rather than
+  silent fallbacks.
+- **The Freestyle devbox snapshot must be re-baked on the public platform.** The manifest's
+  only Freestyle entry (`sh-fb3dcf7b…`) was baked against the retired `beta-api.freestyle.sh`
+  and is marked `validationStatus: "unknown"`. Until `scripts/build-devbox-freestyle.ts` bakes
+  a public-platform snapshot and its id lands in the manifest, Freestyle creates fail closed
+  with `vm_image_config_error`.
 - Baked agent tools are installed at image-build time. They are not auto-updated on VM startup, so
   startup latency stays bounded and the active image manifest remains the source of truth.
 - To update tool versions, rebuild the provider images and record the new template/snapshot IDs in
@@ -114,7 +119,7 @@ Rollback is an env-only operation:
 
 The E2B, Daytona, and Freestyle devbox images are defined in
 `web/services/vms/images/devbox/` and baked with `web/scripts/build-devbox-e2b.ts`,
-`build-devbox-daytona.ts`, and `build-devbox-freestyle.ts` (chatmux/Blaxel devbox
+`build-devbox-daytona.ts`, and `build-devbox-freestyle.ts` (chatmux devbox
 parity: devtools, mise node/python/bun, uv, gh, Chrome + cua-driver, pinned coding
 agents, ble.sh devshell, agent-config generator). The session daemon is cmux-tui,
 installed at create time from the pinned files.cmux.com artifacts manifest by
@@ -205,7 +210,7 @@ Set these Vercel environment variables per production/staging environment:
 - `E2B_CMUXD_WS_TEMPLATE`, E2B template alias/name for WebSocket PTY sandboxes.
 - `FREESTYLE_SANDBOX_SNAPSHOT`, Freestyle snapshot id.
 - `DAYTONA_SANDBOX_SNAPSHOT`, Daytona snapshot name for WebSocket PTY sandboxes.
-- `CMUX_VM_DEFAULT_PROVIDER`, `blaxel`, `freestyle`, `e2b`, or `daytona` (defaults to `blaxel`).
+- `CMUX_VM_DEFAULT_PROVIDER`, `freestyle`, `e2b`, or `daytona` (defaults to `freestyle`).
 - `CMUX_VM_DEFAULT_PLAN`, optional fallback for accounts without plan metadata. It defaults to `free`;
   paid values are ignored unless `CMUX_VM_ALLOW_FREE_PROVISIONING=1`, so deployment configuration
   cannot silently grant every unclassified account a paid entitlement.
@@ -310,76 +315,63 @@ The dev Postgres port is `CMUX_PORT + 10000`, so `CMUX_PORT=10180` maps to `loca
 
 ## Provider matrix
 
-| Verb                        | Freestyle | E2B | Daytona | Blaxel |
-|-----------------------------|-----------|-----|---------|--------|
-| `cmux vm new`               | yes       | yes | yes | yes |
-| `cmux vm new --workspace`   | yes       | yes | yes | yes |
-| `cmux vm new --detach`      | yes       | yes | yes | yes |
-| `cmux vm attach <id>`       | yes       | yes | yes | yes |
-| `cmux vm ssh <id>`          | yes       | yes | yes | yes |
-| `cmux vm ssh-info <id>`     | legacy SSH info only | legacy SSH info only | no (WebSocket only) | no (WebSocket only) |
-| `cmux vm exec <id> -- ...`  | yes       | yes | yes | yes |
-| `cmux vm ls / rm`           | yes       | yes | yes | yes |
-| snapshot / restore          | yes       | yes | yes | not yet |
+| Verb                        | Freestyle | E2B | Daytona |
+|-----------------------------|-----------|-----|---------|
+| `cmux vm new`               | yes       | yes | yes |
+| `cmux vm new --workspace`   | yes       | yes | yes |
+| `cmux vm new --detach`      | yes       | yes | yes |
+| `cmux vm attach <id>`       | yes       | yes | yes |
+| `cmux vm ssh <id>`          | yes       | yes | yes |
+| `cmux vm ssh-info <id>`     | no (cmux-remote only) | no (cmux-remote only) | no (cmux-remote only) |
+| `cmux vm exec <id> -- ...`  | yes       | yes | yes |
+| `cmux vm ls / rm`           | yes       | yes | yes |
+| snapshot / restore          | yes       | yes | yes |
 
 `cmux vm ssh <id>` is the user-facing interactive alias and opens the same managed workspace path
-as `cmux vm attach <id>`. `cmux vm ssh-info <id>` is print-only for provider SSH debugging.
+as `cmux vm attach <id>`. No provider serves an SSH gateway any more, so `cmux vm ssh-info <id>`
+has nothing to print and `POST /api/vm/:id/ssh-endpoint` is gone.
 
-Blaxel machines boot the baked `sandbox/cmux-devbox` image (template in
-`services/vms/images/blaxel/`, published with `web/scripts/build-blaxel-image.sh` on
-Blaxel's remote builder): chatmux-devbox tool parity (mise node/python/bun, uv, gh,
-devtools, pinned coding agents, ble.sh, half-life prompt, seeded history) plus an
-openbox/TigerVNC desktop with Ghostty, Chrome, and noVNC on 6901. The image stamps
-`/etc/cmux/image-stamp`, which short-circuits the driver's create-time provisioning
-fallback for stock images, and keeps the stock desktop contract (`start-vnc.sh` as user
-`cua`, RFB 5901) so the driver's VNC heal works unchanged. Stock `blaxel/xfce-vnc:latest`
-remains a validated manifest fallback (`BLAXEL_SANDBOX_IMAGE`;
-`blaxel/base-image:latest` with `cmux vm new --base`). Machines run no cmuxd-remote: the
-driver bootstraps every image, baked or stock, at create time with the **cmux-tui remote
-daemon as the machine's only session daemon**.
-The sandbox downloads the pinned static-musl `cmux-tui` build onto its persistent home
-volume, normally `/cmux/home/.cmux/bin/cmux-tui`, with `sha256sum -c` verification inside
-the VM. A bindfs identity view presents that volume at `/home/cmux`; the supervisor runs the
-daemon and its terminal panes as `cmux` (uid 1001) with passwordless sudo. The binary and
-daemon state are reused on resurrection. The build and its digest come from the artifacts
-manifest published by `.github/workflows/cmux-tui-artifacts.yml`, nothing is pinned by hand.
-Config: `BL_API_KEY`, `BL_WORKSPACE`; optionally `CMUX_VM_CMUX_TUI_MANIFEST_URL` to pin a
-deployment to one commit's `https://files.cmux.com/cmux-tui/<commit>/manifest.json` instead
-of the rolling `latest`. Blaxel freezes a sandbox ~15 s after the last connection unless a
-`keepAlive` process runs; the smart-sleep watcher is that process and exits once every
-cmux-tui shell is idle and no client is connected, so an idle machine drops to (free)
-standby and the next attach wakes it.
+Freestyle machines boot the shared devbox snapshot (definition in
+`services/vms/images/devbox/`, baked with `web/scripts/build-devbox-freestyle.ts` against
+the public platform `api.freestyle.sh`): chatmux-devbox tool parity (mise node/python/bun,
+uv, gh, devtools, pinned coding agents, ble.sh, half-life prompt, seeded history). Machines
+run no cmuxd-remote: the driver bootstraps the image at create time with the **cmux-tui
+remote daemon as the machine's only session daemon**, downloading the pinned static-musl
+`cmux-tui` build to `/root/.cmux/bin/cmux-tui` with `sha256sum -c` verification inside the
+VM. The daemon runs as root with `HOME=/root`; the build and its digest come from the
+artifacts manifest published by `.github/workflows/cmux-tui-artifacts.yml`, nothing is
+pinned by hand. Config: `FREESTYLE_API_KEY` (or `FREESTYLE_STACK_ACCESS_TOKEN` +
+`FREESTYLE_TEAM_ID`), `FREESTYLE_SANDBOX_SNAPSHOT`; optionally `FREESTYLE_API_URL` to point
+at a non-default edge and `CMUX_VM_CMUX_TUI_MANIFEST_URL` to pin a deployment to one
+commit's `https://files.cmux.com/cmux-tui/<commit>/manifest.json` instead of the rolling
+`latest`.
 
-The persistent home volume (`/cmux/home`) is sized from the machine's memory in dev-box tiers
-(`defaultHomeVolumeMbForMemory`: ≤4 GB → 8 GB, otherwise 16 GB, Blaxel refuses volumes above
-16 GB, measured 2026-08-26, so the 24 GB plan default gets the 16 GB ceiling instead of the old
-flat 5 GB). `CMUX_VM_BLAXEL_HOME_VOLUME_MB` pins every new volume to one size instead. The
-chosen size is recorded in `providerMetadata.homeVolumeMb`. Volumes are never resized: existing
-machines keep the volume they were created with, and a size Blaxel's volume API rejects fails the
-create with the provider's message. Sandboxes created before this layout change still mount their
-volume at `/root` and keep a root daemon until resurrection. If the `/home/cmux` bindfs view is
-unavailable, the daemon and `cmux vm exec` use `/cmux/home` as a root fallback, so they never
-write to the disposable rootfs home.
+There is no HTTP ingress proxy to arbitrary VM ports on the public platform (a TLS edge rule
+needs a customer-verified domain), so the daemon is reached directly at the VM's stable
+public IPv6: `ws://[<publicIpv6>]:1337/v1/link`. Creates state a mandatory `firewall` —
+outbound open, inbound only 1337 — and the daemon binds dual-stack (`[::]:1337`), re-asserted
+on every attach-time heal because a daemon bound `0.0.0.0` is unreachable at that address.
+The Noise handshake encrypts and authenticates the session end to end, so carrier TLS is not
+required; the route token exists only for the lease ledger. Creates take no ports field and
+no create-time env, so the coderouter model-plane vars are delivered by writing the persisted
+`/root/.config/cmux/model-plane.env` (0600) that `/etc/cmux/agent-config.sh` already sources.
 
-Preview ingress is enforced private: attach only reuses a preview whose spec is not public,
-replaces a public one, and refuses a preview that comes back public, so the daemon is never
-reachable without a minted preview token. The daemon has two previews for port 1337: the
-branded `https://<machine>.vm.cmux.sh` host (whose ingress refuses WebSocket upgrades
-without a User-Agent, so it is handed only to clients advertising the
-`direct-ws-user-agent` capability from `cmux-tui remote-probe --json`) and the raw
-`<hash>.preview.bl.run` host for everyone else. `POST /api/vm/[id]/attach-endpoint` with
+Every guest command is run with `linuxUser: "root"`. The 0.2 API's default is *not* root but
+"the account holding uid 1000, or root in an image with no such account", and the devbox image
+ships a uid-1000 user — leaving it unset would silently move the daemon, its install, and the
+model-plane write off the root layout they are baked around.
+
+`POST /api/vm/[id]/attach-endpoint` with
 `{"transport":"cmux-remote","clientCapabilities":[...]}` returns
-`{route, token, session, daemonBuild?, invitation?}` where `route` is
-`wss://<host>/v1/link?bl_preview_token=…` and `invitation` is a single-use
+`{route, token, session, daemonBuild?, invitation?}` where `invitation` is a single-use
 `cmux://enroll/…` URI minted only when the caller's device is not enrolled. The client
 connects with `cmux-tui remote connect <route> --invite-file …`, then
 `POST /api/vm/[id]/cmux-remote/approve {invitationId}` approves the pending claim (poll
 until `state` is `approved`). The legacy websocket/SSH attach (`attach-endpoint` without a
-transport, `POST /api/vm/[id]/sessions`) answers `409 vm_attach_transport_unsupported` on
-Blaxel machines with `details.supportedTransports: ["cmux-remote"]`. `cmux vm shell`,
-`cmux vm new`, `cmux vm base open` and the Machines panel all drive this from the Mac.
-See docs/cloud-cmux-tui-daemon.md for the design. Live driver E2E:
-`bun scripts/test-blaxel-vm-poc.ts`.
+transport, `POST /api/vm/[id]/sessions`) answers `409 vm_attach_transport_unsupported` with
+`details.supportedTransports: ["cmux-remote"]`. `cmux vm shell`, `cmux vm new`,
+`cmux vm base open` and the Machines panel all drive this from the Mac.
+See docs/cloud-cmux-tui-daemon.md for the design.
 
 E2B and Daytona machines run the same cmux-tui daemon and only the `cmux-remote`
 transport. The E2B route is the sandbox's public port host
@@ -392,11 +384,12 @@ not use Daytona's SSH gateway. The backend writes only a hash of attach tokens t
 Postgres; raw tokens are returned once to the Mac client. Machines created by the
 old cmuxd-remote drivers cannot serve this transport and need recreation.
 
-Operational note: Blaxel is the intended default. Before rollout or rollback, verify the deployed
-`CMUX_VM_DEFAULT_PROVIDER`, `CMUX_VM_BLAXEL_ENABLED`, `BL_API_KEY`, and `BL_WORKSPACE` env values
-with `bun run cloud-vm:env:audit -- <target> --strict`, then confirm WebSocket PTY, reusable
-daemon RPC lease, and browser proxy health with `bun run cloud-vm:stress -- <target> --provider default`.
-Keep Freestyle/E2B enabled only when deliberately selecting them as rollback providers.
+Operational note: Freestyle is the intended default. Before rollout or rollback, verify the
+deployed `CMUX_VM_DEFAULT_PROVIDER`, `CMUX_VM_FREESTYLE_ENABLED`, `FREESTYLE_API_KEY`, and
+`FREESTYLE_SANDBOX_SNAPSHOT` env values with `bun run cloud-vm:env:audit -- <target> --strict`,
+then confirm attach and daemon health with
+`bun run cloud-vm:stress -- <target> --provider default`.
+Keep E2B/Daytona enabled only when deliberately selecting them as rollback providers.
 
 ## Usage, limits, and pricing
 

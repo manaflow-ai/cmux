@@ -25,14 +25,6 @@ export type VmImageManifestEntry = {
   readonly kind?: VmImageKind;
   /** The manifest default for `kind` when neither the client nor the env picks an image. */
   readonly defaultForKind?: boolean;
-  readonly features?: {
-    readonly bakedFreestyleSignedAdmin?: boolean;
-    /**
-     * The image lives on the Freestyle BETA platform (beta-api.freestyle.sh);
-     * the freestyle driver dispatches creates from it to the beta arm.
-     */
-    readonly freestylePlatform?: "beta";
-  };
   readonly cmuxdRemoteCommit: string;
   readonly builtAt: string;
   readonly builderScriptVersion: string;
@@ -60,7 +52,7 @@ const typedManifest = manifest as {
 
 /**
  * Env var that selects the provider's image. Desktop images get their own
- * `_DESKTOP_IMAGE` selector (today only blaxel ships desktop images); providers
+ * `_DESKTOP_IMAGE` selector (no provider ships a desktop image today); providers
  * with a single template/snapshot variable use it for both kinds.
  */
 export function providerImageEnvKey(provider: ProviderId, kind?: VmImageKind): string {
@@ -79,8 +71,6 @@ function providerBaseImageEnvKey(provider: ProviderId): string {
       return "FREESTYLE_SANDBOX_SNAPSHOT";
     case "daytona":
       return "DAYTONA_SANDBOX_SNAPSHOT";
-    case "blaxel":
-      return "BLAXEL_SANDBOX_IMAGE";
     default:
       return assertNever(provider);
   }
@@ -159,18 +149,6 @@ export function inferVmProviderForImage(requestedImage: string | undefined): Pro
   );
   if (providers.size !== 1) return null;
   return [...providers][0] ?? null;
-}
-
-export function imageUsesBakedFreestyleSignedAdmin(provider: ProviderId, imageId: string): boolean {
-  const entry = typedManifest.images.find((candidate) =>
-    candidate.provider === provider && candidate.imageId === imageId
-  );
-  return entry?.features?.bakedFreestyleSignedAdmin === true;
-}
-
-/** Whether an image id or version names a Freestyle BETA platform image (see `features.freestylePlatform`). */
-export function imageUsesFreestyleBetaPlatform(provider: ProviderId, image: string): boolean {
-  return findVmImageManifestEntry(provider, image)?.features?.freestylePlatform === "beta";
 }
 
 /**
@@ -257,7 +235,7 @@ function resolveByKind(
 ): VmImageSelection {
   // The kind-specific selector is unset. The provider's generic selector still
   // counts when the image it names is of the requested kind (e.g. a deployment
-  // whose BLAXEL_SANDBOX_IMAGE already names a desktop image).
+  // whose FREESTYLE_SANDBOX_SNAPSHOT already names a desktop image).
   const genericEnvVar = providerImageEnvKey(provider);
   if (genericEnvVar !== envVar) {
     const generic = env[genericEnvVar]?.trim();
