@@ -3,7 +3,6 @@ import {
   reportVmImageConfigError,
   inferVmProviderForImage,
   listVmImageKinds,
-  providerImageEnvKey,
   resolveVmImage,
   vmImageKindFor,
   type VmImageKind,
@@ -20,76 +19,91 @@ function captureImageConfigError(fn: () => unknown): VmImageConfigError {
   throw new Error("expected VmImageConfigError to be thrown");
 }
 
+// cmux's validated public-platform devbox (baked on cmux's Freestyle account):
+// the manifest's base default. The manifest is the only source of truth for
+// images; no env var selects or overrides one.
+const validatedSnapshot = "sh-940ec3bc46224c019e5e8d9a97053293";
+const validatedVersion = "freestyle-cmux-devbox-20260902c";
+// The desktop devbox from this PR: validated, listed under both kinds with one
+// image id, but baked on another Freestyle account, so not a default until
+// re-promoted under cmux's key.
+const desktopSnapshot = "sh-1d66b9cad53a4811b5f63a4cae0b3faf";
+const desktopVersion = "freestyle-cmux-devbox-20260902h";
+
 describe("VM image resolver: request by kind", () => {
   const deployed = { VERCEL: "1", VERCEL_ENV: "production" };
 
-  test("desktop images get their own env selector; single-variable providers share one", () => {
-    expect(providerImageEnvKey("freestyle")).toBe("FREESTYLE_SANDBOX_SNAPSHOT");
-    expect(providerImageEnvKey("freestyle", "base")).toBe("FREESTYLE_SANDBOX_SNAPSHOT");
-    // Freestyle ships no desktop image today, so it has no distinct
-    // `_IMAGE`-suffixed selector to split; the generic one serves both kinds.
-    expect(providerImageEnvKey("freestyle", "desktop")).toBe("FREESTYLE_SANDBOX_SNAPSHOT");
-  });
-
-  test("the kind env var resolves a manifest image of that kind", () => {
-    expect(
-      resolveVmImage("freestyle", undefined, {
-        ...deployed,
-        FREESTYLE_SANDBOX_SNAPSHOT: "sh-fb3dcf7b47894114889b10186626af5b",
-      }, { kind: "base" }),
-    ).toMatchObject({
-      image: "sh-fb3dcf7b47894114889b10186626af5b",
-      imageVersion: "freestyle-cmux-devbox-beta1",
-      kind: "base",
-    });
+  test("FREESTYLE_SANDBOX_SNAPSHOT is ignored: only the manifest decides", () => {
+    // The env var used to select (and could override) the image. It no longer
+    // exists as far as the resolver is concerned: a stale value naming another
+    // manifest entry, or nothing in the manifest at all, changes nothing.
+    for (const stale of ["sh-fb3dcf7b47894114889b10186626af5b", "sh-ops-override", ""]) {
+      expect(
+        resolveVmImage("freestyle", undefined, { ...deployed, FREESTYLE_SANDBOX_SNAPSHOT: stale }, { kind: "base" }),
+      ).toMatchObject({ image: validatedSnapshot, imageVersion: validatedVersion, kind: "base" });
+      expect(resolveVmImage("freestyle", undefined, { FREESTYLE_SANDBOX_SNAPSHOT: stale })).toMatchObject({
+        image: validatedSnapshot,
+        imageVersion: validatedVersion,
+      });
+    }
   });
 
   test("an explicitly requested image of the wrong kind still errors", () => {
     const err = captureImageConfigError(() =>
-      resolveVmImage("freestyle", "sh-fb3dcf7b47894114889b10186626af5b", deployed, { kind: "desktop" }));
+      resolveVmImage("freestyle", validatedSnapshot, deployed, { kind: "desktop" }));
     expect(err.reason).toMatch(/base image, not a desktop image/);
   });
 
-  test("freestyle ships no desktop image, so every desktop request fails closed", () => {
-    // The desktop kind and its noVNC wrapper are kept as a seam for Freestyle
-    // desktop support; until an image exists, the request must 503 with a
-    // config error rather than silently serving a base machine.
-    for (const provider of ["freestyle"] as const) {
-      const err = captureImageConfigError(() =>
-        resolveVmImage(provider, undefined, deployed, { kind: "desktop" }),
-      );
-      expect(err).toMatchObject({ provider, kind: "desktop", source: "default" });
-    }
+  test("no desktop default is recorded yet, so a desktop request fails closed", () => {
+    // The desktop devbox is listed (validated) but not a default: it was baked
+    // on another Freestyle account. Until it is re-promoted under cmux's key,
+    // a desktop request must 503 with a config error rather than silently
+    // serving a base machine.
+    const err = captureImageConfigError(() =>
+      resolveVmImage("freestyle", undefined, deployed, { kind: "desktop" }),
+    );
+    expect(err).toMatchObject({ provider: "freestyle", kind: "desktop", source: "default" });
   });
 
-  test("freestyle has no usable image until the devbox snapshot is re-baked on the public platform", () => {
-    // The only freestyle manifest entry was baked against the retired
-    // beta-api endpoint and carries validationStatus "unknown", so it is
-    // neither a kind default nor a local-dev default. Creates fail closed.
-    const err = captureImageConfigError(() => resolveVmImage("freestyle", undefined, deployed));
-    expect(err).toMatchObject({
+  test("the committed manifest default serves base machines", () => {
+    // The manifest is the only source of truth: the entry flagged
+    // defaultForKind is what every runtime serves, deployed or local, and a
+    // request with neither image nor kind gets the base default too.
+    expect(resolveVmImage("freestyle", undefined, deployed, { kind: "base" })).toMatchObject({
       provider: "freestyle",
-      envVar: "FREESTYLE_SANDBOX_SNAPSHOT",
-      source: "env",
+      image: validatedSnapshot,
+      imageVersion: validatedVersion,
+      kind: "base",
     });
-    expect(captureImageConfigError(() => resolveVmImage("freestyle", undefined, {}))).toMatchObject({
-      provider: "freestyle",
-      reason: "no local default image is recorded for freestyle",
+    expect(listVmImageKinds("freestyle", deployed)).toEqual([{ kind: "base", image: validatedSnapshot }]);
+    expect(resolveVmImage("freestyle", undefined, {})).toMatchObject({
+      image: validatedSnapshot,
+      imageVersion: validatedVersion,
     });
-    expect(listVmImageKinds("freestyle", deployed)).toEqual([]);
+    expect(resolveVmImage("freestyle", undefined, deployed)).toMatchObject({
+      image: validatedSnapshot,
+      imageVersion: validatedVersion,
+      kind: "base",
+    });
   });
 
-  test("an operator-set freestyle snapshot still resolves, so a re-bake is env-only", () => {
-    expect(
-      resolveVmImage("freestyle", undefined, {
-        ...deployed,
-        FREESTYLE_SANDBOX_SNAPSHOT: "sh-fb3dcf7b47894114889b10186626af5b",
-      }),
-    ).toMatchObject({
-      provider: "freestyle",
-      image: "sh-fb3dcf7b47894114889b10186626af5b",
-      imageVersion: "freestyle-cmux-devbox-beta1",
+  test("an image listed under two kinds resolves to the entry of the requested kind", () => {
+    // A client-requested image, or the env selector, naming the shared
+    // desktop snapshot must not be rejected as "a desktop image, not a base image".
+    expect(resolveVmImage("freestyle", desktopSnapshot, deployed, { kind: "base" })).toMatchObject({
+      imageVersion: `${desktopVersion}-base`,
+      kind: "base",
     });
+    expect(resolveVmImage("freestyle", desktopSnapshot, deployed, { kind: "desktop" })).toMatchObject({
+      imageVersion: desktopVersion,
+      kind: "desktop",
+    });
+    expect(resolveVmImage("freestyle", desktopVersion, deployed, { kind: "desktop" })).toMatchObject({
+      image: desktopSnapshot,
+      kind: "desktop",
+    });
+    // Without a kind the first listing wins, and a stored image id reads as desktop.
+    expect(vmImageKindFor("freestyle", desktopSnapshot)).toBe("desktop");
   });
 
   test("rejects unknown kinds with an actionable error", () => {
@@ -99,39 +113,35 @@ describe("VM image resolver: request by kind", () => {
     expect(err).toMatchObject({ provider: "freestyle", kind: "gpu", source: "request" });
     expect(reportVmImageConfigError(err, deployed)).toMatchObject({
       message: 'Cloud VM image kind "gpu" is not supported.',
-      // Nothing is flagged defaultForKind and `deployed` sets no selector, so
-      // no kind is currently servable.
-      details: { imageRequested: false, kind: "gpu", source: "request", allowedKinds: [] },
+      // The manifest's base default is servable even with no selector set.
+      details: { imageRequested: false, kind: "gpu", source: "request", allowedKinds: ["base"] },
     });
   });
 
-  test("a kind with nothing configured names the env var and stays client-safe", () => {
+  test("a kind with no manifest default fails closed and stays client-safe", () => {
     const err = captureImageConfigError(() =>
       resolveVmImage("freestyle", undefined, deployed, { kind: "desktop" }),
     );
     expect(err).toMatchObject({
       provider: "freestyle",
-      envVar: "FREESTYLE_SANDBOX_SNAPSHOT",
       kind: "desktop",
       source: "default",
-      reason: "no desktop image is configured for freestyle: set FREESTYLE_SANDBOX_SNAPSHOT or record a desktop manifest default",
+      reason: "no desktop image is recorded as the manifest default for freestyle: promote one (bun run devbox:promote -- freestyle)",
     });
     const report = reportVmImageConfigError(err, deployed);
     expect(report.message).toBe("No desktop Cloud VM image is available in this environment.");
-    expect(report.action).toContain("available: none");
-    // Client-safe details name the kind and the source, never the env var or image ids.
+    expect(report.action).toContain("available: base");
+    // Client-safe details name the kind and the source, never image ids or manifest wording.
     expect(report.details).toEqual({
       imageRequested: false,
       kind: "desktop",
       source: "default",
-      allowedKinds: [],
+      allowedKinds: ["base"],
     });
-    expect(JSON.stringify(report.details)).not.toMatch(/FREESTYLE_|manifest\.json|sh-[a-z0-9]/);
+    expect(JSON.stringify(report.details)).not.toMatch(/FREESTYLE_|manifest|sh-[a-z0-9]/);
     // The operator log carries what the response may not.
-    expect(report.operator).toMatchObject({
-      provider: "freestyle",
-      envVar: "FREESTYLE_SANDBOX_SNAPSHOT",
-    });
+    expect(report.operator).toMatchObject({ provider: "freestyle", kind: "desktop" });
+    expect(report.operator.allowedImages).toContain(validatedSnapshot);
   });
 
   test("client-requested unknown images stay strict and report imageRequested", () => {
@@ -140,63 +150,29 @@ describe("VM image resolver: request by kind", () => {
     );
     expect(err).toMatchObject({ image: "cmuxd-ws:unlisted", source: "request" });
     const report = reportVmImageConfigError(err, deployed);
-    expect(report.details).toEqual({ imageRequested: true, kind: undefined, source: "request", allowedKinds: [] });
+    expect(report.details).toEqual({ imageRequested: true, kind: undefined, source: "request", allowedKinds: ["base"] });
     expect(report.message).toBe("The requested Cloud VM image is not available in this environment.");
     expect(report.operator).toMatchObject({ image: "cmuxd-ws:unlisted" });
   });
 
   test("derives a kind for stored images and lists the kinds a provider can serve", () => {
     // No manifest kind and no `xfce`/`devbox` in the id: the heuristic says base.
-    expect(vmImageKindFor("freestyle", "sh-fb3dcf7b47894114889b10186626af5b")).toBe("base");
+    expect(vmImageKindFor("freestyle", validatedSnapshot)).toBe("base");
 
-    // Nothing is flagged defaultForKind, so a kind only resolves from an env selector.
-    expect(listVmImageKinds("freestyle", deployed)).toEqual([]);
-    expect(listVmImageKinds("freestyle", { ...deployed, FREESTYLE_SANDBOX_SNAPSHOT: "sh-fb3dcf7b47894114889b10186626af5b" })).toEqual([
-      { kind: "base", image: "sh-fb3dcf7b47894114889b10186626af5b" },
-    ]);
+    // The base default is flagged in the manifest; the retired beta entry never is.
+    expect(listVmImageKinds("freestyle", deployed)).toEqual([{ kind: "base", image: validatedSnapshot }]);
+    expect(listVmImageKinds("freestyle", deployed).map((entry) => entry.image)).not.toContain("sh-fb3dcf7b47894114889b10186626af5b");
   });
 });
 
 describe("VM image resolver", () => {
-  test("freestyle has no local default until a validated snapshot lands in the manifest", () => {
-    // The only freestyle entry is defaultForLocalDev:false (baked on the
-    // retired beta endpoint), so local dev fails closed rather than booting it.
-    expect(() => resolveVmImage("freestyle", undefined, {})).toThrow(VmImageConfigError);
-    expect(captureImageConfigError(() => resolveVmImage("freestyle", undefined, {}))).toMatchObject({
+  test("local dev uses the manifest default", () => {
+    // `bun dev` boots the same validated image production does, with no env
+    // var to copy around.
+    expect(resolveVmImage("freestyle", undefined, {})).toMatchObject({
       provider: "freestyle",
-      envVar: "FREESTYLE_SANDBOX_SNAPSHOT",
-      reason: "no local default image is recorded for freestyle",
-    });
-  });
-
-  test("local dev resolves FREESTYLE_SANDBOX_SNAPSHOT even when unmanifested", () => {
-    expect(
-      resolveVmImage("freestyle", undefined, {
-        FREESTYLE_SANDBOX_SNAPSHOT: "sh-scratch",
-      }),
-    ).toMatchObject({
-      provider: "freestyle",
-      image: "sh-scratch",
-      imageVersion: null,
-      manifestEntry: null,
-    });
-  });
-
-  test("requires deployed env selectors", () => {
-    expect(() =>
-      resolveVmImage("freestyle", undefined, {
-        VERCEL: "1",
-        VERCEL_ENV: "preview",
-      }),
-    ).toThrow(VmImageConfigError);
-    expect(captureImageConfigError(() =>
-      resolveVmImage("freestyle", undefined, {
-        VERCEL: "1",
-        VERCEL_ENV: "preview",
-      }),
-    )).toMatchObject({
-      provider: "freestyle",
-      reason: "FREESTYLE_SANDBOX_SNAPSHOT is required in deployed environments",
+      image: validatedSnapshot,
+      imageVersion: validatedVersion,
     });
   });
 
@@ -207,40 +183,6 @@ describe("VM image resolver", () => {
         VERCEL_ENV: "production",
       }),
     ).toThrow(VmImageConfigError);
-  });
-
-  test("resolves deployed env selectors through the manifest", () => {
-    expect(
-      resolveVmImage("freestyle", undefined, {
-        VERCEL: "1",
-        VERCEL_ENV: "production",
-        FREESTYLE_SANDBOX_SNAPSHOT: "sh-fb3dcf7b47894114889b10186626af5b",
-      }),
-    ).toMatchObject({
-      provider: "freestyle",
-      image: "sh-fb3dcf7b47894114889b10186626af5b",
-      imageVersion: "freestyle-cmux-devbox-beta1",
-    });
-  });
-
-  test("accepts an env-configured image that is missing from the manifest", () => {
-    // Production drifted once: the provider's image selector named an image the
-    // manifest did not list, and every base open failed with imageRequested:
-    // true even though the client sent no image. Operator config wins; only
-    // client requests are strict.
-    expect(
-      resolveVmImage("freestyle", undefined, {
-        VERCEL: "1",
-        VERCEL_ENV: "production",
-        FREESTYLE_SANDBOX_SNAPSHOT: "sh-ops-override",
-      }),
-    ).toMatchObject({
-      provider: "freestyle",
-      image: "sh-ops-override",
-      imageVersion: null,
-      manifestEntry: null,
-      kind: "base",
-    });
   });
 
   test("permits unmanifested images only when explicitly allowed", () => {
@@ -261,11 +203,11 @@ describe("VM image resolver", () => {
 
 describe("provider inference from explicit images", () => {
   test("a manifest image id infers its provider", () => {
-    expect(inferVmProviderForImage("sh-fb3dcf7b47894114889b10186626af5b")).toBe("freestyle");
+    expect(inferVmProviderForImage(validatedSnapshot)).toBe("freestyle");
   });
 
   test("manifest versions infer their provider too", () => {
-    expect(inferVmProviderForImage("freestyle-cmux-devbox-beta1")).toBe("freestyle");
+    expect(inferVmProviderForImage(validatedVersion)).toBe("freestyle");
   });
 
   test("unknown or absent images infer nothing", () => {
