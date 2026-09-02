@@ -7698,6 +7698,46 @@ mod tests {
     }
 
     #[test]
+    fn agent_refresh_retains_updates_when_topology_temporarily_omits_surface() {
+        let tree = parse_tree(&json!({
+            "workspaces": [{
+                "id": 1,
+                "screens": [{
+                    "id": 2,
+                    "layout": {"type": "leaf", "pane": 3},
+                    "panes": [{
+                        "id": 3,
+                        "tabs": [{"surface": 4, "title": "agent terminal"}],
+                    }],
+                }],
+            }],
+        }));
+        let mut cache = RemoteTreeCache::default();
+        cache.replace(tree.clone(), 0);
+        let refresh_generation = cache.agent_generation();
+        let update = AgentInfo {
+            surface: 4,
+            state: "working".into(),
+            source: "hook".into(),
+            session: Some("review".into()),
+            updated_at_ms: 41,
+        };
+        cache.update_agent(update.clone());
+
+        // The tree response can lag the event stream and omit a live surface.
+        cache.replace(TreeView::default(), cache.title_generation());
+        cache.replace_agents(Vec::new(), refresh_generation);
+
+        assert_eq!(cache.agent_updates.get(&4).map(|pending| &pending.agent), Some(&update));
+
+        // A later topology response makes the pending event visible again.
+        cache.replace(tree, cache.title_generation());
+        cache.replace_agents(Vec::new(), refresh_generation);
+
+        assert_eq!(cache.agents, vec![update]);
+    }
+
+    #[test]
     fn browser_state_without_frame_keeps_cached_frame() {
         let surface = RemoteSurface {
             id: 1,
