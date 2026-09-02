@@ -827,6 +827,15 @@ mod tests {
     }
 
     #[test]
+    fn human_tables_pad_wide_cells_by_terminal_width() {
+        let output = human_text(&json!([
+            {"name":"界","value":"a"},
+            {"name":"x","value":"界"}
+        ]));
+        assert_eq!(output, "NAME  VALUE\n界    a\nx     界\n");
+    }
+
+    #[test]
     fn human_single_array_wrappers_use_the_same_table() {
         let output = human_text(&json!({
             "workspaces": [

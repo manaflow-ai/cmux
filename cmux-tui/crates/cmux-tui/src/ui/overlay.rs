@@ -702,8 +702,9 @@ fn label_width(label: &str) -> u16 {
 #[cfg(test)]
 mod tests {
     use cmux_tui_core::Rect;
+    use unicode_width::UnicodeWidthStr;
 
-    use super::toast_rect_for_label;
+    use super::{label_width, toast_rect_for_label, wrapped_message_lines};
     use crate::localization::catalog_for_locale;
 
     #[test]
@@ -718,5 +719,13 @@ mod tests {
             toast_rect_for_label(Rect { x: 10, y: 2, width: 10, height: 5 }, " 界 "),
             Some(Rect { x: 16, y: 5, width: 3, height: 1 })
         );
+    }
+
+    #[test]
+    fn overlay_labels_and_wrapping_use_terminal_cell_width() {
+        assert_eq!(label_width(" 界 "), 4);
+        let lines = wrapped_message_lines("界界界", 4, 2);
+        assert_eq!(lines, vec!["界界", "界"]);
+        assert!(lines.iter().all(|line| line.width() <= 4));
     }
 }

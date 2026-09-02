@@ -786,6 +786,12 @@ mod tests {
     }
 
     #[test]
+    fn middle_truncation_respects_graphemes_and_terminal_cells() {
+        assert_eq!(middle_truncate("界界界界", 7), "界...界");
+        assert_eq!(middle_truncate("e\u{301}clair", 5), "e\u{301}...r");
+    }
+
+    #[test]
     fn truncation_uses_terminal_cell_width_and_preserves_graphemes() {
         assert_eq!(truncate("復元失敗", 5), "復元…");
         assert_eq!(truncate("e\u{301}clair", 2), "e\u{301}…");

@@ -5869,6 +5869,7 @@ fn overlay_ghostty_defaults(defaults: &mut DefaultColors, overrides: DefaultColo
 mod tests {
     use super::*;
     use std::cell::{Cell, RefCell};
+    use unicode_width::UnicodeWidthStr;
 
     #[test]
     fn config_diagnostics_do_not_echo_parser_details() {
@@ -9095,6 +9096,18 @@ mod tests {
             })
             .collect();
         assert_eq!(resolve_status_segments(overflow, "left").len(), MAX_STATUS_SEGMENTS);
+    }
+
+    #[test]
+    fn status_text_cap_uses_terminal_cells_without_splitting_graphemes() {
+        let text = format!("{}e\u{301}abc", "界".repeat(130));
+        let raw = vec![RawStatusSegment { text: Some(text), ..RawStatusSegment::default() }];
+        let resolved = resolve_status_segments(raw, "left");
+        let StatusSegmentContent::Text(text) = &resolved[0].content else {
+            panic!("literal status text did not resolve as text");
+        };
+        assert_eq!(text.width(), MAX_STATUS_SEGMENT_TEXT);
+        assert_eq!(text, &"界".repeat(MAX_STATUS_SEGMENT_TEXT / 2));
     }
 
     #[test]
