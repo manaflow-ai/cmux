@@ -130,10 +130,8 @@ struct GhosttyDrawableSizeRetryTests {
         // not committed its final pane frame yet, so this callback must keep
         // the last drawable epoch instead of publishing targetSize early.
         hostedView.frame.size = targetSize
-        _ = surfaceView.debugUpdateSurfaceSizeForTesting(
-            targetSize,
-            bypassLiveResizeCoalescing: true
-        )
+        surfaceView.frame.size = targetSize
+        surfaceView.viewDidEndLiveResize()
 
         #expect(
             surfaceView.debugLastDrawableSizeForTesting() == initialDrawableSize,
