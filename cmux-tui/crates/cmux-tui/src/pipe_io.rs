@@ -455,6 +455,18 @@ mod tests {
     }
 
     #[test]
+    fn parse_request_rejects_oversized_lines_and_input_before_decoding() {
+        let oversized_line = " ".repeat(MAX_PIPE_IO_LINE_BYTES + 1);
+        let error = parse_request(&oversized_line).unwrap_err().to_string();
+        assert!(error.contains("request line exceeds"), "{error}");
+
+        let oversized_base64 = "A".repeat(MAX_PIPE_IO_BASE64_BYTES + 4);
+        let line = format!(r#"{{"input":"{oversized_base64}"}}"#);
+        let error = parse_request(&line).unwrap_err().to_string();
+        assert!(error.contains("input exceeds"), "{error}");
+    }
+
+    #[test]
     fn exit_reasons_map_to_the_respawn_contract() {
         assert_eq!(PipeIoExitReason::TerminalEnded.exit_code(), EXIT_DO_NOT_RESPAWN);
         assert_eq!(PipeIoExitReason::ParentClosed.exit_code(), EXIT_DO_NOT_RESPAWN);
