@@ -1115,10 +1115,14 @@ jobs:
             keychains=()
             while IFS= read -r entry; do
               # `security list-keychains` prints one quoted path per line.
-              entry="${entry#\"}"
-              entry="${entry%\"}"
+              # Trim indentation before removing the surrounding quotes. The
+              # command emits four leading spaces on macOS.
               entry="${entry#"${entry%%[![:space:]]*}"}"
               entry="${entry%"${entry##*[![:space:]]}"}"
+              if [[ "$entry" == \"* && "$entry" == *\" ]]; then
+                entry="${entry#\"}"
+                entry="${entry%\"}"
+              fi
               [[ -n "$entry" ]] && keychains+=("$entry")
             done < "$backup"
             if ((${#keychains[@]} > 0)); then
