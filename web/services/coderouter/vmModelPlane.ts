@@ -7,12 +7,12 @@
 // placeholder key. coderouter rejects the token when the injected VM id
 // differs from the binding, so a rule cannot be reused for another machine.
 //
-// Provisioning is mandatory: a coderouter outage or an entitlement block
-// fails the create and the workflow rolls the machine back. The only
-// exception is the local-dev kill switch CMUX_VM_CODEROUTER_ENV_ENABLED=0,
-// which creates an unwired machine (no env, no rule, still no secret). Never
-// set it in production. Tokens never rotate; destroy revokes them.
-import { coderouterEntitlement } from "./entitlement";
+// Provisioning is mandatory: a coderouter outage fails the create and the
+// workflow rolls the machine back. There is no plan or entitlement gate;
+// every team member's machine gets a token. The only exception is the
+// local-dev kill switch CMUX_VM_CODEROUTER_ENV_ENABLED=0, which creates an
+// unwired machine (no env, no rule, still no secret). Never set it in
+// production. Tokens never rotate; destroy revokes them.
 import { issueRouteToken, revokeRouteTokensForVm } from "./repository";
 import { ROUTE_TOKEN_HEADER, VM_ID_HEADER, VM_PLACEHOLDER_API_KEY } from "./routeTokenAuth";
 import type { VmEdgeRule } from "../vms/drivers/types";
@@ -35,17 +35,6 @@ export type VmModelPlaneProvision = {
   readonly edgeRules: readonly VmEdgeRule[];
 };
 
-/** The team's hosted entitlement blocks token issuance. Not retryable. */
-export class VmModelPlaneEntitlementError extends Error {
-  constructor(
-    public readonly teamId: string,
-    public readonly basis: string,
-  ) {
-    super(`coderouter entitlement blocks Cloud VM model-plane provisioning for team ${teamId} (${basis})`);
-    this.name = "VmModelPlaneEntitlementError";
-  }
-}
-
 /** Token issuance or its prerequisites failed (database, config). Retryable. */
 export class VmModelPlaneUnavailableError extends Error {
   constructor(message: string, public readonly cause?: unknown) {
@@ -57,8 +46,6 @@ export class VmModelPlaneUnavailableError extends Error {
 export type VmModelPlaneDependencies = {
   readonly issueToken: typeof issueRouteToken;
   readonly revokeTokensForVm: typeof revokeRouteTokensForVm;
-  readonly entitlement: typeof coderouterEntitlement;
-  readonly hostedProRequired: () => boolean;
   /** The raw CMUX_CODEROUTER_EDGE_ORIGIN value; validated by {@link coderouterEdgeOrigin}. */
   readonly edgeOriginEnv: () => string | undefined;
   /** Vercel deployment facts: a preview serves itself as the edge origin. */
@@ -73,8 +60,6 @@ export const VERCEL_BYPASS_HEADER = "x-vercel-protection-bypass";
 const defaultDependencies: VmModelPlaneDependencies = {
   issueToken: issueRouteToken,
   revokeTokensForVm: revokeRouteTokensForVm,
-  entitlement: coderouterEntitlement,
-  hostedProRequired: () => process.env.CODEROUTER_HOSTED_PRO_REQUIRED === "1",
   edgeOriginEnv: () => process.env[CODEROUTER_EDGE_ORIGIN_ENV],
   vercelEnv: () => process.env.VERCEL_ENV,
   vercelBranchUrl: () => process.env.VERCEL_BRANCH_URL,
@@ -160,9 +145,8 @@ export function vmModelPlaneEnvs(origin: string, cloudVmId: string): Record<stri
 
 /**
  * Mint the machine's route token and build its edge rule and env. Throws
- * {@link VmModelPlaneEntitlementError} when the team's hosted entitlement
- * blocks issuance and {@link VmModelPlaneUnavailableError} for everything
- * else; callers fail the create on either.
+ * {@link VmModelPlaneUnavailableError} on any failure; callers fail the
+ * create on it.
  */
 export async function provisionVmModelPlane(
   input: VmModelPlaneInput,
@@ -173,17 +157,6 @@ export async function provisionVmModelPlane(
     origin = resolveEdgeOrigin(dependencies);
   } catch (err) {
     throw new VmModelPlaneUnavailableError(errorMessage(err), err);
-  }
-  if (dependencies.hostedProRequired()) {
-    let entitlement: Awaited<ReturnType<typeof coderouterEntitlement>>;
-    try {
-      entitlement = await dependencies.entitlement(input.stackUserId, input.teamId);
-    } catch (err) {
-      throw new VmModelPlaneUnavailableError(`coderouter entitlement check failed: ${errorMessage(err)}`, err);
-    }
-    if (!entitlement.allowed) {
-      throw new VmModelPlaneEntitlementError(input.teamId, entitlement.basis);
-    }
   }
   let token: string;
   try {

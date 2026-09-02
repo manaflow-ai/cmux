@@ -229,6 +229,20 @@ describe("required runtime env keys cover the production provider path", () => {
     }
   });
 
+  test("retired subrouter and coderouter access-gate keys are flagged as legacy, not demanded", () => {
+    // Access is team membership only; the runtime ignores these keys, so the
+    // audit must tell operators to delete them rather than ask for them.
+    for (const key of [
+      "SUBROUTER_ENFORCE_STACK_PERMISSIONS",
+      "SUBROUTER_ALLOWED_TEAM_IDS",
+      "CODEROUTER_HOSTED_PRO_REQUIRED",
+    ]) {
+      expect(requiredRuntimeEnvKeys).not.toContain(key);
+      expect(recommendedRuntimeEnvKeys).not.toContain(key);
+      expect(legacyCloudVmEnvKeys).toContain(key);
+    }
+  });
+
   test("the free-provisioning escape hatch is never required or recommended", () => {
     // Unset is the safe value; listing it for presence would nudge operators
     // into setting it. Its VALUE is audited instead (see below).

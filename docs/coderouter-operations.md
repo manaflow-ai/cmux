@@ -5,6 +5,14 @@ latency evidence, and privacy-safe observability. Never paste route tokens,
 OAuth credentials, request bodies, email addresses, or provider-account IDs
 into tickets, logs, Sentry, PostHog, or ClickHouse.
 
+## Access
+
+Hosted coderouter and Subrouter are open to every signed-in user in every
+team they belong to, including the personal team. Membership is the only
+requirement: there is no Stack permission, team allow-list, or paid-plan
+gate, and no connected-account cap. Route sessions and provider accounts are
+scoped to the team the caller selects; a non-member gets `team_not_found`.
+
 ## Stripe webhook replay
 
 1. Identify the failed Stripe event and the production `cmux.com` webhook

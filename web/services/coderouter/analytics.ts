@@ -16,7 +16,6 @@ import {
 
 export type CoderouterAnalyticsEvent =
   | "coderouter_account_added"
-  | "coderouter_account_limit_reached"
   | "coderouter_account_removed"
   | "coderouter_account_status_viewed"
   | "coderouter_auth_rejected"
@@ -181,7 +180,6 @@ async function deliver(
 
 function eventNeedsUserScope(event: CoderouterAnalyticsEvent): boolean {
   return event === "coderouter_account_added" ||
-    event === "coderouter_account_limit_reached" ||
     event === "coderouter_account_removed" ||
     event === "coderouter_route_session_issued" ||
     event === "coderouter_route_session_revoked" ||
@@ -201,15 +199,6 @@ function eventProperties(
         return null;
       }
       return { provider, source, already_exists: input.already_exists };
-    }
-    case "coderouter_account_limit_reached": {
-      const provider = accountProvider(input.provider);
-      if (!provider) return null;
-      return {
-        provider,
-        account_count_bucket: countBucket(input.account_count),
-        free_limit: typeof input.free_limit === "number" ? input.free_limit : 0,
-      };
     }
     case "coderouter_account_removed": {
       const source = lifecycleSource(input.source);
@@ -235,20 +224,7 @@ function eventProperties(
       const reason = authReason(input.reason);
       return surface && reason ? { surface, reason } : null;
     }
-    case "coderouter_route_session_issued": {
-      if (typeof input.hosted_pro_required !== "boolean") return null;
-      const output: Record<string, AnalyticsScalar> = {
-        hosted_pro_required: input.hosted_pro_required,
-      };
-      const basis = enumValue(input.entitlement_basis, [
-        "free_tier",
-        "subscription",
-        "pro_required",
-        "ungated",
-      ]);
-      if (basis) output.entitlement_basis = basis;
-      return output;
-    }
+    case "coderouter_route_session_issued":
     case "coderouter_route_session_revoked":
       return {};
     case "coderouter_organization_catalog_viewed":

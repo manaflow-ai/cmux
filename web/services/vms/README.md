@@ -434,10 +434,12 @@ succeeds. Node harnesses (Claude Code, pi) need `NODE_EXTRA_CA_CERTS`, which
 `agent-config.sh` exports when the platform CA file exists.
 
 Provisioning is mandatory: a coderouter outage fails the create with
-`vm_model_plane_unavailable` (503, retryable) and an entitlement block with
-`vm_model_plane_entitlement` (402); both refund the create credit, mark the row failed with
-`model_plane_unavailable`/`model_plane_entitlement` (same-key retries reach provisioning
-again), and create no provider machine. Tokens never rotate; `destroyVm`, account deletion,
+`vm_model_plane_unavailable` (503, retryable), refunds the create credit, marks the row failed
+with `model_plane_unavailable` (same-key retries reach provisioning again), and creates no
+provider machine. There is no coderouter plan or entitlement gate on the model plane: access to
+coderouter and Subrouter is team membership only, so every member of the billing team gets a
+token. Rows written by the retired gate still carry `model_plane_entitlement` and stay
+retryable. Tokens never rotate; `destroyVm`, account deletion,
 the status reconcile cron, and every create rollback revoke them best-effort.
 `CMUX_VM_CODEROUTER_ENV_ENABLED=0` is a local-dev escape hatch only: it creates an unwired
 machine (no env, no rule, still no secret) and must never be set in production.

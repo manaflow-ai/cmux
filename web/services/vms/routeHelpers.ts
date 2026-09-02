@@ -482,31 +482,15 @@ export function vmCreateLikeErrorResponse(
   return null;
 }
 
-export const CODEROUTER_UPGRADE_URL = "https://coderouter.dev";
-
 /**
  * The machine could not be wired to coderouter, so no provider machine was
- * created. `unavailable` is a coderouter outage (retry); `entitlement` is the
- * team's coderouter plan (fix at coderouter.dev, then retry).
+ * created. Every model-plane failure is a coderouter outage (retry); there
+ * is no plan gate on the model plane.
  */
 export function vmModelPlaneErrorResponse(
-  err: VmModelPlaneError,
+  _err: VmModelPlaneError,
   phase: "create" | VmCreateLikeOperation = "create",
 ): Response {
-  if (err.kind === "entitlement") {
-    return vmErrorResponse({
-      error: "vm_model_plane_entitlement",
-      status: 402,
-      message: "This team's coderouter plan does not include model access for Cloud VMs.",
-      reason: "coderouter blocked model access for this team.",
-      action: `Upgrade coderouter for this team at ${CODEROUTER_UPGRADE_URL}, then retry.`,
-      phase,
-      retryable: false,
-      displayTitle: "coderouter upgrade required",
-      extra: { upgradeRequired: true, upgradeUrl: CODEROUTER_UPGRADE_URL },
-      details: { upgradeRequired: true, upgradeUrl: CODEROUTER_UPGRADE_URL },
-    });
-  }
   return vmErrorResponse({
     error: "vm_model_plane_unavailable",
     status: 503,

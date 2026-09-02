@@ -3,7 +3,6 @@
 // the caller's billing team and hand it to createVm/restoreVm; destroy paths
 // hand over the revoker only.
 import {
-  VmModelPlaneEntitlementError,
   provisionVmModelPlane,
   revokeVmModelPlane,
   vmModelPlaneEnabled,
@@ -42,11 +41,8 @@ export function vmModelPlaneGatewayFor(input: {
           cloudVmId,
         });
       } catch (cause) {
-        const kind = cause instanceof VmModelPlaneEntitlementError ? "entitlement" : "unavailable";
-        if (kind === "unavailable") {
-          captureCoderouterError(cause, { operation: "provision_vm_model_plane", vmId: cloudVmId });
-        }
-        throw new VmModelPlaneError({ kind, cause });
+        captureCoderouterError(cause, { operation: "provision_vm_model_plane", vmId: cloudVmId });
+        throw new VmModelPlaneError({ kind: "unavailable", cause });
       }
     },
     revoke: revokeVmModelPlaneTokens,

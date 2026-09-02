@@ -20,10 +20,6 @@ const USER: AuthedUser = {
   teamIds: ["selected-team-id"],
       userBillingPlanId: null,
       billingPlanId: null,
-      resolveSubrouterPermissions: async () => ({
-        use: false,
-        manageAccounts: false,
-      }),
 };
 
 describe("Iroh route boundary", () => {

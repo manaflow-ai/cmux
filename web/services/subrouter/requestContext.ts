@@ -39,7 +39,6 @@ export type SubrouterRequestContext = {
 export async function resolveSubrouterRequestContext(
   request: Request,
   options: {
-    readonly permission?: "use" | "manage" | "use-or-manage";
     readonly allowCookie?: boolean;
   } = {},
 ): Promise<
@@ -66,20 +65,10 @@ export async function resolveSubrouterRequestContext(
         };
       }
 
-      const team = await resolveTeam(request, user);
+      // Membership is the only requirement; resolveTeam already rejected
+      // non-members with team_not_found.
+      const team = resolveTeam(request, user);
       if (!team.ok) return team;
-      const permission = options.permission ?? "use";
-      const permitted = permission === "manage"
-        ? team.manageAccounts
-        : permission === "use-or-manage"
-        ? team.use || team.manageAccounts
-        : team.use;
-      if (!permitted) {
-        return {
-          ok: false,
-          response: jsonResponse({ error: "forbidden" }, 403),
-        };
-      }
 
       let hostedCutoverReady: boolean;
       try {

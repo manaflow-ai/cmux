@@ -20,10 +20,6 @@ const USER: AuthedUser = {
   teamIds: [],
   userBillingPlanId: null,
   billingPlanId: null,
-  resolveSubrouterPermissions: async () => ({
-    use: false,
-    manageAccounts: false,
-  }),
 };
 
 const snapshot = {

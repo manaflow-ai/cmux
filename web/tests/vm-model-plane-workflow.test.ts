@@ -241,8 +241,8 @@ describe("createVm model plane", () => {
     expect(creates[0]?.edgeRules).toBeUndefined();
   });
 
-  for (const kind of ["entitlement", "unavailable"] as const) {
-    test(`a ${kind} failure refunds, marks the row, records the event, and never calls the provider`, async () => {
+  test("an unavailable failure refunds, marks the row, records the event, and never calls the provider", async () => {
+    const kind = "unavailable" as const;
     const code = VM_MODEL_PLANE_FAILURE_CODES[kind];
     const usageEvents: UsageEvent[] = [];
     const failed: CreateFailed[] = [];
@@ -268,8 +268,7 @@ describe("createVm model plane", () => {
     const failedEvent = usageEvents.find((event) => event.eventType === "vm.create.failed");
     expect(failedEvent?.metadata).toEqual({ operation: "model_plane_provision", kind, message: `coderouter ${kind}` });
     expect(revoked).toEqual([]);
-    });
-  }
+  });
 
   test("an untyped provisioner rejection is treated as coderouter unavailable", async () => {
     const failed: CreateFailed[] = [];
@@ -449,19 +448,6 @@ describe("model-plane error responses", () => {
     const restore = vmCreateLikeErrorResponse(err, { operation: "restore", planId: "pro", retryAction: "unused" });
     expect(restore?.status).toBe(503);
     expect(await restore!.json()).toMatchObject({ error: "vm_model_plane_unavailable", phase: "restore" });
-  });
-
-  test("entitlement maps to a 402 pointing at coderouter.dev", async () => {
-    const err = new VmModelPlaneError({ kind: "entitlement", cause: new Error("pro_required") });
-    const response = await vmWorkflowErrorResponse(err);
-    expect(response?.status).toBe(402);
-    expect(await response!.json()).toMatchObject({
-      error: "vm_model_plane_entitlement",
-      retryable: false,
-      upgradeRequired: true,
-      upgradeUrl: "https://coderouter.dev",
-    });
-    expect((await vmWorkflowErrorResponse(err))!.headers.get("retry-after")).toBeNull();
   });
 
   test("the workflow error unwraps from an Effect failure like every other tag", () => {

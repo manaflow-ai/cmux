@@ -3,7 +3,6 @@ import {
   CODEROUTER_EDGE_ORIGIN_ENV,
   DEFAULT_CODEROUTER_EDGE_ORIGIN,
   VM_ROUTE_TOKEN_LABEL,
-  VmModelPlaneEntitlementError,
   VmModelPlaneUnavailableError,
   coderouterEdgeOrigin,
   provisionVmModelPlane,
@@ -21,6 +20,7 @@ import {
 // in its env, and ONE edge rule that injects a route token bound to the VM
 // row id. The token never appears in the env. Provisioning failures are
 // typed so the workflow fails the create instead of shipping an unwired box.
+// There is no plan or entitlement gate: every team gets a token.
 
 const INPUT = { teamId: "team-1", stackUserId: "user-1", cloudVmId: "11111111-2222-4333-8444-555555555555" };
 
@@ -28,8 +28,6 @@ function deps(overrides: Partial<VmModelPlaneDependencies> = {}): VmModelPlaneDe
   return {
     issueToken: async () => ({ token: "crt_test-token", expiresAt: new Date(0) }),
     revokeTokensForVm: async () => undefined,
-    entitlement: async () => ({ allowed: true, basis: "free_tier", accountCount: 0 }),
-    hostedProRequired: () => false,
     edgeOriginEnv: () => undefined,
     vercelEnv: () => undefined,
     vercelBranchUrl: () => undefined,
@@ -106,56 +104,13 @@ describe("provisionVmModelPlane", () => {
     expect(issued).toBe(0);
   });
 
-  test("a blocked hosted entitlement is a typed entitlement failure and issues nothing", async () => {
-    let issued = 0;
-    const failure = await provisionVmModelPlane(
-      INPUT,
-      deps({
-        hostedProRequired: () => true,
-        entitlement: async () => ({ allowed: false, basis: "pro_required", accountCount: 9 }),
-        issueToken: async () => {
-          issued += 1;
-          return { token: "crt_x", expiresAt: new Date(0) };
-        },
-      }),
-    ).catch((err: unknown) => err);
-    expect(failure).toBeInstanceOf(VmModelPlaneEntitlementError);
-    expect((failure as VmModelPlaneEntitlementError).teamId).toBe("team-1");
-    expect(issued).toBe(0);
-  });
-
-  test("skips the entitlement read when hosted gating is off", async () => {
-    let entitlementCalls = 0;
-    await provisionVmModelPlane(
-      INPUT,
-      deps({
-        entitlement: async () => {
-          entitlementCalls += 1;
-          return { allowed: true, basis: "free_tier", accountCount: 0 };
-        },
-      }),
-    );
-    expect(entitlementCalls).toBe(0);
-  });
-
-  test("token issue and entitlement infrastructure errors are typed unavailable failures", async () => {
+  test("a token issue infrastructure error is a typed unavailable failure", async () => {
     await expect(
       provisionVmModelPlane(
         INPUT,
         deps({
           issueToken: async () => {
             throw new Error("db down");
-          },
-        }),
-      ),
-    ).rejects.toBeInstanceOf(VmModelPlaneUnavailableError);
-    await expect(
-      provisionVmModelPlane(
-        INPUT,
-        deps({
-          hostedProRequired: () => true,
-          entitlement: async () => {
-            throw new Error("stripe down");
           },
         }),
       ),

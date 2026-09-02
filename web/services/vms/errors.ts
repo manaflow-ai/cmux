@@ -130,16 +130,21 @@ export class VmAccountDeletionIdentityRevocationError extends Data.TaggedError(
 
 /**
  * Why the machine's coderouter model plane could not be provisioned.
- * `entitlement`: the billing team's hosted entitlement blocks token issuance
- * (402, fix the plan). `unavailable`: coderouter itself failed (503, retry).
+ * `unavailable`: coderouter itself failed (503, retry). There is no plan or
+ * entitlement gate on the model plane.
  */
-export type VmModelPlaneFailureKind = "entitlement" | "unavailable";
+export type VmModelPlaneFailureKind = "unavailable";
 
 /** Failure codes stored on the VM row for each {@link VmModelPlaneFailureKind}. */
 export const VM_MODEL_PLANE_FAILURE_CODES = {
-  entitlement: "model_plane_entitlement",
   unavailable: "model_plane_unavailable",
 } as const satisfies Record<VmModelPlaneFailureKind, string>;
+
+/**
+ * Failure code written by the retired coderouter entitlement gate. Rows that
+ * carry it still exist; a same-key create retry must reach provisioning again.
+ */
+export const LEGACY_MODEL_PLANE_ENTITLEMENT_FAILURE_CODE = "model_plane_entitlement";
 
 /**
  * The create was refused before any provider call because the machine could

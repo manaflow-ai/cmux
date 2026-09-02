@@ -1102,30 +1102,6 @@ describe("VM REST auth", () => {
     expectNoCloudVmImplementationLeaks(payload);
   });
 
-  test("maps a coderouter entitlement block during create to a 402 upgrade response", async () => {
-    getUser.mockResolvedValue(authedStackUser());
-    rejectRunVmWorkflowWith(new VmModelPlaneError({ kind: "entitlement", cause: new Error("pro_required") }));
-
-    const response = await POST(
-      new Request("https://cmux.test/api/vm", {
-        method: "POST",
-        headers: { "idempotency-key": "idem-model-plane-402", origin: "https://cmux.test" },
-        body: JSON.stringify({ provider: "freestyle", image: "snapshot-test" }),
-      }),
-    );
-
-    expect(response.status).toBe(402);
-    const payload = await response.json();
-    expect(payload).toMatchObject({
-      error: "vm_model_plane_entitlement",
-      retryable: false,
-      upgradeRequired: true,
-      upgradeUrl: "https://coderouter.dev",
-    });
-    expect(payload.action).toContain("https://coderouter.dev");
-    expectNoCloudVmImplementationLeaks(payload);
-  });
-
   test("credit exhaustion on user-scoped billing names the account, not a team", async () => {
     getUser.mockResolvedValue({
       id: "user-1",

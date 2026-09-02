@@ -51,7 +51,7 @@ export function makeClaudeUpstreamHandlers(
   }
 
   async function PUT(request: Request): Promise<Response> {
-    const resolved = await dependencies.resolveContext(request, "manage");
+    const resolved = await dependencies.resolveContext(request);
     if (!resolved.ok) return resolved.response;
     const length = Number(request.headers.get("content-length") ?? "0");
     if (Number.isFinite(length) && length > MAX_BODY_BYTES) {
@@ -97,7 +97,7 @@ export function makeClaudeUpstreamHandlers(
   }
 
   async function DELETE(request: Request): Promise<Response> {
-    const resolved = await dependencies.resolveContext(request, "manage");
+    const resolved = await dependencies.resolveContext(request);
     if (!resolved.ok) return resolved.response;
     const teamId = resolved.value.team.teamId;
     let result;

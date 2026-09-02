@@ -279,10 +279,6 @@ const testUser: AuthedUser = {
   teamIds: [],
       userBillingPlanId: null,
       billingPlanId: null,
-      resolveSubrouterPermissions: async () => ({
-        use: false,
-        manageAccounts: false,
-      }),
 };
 
 function latestVaultTestSpan() {
