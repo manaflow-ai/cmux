@@ -4,6 +4,12 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 import {
+  ALERT_SINK_KEY,
+  ALERT_SINK_UNCONFIGURED_ACK_KEY,
+  alertSinkAuditEnvKeys,
+  auditAlertSink,
+} from "../scripts/cloud-vm/alertSinkAudit.mjs";
+import {
   auditCloudVmProviderCoherence,
   auditProviderReadiness,
   CODE_DEFAULT_PROVIDER,
@@ -220,6 +226,60 @@ describe("required runtime env keys cover the production provider path", () => {
       expect(requiredRuntimeEnvKeys).not.toContain(key);
       expect(recommendedRuntimeEnvKeys).not.toContain(key);
     }
+  });
+
+  test("the alert-sink acknowledgement is never required or recommended", () => {
+    for (const key of alertSinkAuditEnvKeys) {
+      expect(requiredRuntimeEnvKeys).not.toContain(key);
+      expect(recommendedRuntimeEnvKeys).not.toContain(key);
+    }
+  });
+});
+
+describe("alert sink audit", () => {
+  const webhook = "https://hooks.slack.com/services/T0/B0/x";
+  const ack = "no Slack webhook provisioned; dropped alerts reach Sentry/PostHog. lawrence 2026-09-01";
+
+  test("a configured sink waives nothing and has no problems", () => {
+    const result = auditAlertSink({ [ALERT_SINK_KEY]: webhook });
+    expect(result.configured).toBe(true);
+    expect(result.acknowledged).toBe(false);
+    expect(result.waivedRequiredKeys).toEqual([]);
+    expect(result.problems).toEqual([]);
+  });
+
+  test("neither key waives nothing, so the sink stays missing-required", () => {
+    const result = auditAlertSink({});
+    expect(result.configured).toBe(false);
+    expect(result.waivedRequiredKeys).toEqual([]);
+    expect(result.problems).toEqual([]);
+  });
+
+  test("a recorded acknowledgement waives the sink and exposes the reason", () => {
+    const result = auditAlertSink({ [ALERT_SINK_UNCONFIGURED_ACK_KEY]: ` ${ack} ` });
+    expect(result.acknowledged).toBe(true);
+    expect(result.reason).toBe(ack);
+    expect(result.waivedRequiredKeys).toEqual([ALERT_SINK_KEY]);
+    expect(result.problems).toEqual([]);
+  });
+
+  test("an empty or Sensitive acknowledgement fails instead of waiving", () => {
+    for (const value of ["", "   ", "[SENSITIVE]"]) {
+      const result = auditAlertSink({ [ALERT_SINK_UNCONFIGURED_ACK_KEY]: value });
+      expect(result.waivedRequiredKeys).toEqual([]);
+      expect(result.problems.length).toBe(1);
+      expect(result.problems[0]).toContain(ALERT_SINK_UNCONFIGURED_ACK_KEY);
+    }
+  });
+
+  test("an acknowledgement next to a configured sink is a stale-config problem", () => {
+    const result = auditAlertSink({
+      [ALERT_SINK_KEY]: webhook,
+      [ALERT_SINK_UNCONFIGURED_ACK_KEY]: ack,
+    });
+    expect(result.configured).toBe(true);
+    expect(result.waivedRequiredKeys).toEqual([]);
+    expect(result.problems.join("\n")).toContain("stale");
   });
 });
 
