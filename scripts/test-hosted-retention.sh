@@ -91,7 +91,7 @@ run_retention() {
   CMUX_TEST_LSOF_MODE="${test_lsof_mode:-inactive}" \
   CMUX_TEST_ACTIVE_COMMIT="${test_active_commit:-}" \
   CMUX_TEST_STAT_MODE="${test_stat_mode:-gnu}" \
-  cmux_hosted_retention_run "$test_root" "$test_current_commit"
+  cmux_hosted_retention_run "$test_root/$test_current_commit" "$test_current_commit"
 }
 
 expect_success() {
@@ -254,6 +254,21 @@ test_active_commit="$active_commit"
 expect_success
 assert_exists "$active_commit"
 assert_missing "$old_commit"
+
+# A symlinked cleanup binary can make lsof report its target outside the
+# artifact tree. Fail closed instead of deleting that artifact when another
+# candidate produces a valid activity record.
+make_baseline
+mv "$test_root/$old_commit/cmux-tui" "$tmp/external-binary"
+ln -s "$tmp/external-binary" "$test_root/$old_commit/cmux-tui"
+expect_success
+test_dry_run=0
+test_confirm=1
+test_lsof_mode=active
+test_active_commit="$active_commit"
+expect_failure 2
+assert_exists "$old_commit"
+assert_exists "$active_commit"
 
 # The candidate scan has a hard upper bound, so sorting cannot grow without
 # limit when a cache was never cleaned by an older script.
