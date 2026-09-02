@@ -158,6 +158,111 @@
         "ja": { "stringUnit": { "state": "translated", "value": "「Macをスリープさせない」はまだ利用できません。" } }
       }
     },
+    "caffeine.error.invalidLockScreen": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "lock_screen must be true or false." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "lock_screen には true か false を指定してください。" } }
+      }
+    },
+    "cli.caffeinate.error.tooManyArguments": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "caffeinate takes one subcommand: status, on, off, or toggle" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "caffeinate のサブコマンドは status、on、off、toggle のいずれか1つです" } }
+      }
+    },
+    "cli.caffeinate.error.statusLockScreen": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "caffeinate status doesn't take lock-screen/lock-mac flags" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "caffeinate status に lock-screen/lock-mac 系フラグは指定できません" } }
+      }
+    },
+    "caffeine.error.invalidLockMac": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "lock_mac must be true or false." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "lock_mac には true か false を指定してください。" } }
+      }
+    },
+    "sleepyMode.settings.lockMacWhenKeepingAwake": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Lock Mac while Keep Mac Awake is on" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "「Macをスリープさせない」中にMacをロック" } }
+      }
+    },
+    "sleepyMode.settings.lockMacWhenKeepingAwake.subtitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Also engages the real macOS login lock, so Touch ID or your password is required to get back in. The Mac keeps running behind the lock." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "本物の macOS ログインロックも同時にかけるため、復帰には Touch ID かパスワードが必要になります。ロック中も Mac は動作し続けます。" } }
+      }
+    },
+    "cli.caffeinate.error.unknownFlag": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "caffeinate: unknown flag '%@'. Flags: --lock-screen, --no-lock-screen, --lock-mac, --json" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "caffeinate: 不明なフラグ「%@」。使用できるフラグ: --lock-screen、--no-lock-screen、--lock-mac、--json" } }
+      }
+    },
+    "cli.caffeinate.error.unknownSubcommand": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Unknown caffeinate subcommand '%@'. Use status, on, off, or toggle." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "不明な caffeinate サブコマンド「%@」。status、on、off、toggle を使用してください。" } }
+      }
+    },
+    "cli.caffeinate.status.on": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Keep Mac Awake: on" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "Macをスリープさせない: オン" } }
+      }
+    },
+    "cli.caffeinate.status.off": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Keep Mac Awake: off" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "Macをスリープさせない: オフ" } }
+      }
+    },
+    "cli.caffeinate.lockScreen.shown": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Lock screen (Sleepy Mode): shown" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "ロック画面（おやすみモード）: 表示中" } }
+      }
+    },
+    "cli.caffeinate.lockScreen.hidden": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Lock screen (Sleepy Mode): hidden" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "ロック画面（おやすみモード）: 非表示" } }
+      }
+    },
+    "cli.help.caffeinate": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Usage: cmux caffeinate [status|on|off|toggle] [flags]\n\nKeep the Mac awake (Keep Mac Awake), optionally covering the screen with the\nSleepy Mode lock screen while it is on. This is the same action the menu-bar\ntoggle, Settings, and the iOS Keep Awake switch use.\n\nSubcommands:\n  status                       Print the current state (default)\n  on                           Keep the Mac awake\n  off                          Let the Mac sleep again\n  toggle                       Flip the current state\n\nFlags:\n  --lock-screen                Also show the Sleepy Mode lock screen\n  --no-lock-screen             Keep the screen uncovered (and hide a lock\n                               screen caffeinate itself put up)\n  --lock-mac                   Also engage the real macOS login lock (Touch\n                               ID or password to get back in); implies\n                               --lock-screen unless --no-lock-screen\n  --json                       Structured JSON output\n\nWithout flags, turning it on follows the Settings preferences \"Show while\nKeep Mac Awake is on\" and \"Lock Mac while Keep Mac Awake is on\"\n(Settings > Sleepy Mode). Turning caffeinate off never unlocks the Mac.\nThe keep-awake assertion is not persisted: quitting cmux always releases it.\n\nExample:\n  cmux caffeinate on\n  cmux caffeinate on --lock-screen\n  cmux caffeinate on --lock-mac\n  cmux caffeinate off\n  cmux --json caffeinate status" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "Usage: cmux caffeinate [status|on|off|toggle] [flags]\n\nMacをスリープさせず、オンの間はおやすみモードのロック画面で画面を覆うこともできます。メニューバーのトグル、設定、iOS の Keep Awake スイッチと同じアクションを使います。\n\nSubcommands:\n  status                       現在の状態を表示（既定）\n  on                           Macをスリープさせない\n  off                          Macのスリープを再び許可\n  toggle                       現在の状態を反転\n\nFlags:\n  --lock-screen                おやすみモードのロック画面も表示\n  --no-lock-screen             画面を覆わない（caffeinate 自身が表示したロック画面は閉じる）\n  --lock-mac                   本物の macOS ログインロックもかける（復帰には Touch ID かパスワードが必要）。--no-lock-screen がない限り --lock-screen を含む\n  --json                       構造化 JSON 出力\n\nフラグを付けない場合、オンにすると設定の「『Macをスリープさせない』中に表示」と「『Macをスリープさせない』中にMacをロック」（設定 > おやすみモード）に従います。caffeinate をオフにしても Mac のロックは解除されません。キープアウェイクのアサーションは永続化されず、cmux を終了すると常に解除されます。\n\nExample:\n  cmux caffeinate on\n  cmux caffeinate on --lock-screen\n  cmux caffeinate on --lock-mac\n  cmux caffeinate off\n  cmux --json caffeinate status" } }
+      }
+    },
+    "sleepyMode.settings.showWhenKeepingAwake": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Show while Keep Mac Awake is on" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "「Macをスリープさせない」中に表示" } }
+      }
+    },
+    "sleepyMode.settings.showWhenKeepingAwake.subtitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Covers the screen with Sleepy Mode whenever cmux keeps this Mac awake, including from the menu bar, the cmux CLI, or your iPhone." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "メニューバー、cmux CLI、iPhone のいずれから有効にした場合でも、cmux がこの Mac をスリープさせない間はおやすみモードで画面を覆います。" } }
+      }
+    },
     "cli.help.notify.reply": {
       "extractionState": "manual",
       "localizations": {

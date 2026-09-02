@@ -1,7 +1,10 @@
 import AppKit
 import CmuxSettingsUI
 import IOKit.pwr_mgt
+import os
 import SwiftUI
+
+private let sleepyLogger = Logger(subsystem: "com.cmuxterm.app", category: "SleepyMode")
 
 /// Owns "Sleepy Mode": a cute full-screen keep-awake screensaver. It holds
 /// IOKit power assertions so the Mac (and its display) stay awake — useful for
@@ -101,10 +104,12 @@ final class SleepyModeController {
     private func rebuildOverlayWindows() {
         tearDownOverlayWindows()
         let screens = NSScreen.screens.isEmpty ? [NSScreen.main].compactMap { $0 } : NSScreen.screens
+        sleepyLogger.info("rebuildOverlayWindows: \(screens.count) screen(s): \(screens.map { "\($0.localizedName) \(NSStringFromRect($0.frame))" }.joined(separator: " | "), privacy: .public)")
         for screen in screens {
             let window = makeOverlayWindow(for: screen)
             overlayWindows.append(window)
             window.orderFrontRegardless()
+            sleepyLogger.info("overlay ordered front: screen=\(screen.localizedName, privacy: .public) windowNumber=\(window.windowNumber) visible=\(window.isVisible) onScreen=\(window.screen?.localizedName ?? "nil", privacy: .public) frame=\(NSStringFromRect(window.frame), privacy: .public)")
         }
         overlayWindows.first?.makeKeyAndOrderFront(nil)
     }
@@ -112,7 +117,7 @@ final class SleepyModeController {
     private func makeOverlayWindow(for screen: NSScreen) -> SleepyOverlayWindow {
         let window = SleepyOverlayWindow(
             contentRect: screen.frame,
-            styleMask: [.borderless],
+            styleMask: [.borderless, .nonactivatingPanel],
             backing: .buffered,
             defer: false
         )
@@ -196,4 +201,12 @@ final class SleepyModeController {
             displayAssertionID = IOPMAssertionID(0)
         }
     }
+}
+
+/// Sleepy Mode doubles as the lock screen the caffeinate action can show
+/// while it keeps the Mac awake.
+extension SleepyModeController: CaffeineLockScreenPresenting {
+    var isPresented: Bool { isActive }
+    func present() { activate() }
+    func dismiss() { deactivate() }
 }

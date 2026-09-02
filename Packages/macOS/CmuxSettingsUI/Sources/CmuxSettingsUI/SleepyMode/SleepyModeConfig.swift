@@ -21,6 +21,13 @@ public struct SleepyModeConfig: Equatable, Sendable {
     public var showStatus = true
     /// Whether one walking pet per running agent is drawn.
     public var showPets = true
+    /// Whether the scene is shown as a lock screen whenever cmux keeps the
+    /// Mac awake (menu bar, CLI, or iOS Keep Awake). Off by default so
+    /// enabling Keep Mac Awake never covers the screen unless opted in.
+    public var showWhenKeepingAwake = false
+    /// Whether keeping the Mac awake also engages the real macOS login lock,
+    /// so only Touch ID or the account password gets back in. Off by default.
+    public var lockMacWhenKeepingAwake = false
 
     // Default custom colors below are matched to the cmux theme so "Custom"
     // starts familiar; "RRGGBB" hex.

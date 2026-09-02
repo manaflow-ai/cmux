@@ -117,6 +117,7 @@ Environment:
 | `list-pane-surfaces` | List surfaces in a pane. |
 | `tree` | Print a window, workspace, pane, and surface tree. |
 | `top` | Print process/resource usage for cmux windows, workspaces, panes, and surfaces. |
+| `caffeinate` | Alias `caffeine`. Keep the Mac awake: `status` (default), `on`, `off`, `toggle`, with `--lock-screen`/`--no-lock-screen` to control the Sleepy Mode lock screen and `--lock-mac` to also engage the real macOS login lock (Touch ID or password to get back in; implies the cover unless `--no-lock-screen`; `off` never unlocks). Routes through the same `caffeine.set` action as the menu-bar toggle, Settings, and the iOS Keep Awake switch; without flags, `on` follows the "Show while Keep Mac Awake is on" and "Lock Mac while Keep Mac Awake is on" Sleepy Mode settings. |
 | `focus-pane` | Focus a pane. |
 | `new-pane` | Create a pane with terminal or browser content. |
 | `new-surface` | Create a surface inside a pane. |

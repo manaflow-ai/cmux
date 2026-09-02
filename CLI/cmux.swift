@@ -6978,6 +6978,9 @@ struct CMUXCLI {
         case "memory":
             try runMemoryCommand(commandArgs: commandArgs, client: client, jsonOutput: jsonOutput, idFormat: idFormat)
 
+        case "caffeinate", "caffeine":
+            try runCaffeinateCommand(commandArgs: commandArgs, client: client, jsonOutput: jsonOutput)
+
         case "focus-pane":
             let workspaceArg = workspaceFromArgsOrEnv(commandArgs, windowOverride: windowId)
             guard let paneRaw = optionValue(commandArgs, name: "--pane") ?? commandArgs.first else {
@@ -19263,6 +19266,41 @@ struct CMUXCLI {
               cmux memory
               cmux memory --groups 20
               cmux --json memory --all
+            """)
+        case "caffeinate", "caffeine":
+            return String(localized: "cli.help.caffeinate", defaultValue: """
+            Usage: cmux caffeinate [status|on|off|toggle] [flags]
+
+            Keep the Mac awake (Keep Mac Awake), optionally covering the screen with the
+            Sleepy Mode lock screen while it is on. This is the same action the menu-bar
+            toggle, Settings, and the iOS Keep Awake switch use.
+
+            Subcommands:
+              status                       Print the current state (default)
+              on                           Keep the Mac awake
+              off                          Let the Mac sleep again
+              toggle                       Flip the current state
+
+            Flags:
+              --lock-screen                Also show the Sleepy Mode lock screen
+              --no-lock-screen             Keep the screen uncovered (and hide a lock
+                                           screen caffeinate itself put up)
+              --lock-mac                   Also engage the real macOS login lock (Touch
+                                           ID or password to get back in); implies
+                                           --lock-screen unless --no-lock-screen
+              --json                       Structured JSON output
+
+            Without flags, turning it on follows the Settings preferences "Show while
+            Keep Mac Awake is on" and "Lock Mac while Keep Mac Awake is on"
+            (Settings > Sleepy Mode). Turning caffeinate off never unlocks the Mac.
+            The keep-awake assertion is not persisted: quitting cmux always releases it.
+
+            Example:
+              cmux caffeinate on
+              cmux caffeinate on --lock-screen
+              cmux caffeinate on --lock-mac
+              cmux caffeinate off
+              cmux --json caffeinate status
             """)
         case "focus-pane":
             return """
@@ -40647,6 +40685,7 @@ export default CMUXSessionRestore;
           tree [--all] [--workspace <id|ref|index>] [--window <id|ref|index>]
           top [--all] [--workspace <id|ref|index>] [--window <id|ref|index>] [--processes] [--sort <cpu|mem|proc>] [--flat] [--format <tree|tsv>]
           memory [--all] [--workspace <id|ref|index>] [--groups <count>]
+          caffeinate [status|on|off|toggle] [--lock-screen|--no-lock-screen] [--lock-mac]
           focus-pane --pane <id|ref|index> [--workspace <id|ref|index>] [--window <id|ref|index>]
           new-pane [--type <terminal|browser|simulator>] [--direction <left|right|up|down>] [--workspace <id|ref|index>] [--window <id|ref|index>] [--url <url>] \(String(localized: "cli.browser.profile.option", defaultValue: "[--profile <name|uuid>]")) [--focus <true|false>]
           new-surface [--type <terminal|browser|simulator|agent-session>] [--pane <id|ref|index>] [--workspace <id|ref|index>] [--window <id|ref|index>] [--url <url>] [--provider <codex|claude|opencode>] [--renderer <react|solid>] [--focus <true|false>]
