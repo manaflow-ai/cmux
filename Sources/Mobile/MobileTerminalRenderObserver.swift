@@ -41,7 +41,7 @@ final class MobileTerminalRenderObserver {
             object: nil,
             queue: .main
         ) { [weak self] _ in
-            MainActor.assumeIsolated {
+            Task { @MainActor [weak self] in
                 self?.refreshNotificationDemand()
             }
         })
@@ -50,11 +50,9 @@ final class MobileTerminalRenderObserver {
             object: nil,
             queue: .main
         ) { [weak self] notification in
-            MainActor.assumeIsolated {
-                guard let view = notification.object as? GhosttyNSView,
-                      let surfaceID = view.terminalSurface?.id else {
-                    return
-                }
+            let surfaceID = (notification.object as? GhosttyNSView)?.terminalSurface?.id
+            Task { @MainActor [weak self, surfaceID] in
+                guard let surfaceID else { return }
                 self?.enqueueTerminalUpdate(surfaceID: surfaceID)
             }
         })
@@ -68,7 +66,7 @@ final class MobileTerminalRenderObserver {
             object: nil,
             queue: .main
         ) { [weak self] _ in
-            MainActor.assumeIsolated {
+            Task { @MainActor [weak self] in
                 self?.enqueueTerminalUpdate(surfaceID: nil)
             }
         })
@@ -77,7 +75,7 @@ final class MobileTerminalRenderObserver {
             object: nil,
             queue: .main
         ) { [weak self] _ in
-            MainActor.assumeIsolated {
+            Task { @MainActor [weak self] in
                 self?.invalidateTerminalThemes()
             }
         })
@@ -86,7 +84,7 @@ final class MobileTerminalRenderObserver {
             object: nil,
             queue: .main
         ) { [weak self] _ in
-            MainActor.assumeIsolated {
+            Task { @MainActor [weak self] in
                 self?.invalidateTerminalThemes()
             }
         })
@@ -95,8 +93,9 @@ final class MobileTerminalRenderObserver {
             object: nil,
             queue: .main
         ) { [weak self] notification in
-            MainActor.assumeIsolated {
-                guard let surfaceID = notification.object as? UUID else { return }
+            let surfaceID = notification.object as? UUID
+            Task { @MainActor [weak self, surfaceID] in
+                guard let surfaceID else { return }
                 guard MobileHostService.hasEventSubscribers(topic: "terminal.render_grid") else { return }
                 self?.themeInvalidationScheduler.schedule(surfaceID: surfaceID)
             }

@@ -30,7 +30,7 @@ private final class AgentChatProseStreamWakeDriver {
             object: nil,
             queue: .main
         ) { [weak self] _ in
-            MainActor.assumeIsolated {
+            Task { @MainActor [weak self] in
                 self?.streamer.subscribersDidChange()
                 self?.refreshDemand(kickIfRetained: true)
             }
@@ -40,11 +40,9 @@ private final class AgentChatProseStreamWakeDriver {
             object: nil,
             queue: .main
         ) { [weak self] notification in
-            MainActor.assumeIsolated {
-                guard let view = notification.object as? GhosttyNSView,
-                      let surfaceID = view.terminalSurface?.id else {
-                    return
-                }
+            let surfaceID = (notification.object as? GhosttyNSView)?.terminalSurface?.id
+            Task { @MainActor [weak self, surfaceID] in
+                guard let surfaceID else { return }
                 self?.streamer.surfaceDidChange(surfaceID)
             }
         })
@@ -53,7 +51,7 @@ private final class AgentChatProseStreamWakeDriver {
             object: nil,
             queue: .main
         ) { [weak self] _ in
-            MainActor.assumeIsolated {
+            Task { @MainActor [weak self] in
                 self?.streamer.terminalDidTick()
             }
         })
