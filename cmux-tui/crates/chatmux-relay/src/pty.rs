@@ -1067,10 +1067,13 @@ impl Inner {
         }
         // This is the publication linearization point. Read the live
         // authority only after waiting for any prior generation's publication
-        // gate, while the opening and attachment state are still held. A
-        // downgrade that races the slow OPEN path therefore cannot publish a
-        // newly attached PTY.
+        // gate and while the opening state is held. Do not invoke the public
+        // live-auth callback while the attachment map mutex is held. The
+        // opening lock serializes competing reservations; reacquiring the
+        // attachment map after the read keeps callbacks outside map locks.
+        drop(attachments);
         let live_auth = Self::auth_snapshot(context);
+        attachments = self.attachments.lock().expect("attach lock");
         if live_auth.trust.is_empty()
             || (live_auth.trust == "observe"
                 && (live_auth.owner_user_id.is_none()
@@ -1587,6 +1590,11 @@ impl Inner {
     }
 
     fn close_authorized(&self, pty_id: &str, context: &FrameContext) {
+        // Capture presence before authorization. If this request is denied,
+        // the attachment may be removed and replaced while the error callback
+        // runs; remembering that it targeted a present attachment prevents
+        // the fallback cancellation path from touching that replacement.
+        let had_attachment = self.attachments.lock().expect("attach lock").contains_key(pty_id);
         let auth = Self::auth_snapshot(context);
         let Some(attachment) =
             self.authorize_snapshot_for_generation_nonterminal(pty_id, &auth, context, "close", 0)
@@ -1595,7 +1603,7 @@ impl Inner {
             // non-terminal error above must not fall through to the opening
             // cancellation path, which would otherwise let a denied CLOSE
             // retire the live attachment.
-            if self.attachments.lock().expect("attach lock").contains_key(pty_id) {
+            if had_attachment {
                 return;
             }
             // A close may race the asynchronous open before its attachment
