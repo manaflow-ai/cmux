@@ -35213,9 +35213,9 @@ export default CMUXSessionRestore;
                         pid: pid,
                         launchCommand: resumeLaunchCommand,
                         agentLifecycle: .unknown,
+                        hookEventName: persistedHookEventName,
                         runtimeStatus: suppressVisibleMutations ? nil : .running,
                         updateRuntimeStatus: !suppressVisibleMutations,
-                        hookEventName: persistedHookEventName,
                         supersedesSameProcessSession: def.name == "omp"
                     )) ?? []
                     acceptedSessionStart = true
