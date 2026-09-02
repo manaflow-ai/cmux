@@ -257,6 +257,20 @@ describe("resolveProPlanStatus", () => {
     expect(user.updates).toEqual([{}]);
   });
 
+  test("keeps Stripe billing management for a lapsed customer", async () => {
+    const user = metadataUser({}, "user-lapsed-customer");
+    await expect(
+      resolveProPlanStatus(user, {
+        hasActiveStripeSubscription: async () => false,
+        hasStripeCustomer: async () => true,
+      }),
+    ).resolves.toMatchObject({
+      planId: FREE_PLAN_ID,
+      isPro: false,
+      billingManagement: "stripe",
+    });
+  });
+
   test("does not mutate metadata when a manual VM plan override exists", async () => {
     const user = metadataUser({ cmuxVmPlan: "enterprise" }, "user-stripe-pro");
     await expect(

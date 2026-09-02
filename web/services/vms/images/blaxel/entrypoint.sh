@@ -46,6 +46,16 @@ touch "/home/cua/.config/google-chrome/First Run"
 chown cua:cua /home/cua /home/cua/.config /home/cua/.config/google-chrome \
   "/home/cua/.config/google-chrome/First Run"
 
+# The persistent home volume is mounted at /cmux/home. The driver later presents
+# it at /home/cmux through bindfs, so this boot chown only prepares the disposable
+# rootfs home for machines without that identity view. The one-time recursive
+# ownership migration of pre-existing volume contents is the driver's job
+# (CMUX_CLOUD_USER_SETUP_COMMAND), not boot's.
+if id -u cmux >/dev/null 2>&1; then
+  mkdir -p /home/cmux
+  chown cmux:cmux /home/cmux 2>/dev/null || true
+fi
+
 # Bring the desktop up, and bring it back if a component dies. The driver's
 # VNC heal covers bootstrap/resurrect only; this loop covers mid-life crashes.
 # start-vnc.sh is idempotent, so re-running it against a healthy desktop is a

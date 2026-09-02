@@ -166,6 +166,32 @@ import Testing
             == ["--socket", "/tmp/s.sock", "--json", "workspace", "ws_1", "close"])
     }
 
+    @Test func headlessTerminalIOArgvFollowsTheCLIGrammar() {
+        // Verified live against a machine: `write --text` types as-is (no newline),
+        // `keys` takes bare key names, `screen read` / `screen wait --pattern` read back.
+        #expect(CloudTuiCommandLine.writeArguments(socketPath: "/tmp/s.sock", terminalID: "term_1", text: "echo hi $((6*7))")
+            == ["--socket", "/tmp/s.sock", "--json", "terminal", "term_1", "write", "--text", "echo hi $((6*7))"])
+        #expect(CloudTuiCommandLine.keysArguments(socketPath: "/tmp/s.sock", terminalID: "term_1", keys: ["ctrl+c", "enter"])
+            == ["--socket", "/tmp/s.sock", "--json", "terminal", "term_1", "keys", "ctrl+c", "enter"])
+        #expect(CloudTuiCommandLine.screenReadArguments(socketPath: "/tmp/s.sock", terminalID: "term_1")
+            == ["--socket", "/tmp/s.sock", "--json", "terminal", "term_1", "screen", "read"])
+        #expect(CloudTuiCommandLine.screenWaitArguments(socketPath: "/tmp/s.sock", terminalID: "term_1", pattern: "pass|fail", timeoutMs: 5000)
+            == ["--socket", "/tmp/s.sock", "--json", "terminal", "term_1", "screen", "wait", "--pattern", "pass|fail", "--timeout-ms", "5000"])
+        // No timeout (or a non-positive one) leaves the daemon default in charge.
+        #expect(CloudTuiCommandLine.screenWaitArguments(socketPath: "/tmp/s.sock", terminalID: "term_1", pattern: "λ", timeoutMs: nil).contains("--timeout-ms") == false)
+        #expect(CloudTuiCommandLine.screenWaitArguments(socketPath: "/tmp/s.sock", terminalID: "term_1", pattern: "λ", timeoutMs: 0).contains("--timeout-ms") == false)
+    }
+
+    @Test @MainActor func waitTimeoutNormalizesToTheDaemonDefaultAndClamps() {
+        // The link headroom is computed from the same value the daemon uses, so a
+        // non-positive request cannot cut the link off before the daemon's default.
+        #expect(CmuxTuiSurfaceProvider.clampedWaitTimeoutMs(nil) == CmuxTuiSurfaceProvider.defaultWaitTimeoutMs)
+        #expect(CmuxTuiSurfaceProvider.clampedWaitTimeoutMs(0) == CmuxTuiSurfaceProvider.defaultWaitTimeoutMs)
+        #expect(CmuxTuiSurfaceProvider.clampedWaitTimeoutMs(-5) == CmuxTuiSurfaceProvider.defaultWaitTimeoutMs)
+        #expect(CmuxTuiSurfaceProvider.clampedWaitTimeoutMs(1) == 1)
+        #expect(CmuxTuiSurfaceProvider.clampedWaitTimeoutMs(Int.max) == CmuxTuiSurfaceProvider.maxWaitTimeoutMs)
+    }
+
     @Test func emptyAndMalformedSnapshotsProduceNothing() {
         #expect(CmuxTuiSnapshotParser.terminals(fromSnapshot: [:], machine: Self.machine).isEmpty)
         #expect(CmuxTuiSnapshotParser.terminals(fromSnapshot: ["workspaces": [["name": "no id"]]], machine: Self.machine).isEmpty)
@@ -284,7 +310,9 @@ import Testing
         #expect(failed.contains("Couldn’t open &lt;m&gt;:3000"))
         #expect(failed.contains("HTTP 503 &lt;vm_image_unavailable&gt; &amp; more"))
         #expect(!failed.contains("<vm_image_unavailable>"))
-        #expect(!failed.contains("spinner"))
+        // No spinner ELEMENT in the failed state; the shared stylesheet still declares
+        // `.spinner`, so a bare substring check would always fail.
+        #expect(!failed.contains("class=\"spinner\""))
         #expect(failed.contains("open it again from the sidebar"))
         #expect(SurfaceBrowserPlaceholder.escape("a\"b'c") == "a&quot;b&#39;c")
     }

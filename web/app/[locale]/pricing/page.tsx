@@ -98,6 +98,7 @@ export default async function PricingPage({
   const query = searchParams ? await searchParams : {};
   const t = await getTranslations({ locale, namespace: "pricing" });
   const snapshot = await currentPlanSnapshot();
+  const canManageBilling = snapshot.billingManagement === "stripe";
   const interval = proBillingInterval(firstParam(query.interval) ?? "year");
   const proCheckoutHrefs = {
     month: withCheckoutInterval(PRO_CHECKOUT_URL, "month"),
@@ -211,6 +212,10 @@ export default async function PricingPage({
                     {t("manageBilling")}
                   </SecondaryLink>
                 </div>
+              ) : canManageBilling ? (
+                <SecondaryLink href="/api/billing/portal">
+                  {t("manageBilling")}
+                </SecondaryLink>
               ) : (
                 <ProCtaLink checkoutHrefs={proCheckoutHrefs} size="compact">
                   {t("pro.cta")}
@@ -300,6 +305,10 @@ export default async function PricingPage({
                 pro: (
                   snapshot.isPro ? (
                     <DisabledButton size="compact">{t("currentPlan")}</DisabledButton>
+                  ) : canManageBilling ? (
+                    <SecondaryLink href="/api/billing/portal" size="compact">
+                      {t("manageBilling")}
+                    </SecondaryLink>
                   ) : (
                     <ProCtaLink
                       checkoutHrefs={proCheckoutHrefs}

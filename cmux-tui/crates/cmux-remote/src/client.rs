@@ -65,15 +65,26 @@ struct WorkspaceRequestRegistry {
 }
 
 impl WorkspaceRequestRegistry {
-    fn new() -> Self {
+    fn new() -> Result<Self, RpcError> {
+        Self::new_with_fill(getrandom::fill)
+    }
+
+    fn new_with_fill(
+        fill: impl FnOnce(&mut [u8]) -> Result<(), getrandom::Error>,
+    ) -> Result<Self, RpcError> {
         let mut material = [0_u8; 40];
-        getrandom::fill(&mut material).expect("OS randomness is required for request IDs");
+        fill(&mut material).map_err(|error| {
+            RpcError::new(
+                "internal",
+                format!("workspace RPC request ID randomness unavailable: {error}"),
+            )
+        })?;
         let mut namespace_bytes = [0_u8; 8];
         namespace_bytes.copy_from_slice(&material[..8]);
         let namespace = u64::from_be_bytes(namespace_bytes);
         let mut key = [0_u8; 32];
         key.copy_from_slice(&material[8..]);
-        Self { namespace, key, next_sequence: 0, pending: HashMap::new() }
+        Ok(Self { namespace, key, next_sequence: 0, pending: HashMap::new() })
     }
 
     fn allocate(&mut self) -> Option<RequestId> {
@@ -508,7 +519,7 @@ async fn connect_rpc_channel(
         .map_err(transport_error)?;
     await_opened(&stream, rpc_lane(class)).await?;
     let messages = Arc::new(MessageStream::with_lane(Arc::new(stream), rpc_lane(class)));
-    let requests = Arc::new(Mutex::new(WorkspaceRequestRegistry::new()));
+    let requests = Arc::new(Mutex::new(WorkspaceRequestRegistry::new()?));
     let (shutdown, mut shutdown_rx) = watch::channel(false);
     let failure_shutdown = shutdown.clone();
     let channel =
@@ -806,7 +817,9 @@ mod tests {
 
     #[tokio::test]
     async fn unknown_response_fails_pending_request() {
-        let requests = Arc::new(Mutex::new(WorkspaceRequestRegistry::new()));
+        let requests = Arc::new(Mutex::new(
+            WorkspaceRequestRegistry::new().expect("request registry should initialize"),
+        ));
         let (sender, receiver) = oneshot::channel();
         let expected = request_registry(&requests).allocate().expect("request ID available");
         request_registry(&requests).pending.insert(expected, sender);
@@ -829,7 +842,9 @@ mod tests {
 
     #[tokio::test]
     async fn immediate_response_is_delivered_after_registration() {
-        let requests = Arc::new(Mutex::new(WorkspaceRequestRegistry::new()));
+        let requests = Arc::new(Mutex::new(
+            WorkspaceRequestRegistry::new().expect("request registry should initialize"),
+        ));
         let (sender, receiver) = oneshot::channel();
         let id = request_registry(&requests).allocate().expect("request ID available");
         request_registry(&requests).pending.insert(id, sender);
@@ -845,8 +860,19 @@ mod tests {
     }
 
     #[test]
+    fn request_registry_reports_randomness_failure() {
+        let error = WorkspaceRequestRegistry::new_with_fill(|_| Err(getrandom::Error::UNEXPECTED))
+            .err()
+            .expect("request registry construction must report RNG failures");
+
+        assert_eq!(error.code, "internal");
+        assert!(error.message.contains("workspace RPC request ID randomness unavailable"));
+    }
+
+    #[test]
     fn foreign_and_malformed_request_ids_are_not_recognized() {
-        let mut requests = WorkspaceRequestRegistry::new();
+        let mut requests =
+            WorkspaceRequestRegistry::new().expect("request registry should initialize");
         let issued = requests.allocate().expect("request ID available");
         assert!(requests.was_issued(issued));
 
@@ -913,7 +939,8 @@ mod tests {
         assert!(encode_request_id(7, 0, &key).is_none());
         assert!(encode_request_id(7, REQUEST_ID_SEQUENCE_MAX + 1, &key).is_none());
 
-        let mut requests = WorkspaceRequestRegistry::new();
+        let mut requests =
+            WorkspaceRequestRegistry::new().expect("request registry should initialize");
         let first = requests.allocate().expect("request ID available");
         let second = requests.allocate().expect("request ID available");
         assert_ne!(first, second);
@@ -923,7 +950,8 @@ mod tests {
 
     #[test]
     fn allocated_request_ids_round_trip_through_json() {
-        let mut requests = WorkspaceRequestRegistry::new();
+        let mut requests =
+            WorkspaceRequestRegistry::new().expect("request registry should initialize");
         let id = requests.allocate().expect("request ID available");
 
         let encoded = serde_json::to_value(id).expect("request ID should serialize");
@@ -934,7 +962,9 @@ mod tests {
 
     #[test]
     fn retired_response_is_consumed_without_failing_channel() {
-        let requests = Arc::new(Mutex::new(WorkspaceRequestRegistry::new()));
+        let requests = Arc::new(Mutex::new(
+            WorkspaceRequestRegistry::new().expect("request registry should initialize"),
+        ));
         let id = request_registry(&requests).allocate().expect("request ID available");
         let (sender, _receiver) = oneshot::channel();
         request_registry(&requests).pending.insert(id, sender);
@@ -948,7 +978,9 @@ mod tests {
     #[test]
     fn response_racing_with_request_drop_is_delivered_or_ignored_atomically() {
         for _ in 0..128 {
-            let requests = Arc::new(Mutex::new(WorkspaceRequestRegistry::new()));
+            let requests = Arc::new(Mutex::new(
+                WorkspaceRequestRegistry::new().expect("request registry should initialize"),
+            ));
             let id = request_registry(&requests).allocate().expect("request ID available");
             let (response_sender, response_receiver) = oneshot::channel();
             request_registry(&requests).pending.insert(id, response_sender);
@@ -1000,7 +1032,9 @@ mod tests {
 
     #[test]
     fn retired_ids_remain_recognizable_after_many_requests() {
-        let requests = Arc::new(Mutex::new(WorkspaceRequestRegistry::new()));
+        let requests = Arc::new(Mutex::new(
+            WorkspaceRequestRegistry::new().expect("request registry should initialize"),
+        ));
         let retired = request_registry(&requests).allocate().expect("request ID available");
         let (sender, _receiver) = oneshot::channel();
         request_registry(&requests).pending.insert(retired, sender);
@@ -1015,7 +1049,8 @@ mod tests {
 
     #[test]
     fn request_id_sequence_exhaustion_does_not_reuse_ids() {
-        let mut requests = WorkspaceRequestRegistry::new();
+        let mut requests =
+            WorkspaceRequestRegistry::new().expect("request registry should initialize");
         requests.next_sequence = REQUEST_ID_SEQUENCE_MAX - 1;
 
         let last = requests.allocate().expect("last request ID available");

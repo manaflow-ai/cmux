@@ -26,6 +26,37 @@ export type VMStats = {
   readonly diskUsedMb?: number;
 };
 
+/** A provider persistent volume normalized for report-only inventory scans. */
+export type VMVolume = {
+  readonly name: string;
+  /** Epoch milliseconds from provider metadata, when present. */
+  readonly createdAt?: number | null;
+  /**
+   * Provider attachment id. `null` means the provider explicitly reported that
+   * the volume is not attached; `undefined` means attachment is unknown.
+   */
+  readonly attachedTo?: string | null;
+  /** Optional explicit state for providers that distinguish unknown from free. */
+  readonly attachmentState?: "attached" | "unattached" | "unknown";
+};
+
+/** One bounded provider page returned to the report-only reaper. */
+export type VMVolumePage = {
+  readonly volumes: readonly VMVolume[];
+  readonly nextCursor?: string | null;
+  /** Whether the provider explicitly supports pagination for this response. */
+  readonly complete?: boolean;
+};
+
+export type VMVolumeListOptions = {
+  /** Provider page size. Callers must keep this at or below their run budget. */
+  readonly limit: number;
+  readonly cursor?: string;
+};
+
+/** Legacy providers may still return one array; the reaper treats it as partial coverage. */
+export type VMVolumeInventory = readonly VMVolume[] | VMVolumePage;
+
 export type VMHandle = {
   provider: ProviderId;
   providerVmId: string;
@@ -166,6 +197,11 @@ export type CmuxRemoteApprovalResult = {
   state: "approved" | "pending" | "already_enrolled";
 };
 
+export type CmuxRemoteApprovalOptions = {
+  /** Server-side metadata persisted with the VM row, used for durable-home routing. */
+  readonly providerMetadata?: Record<string, unknown>;
+};
+
 export type AttachOptions = {
   /**
    * Workspace attaches need a cmuxd RPC endpoint so browser panels can proxy remote
@@ -193,6 +229,12 @@ export type ExecResult = {
   exitCode: number;
   stdout: string;
   stderr: string;
+};
+
+export type ExecOptions = {
+  readonly timeoutMs?: number;
+  /** Server-side metadata persisted with the VM row, used for durable-home routing. */
+  readonly providerMetadata?: Record<string, unknown>;
 };
 
 export type SnapshotRef = {
@@ -229,6 +271,9 @@ export interface VMProvider {
    */
   deleteHomeVolume?(volumeName: string): Promise<void>;
 
+  /** Optional provider volume inventory used by the report-only VM reaper. */
+  listVolumes?(options?: VMVolumeListOptions): Promise<VMVolumeInventory>;
+
   getStatus?(vmId: string): Promise<VMStatus>;
   /// Live CPU/memory/disk for the Cloud panel's activity view. Must not wake a
   /// sleeping machine.
@@ -237,7 +282,7 @@ export interface VMProvider {
   pause(vmId: string): Promise<void>;
   resume(vmId: string): Promise<VMHandle>;
 
-  exec(vmId: string, command: string, opts?: { timeoutMs?: number }): Promise<ExecResult>;
+  exec(vmId: string, command: string, opts?: ExecOptions): Promise<ExecResult>;
 
   // Optional: mint a private, token-gated HTTPS preview URL for an arbitrary HTTP port on the
   // VM (the exe.dev "https://vmname.exe.xyz:3456" equivalent). openUrl embeds the token as a
@@ -263,7 +308,11 @@ export interface VMProvider {
   // this undefined.
   openCmuxRemote?(vmId: string, options?: CmuxRemoteAttachOptions): Promise<CmuxRemoteEndpoint>;
   // Optional: approve the pending enrollment a previous openCmuxRemote invited.
-  approveCmuxRemoteEnrollment?(vmId: string, invitationId: string): Promise<CmuxRemoteApprovalResult>;
+  approveCmuxRemoteEnrollment?(
+    vmId: string,
+    invitationId: string,
+    options?: CmuxRemoteApprovalOptions,
+  ): Promise<CmuxRemoteApprovalResult>;
 
   // Returns a live SSH endpoint the client can dial into. Drivers are responsible for ensuring
   // sshd is running (some providers need an explicit start step).

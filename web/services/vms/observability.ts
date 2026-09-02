@@ -100,6 +100,140 @@ export function reportVmErrorResponse(input: VmErrorResponseInput): void {
 
 export type VmProvisionOperation = "create" | "fork" | "restore" | "base_open" | "base_reset";
 
+/** Stable PostHog event name for one bounded VM reaper invocation. */
+export const VM_REAPER_POSTHOG_EVENT = "cloud_vm_reaper_run";
+export const VM_REAPER_POSTHOG_DISTINCT_ID = "cmux-vm-reaper";
+
+export type VmReaperSummaryTelemetry = {
+  readonly reportOnly: boolean;
+  readonly candidates: number;
+  readonly reported: number;
+  readonly deleted: number;
+  readonly skipped: number;
+  readonly errors: number;
+  readonly orphanVolumes: {
+    readonly candidates: number;
+    readonly deleted: number;
+    readonly reported: number;
+    readonly unknownAttachment: number;
+    readonly unknownReference: number;
+    readonly scanned: number;
+    readonly providerPages: number;
+    readonly coveragePartial: boolean;
+    readonly skipped: number;
+    readonly errors: number;
+  };
+  readonly stuckProvisioning: {
+    readonly candidates: number;
+    readonly reported: number;
+    readonly recovered: number;
+    readonly failed: number;
+    readonly destroyed: number;
+    readonly skipped: number;
+    readonly errors: number;
+  };
+};
+
+type VmReaperTelemetryOptions = {
+  readonly env?: Record<string, string | undefined>;
+  readonly fetch?: typeof fetch;
+  readonly now?: Date;
+};
+
+const VM_REAPER_CAPTURE_TIMEOUT_MS = 2_000;
+
+/**
+ * Deliver one aggregate reaper outcome to PostHog.
+ *
+ * The event is production-only by default. A force flag is useful for a
+ * staging smoke test. Delivery is best effort and bounded so telemetry can
+ * never turn a successful report run into a failed cron request.
+ */
+export async function captureVmReaperSummary(
+  summary: VmReaperSummaryTelemetry,
+  options: VmReaperTelemetryOptions = {},
+): Promise<void> {
+  const env = options.env ?? process.env;
+  const enabled = env.VERCEL_ENV === "production" ||
+    env.CMUX_VM_REAPER_ANALYTICS_FORCE === "1" ||
+    env.CMUX_VM_ANALYTICS_FORCE === "1";
+  if (!enabled) return;
+
+  const properties: Record<string, string | number | boolean> = {
+    report_only: true,
+    candidates: boundedTelemetryCount(summary.candidates),
+    reported: boundedTelemetryCount(summary.reported),
+    deleted: boundedTelemetryCount(summary.deleted),
+    skipped: boundedTelemetryCount(summary.skipped),
+    errors: boundedTelemetryCount(summary.errors),
+    orphan_volume_candidates: boundedTelemetryCount(summary.orphanVolumes.candidates),
+    orphan_volume_deleted: boundedTelemetryCount(summary.orphanVolumes.deleted),
+    orphan_volume_reported: boundedTelemetryCount(summary.orphanVolumes.reported),
+    orphan_volume_unknown_attachment: boundedTelemetryCount(summary.orphanVolumes.unknownAttachment),
+    orphan_volume_unknown_reference: boundedTelemetryCount(summary.orphanVolumes.unknownReference),
+    orphan_volume_scanned: boundedTelemetryCount(summary.orphanVolumes.scanned),
+    orphan_volume_provider_pages: boundedTelemetryCount(summary.orphanVolumes.providerPages),
+    orphan_volume_coverage_partial: summary.orphanVolumes.coveragePartial,
+    orphan_volume_skipped: boundedTelemetryCount(summary.orphanVolumes.skipped),
+    orphan_volume_errors: boundedTelemetryCount(summary.orphanVolumes.errors),
+    stuck_provisioning_candidates: boundedTelemetryCount(summary.stuckProvisioning.candidates),
+    stuck_provisioning_reported: boundedTelemetryCount(summary.stuckProvisioning.reported),
+    stuck_provisioning_recovered: boundedTelemetryCount(summary.stuckProvisioning.recovered),
+    stuck_provisioning_failed: boundedTelemetryCount(summary.stuckProvisioning.failed),
+    stuck_provisioning_destroyed: boundedTelemetryCount(summary.stuckProvisioning.destroyed),
+    stuck_provisioning_skipped: boundedTelemetryCount(summary.stuckProvisioning.skipped),
+    stuck_provisioning_errors: boundedTelemetryCount(summary.stuckProvisioning.errors),
+    schema_version: 2,
+    $insert_id: randomUUID(),
+    $geoip_disable: true,
+    $process_person_profile: false,
+  };
+  const now = options.now ?? new Date();
+  const body = JSON.stringify({
+    api_key: POSTHOG_PROJECT_KEY,
+    event: VM_REAPER_POSTHOG_EVENT,
+    distinct_id: VM_REAPER_POSTHOG_DISTINCT_ID,
+    properties,
+    timestamp: now.toISOString(),
+  });
+  const fetchImpl = options.fetch ?? fetch;
+  const task = postVmReaperTelemetry(body, fetchImpl);
+  try {
+    // Keep the capture alive after a Vercel response. In tests and scripts there
+    // is no Next request scope, so the task is still awaited below.
+    after(() => task);
+  } catch {
+    // No request scope. The caller still awaits the bounded task.
+  }
+  await task;
+}
+
+async function postVmReaperTelemetry(body: string, fetchImpl: typeof fetch): Promise<void> {
+  try {
+    const response = await fetchImpl(`${POSTHOG_HOST}/capture/`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body,
+      signal: AbortSignal.timeout(VM_REAPER_CAPTURE_TIMEOUT_MS),
+    });
+    if (!response.ok) {
+      console.error("[VM] reaper summary telemetry rejected", { status: response.status });
+    }
+  } catch (error) {
+    console.error("[VM] reaper summary telemetry failed", safeTelemetryError(error));
+  }
+}
+
+function boundedTelemetryCount(value: number): number {
+  if (!Number.isFinite(value)) return 0;
+  return Math.max(0, Math.min(1_000_000_000, Math.trunc(value)));
+}
+
+function safeTelemetryError(error: unknown): string {
+  const message = error instanceof Error ? error.message : String(error);
+  return message.replace(/Bearer\s+\S+/gi, "Bearer [redacted]").slice(0, 300);
+}
+
 /**
  * Provisioning outcome choke point, run as a response finalizer. Two legs:
  *

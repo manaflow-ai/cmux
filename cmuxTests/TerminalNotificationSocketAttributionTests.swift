@@ -33,7 +33,7 @@ extension TerminalNotificationSocketActionTests {
         let result = try XCTUnwrap(response["result"] as? [String: Any])
         XCTAssertEqual(result["workspace_id"] as? String, fixture.workspace.id.uuidString)
         XCTAssertTrue(result["surface_id"] is NSNull)
-        XCTAssertTrue(fixture.store.hasUnreadNotification(forTabId: fixture.workspace.id))
+        XCTAssertTrue(fixture.store.hasUnreadNotification(forTabId: fixture.workspace.id, surfaceId: nil))
         XCTAssertFalse(fixture.store.hasUnreadNotification(forTabId: foreignWorkspace.id, surfaceId: foreignSurfaceId))
     }
 
@@ -198,7 +198,7 @@ extension TerminalNotificationSocketActionTests {
         let result = try XCTUnwrap(response["result"] as? [String: Any])
         XCTAssertEqual(result["workspace_id"] as? String, fixture.workspace.id.uuidString)
         XCTAssertTrue(result["surface_id"] is NSNull)
-        XCTAssertTrue(fixture.store.hasUnreadNotification(forTabId: fixture.workspace.id))
+        XCTAssertTrue(fixture.store.hasUnreadNotification(forTabId: fixture.workspace.id, surfaceId: nil))
         XCTAssertFalse(
             fixture.store.hasUnreadNotification(
                 forTabId: foreignWorkspace.id,

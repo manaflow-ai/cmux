@@ -47,6 +47,9 @@ export type CloudVmSessionRow = typeof cloudVmSessions.$inferSelect;
 export type CloudVmLeaseKind = typeof cloudVmLeases.$inferInsert.kind;
 export type CloudVmStatus = CloudVmRow["status"];
 export type CloudVmSessionStatus = CloudVmSessionRow["status"];
+// Reaper batches are capped at 100. Keep repository calls bounded even if a
+// future caller passes a malformed or oversized name list.
+const VM_REAPER_REFERENCE_NAME_LIMIT = 100;
 
 export type BeginCreateResult =
   | { readonly inserted: true; readonly vm: CloudVmRow }
@@ -151,6 +154,22 @@ export type VmRepositoryShape = {
   readonly reconciliationCandidates: (input: {
     readonly limit: number;
   }) => Effect.Effect<CloudVmRow[], VmDatabaseError>;
+  /** Live VM rows that currently claim a persistent home volume. */
+  readonly listLiveHomeVolumeNames?: (input: {
+    readonly provider: ProviderId;
+    /** Candidate names only; an empty list must not trigger an unbounded scan. */
+    readonly volumeNames: readonly string[];
+  }) => Effect.Effect<readonly string[], VmDatabaseError>;
+  /** Oldest provisioning rows for the bounded resource reaper. */
+  readonly stuckProvisioningCandidates?: (input: {
+    readonly before: Date;
+    readonly limit: number;
+  }) => Effect.Effect<CloudVmRow[], VmDatabaseError>;
+  readonly recentReaperReportKeys: (input: {
+    readonly eventType: string;
+    readonly keys: readonly string[];
+    readonly since: Date;
+  }) => Effect.Effect<string[], VmDatabaseError>;
   readonly markProviderObservedStatus: (input: {
     readonly id: string;
     readonly providerVmId: string;
@@ -390,6 +409,26 @@ function baseScope(input: {
 function baseName(value: string | null | undefined) {
   const trimmed = value?.trim();
   return trimmed || "base";
+}
+
+function boundedReaperVolumeNames(names: readonly string[]): string[] {
+  const normalized = [...new Set(names.map((name) => name.trim()).filter(Boolean))];
+  if (normalized.length > VM_REAPER_REFERENCE_NAME_LIMIT) {
+    throw new Error(
+      `VM reaper reference query has ${normalized.length} names; maximum is ${VM_REAPER_REFERENCE_NAME_LIMIT}`,
+    );
+  }
+  return normalized;
+}
+
+function boundedReaperKeys(keys: readonly string[]): string[] {
+  const normalized = [...new Set(keys.map((key) => key.trim()).filter(Boolean))];
+  if (normalized.length > VM_REAPER_REFERENCE_NAME_LIMIT) {
+    throw new Error(
+      `VM reaper report key query has ${normalized.length} keys; maximum is ${VM_REAPER_REFERENCE_NAME_LIMIT}`,
+    );
+  }
+  return normalized;
 }
 
 export const VmRepositoryLive = Layer.succeed(VmRepository, {
@@ -1155,6 +1194,69 @@ export const VmRepositoryLive = Layer.succeed(VmRepository, {
         .from(cloudVms)
         .where(and(ne(cloudVms.status, "destroyed"), isNotNull(cloudVms.providerVmId)))
         .orderBy(asc(cloudVms.updatedAt))
+        .limit(input.limit);
+    }),
+
+  listLiveHomeVolumeNames: (input) =>
+    dbEffect("listLiveHomeVolumeNames", async () => {
+      const volumeNames = boundedReaperVolumeNames(input.volumeNames);
+      // Never fall back to the old unbounded inventory query. The reaper
+      // supplies a bounded chunk, and an empty chunk is fail-closed.
+      if (volumeNames.length === 0) return [];
+      const db = cloudDb();
+      const homeVolume = sql<string | null>`${cloudVms.providerMetadata}->>'homeVolume'`;
+      const rows = await db
+        .select({ homeVolume })
+        .from(cloudVms)
+        .where(and(
+          eq(cloudVms.provider, input.provider),
+          inArray(homeVolume, volumeNames),
+          inArray(cloudVms.status, ["provisioning", "running", "paused"]),
+          sql`${homeVolume} is not null and ${homeVolume} <> ''`,
+        ));
+      return rows
+        .map((row) => row.homeVolume?.trim())
+        .filter((name): name is string => !!name);
+    }),
+
+  recentReaperReportKeys: (input) =>
+    dbEffect("recentReaperReportKeys", async () => {
+      const keys = boundedReaperKeys(input.keys);
+      // An empty key list must never become an unbounded usage-event scan.
+      if (keys.length === 0) return [];
+      const db = cloudDb();
+      // Every orphan-volume event type (base, unknown-attachment,
+      // unknown-reference) is a system event keyed by volume name; only
+      // VM-row events (stuck provisioning) key by vmId.
+      const reportKey = input.eventType.startsWith("vm.reaper.orphan_volume")
+        ? sql<string | null>`${cloudVmUsageEvents.metadata}->>'volumeName'`
+        : sql<string | null>`${cloudVmUsageEvents.vmId}::text`;
+      const rows = await db
+        .select({ key: reportKey })
+        .from(cloudVmUsageEvents)
+        .where(and(
+          eq(cloudVmUsageEvents.eventType, input.eventType),
+          gt(cloudVmUsageEvents.createdAt, input.since),
+          inArray(reportKey, keys),
+        ));
+      return [...new Set(
+        rows
+          .map((row) => row.key?.trim())
+          .filter((key): key is string => !!key),
+      )];
+    }),
+
+  stuckProvisioningCandidates: (input) =>
+    dbEffect("stuckProvisioningCandidates", async () => {
+      const db = cloudDb();
+      return await db
+        .select()
+        .from(cloudVms)
+        .where(and(
+          eq(cloudVms.status, "provisioning"),
+          lt(cloudVms.updatedAt, input.before),
+        ))
+        .orderBy(asc(cloudVms.updatedAt), asc(cloudVms.id))
         .limit(input.limit);
     }),
 

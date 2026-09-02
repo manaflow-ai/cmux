@@ -65,6 +65,35 @@ struct CloudTuiCommandLine: Sendable {
         ["--socket", socketPath, "--json", "workspace", workspaceID, "rename", "--name", name]
     }
 
+    /// `terminal <term_id> write --text <text>` (spec `terminal.input.write`): the bytes
+    /// land on the PTY as typed; no newline is added, send `keys enter` for that.
+    static func writeArguments(socketPath: String, terminalID: String, text: String) -> [String] {
+        ["--socket", socketPath, "--json", "terminal", terminalID, "write", "--text", text]
+    }
+
+    /// `terminal <term_id> keys <key>…` (spec `terminal.input.keys`): named keys such as
+    /// `enter`, `tab`, `escape`, `up`, and `+`-joined chords such as `ctrl+c` (verified
+    /// live; `ctrl-c` is `validation.invalid`). The daemon rejects empty names.
+    static func keysArguments(socketPath: String, terminalID: String, keys: [String]) -> [String] {
+        ["--socket", socketPath, "--json", "terminal", terminalID, "keys"] + keys
+    }
+
+    /// `terminal <term_id> screen read` (spec `terminal.screen.read`): the visible grid as
+    /// `{cols, rows, cursor_row, cursor_col, cursor_visible, text}`.
+    static func screenReadArguments(socketPath: String, terminalID: String) -> [String] {
+        ["--socket", socketPath, "--json", "terminal", terminalID, "screen", "read"]
+    }
+
+    /// `terminal <term_id> screen wait --pattern <regex> [--timeout-ms <n>]` (spec
+    /// `terminal.wait`): blocks until the screen matches, `{matched, text}`.
+    static func screenWaitArguments(socketPath: String, terminalID: String, pattern: String, timeoutMs: Int?) -> [String] {
+        var arguments = ["--socket", socketPath, "--json", "terminal", terminalID, "screen", "wait", "--pattern", pattern]
+        if let timeoutMs, timeoutMs > 0 {
+            arguments += ["--timeout-ms", String(timeoutMs)]
+        }
+        return arguments
+    }
+
     /// `attach --terminal <term_id>`: render exactly one remote terminal into this tty.
     static func attachArguments(socketPath: String, terminalID: String) -> [String] {
         ["--socket", socketPath, "attach", "--terminal", terminalID]
