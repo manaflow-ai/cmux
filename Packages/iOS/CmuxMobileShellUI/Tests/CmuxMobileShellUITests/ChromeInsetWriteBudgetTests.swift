@@ -14,20 +14,24 @@ struct ChromeInsetWriteBudgetTests {
     @Test func convergentLayoutFitsWithinOneTurn() {
         var budget = ChromeInsetWriteBudget()
         // The design expects one write, occasionally two (bar show + resize).
-        #expect(budget.allowWrite())
-        #expect(budget.allowWrite())
+        let first = budget.allowWrite()
+        let second = budget.allowWrite()
+        #expect(first)
+        #expect(second)
     }
 
     @Test func feedbackLoopIsStarvedAfterTheBudget() {
         var budget = ChromeInsetWriteBudget()
         for _ in 0..<ChromeInsetWriteBudget.writesPerTurn {
-            #expect(budget.allowWrite())
+            let allowed = budget.allowWrite()
+            #expect(allowed)
         }
         // The wedge: layout re-dirties itself on every write, so the run-loop
         // turn never ends and no reset arrives. Every further write must be
         // refused, forever, or the flush never completes.
         for _ in 0..<1000 {
-            #expect(!budget.allowWrite())
+            let allowed = budget.allowWrite()
+            #expect(!allowed)
         }
     }
 
@@ -36,9 +40,11 @@ struct ChromeInsetWriteBudgetTests {
         while budget.allowWrite() {}
         budget.reset()
         for _ in 0..<ChromeInsetWriteBudget.writesPerTurn {
-            #expect(budget.allowWrite())
+            let allowed = budget.allowWrite()
+            #expect(allowed)
         }
-        #expect(!budget.allowWrite())
+        let exhausted = budget.allowWrite()
+        #expect(!exhausted)
     }
 }
 #endif

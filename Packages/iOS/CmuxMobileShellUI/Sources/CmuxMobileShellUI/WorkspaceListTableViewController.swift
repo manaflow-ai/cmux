@@ -147,7 +147,10 @@ final class WorkspaceListTableViewController: UIViewController {
         }
         if !chromeInsetBudgetResetPending {
             chromeInsetBudgetResetPending = true
-            RunLoop.main.perform { [weak self] in
+            // Common modes so the budget also replenishes between passes of a
+            // tracking run loop (live scroll/drag); only a flush that never
+            // completes — the wedge itself — withholds the reset.
+            RunLoop.main.perform(inModes: [.common]) { [weak self] in
                 self?.chromeInsetWriteBudget.reset()
                 self?.chromeInsetBudgetResetPending = false
             }
