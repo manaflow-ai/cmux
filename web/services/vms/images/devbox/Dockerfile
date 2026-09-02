@@ -217,6 +217,7 @@ RUN bash -n /etc/cmux/agent-config.sh \
   && grep -q 'model_provider = "cmux"' /tmp/agent-config-check/.codex/config.toml \
   && grep -q 'base_url = "https://example.invalid/v1"' /tmp/agent-config-check/.codex/config.toml \
   && grep -q 'wire_api = "responses"' /tmp/agent-config-check/.codex/config.toml \
+  && grep -q 'supports_websockets = false' /tmp/agent-config-check/.codex/config.toml \
   && grep -q 'persistence = "save-all"' /tmp/agent-config-check/.codex/config.toml \
   && grep -q "export OPENAI_API_KEY='crt_check'" /tmp/agent-config-check/.config/cmux/model-plane.env \
   && [ "$(stat -c %a /tmp/agent-config-check/.config/cmux/model-plane.env)" = "600" ] \
