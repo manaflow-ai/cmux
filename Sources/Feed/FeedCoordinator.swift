@@ -33,6 +33,14 @@ final class FeedCoordinator: @unchecked Sendable {
     @MainActor private var todoRecoveryEpochByWorkstream: [String: UInt64] = [:]
     @MainActor private var todoRecoveryRecency: [String] = []
     @MainActor private var activeWorkstreamIDsByWorkspace: [UUID: [String: String]] = [:]
+    /// Session ids evicted from a per-workspace active-session map. A marker
+    /// keeps final-session cleanup fail-closed until every known evicted id has
+    /// emitted its terminal lifecycle event.
+    @MainActor private var activeWorkstreamOverflowMarkers: [UUID: ActiveWorkstreamOverflowMarker] = [:]
+    /// If the bounded marker table itself overflows, no workspace can be
+    /// safely treated as the final-session owner until a fresh coordinator is
+    /// installed or the affected workspace is definitively removed.
+    @MainActor private var hasUnknownActiveWorkstreamOverflow = false
     @MainActor private let maxTrackedActiveWorkspaces = 128
     @MainActor private let maxTrackedSessionsPerWorkspace = 128
     @MainActor private var dispatchedTaskOwnersByTargetWorkspace: [UUID: [DispatchedTaskOwner]] = [:]
@@ -98,6 +106,9 @@ final class FeedCoordinator: @unchecked Sendable {
         userNotificationCenter: (any UserNotificationCenterServing)? = nil
     ) {
         self.store = store
+        activeWorkstreamIDsByWorkspace.removeAll(keepingCapacity: true)
+        activeWorkstreamOverflowMarkers.removeAll(keepingCapacity: true)
+        hasUnknownActiveWorkstreamOverflow = false
         // Resolved here rather than as a default argument: default-argument
         // expressions evaluate outside the method's main-actor isolation.
         self.userNotificationCenter = userNotificationCenter
@@ -158,7 +169,8 @@ final class FeedCoordinator: @unchecked Sendable {
     @MainActor
     func ingestRevalidatedOnMainActor(_ event: WorkstreamEvent) -> UUID? {
         guard let store else { return nil }
-        recoverAgentTodosIfNeeded(for: event)
+        let workstreamID = store.normalizedWorkstreamID(for: event)
+        recoverAgentTodosIfNeeded(for: event, workstreamID: workstreamID)
         store.ingest(event)
         if let item = store.items.last {
             applyAgentTodos(from: item, event: event)
@@ -167,7 +179,7 @@ final class FeedCoordinator: @unchecked Sendable {
             releaseDispatchedBindings(forTargetWorkspaceID: targetWorkspaceID)
         }
         if event.hookEventName == .sessionEnd {
-            forgetTodoWorkspace(for: event.sessionId)
+            forgetTodoWorkspace(for: workstreamID)
         }
         if let ppid = event.ppid, ppid > 0 {
             armPidWatcher(ppid: ppid)
@@ -195,40 +207,73 @@ final class FeedCoordinator: @unchecked Sendable {
             if sessions.count > maxTrackedSessionsPerWorkspace {
                 let overflow = sessions.count - maxTrackedSessionsPerWorkspace
                 let evictedSurfaceKeys = Array(sessions.keys.prefix(overflow))
+                let evictedSessionIDs = evictedSurfaceKeys.compactMap { sessions[$0] }
                 for key in evictedSurfaceKeys {
                     sessions.removeValue(forKey: key)
                 }
+                recordActiveWorkstreamOverflow(evictedSessionIDs, for: workspaceID)
             }
             activeWorkstreamIDsByWorkspace[workspaceID] = sessions
             return []
         case .sessionEnd:
             let workspaceID = explicitWorkspaceID
                 ?? activeWorkstreamIDsByWorkspace.first(where: { $0.value.values.contains(event.sessionId) })?.key
+                ?? activeWorkstreamOverflowMarkers.first(where: {
+                    $0.value.knownSessionIDs.contains(event.sessionId)
+                })?.key
             guard let workspaceID else { return [] }
-            if var sessions = activeWorkstreamIDsByWorkspace[workspaceID] {
+            var sessions = activeWorkstreamIDsByWorkspace[workspaceID] ?? [:]
+            var overflowMarker = activeWorkstreamOverflowMarkers[workspaceID]
+            var matchedTrackedSession = false
+            if !sessions.isEmpty {
                 if let mappedSessionID = sessions[surfaceKey], mappedSessionID == event.sessionId {
                     sessions.removeValue(forKey: surfaceKey)
+                    matchedTrackedSession = true
                 } else {
                     let matchingKeys = sessions.compactMap { key, value in
                         value == event.sessionId ? key : nil
                     }
-                    guard !matchingKeys.isEmpty else { return [] }
-                    for key in matchingKeys { sessions.removeValue(forKey: key) }
+                    if !matchingKeys.isEmpty {
+                        for key in matchingKeys { sessions.removeValue(forKey: key) }
+                        matchedTrackedSession = true
+                    }
                 }
-                if sessions.isEmpty {
-                    activeWorkstreamIDsByWorkspace.removeValue(forKey: workspaceID)
+            }
+            if !matchedTrackedSession {
+                if overflowMarker?.consume(event.sessionId) == true {
+                    // This terminal event accounts for one evicted session.
+                    matchedTrackedSession = true
+                } else if overflowMarker?.hasUnknownSessions == true
+                    || hasUnknownActiveWorkstreamOverflow {
+                    // We cannot prove this is the final session while an id
+                    // is outside the bounded marker.
+                    activeWorkstreamIDsByWorkspace[workspaceID] = sessions
+                    return []
                 } else {
+                    // An explicit workspace id without a tracked active
+                    // session is not enough evidence to release bindings.
+                    return []
+                }
+            }
+            if let overflowMarker {
+                if overflowMarker.isEmpty {
+                    activeWorkstreamOverflowMarkers.removeValue(forKey: workspaceID)
+                } else {
+                    activeWorkstreamOverflowMarkers[workspaceID] = overflowMarker
+                }
+            }
+            if sessions.isEmpty {
+                guard !hasUnknownActiveWorkstreamOverflow,
+                      activeWorkstreamOverflowMarkers[workspaceID] == nil else {
                     activeWorkstreamIDsByWorkspace[workspaceID] = sessions
                     return []
                 }
+                activeWorkstreamIDsByWorkspace.removeValue(forKey: workspaceID)
+                return [workspaceID]
             } else {
-                // An explicit workspace id without a tracked active session is
-                // not enough evidence to release persisted bindings; stale
-                // hooks must fail closed rather than unbind unrelated work.
+                activeWorkstreamIDsByWorkspace[workspaceID] = sessions
                 return []
             }
-            pruneActiveWorkstreamSessions()
-            return [workspaceID]
         default:
             return []
         }
@@ -247,13 +292,39 @@ final class FeedCoordinator: @unchecked Sendable {
             activeWorkstreamIDsByWorkspace = activeWorkstreamIDsByWorkspace.filter {
                 liveWorkspaceIDs.contains($0.key)
             }
+            // Workspace removal is the definitive signal that any overflow
+            // marker for that workspace can no longer guard a live binding.
+            activeWorkstreamOverflowMarkers = activeWorkstreamOverflowMarkers.filter {
+                liveWorkspaceIDs.contains($0.key)
+            }
         }
         guard activeWorkstreamIDsByWorkspace.count > maxTrackedActiveWorkspaces else { return }
         let overflow = activeWorkstreamIDsByWorkspace.count - maxTrackedActiveWorkspaces
         let evictedWorkspaceIDs = Array(activeWorkstreamIDsByWorkspace.keys.prefix(overflow))
         for workspaceID in evictedWorkspaceIDs {
+            let sessionIDs = Array(activeWorkstreamIDsByWorkspace[workspaceID, default: [:]].values)
+            recordActiveWorkstreamOverflow(sessionIDs, for: workspaceID)
             activeWorkstreamIDsByWorkspace.removeValue(forKey: workspaceID)
         }
+    }
+
+    @MainActor
+    private func recordActiveWorkstreamOverflow(
+        _ sessionIDs: [String],
+        for workspaceID: UUID
+    ) {
+        guard !sessionIDs.isEmpty else { return }
+        var marker = activeWorkstreamOverflowMarkers[workspaceID]
+            ?? ActiveWorkstreamOverflowMarker()
+        for sessionID in sessionIDs {
+            marker.record(sessionID)
+        }
+        if activeWorkstreamOverflowMarkers[workspaceID] == nil,
+           activeWorkstreamOverflowMarkers.count >= maxTrackedActiveWorkspaces {
+            hasUnknownActiveWorkstreamOverflow = true
+            return
+        }
+        activeWorkstreamOverflowMarkers[workspaceID] = marker
     }
 
     @MainActor
@@ -330,6 +401,30 @@ final class FeedCoordinator: @unchecked Sendable {
     struct DispatchedTaskOwner: Sendable, Equatable {
         let itemID: UUID
         let sourceWorkspaceID: UUID
+    }
+
+    private struct ActiveWorkstreamOverflowMarker {
+        private static let maxKnownSessionIDs = 128
+        var knownSessionIDs: Set<String> = []
+        var hasUnknownSessions = false
+
+        mutating func record(_ sessionID: String) {
+            guard !sessionID.isEmpty else { return }
+            if knownSessionIDs.contains(sessionID) { return }
+            guard knownSessionIDs.count < Self.maxKnownSessionIDs else {
+                hasUnknownSessions = true
+                return
+            }
+            knownSessionIDs.insert(sessionID)
+        }
+
+        mutating func consume(_ sessionID: String) -> Bool {
+            knownSessionIDs.remove(sessionID) != nil
+        }
+
+        var isEmpty: Bool {
+            knownSessionIDs.isEmpty && !hasUnknownSessions
+        }
     }
 
     /// Runs synchronous acknowledged ingress on the same ordered lane as zero-wait telemetry.

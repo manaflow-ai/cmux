@@ -568,4 +568,25 @@ struct WorkstreamTaskToolTodoTests {
         #expect(latestTodos(store)?.map(\.id) == ["1"])
         #expect(store.ownedTaskIds(forWorkstream: "s1") == ["1"])
     }
+
+    @Test("Task-tool state uses the canonical workstream identity")
+    func taskToolStateUsesCanonicalWorkstreamID() {
+        let store = WorkstreamStore(
+            ringCapacity: 50,
+            workstreamIDNormalizer: { rawValue, source in
+                "canonical:\(source):\(rawValue)"
+            }
+        )
+        store.ingest(toolEvent(
+            sessionId: "legacy-session",
+            hook: .postToolUse,
+            tool: "TaskCreate",
+            input: #"{"subject":"canonical task"}"#,
+            response: #"{"task":{"id":"1","subject":"canonical task"}}"#
+        ))
+
+        #expect(store.ownedTaskIds(forWorkstream: "canonical:claude:legacy-session") == ["1"])
+        #expect(store.ownedTaskIds(forWorkstream: "legacy-session").isEmpty)
+        #expect(store.items.last?.workstreamId == "canonical:claude:legacy-session")
+    }
 }

@@ -171,6 +171,12 @@ public final class WorkstreamStore {
         return accumulator.ownedIDList
     }
 
+    /// Returns the canonical workstream key used by task-tool state and
+    /// persisted checklist references for an incoming event.
+    public func normalizedWorkstreamID(for event: WorkstreamEvent) -> String {
+        workstreamIDNormalizer(event.sessionId, event.source)
+    }
+
     /// Seeds task-tool state from persisted workspace rows before applying a
     /// resumed session's first status-only update.
     public func seedTaskTodos(
@@ -262,8 +268,12 @@ public final class WorkstreamStore {
         let parsedSource = WorkstreamSource(wireName: event.source)
         let source = parsedSource ?? .claude
         let sourceID = parsedSource == nil ? event.source : nil
-        let workstreamID = workstreamIDNormalizer(event.sessionId, event.source)
-        let (kind, payload) = decode(event: event, source: source)
+        let workstreamID = normalizedWorkstreamID(for: event)
+        let (kind, payload) = decode(
+            event: event,
+            source: source,
+            workstreamID: workstreamID
+        )
         let status: WorkstreamStatus = kind.isActionable ? .pending : .telemetry
         return WorkstreamItem(
             workstreamId: workstreamID,
@@ -334,7 +344,8 @@ public final class WorkstreamStore {
 
     private func decode(
         event: WorkstreamEvent,
-        source: WorkstreamSource
+        source: WorkstreamSource,
+        workstreamID: String
     ) -> (WorkstreamKind, WorkstreamPayload) {
         let toolInput = event.toolInputJSON ?? "{}"
         switch event.hookEventName {
@@ -369,7 +380,7 @@ public final class WorkstreamStore {
         case .preToolUse:
             let toolName = event.toolName ?? ""
             if let taskTool = WorkstreamTaskTool(rawValue: toolName) {
-                var accumulator = taskToolTodosByWorkstream[event.sessionId] ?? WorkstreamTaskToolTodos()
+                var accumulator = taskToolTodosByWorkstream[workstreamID] ?? WorkstreamTaskToolTodos()
                 let outcome: WorkstreamTaskToolOutcome
                 if event.toolResponseJSON != nil {
                     outcome = accumulator.applyPost(
@@ -389,14 +400,14 @@ public final class WorkstreamStore {
                 if !outcome.producedList || (event.isError ?? false) {
                     accumulator.invalidateCompleteness()
                 }
-                taskToolTodosByWorkstream[event.sessionId] = accumulator
-                taskToolListCompletenessByWorkstream[event.sessionId] =
+                taskToolTodosByWorkstream[workstreamID] = accumulator
+                taskToolListCompletenessByWorkstream[workstreamID] =
                     event.toolResponseJSON != nil
                     && !(event.isError ?? false)
                     && outcome.producedList
                     ? accumulator.isComplete
                     : false
-                touchTaskToolWorkstream(event.sessionId)
+                touchTaskToolWorkstream(workstreamID)
                 trimTaskToolWorkstreams()
                 if case .list(let todos) = outcome {
                     return (.todos, .todos(todos))
@@ -407,7 +418,7 @@ public final class WorkstreamStore {
             let toolName = event.toolName ?? ""
             let isError = event.hookEventName == .postToolUseFailure || (event.isError ?? false)
             if let taskTool = WorkstreamTaskTool(rawValue: toolName) {
-                var accumulator = taskToolTodosByWorkstream[event.sessionId] ?? WorkstreamTaskToolTodos()
+                var accumulator = taskToolTodosByWorkstream[workstreamID] ?? WorkstreamTaskToolTodos()
                 let outcome = accumulator.applyPost(
                     tool: taskTool,
                     inputJSON: event.toolInputJSON,
@@ -418,12 +429,12 @@ public final class WorkstreamStore {
                 if !outcome.producedList || isError {
                     accumulator.invalidateCompleteness()
                 }
-                taskToolTodosByWorkstream[event.sessionId] = accumulator
-                taskToolListCompletenessByWorkstream[event.sessionId] =
+                taskToolTodosByWorkstream[workstreamID] = accumulator
+                taskToolListCompletenessByWorkstream[workstreamID] =
                     !isError && outcome.producedList
                     ? accumulator.isComplete
                     : false
-                touchTaskToolWorkstream(event.sessionId)
+                touchTaskToolWorkstream(workstreamID)
                 trimTaskToolWorkstreams()
                 if case .list(let todos) = outcome {
                     return (.todos, .todos(todos))
@@ -460,7 +471,7 @@ public final class WorkstreamStore {
         case .stop:
             return (.stop, .stop(reason: Self.stopReason(from: event.toolInputJSON)))
         case .todoWrite:
-            var accumulator = taskToolTodosByWorkstream[event.sessionId] ?? WorkstreamTaskToolTodos()
+            var accumulator = taskToolTodosByWorkstream[workstreamID] ?? WorkstreamTaskToolTodos()
             let outcome = accumulator.applyPre(
                 tool: .todoWrite,
                 inputJSON: event.toolInputJSON,
@@ -470,12 +481,12 @@ public final class WorkstreamStore {
             if !outcome.producedList || (event.isError ?? false) {
                 accumulator.invalidateCompleteness()
             }
-            taskToolTodosByWorkstream[event.sessionId] = accumulator
-            taskToolListCompletenessByWorkstream[event.sessionId] =
+            taskToolTodosByWorkstream[workstreamID] = accumulator
+            taskToolListCompletenessByWorkstream[workstreamID] =
                 !(event.isError ?? false) && outcome.producedList
                 ? accumulator.isComplete
                 : false
-            touchTaskToolWorkstream(event.sessionId)
+            touchTaskToolWorkstream(workstreamID)
             trimTaskToolWorkstreams()
             if case .list(let todos) = outcome {
                 return (.todos, .todos(todos))

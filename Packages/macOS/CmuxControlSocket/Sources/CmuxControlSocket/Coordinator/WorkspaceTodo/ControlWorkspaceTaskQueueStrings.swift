@@ -1,4 +1,4 @@
-public import Foundation
+import Foundation
 
 /// Localized response strings supplied by the application to task-queue RPCs.
 ///
@@ -6,7 +6,7 @@ public import Foundation
 /// catalog, so the composition root provides these already-localized values.
 /// The defaults keep package-only test seams and staged owners functional until
 /// they provide their own catalog-backed copy.
-public struct ControlWorkspaceTaskQueueStrings: Sendable, Equatable {
+nonisolated public struct ControlWorkspaceTaskQueueStrings: Sendable, Equatable {
     /// Message for an unsupported status filter.
     public let invalidStatus: String
     /// Message used while the app's workspace registry is unavailable.

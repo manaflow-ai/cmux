@@ -39,10 +39,6 @@ public protocol ControlWorkspaceTaskQueueContext: AnyObject {
 /// The default is an unavailable response until the app conformance supplies
 /// the live workspace projection.
 public extension ControlWorkspaceTaskQueueContext {
-    var controlWorkspaceTaskQueueStrings: ControlWorkspaceTaskQueueStrings {
-        ControlWorkspaceTaskQueueStrings()
-    }
-
     func controlWorkspaceTaskQueueList(
         statusRaw: String?,
         workspaceID: UUID?,

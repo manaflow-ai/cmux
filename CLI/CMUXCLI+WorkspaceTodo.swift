@@ -119,7 +119,7 @@ extension CMUXCLI {
             return
         }
         guard let sub = commandArgs.first?.lowercased() else {
-            throw CLIError(message: String(localized: "cli.todo.error.missingSubcommand", defaultValue: "todo requires a subcommand. Try: add, list, queue, dispatch, reveal, target, check, uncheck, start, edit, rm, move, clear, set, open"))
+            throw CLIError(message: String(localized: "cli.todo.error.missingSubcommand", defaultValue: "todo requires a subcommand. Try: add, list, queue, all, dispatch, reveal, target, check, uncheck, start, edit, rm, move, clear, set, open"))
         }
         let aggregateSubcommands: Set<String> = [
             "queue", "all", "refresh", "dispatch", "reveal", "target",
@@ -143,7 +143,10 @@ extension CMUXCLI {
             let (agentArg, rem4) = parseOption(rem3, name: "--agent")
             let text = rem4.filter { !$0.hasPrefix("--") }.joined(separator: " ")
             guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
-                throw CLIError(message: String(localized: "cli.todo.error.addUsage", defaultValue: "Usage: cmux todo add \"text\" [--state <pending|in-progress|completed>] [--origin <user|agent>] [--cwd <dir>] [--command <agent command>] [--agent <name>]"))
+                throw CLIError(message: String(localized: "cli.todo.error.addUsage", defaultValue: "Usage: cmux todo add \"text\" [--state <pending|in-progress|completed>] [--origin <user|agent>] [--command <agent command> [--cwd <dir>] [--agent <name>]]"))
+            }
+            guard commandArg != nil || (cwdArg == nil && agentArg == nil) else {
+                throw CLIError(message: String(localized: "cli.todo.error.addTargetRequiresCommand", defaultValue: "cmux todo add requires --command when --cwd or --agent is provided"))
             }
             addParams["text"] = text
             if let stateArg { addParams["state"] = stateArg }
@@ -286,7 +289,7 @@ extension CMUXCLI {
                 fallbackText: String(localized: "common.ok", defaultValue: "OK")
             )
         default:
-            throw CLIError(message: String(format: String(localized: "cli.todo.error.unknownSubcommand", defaultValue: "Unknown todo subcommand: %@. Try: add, list, queue, dispatch, reveal, target, check, uncheck, start, edit, rm, move, clear, set, open"), sub))
+            throw CLIError(message: String(format: String(localized: "cli.todo.error.unknownSubcommand", defaultValue: "Unknown todo subcommand: %@. Try: add, list, queue, all, dispatch, reveal, target, check, uncheck, start, edit, rm, move, clear, set, open"), sub))
         }
     }
 
@@ -475,9 +478,10 @@ extension CMUXCLI {
     task tracking for your plans.
 
     Subcommands:
-      add "text" [--state <pending|in-progress|completed>] [--origin <user|agent>] [--cwd <dir>] [--command <agent command>] [--agent <name>]
+      add "text" [--state <pending|in-progress|completed>] [--origin <user|agent>] [--command <agent command> [--cwd <dir>] [--agent <name>]]
       list                    Print items (1-based indexes) and progress
-      queue [--status ...]    Aggregate every workspace's checklist
+      queue|all [--status ...]
+                              Aggregate every workspace's checklist
       refresh                 Refresh the aggregate queue without changing focus
       dispatch <index|id>     Create the target workspace without changing focus
       reveal <index|id>       Reveal the owning workspace without selecting it

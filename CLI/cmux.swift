@@ -39187,8 +39187,9 @@ export default CMUXSessionRestore;
         // output for unrelated PostToolUse events.
         if hookEventName == "PostToolUse",
            ["TaskCreate", "TaskUpdate", "TaskGet", "TaskList"].contains(toolName),
-           let postToolUseResponseInput {
-            eventDict["tool_response"] = postToolUseResponseInput
+           let postToolUseResponseInput,
+           let boundedResponse = Self.boundedTaskToolResponse(postToolUseResponseInput) {
+            eventDict["tool_response"] = boundedResponse
         }
         if let context = feedContextForEvent(
             source: source,
@@ -39435,6 +39436,121 @@ export default CMUXSessionRestore;
         "message",
         "error",
     ]
+
+    /// Bounds the task-tool response copied into a feed envelope. Claude's
+    /// response may contain an arbitrarily large description or tool transcript;
+    /// reconciliation only needs a task identity, display subject, and state.
+    private static let feedTaskToolResponseMaxBytes = 64 * 1024
+    private static let feedTaskToolResponseMaxTasks = 50
+    private static let feedTaskToolResponseMaxIDBytes = 512
+    private static let feedTaskToolResponseMaxTextBytes = 512
+
+    private static func boundedTaskToolResponse(_ rawValue: Any) -> Any? {
+        let value: Any
+        if let string = rawValue as? String {
+            guard let data = string.data(using: .utf8),
+                  let decoded = try? JSONSerialization.jsonObject(
+                      with: data,
+                      options: [.fragmentsAllowed]
+                  ) else {
+                return nil
+            }
+            value = decoded
+        } else {
+            value = rawValue
+        }
+
+        let sanitized: Any
+        if let dictionary = value as? [String: Any] {
+            var output: [String: Any] = [:]
+            if let success = dictionary["success"] as? Bool {
+                output["success"] = success
+            }
+            if let task = dictionary["task"] as? [String: Any] {
+                if let task = sanitizedTaskToolObject(task) {
+                    output["task"] = task
+                }
+            } else if let tasks = dictionary["tasks"] as? [Any] {
+                output["tasks"] = sanitizedTaskToolArray(tasks)
+            } else if let todos = dictionary["todos"] as? [Any] {
+                output["todos"] = sanitizedTaskToolArray(todos)
+            } else if let task = sanitizedTaskToolObject(dictionary) {
+                output = task
+            }
+            sanitized = output
+        } else if let array = value as? [Any] {
+            sanitized = sanitizedTaskToolArray(array)
+        } else {
+            return nil
+        }
+
+        guard JSONSerialization.isValidJSONObject(sanitized),
+              let data = try? JSONSerialization.data(
+                  withJSONObject: sanitized,
+                  options: [.sortedKeys]
+              ),
+              data.count <= feedTaskToolResponseMaxBytes else {
+            return nil
+        }
+        return sanitized
+    }
+
+    private static func sanitizedTaskToolArray(_ values: [Any]) -> [[String: Any]] {
+        values.prefix(feedTaskToolResponseMaxTasks).compactMap { value in
+            guard let object = value as? [String: Any] else { return nil }
+            return sanitizedTaskToolObject(object)
+        }
+    }
+
+    private static func sanitizedTaskToolObject(_ object: [String: Any]) -> [String: Any]? {
+        var result: [String: Any] = [:]
+        if let id = taskToolResponseString(
+            in: object,
+            keys: ["id", "taskId", "task_id"]
+        ) {
+            result["id"] = feedUTF8Prefix(
+                id,
+                maxBytes: feedTaskToolResponseMaxIDBytes
+            ).value
+        }
+        if let subject = taskToolResponseString(
+            in: object,
+            keys: ["subject", "content", "title", "text", "description"]
+        ) {
+            result["subject"] = feedUTF8Prefix(
+                subject,
+                maxBytes: feedTaskToolResponseMaxTextBytes
+            ).value
+        }
+        if let status = taskToolResponseString(
+            in: object,
+            keys: ["status", "state"]
+        ) {
+            result["status"] = feedUTF8Prefix(
+                status,
+                maxBytes: 64
+            ).value
+        }
+        return result.isEmpty ? nil : result
+    }
+
+    private static func taskToolResponseString(
+        in object: [String: Any],
+        keys: [String]
+    ) -> String? {
+        for key in keys {
+            guard let value = object[key] else { continue }
+            if let string = value as? String,
+               !string.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                return string.trimmingCharacters(in: .whitespacesAndNewlines)
+            }
+            if let number = value as? NSNumber,
+               CFGetTypeID(number) != CFBooleanGetTypeID() {
+                return number.stringValue
+            }
+        }
+        return nil
+    }
 
     private static func sanitizedPostToolUseFeedValue(_ value: Any) -> Any {
         var summary: [String: Any] = [
@@ -40652,7 +40768,7 @@ export default CMUXSessionRestore;
           reorder-workspaces --order <id|ref|index>,<id|ref|index>,... [--window <id|ref|index>] [--dry-run]
           workspace-action --action <name> [--workspace <id|ref|index>] [--window <id|ref|index>] [--title <text>] [--color <name|#hex>] [--description <text>]
           workspace status [set <lane|auto>] [--workspace <id|ref|index>] [--window <id|ref|index>]
-          todo <add|list|queue|refresh|dispatch|reveal|target|check|uncheck|start|rm|clear> [args] [--workspace <id|ref|index>] [--window <id|ref|index>]
+          todo <add|list|queue|all|refresh|dispatch|reveal|target|check|uncheck|start|rm|clear> [args] [--workspace <id|ref|index>] [--window <id|ref|index>]
           comments list [--repo <path>] [--all] [--json]
           move-tab-to-new-workspace [--tab <id|ref|index>] [--surface <id|ref|index>] [--workspace <id|ref|index>] [--window <id|ref|index>] [--title <text>] [--focus <true|false>]
           list-workspaces [--window <id|ref|index>]

@@ -7,12 +7,12 @@ import Foundation
 /// wire values and invokes the shared `Workspace.replaceChecklist` entry point.
 extension FeedCoordinator {
     @MainActor
-    func recoverAgentTodosIfNeeded(for event: WorkstreamEvent) {
+    func recoverAgentTodosIfNeeded(for event: WorkstreamEvent, workstreamID: String) {
         let isTaskEvent = event.hookEventName == .todoWrite
             || event.toolName.flatMap(WorkstreamTaskTool.init(rawValue:)) != nil
         guard isTaskEvent,
               let store,
-              store.ownedTaskIds(forWorkstream: event.sessionId).isEmpty else {
+              store.ownedTaskIds(forWorkstream: workstreamID).isEmpty else {
             return
         }
         // An accumulator can be empty after restart while persisted rows still
@@ -21,7 +21,7 @@ extension FeedCoordinator {
         let candidates = AppDelegate.shared?.allWorkspacesForAgentTodoRetirement ?? []
         guard !candidates.isEmpty else { return }
         guard markTodoRecoveryAttempt(
-            event.sessionId,
+            workstreamID,
             recoveryEpoch: store.taskToolRecoveryEpoch
         ) else { return }
         var restored: [WorkstreamTaskTodo] = []
@@ -29,7 +29,7 @@ extension FeedCoordinator {
         for workspace in candidates {
             for item in workspace.todoState.checklist {
                 guard let ref = item.agentTaskRef,
-                      ref.workstreamId == event.sessionId,
+                      ref.workstreamId == workstreamID,
                       seen.insert(ref.taskId).inserted else { continue }
                 restored.append(WorkstreamTaskTodo(
                     id: ref.taskId,
@@ -39,7 +39,7 @@ extension FeedCoordinator {
             }
         }
         if !restored.isEmpty {
-            store.seedTaskTodos(forWorkstream: event.sessionId, todos: restored)
+            store.seedTaskTodos(forWorkstream: workstreamID, todos: restored)
         }
     }
 

@@ -85,3 +85,9 @@ extension ControlWorkspaceTodoContext {
         requestedFocus: Bool
     ) -> ControlWorkspaceTodoOpenResolution { .tabManagerUnavailable }
 }
+
+extension ControlWorkspaceTaskQueueContext {
+    var controlWorkspaceTaskQueueStrings: ControlWorkspaceTaskQueueStrings {
+        ControlWorkspaceTaskQueueStrings()
+    }
+}
