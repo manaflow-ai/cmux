@@ -27,6 +27,7 @@ struct TerminalInputReportParser {
         case 0x6E: return intermediates.isEmpty && (parameters.first == 0x3F || parameters == [0x30] || parameters == [0x33])
         case 0x75: return intermediates.isEmpty && parameters.first == 0x3F
         case 0x79: return intermediates == [0x24] && (parameters.first == 0x3F || ansiModeReport(parameters))
+        case 0x74: return intermediates.isEmpty && cellSizeReport(parameters)
         default: return false
         }
     }
@@ -38,5 +39,22 @@ struct TerminalInputReportParser {
     private func ansiModeReport(_ p: [UInt32]) -> Bool {
         guard let i = p.firstIndex(of: 0x3B), i > 0, i + 1 < p.count else { return false }
         return p[..<i].allSatisfy { (0x30...0x39).contains($0) } && p[(i + 1)...].count == 1 && (0x30...0x34).contains(p[i + 1])
+    }
+
+    private func cellSizeReport(_ p: [UInt32]) -> Bool {
+        var fields: [[UInt32]] = []
+        var field: [UInt32] = []
+        for value in p {
+            if (0x30...0x39).contains(value) {
+                field.append(value)
+            } else {
+                guard value == 0x3B, !field.isEmpty else { return false }
+                fields.append(field)
+                field.removeAll(keepingCapacity: true)
+            }
+        }
+        guard !field.isEmpty else { return false }
+        fields.append(field)
+        return fields.count == 3 && fields[0] == [0x36]
     }
 }
