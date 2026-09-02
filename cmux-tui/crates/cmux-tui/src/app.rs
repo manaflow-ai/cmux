@@ -10192,16 +10192,18 @@ impl App {
         self.focus == FocusTarget::ProjectionRail(index)
     }
 
-    pub(crate) fn projection_rows(&mut self, index: usize) -> Vec<ProjectionRow> {
-        let Some(spec) = self.config.sidebar.views.get(index).cloned() else {
-            return Vec::new();
+    /// Return a projection's rows, reusing the cached immutable snapshot when
+    /// its tree and presentation revisions have not changed.
+    pub(crate) fn projection_rows(&mut self, index: usize) -> Arc<[ProjectionRow]> {
+        let Some(spec) = self.config.sidebar.views.get(index) else {
+            return Arc::from([]);
         };
         let empty_collapsed = HashSet::new();
         let collapsed = self
             .projection_rails
             .get(&spec.id)
-            .map(|state| state.collapsed.clone())
-            .unwrap_or(empty_collapsed);
+            .map(|state| &state.collapsed)
+            .unwrap_or(&empty_collapsed);
         let rail_generation =
             self.projection_rails.get(&spec.id).map_or(0, |state| state.rows_generation);
         let agent_revision = if spec.includes(SidebarResourceKind::Agents) {
@@ -10237,7 +10239,7 @@ impl App {
         let tree = &self.tree;
         let session = &self.session;
         let selected_workspace = self.sidebar_workspace_selection;
-        self.projection_rows_cache.get_or_build(&spec.id, revision, || {
+        self.projection_rows_cache.get_or_build(&spec.id, &revision, || {
             let agents = if spec.includes(SidebarResourceKind::Agents) {
                 // Finished reports are historical records, not active agents.
                 // Otherwise detached "surface..." rows remain forever after exit.
@@ -10249,7 +10251,7 @@ impl App {
             } else {
                 Vec::new()
             };
-            crate::sidebar_projection::rows(&spec, tree, &agents, selected_workspace, &collapsed)
+            crate::sidebar_projection::rows(spec, tree, &agents, selected_workspace, collapsed)
         })
     }
 
