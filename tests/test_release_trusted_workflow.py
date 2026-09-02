@@ -23,6 +23,30 @@ WORKFLOW_PATH = ".github/workflows/release-trusted.yml"
 TRIGGER_PATH = ".github/workflows/release.yml"
 SHA = re.compile(r"^[0-9a-f]{40}$")
 ACTION_SHA = re.compile(r"@[0-9a-f]{40}(?:\s+#.*)?$")
+OBSERVER_CONTENT = "\n".join(
+    (
+        "name: Release macOS app trigger",
+        "",
+        "on:",
+        "  push:",
+        "    tags:",
+        '      - "v*"',
+        "",
+        "permissions: {}",
+        "",
+        "jobs:",
+        "  announce:",
+        "    runs-on: ubuntu-24.04 # github-hosted-required: unprivileged tag observer",
+        "    permissions: {}",
+        "    timeout-minutes: 2",
+        "    steps:",
+        "      - name: Emit queued release event",
+        "        run: |",
+        "          set -euo pipefail",
+        '          echo "Tag event queued for trusted protected-main release dispatcher: ${GITHUB_REF_NAME}"',
+        "",
+    )
+)
 
 
 def load() -> dict:
@@ -50,7 +74,14 @@ def checkout_steps(job: dict) -> list[dict]:
     ]
 
 
-def run_guard_fixture(script: str, *, wrapper_blob: str, main_blob: str) -> subprocess.CompletedProcess[str]:
+def run_guard_fixture(
+    script: str,
+    *,
+    wrapper_blob: str,
+    main_blob: str,
+    source_content: str | None = None,
+    main_content: str | None = None,
+) -> subprocess.CompletedProcess[str]:
     """Exercise the real guard with a tag-controlled workflow mutation.
 
     The event payload claims a successful observer run, while the observer
@@ -61,14 +92,16 @@ def run_guard_fixture(script: str, *, wrapper_blob: str, main_blob: str) -> subp
     source_sha = "a" * 40
     main_sha = "b" * 40
     observer_run_id = 123456
-    wrapper_content = base64.b64encode(
-        b"name: Release macOS app trigger\n"
-        b"permissions: { contents: write }\n"
-        b"jobs:\n  attacker:\n    run: exfiltrate\n"
-    ).decode()
-    main_content = base64.b64encode(
-        b"name: Release macOS app trigger\npermissions: {}\njobs: {}\n"
-    ).decode()
+    source_content = source_content or (
+        "name: Release macOS app trigger\n"
+        "permissions: { contents: write }\n"
+        "jobs:\n  attacker:\n    run: exfiltrate\n"
+    )
+    main_content = main_content or (
+        "name: Release macOS app trigger\npermissions: {}\njobs: {}\n"
+    )
+    source_content_b64 = base64.b64encode(source_content.encode()).decode()
+    main_content_b64 = base64.b64encode(main_content.encode()).decode()
     harness = f"""
 const core = {{
   setFailed(message) {{ throw new Error(message); }},
@@ -101,7 +134,7 @@ const github = {{ rest: {{
     getBranch: async () => ({{ data: {{ protected: true, commit: {{ sha: '{main_sha}' }} }} }}),
     compareCommits: async () => ({{ data: {{ status: 'ahead' }} }}),
     getContent: async ({{ path, ref }}) => {{
-      if (path === '{TRIGGER_PATH}') return {{ data: {{ type: 'file', sha: ref === '{main_sha}' ? '{main_blob}' : '{wrapper_blob}', encoding: 'base64', content: ref === '{main_sha}' ? '{main_content}' : '{wrapper_content}' }} }};
+      if (path === '{TRIGGER_PATH}') return {{ data: {{ type: 'file', sha: ref === '{main_sha}' ? '{main_blob}' : '{wrapper_blob}', encoding: 'base64', content: ref === '{main_sha}' ? '{main_content_b64}' : '{source_content_b64}' }} }};
       return {{ data: {{ type: 'file', sha: 'trusted-workflow-blob', encoding: 'base64', content: '' }} }};
     }},
   }},
@@ -199,6 +232,21 @@ class ReleaseTrustedWorkflowTests(unittest.TestCase):
                 )
                 self.assertIs(checkout.get("with", {}).get("persist-credentials"), False)
 
+        sign_steps = document["jobs"]["build-sign-notarize"]["steps"]
+        sign_text = "\n".join(str(step) for step in sign_steps)
+        for required in (
+            "skip_r2_upload",
+            "Restore appcast for a publication retry",
+            "Revalidate release tag before GitHub publication",
+            "Revalidate release tag before R2 publication",
+        ):
+            self.assertIn(required, sign_text)
+        restore = next(step for step in sign_steps if step.get("name") == "Restore appcast for a publication retry")
+        self.assertIn("gh release download", restore["run"])
+        r2_recheck = next(step for step in sign_steps if step.get("name") == "Revalidate release tag before R2 publication")
+        self.assertIn("gh api", r2_recheck["run"])
+        self.assertIn("skip_r2_upload", r2_recheck["if"])
+
     def test_adversarial_tag_workflow_is_rejected_before_release(self) -> None:
         document = load()
         script = script_for(document["jobs"]["validate-source"])
@@ -212,6 +260,32 @@ class ReleaseTrustedWorkflowTests(unittest.TestCase):
             result.stderr,
             r"(?i)(?:minimal unprivileged observer|dispatcher source workflow changed|workflow definition)",
         )
+
+    def test_observer_rejects_alternate_yaml_run_syntax(self) -> None:
+        document = load()
+        script = script_for(document["jobs"]["validate-source"])
+        alternate = OBSERVER_CONTENT.replace("        run: |", "        run: >")
+        result = run_guard_fixture(
+            script,
+            wrapper_blob="same-protected-blob",
+            main_blob="same-protected-blob",
+            source_content=alternate,
+            main_content=OBSERVER_CONTENT,
+        )
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("minimal unprivileged observer", result.stderr)
+
+    def test_canonical_observer_passes_full_provenance_guard(self) -> None:
+        document = load()
+        script = script_for(document["jobs"]["validate-source"])
+        result = run_guard_fixture(
+            script,
+            wrapper_blob="same-protected-blob",
+            main_blob="same-protected-blob",
+            source_content=OBSERVER_CONTENT,
+            main_content=OBSERVER_CONTENT,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
 
 
 if __name__ == "__main__":

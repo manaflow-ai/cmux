@@ -84,35 +84,32 @@ jobs:
               return Buffer.from(file.content.replace(/\s/g, ''), 'base64').toString('utf8');
             };
             const assertObserverContract = (content) => {
-              if (content.length > 2048) fail('Release trigger workflow is larger than the observer contract');
-              const requiredLines = [
-                /^name:\s*Release macOS app trigger\s*$/m,
-                /^on:\s*$/m,
-                /^\s+push:\s*$/m,
-                /^\s+tags:\s*$/m,
-                /^\s+-\s+["']v\*["']\s*$/m,
-                /^permissions:\s*\{\s*\}\s*$/m,
-                /^jobs:\s*$/m,
-                /^\s+announce:\s*$/m,
-                /^\s+runs-on:\s+ubuntu-24\.04(?:\s+#.*)?\s*$/m,
-                /^\s+permissions:\s*\{\s*\}\s*$/m,
-                /^\s+steps:\s*$/m,
-                /^\s+-\s+name:\s+Emit queued release event\s*$/m,
-                /^\s+run:\s+\|\s*$/m,
-                /echo ["']Tag event queued for trusted protected-main release dispatcher: \$\{GITHUB_REF_NAME\}["']/,
-              ];
-              for (const line of requiredLines) if (!line.test(content)) {
-                fail('Release trigger workflow is not the minimal unprivileged observer');
-              }
-              if (/workflow_dispatch|workflow_call|repository_dispatch|actions\/|uses:\s|secrets\.|GITHUB_TOKEN|github\.token|contents:\s*(?:write|read-write)|id-token|attestations|environment\s*:|with\s*:/m.test(content)) {
-                fail('Release trigger workflow is not the minimal unprivileged observer');
-              }
-              const permissionLines = content.match(/^\s*permissions\s*:[^\n]*$/gm) || [];
-              if (permissionLines.some((line) => !/:\s*\{\s*\}\s*$/.test(line))) {
-                fail('Release trigger workflow grants token permissions');
-              }
-              const runBlocks = content.match(/^\s+run:\s+\|\s*$/gm) || [];
-              if (runBlocks.length !== 1) fail('Release trigger workflow must have one completion step');
+              // Keep the tag-side file byte-for-byte canonical. This is a
+              // deliberately tiny allowlist: alternate YAML forms (including
+              // `run: >`, extra triggers, or extra jobs) cannot execute.
+              const expected = [
+                'name: Release macOS app trigger',
+                '',
+                'on:',
+                '  push:',
+                '    tags:',
+                '      - "v*"',
+                '',
+                'permissions: {}',
+                '',
+                'jobs:',
+                '  announce:',
+                '    runs-on: ubuntu-24.04 # github-hosted-required: unprivileged tag observer',
+                '    permissions: {}',
+                '    timeout-minutes: 2',
+                '    steps:',
+                '      - name: Emit queued release event',
+                '        run: |',
+                '          set -euo pipefail',
+                '          echo "Tag event queued for trusted protected-main release dispatcher: ${GITHUB_REF_NAME}"',
+                '',
+              ].join('\n');
+              if (content !== expected) fail('Release trigger workflow is not the minimal unprivileged observer');
             };
 
             requireText('Release dispatcher repository', repository, expectedRepository);
@@ -351,6 +348,7 @@ jobs:
             const tag = process.env.RELEASE_TAG;
             core.setOutput('skip_all', 'false');
             core.setOutput('skip_upload', 'false');
+            core.setOutput('skip_r2_upload', 'false');
             core.setOutput('release_state', 'clear');
             if (!tag) {
               core.setFailed('Release asset guard did not receive the validated release tag');
@@ -389,6 +387,10 @@ jobs:
                 );
                 core.setOutput('skip_all', 'true');
                 core.setOutput('skip_upload', 'true');
+                // Existing immutable assets mean the build and GitHub asset
+                // upload are complete. Keep the mutable R2 appcast lane live
+                // so a transient upload failure can be repaired by rerun.
+                core.setOutput('skip_r2_upload', 'false');
                 return;
               }
 
@@ -400,6 +402,20 @@ jobs:
               }
               throw error;
             }
+
+      - name: Restore appcast for a publication retry
+        if: steps.guard_release_assets.outputs.skip_all == 'true' && steps.guard_release_assets.outputs.skip_r2_upload != 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          rm -f appcast.xml
+          gh release download "$RELEASE_TAG" \
+            --repo manaflow-ai/cmux \
+            --pattern appcast.xml \
+            --output appcast.xml \
+            --clobber
+          test -s appcast.xml
 
       - name: Select Xcode
         if: steps.guard_release_assets.outputs.skip_all != 'true'
@@ -788,8 +804,41 @@ jobs:
             remote-daemon-assets/cmuxd-remote-checksums.txt
             remote-daemon-assets/cmuxd-remote-manifest.json
 
-      - name: Upload release asset
+      - name: Revalidate release tag before GitHub publication
+        id: revalidate-release-tag
         if: steps.guard_release_assets.outputs.skip_upload != 'true'
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
+        env:
+          RELEASE_TAG: ${{ needs.validate-source.outputs.tag_name }}
+          EXPECTED_SHA: ${{ needs.validate-source.outputs.source_sha }}
+        with:
+          script: |
+            const { owner, repo } = context.repo;
+            const tag = process.env.RELEASE_TAG;
+            const expectedSha = process.env.EXPECTED_SHA;
+            const shaPattern = /^[0-9a-f]{40}$/;
+            if (!/^v\d+\.\d+\.\d+(?:-[0-9A-Za-z][0-9A-Za-z.-]*)?(?:\+[0-9A-Za-z][0-9A-Za-z.-]*)?$/.test(tag || '')) {
+              core.setFailed(`Invalid validated release tag: ${tag}`);
+              return;
+            }
+            if (!shaPattern.test(expectedSha || '')) {
+              core.setFailed('Validated release source is not a commit SHA');
+              return;
+            }
+            const ref = await github.rest.git.getRef({ owner, repo, ref: `tags/${tag}` });
+            let tagSha = ref.data.object?.sha;
+            if (ref.data.object?.type === 'tag') {
+              tagSha = (await github.rest.git.getTag({ owner, repo, tag_sha: tagSha })).data.object?.sha;
+            }
+            if (tagSha !== expectedSha) {
+              core.setFailed(`Release tag ${tag} changed from ${expectedSha} to ${tagSha}`);
+              return;
+            }
+            core.setOutput('verified', 'true');
+            core.notice(`Revalidated ${tag} at ${expectedSha} immediately before GitHub publication`);
+
+      - name: Upload release asset
+        if: steps.guard_release_assets.outputs.skip_upload != 'true' && steps.revalidate-release-tag.outputs.verified == 'true'
         uses: softprops/action-gh-release@b4309332981a82ec1c5618f44dd2e27cc8bfbfda # v3.0.0
         with:
           files: |
@@ -805,8 +854,29 @@ jobs:
           overwrite_files: false
           tag_name: ${{ needs.validate-source.outputs.tag_name }}
 
+      - name: Revalidate release tag before R2 publication
+        id: revalidate-r2-tag
+        if: steps.guard_release_assets.outputs.skip_r2_upload != 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ needs.validate-source.outputs.tag_name }}
+          EXPECTED_SHA: ${{ needs.validate-source.outputs.source_sha }}
+        run: |
+          set -euo pipefail
+          tag_object="$(gh api "repos/manaflow-ai/cmux/git/ref/tags/$RELEASE_TAG")"
+          tag_type="$(jq -r '.object.type' <<<"$tag_object")"
+          tag_sha="$(jq -r '.object.sha' <<<"$tag_object")"
+          if [ "$tag_type" = tag ]; then
+            tag_sha="$(gh api "repos/manaflow-ai/cmux/git/tags/$tag_sha" --jq '.object.sha')"
+          fi
+          if [ "$tag_sha" != "$EXPECTED_SHA" ]; then
+            echo "Release tag $RELEASE_TAG changed from $EXPECTED_SHA to $tag_sha" >&2
+            exit 1
+          fi
+          echo "verified=true" >> "$GITHUB_OUTPUT"
+
       - name: Upload release appcast to R2
-        if: steps.guard_release_assets.outputs.skip_upload != 'true'
+        if: steps.guard_release_assets.outputs.skip_r2_upload != 'true' && steps.revalidate-r2-tag.outputs.verified == 'true'
         env:
           GH_TOKEN: ${{ github.token }}
           AWS_ACCESS_KEY_ID: ${{ secrets.CF_R2_ACCESS_KEY_ID }}
