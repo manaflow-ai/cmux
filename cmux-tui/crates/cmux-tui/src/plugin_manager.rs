@@ -998,6 +998,8 @@ mod tests {
             "ftp://example.com/team/plugin.git",
             "git://token@example.com/team/plugin.git",
             "--separate-git-dir=/tmp/attacker",
+            "ssh://-oProxyCommand=id/repo.git",
+            "ssh://git@-oProxyCommand=id/repo.git",
         ] {
             assert!(
                 validate_git_source(source).is_err(),
