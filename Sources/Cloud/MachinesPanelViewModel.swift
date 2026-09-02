@@ -402,6 +402,8 @@ final class MachinesPanelViewModel: ObservableObject {
     }
 
     private var refreshTask: Task<Void, Never>?
+    private var clientBootstrapRetryCount = 0
+    private static let maxClientBootstrapRetries = 3
     private var pollTask: Task<Void, Never>?
     private var statsTask: Task<Void, Never>?
     /// One-shot timer armed at the exact next free-access transition (a
@@ -580,9 +582,17 @@ final class MachinesPanelViewModel: ObservableObject {
             return
         }
         isLoading = true
+        clientBootstrapRetryCount = 0
         refreshTask = Task { [weak self] in
-            await self?.performRefresh()
             guard let self else { return }
+            await self.performRefresh()
+            if !Task.isCancelled, !self.hasLoadedOnce, self.clientBootstrapRetryCount < Self.maxClientBootstrapRetries {
+                self.clientBootstrapRetryCount += 1
+                self.refreshTask = nil
+                await Task.yield()
+                self.refresh()
+                return
+            }
             self.refreshTask = nil
             if self.refreshRequestedWhileLoading {
                 self.refreshRequestedWhileLoading = false
@@ -674,13 +684,6 @@ final class MachinesPanelViewModel: ObservableObject {
             // A signed-in panel can briefly outlive the client during bootstrap.
             // Treat that as a completed, retryable load so the UI cannot remain
             // blank behind an endless spinner.
-            lastErrorDescription = String(
-                localized: "machines.unavailable.title",
-                defaultValue: "Cloud is unreachable"
-            )
-            listProblem = .unreachable
-            isLoading = false
-            hasLoadedOnce = true
             return
         }
         do {
