@@ -21,8 +21,10 @@ import yaml
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 WORKFLOW = ROOT / ".github" / "workflows" / "release-trusted.yml"
+CI_WORKFLOW = ROOT / ".github" / "workflows" / "ci.yml"
 WORKFLOW_PATH = ".github/workflows/release-trusted.yml"
 TRIGGER_PATH = ".github/workflows/release.yml"
+LATEST_RELEASE_SELECTOR = ROOT / "scripts" / "ci" / "select_latest_stable_release.py"
 SHA = re.compile(r"^[0-9a-f]{40}$")
 ACTION_SHA = re.compile(r"@[0-9a-f]{40}(?:\s+#.*)?$")
 OBSERVER_CONTENT = "\n".join(
@@ -56,6 +58,11 @@ def load() -> dict:
     return document
 
 
+def load_ci() -> dict:
+    document = yaml.safe_load(CI_WORKFLOW.read_text(encoding="utf-8"))
+    return document
+
+
 def triggers(document: dict) -> dict:
     # PyYAML 1.1 treats the YAML 1.2 ``on`` key as a boolean.
     return document.get("on", document.get(True, {}))
@@ -74,6 +81,16 @@ def checkout_steps(job: dict) -> list[dict]:
         for step in job.get("steps", [])
         if "actions/checkout@" in str(step.get("uses", ""))
     ]
+
+
+def run_latest_release_selector(tags: list[str]) -> subprocess.CompletedProcess[str]:
+    return subprocess.run(
+        ["python3", str(LATEST_RELEASE_SELECTOR)],
+        input="\n".join(tags) + "\n",
+        text=True,
+        capture_output=True,
+        check=False,
+    )
 
 
 def run_guard_fixture(
@@ -250,6 +267,21 @@ class ReleaseTrustedWorkflowTests(unittest.TestCase):
         self.assertIn("github.workflow_sha", env)
         self.assertIn("github.ref_protected", env)
 
+    def test_release_contract_dependencies_are_installed_before_the_test(self) -> None:
+        steps = load_ci()["jobs"]["workflow-guard-tests"]["steps"]
+        names = [step.get("name") for step in steps]
+        contract_index = names.index("Validate protected-main release dispatcher")
+        setup_index = names.index("Set up Python for release workflow contract tests")
+        dependency_index = names.index("Install release workflow contract dependencies")
+        self.assertLess(setup_index, contract_index)
+        self.assertLess(dependency_index, contract_index)
+
+    def test_build_sign_notarize_requires_the_helper_job_to_succeed(self) -> None:
+        condition = str(load()["jobs"]["build-sign-notarize"]["if"])
+        normalized = re.sub(r"\s+", "", condition)
+        self.assertIn("needs.validate-source.result=='success'", normalized)
+        self.assertIn("needs.build-ghostty-cli-helper.result=='success'", normalized)
+
     def test_privileged_jobs_require_guard_and_immutable_source(self) -> None:
         document = load()
         for job_name, job in document["jobs"].items():
@@ -304,7 +336,6 @@ class ReleaseTrustedWorkflowTests(unittest.TestCase):
         )
         self.assertNotIn("gh release download", sign_text)
         self.assertNotIn("sort -V", r2_upload["run"])
-        self.assertIn("python3 -c", r2_upload["run"])
         self.assertIn("gh release list --limit 1000", r2_upload["run"])
         self.assertIn("latest_sha", r2_upload["run"])
         self.assertIn("EXPECTED_SHA", r2_upload["run"])
@@ -433,6 +464,10 @@ printf '<%s>\\n' "${{keychains[@]}}"
         guard_script = guard["with"]["script"]
         for output_name in ("skip_all", "skip_upload", "skip_r2_upload", "release_state"):
             self.assertNotIn(f"setOutput('{output_name}'", guard_script)
+        self.assertIn("guardState", guard_script)
+        self.assertIn("RELEASE_ASSET_GUARD_STATE", guard_script)
+        self.assertNotIn("shouldSkipBuildAndUpload", guard_script)
+        self.assertNotIn("shouldSkipUpload", guard_script)
         for step in sign_steps:
             condition = str(step.get("if", ""))
             self.assertNotIn("steps.guard_release_assets.outputs.skip_", condition)
@@ -508,10 +543,18 @@ printf '<%s>\\n' "${{keychains[@]}}"
         sign_steps = document["jobs"]["build-sign-notarize"]["steps"]
         r2_upload = next(step for step in sign_steps if step.get("name") == "Upload release appcast to R2")
         r2_run = r2_upload["run"]
-        self.assertIn("duplicate stable SemVer precedence", r2_run)
-        self.assertIn("duplicate_core_versions", r2_run)
-        self.assertIn("len(tags) > 1", r2_run)
-        self.assertNotIn("max(versions, key=lambda item: (item[0], item[1]))", r2_run)
+        self.assertIn("scripts/ci/select_latest_stable_release.py", r2_run)
+        self.assertNotIn("python3 -c", r2_run)
+
+        selected = run_latest_release_selector(
+            ["v1.2.0", "v1.10.0", "v1.9.0", "v2.0.0-rc.1", "v1.2.3+exp-1"]
+        )
+        self.assertEqual(selected.returncode, 0, selected.stderr)
+        self.assertEqual(selected.stdout, "v1.10.0\n")
+
+        duplicate = run_latest_release_selector(["v1.2.3", "v1.2.3+exp-1"])
+        self.assertNotEqual(duplicate.returncode, 0)
+        self.assertIn("duplicate stable SemVer precedence", duplicate.stderr)
 
         # A reused self-hosted workspace must never delete another process's
         # lock. The pre-checkout cleanup is intentionally duplicated in each
@@ -595,6 +638,20 @@ printf '<%s>\\n' "${{keychains[@]}}"
         )
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn('"is_prerelease":"false"', result.stdout)
+
+    def test_semver_prerelease_classification_ignores_build_metadata_hyphens(self) -> None:
+        document = load()
+        script = script_for(document["jobs"]["validate-source"])
+        result = run_guard_fixture(
+            script,
+            wrapper_blob="same-protected-blob",
+            main_blob="same-protected-blob",
+            source_content=OBSERVER_CONTENT,
+            main_content=OBSERVER_CONTENT,
+            tag_name="v1.2.3-rc.1+build-1",
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn('"is_prerelease":"true"', result.stdout)
 
     def test_leading_zero_semver_core_is_rejected(self) -> None:
         document = load()
