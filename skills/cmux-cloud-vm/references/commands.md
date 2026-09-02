@@ -289,7 +289,7 @@ One resolver, several target shapes (copy them from `cmux vm tree`):
 | `<machine>/<ws>` (`ws_…` id or workspace name) | that workspace's focused/first live terminal, or a new terminal there when it is empty (`OK terminal=… workspace=… surface=…`) | `surface.catalog`, `surface.project` / `surface.new_terminal {machine, remote_workspace_id, open}` |
 | `<machine>/<ws>/<term_…>` | one terminal; reuses the pane already showing it (`reused=true`) | `surface.project {resource: "<m>/terminal/<term>", workspace_id?, focus?}` |
 | `<machine>:desktop` | the noVNC screen as a browser pane — same as `cmux vm desktop` (desktop-image machines only; none ship today) | `vm.desktop_open` |
-| `<machine>:port/<n>` and `<machine> <n>` | a private tokened URL for an HTTP port, as a browser pane | `vm.port_open {id, port, workspace_id?}` |
+| `<machine>:port/<n>` and `<machine> <n>` | a private tokened URL for an HTTP port, as a browser pane — dormant today: no deployment implements open-port yet | `vm.port_open {id, port, workspace_id?}` |
 | `… --print` | ports only: mint and print the URL, no pane | `vm.open_port {id, port}` → `{open_url, …}` |
 
 `--workspace` targets a local workspace (default: the machine's open workspace, else where you are); `--focus` defaults to false so the pane opens beside you without stealing typing. Text `OK surface=… workspace=… terminal=… [reused=true]`; ports print `<id>:<port>` and the URL. Anything else is a usage error (exit 1). `cmux vm port` is an alias for the verb. Sidebar: row click / Open; Port row click.
@@ -384,7 +384,7 @@ A `vm.exec` of `ss -ltnp` (or `netstat -ltnp`): the TCP ports listening **inside
 
 ### Port URLs: `cmux vm open <id> <port>`
 
-See `vm open`: `cmux vm open <id> 3000` opens a private tokened HTTPS URL for an HTTP port as a browser pane (`vm.port_open`); `--print` only mints and prints it (`vm.open_port`, `--json` → `{open_url, …}`). Only share URLs minted this way; never guess provider URLs.
+See `vm open`: `cmux vm open <id> 3000` opens a private tokened HTTPS URL for an HTTP port as a browser pane (`vm.port_open`); `--print` only mints and prints it (`vm.open_port`, `--json` → `{open_url, …}`). **Dormant on every current deployment**: no provider driver implements open-port yet, so the backend answers `open-port is not supported by this deployment` — expose a service by running it on the machine and reading it from a terminal, or tunnel over `vm ssh` where the provider supports SSH. When it lights up: only share URLs minted this way; never guess provider URLs.
 
 ### `cmux vm ssh`
 

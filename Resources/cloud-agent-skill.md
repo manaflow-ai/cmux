@@ -51,7 +51,7 @@ cmux vm desktop <id>                     # noVNC screen as a browser pane (deskt
 cmux vm open <machine>                   # same as vm shell
 cmux vm open <machine>/<ws>[/<term>]     # a cmux-tui workspace or one terminal
 cmux vm open <machine>:desktop
-cmux vm open <machine> <port> [--print]  # private tokened URL for an HTTP port
+cmux vm open <machine> <port> [--print]  # private tokened URL for an HTTP port (dormant today: no deployment implements open-port yet)
 cmux vm ssh <id>                         # SSH fallback; unavailable on some providers/images (`vm ssh-info <id>` prints the endpoint)
 cmux vm handoff <id>                     # short attach block to hand to a person or another agent
 cmux vm prompt [--open <claude|codex|opencode>]   # (re)install this skill file and print the kickoff prompt; --open starts a local agent with it
