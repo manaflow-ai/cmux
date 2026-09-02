@@ -17,7 +17,7 @@ use std::os::unix::net::UnixStream;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Condvar, Mutex, mpsc};
-use std::time::{Duration, Instant};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use async_trait::async_trait;
 use bytes::Bytes;
@@ -1005,7 +1005,7 @@ mod tests {
     use super::*;
     use std::os::unix::net::UnixStream;
     use std::sync::atomic::{AtomicUsize, Ordering as AtomicOrdering};
-    use std::sync::{Arc as TestArc, Barrier, Mutex as TestMutex, mpsc};
+    use std::sync::{Arc as TestArc, Barrier, Mutex as TestMutex, OnceLock, mpsc};
     use std::thread;
 
     struct TestControl {
@@ -1051,6 +1051,57 @@ mod tests {
         let error = session_socket_path(Path::new("/run/cmux-tui-501"), 501, "bad/name")
             .expect_err("path separator must be rejected");
         assert!(error.contains("invalid session"));
+    }
+
+    #[tokio::test]
+    async fn canonical_executable_rejects_relative_path_even_when_process_cwd_has_binary() {
+        use std::os::unix::fs::PermissionsExt;
+
+        // A relay process cwd can differ from the requested launch cwd. A
+        // relative executable must not resolve against whichever cwd happens
+        // to belong to the relay process.
+        let cwd_lock = static_cwd_lock();
+        let _guard = cwd_lock.lock().expect("cwd lock");
+        let root = std::env::temp_dir().join(format!(
+            "cmux-relay-relative-executable-test-{}-{}",
+            std::process::id(),
+            SystemTime::now().duration_since(UNIX_EPOCH).expect("clock").as_nanos()
+        ));
+        let relay_cwd = root.join("relay");
+        let launch_cwd = root.join("launch");
+        tokio::fs::create_dir_all(&relay_cwd).await.expect("relay cwd");
+        tokio::fs::create_dir_all(&launch_cwd).await.expect("launch cwd");
+        let executable = relay_cwd.join("cmux-tui");
+        tokio::fs::write(&executable, b"#!/bin/sh\n").await.expect("write executable");
+        tokio::fs::set_permissions(&executable, std::fs::Permissions::from_mode(0o755))
+            .await
+            .expect("chmod executable");
+        assert!(!launch_cwd.join("cmux-tui").exists());
+
+        let original_cwd = std::env::current_dir().expect("current cwd");
+        std::env::set_current_dir(&relay_cwd).expect("set relay cwd");
+        let mut override_env = HashMap::new();
+        override_env.insert("CHATMUX_RELAY_CMUX_TUI".to_owned(), "cmux-tui".to_owned());
+        let override_resolved = RealPtyDeps::new(override_env).resolve_cmux_tui().await;
+        let mut path_env = HashMap::new();
+        path_env.insert("PATH".to_owned(), ".".to_owned());
+        let path_resolved = RealPtyDeps::new(path_env).resolve_cmux_tui().await;
+        std::env::set_current_dir(original_cwd).expect("restore cwd");
+        tokio::fs::remove_dir_all(root).await.expect("cleanup test dirs");
+
+        assert!(
+            override_resolved.is_none(),
+            "relative override resolved from relay cwd instead of launch cwd"
+        );
+        assert!(
+            path_resolved.is_none(),
+            "relative PATH entry resolved from relay cwd instead of launch cwd"
+        );
+    }
+
+    fn static_cwd_lock() -> &'static TestMutex<()> {
+        static LOCK: OnceLock<TestMutex<()>> = OnceLock::new();
+        LOCK.get_or_init(|| TestMutex::new(()))
     }
 
     #[test]
