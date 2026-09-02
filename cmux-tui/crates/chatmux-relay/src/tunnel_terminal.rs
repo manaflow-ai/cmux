@@ -640,14 +640,26 @@ async fn serve_connection(stream: TcpStream, manager: Arc<PtyManager>, parent: C
                                 connection.protocol_error("bad_request", "open timed out");
                                 break 'reader;
                             }
-                            // `try_send` is synchronous. Keep it outside
-                            // `select!` so the reader never awaits on a full
-                            // queue and remains cancellation responsive.
                             match dispatch_tx.try_send(frame) {
                                 Ok(()) => {}
-                                Err(mpsc::error::TrySendError::Full(_)) => {
-                                    connection.protocol_error("busy", "terminal request queue is full");
-                                    break 'reader;
+                                Err(mpsc::error::TrySendError::Full(frame)) => {
+                                    // A decoder burst may contain more frames than the
+                                    // bounded queue. Apply backpressure only when full,
+                                    // while retaining cancellation responsiveness.
+                                    tokio::select! {
+                                        biased;
+                                        _ = parent.cancelled() => {
+                                            connection.finish();
+                                            break 'reader;
+                                        }
+                                        _ = connection.done.cancelled() => break 'reader,
+                                        result = dispatch_tx.send(frame) => {
+                                            if result.is_err() {
+                                                connection.finish();
+                                                break 'reader;
+                                            }
+                                        }
+                                    }
                                 }
                                 Err(mpsc::error::TrySendError::Closed(_)) => {
                                     connection.finish();
@@ -782,8 +794,9 @@ mod tests {
     }
 
     impl PtyControl for FakePty {
-        fn write(&self, data: &[u8]) {
+        fn write(&self, data: &[u8]) -> bool {
             self.state.lock().unwrap().written.push(data.to_vec());
+            true
         }
         fn resize(&self, cols: u16, rows: u16) {
             self.state.lock().unwrap().resized.push((cols, rows));
