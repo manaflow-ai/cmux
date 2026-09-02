@@ -7,7 +7,7 @@
 //   no metadata filter, so these are found by paging through all accounts in
 //   bounded pages that the page walks one request at a time.
 
-import { and, desc, eq, inArray, isNotNull, isNull } from "drizzle-orm";
+import { and, desc, eq, inArray, isNotNull, isNull, sql } from "drizzle-orm";
 
 import { cloudDb } from "../../db/client";
 import { adminPlanGrants, stripeCustomers, stripeSubscriptions } from "../../db/schema";
@@ -92,7 +92,32 @@ export type ProListScanPage<Row> = {
   readonly nextCursor: string | null;
 };
 
-export type ProListDb = Pick<ReturnType<typeof cloudDb>, "select">;
+type CloudDb = ReturnType<typeof cloudDb>;
+export type ProListDb = Pick<CloudDb, "select"> & {
+  /** Present on the real client; the roster uses it to scope a statement timeout. */
+  transaction?<Result>(operation: (tx: Pick<CloudDb, "select" | "execute">) => Promise<Result>): Promise<Result>;
+};
+
+/**
+ * Runs `work` inside a transaction with a Postgres statement timeout, so a
+ * read that outlives the caller's budget is cancelled by the server instead
+ * of lingering in the pool. Doubles without `transaction` run `work` directly.
+ */
+export async function withStatementTimeout<Result>(
+  db: ProListDb,
+  timeoutMs: number | undefined,
+  work: (db: ProListDb) => Promise<Result>,
+): Promise<Result> {
+  if (!timeoutMs || !Number.isFinite(timeoutMs) || timeoutMs <= 0 || typeof db.transaction !== "function") {
+    return await work(db);
+  }
+  const ms = Math.floor(timeoutMs);
+  return await db.transaction(async (tx) => {
+    // SET does not take bind parameters; ms is a validated integer.
+    await tx.execute(sql.raw(`set local statement_timeout = ${ms}`));
+    return await work(tx as ProListDb);
+  });
+}
 
 export type ProListStackApp = {
   getTeam(teamId: string): Promise<Pick<AdminStackTeam, "id" | "displayName"> | null>;
@@ -347,17 +372,27 @@ export class ProListDatabaseUnavailableError extends Error {
  * ProListDatabaseUnavailableError.
  */
 export async function loadProListSnapshot(
-  options: { readonly db?: ProListDb; readonly app?: ProListStackApp } = {},
+  options: {
+    readonly db?: ProListDb;
+    readonly app?: ProListStackApp;
+    /** Server-side cancel budget for the reads; see withStatementTimeout. */
+    readonly statementTimeoutMs?: number;
+  } = {},
 ): Promise<ProListSnapshot> {
   try {
-    const [subscribers, teamSubscriptions, pendingGrants] = await Promise.all([
-      listStripeProSubscribers(options),
-      listStripeTeamSubscriptions(options),
-      listAllPendingEmailGrants(options).catch((error: unknown) => {
-        if (isMissingGrantsTableError(error)) return { rows: [], truncated: false };
-        throw error;
-      }),
-    ]);
+    const db = options.db ?? cloudDb();
+    const [subscribers, teamSubscriptions, pendingGrants] = await withStatementTimeout(
+      db,
+      options.statementTimeoutMs,
+      async (scoped) => await Promise.all([
+        listStripeProSubscribers({ db: scoped }),
+        listStripeTeamSubscriptions({ db: scoped, app: options.app }),
+        listAllPendingEmailGrants({ db: scoped }).catch((error: unknown) => {
+          if (isMissingGrantsTableError(error)) return { rows: [], truncated: false };
+          throw error;
+        }),
+      ]),
+    );
     return {
       subscribers: subscribers.rows,
       teamSubscriptions: teamSubscriptions.rows,
@@ -388,18 +423,21 @@ export const PRO_LIST_RENDER_TIMEOUT_MS = 8_000;
 
 /**
  * Bounds how long the page render waits for the roster. A stalled database
- * must not hold the admin page; the client shows a retry instead.
+ * must not hold the admin page; the client shows a retry instead. The same
+ * budget is applied as a statement timeout, so the reads are cancelled by
+ * Postgres rather than left running after the page gave up on them.
  */
 export async function loadProListSnapshotWithin(
   timeoutMs: number = PRO_LIST_RENDER_TIMEOUT_MS,
-  load: () => Promise<ProListSnapshot> = () => loadProListSnapshot(),
+  load: (statementTimeoutMs: number) => Promise<ProListSnapshot> =
+    (statementTimeoutMs) => loadProListSnapshot({ statementTimeoutMs }),
 ): Promise<ProListSnapshot> {
   let timer: ReturnType<typeof setTimeout> | undefined;
   const timeout = new Promise<never>((_, reject) => {
     timer = setTimeout(() => reject(new ProListTimeoutError(timeoutMs)), timeoutMs);
   });
   try {
-    return await Promise.race([load(), timeout]);
+    return await Promise.race([load(timeoutMs), timeout]);
   } finally {
     if (timer) clearTimeout(timer);
   }

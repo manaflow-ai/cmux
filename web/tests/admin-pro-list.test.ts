@@ -3,8 +3,10 @@ import { describe, expect, test } from "bun:test";
 import {
   isValidScanCursor,
   listAllPendingEmailGrants,
+  loadProListSnapshot,
   loadProListSnapshotWithin,
   ProListTimeoutError,
+  withStatementTimeout,
   mapWithConcurrency,
   PRO_LIST_MAX_ROWS,
   listStripeProSubscribers,
@@ -168,12 +170,36 @@ describe("Pro roster", () => {
     expect(await mapWithConcurrency([], 3, async () => 1)).toEqual([]);
   });
 
-  test("the page-render load is bounded by a timeout", async () => {
+  test("the page-render load is bounded by a timeout and passes the same budget to the reads", async () => {
     const snapshot = { subscribers: [], teamSubscriptions: [], pendingGrants: [], truncated: { subscribers: false, teamSubscriptions: false, pendingGrants: false } };
-    expect(await loadProListSnapshotWithin(1000, async () => snapshot)).toBe(snapshot);
+    const budgets: number[] = [];
+    expect(await loadProListSnapshotWithin(1000, async (budget) => { budgets.push(budget); return snapshot; })).toBe(snapshot);
+    expect(budgets).toEqual([1000]);
     await expect(
       loadProListSnapshotWithin(5, () => new Promise(() => undefined)),
     ).rejects.toBeInstanceOf(ProListTimeoutError);
+  });
+
+  test("reads run under a scoped statement timeout when the client supports transactions", async () => {
+    const executed: string[] = [];
+    const base = fakeDb(new Map());
+    const db: ProListDb = {
+      ...base,
+      transaction: async (operation) =>
+        await operation({
+          select: base.select,
+          execute: (async (query: { queryChunks?: Array<{ value?: string[] }> }) => {
+            executed.push((query.queryChunks ?? []).map((chunk) => (chunk.value ?? []).join("")).join(""));
+          }) as never,
+        }),
+    };
+    const snapshot = await loadProListSnapshot({ db, app: fakeApp({}), statementTimeoutMs: 8000 });
+    expect(executed).toEqual(["set local statement_timeout = 8000"]);
+    expect(snapshot.subscribers).toEqual([]);
+    // No transaction support, or no budget: reads run directly.
+    expect(await withStatementTimeout(base, 8000, async () => "direct")).toBe("direct");
+    expect(await withStatementTimeout(db, undefined, async () => "direct")).toBe("direct");
+    expect(executed).toHaveLength(1);
   });
 
   test("isValidScanCursor accepts opaque tokens and rejects junk", () => {
