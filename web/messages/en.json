@@ -317,7 +317,8 @@
         "unverified": "unverified",
         "members": "{count, plural, =1 {1 member} other {# members}}",
         "noSubscription": "no subscription",
-        "cancelling": "cancels at period end"
+        "cancelling": "cancels at period end",
+        "membersUnknown": "member count unavailable"
       },
       "access": {
         "pro": "Pro",
@@ -368,7 +369,8 @@
         "resumeTitle": "Resume the subscription?",
         "resumeBody": "The scheduled cancellation is removed and the subscription renews normally.",
         "revokePendingTitle": "Revoke this pending grant?",
-        "revokePendingBody": "Nothing is applied when this email signs in."
+        "revokePendingBody": "Nothing is applied when this email signs in.",
+        "grantTeamBodyUnknown": "The member list could not be loaded, so the scope of this grant is unknown. Reload and try again."
       },
       "notices": {
         "granted": "{plan} granted to {target}.",

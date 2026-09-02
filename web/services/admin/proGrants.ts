@@ -89,7 +89,8 @@ export type AdminTeamRow = {
   readonly id: string;
   readonly displayName: string;
   readonly createdAt: string | null;
-  readonly memberCount: number;
+  /** Null when member listing failed. */
+  readonly memberCount: number | null;
   /** Effective Team access: Stripe team subscription or a paid manual grant. */
   readonly isTeam: boolean;
   readonly manualPlanId: string | null;
@@ -115,6 +116,8 @@ export type AdminPlanGrantRecord = {
   readonly byUserId: string;
   readonly byEmail: string | null;
   readonly at: string;
+  /** Set when the grant was applied from a pending email grant row. */
+  readonly pendingGrantId?: string | null;
 };
 
 export type AdminUserRow = {
@@ -227,7 +230,14 @@ export type SetManualPlanGrantInput = {
    * grant. Used when unwinding a pending email grant so an unrelated manual
    * grant on the same account is left alone.
    */
-  readonly onlyIfCurrent?: { readonly plan: string; readonly byUserId: string };
+  readonly onlyIfCurrent?: {
+    readonly plan: string;
+    readonly byUserId: string;
+    /** Required to equal the audit record's pendingGrantId (null matches a direct grant). */
+    readonly pendingGrantId: string | null;
+  };
+  /** Recorded in the audit record when applying a pending email grant. */
+  readonly pendingGrantId?: string;
   /**
    * Skip the write when the account's audit record is newer than this
    * instant. Used when applying a pending email grant so it never overwrites
@@ -279,7 +289,8 @@ export async function setManualPlanGrant(
         const audit = grantRecordFromServerMetadata(user.serverMetadata);
         if (
           currentPlan !== input.onlyIfCurrent.plan.toLowerCase() ||
-          audit?.byUserId !== input.onlyIfCurrent.byUserId
+          audit?.byUserId !== input.onlyIfCurrent.byUserId ||
+          (audit?.pendingGrantId ?? null) !== input.onlyIfCurrent.pendingGrantId
         ) {
           return user;
         }
@@ -304,6 +315,7 @@ export async function setManualPlanGrant(
         byUserId: input.admin.id,
         byEmail: input.admin.primaryEmail ?? null,
         at: now().toISOString(),
+        pendingGrantId: input.pendingGrantId ?? null,
       };
       server.cmuxAdminPlanGrant = grant;
       await user.update({
@@ -355,6 +367,7 @@ export function grantRecordFromServerMetadata(raw: unknown): AdminPlanGrantRecor
     byUserId: value.byUserId,
     byEmail: typeof value.byEmail === "string" ? value.byEmail : null,
     at: value.at,
+    pendingGrantId: typeof value.pendingGrantId === "string" ? value.pendingGrantId : null,
   };
 }
 
@@ -408,18 +421,19 @@ export async function searchAdminTeams(
   );
 }
 
-async function memberCount(team: AdminStackTeam): Promise<number> {
+/** Null when the provider could not list members; the UI then blocks a Team grant. */
+async function memberCount(team: AdminStackTeam): Promise<number | null> {
   try {
     return (await team.listUsers()).length;
   } catch {
-    return 0;
+    return null;
   }
 }
 
 export function adminTeamRow(
   team: AdminStackTeam,
   stripe: StripeBillingStatus,
-  members: number,
+  members: number | null,
 ): AdminTeamRow {
   const manualPlanId = manualVmPlanOverride(team.clientReadOnlyMetadata);
   return {
@@ -671,7 +685,7 @@ export async function createPendingEmailGrant(input: {
         targetUserId: old.appliedUserId,
         plan: null,
         admin: input.admin,
-        onlyIfCurrent: { plan: old.plan, byUserId: old.grantedByUserId },
+        onlyIfCurrent: { plan: old.plan, byUserId: old.grantedByUserId, pendingGrantId: old.id },
         supersedePending: false,
       });
       await db
@@ -801,7 +815,7 @@ export async function revokePendingEmailGrant(input: {
       targetUserId: row.appliedUserId,
       plan: null,
       admin: input.admin ?? { id: row.grantedByUserId, primaryEmail: row.grantedByEmail },
-      onlyIfCurrent: { plan: row.plan, byUserId: row.grantedByUserId },
+      onlyIfCurrent: { plan: row.plan, byUserId: row.grantedByUserId, pendingGrantId: row.id },
       supersedePending: false,
     });
   } catch (error) {
@@ -919,6 +933,7 @@ export async function applyPendingEmailGrants(
         // A direct admin decision made after this grant was created wins.
         unlessAuditNewerThan: newest.createdAt,
         supersedePending: false,
+        pendingGrantId: newest.id,
       });
     } catch (error) {
       await releaseClaims();
@@ -941,31 +956,41 @@ export async function applyPendingEmailGrants(
     )
     .returning({ id: adminPlanGrants.id });
   const finalized = new Set(done.map((row) => row.id));
-  if (plan !== null && !finalized.has(newest.id) && await wasRevoked(db, newest.id)) {
-    // Revoked while the write was in flight: the revoke wins. This does not
-    // depend on the claim marker, which a concurrent revoke may already have
-    // cleared before our write landed. If the clear fails, the marker is put
-    // back so retryRevokedGrantCleanup retries at the user's next sign-in.
+  if (plan !== null && !finalized.has(newest.id)) {
+    // Not ours to keep: either revoked while the write was in flight (the
+    // revoke wins), or the claim was taken over after the TTL by a later
+    // sign-in for the same email (that sign-in owns the grant now). Either
+    // way remove exactly the grant this row produced. This does not depend
+    // on the claim marker, which a concurrent revoke may already have
+    // cleared before our write landed.
+    const revoked = await wasRevoked(db, newest.id);
     try {
       await grant({
         targetUserId: user.id,
         plan: null,
         admin: { id: newest.grantedByUserId, primaryEmail: newest.grantedByEmail },
-        onlyIfCurrent: { plan: newest.plan, byUserId: newest.grantedByUserId },
+        onlyIfCurrent: { plan: newest.plan, byUserId: newest.grantedByUserId, pendingGrantId: newest.id },
         supersedePending: false,
       });
     } catch (error) {
-      await db
-        .update(adminPlanGrants)
-        .set({ appliedUserId: user.id, claimedAt: now() })
-        .where(and(eq(adminPlanGrants.id, newest.id), isNull(adminPlanGrants.appliedAt)))
-        .catch(() => undefined);
+      // For a revoked row, put the marker back so retryRevokedGrantCleanup
+      // retries at this user's next sign-in. A taken-over row belongs to the
+      // other sign-in; do not steal its marker back.
+      if (revoked) {
+        await db
+          .update(adminPlanGrants)
+          .set({ appliedUserId: user.id, claimedAt: now() })
+          .where(and(eq(adminPlanGrants.id, newest.id), isNull(adminPlanGrants.appliedAt)))
+          .catch(() => undefined);
+      }
       throw error;
     }
-    await db
-      .update(adminPlanGrants)
-      .set({ appliedUserId: null, claimedAt: null })
-      .where(eq(adminPlanGrants.id, newest.id));
+    if (revoked) {
+      await db
+        .update(adminPlanGrants)
+        .set({ appliedUserId: null, claimedAt: null })
+        .where(eq(adminPlanGrants.id, newest.id));
+    }
   }
   return finalized.size;
 }
@@ -1021,7 +1046,7 @@ async function retryRevokedGrantCleanup(
       targetUserId: userId,
       plan: null,
       admin: { id: row.grantedByUserId, primaryEmail: row.grantedByEmail },
-      onlyIfCurrent: { plan: row.plan, byUserId: row.grantedByUserId },
+      onlyIfCurrent: { plan: row.plan, byUserId: row.grantedByUserId, pendingGrantId: row.id },
       supersedePending: false,
     });
     await db

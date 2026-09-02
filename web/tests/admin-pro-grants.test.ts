@@ -204,6 +204,7 @@ describe("adminUserRow", () => {
       byUserId: "admin-1",
       byEmail: "lawrence@manaflow.ai",
       at: "2026-09-02T00:00:00.000Z",
+      pendingGrantId: null,
     });
     expect(grantRecordFromServerMetadata({ cmuxAdminPlanGrant: "nope" })).toBeNull();
     expect(grantRecordFromServerMetadata({ cmuxAdminPlanGrant: { plan: "pro" } })).toBeNull();
@@ -258,6 +259,7 @@ describe("setManualPlanGrant", () => {
           byUserId: "admin-1",
           byEmail: "lawrence@manaflow.ai",
           at: "2026-09-02T10:00:00.000Z",
+          pendingGrantId: null,
         },
       },
     });
@@ -363,6 +365,13 @@ describe("setManualPlanGrant", () => {
 });
 
 describe("teams", () => {
+  test("a team whose member list fails to load reports an unknown count", async () => {
+    const broken = fakeTeam({ id: "tb", displayName: "Broken" });
+    (broken as unknown as { listUsers: () => Promise<never> }).listUsers = async () => { throw new Error("provider down"); };
+    const rows = await searchAdminTeams("broken", { app: fakeApp([], [broken]), stripeBillingStatus: async () => noStripe });
+    expect(rows[0]?.memberCount).toBeNull();
+  });
+
   test("searchAdminTeams reports Team access from Stripe or a manual grant", async () => {
     const app = fakeApp([], [
       fakeTeam({ id: "t1", displayName: "Acme", members: 3, clientReadOnlyMetadata: { cmuxVmPlan: "team" } }),
@@ -682,6 +691,7 @@ describe("pending email grants", () => {
         admin: { id: "admin-1", primaryEmail: "lawrence@manaflow.ai" },
         unlessAuditNewerThan: rows.find((row) => row.plan === "founders")!.createdAt,
         supersedePending: false,
+        pendingGrantId: "g2",
       },
     ]);
     expect(rows.find((row) => row.plan === "founders")?.appliedUserId).toBe("u9");
@@ -818,10 +828,12 @@ describe("pending email grants", () => {
     rows[0]!.claimedAt = new Date();
     const seen: SetManualPlanGrantInput[] = [];
     await revokePendingEmailGrant({ grantId: "g1", db, admin, grant: async (input) => { seen.push(input); } });
-    expect(seen[0]?.onlyIfCurrent).toEqual({ plan: "pro", byUserId: "admin-1" });
+    expect(seen[0]?.onlyIfCurrent).toEqual({ plan: "pro", byUserId: "admin-1", pendingGrantId: "g1" });
 
     // The real writer honors onlyIfCurrent: an unrelated founders grant by
-    // another admin is left untouched, a matching pro grant is cleared.
+    // another admin is left untouched, a direct pro grant by the SAME admin
+    // (no pending id) is left untouched, and the matching pending-produced
+    // grant is cleared.
     const other = fakeUser({
       id: "u9",
       clientReadOnlyMetadata: { cmuxVmPlan: "founders" },
@@ -830,18 +842,29 @@ describe("pending email grants", () => {
     const app = fakeApp([other]);
     await setManualPlanGrant({
       targetUserId: "u9", plan: null, admin, app, withFreshUser: directMutation(app),
-      stripeBillingStatus: async () => noStripe, onlyIfCurrent: { plan: "pro", byUserId: "admin-1" },
+      stripeBillingStatus: async () => noStripe, onlyIfCurrent: { plan: "pro", byUserId: "admin-1", pendingGrantId: "g1" },
     });
     expect(other.updates).toEqual([]);
+    const direct = fakeUser({
+      id: "u7",
+      clientReadOnlyMetadata: { cmuxVmPlan: "pro" },
+      serverMetadata: { cmuxAdminPlanGrant: { plan: "pro", byUserId: "admin-1", byEmail: null, at: "2026-09-02T00:00:00.000Z" } },
+    });
+    const app3 = fakeApp([direct]);
+    await setManualPlanGrant({
+      targetUserId: "u7", plan: null, admin, app: app3, withFreshUser: directMutation(app3),
+      stripeBillingStatus: async () => noStripe, onlyIfCurrent: { plan: "pro", byUserId: "admin-1", pendingGrantId: "g1" },
+    });
+    expect(direct.updates).toEqual([]);
     const mine = fakeUser({
       id: "u8",
       clientReadOnlyMetadata: { cmuxVmPlan: "pro" },
-      serverMetadata: { cmuxAdminPlanGrant: { plan: "pro", byUserId: "admin-1", byEmail: null, at: "2026-09-02T00:00:00.000Z" } },
+      serverMetadata: { cmuxAdminPlanGrant: { plan: "pro", byUserId: "admin-1", byEmail: null, at: "2026-09-02T00:00:00.000Z", pendingGrantId: "g1" } },
     });
     const app2 = fakeApp([mine]);
     await setManualPlanGrant({
       targetUserId: "u8", plan: null, admin, app: app2, withFreshUser: directMutation(app2),
-      stripeBillingStatus: async () => noStripe, onlyIfCurrent: { plan: "pro", byUserId: "admin-1" },
+      stripeBillingStatus: async () => noStripe, onlyIfCurrent: { plan: "pro", byUserId: "admin-1", pendingGrantId: "g1" },
     });
     expect(mine.clientReadOnlyMetadata).toEqual({});
   });
@@ -855,7 +878,7 @@ describe("pending email grants", () => {
     const seen: SetManualPlanGrantInput[] = [];
     const created = await createPendingEmailGrant({ email: "pat@example.com", plan: "founders", admin, db, grant: async (input) => { seen.push(input); } });
     expect(seen).toEqual([
-      expect.objectContaining({ targetUserId: "u9", plan: null, onlyIfCurrent: { plan: "pro", byUserId: "admin-1" } }),
+      expect.objectContaining({ targetUserId: "u9", plan: null, onlyIfCurrent: { plan: "pro", byUserId: "admin-1", pendingGrantId: "g1" } }),
     ]);
     expect(rows[0]!.revokedAt).toBeInstanceOf(Date);
     expect(rows[0]!.appliedUserId).toBeNull();
@@ -944,7 +967,12 @@ describe("pending email grants", () => {
       },
     );
     expect(applied).toBe(0);
-    expect(seen.map((input) => input.plan)).toEqual(["pro"]);
+    // The original sign-in removes exactly the grant it wrote (by pending id)
+    // and leaves the claim with the sign-in that took it over.
+    expect(seen.map((input) => [input.plan, input.onlyIfCurrent?.pendingGrantId ?? null, input.pendingGrantId ?? null])).toEqual([
+      ["pro", null, "g1"],
+      [null, "g1", null],
+    ]);
     expect(rows[0]!.appliedAt).toBeNull();
     expect(rows[0]!.appliedUserId).toBe("u2");
   });
@@ -960,7 +988,7 @@ describe("pending email grants", () => {
     const seen: SetManualPlanGrantInput[] = [];
     expect(await applyPendingEmailGrants({ id: "u9", primaryEmail: "pat@example.com" }, { db, grant: async (input) => { seen.push(input); } })).toBe(0);
     expect(seen).toEqual([
-      expect.objectContaining({ targetUserId: "u9", plan: null, onlyIfCurrent: { plan: "pro", byUserId: "admin-1" } }),
+      expect.objectContaining({ targetUserId: "u9", plan: null, onlyIfCurrent: { plan: "pro", byUserId: "admin-1", pendingGrantId: "g1" } }),
     ]);
     expect(rows[0]!.appliedUserId).toBeNull();
     // Nothing left to retry.

@@ -36,7 +36,7 @@ type AdminTeamRow = {
   readonly id: string;
   readonly displayName: string;
   readonly createdAt: string | null;
-  readonly memberCount: number;
+  readonly memberCount: number | null;
   readonly isTeam: boolean;
   readonly manualPlanId: string | null;
   readonly metadataPlanId: string | null;
@@ -533,7 +533,11 @@ function TeamRow({
     <tr className="border-b border-border align-top last:border-b-0">
       <td className="px-3 py-2">
         <div className="text-foreground">{team.displayName}</div>
-        <div className="mt-0.5 text-muted">{t("results.members", { count: team.memberCount })}</div>
+        <div className="mt-0.5 text-muted">
+          {team.memberCount === null
+            ? t("results.membersUnknown")
+            : t("results.members", { count: team.memberCount })}
+        </div>
         <div className="mt-0.5 font-mono text-[10px] text-muted">{team.id}</div>
       </td>
       <td className="px-3 py-2">
@@ -545,7 +549,8 @@ function TeamRow({
         <div className="flex flex-wrap gap-1.5">
           <button
             type="button"
-            disabled={team.manualPlanId === "team"}
+            disabled={team.manualPlanId === "team" || team.memberCount === null}
+            title={team.memberCount === null ? t("results.membersUnknown") : undefined}
             onClick={() => onAction({ kind: "team-grant", team, plan: "team" })}
             className={buttonClass}
           >
@@ -719,7 +724,9 @@ function confirmCopy(t: Translate, action: PendingAction): {
           }
         : {
             title: t("confirm.grantTitle", { plan: planLabel(t, "team") }),
-            body: t("confirm.grantTeamBody", { count: action.team.memberCount }),
+            body: action.team.memberCount === null
+              ? t("confirm.grantTeamBodyUnknown")
+              : t("confirm.grantTeamBody", { count: action.team.memberCount }),
             target: action.team.displayName,
             confirm: t("confirm.grant"),
           };

@@ -317,7 +317,8 @@
         "unverified": "未確認",
         "members": "{count} 人のメンバー",
         "noSubscription": "サブスクリプションなし",
-        "cancelling": "期間終了時に解約"
+        "cancelling": "期間終了時に解約",
+        "membersUnknown": "メンバー数を取得できません"
       },
       "access": {
         "pro": "Pro",
@@ -368,7 +369,8 @@
         "resumeTitle": "サブスクリプションを再開しますか？",
         "resumeBody": "予定されていた解約が取り消され、サブスクリプションは通常どおり更新されます。",
         "revokePendingTitle": "この保留中の付与を取り消しますか？",
-        "revokePendingBody": "このメールがサインインしても何も適用されません。"
+        "revokePendingBody": "このメールがサインインしても何も適用されません。",
+        "grantTeamBodyUnknown": "メンバー一覧を読み込めなかったため、この付与の範囲が不明です。再読み込みしてからお試しください。"
       },
       "notices": {
         "granted": "{target} に {plan} を付与しました。",
