@@ -254,8 +254,11 @@ struct CmuxTuiSnapshotParser: Sendable {
 
     static let desktopPort = 6901
 
+    /// Fallback for callers that only hold an image id. Prefer
+    /// ``VMSummary/resolvedKind``, which honors the backend's explicit `kind`.
+    /// Only VNC markers count: see ``VMMachineKind/inferred(fromImage:)``.
     static func machineHasDesktop(image: String) -> Bool {
-        image.contains("xfce-vnc") || image.contains("cmux-devbox")
+        VMMachineKind.inferred(fromImage: image).hasDesktop
     }
 
     /// The VNC display of a desktop machine (`display:1`; the key is the daemon's content id

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { env } from "../../env";
 import { stackServerApp } from "../../lib/stack";
+import { requestOrigin } from "../../lib/request-origin";
 
 
 type SignOutAndSignInDependencies = {
@@ -16,8 +17,9 @@ const CROCKFORD_BASE32_ALPHABET = "0123456789ABCDEFGHJKMNPQRSTVWXYZ";
 function sameOriginURL(value: string | null, request: NextRequest): URL | null {
   if (!value) return null;
   try {
-    const url = new URL(value, request.nextUrl.origin);
-    return url.origin === request.nextUrl.origin ? url : null;
+    const origin = requestOrigin(request);
+    const url = new URL(value, origin);
+    return url.origin === origin ? url : null;
   } catch {
     return null;
   }
@@ -113,12 +115,12 @@ function isNextRedirectError(error: unknown): boolean {
 export function makeSignOutAndSignInHandler(dependencies: SignOutAndSignInDependencies) {
   return async function GET(request: NextRequest) {
     const target = validatedNativeSignInTarget(request);
-    if (!target || !canStartSignOut(request)) return NextResponse.redirect(new URL("/", request.url));
+    if (!target || !canStartSignOut(request)) return NextResponse.redirect(new URL("/", requestOrigin(request)));
 
-    const response = NextResponse.redirect(new URL(target, request.url));
+    const response = NextResponse.redirect(new URL(target, requestOrigin(request)));
     if (dependencies.projectId) clearStackAuthCookies(response, request, dependencies.projectId);
 
-    const redirectUrl = new URL(target, request.nextUrl.origin).toString();
+    const redirectUrl = new URL(target, requestOrigin(request)).toString();
     try {
       await dependencies.signOut?.({ redirectUrl });
     } catch (error) {

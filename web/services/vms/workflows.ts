@@ -10,6 +10,7 @@ import type {
   VMHandle,
   VMStatus,
 } from "./drivers";
+import { isProviderId } from "./drivers";
 import {
   VmBillingGateway,
   VmBillingGatewayLive,
@@ -38,6 +39,7 @@ import {
   type VmWorkflowError,
 } from "./errors";
 import { isVmFreeAccessExpired, maxActiveVmsForPlan, vmFreeAccessWindowDays } from "./entitlements";
+import { resolveOwnerNetwork } from "./privateNetwork";
 import { isProviderIdentityNotFoundError, isProviderNotFoundError } from "./providerErrors";
 import { VmProviderGateway, VmProviderGatewayLive, type VmProviderGatewayShape } from "./providerGateway";
 import {
@@ -62,6 +64,18 @@ export {
   homeVolumeTemplateForUser,
   isMachineOwnedHomeVolumeName,
 } from "./volumeNaming";
+export {
+  deletePrivateNetworkingForAccountDeletion,
+  enrollVmTunnel,
+  isWireGuardPublicKey,
+  listVmTunnels,
+  networkSlugForUser,
+  readVmTunnel,
+  resolveOwnerNetwork,
+  revokeVmTunnel,
+  tunnelSlugForDevice,
+} from "./privateNetwork";
+export type { VmTunnelDescriptor } from "./privateNetwork";
 export { reapVmResources } from "./reaper";
 export type {
   VmReaperOptions,
@@ -129,11 +143,25 @@ export async function runVmWorkflow<A>(
   }
 }
 
+/**
+ * A row whose provider is no longer registered belongs to a retired driver.
+ * Drivers leave with a code deploy while the rows they wrote survive until an
+ * operator runs the matching migration, so every read path must treat such a
+ * row as unaddressable instead of asking the registry for a driver it no
+ * longer has. The registry throws for an unknown id, and one surviving row was
+ * enough to turn the whole machine list into a 500 when Blaxel was removed.
+ */
+export function isRetiredProviderRow(row: Pick<CloudVmRow, "provider">): boolean {
+  return !isProviderId(row.provider);
+}
+
 export function listUserVms(userId: string, billingTeamId?: string | null) {
   return Effect.gen(function* () {
     const repo = yield* VmRepository;
     const rows = yield* repo.listUserVms(userId, billingTeamId);
-    return rows.filter((row) => row.providerVmId).map(vmEntryFromRow);
+    return rows
+      .filter((row) => row.providerVmId && !isRetiredProviderRow(row))
+      .map(vmEntryFromRow);
   });
 }
 
@@ -295,12 +323,11 @@ export function createVm(input: {
   readonly billingCustomerType: BillingCustomerType;
   readonly billingTeamId: string;
   readonly billingPlanId: string;
-  readonly maxActiveVms: number;
+  readonly maxActiveVms: number | null;
   readonly provider: ProviderId;
   readonly image: string;
   readonly imageVersion?: string | null;
   readonly idempotencyKey?: string;
-  readonly bakedFreestyleSignedAdmin?: boolean;
   /**
    * "Your computer" semantics: mount a per-user persistent volume as the machine's home so
    * the sandbox is disposable compute around durable data. The volume name is derived from
@@ -327,6 +354,20 @@ export function createVm(input: {
     const repo = yield* VmRepository;
     const providers = yield* VmProviderGateway;
     const billing = yield* VmBillingGateway;
+
+    // Resolved before the row is inserted and the credit reserved, so a
+    // provisioning failure here costs nothing to unwind. The network is an
+    // account-level resource — free, idempotent, and reused by every later
+    // machine — so resolving it for a create that then hits the active-VM
+    // limit is not waste, it is setup the next create no longer has to do.
+    // Null means the deployment or provider has no private networking, and the
+    // machine falls back to being reachable at its public address.
+    const network = yield* measureVmEffect(
+      input.timing,
+      "resolve_network",
+      resolveOwnerNetwork({ userId: input.userId, provider: input.provider }),
+    );
+
     const create = yield* beginCreateWithLazyProviderRefresh(repo, providers, input);
 
     if (!create.inserted) {
@@ -357,7 +398,6 @@ export function createVm(input: {
       providers.create(input.provider, {
         image: input.image,
         providerMetadata: create.vm.providerMetadata,
-        bakedFreestyleSignedAdmin: input.bakedFreestyleSignedAdmin,
         homeVolume: input.perMachineHome
           ? homeVolumeTemplateForUser(input.userId)
           : input.persistentHome
@@ -365,6 +405,7 @@ export function createVm(input: {
             : undefined,
         memoryMb: input.memoryMb,
         envs: input.envs,
+        ...(network ? { network: { id: network.providerNetworkId } } : {}),
       }),
     ).pipe(
       Effect.tapError((err) =>
@@ -436,12 +477,11 @@ export function openBaseVm(input: {
   readonly billingCustomerType: BillingCustomerType;
   readonly billingTeamId: string;
   readonly billingPlanId: string;
-  readonly maxActiveVms: number;
+  readonly maxActiveVms: number | null;
   readonly provider: ProviderId;
   readonly image: string;
   readonly imageVersion?: string | null;
   readonly baseName?: string;
-  readonly bakedFreestyleSignedAdmin?: boolean;
   readonly timing?: VmTimingSink;
 }): Effect.Effect<BaseVmEntry, VmWorkflowError, VmRepository | VmProviderGateway | VmBillingGateway> {
   return Effect.gen(function* () {
@@ -462,13 +502,12 @@ export function resetBaseVm(input: {
   readonly billingCustomerType: BillingCustomerType;
   readonly billingTeamId: string;
   readonly billingPlanId: string;
-  readonly maxActiveVms: number;
+  readonly maxActiveVms: number | null;
   readonly provider: ProviderId;
   readonly image: string;
   readonly imageVersion?: string | null;
   readonly baseName?: string;
   readonly reason?: string | null;
-  readonly bakedFreestyleSignedAdmin?: boolean;
   readonly timing?: VmTimingSink;
 }): Effect.Effect<BaseVmEntry, VmWorkflowError, VmRepository | VmProviderGateway | VmBillingGateway> {
   return Effect.gen(function* () {
@@ -493,13 +532,12 @@ function finishBaseCreate(
     readonly billingCustomerType: BillingCustomerType;
     readonly billingTeamId: string;
     readonly billingPlanId: string;
-    readonly maxActiveVms: number;
+    readonly maxActiveVms: number | null;
     readonly provider: ProviderId;
     readonly image: string;
     readonly imageVersion?: string | null;
     readonly baseName?: string;
-    readonly bakedFreestyleSignedAdmin?: boolean;
-    readonly timing?: VmTimingSink;
+      readonly timing?: VmTimingSink;
   },
   create: BeginBaseCreateResult,
 ): Effect.Effect<BaseVmEntry, VmWorkflowError, never> {
@@ -544,13 +582,28 @@ function finishBaseCreate(
       idempotencyKey,
     }, create.vm, creditReservation);
 
+    // Base machines join the owner's private network exactly as ad-hoc
+    // machines do — Base is the machine most users touch first, so leaving it
+    // publicly exposed would make the default machine the least private one.
+    // finishBaseCreate receives its services as parameters (it predates the
+    // context-based composition), so hand them to the context-reading resolver
+    // explicitly instead of widening this function's environment.
+    const network = yield* measureVmEffect(
+      input.timing,
+      "resolve_network",
+      resolveOwnerNetwork({ userId: input.userId, provider: input.provider }).pipe(
+        Effect.provideService(VmRepository, repo),
+        Effect.provideService(VmProviderGateway, providers),
+      ),
+    );
+
     const handle = yield* measureVmEffect(
       input.timing,
       "provider_create",
       providers.create(input.provider, {
         image: input.image,
         providerMetadata: create.vm.providerMetadata,
-        bakedFreestyleSignedAdmin: input.bakedFreestyleSignedAdmin,
+        ...(network ? { network: { id: network.providerNetworkId } } : {}),
       }),
     ).pipe(
       Effect.tapError((err) =>
@@ -731,7 +784,7 @@ export function restoreVm(input: {
   readonly billingCustomerType: BillingCustomerType;
   readonly billingTeamId: string;
   readonly billingPlanId: string;
-  readonly maxActiveVms: number;
+  readonly maxActiveVms: number | null;
   readonly provider: ProviderId;
   readonly snapshotId: string;
   readonly idempotencyKey?: string;
@@ -758,7 +811,6 @@ export function restoreVm(input: {
       image: input.snapshotId,
       imageVersion: null,
       idempotencyKey: input.idempotencyKey,
-      bakedFreestyleSignedAdmin: false,
       timing: input.timing,
     });
   });
@@ -770,7 +822,7 @@ export function forkVm(input: {
   readonly billingTeamId: string;
   readonly teamIds?: readonly string[];
   readonly billingPlanId: string;
-  readonly maxActiveVms: number;
+  readonly maxActiveVms: number | null;
   readonly providerVmId: string;
   readonly name?: string;
   readonly idempotencyKey?: string;
@@ -1023,7 +1075,7 @@ function refreshActiveLimitProviderStatuses(
       if (!providerVmId) return Effect.void;
       // Provider-agnostic on purpose: the cron reconcile path already refreshes
       // every provider, and this lazy refresh used to skip everything except
-      // Freestyle, so a stale `running` row blocked Blaxel creates for up to a
+      // Freestyle, so a stale `running` row blocked creates for up to a
       // full cron interval. Candidates are `running` rows only, so the
       // gateway's "running" fallback for a driver without getStatus is a
       // harmless no-op rather than a wrong transition.
@@ -1062,7 +1114,7 @@ function reconcileObservedProviderStatus(
 ): Effect.Effect<ProviderStatusReconcileOutcome, never> {
   return Effect.gen(function* () {
     const providerVmId = vm.providerVmId;
-    if (!providerVmId) return "skipped" as const;
+    if (!providerVmId || isRetiredProviderRow(vm)) return "skipped" as const;
     const providerStatus = yield* getStatus(vm.provider, providerVmId).pipe(
       Effect.catchAll((err) =>
         isProviderNotFoundError(err)
@@ -1633,6 +1685,7 @@ export function execVm(input: {
     );
     const result = yield* providers.exec(vm.provider, input.providerVmId, input.command, {
       timeoutMs: input.timeoutMs,
+      providerMetadata: vm.providerMetadata,
     });
     yield* repo.recordUsageEvent({
       userId: input.userId,
@@ -1735,7 +1788,7 @@ export function openVmPort(input: {
 }
 
 /**
- * Attach through the cmux-tui remote daemon — the only session transport on Blaxel
+ * Attach through the cmux-tui remote daemon — the only session transport on
  * machines (other providers still serve the legacy websocket/SSH attach). The ingress
  * token lands in the same lease ledger as previews so sign-out revokes it; session
  * auth is the daemon's device enrollment, which the client completes with
@@ -1827,7 +1880,9 @@ export function approveVmCmuxRemoteEnrollment(input: {
         }),
       );
     }
-    return yield* providers.approveCmuxRemoteEnrollment(vm.provider, input.providerVmId, input.invitationId);
+    return yield* providers.approveCmuxRemoteEnrollment(vm.provider, input.providerVmId, input.invitationId, {
+      providerMetadata: vm.providerMetadata,
+    });
   });
 }
 
@@ -1949,7 +2004,7 @@ function openAttachEndpointResult(input: OpenAttachEndpointInput) {
     const repo = yield* VmRepository;
     const providers = yield* VmProviderGateway;
     const vm = yield* requireAccessibleUserVm(input);
-    // A provider that only runs the cmux-tui daemon (Blaxel) cannot serve the legacy
+    // A provider that only runs the cmux-tui daemon cannot serve the legacy
     // websocket/SSH attach at all; say so before waking or mutating anything.
     const supportedTransports = providers.attachTransports?.(vm.provider);
     if (supportedTransports && !supportedTransports.some((t) => t === "websocket" || t === "ssh")) {
@@ -2019,49 +2074,6 @@ function openAttachEndpointResult(input: OpenAttachEndpointInput) {
   });
 }
 
-export function openSshEndpoint(input: {
-  readonly userId: string;
-  readonly billingTeamId?: string | null;
-  readonly teamIds?: readonly string[];
-  readonly providerVmId: string;
-  /** Caller's CURRENT billing plan; used for the free access window. */
-  readonly callerPlanId?: string | null;
-}) {
-  return Effect.gen(function* () {
-    const repo = yield* VmRepository;
-    const providers = yield* VmProviderGateway;
-    const vm = yield* requireAccessibleUserVm(input);
-    yield* preflightResumeIfSuspended(repo, providers, vm, input.providerVmId, "ssh");
-    yield* revokeActiveIdentities(vm, { failOnCleanupError: true });
-    const endpoint = yield* withResumeOnSuspendedAfterFailure(
-      repo,
-      providers,
-      vm,
-      input.providerVmId,
-      "ssh",
-      providers.openSSH(vm.provider, input.providerVmId),
-    );
-    yield* storeEndpointLeases(vm, endpoint).pipe(
-      Effect.catchAll((err) =>
-        revokeEndpointIdentity(vm.provider, endpoint).pipe(
-          Effect.andThen(Effect.fail(err)),
-        ),
-      ),
-    );
-    yield* repo.recordUsageEvent({
-      userId: input.userId,
-      billingTeamId: vm.billingTeamId,
-      billingPlanId: vm.billingPlanId,
-      vmId: vm.id,
-      eventType: "vm.ssh_endpoint",
-      provider: vm.provider,
-      imageId: vm.imageId,
-      metadata: { credentialKind: endpoint.credential.kind },
-    }).pipe(Effect.catchAll(() => Effect.void));
-    return endpoint;
-  });
-}
-
 /// Access-verb variant of requireUserVm: a free-plan machine older than the
 /// free access window is preserved but unreachable until the caller upgrades.
 /// List/status/rename/delete deliberately keep using requireUserVm so the
@@ -2088,7 +2100,7 @@ function requireUserVm(input: ExistingVmAccessInput) {
       providerVmId: input.providerVmId,
       provider: input.provider,
     });
-    if (!vm || !vm.providerVmId) {
+    if (!vm || !vm.providerVmId || isRetiredProviderRow(vm)) {
       return yield* Effect.fail(new VmNotFoundError({ vmId: input.providerVmId }));
     }
     if (!callerStillOwnsBillingScope(input, vm)) {

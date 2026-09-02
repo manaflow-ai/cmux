@@ -227,8 +227,8 @@ import Testing
         """
         #expect(CmuxTuiSnapshotParser.listeningPorts(fromSocketListing: ss) == [1337, 3000, 5901])
         #expect(CmuxTuiSnapshotParser.internalPorts.isSuperset(of: [1337, 5901, 6901]))
-        #expect(CmuxTuiSnapshotParser.machineHasDesktop(image: "blaxel/xfce-vnc:latest"))
-        #expect(!CmuxTuiSnapshotParser.machineHasDesktop(image: "blaxel/base-image:latest"))
+        #expect(CmuxTuiSnapshotParser.machineHasDesktop(image: "cmux-xfce-vnc:latest"))
+        #expect(!CmuxTuiSnapshotParser.machineHasDesktop(image: "cmuxd-ws:tooling-20260509f"))
 
         let display = CmuxTuiSnapshotParser.display(machine: Self.machine)
         #expect(display.id == SurfaceResourceID(machine: Self.machine, kind: .display, key: "display:1"))
