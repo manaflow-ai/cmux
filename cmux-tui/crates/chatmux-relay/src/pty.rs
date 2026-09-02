@@ -1030,7 +1030,7 @@ impl Inner {
         }
         // Ownership transferred to the attachment. The guard remains on the
         // Opened value only to keep the deferred start closure alive.
-        opened.cleanup_claimed.store(true, Ordering::Release);
+        opened.cleanup.claimed.store(true, Ordering::Release);
         reservation.active = false;
         let mut opened_frame = serde_json::Map::new();
         opened_frame.insert("version".to_owned(), Value::from(PTY_PROTOCOL_VERSION));
@@ -1653,13 +1653,18 @@ struct Opened {
     closing: Arc<AtomicBool>,
     generation: u64,
     publication_gate: Arc<RouteGate>,
-    cleanup_claimed: Arc<AtomicBool>,
+    cleanup: Arc<OpenedCleanup>,
     start: Box<dyn FnOnce() + Send>,
 }
 
-impl Drop for Opened {
+struct OpenedCleanup {
+    control: Arc<dyn PtyControl>,
+    claimed: AtomicBool,
+}
+
+impl Drop for OpenedCleanup {
     fn drop(&mut self) {
-        if !self.cleanup_claimed.swap(true, Ordering::AcqRel) {
+        if !self.claimed.swap(true, Ordering::AcqRel) {
             // Any open that never reaches publication still owns a live PTY.
             // Drop is the cancellation-safe fallback for every early return.
             self.control.kill();
@@ -1849,11 +1854,14 @@ impl Inner {
         Ok(Opened {
             created: ensured.created,
             surface: None,
-            control,
+            control: Arc::clone(&control),
             closing: Arc::new(AtomicBool::new(false)),
             generation,
             publication_gate,
-            cleanup_claimed: Arc::new(AtomicBool::new(false)),
+            cleanup: Arc::new(OpenedCleanup {
+                control: Arc::clone(&control),
+                claimed: AtomicBool::new(false),
+            }),
             start: Box::new(move || drive_handle(output, banner, on_data, on_exit)),
         })
     }
@@ -2038,11 +2046,14 @@ impl Inner {
         Ok(Opened {
             created,
             surface: None,
-            control: proxy,
+            control: Arc::clone(&proxy),
             closing,
             generation,
             publication_gate,
-            cleanup_claimed: Arc::new(AtomicBool::new(false)),
+            cleanup: Arc::new(OpenedCleanup {
+                control: Arc::clone(&proxy),
+                claimed: AtomicBool::new(false),
+            }),
             start,
         })
     }
@@ -2617,11 +2628,14 @@ impl Inner {
         Ok(Some(Opened {
             created: ensured.created,
             surface: Some(surface_ref.to_owned()),
-            control: proxy,
+            control: Arc::clone(&proxy),
             closing: Arc::new(AtomicBool::new(false)),
             generation,
             publication_gate,
-            cleanup_claimed: Arc::new(AtomicBool::new(false)),
+            cleanup: Arc::new(OpenedCleanup {
+                control: Arc::clone(&proxy),
+                claimed: AtomicBool::new(false),
+            }),
             start: Box::new(move || start_stream.go_live(on_data, on_exit)),
         }))
     }
