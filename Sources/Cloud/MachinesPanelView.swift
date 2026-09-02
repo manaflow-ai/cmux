@@ -282,6 +282,36 @@ struct MachinesPanelView: View {
         .padding(.top, 2)
     }
 
+    /// The Cloud service answered with an error (a 5xx, another non-401/402
+    /// status, or an unreadable body). The request reached the service, so this
+    /// is not a network problem — say so, and let the user retry. Conflating
+    /// this with the transport-failure copy is exactly what made #11597's real
+    /// HTTP 500 read as "Cloud is unreachable — it retries on its own".
+    @ViewBuilder
+    private var serverErrorState: some View {
+        Image(systemName: "exclamationmark.icloud")
+            .font(.system(size: 26, weight: .light))
+            .foregroundColor(.secondary.opacity(0.55))
+        Text(String(localized: "machines.serverError.title", defaultValue: "Cloud service error"))
+            .cmuxFont(size: 13)
+            .foregroundColor(.primary.opacity(0.85))
+        Text(String(
+            localized: "machines.serverError.subtitle",
+            defaultValue: "Your machines are still there. The Cloud service ran into an error loading them \u{2014} this is on cmux\u{2019}s side, not your connection."
+        ))
+        .cmuxFont(size: 12)
+        .foregroundColor(.secondary)
+        .multilineTextAlignment(.center)
+        .padding(.horizontal, 24)
+        Button {
+            viewModel.refresh()
+        } label: {
+            Text(String(localized: "machines.serverError.retry", defaultValue: "Retry"))
+                .cmuxFont(size: 12)
+        }
+        .padding(.top, 2)
+    }
+
     /// HTTP 401 from the Cloud service while the app still holds a session:
     /// retrying can never fix it, so route straight to a fresh sign-in.
     @ViewBuilder
@@ -466,6 +496,8 @@ struct MachinesPanelView: View {
                     sessionRejectedState
                 case .requiresPro:
                     requiresProState
+                case .serverError:
+                    serverErrorState
                 case .unreachable:
                     unreachableState
                 }

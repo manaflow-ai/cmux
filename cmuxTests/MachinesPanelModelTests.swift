@@ -135,36 +135,6 @@ final class MachinesPanelModelTests: XCTestCase {
         )
     }
 
-    /// Regression for #11597: a machine-list failure must be classified by
-    /// what actually happened. A server response — any non-401/402 HTTP status
-    /// (a 500 from `GET /api/vm`, a 4xx, a body this client can't read) — is a
-    /// Cloud *service* error, not a transport failure, so it must NOT surface as
-    /// "Cloud is unreachable — it retries on its own". Only a genuinely absent
-    /// response (transport failure, transient session refresh) is `.unreachable`.
-    func testListFailureClassificationTellsTheTruth() {
-        typealias Problem = MachinesPanelViewModel.CloudListProblem
-        // Auth and plan gates keep their own fixes.
-        XCTAssertEqual(MachinesPanelViewModel.classifyListFailure(.httpStatus(401, "")), .sessionRejected)
-        XCTAssertEqual(MachinesPanelViewModel.classifyListFailure(.httpStatus(402, "")), .requiresPro)
-
-        // A server error is a response from the Cloud service, so it must never
-        // be labeled "unreachable". This is the exact #11597 mislabel: the
-        // signed-in nightly hit a real HTTP 500 on `GET /api/vm` and the panel
-        // showed "Cloud is unreachable" as if the network were down.
-        XCTAssertNotEqual(MachinesPanelViewModel.classifyListFailure(.httpStatus(500, "")), .unreachable)
-        XCTAssertNotEqual(MachinesPanelViewModel.classifyListFailure(.httpStatus(503, "")), .unreachable)
-        XCTAssertNotEqual(MachinesPanelViewModel.classifyListFailure(.httpStatus(400, "")), .unreachable)
-        XCTAssertNotEqual(MachinesPanelViewModel.classifyListFailure(.malformedResponse("bad")), .unreachable)
-
-        // Only a genuinely absent server response keeps the transport-first
-        // "unreachable" copy.
-        XCTAssertEqual(
-            MachinesPanelViewModel.classifyListFailure(.backendUnreachable(url: "https://cmux.com", detail: "offline")),
-            .unreachable
-        )
-        _ = Problem.unreachable
-    }
-
     func testCloudMachinesNeverExposeFleetWhileSignedOut() {
         XCTAssertEqual(
             CloudVMPanelAuthState.resolve(isAuthenticated: false, isWorkingOnAuth: true),
@@ -971,21 +941,26 @@ struct MachinesPanelListProblemTests {
         )
     }
 
-    @Test("Transient-shaped failures keep the retry-first unreachable state")
-    func transientFailuresStayUnreachable() {
-        #expect(
-            MachinesPanelViewModel.classifyListFailure(.httpStatus(503, "{}")) == .unreachable
-        )
+    @Test("Transport failures keep the retry-first unreachable state")
+    func transportFailuresStayUnreachable() {
         #expect(
             MachinesPanelViewModel.classifyListFailure(
                 .backendUnreachable(url: "https://cmux.com", detail: "offline")
             ) == .unreachable
         )
+        #expect(MachinesPanelViewModel.classifyListFailure(.sessionRefreshFailed) == .unreachable)
+    }
+
+    @Test("Service responses use the server-error state")
+    func serviceResponsesStayOutOfUnreachableState() {
+        for status in [400, 404, 409, 429, 500, 503] {
+            #expect(
+                MachinesPanelViewModel.classifyListFailure(.httpStatus(status, "{}")) == .serverError,
+                "HTTP \(status) is a response from the Cloud service"
+            )
+        }
         #expect(
-            MachinesPanelViewModel.classifyListFailure(.sessionRefreshFailed) == .unreachable
-        )
-        #expect(
-            MachinesPanelViewModel.classifyListFailure(.malformedResponse("bad")) == .unreachable
+            MachinesPanelViewModel.classifyListFailure(.malformedResponse("bad")) == .serverError
         )
     }
 

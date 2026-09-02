@@ -127833,6 +127833,57 @@
         }
       }
     },
+    "machines.serverError.retry": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Retry"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "再試行"
+          }
+        }
+      }
+    },
+    "machines.serverError.subtitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Your machines are still there. The Cloud service ran into an error loading them — this is on cmux’s side, not your connection."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "マシンはそのまま残っています。クラウドサービスが読み込み中にエラーになりました — これは接続の問題ではなく、cmux 側の問題です。"
+          }
+        }
+      }
+    },
+    "machines.serverError.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud service error"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "クラウドサービスのエラー"
+          }
+        }
+      }
+    },
     "machines.unavailable.retry": {
       "extractionState": "manual",
       "localizations": {

@@ -346,19 +346,38 @@ final class MachinesPanelViewModel: ObservableObject {
         case sessionRejected
         /// HTTP 402: the plan gates Cloud access.
         case requiresPro
-        /// Everything else — retrying may help.
+        /// The Cloud service answered, but with an error (any non-401/402 HTTP
+        /// status, or a body this client could not read). The request reached
+        /// the service, so this is a server-side problem, not a network one —
+        /// it must never wear the "Cloud is unreachable" copy.
+        case serverError
+        /// No usable response came back: a transport failure, or a transient
+        /// session-refresh failure. This is the only truly "unreachable" case.
         case unreachable
     }
 
     /// Classify a list failure for ``listProblem``. Pure so tests can pin the
     /// mapping without a live client.
+    ///
+    /// The split is by what actually happened, so the empty state can tell the
+    /// truth (#11597): a rejected session needs a fresh sign-in, a plan gate
+    /// needs an upgrade, a server error is the Cloud service failing, and only a
+    /// genuinely absent response is "unreachable". Mapping a real HTTP 500 to
+    /// `.unreachable` is what made a signed-in nightly show "Cloud is
+    /// unreachable — it retries on its own" for a persistent server-side error.
     nonisolated static func classifyListFailure(_ error: VMClientError) -> CloudListProblem {
         switch error {
         case .httpStatus(401, _):
             return .sessionRejected
         case .httpStatus(402, _):
             return .requiresPro
-        case .notSignedIn, .sessionRefreshFailed, .backendUnreachable, .httpStatus, .malformedResponse:
+        case .httpStatus, .malformedResponse:
+            // The service responded (or responded unreadably): a server-side
+            // failure, not a network one.
+            return .serverError
+        case .notSignedIn, .sessionRefreshFailed, .backendUnreachable:
+            // No usable response reached us. `.notSignedIn` is handled before
+            // this classifier runs; it is grouped here only for exhaustiveness.
             return .unreachable
         }
     }
