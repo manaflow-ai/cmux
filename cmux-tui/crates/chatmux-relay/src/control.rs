@@ -607,6 +607,52 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn close_callback_survives_a_full_event_queue() {
+        let socket_path = std::env::temp_dir()
+            .join(format!("chatmux-relay-control-event-overflow-{}.sock", std::process::id()));
+        let _ = std::fs::remove_file(&socket_path);
+        let listener = UnixListener::bind(&socket_path).expect("bind control overflow socket");
+        let (accepted_tx, accepted_rx) = oneshot::channel();
+        let (start_tx, start_rx) = oneshot::channel();
+        let server = tokio::spawn(async move {
+            let (mut stream, _) = listener.accept().await.expect("accept control overflow socket");
+            accepted_tx.send(()).expect("tell client that socket is accepted");
+            start_rx.await.expect("wait for event handler");
+            for index in 0..=MAX_EVENT_QUEUE {
+                let line = format!("{{\"event\":\"queued-{index}\"}}\n");
+                stream.write_all(line.as_bytes()).await.expect("write queued event");
+            }
+            // EOF is the unexpected close that must still reach on_close.
+        });
+
+        let control = unix::connect_control_for_test(&socket_path, 3_000)
+            .await
+            .expect("connect overflow socket");
+        accepted_rx.await.expect("wait for control overflow server");
+        let (entered_tx, entered_rx) = std::sync::mpsc::sync_channel(1);
+        let (release_tx, release_rx) = std::sync::mpsc::sync_channel(1);
+        let closed = Arc::new(Notify::new());
+        let closed_for_handler = Arc::clone(&closed);
+        control.on_event(Box::new(move |_| {
+            if entered_tx.try_send(()).is_ok() {
+                release_rx.recv().expect("release first event callback");
+            }
+        }));
+        control.on_close(Box::new(move || closed_for_handler.notify_waiters()));
+        start_tx.send(()).expect("start control event overflow");
+        entered_rx.recv_timeout(std::time::Duration::from_secs(1)).expect("first callback entered");
+
+        let closed_wait = closed.notified();
+        tokio::pin!(closed_wait);
+        release_tx.send(()).expect("release first event callback");
+        tokio::time::timeout(Duration::from_secs(2), &mut closed_wait)
+            .await
+            .expect("close callback survives full event queue");
+        server.await.expect("join control overflow server");
+        let _ = std::fs::remove_file(socket_path);
+    }
+
+    #[tokio::test]
     async fn writer_queue_preserves_complete_fifo_lines() {
         let socket_path =
             std::env::temp_dir().join(format!("chatmux-relay-control-{}.sock", std::process::id()));
