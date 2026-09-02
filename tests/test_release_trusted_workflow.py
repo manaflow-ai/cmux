@@ -347,35 +347,24 @@ class ReleaseTrustedWorkflowTests(unittest.TestCase):
         self.assertNotIn("/tmp/cmux-release-profile", profile_run)
         self.assertNotIn("base64 --decode", WORKFLOW.read_text(encoding="utf-8"))
 
-    def test_xcode_fallback_uses_bsd_compatible_glob(self) -> None:
+    def test_release_xcode_selection_uses_exact_pinned_toolchain(self) -> None:
         document = load()
         sign_steps = document["jobs"]["build-sign-notarize"]["steps"]
         select_step = next(step for step in sign_steps if step.get("name") == "Select Xcode")
         select_run = select_step["run"]
-        self.assertIn("for candidate in /Applications/Xcode*.app", select_run)
-        self.assertIn('[[ -d "$candidate/Contents/Developer" ]]', select_run)
-        self.assertIn('DEVELOPER_DIR="$candidate/Contents/Developer" xcodebuild -version', select_run)
-        self.assertIn("candidate_version", select_run)
-        self.assertNotIn("-maxdepth", select_run)
-        self.assertNotIn('"$candidate" > "$XCODE_APP"', select_run)
+        self.assertIn('expected_xcode_app="/Applications/Xcode_26.5.app"', select_run)
+        self.assertIn('XCODE_DIR="$expected_xcode_app/Contents/Developer"', select_run)
+        self.assertIn('expected_xcode_version="26.5"', select_run)
+        self.assertIn("actual_xcode_version", select_run)
+        self.assertIn("xcodebuild -version", select_run)
+        self.assertIn("Refusing release build with unexpected Xcode version", select_run)
+        self.assertNotIn("for candidate in /Applications/Xcode*.app", select_run)
 
     def test_release_bun_version_is_pinned(self) -> None:
         document = load()
         sign_steps = document["jobs"]["build-sign-notarize"]["steps"]
         setup_bun = next(step for step in sign_steps if step.get("name") == "Setup Bun")
         self.assertEqual(setup_bun.get("with", {}).get("bun-version"), "1.3.14")
-
-    def test_release_xcode_version_is_exactly_pinned(self) -> None:
-        document = load()
-        sign_steps = document["jobs"]["build-sign-notarize"]["steps"]
-        select_step = next(step for step in sign_steps if step.get("name") == "Select Xcode")
-        select_run = select_step["run"]
-        self.assertIn("/Applications/Xcode_26.5.app/Contents/Developer", select_run)
-        self.assertIn('expected_xcode_version="26.5"', select_run)
-        self.assertIn("actual_xcode_version", select_run)
-        self.assertIn("xcodebuild -version", select_run)
-        self.assertIn("Refusing release build with unexpected Xcode version", select_run)
-        self.assertNotIn("for candidate in /Applications/Xcode*.app", select_run)
 
     def test_keychain_search_list_is_restored_and_cleanup_is_fail_closed(self) -> None:
         document = load()

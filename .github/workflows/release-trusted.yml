@@ -472,42 +472,27 @@ jobs:
         if: success()
         run: |
           set -euo pipefail
-          if [ -d "/Applications/Xcode.app/Contents/Developer" ]; then
-            XCODE_DIR="/Applications/Xcode.app/Contents/Developer"
-          else
-            XCODE_APP=""
-            XCODE_VERSION=""
-            for candidate in /Applications/Xcode*.app; do
-              [[ -d "$candidate/Contents/Developer" ]] || continue
-              candidate_version="$(
-                DEVELOPER_DIR="$candidate/Contents/Developer" xcodebuild -version 2>/dev/null \
-                  | awk '$1 == "Xcode" { print $2; exit }' \
-                  || true
-              )"
-              [[ "$candidate_version" =~ ^[0-9]+(\.[0-9]+)*$ ]] || continue
-              if [[ -z "$XCODE_APP" ]] || awk -v candidate="$candidate_version" -v selected="$XCODE_VERSION" '
-                BEGIN {
-                  split(candidate, c, ".")
-                  split(selected, s, ".")
-                  for (i = 1; i <= 4; i++) {
-                    if ((c[i] + 0) > (s[i] + 0)) exit 0
-                    if ((c[i] + 0) < (s[i] + 0)) exit 1
-                  }
-                  exit 1
-                }
-              '; then
-                XCODE_APP="$candidate"
-                XCODE_VERSION="$candidate_version"
-              fi
-            done
-            if [ -n "$XCODE_APP" ]; then
-              XCODE_DIR="$XCODE_APP/Contents/Developer"
-            else
-              echo "No Xcode.app found under /Applications" >&2
-              exit 1
-            fi
+          expected_xcode_app="/Applications/Xcode_26.5.app"
+          expected_xcode_version="26.5"
+          XCODE_DIR="$expected_xcode_app/Contents/Developer"
+          if [[ ! -d "$expected_xcode_app" || -L "$expected_xcode_app" || ! -d "$XCODE_DIR" || -L "$XCODE_DIR" ]]; then
+            echo "Pinned Xcode app is missing or is a symlink: $expected_xcode_app" >&2
+            exit 1
           fi
-          echo "DEVELOPER_DIR=$XCODE_DIR" >> "$GITHUB_ENV"
+          actual_xcode_version="$(
+            DEVELOPER_DIR="$XCODE_DIR" xcodebuild -version 2>/dev/null \
+              | awk '$1 == "Xcode" { print $2; exit }'
+          )"
+          if [[ "$actual_xcode_version" != "$expected_xcode_version" ]]; then
+            echo "Refusing release build with unexpected Xcode version: $actual_xcode_version (expected $expected_xcode_version)" >&2
+            exit 1
+          fi
+          actual_sdk_version="$(DEVELOPER_DIR="$XCODE_DIR" xcrun --sdk macosx --show-sdk-version)"
+          [[ "$actual_sdk_version" == 26.* ]] || {
+            echo "Pinned Xcode has unexpected macOS SDK version: $actual_sdk_version" >&2
+            exit 1
+          }
+          printf 'DEVELOPER_DIR=%s\n' "$XCODE_DIR" >> "$GITHUB_ENV"
           export DEVELOPER_DIR="$XCODE_DIR"
           xcodebuild -version
           xcrun --sdk macosx --show-sdk-path
