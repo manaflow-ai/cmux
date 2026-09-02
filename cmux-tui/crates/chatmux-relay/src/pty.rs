@@ -3436,7 +3436,8 @@ mod tests {
         replacement_task.await.expect("replacement open");
         let before = h.sent().len();
         h.manager.handle_frame(&frame, &replacement).await;
-        let reopened = h.sent()[before..]
+        let sent = h.sent();
+        let reopened = sent[before..]
             .iter()
             .find(|frame| frame["type"] == "pty_opened" && frame["ptyId"] == "p1")
             .expect("final reopen must publish p1");
