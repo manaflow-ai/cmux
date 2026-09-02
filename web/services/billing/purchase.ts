@@ -1247,6 +1247,10 @@ export async function claimPendingProBilling(
 
   for (const claim of claims) {
     if (claim.claimedByUserId) continue;
+    // Keep this check at the consumer boundary as well as in the SQL-backed
+    // repository. Custom recovery readers and stale deployments must not be
+    // able to turn an unrelated claim into a billing ownership transfer.
+    if (canonicalizeEmailForMatching(claim.email) !== email) continue;
     const source = await stackApp.getUser(claim.stackUserId);
     if (!source || (source.id !== user.id && source.isAnonymous !== true)) {
       continue;

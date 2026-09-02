@@ -354,4 +354,114 @@ describe("billing email claim resolution", () => {
     expect(result).toEqual({ claimed: 0 });
     expect(findClaims).not.toHaveBeenCalled();
   });
+
+  test("does not transfer a claim whose email mismatches the verified account", async () => {
+    const transferClaim = mock(async () => ({
+      kind: "claimed" as const,
+      claimId: "claim-mismatch",
+      email: "other@example.com",
+      customerId: "cus-mismatch",
+      subscriptionIds: ["sub-mismatch"],
+      sourceStackUserId: "anonymous-mismatch",
+      targetStackUserId: "verified-target",
+    }));
+
+    const result = await claimPendingProBilling(
+      {
+        id: "verified-target",
+        primaryEmail: "verified@example.com",
+        primaryEmailVerified: true,
+        isAnonymous: false,
+        isRestricted: false,
+      },
+      {
+        db: metadataDb() as never,
+        stackApp: {
+          getUser: async () => ({
+            id: "anonymous-mismatch",
+            isAnonymous: true,
+            primaryEmail: null,
+            clientReadOnlyMetadata: {},
+            update: mock(async () => undefined),
+          }),
+        } as never,
+        ownershipRepository: {
+          findClaims: mock(async () => [{
+            id: "claim-mismatch",
+            email: "other@example.com",
+            stripeCustomerId: "cus-mismatch",
+            stackUserId: "anonymous-mismatch",
+            claimedByUserId: null,
+          }]),
+          transferClaim,
+        },
+      },
+    );
+
+    expect(result).toEqual({ claimed: 0 });
+    expect(transferClaim).not.toHaveBeenCalled();
+  });
+
+  test("redeems a claim only once when the sign-in callback is retried", async () => {
+    let claimedByUserId: string | null = null;
+    const transfer = {
+      kind: "claimed" as const,
+      claimId: "claim-retry",
+      email: "retry@example.com",
+      customerId: "cus-retry",
+      subscriptionIds: ["sub-retry"],
+      sourceStackUserId: "anonymous-retry",
+      targetStackUserId: "verified-retry",
+    };
+    const findClaims = mock(async () => [{
+      id: transfer.claimId,
+      email: transfer.email,
+      stripeCustomerId: transfer.customerId,
+      stackUserId: transfer.sourceStackUserId,
+      claimedByUserId,
+    }]);
+    const transferClaim = mock(async () => {
+      if (claimedByUserId) return null;
+      claimedByUserId = transfer.targetStackUserId;
+      return transfer;
+    });
+    const dependencies = {
+      db: metadataDb() as never,
+      stackApp: {
+        getUser: async (id: string) => id === transfer.targetStackUserId
+          ? {
+              id,
+              isAnonymous: false,
+              primaryEmail: transfer.email,
+              primaryEmailVerified: true,
+              clientReadOnlyMetadata: {},
+              update: mock(async () => undefined),
+            }
+          : {
+              id: transfer.sourceStackUserId,
+              isAnonymous: true,
+              primaryEmail: null,
+              clientReadOnlyMetadata: {},
+              update: mock(async () => undefined),
+            },
+      } as never,
+      ownershipRepository: { findClaims, transferClaim },
+    };
+    const user = {
+      id: transfer.targetStackUserId,
+      primaryEmail: transfer.email,
+      primaryEmailVerified: true,
+      isAnonymous: false,
+      isRestricted: false,
+    };
+
+    await expect(claimPendingProBilling(user, dependencies)).resolves.toEqual({
+      claimed: 1,
+    });
+    await expect(claimPendingProBilling(user, dependencies)).resolves.toEqual({
+      claimed: 0,
+    });
+
+    expect(transferClaim).toHaveBeenCalledTimes(1);
+  });
 });

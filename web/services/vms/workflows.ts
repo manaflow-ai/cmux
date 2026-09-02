@@ -57,6 +57,21 @@ import {
 } from "./repository";
 import { measureVmEffect, type VmTimingSink } from "./timings";
 
+export {
+  homeVolumeNameForUser,
+  homeVolumeTemplateForUser,
+  isMachineOwnedHomeVolumeName,
+} from "./volumeNaming";
+export { reapVmResources } from "./reaper";
+export type {
+  VmReaperOptions,
+  VmReaperSummary,
+} from "./reaper";
+import {
+  homeVolumeNameForUser,
+  homeVolumeTemplateForUser,
+} from "./volumeNaming";
+
 export type VmEntry = {
   readonly providerVmId: string;
   readonly provider: ProviderId;
@@ -216,21 +231,6 @@ export function reconcileVmProviderStatuses(input: {
       skippedNoGetStatus: false,
     };
   });
-}
-
-/** Stable per-user home volume name; the volume, not the sandbox, is the durable machine. */
-export function homeVolumeNameForUser(userId: string): string {
-  const digest = createHash("sha256").update(userId).digest("hex").slice(0, 12);
-  return `cmux-home-${digest}`;
-}
-
-/**
- * Per-machine home volume template. The driver substitutes the generated
- * machine name for `{machine}` once the name is final, so every fresh machine
- * gets its own durable home instead of contending for the single user volume.
- */
-export function homeVolumeTemplateForUser(userId: string): string {
-  return `${homeVolumeNameForUser(userId)}-{machine}`;
 }
 
 /**

@@ -60,15 +60,20 @@ Machine workspaces, terminals, and panes (everything the Cloud sidebar does):
 cmux vm workspace new <id> [--name <n>]     # create a workspace on the machine (its ⌘N) and open it here
 cmux vm workspace open <id> <ws> [--here|--tabs|--pane <p> --left|--right|--up|--down]
 cmux vm workspace rename <id> <ws> <name>
-cmux vm workspace close <id> <ws>           # keep terminals: they detach into the Terminals pool
-cmux vm workspace rm <id> <ws>              # delete the workspace AND kill every terminal in it
+cmux vm workspace rm <id> <ws>              # close the workspace AND kill every terminal in it (the sidebar's Close Workspace…)
+cmux vm workspace close <id> <ws>           # CLI-only: close the workspace but keep its terminals running in the Terminals pool
 cmux vm terminal close <id> <term>          # end one terminal (the process and its tab)
+cmux vm terminal send <id> <term> 'bun test' --keys enter   # type into a terminal headlessly, then press keys (no pane, no focus)
+cmux vm terminal wait <id> <term> --pattern 'pass|fail' [--timeout 120]   # block until the screen matches; exit 1 on timeout
+cmux vm terminal read <id> <term>           # the terminal's visible screen (what a person would see)
 cmux surface ls [--json]                    # every surface (This Mac + machines) and which panes show it
 cmux surface open <machine>/<kind>/<key> [--new] [--pane <p> --left|--right|--up|--down|--tab]
 cmux surface new-terminal --machine <id> [--remote-workspace <ws>] [--cwd <dir>] [-- <cmd...>]
 ```
 
 A pane showing a machine surface is an ordinary local cmux pane: move, split, reorder, or close it with the local workspace/pane commands (`cmux --help`), and closing a pane never kills the machine's terminal. Workspace (`ws_…`) and terminal (`term_…`) ids come from `cmux vm tree`.
+
+`terminal send/wait/read` is how you drive an interactive program on a machine (a REPL, a TUI, a long test run, another agent's session) without attaching a pane or taking the user's focus: start it with `surface new-terminal --machine <id> --no-open -- <cmd>`, then send input, wait for the prompt or result pattern, and read the screen. Open a pane for the person only when there is something to show.
 
 Run commands:
 

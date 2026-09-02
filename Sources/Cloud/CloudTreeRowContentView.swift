@@ -97,7 +97,7 @@ struct CloudTreeRowContentView: View {
             )
         case .terminal(let row):
             CloudTreeTerminalRowContent(row: row, style: style)
-        case .display(let resource):
+        case .display(let resource, _):
             CloudTreeLeafRow(
                 style: style,
                 icon: "display",
@@ -353,36 +353,28 @@ struct CloudTreeTerminalRowContent: View {
                     .foregroundStyle(.secondary)
                     .help(agent)
             }
-            if style.showsViewBadges, let views = row.viewBadge, views != 1 {
-                // Pool rows: how many daemon tabs show this terminal. One view is
-                // the normal state and gets no badge; zero reads as a "detached"
-                // pill (alive with no tab — the pool's whole point); several views
-                // read as a multiplier.
-                Group {
-                    if views == 0 {
-                        Text(String(localized: "cloudTree.terminal.badge.detached", defaultValue: "detached"))
-                            .cmuxFont(size: style.detailSize - 0.5, design: style.fontDesign)
-                            .foregroundStyle(.secondary)
-                            .padding(.horizontal, 5)
-                            .padding(.vertical, 1)
-                            .background(Capsule().fill(Color.primary.opacity(0.08)))
-                    } else {
-                        Text(String(format: String(localized: "cloudTree.terminal.badge.views", defaultValue: "×%d"), views))
-                            .cmuxFont(size: style.detailSize, design: style.fontDesign, monospacedDigit: true)
-                            .foregroundStyle(.secondary)
-                    }
-                }
-                .help(Self.viewsHelp(views))
+            if style.showsViewBadges, let views = Self.multiplierBadge(row.viewBadge) {
+                // Pool rows: how many daemon tabs show this terminal. Only several
+                // views earn a badge (a multiplier). One view is the normal state,
+                // and zero views is just a terminal in the pool — it is NOT called
+                // out (austin, 2026-08-31: no "detached" pill anywhere).
+                Text(String(format: String(localized: "cloudTree.terminal.badge.views", defaultValue: "×%d"), views))
+                    .cmuxFont(size: style.detailSize, design: style.fontDesign, monospacedDigit: true)
+                    .foregroundStyle(.secondary)
+                    .help(Self.viewsHelp(views))
             }
         }
     }
 
+    /// The view-count badge a pool row shows: the count when several daemon tabs
+    /// show the terminal, nil otherwise (one view, zero views, or not a pool row).
+    static func multiplierBadge(_ views: Int?) -> Int? {
+        guard let views, views > 1 else { return nil }
+        return views
+    }
+
     static func viewsHelp(_ views: Int) -> String {
-        switch views {
-        case 0: return String(localized: "cloudTree.terminal.views.zero", defaultValue: "No tabs on the machine show this terminal")
-        case 1: return String(localized: "cloudTree.terminal.views.one", defaultValue: "1 tab on the machine shows this terminal")
-        default: return String(format: String(localized: "cloudTree.terminal.views.other", defaultValue: "%d tabs on the machine show this terminal"), views)
-        }
+        String(format: String(localized: "cloudTree.terminal.views.other", defaultValue: "%d tabs on the machine show this terminal"), views)
     }
 
     private var glyph: String {
@@ -732,8 +724,8 @@ struct CloudTreeRowHoverButtons: View {
                     nodeActions.newTerminal(machine, workspace.id)
                 }
                 if !machine.isLocal {
-                    xmark(String(localized: "cloudTree.row.closeWorkspace", defaultValue: "Close Workspace")) {
-                        nodeActions.closeWorkspace(machine, workspace.id)
+                    xmark(String(localized: "cloudTree.row.closeWorkspace", defaultValue: "Close Workspace\u{2026}")) {
+                        nodeActions.closeWorkspace(machine, workspace)
                     }
                 }
             }

@@ -29,6 +29,10 @@
     {
       "path": "/api/internal/iroh/retention",
       "schedule": "43 * * * *"
+    },
+    {
+      "path": "/api/cron/vm-reaper",
+      "schedule": "49 * * * *"
     }
   ]
 }

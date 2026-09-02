@@ -148,7 +148,7 @@ await step(
 
 await step(
   "cua-driver",
-  "curl -fsSL https://cua.ai/driver/install.sh -o /tmp/cua-install.sh && CUA_DRIVER_RS_HOME=/opt/cua-driver CUA_DRIVER_RS_VERSION=0.19.3 CUA_DRIVER_BIN_DIR=/usr/local/bin CUA_DRIVER_NO_MODIFY_PATH=1 bash /tmp/cua-install.sh && rm -f /tmp/cua-install.sh && chmod -R a+rX /opt/cua-driver && cua-driver --version",
+  "curl -fsSL https://cua.ai/driver/install.sh -o /tmp/cua-install.sh && CUA_DRIVER_RS_HOME=/opt/cua-driver CUA_DRIVER_RS_VERSION=0.23.2 CUA_DRIVER_BIN_DIR=/usr/local/bin CUA_DRIVER_NO_MODIFY_PATH=1 bash /tmp/cua-install.sh && rm -f /tmp/cua-install.sh && chmod -R a+rX /opt/cua-driver && cua-driver --version",
 );
 
 const pins = devboxAgentPins();
@@ -162,9 +162,11 @@ await step(
   `mkdir -p /etc/claude-code && echo '{ "cleanupPeriodDays": 99999 }' > /etc/claude-code/managed-settings.json && node -e 'JSON.parse(require("fs").readFileSync("/etc/claude-code/managed-settings.json","utf8"))'`,
 );
 
+// devshell replays the Dockerfile devshell + ble.sh tput cache bake (same
+// echo-fed seed shells and test -s guards; see ../services/vms/images/devbox/Dockerfile).
 await step(
   "devshell",
-  `curl -fsSL https://github.com/akinomyoga/ble.sh/releases/download/nightly/ble-nightly.tar.xz -o /tmp/ble.tar.xz && tar xJf /tmp/ble.tar.xz -C /tmp && rm -rf /usr/local/share/blesh && mv /tmp/ble-nightly /usr/local/share/blesh && rm -f /tmp/ble.tar.xz && test -f /usr/local/share/blesh/ble.sh && mkdir -p /etc/cmux /etc/skel && ${installFile("cmux-bashrc", "/etc/cmux/bashrc")} && bash -n /etc/cmux/bashrc && ${installFile("seed-history", "/etc/cmux/seed-history")} && echo '[ -f /etc/cmux/bashrc ] && . /etc/cmux/bashrc' >> /etc/bash.bashrc && echo '[ -f /etc/cmux/bashrc ] && . /etc/cmux/bashrc' >> /etc/skel/.bashrc && echo '[ -f /etc/cmux/bashrc ] && . /etc/cmux/bashrc' >> /root/.bashrc && echo 'set -g default-shell /bin/bash' >> /etc/tmux.conf && bash -ic 'head -2 $HOME/.bash_history'`,
+  `curl -fsSL https://github.com/akinomyoga/ble.sh/releases/download/nightly/ble-nightly.tar.xz -o /tmp/ble.tar.xz && tar xJf /tmp/ble.tar.xz -C /tmp && rm -rf /usr/local/share/blesh && mv /tmp/ble-nightly /usr/local/share/blesh && rm -f /tmp/ble.tar.xz && test -f /usr/local/share/blesh/ble.sh && mkdir -p /etc/cmux /etc/skel && ${installFile("cmux-bashrc", "/etc/cmux/bashrc")} && bash -n /etc/cmux/bashrc && ${installFile("seed-history", "/etc/cmux/seed-history")} && echo '[ -f /etc/cmux/bashrc ] && . /etc/cmux/bashrc' >> /etc/bash.bashrc && echo '[ -f /etc/cmux/bashrc ] && . /etc/cmux/bashrc' >> /etc/skel/.bashrc && echo '[ -f /etc/cmux/bashrc ] && . /etc/cmux/bashrc' >> /root/.bashrc && echo 'set -g default-shell /bin/bash' >> /etc/tmux.conf && bash -ic 'head -2 $HOME/.bash_history' && mkdir -p /etc/cmux/blesh-cache-seed && for term in xterm-256color screen-256color tmux-256color linux; do echo exit | TERM="$term" HOME=/tmp/blesh-seed-home XDG_CACHE_HOME=/etc/cmux/blesh-cache-seed script -qec 'bash -i' /dev/null >/dev/null 2>&1 || true; done && rm -rf /tmp/blesh-seed-home && test -s /etc/cmux/blesh-cache-seed/blesh/*/term.xterm-256color && test -s /etc/cmux/blesh-cache-seed/blesh/*/term.screen-256color && test -s /etc/cmux/blesh-cache-seed/blesh/*/term.tmux-256color && test -s /etc/cmux/blesh-cache-seed/blesh/*/term.linux && mkdir -p /usr/local/share/blesh/cache.d/0 /usr/local/share/blesh/cache.d/1000 && chmod a+rwxt /usr/local/share/blesh/cache.d && cp /etc/cmux/blesh-cache-seed/blesh/*/term.* /usr/local/share/blesh/cache.d/0/ && cp /etc/cmux/blesh-cache-seed/blesh/*/term.* /usr/local/share/blesh/cache.d/1000/ && chmod 700 /usr/local/share/blesh/cache.d/0 /usr/local/share/blesh/cache.d/1000 && chown -R 1000:1000 /usr/local/share/blesh/cache.d/1000`,
 );
 
 await step(

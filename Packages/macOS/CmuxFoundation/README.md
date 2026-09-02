@@ -20,6 +20,8 @@ so call sites read naturally (`value.javaScriptStringLiteral`, not `f(value)`).
 - `RemoteTmuxCommandBuilder` — shared remote `tmux` resolution and argv preservation.
 - `WorkspaceRemoteTerminalProfile` — durable shell-or-named-tmux terminal intent.
 - `WorkspaceRemoteTerminalTransport` — the persisted SSH-or-Mosh interactive terminal preference.
+- `SentryNoiseFilter` — shared classification for expected CLI socket lifecycle failures,
+  including structured `unavailable` replies and typed missing socket paths.
 - `CLISocketSentryPolicy`: trusted Codex sandbox provenance for CLI socket `EPERM` filtering.
 - `CmuxCodexConfigEditor` — pure install and uninstall transforms for cmux's Codex `config.toml` hooks.
 - `MainActorDeferredActionScheduler` — replaceable clock-driven main-actor work
@@ -87,7 +89,9 @@ let isExpected = SentryNoiseFilter().isExpectedCLISocketTransportFailure(
 )
 ```
 
-Pass the process environment directly. Missing, unknown, and unrestricted
+Pass structured `CLIError.v2Code` as `cliErrorCode` and a typed missing-path
+classification as `socketPathMissing` when those values are available; this avoids
+guessing lifecycle state from localized text. Missing, unknown, and unrestricted
 `CODEX_SANDBOX` values keep the error visible.
 
 ## Testing

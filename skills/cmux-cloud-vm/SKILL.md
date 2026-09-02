@@ -62,7 +62,12 @@ cmux vm agent --agent opencode --no-open --json -- "add a README"             # 
 cmux vm exec <id> -- <command...>       # one command, non-interactive, ~30 s default cap
 cmux vm push <id> ./repo work/repo && cmux vm pull <id> work/repo/out.tgz
 cmux vm wait <id> --wake                # block until ready and awake
+cmux vm terminal send <id> <term> 'bun test' --keys enter     # drive a machine terminal headlessly: type, then press keys (no pane, no focus)
+cmux vm terminal wait <id> <term> --pattern 'pass|fail' --timeout 300   # block until the screen matches; exit 1 on timeout
+cmux vm terminal read <id> <term>       # the visible screen — what a person at that terminal sees
 ```
+
+`terminal send/wait/read` is the interactive counterpart of `exec`: a REPL, a TUI, a long test run, or another agent's session on the machine can be driven and observed without attaching a pane or stealing focus. Start the program with `cmux surface new-terminal --machine <id> --no-open -- <cmd>` (its `term_…` id comes back on the OK line), then loop send → wait → read.
 
 `vm agent` starts the agent as a **detached terminal in the machine's cmux-tui session**: it survives closed panes and reconnects from any device (`cmux vm open <machine>/<ws>/<term>`). Long shell work should also be backgrounded (see recipes) — never hold a long `exec` open.
 

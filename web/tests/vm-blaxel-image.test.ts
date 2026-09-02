@@ -142,14 +142,14 @@ describe("Blaxel baked image template", () => {
     }
   });
 
-  test("ble.sh highlights stay foreground-only for dark terminal themes", () => {
-    // The stock ble.sh faces paint light backgrounds under ghost text and
-    // transiently-invalid input, flashing the line background per keystroke
-    // on dark themes (Monokai). The bashrc overrides them after sourcing.
-    expect(bashrc).toContain("ble-face auto_complete=fg=");
-    expect(bashrc).toContain("ble-face syntax_error=fg=");
-    expect(bashrc).toContain("ble-face argument_error=fg=");
-    for (const line of bashrc.split("\n").filter((l) => l.trimStart().startsWith("ble-face"))) {
+  test("ble.sh integration stays minimal: no token highlighting, ghost text only", () => {
+    // User feedback 2026-08-31: any token highlighting (colored backgrounds
+    // under mistyped commands included) reads as noise. The bashrc turns the
+    // highlight layers off entirely and keeps only gray history ghost text.
+    expect(bashrc).toContain("bleopt highlight_syntax= highlight_filename= highlight_variable=");
+    const faceLines = bashrc.split("\n").filter((l) => l.trimStart().startsWith("ble-face"));
+    expect(faceLines).toEqual(["  ble-face auto_complete=fg=245"]);
+    for (const line of faceLines) {
       expect(line).not.toContain("bg=");
     }
   });

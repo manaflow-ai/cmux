@@ -9,10 +9,16 @@ import {
   CODE_DEFAULT_PROVIDER,
 } from "../scripts/cloud-vm/defaultProviderAudit.mjs";
 import {
+  auditFreeProvisioningOverride,
+  freeProvisioningOverrideEnvKeys,
+  isFreeProvisioningAllowed,
+} from "../scripts/cloud-vm/freeProvisioningAudit.mjs";
+import {
   recommendedRuntimeEnvKeys,
   requiredRuntimeEnvKeys,
 } from "../scripts/cloud-vm/projects.mjs";
 import { defaultProviderId } from "../services/vms/drivers";
+import { isVmFreeProvisioningAllowed } from "../services/vms/entitlements";
 
 type Manifest = {
   images: Array<{
@@ -202,6 +208,69 @@ describe("required runtime env keys cover the production provider path", () => {
     for (const key of ["CMUX_VM_BLAXEL_ENABLED", "BLAXEL_SANDBOX_DESKTOP_IMAGE"]) {
       expect(recommendedRuntimeEnvKeys).toContain(key);
       expect(requiredRuntimeEnvKeys).not.toContain(key);
+    }
+  });
+
+  test("the free-provisioning escape hatch is never required or recommended", () => {
+    // Unset is the safe value; listing it for presence would nudge operators
+    // into setting it. Its VALUE is audited instead (see below).
+    for (const key of freeProvisioningOverrideEnvKeys) {
+      expect(requiredRuntimeEnvKeys).not.toContain(key);
+      expect(recommendedRuntimeEnvKeys).not.toContain(key);
+    }
+  });
+});
+
+describe("free-provisioning override audit", () => {
+  type Audit = { present: string[]; allowed: boolean; problems: string[] };
+
+  test("an unset override is clean", () => {
+    const result = auditFreeProvisioningOverride({}) as Audit;
+    expect(result).toEqual({ present: [], allowed: false, problems: [] });
+  });
+
+  test("an explicit off value is clean", () => {
+    for (const env of [
+      { CMUX_VM_ALLOW_FREE_PROVISIONING: "0" },
+      { CMUX_VM_ALLOW_FREE_PROVISIONING: "false" },
+      { CMUX_VM_REQUIRE_PRO: "1" },
+      // The new switch wins over a stale permissive legacy value.
+      { CMUX_VM_ALLOW_FREE_PROVISIONING: "0", CMUX_VM_REQUIRE_PRO: "0" },
+    ]) {
+      expect((auditFreeProvisioningOverride(env) as Audit).problems).toEqual([]);
+    }
+  });
+
+  test("a permissive value fails the audit, not just a note", () => {
+    const result = auditFreeProvisioningOverride({ CMUX_VM_ALLOW_FREE_PROVISIONING: "1" }) as Audit;
+    expect(result.allowed).toBe(true);
+    expect(result.problems.join("\n")).toContain("free Cloud VM provisioning is enabled");
+    expect(result.problems.join("\n")).toContain("CMUX_VM_ALLOW_FREE_PROVISIONING=1");
+  });
+
+  test("a lone legacy CMUX_VM_REQUIRE_PRO=0 is the same outage", () => {
+    const result = auditFreeProvisioningOverride({ CMUX_VM_REQUIRE_PRO: "0" }) as Audit;
+    expect(result.allowed).toBe(true);
+    expect(result.problems.join("\n")).toContain("legacy CMUX_VM_REQUIRE_PRO=0");
+  });
+
+  test("a Sensitive override value cannot be audited and fails", () => {
+    const result = auditFreeProvisioningOverride({ CMUX_VM_ALLOW_FREE_PROVISIONING: "[SENSITIVE]" }) as Audit;
+    expect(result.allowed).toBe(false);
+    expect(result.problems.join("\n")).toContain("cannot be audited");
+  });
+
+  test("the audit mirrors the runtime gate decision exactly", () => {
+    // The .mjs cannot import the TypeScript runtime, so this pins the copy of
+    // the flag semantics to the real predicate across every accepted spelling.
+    const values = [undefined, "", "1", "0", "true", "false", "yes", "no", "on", "off", "enabled", "disabled", "TRUE ", " Off", "maybe"];
+    for (const allow of values) {
+      for (const legacy of values) {
+        const env: Record<string, string | undefined> = {};
+        if (allow !== undefined) env.CMUX_VM_ALLOW_FREE_PROVISIONING = allow;
+        if (legacy !== undefined) env.CMUX_VM_REQUIRE_PRO = legacy;
+        expect(isFreeProvisioningAllowed(env)).toBe(isVmFreeProvisioningAllowed(env));
+      }
     }
   });
 });

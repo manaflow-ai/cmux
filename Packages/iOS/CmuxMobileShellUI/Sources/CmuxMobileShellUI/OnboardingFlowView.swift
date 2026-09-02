@@ -11,12 +11,14 @@ struct OnboardingFlowView: View {
     let isAuthenticated: Bool
     let connectionPhase: OnboardingConnectionPhase
     let connectionMethod: MobileConnectionMethod
+    let keepAwakeOffer: OnboardingKeepAwakeOffer?
     let onSelectConnectionMethod: (MobileConnectionMethod) -> Void
     let onEnablePush: () async -> Bool
     let onReachedConnection: () -> Void
     let onSkip: () -> Void
     let onRetryConnection: () -> Void
     let onStartTailscalePairing: () -> Void
+    let onSetKeepAwake: (Bool) async -> Bool
     let onComplete: () -> Void
 
     @State private var stage: OnboardingStage
@@ -32,24 +34,28 @@ struct OnboardingFlowView: View {
         isAuthenticated: Bool,
         connectionPhase: OnboardingConnectionPhase,
         connectionMethod: MobileConnectionMethod = .automatic,
+        keepAwakeOffer: OnboardingKeepAwakeOffer? = nil,
         onSelectConnectionMethod: @escaping (MobileConnectionMethod) -> Void = { _ in },
         onEnablePush: @escaping () async -> Bool,
         onReachedConnection: @escaping () -> Void,
         onSkip: @escaping () -> Void,
         onRetryConnection: @escaping () -> Void,
         onStartTailscalePairing: @escaping () -> Void,
+        onSetKeepAwake: @escaping (Bool) async -> Bool = { _ in false },
         onComplete: @escaping () -> Void
     ) {
         self.context = context
         self.isAuthenticated = isAuthenticated
         self.connectionPhase = connectionPhase
         self.connectionMethod = connectionMethod
+        self.keepAwakeOffer = keepAwakeOffer
         self.onSelectConnectionMethod = onSelectConnectionMethod
         self.onEnablePush = onEnablePush
         self.onReachedConnection = onReachedConnection
         self.onSkip = onSkip
         self.onRetryConnection = onRetryConnection
         self.onStartTailscalePairing = onStartTailscalePairing
+        self.onSetKeepAwake = onSetKeepAwake
         self.onComplete = onComplete
         _stage = State(initialValue: initialStage)
     }
@@ -113,7 +119,9 @@ struct OnboardingFlowView: View {
             OnboardingConnectionView(
                 phase: connectionPhase,
                 connectionMethod: connectionMethod,
-                onSelectConnectionMethod: selectConnectionMethod
+                onSelectConnectionMethod: selectConnectionMethod,
+                keepAwakeOffer: keepAwakeOffer,
+                onSetKeepAwake: setKeepAwake
             )
         }
     }
@@ -245,6 +253,17 @@ struct OnboardingFlowView: View {
         diagnosticLog?.recordAppEvent(.onboardingConnectionRetried)
         analytics.capture("ios_onboarding_connection_retried", eventProperties)
         onRetryConnection()
+    }
+
+    private func setKeepAwake(_ enabled: Bool) async {
+        var properties = eventProperties
+        properties["enabled"] = .bool(enabled)
+        analytics.capture("ios_onboarding_keep_awake_set", properties)
+        let confirmed = await onSetKeepAwake(enabled)
+        if !confirmed {
+            properties["enabled"] = .bool(!enabled)
+            analytics.capture("ios_onboarding_keep_awake_reverted", properties)
+        }
     }
 
     private func selectConnectionMethod(_ method: MobileConnectionMethod) {

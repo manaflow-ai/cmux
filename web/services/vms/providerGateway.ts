@@ -12,6 +12,8 @@ import {
   type SnapshotRef,
   type SSHEndpoint,
   type VMHandle,
+  type VMVolumeInventory,
+  type VMVolumeListOptions,
   type VMStatus,
   type VMStats,
   type CmuxRemoteApprovalResult,
@@ -28,6 +30,11 @@ export type VmProviderGatewayShape = {
     provider: ProviderId,
     volumeName: string,
   ) => Effect.Effect<void, VmProviderOperationError>;
+  /** Optional provider volume inventory used by the report-only VM reaper. */
+  readonly listVolumes?: (
+    provider: ProviderId,
+    options?: VMVolumeListOptions,
+  ) => Effect.Effect<VMVolumeInventory, VmProviderOperationError>;
   readonly getStatus?: (provider: ProviderId, vmId: string) => Effect.Effect<VMStatus, VmProviderOperationError>;
   readonly resume?: (provider: ProviderId, vmId: string) => Effect.Effect<VMHandle, VmProviderOperationError>;
   readonly pause?: (provider: ProviderId, vmId: string) => Effect.Effect<void, VmProviderOperationError>;
@@ -108,6 +115,13 @@ export const VmProviderGatewayLive = Layer.succeed(VmProviderGateway, {
       // Providers without persistent volumes have nothing to delete.
       if (!impl.deleteHomeVolume) return;
       await impl.deleteHomeVolume(volumeName);
+    }),
+  listVolumes: (provider, options) =>
+    providerEffect(provider, "listVolumes", async () => {
+      const impl = getProvider(provider);
+      // Providers without persistent volume support have no inventory to reap.
+      if (!impl.listVolumes) return [];
+      return await impl.listVolumes(options);
     }),
   getStatus: (provider, vmId) =>
     providerEffect(provider, "getStatus", async () => {

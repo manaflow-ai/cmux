@@ -403,6 +403,87 @@ extension TerminalController {
         }
     }
 
+    // MARK: - Headless terminal I/O (agent primitives)
+
+    /// The cmux-tui provider for a cloud machine; the local machine and any provider
+    /// without a remote session have no headless terminal I/O.
+    nonisolated static func cloudTuiProvider(machineID: String, catalog: SurfaceCatalog) async throws -> CmuxTuiSurfaceProvider {
+        let machine = SurfaceMachineID.cloud(machineID)
+        guard let provider = try await Self.surfaceProvider(for: machine, catalog: catalog) as? CmuxTuiSurfaceProvider else {
+            throw SurfaceCatalogError.noProvider(machine)
+        }
+        return provider
+    }
+
+    /// `vm.terminal_write {id, terminal_id, text?, keys?}` → types `text` (as-is, no
+    /// newline) and then presses `keys` (named: enter, escape, tab, up; chords join with
+    /// `+`: ctrl+c — verified live, `ctrl-c` is rejected) in the remote terminal.
+    /// Nothing is attached or focused; the terminal's panes, if any, simply show it.
+    nonisolated func socketWorkerVMTerminalWriteResponse(id: Any?, params: [String: Any]) -> String {
+        guard let vmId = Self.surfaceString(params["id"]), !vmId.isEmpty,
+              let terminalID = Self.surfaceString(params["terminal_id"]), !terminalID.isEmpty else {
+            return v2Error(id: id, code: "invalid_params", message: "vm.terminal_write requires `id` and `terminal_id`.")
+        }
+        // Raw, not `surfaceString`: leading/trailing whitespace and newlines are part of
+        // what the caller wants typed.
+        let text = (params["text"] as? String).flatMap { $0.isEmpty ? nil : $0 }
+        let keys = Self.surfaceStringArray(params["keys"]).filter { !$0.isEmpty }
+        guard (text?.isEmpty == false) || !keys.isEmpty else {
+            return v2Error(id: id, code: "invalid_params", message: "vm.terminal_write needs `text` and/or `keys` (e.g. keys: [\"enter\"]).")
+        }
+        return v2VmCall(id: id, timeoutSeconds: 120) {
+            let provider = try await Self.cloudTuiProvider(machineID: vmId, catalog: await SurfaceCatalog.shared)
+            if let text, !text.isEmpty {
+                try await provider.sendText(terminalID: terminalID, text: text)
+            }
+            if !keys.isEmpty {
+                try await provider.sendKeys(terminalID: terminalID, keys: keys)
+            }
+            return ["machine": vmId, "terminal_id": terminalID, "wrote": text?.count ?? 0, "keys": keys]
+        }
+    }
+
+    /// `vm.terminal_read {id, terminal_id}` → the remote terminal's visible screen:
+    /// `{text, rows, cols, cursor_row, cursor_col, cursor_visible}`.
+    nonisolated func socketWorkerVMTerminalReadResponse(id: Any?, params: [String: Any]) -> String {
+        guard let vmId = Self.surfaceString(params["id"]), !vmId.isEmpty,
+              let terminalID = Self.surfaceString(params["terminal_id"]), !terminalID.isEmpty else {
+            return v2Error(id: id, code: "invalid_params", message: "vm.terminal_read requires `id` and `terminal_id`.")
+        }
+        return v2VmCall(id: id, timeoutSeconds: 120) {
+            let provider = try await Self.cloudTuiProvider(machineID: vmId, catalog: await SurfaceCatalog.shared)
+            var screen = try await provider.readScreen(terminalID: terminalID)
+            screen["machine"] = vmId
+            screen["terminal_id"] = terminalID
+            return screen
+        }
+    }
+
+    /// `vm.terminal_wait {id, terminal_id, pattern, timeout_ms?}` → blocks until the
+    /// screen matches the regex (default 30 s): `{matched, text}`.
+    nonisolated func socketWorkerVMTerminalWaitResponse(id: Any?, params: [String: Any]) -> String {
+        guard let vmId = Self.surfaceString(params["id"]), !vmId.isEmpty,
+              let terminalID = Self.surfaceString(params["terminal_id"]), !terminalID.isEmpty else {
+            return v2Error(id: id, code: "invalid_params", message: "vm.terminal_wait requires `id` and `terminal_id`.")
+        }
+        // Raw: whitespace can be significant in a regex.
+        guard let pattern = params["pattern"] as? String, !pattern.isEmpty else {
+            return v2Error(id: id, code: "invalid_params", message: "vm.terminal_wait requires a non-empty `pattern` (a regex matched against the screen text).")
+        }
+        let timeoutMs = CmuxTuiSurfaceProvider.clampedWaitTimeoutMs(
+            (params["timeout_ms"] as? Int) ?? Int(Self.surfaceString(params["timeout_ms"]) ?? "")
+        )
+        let socketTimeout = TimeInterval(max(60, timeoutMs / 1000 + 15))
+        return v2VmCall(id: id, timeoutSeconds: socketTimeout) {
+            let provider = try await Self.cloudTuiProvider(machineID: vmId, catalog: await SurfaceCatalog.shared)
+            var result = try await provider.waitForScreen(terminalID: terminalID, pattern: pattern, timeoutMs: timeoutMs)
+            result["machine"] = vmId
+            result["terminal_id"] = terminalID
+            result["pattern"] = pattern
+            return result
+        }
+    }
+
     // MARK: - Shared pieces
 
     /// The catalog's provider for `machine`; a cloud machine the catalog has not seen yet

@@ -67,6 +67,9 @@ export const recommendedRuntimeEnvKeys = [
   // Kill switches are off-only: unset means enabled, so requiring presence
   // would fail a healthy deployment. Recommended for explicitness (the other
   // provider flags are set in prod).
+  // CMUX_VM_ALLOW_FREE_PROVISIONING / CMUX_VM_REQUIRE_PRO are deliberately
+  // absent from every presence list: unset is the safe value, and their
+  // VALUES are audited by freeProvisioningAudit.mjs (a permissive value fails).
   "CMUX_VM_BLAXEL_ENABLED",
   "CMUX_DB_SSL_REJECT_UNAUTHORIZED",
   "OTEL_EXPORTER_OTLP_ENDPOINT",

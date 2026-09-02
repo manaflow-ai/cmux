@@ -4595,7 +4595,7 @@ pub(crate) fn run_ghostty_config_helper() -> i32 {
 
 #[cfg(not(test))]
 fn ghostty_defaults_from_helper() -> GhosttyHelperDefaults {
-    let Ok(exe) = std::env::current_exe() else {
+    let Ok(exe) = platform::self_exe_for_spawn() else {
         return GhosttyHelperDefaults::Unavailable;
     };
     let mut command = Command::new(exe);

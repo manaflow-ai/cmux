@@ -27,6 +27,7 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
     private let leadingBadge = SidebarRowUnreadBadgeView()
     private var leadingSpinner: GPUSpinnerNSView?
     private let pinImageView = NSImageView()
+    private let muteImageView = NSImageView()
     private let mediaAudioView = NSImageView()
     private let mediaMicView = NSImageView()
     private let mediaCameraView = NSImageView()
@@ -67,6 +68,8 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
     private var renameSession: SidebarRowInlineRenameSession?
     var isEditing: Bool { renameSession != nil }
     private var pumpCancellables: [AnyCancellable] = []
+    private weak var pumpWorkspace: Workspace?
+    private var pumpRebuild: (@MainActor () -> Void)?
     private var isPresentationActive = true
 
 #if DEBUG
@@ -74,27 +77,32 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
     /// optimistic press/deselect, hover enforcement).
     var applyModelProbeForTesting: ((SidebarWorkspaceRowModel) -> Void)?
 #endif
-
     /// Per-row churn pump: mirrors TabItemView's onReceive subscriptions so
     /// metadata/branch/PR updates repaint just this cell without any
-    /// container re-render. Installed per configure; replaced on reuse.
+    /// container re-render; installation also replays the current model.
     func installPump(
         workspace: Workspace,
         rebuild: @escaping @MainActor () -> Void
     ) {
+        pumpRebuild = rebuild
+        guard pumpWorkspace !== workspace else { return }
         pumpCancellables.removeAll()
+        pumpWorkspace = workspace
         workspace.sidebarImmediateObservationPublisher
+            .dropFirst()
             .receive(on: DispatchQueue.main)
-            .sink { _ in
-                MainActor.assumeIsolated { rebuild() }
+            .sink { [weak self] _ in
+                MainActor.assumeIsolated { self?.pumpRebuild?() }
             }
             .store(in: &pumpCancellables)
         workspace.sidebarObservationPublisher
+            .dropFirst()
             .debounce(for: .milliseconds(40), scheduler: DispatchQueue.main)
-            .sink { _ in
-                MainActor.assumeIsolated { rebuild() }
+            .sink { [weak self] _ in
+                MainActor.assumeIsolated { self?.pumpRebuild?() }
             }
             .store(in: &pumpCancellables)
+        rebuild()
     }
 
     /// Measurement/apply entry used by the pump path.
@@ -193,6 +201,8 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
 
         pinImageView.imageScaling = .scaleProportionallyDown
         contentContainer.addSubview(pinImageView)
+        muteImageView.imageScaling = .scaleProportionallyDown
+        contentContainer.addSubview(muteImageView)
         for view in [mediaAudioView, mediaMicView, mediaCameraView] {
             view.imageScaling = .scaleProportionallyDown
             contentContainer.addSubview(view)
@@ -287,6 +297,8 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
         contextMenuDidClose = nil
         contextMenuVisible = false
         pumpCancellables.removeAll()
+        pumpWorkspace = nil
+        pumpRebuild = nil
         setPresentationActive(false)
         return postUpdateActions
     }
@@ -409,6 +421,17 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
             pinImageView.contentTintColor = palette.secondary(0.8)
             pinImageView.toolTip = String(localized: "sidebar.pinnedWorkspaceProtected.tooltip", defaultValue: "Pinned workspace — protected from Close")
         }
+        muteImageView.isHidden = !snapshot.isMuted
+        if snapshot.isMuted {
+            muteImageView.image = RenderableSystemSymbol.configuredAppKitImage(
+                systemName: "bell.slash.fill", pointSize: model.scaled(9), weight: .semibold
+            )
+            muteImageView.contentTintColor = palette.secondary(0.8)
+            muteImageView.toolTip = String(
+                localized: "sidebar.mutedWorkspace.tooltip",
+                defaultValue: "Notifications muted for this workspace"
+            )
+        }
         let media = snapshot.mediaActivity
         mediaAudioView.isHidden = !media.isPlayingAudio
         if media.isPlayingAudio {
@@ -472,6 +495,7 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
         titleView.stringValue = boundedTitle
         titleView.font = .systemFont(ofSize: model.scaled(12.5), weight: .semibold)
         titleView.textColor = palette.primaryText
+        titleView.alphaValue = snapshot.isMuted ? 0.6 : 1
 
         // Badges / spinner / close
         let showsSpinner = model.showsAgentActivity && snapshot.activeCodingAgentCount > 0
@@ -1111,6 +1135,11 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
         if !pinImageView.isHidden {
             let side = model.scaled(9) + 4
             place(pinImageView, size: NSSize(width: side, height: side), centerY: firstLineCenter)
+            x += side + titleRowSpacing
+        }
+        if !muteImageView.isHidden {
+            let side = model.scaled(9) + 4
+            place(muteImageView, size: NSSize(width: side, height: side), centerY: firstLineCenter)
             x += side + titleRowSpacing
         }
         for view in [mediaAudioView, mediaMicView, mediaCameraView] where !view.isHidden {

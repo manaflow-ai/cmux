@@ -442,6 +442,17 @@ final class MachinesPanelModelTests: XCTestCase {
         if case .workspace(_, _, _, let openIn) = openByID["machine:vivid-newt/ws/ws_empty"]!.kind {
             XCTAssertNil(openIn, "nothing of it is open anywhere")
         } else { XCTFail("expected ws_empty row") }
+        // Desktop rows: a workspace's own display pointer opens inside the local
+        // workspace showing that remote workspace; the pool row keeps the global jump.
+        if case .display(_, let openIn) = openByID["machine:vivid-newt/ws/ws_main/resource:vivid-newt/display/display:1"]!.kind {
+            XCTAssertEqual(openIn, local, "ws_main shows locally, so its Desktop opens there")
+        } else { XCTFail("expected ws_main display row") }
+        if case .display(_, let openIn) = openByID["resource:vivid-newt/display/display:1"]!.kind {
+            XCTAssertNil(openIn, "the pool Desktop keeps the global open-or-focus")
+        } else { XCTFail("expected pool display row") }
+        if case .display(_, let openIn) = openByID["machine:vivid-newt/ws/ws_empty/resource:vivid-newt/display/display:1"]!.kind {
+            XCTAssertNil(openIn, "ws_empty shows nowhere locally")
+        } else { XCTFail("expected ws_empty display row") }
         XCTAssertNil(CloudTreeNodeBuilder.localWorkspaceShowing([], snapshot: openSnapshot))
         // The workspace's open/drag group carries its display pointer with its terminals.
         XCTAssertEqual(
@@ -942,5 +953,48 @@ struct MachinesPanelListProblemTests {
         #expect(
             MachinesPanelViewModel.classifyListFailure(.malformedResponse("bad")) == .unreachable
         )
+    }
+
+    /// No "detached" pill anywhere (austin, 2026-08-31): a pool terminal with no
+    /// view is just a row, one view is the normal state, and only several views
+    /// earn a badge (a multiplier).
+    func testPoolRowBadgeOnlyReadsAsMultiplier() {
+        XCTAssertNil(CloudTreeTerminalRowContent.multiplierBadge(nil), "pointer rows and local terminals carry no badge")
+        XCTAssertNil(CloudTreeTerminalRowContent.multiplierBadge(0), "zero views is not called out")
+        XCTAssertNil(CloudTreeTerminalRowContent.multiplierBadge(1), "one view is the normal state")
+        XCTAssertEqual(CloudTreeTerminalRowContent.multiplierBadge(2), 2)
+        XCTAssertEqual(CloudTreeTerminalRowContent.multiplierBadge(5), 5)
+    }
+}
+
+@Suite("Cloud machines paid-plan classification")
+struct MachinesPanelPaidPlanTests {
+    @Test("Only plans the backend accepts for provisioning are paid", arguments: [
+        ("pro", true), ("TEAM", true), ("founders", true), (" Pro\n", true),
+        ("free", false), ("", false), ("unknown", false), ("enterprise-unknown", false),
+    ])
+    func onlyProvisioningPlansArePaid(planId: String, expected: Bool) {
+        #expect(MachinePlanSnapshot.isPaidPlanID(planId) == expected)
+    }
+
+    @Test("A plan snapshot and the shared classifier agree")
+    func planSnapshotUsesSharedClassifier() {
+        let paid = MachineSnapshotBuilder.planSnapshot(
+            activeCount: 0,
+            limits: VMPlanLimits(maxActiveVms: 5, planId: "founders", freeAccessWindowDays: 0)
+        )
+        #expect(paid?.isPaidPlan == true)
+        let unknown = MachineSnapshotBuilder.planSnapshot(
+            activeCount: 0,
+            limits: VMPlanLimits(maxActiveVms: 5, planId: "mystery", freeAccessWindowDays: 0)
+        )
+        #expect(unknown?.isPaidPlan == false)
+    }
+
+    @Test("vm_requires_pro without a server action still names the upgrade path")
+    func requiresProErrorIncludesUpgradePathWhenServerOmitsAction() {
+        let error = VMClientError.httpStatus(402, #"{"error":"vm_requires_pro"}"#)
+        #expect(error.description.contains("https://cmux.com/pricing"))
+        #expect(error.description.contains("Upgrade to cmux Pro"))
     }
 }

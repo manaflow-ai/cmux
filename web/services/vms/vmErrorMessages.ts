@@ -56,6 +56,30 @@ export async function vmUnsupportedCopy(
   };
 }
 
+/** Copy returned when a provisioning verb is blocked by the paid-plan gate. */
+export type VmRequiresProCopy = {
+  readonly title: string;
+  readonly message: string;
+  readonly action: string;
+};
+
+/** Load and translate the `vm_requires_pro` response copy for the request locale. */
+export async function vmRequiresProCopy(
+  locale: Locale,
+  values: { readonly upgradeUrl: string },
+): Promise<VmRequiresProCopy> {
+  const translator = createTranslator({
+    locale,
+    messages: await loadMessages(locale),
+    namespace: "vmErrors.requiresPro",
+  }) as unknown as (key: string, values?: Record<string, string>) => string;
+  return {
+    title: translator("title"),
+    message: translator("message"),
+    action: translator("action", { upgradeUrl: values.upgradeUrl }),
+  };
+}
+
 function localeFromPath(value: string): Locale | null {
   try {
     const firstSegment = new URL(value).pathname.split("/").filter(Boolean)[0];

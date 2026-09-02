@@ -176,6 +176,10 @@ final class MarkdownWebRenderingCoordinator {
 @MainActor
 final class MarkdownWebView: WKWebView {
     var onPointerDown: (() -> Void)?
+    /// Invoked after this view is attached to a window. Keep this separate
+    /// from pointer focus so a panel can complete a focus request made before
+    /// SwiftUI mounted the WebKit view.
+    var onAttachToWindow: (() -> Void)?
     /// Invoked when the view leaves its window (the detach half of a pane
     /// re-parent). Lets the renderer coordinator record whether the document
     /// was healthy at detach time so re-entry recovery can tell a detach
@@ -302,6 +306,8 @@ final class MarkdownWebView: WKWebView {
             // This callback only records renderer health. All WebKit lifecycle
             // selectors and layout/display work stay on the deferred path.
             onLeaveWindow?()
+        } else {
+            onAttachToWindow?()
         }
     }
 
@@ -421,9 +427,10 @@ struct MarkdownWebTheme: Equatable {
 final class MarkdownRendererSession {
     private let ownedCoordinator = MarkdownWebRenderer.Coordinator()
 
-    /// The live preview web view, for find-in-page script evaluation.
-    /// `nil` until the renderer has been mounted once.
-    var findScriptWebView: WKWebView? {
+    /// The live preview web view — the panel's keyboard surface in preview
+    /// mode, and the evaluation target for find-in-page scripts. `nil` until
+    /// the renderer has been mounted once.
+    var webView: WKWebView? {
         ownedCoordinator.webView
     }
 
