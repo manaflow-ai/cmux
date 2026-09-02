@@ -695,7 +695,7 @@ fn push_resize_hits(app: &mut App, area: &PaneArea) {
 
 #[cfg(test)]
 mod tests {
-    use super::{client_border_labels, clip_tab_bar_rect};
+    use super::{client_border_labels, clip_tab_bar_rect, tab_scroll_for_active};
     use crate::session::{ClientInfo, ClientSizeInfo};
     use cmux_tui_core::Rect;
 
@@ -704,6 +704,22 @@ mod tests {
         let bar = Rect { x: 0, y: 0, width: 8, height: 1 };
         let logical = Rect { x: 1, y: 0, width: 3, height: 1 };
         assert_eq!(clip_tab_bar_rect(logical, bar, 10), None);
+    }
+
+    #[test]
+    fn tab_scroll_preserves_requested_offset_when_active_range_fits() {
+        assert_eq!(tab_scroll_for_active(&[4, 5, 6, 7], 2, 1, 15, 1, 1), 1);
+    }
+
+    #[test]
+    fn tab_scroll_advances_to_the_first_offset_that_fits_active_tab() {
+        assert_eq!(tab_scroll_for_active(&[4, 5, 6, 7], 3, 0, 16, 1, 1), 2);
+    }
+
+    #[test]
+    fn tab_scroll_handles_a_large_tab_set_without_changing_selection_semantics() {
+        let widths = vec![3; 100_000];
+        assert_eq!(tab_scroll_for_active(&widths, 99_999, 0, 12, 1, 1), 99_997);
     }
 
     fn client(id: u64, surface: u64, size: Option<(u16, u16)>) -> ClientInfo {
