@@ -823,7 +823,7 @@ fn runtime_base_dir() -> PathBuf {
 
 #[cfg(windows)]
 fn runtime_base_dir() -> PathBuf {
-    env_path("TEMP").or_else(|| env_path("TMP")).unwrap_or_else(std::env::temp_dir)
+    std::env::temp_dir()
 }
 
 #[cfg(not(windows))]
