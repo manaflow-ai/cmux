@@ -3512,13 +3512,17 @@ impl Drop for RemoteSession {
             }
             for surface in self.surfaces.lock().unwrap().values() {
                 let mirror_name = format!("mirror-{}.txt", surface.id);
-                let _ = write_private_dump(&directory, &mirror_name, &dump_mirror(surface));
+                let mirror = dump_mirror(surface);
+                let _ = write_private_dump(&directory, &mirror_name, |file| {
+                    file.write_all(mirror.as_bytes())
+                });
                 let frames_name = format!("frames-{}.log", surface.id);
-                let mut frames = String::new();
-                for line in entries_by_surface.get(&surface.id).into_iter().flatten() {
-                    let _ = writeln!(frames, "{line}");
-                }
-                let _ = write_private_dump(&directory, &frames_name, &frames);
+                let _ = write_private_dump(&directory, &frames_name, |file| {
+                    for line in entries_by_surface.get(&surface.id).into_iter().flatten() {
+                        writeln!(file, "{line}")?;
+                    }
+                    Ok(())
+                });
             }
         }
     }
@@ -3528,6 +3532,17 @@ impl Drop for RemoteSession {
 fn private_dump_directory(path: &Path) -> io::Result<fs::File> {
     use std::os::unix::fs::{MetadataExt, OpenOptionsExt, PermissionsExt};
 
+    let existed = match fs::symlink_metadata(path) {
+        Ok(metadata) if metadata.is_dir() => true,
+        Ok(_) => {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                format!("dump path is not a directory: {}", path.display()),
+            ));
+        }
+        Err(error) if error.kind() == io::ErrorKind::NotFound => false,
+        Err(error) => return Err(error),
+    };
     fs::create_dir_all(path)?;
     let directory = fs::OpenOptions::new()
         .read(true)
@@ -3540,7 +3555,16 @@ fn private_dump_directory(path: &Path) -> io::Result<fs::File> {
             format!("dump directory is not private and user-owned: {}", path.display()),
         ));
     }
-    directory.set_permissions(fs::Permissions::from_mode(0o700))?;
+    if existed {
+        if metadata.mode() & 0o077 != 0 {
+            return Err(io::Error::new(
+                io::ErrorKind::PermissionDenied,
+                format!("dump directory is not private: {}", path.display()),
+            ));
+        }
+    } else {
+        directory.set_permissions(fs::Permissions::from_mode(0o700))?;
+    }
     Ok(directory)
 }
 
@@ -3580,56 +3604,61 @@ fn private_dump_file(directory: &fs::File, name: &str) -> io::Result<fs::File> {
         ));
     }
     // Exclusive creation means an existing hard link or symlink is never
-    // opened, and no previously existing file is truncated. A repeated dump
-    // is skipped when its deterministic name already exists.
+    // opened, and no previously existing file is truncated. The temporary
+    // file is atomically renamed into the deterministic final name below.
     file.set_permissions(fs::Permissions::from_mode(0o600))?;
     Ok(file)
 }
 
 #[cfg(unix)]
-fn write_private_dump(directory: &fs::File, name: &str, contents: &str) -> io::Result<()> {
+fn write_private_dump<F>(directory: &fs::File, name: &str, write_contents: F) -> io::Result<()>
+where
+    F: FnOnce(&mut fs::File) -> io::Result<()>,
+{
     use std::ffi::CString;
     use std::os::fd::AsRawFd;
 
     static NEXT_TEMP_ID: AtomicU64 = AtomicU64::new(0);
     let final_name = CString::new(name)
         .map_err(|_| io::Error::new(io::ErrorKind::InvalidInput, "invalid dump file name"))?;
-    for _ in 0..16 {
-        let id = NEXT_TEMP_ID.fetch_add(1, Ordering::Relaxed);
-        let temp = format!(".{name}.tmp-{}-{id}", std::process::id());
-        let mut file = match private_dump_file(directory, &temp) {
-            Ok(file) => file,
-            Err(error) if error.kind() == io::ErrorKind::AlreadyExists => continue,
-            Err(error) => return Err(error),
-        };
-        let result = (|| {
-            file.write_all(contents.as_bytes())?;
-            file.sync_all()?;
-            drop(file);
-            let temp_name = CString::new(temp.as_str()).expect("generated temp name has no NUL");
-            let status = unsafe {
-                libc::renameat(
-                    directory.as_raw_fd(),
-                    temp_name.as_ptr(),
-                    directory.as_raw_fd(),
-                    final_name.as_ptr(),
-                )
+    let (mut file, temp) = 'allocate: loop {
+        for _ in 0..16 {
+            let id = NEXT_TEMP_ID.fetch_add(1, Ordering::Relaxed);
+            let temp = format!(".{name}.tmp-{}-{id}", std::process::id());
+            let file = match private_dump_file(directory, &temp) {
+                Ok(file) => break 'allocate (file, temp),
+                Err(error) if error.kind() == io::ErrorKind::AlreadyExists => continue,
+                Err(error) => return Err(error),
             };
-            if status != 0 {
-                return Err(io::Error::last_os_error());
-            }
-            Ok(())
-        })();
-        if result.is_ok() {
-            return Ok(());
         }
+        return Err(io::Error::new(io::ErrorKind::AlreadyExists, "could not allocate a private dump file"));
+    };
+    let result = (|| {
+        write_contents(&mut file)?;
+        file.sync_all()?;
+        drop(file);
         let temp_name = CString::new(temp.as_str()).expect("generated temp name has no NUL");
-        unsafe {
-            libc::unlinkat(directory.as_raw_fd(), temp_name.as_ptr(), 0);
+        let status = unsafe {
+            libc::renameat(
+                directory.as_raw_fd(),
+                temp_name.as_ptr(),
+                directory.as_raw_fd(),
+                final_name.as_ptr(),
+            )
+        };
+        if status != 0 {
+            return Err(io::Error::last_os_error());
         }
-        return result;
+        Ok(())
+    })();
+    if result.is_ok() {
+        return Ok(());
     }
-    Err(io::Error::new(io::ErrorKind::AlreadyExists, "could not allocate a private dump file"))
+    let temp_name = CString::new(temp.as_str()).expect("generated temp name has no NUL");
+    unsafe {
+        libc::unlinkat(directory.as_raw_fd(), temp_name.as_ptr(), 0);
+    }
+    result
 }
 
 fn parse_kitty_image_aliases(
