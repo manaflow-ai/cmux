@@ -6167,6 +6167,7 @@ extension TabManager {
             hasher.combine(workspace.customTitle ?? "")
             hasher.combine(workspace.customDescription ?? "")
             hasher.combine(workspace.customColor ?? "")
+            workspace.combineWorkspaceEnvironmentIntoSessionAutosaveFingerprint(into: &hasher)
             hasher.combine(workspace.isPinned)
             // Workspace notification mute is persisted in the session
             // manifest; include it in the autosave fingerprint so toggling
