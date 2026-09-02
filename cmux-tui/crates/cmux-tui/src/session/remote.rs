@@ -205,8 +205,15 @@ pub(crate) enum RemoteRequestError {
     Encode(serde_json::Error),
     Transport(io::Error),
     Timeout,
-    Rejected { error: String, code: Option<String>, delivery: Option<ClearHistoryDelivery> },
+    Rejected {
+        error: String,
+        code: Option<String>,
+        delivery: Option<ClearHistoryDelivery>,
+    },
     Shutdown,
+    /// The peer closed the transport. This is retryable for pipe-IO startup,
+    /// unlike a local shutdown initiated by this process.
+    RemoteShutdown,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -242,7 +249,9 @@ impl RemoteRequestError {
 pub(crate) fn is_pipe_io_retryable_error(error: &anyhow::Error) -> bool {
     error.chain().any(|cause| {
         if let Some(remote_error) = cause.downcast_ref::<RemoteRequestError>() {
-            return remote_error.is_transport_failure() || remote_error.is_timeout();
+            return remote_error.is_transport_failure()
+                || remote_error.is_timeout()
+                || matches!(remote_error, RemoteRequestError::RemoteShutdown);
         }
         cause.downcast_ref::<io::Error>().is_some_and(|io_error| {
             matches!(
@@ -269,6 +278,9 @@ impl std::fmt::Display for RemoteRequestError {
             Self::Timeout => write!(formatter, "remote session did not respond"),
             Self::Rejected { error, .. } => write!(formatter, "remote command rejected: {error}"),
             Self::Shutdown => write!(formatter, "remote response wait canceled for shutdown"),
+            Self::RemoteShutdown => {
+                write!(formatter, "remote response wait canceled after peer disconnect")
+            }
         }
     }
 }
@@ -2685,10 +2697,11 @@ impl RemoteSession {
                     return;
                 };
                 self.log_frame(id, format_args!("output bytes={}", bytes.len()));
-                let pipe_io_owned = self.pipe_io_forward(id, || PipeIoEvent::Output(bytes.clone()));
-                if pipe_io_owned {
-                    return;
-                }
+                let bytes = match self.pipe_io_forward_owned(id, PipeIoEvent::Output(bytes)) {
+                    Ok(()) => return,
+                    Err(PipeIoEvent::Output(bytes)) => bytes,
+                    Err(_) => return,
+                };
                 let colors = value.get("colors").and_then(parse_terminal_colors);
                 if let Some(surface) = self.surfaces.lock().unwrap().get(&id).cloned() {
                     surface.scan_cursor_provenance(&bytes);
@@ -3112,6 +3125,14 @@ impl RemoteSession {
         self.request_with_deadline(cmd, RequestDeadline::Standard)
     }
 
+    fn shutdown_request_error(&self) -> RemoteRequestError {
+        if matches!(&*self.disconnect_state.lock().unwrap(), DisconnectState::Remote(_)) {
+            RemoteRequestError::RemoteShutdown
+        } else {
+            RemoteRequestError::Shutdown
+        }
+    }
+
     /// Fire-and-forget command: enqueued in order with interactive traffic,
     /// never awaited. Used for best-effort reporting such as client focus.
     pub(crate) fn notify(&self, cmd: Value) -> anyhow::Result<()> {
@@ -3170,7 +3191,7 @@ impl RemoteSession {
 
         if self.shutdown.load(Ordering::Acquire) {
             self.pending.lock().unwrap().remove(&id);
-            return Err(RemoteRequestError::Shutdown.into());
+            return Err(self.shutdown_request_error().into());
         }
 
         let response = match self.wait_for_response(rx, deadline, progress, attach_progress) {
@@ -3215,7 +3236,7 @@ impl RemoteSession {
                 Ok(response) => Ok(response),
                 Err(RecvTimeoutError::Timeout) => Err(RemoteRequestError::Timeout),
                 Err(RecvTimeoutError::Disconnected) if self.shutdown.load(Ordering::Acquire) => {
-                    Err(RemoteRequestError::Shutdown)
+                    Err(self.shutdown_request_error())
                 }
                 Err(RecvTimeoutError::Disconnected) => Err(RemoteRequestError::Timeout),
             };
@@ -3241,13 +3262,13 @@ impl RemoteSession {
             match rx.recv_timeout(wait) {
                 Ok(response) => return Ok(response),
                 Err(RecvTimeoutError::Disconnected) if self.shutdown.load(Ordering::Acquire) => {
-                    return Err(RemoteRequestError::Shutdown);
+                    return Err(self.shutdown_request_error());
                 }
                 Err(RecvTimeoutError::Disconnected) => return Err(RemoteRequestError::Timeout),
                 Err(RecvTimeoutError::Timeout) => {}
             }
             if self.shutdown.load(Ordering::Acquire) {
-                return Err(RemoteRequestError::Shutdown);
+                return Err(self.shutdown_request_error());
             }
         }
     }
@@ -3272,7 +3293,7 @@ impl RemoteSession {
             .map_err(RemoteRequestError::Transport)?;
         if self.shutdown.load(Ordering::Acquire) {
             self.wait_for_ordered_write(sequence).map_err(RemoteRequestError::Transport)?;
-            return Err(RemoteRequestError::Shutdown.into());
+            return Err(self.shutdown_request_error().into());
         }
         Ok(())
     }
@@ -3560,26 +3581,34 @@ impl RemoteSession {
     /// would corrupt the embedder's terminal state (bounded-backpressure
     /// policy; never wedge the session reader thread).
     fn pipe_io_forward(&self, surface: SurfaceId, event: impl FnOnce() -> PipeIoEvent) -> bool {
+        self.pipe_io_forward_owned(surface, event()).is_ok()
+    }
+
+    /// Forwards an already-owned event without cloning its payload. If no
+    /// matching tap exists, the event is returned to the caller for normal
+    /// terminal parsing. Once a tap owns the event, queue overflow consumes it
+    /// and tears down that relay, so the caller must not parse it locally.
+    fn pipe_io_forward_owned(
+        &self,
+        surface: SurfaceId,
+        event: PipeIoEvent,
+    ) -> Result<(), PipeIoEvent> {
         use crossbeam_channel::TrySendError;
-        let (stalled_token, pipe_io_owned) = {
+        let stalled_token = {
             let tap = self.pipe_io_tap.lock().unwrap();
-            let Some(tap) = tap.as_ref() else { return false };
+            let Some(tap) = tap.as_ref() else { return Err(event) };
             if tap.surface != surface {
-                return false;
+                return Err(event);
             }
-            // Resolve ownership before invoking the closure. Output and
-            // replay call sites capture a payload clone in the closure, and
-            // sessions without a matching tap must not pay that allocation.
-            let event = event();
             let retained_bytes = event.retained_bytes();
             if !tap.byte_budget.try_reserve(retained_bytes) {
-                (Some(tap.token.clone()), true)
+                Some(tap.token.clone())
             } else {
                 match tap.sender.try_send(event) {
-                    Ok(()) => (None, true),
+                    Ok(()) => None,
                     Err(TrySendError::Full(_) | TrySendError::Disconnected(_)) => {
                         tap.byte_budget.release(retained_bytes);
-                        (Some(tap.token.clone()), true)
+                        Some(tap.token.clone())
                     }
                 }
             }
@@ -3592,11 +3621,7 @@ impl RemoteSession {
                 self.disconnect_transport();
             }
         }
-        // Capture ownership while holding the tap lock. A concurrent relay
-        // teardown can remove the tap before the caller reaches its parser
-        // fence; returning this snapshot prevents one raw event from being
-        // parsed twice during that handoff.
-        pipe_io_owned
+        Ok(())
     }
 
     /// Returns the first reason recorded when the remote reader stopped.
@@ -7332,7 +7357,7 @@ mod tests {
         assert!(
             matches!(
                 error.downcast_ref::<RemoteRequestError>(),
-                Some(RemoteRequestError::Shutdown)
+                Some(RemoteRequestError::RemoteShutdown)
             ),
             "expected shutdown after malformed JSON canceled the request, got {error:?}"
         );
@@ -8146,7 +8171,7 @@ mod tests {
         assert!(
             matches!(
                 error.downcast_ref::<RemoteRequestError>(),
-                Some(RemoteRequestError::Shutdown)
+                Some(RemoteRequestError::RemoteShutdown)
             ),
             "expected shutdown after EOF canceled the request, got {error:?}"
         );
