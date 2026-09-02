@@ -20406,7 +20406,7 @@ struct CMUXCLI {
               show                           Show the right sidebar
               hide                           Hide the right sidebar
               focus                          Focus the current right sidebar mode
-              set <files|find|vault|sessions|feed|dock|cloud|custom> [sidebar-name]
+              set <files|find|vault|sessions|feed|dock|cloud|beads|custom> [sidebar-name]
                                              Show, switch mode, and focus. `custom`
                                              renders a JS/Swift sidebar from
                                              ~/.config/cmux/sidebars as a right panel;
@@ -21147,7 +21147,7 @@ struct CMUXCLI {
 
         case "set":
             guard parsed.positional.count == 2 || parsed.positional.count == 3 else {
-                throw CLIError(message: String(localized: "cli.rightSidebar.error.setRequiresMode", defaultValue: "right-sidebar set requires a mode: files, find, vault, sessions, feed, dock, cloud, or custom [sidebar-name]"))
+                throw CLIError(message: String(localized: "cli.rightSidebar.error.setRequiresMode", defaultValue: "right-sidebar set requires a mode: files, find, vault, sessions, feed, dock, cloud, beads, or custom [sidebar-name]"))
             }
             let mode = parsed.positional[1].trimmingCharacters(in: .whitespacesAndNewlines)
             guard isRightSidebarCLIMode(mode) else {

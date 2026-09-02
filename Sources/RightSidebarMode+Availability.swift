@@ -16,6 +16,8 @@ extension RightSidebarMode {
             return .dock
         case "cloud", "machines", "vms":
             return .machines
+        case "beads":
+            return .beads
         case "custom", "custom-sidebar":
             return .customSidebar
         default:
@@ -51,7 +53,7 @@ extension RightSidebarMode {
 
     func isAvailable(feedEnabled: Bool, dockEnabled: Bool, machinesEnabled: Bool) -> Bool {
         switch self {
-        case .files, .find, .sessions:
+        case .files, .find, .sessions, .beads:
             return true
         case .feed:
             return feedEnabled

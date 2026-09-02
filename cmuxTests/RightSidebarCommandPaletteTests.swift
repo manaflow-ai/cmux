@@ -37,9 +37,9 @@ final class RightSidebarCommandPaletteTests: XCTestCase {
                 XCTAssertTrue(contribution.enablement(context))
             }
 
-            // Files/Find/Vault are always present; Machines follows the Cloud VM
+            // Files/Find/Vault/Beads are always present; Machines follows the Cloud VM
             // UI feature flag (visible in DEBUG builds), and feed/dock stay off.
-            let expectedCount = RightSidebarMode.machines.isAvailable() ? 4 : 3
+            let expectedCount = RightSidebarMode.machines.isAvailable() ? 5 : 4
             XCTAssertEqual(contributions.count, expectedCount)
             XCTAssertNil(contributionsByID[ContentView.commandPaletteRightSidebarModeCommandID(.feed)])
             XCTAssertNil(contributionsByID[ContentView.commandPaletteRightSidebarModeCommandID(.dock)])
