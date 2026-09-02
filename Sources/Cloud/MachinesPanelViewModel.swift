@@ -421,15 +421,17 @@ final class MachinesPanelViewModel: ObservableObject {
     private var treeTask: Task<Void, Never>?
     private static let statsInterval: Duration = .seconds(20)
 
-    init(createCoordinator: MachineCreateCoordinator = .shared) {
+    init(createCoordinator: MachineCreateCoordinator? = nil) {
+        let createCoordinator = createCoordinator ?? MachineCreateCoordinator.shared
         self.createCoordinator = createCoordinator
         pendingCreates = createCoordinator.operations
+        let finishedUserInfoKey = MachineCreateCoordinator.finishedUserInfoKey
         createChangeObserver = NotificationCenter.default.addObserver(
             forName: MachineCreateCoordinator.didChangeNotification,
             object: createCoordinator,
             queue: .main
         ) { [weak self] notification in
-            let finished = notification.userInfo?[MachineCreateCoordinator.finishedUserInfoKey] as? MachineCreateCoordinator.Finished
+            let finished = notification.userInfo?[finishedUserInfoKey] as? MachineCreateCoordinator.Finished
             MainActor.assumeIsolated { self?.createsDidChange(finished: finished) }
         }
         authSignOutObserver = NotificationCenter.default.addObserver(

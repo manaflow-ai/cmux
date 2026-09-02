@@ -67,18 +67,19 @@ final class NewMachineSheetPresenter {
         plan: MachinePlanSnapshot?,
         imageKinds: [VMImageKindOption],
         preferredWindow: NSWindow?,
-        coordinator: MachineCreateCoordinator = .shared
+        coordinator: MachineCreateCoordinator? = nil
     ) {
         if let plan, plan.isAtLimit, !plan.isPaidPlan {
             ProUpgradePresenter.present()
             return
         }
+        let createCoordinator = coordinator ?? MachineCreateCoordinator.shared
         let model = NewMachineModel(
             mode: .newMachine,
             plan: plan,
             imageKinds: imageKinds,
             submit: { request in
-                coordinator.start(request) { arguments, completion in
+                createCoordinator.start(request) { arguments, completion in
                     MachineRowActions.openNewMachine(arguments: arguments) { result in
                         completion(result)
                     }
