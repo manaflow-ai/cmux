@@ -68,7 +68,10 @@ pub const FRAME_KIND_PTY: u8 = 1;
 /// u32 length + u8 kind.
 const HEADER_BYTES: usize = 5;
 /// The opened (or refused) reply must arrive within this budget.
+#[cfg(not(test))]
 const OPEN_TIMEOUT: Duration = Duration::from_secs(10);
+#[cfg(test)]
+const OPEN_TIMEOUT: Duration = Duration::from_millis(100);
 /// Writer flow control: pause the PTY source above the high-water mark of
 /// bytes queued toward the socket, resume below the low-water mark. The
 /// manager's own 1 MiB output cap stays the hard boundary above this.
@@ -706,11 +709,15 @@ mod tests {
 
     struct FakeDeps {
         spawned: Arc<StdMutex<Vec<FakePty>>>,
+        spawn_delay: Duration,
     }
 
     #[async_trait]
     impl PtyDeps for FakeDeps {
         async fn spawn_pty(&self, _spec: SpawnSpec) -> PtyHandle {
+            if !self.spawn_delay.is_zero() {
+                tokio::time::sleep(self.spawn_delay).await;
+            }
             let pty = FakePty { state: Arc::new(StdMutex::new(FakeState::default())) };
             self.spawned.lock().unwrap().push(pty.clone());
             PtyHandle { control: Arc::new(pty.clone()), output: Arc::new(pty), banner: None }
@@ -753,8 +760,12 @@ mod tests {
     }
 
     async fn rig_with_limits(max_ptys: usize) -> Rig {
+        rig_with_limits_and_spawn_delay(max_ptys, Duration::ZERO).await
+    }
+
+    async fn rig_with_limits_and_spawn_delay(max_ptys: usize, spawn_delay: Duration) -> Rig {
         let spawned = Arc::new(StdMutex::new(Vec::new()));
-        let deps = Arc::new(FakeDeps { spawned: Arc::clone(&spawned) });
+        let deps = Arc::new(FakeDeps { spawned: Arc::clone(&spawned), spawn_delay });
         let env = HashMap::from([
             ("SHELL".to_owned(), "/bin/fakesh".to_owned()),
             ("HOME".to_owned(), std::env::temp_dir().to_string_lossy().into_owned()),
@@ -1035,6 +1046,33 @@ mod tests {
         let reopened = control_json(&next_frame(&mut read, &mut decoder, &mut queue).await);
         assert_eq!(reopened["t"], "opened");
         assert_eq!(reopened["created"], false);
+        rig.cancel.cancel();
+    }
+
+    #[tokio::test]
+    async fn open_deadline_cancels_a_slow_manager_open() {
+        let rig = rig_with_limits_and_spawn_delay(8, OPEN_TIMEOUT + Duration::from_millis(50)).await;
+        let stream = connect(&rig).await;
+        let (mut read, mut write) = stream.into_split();
+        let mut decoder = TunnelFrameDecoder::new(MAX_TUNNEL_FRAME_BYTES);
+        let mut queue = Vec::new();
+
+        write
+            .write_all(&encode_control_frame(&json!({
+                "t": "open",
+                "session": "slow",
+                "cols": 80,
+                "rows": 24,
+            })))
+            .await
+            .expect("send slow open");
+        let error = control_json(&next_frame(&mut read, &mut decoder, &mut queue).await);
+        assert_eq!(error["t"], "error");
+        assert_eq!(error["code"], "bad_request");
+        read_eof(&mut read).await;
+
+        tokio::time::sleep(OPEN_TIMEOUT + Duration::from_millis(100)).await;
+        assert_eq!(rig.manager.attachment_count(), 0);
         rig.cancel.cancel();
     }
 
