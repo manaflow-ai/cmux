@@ -205,6 +205,12 @@
          location = "group:CmuxSimulator">
       </FileRef>
       <FileRef
+         location = "group:CmuxSudoBroker">
+      </FileRef>
+      <FileRef
+         location = "group:CmuxSudoBrokerUI">
+      </FileRef>
+      <FileRef
          location = "group:CmuxSwiftRender">
       </FileRef>
       <FileRef
