@@ -2747,6 +2747,42 @@ struct DockShortcutRoutingTests {
         }
     }
 
+    @Test("Generic surface move APIs route a Dock panel to a workspace")
+    @MainActor
+    func genericSurfaceMoveApisRouteDockPanel() async throws {
+        try await AppContextSerialGate.withExclusiveAppContext {
+            try await Self.withHarness { harness in
+                let panel = try harness.dock.seedShortcutTestPanel(
+                    inPane: harness.rootPane
+                )
+                #expect(
+                    harness.appDelegate.canMoveSurfaceToNewWorkspace(
+                        panelId: panel.id
+                    )
+                )
+                let targets = harness.appDelegate.workspaceMoveTargets(
+                    forSurface: panel.id
+                )
+                let target = try #require(targets.first)
+
+                #expect(
+                    harness.appDelegate.moveSurface(
+                        panelId: panel.id,
+                        toWorkspace: target.workspaceId,
+                        focus: false,
+                        focusWindow: false
+                    )
+                )
+                #expect(!harness.dock.containsPanel(panel.id))
+                #expect(
+                    target.tabManager.tabs
+                        .first(where: { $0.id == target.workspaceId })?
+                        .panels[panel.id] === panel
+                )
+            }
+        }
+    }
+
     @Test("An empty Dock pane publishes Dock ownership for creation commands")
     @MainActor
     func emptyDockPanePublishesDockFocus() async throws {
