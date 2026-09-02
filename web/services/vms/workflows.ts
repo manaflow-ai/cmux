@@ -10,6 +10,7 @@ import type {
   VMHandle,
   VMStatus,
 } from "./drivers";
+import { isProviderId } from "./drivers";
 import {
   VmBillingGateway,
   VmBillingGatewayLive,
@@ -129,11 +130,25 @@ export async function runVmWorkflow<A>(
   }
 }
 
+/**
+ * A row whose provider is no longer registered belongs to a retired driver.
+ * Drivers leave with a code deploy while the rows they wrote survive until an
+ * operator runs the matching migration, so every read path must treat such a
+ * row as unaddressable instead of asking the registry for a driver it no
+ * longer has. The registry throws for an unknown id, and one surviving row was
+ * enough to turn the whole machine list into a 500 when Blaxel was removed.
+ */
+export function isRetiredProviderRow(row: Pick<CloudVmRow, "provider">): boolean {
+  return !isProviderId(row.provider);
+}
+
 export function listUserVms(userId: string, billingTeamId?: string | null) {
   return Effect.gen(function* () {
     const repo = yield* VmRepository;
     const rows = yield* repo.listUserVms(userId, billingTeamId);
-    return rows.filter((row) => row.providerVmId).map(vmEntryFromRow);
+    return rows
+      .filter((row) => row.providerVmId && !isRetiredProviderRow(row))
+      .map(vmEntryFromRow);
   });
 }
 
@@ -1055,7 +1070,7 @@ function reconcileObservedProviderStatus(
 ): Effect.Effect<ProviderStatusReconcileOutcome, never> {
   return Effect.gen(function* () {
     const providerVmId = vm.providerVmId;
-    if (!providerVmId) return "skipped" as const;
+    if (!providerVmId || isRetiredProviderRow(vm)) return "skipped" as const;
     const providerStatus = yield* getStatus(vm.provider, providerVmId).pipe(
       Effect.catchAll((err) =>
         isProviderNotFoundError(err)
@@ -2041,7 +2056,7 @@ function requireUserVm(input: ExistingVmAccessInput) {
       providerVmId: input.providerVmId,
       provider: input.provider,
     });
-    if (!vm || !vm.providerVmId) {
+    if (!vm || !vm.providerVmId || isRetiredProviderRow(vm)) {
       return yield* Effect.fail(new VmNotFoundError({ vmId: input.providerVmId }));
     }
     if (!callerStillOwnsBillingScope(input, vm)) {
