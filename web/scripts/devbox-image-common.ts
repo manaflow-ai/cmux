@@ -1,6 +1,6 @@
 /**
  * Shared plumbing for the cmux Cloud devbox image bakes
- * (build-devbox-e2b.ts, build-devbox-daytona.ts, build-devbox-freestyle.ts)
+ * (build-devbox-freestyle.ts)
  * and the post-bake verifier (verify-devbox-image.ts).
  *
  * The image source of truth is web/services/vms/images/devbox/: a plain
@@ -141,7 +141,7 @@ export function bakeMetadata(
 }
 
 export function manifestEntrySkeleton(
-  provider: "e2b" | "daytona" | "freestyle",
+  provider: "freestyle",
   version: string,
   imageId: string,
   envVar: string,
@@ -155,7 +155,7 @@ export function manifestEntrySkeleton(
     envVar,
     defaultForLocalDev: false,
     // The session daemon is cmux-tui, installed at create time from the pinned
-    // artifacts manifest; no cmuxd-remote build is baked (same as Blaxel).
+    // artifacts manifest; no cmuxd-remote build is baked.
     cmuxdRemoteCommit: "none-cmux-tui",
     builtAt: metadata.builtAt,
     builderScriptVersion: metadata.builderScriptVersion,
