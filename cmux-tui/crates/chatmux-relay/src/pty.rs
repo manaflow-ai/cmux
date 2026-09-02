@@ -1919,7 +1919,10 @@ impl Inner {
                     }),
                     Arc::clone(&exit_live),
                 );
-                Self::revoke_publication(&attachment);
+                // A normal PTY exit ends new publication but keeps the live
+                // token for frames already queued. The writer must preserve
+                // opened/output ordering before delivering this exit frame.
+                Self::revoke_for_exit(&attachment);
                 attachment.closing.store(true, Ordering::Release);
                 attachments.remove(pty_id).is_some()
             }
@@ -2256,6 +2259,10 @@ impl Inner {
 
     fn revoke_publication(attachment: &Attachment) {
         attachment.delivery_live.store(false, Ordering::Release);
+        attachment.publication_state.fetch_or(1, Ordering::AcqRel);
+    }
+
+    fn revoke_for_exit(attachment: &Attachment) {
         attachment.publication_state.fetch_or(1, Ordering::AcqRel);
     }
 
