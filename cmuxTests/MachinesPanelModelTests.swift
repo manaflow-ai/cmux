@@ -977,7 +977,7 @@ struct MachinesPanelClientBootstrapTests {
     func missingClientUsesBoundedRetryBudget() async {
         var attempts = 0
 
-        let loaded = await CloudClientBootstrapRetry.run(maxRetries: 3) {
+        let loaded = await CloudClientBootstrapRetry(maxRetries: 3).run {
             attempts += 1
             return false
         }
@@ -990,7 +990,7 @@ struct MachinesPanelClientBootstrapTests {
     func clientAppearsDuringBootstrap() async {
         var attempts = 0
 
-        let loaded = await CloudClientBootstrapRetry.run(maxRetries: 3) {
+        let loaded = await CloudClientBootstrapRetry(maxRetries: 3).run {
             attempts += 1
             return attempts == 3
         }

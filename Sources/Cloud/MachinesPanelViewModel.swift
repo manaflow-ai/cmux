@@ -324,6 +324,25 @@ enum MachineSnapshotBuilder {
     }
 }
 
+/// Retries a short-lived Cloud client bootstrap race without an unbounded loop.
+@MainActor
+struct CloudClientBootstrapRetry {
+    let maxRetries: Int
+
+    init(maxRetries: Int) {
+        self.maxRetries = max(0, maxRetries)
+    }
+
+    func run(attempt: () async -> Bool) async -> Bool {
+        for retry in 0...maxRetries {
+            if await attempt() { return true }
+            guard !Task.isCancelled, retry < maxRetries else { return false }
+            await Task.yield()
+        }
+        return false
+    }
+}
+
 /// Loads the machine fleet for the right-sidebar Machines tab. Refreshes on
 /// demand plus a slow poll while the panel is visible; machine mutations go
 /// through the shared Cloud VM action path (`CloudVMActionLauncher`), never
@@ -575,6 +594,7 @@ final class MachinesPanelViewModel: ObservableObject {
     /// create that lands mid-poll must still replace its pending row with the
     /// real machine now, not on the next 45 s sweep.
     private var refreshRequestedWhileLoading = false
+    private static let maxClientBootstrapRetries = 3
 
     func refresh() {
         guard refreshTask == nil else {
@@ -583,8 +603,14 @@ final class MachinesPanelViewModel: ObservableObject {
         }
         isLoading = true
         refreshTask = Task { [weak self] in
-            await self?.performRefresh()
+            let loaded = await CloudClientBootstrapRetry(maxRetries: Self.maxClientBootstrapRetries).run { [weak self] in
+                guard !Task.isCancelled, let self else { return true }
+                return await self.performRefresh()
+            }
             guard !Task.isCancelled, let self else { return }
+            if !loaded {
+                self.completeMissingClientLoad()
+            }
             self.refreshTask = nil
             if self.refreshRequestedWhileLoading {
                 self.refreshRequestedWhileLoading = false
@@ -682,13 +708,14 @@ final class MachinesPanelViewModel: ObservableObject {
         hasLoadedOnce = true
     }
 
-    private func performRefresh() async {
+    private func performRefresh() async -> Bool {
+        guard !Task.isCancelled else { return true }
         guard let client = VMClient.shared else {
-            completeMissingClientLoad()
-            return
+            return false
         }
         do {
             let page = try await client.listPage()
+            guard !Task.isCancelled else { return true }
             let previous = Dictionary(uniqueKeysWithValues: machines.map { ($0.id, $0.stats) })
             let freeAccessWindowDays = page.limits?.freeAccessWindowDays ?? 0
             self.freeAccessWindowDays = freeAccessWindowDays
@@ -719,7 +746,7 @@ final class MachinesPanelViewModel: ObservableObject {
                 listProblem = nil
                 hasLoadedOnce = false
                 isLoading = false
-                return
+                return true
             }
             lastErrorDescription = String(describing: error)
             listProblem = Self.classifyListFailure(error)
@@ -727,7 +754,9 @@ final class MachinesPanelViewModel: ObservableObject {
             lastErrorDescription = String(describing: error)
             listProblem = .unreachable
         }
+        guard !Task.isCancelled else { return true }
         isLoading = false
         hasLoadedOnce = true
+        return true
     }
 }
