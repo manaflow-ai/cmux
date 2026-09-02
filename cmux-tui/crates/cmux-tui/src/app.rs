@@ -17142,7 +17142,7 @@ impl App {
                 } else {
                     point
                 };
-                Some(match mode {
+                match mode {
                     SelectionMode::Word => terminal.select_word_screen(point).ok().flatten(),
                     SelectionMode::Line => terminal
                         .select_line_screen(point)
@@ -17150,7 +17150,7 @@ impl App {
                         .flatten()
                         .or_else(|| terminal.select_line_screen_untrimmed(point).ok().flatten()),
                     SelectionMode::Cell => None,
-                })
+                }
             })
             .flatten()?;
         Some(Self::selection_from_range(surface, range))
@@ -27941,6 +27941,19 @@ mod tests {
             Some(((0, 0), (4, 0))),
             "a double click must highlight the complete word"
         );
+
+        mux.close_surface(surface.id).unwrap();
+    }
+
+    #[test]
+    fn selection_for_click_returns_the_terminal_word_range() {
+        let (app, mux, surface, _) =
+            selection_fixture("selection-for-click-word-range-test", b"alpha beta");
+
+        let selection = app
+            .selection_for_click(surface.id, (1, 0), SelectionMode::Word)
+            .expect("a word click must return the terminal selection range");
+        assert_eq!(selection.range(), ((0, 0), (4, 0)));
 
         mux.close_surface(surface.id).unwrap();
     }
