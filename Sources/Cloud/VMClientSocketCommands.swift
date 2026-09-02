@@ -16,7 +16,7 @@ extension TerminalController {
                 ]
                 if let limits = page.limits {
                     payload["limits"] = [
-                        "maxActiveVms": limits.maxActiveVms,
+                        "maxActiveVms": limits.maxActiveVms.map { $0 as Any } ?? NSNull(),
                         "planId": limits.planId,
                         "freeAccessWindowDays": limits.freeAccessWindowDays,
                         "freeAccessExpiresAt": limits.freeAccessExpiresAt.map { $0 as Any } ?? NSNull(),

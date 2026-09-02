@@ -36,7 +36,7 @@ test("marks guard as clear when immutable assets are not present", () => {
 });
 
 test("marks guard as partial when only some immutable assets exist", () => {
-  const partialAssets = ["appcast.xml", "cmuxd-remote-manifest.json"];
+  const partialAssets = ["appcast.xml"];
   const result = evaluateReleaseAssetGuard({
     existingAssetNames: partialAssets,
   });
