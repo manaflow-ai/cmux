@@ -8363,6 +8363,20 @@ mod tests {
             Some(PointerSnapshotProbe::Contended),
             "terminal mutation and its render generation must share the terminal lock"
         );
+
+        let changed_generation = match surface.try_pointer_snapshot() {
+            Some(PointerSnapshotProbe::Ready(snapshot)) => snapshot.content_generation,
+            other => panic!("expected a stable post-mutation snapshot, got {other:?}"),
+        };
+        surface.set_kitty_graphics_limits(0, 0, 0, 0).unwrap();
+        let no_op_generation = match surface.try_pointer_snapshot() {
+            Some(PointerSnapshotProbe::Ready(snapshot)) => snapshot.content_generation,
+            other => panic!("expected a stable no-op snapshot, got {other:?}"),
+        };
+        assert_eq!(
+            no_op_generation, changed_generation,
+            "unchanged Kitty limits must not invalidate terminal content"
+        );
     }
 
     #[test]
