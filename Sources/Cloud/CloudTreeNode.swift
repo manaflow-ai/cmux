@@ -371,7 +371,7 @@ enum CloudTreeNodeBuilder {
         switch kind {
         case .workspacesGroup, .browsersGroup, .portsGroup, .displaysPool, .terminalsPool:
             return true
-        case .machine, .localMachine, .workspace, .localWorkspace, .terminal, .display,
+        case .machine, .pendingMachine, .localMachine, .workspace, .localWorkspace, .terminal, .display,
              .browser, .port, .placeholder:
             return false
         }
