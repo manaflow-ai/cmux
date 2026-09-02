@@ -15,7 +15,9 @@ public struct IrxBrokerFailure: Error, Codable, Equatable, Sendable {
     public let kind: IrxBrokerFailureKind
     /// The HTTP status, when the failure came from an HTTP response.
     public let statusCode: Int?
-    /// A stable, sanitized broker or local error code.
+    /// A stable broker or local error code. Connectivity failures retain the
+    /// typed transport description internally; ``diagnosticErrorCode`` and
+    /// ``journalAttributes`` apply the bounded publication policy.
     public let errorCode: String?
     /// The validated server-provided retry floor, if present.
     public let retryAfterSeconds: Int?
@@ -84,10 +86,15 @@ public struct IrxBrokerFailure: Error, Codable, Equatable, Sendable {
                 statusCode = nil
                 errorCode = broker.code
                 retryAfterSeconds = nil
-            case .connectivity:
+            case let .connectivity(cause):
                 kind = .transient
                 statusCode = nil
-                errorCode = "connectivity"
+                // Retain the bounded URL-loading description on the typed
+                // failure so retry journals can distinguish a dead pooled
+                // connection from generic offline state. The public
+                // `diagnosticErrorCode` below maps it to a stable vocabulary
+                // before it reaches Settings or status payloads.
+                errorCode = cause?.description ?? "connectivity"
                 retryAfterSeconds = nil
             case let .rateLimited(code, retryAfter):
                 kind = .transient
@@ -185,6 +192,13 @@ public struct IrxBrokerFailure: Error, Codable, Equatable, Sendable {
             "failure_kind": kind.rawValue,
             "error_code": diagnosticErrorCode,
         ]
+        if let cause = irxConnectivityCause(from: errorCode) {
+            // This is a bounded URL-loading symbol plus its numeric system
+            // code, never broker response text or credentials. It lets the
+            // irx journal explain a pooled-connection reset while keeping the
+            // status-facing `error_code` sanitized.
+            values["transport_error_code"] = cause.description
+        }
         if let statusCode {
             values["status_code"] = String(statusCode)
         }
@@ -299,10 +313,28 @@ private func irxSanitizedBrokerErrorCode(
         return statusCode.map { "http_\($0)" } ?? "unknown"
     }
     let normalized = code.lowercased()
+    if let cause = irxConnectivityCause(from: code) {
+        return "connectivity_\(cause.diagnosticCode)"
+    }
     guard IrxBrokerFailure.knownDiagnosticErrorCodes.contains(normalized) else {
         return statusCode.map { "http_\($0)" } ?? "unknown"
     }
     return normalized
+}
+
+/// Reconstructs only descriptions emitted by
+/// ``CmxIrohBrokerConnectivityCause``. This deliberately rejects arbitrary
+/// `name(number)` strings before they can cross the diagnostic boundary.
+private func irxConnectivityCause(
+    from code: String?
+) -> CmxIrohBrokerConnectivityCause? {
+    guard let code, let open = code.lastIndex(of: "("), code.last == ")",
+          open > code.startIndex else { return nil }
+    let numberStart = code.index(after: open)
+    let numberEnd = code.index(before: code.endIndex)
+    guard let number = Int(code[numberStart ..< numberEnd]) else { return nil }
+    let cause = CmxIrohBrokerConnectivityCause(urlErrorCode: number)
+    return cause.description == code ? cause : nil
 }
 
 extension IrxBrokerFailure: DiagnosticFailureProviding {
@@ -333,7 +365,9 @@ extension IrxBrokerFailure: DiagnosticFailureProviding {
                 case "connectivity":
                     .offline
                 default:
-                    .endpointUnavailable
+                    diagnosticErrorCode.hasPrefix("connectivity_")
+                        ? .offline
+                        : .endpointUnavailable
                 }
             }
         case .rejected:

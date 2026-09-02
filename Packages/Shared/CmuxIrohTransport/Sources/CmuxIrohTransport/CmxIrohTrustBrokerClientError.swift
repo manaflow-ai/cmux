@@ -31,6 +31,37 @@ public struct CmxIrohBrokerConnectivityCause: Equatable, Sendable,
 
     public var description: String { "\(symbolicName)(\(urlErrorCode))" }
 
+    /// A stable, privacy-safe identifier for diagnostics. The numeric URL
+    /// loading code remains available through ``description`` for local
+    /// debugging, while callers that publish a status or journal field can
+    /// use this bounded vocabulary instead of forwarding arbitrary text.
+    public var diagnosticCode: String {
+        switch URLError.Code(rawValue: urlErrorCode) {
+        case .timedOut:
+            "timed_out"
+        case .cannotFindHost:
+            "cannot_find_host"
+        case .cannotConnectToHost:
+            "cannot_connect_to_host"
+        case .networkConnectionLost:
+            "network_connection_lost"
+        case .dnsLookupFailed:
+            "dns_lookup_failed"
+        case .notConnectedToInternet:
+            "not_connected_to_internet"
+        case .internationalRoamingOff:
+            "international_roaming_off"
+        case .callIsActive:
+            "call_is_active"
+        case .dataNotAllowed:
+            "data_not_allowed"
+        case .cannotLoadFromNetwork:
+            "cannot_load_from_network"
+        default:
+            "url_error"
+        }
+    }
+
     private var symbolicName: String {
         switch URLError.Code(rawValue: urlErrorCode) {
         case .timedOut: "timedOut"

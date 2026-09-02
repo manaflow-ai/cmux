@@ -1,4 +1,5 @@
 import CmuxIrohTransport
+import Foundation
 import Testing
 
 @testable import CmuxIrxTransport
@@ -69,5 +70,30 @@ struct IrxBrokerFailureDiagnosticsTests {
         )
 
         #expect(failure.diagnosticErrorCode == "rate_limited:account_budget")
+    }
+
+    @Test("connectivity causes retain safe transport attribution")
+    func connectivityCauseIsAttributed() {
+        let failure = IrxBrokerFailure(
+            operation: .mint,
+            error: CmxIrohTrustBrokerClientError.connectivity(
+                CmxIrohBrokerConnectivityCause(
+                    urlErrorCode: URLError.Code.networkConnectionLost.rawValue
+                )
+            )
+        )
+
+        #expect(String(describing: failure).contains("networkConnectionLost(-1005)"))
+        #expect(failure.diagnosticErrorCode == "connectivity_network_connection_lost")
+        #expect(failure.diagnosticFailureKind == .offline)
+        #expect(failure.journalAttributes["operation"] == "mint")
+        #expect(
+            failure.journalAttributes["error_code"]
+                == "connectivity_network_connection_lost"
+        )
+        #expect(
+            failure.journalAttributes["transport_error_code"]
+                == "networkConnectionLost(-1005)"
+        )
     }
 }
