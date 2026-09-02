@@ -21,6 +21,7 @@ import {
   type VMStatus,
 } from "./types";
 import { recordSpanError, setSpanAttributes, withVmSpan } from "../telemetry";
+import { vmModelPlaneEdgeInjectionEnabled } from "../config";
 import { guestCliInstallCommand } from "../guestCli";
 import {
   CMUX_TUI_INSTALL_TIMEOUT_MS,
@@ -45,9 +46,13 @@ import {
 // machine does.
 //
 // Machines attach through the cmux-tui remote daemon (transport `cmux-remote`,
-// docs/cloud-cmux-tui-daemon.md). The API has
-// no HTTP ingress proxy to arbitrary VM ports (TLS edge rules need a
-// customer-verified domain), so the route addresses the daemon directly.
+// docs/cloud-cmux-tui-daemon.md). The daemon route addresses the daemon
+// directly rather than riding an ingress proxy. Arbitrary HTTP ports, though,
+// ARE published through the platform's TLS edge: `openPort` mints a
+// `{ public } -> { vmId, port }` TLS rule on an unguessable free style.dev
+// subdomain (certificate-ready, no verification), and the same edge's egress
+// transforms can inject the model-plane credential so the guest never holds it
+// (CMUX_VM_MODEL_PLANE_EDGE_INJECTION).
 //
 // Every machine joins the one VPC that belongs to its owner, and the owner's
 // Mac joins the same VPC over a WireGuard tunnel, so the route is the VM's
@@ -256,6 +261,63 @@ export function renderFreestyleModelPlaneEnvFile(envs: Readonly<Record<string, s
   if (envs.OPENAI_API_KEY) lines.push(`export OPENAI_API_KEY=${quote(envs.OPENAI_API_KEY)}`);
   if (envs.CMUX_CODEROUTER_URL) lines.push(`export CMUX_CODEROUTER_URL=${quote(envs.CMUX_CODEROUTER_URL)}`);
   return `${lines.join("\n")}\n`;
+}
+
+/**
+ * cmux port-preview domains are capability URLs: an unguessable free style.dev
+ * subdomain (no verification, certificate-ready) whose random suffix is the
+ * preview token. 96 bits of entropy — possession of the URL is the grant,
+ * exactly the trust model of the old tokened proxy URLs.
+ */
+export const FREESTYLE_PORT_RULE_DOMAIN_RE = /^cmux-([0-9a-f]{24})\.style\.dev$/;
+
+export function mintFreestylePortRuleDomain(): string {
+  return `cmux-${randomBytes(12).toString("hex")}.style.dev`;
+}
+
+/** Placeholder the guest holds when the real credential lives at the TLS edge. */
+export const MODEL_PLANE_EDGE_PLACEHOLDER_KEY = "cmux-edge-injected";
+
+/**
+ * The egress TLS rule that moves the model-plane credential to the provider's
+ * edge: this VM's sessions to the coderouter origin get the Authorization and
+ * route-token headers injected in flight; the guest never holds either. Returns
+ * null when the env set has no base URL or key to move.
+ */
+export function freestyleModelPlaneEdgeRuleOptions(
+  vmId: string,
+  envs: Readonly<Record<string, string>>,
+): {
+  action: "allow";
+  domain: string;
+  source: { vmId: string };
+  destination: { public: true };
+  transform: Array<{ headers: Record<string, string> }>;
+} | null {
+  const baseUrl = envs.OPENAI_BASE_URL?.trim();
+  const key = envs.OPENAI_API_KEY?.trim();
+  if (!baseUrl || !key) return null;
+  let domain: string;
+  try {
+    domain = new URL(baseUrl).hostname;
+  } catch {
+    return null;
+  }
+  if (!domain) return null;
+  return {
+    action: "allow",
+    domain,
+    source: { vmId },
+    destination: { public: true },
+    transform: [
+      {
+        headers: {
+          authorization: `Bearer ${key}`,
+          "x-coderouter-route-token": key,
+        },
+      },
+    ],
+  };
 }
 
 export function normalizeFreestyleExecTimeout(timeoutMs: number | undefined): number {
@@ -791,6 +853,30 @@ export class FreestyleProvider implements VMProvider {
     );
   }
 
+  /**
+   * Sign-out revocation: preview URLs are capability URLs (the style.dev
+   * subdomain is the token), so revoking them means deleting the TLS rules.
+   * Only cmux-minted, unmanaged port rules are touched; the next openPort
+   * mints a fresh subdomain, invalidating anything the signed-out client saw.
+   */
+  async revokeEndpointLeases(vmId: string): Promise<void> {
+    return withVmSpan(
+      "cmux.vm.provider.revoke_endpoint_leases",
+      spanAttributes(vmId, "revoke_endpoint_leases"),
+      async () => {
+        const fs = freestyleClient();
+        const existing = await fs.tls.rules.list({ vmId });
+        for (const rule of existing.rules) {
+          if (rule.managed) continue;
+          if (!FREESTYLE_PORT_RULE_DOMAIN_RE.test(rule.domain)) continue;
+          await fs.tls.rules.delete(rule.id).catch((err: unknown) => {
+            console.error(`[freestyle] revoking port rule ${rule.id} for ${vmId} failed`, err);
+          });
+        }
+      },
+    );
+  }
+
   // No openAttach/openSSH: Freestyle machines attach only through the cmux-tui
   // remote daemon (transport cmux-remote). Workflows refuse other transports
   // before reaching the driver, and vmCapabilitiesOf derives the transport list
@@ -823,9 +909,28 @@ export class FreestyleProvider implements VMProvider {
    * by writing the persisted file /etc/cmux/agent-config.sh already reads
    * (0600, root); every shell the daemon spawns sources it through the
    * profile/bashrc chain and materializes the harness configs from it.
+   *
+   * With CMUX_VM_MODEL_PLANE_EDGE_INJECTION=1, the credential moves to the
+   * provider's TLS edge instead: a per-VM egress rule injects the token into
+   * the guest's calls to the coderouter origin, the env file carries only a
+   * placeholder key, and a compromised guest has nothing to exfiltrate.
    */
   private async writeModelPlaneEnv(vm: Vm, vmId: string, envs: Readonly<Record<string, string>>): Promise<void> {
-    const content = renderFreestyleModelPlaneEnvFile(envs);
+    let effective = envs;
+    if (vmModelPlaneEdgeInjectionEnabled()) {
+      const rule = freestyleModelPlaneEdgeRuleOptions(vmId, envs);
+      if (rule) {
+        try {
+          await freestyleClient().tls.rules.create(rule);
+          // Agent configs demand a non-empty key; the real one lives at the edge.
+          effective = { ...envs, OPENAI_API_KEY: MODEL_PLANE_EDGE_PLACEHOLDER_KEY };
+        } catch (err) {
+          // Fall back to file delivery rather than shipping an unwired machine.
+          console.error(`[freestyle] model-plane edge rule for ${vmId} failed; using env-file delivery`, err);
+        }
+      }
+    }
+    const content = renderFreestyleModelPlaneEnvFile(effective);
     if (!content) return;
     try {
       await vm.exec({
@@ -837,6 +942,50 @@ export class FreestyleProvider implements VMProvider {
     } catch (err) {
       throw new ProviderError("freestyle", `model-plane env write in ${vmId} failed`, err);
     }
+  }
+
+  /**
+   * A token-gated HTTPS preview URL for one VM port, built from the platform's
+   * TLS edge: `{ public } -> { vmId, port }` on an unguessable free style.dev
+   * subdomain. The subdomain IS the token (a capability URL, same trust model
+   * as the old tokened proxy URLs). Rules are reused per (vm, port) — they are
+   * durable, cascade-deleted with the VM, and account-capped, so one standing
+   * rule per port beats a fresh name per call.
+   */
+  async openPort(vmId: string, port: number): Promise<{ url: string; token: string; openUrl: string; expiresAtMs?: number }> {
+    return withVmSpan(
+      "cmux.vm.provider.open_port",
+      { ...spanAttributes(vmId, "open_port"), "cmux.vm.port": port },
+      async () => {
+        try {
+          const fs = freestyleClient();
+          const existing = await fs.tls.rules.list({ vmId });
+          const match = existing.rules.find((rule) =>
+            rule.action === "allow" &&
+            rule.protocol === "http" &&
+            rule.source.public === true &&
+            rule.destination.vmId != null &&
+            rule.destination.port === port &&
+            FREESTYLE_PORT_RULE_DOMAIN_RE.test(rule.domain));
+          const domain = match?.domain ?? mintFreestylePortRuleDomain();
+          if (!match) {
+            await fs.tls.rules.create({
+              action: "allow",
+              domain,
+              source: { public: true },
+              destination: { vmId, port },
+            });
+          }
+          const token = FREESTYLE_PORT_RULE_DOMAIN_RE.exec(domain)?.[1] ?? domain;
+          const url = `https://${domain}`;
+          return { url, token, openUrl: url };
+        } catch (err) {
+          throw err instanceof ProviderError
+            ? err
+            : new ProviderError("freestyle", `openPort(${vmId}, ${port}) failed`, err);
+        }
+      },
+    );
   }
 
   /**

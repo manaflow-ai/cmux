@@ -354,6 +354,26 @@ the gateway maps an absent method to `VmOperationUnsupportedError` (an honest 50
 `MockVMProvider` (`drivers/mock.ts`) is the interface's second implementer and the test
 double for provider-contract tests.
 
+## TLS edge: port previews and credential injection
+
+Freestyle's TLS rules (`freestyle.tls.rules`, docs at freestyle.sh/docs) carry two cmux
+features:
+
+- **Port previews (`openPort`, capability `ports: true`)** — `{ public } → { vmId, port }`
+  on an unguessable free `style.dev` subdomain (certificate-ready, no verification). The
+  subdomain's 96-bit random suffix is the preview token: possession of the URL is the
+  grant, the same trust model as the old tokened proxy URLs. Rules are reused per
+  (vm, port), cascade-delete with the VM, and are deleted on sign-out by
+  `revokeEndpointLeases` (the next openPort mints a fresh subdomain).
+- **Model-plane edge injection (`CMUX_VM_MODEL_PLANE_EDGE_INJECTION=1`, default off)** —
+  an egress rule `{ vmId } → { public }` on the coderouter origin with a headers
+  transform: the edge injects `authorization` + `x-coderouter-route-token` into the
+  guest's calls in flight, the persisted env file carries only a placeholder key, and a
+  compromised guest holds no credential to exfiltrate. Header values are write-only at
+  the provider (read back as `***`). Opt-in until validated against the live edge; when
+  the rule create fails the driver falls back to env-file delivery rather than shipping
+  an unwired machine.
+
 ## In-VM cmux CLI and machine-to-machine links
 
 The driver installs `/usr/local/bin/cmux` (`services/vms/guestCli.ts`) at create and heal: a
