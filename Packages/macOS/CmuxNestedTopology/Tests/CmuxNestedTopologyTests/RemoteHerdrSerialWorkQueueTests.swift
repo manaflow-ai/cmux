@@ -75,5 +75,30 @@ import Testing
         await gate.markReleased()
         _ = await (firstTask.value, secondTask.value)
         #expect(await box.get() == "new-keys")
+        #expect(await queue.trackedStreamCount() == 0)
+    }
+
+    @Test func idleSendStreamsArePruned() async {
+        let queue = RemoteHerdrSerialWorkQueue()
+        _ = await queue.enqueue(.send(paneID: "p1")) { "a" }
+        _ = await queue.enqueue(.send(paneID: "p2")) { "b" }
+        #expect(await queue.trackedStreamCount() == 0)
+    }
+
+    @Test func inFlightSendStreamRemainsTrackedUntilIdle() async {
+        let queue = RemoteHerdrSerialWorkQueue()
+        let gate = Gate()
+        let firstTask = Task {
+            await queue.enqueue(.send(paneID: "p1")) {
+                await gate.markStarted()
+                await self.waitUntil { await gate.isReleased() }
+                return "done"
+            }
+        }
+        await waitUntil { await gate.isStarted() }
+        #expect(await queue.trackedStreamCount() == 1)
+        await gate.markReleased()
+        _ = await firstTask.value
+        #expect(await queue.trackedStreamCount() == 0)
     }
 }
