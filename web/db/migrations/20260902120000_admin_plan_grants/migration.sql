@@ -4,6 +4,7 @@ CREATE TABLE "admin_plan_grants" (
   "plan" text NOT NULL,
   "granted_by_user_id" text NOT NULL,
   "granted_by_email" text,
+  "claimed_at" timestamp with time zone,
   "applied_user_id" text,
   "applied_at" timestamp with time zone,
   "revoked_at" timestamp with time zone,

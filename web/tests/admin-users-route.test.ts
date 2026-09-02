@@ -110,6 +110,7 @@ mock.module("../app/lib/stack", () => ({
 // Recorded pending grants (admin_plan_grants) and recorded subscription
 // snapshots, kept as plain arrays so route tests can assert on them.
 let pendingGrantRows: Array<Record<string, unknown>> = [];
+let grantsTableMissing = false;
 let subscriptionRows: Array<{ id: string }> = [];
 let subscriptionUpdates: Array<Record<string, unknown>> = [];
 const stripeSubscriptionUpdate = mock(async (id: unknown, params: unknown) => ({
@@ -161,6 +162,9 @@ function adminDbMock() {
           where: () => {
             const run = async () => {
               if (table === adminPlanGrants) {
+                if (grantsTableMissing) {
+                  throw Object.assign(new Error("Failed query"), { cause: { code: "42P01" } });
+                }
                 const hit = pendingGrantRows.filter((row) => !row.appliedAt && !row.revokedAt);
                 for (const row of hit) Object.assign(row, values);
                 return hit;
@@ -458,6 +462,19 @@ describe("admin email grants route", () => {
     );
     expect(revoked.status).toBe(200);
     expect(pendingGrantRows[0]?.revokedAt).toBeInstanceOf(Date);
+  });
+
+  test("DELETE reports 503 when the grants table has not been migrated", async () => {
+    grantsTableMissing = true;
+    try {
+      const response = await DELETE_EMAIL_GRANTS(
+        postRequest({ grantId: "11111111-2222-4333-8444-555555555555" }, {}, "/api/admin/email-grants", "DELETE"),
+      );
+      expect(response.status).toBe(503);
+      expect(await response.json()).toEqual({ error: "grants_unavailable" });
+    } finally {
+      grantsTableMissing = false;
+    }
   });
 
   test("rejects junk emails, bad plans, non-admins, and bad grant ids", async () => {

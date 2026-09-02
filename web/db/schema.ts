@@ -732,6 +732,8 @@ export const adminPlanGrants = pgTable(
     plan: text("plan").notNull(),
     grantedByUserId: text("granted_by_user_id").notNull(),
     grantedByEmail: text("granted_by_email"),
+    /** Set with applied_user_id while a sign-in is applying the row; stale after ADMIN_GRANT_CLAIM_TTL_MS. */
+    claimedAt: timestamp("claimed_at", { withTimezone: true }),
     appliedUserId: text("applied_user_id"),
     appliedAt: timestamp("applied_at", { withTimezone: true }),
     revokedAt: timestamp("revoked_at", { withTimezone: true }),

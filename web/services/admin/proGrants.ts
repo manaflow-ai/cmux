@@ -6,7 +6,7 @@
 // the account falls back to its real Stripe state. Who granted what is kept in
 // `serverMetadata.cmuxAdminPlanGrant`, which end users cannot read.
 
-import { and, desc, eq, ilike, isNull } from "drizzle-orm";
+import { and, desc, eq, ilike, isNull, lt, or } from "drizzle-orm";
 
 import { cloudDb } from "../../db/client";
 import { adminPlanGrants } from "../../db/schema";
@@ -612,15 +612,50 @@ export class AdminInvalidEmailError extends Error {
   }
 }
 
+/** A claim older than this is treated as abandoned and may be re-claimed. */
+export const ADMIN_GRANT_CLAIM_TTL_MS = 10 * 60 * 1000;
+
+/**
+ * Revokes an open grant. If a sign-in had claimed the row but never finalized
+ * it (process or database failure after the metadata write), the claimer's
+ * manual grant is removed as well, so a revoked row never leaves access
+ * behind. Removing an absent override is a no-op.
+ */
 export async function revokePendingEmailGrant(input: {
   readonly grantId: string;
   readonly db?: AdminGrantsDb;
-}): Promise<void> {
+  readonly admin?: { readonly id: string; readonly primaryEmail?: string | null };
+  readonly grant?: (input: SetManualPlanGrantInput) => Promise<unknown>;
+}): Promise<{ readonly revoked: boolean; readonly clearedUserId: string | null }> {
   const db = input.db ?? cloudDb();
-  await db
+  const rows = await db
     .update(adminPlanGrants)
     .set({ revokedAt: new Date() })
-    .where(and(eq(adminPlanGrants.id, input.grantId), isNull(adminPlanGrants.appliedAt)));
+    .where(
+      and(
+        eq(adminPlanGrants.id, input.grantId),
+        isNull(adminPlanGrants.appliedAt),
+        isNull(adminPlanGrants.revokedAt),
+      ),
+    )
+    .returning({
+      id: adminPlanGrants.id,
+      appliedUserId: adminPlanGrants.appliedUserId,
+      grantedByUserId: adminPlanGrants.grantedByUserId,
+      grantedByEmail: adminPlanGrants.grantedByEmail,
+    });
+  const row = rows[0];
+  if (!row) return { revoked: false, clearedUserId: null };
+  if (!row.appliedUserId) return { revoked: true, clearedUserId: null };
+  await (input.grant ?? setManualPlanGrant)({
+    targetUserId: row.appliedUserId,
+    plan: null,
+    admin: input.admin ?? { id: row.grantedByUserId, primaryEmail: row.grantedByEmail },
+  }).catch((error: unknown) => {
+    if (error instanceof AdminUserNotFoundError) return;
+    throw error;
+  });
+  return { revoked: true, clearedUserId: row.appliedUserId };
 }
 
 /**
@@ -629,12 +664,16 @@ export async function revokePendingEmailGrant(input: {
  * reports the mailbox verified. The newest grant wins when several are open.
  *
  * Protocol, so that a revoke always wins until the grant is durably applied:
- * 1. claim: set applied_user_id on open, unclaimed rows (applied_at stays
- *    NULL, so the rows still count as pending and can still be revoked);
+ * 1. claim: set applied_user_id and claimed_at on open rows that are
+ *    unclaimed, claimed by this same user, or whose claim is older than
+ *    ADMIN_GRANT_CLAIM_TTL_MS (applied_at stays NULL, so the rows still count
+ *    as pending and can still be revoked);
  * 2. write the metadata grant for the newest claimed row;
  * 3. finalize: set applied_at on claimed rows that are still unrevoked;
  * 4. if the applied row was revoked during 2, remove the grant again.
- * A failed write releases the claim so the next sign-in retries.
+ * A failed write releases the claim; a crash mid-way leaves a claim that the
+ * same user's next sign-in, or anyone after the TTL, picks up again. The
+ * metadata write is idempotent, so a retry after a crash is safe.
  */
 export async function applyPendingEmailGrants(
   user: { readonly id: string; readonly primaryEmail?: string | null },
@@ -649,6 +688,8 @@ export async function applyPendingEmailGrants(
   const grant = options.grant ?? setManualPlanGrant;
   const now = options.now ?? (() => new Date());
   const email = canonicalizeEmailForMatching(user.primaryEmail);
+  const claimedAt = now();
+  const staleBefore = new Date(claimedAt.getTime() - ADMIN_GRANT_CLAIM_TTL_MS);
   let claimed: Array<{
     id: string;
     plan: string;
@@ -659,13 +700,18 @@ export async function applyPendingEmailGrants(
   try {
     claimed = await db
       .update(adminPlanGrants)
-      .set({ appliedUserId: user.id })
+      .set({ appliedUserId: user.id, claimedAt })
       .where(
         and(
           eq(adminPlanGrants.email, email),
           isNull(adminPlanGrants.appliedAt),
           isNull(adminPlanGrants.revokedAt),
-          isNull(adminPlanGrants.appliedUserId),
+          or(
+            isNull(adminPlanGrants.appliedUserId),
+            eq(adminPlanGrants.appliedUserId, user.id),
+            isNull(adminPlanGrants.claimedAt),
+            lt(adminPlanGrants.claimedAt, staleBefore),
+          ),
         ),
       )
       .returning({
@@ -685,7 +731,7 @@ export async function applyPendingEmailGrants(
     for (const row of claimed) {
       await db
         .update(adminPlanGrants)
-        .set({ appliedUserId: null })
+        .set({ appliedUserId: null, claimedAt: null })
         .where(and(eq(adminPlanGrants.id, row.id), isNull(adminPlanGrants.appliedAt)))
         .catch(() => undefined);
     }

@@ -90,6 +90,14 @@ export async function DELETE(request: NextRequest) {
   if (typeof grantId !== "string" || !/^[0-9a-f-]{36}$/i.test(grantId)) {
     return adminJsonResponse({ error: "invalid_body" }, 400);
   }
-  await revokePendingEmailGrant({ grantId });
-  return adminJsonResponse({ ok: true });
+  try {
+    const result = await revokePendingEmailGrant({ grantId, admin: gate.admin });
+    return adminJsonResponse({ ok: true, ...result });
+  } catch (error) {
+    if (isMissingGrantsTableError(error)) {
+      console.error("admin.pending_grants.table_missing", { hint: "run the admin_plan_grants migration" });
+      return adminJsonResponse({ error: "grants_unavailable" }, 503);
+    }
+    throw error;
+  }
 }
