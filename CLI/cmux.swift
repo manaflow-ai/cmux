@@ -22721,6 +22721,77 @@ struct CMUXCLI {
         return try? resolveWorkspaceId(callerWorkspace, client: client)
     }
 
+    /// Returns the persisted surface identity for a synthetic tmux pane token.
+    /// The UUID embedded in a token is an alias key, not the real surface ID;
+    /// require the persisted mapping so stale tokens fail closed.
+    private func tmuxSurfaceAliasMapping(
+        _ raw: String?
+    ) throws -> (token: String, workspaceId: String, surfaceId: String)? {
+        guard let encodedSurfaceId = tmuxSurfaceAliasSurfaceId(raw) else { return nil }
+        let token = tmuxSurfaceAliasToken(surfaceId: encodedSurfaceId)
+        let store = try loadTmuxCompatStore()
+        if let stored = store.surfaceAliases[token] {
+            return (token, stored.workspaceId, stored.surfaceId)
+        }
+        if let stored = store.surfaceAliases.first(where: {
+            $0.key.caseInsensitiveCompare(token) == .orderedSame
+        })?.value {
+            return (token, stored.workspaceId, stored.surfaceId)
+        }
+        return nil
+    }
+
+    /// Reports whether a target uses cmux's synthetic surface-token format.
+    private func tmuxIsSurfaceAliasTarget(_ raw: String?) -> Bool {
+        tmuxSurfaceAliasSurfaceId(raw) != nil
+    }
+
+    /// Confirms a persisted alias against the live workspace and surface lists.
+    private func tmuxValidatedSurfaceAliasMapping(
+        _ raw: String?,
+        client: SocketClient
+    ) throws -> (workspaceId: String, surfaceId: String)? {
+        guard let alias = try tmuxSurfaceAliasMapping(raw) else { return nil }
+        let workspaces = try tmuxWorkspaceItems(client: client)
+        guard let workspace = workspaces.first(where: {
+            ($0["id"] as? String)?.caseInsensitiveCompare(alias.workspaceId) == .orderedSame
+        }), let workspaceId = workspace["id"] as? String else {
+            try tmuxRemoveSurfaceAliasIfMatching(alias)
+            return nil
+        }
+
+        let payload = try client.sendV2(
+            method: "surface.list",
+            params: ["workspace_id": workspaceId]
+        )
+        let surfaces = payload["surfaces"] as? [[String: Any]] ?? []
+        guard let surfaceId = surfaces.compactMap({ $0["id"] as? String }).first(where: {
+            $0.caseInsensitiveCompare(alias.surfaceId) == .orderedSame
+        }) else {
+            try tmuxRemoveSurfaceAliasIfMatching(alias)
+            return nil
+        }
+        return (workspaceId, surfaceId)
+    }
+
+    /// Removes an alias only when its stored value still matches the stale snapshot.
+    private func tmuxRemoveSurfaceAliasIfMatching(
+        _ alias: (token: String, workspaceId: String, surfaceId: String)
+    ) throws {
+        try withLockedTmuxCompatStoreIfChanged { store in
+            guard let key = store.surfaceAliases.keys.first(where: {
+                $0.caseInsensitiveCompare(alias.token) == .orderedSame
+            }), let current = store.surfaceAliases[key],
+                  current.workspaceId.caseInsensitiveCompare(alias.workspaceId) == .orderedSame,
+                  current.surfaceId.caseInsensitiveCompare(alias.surfaceId) == .orderedSame else {
+                return false
+            }
+            store.surfaceAliases.removeValue(forKey: key)
+            return true
+        }
+    }
+
+    /// Resolves a pane handle, including a validated synthetic surface alias.
     func tmuxCanonicalPaneId(
         _ handle: String,
         workspaceId: String,
@@ -22728,6 +22799,18 @@ struct CMUXCLI {
     ) throws -> String {
         let selector = tmuxSelectorToken(handle)
         let normalizedHandle = selector.token
+        if tmuxIsSurfaceAliasTarget(handle) {
+            guard let alias = try tmuxValidatedSurfaceAliasMapping(handle, client: client),
+                  alias.workspaceId.caseInsensitiveCompare(workspaceId) == .orderedSame,
+                  let paneId = try tmuxPaneIdForSurface(
+                    workspaceId: alias.workspaceId,
+                    surfaceId: alias.surfaceId,
+                    client: client
+                  ) else {
+                throw CLIError(message: "Pane target not found")
+            }
+            return paneId
+        }
         if isUUID(normalizedHandle) {
             return normalizedHandle
         }
@@ -22759,6 +22842,7 @@ struct CMUXCLI {
         throw CLIError(message: "Pane target not found")
     }
 
+    /// Resolves a surface handle, including a validated synthetic surface alias.
     func tmuxCanonicalSurfaceId(
         _ handle: String,
         workspaceId: String,
@@ -22766,6 +22850,13 @@ struct CMUXCLI {
     ) throws -> String {
         let selector = tmuxSelectorToken(handle)
         let normalizedHandle = selector.token
+        if tmuxIsSurfaceAliasTarget(handle) {
+            guard let alias = try tmuxValidatedSurfaceAliasMapping(handle, client: client),
+                  alias.workspaceId.caseInsensitiveCompare(workspaceId) == .orderedSame else {
+                throw CLIError(message: "Surface target not found")
+            }
+            return alias.surfaceId
+        }
         let payload = try client.sendV2(method: "surface.list", params: ["workspace_id": workspaceId])
         let surfaces = payload["surfaces"] as? [[String: Any]] ?? []
         for surface in surfaces {
@@ -22793,9 +22884,17 @@ struct CMUXCLI {
         throw CLIError(message: "Surface target not found")
     }
 
+    /// Finds the live workspace containing a pane or synthetic surface alias.
     private func tmuxWorkspaceIdForPaneHandle(_ handle: String, client: SocketClient) throws -> String? {
         let selector = tmuxSelectorToken(handle)
         let normalizedHandle = selector.token
+
+        if tmuxIsSurfaceAliasTarget(handle) {
+            guard let alias = try tmuxValidatedSurfaceAliasMapping(handle, client: client) else {
+                throw CLIError(message: "Pane target not found")
+            }
+            return alias.workspaceId
+        }
 
         let workspaces = try tmuxWorkspaceItems(client: client)
         for workspace in workspaces {
@@ -22848,6 +22947,7 @@ struct CMUXCLI {
         throw CLIError(message: "Pane target not found")
     }
 
+    /// Resolves a tmux workspace target against live cmux workspace state.
     private func tmuxResolveWorkspaceTarget(_ raw: String?, client: SocketClient) throws -> String {
         guard var token = normalizedTmuxTarget(raw) else {
             if let callerWorkspace = tmuxCallerWorkspaceHandle() {
@@ -22862,6 +22962,13 @@ struct CMUXCLI {
                 return workspaceId
             }
             throw CLIError(message: "Previous workspace not found")
+        }
+
+        if tmuxIsSurfaceAliasTarget(token) {
+            guard let alias = try tmuxValidatedSurfaceAliasMapping(token, client: client) else {
+                throw CLIError(message: "Workspace target not found")
+            }
+            return alias.workspaceId
         }
 
         if let dot = token.lastIndex(of: ".") {
@@ -22898,7 +23005,34 @@ struct CMUXCLI {
         throw CLIError(message: "Workspace target not found: \(token)")
     }
 
-    private func tmuxResolvePaneTarget(_ raw: String?, client: SocketClient) throws -> (workspaceId: String, paneId: String) {
+    /// Resolves a tmux window target without discarding a synthetic surface identity.
+    private func tmuxResolveWindowTarget(
+        _ raw: String?,
+        client: SocketClient
+    ) throws -> (workspaceId: String, surfaceId: String?) {
+        if tmuxIsSurfaceAliasTarget(raw) {
+            guard let alias = try tmuxValidatedSurfaceAliasMapping(raw, client: client) else {
+                throw CLIError(message: "Workspace target not found")
+            }
+            return (alias.workspaceId, alias.surfaceId)
+        }
+        if normalizedTmuxTarget(raw) == nil {
+            let workspaceId = try tmuxResolveWorkspaceTarget(nil, client: client)
+            guard let callerSurface = tmuxCallerSurfaceHandle(),
+                  let surfaceId = try? tmuxCanonicalSurfaceId(
+                    callerSurface,
+                    workspaceId: workspaceId,
+                    client: client
+                  ) else {
+                throw CLIError(message: "Surface target not found")
+            }
+            return (workspaceId, surfaceId)
+        }
+        return (try tmuxResolveWorkspaceTarget(raw, client: client), nil)
+    }
+
+    /// Resolves a tmux pane selector to a live cmux workspace and pane identity.
+    func tmuxResolvePaneTarget(_ raw: String?, client: SocketClient) throws -> (workspaceId: String, paneId: String) {
         let paneSelector = tmuxPaneSelector(from: raw)
         let workspaceSelector = tmuxWindowSelector(from: raw)
         let workspaceId: String = {
@@ -22971,10 +23105,22 @@ struct CMUXCLI {
             .first { !$0.isEmpty }
     }
 
+    /// Resolves a tmux target to a live workspace, pane, and surface.
     private func tmuxResolveSurfaceTarget(
         _ raw: String?,
         client: SocketClient
     ) throws -> (workspaceId: String, paneId: String?, surfaceId: String) {
+        if tmuxIsSurfaceAliasTarget(raw) {
+            guard let alias = try tmuxValidatedSurfaceAliasMapping(raw, client: client),
+                  let paneId = try tmuxPaneIdForSurface(
+                    workspaceId: alias.workspaceId,
+                    surfaceId: alias.surfaceId,
+                    client: client
+                  ) else {
+                throw CLIError(message: "Surface target not found")
+            }
+            return (alias.workspaceId, paneId, alias.surfaceId)
+        }
         if tmuxPaneSelector(from: raw) != nil {
             let resolved = try tmuxResolvePaneTarget(raw, client: client)
             // When the target pane matches the caller's pane, prefer the caller's
@@ -23080,7 +23226,8 @@ struct CMUXCLI {
         return nil
     }
 
-    private func tmuxRenderFormat(
+    /// Renders tmux format placeholders from a resolved context.
+    func tmuxRenderFormat(
         _ format: String?,
         context: [String: String],
         fallback: String
@@ -23099,12 +23246,19 @@ struct CMUXCLI {
         return trimmed.isEmpty ? fallback : trimmed
     }
 
-    private func tmuxFormatContext(
+    /// Builds the tmux-compatible context for a live workspace surface.
+    func tmuxFormatContext(
         workspaceId: String,
         paneId: String? = nil,
         surfaceId: String? = nil,
         client: SocketClient
     ) throws -> [String: String] {
+        let surfaceAliasToken = [paneId, surfaceId]
+            .compactMap { raw -> String? in
+                guard tmuxSurfaceAliasSurfaceId(raw) != nil else { return nil }
+                return normalizedTmuxTarget(raw)
+            }
+            .first
         let canonicalWorkspaceId = try resolveWorkspaceId(workspaceId, client: client)
         var context: [String: String] = [
             "session_name": "cmux",
@@ -23222,6 +23376,13 @@ struct CMUXCLI {
                     }
                 }
             }
+        }
+
+        // A Claude Teams surface-mode `new-window` returns a synthetic pane
+        // token so subsequent respawn/kill commands continue to address the
+        // tab rather than the physical pane shared by all of its tabs.
+        if let surfaceAliasToken, resolvedSurfaceId != nil {
+            context["pane_id"] = surfaceAliasToken
         }
 
         return context
@@ -25669,6 +25830,7 @@ struct CMUXCLI {
                 (key: "CMUX_OPENCODE_CMUX_BIN", value: executablePath),
             ]
         )
+        clearInheritedClaudeLaunchEnvironment()
     }
 
     private func runOMO(
@@ -25826,6 +25988,7 @@ struct CMUXCLI {
             cmuxBinEnvVar: "CMUX_OMX_CMUX_BIN",
             termOverrideEnvVar: "CMUX_OMX_TERM"
         )
+        clearInheritedClaudeLaunchEnvironment()
     }
 
     private func runOMX(
@@ -26069,6 +26232,17 @@ struct CMUXCLI {
             if parsed.value("-t") != nil {
                 throw CLIError(message: "new-window -t is not supported in cmux claude-teams mode")
             }
+            if claudeTeamsSpawnPlacement() == .surface {
+                try tmuxCreateClaudeTeamsSurfaceWindow(
+                    workingDirectory: parsed.value("-c"),
+                    title: parsed.value("-n"),
+                    commandTokens: parsed.positional,
+                    printResult: parsed.hasFlag("-P"),
+                    format: parsed.value("-F"),
+                    client: client
+                )
+                return
+            }
             var params: [String: Any] = ["focus": false]
             if let cwd = parsed.value("-c") {
                 params["cwd"] = resolvePath(cwd)
@@ -26242,12 +26416,27 @@ struct CMUXCLI {
 
         case "select-window", "selectw":
             let parsed = try parseTmuxArguments(rawArgs, valueFlags: ["-t"], boolFlags: [])
-            let workspaceId = try tmuxResolveWorkspaceTarget(parsed.value("-t"), client: client)
-            _ = try client.sendV2(method: "workspace.select", params: ["workspace_id": workspaceId])
+            let target = try tmuxResolveWindowTarget(parsed.value("-t"), client: client)
+            if let surfaceId = target.surfaceId {
+                _ = try client.sendV2(method: "surface.focus", params: [
+                    "workspace_id": target.workspaceId,
+                    "surface_id": surfaceId
+                ])
+            } else {
+                _ = try client.sendV2(method: "workspace.select", params: ["workspace_id": target.workspaceId])
+            }
 
         case "select-pane", "selectp":
             let parsed = try parseTmuxArguments(rawArgs, valueFlags: ["-P", "-T", "-t"], boolFlags: [])
             if parsed.value("-P") != nil || parsed.value("-T") != nil {
+                return
+            }
+            if tmuxIsSurfaceAliasTarget(parsed.value("-t")) {
+                let target = try tmuxResolveSurfaceTarget(parsed.value("-t"), client: client)
+                _ = try client.sendV2(method: "surface.focus", params: [
+                    "workspace_id": target.workspaceId,
+                    "surface_id": target.surfaceId
+                ])
                 return
             }
             let target = try tmuxResolvePaneTarget(parsed.value("-t"), client: client)
@@ -26258,9 +26447,21 @@ struct CMUXCLI {
 
         case "kill-window", "killw":
             let parsed = try parseTmuxArguments(rawArgs, valueFlags: ["-t"], boolFlags: [])
-            let workspaceId = try tmuxResolveWorkspaceTarget(parsed.value("-t"), client: client)
-            _ = try client.sendV2(method: "workspace.close", params: ["workspace_id": workspaceId])
-            try? tmuxPruneCompatWorkspaceState(workspaceId: workspaceId)
+            let target = try tmuxResolveWindowTarget(parsed.value("-t"), client: client)
+            if let surfaceId = target.surfaceId {
+                _ = try client.sendV2(method: "surface.close", params: [
+                    "workspace_id": target.workspaceId,
+                    "surface_id": surfaceId
+                ])
+                try tmuxPruneCompatSurfaceState(
+                    workspaceId: target.workspaceId,
+                    surfaceId: surfaceId,
+                    client: client
+                )
+            } else {
+                _ = try client.sendV2(method: "workspace.close", params: ["workspace_id": target.workspaceId])
+                try? tmuxPruneCompatWorkspaceState(workspaceId: target.workspaceId)
+            }
 
         case "kill-pane", "killp":
             let parsed = try parseTmuxArguments(rawArgs, valueFlags: ["-t"], boolFlags: [])
@@ -26303,10 +26504,17 @@ struct CMUXCLI {
                     client: client
                 ) ?? "exec ${SHELL:-/bin/sh} -l"
             }
+            var respawnEnvironment = tmuxClaudeTeamsRespawnEnvironment()
+            if let aliasPaneToken = normalizedTmuxTarget(parsed.value("-t")),
+               tmuxSurfaceAliasSurfaceId(aliasPaneToken) != nil {
+                respawnEnvironment.removeAll { $0.key == "CMUX_CLAUDE_TEAMS_SPAWN_PLACEMENT" }
+                respawnEnvironment.append((key: "CMUX_CLAUDE_TEAMS_SPAWN_PLACEMENT", value: "surface"))
+                respawnEnvironment.append((key: "TMUX_PANE", value: aliasPaneToken))
+            }
             var params: [String: Any] = [
                 "workspace_id": target.workspaceId,
                 "surface_id": target.surfaceId,
-                "command": tmuxRespawnStartCommand(commandText, prependEnv: tmuxClaudeTeamsRespawnEnvironment()),
+                "command": tmuxRespawnStartCommand(commandText, prependEnv: respawnEnvironment),
                 "tmux_start_command": commandText
             ]
             if let cwd = parsed.value("-c")?.trimmingCharacters(in: .whitespacesAndNewlines),
@@ -26429,11 +26637,20 @@ struct CMUXCLI {
             guard !title.isEmpty else {
                 throw CLIError(message: "rename-window requires a title")
             }
-            let workspaceId = try tmuxResolveWorkspaceTarget(parsed.value("-t"), client: client)
-            _ = try client.sendV2(method: "workspace.rename", params: [
-                "workspace_id": workspaceId,
-                "title": title
-            ])
+            let target = try tmuxResolveWindowTarget(parsed.value("-t"), client: client)
+            if let surfaceId = target.surfaceId {
+                _ = try client.sendV2(method: "tab.action", params: [
+                    "workspace_id": target.workspaceId,
+                    "surface_id": surfaceId,
+                    "action": "rename",
+                    "title": title
+                ])
+            } else {
+                _ = try client.sendV2(method: "workspace.rename", params: [
+                    "workspace_id": target.workspaceId,
+                    "title": title
+                ])
+            }
 
         case "resize-pane", "resizep":
             let parsed = try parseTmuxArguments(
@@ -26628,11 +26845,16 @@ struct CMUXCLI {
         }
     }
 
+    /// Removes compatibility metadata after a workspace is closed or retargeted.
     private func tmuxPruneCompatWorkspaceState(workspaceId: String) throws {
         try withLockedTmuxCompatStoreIfChanged { store in
             let removedLayout = store.mainVerticalLayouts.removeValue(forKey: workspaceId) != nil
             let removedSplit = store.lastSplitSurface.removeValue(forKey: workspaceId) != nil
-            return removedLayout || removedSplit
+            let aliases = store.surfaceAliases.filter { $0.value.workspaceId == workspaceId }.map(\.key)
+            for alias in aliases {
+                store.surfaceAliases.removeValue(forKey: alias)
+            }
+            return removedLayout || removedSplit || !aliases.isEmpty
         }
     }
 
@@ -26710,6 +26932,7 @@ struct CMUXCLI {
         return bottomMostPane.flatMap { tmuxCompatPaneAnchorSurfaceId($0) }
     }
 
+    /// Removes compatibility metadata after a surface closes, preserving layout state when possible.
     private func tmuxPruneCompatSurfaceState(
         workspaceId: String,
         surfaceId: String,
@@ -26758,20 +26981,28 @@ struct CMUXCLI {
                     changed = true
                 }
 
-                guard let layout = currentLayout else { return changed }
-                if layout.mainSurfaceId == surfaceId {
-                    store.mainVerticalLayouts.removeValue(forKey: workspaceId)
-                    store.lastSplitSurface.removeValue(forKey: workspaceId)
-                    changed = true
-                } else if layout.lastColumnSurfaceId == surfaceId, replacementWasResolved {
-                    var updatedLayout = layout
-                    updatedLayout.lastColumnSurfaceId = replacementSurfaceId
-                    store.mainVerticalLayouts[workspaceId] = updatedLayout
-                    if let replacementSurfaceId {
-                        store.lastSplitSurface[workspaceId] = replacementSurfaceId
-                    } else {
+                if let layout = currentLayout {
+                    if layout.mainSurfaceId == surfaceId {
+                        store.mainVerticalLayouts.removeValue(forKey: workspaceId)
                         store.lastSplitSurface.removeValue(forKey: workspaceId)
+                        changed = true
+                    } else if layout.lastColumnSurfaceId == surfaceId, replacementWasResolved {
+                        var updatedLayout = layout
+                        updatedLayout.lastColumnSurfaceId = replacementSurfaceId
+                        store.mainVerticalLayouts[workspaceId] = updatedLayout
+                        if let replacementSurfaceId {
+                            store.lastSplitSurface[workspaceId] = replacementSurfaceId
+                        } else {
+                            store.lastSplitSurface.removeValue(forKey: workspaceId)
+                        }
+                        changed = true
                     }
+                }
+                let aliases = store.surfaceAliases.filter {
+                    $0.value.workspaceId == workspaceId && $0.value.surfaceId == surfaceId
+                }.map(\.key)
+                for alias in aliases {
+                    store.surfaceAliases.removeValue(forKey: alias)
                     changed = true
                 }
                 return changed

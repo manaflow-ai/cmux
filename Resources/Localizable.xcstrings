@@ -57577,6 +57577,131 @@
         }
       }
     },
+    "cli.tmuxCompat.error.surfaceCreateMissingId": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Could not create the teammate surface. Try again."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "チームメイトのサーフェスを作成できませんでした。もう一度お試しください。"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تعذّر إنشاء سطح زميل الفريق. حاول مرة أخرى."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nije moguće kreirati površinu člana tima. Pokušajte ponovo."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Teammate-overfladen kunne ikke oprettes. Prøv igen."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Die Oberfläche des Teammitglieds konnte nicht erstellt werden. Versuche es erneut."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No se pudo crear la superficie del compañero. Inténtalo de nuevo."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Impossible de créer la surface du coéquipier. Réessayez."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Impossibile creare la superficie del compagno. Riprova."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "មិនអាចបង្កើតផ្ទៃសមាជិកក្រុមបានទេ។ សូមព្យាយាមម្ដងទៀត។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "팀원 서피스를 만들 수 없습니다. 다시 시도하세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kunne ikke opprette teammedlemmets overflate. Prøv igjen."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nie można utworzyć powierzchni członka zespołu. Spróbuj ponownie."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Não foi possível criar a superfície do colega de equipe. Tente novamente."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Не удалось создать поверхность участника команды. Повторите попытку."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ไม่สามารถสร้างพื้นผิวของเพื่อนร่วมทีมได้ โปรดลองอีกครั้ง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ekip arkadaşı yüzeyi oluşturulamadı. Lütfen tekrar deneyin."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Не вдалося створити поверхню учасника команди. Повторіть спробу."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "无法创建队友表面。请重试。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "無法建立隊友表面。請再試一次。"
+          }
+        }
+      }
+    },
     "cli.tmuxCompat.respawnPane.requiresForce": {
       "extractionState": "manual",
       "localizations": {
@@ -163882,6 +164007,756 @@
           "stringUnit": {
             "state": "translated",
             "value": "新工作區位置"
+          }
+        }
+      }
+    },
+    "settings.app.teamsSpawnPlacement": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude Teams Spawn Placement"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude Teams の起動先"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "موضع تشغيل Claude Teams"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mjesto pokretanja Claude Teams"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude Teams-placering"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Startposition für Claude Teams"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ubicación de inicio de Claude Teams"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Emplacement de lancement de Claude Teams"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Posizione di avvio di Claude Teams"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ទីតាំងចាប់ផ្ដើម Claude Teams"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude Teams 시작 위치"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Oppstartsplassering for Claude Teams"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Miejsce uruchamiania Claude Teams"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Local de inicialização do Claude Teams"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Место запуска Claude Teams"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ตำแหน่งการเริ่มต้น Claude Teams"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude Teams başlatma konumu"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Місце запуску Claude Teams"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude Teams 启动位置"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude Teams 啟動位置"
+          }
+        }
+      }
+    },
+    "settings.app.teamsSpawnPlacement.surface": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Surface"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "サーフェス"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "سطح"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Površina"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Overflade"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Oberfläche"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Superficie"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Surface"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Superficie"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ផ្ទៃ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "서피스"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Overflate"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Powierzchnia"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Superfície"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Поверхность"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "พื้นผิว"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Yüzey"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Поверхня"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "表面"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "表面"
+          }
+        }
+      }
+    },
+    "settings.app.teamsSpawnPlacement.surface.subtitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude Teams teammates open as surfaces in the caller's workspace and pane."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude Teams のチームメイトを呼び出し元のワークスペースとペインのサーフェスとして開きます。"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تُفتح زملاء Claude Teams كأسطح في مساحة عمل الجزء المستدعي ولوحته."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Članovi Claude Teams-a otvaraju se kao površine u radnom prostoru i oknu pozivaoca."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude Teams-medlemmer åbnes som overflader i kalderens arbejdsområde og rude."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude-Teams-Mitglieder werden als Oberflächen im Arbeitsbereich und Bereich des Aufrufers geöffnet."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Los compañeros de Claude Teams se abren como superficies en el espacio de trabajo y el panel del llamador."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Les coéquipiers Claude Teams s’ouvrent comme des surfaces dans l’espace de travail et le volet de l’appelant."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "I compagni di Claude Teams si aprono come superfici nell'area di lavoro e nel riquadro del chiamante."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "សមាជិក Claude Teams នឹងបើកជាផ្ទៃក្នុង workspace និង pane របស់អ្នកហៅ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude Teams 팀원을 호출자의 작업 공간과 창에서 서피스로 엽니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude Teams-medlemmer åpnes som overflater i innkallerens arbeidsområde og rute."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Członkowie Claude Teams otwierają się jako powierzchnie w obszarze roboczym i panelu wywołującego."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Os colegas do Claude Teams são abertos como superfícies no espaço de trabalho e painel do chamador."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Участники Claude Teams открываются как поверхности в рабочем пространстве и панели вызывающего."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "เพื่อนร่วมทีม Claude Teams จะเปิดเป็นพื้นผิวในพื้นที่ทำงานและบานหน้าต่างของผู้เรียก"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude Teams ekip arkadaşları, çağıranın çalışma alanı ve bölmesinde yüzey olarak açılır."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Учасники Claude Teams відкриваються як поверхні в робочому просторі та панелі викликувача."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude Teams 队友会作为表面打开在调用者的工作区和窗格中。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude Teams 隊友會以表面開啟於呼叫者的工作區與窗格中。"
+          }
+        }
+      }
+    },
+    "settings.app.teamsSpawnPlacement.workspace": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Workspace"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ワークスペース"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "مساحة العمل"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Radni prostor"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Arbejdsområde"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Arbeitsbereich"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Espacio de trabajo"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Espace de travail"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Area di lavoro"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "workspace"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "작업 공간"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Arbeidsområde"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Obszar roboczy"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Espaço de trabalho"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Рабочее пространство"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "พื้นที่ทำงาน"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Çalışma alanı"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Робочий простір"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "工作区"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "工作區"
+          }
+        }
+      }
+    },
+    "settings.app.teamsSpawnPlacement.workspace.subtitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude Teams teammates open in sibling workspaces, matching the default tmux window mapping."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude Teams のチームメイトを、tmux の既定のウィンドウ対応と同じく兄弟ワークスペースで開きます。"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تُفتح زملاء Claude Teams في مساحات عمل شقيقة، بما يطابق تعيين نوافذ tmux الافتراضي."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Članovi Claude Teams-a otvaraju se u susjednim radnim prostorima, kao u zadanom tmux mapiranju prozora."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude Teams-medlemmer åbnes i søskendearbejdsområder, som matcher tmux's standardvinduestilknytning."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude-Teams-Mitglieder werden in benachbarten Arbeitsbereichen geöffnet, entsprechend der standardmäßigen tmux-Fensterzuordnung."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Los compañeros de Claude Teams se abren en espacios de trabajo contiguos, como en la asignación de ventanas predeterminada de tmux."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Les coéquipiers Claude Teams s’ouvrent dans des espaces de travail frères, conformément à l’association de fenêtres tmux par défaut."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "I compagni di Claude Teams si aprono in aree di lavoro adiacenti, come nella mappatura predefinita delle finestre tmux."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "សមាជិក Claude Teams នឹងបើកក្នុង workspace បងប្អូន ដោយស្របតាមការផ្គូផ្គង window របស់ tmux លំនាំដើម។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude Teams 팀원을 기본 tmux 창 매핑과 동일하게 인접 작업 공간에서 엽니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude Teams-medlemmer åpnes i søskenarbeidsområder, i tråd med tmux sin standard vindustilordning."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Członkowie Claude Teams otwierają się w sąsiednich obszarach roboczych, zgodnie z domyślnym mapowaniem okien tmux."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Os colegas do Claude Teams são abertos em espaços de trabalho irmãos, seguindo o mapeamento padrão de janelas do tmux."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Участники Claude Teams открываются в соседних рабочих пространствах в соответствии с сопоставлением окон tmux по умолчанию."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "เพื่อนร่วมทีม Claude Teams จะเปิดในพื้นที่ทำงานพี่น้องตามการแมปหน้าต่าง tmux เริ่มต้น"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude Teams ekip arkadaşları, varsayılan tmux pencere eşlemesine uygun olarak kardeş çalışma alanlarında açılır."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Учасники Claude Teams відкриваються в сусідніх робочих просторах відповідно до типового зіставлення вікон tmux."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude Teams 队友会打开在相邻工作区中，与 tmux 默认窗口映射一致。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude Teams 隊友會開啟於相鄰工作區，符合 tmux 的預設視窗對應。"
+          }
+        }
+      }
+    },
+    "settings.search.alias.setting.app.teams-spawn-placement": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "app.teamsSpawnPlacement Claude Teams agent team teammate tmux new-window workspace surface tab pane"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "app.teamsSpawnPlacement Claude Teams エージェント チーム メイト tmux new-window ワークスペース サーフェス タブ ペイン"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "app.teamsSpawnPlacement Claude Teams وكيل فريق زميل tmux new-window مساحة عمل سطح علامة تبويب لوحة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "app.teamsSpawnPlacement Claude Teams agent tim član tima tmux new-window radni prostor površina kartica okno"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "app.teamsSpawnPlacement Claude Teams agentteam holdkammerat tmux new-window arbejdsområde overflade fane rude"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "app.teamsSpawnPlacement Claude Teams Agententeam Teammitglied tmux new-window Arbeitsbereich Oberfläche Tab Bereich"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "app.teamsSpawnPlacement Claude Teams agente equipo compañero tmux new-window espacio de trabajo superficie pestaña panel"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "app.teamsSpawnPlacement Claude Teams agent équipe coéquipier tmux new-window espace de travail surface onglet volet"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "app.teamsSpawnPlacement Claude Teams agente squadra compagno tmux new-window area di lavoro superficie scheda riquadro"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "app.teamsSpawnPlacement Claude Teams ភ្នាក់ងារ ក្រុម សមាជិក tmux new-window workspace ផ្ទៃ tab pane"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "app.teamsSpawnPlacement Claude Teams 에이전트 팀 팀원 tmux new-window 작업 공간 서피스 탭 창"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "app.teamsSpawnPlacement Claude Teams agent teammedlem tmux new-window arbeidsområde overflate fane rute"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "app.teamsSpawnPlacement Claude Teams agent zespół członek tmux new-window obszar roboczy powierzchnia karta panel"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "app.teamsSpawnPlacement Claude Teams agente equipe colega tmux new-window espaço de trabalho superfície aba painel"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "app.teamsSpawnPlacement Claude Teams агент команда участник tmux new-window рабочее пространство поверхность вкладка панель"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "app.teamsSpawnPlacement Claude Teams เอเจนต์ ทีม เพื่อนร่วมทีม tmux new-window พื้นที่ทำงาน พื้นผิว แท็บ บานหน้าต่าง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "app.teamsSpawnPlacement Claude Teams aracı ekip arkadaşı tmux new-window çalışma alanı yüzey sekme bölme"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "app.teamsSpawnPlacement Claude Teams агент команда учасник tmux new-window робочий простір поверхня вкладка панель"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "app.teamsSpawnPlacement Claude Teams 代理 团队 队友 tmux new-window 工作区 表面 标签页 窗格"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "app.teamsSpawnPlacement Claude Teams 代理 團隊 隊友 tmux new-window 工作區 表面 分頁 窗格"
           }
         }
       }

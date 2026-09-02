@@ -68,6 +68,10 @@ public struct AgentLaunchEnvironmentPolicy: Sendable {
         "CAMPFIRE_CODING_AGENT_SESSION_DIR",
         "CAMPFIRE_RELAY_URL",
         "CLAUDE_CONFIG_DIR",
+        // Keeps a restored Claude Teams pane in the Claude Teams tmux
+        // compatibility context so the global teammate-placement setting is
+        // consulted after the agent-hook rewrites its command to `claude`.
+        "CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS",
         // Selects the directory holding Claude Code's .credentials.json. A path, not a secret,
         // so restoring it keeps a restored agent on the account it launched with.
         "CLAUDE_SECURESTORAGE_CONFIG_DIR",

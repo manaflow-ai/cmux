@@ -47,6 +47,41 @@ private final class HermesAliasDirectoryTrackingFileManager: FileManager {
 
 @Suite("Terminal surface command shims")
 struct TerminalSurfaceCommandShimPermissionsTests {
+    @Test("Claude Teams shim paths require an independent launch marker")
+    func claudeTeamsShimRequiresIndependentMarker() throws {
+        let fileManager = FileManager.default
+        let root = URL.temporaryDirectory.appending(
+            path: "TerminalSurfaceClaudeTeamsMarkerTests-\(UUID().uuidString)",
+            directoryHint: .isDirectory
+        )
+        let shim = root.appending(path: "tmux", directoryHint: .notDirectory)
+        defer { try? fileManager.removeItem(at: root) }
+
+        try fileManager.createDirectory(at: root, withIntermediateDirectories: true)
+        try "#!/bin/sh\nexit 0\n".write(to: shim, atomically: true, encoding: .utf8)
+        try fileManager.setAttributes([.posixPermissions: 0o700], ofItemAtPath: root.path)
+        try fileManager.setAttributes([.posixPermissions: 0o700], ofItemAtPath: shim.path)
+
+        let isExecutable: (String) -> Bool = { $0 == shim.path }
+        #expect(
+            TerminalSurface.claudeTeamsTmuxShimPath(
+                from: ["CMUX_CLAUDE_TEAMS_TMUX_SHIM": shim.path],
+                isExecutableFile: isExecutable,
+                fileManager: fileManager
+            ) == nil
+        )
+        #expect(
+            TerminalSurface.claudeTeamsTmuxShimPath(
+                from: [
+                    "CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS": "1",
+                    "CMUX_CLAUDE_TEAMS_TMUX_SHIM": shim.path,
+                ],
+                isExecutableFile: isExecutable,
+                fileManager: fileManager
+            ) == shim.path
+        )
+    }
+
     @Test("Install hardens group-writable managed directories")
     func installHardensGroupWritableManagedDirectories() throws {
         let fileManager = FileManager.default

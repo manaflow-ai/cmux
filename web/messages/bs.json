@@ -1114,7 +1114,8 @@
           "warnBeforeClosingTabXButton": "Prikaži potvrdu prije zatvaranja taba dugmetom za zatvaranje taba.",
           "hideTabCloseButton": "Sakrij dugmad za zatvaranje tabova na traci tabova okna.",
           "forkConversationDefaultDestination": "Zadano odredište za primarnu radnju Fork Conversation u kontekstnom meniju kartice. Podmeni i dalje prikazuje sva odredišta.",
-          "globalFontMagnification": "Skalira cmux terminale, naslove kartica, bočne trake, postavke, preklapanja i app chrome za ovaj procenat. Renderovani sadržaj stranica u pregledniku nije uključen."
+          "globalFontMagnification": "Skalira cmux terminale, naslove kartica, bočne trake, postavke, preklapanja i app chrome za ovaj procenat. Renderovani sadržaj stranica u pregledniku nije uključen.",
+          "teamsSpawnPlacement": "Mjesto na koje se smještaju članovi Claude Code tima kreirani pomoću tmux new-window: workspace pravi susjedni radni prostor, a surface karticu u radnom prostoru i oknu pozivaoca."
         },
         "terminal": {
           "sessionContentMaxWidth": "Opcionalna maksimalna širina, u tačkama, za sadržaj terminala i ugrađenog razgovora s agentom. Postavite false za korištenje pune širine okna.",

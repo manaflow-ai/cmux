@@ -202,19 +202,12 @@ describe("dashboard billing page", () => {
 
   test("renders active Stripe Team with seats, cancel, and team portal actions", async () => {
     proUser.selectedTeam = { id: "team-pro", displayName: "Team Pro" };
-    subscriptionResults = [
-      [],
-      [],
-      [],
-      [
-        stripeSubscriptionRow({
-          cancelAtPeriodEnd: false,
-          plan: "team",
-          scope: "team",
-          seats: 4,
-        }),
-      ],
-    ];
+    subscriptionResults = teamPageSubscriptionResults(stripeSubscriptionRow({
+      cancelAtPeriodEnd: false,
+      plan: "team",
+      scope: "team",
+      seats: 4,
+    }));
     customerRows = [{ id: "cus_team" }];
 
     const html = await renderBillingPage();
@@ -230,20 +223,13 @@ describe("dashboard billing page", () => {
 
   test("labels annual Stripe Team subscriptions", async () => {
     proUser.selectedTeam = { id: "team-pro", displayName: "Team Pro" };
-    subscriptionResults = [
-      [],
-      [],
-      [],
-      [
-        stripeSubscriptionRow({
-          cancelAtPeriodEnd: false,
-          plan: "team",
-          scope: "team",
-          seats: 4,
-          lookupKey: "cmux-team-yearly-336",
-        }),
-      ],
-    ];
+    subscriptionResults = teamPageSubscriptionResults(stripeSubscriptionRow({
+      cancelAtPeriodEnd: false,
+      plan: "team",
+      scope: "team",
+      seats: 4,
+      lookupKey: "cmux-team-yearly-336",
+    }));
     customerRows = [{ id: "cus_team" }];
 
     expect(await renderBillingPage()).toContain("$28/seat/mo, billed annually");
@@ -251,40 +237,26 @@ describe("dashboard billing page", () => {
 
   test("uses the current Stripe price interval over stale checkout metadata", async () => {
     proUser.selectedTeam = { id: "team-pro", displayName: "Team Pro" };
-    subscriptionResults = [
-      [],
-      [],
-      [],
-      [
-        stripeSubscriptionRow({
-          cancelAtPeriodEnd: false,
-          plan: "team",
-          scope: "team",
-          seats: 4,
-          lookupKey: "cmux-team-monthly",
-          billingInterval: "year",
-        }),
-      ],
-    ];
+    subscriptionResults = teamPageSubscriptionResults(stripeSubscriptionRow({
+      cancelAtPeriodEnd: false,
+      plan: "team",
+      scope: "team",
+      seats: 4,
+      lookupKey: "cmux-team-monthly",
+      billingInterval: "year",
+    }));
     customerRows = [{ id: "cus_team" }];
 
     expect(await renderBillingPage()).toContain("$35/seat/mo");
 
-    subscriptionResults = [
-      [],
-      [],
-      [],
-      [
-        stripeSubscriptionRow({
-          cancelAtPeriodEnd: false,
-          plan: "team",
-          scope: "team",
-          seats: 4,
-          lookupKey: "operator-managed-annual-price",
-          recurringInterval: "year",
-        }),
-      ],
-    ];
+    subscriptionResults = teamPageSubscriptionResults(stripeSubscriptionRow({
+      cancelAtPeriodEnd: false,
+      plan: "team",
+      scope: "team",
+      seats: 4,
+      lookupKey: "operator-managed-annual-price",
+      recurringInterval: "year",
+    }));
     expect(await renderBillingPage()).toContain("$28/seat/mo, billed annually");
   });
 
@@ -300,19 +272,12 @@ describe("dashboard billing page", () => {
       { id: "team-free", displayName: "Team Free", clientReadOnlyMetadata: { cmuxPlan: "free" } },
       { id: "team-pro", displayName: "Team Pro", clientReadOnlyMetadata: { cmuxPlan: "team" } },
     ]);
-    subscriptionResults = [
-      [],
-      [],
-      [],
-      [
-        stripeSubscriptionRow({
-          cancelAtPeriodEnd: false,
-          plan: "team",
-          scope: "team",
-          seats: 4,
-        }),
-      ],
-    ];
+    subscriptionResults = teamPageSubscriptionResults(stripeSubscriptionRow({
+      cancelAtPeriodEnd: false,
+      plan: "team",
+      scope: "team",
+      seats: 4,
+    }));
     customerRows = [{ id: "cus_team" }];
 
     const html = await renderBillingPage();
@@ -375,6 +340,17 @@ async function renderBillingPage(searchParams: Record<string, string> = {}) {
   return renderToStaticMarkup(
     <DashboardQueryProvider>{element}</DashboardQueryProvider>,
   );
+}
+
+function teamPageSubscriptionResults(
+  activeTeamRow: Record<string, unknown>,
+): Array<Array<Record<string, unknown>>> {
+  return [
+    [], // Personal portal-recovery snapshot.
+    [], // Personal any-active subscription authority.
+    [], // Personal active subscription rendered by the page.
+    [activeTeamRow],
+  ];
 }
 
 function stripeSubscriptionRow({

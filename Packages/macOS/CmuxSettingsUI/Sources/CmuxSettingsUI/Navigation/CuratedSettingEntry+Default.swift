@@ -32,6 +32,7 @@ extension Array where Element == CuratedSettingEntry {
             .init(section: .app, id: "appearance", title: "Appearance", synonyms: "app.appearance theme color scheme light mode dark mode system mode"),
             .init(section: .app, id: "app-icon", title: "App Icon", synonyms: "app.appIcon dock icon application icon app switcher alternate icon"),
             .init(section: .app, id: "new-workspace-placement", title: "New Workspace Placement", synonyms: "app.newWorkspacePlacement new tab insert position order top bottom end"),
+            .init(section: .app, id: "teams-spawn-placement", title: String(localized: "settings.app.teamsSpawnPlacement", defaultValue: "Claude Teams Spawn Placement"), synonyms: "app.teamsSpawnPlacement Claude Teams agent team teammate tmux new-window workspace surface tab pane"),
             .init(section: .app, id: "workspace-layouts", title: String(localized: "settings.app.workspaceLayouts", defaultValue: "Workspace Layouts"), synonyms: "workspace layouts customize layout default new workspace menu save delete cmux.json actions"),
             .init(section: .app, id: "workspace-inherit-working-directory", title: "Inherit Workspace Working Directory", synonyms: "app.workspaceInheritWorkingDirectory workspace cwd directory inherit current focused working-directory"),
             .init(section: .app, id: "minimal-mode", title: "Minimal Mode", synonyms: "app.minimalMode presentation compact chrome layout simple titlebar controls"),

@@ -10,6 +10,12 @@ extension CMUXCLI {
         var lastColumnSurfaceId: String?
     }
 
+    /// Maps a synthetic tmux pane token to the real Claude Teams surface.
+    struct TmuxSurfaceAlias: Codable {
+        var workspaceId: String
+        var surfaceId: String
+    }
+
     struct TmuxCompatStore: Codable {
         var buffers: [String: String] = [:]
         var hooks: [String: String] = [:]
@@ -19,6 +25,8 @@ extension CMUXCLI {
         /// Used to seed lastColumnSurfaceId when select-layout main-vertical
         /// is called after the first split.
         var lastSplitSurface: [String: String] = [:]
+        /// Synthetic pane token -> real teammate surface identity.
+        var surfaceAliases: [String: TmuxSurfaceAlias] = [:]
 
         /// Custom decoder so older store files missing newer keys
         /// (mainVerticalLayouts, lastSplitSurface) decode gracefully
@@ -29,6 +37,7 @@ extension CMUXCLI {
             hooks = try container.decodeIfPresent([String: String].self, forKey: .hooks) ?? [:]
             mainVerticalLayouts = try container.decodeIfPresent([String: MainVerticalState].self, forKey: .mainVerticalLayouts) ?? [:]
             lastSplitSurface = try container.decodeIfPresent([String: String].self, forKey: .lastSplitSurface) ?? [:]
+            surfaceAliases = try container.decodeIfPresent([String: TmuxSurfaceAlias].self, forKey: .surfaceAliases) ?? [:]
         }
 
         init() {}
@@ -159,6 +168,20 @@ extension CMUXCLI {
     func saveTmuxCompatStore(_ store: TmuxCompatStore) throws {
         try withLockedTmuxCompatStore { current in
             current = store
+        }
+    }
+
+    /// Persists the real surface identity associated with a synthetic tmux token.
+    func tmuxRecordSurfaceAlias(
+        aliasToken: String,
+        workspaceId: String,
+        surfaceId: String
+    ) throws {
+        try withLockedTmuxCompatStore { store in
+            store.surfaceAliases[aliasToken] = TmuxSurfaceAlias(
+                workspaceId: workspaceId,
+                surfaceId: surfaceId
+            )
         }
     }
 

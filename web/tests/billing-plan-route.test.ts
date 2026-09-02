@@ -111,10 +111,7 @@ describe("billing plan route", () => {
     currentUser = planUser({
       selectedTeam: { id: "team-plan", clientReadOnlyMetadata: {} },
     });
-    // The personal snapshot consumes its subscription and active-row queries
-    // before the team resolver reads the team subscription. Keep the fixture
-    // results aligned with those query boundaries.
-    stripeSubscriptionResults = [[], [], [{ id: "sub_team" }]];
+    stripeSubscriptionResults = teamPlanSubscriptionResults([{ id: "sub_team" }]);
 
     const response = await planResponse();
 
@@ -129,7 +126,7 @@ describe("billing plan route", () => {
         clientReadOnlyMetadata: { cmuxPlan: "team" },
       },
     });
-    stripeSubscriptionResults = [[], []];
+    stripeSubscriptionResults = teamPlanSubscriptionResults([]);
 
     const response = await planResponse();
 
@@ -171,6 +168,16 @@ describe("billing plan route", () => {
 async function planResponse() {
   const response = await GET(new NextRequest("https://cmux.test/api/billing/plan"));
   return response.json() as Promise<Record<string, unknown>>;
+}
+
+function teamPlanSubscriptionResults(
+  activeTeamRows: Array<Record<string, unknown>>,
+): Array<Array<Record<string, unknown>>> {
+  return [
+    [], // Personal portal-recovery snapshot.
+    [], // Personal any-active subscription authority.
+    activeTeamRows,
+  ];
 }
 
 function planUser(options: {

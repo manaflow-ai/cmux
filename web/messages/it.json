@@ -1114,7 +1114,8 @@
           "warnBeforeClosingTabXButton": "Mostra una conferma prima di chiudere una scheda con il pulsante di chiusura scheda.",
           "hideTabCloseButton": "Nasconde i pulsanti di chiusura scheda nella barra delle schede del riquadro.",
           "forkConversationDefaultDestination": "Destinazione predefinita per l'azione principale Fork Conversation nel menu contestuale della scheda. Il sottomenu mostra comunque tutte le destinazioni.",
-          "globalFontMagnification": "Ridimensiona di questa percentuale terminali, titoli delle schede, barre laterali, impostazioni, overlay e chrome dell'app gestiti da cmux. Il contenuto renderizzato delle pagine del browser è escluso."
+          "globalFontMagnification": "Ridimensiona di questa percentuale terminali, titoli delle schede, barre laterali, impostazioni, overlay e chrome dell'app gestiti da cmux. Il contenuto renderizzato delle pagine del browser è escluso.",
+          "teamsSpawnPlacement": "Indica dove vengono posizionati i compagni di Claude Code creati tramite tmux new-window: workspace crea un'area di lavoro adiacente, mentre surface crea una scheda nell'area di lavoro e nel riquadro del chiamante."
         },
         "terminal": {
           "sessionContentMaxWidth": "Larghezza massima facoltativa, in punti, per il contenuto del terminale e della chat agente integrata. Imposta false per usare l’intera larghezza del riquadro.",

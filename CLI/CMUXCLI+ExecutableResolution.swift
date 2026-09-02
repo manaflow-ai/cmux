@@ -237,6 +237,7 @@ extension CMUXCLI {
     func claudeTeamsExtraEnvVars(commandArgs: [String]) -> [(key: String, value: String)] {
         var vars: [(key: String, value: String)] = [
             (key: "CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS", value: "1"),
+            (key: "CMUX_CLAUDE_TEAMS_SPAWN_PLACEMENT", value: configuredClaudeTeamsSpawnPlacement().rawValue),
         ]
         if claudeTeamsHasDangerousSkipPermissions(commandArgs: commandArgs) {
             vars.append((key: "CLAUDE_CODE_SANDBOXED", value: "1"))
@@ -308,6 +309,13 @@ extension CMUXCLI {
             unsetenv(key)
         }
         unsetenv(ClaudeTeamsRespawnEnvironmentTransport.environmentKey)
+        // Claude Teams' tmux marker and control paths are launch-scoped. Do not
+        // let an independent provider (for example `omo` or `omx`) inherit them
+        // and accidentally route its generic tmux windows into Claude surfaces.
+        unsetenv("CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS")
+        unsetenv("CMUX_CLAUDE_TEAMS_SPAWN_PLACEMENT")
+        unsetenv("CMUX_CLAUDE_TEAMS_CMUX_BIN")
+        unsetenv("CMUX_CLAUDE_TEAMS_TMUX_SHIM")
         unsetenv("CMUX_CLAUDE_TEAMS_WRAPPER_LAUNCH")
     }
 

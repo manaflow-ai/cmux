@@ -90,6 +90,13 @@ extension TerminalSurface {
             env[key] = value
             protectedStartupEnvironmentKeys.insert(key)
         }
+        /// Returns the current managed PATH before another cmux directory is prepended.
+        func currentManagedPath() -> String {
+            env["PATH"]
+                ?? getenv("PATH").map { String(cString: $0) }
+                ?? ProcessInfo.processInfo.environment["PATH"]
+                ?? ""
+        }
 
         if let resolvedUserShell = engine.resolvedUserShell {
             setManagedEnvironmentValue("SHELL", resolvedUserShell)
@@ -174,10 +181,7 @@ extension TerminalSurface {
             if FileManager.default.isExecutableFile(atPath: ghosttyCLIPath) {
                 setManagedEnvironmentValue("GHOSTTY_BIN", ghosttyCLIPath)
             }
-            let currentPath = env["PATH"]
-                ?? getenv("PATH").map { String(cString: $0) }
-                ?? ProcessInfo.processInfo.environment["PATH"]
-                ?? ""
+            let currentPath = currentManagedPath()
             if !currentPath.split(separator: ":").contains(Substring(cliBinPath)) {
                 setManagedEnvironmentValue(
                     "PATH",
@@ -192,14 +196,39 @@ extension TerminalSurface {
                 setManagedEnvironmentValue(shim.wrapperShimEnvironmentKey, shim.executablePath)
                 setManagedEnvironmentValue(shim.wrapperShimRootEnvironmentKey, shim.directoryPath)
             }
-            let currentPath = env["PATH"]
-                ?? getenv("PATH").map { String(cString: $0) }
-                ?? ProcessInfo.processInfo.environment["PATH"]
-                ?? ""
+            let currentPath = currentManagedPath()
             setManagedEnvironmentValue(
                 "PATH",
                 Self.pathByPrependingUniqueDirectory(agentCommandShims.directoryPath, to: currentPath)
             )
+        }
+
+        // Claude Teams invokes the cmux tmux shim from a child surface. PATH is
+        // managed by cmux and cannot be overridden through startup_environment,
+        // so prepend the validated shim directory here before the shell starts.
+        if let claudeTeamsTmuxShim = Self.claudeTeamsTmuxShimPath(
+            from: additionalEnvironment,
+            isExecutableFile: runtimeFilesystem.isExecutableFile
+        ) {
+            let currentPath = currentManagedPath()
+            setManagedEnvironmentValue(
+                "CMUX_CLAUDE_TEAMS_TMUX_SHIM",
+                claudeTeamsTmuxShim
+            )
+            setManagedEnvironmentValue(
+                "PATH",
+                Self.pathByPrependingUniqueDirectory(
+                    URL(fileURLWithPath: claudeTeamsTmuxShim, isDirectory: false)
+                        .deletingLastPathComponent()
+                        .path,
+                    to: currentPath
+                )
+            )
+        } else if let requestedShim = additionalEnvironment["CMUX_CLAUDE_TEAMS_TMUX_SHIM"],
+                  !requestedShim.isEmpty {
+            // Protect the rejected value from being reintroduced by the later
+            // additional-environment merge.
+            setManagedEnvironmentValue("CMUX_CLAUDE_TEAMS_TMUX_SHIM", "")
         }
 
         var managedShellCommand: String?

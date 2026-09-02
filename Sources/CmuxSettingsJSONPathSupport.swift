@@ -407,6 +407,7 @@ extension CmuxSettingsFileStore {
         "app.windowTitleTemplate",
         "app.menuBarOnly",
         "app.newWorkspacePlacement",
+        "app.teamsSpawnPlacement",
         "app.workspaceInheritWorkingDirectory",
         "app.minimalMode",
         "app.keepWorkspaceOpenWhenClosingLastSurface",

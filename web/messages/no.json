@@ -1114,7 +1114,8 @@
           "warnBeforeClosingTabXButton": "Vis en bekreftelse før en fane lukkes med fanens lukkeknapp.",
           "hideTabCloseButton": "Skjul lukkeknapper for faner i faneraden i ruten.",
           "forkConversationDefaultDestination": "Standardmål for den primære Fork Conversation-handlingen i fanehurtigmenyen. Undermenyen viser fortsatt alle mål.",
-          "globalFontMagnification": "Skalerer cmux-eide terminaler, fanetitler, sidefelt, innstillinger, overlegg og app-chrome med denne prosenten. Rendret innhold på nettlesersider er utelatt."
+          "globalFontMagnification": "Skalerer cmux-eide terminaler, fanetitler, sidefelt, innstillinger, overlegg og app-chrome med denne prosenten. Rendret innhold på nettlesersider er utelatt.",
+          "teamsSpawnPlacement": "Hvor Claude Code-teammedlemmer som opprettes via tmux new-window plasseres: workspace oppretter et søskenarbeidsområde, mens surface oppretter en fane i innkallerens arbeidsområde og rute."
         },
         "terminal": {
           "sessionContentMaxWidth": "Valgfri maksimal bredde i punkter for terminalinnhold og den innebygde agentchatten. Angi false for å bruke hele rutens bredde.",

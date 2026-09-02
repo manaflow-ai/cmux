@@ -1115,7 +1115,8 @@
           "warnBeforeClosingTabXButton": "Pokaż potwierdzenie przed zamknięciem karty przyciskiem zamykania karty.",
           "hideTabCloseButton": "Ukryj przyciski zamykania kart na pasku kart panelu.",
           "forkConversationDefaultDestination": "Domyślne miejsce docelowe głównej akcji Fork Conversation w menu kontekstowym karty. Podmenu nadal pokazuje wszystkie miejsca docelowe.",
-          "globalFontMagnification": "Skaluje o ten procent należące do cmux terminale, tytuły kart, paski boczne, ustawienia, nakładki i chrome aplikacji. Renderowana zawartość stron przeglądarki jest wyłączona."
+          "globalFontMagnification": "Skaluje o ten procent należące do cmux terminale, tytuły kart, paski boczne, ustawienia, nakładki i chrome aplikacji. Renderowana zawartość stron przeglądarki jest wyłączona.",
+          "teamsSpawnPlacement": "Określa miejsce umieszczenia członków zespołu Claude Code utworzonych przez tmux new-window: workspace tworzy sąsiedni obszar roboczy, a surface kartę w obszarze roboczym i panelu wywołującego."
         },
         "terminal": {
           "sessionContentMaxWidth": "Opcjonalna maksymalna szerokość w punktach dla zawartości terminala i wbudowanego czatu agenta. Ustaw false, aby użyć pełnej szerokości panelu.",

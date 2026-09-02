@@ -481,6 +481,14 @@ final class CmuxSettingsFileStore {
             }
             snapshot.managedUserDefaults[SettingCatalog().app.newWorkspacePlacement.userDefaultsKey] = .string(placement.rawValue)
         }
+        // This field logs an invalid value without stopping later app settings from parsing.
+        if let raw = jsonString(section["teamsSpawnPlacement"]) {
+            if let placement = TeamsSpawnPlacement(rawValue: raw) {
+                snapshot.managedUserDefaults[SettingCatalog().app.teamsSpawnPlacement.userDefaultsKey] = .string(placement.rawValue)
+            } else {
+                logInvalid("app.teamsSpawnPlacement", sourcePath: sourcePath)
+            }
+        }
         if let value = jsonInt(section["globalFontMagnification"]) {
             let clamped = GlobalFontMagnification.clamp(value)
             guard clamped == value else {

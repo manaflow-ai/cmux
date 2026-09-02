@@ -1280,6 +1280,57 @@ final class KeyboardShortcutSettingsFileStoreTests: XCTestCase {
         XCTAssertFalse(UserDefaultsSettingsClient(defaults: .standard).value(for: SettingCatalog().app.workspaceInheritWorkingDirectory))
     }
 
+    func testInvalidTeamsSpawnPlacementDoesNotAbortRemainingAppSettings() throws {
+        let defaults = UserDefaults.standard
+        let placementKey = SettingCatalog().app.teamsSpawnPlacement.userDefaultsKey
+        let fontKey = GlobalFontMagnification.percentKey
+        let inheritanceKey = SettingCatalog().app.workspaceInheritWorkingDirectory.userDefaultsKey
+        let previousPlacement = defaults.object(forKey: placementKey)
+        let previousFont = defaults.object(forKey: fontKey)
+        let previousInheritance = defaults.object(forKey: inheritanceKey)
+        let previousBackups = defaults.data(forKey: settingsFileBackupsDefaultsKey)
+        defer {
+            if let previousPlacement { defaults.set(previousPlacement, forKey: placementKey) }
+            else { defaults.removeObject(forKey: placementKey) }
+            if let previousFont { defaults.set(previousFont, forKey: fontKey) }
+            else { defaults.removeObject(forKey: fontKey) }
+            if let previousInheritance { defaults.set(previousInheritance, forKey: inheritanceKey) }
+            else { defaults.removeObject(forKey: inheritanceKey) }
+            if let previousBackups { defaults.set(previousBackups, forKey: settingsFileBackupsDefaultsKey) }
+            else { defaults.removeObject(forKey: settingsFileBackupsDefaultsKey) }
+        }
+
+        for key in [placementKey, fontKey, inheritanceKey, settingsFileBackupsDefaultsKey] {
+            defaults.removeObject(forKey: key)
+        }
+        let directoryURL = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directoryURL) }
+        let settingsFileURL = directoryURL.appendingPathComponent("cmux.json", isDirectory: false)
+        try writeSettingsFile(
+            """
+            {
+              "app": {
+                "teamsSpawnPlacement": "not-a-placement",
+                "globalFontMagnification": 150,
+                "workspaceInheritWorkingDirectory": false
+              }
+            }
+            """,
+            to: settingsFileURL
+        )
+
+        _ = KeyboardShortcutSettingsFileStore(
+            primaryPath: settingsFileURL.path,
+            fallbackPath: nil,
+            startWatching: false
+        )
+
+        let client = UserDefaultsSettingsClient(defaults: defaults)
+        XCTAssertEqual(client.value(for: SettingCatalog().app.globalFontMagnification), 150)
+        XCTAssertFalse(client.value(for: SettingCatalog().app.workspaceInheritWorkingDirectory))
+        XCTAssertEqual(client.value(for: SettingCatalog().app.teamsSpawnPlacement), .workspace)
+    }
+
     func testSettingsFileStoreParsesSidebarWorkspaceTitleWrapSetting() throws {
         let defaults = UserDefaults.standard
         let managedKey = SidebarWorkspaceTitleWrapSettings.key
