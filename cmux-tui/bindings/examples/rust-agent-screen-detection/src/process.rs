@@ -1606,9 +1606,15 @@ mod tests {
             ("zsh", vec!["zsh", "-oc", "codex"]),
             // Fish does not accept a repeated `c` short option.
             ("fish", vec!["fish", "-cc", "codex"]),
+            // Fish options that take a value or exit cannot expose the next
+            // token as a script path.
+            ("fish", vec!["fish", "-p", "codex"]),
+            ("fish", vec!["fish", "-v", "codex"]),
+            ("fish", vec!["fish", "-q", "codex"]),
+            ("fish", vec!["fish", "-o", "codex"]),
             // These long forms are not command options for bash or zsh.
-            ("bash", vec!["bash", "--command", "codex"]),
-            ("zsh", vec!["zsh", "--command", "codex"]),
+            ("bash", vec!["bash", "--command", "codex", "/tmp/claude"]),
+            ("zsh", vec!["zsh", "--command", "codex", "/tmp/claude"]),
         ] {
             let job =
                 ForegroundJob { process_group_id: 7, processes: vec![process(7, name, &argv)] };
