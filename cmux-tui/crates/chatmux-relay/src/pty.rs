@@ -3482,7 +3482,7 @@ mod tests {
         });
         h.manager.handle_frame(&frame, &context).await;
         let pty = h.spawned()[0].clone();
-        live_auth.lock().unwrap().0 = "observe".to_owned();
+        live_auth.lock().unwrap().trust = "observe".to_owned();
         pty.emit("secret");
         assert!(!h.sent().iter().any(|f| f["type"] == "pty_output"));
     }
@@ -3551,11 +3551,42 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn live_root_restriction_rejects_open_before_publication() {
+        let h = harness(None, None);
+        let allowed = h.home.join("allowed");
+        std::fs::create_dir(&allowed).expect("create allowed root");
+        let mut context = h.context("supervised", h.owner.clone());
+        let owner = h.owner.clone();
+        context.live_auth = Arc::new(move || LiveAuth {
+            trust: "supervised".to_owned(),
+            roots: Some(vec![allowed.to_string_lossy().into_owned()]),
+            owner_user_id: owner.clone(),
+            version: 1,
+        });
+        let frame = serde_json::json!({
+            "version": 4,
+            "type": "pty_open",
+            "ptyId": "p1",
+            "session": "main",
+            "cols": 80,
+            "rows": 24,
+            "actorId": "user_owner",
+        });
+
+        h.manager.handle_frame(&frame, &context).await;
+
+        assert_eq!(h.manager.opening_count(), 0);
+        assert!(!h.manager.has_attachment("p1"));
+        assert!(h.sent().iter().any(|frame| frame["code"] == "trust_revoked"));
+    }
+
+    #[tokio::test]
     async fn close_requires_current_trust() {
         let h = harness(None, None);
         h.open("p1", "main", Value::Null, "supervised", h.owner.clone()).await;
         h.frame_as(serde_json::json!({"type":"pty_close","ptyId":"p1"}), "", h.owner.clone()).await;
         assert!(h.sent().iter().any(|f| f["code"] == "trust_revoked"));
+        assert!(!h.manager.has_attachment("p1"));
     }
 
     #[tokio::test]
@@ -4299,10 +4330,11 @@ mod tests {
             "actorId": "user_owner",
         });
         let sent = Arc::clone(&h.sent);
+        let nested_frame_for_callback = nested_frame.clone();
         let reentered_for_send = Arc::clone(&reentered);
         context.send = TestArc::new(move |frame| {
             if frame["type"] == "pty_exit" && !reentered_for_send.swap(true, Ordering::SeqCst) {
-                runtime.block_on(manager.handle_frame(&nested_frame, &nested_context));
+                runtime.block_on(manager.handle_frame(&nested_frame_for_callback, &nested_context));
                 done.send(()).expect("nested open completion");
             }
             sent.lock().unwrap().push(frame);
