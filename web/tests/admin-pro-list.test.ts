@@ -375,11 +375,15 @@ describe("Pro roster", () => {
     expect(selects).toBe(0);
   });
 
-  test("no read starts after the deadline has passed", async () => {
-    const base = fakeDb(new Map());
-    await expect(
-      loadProListSnapshot({ db: base, app: fakeApp({}), deadlineMs: 99, clock: { now: () => 100, schedule: () => () => undefined } }),
-    ).rejects.toBeInstanceOf(ProListTimeoutError);
+  test("no read starts at or after the deadline", async () => {
+    for (const nowValue of [99, 100]) {
+      let selects = 0;
+      const db = { select: (() => { selects += 1; throw new Error("select must not run"); }) as never } as unknown as ProListDb;
+      await expect(
+        loadProListSnapshot({ db, app: fakeApp({}), deadlineMs: 99, clock: { now: () => nowValue, schedule: () => () => undefined } }),
+      ).rejects.toBeInstanceOf(ProListTimeoutError);
+      expect(selects).toBe(0);
+    }
   });
 
   test("isValidScanCursor accepts opaque tokens and rejects junk", () => {

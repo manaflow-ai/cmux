@@ -460,8 +460,8 @@ export async function loadProListSnapshot(
   const clock = options.clock ?? realProListClock;
   const now = () => clock.now();
   const guard = () => {
-    if (options.deadlineMs !== undefined && now() > options.deadlineMs) {
-      throw new ProListTimeoutError(Math.max(0, options.deadlineMs - now()));
+    if (options.deadlineMs !== undefined && now() >= options.deadlineMs) {
+      throw new ProListTimeoutError(0);
     }
   };
   // Each read's statement timeout is the smaller of the configured budget and
