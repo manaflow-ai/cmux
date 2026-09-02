@@ -4,6 +4,7 @@ import Combine
 import CryptoKit
 import Foundation
 import CmuxSettings
+import OSLog
 
 extension CodingUserInfoKey {
     static let cmuxWorkspaceColorDefaults = CodingUserInfoKey(rawValue: "cmuxWorkspaceColorDefaults")!
@@ -1657,6 +1658,11 @@ struct CmuxConfigIssue: Identifiable, Equatable, Sendable {
 
 @MainActor
 final class CmuxConfigStore: ObservableObject {
+    nonisolated private static let configLogger = Logger(
+        subsystem: "com.cmuxterm.app",
+        category: "CmuxConfig"
+    )
+
     private static let defaultNewWorkspaceContextMenu: [CmuxConfigContextMenuItem] = [
         .action(CmuxConfigContextMenuActionItem(action: CmuxSurfaceTabBarBuiltInAction.newWorkspace.configID)),
     ]
@@ -2989,7 +2995,9 @@ final class CmuxConfigStore: ObservableObject {
                 issue: issue
             )
             if let issue {
-                NSLog("[CmuxConfig] %@", issue.logMessage)
+                Self.configLogger.error(
+                    "Configuration issue: \(issue.logMessage, privacy: .private)"
+                )
             }
             return ParsedConfigResult(config: decoded.config, issue: issue)
         } catch {

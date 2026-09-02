@@ -17,7 +17,7 @@ extension CMUXCLI {
             message: issues.isEmpty
                 ? String(
                     localized: "config.doctor.valid",
-                    defaultValue: "JSONC syntax and command entries are valid"
+                    defaultValue: "JSONC syntax and configuration entries are valid"
                 )
                 : issues.map(\.description).joined(separator: "; "),
             keys: dictionary.keys.sorted(),

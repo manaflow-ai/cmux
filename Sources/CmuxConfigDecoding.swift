@@ -11,7 +11,11 @@ extension CmuxConfigFile {
         decoder.userInfo[.cmuxWorkspaceColorPalette] = workspaceColorPalette
         let config = try decoder.decode(Self.self, from: sanitizedData)
         let validatorIssues = (try? CmuxConfigTypeValidator(
-            workspaceColorNames: Set(workspaceColorPalette.keys)
+            // The validator normalizes names for the same case-insensitive
+            // lookup used by the runtime palette resolver.
+            workspaceColorNames: Set(workspaceColorPalette.keys.map {
+                $0.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+            })
         ).issues(in: sanitizedData)) ?? []
         return CmuxConfigDecodedResult(
             config: config,

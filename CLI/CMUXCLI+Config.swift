@@ -111,7 +111,7 @@ extension CMUXCLI {
         Inspect cmux.json, print configuration references, update selected Ghostty config keys, or reload the running app.
 
         Subcommands:
-          doctor|check|validate [--path <path>]   \(String(localized: "config.doctor.validationHelp", defaultValue: "Validate JSONC syntax and command entries in cmux config files."))
+          doctor|check|validate [--path <path>]   \(String(localized: "config.doctor.validationHelp", defaultValue: "Validate JSONC syntax and configuration entries in cmux config files."))
           path|paths                              Print cmux.json paths, docs URL, and schema URL.
           docs|documentation                      Print the same output as `cmux docs settings`.
           reload                                  Reload Ghostty config + cmux.json and refresh terminals (alias for `cmux reload-config`).

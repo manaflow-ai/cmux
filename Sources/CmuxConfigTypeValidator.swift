@@ -34,6 +34,12 @@ struct CmuxConfigTypeValidator: Sendable {
             })
         }
         var names = Set(builtInWorkspaceColorNames)
+        // Keep a normalized companion set so generated Custom N names can be
+        // checked in O(1) while preserving the original display casing in the
+        // returned palette-name set.
+        var normalizedNames = Set(names.map {
+            $0.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        })
         if let overrides = defaults.dictionary(forKey: "workspaceTabColor.defaultOverrides") as? [String: String] {
             // The runtime legacy resolver only accepts overrides for the
             // built-in palette. Arbitrary keys are discarded there and must
@@ -51,10 +57,12 @@ struct CmuxConfigTypeValidator: Sendable {
                 guard let normalized = normalizedHexColor(rawHex), seenHexes.insert(normalized).inserted else {
                     continue
                 }
-                while names.contains(where: { $0.caseInsensitiveCompare("Custom \(index)") == .orderedSame }) {
+                while normalizedNames.contains("custom \(index)".lowercased()) {
                     index += 1
                 }
-                names.insert("Custom \(index)")
+                let generatedName = "Custom \(index)"
+                names.insert(generatedName)
+                normalizedNames.insert(generatedName.lowercased())
                 index += 1
             }
         }
@@ -386,7 +394,7 @@ struct CmuxConfigTypeValidator: Sendable {
         case "invalidCount":
             localized = String(
                 localized: "config.validation.invalidCount",
-                defaultValue: "must contain %@ item(s)"
+                defaultValue: "must contain the required number of entries (%@)"
             )
         default:
             localized = String(

@@ -161,6 +161,27 @@ struct CmuxConfigLayoutEntryTests {
         #expect(CmuxConfigTypeValidator().issues(in: object).isEmpty)
     }
 
+    @Test func decodeAndValidateMatchesCaseInsensitiveNamedColorResolution() throws {
+        let data = Data(#"{"commands":[{"name":"layout","color":"  indigo  ","layout":{"pane":{"surfaces":[{"type":"terminal"}]}}}]}"#.utf8)
+        let decoded = try CmuxConfigFile.decodeAndValidate(
+            sanitizedData: data,
+            workspaceColorPalette: ["Indigo": "#283593"]
+        )
+        #expect(decoded.config.commands.count == 1)
+        #expect(decoded.config.commands[0].workspace?.color == "#283593")
+        #expect(decoded.typeIssues.isEmpty)
+    }
+
+    @Test func typeValidatorUsesUnambiguousCountDiagnostic() throws {
+        let object = try JSONSerialization.jsonObject(
+            with: Data(#"{"commands":[{"name":"empty-pane","layout":{"pane":{"surfaces":[]}}}]}"#.utf8)
+        )
+        let issue = try #require(CmuxConfigTypeValidator().issues(in: object).first)
+        #expect(issue.path == "commands[0].layout.pane.surfaces")
+        #expect(!issue.message.contains("item(s)"))
+        #expect(!issue.message.isEmpty)
+    }
+
     @Test func typeValidatorRejectsLegacyOverrideNamesRuntimeDiscards() throws {
         let suiteName = "cmux-config-validator-\(UUID().uuidString)"
         let defaults = try #require(UserDefaults(suiteName: suiteName))

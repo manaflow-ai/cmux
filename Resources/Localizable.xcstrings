@@ -1,11 +1,11 @@
 {
   "sourceLanguage": "en",
   "strings": {
-    "config.doctor.valid": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"JSONC syntax and command entries are valid"}},"ja":{"stringUnit":{"state":"translated","value":"JSONC構文とコマンドエントリは有効です"}}}},
-    "config.doctor.validationHelp": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Validate JSONC syntax and command entries in cmux config files."}},"ja":{"stringUnit":{"state":"translated","value":"cmux構成ファイルのJSONC構文とコマンドエントリを検証します。"}}}},
+    "config.doctor.valid": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"JSONC syntax and configuration entries are valid"}},"ja":{"stringUnit":{"state":"translated","value":"JSONC構文と構成エントリは有効です"}}}},
+    "config.doctor.validationHelp": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Validate JSONC syntax and configuration entries in cmux config files."}},"ja":{"stringUnit":{"state":"translated","value":"cmux構成ファイルのJSONC構文と構成エントリを検証します。"}}}},
     "config.validation.commandBlank": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Command '%@' must not define a blank 'command'"}},"ja":{"stringUnit":{"state":"translated","value":"コマンド '%@' の 'command' は空白にできません"}}}},
     "config.validation.commandNameBlank": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Command name must not be blank"}},"ja":{"stringUnit":{"state":"translated","value":"コマンド名は空白にできません"}}}},
-    "config.validation.invalidCount": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"must contain %@ item(s)"}},"ja":{"stringUnit":{"state":"translated","value":"%@ 個の項目を含める必要があります"}}}},
+    "config.validation.invalidCount": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"must contain the required number of entries (%@)"}},"ja":{"stringUnit":{"state":"translated","value":"必要な数のエントリ（%@）を含める必要があります"}}}},
     "config.validation.invalidColor": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Invalid color \"%@\". Expected 6-digit hex format (#RRGGBB) or a workspace color name"}},"ja":{"stringUnit":{"state":"translated","value":"無効な色 \"%@\"。6桁の16進数形式（#RRGGBB）またはワークスペースの色名を指定してください"}}}},
     "config.validation.invalidField": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"must be %@"}},"ja":{"stringUnit":{"state":"translated","value":"%@ である必要があります"}}}},
     "config.validation.invalidValue": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"has an invalid value"}},"ja":{"stringUnit":{"state":"translated","value":"値が無効です"}}}},
