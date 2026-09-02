@@ -398,7 +398,7 @@ class ReleaseTrustedWorkflowTests(unittest.TestCase):
             main_content=OBSERVER_CONTENT,
             tag_object_type="tag",
             tag_ref_sha="d" * 40,
-            tag_ref_sha="c" * 40,
+            tag_target_sha="c" * 40,
         )
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("moved", result.stderr.lower())
@@ -510,7 +510,7 @@ class ReleaseTrustedWorkflowTests(unittest.TestCase):
             main_blob="same-protected-blob",
             source_content=OBSERVER_CONTENT,
             main_content=OBSERVER_CONTENT,
-            tag_target_sha="c" * 40,
+            tag_ref_sha="c" * 40,
         )
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("moved", result.stderr.lower())
