@@ -1603,9 +1603,9 @@ impl Inner {
         }
     }
 
-    /// A CLOSE from the owning transport cannot operate after authority is
-    /// revoked. Retire that now-unauthorized attachment so it cannot retain a
-    /// resource slot or resume publication under stale authority.
+    /// A CLOSE from the owning transport cannot operate without authority.
+    /// Retire only when a newer machine-authority generation revoked the
+    /// attachment; a denied caller snapshot must leave another user's PTY.
     fn authorize_snapshot_for_close(
         &self,
         pty_id: &str,
@@ -1629,12 +1629,25 @@ impl Inner {
         }
         if self.auth_allows(auth, &attachment) {
             Ok(attachment)
-        } else {
+        } else if auth.version > attachment.auth_version {
+            // A newer machine-authority generation invalidated this existing
+            // attachment. Retire it so revoked state cannot keep a PTY slot.
             self.emit_error_for_generation(
                 context,
                 pty_id,
                 attachment.generation,
                 &attachment.publication_gate,
+                "trust_revoked",
+                &format!("PTY {action} refused after trust change"),
+            );
+            Err(CloseAuthorizationFailure::Denied)
+        } else {
+            // The caller's snapshot did not authorize CLOSE, but it is not a
+            // newer authority generation. Report denial without allowing a
+            // same-transport non-owner to destroy another user's PTY.
+            send_pty_error(
+                context,
+                pty_id,
                 "trust_revoked",
                 &format!("PTY {action} refused after trust change"),
             );
