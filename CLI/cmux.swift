@@ -5861,11 +5861,15 @@ struct CMUXCLI {
                 let (nameOpt, rem1b) = parseOption(rem1a, name: "--name")
                 let (windowOpt, rem2) = parseOption(rem1b, name: "--window")
                 let detach = hasFlag(rem2, name: "--detach") || hasFlag(rem2, name: "-d")
-                // A machine comes with its screen: new machines boot the desktop image
-                // (xfce + noVNC) unless the person asks for a shell-only box with --base.
-                // --desktop stays accepted for scripts written against the old default.
-                let base = hasFlag(rem2, name: "--base") || hasFlag(rem2, name: "--no-desktop")
-                let desktop = !base
+                // No provider ships a desktop image right now, so a bare `vm new`
+                // asks for a shell-only machine; requesting `--desktop` anyway fails
+                // closed with a server-side image config error rather than silently
+                // handing back a screenless box. Flip this back to desktop-by-default
+                // once a desktop image lands in the manifest.
+                // `--base`/`--no-desktop` stay accepted for scripts written against
+                // the old desktop default.
+                _ = hasFlag(rem2, name: "--base") || hasFlag(rem2, name: "--no-desktop")
+                let desktop = hasFlag(rem2, name: "--desktop")
                 let (sizeOpt, rem3) = parseOption(rem2, name: "--size")
                 let memoryMb: Int?
                 if let sizeOpt {
@@ -5891,8 +5895,8 @@ struct CMUXCLI {
                         vm new: unknown flag '\(unknown)'.
 
                         Known flags:
-                          --base            shell-only machine (no desktop)
-                          --desktop         machine with a screen (default)
+                          --base            shell-only machine (no desktop, the default)
+                          --desktop         machine with a screen (no image available yet)
                           --size <2g|4g|8g|16g|24g|32g>
                           --name <label>    display label (the id stays the address)
                           --image <image-id>  explicit image override (normally omit)

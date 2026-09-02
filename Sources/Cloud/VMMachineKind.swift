@@ -16,11 +16,16 @@ enum VMMachineKind: String, CaseIterable, Sendable, Equatable {
     case base
 
     /// The kind an image id implies when the backend did not say. Older
-    /// control planes omit `kind`; their desktop images carry a recognizable
+    /// control planes omit `kind`; a desktop image carries a recognizable
     /// name, everything else is a shell box.
+    ///
+    /// Only VNC markers count. `devbox` used to imply a desktop because one
+    /// provider's devbox image bundled xfce + noVNC; the shared devbox image
+    /// every remaining provider boots is shell-only, so matching it here
+    /// published a Desktop surface for machines with no screen.
     static func inferred(fromImage image: String) -> VMMachineKind {
         let lowered = image.lowercased()
-        return lowered.contains("xfce") || lowered.contains("devbox") ? .desktop : .base
+        return lowered.contains("xfce") || lowered.contains("vnc") ? .desktop : .base
     }
 
     /// The kind a backend payload describes: its explicit `kind` field when
