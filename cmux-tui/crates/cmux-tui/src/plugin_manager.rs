@@ -430,6 +430,9 @@ fn validate_git_source(source: &str) -> anyhow::Result<()> {
     if source.bytes().any(|byte| byte == 0 || byte.is_ascii_control()) {
         anyhow::bail!("plugin git URL must not contain NUL or control characters");
     }
+    if source.starts_with('-') {
+        anyhow::bail!("plugin git URL must not start with '-'");
+    }
     if let Some(separator) = source.find("::") {
         // Git's custom transport syntax is `<protocol>::<address>`. Require
         // a protocol-shaped prefix, and ignore separators inside a URL's
@@ -497,9 +500,16 @@ fn is_sensitive_env_name(name: &str) -> bool {
         || name == "AUTHORIZATION"
 }
 
+fn is_safe_plugin_build_env_name(name: &str) -> bool {
+    matches!(
+        name,
+        "PATH" | "HOME" | "TMPDIR" | "LANG" | "LC_ALL" | "LC_CTYPE" | "TERM" | "CI"
+    ) || name.starts_with("LC_")
+}
+
 fn scrub_plugin_build_environment(command: &mut Command) {
     for (key, _) in std::env::vars_os() {
-        if is_sensitive_env_name(&key.to_string_lossy()) {
+        if !is_safe_plugin_build_env_name(&key.to_string_lossy()) {
             command.env_remove(key);
         }
     }
@@ -996,10 +1006,13 @@ mod tests {
             "SSH_AUTH_SOCK",
         ] {
             assert!(is_sensitive_env_name(name), "secret environment name: {name}");
+            assert!(!is_safe_plugin_build_env_name(name), "secret environment name: {name}");
         }
         for name in ["PATH", "HOME", "RUSTUP_HOME"] {
             assert!(!is_sensitive_env_name(name), "build environment name: {name}");
         }
+        assert!(is_safe_plugin_build_env_name("PATH"));
+        assert!(is_safe_plugin_build_env_name("LC_CTYPE"));
     }
 
     #[test]
