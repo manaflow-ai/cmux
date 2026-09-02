@@ -256,6 +256,19 @@ struct AppDelegateRenameShortcutContextTests {
 
             let window = try #require(mainWindow(withId: windowId))
             let dock = appDelegate.windowDock(forWindowId: windowId)
+            let fileExplorerState = try #require(
+                appDelegate.contextForMainWindow(window)?.fileExplorerState
+            )
+            // Model the mounted right-sidebar Dock that production shortcut
+            // routing requires. A store created for a hidden sidebar must be
+            // rejected so commands cannot mutate an invisible Dock.
+            fileExplorerState.mode = .dock
+            fileExplorerState.setVisible(true)
+            dock.setVisibleInUI(true)
+            defer {
+                dock.setVisibleInUI(false)
+                fileExplorerState.setVisible(false)
+            }
             let pane = try #require(dock.resolvePane(requestedPaneID: nil))
             let browserPanelId = try #require(dock.newSurface(kind: .browser, inPane: pane, focus: true))
             let browserPanel = try #require(dock.browserPanel(for: browserPanelId))
@@ -312,8 +325,16 @@ struct AppDelegateRenameShortcutContextTests {
             let workspace = try #require(manager.selectedWorkspace)
             let mainPanelId = try #require(workspace.focusedPanelId)
             let dock = appDelegate.windowDock(forWindowId: windowId)
+            let fileExplorerState = try #require(
+                appDelegate.contextForMainWindow(window)?.fileExplorerState
+            )
+            fileExplorerState.mode = .dock
+            fileExplorerState.setVisible(true)
             dock.setVisibleInUI(true)
-            defer { dock.setVisibleInUI(false) }
+            defer {
+                dock.setVisibleInUI(false)
+                fileExplorerState.setVisible(false)
+            }
             let pane = try #require(dock.resolvePane(requestedPaneID: nil))
             _ = try #require(dock.newSurface(kind: .terminal, inPane: pane, focus: false))
             let selectedPanelId = try #require(dock.newSurface(kind: .terminal, inPane: pane, focus: false))
@@ -347,7 +368,10 @@ struct AppDelegateRenameShortcutContextTests {
                     panelId: selectedPanelId
                 )
             )
-            #expect(renameTarget.currentName == "Dock Shortcut Test Panel")
+            let expectedTitle = try #require(
+                dock.panels[selectedPanelId]?.displayTitle
+            )
+            #expect(renameTarget.currentName == expectedTitle)
             dock.bonsplitController.updateTab(selectedTabId, title: "Custom Dock Tab", hasCustomTitle: true)
             dock.bonsplitController.requestTabContextAction(
                 .clearName,
