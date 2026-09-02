@@ -935,4 +935,33 @@ mod tests {
 
         assert!(matches!(result, Err(AppendAttemptError::Fatal(_))));
     }
+
+    #[cfg(unix)]
+    #[test]
+    fn setup_send_failure_releases_a_successfully_spawned_child() {
+        use std::process::{Command, Stdio};
+        use std::sync::mpsc;
+
+        let root = tempfile::tempdir().unwrap();
+        let marker = root.path().join("survived");
+        let child = Command::new("/bin/sh")
+            .arg("-c")
+            .arg("sleep 0.1; printf survived > \"$CMUX_TUI_TEST_MARKER\"")
+            .env("CMUX_TUI_TEST_MARKER", &marker)
+            .stdout(Stdio::piped())
+            .spawn()
+            .unwrap();
+        let mut guard = DetachedChildGuard::new(child);
+        let stdout = guard.child_mut().stdout.take().unwrap();
+        let (sender, receiver) = mpsc::sync_channel(1);
+        drop(receiver);
+
+        forward_setup_result(sender, Ok((guard, stdout)));
+
+        let deadline = Instant::now() + Duration::from_secs(2);
+        while !marker.exists() && Instant::now() < deadline {
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        assert_eq!(std::fs::read_to_string(marker).unwrap(), "survived");
+    }
 }
