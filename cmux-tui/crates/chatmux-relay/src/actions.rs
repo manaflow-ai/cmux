@@ -1000,6 +1000,36 @@ enum RunOutcome {
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum ProcessPhase {
+    Running,
+    StopRequested,
+    Waiting,
+    Reaped,
+    AlreadyReaped,
+}
+
+impl ProcessPhase {
+    fn may_wait(
+        self,
+        timed_out: bool,
+        cancelled: bool,
+        stdout_open: bool,
+        stderr_open: bool,
+    ) -> bool {
+        matches!(self, Self::Waiting)
+            || (matches!(self, Self::Running)
+                && !timed_out
+                && !cancelled
+                && !stdout_open
+                && !stderr_open)
+    }
+
+    fn may_signal(self) -> bool {
+        matches!(self, Self::Running | Self::StopRequested)
+    }
+}
+
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub(crate) enum SupervisorState {
     Open,
     Closing,
@@ -1235,6 +1265,7 @@ async fn run_spec(
     let mut final_wait_deadline: Option<std::pin::Pin<Box<tokio::time::Sleep>>> = None;
     let mut wait_retry_deadline: Option<std::pin::Pin<Box<tokio::time::Sleep>>> = None;
     let mut group_kill_confirmed = false;
+    let mut phase = ProcessPhase::Running;
     loop {
         // A timed-out process group still needs its escalation pass even when
         // the shell leader has already exited. Otherwise closing inherited
@@ -1255,6 +1286,7 @@ async fn run_spec(
                 }
             }, if !cancelled => {
                 cancelled = true;
+                phase = ProcessPhase::StopRequested;
                 #[cfg(unix)]
                 if !signal_process_tree(pid, false) {
                     let _ = child.start_kill();
@@ -1299,7 +1331,7 @@ async fn run_spec(
                 if exited.is_none()
                     && wait_retry_deadline.is_none()
                     && kill_deadline.is_none()
-                    && (group_kill_confirmed || (!timed_out && !cancelled && !stdout_open && !stderr_open)) => {
+                    && phase.may_wait(timed_out, cancelled, stdout_open, stderr_open) => {
                 // The child is gone, but descendants may still own the output
                 // pipes. Preserve a timeout escalation that is already in
                 // flight, and bound the remaining drain after a timeout.
@@ -1312,6 +1344,7 @@ async fn run_spec(
                 match status {
                     Ok(status) => {
                         exited = Some(status.code().map(i64::from).unwrap_or(1));
+                        phase = ProcessPhase::Reaped;
                         // `wait` has reaped the leader. Disarm before any
                         // subsequent cancellation can target a reused PID.
                         #[cfg(unix)]
@@ -1323,6 +1356,7 @@ async fn run_spec(
                         #[cfg(unix)]
                         if error.raw_os_error() == Some(libc::ECHILD) {
                             exited = Some(1);
+                            phase = ProcessPhase::AlreadyReaped;
                             process_group_guard.armed = false;
                         } else {
                             wait_retry_deadline = Some(Box::pin(tokio::time::sleep(
@@ -1341,11 +1375,12 @@ async fn run_spec(
             }
             () = &mut deadline, if !timed_out => {
                 timed_out = true;
+                phase = ProcessPhase::StopRequested;
                 // Commands run below a shell and may have descendants that
                 // inherited stdout/stderr. Kill the whole POSIX process group
                 // so the supervisor gets its EXIT cleanup, then enforce a
                 // hard bound for processes that ignore TERM.
-                if exited.is_none() {
+                if phase.may_signal() {
                     // The process group is the authoritative target. If the
                     // group disappeared before we could signal it, use the
                     // live Child handle instead of the numeric PID. A PID
@@ -1380,7 +1415,7 @@ async fn run_spec(
                     None => std::future::pending().await,
                 }
             }, if kill_deadline.is_some() => {
-                if exited.is_none() {
+                if phase.may_signal() {
                     // See the timeout branch above: never fall back to a
                     // numeric PID after a process-group signal fails.
                     #[cfg(unix)]
@@ -1395,6 +1430,7 @@ async fn run_spec(
                         signal_process_tree(pid, true);
                         group_kill_confirmed = true;
                     }
+                    phase = ProcessPhase::Waiting;
                 }
                 #[cfg(windows)]
                 if let Some(job) = job.as_ref() {
@@ -1422,7 +1458,7 @@ async fn run_spec(
                     Some(timer) => timer.as_mut().await,
                     None => std::future::pending().await,
                 }
-            }, if final_wait_deadline.is_some() && exited.is_none() => {
+            }, if final_wait_deadline.is_some() && phase == ProcessPhase::Waiting => {
                 final_wait_deadline = None;
                 wait_retry_deadline = None;
                 if stdout_open || stderr_open {
@@ -2299,6 +2335,15 @@ mod tests {
     }
 
     #[test]
+    fn process_phase_blocks_wait_until_scope_kill() {
+        assert!(!ProcessPhase::Running.may_wait(true, false, false, false));
+        assert!(!ProcessPhase::StopRequested.may_wait(true, true, false, false));
+        assert!(ProcessPhase::Waiting.may_wait(true, true, true, true));
+        assert!(!ProcessPhase::Reaped.may_signal());
+        assert!(!ProcessPhase::AlreadyReaped.may_signal());
+    }
+
+    #[test]
     fn scoped_file_capability_refusal_is_typed_and_fail_closed() {
         let roots = vec!["/srv/work".to_owned()];
         let scoped: RootLists<'_> = [Some(roots.as_slice()), None];
@@ -2740,13 +2785,28 @@ mod tests {
     #[tokio::test]
     async fn timeout_escalates_after_shell_exits_with_open_descendant_pipe() {
         let env = scrubbed_env(&HashMap::from([("PATH".to_owned(), "/usr/bin:/bin".to_owned())]));
+        let pid_file =
+            std::env::temp_dir().join(format!("chatmux-timeout-pid-{}", std::process::id()));
+        let command = format!("sleep 5 & echo $! > {}", pid_file.display());
         let outcome = tokio::time::timeout(
             std::time::Duration::from_secs(2),
-            run_spec(RunSpec::Shell { command: "sleep 5 &" }, Path::new("/"), None, 20, &env, None),
+            run_spec(RunSpec::Shell { command: &command }, Path::new("/"), None, 20, &env, None),
         )
         .await
         .expect("timeout cleanup must not wait for a descendant pipe");
         assert!(matches!(outcome, RunOutcome::TimedOut));
+        let pid = std::fs::read_to_string(&pid_file)
+            .ok()
+            .and_then(|value| value.trim().parse::<libc::pid_t>().ok())
+            .expect("descendant pid marker");
+        tokio::time::timeout(std::time::Duration::from_secs(1), async {
+            while unsafe { libc::kill(pid, 0) } == 0 {
+                tokio::time::sleep(std::time::Duration::from_millis(5)).await;
+            }
+        })
+        .await
+        .expect("descendant must be gone after timeout escalation");
+        std::fs::remove_file(pid_file).ok();
     }
     #[tokio::test]
     async fn exec_receives_scoped_process_environment_values() {
