@@ -1039,8 +1039,18 @@ impl ProcessTreeOwner {
             .kill_on_drop(true)
             .process_group(0);
         let mut keeper = keeper_command.spawn().map_err(|_| ())?;
-        let pgid = keeper.id().ok_or(())? as libc::pid_t;
-        let keeper_stdin = keeper.stdin.take().ok_or(())?;
+        let Some(pgid) = keeper.id().map(|pid| pid as libc::pid_t) else {
+            let _ = keeper.start_kill();
+            let _ =
+                tokio::time::timeout(std::time::Duration::from_millis(250), keeper.wait()).await;
+            return Err(());
+        };
+        let Some(keeper_stdin) = keeper.stdin.take() else {
+            let _ = keeper.start_kill();
+            let _ =
+                tokio::time::timeout(std::time::Duration::from_millis(250), keeper.wait()).await;
+            return Err(());
+        };
         // SAFETY: setpgid is async-signal-safe. The keeper is already the
         // process-group leader, so this only joins the target to its group.
         unsafe {
