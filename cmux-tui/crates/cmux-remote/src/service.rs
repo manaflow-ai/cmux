@@ -593,7 +593,7 @@ impl PendingOpenGuard {
         self.closed
             .lock()
             .await
-            .insert_on(self.id, tombstone_lane_mask(self.service, open_lane(self.service)));
+            .insert_on(self.id, tombstone_lane_mask(self.service, default_lane(self.service)));
         self.registrations.lock().await.remove(&self.id);
         self.cleanup.spawn(
             self.endpoint.clone(),
@@ -624,7 +624,10 @@ impl Drop for PendingOpenGuard {
         let id = self.id;
         if let Ok(runtime) = tokio::runtime::Handle::try_current() {
             runtime.spawn(async move {
-                closed.lock().await.insert_on(id, tombstone_lane_mask(service, lane));
+                closed
+                    .lock()
+                    .await
+                    .insert_on(id, tombstone_lane_mask(service, default_lane(service)));
                 registrations.lock().await.remove(&id);
                 cleanup.spawn(endpoint, generation, lane, id, None);
             });
@@ -891,7 +894,10 @@ impl Drop for ServiceStream {
         let service = self.service;
         if let Ok(runtime) = tokio::runtime::Handle::try_current() {
             runtime.spawn(async move {
-                closed.lock().await.insert_on(id, tombstone_lane_mask(service, lane));
+                closed
+                    .lock()
+                    .await
+                    .insert_on(id, tombstone_lane_mask(service, default_lane(service)));
                 registrations.lock().await.remove(&id);
                 if !complete {
                     cleanup.spawn(endpoint, generation, lane, id, Some((state, service)));
