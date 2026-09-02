@@ -12,18 +12,63 @@ When we change the fork, update this document and the parent submodule SHA.
 
 ## Current fork changes
 
-The submodule pinned by this branch is `466f85867`, reachable from fork `main`.
-It carries the renderer/API compatibility pin plus the Fish SSH feature-gating
-fix (`fd13a3fc2`): the embedded Ghostty CLI wrapper is installed whenever
-either `ssh-env` or `ssh-terminfo` is enabled. The pin includes the prior fork
-changes below, including tokened iOS render dispositions, VT formatter cursor
-restoration, VT stream-boundary visibility, and Hangul canonical font
-resolution.
+The submodule pinned by this branch is `b39533bc59`, a published descendant of
+fork `origin/main` `abd40f6e4` (which contains cmux's current compatibility
+pins) on
+https://github.com/manaflow-ai/ghostty/tree/fix/5490-color-scheme-protocol. It
+keeps the terminal color-scheme state authoritative across appearance callbacks
+and queued config swaps, in addition to reporting a terminal outcome for every
+accepted tokened iOS render, rejecting renderer-thread requests that iOS
+external-drain mode cannot consume, and exposing a nonblocking prompt reveal
+operation. The pin includes the prior fork changes below, including VT
+formatter cursor restoration, VT stream-boundary visibility, and Hangul
+canonical font resolution.
 
 The corresponding universal ReleaseFast GhosttyKit archive is published at
-https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-466f8586749216b686c5397d9f03e10eac1955c4-crashsubdir-cmux-crash-sentry-off-v1
-with SHA-256 `a27c76e786da0b625b4cab8c0e0ae052e559bbf598fecca1935087b262844afb`
+https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-b39533bc59a9cb820024a57c85f99dc904b6c14e-crashsubdir-cmux-crash-sentry-off-noi18n-v2
+with SHA-256 `87c0e320917fdd0803f81b085b1d5773d0ff1ea31e94f645b67d4384e0470158`
 pinned in `scripts/ghosttykit-checksums.txt`.
+
+### Kitty color-scheme Mode 2031 reporting
+
+- Commits:
+  - `d97343a37` (reapply the contributor's initial Mode 2031 report)
+  - `23df1f4d0` (restore per-surface conditional state for reports)
+  - `9c23cb4d0` (publish the immediate per-surface state update and preserve it across config swaps)
+  - `04a10e6727` (merge current fork main while retaining the protocol fix)
+  - `d59b673a7` (serialize the initial report across queued config updates)
+  - `f03fae7d0` (merge current fork main `abd40f6e4` normally)
+  - `b39533bc5` (suppress one stale same-theme config report after enable)
+- Files:
+  - `src/termio/stream_handler.zig`
+  - `src/Surface.zig`
+- Summary:
+  - Enabling private Mode 2031 queues the current `CSI ? 997;N n` report
+    immediately, while non-forced reports remain gated by the mode.
+  - Termio color reports inherit the surface's current conditional state even
+    when `Config.changeConditionalState` returns `null`, so direct queries and
+    unsolicited transitions cannot fall back to the app-level theme.
+  - A surface appearance callback updates Termio's report state under the
+    renderer mutex before queuing the transition report. A queued stale config
+    cannot overwrite that newer state while an embedder suppresses reentrant
+    reload actions.
+  - A pending enable marker suppresses non-forced reports that crossed the
+    parser boundary before the authoritative initial report; it is cleared by
+    the forced report, so later palette/config and appearance notifications are
+    not coalesced incorrectly.
+  - The existing PTY write path and `suppress_terminal_responses` guard remain
+    per-surface, including manual-mirror/replay surfaces.
+- Conflict note:
+  - The initial-report case existed in historical fork commit `74709c29b` but
+    disappeared during later upstream reconciliation. Keep it alongside the
+    current `setMode` implementation; do not select the contributor's old
+    `9fd00e0e4` pointer because it is not on current fork main. Keep the
+    conditional-state assignment with `Surface.updateConfig` when that method
+    is reconciled again.
+- Artifact:
+  - https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-b39533bc59a9cb820024a57c85f99dc904b6c14e-crashsubdir-cmux-crash-sentry-off-noi18n-v2
+  - SHA-256 `87c0e320917fdd0803f81b085b1d5773d0ff1ea31e94f645b67d4384e0470158`
+    is pinned in `scripts/ghosttykit-checksums.txt`.
 
 ### iOS tokened render disposition and nonblocking prompt reveal
 
