@@ -277,6 +277,53 @@ import Testing
         #expect(CloudWorkspaceRenameWriteThrough.remoteName(fromLocalTitle: "   ", machine: Self.machine) == nil)
     }
 
+    @Test func cloudTerminalRenameRejectsMismatchedLegacyWorkspaceFallback() throws {
+        let resources = CmuxTuiSnapshotParser.terminals(fromSnapshot: Self.sessionSnapshot, machine: Self.machine)
+        let shell = try #require(resources.first { $0.id.key == "term_shell" })
+        let workspaceID = UUID()
+
+        let exact = SurfaceProjection(
+            resource: shell.id,
+            workspaceID: workspaceID,
+            panelID: UUID(),
+            remoteWorkspaceID: "ws_api",
+            remoteTabID: "tab_2"
+        )
+        #expect(CloudWorkspaceRenameWriteThrough.remoteTabID(for: exact, resource: shell) == "tab_2")
+
+        let matchingLegacy = SurfaceProjection(
+            resource: shell.id,
+            workspaceID: workspaceID,
+            panelID: UUID(),
+            remoteWorkspaceID: "ws_api"
+        )
+        #expect(CloudWorkspaceRenameWriteThrough.remoteTabID(for: matchingLegacy, resource: shell) == "tab_2")
+
+        let mismatchedLegacy = SurfaceProjection(
+            resource: shell.id,
+            workspaceID: workspaceID,
+            panelID: UUID(),
+            remoteWorkspaceID: "ws_main"
+        )
+        #expect(CloudWorkspaceRenameWriteThrough.remoteTabID(for: mismatchedLegacy, resource: shell) == nil)
+
+        let unscopedLegacy = SurfaceProjection(
+            resource: shell.id,
+            workspaceID: workspaceID,
+            panelID: UUID()
+        )
+        #expect(CloudWorkspaceRenameWriteThrough.remoteTabID(for: unscopedLegacy, resource: shell) == "tab_2")
+
+        let build = try #require(resources.first { $0.id.key == "term_build" })
+        let ambiguous = SurfaceProjection(
+            resource: build.id,
+            workspaceID: workspaceID,
+            panelID: UUID(),
+            remoteWorkspaceID: "ws_main"
+        )
+        #expect(CloudWorkspaceRenameWriteThrough.remoteTabID(for: ambiguous, resource: build) == nil)
+    }
+
     @Test func inferredWorkspaceBindingRequiresOneCloudIdentity() throws {
         let resources = CmuxTuiSnapshotParser.terminals(fromSnapshot: Self.sessionSnapshot, machine: Self.machine)
         let shell = try #require(resources.first { $0.id.key == "term_shell" })
