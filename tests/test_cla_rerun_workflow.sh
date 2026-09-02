@@ -644,11 +644,11 @@ run_case job-missing-head-repository 0 "Requested rerun for CLA job 500 in workf
 run_case wrapped-ledger 0 "Requested rerun for CLA job 500 in workflow run 400" 1
 run_case oversized-ledger 1 "exceeds the 1 MB limit" 0
 run_case malformed-ledger 1 "not valid base64" 0
-run_case compatibility-failed 0 "Requested rerun for failed CLA v3 jobs (writer, assistant, and compatibility) in workflow run 400" 1 \
+run_case compatibility-failed 0 "Requested rerun for failed CLA result jobs (writer, v3, and compatibility) in workflow run 400" 1 \
   "repos/manaflow-ai/cmux/actions/runs/400/rerun-failed-jobs"
-run_case writer-failed 0 "Requested rerun for failed CLA v3 jobs (writer, assistant, and compatibility) in workflow run 400" 1 \
+run_case writer-failed 0 "Requested rerun for failed CLA result jobs (writer, v3, and compatibility) in workflow run 400" 1 \
   "repos/manaflow-ai/cmux/actions/runs/400/rerun-failed-jobs"
-run_case writer-only-failed 0 "Requested rerun for failed CLA v3 jobs (writer, assistant, and compatibility) in workflow run 400" 1 \
+run_case writer-only-failed 0 "Requested rerun for failed CLA result jobs (writer, v3, and compatibility) in workflow run 400" 1 \
   "repos/manaflow-ai/cmux/actions/runs/400/rerun-failed-jobs"
 run_case unexpected-failure 1 "unexpected failed job" 0
 run_case cancelled-job 1 "cancelled or non-failure job" 0
