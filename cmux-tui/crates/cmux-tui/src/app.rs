@@ -5965,15 +5965,14 @@ impl RenderedPointerFrame {
         }
         if let Some((kind, rect)) =
             self.projection_rails.iter().copied().find(|(_, rect)| rect.contains(x, y))
+            && !self.panes.iter().any(|pane| pane.content.contains(x, y))
         {
-            if !self.panes.iter().any(|pane| pane.content.contains(x, y)) {
-                return PointerRouteIdentity::Rail {
-                    kind,
-                    rect,
-                    column: x.saturating_sub(rect.x),
-                    row: y.saturating_sub(rect.y),
-                };
-            }
+            return PointerRouteIdentity::Rail {
+                kind,
+                rect,
+                column: x.saturating_sub(rect.x),
+                row: y.saturating_sub(rect.y),
+            };
         }
         if let Some(pane) = self.panes.iter().find(|pane| pane.rect.contains(x, y)) {
             let region = if pane.content.contains(x, y) {
@@ -6837,6 +6836,9 @@ impl GraphicsSceneCache {
     }
 }
 
+#[cfg(test)]
+type TimeoutDrainHook = Box<dyn FnOnce(&mut App) + Send>;
+
 pub struct App {
     pub session: OrderedSession,
     /// The local mux owned by this process. Unlike `session`, this does not
@@ -7060,7 +7062,7 @@ pub struct App {
     active_pointer_buttons: HashSet<MouseButton>,
     ignored_pty_mouse_buttons: HashSet<MouseButton>,
     #[cfg(test)]
-    timeout_drain_hook: Option<Box<dyn FnOnce(&mut Self) + Send>>,
+    timeout_drain_hook: Option<TimeoutDrainHook>,
     encoder: KeyEncoder,
     encode_buf: Vec<u8>,
     quit: bool,
@@ -8826,16 +8828,19 @@ fn ensure_managed_workspace_guard(
     Ok(())
 }
 
-pub fn run_with_machine_updates(
-    session: Session,
-    session_label: String,
-    default_colors: cmux_tui_core::DefaultColors,
-    surface_only: Option<SurfaceId>,
-    owner_mux: Option<Arc<Mux>>,
-    machine_ui: Option<MachineUiState>,
-    machine_controller: Option<Box<dyn MachineController>>,
-    startup_config: crate::config::StartupConfigSnapshot,
-) -> anyhow::Result<RunOutcome> {
+/// Everything one interactive TUI run receives from the launcher.
+pub struct RunRequest {
+    pub session: Session,
+    pub session_label: String,
+    pub default_colors: cmux_tui_core::DefaultColors,
+    pub surface_only: Option<SurfaceId>,
+    pub owner_mux: Option<Arc<Mux>>,
+    pub machine_ui: Option<MachineUiState>,
+    pub machine_controller: Option<Box<dyn MachineController>>,
+    pub startup_config: crate::config::StartupConfigSnapshot,
+}
+
+pub fn run_with_machine_updates(request: RunRequest) -> anyhow::Result<RunOutcome> {
     type PanicHook = dyn for<'a> Fn(&std::panic::PanicHookInfo<'a>) + Send + Sync + 'static;
     let previous_panic_hook: Arc<PanicHook> = Arc::from(std::panic::take_hook());
     let previous_panic_hook_for_threads = previous_panic_hook.clone();
@@ -8849,18 +8854,8 @@ pub fn run_with_machine_updates(
             previous_panic_hook_for_threads(info);
         }
     }));
-    let result = std::panic::catch_unwind(AssertUnwindSafe(|| {
-        run_with_machine_updates_inner(
-            session,
-            session_label,
-            default_colors,
-            surface_only,
-            owner_mux,
-            machine_ui,
-            machine_controller,
-            startup_config,
-        )
-    }));
+    let result =
+        std::panic::catch_unwind(AssertUnwindSafe(|| run_with_machine_updates_inner(request)));
     let _ = std::panic::take_hook();
     std::panic::set_hook(Box::new(move |info| previous_panic_hook(info)));
 
@@ -8875,16 +8870,17 @@ pub fn run_with_machine_updates(
     }
 }
 
-fn run_with_machine_updates_inner(
-    session: Session,
-    session_label: String,
-    default_colors: cmux_tui_core::DefaultColors,
-    surface_only: Option<SurfaceId>,
-    owner_mux: Option<Arc<Mux>>,
-    machine_ui: Option<MachineUiState>,
-    machine_controller: Option<Box<dyn MachineController>>,
-    startup_config: crate::config::StartupConfigSnapshot,
-) -> anyhow::Result<RunOutcome> {
+fn run_with_machine_updates_inner(request: RunRequest) -> anyhow::Result<RunOutcome> {
+    let RunRequest {
+        session,
+        session_label,
+        default_colors,
+        surface_only,
+        owner_mux,
+        machine_ui,
+        machine_controller,
+        startup_config,
+    } = request;
     if let Session::Local(mux) = &session {
         install_mux_diagnostic_logger(mux);
     }
@@ -37839,11 +37835,11 @@ mod tests {
             text: "expired".to_string(),
             deadline: Instant::now() - Duration::from_millis(1),
         });
-        let timeout_seen = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let timeout_seen = Arc::new(AtomicBool::new(false));
         let timeout_seen_in_hook = timeout_seen.clone();
         let (events, receiver) = crossbeam_channel::unbounded();
         app.timeout_drain_hook = Some(Box::new(move |app| {
-            timeout_seen_in_hook.store(true, std::sync::atomic::Ordering::Relaxed);
+            timeout_seen_in_hook.store(true, Ordering::Relaxed);
             app.toast = Some(Toast {
                 text: "reintroduced".to_string(),
                 deadline: Instant::now() - Duration::from_millis(1),
@@ -37854,7 +37850,7 @@ mod tests {
 
         app.event_loop(&mut terminal, receiver).unwrap();
 
-        assert!(timeout_seen.load(std::sync::atomic::Ordering::Relaxed));
+        assert!(timeout_seen.load(Ordering::Relaxed));
         assert_eq!(app.toast.as_ref().map(|toast| toast.text.as_str()), Some("reintroduced"));
     }
 
@@ -43930,7 +43926,6 @@ mod tests {
         );
     }
 
-    #[test]
     #[test]
     fn replaced_session_ignores_old_surface_lane_completion() {
         let first = Mux::new("surface-lane-generation-first", SurfaceOptions::default());
