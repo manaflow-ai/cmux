@@ -4282,11 +4282,10 @@ enum ConfigParentSyncOutcome {
 fn sync_config_parent_directory(parent: &Path) -> anyhow::Result<ConfigParentSyncOutcome> {
     let result = std::fs::File::open(parent).and_then(|directory| directory.sync_all());
     #[cfg(target_os = "macos")]
-    if let Err(error) = &result {
-        if matches!(error.raw_os_error(), Some(code) if code == libc::EINVAL || code == libc::ENOTSUP)
-        {
-            return Ok(ConfigParentSyncOutcome::Unsupported);
-        }
+    if let Err(error) = &result
+        && matches!(error.raw_os_error(), Some(code) if code == libc::EINVAL || code == libc::ENOTSUP)
+    {
+        return Ok(ConfigParentSyncOutcome::Unsupported);
     }
     result.map(|()| ConfigParentSyncOutcome::Synced).map_err(Into::into)
 }
@@ -7669,11 +7668,13 @@ mod tests {
         std::fs::create_dir_all(&dir).unwrap();
         let config = dir.join("config");
         std::fs::write(&config, "foreground = #010203\nbackground = #040506\n").unwrap();
-        let helper = DefaultColors {
+        // The helper child serializes application defaults that are already
+        // resolved, so the parent passes them through without resolving again.
+        let helper = resolve_ghostty_application_defaults(DefaultColors {
             fg: Some(Rgb { r: 0xa0, g: 0xa1, b: 0xa2 }),
             bg: Some(Rgb { r: 0xb0, g: 0xb1, b: 0xb2 }),
             ..Default::default()
-        };
+        });
 
         let defaults = ghostty_defaults_from_sources(
             vec![config],
