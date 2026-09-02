@@ -19,6 +19,7 @@ mock.module("../app/lib/stack", () => ({
 const {
   verifyRequest,
   clearNativeAuthCacheForTests,
+  clearStackThrottleCircuitForTests,
   invalidateNativeAuthCacheForTokens,
 } = await import("../services/vms/auth");
 
@@ -44,6 +45,7 @@ const originalTtl = process.env.CMUX_VM_AUTH_CACHE_TTL_MS;
 
 beforeEach(() => {
   clearNativeAuthCacheForTests();
+  clearStackThrottleCircuitForTests();
   getUser.mockClear();
   getUser.mockResolvedValue(fakeStackUser);
   delete process.env.CMUX_VM_AUTH_CACHE_TTL_MS;
