@@ -27,6 +27,8 @@ import {
   ACTIVE_STRIPE_PRO_STATUSES,
   PRO_PLAN_ID,
   TEAM_PLAN_ID,
+  isPaidPlanId,
+  manualVmPlanOverride,
   resolveProPlanStatus,
 } from "@/services/billing/pro";
 import { resolveBillingTeam, type BillingTeamLike } from "@/services/billing/teamResolution";
@@ -101,6 +103,9 @@ export default async function DashboardBillingPage({
   // Upgrade flow; only a portal-recoverable subscription shows Manage billing.
   const canManagePersonalBilling = status.billingManagement === "stripe";
   const isFreePlan = !status.isPro && !canManagePersonalBilling && !teamSubscription;
+  // Only a paid operator grant (pro, team, founders) is shown as granted Pro;
+  // a "free" or unknown cmuxVmPlan value is not an entitlement.
+  const hasPaidManualGrant = isPaidPlanId(manualVmPlanOverride(user.clientReadOnlyMetadata));
   const personalPaymentPastDue = subscription?.status === "past_due";
   const teamPaymentPastDue = teamSubscription?.status === "past_due";
 
@@ -154,6 +159,8 @@ export default async function DashboardBillingPage({
           subscription={subscription}
           canManageBilling={canManagePersonalBilling}
         />
+      ) : hasPaidManualGrant ? (
+        <GrantedPlan t={t} />
       ) : (
         <FreePlan t={t} showBillingPortal={canManagePersonalBilling} />
       )}
@@ -259,6 +266,17 @@ function FreePlan({
           {t("actions.viewPricing")}
         </Link>
       )}
+    </section>
+  );
+}
+
+// Pro granted by an operator (`cmuxVmPlan`), with no Stripe subscription to
+// manage. Shown so a granted account never reads as Free with an upgrade CTA.
+function GrantedPlan({ t }: { t: Awaited<ReturnType<typeof getTranslations>> }) {
+  return (
+    <section className="border border-border p-3">
+      <h2 className="text-sm font-medium">{t("pro.name")}</h2>
+      <p className="mt-2 max-w-2xl text-muted">{t("pro.grantedBody")}</p>
     </section>
   );
 }
