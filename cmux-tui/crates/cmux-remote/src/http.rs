@@ -160,6 +160,11 @@ fn read_workspace_http_token(path: &Path) -> Result<WorkspaceHttpBearerToken, io
     options.custom_flags(libc::O_NOFOLLOW);
     let mut file = options.open(path)?;
     let metadata = file.metadata()?;
+    validate_workspace_http_token_metadata(&metadata)?;
+    read_workspace_http_token_contents(&mut file)
+}
+
+fn validate_workspace_http_token_metadata(metadata: &fs::Metadata) -> Result<(), io::Error> {
     if !metadata.is_file() {
         return Err(io::Error::new(
             io::ErrorKind::InvalidData,
@@ -184,9 +189,17 @@ fn read_workspace_http_token(path: &Path) -> Result<WorkspaceHttpBearerToken, io
             ));
         }
     }
+    Ok(())
+}
+
+fn read_workspace_http_token_contents(
+    file: &mut fs::File,
+) -> Result<WorkspaceHttpBearerToken, io::Error> {
     let mut encoded = String::new();
-    file.take(MAX_HTTP_TOKEN_FILE_BYTES + 1).read_to_string(&mut encoded)?;
-    if encoded.len() > MAX_HTTP_TOKEN_FILE_BYTES as usize {
+    (&mut *file).take(MAX_HTTP_TOKEN_FILE_BYTES + 1).read_to_string(&mut encoded)?;
+    if encoded.len() > MAX_HTTP_TOKEN_FILE_BYTES as usize
+        || file.metadata()?.len() > MAX_HTTP_TOKEN_FILE_BYTES
+    {
         return Err(io::Error::new(io::ErrorKind::InvalidData, "HTTP token file is too large"));
     }
     let trimmed_length = encoded.trim_end_matches(['\r', '\n']).len();
@@ -757,9 +770,21 @@ mod tests {
     fn workspace_http_token_reader_bounds_growth_after_metadata_check() {
         let directory = tempdir().unwrap();
         let path = directory.path().join("workspace-http.token");
-        fs::write(&path, vec![b'x'; MAX_HTTP_TOKEN_FILE_BYTES as usize + 1]).unwrap();
+        fs::write(&path, b"x").unwrap();
+        #[cfg(unix)]
+        fs::set_permissions(&path, fs::Permissions::from_mode(0o600)).unwrap();
 
-        let error = read_workspace_http_token(&path).unwrap_err();
+        let mut file = OpenOptions::new().read(true).open(&path).unwrap();
+        let metadata = file.metadata().unwrap();
+        validate_workspace_http_token_metadata(&metadata).unwrap();
+        fs::OpenOptions::new()
+            .append(true)
+            .open(&path)
+            .unwrap()
+            .write_all(&vec![b'x'; MAX_HTTP_TOKEN_FILE_BYTES as usize])
+            .unwrap();
+
+        let error = read_workspace_http_token_contents(&mut file).unwrap_err();
         assert_eq!(error.kind(), io::ErrorKind::InvalidData);
         assert_eq!(error.to_string(), "HTTP token file is too large");
     }
