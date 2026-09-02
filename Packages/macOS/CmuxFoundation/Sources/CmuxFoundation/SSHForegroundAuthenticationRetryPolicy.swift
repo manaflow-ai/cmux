@@ -159,12 +159,25 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
 
           # Signals go through xargs in bounded batches so a very wide tree can
           # never exceed the exec argument limit and silently skip the sweep.
-          # The root is frozen before the first snapshot, so a snapshot that
-          # holds only the root is already stable; a wider set is frozen and
+          # The root is frozen and observed stopped before the first snapshot,
+          # so a snapshot that holds only the root is already stable; a wider set is frozen and
           # rescanned until it stops growing, and the final set is frozen once
           # more before the kill so nothing found by the last rescan can fork.
+          # kill -STOP only queues the signal; wait until the process is seen
+          # stopped (or gone) so a fork in flight cannot slip past the snapshot.
+          cmux_ssh_auth_wait_stopped() (
+            cmux_ssh_auth_wait_polls=0
+            while [ "$cmux_ssh_auth_wait_polls" -lt 50 ]; do
+              cmux_ssh_auth_wait_state=$(/bin/ps -o state= -p "$1" 2>/dev/null) || exit 0
+              case "$cmux_ssh_auth_wait_state" in *T*|*Z*|'') exit 0 ;; esac
+              /bin/sleep 0.01
+              cmux_ssh_auth_wait_polls=$((cmux_ssh_auth_wait_polls + 1))
+            done
+          )
+
           cmux_ssh_kill_auth_subtree() (
             /bin/kill -STOP "$1" >/dev/null 2>&1 || exit 0
+            cmux_ssh_auth_wait_stopped "$1"
             cmux_ssh_auth_subtree_pids=$(cmux_ssh_list_auth_subtree "$1")
             [ -n "$cmux_ssh_auth_subtree_pids" ] || cmux_ssh_auth_subtree_pids="$1"
             cmux_ssh_auth_subtree_rescan=0
