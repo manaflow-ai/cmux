@@ -2,8 +2,6 @@ import { Freestyle, FreestyleApiError, type VmData, type Vm } from "freestyle";
 import { randomBytes } from "node:crypto";
 import {
   ProviderError,
-  type AttachEndpoint,
-  type AttachOptions,
   type AttachTransport,
   type CmuxRemoteApprovalResult,
   type CmuxRemoteApprovalOptions,
@@ -12,7 +10,6 @@ import {
   type CreateOptions,
   type ExecOptions,
   type ExecResult,
-  type SSHEndpoint,
   type SnapshotRef,
   type VMHandle,
   type VMProvider,
@@ -512,32 +509,10 @@ export class FreestyleProvider implements VMProvider {
     );
   }
 
-  async openAttach(vmId: string, options?: AttachOptions): Promise<AttachEndpoint> {
-    void options;
-    throw new ProviderError(
-      "freestyle",
-      `openAttach(${vmId}) is not supported: Freestyle machines attach through the cmux-tui remote daemon (transport cmux-remote).`,
-    );
-  }
-
-  async openSSH(vmId: string): Promise<SSHEndpoint> {
-    return withVmSpan(
-      "cmux.vm.provider.open_ssh",
-      spanAttributes(vmId, "open_ssh"),
-      async () => {
-        throw new ProviderError(
-          "freestyle",
-          "Freestyle machines have no SSH gateway on the public platform. " +
-            "They attach through the cmux-tui remote daemon (transport cmux-remote).",
-        );
-      },
-    );
-  }
-
-  async revokeSSHIdentity(identityHandle: string): Promise<void> {
-    void identityHandle;
-    // openSSH always throws, so there is never an identity to revoke.
-  }
+  // No openAttach/openSSH: Freestyle machines attach only through the cmux-tui
+  // remote daemon (transport cmux-remote). Workflows refuse other transports
+  // before reaching the driver, and vmCapabilitiesOf derives the transport list
+  // from method presence.
 
   /** Installs the pinned binary, persists the model-plane env, starts the daemon (fresh create). */
   private async bootstrapCmuxTui(vm: Vm, vmId: string, envs?: Readonly<Record<string, string>>): Promise<void> {

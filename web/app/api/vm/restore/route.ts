@@ -1,6 +1,6 @@
 import { unauthorized, verifyRequest, type AuthedUser } from "../../../../services/vms/auth";
 import { assertVmCreateEnabled } from "../../../../services/vms/config";
-import { defaultProviderId } from "../../../../services/vms/drivers";
+import { defaultProviderId, vmCapabilitiesFor } from "../../../../services/vms/drivers";
 import { isVmCreateDisabledError } from "../../../../services/vms/errors";
 import { captureVmProvisionOutcome } from "../../../../services/vms/observability";
 import {
@@ -126,6 +126,7 @@ export async function POST(request: Request): Promise<Response> {
           imageVersion: restored.imageVersion,
           status: restored.status,
           createdAt: restored.createdAt,
+          capabilities: vmCapabilitiesFor(restored.provider),
         });
       } catch (err) {
         const response = vmCreateLikeErrorResponse(err, {

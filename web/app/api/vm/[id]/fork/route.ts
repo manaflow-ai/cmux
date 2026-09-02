@@ -1,3 +1,4 @@
+import { vmCapabilitiesFor } from "../../../../../services/vms/drivers";
 import { unauthorized, verifyRequest, type AuthedUser } from "../../../../../services/vms/auth";
 import {
   jsonResponse,
@@ -91,6 +92,7 @@ export async function POST(
           imageVersion: result.fork.imageVersion,
           status: result.fork.status,
           createdAt: result.fork.createdAt,
+          capabilities: vmCapabilitiesFor(result.fork.provider),
         });
       } catch (err) {
         if (isVmNotFoundError(err)) return notFoundVm(id);

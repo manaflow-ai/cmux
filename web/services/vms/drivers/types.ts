@@ -242,11 +242,29 @@ export type SnapshotRef = {
   name?: string;
 };
 
-/** What a provider can actually do, so clients hide verbs that would only fail. */
+/**
+ * What a provider can actually do, so clients hide verbs that would only fail.
+ * This is the client-visible provider contract: every VM API response carries
+ * it, and the CLI/app gates verbs on it instead of assuming a provider name.
+ */
 export interface VmCapabilities {
   readonly snapshot: boolean;
   readonly restore: boolean;
   readonly fork: boolean;
+  /** One-shot non-interactive command execution (`POST /api/vm/:id/exec`). */
+  readonly exec: boolean;
+  /** Live CPU/memory/disk readings (`GET /api/vm/:id/stats`). */
+  readonly stats: boolean;
+  /** Token-gated HTTPS preview URLs for arbitrary VM ports (`POST /api/vm/:id/open-port`). */
+  readonly ports: boolean;
+  /** A desktop (VNC) image exists for this provider. */
+  readonly desktop: boolean;
+  /** `CreateOptions.memoryMb` is honored rather than ignored. */
+  readonly sizing: boolean;
+  /** `CreateOptions.homeVolume` is honored rather than ignored. */
+  readonly persistentHome: boolean;
+  /** Session transports the driver can hand out, in preference order. */
+  readonly attachTransports: readonly AttachTransport[];
 }
 
 export interface VMProvider {
@@ -298,10 +316,11 @@ export interface VMProvider {
   // VmAttachTransportUnsupportedError before reaching the provider.
   readonly attachTransports?: readonly AttachTransport[];
 
-  // Returns a live attach endpoint the client can dial into: cmuxd-remote WebSocket PTY
-  // with a short-lived one-use lease, or SSH. Every current driver is cmux-remote only
-  // and throws here; the seam stays for a provider that serves a raw PTY again.
-  openAttach(vmId: string, options?: AttachOptions): Promise<AttachEndpoint>;
+  // Optional: a live attach endpoint the client can dial into — a cmuxd-remote WebSocket
+  // PTY with a short-lived one-use lease. A driver only implements this when it lists
+  // `websocket` in attachTransports; workflows refuse the transport before reaching a
+  // driver that omits it.
+  openAttach?(vmId: string, options?: AttachOptions): Promise<AttachEndpoint>;
 
   // Optional: attach through the cmux-tui remote daemon in the VM (see CmuxRemoteEndpoint).
   // Every cmux Cloud machine runs this daemon; providers that have not been migrated
@@ -314,14 +333,15 @@ export interface VMProvider {
     options?: CmuxRemoteApprovalOptions,
   ): Promise<CmuxRemoteApprovalResult>;
 
-  // Returns a live SSH endpoint the client can dial into. Drivers are responsible for ensuring
-  // sshd is running (some providers need an explicit start step).
-  openSSH(vmId: string): Promise<SSHEndpoint>;
+  // Optional: a live SSH endpoint the client can dial into. Drivers are responsible for
+  // ensuring sshd is running (some providers need an explicit start step). Only drivers
+  // listing `ssh` in attachTransports implement this.
+  openSSH?(vmId: string): Promise<SSHEndpoint>;
 
   // Best-effort revocation of an identity handle that `openSSH` previously returned. No-op
   // if the driver doesn't mint revocable credentials, must not throw on unknown
   // or already-revoked handles. Cleanup paths rely on it being safe to call.
-  revokeSSHIdentity(identityHandle: string): Promise<void>;
+  revokeSSHIdentity?(identityHandle: string): Promise<void>;
 
   /**
    * Invalidates endpoint credentials and live daemon connections for one VM.

@@ -1,5 +1,11 @@
 import { FreestyleProvider } from "./freestyle";
-import { isProviderId, type ProviderId, type VmCapabilities, type VMProvider } from "./types";
+import {
+  isProviderId,
+  type AttachTransport,
+  type ProviderId,
+  type VmCapabilities,
+  type VMProvider,
+} from "./types";
 
 export * from "./types";
 export { FreestyleProvider };
@@ -41,14 +47,37 @@ export function defaultProviderId(): ProviderId {
   return "freestyle";
 }
 
-/** The provider's capability set with defaults applied: an absent flag means supported,
- *  and `fork` follows the method's existence unless declared. */
+/**
+ * The provider's capability set with defaults applied. Structural facts (does the
+ * driver implement the method?) are the baseline; an explicit declaration on the
+ * driver overrides them — a driver that implements `snapshot` only to throw
+ * NotImplementedError declares `snapshot: false`. Capabilities with no structural
+ * signal (`desktop`, `sizing`, `persistentHome`) default to false: a driver must
+ * opt in to what it actually honors, so clients never see a verb that silently
+ * drops its input.
+ */
 export function vmCapabilitiesFor(id: ProviderId): VmCapabilities {
-  const provider = getProvider(id);
+  return vmCapabilitiesOf(getProvider(id));
+}
+
+/** Capability derivation for any driver instance (exported for tests and mocks). */
+export function vmCapabilitiesOf(provider: VMProvider): VmCapabilities {
   const declared = provider.capabilities ?? {};
+  const structuralTransports: AttachTransport[] = [];
+  if (typeof provider.openCmuxRemote === "function") structuralTransports.push("cmux-remote");
+  if (typeof provider.openAttach === "function") structuralTransports.push("websocket");
+  if (typeof provider.openSSH === "function") structuralTransports.push("ssh");
   return {
     snapshot: declared.snapshot ?? true,
     restore: declared.restore ?? true,
     fork: declared.fork ?? typeof provider.fork === "function",
+    exec: declared.exec ?? true,
+    stats: declared.stats ?? typeof provider.getStats === "function",
+    ports: declared.ports ?? typeof provider.openPort === "function",
+    desktop: declared.desktop ?? false,
+    sizing: declared.sizing ?? false,
+    persistentHome: declared.persistentHome ?? false,
+    attachTransports:
+      declared.attachTransports ?? provider.attachTransports ?? structuralTransports,
   };
 }

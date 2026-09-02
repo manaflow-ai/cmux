@@ -1,6 +1,6 @@
 import type { AuthedUser } from "../../../../services/vms/auth";
 import { assertVmCreateEnabled } from "../../../../services/vms/config";
-import { defaultProviderId, isProviderId, type ProviderId } from "../../../../services/vms/drivers";
+import { defaultProviderId, isProviderId, vmCapabilitiesFor, type ProviderId } from "../../../../services/vms/drivers";
 import {
   isVmCreateCreditsInsufficientError,
   isVmCreateDisabledError,
@@ -132,6 +132,7 @@ export async function runBaseRoute(input: {
     kind: imageSelection.kind,
     status: entry.status,
     createdAt: entry.createdAt,
+    capabilities: vmCapabilitiesFor(entry.provider),
     base: {
       id: entry.baseId,
       name: entry.baseName,

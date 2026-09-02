@@ -7,6 +7,7 @@ import {
 import { setSpanAttributes } from "../../../../services/telemetry";
 import { isVmNotFoundError } from "../../../../services/vms/errors";
 import { destroyVm, getVm, renameVm, runVmWorkflow } from "../../../../services/vms/workflows";
+import { vmCapabilitiesFor } from "../../../../services/vms/drivers";
 
 
 export async function GET(
@@ -38,6 +39,7 @@ export async function GET(
           status: vm.status,
           createdAt: vm.createdAt,
           displayName: vm.displayName,
+          capabilities: vmCapabilitiesFor(vm.provider),
         });
       } catch (err) {
         if (isVmNotFoundError(err)) return notFoundVm(id);

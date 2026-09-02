@@ -151,24 +151,30 @@ export const VmProviderGatewayLive = Layer.succeed(VmProviderGateway, {
   exec: (provider, vmId, command, options) =>
     providerEffect(provider, "exec", () => getProvider(provider).exec(vmId, command, options)),
   openPort: (provider, vmId, port) =>
-    providerEffect(provider, "openPort", () => {
+    providerEffect(provider, "openPort", async () => {
       const impl = getProvider(provider);
       if (!impl.openPort) {
-        throw new Error(`provider ${provider} does not support opening ports`);
+        throw new VmOperationUnsupportedError({ provider, operation: "openPort" });
       }
-      return impl.openPort(vmId, port);
+      return await impl.openPort(vmId, port);
     }),
   getStats: (provider, vmId) =>
-    providerEffect(provider, "getStats", () => {
+    providerEffect(provider, "getStats", async () => {
       const impl = getProvider(provider);
       if (!impl.getStats) {
-        throw new Error(`provider ${provider} does not report machine stats`);
+        throw new VmOperationUnsupportedError({ provider, operation: "getStats" });
       }
-      return impl.getStats(vmId);
+      return await impl.getStats(vmId);
     }),
   attachTransports: (provider) => getProvider(provider).attachTransports,
   openAttach: (provider, vmId, options) =>
-    providerEffect(provider, "openAttach", () => getProvider(provider).openAttach(vmId, options)),
+    providerEffect(provider, "openAttach", async () => {
+      const impl = getProvider(provider);
+      if (!impl.openAttach) {
+        throw new VmOperationUnsupportedError({ provider, operation: "openAttach" });
+      }
+      return await impl.openAttach(vmId, options);
+    }),
   openCmuxRemote: (provider, vmId, options) =>
     providerEffect(provider, "openCmuxRemote", () => {
       const impl = getProvider(provider);
@@ -186,11 +192,21 @@ export const VmProviderGatewayLive = Layer.succeed(VmProviderGateway, {
       return impl.approveCmuxRemoteEnrollment(vmId, invitationId, options);
     }),
   openSSH: (provider, vmId) =>
-    providerEffect(provider, "openSSH", () => getProvider(provider).openSSH(vmId)),
-  revokeSSHIdentity: (provider, identityHandle) =>
-    providerEffect(provider, "revokeSSHIdentity", () =>
-      getProvider(provider).revokeSSHIdentity(identityHandle)
-    ),
+    providerEffect(provider, "openSSH", async () => {
+      const impl = getProvider(provider);
+      if (!impl.openSSH) {
+        throw new VmOperationUnsupportedError({ provider, operation: "openSSH" });
+      }
+      return await impl.openSSH(vmId);
+    }),
+  revokeSSHIdentity: (provider, identityHandle) => {
+    const driver = getProvider(provider);
+    // A driver without openSSH never minted an identity; revocation is a no-op.
+    if (!driver.revokeSSHIdentity) return Effect.void;
+    return providerEffect(provider, "revokeSSHIdentity", () =>
+      driver.revokeSSHIdentity!(identityHandle)
+    );
+  },
   revokeEndpointLeases: (provider, vmId) => {
     const driver = getProvider(provider);
     if (!driver.revokeEndpointLeases) return Effect.void;

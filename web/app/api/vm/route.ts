@@ -418,6 +418,31 @@ export async function POST(request: Request): Promise<Response> {
           throw err;
         }
         const image = imageSelection.image;
+        // Options a caller asked for explicitly must not be dropped on the floor:
+        // if the resolved provider cannot honor them, say so instead of creating a
+        // machine that silently differs from the request.
+        const capabilities = vmCapabilitiesFor(provider);
+        if (candidate.memoryMb !== undefined && !capabilities.sizing) {
+          return vmErrorResponse({
+            error: "vm_operation_unsupported",
+            status: 400,
+            message: `The ${provider} provider does not support machine sizing; \`memoryMb\` would be ignored.`,
+            action: "Omit `memoryMb` and retry.",
+            details: { provider, field: "memoryMb" },
+          });
+        }
+        if (
+          (candidate.persistentHome === true || candidate.perMachineHome === true) &&
+          !capabilities.persistentHome
+        ) {
+          return vmErrorResponse({
+            error: "vm_operation_unsupported",
+            status: 400,
+            message: `The ${provider} provider does not support persistent home volumes; the request would be ignored.`,
+            action: "Omit `persistentHome`/`perMachineHome` and retry.",
+            details: { provider, field: candidate.persistentHome === true ? "persistentHome" : "perMachineHome" },
+          });
+        }
         setSpanAttributes(span, {
           "cmux.vm.provider": provider,
           "cmux.vm.image_set": image.length > 0,
@@ -513,6 +538,7 @@ export async function POST(request: Request): Promise<Response> {
           imageVersion: created.imageVersion,
           kind: imageSelection.kind,
           createdAt: created.createdAt,
+          capabilities: vmCapabilitiesFor(created.provider),
         });
       }
     },
