@@ -1597,6 +1597,35 @@ mod tests {
     }
 
     #[test]
+    fn shell_command_flags_follow_each_runtime_grammar() {
+        for (name, argv) in [
+            // `-o` consumes an option name in POSIX shells; it cannot be
+            // combined with `-c` to form a command flag.
+            ("bash", vec!["bash", "-oc", "codex"]),
+            ("sh", vec!["sh", "-oc", "codex"]),
+            ("zsh", vec!["zsh", "-oc", "codex"]),
+            // Fish does not accept a repeated `c` short option.
+            ("fish", vec!["fish", "-cc", "codex"]),
+            // These long forms are not command options for bash or zsh.
+            ("bash", vec!["bash", "--command", "codex"]),
+            ("zsh", vec!["zsh", "--command", "codex"]),
+        ] {
+            let job =
+                ForegroundJob { process_group_id: 7, processes: vec![process(7, name, &argv)] };
+            assert!(
+                identify_job(ManifestSet::bundled(), &job).is_none(),
+                "invalid shell command mode must not identify an argument: {argv:?}",
+            );
+        }
+
+        let fish = ForegroundJob {
+            process_group_id: 8,
+            processes: vec![process(8, "fish", &["fish", "--command=exec codex"])],
+        };
+        assert_eq!(identify_job(ManifestSet::bundled(), &fish).unwrap().0.id(), "codex");
+    }
+
+    #[test]
     fn runtime_option_values_are_not_treated_as_agent_commands() {
         for (name, argv) in [
             ("node", vec!["node", "--experimental-loader", "codex"]),
