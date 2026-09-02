@@ -28,6 +28,8 @@ use crate::config::{Config, ManagedEvents, ManagedIdentity};
 pub const MANAGED_CLIENT: &str = "cmux-relay-managed-v1";
 const ALLOWED_BACKENDS: [&str; 2] = ["https://api.chatmux.dev", "https://api-staging.chatmux.dev"];
 const E2E_BACKEND_ENV: &str = "CHATMUX_RELAY_E2E_BACKEND";
+/// Enrollment JSON is carried through the relay's bounded frame protocol.
+const MAX_ENROLLMENT_BYTES: usize = 4 << 20;
 
 #[cfg(unix)]
 static NEXT_CLEANUP_ID: AtomicU64 = AtomicU64::new(0);
@@ -413,6 +415,19 @@ mod tests {
         assert_eq!(managed.provider, "daytona");
         assert!(loaded.events.is_none());
         assert!(!Path::new(&path).exists(), "file must be shredded after the read");
+    }
+
+    #[test]
+    fn oversized_regular_enrollment_is_rejected_and_deleted() {
+        let path = fixture(&enrollment(), 0o600, "oversized");
+        let current_len = std::fs::metadata(&path).unwrap().len() as usize;
+        let padding = vec![b' '; MAX_ENROLLMENT_BYTES + 1 - current_len];
+        let mut file = std::fs::OpenOptions::new().append(true).open(&path).unwrap();
+        file.write_all(&padding).unwrap();
+
+        let error = load_managed_enrollment_file(&path, NOW).expect_err("oversized enrollment");
+        assert_eq!(error.0, "Managed enrollment file is invalid.");
+        assert!(!Path::new(&path).exists(), "oversized file must be shredded after refusal");
     }
 
     #[test]
