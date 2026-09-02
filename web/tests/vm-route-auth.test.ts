@@ -506,6 +506,7 @@ describe("VM REST auth", () => {
   });
 
   test("machine creates and Base opens both hand the minted model-plane env to the workflow", async () => {
+    process.env.FREESTYLE_SANDBOX_SNAPSHOT = "sh-fb3dcf7b47894114889b10186626af5b";
     getUser.mockResolvedValue(authedStackUser());
     runVmWorkflow.mockResolvedValue({
       providerVmId: "provider-vm-kind",
