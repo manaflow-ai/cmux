@@ -1011,7 +1011,7 @@ mod tests {
     use super::*;
     use std::os::unix::net::UnixStream;
     use std::sync::atomic::{AtomicUsize, Ordering as AtomicOrdering};
-    use std::sync::{Arc as TestArc, Barrier, Mutex as TestMutex, OnceLock, mpsc};
+    use std::sync::{Arc as TestArc, Barrier, Mutex as TestMutex, mpsc};
     use std::thread;
     use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -1064,11 +1064,25 @@ mod tests {
     async fn canonical_executable_rejects_relative_path_even_when_process_cwd_has_binary() {
         use std::os::unix::fs::PermissionsExt;
 
-        // A relay process cwd can differ from the requested launch cwd. A
-        // relative executable must not resolve against whichever cwd happens
-        // to belong to the relay process.
-        let cwd_lock = static_cwd_lock();
-        let _guard = cwd_lock.lock().expect("cwd lock");
+        const CHILD_TEST_ENV: &str = "CHATMUX_RELAY_RELATIVE_EXEC_TEST_CHILD";
+        if std::env::var_os(CHILD_TEST_ENV).is_some() {
+            if let Some(marker) = std::env::var_os("CHATMUX_RELAY_RELATIVE_EXEC_TEST_MARKER") {
+                std::fs::write(marker, b"ran").expect("write isolated test marker");
+            }
+            let mut override_env = HashMap::new();
+            override_env.insert("CHATMUX_RELAY_CMUX_TUI".to_owned(), "cmux-tui".to_owned());
+            let override_resolved = RealPtyDeps::new(override_env).resolve_cmux_tui().await;
+            let mut path_env = HashMap::new();
+            path_env.insert("PATH".to_owned(), ".".to_owned());
+            let path_resolved = RealPtyDeps::new(path_env).resolve_cmux_tui().await;
+            assert!(override_resolved.is_none());
+            assert!(path_resolved.is_none());
+            return;
+        }
+
+        // A relay process cwd can differ from the requested launch cwd. Run
+        // the cwd-sensitive half in a child process so this test never changes
+        // the process-wide cwd seen by other tests.
         let root = std::env::temp_dir().join(format!(
             "cmux-relay-relative-executable-test-{}-{}",
             std::process::id(),
@@ -1076,6 +1090,7 @@ mod tests {
         ));
         let relay_cwd = root.join("relay");
         let launch_cwd = root.join("launch");
+        let marker = root.join("child-ran");
         tokio::fs::create_dir_all(&relay_cwd).await.expect("relay cwd");
         tokio::fs::create_dir_all(&launch_cwd).await.expect("launch cwd");
         let executable = relay_cwd.join("cmux-tui");
@@ -1085,30 +1100,18 @@ mod tests {
             .expect("chmod executable");
         assert!(!launch_cwd.join("cmux-tui").exists());
 
-        let original_cwd = std::env::current_dir().expect("current cwd");
-        std::env::set_current_dir(&relay_cwd).expect("set relay cwd");
-        let mut override_env = HashMap::new();
-        override_env.insert("CHATMUX_RELAY_CMUX_TUI".to_owned(), "cmux-tui".to_owned());
-        let override_resolved = RealPtyDeps::new(override_env).resolve_cmux_tui().await;
-        let mut path_env = HashMap::new();
-        path_env.insert("PATH".to_owned(), ".".to_owned());
-        let path_resolved = RealPtyDeps::new(path_env).resolve_cmux_tui().await;
-        std::env::set_current_dir(original_cwd).expect("restore cwd");
+        let status = std::process::Command::new(std::env::current_exe().expect("test executable"))
+            .arg("--exact")
+            .arg("pty_deps::tests::canonical_executable_rejects_relative_path_even_when_process_cwd_has_binary")
+            .arg("--nocapture")
+            .env(CHILD_TEST_ENV, "1")
+            .env("CHATMUX_RELAY_RELATIVE_EXEC_TEST_MARKER", &marker)
+            .current_dir(&relay_cwd)
+            .status()
+            .expect("run isolated cwd test");
+        assert!(marker.exists(), "isolated cwd test did not run");
+        assert!(status.success(), "isolated cwd test failed: {status}");
         tokio::fs::remove_dir_all(root).await.expect("cleanup test dirs");
-
-        assert!(
-            override_resolved.is_none(),
-            "relative override resolved from relay cwd instead of launch cwd"
-        );
-        assert!(
-            path_resolved.is_none(),
-            "relative PATH entry resolved from relay cwd instead of launch cwd"
-        );
-    }
-
-    fn static_cwd_lock() -> &'static TestMutex<()> {
-        static LOCK: OnceLock<TestMutex<()>> = OnceLock::new();
-        LOCK.get_or_init(|| TestMutex::new(()))
     }
 
     #[test]
