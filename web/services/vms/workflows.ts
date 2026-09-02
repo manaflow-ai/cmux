@@ -38,6 +38,7 @@ import {
   type VmWorkflowError,
 } from "./errors";
 import { isVmFreeAccessExpired, maxActiveVmsForPlan, vmFreeAccessWindowDays } from "./entitlements";
+import { resolveOwnerNetwork } from "./privateNetwork";
 import { isProviderIdentityNotFoundError, isProviderNotFoundError } from "./providerErrors";
 import { VmProviderGateway, VmProviderGatewayLive, type VmProviderGatewayShape } from "./providerGateway";
 import {
@@ -62,6 +63,18 @@ export {
   homeVolumeTemplateForUser,
   isMachineOwnedHomeVolumeName,
 } from "./volumeNaming";
+export {
+  deletePrivateNetworkingForAccountDeletion,
+  enrollVmTunnel,
+  isWireGuardPublicKey,
+  listVmTunnels,
+  networkSlugForUser,
+  readVmTunnel,
+  resolveOwnerNetwork,
+  revokeVmTunnel,
+  tunnelSlugForDevice,
+} from "./privateNetwork";
+export type { VmTunnelDescriptor } from "./privateNetwork";
 export { reapVmResources } from "./reaper";
 export type {
   VmReaperOptions,
@@ -326,6 +339,20 @@ export function createVm(input: {
     const repo = yield* VmRepository;
     const providers = yield* VmProviderGateway;
     const billing = yield* VmBillingGateway;
+
+    // Resolved before the row is inserted and the credit reserved, so a
+    // provisioning failure here costs nothing to unwind. The network is an
+    // account-level resource — free, idempotent, and reused by every later
+    // machine — so resolving it for a create that then hits the active-VM
+    // limit is not waste, it is setup the next create no longer has to do.
+    // Null means the deployment or provider has no private networking, and the
+    // machine falls back to being reachable at its public address.
+    const network = yield* measureVmEffect(
+      input.timing,
+      "resolve_network",
+      resolveOwnerNetwork({ userId: input.userId, provider: input.provider }),
+    );
+
     const create = yield* beginCreateWithLazyProviderRefresh(repo, providers, input);
 
     if (!create.inserted) {
@@ -363,6 +390,7 @@ export function createVm(input: {
             : undefined,
         memoryMb: input.memoryMb,
         envs: input.envs,
+        ...(network ? { network: { id: network.providerNetworkId } } : {}),
       }),
     ).pipe(
       Effect.tapError((err) =>
