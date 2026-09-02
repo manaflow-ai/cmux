@@ -58614,6 +58614,23 @@
         }
       }
     },
+    "cli.vm.list.planMeter.unlimited": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$d machines on the %2$@ plan, no limit"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%2$@ プランのマシン %1$d 台（上限なし）"
+          }
+        }
+      }
+    },
     "cli.vm.list.planMeter": {
       "extractionState": "manual",
       "localizations": {
@@ -58644,6 +58661,261 @@
           "stringUnit": {
             "state": "translated",
             "value": "クラウドマシンがありません。cmux vm new を試してください"
+          }
+        }
+      }
+    },
+    "cli.vpn.address": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Your address on the network: %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ネットワーク上のあなたのアドレス: %@"
+          }
+        }
+      }
+    },
+    "cli.vpn.alreadyUp": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tunnel is already up."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "トンネルはすでに接続されています。"
+          }
+        }
+      }
+    },
+    "cli.vpn.bringingUp": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bringing the tunnel up (sudo will prompt for your password)…"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "トンネルを接続しています（sudo のパスワード入力が求められます）…"
+          }
+        }
+      }
+    },
+    "cli.vpn.down": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tunnel is down."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "トンネルを切断しました。"
+          }
+        }
+      }
+    },
+    "cli.vpn.enrolled": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Enrolled this Mac on your Cloud VM network."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "この Mac を Cloud VM ネットワークに登録しました。"
+          }
+        }
+      }
+    },
+    "cli.vpn.notUp": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tunnel is not up."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "トンネルは接続されていません。"
+          }
+        }
+      }
+    },
+    "cli.vpn.revoked": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This Mac is unenrolled from your Cloud VM network."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "この Mac は Cloud VM ネットワークから登録解除されました。"
+          }
+        }
+      }
+    },
+    "cli.vpn.rotated": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Refreshed this Mac's tunnel keys."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "この Mac のトンネル鍵を更新しました。"
+          }
+        }
+      }
+    },
+    "cli.vpn.status.backend": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Backend: %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "バックエンド: %@"
+          }
+        }
+      }
+    },
+    "cli.vpn.status.config": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Config: %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "設定ファイル: %@"
+          }
+        }
+      }
+    },
+    "cli.vpn.status.down": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tunnel: down (enrolled; run `cmux vpn up`)"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "トンネル: 切断（登録済み。`cmux vpn up` を実行してください）"
+          }
+        }
+      }
+    },
+    "cli.vpn.status.notSetUp": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tunnel: not set up (run `cmux vpn up`)"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "トンネル: 未設定（`cmux vpn up` を実行してください）"
+          }
+        }
+      }
+    },
+    "cli.vpn.status.up": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tunnel: up"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "トンネル: 接続中"
+          }
+        }
+      }
+    },
+    "cli.vpn.status.wgQuickMissing": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "wg-quick is not installed. Install with: brew install wireguard-tools"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "wg-quick がインストールされていません。`brew install wireguard-tools` でインストールしてください。"
+          }
+        }
+      }
+    },
+    "cli.vpn.up": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tunnel is up."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "トンネルが接続されました。"
           }
         }
       }
@@ -126931,13 +127203,30 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Subscribe to cmux Pro to use up to 5 machines"
+            "value": "Subscribe to cmux Pro for unlimited machines"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux Pro に登録すると最大 5 台のマシンを利用できます"
+            "value": "cmux Pro に登録するとマシンを無制限に利用できます"
+          }
+        }
+      }
+    },
+    "machines.empty.planIncludes.unlimited": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Your plan includes unlimited machines"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "現在のプランではマシンを無制限に利用できます"
           }
         }
       }
@@ -127261,6 +127550,40 @@
           "stringUnit": {
             "state": "translated",
             "value": "マシン %1$d / %2$d"
+          }
+        }
+      }
+    },
+    "machines.meter.count.unlimited": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$d machines"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "マシン %1$d 台"
+          }
+        }
+      }
+    },
+    "machines.meter.count.unlimited.single": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "1 machine"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "マシン 1 台"
           }
         }
       }
@@ -183767,6 +184090,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "管理…"
+          }
+        }
+      }
+    },
+    "settings.cloudMachines.plan.summary.unlimited": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ · %2$d machines, no limit"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ · マシン %2$d 台（上限なし）"
           }
         }
       }
@@ -272436,6 +272776,40 @@
           "stringUnit": {
             "state": "translated",
             "value": "1 台中 %1$d 台を使用中"
+          }
+        }
+      }
+    },
+    "machines.new.plan.unlimited": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$d machines in use"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$d 台を使用中"
+          }
+        }
+      }
+    },
+    "machines.new.plan.unlimited.single": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "1 machine in use"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "1 台を使用中"
           }
         }
       }

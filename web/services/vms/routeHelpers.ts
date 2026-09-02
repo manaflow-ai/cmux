@@ -10,7 +10,6 @@ import {
   isPaidVmPlan,
   isVmBillingTeamResolutionError,
   isVmProGateBlocked,
-  maxActiveVmsForPlan,
   resolveVmEntitlements,
   type VmEntitlements,
 } from "./entitlements";
@@ -27,8 +26,10 @@ import {
   isVmLimitExceededError,
   isVmNotFoundError,
   isVmOperationUnsupportedError,
+  isVmPrivateNetworkUnavailableError,
   isVmProviderOperationError,
   isVmSnapshotNotFoundError,
+  isVmTunnelNotFoundError,
   vmWorkflowErrorCause,
   type VmOperationUnsupportedError,
 } from "./errors";
@@ -171,6 +172,7 @@ export type VmLifecyclePhase =
   | "resume"
   | "attach"
   | "ssh"
+  | "network"
   | "exec"
   | "destroy"
   | "status"
@@ -391,12 +393,11 @@ export function vmActiveLimitExceededResponse(input: {
   if (input.limit <= 0) {
     // Free plans have no allowance at all: this is the subscribe gate, not a
     // "free a slot" situation.
-    const proLimit = maxActiveVmsForPlan("pro");
     return vmErrorResponse({
       error: "vm_active_limit_exceeded",
       status: 402,
       message: "Cloud VMs require a cmux Pro subscription.",
-      action: `Subscribe to cmux Pro at ${VM_UPGRADE_URL} to get access to Cloud VMs (up to ${proLimit} active machines).`,
+      action: `Subscribe to cmux Pro at ${VM_UPGRADE_URL} to get access to Cloud VMs.`,
       extra: { limit: input.limit, upgradeRequired: true, upgradeUrl: VM_UPGRADE_URL },
       details: { limit: input.limit, upgradeRequired: true },
       ...(input.phase ? { phase: input.phase } : {}),
@@ -517,6 +518,35 @@ export async function vmWorkflowErrorResponse(
         requestedTransport: workflowError.requested,
         supportedTransports: [...workflowError.supported],
       },
+    });
+  }
+
+  if (isVmPrivateNetworkUnavailableError(workflowError)) {
+    return vmErrorResponse({
+      error: "vm_private_network_unavailable",
+      status: 409,
+      message: "Cloud VM private networking is not available in this environment.",
+      action:
+        "Machines in this environment are reached at their public address, so no tunnel is needed. " +
+        "Stop offering to set one up; retrying will not change this.",
+      reason: workflowError.reason,
+      phase: "network",
+      // Not retryable on purpose: this is how the deployment is configured, so
+      // a client that backs off and retries would loop forever.
+      retryable: false,
+      details: { provider: workflowError.provider },
+    });
+  }
+
+  if (isVmTunnelNotFoundError(workflowError)) {
+    return vmErrorResponse({
+      error: "vm_tunnel_not_found",
+      status: 404,
+      message: "This computer is not enrolled on your Cloud VM network.",
+      action: "Enroll it with POST /api/vm/tunnel, then bring the WireGuard tunnel up.",
+      phase: "network",
+      retryable: false,
+      details: { deviceFingerprint: workflowError.deviceFingerprint },
     });
   }
 
@@ -741,6 +771,10 @@ function normalizedRetryAfterSeconds(value: number | undefined): number | undefi
 function vmPhaseForOperation(operation: string): VmLifecyclePhase {
   if (operation.includes("openAttach")) return "attach";
   if (operation.includes("openSSH")) return "ssh";
+  // Before the "create" check: createTunnel/createNetwork are network setup,
+  // not machine creation, and a client that read them as "create" would show
+  // machine-provisioning errors for a tunnel problem.
+  if (operation.includes("Network") || operation.includes("Tunnel")) return "network";
   if (operation.includes("create")) return "create";
   if (operation.includes("restore")) return "restore";
   if (operation.includes("fork")) return "fork";
@@ -823,7 +857,6 @@ function sanitizedProviderMessage(message: string): string {
   if (/not found|deleted/i.test(normalized)) return "VM not found";
   return normalized
     .replace(/freestyle/gi, "Cloud VM")
-    .replace(/e2b/gi, "Cloud VM")
     .slice(0, 240);
 }
 

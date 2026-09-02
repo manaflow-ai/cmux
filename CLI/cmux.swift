@@ -4597,7 +4597,7 @@ struct CMUXCLI {
             return nil
         }
         let normalized = trimmed.lowercased()
-        guard normalized == "e2b" || normalized == "freestyle" || normalized == "daytona" else {
+        guard normalized == "freestyle" else {
             throw CLIError(message: """
                 vm new: unsupported Cloud VM service override.
 
@@ -5528,6 +5528,9 @@ struct CMUXCLI {
         case "agent-hibernation":
             try runAgentHibernation(commandArgs: commandArgs, client: client, jsonOutput: jsonOutput)
 
+        case "vpn":
+            try runVPNCommand(commandArgs: commandArgs, client: client, jsonOutput: jsonOutput)
+
         case "auth", "login", "logout":
             let authArgs = command == "auth" ? commandArgs : [command] + commandArgs
             let sub = authArgs.first?.lowercased() ?? "status"
@@ -5640,20 +5643,26 @@ struct CMUXCLI {
                     print("\(pad(row.0, nameWidth))  \(labelCell)\(pad(row.2, stateWidth))  \(pad(row.3, providerWidth))  \(row.4)")
                 }
                 if let limits = response["limits"] as? [String: Any],
-                   let maxActiveVms = limits["maxActiveVms"] as? Int,
                    let planId = limits["planId"] as? String {
-                    if maxActiveVms == 1 {
+                    // Absent or null means the plan has no active-machine cap.
+                    if let maxActiveVms = limits["maxActiveVms"] as? Int, maxActiveVms == 1 {
                         let format = String(
                             localized: "cli.vm.list.planMeter.single",
                             defaultValue: "%1$d of 1 machine on the %2$@ plan"
                         )
                         print(String(format: format, vms.count, planId))
-                    } else {
+                    } else if let maxActiveVms = limits["maxActiveVms"] as? Int {
                         let format = String(
                             localized: "cli.vm.list.planMeter",
                             defaultValue: "%1$d of %2$d machines on the %3$@ plan"
                         )
                         print(String(format: format, vms.count, maxActiveVms, planId))
+                    } else {
+                        let format = String(
+                            localized: "cli.vm.list.planMeter.unlimited",
+                            defaultValue: "%1$d machines on the %2$@ plan, no limit"
+                        )
+                        print(String(format: format, vms.count, planId))
                     }
                     // Free plans: the backend says when access to the fleet closes;
                     // the footer counts down to it so the lock never comes as a surprise.
@@ -18227,6 +18236,25 @@ struct CMUXCLI {
               cmux events --cursor-file ~/.cache/cmux/events.seq --reconnect
               cmux events --after 42 --name feed.item.received
             """
+        case "vpn":
+            return """
+            Usage: cmux vpn <up|down|status|revoke>
+
+            The WireGuard tunnel between this Mac and your private Cloud VM
+            network. Cloud machines have no public ports, so `cmux vm` attach,
+            exec, and port verbs need this tunnel up.
+
+            up      Enroll this Mac (first run) and bring the tunnel up.
+                    Uses wg-quick and prompts for sudo; install with
+                    `brew install wireguard-tools`.
+            down    Take the tunnel down. Enrollment is kept.
+            status  Show tunnel state, config path, and backend.
+            revoke  Take the tunnel down and unenroll this Mac. The server
+                    deletes its side, so the saved config stops working.
+
+            The cmux app writes the config to ~/.cmuxterm/wireguard/cmux.conf
+            with the private key generated on this Mac; the key never leaves it.
+            """
         case "auth":
             return """
             Usage: cmux auth <status|login|logout>
@@ -18252,6 +18280,8 @@ struct CMUXCLI {
             Usage: cmux \(command) <base|new|ls|tree|status|stats|rename|snapshot|fork|restore|rm|run|route|agent|prompt|exec|push|pull|wait|shell|tui|desktop|open|ports|tools|handoff|promote-template|attach|ssh|ssh-info> [args...]
 
             Manage cloud VMs. `cloud` is an alias for `vm`. Requires `cmux auth login`.
+            Machines live on your private network with no public ports; run `cmux vpn up`
+            once per boot so this Mac can reach them (see `cmux help vpn`).
 
             Subcommands:
               ls                        List your cloud VMs.

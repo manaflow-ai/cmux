@@ -3,7 +3,6 @@
 //! This module is intentionally named `raw`: its request object may contain
 //! internal fields and receives no public compatibility guarantees.
 
-use std::ffi::OsString;
 use std::io::{self, BufRead, BufReader, Read, Write};
 use std::path::PathBuf;
 use std::time::Duration;
@@ -140,30 +139,7 @@ fn read_line_limited(
 }
 
 fn resolve_socket(global: &GlobalArgs) -> anyhow::Result<PathBuf> {
-    resolve_socket_with_env(global, |name| std::env::var_os(name))
-}
-
-fn resolve_socket_with_env(
-    global: &GlobalArgs,
-    env: impl Fn(&str) -> Option<OsString>,
-) -> anyhow::Result<PathBuf> {
-    if let Some(path) = &global.socket {
-        return Ok(path.clone());
-    }
-    // An explicit session selects that session's canonical socket. Keep this
-    // ahead of environment fallbacks so `--session` cannot route raw requests
-    // through a stale socket inherited from the shell.
-    if let Some(session) = &global.session {
-        return cmux_tui_core::server::try_default_socket_path(session);
-    }
-    for name in ["CMUX_TUI_SOCKET", "CMUX_MUX_SOCKET"] {
-        if let Some(path) = env(name)
-            && !path.is_empty()
-        {
-            return Ok(PathBuf::from(path));
-        }
-    }
-    cmux_tui_core::server::try_default_socket_path(global.session.as_deref().unwrap_or("main"))
+    Ok(super::wire::resolve_socket_with_origin(global)?.0)
 }
 
 #[cfg(test)]
@@ -180,11 +156,13 @@ mod tests {
     #[test]
     fn explicit_session_precedes_ambient_socket_fallbacks() {
         let global = GlobalArgs { session: Some("session-alpha".into()), ..GlobalArgs::default() };
-        let socket = resolve_socket_with_env(&global, |_| Some("/tmp/stale.sock".into()))
-            .expect("session socket path should resolve");
+        let socket = super::super::wire::resolve_socket_with_env(&global, |_| {
+            Some("/tmp/stale.sock".into())
+        })
+        .expect("session socket path should resolve");
 
         assert_eq!(
-            socket,
+            socket.0,
             cmux_tui_core::server::try_default_socket_path("session-alpha")
                 .expect("session socket path should resolve")
         );
