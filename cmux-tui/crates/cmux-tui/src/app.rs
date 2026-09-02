@@ -8386,6 +8386,9 @@ impl MachineActionWorker {
                     if let Some(receive_hook) = receive_hook.as_ref() {
                         receive_hook();
                     }
+                    if worker_stop.load(Ordering::Acquire) {
+                        break;
+                    }
                     let completion = match command {
                         MachineControllerCommand::Perform { request, preparation } => {
                             if pending_replacement.is_some() {
@@ -43793,7 +43796,7 @@ mod tests {
         let (resume_tx, resume_rx) = crossbeam_channel::bounded(1);
         let receive_count = Arc::new(AtomicU64::new(0));
         let hook_count = receive_count.clone();
-        let receive_hook: MachineActionReceiveHook = Arc::new(move || {
+        let receive_hook: super::MachineActionReceiveHook = Arc::new(move || {
             if hook_count.fetch_add(1, Ordering::SeqCst) == 1 {
                 received_tx.send(()).unwrap();
                 resume_rx.recv().unwrap();
