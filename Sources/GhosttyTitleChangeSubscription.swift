@@ -16,7 +16,7 @@ final class GhosttyTitleChangeSubscription {
             queue: .main
         ) { notification in
             guard let change = GhosttyTitleChange(notification: notification) else { return }
-            MainActor.assumeIsolated {
+            Task { @MainActor in
                 handler(change)
             }
         }

@@ -127,9 +127,10 @@ final class FocusSurfaceBroadcaster {
         maxConsecutiveCircuitDeliveries: Int? = nil,
         maxCircuitBreakerRecoveryDeliveries: Int? = nil,
         schedule: @escaping @MainActor @Sendable (@escaping @MainActor @Sendable () -> Void) -> Void = { work in
-            DispatchQueue.main.async {
-                MainActor.assumeIsolated { work() }
-            }
+            // The GCD main queue and Swift's MainActor are distinct
+            // executors. Hop explicitly so a focus notification can never
+            // trap while AppKit is draining a main-queue callback.
+            Task { @MainActor in work() }
         },
         onDrainBoundExceeded: @escaping @MainActor @Sendable (FocusSurfacePayload) -> Void = { _ in },
         onCircuitBreakerTripped: @escaping @MainActor @Sendable (FocusSurfacePayload) -> Void = { _ in },

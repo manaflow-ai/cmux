@@ -23,7 +23,11 @@ final class NotificationBurstCoalescer {
             let timer = DispatchSource.makeTimerSource(queue: .main)
             timer.schedule(deadline: .now() + .nanoseconds(nanoseconds))
             timer.setEventHandler {
-                MainActor.assumeIsolated {
+                // A DispatchSource on the main queue is not guaranteed to be
+                // executing on the Swift MainActor executor. Enqueue the
+                // actor-isolated callback explicitly instead of trapping when
+                // a title/metadata burst fires during AppKit test or menu work.
+                Task { @MainActor in
                     action()
                 }
             }
