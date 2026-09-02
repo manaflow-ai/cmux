@@ -167,6 +167,10 @@ final class DockPointerInteractionCoordinator {
     private weak var originWindow: NSWindow?
     private var initialPaneID: PaneID?
     private var initialTabID: TabID?
+    /// Records that Bonsplit already delivered a callback for the original
+    /// selection. A same-tab callback is a completed click, so mouse-up must
+    /// retire the origin instead of keeping it alive for a later mutation.
+    private var observedInitialSelectionCallback = false
 
     /// Starts a pointer transaction at the Dock boundary.
     func begin(
@@ -181,6 +185,7 @@ final class DockPointerInteractionCoordinator {
         originWindow = window
         self.initialPaneID = initialPaneID
         self.initialTabID = initialTabID
+        observedInitialSelectionCallback = false
         phase = .pressed
     }
 
@@ -188,6 +193,10 @@ final class DockPointerInteractionCoordinator {
     /// consume the explicit user origin even when delivery is delayed.
     func markReleased(in window: NSWindow?) {
         guard phase == .pressed, matches(window: window) else {
+            return
+        }
+        if observedInitialSelectionCallback {
+            cancel()
             return
         }
         phase = .released
@@ -200,6 +209,7 @@ final class DockPointerInteractionCoordinator {
         originWindow = nil
         initialPaneID = nil
         initialTabID = nil
+        observedInitialSelectionCallback = false
     }
 
     /// Consumes the origin for a selection callback whose pane/tab changed.
@@ -219,6 +229,7 @@ final class DockPointerInteractionCoordinator {
         }
         let selectionChanged = initialPaneID != paneID || initialTabID != tabID
         guard selectionChanged else {
+            observedInitialSelectionCallback = true
             // A released callback that reports the original selection is the
             // terminal callback for this pointer sequence. Keeping it alive
             // would let a later programmatic reselection consume the origin.

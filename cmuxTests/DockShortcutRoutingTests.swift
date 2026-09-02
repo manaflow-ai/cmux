@@ -1616,6 +1616,7 @@ struct DockShortcutRoutingTests {
 
                 // This is the Bonsplit tab-strip path: it selects/focuses the
                 // pane directly, without going through DockSplitStore.focusPanel.
+                harness.dock.beginUserDockPointerInteraction(window: harness.window)
                 harness.dock.bonsplitController.focusPane(harness.rootPane)
                 harness.dock.bonsplitController.selectTab(movedTab)
 
@@ -1718,14 +1719,11 @@ struct DockShortcutRoutingTests {
                     window: harness.window
                 )
 
-                let tab = try #require(
-                    harness.dock.bonsplitController.tab(secondTab)
-                )
-                harness.dock.splitTabBar(
-                    harness.dock.bonsplitController,
-                    didSelectTab: tab,
-                    inPane: harness.rootPane
-                )
+                // Drive the same Bonsplit selection API used by the tab strip.
+                // The controller mutates its selected tab before delivering
+                // `didSelectTab`; invoking the delegate alone would leave the
+                // model focused on the original tab and is not a runtime path.
+                harness.dock.bonsplitController.selectTab(secondTab)
 
                 #expect(
                     harness.appDelegate.keyboardFocusCoordinator(

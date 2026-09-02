@@ -725,9 +725,11 @@ final class DockSplitStore: BonsplitDelegate, FilePreviewTabMetadataHost {
         )
         recordExplicitPanelCreation()
         if focus {
-            bonsplitController.focusPane(paneId)
-            bonsplitController.selectTab(tabId)
-            panel.focus()
+            // A focused creation is a user-visible selection transaction. Keep
+            // Dock model selection, panel focus, and the owning window's
+            // keyboard-focus intent together so subsequent menu/shortcut
+            // dispatch cannot fall back to the main workspace.
+            focusPanelFromDockInteraction(panel.id, window: nil)
         } else {
             restoreDockPaneSelection(previousFocus)
         }
@@ -813,9 +815,7 @@ final class DockSplitStore: BonsplitDelegate, FilePreviewTabMetadataHost {
             )
             recordExplicitPanelCreation()
             if focus {
-                bonsplitController.focusPane(rootPane)
-                bonsplitController.selectTab(tabId)
-                panel.focus()
+                focusPanelFromDockInteraction(panel.id, window: nil)
             } else {
                 restoreDockPaneSelection(previousFocus)
             }
@@ -855,7 +855,7 @@ final class DockSplitStore: BonsplitDelegate, FilePreviewTabMetadataHost {
         )
         recordExplicitPanelCreation()
         if focus {
-            focusPanel(panel.id)
+            focusPanelFromDockInteraction(panel.id, window: nil)
         } else {
             restoreDockPaneSelection(previousFocus)
         }

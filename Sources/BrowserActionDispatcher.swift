@@ -208,7 +208,11 @@ struct BrowserActionDispatcher {
                   dock.browserPanel(for: target.panelId) != nil else {
                 return false
             }
-            return dock.panels.count > 1
+            // A Dock keeps its root pane when the last panel leaves, so a
+            // single Dock browser can move to a new workspace just like any
+            // other Dock surface. Workspace-owned panels retain the existing
+            // non-empty-workspace guard above.
+            return true
         }
     }
 

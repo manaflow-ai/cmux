@@ -609,9 +609,7 @@ extension DockSplitStore {
             }
             recordExplicitPanelCreation()
             if focus {
-                bonsplitController.focusPane(paneId)
-                bonsplitController.selectTab(tabId)
-                applyDockSelection(tabId: tabId, inPane: paneId)
+                focusPanelFromDockInteraction(detached.panelId, window: nil)
             }
         }
         scheduleDockPortalReconcile(reason: reconcileReason)
