@@ -287,6 +287,287 @@ enum CloudVMStateSyncMode: String, Codable, Sendable {
     case snapshotOnly = "snapshot_only"
 }
 
+/// The join key for a tab's content. A terminal and a browser may use the same
+/// daemon-local id, so the content kind is part of the identity.
+struct CloudVMTabContentKey: Hashable, Sendable {
+    var kind: String
+    var id: String
+}
+
+/// Materialized joins for one accepted daemon graph. The arrays on
+/// `CloudVMState` remain the ordered, agent-facing representation. This value is
+/// a derived lookup layer, rebuilt once at a snapshot boundary and changed only
+/// for entities named by a delta. It is deliberately not encoded: a cache must
+/// never become a second persisted source of truth.
+struct CloudVMStateIndex: Sendable {
+    var workspacesByID: [String: CloudVMWorkspaceState] = [:]
+    var screensByID: [String: CloudVMScreenState] = [:]
+    var panesByID: [String: CloudVMPaneState] = [:]
+    var tabsByID: [String: CloudVMTabState] = [:]
+    var terminalsByID: [String: CloudVMTerminalState] = [:]
+    var browsersByID: [String: CloudVMBrowserState] = [:]
+    var agentsByID: [String: CloudVMAgentState] = [:]
+    var agentsByTerminalID: [String: CloudVMAgentState] = [:]
+    var screenIDsByWorkspaceID: [String: [String]] = [:]
+    var paneIDsByScreenID: [String: [String]] = [:]
+    var tabIDsByPaneID: [String: [String]] = [:]
+    var tabIDsByContent: [CloudVMTabContentKey: [String]] = [:]
+
+    init(
+        workspaces: [CloudVMWorkspaceState],
+        screens: [CloudVMScreenState],
+        panes: [CloudVMPaneState],
+        tabs: [CloudVMTabState],
+        terminals: [CloudVMTerminalState],
+        browsers: [CloudVMBrowserState],
+        agents: [CloudVMAgentState]
+    ) {
+        for workspace in workspaces {
+            workspacesByID[workspace.id] = workspace
+        }
+        for screen in screens {
+            screensByID[screen.id] = screen
+            append(screen.id, to: &screenIDsByWorkspaceID, keyedBy: screen.workspaceID)
+        }
+        for pane in panes {
+            panesByID[pane.id] = pane
+            append(pane.id, to: &paneIDsByScreenID, keyedBy: pane.screenID)
+        }
+        for tab in tabs {
+            insertTab(tab)
+        }
+        for terminal in terminals {
+            terminalsByID[terminal.id] = terminal
+        }
+        for browser in browsers {
+            browsersByID[browser.id] = browser
+        }
+        for agent in agents {
+            insertAgent(agent)
+        }
+    }
+
+    func workspace(id: String) -> CloudVMWorkspaceState? {
+        workspacesByID[id]
+    }
+
+    func screen(id: String) -> CloudVMScreenState? {
+        screensByID[id]
+    }
+
+    func pane(id: String) -> CloudVMPaneState? {
+        panesByID[id]
+    }
+
+    func tab(id: String) -> CloudVMTabState? {
+        tabsByID[id]
+    }
+
+    func terminal(id: String) -> CloudVMTerminalState? {
+        terminalsByID[id]
+    }
+
+    func browser(id: String) -> CloudVMBrowserState? {
+        browsersByID[id]
+    }
+
+    func agent(id: String) -> CloudVMAgentState? {
+        agentsByID[id]
+    }
+
+    func agent(terminalID: String) -> CloudVMAgentState? {
+        agentsByTerminalID[terminalID]
+    }
+
+    func screenIDs(workspaceID: String) -> [String] {
+        screenIDsByWorkspaceID[workspaceID] ?? []
+    }
+
+    func paneIDs(screenID: String) -> [String] {
+        paneIDsByScreenID[screenID] ?? []
+    }
+
+    func tabIDs(paneID: String) -> [String] {
+        orderedTabIDs(tabIDsByPaneID[paneID] ?? [])
+    }
+
+    func tabs(contentKind: String, contentID: String) -> [CloudVMTabState] {
+        let key = CloudVMTabContentKey(kind: contentKind, id: contentID)
+        return orderedTabIDs(tabIDsByContent[key] ?? []).compactMap { tabsByID[$0] }
+    }
+
+    private func orderedTabIDs(_ ids: [String]) -> [String] {
+        ids.enumerated().sorted { left, right in
+            let leftIndex = tabsByID[left.element]?.index ?? Int.max
+            let rightIndex = tabsByID[right.element]?.index ?? Int.max
+            if leftIndex != rightIndex { return leftIndex < rightIndex }
+            return left.offset < right.offset
+        }.map { $0.element }
+    }
+
+    mutating func upsertWorkspace(_ workspace: CloudVMWorkspaceState) {
+        workspacesByID[workspace.id] = workspace
+    }
+
+    mutating func removeWorkspace(id: String) {
+        workspacesByID.removeValue(forKey: id)
+    }
+
+    mutating func upsertScreen(_ screen: CloudVMScreenState) {
+        if let old = screensByID[screen.id], old.workspaceID != screen.workspaceID {
+            remove(screen.id, from: &screenIDsByWorkspaceID, keyedBy: old.workspaceID)
+        }
+        screensByID[screen.id] = screen
+        appendUnique(screen.id, to: &screenIDsByWorkspaceID, keyedBy: screen.workspaceID)
+    }
+
+    mutating func removeScreen(id: String) {
+        guard let old = screensByID.removeValue(forKey: id) else { return }
+        remove(id, from: &screenIDsByWorkspaceID, keyedBy: old.workspaceID)
+    }
+
+    mutating func upsertPane(_ pane: CloudVMPaneState) {
+        if let old = panesByID[pane.id], old.screenID != pane.screenID {
+            remove(pane.id, from: &paneIDsByScreenID, keyedBy: old.screenID)
+        }
+        panesByID[pane.id] = pane
+        appendUnique(pane.id, to: &paneIDsByScreenID, keyedBy: pane.screenID)
+    }
+
+    mutating func setPaneTabIDs(_ tabIDs: [String], paneID: String) {
+        guard var pane = panesByID[paneID] else { return }
+        pane.tabIDs = tabIDs
+        panesByID[paneID] = pane
+    }
+
+    mutating func removePane(id: String) {
+        guard let old = panesByID.removeValue(forKey: id) else { return }
+        remove(id, from: &paneIDsByScreenID, keyedBy: old.screenID)
+    }
+
+    mutating func upsertTab(_ tab: CloudVMTabState) {
+        if let old = tabsByID[tab.id] {
+            removeTabReferences(old)
+        }
+        tabsByID[tab.id] = tab
+        insertTabReferences(tab)
+    }
+
+    mutating func removeTab(id: String) {
+        guard let old = tabsByID.removeValue(forKey: id) else { return }
+        removeTabReferences(old)
+    }
+
+    mutating func upsertTerminal(_ terminal: CloudVMTerminalState) {
+        terminalsByID[terminal.id] = terminal
+    }
+
+    mutating func removeTerminal(id: String) {
+        terminalsByID.removeValue(forKey: id)
+    }
+
+    mutating func upsertBrowser(_ browser: CloudVMBrowserState) {
+        browsersByID[browser.id] = browser
+    }
+
+    mutating func removeBrowser(id: String) {
+        browsersByID.removeValue(forKey: id)
+    }
+
+    mutating func upsertAgent(_ agent: CloudVMAgentState) {
+        if let old = agentsByTerminalID[agent.terminalID] {
+            removeAgent(old)
+        }
+        if let id = agent.id, let old = agentsByID[id] {
+            removeAgent(old)
+        }
+        insertAgent(agent)
+    }
+
+    mutating func removeAgent(_ agent: CloudVMAgentState) {
+        if agentsByTerminalID[agent.terminalID]?.id == agent.id {
+            agentsByTerminalID.removeValue(forKey: agent.terminalID)
+        }
+        if let id = agent.id, agentsByID[id]?.terminalID == agent.terminalID {
+            agentsByID.removeValue(forKey: id)
+        }
+    }
+
+    private mutating func insertAgent(_ agent: CloudVMAgentState) {
+        agentsByTerminalID[agent.terminalID] = agent
+        if let id = agent.id {
+            agentsByID[id] = agent
+        }
+    }
+
+    private mutating func insertTab(_ tab: CloudVMTabState) {
+        tabsByID[tab.id] = tab
+        insertTabReferences(tab)
+    }
+
+    private mutating func insertTabReferences(_ tab: CloudVMTabState) {
+        appendUnique(tab.id, to: &tabIDsByPaneID, keyedBy: tab.paneID)
+        appendUnique(
+            tab.id,
+            to: &tabIDsByContent,
+            keyedBy: CloudVMTabContentKey(kind: tab.contentKind, id: tab.contentID)
+        )
+    }
+
+    private mutating func removeTabReferences(_ tab: CloudVMTabState) {
+        remove(tab.id, from: &tabIDsByPaneID, keyedBy: tab.paneID)
+        remove(
+            tab.id,
+            from: &tabIDsByContent,
+            keyedBy: CloudVMTabContentKey(kind: tab.contentKind, id: tab.contentID)
+        )
+    }
+
+    private func append<Value: Hashable>(_ value: Value, to map: inout [String: [Value]], keyedBy key: String) {
+        map[key, default: []].append(value)
+    }
+
+    private func appendUnique<Value: Hashable>(_ value: Value, to map: inout [String: [Value]], keyedBy key: String) {
+        if !map[key, default: []].contains(value) {
+            map[key, default: []].append(value)
+        }
+    }
+
+    private func appendUnique<Value: Hashable, Key: Hashable>(
+        _ value: Value,
+        to map: inout [Key: [Value]],
+        keyedBy key: Key
+    ) {
+        if !map[key, default: []].contains(value) {
+            map[key, default: []].append(value)
+        }
+    }
+
+    private func remove<Value: Equatable>(_ value: Value, from map: inout [String: [Value]], keyedBy key: String) {
+        guard var values = map[key] else { return }
+        values.removeAll { $0 == value }
+        if values.isEmpty {
+            map.removeValue(forKey: key)
+        } else {
+            map[key] = values
+        }
+    }
+
+    private func remove<Value: Equatable, Key: Hashable>(
+        _ value: Value,
+        from map: inout [Key: [Value]],
+        keyedBy key: Key
+    ) {
+        guard var values = map[key] else { return }
+        values.removeAll { $0 == value }
+        if values.isEmpty {
+            map.removeValue(forKey: key)
+        } else {
+            map[key] = values
+        }
+    }
+}
+
 /// Complete state for one remote cmux-tui session.
 ///
 /// `rawSnapshot` preserves fields that this app does not understand yet. The
@@ -306,6 +587,109 @@ struct CloudVMState: Hashable, Codable, Sendable {
     var browsers: [CloudVMBrowserState]
     var agents: [CloudVMAgentState]
     var otherEntities: [CloudVMEntity]
+    /// Derived joins are rebuilt at snapshot boundaries and updated transactionally
+    /// with accepted deltas. They are excluded from Codable below.
+    var lookupIndex: CloudVMStateIndex
+
+    init(
+        machine: SurfaceMachineID,
+        cursor: CloudVMCursor?,
+        rawSnapshot: Data,
+        workspaces: [CloudVMWorkspaceState],
+        screens: [CloudVMScreenState],
+        panes: [CloudVMPaneState],
+        tabs: [CloudVMTabState],
+        terminals: [CloudVMTerminalState],
+        browsers: [CloudVMBrowserState],
+        agents: [CloudVMAgentState],
+        otherEntities: [CloudVMEntity],
+        lookupIndex: CloudVMStateIndex? = nil
+    ) {
+        self.machine = machine
+        self.cursor = cursor
+        self.rawSnapshot = rawSnapshot
+        self.workspaces = workspaces
+        self.screens = screens
+        self.panes = panes
+        self.tabs = tabs
+        self.terminals = terminals
+        self.browsers = browsers
+        self.agents = agents
+        self.otherEntities = otherEntities
+        self.lookupIndex = lookupIndex ?? CloudVMStateIndex(
+            workspaces: workspaces,
+            screens: screens,
+            panes: panes,
+            tabs: tabs,
+            terminals: terminals,
+            browsers: browsers,
+            agents: agents
+        )
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case machine, cursor, rawSnapshot, workspaces, screens, panes, tabs, terminals, browsers, agents, otherEntities
+    }
+
+    init(from decoder: any Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.init(
+            machine: try container.decode(SurfaceMachineID.self, forKey: .machine),
+            cursor: try container.decodeIfPresent(CloudVMCursor.self, forKey: .cursor),
+            rawSnapshot: try container.decode(Data.self, forKey: .rawSnapshot),
+            workspaces: try container.decodeIfPresent([CloudVMWorkspaceState].self, forKey: .workspaces) ?? [],
+            screens: try container.decodeIfPresent([CloudVMScreenState].self, forKey: .screens) ?? [],
+            panes: try container.decodeIfPresent([CloudVMPaneState].self, forKey: .panes) ?? [],
+            tabs: try container.decodeIfPresent([CloudVMTabState].self, forKey: .tabs) ?? [],
+            terminals: try container.decodeIfPresent([CloudVMTerminalState].self, forKey: .terminals) ?? [],
+            browsers: try container.decodeIfPresent([CloudVMBrowserState].self, forKey: .browsers) ?? [],
+            agents: try container.decodeIfPresent([CloudVMAgentState].self, forKey: .agents) ?? [],
+            otherEntities: try container.decodeIfPresent([CloudVMEntity].self, forKey: .otherEntities) ?? []
+        )
+    }
+
+    func encode(to encoder: any Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(machine, forKey: .machine)
+        try container.encodeIfPresent(cursor, forKey: .cursor)
+        try container.encode(rawSnapshot, forKey: .rawSnapshot)
+        try container.encode(workspaces, forKey: .workspaces)
+        try container.encode(screens, forKey: .screens)
+        try container.encode(panes, forKey: .panes)
+        try container.encode(tabs, forKey: .tabs)
+        try container.encode(terminals, forKey: .terminals)
+        try container.encode(browsers, forKey: .browsers)
+        try container.encode(agents, forKey: .agents)
+        try container.encode(otherEntities, forKey: .otherEntities)
+    }
+
+    static func == (lhs: CloudVMState, rhs: CloudVMState) -> Bool {
+        lhs.machine == rhs.machine
+            && lhs.cursor == rhs.cursor
+            && lhs.rawSnapshot == rhs.rawSnapshot
+            && lhs.workspaces == rhs.workspaces
+            && lhs.screens == rhs.screens
+            && lhs.panes == rhs.panes
+            && lhs.tabs == rhs.tabs
+            && lhs.terminals == rhs.terminals
+            && lhs.browsers == rhs.browsers
+            && lhs.agents == rhs.agents
+            && lhs.otherEntities == rhs.otherEntities
+    }
+
+    func hash(into hasher: inout Hasher) {
+        hasher.combine(machine)
+        hasher.combine(cursor)
+        hasher.combine(rawSnapshot)
+        hasher.combine(workspaces)
+        hasher.combine(screens)
+        hasher.combine(panes)
+        hasher.combine(tabs)
+        hasher.combine(terminals)
+        hasher.combine(browsers)
+        hasher.combine(agents)
+        hasher.combine(otherEntities)
+    }
 
     var syncMode: CloudVMStateSyncMode {
         cursor == nil ? .snapshotOnly : .journaled

@@ -121,7 +121,11 @@ today; it is kept for a future non-root cloud home.
 
 `CloudVMState.rawSnapshot` is the one local copy of the daemon graph. Its typed
 workspace, screen, pane, tab, terminal, browser, agent, and opaque-entity arrays
-are indexes derived from those bytes. `SurfaceCatalog` stores that state with
+are projections derived from those bytes. A materialized ID and relationship
+index is built with each accepted snapshot and updated only for entities named
+by an accepted delta. Row-local publication therefore does not allocate maps for
+the rest of the VM graph. The index is a cache, excluded from encoded state, and
+is never an independent write source. `SurfaceCatalog` stores that state with
 the derived surface rows in one main-actor transaction. No sidebar, CLI, or
 pane keeps a second remote graph.
 
@@ -152,9 +156,11 @@ non-null cursor rejects the document.
 
 Derived-row work follows an explicit boundary. A title, lifecycle, agent badge,
 focus, index, or same-placement tab-name change rebuilds only the affected
-resource rows. A workspace, screen, pane, relationship, create, delete, move,
-or content change rebuilds all rows. The raw graph is committed first in both
-cases, so a small update and a full update have the same source of truth.
+resource rows through the materialized joins. A workspace, screen, pane,
+relationship, create, delete, move, or content change rebuilds all rows. The raw
+graph is committed first in both cases, so a small update and a full update have
+the same source of truth. A malformed relationship still rejects the complete
+delta and enters bounded snapshot recovery.
 
 Identity is always an ID, never a display name. A persisted
 `WorkspaceCloudVMBinding.remoteWorkspaceID` identifies the daemon workspace

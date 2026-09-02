@@ -382,30 +382,24 @@ struct CmuxTuiSnapshotParser: Sendable {
         return resources(fromSnapshot: snapshot, machine: state.machine)
     }
 
-    /// Re-derives only selected resource rows from the exact state bytes. Relationship maps
-    /// are built once because a tab rename can join through pane and screen, but unrelated
-    /// terminals and browsers are never allocated, sorted, or compared. The provider uses
-    /// this for row-local deltas and reserves the complete path for topology changes.
+    /// Re-derives only selected resource rows from the materialized state index. A tab rename
+    /// joins through pane and screen with constant-time lookups; unrelated graph rows are not
+    /// allocated, sorted, or compared. The provider uses this for row-local deltas and reserves
+    /// the complete path for topology changes.
     static func resources(
         from state: CloudVMState,
         matching resourceIDs: Set<SurfaceResourceID>
     ) -> [SurfaceResource] {
         guard !resourceIDs.isEmpty else { return [] }
 
-        // Row-local deltas use the typed graph directly. The graph was accepted
+        // Row-local deltas use the typed graph index directly. The graph was accepted
         // at a full snapshot boundary, and applyingTypedDelta checked the changed
         // relationship neighborhood, so decoding rawSnapshot here would repeat
         // the full-document validation on every title or agent update.
-        let workspaces = Dictionary(uniqueKeysWithValues: state.workspaces.map { ($0.id, $0) })
-        let screens = Dictionary(uniqueKeysWithValues: state.screens.map { ($0.id, $0) })
-        let panes = Dictionary(uniqueKeysWithValues: state.panes.map { ($0.id, $0) })
-        let tabs = Dictionary(uniqueKeysWithValues: state.tabs.map { ($0.id, $0) })
-        let agents = Dictionary(uniqueKeysWithValues: state.agents.map { ($0.terminalID, $0) })
-
         func workspace(for tab: CloudVMTabState) -> SurfaceRemoteWorkspace? {
-            guard let pane = panes[tab.paneID],
-                  let screen = screens[pane.screenID],
-                  let workspace = workspaces[screen.workspaceID]
+            guard let pane = state.lookupIndex.pane(id: tab.paneID),
+                  let screen = state.lookupIndex.screen(id: pane.screenID),
+                  let workspace = state.lookupIndex.workspace(id: screen.workspaceID)
             else { return nil }
             return SurfaceRemoteWorkspace(
                 id: workspace.id,
@@ -420,7 +414,9 @@ struct CmuxTuiSnapshotParser: Sendable {
             return SurfaceRemoteView(
                 tabID: tab.id,
                 workspace: workspace,
-                screenID: panes[tab.paneID].flatMap { screens[$0.screenID]?.id },
+                screenID: state.lookupIndex.pane(id: tab.paneID).flatMap {
+                    state.lookupIndex.screen(id: $0.screenID)?.id
+                },
                 paneID: tab.paneID,
                 name: tab.name,
                 index: tab.index,
@@ -432,7 +428,7 @@ struct CmuxTuiSnapshotParser: Sendable {
         for resourceID in resourceIDs where resourceID.machine == state.machine {
             switch resourceID.kind {
             case .terminal:
-                guard let terminal = state.terminals.first(where: { $0.id == resourceID.key }) else { continue }
+                guard let terminal = state.lookupIndex.terminal(id: resourceID.key) else { continue }
                 let tabIDs = uniquePreservingOrder(terminal.tabIDs)
                 if terminal.lifecycle == SurfaceLifecycle.exited.rawValue, tabIDs.isEmpty { continue }
                 var resource = SurfaceResource(
@@ -441,7 +437,7 @@ struct CmuxTuiSnapshotParser: Sendable {
                     detail: terminal.cwd,
                     lifecycle: SurfaceLifecycle(rawValue: terminal.lifecycle)
                         ?? (terminal.running == true ? .running : .exited),
-                    agent: agents[terminal.id].map {
+                    agent: state.lookupIndex.agent(terminalID: terminal.id).map {
                         SurfaceAgentBadge(state: $0.state, source: $0.source)
                     },
                     remoteWorkspace: nil,
@@ -449,7 +445,7 @@ struct CmuxTuiSnapshotParser: Sendable {
                     url: nil
                 )
                 resource.remoteViews = tabIDs.compactMap { tabID in
-                    guard let tab = tabs[tabID],
+                    guard let tab = state.lookupIndex.tab(id: tabID),
                           tab.contentKind == "terminal",
                           tab.contentID == terminal.id
                     else { return nil }
@@ -458,8 +454,8 @@ struct CmuxTuiSnapshotParser: Sendable {
                 resource.remoteWorkspace = resource.remoteViews?.first?.workspace
                 resources.append(resource)
             case .browser:
-                guard let browser = state.browsers.first(where: { $0.id == resourceID.key }) else { continue }
-                let remoteView: SurfaceRemoteView? = tabs[browser.tabID].flatMap { tab in
+                guard let browser = state.lookupIndex.browser(id: resourceID.key) else { continue }
+                let remoteView: SurfaceRemoteView? = state.lookupIndex.tab(id: browser.tabID).flatMap { tab in
                     guard tab.contentKind == "browser", tab.contentID == browser.id else { return nil }
                     return view(for: tab)
                 }
@@ -477,7 +473,7 @@ struct CmuxTuiSnapshotParser: Sendable {
                 resources.append(resource)
             case .display:
                 var views: [SurfaceRemoteView] = []
-                for tab in state.tabs where tab.contentKind == "display" && tab.contentID == resourceID.key {
+                for tab in state.lookupIndex.tabs(contentKind: "display", contentID: resourceID.key) {
                     if let remoteView = view(for: tab) { views.append(remoteView) }
                 }
                 guard !views.isEmpty else { continue }
@@ -493,7 +489,7 @@ struct CmuxTuiSnapshotParser: Sendable {
     }
 
     /// Applies one contiguous `session.delta` batch to the complete raw graph,
-    /// then rebuilds the typed indexes from that one result. The impact tells the
+    /// then updates the materialized typed index for the changed entities. The impact tells the
     /// provider whether it can update selected resource rows or must rebuild all
     /// relationships. Upserts replace an entity in place, deletes remove it, and
     /// unknown resource kinds refuse the batch so the caller can fetch a snapshot.
@@ -722,6 +718,7 @@ struct CmuxTuiSnapshotParser: Sendable {
                 } else {
                     next.workspaces.append(decoded)
                 }
+                next.lookupIndex.upsertWorkspace(decoded)
             case ("screen", "upsert"):
                 let existingIndex = next.screens.firstIndex(where: { $0.id == id })
                 let fallbackIndex = existingIndex.map { next.screens[$0].index } ?? next.screens.count
@@ -733,6 +730,7 @@ struct CmuxTuiSnapshotParser: Sendable {
                 } else {
                     next.screens.append(decoded)
                 }
+                next.lookupIndex.upsertScreen(decoded)
             case ("pane", "upsert"):
                 guard let value,
                       let decoded = paneState(
@@ -745,6 +743,7 @@ struct CmuxTuiSnapshotParser: Sendable {
                 } else {
                     next.panes.append(decoded)
                 }
+                next.lookupIndex.upsertPane(decoded)
                 changedPaneIDs.insert(id)
             case ("tab", "upsert"):
                 let old = next.tabs.first { $0.id == id }
@@ -765,6 +764,7 @@ struct CmuxTuiSnapshotParser: Sendable {
                 } else {
                     next.tabs.append(decoded)
                 }
+                next.lookupIndex.upsertTab(decoded)
             case ("terminal", "upsert"):
                 guard let value,
                       let decoded = terminalState(from: value)
@@ -774,6 +774,7 @@ struct CmuxTuiSnapshotParser: Sendable {
                 } else {
                     next.terminals.append(decoded)
                 }
+                next.lookupIndex.upsertTerminal(decoded)
             case ("browser", "upsert"):
                 guard let value,
                       let decoded = browserState(from: value)
@@ -783,6 +784,7 @@ struct CmuxTuiSnapshotParser: Sendable {
                 } else {
                     next.browsers.append(decoded)
                 }
+                next.lookupIndex.upsertBrowser(decoded)
             case ("agent", "upsert"):
                 guard let value else { return nil }
                 guard applyAgentUpsert(value: value, change: change, to: &next) else { return nil }
@@ -790,22 +792,28 @@ struct CmuxTuiSnapshotParser: Sendable {
                 opaqueResources.insert(resource)
             case ("workspace", "delete"):
                 next.workspaces.removeAll { $0.id == id }
+                next.lookupIndex.removeWorkspace(id: id)
             case ("screen", "delete"):
                 next.screens.removeAll { $0.id == id }
+                next.lookupIndex.removeScreen(id: id)
             case ("pane", "delete"):
                 if let pane = next.panes.first(where: { $0.id == id }) {
                     changedPaneIDs.insert(pane.id)
                 }
                 next.panes.removeAll { $0.id == id }
+                next.lookupIndex.removePane(id: id)
             case ("tab", "delete"):
                 if let tab = next.tabs.first(where: { $0.id == id }) {
                     changedPaneIDs.insert(tab.paneID)
                 }
                 next.tabs.removeAll { $0.id == id }
+                next.lookupIndex.removeTab(id: id)
             case ("terminal", "delete"):
                 next.terminals.removeAll { $0.id == id }
+                next.lookupIndex.removeTerminal(id: id)
             case ("browser", "delete"):
                 next.browsers.removeAll { $0.id == id }
+                next.lookupIndex.removeBrowser(id: id)
             case ("agent", "delete"):
                 guard applyAgentDelete(change: change, to: &next) else { return nil }
             case (_, "delete") where !["workspace", "screen", "pane", "tab", "terminal", "browser", "agent"].contains(resource):
@@ -819,7 +827,9 @@ struct CmuxTuiSnapshotParser: Sendable {
         // a topology path, so the affected panes are the only rows rescanned.
         for paneID in changedPaneIDs {
             guard let index = next.panes.firstIndex(where: { $0.id == paneID }) else { continue }
-            next.panes[index].tabIDs = next.tabs.filter { $0.paneID == paneID }.map(\.id)
+            let tabIDs = next.lookupIndex.tabIDs(paneID: paneID)
+            next.panes[index].tabIDs = tabIDs
+            next.lookupIndex.setPaneTabIDs(tabIDs, paneID: paneID)
         }
         for resource in opaqueResources {
             refreshOpaqueEntities(resource: resource, snapshot: snapshot, state: &next)
@@ -960,13 +970,16 @@ struct CmuxTuiSnapshotParser: Sendable {
             return false
         }
         if let targetIndex {
+            let old = state.agents[targetIndex]
             if explicitID == nil, decoded.id == nil, let existingID = state.agents[targetIndex].id {
                 decoded.id = existingID
             }
             state.agents[targetIndex] = decoded
+            state.lookupIndex.removeAgent(old)
         } else {
             state.agents.append(decoded)
         }
+        state.lookupIndex.upsertAgent(decoded)
         return true
     }
 
@@ -977,13 +990,17 @@ struct CmuxTuiSnapshotParser: Sendable {
         if let explicitID,
            let index = state.agents.firstIndex(where: { $0.id == explicitID }) {
             if let terminalID, state.agents[index].terminalID != terminalID { return false }
+            let old = state.agents[index]
             state.agents.remove(at: index)
+            state.lookupIndex.removeAgent(old)
             return true
         }
         guard let terminalID,
               let index = state.agents.firstIndex(where: { $0.id == nil && $0.terminalID == terminalID })
         else { return false }
+        let old = state.agents[index]
         state.agents.remove(at: index)
+        state.lookupIndex.removeAgent(old)
         return true
     }
 
@@ -1048,25 +1065,25 @@ struct CmuxTuiSnapshotParser: Sendable {
             switch resource {
             case "workspace":
                 if operation == "delete" {
-                    guard !next.screens.contains(where: { $0.workspaceID == id }) else { return false }
+                    guard next.lookupIndex.screenIDs(workspaceID: id).isEmpty else { return false }
                 } else {
-                    guard next.workspaces.contains(where: { $0.id == id }) else { return false }
+                    guard next.lookupIndex.workspace(id: id) != nil else { return false }
                 }
             case "screen":
                 if operation == "delete" {
-                    guard !next.panes.contains(where: { $0.screenID == id }) else { return false }
-                } else if let screen = next.screens.first(where: { $0.id == id }) {
-                    guard next.workspaces.contains(where: { $0.id == screen.workspaceID }) else { return false }
+                    guard next.lookupIndex.paneIDs(screenID: id).isEmpty else { return false }
+                } else if let screen = next.lookupIndex.screen(id: id) {
+                    guard next.lookupIndex.workspace(id: screen.workspaceID) != nil else { return false }
                 } else { return false }
             case "pane":
                 if operation == "delete" {
-                    guard !next.tabs.contains(where: { $0.paneID == id }) else { return false }
-                } else if let pane = next.panes.first(where: { $0.id == id }) {
-                    guard next.screens.contains(where: { $0.id == pane.screenID }) else { return false }
+                    guard next.lookupIndex.tabIDs(paneID: id).isEmpty else { return false }
+                } else if let pane = next.lookupIndex.pane(id: id) {
+                    guard next.lookupIndex.screen(id: pane.screenID) != nil else { return false }
                 } else { return false }
             case "tab":
-                let old = previous.tabs.first { $0.id == id }
-                let current = next.tabs.first { $0.id == id }
+                let old = previous.lookupIndex.tab(id: id)
+                let current = next.lookupIndex.tab(id: id)
                 for tab in [old, current].compactMap({ $0 }) {
                     if let terminalID = tab.contentKind == "terminal" ? tab.contentID : nil {
                         affectedTerminalIDs.insert(terminalID)
@@ -1077,7 +1094,7 @@ struct CmuxTuiSnapshotParser: Sendable {
                 }
                 if operation != "delete" {
                     guard let tab = current,
-                          next.panes.contains(where: { $0.id == tab.paneID })
+                          next.lookupIndex.pane(id: tab.paneID) != nil
                     else { return false }
                 }
             case "terminal":
@@ -1093,25 +1110,25 @@ struct CmuxTuiSnapshotParser: Sendable {
             }
         }
         for terminalID in affectedTerminalIDs {
-            guard let terminal = next.terminals.first(where: { $0.id == terminalID }) else { continue }
+            guard let terminal = next.lookupIndex.terminal(id: terminalID) else { continue }
             for tabID in terminal.tabIDs {
-                guard let tab = next.tabs.first(where: { $0.id == tabID }) else { continue }
+                guard let tab = next.lookupIndex.tab(id: tabID) else { continue }
                 guard tab.contentKind == "terminal", tab.contentID == terminalID else { return false }
             }
         }
         for browserID in affectedBrowserIDs {
-            guard let browser = next.browsers.first(where: { $0.id == browserID }) else { continue }
-            if let tab = next.tabs.first(where: { $0.id == browser.tabID }) {
+            guard let browser = next.lookupIndex.browser(id: browserID) else { continue }
+            if let tab = next.lookupIndex.tab(id: browser.tabID) {
                 guard tab.contentKind == "browser", tab.contentID == browserID else { return false }
             }
         }
         // Agent terminal relationships are unique in the public schema. Check
-        // the compact set once only when a batch touches an agent row.
+        // the materialized relationship map once only when a batch touches an agent row.
         if changes.contains(where: { nonEmptyString($0["resource"]) == "agent" }) {
-            var seen = Set<String>()
-            for agent in next.agents {
-                guard seen.insert(agent.terminalID).inserted else { return false }
-            }
+            let explicitAgentCount = next.agents.lazy.filter { $0.id != nil }.count
+            guard next.lookupIndex.agentsByTerminalID.count == next.agents.count,
+                  next.lookupIndex.agentsByID.count == explicitAgentCount
+            else { return false }
         }
         return true
     }
@@ -1139,8 +1156,8 @@ struct CmuxTuiSnapshotParser: Sendable {
             }
             switch resource {
             case "terminal":
-                let old = previous.terminals.first { $0.id == id }
-                let current = next.terminals.first { $0.id == id }
+                let old = previous.lookupIndex.terminal(id: id)
+                let current = next.lookupIndex.terminal(id: id)
                 // A terminal's tab list is a relationship change. Its title, lifecycle, and
                 // dimensions are row-local and can use the targeted path.
                 if old?.tabIDs != current?.tabIDs {
@@ -1148,8 +1165,8 @@ struct CmuxTuiSnapshotParser: Sendable {
                 }
                 impact.resourceIDs.insert(SurfaceResourceID(machine: next.machine, kind: .terminal, key: id))
             case "browser":
-                let old = previous.browsers.first { $0.id == id }
-                let current = next.browsers.first { $0.id == id }
+                let old = previous.lookupIndex.browser(id: id)
+                let current = next.lookupIndex.browser(id: id)
                 if old?.tabID != current?.tabID {
                     impact.requiresFullResourceRebuild = true
                 }
@@ -1157,17 +1174,17 @@ struct CmuxTuiSnapshotParser: Sendable {
             case "agent":
                 let explicitID = nonEmptyString(change["id"])
                 let valueTerminalID = (change["value"] as? [String: Any]).flatMap { nonEmptyString($0["terminal_id"]) }
-                let oldTerminalID = previous.agents.first {
-                    ($0.id == id) || (explicitID == nil && $0.terminalID == id)
-                }?.terminalID
+                let oldAgent = explicitID.flatMap { previous.lookupIndex.agent(id: $0) }
+                    ?? (explicitID == nil ? previous.lookupIndex.agent(terminalID: id) : nil)
+                let oldTerminalID = oldAgent?.terminalID
                 // A reassigned agent changes two terminal rows: remove the old badge and
                 // publish the new one. Deletes only have the old relationship.
                 for terminalID in [oldTerminalID, valueTerminalID].compactMap({ $0 }) {
                     impact.resourceIDs.insert(SurfaceResourceID(machine: next.machine, kind: .terminal, key: terminalID))
                 }
             case "tab":
-                let old = previous.tabs.first { $0.id == id }
-                let current = next.tabs.first { $0.id == id }
+                let old = previous.lookupIndex.tab(id: id)
+                let current = next.lookupIndex.tab(id: id)
                 guard current != nil || old != nil else {
                     impact.requiresFullResourceRebuild = true
                     continue

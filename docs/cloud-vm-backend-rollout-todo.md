@@ -76,12 +76,13 @@ browsers, and agents. The macOS app must not create a second remote graph.
   process-wide coordinator, so two local windows cannot send the same remote
   tab or workspace out of order. A local binding or projection stores the
   exact remote ID; legacy fallback is allowed only for one unambiguous view.
-- Delta publication uses an explicit impact set. Title, lifecycle, agent, and
-  same-placement tab changes rebuild only the affected resource rows. Any
+- Delta publication uses an explicit impact set and a materialized typed-graph
+  index. Title, lifecycle, agent, and same-placement tab changes update only
+  the touched index entries and rebuild only the affected resource rows. Any
   relationship-root, creation, deletion, move, or content change rebuilds the
-  complete derived resource set. The raw graph is always updated first, so a
-  targeted row is still derived from the same authoritative bytes as a full
-  snapshot.
+  complete derived resource set. The raw graph is always updated first, and the
+  index is a non-persisted cache, so a targeted row is still derived from the
+  same authoritative bytes as a full snapshot.
 - Freshness is explicit: `current`, `stale`, and `unavailable` are distinct
   states. A cached graph may be displayed as stale, but it may not authorize a
   new placement or rename.
