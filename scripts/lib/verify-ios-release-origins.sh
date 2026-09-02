@@ -1,8 +1,6 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-PLISTBUDDY="${PLISTBUDDY:-/usr/libexec/PlistBuddy}"
-
 # Fail-closed artifact gate for every signed/unsigned iOS Release archive.
 # TestFlight and App Store builds use the production Stack project and must
 # carry only production API, Iroh broker, and presence origins. This checks the
@@ -31,7 +29,32 @@ PLIST="$APP/Info.plist"
 
 read_plist() {
   local key="$1"
-  "$PLISTBUDDY" -c "Print :$key" "$PLIST" 2>/dev/null || true
+  if [[ -x /usr/libexec/PlistBuddy ]]; then
+    # Keep release verification tied to Apple's system tool. Do not honor an
+    # environment override here, because that would let a caller replace the
+    # verifier and bypass this gate.
+    /usr/libexec/PlistBuddy -c "Print :$key" "$PLIST" 2>/dev/null || true
+    return
+  fi
+
+  # Linux CI does not provide PlistBuddy. Use the fixed system Python parser
+  # only for that test environment; production macOS always takes the branch
+  # above.
+  /usr/bin/python3 - "$PLIST" "$key" <<'PY' 2>/dev/null || true
+import plistlib
+import sys
+
+with open(sys.argv[1], "rb") as stream:
+    value = plistlib.load(stream)
+for component in sys.argv[2].split(":"):
+    value = value[component]
+if isinstance(value, bool):
+    print("true" if value else "false")
+elif isinstance(value, (dict, list)):
+    print(plistlib.dumps(value, fmt=plistlib.FMT_XML).decode(), end="")
+else:
+    print(value)
+PY
 }
 
 require_exact() {
