@@ -4870,9 +4870,15 @@ fn windows_socket_identity(path: &Path) -> std::io::Result<(u32, u64)> {
 /// probe. The second identity check avoids removing a replacement that appears
 /// after the initial probe.
 fn cleanup_unclaimed_listener(listener: transport::Listener, path: &Path) {
+    // Do not unlink a path that was replaced before this listener could claim
+    // it. Unix compares the pathname with the listener's open file descriptor;
+    // unsupported platforms fail closed and leave the path for its owner.
+    if listener.matches_path(path).ok() != Some(Some(true)) {
+        return;
+    }
+    let Ok(identity) = SocketPathIdentity::capture(path) else { return };
     drop(listener);
 
-    let Ok(identity) = SocketPathIdentity::capture(path) else { return };
     if transport::connect(path).is_ok() || !identity.matches_path(path).unwrap_or(false) {
         return;
     }
@@ -4911,6 +4917,18 @@ impl ServedSocketLease {
     /// Capture the identity of a successfully bound socket path.
     pub fn claim(path: PathBuf) -> std::io::Result<Self> {
         let identity = SocketPathIdentity::capture(&path)?;
+        Ok(Self { path, identity, linked: true, listener: None })
+    }
+
+    /// Capture a bound listener only while its pathname still names it.
+    pub fn claim_bound(path: PathBuf, listener: &transport::Listener) -> std::io::Result<Self> {
+        let identity = SocketPathIdentity::capture(&path)?;
+        if listener.matches_path(&path)? == Some(false) {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::AddrNotAvailable,
+                "session socket path changed while claiming listener",
+            ));
+        }
         Ok(Self { path, identity, linked: true, listener: None })
     }
 
@@ -5242,7 +5260,7 @@ pub fn serve_paused(mux: Arc<Mux>, path: Option<PathBuf>) -> anyhow::Result<Pend
         }
     }
     let listener = transport::listen(&path)?;
-    let lease = match ServedSocketLease::claim(path.clone()) {
+    let lease = match ServedSocketLease::claim_bound(path.clone(), &listener) {
         Ok(lease) => lease,
         Err(error) => {
             cleanup_unclaimed_listener(listener, &path);
