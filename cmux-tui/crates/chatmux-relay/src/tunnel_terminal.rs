@@ -1263,6 +1263,30 @@ mod tests {
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn parent_cancellation_interrupts_a_stalled_writer() {
+        let mut rig = rig().await;
+        let stream = connect(&rig).await;
+        let (mut read, mut write) = stream.into_split();
+        write
+            .write_all(&encode_control_frame(&json!({ "t": "open", "cols": 80, "rows": 24 })))
+            .await
+            .unwrap();
+        let mut decoder = TunnelFrameDecoder::new(MAX_TUNNEL_FRAME_BYTES);
+        let mut queue = Vec::new();
+        let opened = control_json(&next_frame(&mut read, &mut decoder, &mut queue).await);
+        assert_eq!(opened["t"], "opened");
+        let pty = spawned_pty(&rig).await;
+
+        // Do not read the output. The frame exceeds the loopback send buffer,
+        // so the writer remains in write_all until shutdown cancels it.
+        let output = "x".repeat(1_000_000);
+        pty.emit(&output);
+        tokio::time::timeout(Duration::from_millis(500), rig.shutdown())
+            .await
+            .expect("parent cancellation must interrupt a stalled writer");
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn peer_eof_closes_a_pending_open() {
         let (mut rig, spawn_started, gate, spawn_dropped, spawn_completed) =
             rig_with_blocked_spawn().await;
