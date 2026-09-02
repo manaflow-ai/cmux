@@ -45,7 +45,13 @@ struct TerminalCommandEquivalentRoutingTests {
         private(set) var menuMissEvents: [NSEvent] = []
         private(set) var copyActionCount = 0
         var performAfterMenuMissResult = true
+        var consumeUnavailableCopyResult = false
         var simulatesCopyableSelection = false
+
+        override func consumeUnavailableCopyMenuAction(_ event: NSEvent) -> Bool {
+            _ = event
+            return consumeUnavailableCopyResult
+        }
 
         override func performKeyEquivalentAfterMenuMiss(with event: NSEvent) -> Bool {
             menuMissEvents.append(event)
@@ -68,7 +74,7 @@ struct TerminalCommandEquivalentRoutingTests {
     }
 
     @Test
-    func focusedTerminalGetsCopyAndPasteBeforeEditMenu() throws {
+    func focusedTerminalRoutesCopyBeforeMenuButPasteUsesMenuTransaction() throws {
         let menuProbe = MenuActionProbe()
         let (window, terminal, previousMenu) = try makeWindowWithTerminal(
             menuProbe: menuProbe,
@@ -105,8 +111,8 @@ struct TerminalCommandEquivalentRoutingTests {
         #expect(window.performKeyEquivalent(with: copyEvent))
         #expect(window.performKeyEquivalent(with: pasteEvent))
         #expect(window.performKeyEquivalent(with: shiftedPasteEvent))
-        #expect(terminal.menuMissEvents.map { KeyboardLayout.normalizedCharacters(for: $0) } == ["c", "v", "v"])
-        #expect(menuProbe.actions.isEmpty)
+        #expect(terminal.menuMissEvents.map { KeyboardLayout.normalizedCharacters(for: $0) } == ["c"])
+        #expect(menuProbe.actions == ["paste", "paste"])
     }
 
     @Test
@@ -154,7 +160,7 @@ struct TerminalCommandEquivalentRoutingTests {
             #expect(window.performKeyEquivalent(with: event))
         }
 
-        #expect(terminal.menuMissEvents.map { KeyboardLayout.normalizedCharacters(for: $0) } == ["c", "v"])
+        #expect(terminal.menuMissEvents.map { KeyboardLayout.normalizedCharacters(for: $0) } == ["c"])
         #expect(menuProbe.actions == ["copy", "paste"])
     }
 

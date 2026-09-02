@@ -45,9 +45,25 @@ struct TerminalCommandEquivalentRouter {
         hasActiveShortcutChord: Bool
     ) -> Bool {
         guard !hasActiveShortcutChord,
-              command(for: event) != nil,
+              let command = command(for: event),
               !Self.preservesLocalTextEditing(firstResponder) else {
             return false
+        }
+
+        // Keep performable paste bindings inside AppKit's menu transaction.
+        // Ghostty's keyDown fallback can otherwise request the clipboard once
+        // through interpretKeyEvents and again through ghostty_surface_key.
+        if command == .paste,
+           NSApp.mainMenu?.performKeyEquivalent(with: event) == true {
+            return true
+        }
+
+        // Preserve the unavailable-Copy safety path before offering Cmd+C to
+        // Ghostty. With no terminal selection, this consumes the native no-op
+        // instead of replaying the command into terminal input handling.
+        if command == .copy,
+           terminalView.consumeUnavailableCopyMenuAction(event) {
+            return true
         }
 
         // This is the same terminal path used after a menu miss. It lets
