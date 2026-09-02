@@ -2510,6 +2510,106 @@ mod tests {
         .expect("timeout cleanup must not wait for a descendant pipe");
         assert!(matches!(outcome, RunOutcome::TimedOut));
     }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn timeout_after_leader_reap_kills_descendant_group() {
+        let pid_file =
+            std::env::temp_dir().join(format!("chatmux-owner-timeout-{}", std::process::id()));
+        std::fs::remove_file(&pid_file).ok();
+        let command = format!("sleep 30 & echo $! > {}; exit 0", pid_file.display());
+        let env = scrubbed_env(&HashMap::from([("PATH".to_owned(), "/usr/bin:/bin".to_owned())]));
+        let worker = tokio::spawn(async move {
+            run_spec(
+                RunSpec::Shell { command: &command },
+                Path::new("/"),
+                None,
+                100,
+                &env,
+                None,
+            )
+            .await
+        });
+        let pid = tokio::time::timeout(std::time::Duration::from_secs(1), async {
+            loop {
+                if let Some(pid) = std::fs::read_to_string(&pid_file)
+                    .ok()
+                    .and_then(|value| value.trim().parse::<libc::pid_t>().ok())
+                {
+                    break pid;
+                }
+                tokio::time::sleep(std::time::Duration::from_millis(5)).await;
+            }
+        })
+        .await
+        .expect("descendant pid marker");
+        let outcome = tokio::time::timeout(std::time::Duration::from_secs(2), worker)
+            .await
+            .expect("timeout cleanup must complete")
+            .expect("runner task must join");
+        assert!(matches!(outcome, RunOutcome::TimedOut));
+        assert_ne!(unsafe { libc::kill(pid, 0) }, 0, "descendant must be killed");
+        std::fs::remove_file(pid_file).ok();
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn cancellation_after_leader_reap_kills_descendant_group() {
+        use tokio_util::sync::CancellationToken;
+
+        let pid_file =
+            std::env::temp_dir().join(format!("chatmux-owner-cancel-{}", std::process::id()));
+        std::fs::remove_file(&pid_file).ok();
+        let command = format!("sleep 30 & echo $! > {}; exit 0", pid_file.display());
+        let env = scrubbed_env(&HashMap::from([("PATH".to_owned(), "/usr/bin:/bin".to_owned())]));
+        let cancellation = CancellationToken::new();
+        let worker_cancellation = cancellation.clone();
+        let worker = tokio::spawn(async move {
+            run_spec(
+                RunSpec::Shell { command: &command },
+                Path::new("/"),
+                None,
+                30_000,
+                &env,
+                Some(worker_cancellation),
+            )
+            .await
+        });
+        let pid = tokio::time::timeout(std::time::Duration::from_secs(1), async {
+            loop {
+                if let Some(pid) = std::fs::read_to_string(&pid_file)
+                    .ok()
+                    .and_then(|value| value.trim().parse::<libc::pid_t>().ok())
+                {
+                    break pid;
+                }
+                tokio::time::sleep(std::time::Duration::from_millis(5)).await;
+            }
+        })
+        .await
+        .expect("descendant pid marker");
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+        cancellation.cancel();
+        let outcome = tokio::time::timeout(std::time::Duration::from_secs(2), worker)
+            .await
+            .expect("cancellation cleanup must complete")
+            .expect("runner task must join");
+        assert!(matches!(
+            outcome,
+            RunOutcome::Failed { message } if message == "process cancelled"
+        ));
+        assert_ne!(unsafe { libc::kill(pid, 0) }, 0, "descendant must be killed");
+        std::fs::remove_file(pid_file).ok();
+    }
+
+    #[test]
+    fn persistent_wait_errors_escalate_to_bounded_cleanup() {
+        let mut retries = 0;
+        for _ in 0..MAX_WAIT_RETRIES.saturating_sub(1) {
+            assert_eq!(next_wait_retry(&mut retries), WaitRetryAction::Retry);
+        }
+        assert_eq!(next_wait_retry(&mut retries), WaitRetryAction::Escalate);
+    }
     #[tokio::test]
     async fn exec_receives_scoped_process_environment_values() {
         let root = scratch("procenv");
