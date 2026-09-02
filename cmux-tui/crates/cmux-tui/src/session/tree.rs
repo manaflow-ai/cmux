@@ -17,7 +17,7 @@ use serde_json::Value;
 
 #[derive(Clone, Default)]
 pub struct TreeView {
-    pub workspaces: Vec<WorkspaceView>,
+    pub(crate) workspaces: Vec<WorkspaceView>,
     #[allow(dead_code)]
     pub workspace_revision: u64,
     pub pane_revision: Option<u64>,
@@ -294,6 +294,11 @@ impl TreeView {
 
     fn location_index(&self) -> &TreeLocationIndex {
         self.location_index.get_or_init(|| TreeLocationIndex::build(self))
+    }
+
+    pub(crate) fn workspaces_mut(&mut self) -> &mut Vec<WorkspaceView> {
+        self.invalidate_location_index();
+        &mut self.workspaces
     }
 
     fn pane_location(&self, id: PaneId) -> Option<(usize, usize, usize)> {

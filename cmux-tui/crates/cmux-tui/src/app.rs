@@ -13150,8 +13150,8 @@ impl App {
         }
 
         let shifted_tabs = {
-            let pane =
-                &mut self.tree.workspaces[workspace_index].screens[screen_index].panes[pane_index];
+            let pane = &mut self.tree.workspaces_mut()[workspace_index].screens[screen_index].panes
+                [pane_index];
             pane.tabs.remove(tab_index);
             adjust_active_tab_after_removal(pane, tab_index);
             pane.tabs
@@ -13175,7 +13175,7 @@ impl App {
     /// This path is defensive only. Normal surface exits use the indexed path
     /// above and touch one pane instead of scanning the entire topology.
     fn remove_surface_from_cached_tree_scan_and_rebuild_locations(&mut self, surface: SurfaceId) {
-        for workspace in &mut self.tree.workspaces {
+        for workspace in self.tree.workspaces_mut() {
             for screen in &mut workspace.screens {
                 for pane in &mut screen.panes {
                     let Some(index) = pane.tabs.iter().position(|tab| tab.surface == surface)
