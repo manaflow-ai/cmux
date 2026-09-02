@@ -20,6 +20,7 @@ extension FeedCoordinator {
         // before applying a status-only delta.
         let candidates = AppDelegate.shared?.allWorkspacesForAgentTodoRetirement ?? []
         guard !candidates.isEmpty else { return }
+        ensureAgentTodoOwnershipIndex(from: candidates)
         guard markTodoRecoveryAttempt(
             workstreamID,
             recoveryEpoch: store.taskToolRecoveryEpoch
@@ -50,6 +51,7 @@ extension FeedCoordinator {
     func applyAgentTodos(from item: WorkstreamItem, event: WorkstreamEvent) {
         guard case .todos(let todos) = item.payload,
               let workspace = resolveTodoWorkspace(for: event) else { return }
+        ensureAgentTodoOwnershipIndex()
         reconcileDispatchedItems(
             in: workspace,
             tasks: todos,
@@ -57,6 +59,7 @@ extension FeedCoordinator {
         )
         retireAgentTodos(
             for: item.workstreamId,
+            rawWorkstreamId: event.sessionId,
             excluding: workspace.id,
             source: event.source
         )
@@ -102,20 +105,32 @@ extension FeedCoordinator {
             matchingWorkstreamIds: matchingWorkstreamIDs
         ) else { return }
         _ = workspace.replaceChecklist(with: replacements)
+        refreshAgentTodoOwnershipIndex(for: workspace)
         WorkspaceTodoFeature.markUsed()
     }
 
     @MainActor
     private func retireAgentTodos(
         for workstreamId: String,
+        rawWorkstreamId: String,
         excluding workspaceID: UUID,
         source: String
     ) {
-        // Persisted checklist ownership is authoritative. Always inspect the
-        // live workspace set so a stale or cold cache cannot leave duplicate
-        // rows behind after a workstream is re-homed.
-        guard let store else { return }
-        for workspace in AppDelegate.shared?.allWorkspacesForAgentTodoRetirement ?? [] where workspace.id != workspaceID {
+        // Persisted checklist ownership remains authoritative. The index only
+        // narrows the candidate workspaces; each candidate is still inspected
+        // before mutation, so stale entries cannot delete unrelated rows.
+        guard let store, let app = AppDelegate.shared else { return }
+        let candidateIDs = agentTodoWorkspaceIDs(
+            forRawWorkstreamIDs: [rawWorkstreamId, workstreamId],
+            canonicalWorkstreamID: workstreamId,
+            source: source
+        )
+        let workspacesByID = Dictionary(
+            app.allWorkspacesForAgentTodoRetirement.map { ($0.id, $0) },
+            uniquingKeysWith: { first, _ in first }
+        )
+        for candidateID in candidateIDs where candidateID != workspaceID {
+            guard let workspace = workspacesByID[candidateID] else { continue }
             var matchingWorkstreamIDs = Set<String>()
             for checklistItem in workspace.todoState.checklist {
                 guard let rawWorkstreamID = checklistItem.agentTaskRef?.workstreamId,
@@ -133,7 +148,78 @@ extension FeedCoordinator {
                 matchingWorkstreamIds: matchingWorkstreamIDs
             ) else { continue }
             _ = workspace.replaceChecklist(with: replacements)
+            refreshAgentTodoOwnershipIndex(for: workspace)
         }
+    }
+
+    /// Rebuilds the ownership index once the app has a stable restored
+    /// workspace projection. A caller may provide the already-read workspace
+    /// list to avoid a second route enumeration during recovery.
+    @MainActor
+    private func ensureAgentTodoOwnershipIndex(
+        from suppliedWorkspaces: [Workspace]? = nil
+    ) {
+        guard !hasBuiltAgentTodoOwnershipIndex else { return }
+        let workspaces = suppliedWorkspaces
+            ?? AppDelegate.shared?.allWorkspacesForAgentTodoRetirement
+            ?? []
+        guard !workspaces.isEmpty || AppDelegate.shared?.didAttemptStartupSessionRestore == true else {
+            return
+        }
+        agentTodoWorkspaceIDsByRawWorkstream.removeAll(keepingCapacity: true)
+        agentTodoRawWorkstreamsByWorkspace.removeAll(keepingCapacity: true)
+        for workspace in workspaces {
+            refreshAgentTodoOwnershipIndex(for: workspace)
+        }
+        hasBuiltAgentTodoOwnershipIndex = true
+    }
+
+    /// Replaces one workspace's raw-identity entries in the ownership index.
+    @MainActor
+    private func refreshAgentTodoOwnershipIndex(for workspace: Workspace) {
+        let oldRawIDs = agentTodoRawWorkstreamsByWorkspace[workspace.id] ?? []
+        for rawID in oldRawIDs {
+            agentTodoWorkspaceIDsByRawWorkstream[rawID]?.remove(workspace.id)
+            if agentTodoWorkspaceIDsByRawWorkstream[rawID]?.isEmpty == true {
+                agentTodoWorkspaceIDsByRawWorkstream.removeValue(forKey: rawID)
+            }
+        }
+        let rawIDs = Set(workspace.todoState.checklist.compactMap { $0.agentTaskRef?.workstreamId })
+        agentTodoRawWorkstreamsByWorkspace[workspace.id] = rawIDs
+        for rawID in rawIDs {
+            agentTodoWorkspaceIDsByRawWorkstream[rawID, default: []].insert(workspace.id)
+        }
+    }
+
+    /// Returns candidate owners for raw and canonical identities.
+    @MainActor
+    private func agentTodoWorkspaceIDs(
+        forRawWorkstreamIDs rawIDs: [String],
+        canonicalWorkstreamID: String,
+        source: String
+    ) -> Set<UUID> {
+        ensureAgentTodoOwnershipIndex()
+        guard let store else { return [] }
+        let exactIDs = Set(rawIDs)
+        return agentTodoWorkspaceIDsByRawWorkstream.reduce(into: Set<UUID>()) { result, entry in
+            let matches = exactIDs.contains(entry.key)
+                || store.normalizedWorkstreamID(
+                    rawValue: entry.key,
+                    source: source
+                ) == canonicalWorkstreamID
+            if matches {
+                result.formUnion(entry.value)
+            }
+        }
+    }
+
+    /// Invalidates the lazy index when a restored session replaces checklist
+    /// state before the next task event arrives.
+    @MainActor
+    func invalidateAgentTodoOwnershipIndex() {
+        hasBuiltAgentTodoOwnershipIndex = false
+        agentTodoWorkspaceIDsByRawWorkstream.removeAll(keepingCapacity: true)
+        agentTodoRawWorkstreamsByWorkspace.removeAll(keepingCapacity: true)
     }
 
     /// A dispatched workspace is dedicated to one source checklist row. Once

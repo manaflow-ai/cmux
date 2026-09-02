@@ -151,7 +151,9 @@ struct FeedCoordinatorTests {
         let coordinator = FeedCoordinator.shared
         coordinator.install(store: store)
         _ = coordinator.ingestRevalidatedOnMainActor(WorkstreamEvent(
-            sessionId: legacyWorkstreamID,
+            // The resumed event already carries the canonical id; the old
+            // owner still has the legacy alias persisted on disk.
+            sessionId: canonicalWorkstreamID,
             hookEventName: .todoWrite,
             source: "claude",
             workspaceId: newWorkspace.id.uuidString,

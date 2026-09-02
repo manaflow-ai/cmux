@@ -327,6 +327,7 @@ extension Workspace {
         todoState.statusOverride = snapshot.restoredTaskStatusOverride
         todoState.statusHidden = snapshot.taskStatusHidden ?? false
         todoState.checklist = snapshot.restoredChecklist
+        FeedCoordinator.shared.invalidateAgentTodoOwnershipIndex()
         postTaskQueueChange()
     }
 
