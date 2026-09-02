@@ -6,9 +6,11 @@ import {
   type AttachOptions,
   type AttachTransport,
   type CmuxRemoteApprovalResult,
+  type CmuxRemoteApprovalOptions,
   type CmuxRemoteAttachOptions,
   type CmuxRemoteEndpoint,
   type CreateOptions,
+  type ExecOptions,
   type ExecResult,
   type SSHEndpoint,
   type SnapshotRef,
@@ -163,7 +165,7 @@ export class E2BProvider implements VMProvider {
     );
   }
 
-  async exec(vmId: string, command: string, opts?: { timeoutMs?: number }): Promise<ExecResult> {
+  async exec(vmId: string, command: string, opts?: ExecOptions): Promise<ExecResult> {
     const timeoutMs = opts?.timeoutMs ?? 30_000;
     return withVmSpan(
       "cmux.vm.provider.exec",
@@ -298,7 +300,12 @@ export class E2BProvider implements VMProvider {
     );
   }
 
-  async approveCmuxRemoteEnrollment(vmId: string, invitationId: string): Promise<CmuxRemoteApprovalResult> {
+  async approveCmuxRemoteEnrollment(
+    vmId: string,
+    invitationId: string,
+    options?: CmuxRemoteApprovalOptions,
+  ): Promise<CmuxRemoteApprovalResult> {
+    void options;
     return withVmSpan(
       "cmux.vm.provider.approve_cmux_remote_enrollment",
       { "cmux.vm.provider": "e2b", "cmux.vm.operation": "approve_cmux_remote_enrollment", "cmux.vm.id": vmId },
