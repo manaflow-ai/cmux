@@ -118,7 +118,7 @@ for (const name of sizes) {
     if (masterShape.cpu > size.cpu || masterShape.memoryMb > size.memoryMb) {
       throw new Error(`${name}: master (${masterShape.cpu} vCPU, ${masterShape.memoryMb} MiB) is larger than the target; resize is grow-only, bake on a smaller base`);
     }
-    const { vm, vmId } = await fs.vms.create({ snapshotId: master, displayName: `${slugPrefix} derive ${name}`, firewall: FIREWALL });
+    const { vm } = await fs.vms.create({ snapshotId: master, displayName: `${slugPrefix} derive ${name}`, firewall: FIREWALL });
     try {
       await vm.resize({ cpu: size.cpu, memory: size.memoryMb, storage: size.storageMb });
       // The disk grows in place while the guest runs; wait for the root fs to
