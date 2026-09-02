@@ -5582,6 +5582,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             "split=\(splitLabel) focus=\(focus ? 1 : 0) focusWindow=\(focusWindow ? 1 : 0)"
         )
 #endif
+        // Dock panels live outside every Workspace's Bonsplit tree. Route them
+        // through the same detached-surface transfer used by Dock drops and
+        // tab context actions before attempting the workspace-only lookup.
+        if let sourceDock = dockContainingSurface(panelId) {
+            return moveDockSurfaceToWorkspace(
+                sourceDock: sourceDock,
+                panelId: panelId,
+                toWorkspace: targetWorkspaceId,
+                targetPane: targetPane,
+                targetIndex: targetIndex,
+                splitTarget: splitTarget,
+                focus: focus,
+                focusWindow: focusWindow
+            )
+        }
         guard let source = locateSurface(surfaceId: panelId) else {
 #if DEBUG
             cmuxDebugLog("surface.move.fail panel=\(panelId.uuidString.prefix(5)) reason=sourcePanelNotFound elapsedMs=\(elapsedMs(since: moveStart))")

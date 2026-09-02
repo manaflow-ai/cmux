@@ -73,11 +73,27 @@ extension GhosttyNSView {
 
     @objc func moveCurrentSurfaceToNewWorkspace(_ sender: Any?) {
         guard let surfaceId = terminalSurface?.id,
-              AppDelegate.shared?.moveSurfaceToNewWorkspace(
+              let app = AppDelegate.shared else {
+            NSSound.beep()
+            return
+        }
+        if let dock = app.dockContainingSurface(surfaceId) {
+            guard app.moveDockSurfaceToNewWorkspace(
+                sourceDock: dock,
                 panelId: surfaceId,
                 focus: true,
                 focusWindow: false
-              ) != nil else {
+            ) else {
+                NSSound.beep()
+                return
+            }
+            return
+        }
+        guard app.moveSurfaceToNewWorkspace(
+            panelId: surfaceId,
+            focus: true,
+            focusWindow: false
+        ) != nil else {
             NSSound.beep()
             return
         }
