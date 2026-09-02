@@ -49,6 +49,7 @@ cat >"$tmp/gnu-bin/stat" <<EOF
 if [ "\${1:-}" = "-f" ]; then exit 1; fi
 if [ "\${1:-}" = "-c" ] && [ "\${2:-}" = "%Y" ]; then
   shift 2
+  if "$real_stat" -c '%Y' "\$@" 2>/dev/null; then exit 0; fi
   exec "$real_stat" -f '%m' "\$@"
 fi
 exec "$real_stat" "\$@"
@@ -69,16 +70,26 @@ cat >"$tmp/active-bin/lsof" <<'EOF'
 printf '4242\n'
 EOF
 chmod +x "$tmp/active-bin/lsof"
-PATH="$tmp/active-bin:$PATH" "$helper" remove "$hosted" "$commit_a" >"$tmp/active-remove"
+remove_token="$tmp/remove-token"
+"$helper" token "$plan" "$(date +%s)" >"$remove_token"
+expect_failure env PATH="$tmp/active-bin:$PATH" "$helper" remove "$hosted" "$commit_a" "$plan" "$remove_token" "$commit_c"
+PATH="$tmp/active-bin:$PATH" CMUX_TUI_HOSTED_RETENTION_CONFIRM=1 "$helper" remove \
+  "$hosted" "$commit_a" "$plan" "$remove_token" "$commit_c" >"$tmp/active-remove"
 grep -Fqx $'active\t'$commit_a "$tmp/active-remove" || fail "active artifact was not reported"
 [[ -d "$hosted/$commit_a" ]] || fail "active artifact was removed"
+
+other_hosted="$tmp/other-hosted"
+mkdir -p "$other_hosted/$commit_a"
+expect_failure env PATH="$tmp/active-bin:$PATH" CMUX_TUI_HOSTED_RETENTION_CONFIRM=1 "$helper" remove \
+  "$other_hosted" "$commit_a" "$plan" "$remove_token" "$commit_c"
 
 cat >"$tmp/active-bin/lsof" <<'EOF'
 #!/bin/sh
 exit 1
 EOF
 chmod +x "$tmp/active-bin/lsof"
-PATH="$tmp/active-bin:$PATH" "$helper" remove "$hosted" "$commit_a" >"$tmp/inactive-remove"
+PATH="$tmp/active-bin:$PATH" CMUX_TUI_HOSTED_RETENTION_CONFIRM=1 "$helper" remove \
+  "$hosted" "$commit_a" "$plan" "$remove_token" "$commit_c" >"$tmp/inactive-remove"
 grep -Fqx $'removed\t'$commit_a "$tmp/inactive-remove" || fail "inactive artifact was not removed"
 [[ ! -e "$hosted/$commit_a" ]] || fail "inactive artifact remains"
 

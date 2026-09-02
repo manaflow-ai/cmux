@@ -33,7 +33,8 @@ plan() {
   [[ -d "$hosted_dir" ]] || die "hosted artifact directory does not exist: $hosted_dir"
   for prerequisite in find id sort stat lsof; do require_command "$prerequisite"; done
 
-  local candidate_dir candidate_commit candidate_mtime candidate_binary retained=0
+  local hosted_identity candidate_dir candidate_commit candidate_mtime candidate_binary retained=0
+  hosted_identity="$(cd -- "$hosted_dir" && pwd -P)" || die "could not resolve hosted artifact directory: $hosted_dir"
   local -a order=()
   while IFS= read -r -d '' candidate_dir; do
     candidate_commit="${candidate_dir##*/}"
@@ -42,7 +43,7 @@ plan() {
     order+=("$candidate_mtime"$'\t'"$candidate_commit")
   done < <(find "$hosted_dir" -mindepth 1 -maxdepth 1 -type d -user "$(id -u)" -print0)
 
-  printf 'schema\t1\ncount\t%s\ncurrent\t%s\n' "$count" "$current"
+  printf 'schema\t1\nhosted-dir\t%s\ncount\t%s\ncurrent\t%s\n' "$hosted_identity" "$count" "$current"
   while IFS=$'\t' read -r _ candidate_commit; do
     [[ -n "$candidate_commit" ]] || continue
     if [[ "$candidate_commit" == "$current" ]]; then
@@ -86,9 +87,36 @@ validate() {
   (( 10#$now >= 10#$created && 10#$now - 10#$created <= 10#$max_age )) || die "preview token is stale or from the future"
 }
 
+remove() {
+  [[ $# -eq 5 ]] || die "usage: $0 remove <hosted-dir> <commit> <plan-file> <token-file> <current-commit>"
+  local hosted_dir="$1" candidate_commit="$2" plan_file="$3" token_file="$4" current="$5"
+  local candidate_binary plan_current plan_hosted_dir hosted_identity
+  [[ -d "$hosted_dir" ]] || die "hosted artifact directory does not exist: $hosted_dir"
+  [[ "$candidate_commit" =~ ^[0-9a-f]{40}$ ]] || die "artifact commit must be a lowercase 40-character SHA"
+  [[ "$current" =~ ^[0-9a-f]{40}$ ]] || die "current commit must be a lowercase 40-character SHA"
+  [[ "${CMUX_TUI_HOSTED_RETENTION_CONFIRM:-0}" == 1 ]] || die "destructive retention requires CMUX_TUI_HOSTED_RETENTION_CONFIRM=1"
+  validate "$plan_file" "$token_file" "$(date +%s)" 600
+  hosted_identity="$(cd -- "$hosted_dir" && pwd -P)" || die "could not resolve hosted artifact directory: $hosted_dir"
+  plan_hosted_dir="$(awk -F '\t' '$1 == "hosted-dir" {print $2}' "$plan_file")"
+  [[ "$plan_hosted_dir" == "$hosted_identity" ]] || die "retention plan hosted directory does not match removal request"
+  plan_current="$(awk -F '\t' '$1 == "current" {print $2}' "$plan_file")"
+  [[ "$plan_current" == "$current" ]] || die "retention plan current commit does not match removal request"
+  awk -F '\t' -v candidate="$candidate_commit" '$1 == "victim" && $2 == candidate {found = 1} END {exit !found}' "$plan_file" \
+    || die "artifact is not a victim in the validated retention plan"
+  require_command lsof
+  candidate_binary="$hosted_dir/$candidate_commit/cmux-tui"
+  if [[ -f "$candidate_binary" ]] && lsof -t -- "$candidate_binary" >/dev/null 2>&1; then
+    printf 'active\t%s\n' "$candidate_commit"
+    return 0
+  fi
+  rm -rf -- "${hosted_dir:?}/$candidate_commit"
+  printf 'removed\t%s\n' "$candidate_commit"
+}
+
 case "${1:-}" in
   plan) shift; plan "$@" ;;
   token) shift; token "$@" ;;
   validate) shift; validate "$@" ;;
-  *) die "usage: $0 <plan|token|validate> ..." ;;
+  remove) shift; remove "$@" ;;
+  *) die "usage: $0 <plan|token|validate|remove> ..." ;;
 esac

@@ -380,16 +380,25 @@ if [[ "$retention_dry_run" == true ]]; then
 else
   "$retention_helper" validate "$retention_plan" "$preview_file" "$(date +%s)" 600
 fi
+victim_commits=()
 while IFS=$'\t' read -r disposition candidate_commit; do
   [[ "$disposition" == victim ]] || continue
+  victim_commits+=("$candidate_commit")
+done <"$retention_plan"
+for candidate_commit in "${victim_commits[@]}"; do
   candidate_dir="cmux-tui/target/hosted/$candidate_commit"
   if [[ "$retention_dry_run" == true ]]; then
     echo "Would remove hosted artifact: $candidate_dir" >&2
   else
-    rm -rf -- "$candidate_dir"
-    echo "Removed hosted artifact: $candidate_dir" >&2
+    remove_result="$(CMUX_TUI_HOSTED_RETENTION_CONFIRM=1 "$retention_helper" remove \
+      "cmux-tui/target/hosted" "$candidate_commit" "$retention_plan" "$preview_file" "$commit")"
+    case "$remove_result" in
+      $'active\t'*) echo "Keeping active hosted artifact: $candidate_dir" >&2 ;;
+      $'removed\t'*) echo "Removed hosted artifact: $candidate_dir" >&2 ;;
+      *) echo "error: unexpected retention removal result for $candidate_dir" >&2; exit 2 ;;
+    esac
   fi
-done <"$retention_plan"
+done
 
 echo "Hosted verification passed: $run_url"
 echo "Artifact: $artifact_binary"
