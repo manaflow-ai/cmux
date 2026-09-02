@@ -3580,7 +3580,54 @@ fn private_dump_directory(path: &Path) -> io::Result<fs::File> {
             format!("dump directory is not private: {}", path.display()),
         ));
     }
+    reject_extended_acl(&directory)?;
     Ok(directory)
+}
+
+#[cfg(target_os = "macos")]
+fn reject_extended_acl(directory: &fs::File) -> io::Result<()> {
+    use std::os::fd::AsRawFd;
+    use std::ptr;
+
+    let descriptor = directory.as_raw_fd();
+    let size = unsafe { libc::flistxattr(descriptor, ptr::null_mut(), 0, 0) };
+    if size < 0 {
+        let error = io::Error::last_os_error();
+        if matches!(error.raw_os_error(), Some(libc::ENOTSUP) | Some(libc::ENOSYS)) {
+            return Ok(());
+        }
+        return Err(error);
+    }
+    if size == 0 {
+        return Ok(());
+    }
+    let mut names = vec![0_u8; size as usize];
+    let size = unsafe {
+        libc::flistxattr(
+            descriptor,
+            names.as_mut_ptr().cast(),
+            names.len(),
+            0,
+        )
+    };
+    if size < 0 {
+        return Err(io::Error::last_os_error());
+    }
+    if names[..size as usize]
+        .split(|byte| *byte == 0)
+        .any(|name| name == b"com.apple.acl.text")
+    {
+        return Err(io::Error::new(
+            io::ErrorKind::PermissionDenied,
+            "dump directory has an extended ACL",
+        ));
+    }
+    Ok(())
+}
+
+#[cfg(not(target_os = "macos"))]
+fn reject_extended_acl(_directory: &fs::File) -> io::Result<()> {
+    Ok(())
 }
 
 #[cfg(unix)]
@@ -3634,24 +3681,53 @@ where
 
     let final_name = CString::new(name)
         .map_err(|_| io::Error::new(io::ErrorKind::InvalidInput, "invalid dump file name"))?;
-    let mut file = match private_dump_file(directory, name) {
-        Ok(file) => file,
-        Err(error) if error.kind() == io::ErrorKind::AlreadyExists => {
-            // Replace only through the validated directory descriptor. This
-            // avoids truncating a hard link and leaves no crash-prone temp
-            // files behind.
-            let status = unsafe {
-                libc::unlinkat(directory.as_raw_fd(), final_name.as_ptr(), 0)
-            };
-            if status != 0 {
-                return Err(error);
+    static NEXT_TEMP_ID: AtomicU64 = AtomicU64::new(1);
+    let mut temp_name = None;
+    let mut file = None;
+    for _ in 0..16 {
+        let id = NEXT_TEMP_ID.fetch_add(1, Ordering::Relaxed);
+        let candidate = format!(".{name}.tmp-{}-{id}", unsafe { libc::getpid() });
+        match private_dump_file(directory, &candidate) {
+            Ok(candidate_file) => {
+                temp_name = Some(CString::new(candidate).expect("generated temp name is valid"));
+                file = Some(candidate_file);
+                break;
             }
-            private_dump_file(directory, name)?
+            Err(error) if error.kind() == io::ErrorKind::AlreadyExists => continue,
+            Err(error) => return Err(error),
         }
-        Err(error) => return Err(error),
+    }
+    let temp_name = temp_name.ok_or_else(|| {
+        io::Error::new(
+            io::ErrorKind::AlreadyExists,
+            "could not allocate a private dump temporary file",
+        )
+    })?;
+    let mut file = file.expect("temporary file is present when its name is present");
+    let result = write_contents(&mut file).and_then(|()| file.sync_all());
+    drop(file);
+    if let Err(error) = result {
+        unsafe {
+            libc::unlinkat(directory.as_raw_fd(), temp_name.as_ptr(), 0);
+        }
+        return Err(error);
+    }
+    let status = unsafe {
+        libc::renameat(
+            directory.as_raw_fd(),
+            temp_name.as_ptr(),
+            directory.as_raw_fd(),
+            final_name.as_ptr(),
+        )
     };
-    write_contents(&mut file)?;
-    file.sync_all()
+    if status != 0 {
+        let error = io::Error::last_os_error();
+        unsafe {
+            libc::unlinkat(directory.as_raw_fd(), temp_name.as_ptr(), 0);
+        }
+        return Err(error);
+    }
+    Ok(())
 }
 
 fn parse_kitty_image_aliases(
