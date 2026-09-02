@@ -28754,6 +28754,11 @@ mod tests {
     }
 
     #[test]
+    fn first_pane_index_is_empty_for_empty_input() {
+        assert!(first_pane_by_id(&[]).is_empty());
+    }
+
+    #[test]
     fn viewport_animation_leases_every_column_in_its_swept_range() {
         let pane = |id, surface| PaneView {
             id,
