@@ -874,6 +874,18 @@ import Testing
         #expect(CmuxTuiSnapshotParser.state(fromSnapshot: malformed, machine: Self.machine) == nil)
     }
 
+    @Test func cloudStateIndexIsDerivedAndRebuiltAfterCoding() throws {
+        let state = try #require(CmuxTuiSnapshotParser.state(fromSnapshot: Self.sessionSnapshot, machine: Self.machine))
+        let encoded = try JSONEncoder().encode(state)
+        let object = try #require(JSONSerialization.jsonObject(with: encoded) as? [String: Any])
+        #expect(object["lookupIndex"] == nil)
+
+        let decoded = try JSONDecoder().decode(CloudVMState.self, from: encoded)
+        #expect(decoded == state)
+        #expect(decoded.lookupIndex.tab(id: "tab_1")?.contentID == "term_build")
+        #expect(decoded.lookupIndex.screenIDs(workspaceID: "ws_main") == ["screen_1"])
+    }
+
     @Test func legacyAgentDeltaUsesTerminalRelationshipIdentity() throws {
         var snapshot = Self.sessionSnapshot
         snapshot["cursor"] = ["generation": "daemon-a", "revision": "7"]
