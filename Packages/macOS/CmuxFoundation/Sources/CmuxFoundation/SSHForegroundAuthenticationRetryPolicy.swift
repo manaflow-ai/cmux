@@ -390,136 +390,132 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
             exec 9>&-
           }
 
-          # A successful STOP pins a process in place. Resume only a journal
-          # identity that the kernel still reports with the same PID, process
-          # group, and microsecond birth timestamp. PPID is retained in the
-          # journal for lineage checks, but is not part of this rollback fence
-          # because a stopped child can be reparented while its owner exits.
-          # The validation and SIGCONT happen in one Perl process, so a failed
-          # process-table snapshot never turns a stale PID into an unverified
-          # signal.
-          # Validate and signal an identity batch in one Perl process. The
-          # shell/awk snapshot is only a candidate list. Every operation gets
-          # a fresh proc_bsdinfo read immediately before the signal, and STOP
-          # candidates are checked again after the signal. A PID that was
-          # replaced can therefore be briefly stopped, but it is resumed before
-          # it can enter the ownership journal. TERM and KILL are sent only to a
-          # confirmed stopped identity. A stopped process cannot exit and reuse
-          # its PID, which closes the destructive KILL window without relying on
-          # a numeric PID after it has been released.
+          # Validate and signal an identity batch with macOS's audit-token
+          # process API. The shell/awk snapshot is only a candidate list. The
+          # audit token carries the kernel PID version, so the kernel rejects a
+          # signal after PID reuse instead of applying it to the new process.
+          # STOP candidates are checked again after the signal and only a
+          # confirmed stop enters the ownership journal. TERM and KILL are sent
+          # only to a confirmed stopped identity. A stopped process cannot exit
+          # and reuse its PID, which also closes the destructive KILL window.
           cmux_ssh_auth_signal_verified_batch() {
             cmux_ssh_auth_signal_name="$1"
             cmux_ssh_auth_signal_input="$2"
             cmux_ssh_auth_signal_output="${3:-/dev/null}"
-            /usr/bin/perl -e '
-              use strict;
-              use warnings;
+            /usr/bin/ruby -rfiddle -rfiddle/import -e '
+              signal_name, input_path, output_path = ARGV
+              signals = { "STOP" => 17, "TERM" => 15, "CONT" => 19, "KILL" => 9 }
+              exit 2 unless signals.key?(signal_name) && input_path && output_path
 
-              my ($signal, $input_path, $output_path) = @ARGV;
-              exit 2 unless defined $signal && defined $input_path && defined $output_path;
-              exit 2 unless $signal eq "STOP" || $signal eq "TERM" ||
-                $signal eq "CONT" || $signal eq "KILL";
-              open my $input, "<", $input_path or exit 1;
-              open my $output, ">", $output_path or exit 1;
+              module CmuxLibproc
+                extend Fiddle::Importer
+                dlload "/usr/lib/libproc.dylib"
+                extern "int proc_pidinfo(int, int, unsigned long long, void*, int)"
+                extern "int proc_signal_with_audittoken(void*, int)"
+              end
 
-              sub process_identity {
-                my ($pid) = @_;
-                my $buffer = "\0" x 184;
-                my $size = syscall(336, 2, $pid, 3, 0, $buffer, length($buffer));
-                my ($group_offset, $seconds_offset, $microseconds_offset);
-                if ($size == 136) {
-                  $group_offset = 100;
-                  $seconds_offset = 120;
-                  $microseconds_offset = 128;
-                } elsif ($size == 184) {
-                  $group_offset = 148;
-                  $seconds_offset = 168;
-                  $microseconds_offset = 176;
-                } else {
-                  return;
-                }
-                my $status = unpack("L<", substr($buffer, 4, 4));
-                my $observed_pid = unpack("L<", substr($buffer, 12, 4));
-                my $parent = unpack("L<", substr($buffer, 16, 4));
-                my $group = unpack("L<", substr($buffer, $group_offset, 4));
-                my $seconds = unpack("Q<", substr($buffer, $seconds_offset, 8));
-                my $microseconds = unpack("Q<", substr($buffer, $microseconds_offset, 8));
-                return ($observed_pid, $parent, $group, $status, $seconds, $microseconds);
-              }
+              bsd_with_unique_id_flavor = 18
+              process_info_size = 192
+              uint32 = ->(bytes, offset) { bytes.byteslice(offset, 4).unpack1("L<") }
+              uint64 = ->(bytes, offset) { bytes.byteslice(offset, 8).unpack1("Q<") }
+              process_identity = lambda do |pid|
+                buffer = Fiddle::Pointer.malloc(process_info_size)
+                written = CmuxLibproc.proc_pidinfo(
+                  Integer(pid), bsd_with_unique_id_flavor, 0, buffer, process_info_size
+                )
+                next nil unless written == process_info_size
+                bytes = buffer.to_s(process_info_size)
+                [
+                  uint32.call(bytes, 12), # pbi_pid
+                  uint32.call(bytes, 16), # pbi_ppid
+                  uint32.call(bytes, 100), # pbi_pgid
+                  uint32.call(bytes, 4), # pbi_status
+                  uint64.call(bytes, 120), # pbi_start_tvsec
+                  uint64.call(bytes, 128), # pbi_start_tvusec
+                  uint32.call(bytes, 168), # proc_uniqueidentifierinfo.id_version
+                ]
+              rescue ArgumentError, Fiddle::DLError, NoMethodError, RangeError, TypeError
+                nil
+              end
+              same_identity = lambda do |identity, pid, group, seconds, microseconds|
+                identity && identity.length == 7 && identity[0] == pid &&
+                  identity[2] == group && identity[4] == seconds && identity[5] == microseconds
+              end
+              signal_exact = lambda do |identity, signal_number|
+                token = Fiddle::Pointer.malloc(32)
+                token[0, 32] = ([0xffffffff] * 8).pack("L<*")
+                token[20, 4] = [identity[0]].pack("L<")
+                token[28, 4] = [identity[6]].pack("L<")
+                CmuxLibproc.proc_signal_with_audittoken(token, signal_number) == 0
+              end
 
-              sub same_identity {
-                my ($identity, $pid, $group, $seconds, $microseconds) = @_;
-                return 0 unless defined $identity && @$identity == 6;
-                return $identity->[0] == $pid && $identity->[2] == $group &&
-                  $identity->[4] == $seconds && $identity->[5] == $microseconds;
-              }
+              begin
+                input = File.open(input_path, "r")
+                output = File.open(output_path, "w")
+                input.each_line do |line|
+                fields = line.split
+                next unless fields.length == 6
+                depth, pid_text, parent_text, group_text, original_state, started = fields
+                next unless depth.match?(/\A[0-9]+\z/) && pid_text.match?(/\A[1-9][0-9]*\z/) &&
+                  parent_text.match?(/\A[0-9]+\z/) && group_text.match?(/\A[1-9][0-9]*\z/)
+                match = started.match(/\AK_([0-9]+)_([0-9]+)_0_0\z/)
+                next unless match
+                expected_seconds = Integer(match[1])
+                expected_microseconds = Integer(match[2])
+                next if expected_microseconds >= 1_000_000
+                pid = Integer(pid_text)
+                group = Integer(group_text)
+                before = process_identity.call(pid)
+                next unless same_identity.call(before, pid, group, expected_seconds, expected_microseconds)
+                next if before[3] == 5
 
-              while (my $line = <$input>) {
-                chomp $line;
-                my @fields = grep { length } split(/\s+/, $line);
-                next unless @fields == 6;
-                my ($depth, $pid, $parent, $group, $original_state, $started) = @fields;
-                next unless $depth =~ /\A[0-9]+\z/ &&
-                  $pid =~ /\A[1-9][0-9]*\z/ &&
-                  $parent =~ /\A[0-9]+\z/ &&
-                  $group =~ /\A[1-9][0-9]*\z/;
-                next unless $started =~ /\AK_([0-9]+)_([0-9]+)_0_0\z/;
-                my ($expected_seconds, $expected_microseconds) = ($1, $2);
-                next if $expected_microseconds >= 1_000_000;
-                my @before = process_identity(0 + $pid);
-                next unless same_identity(\@before, 0 + $pid, 0 + $group,
-                  $expected_seconds, $expected_microseconds);
-                next if $before[3] == 5;
-
-                if ($signal eq "STOP") {
-                  # Never claim a process that was already stopped. It may be
-                  # owned by an unrelated debugger, and resuming it would be
-                  # an observable side effect of failed cleanup.
-                  next if $before[3] == 4;
-                  next unless kill("STOP", 0 + $pid);
-                  my @after = process_identity(0 + $pid);
-                  if (same_identity(\@after, 0 + $pid, 0 + $group,
-                        $expected_seconds, $expected_microseconds) && $after[3] == 4) {
-                    print {$output} $line, "\n";
-                  } else {
-                    # If the PID changed, only resume the process that this
-                    # helper just stopped. A stopped process cannot be reused
-                    # between this identity check and CONT.
-                    my @rollback = process_identity(0 + $pid);
-                    if (@rollback == 6 && $rollback[3] == 4 &&
-                        !same_identity(\@rollback, 0 + $pid, 0 + $group,
-                          $expected_seconds, $expected_microseconds)) {
-                      kill("CONT", 0 + $pid);
-                    }
-                  }
-                  next;
-                }
+                if signal_name == "STOP"
+                  # Do not claim a process that was already stopped by another
+                  # owner. Resuming it would be an observable side effect.
+                  next if before[3] == 4
+                  next unless signal_exact.call(before, signals[signal_name])
+                  after = process_identity.call(pid)
+                  if same_identity.call(after, pid, group, expected_seconds, expected_microseconds) &&
+                      after[3] == 4
+                    output.puts(line.chomp)
+                  else
+                    # A PID-reuse candidate may be briefly stopped. Resume it
+                    # only while the same replacement identity is still stopped.
+                    replacement = process_identity.call(pid)
+                    if replacement && replacement[3] == 4 &&
+                        !same_identity.call(replacement, pid, group, expected_seconds, expected_microseconds)
+                      signal_exact.call(replacement, signals["CONT"])
+                    end
+                  end
+                  next
+                end
 
                 # Rollback never resumes a process that was already stopped
                 # before this helper acquired it.
-                next if $signal eq "CONT" && $original_state eq "T";
-                next unless $before[3] == 4;
-                if ($signal eq "TERM") {
-                  if (!kill("TERM", 0 + $pid)) {
-                    my @current = process_identity(0 + $pid);
-                    kill("CONT", 0 + $pid)
-                      if same_identity(\@current, 0 + $pid, 0 + $group,
-                        $expected_seconds, $expected_microseconds) && $current[3] == 4;
-                    next;
-                  }
-                  my @after = process_identity(0 + $pid);
-                  kill("CONT", 0 + $pid)
-                    if same_identity(\@after, 0 + $pid, 0 + $group,
-                      $expected_seconds, $expected_microseconds) && $after[3] == 4;
-                } elsif ($signal eq "CONT") {
-                  kill("CONT", 0 + $pid);
-                } elsif ($signal eq "KILL") {
-                  # The identity was confirmed stopped immediately above, so
-                  # the kernel cannot recycle this PID before KILL is queued.
-                  kill("KILL", 0 + $pid);
-                }
-              }
-            ' "$cmux_ssh_auth_signal_name" "$cmux_ssh_auth_signal_input" \
+                next if signal_name == "CONT" && original_state == "T"
+                next unless before[3] == 4
+                if signal_name == "TERM"
+                  unless signal_exact.call(before, signals[signal_name])
+                    current = process_identity.call(pid)
+                    signal_exact.call(current, signals["CONT"]) if same_identity.call(
+                      current, pid, group, expected_seconds, expected_microseconds
+                    ) && current[3] == 4
+                    next
+                  end
+                  after = process_identity.call(pid)
+                  signal_exact.call(after, signals["CONT"]) if same_identity.call(
+                    after, pid, group, expected_seconds, expected_microseconds
+                  ) && after[3] == 4
+                else
+                  signal_exact.call(before, signals[signal_name])
+                end
+                end
+              ensure
+                input&.close
+                output&.close
+              end
+            end
+          ' "$cmux_ssh_auth_signal_name" "$cmux_ssh_auth_signal_input" \
               "$cmux_ssh_auth_signal_output" >/dev/null 2>&1
           }
 
