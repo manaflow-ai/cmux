@@ -573,6 +573,7 @@ mod unix {
 
         fn disarm(&mut self) {
             let _ = self.child.take();
+            self.process_groups = [None, None];
         }
     }
 
