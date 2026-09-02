@@ -1239,6 +1239,35 @@ mod tests {
         assert_eq!(path.parent(), Some(Path::new(r"C:\cmux-preferred-temp")));
     }
 
+    #[cfg(windows)]
+    #[test]
+    fn invalid_runtime_dir_falls_back_to_tmp_when_temp_is_unset() {
+        let _lock = RUNTIME_ENV_LOCK.lock().unwrap();
+        let old_temp = std::env::var_os("TEMP");
+        let old_tmp = std::env::var_os("TMP");
+        let tmp = OsString::from(r"D:\cmux-secondary-temp");
+
+        // SAFETY: this test serializes its process-global environment changes.
+        unsafe {
+            std::env::remove_var("TEMP");
+            std::env::set_var("TMP", &tmp);
+        }
+        let path = invalid_runtime_dir();
+        // SAFETY: this test serializes its process-global environment changes.
+        unsafe {
+            match old_temp {
+                Some(value) => std::env::set_var("TEMP", value),
+                None => std::env::remove_var("TEMP"),
+            }
+            match old_tmp {
+                Some(value) => std::env::set_var("TMP", value),
+                None => std::env::remove_var("TMP"),
+            }
+        }
+
+        assert_eq!(path.parent(), Some(Path::new(r"D:\cmux-secondary-temp")));
+    }
+
     #[test]
     fn explicit_ghostty_installation_remains_authoritative() {
         let explicit = PathBuf::from("/custom/pinned/bin/ghostty");
