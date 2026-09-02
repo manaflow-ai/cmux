@@ -609,6 +609,20 @@ printf '<%s>\\n' "${{keychains[@]}}"
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("semantic version", result.stderr.lower())
 
+    def test_leading_zero_numeric_prerelease_identifier_is_rejected(self) -> None:
+        document = load()
+        script = script_for(document["jobs"]["validate-source"])
+        result = run_guard_fixture(
+            script,
+            wrapper_blob="same-protected-blob",
+            main_blob="same-protected-blob",
+            source_content=OBSERVER_CONTENT,
+            main_content=OBSERVER_CONTENT,
+            tag_name="v1.2.3-01",
+        )
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("semantic version", result.stderr.lower())
+
 
 if __name__ == "__main__":
     unittest.main()
