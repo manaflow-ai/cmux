@@ -2383,6 +2383,49 @@ mod tests {
 
     #[cfg(unix)]
     #[tokio::test]
+    async fn cancelled_grep_reaps_child_before_releasing_capacity() {
+        let root = scratch("grep-cancel");
+        let bin = root.join("bin");
+        std::fs::create_dir(&bin).unwrap();
+        let grep = bin.join("grep");
+        std::fs::write(
+            &grep,
+            "#!/bin/sh\n: > \"$CMUX_GREP_STARTED\"\ntrap 'exit 0' TERM INT HUP\nwhile :; do sleep 1; done\n",
+        )
+        .unwrap();
+        use std::os::unix::fs::PermissionsExt as _;
+        std::fs::set_permissions(&grep, std::fs::Permissions::from_mode(0o755)).unwrap();
+        let started = root.join("started");
+        let roots = vec![root.display().to_string()];
+        let mut context = ctx("supervised", Some(roots.clone()), root.clone());
+        context.env = HashMap::from([
+            ("PATH".to_owned(), format!("{}:/bin:/usr/bin", bin.display())),
+            ("CMUX_GREP_STARTED".to_owned(), started.display().to_string()),
+        ]);
+        let frame = json!({ "verb": "grep", "actionId": "grep-cancel", "allowedRoots": roots,
+                            "args": { "path": ".", "pattern": "needle" }, "timeoutMs": 10000 });
+        let action = Box::pin(perform_action(&frame, &context));
+        tokio::time::timeout(std::time::Duration::from_secs(1), async {
+            while !started.exists() {
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .expect("grep child must start");
+        assert_eq!(context.file_slots.available_permits(), MAX_BLOCKING_FILE_ACTIONS - 1);
+        drop(action);
+        tokio::time::timeout(std::time::Duration::from_secs(1), async {
+            while context.file_slots.available_permits() != MAX_BLOCKING_FILE_ACTIONS {
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .expect("cancelled grep must reap its child before releasing capacity");
+        std::fs::remove_dir_all(&root).ok();
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
     async fn symlinks_cannot_escape_allowed_roots() {
         let root = scratch("symlink");
         let outside = scratch("outside");
