@@ -445,6 +445,8 @@ mod tests {
     use ghostty_vt::{Callbacks, CursorShape, RenderState, Terminal};
     use ratatui::Terminal as RatatuiTerminal;
     use ratatui::backend::TestBackend;
+    use ratatui::buffer::{CellDiffOption, CellWidth as RatatuiCellWidth};
+    use std::num::NonZeroU16;
 
     #[test]
     fn terminal_cells_drop_control_characters_before_ratatui_diffing() {
@@ -568,6 +570,7 @@ mod tests {
 
         let clipped_lead = draw_crop(0);
         assert_eq!(row_text(clipped_lead.backend().buffer(), 0, 0, 2), "a ");
+        assert_eq!(clipped_lead.backend().buffer()[(1, 0)].diff_option, CellDiffOption::None);
 
         let complete_glyph = draw_crop(1);
         assert_eq!(complete_glyph.backend().buffer()[(0, 0)].symbol(), "界");
@@ -575,6 +578,7 @@ mod tests {
 
         let clipped_tail = draw_crop(2);
         assert_eq!(row_text(clipped_tail.backend().buffer(), 0, 0, 2), " b");
+        assert_eq!(clipped_tail.backend().buffer()[(0, 0)].diff_option, CellDiffOption::None);
     }
 
     #[test]
@@ -764,6 +768,66 @@ mod tests {
             apply_cell(&mut target, &cell, &resolver, None);
             assert_eq!(target.symbol(), " ");
         }
+    }
+
+    #[test]
+    fn terminal_cells_keep_ghostty_width_for_ratatui_diffing() {
+        let colors = [Rgb::default(); 256];
+        let overridden = [false; 256];
+        let resolver = resolver(&colors, &overridden);
+        let cases = [
+            (CellWidth::Narrow, 1, "ｶﾞ", true),
+            (CellWidth::Wide, 2, "x", true),
+            (CellWidth::Wide, 2, "界", false),
+            (CellWidth::SpacerTail, 1, "", false),
+            (CellWidth::SpacerHead, 1, "", false),
+        ];
+
+        for (width, columns, text, forced) in cases {
+            let cell = VtCell { text: text.to_string(), width, ..VtCell::default() };
+            let mut target = ratatui::buffer::Cell::default();
+            apply_cell(&mut target, &cell, &resolver, None);
+            assert_eq!(target.cell_width(), columns, "Ghostty width {width:?} must remain authoritative");
+            let expected_diff_option = forced
+                .then(|| CellDiffOption::ForcedWidth(NonZeroU16::new(columns).unwrap()))
+                .unwrap_or(CellDiffOption::None);
+            assert_eq!(target.diff_option, expected_diff_option);
+        }
+    }
+
+    #[test]
+    fn selected_wide_glyph_styles_both_grid_cells() {
+        let mut terminal = Terminal::new(6, 1, 0, Callbacks::default()).unwrap();
+        terminal.vt_write("a界b".as_bytes());
+        let mut state = RenderState::new().unwrap();
+        state.update(&mut terminal).unwrap();
+        let render = SurfaceRenderFrame {
+            frame: state.build_frame().unwrap(),
+            content_generation: 1,
+            scrollback_rows: 0,
+            history_epoch: terminal.history_epoch(),
+            pointer_semantics: terminal.pointer_semantic_snapshot(),
+            palette_colors: std::array::from_fn(|idx| state.palette_color(idx as u8)),
+            palette_overridden: std::array::from_fn(|idx| state.palette_overridden(idx as u8)),
+        };
+        let mut output = RatatuiTerminal::new(TestBackend::new(4, 1)).unwrap();
+        output
+            .draw(|frame| {
+                draw_render_frame_with_catalog(
+                    frame,
+                    HorizontalViewport { rect: Rect { x: 0, y: 0, width: 4, height: 1 }, source_x: 0 },
+                    &render,
+                    &Theme::default(),
+                    &ChromeTheme::dark(),
+                    crate::localization::catalog_for_locale("en_US.UTF-8"),
+                    |col, row| col == 1 && row == 0,
+                );
+            })
+            .unwrap();
+
+        let expected_bg = Theme::default().selection_bg;
+        assert_eq!(output.backend().buffer()[(1, 0)].bg, expected_bg);
+        assert_eq!(output.backend().buffer()[(2, 0)].bg, expected_bg);
     }
 
     #[test]
