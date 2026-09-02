@@ -795,7 +795,11 @@ struct CLICodexHookTimeoutRegressionTests {
             listenerFD: listenerFD,
             commands: commands,
             surfaceId: surfaceId,
-            connectionLimit: 24
+            // Each generated hook performs several bounded target probes and
+            // emits telemetry on its own connection. Keep the fixture's
+            // accept budget above the complete prompt/prompt/stop episode so
+            // a valid lifecycle cannot be truncated by the mock itself.
+            connectionLimit: 64
         )
 
         let install = runCodexHookProcess(
@@ -826,6 +830,8 @@ struct CLICodexHookTimeoutRegressionTests {
             "CMUX_CLI_SENTRY_DISABLED": "1",
             "CMUX_BUNDLED_CLI_PATH": cliPath,
             "CMUX_CODEX_PID": "4242",
+            "CMUX_CODEX_INVOCATION_ID": "installed-\(sessionId)",
+            "CMUX_CODEX_TURN_LEDGER_PATH": root.appendingPathComponent("codex-turn-ledger.json").path,
         ]
 
         let oldPrompt = runCodexHookProcess(
@@ -1057,7 +1063,20 @@ struct CLICodexHookTimeoutRegressionTests {
         let surfaceId = "22222222-2222-2222-2222-222222222222"
         let sessionId = "codex-fresh-session"
         let stateURL = root.appendingPathComponent("codex-hook-sessions.json")
+        let codexHome = root.appendingPathComponent(".codex", isDirectory: true)
+        let rolloutURL = codexHome
+            .appendingPathComponent("sessions/2026/08/12/rollout-\(sessionId).jsonl", isDirectory: false)
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(
+            at: rolloutURL.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        let rolloutLine: [String: Any] = [
+            "type": "session_meta",
+            "payload": ["id": sessionId, "cwd": root.path, "source": "cli"],
+        ]
+        try JSONSerialization.data(withJSONObject: rolloutLine, options: [.sortedKeys])
+            .write(to: rolloutURL, options: .atomic)
         defer {
             Darwin.close(listenerFD)
             unlink(socketPath)
@@ -1104,8 +1123,13 @@ struct CLICodexHookTimeoutRegressionTests {
                 "CMUX_SURFACE_ID": surfaceId,
                 "CMUX_AGENT_HOOK_STATE_DIR": root.path,
                 "CMUX_CLI_SENTRY_DISABLED": "1",
+                "CODEX_HOME": codexHome.path,
+                "CMUX_CODEX_TURN_LEDGER_PATH": root.appendingPathComponent("codex-turn-ledger.json").path,
+                "CMUX_AGENT_LAUNCH_KIND": "codex",
+                "CMUX_AGENT_LAUNCH_EXECUTABLE": "/usr/local/bin/codex",
+                "CMUX_AGENT_LAUNCH_CWD": root.path,
             ],
-            standardInput: #"{"session_id":"\#(sessionId)","cwd":"\#(root.path)","hook_event_name":"SessionStart"}"#,
+            standardInput: #"{"session_id":"\#(sessionId)","transcript_path":"\#(rolloutURL.path)","cwd":"\#(root.path)","hook_event_name":"SessionStart"}"#,
             timeout: 5
         )
 
@@ -1142,6 +1166,11 @@ struct CLICodexHookTimeoutRegressionTests {
                 "CMUX_AGENT_HOOK_STATE_DIR": root.path,
                 "CMUX_CLI_SENTRY_DISABLED": "1",
                 "CMUX_CODEX_PID": "1",
+                "CODEX_HOME": codexHome.path,
+                "CMUX_CODEX_TURN_LEDGER_PATH": root.appendingPathComponent("codex-turn-ledger.json").path,
+                "CMUX_AGENT_LAUNCH_KIND": "codex",
+                "CMUX_AGENT_LAUNCH_EXECUTABLE": "/usr/local/bin/codex",
+                "CMUX_AGENT_LAUNCH_CWD": root.path,
             ],
             standardInput: #"{"session_id":"\#(sessionId)","turn_id":"turn-done","cwd":"\#(root.path)","hook_event_name":"UserPromptSubmit","prompt":"late"}"#,
             timeout: 5
