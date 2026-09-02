@@ -3514,12 +3514,11 @@ impl Drop for RemoteSession {
                 let mirror_name = format!("mirror-{}.txt", surface.id);
                 let _ = write_private_dump(&directory, &mirror_name, &dump_mirror(surface));
                 let frames_name = format!("frames-{}.log", surface.id);
-                if let Ok(file) = private_dump_file(&directory, &frames_name) {
-                    let mut writer = io::BufWriter::new(file);
-                    for line in entries_by_surface.get(&surface.id).into_iter().flatten() {
-                        let _ = writeln!(writer, "{line}");
-                    }
+                let mut frames = String::new();
+                for line in entries_by_surface.get(&surface.id).into_iter().flatten() {
+                    let _ = writeln!(frames, "{line}");
                 }
+                let _ = write_private_dump(&directory, &frames_name, &frames);
             }
         }
     }
@@ -3589,9 +3588,48 @@ fn private_dump_file(directory: &fs::File, name: &str) -> io::Result<fs::File> {
 
 #[cfg(unix)]
 fn write_private_dump(directory: &fs::File, name: &str, contents: &str) -> io::Result<()> {
-    let mut file = private_dump_file(directory, name)?;
-    file.write_all(contents.as_bytes())?;
-    Ok(())
+    use std::ffi::CString;
+    use std::os::fd::AsRawFd;
+
+    static NEXT_TEMP_ID: AtomicU64 = AtomicU64::new(0);
+    let final_name = CString::new(name)
+        .map_err(|_| io::Error::new(io::ErrorKind::InvalidInput, "invalid dump file name"))?;
+    for _ in 0..16 {
+        let id = NEXT_TEMP_ID.fetch_add(1, Ordering::Relaxed);
+        let temp = format!(".{name}.tmp-{}-{id}", std::process::id());
+        let mut file = match private_dump_file(directory, &temp) {
+            Ok(file) => file,
+            Err(error) if error.kind() == io::ErrorKind::AlreadyExists => continue,
+            Err(error) => return Err(error),
+        };
+        let result = (|| {
+            file.write_all(contents.as_bytes())?;
+            file.sync_all()?;
+            drop(file);
+            let temp_name = CString::new(temp.as_str()).expect("generated temp name has no NUL");
+            let status = unsafe {
+                libc::renameat(
+                    directory.as_raw_fd(),
+                    temp_name.as_ptr(),
+                    directory.as_raw_fd(),
+                    final_name.as_ptr(),
+                )
+            };
+            if status != 0 {
+                return Err(io::Error::last_os_error());
+            }
+            Ok(())
+        })();
+        if result.is_ok() {
+            return Ok(());
+        }
+        let temp_name = CString::new(temp.as_str()).expect("generated temp name has no NUL");
+        unsafe {
+            libc::unlinkat(directory.as_raw_fd(), temp_name.as_ptr(), 0);
+        }
+        return result;
+    }
+    Err(io::Error::new(io::ErrorKind::AlreadyExists, "could not allocate a private dump file"))
 }
 
 fn parse_kitty_image_aliases(
