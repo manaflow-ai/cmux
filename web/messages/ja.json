@@ -424,7 +424,8 @@
         "detail": "詳細",
         "sourceStripe": "Stripe サブスクリプション",
         "sourceGrant": "手動付与",
-        "seats": "{count} シート"
+        "seats": "{count} シート",
+        "truncated": "この一覧はソースごとに 5,000 行までに制限されており、一部の行は表示されていません。見つからないものは検索してください。"
       }
     },
     "aiAccounts": {

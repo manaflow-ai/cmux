@@ -424,7 +424,8 @@
         "detail": "Detail",
         "sourceStripe": "Stripe subscription",
         "sourceGrant": "Manual grant",
-        "seats": "{count, plural, =1 {1 seat} other {# seats}}"
+        "seats": "{count, plural, =1 {1 seat} other {# seats}}",
+        "truncated": "This list is capped at 5,000 rows per source and some rows are not shown. Use search for anything missing."
       }
     },
     "aiAccounts": {
