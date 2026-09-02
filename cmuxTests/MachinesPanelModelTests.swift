@@ -973,32 +973,17 @@ struct MachinesPanelListProblemTests {
 
 @Suite("Cloud machines client bootstrap")
 struct MachinesPanelClientBootstrapTests {
-    @Test("A missing client retries only through the bounded bootstrap budget")
+    @Test("A missing configured client completes loading with a truthful problem")
     @MainActor
-    func missingClientUsesBoundedRetryBudget() async {
-        var attempts = 0
+    func missingClientCompletesLoading() {
+        let model = MachinesPanelViewModel()
 
-        let loaded = await CloudClientBootstrapRetry.run(maxRetries: 3) {
-            attempts += 1
-            return false
-        }
+        model.completeMissingClientLoad()
 
-        #expect(!loaded)
-        #expect(attempts == 4)
-    }
-
-    @Test("A client that appears during bootstrap completes immediately")
-    @MainActor
-    func clientAppearsDuringBootstrap() async {
-        var attempts = 0
-
-        let loaded = await CloudClientBootstrapRetry.run(maxRetries: 3) {
-            attempts += 1
-            return attempts == 3
-        }
-
-        #expect(loaded)
-        #expect(attempts == 3)
+        #expect(!model.isLoading)
+        #expect(model.hasLoadedOnce)
+        #expect(model.listProblem == .notConfigured)
+        #expect(model.lastErrorDescription?.isEmpty == false)
     }
 }
 
