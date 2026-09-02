@@ -252,12 +252,10 @@ fn shell_wrapped_agent(runtime: &str, argv: &[String]) -> Option<String> {
                 .get(index + 1)
                 .and_then(|script| path_candidates(script).into_iter().next());
         }
-        if is_shell_command_flag(flag) {
-            // A command flag consumes the next argv element as shell text.
-            // `None` is also the safe result when the value is missing.
-            return argv
-                .get(index + 1)
-                .and_then(|command| command_first_path_candidate(&shell_words(command)));
+        if let Some(command) =
+            shell_command_words(runtime, flag, argv.get(index + 1).map(String::as_str))
+        {
+            return command_first_path_candidate(&command);
         }
         if flag.starts_with('-') || (runtime == "zsh" && flag.starts_with('+')) {
             if shell_option_exits(runtime, flag) {
@@ -331,27 +329,119 @@ fn powershell_agent(argv: &[String]) -> Option<String> {
     None
 }
 
-fn is_shell_command_flag(flag: &str) -> bool {
-    flag == "-c"
-        || flag == "--command"
-        || (flag.starts_with('-')
-            && flag
-                .chars()
-                .skip(1)
-                .all(|character| matches!(character, 'i' | 'l' | 'o' | 'g' | 'c'))
-            && flag.ends_with('c'))
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum ShellOptionKind {
+    Safe,
+    TakesValue,
+    NoExecute,
+    Exits,
+}
+
+/// Return shell words for a command-mode flag. The command syntax is kept
+/// runtime-specific because a generic "any cluster ending in c" rule treats
+/// value-taking options such as bash `-o` as command mode. Fish accepts both
+/// the separate `--command` argument and the inline `--command=...` form.
+fn shell_command_words(runtime: &str, flag: &str, next: Option<&str>) -> Option<Vec<String>> {
+    if runtime == "fish" {
+        if flag == "--command" {
+            return Some(next.map_or_else(Vec::new, shell_words));
+        }
+        if let Some(command) = flag.strip_prefix("--command=") {
+            return Some(shell_words(command));
+        }
+    }
+    if is_shell_command_flag(runtime, flag) {
+        return Some(next.map_or_else(Vec::new, shell_words));
+    }
+    None
+}
+
+fn is_shell_command_flag(runtime: &str, flag: &str) -> bool {
+    if flag == "-c" {
+        return matches!(runtime, "bash" | "sh" | "zsh" | "fish");
+    }
+
+    let Some(mut characters) = flag.strip_prefix('-').map(str::chars) else {
+        return false;
+    };
+    // `c` is special only as the final short option. A repeated c, or a
+    // command marker before another character, is not a command-mode flag.
+    if characters.next_back() != Some('c') || characters.any(|character| character == 'c') {
+        return false;
+    }
+    characters.all(|character| {
+        matches!(shell_short_option_kind(runtime, character), Some(ShellOptionKind::Safe))
+    })
+}
+
+fn shell_short_option_kind(runtime: &str, option: char) -> Option<ShellOptionKind> {
+    match runtime {
+        // Bash documents these as invocation flags. `-n` and `-D` prevent a
+        // command from running, while `-o` and `-O` consume an option name.
+        "bash" => match option {
+            'a' | 'b' | 'e' | 'f' | 'h' | 'i' | 'k' | 'l' | 'm' | 'p' | 'r' | 's' | 't' | 'u'
+            | 'v' | 'x' | 'B' | 'C' | 'E' | 'H' | 'P' | 'T' => Some(ShellOptionKind::Safe),
+            'n' => Some(ShellOptionKind::NoExecute),
+            'D' => Some(ShellOptionKind::Exits),
+            'o' | 'O' => Some(ShellOptionKind::TakesValue),
+            _ => None,
+        },
+        // Keep the POSIX/common shell switches here. Different `sh`
+        // implementations add flags, so unknown switches fail closed.
+        "sh" => match option {
+            'a' | 'b' | 'e' | 'f' | 'h' | 'i' | 'k' | 'l' | 'm' | 'p' | 'r' | 's' | 't' | 'u'
+            | 'v' | 'x' => Some(ShellOptionKind::Safe),
+            'n' => Some(ShellOptionKind::NoExecute),
+            'o' => Some(ShellOptionKind::TakesValue),
+            _ => None,
+        },
+        // zsh exposes a larger set of single-letter option aliases. These
+        // are all non-consuming options; `-n` is noexec, `-o` takes a name,
+        // and `-b` is the documented end-options switch.
+        "zsh" => match option {
+            'J' | 'N' | 'T' | 'w' | 'E' | 'D' | '9' | 'X' | 'Y' | 'S' | '4' | 'I' | '8' | 'G'
+            | 'P' | 'h' | 'g' | 'a' | '0' | 'O' | '7' | 'k' | 'U' | 'Q' | '1' | 'H' | 'L' | 'W'
+            | '6' | 'R' | 'm' | '5' | 'e' | 'v' | 'x' | 'y' | 'i' | 'l' | 'p' | 'r' | 's' | 't'
+            | 'M' | 'Z' | 'b' | 'd' | 'f' => Some(ShellOptionKind::Safe),
+            'n' => Some(ShellOptionKind::NoExecute),
+            'o' => Some(ShellOptionKind::TakesValue),
+            _ => None,
+        },
+        // Fish's short options follow its command-line synopsis. `-h` and
+        // `-v` exit, while `-C`, `-d`, `-f`, `-o`, and `-p` consume values.
+        "fish" => match option {
+            'i' | 'l' | 'N' | 'P' => Some(ShellOptionKind::Safe),
+            'n' => Some(ShellOptionKind::NoExecute),
+            'h' | 'v' => Some(ShellOptionKind::Exits),
+            'C' | 'd' | 'f' | 'o' | 'p' => Some(ShellOptionKind::TakesValue),
+            _ => None,
+        },
+        _ => None,
+    }
 }
 
 fn shell_option_exits(runtime: &str, flag: &str) -> bool {
     match runtime {
-        "bash" | "sh" => matches!(
+        "bash" => matches!(
+            flag,
+            "-D" | "--dump-po-strings"
+                | "--dump-strings"
+                | "--help"
+                | "--pretty-print"
+                | "--version"
+        ),
+        "sh" => matches!(
             flag,
             "--dump-po-strings" | "--dump-strings" | "--help" | "--pretty-print" | "--version"
         ),
         "zsh" => matches!(flag, "--help" | "--version"),
         "fish" => matches!(
             flag,
-            "--help" | "--print-debug-categories" | "--print-rusage-self" | "--version"
+            "-h" | "-v"
+                | "--help"
+                | "--print-debug-categories"
+                | "--print-rusage-self"
+                | "--version"
         ),
         _ => false,
     }
@@ -359,14 +449,37 @@ fn shell_option_exits(runtime: &str, flag: &str) -> bool {
 
 fn shell_option_takes_value(runtime: &str, flag: &str) -> bool {
     match runtime {
-        "bash" => matches!(flag, "-o" | "-O" | "--rcfile" | "--init-file"),
-        "zsh" => matches!(flag, "-o" | "+o" | "--cmd" | "--command"),
+        "bash" => {
+            matches!(flag, "-o" | "-O" | "--rcfile" | "--init-file")
+                || long_option_with_value(flag, "--rcfile")
+                || long_option_with_value(flag, "--init-file")
+        }
+        "zsh" => matches!(flag, "-o" | "+o"),
         "fish" => {
-            matches!(flag, "-C" | "--command" | "--init-command" | "--features" | "--debug-level")
+            matches!(flag, "-C" | "-d" | "-f" | "-o" | "-p")
+                || matches!(
+                    flag,
+                    "--debug"
+                        | "--debug-output"
+                        | "--features"
+                        | "--init-command"
+                        | "--profile"
+                        | "--profile-startup"
+                )
+                || long_option_with_value(flag, "--debug")
+                || long_option_with_value(flag, "--debug-output")
+                || long_option_with_value(flag, "--features")
+                || long_option_with_value(flag, "--init-command")
+                || long_option_with_value(flag, "--profile")
+                || long_option_with_value(flag, "--profile-startup")
         }
         "sh" => flag == "-o",
         _ => false,
     }
+}
+
+fn long_option_with_value(flag: &str, option: &str) -> bool {
+    flag.strip_prefix(option).is_some_and(|value| value.starts_with('='))
 }
 
 fn shell_option_without_value(runtime: &str, flag: &str) -> bool {
@@ -392,33 +505,15 @@ fn shell_option_without_value(runtime: &str, flag: &str) -> bool {
         };
     }
 
-    // These are the portable short shell switches that do not consume the
-    // next argument. `-o`, `-O`, and the stdin/no-exec modes are deliberately
-    // excluded because they either consume a value or mean that a following
-    // positional word is not a script file.
+    // These are the runtime-specific short shell switches that do not
+    // consume the next argument. Value-taking, no-exec, exit-only, and
+    // unknown switches deliberately fail closed.
     let Some(characters) = flag.strip_prefix('-').filter(|value| !value.is_empty()) else {
         return false;
     };
-    if characters.chars().any(|character| matches!(character, 'o' | 'c' | 'n' | 's' | 't')) {
-        return false;
-    }
-    match runtime {
-        "bash" | "zsh" | "sh" => {
-            if matches!(flag, "-C") && runtime != "zsh" {
-                return true;
-            }
-            characters.chars().all(|character| {
-                matches!(
-                    character,
-                    'a' | 'b' | 'e' | 'f' | 'h' | 'i' | 'l' | 'm' | 'p' | 'r' | 'u' | 'v' | 'x'
-                )
-            })
-        }
-        "fish" => characters
-            .chars()
-            .all(|character| matches!(character, 'h' | 'i' | 'l' | 'n' | 'p' | 'q' | 'v')),
-        _ => false,
-    }
+    characters.chars().all(|character| {
+        matches!(shell_short_option_kind(runtime, character), Some(ShellOptionKind::Safe))
+    })
 }
 
 /// Return only the executable token from a shell command. Scanning every
@@ -1629,6 +1724,12 @@ mod tests {
             processes: vec![process(8, "fish", &["fish", "--command=exec codex"])],
         };
         assert_eq!(identify_job(ManifestSet::bundled(), &fish).unwrap().0.id(), "codex");
+
+        let fish_separate = ForegroundJob {
+            process_group_id: 9,
+            processes: vec![process(9, "fish", &["fish", "--command", "exec codex"])],
+        };
+        assert_eq!(identify_job(ManifestSet::bundled(), &fish_separate).unwrap().0.id(), "codex");
     }
 
     #[test]
