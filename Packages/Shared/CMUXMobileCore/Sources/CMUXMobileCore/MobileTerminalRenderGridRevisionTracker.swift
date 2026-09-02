@@ -28,11 +28,10 @@ public struct MobileTerminalRenderGridRevisionTracker: Sendable {
         }
     }
 
-    /// Capture-independent identity used while a surface has only
-    /// request/response observations. Scrollback depth is a request option,
-    /// not a terminal mutation, so it is intentionally absent here. Once the
-    /// first real emission arrives, the full rendered-content identity is used
-    /// for producer-side comparisons.
+    /// Depth-independent identity used for both observations and emissions.
+    /// Scrollback depth is a request option, not a terminal mutation, so the
+    /// history payload is compared by its newest-row overlap instead of its
+    /// requested length.
     private struct ObservationContent: Equatable, Sendable {
         let columns: Int
         let rows: Int
@@ -41,6 +40,8 @@ public struct MobileTerminalRenderGridRevisionTracker: Sendable {
         let rowSignatures: [String]
         let historyRows: UInt64?
         let rowSpaceRevision: UInt64?
+        let scrollbackRows: Int
+        let scrollbackSignatures: [String]
         let cursor: MobileTerminalRenderGridFrame.Cursor?
         let terminalForeground: String?
         let terminalBackground: String?
@@ -56,6 +57,8 @@ public struct MobileTerminalRenderGridRevisionTracker: Sendable {
             rowSignatures = content.rowSignatures
             historyRows = content.historyRows
             rowSpaceRevision = content.rowSpaceRevision
+            scrollbackRows = max(0, content.scrollbackRows)
+            scrollbackSignatures = content.scrollbackSignatures
             cursor = content.cursor
             terminalForeground = content.terminalForeground
             terminalBackground = content.terminalBackground
@@ -63,12 +66,85 @@ public struct MobileTerminalRenderGridRevisionTracker: Sendable {
             terminalTheme = content.terminalTheme
             terminalConfigTheme = content.terminalConfigTheme
         }
+
+        /// Compares history payloads by their newest-row overlap, not by the
+        /// request's scrollback depth. A replay asking for 20 rows and a replay
+        /// asking for 200 rows therefore identify the same terminal state when
+        /// their shared tail is unchanged. Absolute history metadata, when
+        /// present, aligns rows across captures; legacy frames align them from
+        /// the newest row backwards.
+        static func == (lhs: Self, rhs: Self) -> Bool {
+            lhs.columns == rhs.columns
+                && lhs.rows == rhs.rows
+                && lhs.activeScreen == rhs.activeScreen
+                && lhs.anchor == rhs.anchor
+                && lhs.rowSignatures == rhs.rowSignatures
+                && lhs.historyRows == rhs.historyRows
+                && lhs.rowSpaceRevision == rhs.rowSpaceRevision
+                && lhs.cursor == rhs.cursor
+                && lhs.terminalForeground == rhs.terminalForeground
+                && lhs.terminalBackground == rhs.terminalBackground
+                && lhs.terminalCursorColor == rhs.terminalCursorColor
+                && lhs.terminalTheme == rhs.terminalTheme
+                && lhs.terminalConfigTheme == rhs.terminalConfigTheme
+                && lhs.historyPayloadMatches(rhs)
+        }
+
+        private func historyPayloadMatches(_ other: Self) -> Bool {
+            guard scrollbackRows > 0, other.scrollbackRows > 0 else {
+                // A zero-depth capture carries no history payload; it cannot
+                // contradict a deeper capture when the absolute history
+                // identity above is unchanged.
+                return true
+            }
+            let lhsBase = historyBase
+            let rhsBase = other.historyBase
+            let lower = max(lhsBase, rhsBase)
+            let upper = min(
+                lhsBase + scrollbackRows - 1,
+                rhsBase + other.scrollbackRows - 1
+            )
+            guard lower <= upper else { return true }
+            let lhsRows = rowSignaturesByAbsoluteRow(base: lhsBase)
+            let rhsRows = other.rowSignaturesByAbsoluteRow(base: rhsBase)
+            for row in lower...upper where lhsRows[row] != rhsRows[row] {
+                return false
+            }
+            return true
+        }
+
+        private var historyBase: Int {
+            if let historyRows {
+                let boundedHistoryRows = min(historyRows, UInt64(Int.max))
+                return Int(boundedHistoryRows) - scrollbackRows
+            }
+            // Negative indexes make the newest row `-1`, which gives captures
+            // with different depths a common coordinate system.
+            return -scrollbackRows
+        }
+
+        private func rowSignaturesByAbsoluteRow(base: Int) -> [Int: String] {
+            var rows: [Int: String] = [:]
+            for signature in scrollbackSignatures {
+                guard let separator = signature.firstIndex(of: ":"),
+                      let localRow = Int(signature[..<separator]) else {
+                    continue
+                }
+                let remainder = String(signature[signature.index(after: separator)...])
+                let absoluteRow = base + localRow
+                if let existing = rows[absoluteRow] {
+                    rows[absoluteRow] = existing + "\u{1F}" + remainder
+                } else {
+                    rows[absoluteRow] = remainder
+                }
+            }
+            return rows
+        }
     }
 
     private let renderEpoch: String
     private var renderRevision: UInt64 = 0
     private var emissionRevision: UInt64 = 0
-    private var lastContent: MobileTerminalRenderGridContent?
     private var lastObservationContent: ObservationContent?
 
     /// Creates a tracker for one terminal-runtime lifetime.
@@ -109,16 +185,7 @@ public struct MobileTerminalRenderGridRevisionTracker: Sendable {
         content: MobileTerminalRenderGridContent? = nil
     ) -> Identity {
         let renderedContent = content ?? fullFrame.renderedContent()
-        if emissionRevision == 0 {
-            // A request-only baseline may have been initialized with a
-            // different scrollback budget. Reuse its capture-independent
-            // identity for the first real emission, then switch to the full
-            // producer identity for all subsequent emissions.
-            updateObservationRevision(ObservationContent(renderedContent))
-        } else {
-            updateContentRevision(renderedContent)
-        }
-        lastContent = renderedContent
+        updateObservationRevision(ObservationContent(renderedContent))
         emissionRevision &+= 1
         if emissionRevision == 0 {
             emissionRevision = 1
@@ -140,23 +207,7 @@ public struct MobileTerminalRenderGridRevisionTracker: Sendable {
         fullFrame: MobileTerminalRenderGridFrame,
         content: MobileTerminalRenderGridContent? = nil
     ) -> Identity {
-        // Once a real event has established the producer baseline, a
-        // request/response replay must not replace it with a capture carrying
-        // a different scrollback budget. Such a replacement would make the
-        // next event look like a content change even when only the requested
-        // history depth changed. The event producer remains the authority for
-        // subsequent revisions; observations still return its current token.
-        guard emissionRevision == 0 else {
-            return Identity(
-                renderEpoch: renderEpoch,
-                renderRevision: renderRevision,
-                emissionRevision: 0
-            )
-        }
         let renderedContent = content ?? fullFrame.renderedContent()
-        // Before the first emission, compare only the capture-independent
-        // identity so repeated polls with different history depths remain
-        // stable while visible output/size changes still advance the token.
         updateObservationRevision(ObservationContent(renderedContent))
         // Observation is deliberately not an emission. Returning the current
         // emission counter here would let a request/response projection reuse
@@ -166,18 +217,6 @@ public struct MobileTerminalRenderGridRevisionTracker: Sendable {
             renderRevision: renderRevision,
             emissionRevision: 0
         )
-    }
-
-    private mutating func updateContentRevision(
-        _ renderedContent: MobileTerminalRenderGridContent
-    ) {
-        if lastContent != renderedContent {
-            renderRevision &+= 1
-            if renderRevision == 0 {
-                renderRevision = 1
-            }
-            lastContent = renderedContent
-        }
     }
 
     private mutating func updateObservationRevision(

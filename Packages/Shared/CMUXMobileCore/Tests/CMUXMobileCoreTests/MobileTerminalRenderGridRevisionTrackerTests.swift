@@ -187,6 +187,36 @@ private struct RenderGridRevisionFixture {
     #expect(shallow.emissionRevision == 0)
 }
 
+@Test func emittedReplaysWithDifferentScrollbackKeepThePollingTokenStable() throws {
+    func replay(scrollbackRows: Int) throws -> MobileTerminalRenderGridFrame {
+        try MobileTerminalRenderGridFrame(
+            surfaceID: "surface-a",
+            stateSeq: 1,
+            renderEpoch: "epoch-1",
+            columns: 8,
+            rows: 1,
+            rowSpans: [.init(row: 0, column: 0, text: "visible")],
+            scrollbackRows: scrollbackRows,
+            scrollbackSpans: scrollbackRows == 0
+                ? []
+                : [.init(row: scrollbackRows - 1, column: 0, text: "history")],
+            historyRows: 20,
+            rowSpaceRevision: 4
+        )
+    }
+    var tracker = MobileTerminalRenderGridRevisionTracker(renderEpoch: "epoch-1")
+
+    let first = tracker.record(fullFrame: try replay(scrollbackRows: 0))
+    let deeper = tracker.record(fullFrame: try replay(scrollbackRows: 20))
+    let shallow = tracker.record(fullFrame: try replay(scrollbackRows: 1))
+
+    #expect(first.renderRevision == 1)
+    #expect(deeper.renderRevision == first.renderRevision)
+    #expect(shallow.renderRevision == first.renderRevision)
+    #expect(deeper.emissionRevision == first.emissionRevision + 1)
+    #expect(shallow.emissionRevision == deeper.emissionRevision + 1)
+}
+
 @Test func resizeAdvancesContentRevision() throws {
     var fixture = RenderGridRevisionFixture()
     let baseline = try fixture.record(text: "size", columns: 12, rows: 2)
