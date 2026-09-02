@@ -615,6 +615,11 @@ fn runtime_path_arguments<'a>(runtime: &str, argv: &'a [String]) -> Vec<&'a str>
         if is_eval_flag(runtime, argument) {
             break;
         }
+        if runtime_option_exits(runtime, argument) {
+            // Python exits after printing help or its version. Any later
+            // token is command-line data, never an executable script.
+            break;
+        }
         if is_python_runtime(runtime) && runtime_flag_matches(argument, "-m") {
             // Python module mode consumes the following token as a module
             // name. Remaining tokens are module arguments, not executables.
@@ -667,8 +672,21 @@ fn runtime_option_takes_value(runtime: &str, argument: &str) -> bool {
                 | "--inspect-port"
         ),
         name if is_python_runtime(name) => {
-            matches!(argument, "-m" | "-W" | "-X" | "-S" | "-L" | "-o")
+            // `-S` is a boolean site-import switch. `-L` and `-o` are kept
+            // for alternate Python runtimes that document those options.
+            matches!(argument, "-m" | "-W" | "-X" | "-L" | "-o" | "--check-hash-based-pycs")
+                || long_option_with_value(argument, "--check-hash-based-pycs")
         }
+        _ => false,
+    }
+}
+
+fn runtime_option_exits(runtime: &str, argument: &str) -> bool {
+    match runtime {
+        name if is_python_runtime(name) => matches!(
+            argument,
+            "-h" | "-V" | "--help" | "--help-env" | "--help-xoptions" | "--help-all" | "--version"
+        ),
         _ => false,
     }
 }
