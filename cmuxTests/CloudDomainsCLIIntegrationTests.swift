@@ -13,7 +13,7 @@ extension CMUXCLIErrorOutputRegressionTests {
         )
         let generated = cloudDomainPublicationWithoutVerification(
             id: "pub-generated",
-            hostname: "bright-otter.style.dev",
+            hostname: "bright-otter.cmux.sh",
             domainKind: "generated",
             state: "active"
         )

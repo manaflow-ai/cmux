@@ -142,6 +142,30 @@ const irohMinterUrl = z.string().url().superRefine((value, context) => {
     });
   }
 });
+const publicationAuthOrigin = z.string().url().superRefine((value, context) => {
+  let parsed: URL | null = null;
+  try {
+    parsed = new URL(value);
+  } catch {
+    parsed = null;
+  }
+  if (
+    !parsed ||
+    parsed.protocol !== "https:" ||
+    !parsed.hostname ||
+    parsed.username ||
+    parsed.password ||
+    parsed.pathname !== "/" ||
+    parsed.search ||
+    parsed.hash
+  ) {
+    context.addIssue({
+      code: z.ZodIssueCode.custom,
+      message:
+        "CMUX_VM_PUBLICATION_AUTH_ORIGIN must be a bare https:// origin with no path, query, or credentials",
+    });
+  }
+});
 const irohBindingLimit = z.string().regex(/^[1-9][0-9]{0,3}$/).superRefine((value, context) => {
   if (Number(value) > 4_096) {
     context.addIssue({
@@ -249,9 +273,21 @@ export const env = createEnv({
     // write-only token. Publication routes fail closed while it is absent.
     CMUX_VM_PUBLICATION_FORWARD_AUTH_SECRET:
       z.string().min(32).max(512).optional(),
-    // Canonical CMUX web origin used for the cross-domain sign-in handoff.
-    // Defaults to the request origin, but production can pin it explicitly.
-    CMUX_VM_PUBLICATION_AUTH_ORIGIN: z.string().url().optional(),
+    // Canonical CMUX web origin used for the cross-domain sign-in handoff and
+    // pushed to Freestyle as the account-wide forward-auth target. It is never
+    // derived from a request; protected publications fail closed without it.
+    CMUX_VM_PUBLICATION_AUTH_ORIGIN: publicationAuthOrigin.optional(),
+    // Zone generated Cloud VM publication hostnames are minted under
+    // (<random>.<zone>). The CMUX Freestyle account must own it: verify the
+    // zone, CNAME `*` to the Freestyle edge, delegate `_acme-challenge`, and
+    // request its wildcard certificate. Defaults to cmux.sh.
+    CMUX_VM_PUBLICATION_GENERATED_DOMAIN: z
+      .string()
+      .regex(
+        /^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)+$/u,
+        "CMUX_VM_PUBLICATION_GENERATED_DOMAIN must be a lowercase DNS zone with at least two labels",
+      )
+      .optional(),
     // Hosted coderouter requires an active personal cmux Pro subscription.
     // Self-hosted deployments leave this unset (or set it to "0").
     CODEROUTER_HOSTED_PRO_REQUIRED: requireVercelProductionValue(
@@ -433,6 +469,9 @@ export const env = createEnv({
     ),
     CMUX_VM_PUBLICATION_AUTH_ORIGIN: trimEnv(
       process.env.CMUX_VM_PUBLICATION_AUTH_ORIGIN,
+    ),
+    CMUX_VM_PUBLICATION_GENERATED_DOMAIN: trimEnv(
+      process.env.CMUX_VM_PUBLICATION_GENERATED_DOMAIN,
     ),
     CODEROUTER_HOSTED_PRO_REQUIRED: trimEnv(
       process.env.CODEROUTER_HOSTED_PRO_REQUIRED,

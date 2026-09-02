@@ -83,7 +83,7 @@ export function PublicationAccessCard({
             {view === "signed-out" ? <p>{messages.signedOutBody}</p> : null}
             {view === "signed-in" && identity ? (
               <p className="font-medium text-[#30302d]">
-                {messages.signedInAs.replace("{identity}", identity)}
+                {messages.signedInAs.replace("{identity}", () => identity)}
               </p>
             ) : null}
             {view === "invalid" ? <p>{messages.invalidBody}</p> : null}

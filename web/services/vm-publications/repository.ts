@@ -1,11 +1,14 @@
 import {
   and,
   asc,
+  count,
   desc,
   eq,
   gt,
   inArray,
+  isNotNull,
   isNull,
+  lte,
   ne,
   or,
   sql,
@@ -235,6 +238,10 @@ export type CloudVmPublicationRepositoryShape = {
 
   readonly reservePublication: (input: {
     readonly ownerUserId: string;
+    /** The caller's account scope; VM lookup follows it like every VM route. */
+    readonly billingTeamId?: string | null;
+    /** Current team membership; omitted means none, which fails closed for team-billed VMs. */
+    readonly teamIds?: readonly string[];
     readonly provider: ProviderId;
     readonly providerVmId: string;
     readonly domainId: string;
@@ -246,6 +253,8 @@ export type CloudVmPublicationRepositoryShape = {
   }) => Effect.Effect<CloudVmPublicationTarget, RepositoryError>;
   readonly reservePublicationWithNewDomain: (input: {
     readonly ownerUserId: string;
+    readonly billingTeamId?: string | null;
+    readonly teamIds?: readonly string[];
     readonly provider: ProviderId;
     readonly providerVmId: string;
     readonly domainHostname: string;
@@ -262,6 +271,8 @@ export type CloudVmPublicationRepositoryShape = {
     readonly leaseId: string;
     readonly now: Date;
     readonly leaseExpiresAt: Date;
+    /** `disable` may resume a publication already left in `disabling` by a failed sweep. */
+    readonly intent?: "mutate" | "disable";
   }) => Effect.Effect<VmPublicationOperationClaim, RepositoryError>;
   readonly releaseVmPublicationOperation: (input: {
     readonly publicationId: string;
@@ -515,6 +526,27 @@ function normalizedTeamId(
   return normalized;
 }
 
+/**
+ * A team-billed VM is publishable by any current member of that team, and a
+ * creator who has since left the team may not publish it. This mirrors the
+ * `billingTeamId` guard every other VM route applies before `vmAccountScopeWhere`.
+ */
+function requireVmAccountScope(input: {
+  readonly ownerUserId: string;
+  readonly billingTeamId?: string | null;
+  readonly teamIds?: readonly string[];
+}): { readonly requesterUserId: string; readonly billingTeamId: string | null } {
+  const billingTeamId = input.billingTeamId?.trim() || null;
+  if (
+    billingTeamId &&
+    billingTeamId !== input.ownerUserId &&
+    !(input.teamIds ?? []).includes(billingTeamId)
+  ) {
+    throw new PublicationNotFoundError({ resource: "vm" });
+  }
+  return { requesterUserId: input.ownerUserId, billingTeamId };
+}
+
 function vmAccountScopeWhere(input: {
   readonly requesterUserId: string;
   readonly billingTeamId?: string | null;
@@ -536,6 +568,107 @@ function accountDeletionError(
   return cause instanceof AccountDeletionMutationBlockedError
     ? new PublicationAccountDeletionBlockedError({ userId: cause.userId })
     : cause;
+}
+
+/**
+ * Every unauthenticated request to a protected hostname mints a transaction,
+ * so hygiene runs on that hot path instead of a cron: retire a bounded batch of
+ * this publication's expired or consumed transactions (codes cascade) and cap
+ * the pending ones so one hostname cannot fill the table.
+ */
+export const AUTH_ARTIFACT_SWEEP_LIMIT = 100;
+export const MAX_PENDING_AUTH_TRANSACTIONS_PER_PUBLICATION = 1_000;
+
+type CloudDbTx = Parameters<Parameters<ReturnType<typeof cloudDb>["transaction"]>[0]>[0];
+
+async function sweepAuthTransactions(
+  tx: CloudDbTx,
+  publicationId: string,
+  now: Date,
+): Promise<void> {
+  await tx
+    .delete(cloudVmPublicationAuthTransactions)
+    .where(
+      inArray(
+        cloudVmPublicationAuthTransactions.transactionHash,
+        tx
+          .select({ hash: cloudVmPublicationAuthTransactions.transactionHash })
+          .from(cloudVmPublicationAuthTransactions)
+          .where(
+            and(
+              eq(cloudVmPublicationAuthTransactions.publicationId, publicationId),
+              or(
+                lte(cloudVmPublicationAuthTransactions.expiresAt, now),
+                isNotNull(cloudVmPublicationAuthTransactions.consumedAt),
+              ),
+            ),
+          )
+          .orderBy(asc(cloudVmPublicationAuthTransactions.expiresAt))
+          .limit(AUTH_ARTIFACT_SWEEP_LIMIT),
+      ),
+    );
+  const [pending] = await tx
+    .select({ total: count() })
+    .from(cloudVmPublicationAuthTransactions)
+    .where(
+      and(
+        eq(cloudVmPublicationAuthTransactions.publicationId, publicationId),
+        gt(cloudVmPublicationAuthTransactions.expiresAt, now),
+        isNull(cloudVmPublicationAuthTransactions.consumedAt),
+      ),
+    );
+  const excess = (pending?.total ?? 0) - (MAX_PENDING_AUTH_TRANSACTIONS_PER_PUBLICATION - 1);
+  if (excess <= 0) return;
+  await tx
+    .delete(cloudVmPublicationAuthTransactions)
+    .where(
+      inArray(
+        cloudVmPublicationAuthTransactions.transactionHash,
+        tx
+          .select({ hash: cloudVmPublicationAuthTransactions.transactionHash })
+          .from(cloudVmPublicationAuthTransactions)
+          .where(
+            and(
+              eq(cloudVmPublicationAuthTransactions.publicationId, publicationId),
+              gt(cloudVmPublicationAuthTransactions.expiresAt, now),
+              isNull(cloudVmPublicationAuthTransactions.consumedAt),
+            ),
+          )
+          .orderBy(
+            asc(cloudVmPublicationAuthTransactions.createdAt),
+            asc(cloudVmPublicationAuthTransactions.transactionHash),
+          )
+          .limit(excess),
+      ),
+    );
+}
+
+async function sweepPublicationSessions(
+  tx: CloudDbTx,
+  publicationId: string,
+  now: Date,
+): Promise<void> {
+  await tx
+    .delete(cloudVmPublicationSessions)
+    .where(
+      inArray(
+        cloudVmPublicationSessions.tokenHash,
+        tx
+          .select({ hash: cloudVmPublicationSessions.tokenHash })
+          .from(cloudVmPublicationSessions)
+          .where(
+            and(
+              eq(cloudVmPublicationSessions.publicationId, publicationId),
+              or(
+                lte(cloudVmPublicationSessions.expiresAt, now),
+                isNotNull(cloudVmPublicationSessions.revokedAt),
+              ),
+            ),
+          )
+          .orderBy(asc(cloudVmPublicationSessions.expiresAt))
+          .limit(AUTH_ARTIFACT_SWEEP_LIMIT),
+      ),
+    );
 }
 
 async function requirePublicationRevision(
@@ -869,6 +1002,7 @@ export const CloudVmPublicationRepositoryLive = Layer.succeed(
       repositoryEffect("reservePublication", async () => {
         const teamId = normalizedTeamId(input.accessMode, input.teamId);
         const hostname = normalizedHostname(input.hostname);
+        const vmScope = requireVmAccountScope(input);
         try {
           return await cloudDb().transaction(async (tx) => {
             try {
@@ -884,7 +1018,7 @@ export const CloudVmPublicationRepositoryLive = Layer.succeed(
               .from(cloudVms)
               .where(
                 and(
-                  eq(cloudVms.userId, input.ownerUserId),
+                  vmAccountScopeWhere(vmScope),
                   eq(cloudVms.provider, input.provider),
                   eq(cloudVms.providerVmId, input.providerVmId),
                   inArray(cloudVms.status, ["running", "paused"]),
@@ -956,6 +1090,7 @@ export const CloudVmPublicationRepositoryLive = Layer.succeed(
         const teamId = normalizedTeamId(input.accessMode, input.teamId);
         const domainHostname = normalizedHostname(input.domainHostname);
         const hostname = normalizedHostname(input.hostname);
+        const vmScope = requireVmAccountScope(input);
         const domainSeed = {
           hostname: domainHostname,
           kind: input.kind,
@@ -985,7 +1120,7 @@ export const CloudVmPublicationRepositoryLive = Layer.succeed(
               .from(cloudVms)
               .where(
                 and(
-                  eq(cloudVms.userId, input.ownerUserId),
+                  vmAccountScopeWhere(vmScope),
                   eq(cloudVms.provider, input.provider),
                   eq(cloudVms.providerVmId, input.providerVmId),
                   inArray(cloudVms.status, ["running", "paused"]),
@@ -1106,9 +1241,11 @@ export const CloudVmPublicationRepositoryLive = Layer.succeed(
           if (!vm || !publication) {
             throw new PublicationNotFoundError({ resource: "publication" });
           }
+          // A sweep that failed after `beginDisablePublication` leaves the row
+          // `disabling`; only a delete may take the lease again to finish it.
           if (
             publication.state === "disabled" ||
-            publication.state === "disabling"
+            (publication.state === "disabling" && input.intent !== "disable")
           ) {
             throw new PublicationConflictError({
               reason: "publication_not_active",
@@ -1620,7 +1757,14 @@ export const CloudVmPublicationRepositoryLive = Layer.succeed(
               cloudVmDomains,
               eq(cloudVmPublications.domainId, cloudVmDomains.id),
             )
-            .where(eq(cloudVmPublications.ownerUserId, ownerUserId))
+            // A disabled publication's hostname may already be claimed by
+            // another account, so its rules are never swept again.
+            .where(
+              and(
+                eq(cloudVmPublications.ownerUserId, ownerUserId),
+                ne(cloudVmPublications.state, "disabled"),
+              ),
+            )
             .orderBy(
               asc(cloudVmPublications.createdAt),
               asc(cloudVmPublications.id),
@@ -1690,6 +1834,7 @@ export const CloudVmPublicationRepositoryLive = Layer.succeed(
               reason: "transaction_host_mismatch",
             });
           }
+          await sweepAuthTransactions(tx, target.publication.id, input.now);
           const [transaction] = await tx
             .insert(cloudVmPublicationAuthTransactions)
             .values({
@@ -1962,6 +2107,7 @@ export const CloudVmPublicationRepositoryLive = Layer.succeed(
               reason: "transaction_host_mismatch",
             });
           }
+          await sweepPublicationSessions(tx, target.publication.id, input.now);
           const [session] = await tx
             .insert(cloudVmPublicationSessions)
             .values({

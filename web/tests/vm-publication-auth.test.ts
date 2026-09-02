@@ -45,47 +45,53 @@ describe("Cloud VM publication auth exchange", () => {
       },
     });
 
-    for (const [method, kind] of [
-      ["GET", "redirect"],
-      ["POST", "unauthorized"],
-    ] as const) {
-      created.current = null;
-      const decision = await run(
-        authorizePublicationRequest({
-          hostname: publication.hostname,
-          providerTlsRuleId: "tls-rule-1",
-          method,
-          returnPath: "/editor?file=one",
-          sessionToken: null,
-          authPageOrigin: "https://cmux.com",
-          now,
-        }),
-        repository,
-      );
+    const authorize = (method: string) => run(
+      authorizePublicationRequest({
+        hostname: publication.hostname,
+        providerTlsRuleId: "tls-rule-1",
+        method,
+        returnPath: "/editor?file=one",
+        sessionToken: null,
+        authPageOrigin: "https://cmux.com",
+        now,
+      }),
+      repository,
+    );
 
-      expect(decision.kind).toBe(kind);
-      if (decision.kind !== "redirect" && decision.kind !== "unauthorized") {
-        throw new Error("expected an auth transaction");
-      }
-      const location = new URL(decision.location);
-      const transaction = location.searchParams.get("transaction");
-      const state = location.searchParams.get("state");
-      const cookie = parsePublicationTransactionCookie(decision.transactionCookie);
-      expect(location.origin).toBe("https://cmux.com");
-      expect(location.pathname).toBe("/cloud/access");
-      expect(cookie?.transaction).toBe(transaction);
-      const captured = created.current as unknown as Record<string, unknown>;
-      expect(captured.transactionHash).toBe(hashPublicationToken(transaction!));
-      expect(captured.stateHash).toBe(hashPublicationToken(state!));
-      expect(captured.pkceChallenge).toBe(
-        publicationPkceChallenge(cookie!.verifier),
+    const decision = await authorize("GET");
+    expect(decision.kind).toBe("redirect");
+    if (decision.kind !== "redirect") throw new Error("expected an auth transaction");
+    const location = new URL(decision.location);
+    const transaction = location.searchParams.get("transaction");
+    const state = location.searchParams.get("state");
+    const cookie = parsePublicationTransactionCookie(decision.transactionCookie);
+    expect(location.origin).toBe("https://cmux.com");
+    expect(location.pathname).toBe("/cloud/access");
+    expect(cookie?.transaction).toBe(transaction);
+    const captured = created.current as unknown as Record<string, unknown>;
+    expect(captured.transactionHash).toBe(hashPublicationToken(transaction!));
+    expect(captured.stateHash).toBe(hashPublicationToken(state!));
+    expect(captured.pkceChallenge).toBe(
+      publicationPkceChallenge(cookie!.verifier),
+    );
+    expect(captured.hostname).toBe(publication.hostname);
+    expect(captured.returnPath).toBe("/editor?file=one");
+
+    // A request that cannot follow a redirect is refused without minting a
+    // transaction, so scripted traffic never grows the auth tables.
+    for (const method of ["POST", "PUT", "PATCH", "DELETE", "OPTIONS", "head "]) {
+      created.current = null;
+      const refused = await authorize(method);
+      expect(refused).toEqual(
+        method.trim().toUpperCase() === "HEAD"
+          ? expect.objectContaining({ kind: "redirect" })
+          : { kind: "unauthorized" },
       );
-      expect(captured.hostname).toBe(publication.hostname);
-      expect(captured.returnPath).toBe("/editor?file=one");
+      if (method.trim().toUpperCase() !== "HEAD") expect(created.current).toBeNull();
     }
   });
 
-  test("allows a revision-valid personal session and rechecks team membership", async () => {
+  test("allows a personal session without enumerating teams and rechecks team membership", async () => {
     const sessionToken = randomPublicationToken();
     let transactionCreated = false;
     const personalRepository = authRepository({
@@ -111,7 +117,7 @@ describe("Cloud VM publication auth exchange", () => {
         now,
       }),
       personalRepository,
-      { resolve: () => Effect.succeed({ userId: "owner-1", teamIds: [] }) },
+      { resolve: () => Effect.die("personal sessions must not enumerate Stack teams") },
     );
     expect(allowed).toEqual({ kind: "allow" });
     expect(transactionCreated).toBe(false);

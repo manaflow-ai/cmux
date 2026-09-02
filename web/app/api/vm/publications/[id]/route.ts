@@ -54,7 +54,7 @@ export async function handlePublicationUpdate(
     publicationId,
     accessMode: accessMode as "personal" | "team" | "public",
     teamId: body ? stringField(body, "teamId") : undefined,
-    forwardAuth: publicationForwardAuthConfig(request, environment),
+    forwardAuth: publicationForwardAuthConfig(environment),
   }));
   return jsonResponse({ publication });
 }

@@ -5,7 +5,9 @@ import { unauthorized, verifyRequest, type AuthedUser } from "../../../../servic
 import {
   enforceBrowserMutationProtection,
   jsonResponse,
+  resolveVmRouteAccountScope,
 } from "../../../../services/vms/routeHelpers";
+import { normalizePublicationAuthOrigin } from "../../../../services/vm-publications/security";
 import {
   PublicationAccountDeletionBlockedError,
   PublicationConflictError,
@@ -14,6 +16,7 @@ import {
 } from "../../../../services/vm-publications/repository";
 import { VmPublicationProviderError } from "../../../../services/vm-publications/provider";
 import {
+  DEFAULT_GENERATED_PUBLICATION_DOMAIN,
   PublicationConfigurationError,
   PublicationInputError,
   PublicationInvariantError,
@@ -44,25 +47,40 @@ export type AuthedPublicationRouteContext = {
   readonly run: PublicationWorkflowRunner;
 };
 
-/** Publication policy needs all current Stack teams, not just the selected billing team. */
+/**
+ * Team publication policy may name a team other than the selected billing
+ * team, so the requested team is resolved explicitly, the same way VM create
+ * resolves a requested billing team. VM access itself follows the caller's
+ * account scope (selected team or `X-Cmux-Team-Id`), like every VM route.
+ */
 export async function withAuthedPublicationApiRoute(
   request: Request,
   handler: (context: AuthedPublicationRouteContext) => Promise<Response>,
   run: PublicationWorkflowRunner = livePublicationWorkflowRunner,
+  verify: typeof verifyRequest = verifyRequest,
 ): Promise<Response> {
   let user: AuthedUser | null;
   try {
-    user = await verifyRequest(request, { listAllTeams: true });
+    user = await verify(request, {
+      listAllTeams: true,
+      requestedTeamId: await requestedPublicationTeamId(request),
+    });
   } catch (error) {
     return authProviderErrorResponse(error, "vm.publications.auth");
   }
   if (!user) return unauthorized();
   const mutationForbidden = enforceBrowserMutationProtection(request);
   if (mutationForbidden) return mutationForbidden;
+  const scope = resolveVmRouteAccountScope(user, request);
+  if (!scope.ok) return scope.response;
   try {
     return await handler({
       user,
-      principal: { userId: user.id, teamIds: user.teamIds },
+      principal: {
+        userId: user.id,
+        teamIds: user.teamIds,
+        billingTeamId: scope.entitlements.billingTeamId,
+      },
       run,
     });
   } catch (error) {
@@ -71,22 +89,49 @@ export async function withAuthedPublicationApiRoute(
   }
 }
 
+/**
+ * Read the team a publication request asks for before authentication so the
+ * membership check can resolve it. Only mutation bodies carry one; the body is
+ * cloned because the handler parses it again with full validation.
+ */
+export async function requestedPublicationTeamId(request: Request): Promise<string | null> {
+  const method = request.method.toUpperCase();
+  if (method !== "POST" && method !== "PATCH" && method !== "PUT") return null;
+  try {
+    const body: unknown = await request.clone().json();
+    if (!body || typeof body !== "object" || Array.isArray(body)) return null;
+    const teamId = (body as Record<string, unknown>).teamId;
+    return typeof teamId === "string" && teamId.trim() ? teamId.trim() : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Only the configured origin may become Freestyle's account-wide forward-auth
+ * target. Deriving it from the request would let any caller's Host header
+ * repoint every protected publication at their server and hand it the service
+ * token, so an unset or malformed origin yields an empty URL that
+ * `ensureSharedForwardAuth` rejects before provider I/O.
+ */
 export function publicationForwardAuthConfig(
-  request: Request,
-  environment: NodeJS.ProcessEnv = process.env,
+  environment: Readonly<Record<string, string | undefined>> = process.env,
 ): PublicationForwardAuthConfig | undefined {
   const serviceToken = environment.CMUX_VM_PUBLICATION_FORWARD_AUTH_SECRET?.trim();
   if (!serviceToken) return undefined;
-  const configuredOrigin = environment.CMUX_VM_PUBLICATION_AUTH_ORIGIN?.trim();
-  try {
-    const origin = new URL(configuredOrigin || request.url).origin;
-    return {
-      url: new URL("/api/freestyle/forward-auth", origin).href,
-      serviceToken,
-    };
-  } catch {
-    return { url: configuredOrigin ?? "", serviceToken };
-  }
+  const origin = normalizePublicationAuthOrigin(environment.CMUX_VM_PUBLICATION_AUTH_ORIGIN);
+  return {
+    url: origin ? new URL("/api/freestyle/forward-auth", origin).href : "",
+    serviceToken,
+  };
+}
+
+/** The zone generated hostnames are minted under; the operator owns its DNS and wildcard certificate. */
+export function publicationGeneratedDomain(
+  environment: Readonly<Record<string, string | undefined>> = process.env,
+): string {
+  return environment.CMUX_VM_PUBLICATION_GENERATED_DOMAIN?.trim() ||
+    DEFAULT_GENERATED_PUBLICATION_DOMAIN;
 }
 
 export function publicationErrorResponse(error: unknown): Response {
@@ -147,14 +192,12 @@ export function publicationErrorResponse(error: unknown): Response {
     });
   }
   if (error instanceof PublicationConfigurationError) {
+    // Operator configuration names stay in server logs; clients get product guidance.
+    const copy = configurationCopy(error.reason);
     return jsonResponse({
       error: "vm_publication_not_configured",
-      message: error.reason === "invalid_auth_origin"
-        ? "The Cloud VM domain sign-in origin is not a valid HTTPS URL."
-        : "Protected Cloud VM domains are not configured on this CMUX deployment.",
-      action: error.reason === "invalid_auth_origin"
-        ? "Set CMUX_VM_PUBLICATION_AUTH_ORIGIN to the canonical HTTPS CMUX web origin."
-        : "Set CMUX_VM_PUBLICATION_FORWARD_AUTH_SECRET before using personal or team access.",
+      message: copy.message,
+      action: copy.action,
       reason: error.reason,
     }, 503);
   }
@@ -192,8 +235,8 @@ function inputErrorCopy(error: PublicationInputError): {
       };
     case "generated_hostname_reserved":
       return {
-        message: "style.dev names are generated by CMUX and cannot be selected with --domain.",
-        action: "Omit --domain for a generated name, or pass a customer-owned hostname.",
+        message: "That hostname is inside a zone CMUX generates names from and cannot be selected with --domain.",
+        action: "Omit --domain for a generated name, or pass a hostname on a domain you own.",
       };
     case "invalid_port":
       return {
@@ -214,6 +257,29 @@ function inputErrorCopy(error: PublicationInputError): {
       return {
         message: "accessMode must be personal, team, or public, and only team access accepts teamId.",
         action: "Choose personal, team, or public; include teamId only with team.",
+      };
+  }
+}
+
+function configurationCopy(reason: PublicationConfigurationError["reason"]): {
+  readonly message: string;
+  readonly action: string;
+} {
+  switch (reason) {
+    case "invalid_auth_origin":
+      return {
+        message: "This CMUX deployment has no valid sign-in origin for protected Cloud VM domains.",
+        action: "Use public access, or ask the deployment operator to configure protected domains.",
+      };
+    case "invalid_generated_domain":
+      return {
+        message: "This CMUX deployment has no valid zone for generated Cloud VM domains.",
+        action: "Pass --domain with a hostname you own, or ask the deployment operator to configure the generated zone.",
+      };
+    case "forward_auth_not_configured":
+      return {
+        message: "Protected Cloud VM domains are not configured on this CMUX deployment.",
+        action: "Use public access, or ask the deployment operator to enable protected domains.",
       };
   }
 }

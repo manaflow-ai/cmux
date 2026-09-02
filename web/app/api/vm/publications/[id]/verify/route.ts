@@ -26,7 +26,7 @@ export async function handlePublicationVerify(
   const publication = await context.run(verifyPublication({
     principal: context.principal,
     publicationId,
-    forwardAuth: publicationForwardAuthConfig(request, environment),
+    forwardAuth: publicationForwardAuthConfig(environment),
   }));
   return jsonResponse({ publication });
 }

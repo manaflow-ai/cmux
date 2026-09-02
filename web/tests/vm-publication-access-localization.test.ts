@@ -21,6 +21,7 @@ import ukrainianMessages from "../messages/uk.json";
 import simplifiedChineseMessages from "../messages/zh-CN.json";
 import traditionalChineseMessages from "../messages/zh-TW.json";
 import { locales } from "../i18n/routing";
+import { publicationAccessLocale } from "../app/cloud/access/locale";
 
 const messagesByLocale = {
   en: englishMessages,
@@ -84,4 +85,18 @@ describe("cloud publication access localization", () => {
       });
     }
   }
+});
+
+describe("Cloud VM publication access locale", () => {
+  test("prefers the locale the proxy resolved over raw Accept-Language", () => {
+    expect(publicationAccessLocale(new Headers({
+      "x-next-intl-locale": "ja",
+      "accept-language": "en-US,en;q=0.9",
+    }))).toBe("ja");
+    expect(publicationAccessLocale(new Headers({
+      "x-next-intl-locale": "xx",
+      "accept-language": "de-DE,de;q=0.9",
+    }))).toBe("de");
+    expect(publicationAccessLocale(new Headers({ "accept-language": "fr-FR" }))).toBe("fr");
+  });
 });

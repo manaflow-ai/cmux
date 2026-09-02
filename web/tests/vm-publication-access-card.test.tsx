@@ -53,6 +53,19 @@ describe("Cloud VM publication access card", () => {
     expect(html).not.toContain("Request access");
   });
 
+  test("renders an identity containing replacement patterns literally", () => {
+    const html = renderToStaticMarkup(
+      <PublicationAccessCard
+        hostname="preview.example.com"
+        identity="$& $' $1 $$ viewer"
+        locale="en"
+        messages={messages}
+        view="signed-in"
+      />,
+    );
+    expect(html).toContain("Signed in as $&amp; $&#x27; $1 $$ viewer");
+  });
+
   test("marks Arabic copy as right-to-left", () => {
     const html = renderToStaticMarkup(
       <PublicationAccessCard

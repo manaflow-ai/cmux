@@ -101,6 +101,35 @@ export function normalizePublicationHostname(value: string): string | null {
   }
 }
 
+/**
+ * Accept only a bare HTTPS origin for the cross-domain sign-in handoff: no
+ * path, query, hash, or credentials. Anything else is treated as unset so the
+ * caller fails closed instead of pointing Freestyle at a malformed target.
+ */
+export function normalizePublicationAuthOrigin(
+  value: string | null | undefined,
+): string | null {
+  const candidate = value?.trim();
+  if (!candidate) return null;
+  try {
+    const parsed = new URL(candidate);
+    if (
+      parsed.protocol !== "https:" ||
+      !parsed.hostname ||
+      parsed.username ||
+      parsed.password ||
+      parsed.pathname !== "/" ||
+      parsed.search ||
+      parsed.hash
+    ) {
+      return null;
+    }
+    return parsed.origin;
+  } catch {
+    return null;
+  }
+}
+
 /** Extract and normalize the hostname from an HTTP Host-style value. */
 export function publicationHostnameFromHeader(value: string | null): string | null {
   if (!value) return null;

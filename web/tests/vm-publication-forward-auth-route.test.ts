@@ -129,25 +129,78 @@ describe("Freestyle publication forward-auth HTTP contract", () => {
     expect(cookie.toLowerCase()).not.toContain("domain=");
   });
 
-  test("does not redirect a non-idempotent request", async () => {
-    const location = "https://cmux.com/cloud/access?transaction=one&state=two";
+  test("does not redirect a non-idempotent request or mint it a transaction cookie", async () => {
     const result = await handleForwardAuthRequest(
       request({ "x-forwarded-method": "POST" }),
-      dependencies({
-        authorize: async () => ({
-          kind: "unauthorized",
-          location,
-          transactionCookie: publicationTransactionCookieValue(
-            randomPublicationToken(),
-            randomPublicationToken(),
-          ),
-        }),
-      }),
+      dependencies({ authorize: async () => ({ kind: "unauthorized" }) }),
     );
 
     expect(result.status).toBe(401);
-    expect(result.headers.get("location")).toBe(location);
+    expect(result.headers.get("location")).toBeNull();
+    expect(result.headers.get("set-cookie")).toBeNull();
+    expect(result.headers.get("cache-control")).toBe("no-store");
     expect(await result.text()).toBe("");
+  });
+
+  test("uses only the configured sign-in origin and fails closed without one", async () => {
+    const foreignRequest = (overrides: Record<string, string> = {}) =>
+      new Request("https://attacker.example/api/freestyle/forward-auth", {
+        headers: request(overrides).headers,
+      });
+
+    for (const authPageOrigin of [undefined, "", "http://cmux.com", "https://cmux.com/cloud"]) {
+      let authorized = false;
+      const result = await handleForwardAuthRequest(
+        foreignRequest(),
+        dependencies({
+          authPageOrigin,
+          authorize: async () => {
+            authorized = true;
+            return { kind: "allow" };
+          },
+        }),
+      );
+      expect(result.status).toBe(503);
+      expect(result.headers.get("cache-control")).toBe("no-store");
+      expect(authorized).toBe(false);
+    }
+
+    let captured: { authPageOrigin: string } | null = null;
+    const result = await handleForwardAuthRequest(
+      foreignRequest(),
+      dependencies({
+        authPageOrigin: "https://cmux.com/",
+        authorize: async (input) => {
+          captured = { authPageOrigin: input.authPageOrigin };
+          return { kind: "allow" };
+        },
+      }),
+    );
+    expect(result.status).toBe(204);
+    expect(captured).toEqual({ authPageOrigin: "https://cmux.com" });
+  });
+
+  test("only completes the callback for a browser navigation", async () => {
+    let completed = false;
+    const result = await handleForwardAuthRequest(
+      request({
+        "x-forwarded-method": "POST",
+        "x-forwarded-uri": "/_cmux/auth/callback?code=abc&state=def",
+        cookie: `${PUBLICATION_TRANSACTION_COOKIE}=${publicationTransactionCookieValue(
+          randomPublicationToken(),
+          randomPublicationToken(),
+        )}`,
+      }),
+      dependencies({
+        complete: async () => {
+          completed = true;
+          return { kind: "invalid" };
+        },
+      }),
+    );
+
+    expect(result.status).toBe(400);
+    expect(completed).toBe(false);
   });
 
   test("exchanges the host-bound callback once and rotates into a session cookie", async () => {

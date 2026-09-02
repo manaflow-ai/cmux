@@ -9,6 +9,7 @@ import {
 import { jsonResponse } from "../../../../services/vms/routeHelpers";
 import {
   publicationForwardAuthConfig,
+  publicationGeneratedDomain,
   withAuthedPublicationApiRoute,
   type AuthedPublicationRouteContext,
   type PublicationWorkflowRunner,
@@ -73,7 +74,8 @@ export async function handlePublicationCreate(
     hostname,
     accessMode: accessMode as "personal" | "team" | "public",
     teamId,
-    forwardAuth: publicationForwardAuthConfig(request, environment),
+    forwardAuth: publicationForwardAuthConfig(environment),
+    generatedDomain: publicationGeneratedDomain(environment),
   }));
   return jsonResponse({ publication }, 201);
 }

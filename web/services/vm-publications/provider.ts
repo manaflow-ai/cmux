@@ -6,6 +6,7 @@ import {
   type DomainVerification,
   type DomainVerified,
   type ListTlsForwardAuthResult,
+  type ListTlsRulesOptions,
   type ListTlsRulesResult,
   type TlsForwardAuthData,
   type TlsRuleData,
@@ -41,6 +42,7 @@ export type VmPublicationProviderOperation =
   | "getTlsRule"
   | "deleteTlsRule"
   | "deleteTlsRulesForHostname"
+  | "deleteTlsRulesForHostnames"
   | "reconcileTlsRule"
   | "createDomainVerification"
   | "getDomainVerification"
@@ -150,7 +152,7 @@ export type PublicationCertificateStatus = {
   readonly hostname: string;
   readonly state: "missing" | "pending" | "active";
   readonly ready: boolean;
-  /** `platform` is the standing `*.style.dev` certificate, not account inventory. */
+  /** `platform` is Freestyle's standing `*.style.dev` certificate, not account inventory. */
   readonly source: "none" | "account" | "platform";
   readonly certificate: PublicationCertificate | null;
 };
@@ -182,7 +184,7 @@ export type VmPublicationFreestyleClient = {
     };
     readonly rules: {
       readonly create: (options: CreateTlsRuleOptions) => Promise<TlsRuleData>;
-      readonly list: () => Promise<ListTlsRulesResult>;
+      readonly list: (options?: ListTlsRulesOptions) => Promise<ListTlsRulesResult>;
       readonly get: (id: string) => Promise<TlsRuleData>;
       readonly update: (id: string, options: CreateTlsRuleOptions) => Promise<TlsRuleData>;
       readonly delete: (id: string) => Promise<void>;
@@ -223,6 +225,10 @@ export type VmPublicationProviderShape = {
   /** Delete every exact HTTP ingress rule for a hostname, including crash-window duplicates. */
   readonly deleteTlsRulesForHostname: (
     hostname: string,
+  ) => Effect.Effect<number, VmPublicationProviderError>;
+  /** The same sweep for a batch of hostnames with one provider listing; returns rules deleted. */
+  readonly deleteTlsRulesForHostnames: (
+    hostnames: readonly string[],
   ) => Effect.Effect<number, VmPublicationProviderError>;
   readonly reconcileTlsRule: (
     tlsRuleId: string | null | undefined,
@@ -343,6 +349,11 @@ export function publicationTlsRuleOptions(
     throw new Error("publication port must be an integer between 1 and 65535");
   }
   const forwardAuthId = spec.forwardAuthId?.trim();
+  // A blank id would silently publish a protected publication: `null` is the
+  // only spelling of "public", so anything else must be a real config id.
+  if (spec.forwardAuthId != null && !forwardAuthId) {
+    throw new Error("forward-auth id must not be blank");
+  }
   return {
     action: "allow",
     domain: hostname,
@@ -479,7 +490,12 @@ export function publicationRoutingDnsInstruction(
   };
 }
 
-export function isFreestyleGeneratedHostname(value: string): boolean {
+/**
+ * One-label `style.dev` names are Freestyle's free platform zone: no
+ * verification, no DNS, and the platform wildcard certificate. A CMUX-owned
+ * generated zone such as `cmux.sh` is ordinary verified account inventory.
+ */
+export function isFreestylePlatformHostname(value: string): boolean {
   const hostname = normalizedExactHostname(value);
   const labels = hostname.split(".");
   return labels.length === 3 && labels[1] === "style" && labels[2] === "dev";
@@ -526,6 +542,54 @@ function accountCertificateStatus(
     source: "account",
     certificate: publicationCertificate(candidate),
   };
+}
+
+const TLS_RULE_LIST_PAGE_SIZE = 100;
+const TLS_RULE_LIST_MAX_PAGES = 1_000;
+
+/**
+ * Freestyle lists rules newest-first in pages. Rules span every CMUX account,
+ * so a single page can never be assumed to hold the hostname being swept or
+ * reconciled; walk until `totalCount` is reached, deduplicating by id in case
+ * a concurrent create shifts the offsets between pages.
+ */
+async function listAllTlsRules(
+  client: VmPublicationFreestyleClient,
+): Promise<TlsRuleData[]> {
+  const rules: TlsRuleData[] = [];
+  const seen = new Set<string>();
+  for (let page = 0; page < TLS_RULE_LIST_MAX_PAGES; page++) {
+    const listed = await client.tls.rules.list({
+      limit: TLS_RULE_LIST_PAGE_SIZE,
+      offset: page * TLS_RULE_LIST_PAGE_SIZE,
+    });
+    for (const rule of listed.rules) {
+      if (seen.has(rule.id)) continue;
+      seen.add(rule.id);
+      rules.push(rule);
+    }
+    if (listed.rules.length === 0 || rules.length >= listed.totalCount) return rules;
+  }
+  throw new Error("Freestyle TLS rule listing exceeded its page limit");
+}
+
+async function deleteExactHostnameRules(
+  client: VmPublicationFreestyleClient,
+  hostnames: readonly string[],
+): Promise<number> {
+  const targets = [...new Set(hostnames.map(normalizedExactHostname))];
+  if (targets.length === 0) return 0;
+  const ruleIds = (await listAllTlsRules(client))
+    .filter((rule) => targets.some((hostname) => sameExactHttpIngressHostname(rule, hostname)))
+    .map((rule) => rule.id);
+  for (const ruleId of ruleIds) {
+    try {
+      await client.tls.rules.delete(ruleId);
+    } catch (cause) {
+      if (!isNotFound(cause)) throw cause;
+    }
+  }
+  return ruleIds.length;
 }
 
 export function makeVmPublicationProvider(
@@ -596,22 +660,14 @@ export function makeVmPublicationProvider(
       }),
 
     deleteTlsRulesForHostname: (value) =>
-      providerEffect("deleteTlsRulesForHostname", async () => {
-        const hostname = normalizedExactHostname(value);
-        const client = createClient();
-        const listed = await client.tls.rules.list();
-        const ruleIds = listed.rules
-          .filter((rule) => sameExactHttpIngressHostname(rule, hostname))
-          .map((rule) => rule.id);
-        for (const ruleId of ruleIds) {
-          try {
-            await client.tls.rules.delete(ruleId);
-          } catch (cause) {
-            if (!isNotFound(cause)) throw cause;
-          }
-        }
-        return ruleIds.length;
-      }),
+      providerEffect("deleteTlsRulesForHostname", () =>
+        deleteExactHostnameRules(createClient(), [value]),
+      ),
+
+    deleteTlsRulesForHostnames: (values) =>
+      providerEffect("deleteTlsRulesForHostnames", () =>
+        deleteExactHostnameRules(createClient(), values),
+      ),
 
     reconcileTlsRule: (tlsRuleId, spec) =>
       providerEffect("reconcileTlsRule", async () => {
@@ -632,8 +688,8 @@ export function makeVmPublicationProvider(
         // exact-domain rule instead of creating a duplicate. Equal Freestyle
         // ingress matches resolve oldest-first, so converge the oldest and
         // remove every shadow that could otherwise reappear after deletion.
-        const listed = await client.tls.rules.list();
-        const byId = new Map(listed.rules.map((rule) => [rule.id, rule]));
+        const listed = await listAllTlsRules(client);
+        const byId = new Map(listed.map((rule) => [rule.id, rule]));
         if (persisted) byId.set(persisted.id, persisted);
         const candidates = [...byId.values()].filter((rule) =>
           sameExactHttpIngressHostname(rule, desired.domain),
@@ -743,9 +799,10 @@ export function makeVmPublicationProvider(
     getCertificateStatus: (value) =>
       providerEffect("getCertificateStatus", async () => {
         const hostname = normalizedExactHostname(value);
-        // Generated names use Freestyle's standing platform wildcard, which
-        // is ready without an account certificate row or DNS setup.
-        if (isFreestyleGeneratedHostname(hostname)) {
+        // Platform names use Freestyle's standing wildcard, which is ready
+        // without an account certificate row or DNS setup. Every other zone,
+        // including the CMUX generated zone, is account inventory.
+        if (isFreestylePlatformHostname(hostname)) {
           return {
             hostname,
             state: "active" as const,

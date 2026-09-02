@@ -2,6 +2,7 @@ import { env } from "../../../env";
 import {
   authorizePublicationRequest,
   completePublicationAuthorization,
+  isRedirectableMethod,
   PUBLICATION_SESSION_TTL_MS,
   PUBLICATION_TRANSACTION_TTL_MS,
   runPublicationAuth,
@@ -12,6 +13,7 @@ import {
   PUBLICATION_SESSION_COOKIE,
   PUBLICATION_TRANSACTION_COOKIE,
   clearPublicationCookieHeader,
+  normalizePublicationAuthOrigin,
   parsePublicationTransactionCookie,
   publicationCookie,
   publicationCookieHeader,
@@ -41,7 +43,8 @@ export type ForwardAuthHandlerDependencies = {
 
 const liveDependencies: ForwardAuthHandlerDependencies = {
   serviceSecret: env.CMUX_VM_PUBLICATION_FORWARD_AUTH_SECRET,
-  authPageOrigin: env.CMUX_VM_PUBLICATION_AUTH_ORIGIN,
+  authPageOrigin: normalizePublicationAuthOrigin(env.CMUX_VM_PUBLICATION_AUTH_ORIGIN) ??
+    undefined,
   authorize: (input) => runPublicationAuth(authorizePublicationRequest(input)),
   complete: (input) => runPublicationAuth(completePublicationAuthorization(input)),
 };
@@ -70,6 +73,13 @@ export async function handleForwardAuthRequest(
   if (request.headers.get("x-forwarded-proto")?.toLowerCase() !== "https") {
     return response(null, 400);
   }
+  // The sign-in handoff only ever targets the configured CMUX origin. The
+  // request's own URL is never consulted: a Host header must not be able to
+  // move the browser redirect, so a missing origin fails closed instead.
+  const authPageOrigin = normalizePublicationAuthOrigin(dependencies.authPageOrigin);
+  if (!authPageOrigin) {
+    return response(null, 503);
+  }
 
   const hostname = publicationHostnameFromHeader(
     request.headers.get("x-forwarded-host"),
@@ -92,6 +102,7 @@ export async function handleForwardAuthRequest(
 
   try {
     if (forwardedUri.pathname === PUBLICATION_CALLBACK_PATH) {
+      if (!isRedirectableMethod(method)) return response(null, 400);
       return await callbackResponse(request, {
         hostname,
         code: forwardedUri.searchParams.get("code") ?? "",
@@ -110,11 +121,12 @@ export async function handleForwardAuthRequest(
         request.headers.get("cookie"),
         PUBLICATION_SESSION_COOKIE,
       ),
-      authPageOrigin: publicationAuthOrigin(request, dependencies.authPageOrigin),
+      authPageOrigin,
     });
 
     if (decision.kind === "allow") return response(null, 204);
     if (decision.kind === "not_found") return response(null, 404);
+    if (decision.kind === "unauthorized") return response(null, 401);
 
     const headers = new Headers({
       "cache-control": "no-store",
@@ -128,10 +140,7 @@ export async function handleForwardAuthRequest(
         Math.floor(PUBLICATION_TRANSACTION_TTL_MS / 1_000),
       ),
     );
-    if (decision.kind === "redirect") {
-      return new Response(null, { status: 302, headers });
-    }
-    return new Response(null, { status: 401, headers });
+    return new Response(null, { status: 302, headers });
   } catch (error) {
     console.error("Cloud VM publication forward auth failed", error);
     return response(null, isAuthArtifactError(error) ? 400 : 503);
@@ -183,13 +192,6 @@ async function callbackResponse(
       ? clearTransactionResponse(400)
       : response(null, 503);
   }
-}
-
-function publicationAuthOrigin(
-  request: Request,
-  configured: string | undefined,
-): string {
-  return configured || new URL(request.url).origin;
 }
 
 function forwardedRequestUri(value: string | null): URL | null {

@@ -55,9 +55,12 @@ export type VmPublicationAccountDeletionOptions = {
 /**
  * Fail-closed external cleanup for account deletion.
  *
- * Each publication is disabled before provider I/O, then every exact-hostname
- * rule is deleted. Sweeping by hostname removes both the persisted rule and a
- * duplicate left if a process died between provider creation and DB commit.
+ * Every publication is disabled before any provider I/O, then all of their
+ * exact-hostname rules are deleted with one provider listing. Sweeping by
+ * hostname removes both the persisted rule and a duplicate left if a process
+ * died between provider creation and DB commit. Rows are only marked
+ * `disabled` after the sweep succeeds, so a provider failure keeps every
+ * hostname on the next attempt's list.
  */
 export function teardownVmPublicationsForAccountDeletion(
   input: VmPublicationAccountDeletionOptions,
@@ -68,13 +71,17 @@ export function teardownVmPublicationsForAccountDeletion(
     const targets = yield* repository.listPublicationsForAccountDeletion(
       input.ownerUserId,
     );
-    let providerRules = 0;
+    const unsupported = targets.find((target) => target.provider !== "freestyle");
+    if (unsupported) {
+      return yield* new VmPublicationAccountDeletionUnsupportedProviderError({
+        provider: unsupported.provider,
+      });
+    }
+    const disabled: Array<{
+      readonly target: CloudVmPublicationAccountDeletionTarget;
+      readonly alreadyDisabled: boolean;
+    }> = [];
     for (const target of targets) {
-      if (target.provider !== "freestyle") {
-        return yield* new VmPublicationAccountDeletionUnsupportedProviderError({
-          provider: target.provider,
-        });
-      }
       yield* accountDeletionHook(
         "beforePublicationTeardown",
         () => input.beforePublicationTeardown?.(target),
@@ -84,8 +91,15 @@ export function teardownVmPublicationsForAccountDeletion(
         ownerUserId: input.ownerUserId,
         now: input.now?.() ?? new Date(),
       });
-      providerRules += yield* provider.deleteTlsRulesForHostname(target.hostname);
-      if (publication.state !== "disabled") {
+      disabled.push({ target, alreadyDisabled: publication.state === "disabled" });
+    }
+    const providerRules = targets.length === 0
+      ? 0
+      : yield* provider.deleteTlsRulesForHostnames(
+        targets.map((target) => target.hostname),
+      );
+    for (const { target, alreadyDisabled } of disabled) {
+      if (!alreadyDisabled) {
         yield* repository.finishDisablePublication({
           id: target.publicationId,
           now: input.now?.() ?? new Date(),

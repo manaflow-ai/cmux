@@ -19,6 +19,7 @@ import {
   PUBLICATION_CALLBACK_PATH,
   hashPublicationToken,
   isPublicationToken,
+  normalizePublicationAuthOrigin,
   publicationPkceChallenge,
   publicationTransactionCookieValue,
   randomPublicationToken,
@@ -98,10 +99,12 @@ export function runPublicationAuth<A, E>(
 export type ForwardAuthorizationDecision =
   | { readonly kind: "allow" }
   | {
-    readonly kind: "redirect" | "unauthorized";
+    readonly kind: "redirect";
     readonly location: string;
     readonly transactionCookie: string;
   }
+  /** No sign-in handoff is minted: the request cannot be replayed through a browser redirect. */
+  | { readonly kind: "unauthorized" }
   | { readonly kind: "not_found" };
 
 export type PublicationAccessUser = VmPublicationViewer & {
@@ -161,16 +164,28 @@ export function authorizePublicationRequest(input: {
         now: input.now ?? new Date(),
       });
       if (principal) {
-        const viewer = yield* viewerResolver.resolve(principal.session.userId);
+        // Personal policy is decided by the session's user alone. Team policy
+        // must see current Stack membership so a removed member loses access
+        // on the next request without waiting for the session to expire.
+        const viewer: VmPublicationViewer | null =
+          principal.publication.accessMode === "team"
+            ? yield* viewerResolver.resolve(principal.session.userId)
+            : { userId: principal.session.userId, teamIds: [] };
         if (vmPublicationAllowsViewer(principal.publication, viewer)) {
           return { kind: "allow" } as const;
         }
       }
     }
 
+    // Only a top-level browser navigation can complete the sign-in handoff.
+    // Other methods fail without minting a transaction a browser could never
+    // finish, so a scripted caller cannot grow the auth tables per request.
+    if (!isRedirectableMethod(input.method)) {
+      return { kind: "unauthorized" } as const;
+    }
+
     return yield* beginPublicationAuthorization({
       target,
-      method: input.method,
       returnPath: input.returnPath,
       authPageOrigin: input.authPageOrigin,
       now: input.now ?? new Date(),
@@ -292,7 +307,6 @@ function currentPublicationViewer(
 
 function beginPublicationAuthorization(input: {
   readonly target: CloudVmPublicationTarget;
-  readonly method: string;
   readonly returnPath: string;
   readonly authPageOrigin: string;
   readonly now: Date;
@@ -316,7 +330,7 @@ function beginPublicationAuthorization(input: {
     location.searchParams.set("transaction", transaction);
     location.searchParams.set("state", state);
     return {
-      kind: isRedirectableMethod(input.method) ? "redirect" : "unauthorized",
+      kind: "redirect",
       location: location.toString(),
       transactionCookie: publicationTransactionCookieValue(transaction, verifier),
     } as const;
@@ -324,21 +338,15 @@ function beginPublicationAuthorization(input: {
 }
 
 function normalizedAuthPageOrigin(value: string): string {
-  const parsed = new URL(value);
-  if (
-    parsed.protocol !== "https:" ||
-    !parsed.hostname ||
-    parsed.username ||
-    parsed.password ||
-    parsed.search ||
-    parsed.hash
-  ) {
+  const origin = normalizePublicationAuthOrigin(value);
+  if (!origin) {
     throw new Error("Publication auth page origin must be an HTTPS origin");
   }
-  return parsed.origin;
+  return origin;
 }
 
-function isRedirectableMethod(method: string): boolean {
+/** Top-level browser navigations are the only requests a sign-in redirect can finish. */
+export function isRedirectableMethod(method: string): boolean {
   const normalized = method.trim().toUpperCase();
   return normalized === "GET" || normalized === "HEAD";
 }

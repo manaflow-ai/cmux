@@ -1,5 +1,8 @@
 import Foundation
 
+/// The CLI target does not compile `Sources/Cloud/VMClient.swift`, so it keeps
+/// its own copy of the access modes; the app validates the wire value against
+/// `VMPublicationAccessMode` when it handles `vm.publication_*`.
 private enum CloudDomainAccessMode: String {
     case personal
     case team
@@ -249,17 +252,12 @@ extension CMUXCLI {
             defaultValue: "verification: %@"
         )
         print(String(format: verificationFormat, verificationState))
+        // The app always emits all three instructions (`VMPublication.foundationObject`).
         if let instructions = verification["dnsInstructions"] as? [String: Any] {
-            if let ownership = instructions["verification"] as? [String: Any] {
-                Self.printDNSInstruction(ownership)
-            } else if let legacyOwnership = verification["verificationRecord"] as? [String: Any] {
-                Self.printDNSInstruction(legacyOwnership)
-            }
-            if let routing = instructions["routing"] as? [String: Any] {
-                Self.printDNSInstruction(routing)
-            }
-            if let certificate = instructions["certificate"] as? [String: Any] {
-                Self.printDNSInstruction(certificate)
+            for purpose in ["verification", "routing", "certificate"] {
+                if let instruction = instructions[purpose] as? [String: Any] {
+                    Self.printDNSInstruction(instruction)
+                }
             }
         }
         printPublicationVerifyHint(id: id)
@@ -274,10 +272,7 @@ extension CMUXCLI {
     }
 
     private static func printDNSInstruction(_ instruction: [String: Any]) {
-        let recordTypes = (instruction["recordTypes"] as? [String])
-            ?? (instruction["record_types"] as? [String])
-            ?? (instruction["type"] as? String).map { [$0] }
-            ?? ["?"]
+        let recordTypes = (instruction["recordTypes"] as? [String]) ?? ["?"]
         let name = (instruction["name"] as? String) ?? "?"
         let value = (instruction["value"] as? String) ?? "?"
         print("\(recordTypes.joined(separator: "/")) \(name) \(value)")

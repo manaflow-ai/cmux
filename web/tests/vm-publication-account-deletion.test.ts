@@ -68,8 +68,8 @@ describe("VM publication account deletion", () => {
           },
         },
         provider: {
-          deleteTlsRulesForHostname: (hostname) => {
-            events.push(`delete:${hostname}`);
+          deleteTlsRulesForHostnames: (hostnames) => {
+            events.push(`delete:${hostnames.join(",")}`);
             return Effect.succeed(2);
           },
         },
@@ -106,11 +106,11 @@ describe("VM publication account deletion", () => {
             },
           },
           provider: {
-            deleteTlsRulesForHostname: () => {
+            deleteTlsRulesForHostnames: () => {
               events.push("provider-delete");
               return Effect.fail(
                 new VmPublicationProviderError({
-                  operation: "deleteTlsRulesForHostname",
+                  operation: "deleteTlsRulesForHostnames",
                   cause: new Error("provider unavailable"),
                 }),
               );
@@ -125,9 +125,49 @@ describe("VM publication account deletion", () => {
     if (result._tag === "Left") {
       expect(result.left).toMatchObject({
         _tag: "VmPublicationProviderError",
-        operation: "deleteTlsRulesForHostname",
+        operation: "deleteTlsRulesForHostnames",
       });
     }
     expect(events).toEqual(["begin-disable", "provider-delete"]);
+  });
+
+  test("disables every publication first, then sweeps all hostnames with one provider listing", async () => {
+    const events: string[] = [];
+    const second: CloudVmPublicationAccountDeletionTarget = {
+      ...TARGET,
+      publicationId: "00000000-0000-4000-8000-000000000002",
+      hostname: "second.preview.example.test",
+      providerTlsRuleId: null,
+    };
+    const result = await Effect.runPromise(
+      runTeardown({
+        repository: {
+          listPublicationsForAccountDeletion: () => Effect.succeed([TARGET, second]),
+          beginDisablePublication: (input) => {
+            events.push(`begin:${input.id}`);
+            return Effect.succeed({ state: "disabling" } as never);
+          },
+          finishDisablePublication: (input) => {
+            events.push(`finish:${input.id}`);
+            return Effect.succeed({ state: "disabled" } as never);
+          },
+        },
+        provider: {
+          deleteTlsRulesForHostnames: (hostnames) => {
+            events.push(`delete:${hostnames.join(",")}`);
+            return Effect.succeed(3);
+          },
+        },
+      }),
+    );
+
+    expect(result).toEqual({ publications: 2, providerRules: 3 });
+    expect(events).toEqual([
+      `begin:${TARGET.publicationId}`,
+      `begin:${second.publicationId}`,
+      "delete:account.preview.example.test,second.preview.example.test",
+      `finish:${TARGET.publicationId}`,
+      `finish:${second.publicationId}`,
+    ]);
   });
 });

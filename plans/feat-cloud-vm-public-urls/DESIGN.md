@@ -193,7 +193,7 @@ Server-owned records are authoritative for VM ownership, provider VM id, private
 
 ## Customer domains
 
-Generated `*.style.dev` names need no customer DNS proof. CMUX reserves a name and reconciles its TLS rule immediately.
+Generated names are one-label children of the CMUX-owned generated zone, `<random>.cmux.sh` by default (`CMUX_VM_PUBLICATION_GENERATED_DOMAIN` overrides it per deployment). They need no customer DNS proof: CMUX reserves a name and reconciles its TLS rule immediately. The zone itself is a one-time operator setup in the CMUX Freestyle account, done exactly like a customer zone: verify `cmux.sh`, `CNAME * -> beta-web.freestyle.sh`, delegate `_acme-challenge` to `beta-dns.freestyle.sh`, and request the `*.cmux.sh` wildcard certificate. A generated publication only activates once that account certificate covers it. Setting the zone to `style.dev` instead uses Freestyle's free platform zone and its standing wildcard certificate with no setup. The generated zone apex, everything below it, and one-label `style.dev` names are reserved and rejected as custom hostnames.
 
 For a customer zone and its publication hostnames:
 

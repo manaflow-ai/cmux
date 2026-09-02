@@ -74,9 +74,9 @@ describe("VM deletion publication teardown", () => {
           },
         },
         provider: {
-          deleteTlsRulesForHostname: (hostname) => {
-            events.push(`delete:${hostname}`);
-            return Effect.succeed(1);
+          deleteTlsRulesForHostnames: (hostnames) => {
+            events.push(`delete:${hostnames.join(",")}`);
+            return Effect.succeed(2);
           },
         },
       }),
@@ -85,9 +85,8 @@ describe("VM deletion publication teardown", () => {
     expect(result).toEqual({ publications: 2, providerRules: 2 });
     expect(events).toEqual([
       "freeze:provider-vm-1",
-      "delete:one.preview.example.test",
+      "delete:one.preview.example.test,two.preview.example.test",
       "finish:00000000-0000-4000-8000-000000000002",
-      "delete:two.preview.example.test",
       "finish:00000000-0000-4000-8000-000000000003",
     ]);
   });
@@ -120,11 +119,11 @@ describe("VM deletion publication teardown", () => {
             },
           },
           provider: {
-            deleteTlsRulesForHostname: () => {
+            deleteTlsRulesForHostnames: () => {
               events.push("provider-delete");
               return Effect.fail(
                 new VmPublicationProviderError({
-                  operation: "deleteTlsRulesForHostname",
+                  operation: "deleteTlsRulesForHostnames",
                   cause: new Error("provider unavailable"),
                 }),
               );

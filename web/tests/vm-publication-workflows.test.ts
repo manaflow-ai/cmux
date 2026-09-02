@@ -19,6 +19,7 @@ import {
 import {
   createPublication,
   deletePublication,
+  PublicationConfigurationError,
   updatePublicationAccess,
   verifyPublication,
 } from "../services/vm-publications/workflows";
@@ -27,7 +28,13 @@ import {
   handlePublicationList,
   type PublicationWorkflowRunner,
 } from "../app/api/vm/publications/route";
-import { publicationErrorResponse } from "../app/api/vm/publications/routeShared";
+import {
+  publicationErrorResponse,
+  publicationForwardAuthConfig,
+  publicationGeneratedDomain,
+  requestedPublicationTeamId,
+  withAuthedPublicationApiRoute,
+} from "../app/api/vm/publications/routeShared";
 
 const NOW = new Date("2026-09-02T20:00:00.000Z");
 
@@ -38,7 +45,7 @@ function domain(
   return {
     id: `domain-${kind}`,
     ownerUserId: "owner-1",
-    hostname: kind === "generated" ? "generated123.style.dev" : "preview.example.com",
+    hostname: kind === "generated" ? "generated123.cmux.sh" : "preview.example.com",
     kind,
     provider: "freestyle",
     providerVerificationId: kind === "custom" ? "verification-1" : null,
@@ -60,7 +67,7 @@ function publication(
     ownerUserId: "owner-1",
     vmId: "db-vm-1",
     domainId: "domain-generated",
-    hostname: "generated123.style.dev",
+    hostname: "generated123.cmux.sh",
     hostnameClaimedAt: NOW,
     port: 3_000,
     accessMode,
@@ -192,6 +199,107 @@ describe("Cloud VM publication workflows", () => {
 
     expect(result._tag).toBe("Left");
     expect(providerCalled).toBeFalse();
+  });
+
+  test("mints generated names under the configured zone and keeps that zone reserved", async () => {
+    const reserved: string[] = [];
+    const repository = fakeRepository({
+      listOwnedDomains: () => Effect.succeed([]),
+      reservePublicationWithNewDomain: (input) => {
+        reserved.push(input.hostname);
+        return Effect.fail(new PublicationNotFoundError({ resource: "vm" }));
+      },
+    });
+    const provider = fakeProvider({});
+    const attempt = (overrides: { hostname?: string; generatedDomain?: string }) =>
+      Effect.runPromise(Effect.either(createPublication({
+        principal: { userId: "owner-1", teamIds: [] },
+        providerVmId: "vm-provider-1",
+        port: 3_000,
+        accessMode: "public",
+        now: NOW,
+        ...overrides,
+      }).pipe(
+        Effect.provideService(CloudVmPublicationRepository, repository),
+        Effect.provideService(VmPublicationProvider, provider),
+      )));
+
+    await attempt({});
+    await attempt({ generatedDomain: "Preview.Example.Org." });
+    expect(reserved).toHaveLength(2);
+    expect(reserved[0]).toMatch(/^[0-9a-f]{20}\.cmux\.sh$/u);
+    expect(reserved[1]).toMatch(/^[0-9a-f]{20}\.preview\.example\.org$/u);
+
+    for (const hostname of [
+      "cmux.sh",
+      "taken.cmux.sh",
+      "deep.taken.cmux.sh",
+      "free.style.dev",
+    ]) {
+      const result = await attempt({ hostname });
+      expect(result._tag).toBe("Left");
+      expect(result._tag === "Left" ? result.left : null).toMatchObject({
+        _tag: "PublicationInputError",
+        reason: "generated_hostname_reserved",
+        field: "hostname",
+      });
+    }
+    expect(reserved).toHaveLength(2);
+
+    // A customer zone that merely contains the generated zone's labels is theirs.
+    await attempt({ hostname: "cmux.sh.example.com" });
+    expect(reserved).toEqual([reserved[0], reserved[1], "cmux.sh.example.com"]);
+
+    const misconfigured = await attempt({ generatedDomain: "not a zone" });
+    expect(misconfigured._tag === "Left" ? misconfigured.left : null).toMatchObject({
+      _tag: "PublicationConfigurationError",
+      reason: "invalid_generated_domain",
+    });
+    expect(reserved).toHaveLength(3);
+  });
+
+  test("prefers a verified covering zone over a longer pending one and forwards the VM account scope", async () => {
+    const verifiedApex = domain("custom", {
+      id: "domain-apex",
+      hostname: "example.com",
+      verificationState: "verified",
+      certificateState: "active",
+    });
+    const pendingExact = domain("custom", {
+      id: "domain-exact",
+      hostname: "app.example.com",
+      verificationState: "pending",
+      certificateState: "missing",
+    });
+    const captured: { current: Record<string, unknown> | null } = { current: null };
+    const repository = fakeRepository({
+      listOwnedDomains: () => Effect.succeed([pendingExact, verifiedApex]),
+      reservePublication: (input) => {
+        captured.current = input as unknown as Record<string, unknown>;
+        return Effect.fail(new PublicationNotFoundError({ resource: "vm" }));
+      },
+    });
+
+    const result = await Effect.runPromise(Effect.either(createPublication({
+      principal: { userId: "owner-1", teamIds: ["team-1"], billingTeamId: "team-1" },
+      providerVmId: "vm-provider-1",
+      port: 3_000,
+      hostname: "app.example.com",
+      accessMode: "public",
+      now: NOW,
+    }).pipe(
+      Effect.provideService(CloudVmPublicationRepository, repository),
+      Effect.provideService(VmPublicationProvider, fakeProvider({})),
+    )));
+
+    expect(result._tag).toBe("Left");
+    expect(captured.current).toMatchObject({
+      domainId: "domain-apex",
+      hostname: "app.example.com",
+      ownerUserId: "owner-1",
+      billingTeamId: "team-1",
+      teamIds: ["team-1"],
+    });
   });
 
   test("creates a custom reservation with lossless DNS instructions before any TLS rule", async () => {
@@ -1081,14 +1189,145 @@ describe("Cloud VM publication workflows", () => {
       "operation.release",
     ]);
   });
+
+  test("resumes a delete left in disabling by a failed sweep", async () => {
+    const calls: string[] = [];
+    const stuck = publication("public", {
+      state: "disabling",
+      routingRevision: 2,
+      providerTlsRuleId: "tls-rule-1",
+      providerForwardAuthId: null,
+    });
+    const repository = fakeRepository({
+      findOwnedPublication: () => Effect.succeed(target(stuck)),
+      claimVmPublicationOperation: (input) => {
+        calls.push(`operation.claim:${input.intent}`);
+        return Effect.succeed({ kind: "claimed", vmId: "db-vm-1" });
+      },
+      releaseVmPublicationOperation: () => Effect.sync(() => {
+        calls.push("operation.release");
+        return true;
+      }),
+      beginDisablePublication: () => {
+        calls.push("publication.disable");
+        return Effect.succeed(stuck);
+      },
+      revokePublicationSessions: () => {
+        calls.push("sessions.revoke");
+        return Effect.succeed(0);
+      },
+      finishDisablePublication: () => {
+        calls.push("publication.finish");
+        return Effect.succeed({ ...stuck, state: "disabled", disabledAt: NOW });
+      },
+    });
+    const provider = fakeProvider({
+      deleteTlsRulesForHostname: () => {
+        calls.push("rules.sweep");
+        return Effect.succeed(1);
+      },
+    });
+
+    const result = await run(deletePublication({
+      principal: { userId: "owner-1", teamIds: [] },
+      publicationId: stuck.id,
+      now: NOW,
+    }), repository, provider);
+
+    expect(result).toEqual({ deleted: true, id: stuck.id });
+    expect(calls).toEqual([
+      "operation.claim:disable",
+      "publication.disable",
+      "sessions.revoke",
+      "rules.sweep",
+      "publication.finish",
+      "operation.release",
+    ]);
+  });
 });
 
 describe("Cloud VM publication REST adapters", () => {
+  test("derives the forward-auth target only from the configured origin", () => {
+    const secret = "a-secret-long-enough-for-the-provider";
+    expect(publicationForwardAuthConfig({})).toBeUndefined();
+    expect(publicationForwardAuthConfig({
+      CMUX_VM_PUBLICATION_FORWARD_AUTH_SECRET: secret,
+      CMUX_VM_PUBLICATION_AUTH_ORIGIN: " https://cmux.com/ ",
+    })).toEqual({ url: "https://cmux.com/api/freestyle/forward-auth", serviceToken: secret });
+    for (const origin of [
+      undefined,
+      "",
+      "http://cmux.com",
+      "https://cmux.com/base",
+      "https://user:pw@cmux.com",
+      "https://cmux.com/?next=1",
+      "not a url",
+    ]) {
+      expect(publicationForwardAuthConfig({
+        CMUX_VM_PUBLICATION_FORWARD_AUTH_SECRET: secret,
+        CMUX_VM_PUBLICATION_AUTH_ORIGIN: origin,
+      })).toEqual({ url: "", serviceToken: secret });
+    }
+  });
+
+  test("resolves the requested team before authenticating a publication mutation", async () => {
+    const verified: unknown[] = [];
+    const verify: Parameters<typeof withAuthedPublicationApiRoute>[3] = async (_request, options) => {
+      verified.push(options);
+      return null;
+    };
+    const post = new Request("https://cmux.com/api/vm/publications", {
+      method: "POST",
+      body: JSON.stringify({ vmId: "vm-1", port: 3_000, accessMode: "team", teamId: " team-2 " }),
+    });
+    const response = await withAuthedPublicationApiRoute(
+      post,
+      async () => new Response(null),
+      async () => {
+        throw new Error("unreachable");
+      },
+      verify,
+    );
+    expect(response.status).toBe(401);
+    expect(verified).toEqual([{ listAllTeams: true, requestedTeamId: "team-2" }]);
+
+    expect(await requestedPublicationTeamId(
+      new Request("https://cmux.com/api/vm/publications", { method: "GET" }),
+    )).toBeNull();
+    expect(await requestedPublicationTeamId(
+      new Request("https://cmux.com/api/vm/publications", { method: "POST", body: "not json" }),
+    )).toBeNull();
+    expect(await requestedPublicationTeamId(
+      new Request("https://cmux.com/api/vm/publications/p1", {
+        method: "PATCH",
+        body: JSON.stringify({ teamId: 42 }),
+      }),
+    )).toBeNull();
+  });
+
+  test("keeps operator configuration names out of client-facing errors", async () => {
+    for (const reason of [
+      "forward_auth_not_configured",
+      "invalid_auth_origin",
+      "invalid_generated_domain",
+    ] as const) {
+      const response = publicationErrorResponse(new PublicationConfigurationError({ reason }));
+      expect(response.status).toBe(503);
+      const body = await response.json() as {
+        readonly message: string;
+        readonly action: string;
+        readonly reason: string;
+      };
+      expect(body.reason).toBe(reason);
+      expect(`${body.message} ${body.action}`).not.toMatch(/CMUX_VM_PUBLICATION/u);
+    }
+  });
+
   test("keeps list and mutation response envelopes stable", async () => {
     const dto = {
       id: "publication-1",
-      hostname: "generated123.style.dev",
-      url: "https://generated123.style.dev",
+      hostname: "generated123.cmux.sh",
+      url: "https://generated123.cmux.sh",
       domainKind: "generated" as const,
       vmId: "vm-provider-1",
       port: 3_000,
@@ -1119,6 +1358,15 @@ describe("Cloud VM publication REST adapters", () => {
     );
     expect(createResponse.status).toBe(201);
     expect(await createResponse.json()).toEqual({ publication: dto });
+  });
+
+  test("mints generated names under cmux.sh unless the deployment overrides the zone", () => {
+    expect(publicationGeneratedDomain({})).toBe("cmux.sh");
+    expect(publicationGeneratedDomain({ CMUX_VM_PUBLICATION_GENERATED_DOMAIN: "   " }))
+      .toBe("cmux.sh");
+    expect(publicationGeneratedDomain({
+      CMUX_VM_PUBLICATION_GENERATED_DOMAIN: " preview.cmux.dev ",
+    })).toBe("preview.cmux.dev");
   });
 
   test("rejects a publish request without a machine before invoking a workflow", async () => {

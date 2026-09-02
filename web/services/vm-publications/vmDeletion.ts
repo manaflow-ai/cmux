@@ -56,16 +56,22 @@ export function teardownVmPublicationsForVmDeletion(
       });
     }
 
-    let providerRules = 0;
-    for (const publication of freeze.publications) {
-      if (publication.provider !== "freestyle") {
-        return yield* new VmPublicationDeletionUnsupportedProviderError({
-          provider: publication.provider,
-        });
-      }
-      providerRules += yield* provider.deleteTlsRulesForHostname(
-        publication.hostname,
+    const unsupported = freeze.publications.find(
+      (publication) => publication.provider !== "freestyle",
+    );
+    if (unsupported) {
+      return yield* new VmPublicationDeletionUnsupportedProviderError({
+        provider: unsupported.provider,
+      });
+    }
+    // The freeze already moved every row to `disabling`; one provider listing
+    // sweeps all of their hostnames before any row is marked `disabled`.
+    const providerRules = freeze.publications.length === 0
+      ? 0
+      : yield* provider.deleteTlsRulesForHostnames(
+        freeze.publications.map((publication) => publication.hostname),
       );
+    for (const publication of freeze.publications) {
       yield* repository.finishDisablePublication({
         id: publication.publicationId,
         now,

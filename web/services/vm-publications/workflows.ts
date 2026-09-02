@@ -19,7 +19,7 @@ import {
 import {
   VmPublicationProvider,
   VmPublicationProviderLive,
-  isFreestyleGeneratedHostname,
+  isFreestylePlatformHostname,
   publicationRoutingDnsInstruction,
   type PublicationDnsInstruction,
   type PublicationDomainVerification,
@@ -35,12 +35,22 @@ const VM_PUBLICATION_OPERATION_LEASE_MS = 150_000;
 export type PublicationPrincipal = {
   readonly userId: string;
   readonly teamIds: readonly string[];
+  /** The account scope VM lookups follow (selected team or `X-Cmux-Team-Id`). */
+  readonly billingTeamId?: string | null;
 };
 
 export type PublicationForwardAuthConfig = {
   readonly url: string;
   readonly serviceToken: string;
 };
+
+/**
+ * The CMUX-owned zone generated publication hostnames are minted under. The
+ * operator verifies it once in the CMUX Freestyle account and keeps its
+ * wildcard DNS and certificate live; `CMUX_VM_PUBLICATION_GENERATED_DOMAIN`
+ * overrides it per deployment.
+ */
+export const DEFAULT_GENERATED_PUBLICATION_DOMAIN = "cmux.sh";
 
 export type PublicationVerificationDto = {
   readonly verificationId: string;
@@ -85,7 +95,10 @@ export class PublicationInputError extends Data.TaggedError(
 export class PublicationConfigurationError extends Data.TaggedError(
   "PublicationConfigurationError",
 )<{
-  readonly reason: "forward_auth_not_configured" | "invalid_auth_origin";
+  readonly reason:
+    | "forward_auth_not_configured"
+    | "invalid_auth_origin"
+    | "invalid_generated_domain";
 }> {}
 
 export class PublicationProvisioningBusyError extends Data.TaggedError(
@@ -143,6 +156,8 @@ export function createPublication(input: {
   readonly teamId?: string | null;
   readonly forwardAuth?: PublicationForwardAuthConfig;
   readonly now?: Date;
+  /** Zone for generated names; defaults to `DEFAULT_GENERATED_PUBLICATION_DOMAIN`. */
+  readonly generatedDomain?: string;
   /** Deterministic seam for focused tests; production callers leave this unset. */
   readonly generatedHostname?: string;
 }) {
@@ -163,10 +178,16 @@ export function createPublication(input: {
     // prevents a future default VM provider from sending foreign VM ids to the
     // Freestyle account-wide control plane.
     const providerId: ProviderId = "freestyle";
+    const generatedDomain = yield* normalizedGeneratedPublicationDomain(
+      input.generatedDomain,
+    );
     const isCustom = input.hostname !== undefined;
     const hostname = yield* normalizedRequestedHostname(
-      input.hostname ?? input.generatedHostname ?? generatedPublicationHostname(),
+      input.hostname ??
+        input.generatedHostname ??
+        generatedPublicationHostname(generatedDomain),
       isCustom,
+      generatedDomain,
     );
     const ownedDomains = yield* repository.listOwnedDomains(input.principal.userId);
     const coveringDomain = isCustom
@@ -175,6 +196,8 @@ export function createPublication(input: {
     let target = coveringDomain
       ? yield* repository.reservePublication({
         ownerUserId: input.principal.userId,
+        billingTeamId: input.principal.billingTeamId,
+        teamIds: input.principal.teamIds,
         provider: providerId,
         providerVmId: input.providerVmId,
         domainId: coveringDomain.id,
@@ -186,6 +209,8 @@ export function createPublication(input: {
       })
       : yield* repository.reservePublicationWithNewDomain({
         ownerUserId: input.principal.userId,
+        billingTeamId: input.principal.billingTeamId,
+        teamIds: input.principal.teamIds,
         provider: providerId,
         providerVmId: input.providerVmId,
         domainHostname: hostname,
@@ -473,11 +498,14 @@ export function deletePublication(input: {
     if (target.publication.state === "disabled") {
       return { deleted: true as const, id: target.publication.id };
     }
+    // `disable` intent lets a retry resume a row left `disabling` by a sweep
+    // that failed after the state change, so the provider rule is never orphaned.
     return yield* withVmPublicationOperationLease({
       repository,
       publicationId: target.publication.id,
       ownerUserId: input.principal.userId,
       now,
+      intent: "disable",
     }, Effect.gen(function* () {
       const disabling = yield* repository.beginDisablePublication({
         id: target.publication.id,
@@ -534,7 +562,26 @@ function validateAccessPolicy(
   });
 }
 
-function normalizedRequestedHostname(value: string, customerProvided: boolean) {
+/** A deployment misconfiguration must fail before any hostname is reserved. */
+function normalizedGeneratedPublicationDomain(value: string | undefined) {
+  return Effect.gen(function* () {
+    const domain = normalizePublicationHostname(
+      value ?? DEFAULT_GENERATED_PUBLICATION_DOMAIN,
+    );
+    if (!domain) {
+      return yield* new PublicationConfigurationError({
+        reason: "invalid_generated_domain",
+      });
+    }
+    return domain;
+  });
+}
+
+function normalizedRequestedHostname(
+  value: string,
+  customerProvided: boolean,
+  generatedDomain: string,
+) {
   return Effect.gen(function* () {
     const hostname = normalizePublicationHostname(value);
     if (!hostname) {
@@ -543,7 +590,13 @@ function normalizedRequestedHostname(value: string, customerProvided: boolean) {
         field: "hostname",
       });
     }
-    if (customerProvided && isFreestyleGeneratedHostname(hostname)) {
+    // Customers cannot verify Freestyle's platform zone or the CMUX generated
+    // zone, so neither may be selected as a custom hostname.
+    if (
+      customerProvided &&
+      (isFreestylePlatformHostname(hostname) ||
+        isWithinGeneratedPublicationZone(hostname, generatedDomain))
+    ) {
       return yield* new PublicationInputError({
         reason: "generated_hostname_reserved",
         field: "hostname",
@@ -553,8 +606,16 @@ function normalizedRequestedHostname(value: string, customerProvided: boolean) {
   });
 }
 
-function generatedPublicationHostname(): string {
-  return `${randomUUID().replaceAll("-", "").slice(0, 20)}.style.dev`;
+/** The generated zone apex and everything below it stay reserved for CMUX. */
+export function isWithinGeneratedPublicationZone(
+  hostname: string,
+  generatedDomain: string,
+): boolean {
+  return hostname === generatedDomain || hostname.endsWith(`.${generatedDomain}`);
+}
+
+function generatedPublicationHostname(generatedDomain: string): string {
+  return `${randomUUID().replaceAll("-", "").slice(0, 20)}.${generatedDomain}`;
 }
 
 function longestCoveringDomain(
@@ -562,13 +623,20 @@ function longestCoveringDomain(
   provider: ProviderId,
   publicationHostname: string,
 ): CloudVmDomainRow | null {
+  // A verified zone always wins over a pending one, so a stale pending
+  // attempt cannot strand a hostname that a verified parent already covers;
+  // among equals the most specific zone is reused.
   return [...domains]
     .filter((domain) =>
       domain.provider === provider &&
       domain.kind === "custom" &&
       domainCoversPublicationHostname(domain.hostname, publicationHostname)
     )
-    .sort((left, right) => right.hostname.length - left.hostname.length)[0] ?? null;
+    .sort((left, right) =>
+      Number(right.verificationState === "verified") -
+        Number(left.verificationState === "verified") ||
+      right.hostname.length - left.hostname.length
+    )[0] ?? null;
 }
 
 function domainCoversPublicationHostname(
@@ -718,6 +786,7 @@ function withVmPublicationOperationLease<A, E, R>(
     readonly publicationId: string;
     readonly ownerUserId: string;
     readonly now: Date;
+    readonly intent?: "mutate" | "disable";
   },
   operation: Effect.Effect<A, E, R>,
 ) {
@@ -727,6 +796,7 @@ function withVmPublicationOperationLease<A, E, R>(
       publicationId: input.publicationId,
       ownerUserId: input.ownerUserId,
       leaseId,
+      intent: input.intent,
       now: input.now,
       leaseExpiresAt: new Date(
         input.now.getTime() + VM_PUBLICATION_OPERATION_LEASE_MS,

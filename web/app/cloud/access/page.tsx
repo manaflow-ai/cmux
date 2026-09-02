@@ -2,7 +2,6 @@ import type { Metadata } from "next";
 import { headers } from "next/headers";
 import { redirect } from "next/navigation";
 
-import { preferredLocaleFromAcceptLanguage } from "../../../i18n/accept-language";
 import { loadMessages } from "../../../i18n/messages";
 import type { Locale } from "../../../i18n/routing";
 import {
@@ -17,6 +16,7 @@ import {
   type PublicationAccessMessages,
   type PublicationAccessView,
 } from "./access-card";
+import { publicationAccessLocale } from "./locale";
 
 type CloudPublicationAccessPageProps = {
   readonly searchParams: Promise<Record<string, string | string[] | undefined>>;
@@ -135,9 +135,7 @@ async function publicationAccessMessages(headersList: Headers): Promise<{
   readonly locale: Locale;
   readonly messages: PublicationAccessMessages;
 }> {
-  const locale = preferredLocaleFromAcceptLanguage(
-    headersList.get("accept-language") ?? "",
-  );
+  const locale = publicationAccessLocale(headersList);
   const catalog = await loadMessages(locale);
   return {
     locale,

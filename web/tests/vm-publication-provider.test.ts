@@ -6,6 +6,7 @@ import {
   type CreateTlsForwardAuthOptions,
   type CreateTlsRuleOptions,
   type DomainVerification,
+  type ListTlsRulesOptions,
   type TlsForwardAuthData,
   type TlsRuleData,
 } from "freestyle";
@@ -94,7 +95,9 @@ function fakeClient(
       options: CreateTlsForwardAuthOptions,
     ) => Promise<TlsForwardAuthData>;
     readonly tlsCreate?: (options: CreateTlsRuleOptions) => Promise<TlsRuleData>;
-    readonly tlsList?: () => Promise<{ rules: TlsRuleData[]; totalCount: number }>;
+    readonly tlsList?: (
+      options?: ListTlsRulesOptions,
+    ) => Promise<{ rules: TlsRuleData[]; totalCount: number }>;
     readonly tlsGet?: (id: string) => Promise<TlsRuleData>;
     readonly tlsUpdate?: (id: string, options: CreateTlsRuleOptions) => Promise<TlsRuleData>;
     readonly tlsDelete?: (id: string) => Promise<void>;
@@ -452,6 +455,68 @@ describe("VM publication Freestyle provider", () => {
     expect(deleted).toEqual(["tls-rule-persisted", "tls-rule-crash-duplicate"]);
   });
 
+  test("walks every provider page before sweeping or reconciling hostname rules", async () => {
+    const desired: CreateTlsRuleOptions = {
+      action: "allow",
+      domain: "app.example.com",
+      protocol: "http",
+      source: { public: true },
+      destination: { vmId: "vm-1", port: 3_000 },
+    };
+    const firstPage = Array.from({ length: 100 }, (_, index) =>
+      tlsRuleData(`tls-rule-other-${index}`, { ...desired, domain: `other-${index}.example.com` }));
+    const secondPage = [
+      tlsRuleData("tls-rule-target", desired),
+      tlsRuleData("tls-rule-sibling", { ...desired, domain: "sibling.example.com" }),
+    ];
+    const everyRule = [...firstPage, ...secondPage];
+    const pages: ListTlsRulesOptions[] = [];
+    const deleted: string[] = [];
+    const client = fakeClient({
+      tlsList: async (options = {}) => {
+        pages.push(options);
+        const offset = options.offset ?? 0;
+        const limit = options.limit ?? everyRule.length;
+        return { rules: everyRule.slice(offset, offset + limit), totalCount: everyRule.length };
+      },
+      tlsDelete: async (id) => {
+        deleted.push(id);
+      },
+    });
+    const provider = makeVmPublicationProvider(() => client);
+
+    await expect(
+      Effect.runPromise(
+        provider.deleteTlsRulesForHostnames(["app.example.com", "Sibling.Example.com."]),
+      ),
+    ).resolves.toBe(2);
+    expect(deleted).toEqual(["tls-rule-target", "tls-rule-sibling"]);
+    expect(pages).toEqual([{ limit: 100, offset: 0 }, { limit: 100, offset: 100 }]);
+
+    pages.length = 0;
+    const reconciled = await Effect.runPromise(provider.reconcileTlsRule(null, {
+      hostname: "app.example.com",
+      providerVmId: "vm-1",
+      port: 3_000,
+    }));
+    expect(reconciled.rule.tlsRuleId).toBe("tls-rule-target");
+    expect(pages).toHaveLength(2);
+    expect(await Effect.runPromise(provider.deleteTlsRulesForHostnames([]))).toBe(0);
+  });
+
+  test("refuses a blank forward-auth id rather than publishing a protected rule", async () => {
+    const provider = makeVmPublicationProvider(() => fakeClient());
+    const error = await Effect.runPromise(Effect.flip(provider.createTlsRule({
+      hostname: "app.example.com",
+      providerVmId: "vm-1",
+      port: 3_000,
+      forwardAuthId: "   ",
+    })));
+    expect(error).toBeInstanceOf(VmPublicationProviderError);
+    expect(error.operation).toBe("createTlsRule");
+    expect(String((error.cause as Error).message)).toContain("blank");
+  });
+
   test("normalizes SDK verification fields into complete TXT, routing, and certificate DNS instructions", async () => {
     const createdDomains: string[] = [];
     const client = fakeClient({
@@ -646,6 +711,31 @@ describe("VM publication Freestyle provider", () => {
       Effect.runPromise(provider.getCertificateStatus("pending.example.com")),
     ).resolves.toMatchObject({ state: "pending", ready: false });
 
+    // The CMUX generated zone is ordinary account inventory: its wildcard
+    // certificate must be live before a generated name is ready.
+    certificates = [
+      {
+        domain: "cmux.sh",
+        wildcard: true,
+        active: true,
+        notAfter: "2026-12-01T00:00:00.000Z",
+        generation: 1,
+      },
+    ];
+    await expect(
+      Effect.runPromise(provider.getCertificateStatus("generated123.cmux.sh")),
+    ).resolves.toMatchObject({
+      state: "active",
+      ready: true,
+      source: "account",
+      certificate: { domain: "cmux.sh", wildcard: true, active: true },
+    });
+    certificates = [];
+    await expect(
+      Effect.runPromise(provider.getCertificateStatus("generated123.cmux.sh")),
+    ).resolves.toMatchObject({ state: "missing", ready: false, source: "none" });
+
+    // Only Freestyle's own style.dev zone is covered by the platform certificate.
     await expect(
       Effect.runPromise(provider.getCertificateStatus("free-preview.style.dev")),
     ).resolves.toEqual({
@@ -655,6 +745,6 @@ describe("VM publication Freestyle provider", () => {
       source: "platform",
       certificate: null,
     });
-    expect(listCalls).toBe(3);
+    expect(listCalls).toBe(5);
   });
 });

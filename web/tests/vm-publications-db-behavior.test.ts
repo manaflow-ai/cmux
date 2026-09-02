@@ -6,15 +6,17 @@ import {
   expect,
   test,
 } from "bun:test";
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import * as Effect from "effect/Effect";
 import postgres, { type Sql } from "postgres";
 
 import { closeCloudDbForTests, cloudDb } from "../db/client";
 import { deleteVmPublicationRowsForAccountDeletion } from "../services/vm-publications/accountDeletion";
 import {
+  AUTH_ARTIFACT_SWEEP_LIMIT,
   CloudVmPublicationRepository,
   CloudVmPublicationRepositoryLive,
+  MAX_PENDING_AUTH_TRANSACTIONS_PER_PUBLICATION,
   type CloudVmPublicationRepositoryShape,
   type CloudVmPublicationTarget,
 } from "../services/vm-publications/repository";
@@ -46,24 +48,30 @@ async function expectRepositoryError(
   operation: Promise<unknown>,
   expected: object,
 ): Promise<void> {
+  let failure: unknown = null;
+  let succeeded = false;
   try {
     await operation;
-    throw new Error("expected repository operation to fail");
+    succeeded = true;
   } catch (error) {
-    expect(error).toMatchObject(expected);
+    failure = error;
   }
+  if (succeeded) throw new Error("expected repository operation to fail");
+  expect(failure).toMatchObject(expected);
 }
 
 async function insertVm(
   ownerUserId: string,
   providerVmId: string,
+  billingTeamId: string | null = null,
 ): Promise<void> {
   await requiredSql()`
     insert into cloud_vms (
-      user_id, provider, provider_vm_id, image_id, status, created_at, updated_at
+      user_id, billing_team_id, provider, provider_vm_id, image_id, status,
+      created_at, updated_at
     ) values (
-      ${ownerUserId}, 'freestyle', ${providerVmId}, 'snapshot-publication-test',
-      'running', ${NOW}, ${NOW}
+      ${ownerUserId}, ${billingTeamId}, 'freestyle', ${providerVmId},
+      'snapshot-publication-test', 'running', ${NOW}, ${NOW}
     )
   `;
 }
@@ -564,8 +572,8 @@ describe("Cloud VM publication persistence", () => {
           ownerUserId: "generated-owner-a",
           provider: "freestyle",
           providerVmId: "generated-vm-a",
-          domainHostname: "Unique-Preview.Style.Dev.",
-          hostname: "Unique-Preview.Style.Dev.",
+          domainHostname: "Unique-Preview.CMUX.sh.",
+          hostname: "Unique-Preview.CMUX.sh.",
           kind: "generated",
           port: 3_000,
           accessMode: "public",
@@ -578,8 +586,8 @@ describe("Cloud VM publication persistence", () => {
             ownerUserId: "generated-owner-b",
             provider: "freestyle",
             providerVmId: "generated-vm-b",
-            domainHostname: "unique-preview.style.dev",
-            hostname: "unique-preview.style.dev",
+            domainHostname: "unique-preview.cmux.sh",
+            hostname: "unique-preview.cmux.sh",
             kind: "generated",
             port: 3_001,
             accessMode: "public",
@@ -994,6 +1002,271 @@ describe("Cloud VM publication persistence", () => {
           }),
         ),
       ).toBeNull();
+    },
+  );
+
+  dbTest(
+    "publishes a team-billed VM by current membership rather than by creator",
+    async () => {
+      const repo = requiredRepository();
+      await insertVm("creator", "team-vm", "team-a");
+      const reserve = (input: {
+        readonly ownerUserId: string;
+        readonly billingTeamId?: string | null;
+        readonly teamIds: readonly string[];
+        readonly hostname: string;
+      }) =>
+        runRepository(
+          repo.reservePublicationWithNewDomain({
+            ownerUserId: input.ownerUserId,
+            billingTeamId: input.billingTeamId,
+            teamIds: input.teamIds,
+            provider: "freestyle",
+            providerVmId: "team-vm",
+            domainHostname: input.hostname,
+            hostname: input.hostname,
+            kind: "generated",
+            port: 3_000,
+            accessMode: "public",
+            now: NOW,
+          }),
+        );
+
+      // A member acting in the team scope publishes it even though they did
+      // not create it, and the publication stays owned by that member.
+      const member = await reserve({
+        ownerUserId: "member-1",
+        billingTeamId: "team-a",
+        teamIds: ["team-a"],
+        hostname: "member.cmux.sh",
+      });
+      expect(member.publication.ownerUserId).toBe("member-1");
+      expect(member.vm.billingTeamId).toBe("team-a");
+
+      // Naming the team without being a member fails closed as not found.
+      await expectRepositoryError(
+        reserve({
+          ownerUserId: "outsider",
+          billingTeamId: "team-a",
+          teamIds: ["team-b"],
+          hostname: "outsider.cmux.sh",
+        }),
+        { _tag: "PublicationNotFoundError", resource: "vm" },
+      );
+      // The creator's personal scope no longer sees a VM billed to a team,
+      // exactly like the other VM routes.
+      await expectRepositoryError(
+        reserve({
+          ownerUserId: "creator",
+          teamIds: [],
+          hostname: "creator.cmux.sh",
+        }),
+        { _tag: "PublicationNotFoundError", resource: "vm" },
+      );
+    },
+  );
+
+  dbTest(
+    "lets a delete resume a publication left disabling by a failed sweep",
+    async () => {
+      const repo = requiredRepository();
+      const target = await createActivePublication({ suffix: "resume-delete" });
+      const disabling = await runRepository(
+        repo.beginDisablePublication({
+          id: target.publication.id,
+          ownerUserId: target.publication.ownerUserId,
+          now: NOW,
+        }),
+      );
+      expect(disabling.state).toBe("disabling");
+      const claim = (intent?: "mutate" | "disable") =>
+        runRepository(
+          repo.claimVmPublicationOperation({
+            publicationId: target.publication.id,
+            ownerUserId: target.publication.ownerUserId,
+            leaseId: randomUUID(),
+            intent,
+            now: new Date(NOW.getTime() + 1),
+            leaseExpiresAt: new Date(NOW.getTime() + 60_000),
+          }),
+        );
+
+      await expectRepositoryError(claim(), {
+        _tag: "PublicationConflictError",
+        reason: "publication_not_active",
+      });
+      await expectRepositoryError(claim("mutate"), {
+        _tag: "PublicationConflictError",
+        reason: "publication_not_active",
+      });
+      expect(await claim("disable")).toEqual({ kind: "claimed", vmId: target.vm.id });
+
+      await runRepository(
+        repo.finishDisablePublication({
+          id: target.publication.id,
+          now: new Date(NOW.getTime() + 2),
+        }),
+      );
+      await expectRepositoryError(claim("disable"), {
+        _tag: "PublicationConflictError",
+        reason: "publication_not_active",
+      });
+    },
+  );
+
+  dbTest(
+    "retires expired auth artifacts on the hot path and caps pending transactions",
+    async () => {
+      const repo = requiredRepository();
+      const sql = requiredSql();
+      const target = await createActivePublication({ suffix: "auth-hygiene" });
+      const publicationId = target.publication.id;
+      const hash = (prefix: string, index: number) =>
+        createHash("sha256").update(`${prefix}-${index}`).digest("hex");
+      const later = new Date(NOW.getTime() + 60_000);
+
+      // Seed many expired transactions plus a full pending set, oldest first.
+      const expiredRows = Array.from({ length: AUTH_ARTIFACT_SWEEP_LIMIT + 5 }, (_, index) => ({
+        transaction_hash: hash("e", index),
+        publication_id: publicationId,
+        routing_revision: target.publication.routingRevision,
+        pkce_challenge: "P".repeat(43),
+        state_hash: hash("s", index),
+        hostname: target.publication.hostname,
+        return_path: "/",
+        created_at: new Date(NOW.getTime() - 120_000),
+        expires_at: new Date(NOW.getTime() - 60_000),
+      }));
+      const pendingRows = Array.from({ length: MAX_PENDING_AUTH_TRANSACTIONS_PER_PUBLICATION }, (_, index) => ({
+        transaction_hash: hash("p", index),
+        publication_id: publicationId,
+        routing_revision: target.publication.routingRevision,
+        pkce_challenge: "P".repeat(43),
+        state_hash: hash("t", index),
+        hostname: target.publication.hostname,
+        return_path: "/",
+        created_at: new Date(NOW.getTime() + index),
+        expires_at: new Date(later.getTime() + 600_000),
+      }));
+      await sql`insert into cloud_vm_publication_auth_transactions ${sql(expiredRows)}`;
+      await sql`insert into cloud_vm_publication_auth_transactions ${sql(pendingRows)}`;
+
+      await runRepository(
+        repo.createAuthTransaction({
+          publicationId,
+          transactionHash: hash("n", 0),
+          pkceChallenge: "P".repeat(43),
+          stateHash: hash("u", 0),
+          hostname: target.publication.hostname,
+          returnPath: "/",
+          now: later,
+          expiresAt: new Date(later.getTime() + 600_000),
+        }),
+      );
+
+      const [counts] = await sql<{ expired: string; pending: string; oldest_pending: string }[]>`
+        select
+          count(*) filter (where expires_at <= ${later}) as expired,
+          count(*) filter (where expires_at > ${later} and consumed_at is null) as pending,
+          count(*) filter (where transaction_hash = ${hash("p", 0)}) as oldest_pending
+        from cloud_vm_publication_auth_transactions
+        where publication_id = ${publicationId}
+      `;
+      // One bounded batch of expired rows is gone, the oldest pending row made
+      // room for the new one, and the pending set never exceeds the cap.
+      expect(Number(counts?.expired)).toBe(5);
+      expect(Number(counts?.pending)).toBe(MAX_PENDING_AUTH_TRANSACTIONS_PER_PUBLICATION);
+      expect(Number(counts?.oldest_pending)).toBe(0);
+
+      // Sessions: an expired or revoked session is retired when a new one is minted.
+      await sql`
+        insert into cloud_vm_publication_sessions (
+          token_hash, publication_id, user_id, routing_revision, created_at, expires_at, revoked_at
+        ) values
+          (${hash("x", 1)}, ${publicationId}, 'viewer', ${target.publication.routingRevision},
+            ${new Date(NOW.getTime() - 7_200_000)}, ${new Date(NOW.getTime() - 3_600_000)}, null),
+          (${hash("x", 2)}, ${publicationId}, 'viewer', ${target.publication.routingRevision},
+            ${NOW}, ${new Date(later.getTime() + 600_000)}, ${NOW}),
+          (${hash("x", 3)}, ${publicationId}, 'viewer', ${target.publication.routingRevision},
+            ${NOW}, ${new Date(later.getTime() + 600_000)}, null)
+      `;
+      const codeHash = hash("c", 0);
+      await runRepository(
+        repo.issueAuthCode({
+          transactionHash: hash("n", 0),
+          stateHash: hash("u", 0),
+          codeHash,
+          userId: target.publication.ownerUserId,
+          now: new Date(later.getTime() + 1),
+          expiresAt: new Date(later.getTime() + 60_000),
+        }),
+      );
+      await runRepository(
+        repo.consumeAuthCodeAndCreateSession({
+          codeHash,
+          transactionHash: hash("n", 0),
+          stateHash: hash("u", 0),
+          pkceChallenge: "P".repeat(43),
+          hostname: target.publication.hostname,
+          sessionTokenHash: hash("y", 0),
+          now: new Date(later.getTime() + 2),
+          sessionExpiresAt: new Date(later.getTime() + 3_600_000),
+        }),
+      );
+      const sessions = await sql<{ token_hash: string }[]>`
+        select token_hash from cloud_vm_publication_sessions
+        where publication_id = ${publicationId} order by token_hash
+      `;
+      expect(sessions.map((row) => row.token_hash).sort()).toEqual(
+        [hash("x", 3), hash("y", 0)].sort(),
+      );
+    },
+  );
+
+  dbTest(
+    "never lists a disabled publication for account deletion sweeps",
+    async () => {
+      const repo = requiredRepository();
+      const ownerUserId = "owner-sweep-scope";
+      const finished = await createActivePublication({
+        suffix: "sweep-finished",
+        ownerUserId,
+      });
+      const live = await createActivePublication({
+        suffix: "sweep-live",
+        ownerUserId,
+      });
+      await runRepository(
+        repo.beginDisablePublication({
+          id: finished.publication.id,
+          ownerUserId,
+          now: NOW,
+        }),
+      );
+      await runRepository(
+        repo.finishDisablePublication({
+          id: finished.publication.id,
+          now: new Date(NOW.getTime() + 1),
+        }),
+      );
+      const stuck = await createActivePublication({
+        suffix: "sweep-stuck",
+        ownerUserId,
+      });
+      await runRepository(
+        repo.beginDisablePublication({
+          id: stuck.publication.id,
+          ownerUserId,
+          now: new Date(NOW.getTime() + 2),
+        }),
+      );
+
+      const targets = await runRepository(
+        repo.listPublicationsForAccountDeletion(ownerUserId),
+      );
+      expect(targets.map((target) => target.publicationId).sort()).toEqual(
+        [live.publication.id, stuck.publication.id].sort(),
+      );
     },
   );
 });
