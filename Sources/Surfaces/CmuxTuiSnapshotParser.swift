@@ -283,7 +283,7 @@ struct CmuxTuiSnapshotParser: Sendable {
                           nonEmptyString(row["content_id"]) != nil
                     else { return false }
                 case "terminals":
-                    if let rawTabIDs = row["tab_ids"] {
+                    if let rawTabIDs = row["tab_ids"], !(rawTabIDs is NSNull) {
                         guard let tabIDs = rawTabIDs as? [String],
                               tabIDs.allSatisfy({ nonEmptyString($0) != nil })
                         else { return false }
@@ -896,7 +896,7 @@ struct CmuxTuiSnapshotParser: Sendable {
     private static func terminalState(from value: [String: Any]) -> CloudVMTerminalState? {
         guard let id = nonEmptyString(value["id"]) else { return nil }
         var tabIDs: [String] = []
-        if let rawTabIDs = value["tab_ids"] {
+        if let rawTabIDs = value["tab_ids"], !(rawTabIDs is NSNull) {
             guard let decodedTabIDs = rawTabIDs as? [String],
                   decodedTabIDs.allSatisfy({ nonEmptyString($0) != nil })
             else { return nil }
