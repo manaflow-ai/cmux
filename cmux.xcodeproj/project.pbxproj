@@ -47,6 +47,7 @@
 		8728A0120000000000000001 /* AgentChatSidecarProcessExitCompletion.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8728A0110000000000000001 /* AgentChatSidecarProcessExitCompletion.swift */; };
 		8728A0080000000000000001 /* AgentChatSidecarProcessTerminator.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8728A0070000000000000001 /* AgentChatSidecarProcessTerminator.swift */; };
 		8728A0060000000000000001 /* AgentChatSidecarProcessTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8728A0050000000000000001 /* AgentChatSidecarProcessTests.swift */; };
+		8728A0130000000000000002 /* AgentChatActionInFlightGateCancellationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8728A0130000000000000001 /* AgentChatActionInFlightGateCancellationTests.swift */; };
 		C0DE71A00000000000000001 /* AgentChatThemeSync.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE71A00000000000000002 /* AgentChatThemeSync.swift */; };
 		ACA7C4A70000000000000005 /* AgentChatTranscriptResolver.swift in Sources */ = {isa = PBXBuildFile; fileRef = ACA7C4A70000000000000006 /* AgentChatTranscriptResolver.swift */; };
 		992300019923000199230008 /* AgentChatTranscriptResumeIntentRecorder.swift in Sources */ = {isa = PBXBuildFile; fileRef = 992300019923000199230007 /* AgentChatTranscriptResumeIntentRecorder.swift */; };
@@ -3142,6 +3143,7 @@
 		8728A0110000000000000001 /* AgentChatSidecarProcessExitCompletion.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentChatSidecarProcessExitCompletion.swift; sourceTree = "<group>"; };
 		8728A0070000000000000001 /* AgentChatSidecarProcessTerminator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentChatSidecarProcessTerminator.swift; sourceTree = "<group>"; };
 		8728A0050000000000000001 /* AgentChatSidecarProcessTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentChatSidecarProcessTests.swift; sourceTree = "<group>"; };
+		8728A0130000000000000001 /* AgentChatActionInFlightGateCancellationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentChatActionInFlightGateCancellationTests.swift; sourceTree = "<group>"; };
 		C0DE71A00000000000000002 /* AgentChatThemeSync.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentChatThemeSync.swift; sourceTree = "<group>"; };
 		ACA7C4A70000000000000006 /* AgentChatTranscriptResolver.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = "AgentChatTranscriptResolver.swift"; sourceTree = "<group>"; };
 		992300019923000199230007 /* AgentChatTranscriptResumeIntentRecorder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentChatTranscriptResumeIntentRecorder.swift; sourceTree = "<group>"; };
@@ -9110,6 +9112,7 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 				0673572C53588696D70F32A9 /* BackgroundPrimeStartableSurfaceTests.swift */,
 				C0DE4300000000000000000A /* CmuxAgentChatConfigTests.swift */,
 				8728A0050000000000000001 /* AgentChatSidecarProcessTests.swift */,
+				8728A0130000000000000001 /* AgentChatActionInFlightGateCancellationTests.swift */,
 				C1A2B3C4D5E6F70800000002 /* CmuxConfigTests.swift */,
 				468100000000000000000002 /* CmuxNotificationHookCacheTests.swift */,
 				468160000000000000000002 /* KeyboardShortcutSettingsObserverTests.swift */,
@@ -11864,6 +11867,7 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 				C7A51D100000000000000002 /* AgentChatSessionRegistryObservationReviewRegressionTests.swift in Sources */,
 				C7A51D000000000000000002 /* AgentChatSessionRegistryObservationTests.swift in Sources */,
 				8728A0060000000000000001 /* AgentChatSidecarProcessTests.swift in Sources */,
+				8728A0130000000000000002 /* AgentChatActionInFlightGateCancellationTests.swift in Sources */,
 				93800001AA11BB22CC33EE01 /* AgentDeliveryTTYBindingTests.swift in Sources */,
 				A9E020000000000000000005 /* AgentExecutableResolverTests.swift in Sources */,
 				8740E0018740E0018740E001 /* AgentHibernationEvaluationSchedulingTests.swift in Sources */,
