@@ -595,8 +595,10 @@ struct MemoryPressureMonitorTests {
         monitor.recordSystemPressure(.warning, at: Date(timeIntervalSince1970: 15))
 
         #expect(monitor.currentSeverity == .warning)
-        #expect(monitor.aggregateMemoryPressure?.severity == .normal)
-        #expect(monitor.aggregateMemoryPressure?.isActionable == false)
+        // A system event carries no aggregate sample. The previous aggregate
+        // evidence must be cleared rather than replayed as a synthetic normal
+        // snapshot, so it cannot authorize a later aggregate response.
+        #expect(monitor.aggregateMemoryPressure == nil)
     }
 
     @Test func samplingPreservesRecentSystemPressureEvent() async {
