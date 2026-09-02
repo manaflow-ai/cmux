@@ -26,6 +26,7 @@ mod machine_provider_client;
 #[cfg(unix)]
 mod machine_provider_runtime;
 mod machine_runtime;
+mod pipe_io;
 mod plugin_manager;
 mod process_diagnostics;
 #[cfg(target_os = "linux")]
@@ -1710,6 +1711,9 @@ fn run_attach(args: Args, config: config::StartupConfigSnapshot) -> anyhow::Resu
             Err(error) => return Err(error),
         };
         if tree.resolve_terminal(terminal) != Some(surface) {
+            if args.pipe_io {
+                exit_pipe_io(pipe_io::PipeIoExitReason::TerminalEnded);
+            }
             anyhow::bail!(messages.unknown_terminal(terminal.as_str()));
         }
         Some(surface)
