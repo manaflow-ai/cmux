@@ -88,9 +88,10 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
 
     /// Builds the shell helper that terminates a foreground-authentication process tree.
     ///
-    /// The helper takes a process-table snapshot, indexes parent/child edges in
-    /// one pass, and freezes the reachable tree with shell-builtin signals. Each
-    /// accepted record carries its PID, process group, and `ps lstart` identity.
+    /// The helper takes one kernel process-table snapshot, indexes parent/child
+    /// edges in one pass, and freezes the reachable tree with shell-builtin
+    /// signals. Each accepted record carries its PID, parent, process group, and
+    /// microsecond kernel start identity.
     /// A second snapshot must confirm the identity and stopped state before the
     /// helper sends `SIGKILL`. After `SIGTERM`, the helper waits for the
     /// per-attempt completion FIFO emitted by the authentication wrapper, then
@@ -161,7 +162,49 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
           : > "$cmux_ssh_auth_marker_holders" || exit 0
 
           cmux_ssh_auth_take_snapshot() {
-            /bin/ps -axo pid=,ppid=,pgid=,state=,lstart= > "$cmux_ssh_auth_snapshot" 2>/dev/null
+            # `ps lstart` is only second-resolution. Read proc_bsdinfo directly
+            # so every snapshot carries the kernel birth timestamp instead of a
+            # value that can collide after rapid PID reuse. One Perl process
+            # walks the PID list, which keeps this path viable under fork
+            # pressure and avoids one child process per candidate.
+            /usr/bin/perl -e '
+              use strict;
+              use warnings;
+              my $max_pid_count = 65536;
+              my $pid_buffer = "\0" x (4 * $max_pid_count);
+              my $pid_bytes = syscall(336, 1, 1, 0, 0, $pid_buffer, length($pid_buffer));
+              exit 1 unless defined($pid_bytes) && $pid_bytes >= 0 &&
+                $pid_bytes < length($pid_buffer) && ($pid_bytes % 4) == 0;
+              my %state = (1 => "I", 2 => "R", 3 => "S", 4 => "T", 5 => "Z");
+              for (my $offset = 0; $offset < $pid_bytes; $offset += 4) {
+                my $pid = unpack("L<", substr($pid_buffer, $offset, 4));
+                next unless $pid > 0;
+                my $info_buffer = "\0" x 184;
+                my $info_size = syscall(336, 2, $pid, 3, 0, $info_buffer, length($info_buffer));
+                my ($group_offset, $seconds_offset, $microseconds_offset);
+                if ($info_size == 136) {
+                  $group_offset = 100;
+                  $seconds_offset = 120;
+                  $microseconds_offset = 128;
+                } elsif ($info_size == 184) {
+                  $group_offset = 148;
+                  $seconds_offset = 168;
+                  $microseconds_offset = 176;
+                } else {
+                  next;
+                }
+                my $status = unpack("L<", substr($info_buffer, 4, 4));
+                my $observed_pid = unpack("L<", substr($info_buffer, 12, 4));
+                my $parent = unpack("L<", substr($info_buffer, 16, 4));
+                my $group = unpack("L<", substr($info_buffer, $group_offset, 4));
+                my $seconds = unpack("Q<", substr($info_buffer, $seconds_offset, 8));
+                my $microseconds = unpack("Q<", substr($info_buffer, $microseconds_offset, 8));
+                next unless $observed_pid == $pid && $group > 0 && $seconds > 0 &&
+                  $microseconds < 1_000_000;
+                next unless exists $state{$status};
+                print "$pid $parent $group $state{$status} K $seconds $microseconds 0 0\n";
+              }
+            ' > "$cmux_ssh_auth_snapshot" 2>/dev/null
           }
 
           cmux_ssh_auth_extract_tree() {
@@ -238,10 +281,10 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
           # replacement reparented before the next process-table snapshot. The
           # classifier therefore keeps a per-attempt marker FD open. `lsof`
           # returns the exact processes that inherited that FD, including a
-          # detached replacement. Record their PID, PGID, and start identity,
-          # then follow only their current descendants. A random marker token
-          # and the inherited descriptor are the ownership proof; no numeric
-          # process-group reuse can authorize an unrelated process.
+          # detached replacement. Record their PID, parent, PGID, and kernel
+          # start identity, then follow only their current descendants. A random
+          # marker token and the inherited descriptor are the ownership proof;
+          # no numeric process-group reuse can authorize an unrelated process.
           cmux_ssh_auth_record_dynamic_members() {
             cmux_ssh_auth_take_snapshot || return 1
             : > "$cmux_ssh_auth_marker_holders" || return 1
@@ -251,7 +294,10 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
             fi
             /usr/bin/awk '
               FILENAME == ARGV[1] {
-                cmux_original_identity[$2 SUBSEP $6] = 1
+                # PPID is lineage metadata and can change when a TERM handler
+                # outlives its parent. PID, PGID, and the kernel birth token
+                # remain the stable identity fence.
+                cmux_original_identity[$2 SUBSEP $4 SUBSEP $6] = 1
                 next
               }
               FILENAME == ARGV[2] {
@@ -293,8 +339,8 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
                 for (cmux_pid in cmux_lineage) {
                   cmux_started_id = cmux_started[cmux_pid]
                   if (cmux_state[cmux_pid] !~ /Z/ &&
-                      !((cmux_pid SUBSEP cmux_started_id) in cmux_original_identity)) {
-                    print cmux_pid, cmux_group[cmux_pid], cmux_started_id
+                      !((cmux_pid SUBSEP cmux_group[cmux_pid] SUBSEP cmux_started_id) in cmux_original_identity)) {
+                    print cmux_pid, cmux_parent[cmux_pid], cmux_group[cmux_pid], cmux_started_id
                   }
                 }
               }
@@ -341,47 +387,79 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
             exec 9>&-
           }
 
-          # A successful STOP pins a process in place. If the identity check
-          # fails, resume every current process with the recorded PID that is
-          # either a different identity or no longer stopped. This undoes a
-          # stale-PID STOP without ever sending TERM or KILL to that process.
+          # A successful STOP pins a process in place. Resume only a journal
+          # identity that the kernel still reports with the same PID, process
+          # group, and microsecond birth timestamp. PPID is retained in the
+          # journal for lineage checks, but is not part of this rollback fence
+          # because a stopped child can be reparented while its owner exits.
+          # The validation and SIGCONT happen in one Perl process, so a failed
+          # process-table snapshot never turns a stale PID into an unverified
+          # signal.
+          cmux_ssh_auth_resume_kernel_journal() {
+            /usr/bin/perl -e '
+              use strict;
+              use warnings;
+              my $journal_path = shift;
+              exit 0 unless defined $journal_path;
+              open my $journal, "<", $journal_path or exit 1;
+
+              sub process_identity {
+                my ($pid) = @_;
+                my $buffer = "\0" x 184;
+                my $size = syscall(336, 2, $pid, 3, 0, $buffer, length($buffer));
+                my ($group_offset, $seconds_offset, $microseconds_offset);
+                if ($size == 136) {
+                  $group_offset = 100;
+                  $seconds_offset = 120;
+                  $microseconds_offset = 128;
+                } elsif ($size == 184) {
+                  $group_offset = 148;
+                  $seconds_offset = 168;
+                  $microseconds_offset = 176;
+                } else {
+                  return;
+                }
+                my $status = unpack("L<", substr($buffer, 4, 4));
+                my $observed_pid = unpack("L<", substr($buffer, 12, 4));
+                my $parent = unpack("L<", substr($buffer, 16, 4));
+                my $group = unpack("L<", substr($buffer, $group_offset, 4));
+                my $seconds = unpack("Q<", substr($buffer, $seconds_offset, 8));
+                my $microseconds = unpack("Q<", substr($buffer, $microseconds_offset, 8));
+                return ($observed_pid, $parent, $group, $status, $seconds, $microseconds);
+              }
+
+              while (my $line = <$journal>) {
+                my @fields = grep { length } split(/\s+/, $line);
+                next unless @fields == 6;
+                my ($pid, $parent, $group, $started) = @fields[1, 2, 3, 5];
+                next unless $pid =~ /\A[1-9][0-9]*\z/ &&
+                  $parent =~ /\A[0-9]+\z/ && $group =~ /\A[1-9][0-9]*\z/;
+                next unless $started =~ /\AK_([0-9]+)_([0-9]+)_0_0\z/;
+                my ($expected_seconds, $expected_microseconds) = ($1, $2);
+                next if $expected_microseconds >= 1_000_000;
+                my @identity = process_identity(0 + $pid);
+                next unless @identity == 6;
+                my ($observed_pid, $observed_parent, $observed_group,
+                    $status, $seconds, $microseconds) = @identity;
+                next unless $observed_pid == $pid && $observed_group == $group &&
+                  $seconds == $expected_seconds &&
+                  $microseconds == $expected_microseconds && $status == 4;
+                kill("CONT", 0 + $pid);
+              }
+            ' "$1" >/dev/null 2>&1 || true
+          }
+
           cmux_ssh_auth_resume_unconfirmed_stops() {
             cmux_ssh_auth_resume_path="$1"
             [ -s "$cmux_ssh_auth_resume_path" ] || return 0
-            if ! cmux_ssh_auth_take_snapshot; then
-              # A missing snapshot cannot distinguish the journal PID from a
-              # reused PID. Leave the process stopped rather than signaling an
-              # unverified identity.
-              return 0
-            fi
-            if ! cmux_ssh_auth_resume_pids=$(
-                /usr/bin/awk '
-                  FILENAME == ARGV[1] {
-                    cmux_expected_pid[$2] = 1
-                    cmux_expected[$2 SUBSEP $4 SUBSEP $6] = 1
-                    next
-                  }
-                  NF >= 9 {
-                    cmux_started = $5 "_" $6 "_" $7 "_" $8 "_" $9
-                    cmux_key = $1 SUBSEP $3 SUBSEP cmux_started
-                    if (($1 in cmux_expected_pid) &&
-                        (!(cmux_key in cmux_expected) || $4 !~ /T/) &&
-                        $4 !~ /Z/) print $1
-                  }
-                ' "$cmux_ssh_auth_resume_path" "$cmux_ssh_auth_snapshot"
-              ); then
-              return 0
-            fi
-            for cmux_ssh_auth_resume_pid in $cmux_ssh_auth_resume_pids; do
-              case "$cmux_ssh_auth_resume_pid" in ''|*[!0-9]*) continue ;; esac
-              kill -CONT "$cmux_ssh_auth_resume_pid" >/dev/null 2>&1 || true
-            done
+            cmux_ssh_auth_resume_kernel_journal "$cmux_ssh_auth_resume_path"
           }
 
           # Re-read the process table once immediately before each signal
-          # batch. A matching PID/PGID/start tuple is the only record emitted.
-          # STOP confirmation then pins that identity until TERM or KILL, so a
-          # PID reuse cannot turn a stale row into a destructive signal.
+          # batch. Every row carries PID, PPID, PGID, and a kernel-start token.
+          # The stable key uses PID, PGID, and that token because PPID changes
+          # during expected reparenting. Root validation and child edges still
+          # require the recorded PPID, so PID reuse cannot authorize a signal.
           cmux_ssh_auth_filter_current_records() {
             cmux_ssh_auth_filter_input="$1"
             cmux_ssh_auth_filter_output="$2"
@@ -418,27 +496,7 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
           cmux_ssh_auth_resume_file() {
             cmux_ssh_auth_resume_path="$1"
             [ -s "$cmux_ssh_auth_resume_path" ] || return 0
-            if ! cmux_ssh_auth_take_snapshot; then
-              return 0
-            fi
-            if ! cmux_ssh_auth_resume_pids=$(
-                /usr/bin/awk '
-                  FILENAME == ARGV[1] {
-                    cmux_expected[$2 SUBSEP $4 SUBSEP $6] = 1
-                    next
-                  }
-                  NF >= 9 {
-                    cmux_started = $5 "_" $6 "_" $7 "_" $8 "_" $9
-                    if (($1 SUBSEP $3 SUBSEP cmux_started) in cmux_expected && $4 !~ /Z/) print $1
-                  }
-                ' "$cmux_ssh_auth_resume_path" "$cmux_ssh_auth_snapshot"
-              ); then
-              return 0
-            fi
-            for cmux_ssh_auth_resume_pid in $cmux_ssh_auth_resume_pids; do
-              case "$cmux_ssh_auth_resume_pid" in ''|*[!0-9]*) continue ;; esac
-              kill -CONT "$cmux_ssh_auth_resume_pid" >/dev/null 2>&1 || true
-            done
+            cmux_ssh_auth_resume_kernel_journal "$cmux_ssh_auth_resume_path"
           }
 
           cmux_ssh_auth_cleanup() {
@@ -601,8 +659,9 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
                 next
               }
               FILENAME == ARGV[2] {
-                if ($1 ~ /^[0-9]+$/ && $2 ~ /^[0-9]+$/ && $3 != "") {
-                  cmux_dynamic_identity[$1 SUBSEP $2 SUBSEP $3] = 1
+                if ($1 ~ /^[0-9]+$/ && $2 ~ /^[0-9]+$/ &&
+                    $3 ~ /^[0-9]+$/ && $4 != "") {
+                  cmux_dynamic_identity[$1 SUBSEP $3 SUBSEP $4] = 1
                 }
                 next
               }

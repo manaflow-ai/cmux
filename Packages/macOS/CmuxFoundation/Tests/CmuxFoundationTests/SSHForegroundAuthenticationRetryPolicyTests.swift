@@ -294,14 +294,14 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
         ))
         defer { Darwin.kill(leafPID, SIGKILL) }
         let exitDeadline = Date.now.addingTimeInterval(1)
-        while processLiveness(leafPID) == .live, Date.now < exitDeadline {
+        while processLiveness(leafPID) == true, Date.now < exitDeadline {
             Thread.sleep(forTimeInterval: 0.01)
         }
 
         #expect(process.terminationStatus == 0)
         #expect(try String(contentsOf: signalLog, encoding: .utf8) == "term\n")
-        #expect(processLiveness(leafPID) == .terminated)
-        #expect(processLiveness(leafPID) != .unknown)
+        #expect(processLiveness(leafPID) == false)
+        #expect(processLiveness(leafPID) != nil)
     }
 
     @Test func refusesAuthenticationRootWithMismatchedKnownParent() throws {
@@ -438,7 +438,7 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
             .split(separator: "\n")
             .compactMap { Int32($0) }
         let exitDeadline = Date.now.addingTimeInterval(1)
-        while processIDs.contains(where: { processLiveness($0) == .live }), Date.now < exitDeadline {
+        while processIDs.contains(where: { processLiveness($0) == true }), Date.now < exitDeadline {
             Thread.sleep(forTimeInterval: 0.01)
         }
 
@@ -452,8 +452,8 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
             "Foreground authentication cleanup took \(elapsed) seconds instead of one bounded deadline"
         )
         let processStates = processIDs.map(processLiveness)
-        #expect(!processStates.contains(.unknown))
-        #expect(!processStates.contains(.live))
+        #expect(!processStates.contains(where: { $0 == nil }))
+        #expect(!processStates.contains(where: { $0 == true }))
     }
 
     @Test func terminatesReplacementSpawnedByAuthenticationTermHandler() throws {
@@ -552,13 +552,13 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
         ))
         defer { Darwin.kill(replacementPID, SIGKILL) }
         let exitDeadline = Date.now.addingTimeInterval(1)
-        while processLiveness(replacementPID) == .live, Date.now < exitDeadline {
+        while processLiveness(replacementPID) == true, Date.now < exitDeadline {
             Thread.sleep(forTimeInterval: 0.01)
         }
 
         #expect(process.terminationStatus == 0)
-        #expect(processLiveness(replacementPID) == .terminated)
-        #expect(processLiveness(replacementPID) != .unknown)
+        #expect(processLiveness(replacementPID) == false)
+        #expect(processLiveness(replacementPID) != nil)
     }
 
     @Test func restoresTerminalModesWhenTerminatingForegroundAuthenticationTree() throws {
@@ -790,13 +790,7 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
         }
     }
 
-    private enum ProcessLiveness: Equatable {
-        case live
-        case terminated
-        case unknown
-    }
-
-    private func processLiveness(_ processID: Int32) -> ProcessLiveness {
+    private func processLiveness(_ processID: Int32) -> Bool? {
         // kill(pid, 0) also succeeds for zombies. The cleanup helper treats a
         // zombie as terminated, so inspect process state before reporting a
         // survivor. An unexpected proc_pidinfo result is unknown, not proof of
@@ -811,11 +805,11 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
             Int32(expectedSize)
         )
         if Int(size) == expectedSize {
-            return info.pbi_status == UInt32(SZOMB) ? .terminated : .live
+            return info.pbi_status == UInt32(SZOMB) ? false : true
         }
         if size == 0 && errno == ESRCH {
-            return .terminated
+            return false
         }
-        return .unknown
+        return nil
     }
 }
