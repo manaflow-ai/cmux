@@ -43905,6 +43905,45 @@ mod tests {
     }
 
     #[test]
+    fn projection_rows_refresh_after_client_focus_partial_failure() {
+        let mux =
+            Mux::new("projection-client-focus-partial-failure-test", SurfaceOptions::default());
+        let first = mux.new_workspace(Some("Alpha".into()), Some((80, 24))).unwrap();
+        let second = mux.new_workspace(Some("Beta".into()), Some((80, 24))).unwrap();
+        let mut app =
+            projection_test_app(Session::Local(mux.clone()), vec![SidebarResourceKind::Workspaces]);
+        app.tree.active_workspace = 0;
+
+        assert!(app.projection_rows(0).iter().any(|row| {
+            row.resource == SidebarResourceKind::Workspaces
+                && row.active
+                && matches!(
+                    row.target,
+                    crate::sidebar_projection::ProjectionTarget::Workspace { index: 0, .. }
+                )
+        }));
+
+        // Simulate a stale completion. The workspace index is still valid, but
+        // the tab index no longer exists when the client focus is applied.
+        app.tab_locations.insert(second.id, [1, 0, 0, usize::MAX]);
+        app.select_created_surface(second.id);
+
+        // A failed focus request must not leave a partial workspace mutation
+        // behind, or the cached active row can become stale.
+        assert!(app.projection_rows(0).iter().any(|row| {
+            row.resource == SidebarResourceKind::Workspaces
+                && row.active
+                && matches!(
+                    row.target,
+                    crate::sidebar_projection::ProjectionTarget::Workspace { index: 0, .. }
+                )
+        }));
+
+        mux.close_surface(first.id).unwrap();
+        mux.close_surface(second.id).unwrap();
+    }
+
+    #[test]
     fn projection_rows_scope_agent_revision_to_agent_views() {
         let (mux, surface) = test_mux("projection-agent-revision-scope-test", None);
         mux.report_agent(
@@ -44030,6 +44069,31 @@ mod tests {
         let after = app.projection_rows_cache.revision_for("agent-view").unwrap();
 
         assert_eq!(before, after);
+
+        mux.close_surface(first_surface.id).unwrap();
+        mux.close_surface(second_surface.id).unwrap();
+    }
+
+    #[test]
+    fn projection_agent_generations_prune_removed_workspaces() {
+        let (mux, first_surface) = test_mux("projection-agent-generation-prune-test", None);
+        let second_surface = mux.new_workspace(None, Some((80, 24))).unwrap();
+        let mut app = test_app(Session::Local(mux.clone()));
+        app.replace_tree(app.session.tree());
+        let first_workspace = app.tree.workspaces()[0].id;
+        let second_workspace = app.tree.workspaces()[1].id;
+
+        app.bump_agent_generation(first_surface.id);
+        app.bump_agent_generation(second_surface.id);
+        assert_eq!(app.agent_generations.len(), 2);
+
+        let mut replacement = app.tree.clone();
+        replacement.workspaces_mut().remove(0);
+        replacement.active_workspace = 0;
+        app.replace_tree(replacement);
+
+        assert!(!app.agent_generations.contains_key(&first_workspace));
+        assert!(app.agent_generations.contains_key(&second_workspace));
 
         mux.close_surface(first_surface.id).unwrap();
         mux.close_surface(second_surface.id).unwrap();
