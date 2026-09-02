@@ -461,6 +461,7 @@ jobs:
       group: cla-lock-${{ github.repository }}-${{ github.event.pull_request.number }}
       cancel-in-progress: false
     permissions:
+      contents: read
       issues: write
       pull-requests: write
     steps:

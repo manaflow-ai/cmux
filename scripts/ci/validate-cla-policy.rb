@@ -2142,7 +2142,7 @@ def validate_workflow(raw)
   fail!("RerunFailedCLA permissions are not least-privilege") unless
     rerun["permissions"] == { "actions" => "write", "checks" => "read", "contents" => "read", "issues" => "read", "pull-requests" => "read" }
   fail!("LockMergedPullRequest permissions are not least-privilege") unless
-    lock["permissions"] == { "issues" => "write", "pull-requests" => "write" }
+    lock["permissions"] == { "contents" => "read", "issues" => "write", "pull-requests" => "write" }
 
   action_step = step_using(writer, CLA_ACTION, "CLALedgerWriter")
   with_values = action_step["with"]
