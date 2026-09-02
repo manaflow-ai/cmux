@@ -1443,6 +1443,15 @@ mod tests {
     }
 
     #[test]
+    fn shell_script_argument_is_identified() {
+        let shell = ForegroundJob {
+            process_group_id: 7,
+            processes: vec![process(7, "sh", &["/bin/sh", "/tmp/test-bin/pi"])],
+        };
+        assert_eq!(identify_job(ManifestSet::bundled(), &shell).unwrap().0.id(), "pi");
+    }
+
+    #[test]
     fn runtime_option_values_are_not_treated_as_agent_commands() {
         for (name, argv) in [
             ("node", vec!["node", "--experimental-loader", "codex"]),
