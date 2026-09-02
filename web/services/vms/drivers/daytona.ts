@@ -5,6 +5,7 @@ import {
   type AttachOptions,
   type AttachTransport,
   type CmuxRemoteApprovalResult,
+  type CmuxRemoteApprovalOptions,
   type CmuxRemoteAttachOptions,
   type CmuxRemoteEndpoint,
   type CreateOptions,
@@ -408,7 +409,12 @@ export class DaytonaProvider implements VMProvider {
     );
   }
 
-  async approveCmuxRemoteEnrollment(vmId: string, invitationId: string): Promise<CmuxRemoteApprovalResult> {
+  async approveCmuxRemoteEnrollment(
+    vmId: string,
+    invitationId: string,
+    options?: CmuxRemoteApprovalOptions,
+  ): Promise<CmuxRemoteApprovalResult> {
+    void options;
     return withVmSpan(
       "cmux.vm.provider.approve_cmux_remote_enrollment",
       { "cmux.vm.provider": "daytona", "cmux.vm.operation": "approve_cmux_remote_enrollment", "cmux.vm.id": vmId },

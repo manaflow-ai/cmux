@@ -3,6 +3,7 @@ import { createHash, createPrivateKey, createPublicKey, randomBytes, sign, verif
 import {
   ProviderError,
   type AttachOptions,
+  type CmuxRemoteApprovalOptions,
   type CreateOptions,
   type ExecOptions,
   type ExecResult,
@@ -622,14 +623,18 @@ export class FreestyleProvider implements VMProvider {
     return this.beta.openCmuxRemote(vmId, options);
   }
 
-  async approveCmuxRemoteEnrollment(vmId: string, invitationId: string): Promise<CmuxRemoteApprovalResult> {
+  async approveCmuxRemoteEnrollment(
+    vmId: string,
+    invitationId: string,
+    options?: CmuxRemoteApprovalOptions,
+  ): Promise<CmuxRemoteApprovalResult> {
     if (!this.isBetaMachine(vmId)) {
       throw new ProviderError(
         "freestyle",
         `approveCmuxRemoteEnrollment(${vmId}) is not supported on legacy-platform freestyle machines (no cmux-tui daemon).`,
       );
     }
-    return this.beta.approveCmuxRemoteEnrollment(vmId, invitationId);
+    return this.beta.approveCmuxRemoteEnrollment(vmId, invitationId, options);
   }
 
   async openSSH(vmId: string): Promise<SSHEndpoint> {

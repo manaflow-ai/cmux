@@ -1828,7 +1828,9 @@ export function approveVmCmuxRemoteEnrollment(input: {
         }),
       );
     }
-    return yield* providers.approveCmuxRemoteEnrollment(vm.provider, input.providerVmId, input.invitationId);
+    return yield* providers.approveCmuxRemoteEnrollment(vm.provider, input.providerVmId, input.invitationId, {
+      providerMetadata: vm.providerMetadata,
+    });
   });
 }
 

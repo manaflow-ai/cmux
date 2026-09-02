@@ -4,6 +4,7 @@ import {
   ProviderError,
   type AttachTransport,
   type CmuxRemoteApprovalResult,
+  type CmuxRemoteApprovalOptions,
   type CmuxRemoteAttachOptions,
   type CmuxRemoteEndpoint,
   type CreateOptions,
@@ -519,7 +520,12 @@ export class FreestyleBetaPlatform {
     );
   }
 
-  async approveCmuxRemoteEnrollment(vmId: string, invitationId: string): Promise<CmuxRemoteApprovalResult> {
+  async approveCmuxRemoteEnrollment(
+    vmId: string,
+    invitationId: string,
+    options?: CmuxRemoteApprovalOptions,
+  ): Promise<CmuxRemoteApprovalResult> {
+    void options;
     return withVmSpan(
       "cmux.vm.provider.approve_cmux_remote_enrollment",
       betaSpanAttributes(vmId, "approve_cmux_remote_enrollment"),

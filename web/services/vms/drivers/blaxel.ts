@@ -19,6 +19,7 @@ import {
   type VMVolumeListOptions,
   type VMVolumeInventory,
   type CmuxRemoteApprovalResult,
+  type CmuxRemoteApprovalOptions,
   type CmuxRemoteAttachOptions,
   type CmuxRemoteEndpoint,
 } from "./types";
@@ -1684,7 +1685,11 @@ export class BlaxelProvider implements VMProvider {
     );
   }
 
-  async approveCmuxRemoteEnrollment(vmId: string, invitationId: string): Promise<CmuxRemoteApprovalResult> {
+  async approveCmuxRemoteEnrollment(
+    vmId: string,
+    invitationId: string,
+    options?: CmuxRemoteApprovalOptions,
+  ): Promise<CmuxRemoteApprovalResult> {
     return withVmSpan(
       "cmux.vm.provider.approve_cmux_remote_enrollment",
       { "cmux.vm.provider": "blaxel", "cmux.vm.operation": "approve_cmux_remote_enrollment", "cmux.vm.id": vmId },
@@ -1696,7 +1701,7 @@ export class BlaxelProvider implements VMProvider {
             throw new ProviderError("blaxel", `sandbox ${vmId} has no API url (status ${sandbox.status ?? "unknown"})`);
           }
           return await approveCmuxTuiEnrollment(
-            this.cmuxTuiInvoke(sandboxUrl, sandboxHasPersistentHomeVolume(sandbox)),
+            this.cmuxTuiInvoke(sandboxUrl, sandboxHasPersistentHomeVolume(sandbox, options?.providerMetadata)),
             "blaxel",
             vmId,
             invitationId,

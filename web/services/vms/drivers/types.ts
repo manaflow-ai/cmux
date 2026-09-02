@@ -197,6 +197,11 @@ export type CmuxRemoteApprovalResult = {
   state: "approved" | "pending" | "already_enrolled";
 };
 
+export type CmuxRemoteApprovalOptions = {
+  /** Server-side metadata persisted with the VM row, used for durable-home routing. */
+  readonly providerMetadata?: Record<string, unknown>;
+};
+
 export type AttachOptions = {
   /**
    * Workspace attaches need a cmuxd RPC endpoint so browser panels can proxy remote
@@ -303,7 +308,11 @@ export interface VMProvider {
   // this undefined.
   openCmuxRemote?(vmId: string, options?: CmuxRemoteAttachOptions): Promise<CmuxRemoteEndpoint>;
   // Optional: approve the pending enrollment a previous openCmuxRemote invited.
-  approveCmuxRemoteEnrollment?(vmId: string, invitationId: string): Promise<CmuxRemoteApprovalResult>;
+  approveCmuxRemoteEnrollment?(
+    vmId: string,
+    invitationId: string,
+    options?: CmuxRemoteApprovalOptions,
+  ): Promise<CmuxRemoteApprovalResult>;
 
   // Returns a live SSH endpoint the client can dial into. Drivers are responsible for ensuring
   // sshd is running (some providers need an explicit start step).
