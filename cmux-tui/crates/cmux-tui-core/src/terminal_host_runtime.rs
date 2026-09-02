@@ -6629,6 +6629,27 @@ mod unix {
         }
 
         #[test]
+        fn snapshot_payload_round_trip_preserves_negotiated_terminal_metadata() {
+            let snapshot = HostSnapshot {
+                cols: 80,
+                rows: 24,
+                cell_pixels: (9, 18),
+                replay: b"replay".to_vec(),
+                kitty_image_aliases: Vec::new(),
+                kitty_state: KittyReplayState::disabled(),
+                sequence_boundary: 0,
+                colors: TerminalColorOverrides::default(),
+                pid: None,
+                command: Vec::new(),
+                cwd: None,
+                osc_progress: "4;1;50".into(),
+            };
+            let payload = encode_snapshot_for_version(&snapshot, PROTOCOL_VERSION, true).unwrap();
+            let decoded = decode_snapshot_for_version(&payload, PROTOCOL_VERSION).unwrap();
+            assert_eq!(decoded.osc_progress, snapshot.osc_progress);
+        }
+
+        #[test]
         fn snapshot_payload_matches_the_cross_language_current_golden_bytes() {
             let snapshot = HostSnapshot {
                 cols: 1,
