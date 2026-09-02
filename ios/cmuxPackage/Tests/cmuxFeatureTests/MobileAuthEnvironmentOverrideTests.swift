@@ -417,4 +417,22 @@ private struct OfflineReachabilityStub: ReachabilityProviding {
             isDevelopmentAuthChannel: false
         ) == "https://cmux-presence-dev-alice.acct.workers.dev")
     }
+
+    @Test func productionPresenceCannotUseAStaleStagingOverride() throws {
+        #expect(PresenceClient.resolvedServiceBaseURL(
+            environment: [PresenceClient.serviceURLEnvKey: "https://cmux-presence-dev-alice.acct.workers.dev"],
+            defaults: try freshDefaults(),
+            infoPlistValue: "https://cmux-presence-dev-bob.acct.workers.dev",
+            isDebugBuild: false,
+            isDevelopmentAuthChannel: nil
+        ) == PresenceClient.productionServiceURL)
+
+        #expect(PresenceClient.resolvedServiceBaseURL(
+            environment: [PresenceClient.serviceURLEnvKey: "https://cmux-presence-dev-alice.acct.workers.dev"],
+            defaults: try freshDefaults(),
+            infoPlistValue: nil,
+            isDebugBuild: true,
+            isDevelopmentAuthChannel: false
+        ) == PresenceClient.productionServiceURL)
+    }
 }
