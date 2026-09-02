@@ -4321,6 +4321,28 @@ impl Surface {
     }
 
     #[cfg(test)]
+    pub(crate) fn install_terminal_reaper_that_finishes_for_test(
+        self: &Arc<Self>,
+        started: std::sync::mpsc::SyncSender<()>,
+        proceed: std::sync::mpsc::Receiver<()>,
+    ) -> Arc<ReaderCompletion> {
+        let pty = self.as_pty().expect("test reaper requires a PTY surface");
+        pty.reaper_completion.reset();
+        let completion = pty.reaper_completion.clone();
+        let reaper_completion = completion.clone();
+        let surface = self.clone();
+        let reaper = std::thread::spawn(move || {
+            started.send(()).unwrap();
+            proceed.recv().unwrap();
+            reaper_completion.complete();
+            surface.finish_terminal_reader(Instant::now() + Duration::from_secs(1));
+        });
+        let previous = pty.reaper_thread.lock().unwrap().replace(reaper);
+        assert!(previous.is_none(), "test PTY already owns a reaper thread");
+        completion
+    }
+
+    #[cfg(test)]
     pub(crate) fn wait_for_terminal_reader_for_test(&self, deadline: Instant) -> bool {
         self.as_pty().is_some_and(|pty| pty.reader_completion.wait_until(deadline))
     }
@@ -7036,6 +7058,24 @@ mod tests {
 
         release_tx.send(()).unwrap();
         assert!(pty.reaper_completion.wait_until(Instant::now() + Duration::from_secs(1)));
+        surface.finish_terminal_reader(Instant::now() + Duration::from_secs(1));
+        assert!(pty.reaper_thread.lock().unwrap().is_none());
+    }
+
+    #[test]
+    fn finish_terminal_reader_does_not_self_join_reaper() {
+        let mux = Mux::new_for_test("reaper-self-join", SurfaceOptions::default());
+        let surface = Surface::spawn_for_test(1, SurfaceOptions::default(), Arc::downgrade(&mux))
+            .expect("test PTY should spawn");
+        let (started_tx, started_rx) = sync_channel(0);
+        let (proceed_tx, proceed_rx) = sync_channel(0);
+        let completion =
+            surface.install_terminal_reaper_that_finishes_for_test(started_tx, proceed_rx);
+        started_rx.recv().unwrap();
+        proceed_tx.send(()).unwrap();
+
+        assert!(completion.wait_until(Instant::now() + Duration::from_secs(1)));
+        let pty = surface.as_pty().unwrap();
         surface.finish_terminal_reader(Instant::now() + Duration::from_secs(1));
         assert!(pty.reaper_thread.lock().unwrap().is_none());
     }
