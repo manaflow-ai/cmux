@@ -1567,8 +1567,8 @@ mod tests {
             ("sh", vec!["sh", "-t", "claude"]),
             ("bash", vec!["bash", "--help", "codex"]),
             // `-C` is a case-sensitive shell option. It is not `-c`.
-            ("bash", vec!["bash", "-C", "codex"]),
-            ("fish", vec!["fish", "-C", "claude"]),
+            ("bash", vec!["bash", "-C", "exec codex"]),
+            ("fish", vec!["fish", "-C", "exec claude"]),
         ] {
             let job =
                 ForegroundJob { process_group_id: 7, processes: vec![process(7, name, &argv)] };
