@@ -748,7 +748,10 @@ fn parse_layout(value: &Value) -> Option<Node> {
 }
 
 fn parse_pane(value: &Value) -> Option<PaneView> {
-    let raw_active_tab = value.get("active_tab").and_then(|v| v.as_u64()).unwrap_or(0) as usize;
+    let raw_active_tab = value
+        .get("active_tab")
+        .and_then(Value::as_u64)
+        .and_then(|value| usize::try_from(value).ok());
     let active_tab_is_declared = value.get("active_tab").is_some();
     let mut active_tab = None;
     Some(PaneView {
@@ -821,7 +824,7 @@ fn parse_pane(value: &Value) -> Option<PaneView> {
                                 .unwrap_or(false),
                             notification: tab.get("notification").and_then(parse_notification),
                         })?;
-                        if raw_index == raw_active_tab {
+                        if raw_active_tab == Some(raw_index) {
                             active_tab = Some(compact_index);
                         }
                         compact_index += 1;
@@ -1548,6 +1551,19 @@ mod tests {
         let pane = parse_pane(&json!({
             "id": 3,
             "active_tab": 9,
+            "tabs": [{"surface": 5, "title": "only"}]
+        }))
+        .unwrap();
+
+        assert_eq!(pane.active_tab, usize::MAX);
+        assert_eq!(pane.active_surface(), None);
+    }
+
+    #[test]
+    fn pane_parser_fails_closed_when_active_tab_value_is_malformed() {
+        let pane = parse_pane(&json!({
+            "id": 3,
+            "active_tab": "invalid",
             "tabs": [{"surface": 5, "title": "only"}]
         }))
         .unwrap();
