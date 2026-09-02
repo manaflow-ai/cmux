@@ -115,16 +115,49 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
             *) cmux_ssh_auth_wait_for_term_event_enabled=0 ;;
           esac
 
+          # Install a small failure trap before any filesystem operation. The
+          # full cleanup trap needs the state files below, but setup failures
+          # must still terminate the known root so its caller cannot wait
+          # forever.
+          cmux_ssh_auth_setup_failed=0
+          cmux_ssh_auth_cleanup_complete=0
+          cmux_ssh_auth_state_dir=
+          cmux_ssh_auth_force_root_termination() {
+            case "$cmux_ssh_auth_tree_root_pid" in
+              ''|*[!0-9]*) return 0 ;;
+            esac
+            if kill -0 "$cmux_ssh_auth_tree_root_pid" >/dev/null 2>&1; then
+              kill -CONT "$cmux_ssh_auth_tree_root_pid" >/dev/null 2>&1 || true
+              kill -TERM "$cmux_ssh_auth_tree_root_pid" >/dev/null 2>&1 || true
+              kill -KILL "$cmux_ssh_auth_tree_root_pid" >/dev/null 2>&1 || true
+            fi
+          }
+          cmux_ssh_auth_early_cleanup() {
+            trap - EXIT HUP INT TERM
+            if [ "$cmux_ssh_auth_setup_failed" = 1 ]; then
+              cmux_ssh_auth_force_root_termination
+              if [ -n "$cmux_ssh_auth_state_dir" ]; then
+                /bin/rm -f -- "$cmux_ssh_auth_state_dir"/* 2>/dev/null || true
+                /bin/rmdir "$cmux_ssh_auth_state_dir" 2>/dev/null || true
+              fi
+            fi
+          }
+          trap 'cmux_ssh_auth_early_cleanup' EXIT
+          cmux_ssh_auth_setup_abort() {
+            cmux_ssh_auth_setup_failed=1
+            exit 0
+          }
+
           # SECONDS is provided by the /bin/sh used by the generated launchers
           # and avoids one fork per deadline check. The pass limits below are a
           # second bound if an older shell does not update it.
           SECONDS=0
-          cmux_ssh_auth_cleanup_complete=0
           cmux_ssh_auth_cleanup_has_time() {
             [ "${SECONDS:-0}" -lt 2 ]
           }
-          umask 077
-          cmux_ssh_auth_state_dir=$(/usr/bin/mktemp -d "${TMPDIR:-/tmp}/cmux-ssh-auth-tree.XXXXXX") || exit 0
+          umask 077 || cmux_ssh_auth_setup_abort
+          cmux_ssh_auth_state_dir=$(/usr/bin/mktemp -d "${TMPDIR:-/tmp}/cmux-ssh-auth-tree.XXXXXX") || cmux_ssh_auth_setup_abort
+          [ -n "$cmux_ssh_auth_state_dir" ] || cmux_ssh_auth_setup_abort
           cmux_ssh_auth_snapshot="$cmux_ssh_auth_state_dir/snapshot"
           cmux_ssh_auth_members="$cmux_ssh_auth_state_dir/members"
           cmux_ssh_auth_pending="$cmux_ssh_auth_state_dir/pending"
@@ -163,10 +196,10 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
           if [ "$(uname -s 2>/dev/null || true)" = Darwin ]; then
             cmux_ssh_auth_signal_backend=darwin
           fi
-          : > "$cmux_ssh_auth_owned" || exit 0
-          : > "$cmux_ssh_auth_pending" || exit 0
-          : > "$cmux_ssh_auth_dynamic_members" || exit 0
-          : > "$cmux_ssh_auth_marker_holders" || exit 0
+          : > "$cmux_ssh_auth_owned" || cmux_ssh_auth_setup_abort
+          : > "$cmux_ssh_auth_pending" || cmux_ssh_auth_setup_abort
+          : > "$cmux_ssh_auth_dynamic_members" || cmux_ssh_auth_setup_abort
+          : > "$cmux_ssh_auth_marker_holders" || cmux_ssh_auth_setup_abort
 
           cmux_ssh_auth_take_snapshot() {
             if [ "$cmux_ssh_auth_signal_backend" = darwin ]; then
@@ -654,25 +687,28 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
                   # owner. Resuming it would be an observable side effect.
                   next if before[3] == 4
                   next unless signal_exact.call(before, signals[signal_name])
-                  after = process_identity.call(pid)
-                  if same_identity.call(after, pid, group, expected_seconds, expected_microseconds) &&
-                      after[3] == 4
-                    output.puts(line.chomp)
-                  else
-                    # A PID-reuse candidate may be briefly stopped. Resume it
-                    # only while the same replacement identity is still stopped.
-                    replacement = process_identity.call(pid)
-                    if replacement && replacement[3] == 4 &&
-                        !same_identity.call(replacement, pid, group, expected_seconds, expected_microseconds)
-                      signal_exact.call(replacement, signals["CONT"])
-                    end
-                  end
+                  # SIGSTOP delivery can be asynchronous to proc_pidinfo. The
+                  # audit-token call already verified this exact identity, so
+                  # journal every successful STOP immediately. A later pass
+                  # confirms the stopped state before TERM or KILL; rollback
+                  # sends CONT even if that state check still sees the process
+                  # running, which prevents a delayed STOP from stranding it.
+                  output.puts(line.chomp)
                   next
                 end
 
                 # Rollback never resumes a process that was already stopped
                 # before this helper acquired it.
                 next if signal_name == "CONT" && original_state == "T"
+                if signal_name == "CONT"
+                  unless signal_exact.call(before, signals[signal_name])
+                    current = process_identity.call(pid)
+                    signal_failed = true if same_identity.call(
+                      current, pid, group, expected_seconds, expected_microseconds
+                    ) && current[3] == 4
+                  end
+                  next
+                end
                 next unless before[3] == 4
                 if signal_name == "TERM"
                   unless signal_exact.call(before, signals[signal_name])
@@ -764,21 +800,6 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
             cmux_ssh_auth_resume_path="$1"
             [ -s "$cmux_ssh_auth_resume_path" ] || return 0
             cmux_ssh_auth_resume_kernel_journal "$cmux_ssh_auth_resume_path"
-          }
-
-          cmux_ssh_auth_force_root_termination() {
-            case "$cmux_ssh_auth_tree_root_pid" in
-              ''|*[!0-9]*) return 0 ;;
-            esac
-            # The root PID is still the caller's unreaped child. If identity
-            # cleanup cannot produce a trustworthy snapshot, terminate that
-            # child so the caller's wait cannot hang indefinitely. Descendant
-            # cleanup remains best effort on hosts without a richer process API.
-            if kill -0 "$cmux_ssh_auth_tree_root_pid" >/dev/null 2>&1; then
-              kill -CONT "$cmux_ssh_auth_tree_root_pid" >/dev/null 2>&1 || true
-              kill -TERM "$cmux_ssh_auth_tree_root_pid" >/dev/null 2>&1 || true
-              kill -KILL "$cmux_ssh_auth_tree_root_pid" >/dev/null 2>&1 || true
-            fi
           }
 
           cmux_ssh_auth_cleanup() {
