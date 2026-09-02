@@ -846,21 +846,6 @@ struct SessionRestorableAgentSnapshot: Codable, Sendable {
     /// user-owned claude resume/fork when no explicit launch flag covers it.
     var permissionMode: String? = nil
 
-    func preparedResumeArguments(
-        launchCommand: AgentLaunchCommandSnapshot?,
-        workingDirectory: String?,
-        observedPermissionMode: String?
-    ) -> [String]? {
-        AgentResumeCommandBuilder.resumeArguments(
-            kind: kind,
-            sessionId: sessionId,
-            launchCommand: launchCommand,
-            workingDirectory: workingDirectory,
-            customRegistration: registration,
-            observedPermissionMode: observedPermissionMode
-        )
-    }
-
     func resumeStartupInput(
         useLocalRestoreVerb: Bool = true,
         restoringWorkingDirectory: String? = nil
