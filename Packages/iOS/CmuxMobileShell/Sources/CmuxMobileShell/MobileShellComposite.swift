@@ -3988,8 +3988,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// active row) is reconnected. A no-op when already connected to that Mac.
     /// - Parameters:
     ///   - macDeviceID: The stored physical Mac to switch to.
-    ///   - instanceTag: Exact saved app instance to switch to, or `nil` for
-    ///     legacy device-level routing.
+    ///   - instanceTag: Exact saved app instance to switch to, or `nil` to
+    ///     resolve the most recently seen instance for device-level routing.
     /// - Returns: `true` if the foreground connection now targets that Mac (or
     ///   already did), `false` if the switch could not connect — so callers like
     ///   `openWorkspace` can avoid selecting a workspace whose Mac is not live.
@@ -4120,26 +4120,10 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             await restoreMacSwitchBaselineIfCancelled(switchAttemptID)
             return false
         }
-        let matchesTarget: (MobilePairedMac) -> Bool = { mac in
-            MacPairingKey(mac) == MacPairingKey(
-                macDeviceID: macDeviceID,
-                instanceTag: instanceTag
-            )
-        }
-        let targetMatches = storeMacs.filter(matchesTarget)
-        // A device-only request against MULTIPLE stored sibling builds is
-        // ambiguous: the store orders by recency, not build authority, so
-        // dialing `first` could disconnect the current focus in favor of an
-        // arbitrary sibling. Fail the switch; pairing-aware callers pass the
-        // tag, and legacy device-only entry points must not guess.
-        if instanceTag == nil,
-           Set(targetMatches.map(MacPairingKey.init)).count > 1 {
-            mobileShellLog.error(
-                "switchToMac: device-only request is ambiguous across stored sibling builds mac=\(macDeviceID, privacy: .public)"
-            )
-            return false
-        }
-        guard let refreshedTarget = targetMatches.first else {
+        guard let refreshedTarget = storeMacs.mostRecentPairedMac(
+            macDeviceID: macDeviceID,
+            instanceTag: instanceTag
+        ) else {
             if !hasActiveMacConnection,
                await restorePreviousMacIfNeeded(macSwitchRestoreBaseline, switchAttemptID: switchAttemptID) {
                 macSwitchRestoreBaseline = nil
