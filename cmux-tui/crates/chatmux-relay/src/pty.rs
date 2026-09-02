@@ -3685,6 +3685,34 @@ mod tests {
         reliable: Arc<AtomicUsize>,
     }
 
+    struct SharedDetachControl {
+        ended: Arc<AtomicUsize>,
+        detached: Arc<StdMutex<Vec<Value>>>,
+    }
+
+    impl ControlHandle for SharedDetachControl {
+        fn request(
+            &self,
+            _cmd: &str,
+            _params: Value,
+        ) -> std::pin::Pin<Box<dyn Future<Output = Option<Value>> + Send + '_>> {
+            Box::pin(async { Some(json!({ "ok": true })) })
+        }
+        fn send(&self, cmd: &str, params: Value) -> bool {
+            if cmd == "detach-attached-view" {
+                self.detached.lock().expect("detached surfaces lock").push(params);
+            }
+            true
+        }
+        fn on_event(&self, _handler: EventHandler) {}
+        fn on_close(&self, _handler: CloseHandler) {}
+        fn pause(&self) {}
+        fn resume(&self) {}
+        fn end(&self) {
+            self.ended.fetch_add(1, AtomicOrdering::SeqCst);
+        }
+    }
+
     impl ControlHandle for OffRuntimeDetachControl {
         fn request(
             &self,
@@ -3812,6 +3840,36 @@ mod tests {
         assert_eq!(ended.load(AtomicOrdering::SeqCst), 1);
         assert_eq!(fire_and_forget.load(AtomicOrdering::SeqCst), 0);
         assert_eq!(reliable.load(AtomicOrdering::SeqCst), 0);
+        assert!(h.manager.inner.control_users.lock().unwrap().is_empty());
+    }
+
+    #[test]
+    fn saturated_off_runtime_queue_retires_shared_surface_with_detach() {
+        let h = harness(None, None);
+        let ended = Arc::new(AtomicUsize::new(0));
+        let detached = Arc::new(StdMutex::new(Vec::new()));
+        let control: Arc<dyn ControlHandle> = Arc::new(SharedDetachControl {
+            ended: Arc::clone(&ended),
+            detached: Arc::clone(&detached),
+        });
+        let released = h.manager.inner.register_control_user(&control);
+        let retained = h.manager.inner.register_control_user(&control);
+        let task = DeferredDetach {
+            control,
+            lease: released,
+            params: json!({ "surface": 7, "lease": "lease-a" }),
+        };
+
+        release_off_runtime_detach(task, Err);
+
+        let detached = detached.lock().expect("detached surfaces lock");
+        assert_eq!(detached.as_slice(), &[json!({ "surface": 7, "lease": "lease-a" })]);
+        assert_eq!(ended.load(AtomicOrdering::SeqCst), 0);
+        let users = h.manager.inner.control_users.lock().unwrap();
+        assert_eq!(users.values().next().expect("shared control user").count, 1);
+        drop(users);
+        retained.finish_count();
+        assert_eq!(ended.load(AtomicOrdering::SeqCst), 1);
         assert!(h.manager.inner.control_users.lock().unwrap().is_empty());
     }
 
