@@ -462,9 +462,14 @@ def _single_pr_number(rows: object, source: str) -> int:
         raise GateError(f"{source} pull request association is malformed")
     if not rows:
         raise GateError(f"{source} is not associated with a pull request")
-    if len(rows) > 1:
+    numbers: list[int] = []
+    for row in rows:
+        number = _pr_number(row, source)
+        if number not in numbers:
+            numbers.append(number)
+    if len(numbers) > 1:
         raise GateError(f"{source} is associated with multiple pull requests")
-    return _pr_number(rows[0], source)
+    return numbers[0]
 
 
 def _pr_number(row: object, source: str) -> int:
