@@ -105,12 +105,22 @@ struct FeedCoordinatorTests {
         appDelegate.tabManager = manager
         appDelegate.didAttemptStartupSessionRestore = true
         let windowID = appDelegate.registerMainWindowContextForTesting(tabManager: manager)
+        let testWindow = NSWindow(
+            contentRect: .zero,
+            styleMask: [],
+            backing: .buffered,
+            defer: true
+        )
+        if let context = appDelegate.mainWindowContexts.values.first(where: { $0.windowId == windowID }) {
+            context.window = testWindow
+        }
         let oldWorkspace = manager.addWorkspace(title: "Old owner", select: true)
         let newWorkspace = manager.addWorkspace(title: "New owner", select: false)
         defer {
             appDelegate.unregisterMainWindowContextForTesting(windowId: windowID)
             appDelegate.forgetRecoverableMainWindowRoute(windowId: windowID)
             manager.tabs.forEach { $0.teardownAllPanels() }
+            testWindow.close()
             appDelegate.tabManager = nil
             AppDelegate.shared = previousAppDelegate
         }
