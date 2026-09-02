@@ -17281,7 +17281,7 @@ impl App {
                 Some((range, generation))
             })
             .flatten()
-            .map_or((None, None), |(range, generation)| (range.flatten(), Some(generation)));
+            .map_or((None, None), |(range, generation)| (range, Some(generation)));
         let range = range.map(|range| {
             if mode == SelectionMode::Word {
                 self.selection_click_sequence
