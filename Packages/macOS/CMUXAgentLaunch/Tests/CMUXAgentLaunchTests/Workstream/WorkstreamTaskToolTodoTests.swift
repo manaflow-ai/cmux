@@ -158,6 +158,28 @@ struct WorkstreamTaskToolTodoTests {
         #expect(store.ownedTaskIds(forWorkstream: "s1").isEmpty)
     }
 
+    @Test("A failed create with an explicit id retires its claimed row")
+    func failedExplicitIDCreateRemovesClaimedRow() {
+        let store = WorkstreamStore(ringCapacity: 50)
+        store.ingest(toolEvent(
+            sessionId: "s-explicit",
+            tool: "TaskCreate",
+            input: #"{"id":"explicit-1","subject":"will fail"}"#,
+            requestId: "create-explicit"
+        ))
+        store.ingest(toolEvent(
+            sessionId: "s-explicit",
+            hook: .postToolUse,
+            tool: "TaskCreate",
+            input: #"{"id":"explicit-1","subject":"will fail"}"#,
+            response: #"{"error":"denied"}"#,
+            requestId: "create-explicit",
+            isError: true
+        ))
+        #expect(latestTodos(store)?.isEmpty == true)
+        #expect(store.ownedTaskIds(forWorkstream: "s-explicit").isEmpty)
+    }
+
     @Test("Late PreToolUse does not duplicate an authoritative create")
     func postThenPreCreateIsDeduplicated() {
         let store = WorkstreamStore(ringCapacity: 50)

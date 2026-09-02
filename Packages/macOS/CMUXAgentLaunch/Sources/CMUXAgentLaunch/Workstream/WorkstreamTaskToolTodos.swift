@@ -461,13 +461,15 @@ struct WorkstreamTaskToolTodos: Sendable {
         let response = object(from: responseJSON)
         let result = (response?["task"] as? [String: Any]) ?? response
         if isError || response?["success"] as? Bool == false {
-            if tool == .taskCreate,
-               let subject = content(in: input),
-               let provisional = popProvisionalID(for: subject) {
-                todos.removeAll { $0.id == provisional }
-                unclaim(provisional)
-                provisionalIDsInOrder.removeAll { $0 == provisional }
-                return .list(todos)
+            if tool == .taskCreate {
+                let failedID = taskID(in: input)
+                    ?? content(in: input).flatMap { popProvisionalID(for: $0) }
+                if let failedID {
+                    todos.removeAll { $0.id == failedID }
+                    unclaim(failedID)
+                    provisionalIDsInOrder.removeAll { $0 == failedID }
+                    return .list(todos)
+                }
             }
             return .ignored
         }
