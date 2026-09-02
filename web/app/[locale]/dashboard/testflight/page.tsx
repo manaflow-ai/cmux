@@ -1,3 +1,4 @@
+import { Suspense } from "react";
 import { getTranslations } from "next-intl/server";
 import { redirect } from "next/navigation";
 
@@ -8,10 +9,11 @@ import { isAscConfigured } from "@/services/asc/client";
 import { testerGroupStatus } from "@/services/asc/testflight";
 import { isTestflightEligible } from "@/services/billing/pro";
 import { captureAscError } from "@/services/errors";
+import { TestflightPageHeader } from "../components/dashboard-page-headers";
 
-// Eligibility and App Store status are request-fresh values. Keep the current
-// tab visible while this page resolves instead of caching mutable user data.
-export const instant = false;
+// Eligibility and App Store status stay request-fresh behind a narrow boundary.
+// The page header can commit from the prefetched shell as soon as the user clicks.
+export const instant = true;
 
 type SearchParams = {
   testflight?: string | string[];
@@ -23,26 +25,42 @@ type TestflightStatus = {
   unavailable?: boolean;
 };
 
-export default async function DashboardTestflightPage({
-  params,
-  searchParams,
-}: {
+type PageProps = {
   params: Promise<{ locale: string }>;
   searchParams?: Promise<SearchParams>;
-}) {
-  const { locale } = await params;
-  const query = await searchParams;
+};
 
+export default function DashboardTestflightPage(props: PageProps) {
   if (!isStackConfigured()) {
     redirect("/");
   }
+
+  return (
+    <div className="mx-auto w-full max-w-5xl px-3 py-4">
+      <TestflightPageHeader />
+      <Suspense fallback={null}>
+        <DashboardTestflightContent {...props} />
+      </Suspense>
+    </div>
+  );
+}
+
+export async function DashboardTestflightContent({
+  params,
+  searchParams,
+}: PageProps) {
+  const { locale } = await params;
+  const query = await searchParams;
+
   const user = await getStackServerApp().getUser({ or: "return-null" });
   if (!user || user.isAnonymous) {
     redirect(vaultSignInHref(localizedVaultPath(locale, "/dashboard/testflight")));
   }
 
-  const t = await getTranslations({ locale, namespace: "dashboard.testflight" });
-  const eligible = await isTestflightEligible(user);
+  const [t, eligible] = await Promise.all([
+    getTranslations({ locale, namespace: "dashboard.testflight" }),
+    isTestflightEligible(user),
+  ]);
   const email = normalizedEmail(user.primaryEmail);
   const status = eligible && email
     ? await loadTestflightStatus(email, user.id)
@@ -52,13 +70,7 @@ export default async function DashboardTestflightPage({
   );
 
   return (
-    <div className="mx-auto w-full max-w-5xl px-3 py-4">
-      <div className="mb-4 border-b border-border pb-3">
-        <p className="text-xs font-medium text-muted">{t("eyebrow")}</p>
-        <h1 className="mt-1 text-sm font-medium">{t("title")}</h1>
-        <p className="mt-1 max-w-2xl text-muted">{t("description")}</p>
-      </div>
-
+    <div>
       {banner ? (
         <div className="mb-3 border border-border bg-background p-3 text-sm">
           {t(`banners.${banner}`)}

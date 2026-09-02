@@ -1,3 +1,4 @@
+import { Suspense } from "react";
 import { getTranslations } from "next-intl/server";
 import { headers } from "next/headers";
 import { redirect } from "next/navigation";
@@ -28,11 +29,12 @@ import {
   AddAiAccountForms,
   DeleteAiAccountButton,
 } from "../components/ai-account-forms";
+import { CoderouterPageHeader } from "../components/dashboard-page-headers";
 
 // Account authorization and the hosted account list must stay fresh for each
-// request. Keep the current tab visible while this page resolves instead of
-// caching mutable per-user data just to satisfy instant-navigation validation.
-export const instant = false;
+// request. The stable page header commits from the prefetched shell while the
+// mutable per-user data streams through the boundary below it.
+export const instant = true;
 
 type PageProps = {
   params: Promise<{ locale: string }>;
@@ -73,13 +75,25 @@ export async function generateMetadata({ params }: { params: Promise<{ locale: s
   };
 }
 
-export default async function CoderouterOverviewPage({ params, searchParams }: PageProps) {
-  const [{ locale }, { team: teamParam }] = await Promise.all([params, searchParams]);
-  const team = Array.isArray(teamParam) ? teamParam[0] : teamParam;
-
+export default function CoderouterOverviewPage(props: PageProps) {
   if (!isStackConfigured()) {
     redirect("/");
   }
+
+  return (
+    <div className="mx-auto w-full max-w-5xl px-3 py-4">
+      <CoderouterPageHeader />
+      <Suspense fallback={null}>
+        <CoderouterOverviewContent {...props} />
+      </Suspense>
+    </div>
+  );
+}
+
+export async function CoderouterOverviewContent({ params, searchParams }: PageProps) {
+  const [{ locale }, { team: teamParam }] = await Promise.all([params, searchParams]);
+  const team = Array.isArray(teamParam) ? teamParam[0] : teamParam;
+
   const requestHeaders = await headers();
   const tokenStore = {
     headers: { get: (name: string) => requestHeaders.get(name) },
@@ -101,15 +115,14 @@ export default async function CoderouterOverviewPage({ params, searchParams }: P
           { allowCookie: true, listAllTeams: true },
         );
         if (!user) return null;
-        const authorized = await authorizedSubrouterTeams(user);
-        let authJson: Awaited<ReturnType<ReturnType<typeof getStackServerApp>["getAuthJson"]>>;
-        try {
-          authJson = await getStackServerApp().getAuthJson({ tokenStore });
-        } catch {
-          throw new SubrouterAuthorizationUnavailableError(
-            "Stack session refresh unavailable",
-          );
-        }
+        const [authorized, authJson] = await Promise.all([
+          authorizedSubrouterTeams(user),
+          getStackServerApp().getAuthJson({ tokenStore }).catch(() => {
+            throw new SubrouterAuthorizationUnavailableError(
+              "Stack session refresh unavailable",
+            );
+          }),
+        ]);
         return {
           authorized,
           accessToken: authJson?.accessToken ?? null,
@@ -123,18 +136,9 @@ export default async function CoderouterOverviewPage({ params, searchParams }: P
     );
   } catch (error) {
     if (!isSubrouterAuthorizationError(error)) throw error;
-    const [tPage, t] = await Promise.all([
-      getTranslations({ locale, namespace: "dashboard.coderouter" }),
-      getTranslations({ locale, namespace: "dashboard.aiAccounts" }),
-    ]);
+    const t = await getTranslations({ locale, namespace: "dashboard.aiAccounts" });
     return (
-      <div className="mx-auto w-full max-w-5xl px-3 py-4">
-        <DashboardHeader
-          title={tPage("title")}
-          description={tPage("description")}
-        />
-        <StatusPanel title={t("loadErrorTitle")} body={t("loadErrorBody")} />
-      </div>
+      <StatusPanel title={t("loadErrorTitle")} body={t("loadErrorBody")} />
     );
   }
   if (!authenticated) {
@@ -144,10 +148,6 @@ export default async function CoderouterOverviewPage({ params, searchParams }: P
     redirect(vaultSignInHref(localizedVaultPath(locale, "/dashboard/coderouter")));
   }
 
-  const [tPage, t] = await Promise.all([
-    getTranslations({ locale, namespace: "dashboard.coderouter" }),
-    getTranslations({ locale, namespace: "dashboard.aiAccounts" }),
-  ]);
   const teams = authenticated.authorized
     .filter((candidate) => candidate.use || candidate.manageAccounts)
     .map((candidate) => ({
@@ -166,7 +166,8 @@ export default async function CoderouterOverviewPage({ params, searchParams }: P
     authenticated.scopedTeamId,
     authenticated.selectedTeamId,
   );
-  const [accountState, metrics] = await Promise.all([
+  const [t, accountState, metrics] = await Promise.all([
+    getTranslations({ locale, namespace: "dashboard.aiAccounts" }),
     loadAccounts(selectedTeam, authenticated.accessToken),
     loadCoderouterTeamMetrics(selectedTeam.id),
   ]);
@@ -176,12 +177,7 @@ export default async function CoderouterOverviewPage({ params, searchParams }: P
   });
 
   return (
-    <div className="mx-auto w-full max-w-5xl px-3 py-4">
-      <DashboardHeader
-        title={tPage("title")}
-        description={tPage("description")}
-      />
-
+    <div>
       <section className="mb-4 border border-border p-3">
         <div className="mb-2 text-xs text-muted">{t("teamSwitcherLabel")}</div>
         <div className="flex flex-wrap gap-3">
@@ -439,21 +435,6 @@ function metricsCopy(locale: string) {
       "API-equivalent value is an estimate using public list prices (rate card {version}), not actual spend. Models without a known price are excluded.",
     unavailable: "Team usage is temporarily unavailable.",
   };
-}
-
-function DashboardHeader({
-  title,
-  description,
-}: {
-  title: string;
-  description: string;
-}) {
-  return (
-    <div className="mb-4 border-b border-border pb-3">
-      <h1 className="text-sm font-medium">{title}</h1>
-      <p className="mt-1 max-w-2xl text-muted">{description}</p>
-    </div>
-  );
 }
 
 function StatusPanel({ title, body }: { title: string; body: string }) {

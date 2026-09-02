@@ -88,7 +88,9 @@ mock.module("@/services/billing/pro", () => ({
 }));
 
 const { PRO_TESTFLIGHT_GROUP_ID } = await import("../services/asc/testflight");
-const { default: DashboardTestflightPage } = await import("../app/[locale]/dashboard/testflight/page");
+const { DashboardTestflightContent } = await import(
+  "../app/[locale]/dashboard/testflight/page"
+);
 
 describe("dashboard TestFlight page", () => {
   beforeEach(() => {
@@ -154,7 +156,7 @@ describe("dashboard TestFlight page", () => {
 });
 
 async function renderTestflightPage(searchParams: Record<string, string> = {}) {
-  const element = await DashboardTestflightPage({
+  const element = await DashboardTestflightContent({
     params: Promise.resolve({ locale: "en" }),
     searchParams: Promise.resolve(searchParams),
   });

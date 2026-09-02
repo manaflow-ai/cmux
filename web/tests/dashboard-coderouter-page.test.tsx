@@ -148,7 +148,7 @@ mock.module("../app/[locale]/dashboard/components/ai-account-forms", () => ({
   DeleteAiAccountButton: () => null,
 }));
 
-const { default: CoderouterOverviewPage } = await import(
+const { CoderouterOverviewContent } = await import(
   "../app/[locale]/dashboard/coderouter/page"
 );
 
@@ -171,7 +171,7 @@ describe("coderouter dashboard", () => {
   });
 
   test("renders recovery UI when Stack authorization is unavailable", async () => {
-    const page = await CoderouterOverviewPage({
+    const page = await CoderouterOverviewContent({
       params: Promise.resolve({ locale: "en" }),
       searchParams: Promise.resolve({}),
     });
@@ -188,7 +188,7 @@ describe("coderouter dashboard", () => {
     authorizationAvailable = true;
     cutoverReady = false;
 
-    const page = await CoderouterOverviewPage({
+    const page = await CoderouterOverviewContent({
       params: Promise.resolve({ locale: "en" }),
       searchParams: Promise.resolve({}),
     });
@@ -205,7 +205,7 @@ describe("coderouter dashboard", () => {
     authorizationAvailable = true;
     authJsonAvailable = false;
 
-    const page = await CoderouterOverviewPage({
+    const page = await CoderouterOverviewContent({
       params: Promise.resolve({ locale: "en" }),
       searchParams: Promise.resolve({}),
     });
@@ -222,7 +222,7 @@ describe("coderouter dashboard", () => {
     authorizationAvailable = true;
     hostedControlConfigured = false;
 
-    const page = await CoderouterOverviewPage({
+    const page = await CoderouterOverviewContent({
       params: Promise.resolve({ locale: "en" }),
       searchParams: Promise.resolve({}),
     });
@@ -235,7 +235,7 @@ describe("coderouter dashboard", () => {
   test("renders aggregate metrics only for the authorized selected team", async () => {
     authorizationAvailable = true;
 
-    const page = await CoderouterOverviewPage({
+    const page = await CoderouterOverviewContent({
       params: Promise.resolve({ locale: "en" }),
       searchParams: Promise.resolve({ team: "team-1" }),
     });
@@ -267,7 +267,7 @@ describe("coderouter dashboard", () => {
       },
     ];
 
-    await CoderouterOverviewPage({
+    await CoderouterOverviewContent({
       params: Promise.resolve({ locale: "en" }),
       searchParams: Promise.resolve({}),
     });
@@ -294,7 +294,7 @@ describe("coderouter dashboard", () => {
       },
     ];
 
-    await CoderouterOverviewPage({
+    await CoderouterOverviewContent({
       params: Promise.resolve({ locale: "en" }),
       searchParams: Promise.resolve({}),
     });
@@ -322,7 +322,7 @@ describe("coderouter dashboard", () => {
       },
     ];
 
-    await CoderouterOverviewPage({
+    await CoderouterOverviewContent({
       params: Promise.resolve({ locale: "en" }),
       searchParams: Promise.resolve({}),
     });
@@ -350,7 +350,7 @@ describe("coderouter dashboard", () => {
       },
     ];
 
-    await CoderouterOverviewPage({
+    await CoderouterOverviewContent({
       params: Promise.resolve({ locale: "en" }),
       searchParams: Promise.resolve({}),
     });
