@@ -148,10 +148,12 @@ case "$LANE" in
     BETA_BUNDLE_ID="com.cmux.app"
     LANE_DISPLAY_NAME="cmux"
     [[ "$TAG" == "beta" ]] && TAG="appstore"
-    # The App Store lane ships with crash reporting off. upload-testflight.sh
-    # enforces this at export time, so the fleet archive must bake it in (the
-    # hq cloud script forwards this env into the remote xcodebuild archive).
-    export CMUX_CRASH_REPORTING_ENABLED="NO"
+    # The App Store lane ships with crash reporting on, matching beta.
+    # upload-testflight.sh enforces the lane value at export time, so the
+    # fleet archive must bake it in (the hq cloud script forwards this env
+    # into the remote xcodebuild archive). The in-app telemetry consent
+    # toggle remains the user-facing opt-out for crash reports and analytics.
+    export CMUX_CRASH_REPORTING_ENABLED="YES"
     ;;
   *)
     die "unsupported lane: $LANE (expected beta or appstore)"

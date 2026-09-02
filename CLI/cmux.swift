@@ -27,6 +27,9 @@ struct CLIError: Error, CustomStringConvertible {
     let exitCode: Int32
     /// Structured v2 protocol error code when the failure came from a v2 error response.
     let v2Code: String?
+    /// Whether this error was decoded directly from a socket v2 error response.
+    /// Local CLI sentinels may reuse ``v2Code`` for their own exit-status contract.
+    let isStructuredProtocolResponse: Bool
     /// Cloud VM backend error code (e.g. "vm_create_failed") passed through the
     /// v2 error's data payload, so callers can make idempotency decisions
     /// structurally instead of parsing display text.
@@ -37,12 +40,14 @@ struct CLIError: Error, CustomStringConvertible {
         message: String,
         exitCode: Int32 = 1,
         v2Code: String? = nil,
+        isStructuredProtocolResponse: Bool = false,
         vmBackendCode: String? = nil,
         socketFailureKind: SocketFailureKind? = nil
     ) {
         self.message = message
         self.exitCode = exitCode
         self.v2Code = v2Code
+        self.isStructuredProtocolResponse = isStructuredProtocolResponse
         self.vmBackendCode = vmBackendCode
         self.socketFailureKind = socketFailureKind
     }
@@ -4049,6 +4054,7 @@ final class SocketClient {
                     details: safeV2Details(error["details"])
                 ),
                 v2Code: error["code"] as? String,
+                isStructuredProtocolResponse: true,
                 vmBackendCode: data?["backend_code"] as? String
             )
         }
@@ -4435,6 +4441,50 @@ struct CMUXCLI {
 
     private static let claudeCodeStatusKey = "claude_code"
 
+    private static func agentNotificationMeta(
+        category: AgentHookNotifyCategory,
+        isError: Bool,
+        pending: Bool,
+        agentID: String,
+        isSubagent: Bool? = nil,
+        correlationKey: String? = nil
+    ) -> String? {
+        let metadataCategory: AgentHookNotifyCategory = isError ? .other : category
+        let alertType: NotificationSoundAlertType? = isError ? .errorStalled : {
+            switch metadataCategory {
+            case .turnComplete:
+                return .turnDone
+            case .needsPermission, .idleReminder:
+                return .needsInput
+            case .other:
+                return nil
+            }
+        }()
+        return metadataCategory.metaSegment(
+            pending: pending,
+            agentID: agentID,
+            alertType: alertType,
+            isSubagent: isSubagent,
+            correlationKey: correlationKey
+        )
+    }
+
+    private static func feedWorkstreamID(
+        source: String,
+        sessionID: String
+    ) -> String? {
+        FeedWorkstreamIdentifier(
+            agentID: source,
+            sessionID: sessionID
+        )?.rawValue
+    }
+
+    private static var allowedAgentLifecycleStatusKeys: Set<String> {
+        var keys = Set(agentDefs.map(\.statusKey))
+        keys.formUnion(AgentHibernationLifecycleStatusKeys.allowedStatusKeys)
+        keys.insert(claudeCodeStatusKey)
+        return keys
+    }
     init(
         args: [String],
         initialSIGPIPEInspectionPayload: [String: Any]? = nil,
@@ -4446,10 +4496,37 @@ struct CMUXCLI {
         self.simulatorOwnedCommandRunner = simulatorOwnedCommandRunner
     }
 
-    private func captureSocketTransportError(telemetry: CLISocketSentryTelemetry, stage: String, error: Error, client: SocketClient) {
-        if client.hasUnfinishedOperationTelemetry() {
-            telemetry.captureError(stage: stage, error: error, data: client.operationTelemetryContext())
+    /// Sends transport failures and structured protocol failures through the
+    /// shared Sentry policy. A complete socket reply still needs classification:
+    /// `sendV2` marks the transport operation complete before it throws its
+    /// decoded ``CLIError``.
+    private func captureSocketTransportError(
+        telemetry: CLISocketSentryTelemetry,
+        stage: String,
+        error: Error,
+        client: SocketClient
+    ) {
+        guard client.hasUnfinishedOperationTelemetry() || hasStructuredCLIError(error) else {
+            return
         }
+        telemetry.captureError(stage: stage, error: error, data: client.operationTelemetryContext())
+    }
+
+    private func hasStructuredCLIError(_ error: Error) -> Bool {
+        var current: Error? = error
+        var remaining = 8
+        while let candidate = current, remaining > 0 {
+            if let cliError = candidate as? CLIError {
+                if cliError.socketFailureKind != nil {
+                    return true
+                }
+                guard cliError.isStructuredProtocolResponse else { return false }
+                return !SentryNoiseFilter().isExpectedCLIProtocolOutcomeCode(cliError.v2Code)
+            }
+            current = (candidate as NSError).userInfo[NSUnderlyingErrorKey] as? Error
+            remaining -= 1
+        }
+        return false
     }
 
     private struct VMCreateIdempotencyStore: Codable {
@@ -5687,6 +5764,41 @@ struct CMUXCLI {
                 let status = (response["status"] as? String) ?? "unknown"
                 print("\(id)  [\(provider)] \(status)")
                 print("image: \(image)")
+
+            case "prompt", "skill":
+                // The Machines panel's "Copy Cloud Prompt" / "Open Cloud Agent", as CLI.
+                // Both go through CloudAgentSkillLauncher in the app: the bundled
+                // cmux-cloud skill file is (re)installed at a stable path, then the
+                // kickoff prompt is printed here — or handed to a local agent terminal
+                // with --open.
+                let promptUsage = """
+                    Usage:
+                      cmux vm prompt [--json]          Install the cmux-cloud skill file and print
+                                                       the kickoff prompt that points any agent at it.
+                      cmux vm prompt --open <agent>    Open a local terminal running <agent> with that
+                                                       prompt (claude|codex|opencode).
+                    """
+                if rest.contains("--help") || rest.contains("-h") {
+                    print(promptUsage)
+                    break
+                }
+                if let openIndex = rest.firstIndex(of: "--open") {
+                    guard rest.indices.contains(openIndex + 1) else { throw CLIError(message: promptUsage) }
+                    let agent = rest[openIndex + 1]
+                    let response = try client.sendV2(method: "vm.cloud_agent_open", params: ["agent": agent], responseTimeout: 60)
+                    if jsonOutput { print(jsonString(response)); break }
+                    let terminal = (response["surface_id"] as? String) ?? (response["terminal_id"] as? String) ?? "?"
+                    print("OK opened \(agent) with the cmux-cloud prompt (terminal=\(terminal))")
+                    break
+                }
+                let response = try client.sendV2(method: "vm.cloud_prompt", params: [:], responseTimeout: 60)
+                if jsonOutput { print(jsonString(response)); break }
+                if let prompt = response["prompt"] as? String {
+                    print(prompt)
+                }
+                if let skillPath = response["skill_path"] as? String {
+                    FileHandle.standardError.write(Data("skill: \(skillPath)\n".utf8))
+                }
 
             case "stats", "top":
                 guard let vmId = rest.first else {
@@ -7002,7 +7114,7 @@ struct CMUXCLI {
             let payload = try client.sendV2(method: "surface.close", params: params)
             if let closedWorkspaceId = (payload["workspace_id"] as? String) ?? wsId,
                let closedSurfaceId = (payload["surface_id"] as? String) ?? sfId {
-                try? tmuxPruneCompatSurfaceState(
+                try tmuxPruneCompatSurfaceState(
                     workspaceId: closedWorkspaceId,
                     surfaceId: closedSurfaceId,
                     client: client
@@ -7411,8 +7523,11 @@ struct CMUXCLI {
                     let workspaceArg = explicitWorkspaceArg ?? (windowRaw == nil ? env["CMUX_WORKSPACE_ID"] : nil)
                     if let workspaceArg, isUUID(workspaceArg) || explicitWorkspaceArg != nil {
                         params["preferred_workspace_id"] = isUUID(workspaceArg) ? workspaceArg : try resolveWorkspaceId(workspaceArg, client: client)
+                        params["preferred_workspace_is_explicit"] = explicitWorkspaceArg != nil
                     }
-                    if windowRaw == nil, let surfaceId = env["CMUX_SURFACE_ID"], isUUID(surfaceId) { params["preferred_surface_id"] = surfaceId }
+                    if windowRaw == nil, let surfaceId = env["CMUX_SURFACE_ID"], isUUID(surfaceId) {
+                        params["preferred_surface_id"] = surfaceId
+                    }
                     if let callerTTY = resolveCallerTTYName() { params["caller_tty"] = callerTTY }
                 }
             }
@@ -18130,7 +18245,7 @@ struct CMUXCLI {
             """
         case "vm", "cloud":
             return """
-            Usage: cmux \(command) <base|new|ls|tree|status|stats|rename|snapshot|fork|restore|rm|run|route|agent|exec|push|pull|wait|shell|tui|desktop|open|ports|tools|handoff|promote-template|attach|ssh|ssh-info> [args...]
+            Usage: cmux \(command) <base|new|ls|tree|status|stats|rename|snapshot|fork|restore|rm|run|route|agent|prompt|exec|push|pull|wait|shell|tui|desktop|open|ports|tools|handoff|promote-template|attach|ssh|ssh-info> [args...]
 
             Manage cloud VMs. `cloud` is an alias for `vm`. Requires `cmux auth login`.
 
@@ -18142,10 +18257,26 @@ struct CMUXCLI {
               workspace open <machine> <ws-id>
                                         Open a machine workspace here: a new local
                                         workspace with one pane per terminal.
+              workspace rename <machine> <ws-id> <name>
+                                        Rename a machine workspace.
               workspace close <machine> <ws-id>
-                                        Close a machine workspace and its terminals.
+                                        Close a machine workspace; its terminals keep
+                                        running and detach into the Terminals pool.
+              workspace rm <machine> <ws-id>
+                                        Delete a machine workspace AND kill every
+                                        terminal in it. Permanent.
               terminal close <machine> <term-id>
                                         End a terminal on the machine.
+              terminal send <machine> <term-id> [text] [--keys enter,ctrl+c,…]
+                                        Type into a machine terminal headlessly (no
+                                        pane, no focus); --keys presses named keys after.
+              terminal read <machine> <term-id>
+                                        Print the terminal's visible screen.
+              terminal wait <machine> <term-id> --pattern <regex> [--timeout <s>]
+                                        Block until the screen matches; exit 1 on timeout.
+              prompt [--open <agent>]   Install the cmux-cloud skill file and print the
+                                        kickoff prompt for any agent; --open starts a
+                                        local claude|codex|opencode|pi terminal with it.
               tree [<machine>|local] [--refresh]
                                         Finder-style view of every surface: This Mac
                                         (terminals by workspace, browsers), then each
@@ -22889,8 +23020,8 @@ struct CMUXCLI {
     private func tmuxAnchoredSplitTarget(
         workspaceId: String,
         client: SocketClient
-    ) -> (targetSurfaceId: String, callerSurfaceId: String?, direction: String)? {
-        var store = loadTmuxCompatStore()
+    ) throws -> (targetSurfaceId: String, callerSurfaceId: String?, direction: String)? {
+        var store = try loadTmuxCompatStore()
         if let lastColumn = store.mainVerticalLayouts[workspaceId]?.lastColumnSurfaceId {
             if let lastColumnId = try? tmuxCanonicalSurfaceId(
                 lastColumn,
@@ -22904,9 +23035,16 @@ struct CMUXCLI {
 
             // Right-column anchors can outlive the pane they pointed at.
             // Drop stale state and rebuild from the caller surface instead.
-            store.mainVerticalLayouts[workspaceId]?.lastColumnSurfaceId = nil
-            store.lastSplitSurface.removeValue(forKey: workspaceId)
-            try? saveTmuxCompatStore(store)
+            try? withLockedTmuxCompatStoreIfChanged { store in
+                guard let layout = store.mainVerticalLayouts[workspaceId],
+                      layout.lastColumnSurfaceId == lastColumn else { return false }
+                var updatedLayout = layout
+                updatedLayout.lastColumnSurfaceId = nil
+                store.mainVerticalLayouts[workspaceId] = updatedLayout
+                store.lastSplitSurface.removeValue(forKey: workspaceId)
+                return true
+            }
+            store = try loadTmuxCompatStore()
         }
 
         let candidateAnchors = [
@@ -22923,10 +23061,21 @@ struct CMUXCLI {
             }
         }
 
-        let removedLayout = store.mainVerticalLayouts.removeValue(forKey: workspaceId) != nil
-        let removedSplit = store.lastSplitSurface.removeValue(forKey: workspaceId) != nil
-        if removedLayout || removedSplit {
-            try? saveTmuxCompatStore(store)
+        let observedLayout = store.mainVerticalLayouts[workspaceId]
+        if observedLayout != nil || store.lastSplitSurface[workspaceId] != nil {
+            try? withLockedTmuxCompatStoreIfChanged { store in
+                if let observedLayout,
+                   let currentLayout = store.mainVerticalLayouts[workspaceId],
+                   currentLayout.mainSurfaceId == observedLayout.mainSurfaceId,
+                   currentLayout.lastColumnSurfaceId == observedLayout.lastColumnSurfaceId {
+                    store.mainVerticalLayouts.removeValue(forKey: workspaceId)
+                    store.lastSplitSurface.removeValue(forKey: workspaceId)
+                    return true
+                } else if observedLayout == nil {
+                    return store.lastSplitSurface.removeValue(forKey: workspaceId) != nil
+                }
+                return false
+            }
         }
         return nil
     }
@@ -25980,11 +26129,12 @@ struct CMUXCLI {
             // invalid cross-workspace split.
             if parsed.hasFlag("-h"),
                let callerWorkspace = tmuxCallerWorkspaceHandle(),
-               let wsId = try? resolveWorkspaceId(callerWorkspace, client: client),
-               let anchoredTarget = tmuxAnchoredSplitTarget(workspaceId: wsId, client: client) {
-                target = (wsId, nil, anchoredTarget.targetSurfaceId)
-                direction = anchoredTarget.direction
-                anchoredCallerSurfaceId = anchoredTarget.callerSurfaceId
+               let wsId = try? resolveWorkspaceId(callerWorkspace, client: client) {
+                if let anchoredTarget = try? tmuxAnchoredSplitTarget(workspaceId: wsId, client: client) {
+                    target = (wsId, nil, anchoredTarget.targetSurfaceId)
+                    direction = anchoredTarget.direction
+                    anchoredCallerSurfaceId = anchoredTarget.callerSurfaceId
+                }
             }
 
             // Keep the leader pane focused while agents spawn beside it.
@@ -26048,19 +26198,19 @@ struct CMUXCLI {
 
             // Track the newly created pane for main-vertical layout.
             if !isOMXHud {
-                var updatedStore = loadTmuxCompatStore()
-                updatedStore.lastSplitSurface[target.workspaceId] = surfaceId
-                if updatedStore.mainVerticalLayouts[target.workspaceId] != nil {
-                    updatedStore.mainVerticalLayouts[target.workspaceId]?.lastColumnSurfaceId = surfaceId
-                } else if direction == "right", let anchoredCallerSurfaceId {
-                    // First right split created the column; seed main-vertical
-                    // state so subsequent splits stack downward.
-                    updatedStore.mainVerticalLayouts[target.workspaceId] = MainVerticalState(
-                        mainSurfaceId: anchoredCallerSurfaceId,
-                        lastColumnSurfaceId: surfaceId
-                    )
+                try withLockedTmuxCompatStore { store in
+                    store.lastSplitSurface[target.workspaceId] = surfaceId
+                    if store.mainVerticalLayouts[target.workspaceId] != nil {
+                        store.mainVerticalLayouts[target.workspaceId]?.lastColumnSurfaceId = surfaceId
+                    } else if direction == "right", let anchoredCallerSurfaceId {
+                        // First right split created the column; seed main-vertical
+                        // state so subsequent splits stack downward.
+                        store.mainVerticalLayouts[target.workspaceId] = MainVerticalState(
+                            mainSurfaceId: anchoredCallerSurfaceId,
+                            lastColumnSurfaceId: surfaceId
+                        )
+                    }
                 }
-                try saveTmuxCompatStore(updatedStore)
 
                 // Equalize vertical splits so teammate panes are evenly distributed.
                 // Use orientation: "vertical" to only equalize the agent column,
@@ -26119,7 +26269,7 @@ struct CMUXCLI {
                 "workspace_id": target.workspaceId,
                 "surface_id": target.surfaceId
             ])
-            try? tmuxPruneCompatSurfaceState(
+            try tmuxPruneCompatSurfaceState(
                 workspaceId: target.workspaceId,
                 surfaceId: target.surfaceId,
                 client: client
@@ -26197,9 +26347,9 @@ struct CMUXCLI {
             if parsed.hasFlag("-p") {
                 print(text)
             } else {
-                var store = loadTmuxCompatStore()
-                store.buffers["default"] = text
-                try saveTmuxCompatStore(store)
+                try withLockedTmuxCompatStore { store in
+                    store.buffers["default"] = text
+                }
             }
 
         case "display-message", "display", "displayp":
@@ -26368,7 +26518,7 @@ struct CMUXCLI {
         case "show-buffer", "showb":
             let parsed = try parseTmuxArguments(rawArgs, valueFlags: ["-b"], boolFlags: [])
             let name = parsed.value("-b") ?? "default"
-            let store = loadTmuxCompatStore()
+            let store = try loadTmuxCompatStore()
             if let buffer = store.buffers[name] {
                 print(buffer)
             }
@@ -26393,7 +26543,7 @@ struct CMUXCLI {
         case "save-buffer", "saveb":
             let parsed = try parseTmuxArguments(rawArgs, valueFlags: ["-b"], boolFlags: [])
             let name = parsed.value("-b") ?? "default"
-            let store = loadTmuxCompatStore()
+            let store = try loadTmuxCompatStore()
             guard let buffer = store.buffers[name] else {
                 throw CLIError(message: "Buffer not found: \(name)")
             }
@@ -26451,14 +26601,14 @@ struct CMUXCLI {
             }
             if layoutName == "main-vertical" {
                 if let callerSurface = tmuxCallerSurfaceHandle() {
-                    var store = loadTmuxCompatStore()
-                    let existingColumn = store.mainVerticalLayouts[workspaceId]?.lastColumnSurfaceId
-                    let seedColumn = existingColumn ?? store.lastSplitSurface[workspaceId]
-                    store.mainVerticalLayouts[workspaceId] = MainVerticalState(
-                        mainSurfaceId: callerSurface,
-                        lastColumnSurfaceId: seedColumn
-                    )
-                    try saveTmuxCompatStore(store)
+                    try withLockedTmuxCompatStore { store in
+                        let existingColumn = store.mainVerticalLayouts[workspaceId]?.lastColumnSurfaceId
+                        let seedColumn = existingColumn ?? store.lastSplitSurface[workspaceId]
+                        store.mainVerticalLayouts[workspaceId] = MainVerticalState(
+                            mainSurfaceId: callerSurface,
+                            lastColumnSurfaceId: seedColumn
+                        )
+                    }
                 }
             } else if !layoutName.isEmpty {
                 // Non-main-vertical layout selected: clear stale state so
@@ -26478,69 +26628,11 @@ struct CMUXCLI {
         }
     }
 
-    private struct MainVerticalState: Codable {
-        /// The surface ID of the "main" (leader) pane on the left side.
-        var mainSurfaceId: String
-        /// The surface ID of the bottom-most pane in the right column.
-        /// Subsequent teammate splits target this pane with direction "down".
-        var lastColumnSurfaceId: String?
-    }
-
-    private struct TmuxCompatStore: Codable {
-        var buffers: [String: String] = [:]
-        var hooks: [String: String] = [:]
-        /// Tracks main-vertical layout state per workspace, keyed by workspace ID.
-        var mainVerticalLayouts: [String: MainVerticalState] = [:]
-        /// Tracks the last surface created by split-window per workspace.
-        /// Used to seed lastColumnSurfaceId when select-layout main-vertical
-        /// is called after the first split.
-        var lastSplitSurface: [String: String] = [:]
-
-        /// Custom decoder so older store files missing newer keys
-        /// (mainVerticalLayouts, lastSplitSurface) decode gracefully
-        /// instead of throwing and resetting the entire store.
-        init(from decoder: Decoder) throws {
-            let container = try decoder.container(keyedBy: CodingKeys.self)
-            buffers = try container.decodeIfPresent([String: String].self, forKey: .buffers) ?? [:]
-            hooks = try container.decodeIfPresent([String: String].self, forKey: .hooks) ?? [:]
-            mainVerticalLayouts = try container.decodeIfPresent([String: MainVerticalState].self, forKey: .mainVerticalLayouts) ?? [:]
-            lastSplitSurface = try container.decodeIfPresent([String: String].self, forKey: .lastSplitSurface) ?? [:]
-        }
-
-        init() {}
-    }
-
-    private func tmuxCompatStoreURL() -> URL {
-        let homePath = ProcessInfo.processInfo.environment["HOME"]
-            ?? NSString(string: "~").expandingTildeInPath
-        return URL(fileURLWithPath: homePath)
-            .appendingPathComponent(".cmuxterm")
-            .appendingPathComponent("tmux-compat-store.json")
-    }
-
-    private func loadTmuxCompatStore() -> TmuxCompatStore {
-        let url = tmuxCompatStoreURL()
-        guard let data = try? Data(contentsOf: url),
-              let decoded = try? JSONDecoder().decode(TmuxCompatStore.self, from: data) else {
-            return TmuxCompatStore()
-        }
-        return decoded
-    }
-
-    private func saveTmuxCompatStore(_ store: TmuxCompatStore) throws {
-        let url = tmuxCompatStoreURL()
-        let parent = url.deletingLastPathComponent()
-        try FileManager.default.createDirectory(at: parent, withIntermediateDirectories: true, attributes: nil)
-        let data = try JSONEncoder().encode(store)
-        try data.write(to: url, options: .atomic)
-    }
-
     private func tmuxPruneCompatWorkspaceState(workspaceId: String) throws {
-        var store = loadTmuxCompatStore()
-        let removedLayout = store.mainVerticalLayouts.removeValue(forKey: workspaceId) != nil
-        let removedSplit = store.lastSplitSurface.removeValue(forKey: workspaceId) != nil
-        if removedLayout || removedSplit {
-            try saveTmuxCompatStore(store)
+        try withLockedTmuxCompatStoreIfChanged { store in
+            let removedLayout = store.mainVerticalLayouts.removeValue(forKey: workspaceId) != nil
+            let removedSplit = store.lastSplitSurface.removeValue(forKey: workspaceId) != nil
+            return removedLayout || removedSplit
         }
     }
 
@@ -26623,40 +26715,74 @@ struct CMUXCLI {
         surfaceId: String,
         client: SocketClient
     ) throws {
-        var store = loadTmuxCompatStore()
-        var changed = false
-
-        if store.lastSplitSurface[workspaceId] == surfaceId {
-            store.lastSplitSurface.removeValue(forKey: workspaceId)
-            changed = true
-        }
-
-        if let layout = store.mainVerticalLayouts[workspaceId] {
-            if layout.mainSurfaceId == surfaceId {
-                store.mainVerticalLayouts.removeValue(forKey: workspaceId)
-                store.lastSplitSurface.removeValue(forKey: workspaceId)
-                changed = true
-            } else if layout.lastColumnSurfaceId == surfaceId {
-                var updatedLayout = layout
-                let replacementSurfaceId = tmuxReplacementColumnSurfaceId(
+        // Resolve pane geometry outside the file lock. If layout state changes
+        // between that RPC and the locked mutation, retry from a fresh snapshot
+        // so a replacement selected for an old main pane is never persisted.
+        for _ in 0..<8 {
+            let snapshot = try loadTmuxCompatStore()
+            let snapshotLayout = snapshot.mainVerticalLayouts[workspaceId]
+            let replacementWasResolved: Bool
+            let replacementSurfaceId: String?
+            if let snapshotLayout, snapshotLayout.lastColumnSurfaceId == surfaceId {
+                replacementWasResolved = true
+                replacementSurfaceId = tmuxReplacementColumnSurfaceId(
                     workspaceId: workspaceId,
-                    layout: layout,
+                    layout: snapshotLayout,
                     client: client
                 )
-                updatedLayout.lastColumnSurfaceId = replacementSurfaceId
-                store.mainVerticalLayouts[workspaceId] = updatedLayout
-                if let replacementSurfaceId {
-                    store.lastSplitSurface[workspaceId] = replacementSurfaceId
-                } else {
-                    store.lastSplitSurface.removeValue(forKey: workspaceId)
+            } else {
+                replacementWasResolved = false
+                replacementSurfaceId = nil
+            }
+
+            var retry = false
+            try withLockedTmuxCompatStoreIfChanged { store in
+                let currentLayout = store.mainVerticalLayouts[workspaceId]
+                let layoutsMatch: Bool = switch (snapshotLayout, currentLayout) {
+                case (nil, nil):
+                    true
+                case let (.some(snapshot), .some(current)):
+                    snapshot.mainSurfaceId == current.mainSurfaceId
+                        && snapshot.lastColumnSurfaceId == current.lastColumnSurfaceId
+                default:
+                    false
                 }
-                changed = true
+                guard layoutsMatch else {
+                    retry = true
+                    return false
+                }
+
+                var changed = false
+                if store.lastSplitSurface[workspaceId] == surfaceId {
+                    store.lastSplitSurface.removeValue(forKey: workspaceId)
+                    changed = true
+                }
+
+                guard let layout = currentLayout else { return changed }
+                if layout.mainSurfaceId == surfaceId {
+                    store.mainVerticalLayouts.removeValue(forKey: workspaceId)
+                    store.lastSplitSurface.removeValue(forKey: workspaceId)
+                    changed = true
+                } else if layout.lastColumnSurfaceId == surfaceId, replacementWasResolved {
+                    var updatedLayout = layout
+                    updatedLayout.lastColumnSurfaceId = replacementSurfaceId
+                    store.mainVerticalLayouts[workspaceId] = updatedLayout
+                    if let replacementSurfaceId {
+                        store.lastSplitSurface[workspaceId] = replacementSurfaceId
+                    } else {
+                        store.lastSplitSurface.removeValue(forKey: workspaceId)
+                    }
+                    changed = true
+                }
+                return changed
+            }
+            if !retry {
+                return
             }
         }
-
-        if changed {
-            try saveTmuxCompatStore(store)
-        }
+        // A continuously changing layout should be retried by the caller rather
+        // than leaving a closed surface's metadata silently stale.
+        throw POSIXError(.EAGAIN)
     }
 
     private func runShellCommand(_ command: String, stdinText: String) throws -> (status: Int32, stdout: String, stderr: String) {
@@ -27006,8 +27132,8 @@ struct CMUXCLI {
             printV2Payload(payload, jsonOutput: jsonOutput, idFormat: idFormat, fallbackText: v2OKSummary(payload, idFormat: idFormat))
 
         case "set-hook":
-            var store = loadTmuxCompatStore()
             if commandArgs.contains("--list") {
+                let store = try loadTmuxCompatStore()
                 if jsonOutput {
                     print(jsonString(["hooks": store.hooks]))
                 } else if store.hooks.isEmpty {
@@ -27023,8 +27149,9 @@ struct CMUXCLI {
                 guard let event = commandArgs.last else {
                     throw CLIError(message: "set-hook --unset requires an event name")
                 }
-                store.hooks.removeValue(forKey: event)
-                try saveTmuxCompatStore(store)
+                try withLockedTmuxCompatStore { store in
+                    _ = store.hooks.removeValue(forKey: event)
+                }
                 print("OK")
                 return
             }
@@ -27035,8 +27162,9 @@ struct CMUXCLI {
             guard !commandText.isEmpty else {
                 throw CLIError(message: "set-hook requires <event> <command>")
             }
-            store.hooks[event] = commandText
-            try saveTmuxCompatStore(store)
+            try withLockedTmuxCompatStore { store in
+                store.hooks[event] = commandText
+            }
             print("OK")
 
         case "popup":
@@ -27052,13 +27180,13 @@ struct CMUXCLI {
             guard !content.isEmpty else {
                 throw CLIError(message: "set-buffer requires text")
             }
-            var store = loadTmuxCompatStore()
-            store.buffers[name] = content
-            try saveTmuxCompatStore(store)
+            try withLockedTmuxCompatStore { store in
+                store.buffers[name] = content
+            }
             print("OK")
 
         case "list-buffers":
-            let store = loadTmuxCompatStore()
+            let store = try loadTmuxCompatStore()
             if jsonOutput {
                 let payload = store.buffers.map { key, value in ["name": key, "size": value.count] }
                 print(jsonString(["buffers": payload.sorted { ($0["name"] as? String ?? "") < ($1["name"] as? String ?? "") }]))
@@ -27075,7 +27203,7 @@ struct CMUXCLI {
             let workspaceArg = workspaceFromArgsOrEnv(commandArgs, windowOverride: windowOverride)
             let surfaceArg = optionValue(commandArgs, name: "--surface")
             let name = optionValue(commandArgs, name: "--name") ?? "default"
-            let store = loadTmuxCompatStore()
+            let store = try loadTmuxCompatStore()
             guard let buffer = store.buffers[name] else {
                 throw CLIError(message: "Buffer not found: \(name)")
             }
@@ -27549,7 +27677,7 @@ struct CMUXCLI {
                         body: completion.body,
                         meta: AgentHookNotifyCategory.turnComplete.metaSegment(
                             pending: hasPendingBackgroundWork,
-                            agentKind: "claude",
+                            agentID: "claude",
                             isSubagent: isNestedAgentSession
                         )
                     )
@@ -27909,17 +28037,22 @@ struct CMUXCLI {
             // status; the app still gates the (tagged) notification itself.
             let suppressNeedsInputState = (notifyCategory == .idleReminder && notifyPending)
 
-            // `.other` means "ungated, always deliver" — identical to an untagged
-            // payload, so don't put it on the wire: the app parser accepts only
-            // the three known category literals, keeping the reserved suffix
-            // grammar as narrow as possible.
+            // `.other` remains ungated. Error alerts carry a contextual
+            // `errorStalled` sound type; other uncategorized alerts omit the
+            // metadata and retain the legacy payload shape.
+            // Error status has precedence over any notification-type hint. A
+            // few older Claude clients attach a stale permission/idle type to
+            // an error payload; serializing that category would reject the
+            // `errorStalled` context and silently lose the sound override.
             let payload = notificationPayload(
                 title: title,
                 subtitle: summary.subtitle,
                 body: summary.body,
-                meta: notifyCategory.metaSegment(
+                meta: Self.agentNotificationMeta(
+                    category: notifyCategory,
+                    isError: classifiedSubtitle == "Error",
                     pending: notifyPending,
-                    agentKind: "claude",
+                    agentID: "claude",
                     isSubagent: isNestedAgentSession
                 )
             )
@@ -28288,7 +28421,7 @@ struct CMUXCLI {
                         body: needsInputBody,
                         meta: AgentHookNotifyCategory.needsPermission.metaSegment(
                             pending: false,
-                            agentKind: "claude",
+                            agentID: "claude",
                             isSubagent: isNestedAgentSession
                         )
                     )
@@ -30322,8 +30455,21 @@ struct CMUXCLI {
             localized: "agent.codex.input.body.needsInput",
             defaultValue: "Codex is asking a question"
         )
+        let bundle = CLIExecutableLocator.enclosingAppBundle() ?? .main
         if let surfaceId, !surfaceId.isEmpty {
-            let payload = "Codex|\(sanitizeNotificationField(subtitle))|\(sanitizeNotificationField(body))"
+            let payload = notificationPayload(
+                title: String(
+                    localized: "cli.codexMonitor.notification.title",
+                    defaultValue: "Codex",
+                    bundle: bundle
+                ),
+                subtitle: subtitle,
+                body: body,
+                meta: AgentHookNotifyCategory.needsPermission.metaSegment(
+                    pending: false,
+                    agentID: "codex"
+                )
+            )
             _ = try? sendV1Command("notify_target \(workspaceId) \(surfaceId) \(payload)", client: client)
         }
         let statusValue = String(localized: "agent.codex.input.status.needsInput", defaultValue: "Codex needs input")
@@ -30340,8 +30486,22 @@ struct CMUXCLI {
         client: SocketClient
     ) {
         let summary = summarizeCodexHookFailureCandidate(failure)
+        let bundle = CLIExecutableLocator.enclosingAppBundle() ?? .main
         if let surfaceId, !surfaceId.isEmpty {
-            let payload = "Codex|\(sanitizeNotificationField(summary.subtitle))|\(sanitizeNotificationField(summary.body))"
+            let payload = notificationPayload(
+                title: String(
+                    localized: "cli.codexMonitor.notification.title",
+                    defaultValue: "Codex",
+                    bundle: bundle
+                ),
+                subtitle: summary.subtitle,
+                body: summary.body,
+                meta: AgentHookNotifyCategory.other.metaSegment(
+                    pending: false,
+                    agentID: "codex",
+                    alertType: .errorStalled
+                )
+            )
             _ = try? sendV1Command("notify_target \(workspaceId) \(surfaceId) \(payload)", client: client)
         }
         _ = try? sendV1Command(
@@ -33353,6 +33513,8 @@ export default CMUXSessionRestore;
     ) throws {
         let env = ProcessInfo.processInfo.environment
         let skipCodexLegacyPromptStop = env["CMUX_CODEX_SETTLED_CHILD_STOP"] == "1"
+        let isCodexSettledStopRetry = skipCodexLegacyPromptStop
+        let settledStopTurnID = normalizedHookValue(env["CMUX_CODEX_SETTLED_STOP_TURN_ID"])
         let subcommand = commandArgs.first?.lowercased() ?? ""
         let hookArgs = Array(commandArgs.dropFirst())
         let cursorShellEvent = def.name == "cursor" && subcommand == "shell-exec"
@@ -33459,15 +33621,6 @@ export default CMUXSessionRestore;
             return items.contains(where: {
                 ($0["id"] as? String) == candidate || ($0["ref"] as? String) == candidate
             }) ? candidate : nil
-        }
-        func resolveDefaultSurfaceId(workspaceId: String) -> String? {
-            try? resolveSurfaceId(
-                nil,
-                workspaceId: workspaceId,
-                client: client,
-                responseTimeout: cursorShellRemainingTimeout(),
-                deadline: cursorShellDeadline
-            )
         }
         let resolvedDirectWorkspaceArg = strictPiTarget?.workspaceId
             ?? resolveAccessibleWorkspaceId(directWorkspaceArg)
@@ -34103,10 +34256,19 @@ export default CMUXSessionRestore;
                     return (workspaceId, surfaceId)
                 }
 
-                guard let surfaceId = resolveDefaultSurfaceId(workspaceId: workspaceId) else {
-                    return nil
-                }
-                return (workspaceId, surfaceId)
+                // A workspace's focused surface is mutable UI state, not
+                // evidence about which agent emitted this hook. Returning it
+                // here would recreate the wrong-pane notification bug whenever
+                // the caller's pane identity is stale or unavailable.
+                telemetry.breadcrumb("\(def.name)-hook.target.no-authoritative-surface")
+#if DEBUG
+                agentHookDebugLog(
+                    "agentHook.target.nil agent=\(def.name) subcommand=\(subcommand) session=\(agentHookDebugShort(sessionId)) reason=noAuthoritativeSurface mapped=\(mapped == nil ? 0 : 1)",
+                    socketPath: client.socketPath,
+                    env: env
+                )
+#endif
+                return nil
             }
 
             // Only live-process evidence may replace an ambient workspace; an ambient TTY stays inside it.
@@ -34365,7 +34527,8 @@ export default CMUXSessionRestore;
                     )
                     let pendingMeta = AgentHookNotifyCategory.needsPermission.metaSegment(
                         pending: false,
-                        agentKind: def.name,
+                        agentID: def.name,
+                        alertType: .needsInput,
                         isSubagent: false,
                         correlationKey: resolution.remainingNotificationCorrelationKey
                     )
@@ -34525,8 +34688,20 @@ export default CMUXSessionRestore;
             }
             let mapped = sessionId.isEmpty ? nil : (try? store.lookup(sessionId: sessionId))
             let target = resolveAgentHookTarget(mapped: mapped)
-            let workspaceId = target?.workspaceId ?? resolvedDirectWorkspaceArg ?? mapped?.workspaceId
-            let surfaceId = target?.surfaceId ?? resolvedDirectSurfaceArg ?? mapped?.surfaceId
+            let workspaceId = target?.workspaceId
+            let surfaceId = target?.surfaceId
+            if target == nil {
+                // Child lifecycle state participates in Codex settlement just
+                // like the parent stop path. Keep the visible event
+                // unattributed, but still apply it to the durable ledger by
+                // session identity; passing a rejected/stale surface back
+                // would reintroduce the wrong-pane state we are closing.
+                reportTargetResolutionFailure()
+                // The unattributed journal below is the diagnostic record for
+                // this event. Do not let the function-level telemetry defer
+                // reuse a stale ambient workspace claim.
+                didSendFeedTelemetry = true
+            }
             let agentId = input.rawObject.flatMap {
                 firstString(in: $0, keys: ["agent_id", "agentId"])
             } ?? input.object.flatMap {
@@ -34543,23 +34718,24 @@ export default CMUXSessionRestore;
                 turnID: turnId,
                 workspaceID: workspaceId,
                 surfaceID: surfaceId,
-                starts: starts
+                starts: starts,
+                allowCreate: target != nil
             )
-            if let workspaceId, let surfaceId {
-                let childJournalKind: AgentJournalEventKind = {
-                    if case .codexSubagentStart = action {
-                        return .childSpawned
-                    }
-                    return .childCompleted
-                }()
-                emitJournal(
-                    childJournalKind,
-                    workspaceId: workspaceId,
-                    surfaceId: surfaceId,
-                    isSubagent: true,
-                    detail: decision.ownership == .foreground ? nil : "child-lifecycle-nested"
-                )
-            }
+            let childJournalKind: AgentJournalEventKind = {
+                if case .codexSubagentStart = action {
+                    return .childSpawned
+                }
+                return .childCompleted
+            }()
+            emitJournal(
+                childJournalKind,
+                workspaceId: workspaceId,
+                surfaceId: surfaceId,
+                unattributedReason: target == nil ? "target-unresolved" : nil,
+                isSubagent: true,
+                detail: decision.ownership == .foreground ? nil : "child-lifecycle-nested",
+                responseTimeout: target == nil ? 0.5 : nil
+            )
             if case .codexSubagentStop = action,
                decision.ownership == .foreground,
                decision.settlement == .settled,
@@ -34567,7 +34743,8 @@ export default CMUXSessionRestore;
                 spawnDetachedCodexSettledStop(
                     payload: rawInput,
                     environment: env,
-                    telemetry: telemetry
+                    telemetry: telemetry,
+                    turnID: decision.turnID
                 )
             }
 
@@ -34744,6 +34921,15 @@ export default CMUXSessionRestore;
         case .promptSubmit:
             let mapped = sessionId.isEmpty ? nil : (try? store.lookup(sessionId: sessionId))
             guard let target = resolveAgentHookTarget(mapped: mapped) else {
+                if def.name == "codex", !sessionId.isEmpty, let codexLifecycle {
+                    _ = codexLifecycle.promptSubmit(
+                        sessionID: sessionId,
+                        turnID: input.turnId,
+                        workspaceID: nil,
+                        surfaceID: nil,
+                        allowCreate: false
+                    )
+                }
                 reportTargetResolutionFailure()
                 emitJournal(.turnStarted, workspaceId: nil, surfaceId: nil, unattributedReason: "target-unresolved")
                 didSendFeedTelemetry = true
@@ -35172,6 +35358,12 @@ export default CMUXSessionRestore;
 
         case .stop:
             let mapped = sessionId.isEmpty ? nil : (try? store.lookup(sessionId: sessionId))
+            let effectiveCodexStopTurnID = def.name == "codex" && isCodexSettledStopRetry
+                ? (normalizedHookValue(input.turnId) ?? settledStopTurnID)
+                : input.turnId
+            let resolvedTarget = resolveAgentHookTarget(mapped: mapped)
+            let resolvedWorkspaceId = resolvedTarget?.workspaceId
+            let resolvedSurfaceId = resolvedTarget?.surfaceId
             // Admit ownership before touching the legacy prompt-depth store.
             // A nested reviewer must not be able to create or mutate a generic
             // session record merely because it inherited the foreground PID.
@@ -35183,12 +35375,14 @@ export default CMUXSessionRestore;
                 }
                 return codexLifecycle.observe(
                     sessionID: sessionId,
-                    workspaceID: resolvedDirectWorkspaceArg ?? mapped?.workspaceId,
-                    surfaceID: resolvedDirectSurfaceArg ?? mapped?.surfaceId
+                    workspaceID: resolvedWorkspaceId,
+                    surfaceID: resolvedSurfaceId,
+                    allowCreate: resolvedTarget != nil
                 )
             }()
             var codexStopDecision = codexStopOwnership
-            if def.name == "codex", !sessionId.isEmpty {
+            if def.name == "codex", !sessionId.isEmpty,
+               resolvedTarget != nil || codexStopOwnership?.ownership == .foreground {
                 guard codexStopDecision?.ownership == .foreground else {
                     telemetry.breadcrumb("codex-hook.stop.nested-or-unknown")
                     print("{}")
@@ -35198,13 +35392,40 @@ export default CMUXSessionRestore;
             // Retire only after the ledger admits this callback as the
             // foreground owner. A nested reviewer must not tear down the
             // foreground Codex transcript monitor while it inherits its PID.
-            if def.name == "codex", !sessionId.isEmpty {
-                let stopTurnId = input.turnId?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            if def.name == "codex", !sessionId.isEmpty,
+               codexStopDecision?.ownership == .foreground {
+                let stopTurnId = normalizedHookValue(effectiveCodexStopTurnID) ?? ""
                 if !stopTurnId.isEmpty {
                     retireCodexMonitorLeases(sessionId: sessionId, turnId: stopTurnId, env: env)
                 }
             }
-            guard let target = resolveAgentHookTarget(mapped: mapped) else {
+            guard let target = resolvedTarget else {
+                if def.name == "codex",
+                   !sessionId.isEmpty,
+                   let codexLifecycle,
+                   codexStopDecision?.ownership == .foreground {
+                    codexStopDecision = codexLifecycle.stop(
+                        sessionID: sessionId,
+                        turnID: effectiveCodexStopTurnID,
+                        workspaceID: nil,
+                        surfaceID: nil,
+                        claimNotification: false,
+                        allowCreate: false,
+                        requireCurrentTurn: true
+                    )
+                    if codexStopDecision?.settlement == .settled,
+                       codexStopDecision?.shouldNotify == true {
+                        // Re-run the normal projection out of band; it will
+                        // re-resolve the pane and still fail closed if proof
+                        // remains unavailable.
+                        spawnDetachedCodexSettledStop(
+                            payload: rawInput,
+                            environment: env,
+                            telemetry: telemetry,
+                            turnID: codexStopDecision?.turnID
+                        )
+                    }
+                }
                 reportTargetResolutionFailure()
                 emitJournal(.turnCompleted, workspaceId: nil, surfaceId: nil, unattributedReason: "target-unresolved")
                 didSendFeedTelemetry = true
@@ -35381,9 +35602,14 @@ export default CMUXSessionRestore;
                let codexLifecycle {
                 codexStopDecision = codexLifecycle.stop(
                     sessionID: sessionId,
-                    turnID: input.turnId,
+                    turnID: effectiveCodexStopTurnID,
                     workspaceID: workspaceId,
-                    surfaceID: surfaceId
+                    surfaceID: surfaceId,
+                    // Tokenized Codex launches must not let a delayed Stop
+                    // for an older turn settle the currently active turn.
+                    // Legacy unwrapped launches retain their historical
+                    // unseen-turn compatibility path.
+                    requireCurrentTurn: codexLifecycle.usesLegacyIdentity == false || isCodexSettledStopRetry
                 )
             }
             if def.name == "codex",
@@ -35547,13 +35773,13 @@ export default CMUXSessionRestore;
             }
             if shouldPublishStopAlert, shouldSendNotification(fingerprint: notificationFingerprint) {
                 // Tag successful turn-end pings; error alerts always deliver.
-                let stopMeta: String? = stopNotificationStatus == .idle
-                    ? AgentHookNotifyCategory.turnComplete.metaSegment(
-                        pending: hasActiveBackgroundWork,
-                        agentKind: def.name,
-                        isSubagent: isNestedAgentSession
-                    )
-                    : nil
+                let stopMeta = Self.agentNotificationMeta(
+                    category: stopNotificationStatus == .idle ? .turnComplete : .other,
+                    isError: stopNotificationStatus == .error,
+                    pending: stopNotificationStatus == .idle && hasActiveBackgroundWork,
+                    agentID: def.name,
+                    isSubagent: isNestedAgentSession
+                )
                 let payload = notificationPayload(
                     title: notificationTitle(workspaceId: workspaceId, surfaceId: surfaceId),
                     subtitle: subtitle,
@@ -36130,14 +36356,20 @@ export default CMUXSessionRestore;
                 // "Agent Needs Permission", waiting-for-input cues under "Agent
                 // Waiting for Input", turn-boundary completions (grok and
                 // antigravity route them through this hook) under "Agent
-                // Finished". Errors and unclassified alerts stay untagged.
+                // Finished". Errors carry the `errorStalled` sound type;
+                // unclassified alerts stay untagged.
                 // Completions AND waiting nags are both "pending" while
                 // background work is live, so a fullyIdle=false Antigravity
                 // waiting cue doesn't deliver a false "waiting for input".
-                let notificationMeta = summary.notifyCategory.metaSegment(
+                // Error status wins over a classifier category so every
+                // error carries the contextual error sound tag, even if an
+                // integration supplied an inconsistent category.
+                let notificationMeta = Self.agentNotificationMeta(
+                    category: summary.notifyCategory,
+                    isError: summary.status == .error,
                     pending: (summary.notifyCategory == .turnComplete || summary.notifyCategory == .idleReminder)
                         && hasActiveAntigravityBackgroundWork(),
-                    agentKind: def.name,
+                    agentID: def.name,
                     isSubagent: isNestedAgentSession,
                     correlationKey: cursorShellNeedsApproval
                         ? cursorApprovalNotificationCorrelationKey
@@ -36434,8 +36666,12 @@ export default CMUXSessionRestore;
             rawObject: fallbackObject,
             agentPid: agentPid
         )
+        guard let workstreamID = Self.feedWorkstreamID(
+            source: source,
+            sessionID: sessionId
+        ) else { return }
         var event: [String: Any] = [
-            "session_id": "\(source)-\(sessionId)",
+            "session_id": workstreamID,
             "hook_event_name": hookEventName,
             "_source": source,
             "_ppid": agentPid,
@@ -38523,7 +38759,9 @@ export default CMUXSessionRestore;
             displayName: Self.agentDef(named: source)?.displayName ?? source,
             toolName: toolName,
             workspaceId: liveTarget?.workspaceId ?? ambientWorkspaceId,
-            surfaceId: liveTarget?.surfaceId ?? ambientSurfaceId
+            surfaceId: liveTarget?.surfaceId ?? ambientSurfaceId,
+            agentID: source,
+            includeAgentContext: true
         ) else { return }
         _ = try? activeClient.send(
             command: attentionLine,
@@ -38605,6 +38843,28 @@ export default CMUXSessionRestore;
         let source = optionValue(commandArgs, name: "--source") ?? ""
         guard !source.isEmpty else {
             throw CLIError(message: "cmux hooks feed requires --source <agent-name>")
+        }
+        let lifecycleProbeDeadline = Date.now.addingTimeInterval(0.75)
+        var lifecycleProbeClient: SocketClient?
+        defer { lifecycleProbeClient?.close() }
+
+        func makeLifecycleProbeClient() -> SocketClient? {
+            guard let socketPath else { return nil }
+            let probe = SocketClient(path: socketPath)
+            do {
+                try probe.connectWithoutRetry(responseTimeout: 0.25)
+                try authenticateClientIfNeeded(
+                    probe,
+                    explicitPassword: socketPassword,
+                    socketPath: socketPath,
+                    responseTimeout: 0.25
+                )
+                lifecycleProbeClient = probe
+                return probe
+            } catch {
+                probe.close()
+                return nil
+            }
         }
 
         // Outside a cmux terminal (no CMUX_SURFACE_ID) → silently no-op.
@@ -38698,6 +38958,14 @@ export default CMUXSessionRestore;
             in: stdinObj,
             keys: ["session_id", "sessionId", "conversation_id", "conversationId"]
         ) ?? stableFallbackFeedSessionId(source: source, rawObject: stdinObj, agentPid: agentPid)
+        guard let workstreamID = Self.feedWorkstreamID(
+            source: source,
+            sessionID: sessionId
+        ) else {
+            print("{}")
+            return
+        }
+        var validatedCodexFeedTarget: (workspaceId: String, surfaceId: String)?
 
         // Native Codex child events are committed before their telemetry frame
         // is sent. This is the only source used by the Stop path to decide
@@ -38706,17 +38974,94 @@ export default CMUXSessionRestore;
         if source == "codex",
            hookEventName == "SubagentStart" || hookEventName == "SubagentStop" {
             let lifecycle = CodexTurnLifecycleCoordinator(environment: env, cli: self)
+            let feedLifecycleTarget: (workspaceId: String, surfaceId: String)? = {
+                guard let rawSurfaceId = firstString(in: stdinObj, keys: ["surface_id", "surfaceId"])
+                          ?? env["CMUX_SURFACE_ID"],
+                      let activeClient = client ?? makeLifecycleProbeClient() else {
+                    return nil
+                }
+                let rawWorkspaceId = feedWorkspaceId(
+                    rawObject: stdinObj,
+                    fallback: env["CMUX_WORKSPACE_ID"]
+                )
+                let workspaceId = rawWorkspaceId.flatMap { raw in
+                    guard isUUID(raw) else {
+                        return try? resolveWorkspaceId(
+                            raw,
+                            client: activeClient,
+                            responseTimeout: max(0.01, lifecycleProbeDeadline.timeIntervalSinceNow),
+                            deadline: lifecycleProbeDeadline
+                        )
+                    }
+                    return raw
+                }
+                func resolveFromSurfaceList(
+                    workspaceId: String
+                ) -> (workspaceId: String, surfaceId: String)? {
+                    guard let listed = try? activeClient.sendV2(
+                          method: "surface.list",
+                          params: ["workspace_id": workspaceId],
+                          responseTimeout: max(0.01, lifecycleProbeDeadline.timeIntervalSinceNow),
+                          deadline: lifecycleProbeDeadline
+                      ),
+                      let surfaces = listed["surfaces"] as? [[String: Any]],
+                      let surface = surfaces.first(where: {
+                          ($0["id"] as? String) == rawSurfaceId
+                              || ($0["ref"] as? String) == rawSurfaceId
+                      }),
+                      let surfaceId = surface["id"] as? String,
+                      isUUID(surfaceId) else {
+                        return nil
+                    }
+                    return (workspaceId, surfaceId)
+                }
+
+                guard isUUID(rawSurfaceId) else {
+                    guard let workspaceId else { return nil }
+                    return resolveFromSurfaceList(workspaceId: workspaceId)
+                }
+                // Relay authorization intentionally exposes only the scoped
+                // `surface.list` path for remote callers; use it directly
+                // rather than asking the local PID/surface resolver, which is
+                // outside the remote trust boundary.
+                if activeClient.isRelayBacked {
+                    guard let workspaceId else { return nil }
+                    return resolveFromSurfaceList(workspaceId: workspaceId)
+                }
+                var params: [String: Any] = ["surface_id": rawSurfaceId]
+                if let workspaceId { params["workspace_id"] = workspaceId }
+                do {
+                    let target = try activeClient.sendV2(
+                        method: "agent.resolve_delivery_target",
+                        params: params,
+                        responseTimeout: max(0.01, lifecycleProbeDeadline.timeIntervalSinceNow),
+                        deadline: lifecycleProbeDeadline
+                    )
+                    guard (target["source"] as? String) == "surface",
+                          let liveWorkspaceId = normalizedHandleValue(target["workspace_id"] as? String),
+                          isUUID(liveWorkspaceId),
+                          let liveSurfaceId = normalizedHandleValue(target["surface_id"] as? String),
+                          isUUID(liveSurfaceId) else {
+                        return nil
+                    }
+                    return (liveWorkspaceId, liveSurfaceId)
+                } catch let error as CLIError where error.v2Code == "method_not_found"
+                        || error.v2Code == "unrecognized_method" {
+                    guard let workspaceId else { return nil }
+                    return resolveFromSurfaceList(workspaceId: workspaceId)
+                } catch {
+                    return nil
+                }
+            }()
+            validatedCodexFeedTarget = feedLifecycleTarget
             let decision = lifecycle.recordFeedLifecycle(
                 sessionID: sessionId,
                 eventName: hookEventName,
                 agentID: firstString(in: stdinObj, keys: ["agent_id", "agentId"]),
                 turnID: firstString(in: stdinObj, keys: ["turn_id", "turnId"]),
-                workspaceID: feedWorkspaceId(
-                    rawObject: stdinObj,
-                    fallback: env["CMUX_WORKSPACE_ID"]
-                ),
-                surfaceID: firstString(in: stdinObj, keys: ["surface_id", "surfaceId"])
-                    ?? env["CMUX_SURFACE_ID"]
+                workspaceID: feedLifecycleTarget?.workspaceId,
+                surfaceID: feedLifecycleTarget?.surfaceId,
+                allowCreate: feedLifecycleTarget != nil
             )
             if hookEventName == "SubagentStop",
                decision.ownership == .foreground,
@@ -38731,19 +39076,62 @@ export default CMUXSessionRestore;
                 spawnDetachedCodexSettledStop(
                     payload: payload,
                     environment: env,
+                    telemetry: telemetry,
+                    turnID: decision.turnID
+                )
+            }
+            // A rejected lifecycle identity is intentionally diagnostic-only.
+            // Do not let the generic feed frame below reuse stale ambient
+            // workspace/surface metadata after this decision.
+            guard feedLifecycleTarget != nil else {
+                let diagnosticStore = ClaudeHookSessionStore(processEnv: env)
+                let diagnosticKind: AgentJournalEventKind = hookEventName == "SubagentStart"
+                    ? .childSpawned
+                    : .childCompleted
+                reportAgentHookFailure(
+                    stage: .targetResolution,
+                    agentName: source,
+                    sessionId: sessionId,
+                    event: hookEventName,
+                    store: diagnosticStore,
                     telemetry: telemetry
                 )
+                if let diagnosticClient = client ?? lifecycleProbeClient {
+                    emitAgentJournalEvent(
+                        client: diagnosticClient,
+                        kind: diagnosticKind,
+                        source: source,
+                        agentKey: "codex",
+                        sessionId: sessionId,
+                        workspaceId: nil,
+                        surfaceId: nil,
+                        unattributedReason: "target-unresolved",
+                        isSubagent: true,
+                        nativeEvent: hookEventName,
+                        detail: "feed-child-lifecycle",
+                        responseTimeout: max(0.01, lifecycleProbeDeadline.timeIntervalSinceNow),
+                        deadline: lifecycleProbeDeadline,
+                        store: diagnosticStore,
+                        telemetry: telemetry
+                    )
+                }
+                print("{}")
+                return
             }
         }
 
         var eventDict: [String: Any] = [
-            "session_id": "\(source)-\(sessionId)",
+            "session_id": workstreamID,
             "hook_event_name": hookEventName,
             "_source": source,
             "_ppid": agentPid,
         ]
         if let workspaceId = feedWorkspaceId(rawObject: stdinObj, fallback: env["CMUX_WORKSPACE_ID"]) {
             eventDict["workspace_id"] = workspaceId
+        }
+        if let validatedCodexFeedTarget {
+            eventDict["workspace_id"] = validatedCodexFeedTarget.workspaceId
+            eventDict["surface_id"] = validatedCodexFeedTarget.surfaceId
         }
         let toolRequestInput = stdinObj["tool_input"] ?? stdinObj["toolInput"] ?? toolCall?["args"]
         let postToolUseResponseInput = stdinObj["tool_response"]

@@ -188,6 +188,13 @@ Set these Vercel environment variables per production/staging environment:
 - `CMUX_DB_SSL_REJECT_UNAUTHORIZED`, optional. Leave unset for the current Vercel Marketplace Aurora databases so Node uses its default trust store.
 - `CMUX_VM_CREATE_ENABLED`, global create kill switch. Set `0` to block new paid creates while
   keeping list, attach, and delete available.
+- `CMUX_VM_ALLOW_FREE_PROVISIONING`, explicit opt-out of the paid-plan Cloud VM gate. Leave unset
+  (or set to `0`) in every shared environment; set to `1` only for a deliberate demo/rollback. When
+  enabled, `CMUX_VM_FREE_MAX_ACTIVE_VMS` and the plan-specific free limit are honored again.
+- `CMUX_VM_REQUIRE_PRO`, legacy compatibility spelling for the paid-plan gate. Unset now means the
+  gate is **on**. `0`/`false`/`off` is treated as the old permissive escape hatch only when
+  `CMUX_VM_ALLOW_FREE_PROVISIONING` is absent; prefer the clearly named allow switch for new
+  deployments.
 - `CMUX_VM_E2B_ENABLED`, per-provider E2B create kill switch.
 - `CMUX_VM_FREESTYLE_ENABLED`, per-provider Freestyle create kill switch.
 - `CMUX_VM_DAYTONA_ENABLED`, per-provider Daytona create kill switch.
@@ -199,6 +206,9 @@ Set these Vercel environment variables per production/staging environment:
 - `FREESTYLE_SANDBOX_SNAPSHOT`, Freestyle snapshot id.
 - `DAYTONA_SANDBOX_SNAPSHOT`, Daytona snapshot name for WebSocket PTY sandboxes.
 - `CMUX_VM_DEFAULT_PROVIDER`, `blaxel`, `freestyle`, `e2b`, or `daytona` (defaults to `blaxel`).
+- `CMUX_VM_DEFAULT_PLAN`, optional fallback for accounts without plan metadata. It defaults to `free`;
+  paid values are ignored unless `CMUX_VM_ALLOW_FREE_PROVISIONING=1`, so deployment configuration
+  cannot silently grant every unclassified account a paid entitlement.
 - `CMUX_VM_PLAN_FREE_CREATE_CREDIT_ITEM_ID`, optional Stack Auth team item used as the free-plan create-credit bucket. Leave unset to skip free-plan create-credit accounting; set to `none`, `disabled`, `off`, or `false` to explicitly opt out.
 - `CMUX_VM_PLAN_FREE_CREATE_CREDIT_COST`, optional free-plan per-create cost. Defaults to `1`.
 - `CMUX_VM_PLAN_FREE_INITIAL_CREATE_CREDITS`, optional first-use seed for the free-plan Stack Auth create-credit item. Defaults to `20`.
@@ -207,7 +217,7 @@ Set these Vercel environment variables per production/staging environment:
 - `CMUX_VM_CREATE_CREDIT_COST_E2B`, optional provider-specific override.
 - `CMUX_VM_CREATE_CREDIT_COST_FREESTYLE`, optional provider-specific override.
 - `CMUX_VM_CREATE_CREDIT_COST_DAYTONA`, optional provider-specific override.
-- `CMUX_VM_FREE_MAX_ACTIVE_VMS`, default `0`.
+- `CMUX_VM_FREE_MAX_ACTIVE_VMS`, default `0` and ignored while the paid-plan gate is enforced.
 - `CMUX_VM_PAID_MAX_ACTIVE_VMS`, default `5`.
 - Stack Auth environment variables.
 - Axiom/OpenTelemetry exporter variables.
@@ -328,10 +338,11 @@ remains a validated manifest fallback (`BLAXEL_SANDBOX_IMAGE`;
 driver bootstraps every image, baked or stock, at create time with the **cmux-tui remote
 daemon as the machine's only session daemon**.
 The sandbox downloads the pinned static-musl `cmux-tui` build onto its persistent home
-volume (`/root/.cmux/bin/cmux-tui`, sha256-verified inside the VM with `sha256sum -c`,
-reused on resurrection) and the sandbox supervisor runs `cmux-tui server start --session
-cloud --remote-ws 0.0.0.0:1337`. The build and its digest come from the artifacts manifest
-published by `.github/workflows/cmux-tui-artifacts.yml` — nothing is pinned by hand.
+volume, normally `/cmux/home/.cmux/bin/cmux-tui`, with `sha256sum -c` verification inside
+the VM. A bindfs identity view presents that volume at `/home/cmux`; the supervisor runs the
+daemon and its terminal panes as `cmux` (uid 1001) with passwordless sudo. The binary and
+daemon state are reused on resurrection. The build and its digest come from the artifacts
+manifest published by `.github/workflows/cmux-tui-artifacts.yml`, nothing is pinned by hand.
 Config: `BL_API_KEY`, `BL_WORKSPACE`; optionally `CMUX_VM_CMUX_TUI_MANIFEST_URL` to pin a
 deployment to one commit's `https://files.cmux.com/cmux-tui/<commit>/manifest.json` instead
 of the rolling `latest`. Blaxel freezes a sandbox ~15 s after the last connection unless a
@@ -339,13 +350,16 @@ of the rolling `latest`. Blaxel freezes a sandbox ~15 s after the last connectio
 cmux-tui shell is idle and no client is connected, so an idle machine drops to (free)
 standby and the next attach wakes it.
 
-The persistent home volume (`/root`) is sized from the machine's memory in dev-box tiers
-(`defaultHomeVolumeMbForMemory`: ≤4 GB → 8 GB, otherwise 16 GB — Blaxel refuses volumes
-above 16 GB (measured 2026-08-26), so the 24 GB plan default gets the 16 GB ceiling instead of the
-old flat 5 GB); `CMUX_VM_BLAXEL_HOME_VOLUME_MB` pins every
-new volume to one size instead. The chosen size is recorded as `providerMetadata.homeVolumeMb`.
-Volumes are never resized: existing machines keep the volume they were created with, and a
-size Blaxel's volume API rejects fails the create with the provider's message.
+The persistent home volume (`/cmux/home`) is sized from the machine's memory in dev-box tiers
+(`defaultHomeVolumeMbForMemory`: ≤4 GB → 8 GB, otherwise 16 GB, Blaxel refuses volumes above
+16 GB, measured 2026-08-26, so the 24 GB plan default gets the 16 GB ceiling instead of the old
+flat 5 GB). `CMUX_VM_BLAXEL_HOME_VOLUME_MB` pins every new volume to one size instead. The
+chosen size is recorded in `providerMetadata.homeVolumeMb`. Volumes are never resized: existing
+machines keep the volume they were created with, and a size Blaxel's volume API rejects fails the
+create with the provider's message. Sandboxes created before this layout change still mount their
+volume at `/root` and keep a root daemon until resurrection. If the `/home/cmux` bindfs view is
+unavailable, the daemon and `cmux vm exec` use `/cmux/home` as a root fallback, so they never
+write to the disposable rootfs home.
 
 Preview ingress is enforced private: attach only reuses a preview whose spec is not public,
 replaces a public one, and refuses a preview that comes back public, so the daemon is never
@@ -388,7 +402,7 @@ Keep Freestyle/E2B enabled only when deliberately selecting them as rollback pro
 
 The usage ledger is in Postgres. VM create pricing gates can use Stack Auth payment items, but free-plan create credits are opt-in. Configure `CMUX_VM_PLAN_FREE_CREATE_CREDIT_ITEM_ID` only when the free plan should consume a prepaid create-credit bucket. When enabled, the create workflow records a one-time local grant row, seeds the configured Stack Auth item credits once per billing team, reserves one create credit only for a newly inserted row, calls the provider, and refunds the credit if provisioning fails before a usable VM exists.
 
-Plan limits are team-based. Stack Auth personal teams should stay enabled for both dev/staging and production projects (`createTeamOnSignUp` / `teams.createPersonalTeamOnSignUp`). New VM rows store `billing_team_id` and `billing_plan_id`; the free plan allows zero active VMs by default (`CMUX_VM_FREE_MAX_ACTIVE_VMS`); paid plans default to five (`CMUX_VM_PAID_MAX_ACTIVE_VMS`). Destroyed VMs do not count against the active limit; pausing does not free quota on the production provider. Paid plan activation should write a readable plan id such as `pro` into Stack Auth team read-only metadata (`cmuxVmPlan`) or equivalent billing sync metadata, then configure the matching `CMUX_VM_PLAN_<PLAN>_MAX_ACTIVE_VMS` env var. Paid plans only consume Stack Auth create credits when `CMUX_VM_PLAN_<PLAN>_CREATE_CREDIT_ITEM_ID` or the global `CMUX_VM_CREATE_CREDIT_ITEM_ID` is configured.
+Plan limits are team-based. Stack Auth personal teams should stay enabled for both dev/staging and production projects (`createTeamOnSignUp` / `teams.createPersonalTeamOnSignUp`). New VM rows store `billing_team_id` and `billing_plan_id`; the free plan allows zero active VMs by default and remains at zero regardless of stale free-limit env values while the paid-plan gate is on. A deliberate `CMUX_VM_ALLOW_FREE_PROVISIONING=1` escape hatch re-enables the configured free allowance for local demos or a controlled rollback; paid plans default to five (`CMUX_VM_PAID_MAX_ACTIVE_VMS`). Destroyed VMs do not count against the active limit; pausing does not free quota on the production provider. Paid plan activation should write a readable plan id such as `pro` into Stack Auth team read-only metadata (`cmuxVmPlan`) or equivalent billing sync metadata, then configure the matching `CMUX_VM_PLAN_<PLAN>_MAX_ACTIVE_VMS` env var. Paid plans only consume Stack Auth create credits when `CMUX_VM_PLAN_<PLAN>_CREATE_CREDIT_ITEM_ID` or the global `CMUX_VM_CREATE_CREDIT_ITEM_ID` is configured.
 
 ### The free limit is the paywall moment
 

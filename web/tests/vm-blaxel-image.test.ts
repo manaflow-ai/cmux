@@ -105,30 +105,68 @@ describe("Blaxel baked image template", () => {
     );
   });
 
-  test("shell setup survives the persistent /root volume shadowing the image", () => {
-    // Nothing user-facing baked into /root except the one-line bashrc hook;
+  test("terminals get a non-root work user with passwordless sudo", () => {
+    // Coding agents refuse a root shell (`claude --dangerously-skip-permissions`);
+    // the daemon drops to cmux, and root stays one passwordless sudo away. uid 1001
+    // matches the driver's runtime-setup pin so volume ownership is stable.
+    expect(dockerfile).toContain("useradd -m -u 1001 -s /bin/bash cmux");
+    expect(dockerfile).toContain("printf 'cmux ALL=(ALL) NOPASSWD:ALL\\n' > /etc/sudoers.d/90-cmux-nopasswd");
+    expect(dockerfile).toContain("chmod 0440 /etc/sudoers.d/90-cmux-nopasswd");
+    expect(dockerfile).toContain("visudo -c");
+    // The sudo binary itself ships in the devtools layer.
+    expect(dockerfile).toMatch(/apt-get install[^&]*\bsudo \\\n/);
+    // The volume lives at /cmux/home; this boot chown only prepares a disposable
+    // rootfs home for machines without the bindfs view, and is never recursive.
+    expect(entrypoint).toContain("persistent home volume is mounted at /cmux/home");
+    expect(entrypoint).toContain("rootfs home for machines without that identity view");
+    expect(entrypoint).toContain("chown cmux:cmux /home/cmux");
+  });
+
+  test("shell setup survives the persistent home volume shadowing the image", () => {
+    // Nothing user-facing baked into /home/cmux except the one-line bashrc hook;
     // per-HOME state (seed history) materializes at shell start from /etc/cmux.
     expect(bashrc).toContain("/etc/cmux/seed-history");
     expect(bashrc).toContain('cp /etc/cmux/seed-history "$HOME/.bash_history"');
     expect(read("seed-history")).toBe("claude --dangerously-skip-permissions\ncodex --yolo\n");
     expect(bashrc).toContain("source /usr/local/share/blesh/ble.sh --noattach");
     expect(bashrc).toContain("ble-attach");
+    // ble.sh tput caches are baked and seeded, so no pane ever opens on
+    // "ble/term.sh: updating tput cache ... done". Both cache homes are
+    // covered: <blesh>/cache.d/<uid> (what a shell uses while ~/.cache does
+    // not exist yet) bakes in the image; the XDG copy seeds per HOME from
+    // /etc/cmux/blesh-cache-seed. The runtime copy must NOT preserve seed
+    // mtimes (ble.sh loads the cache only when it is newer than
+    // lib/init-term.sh), so it is a plain cp -R.
+    expect(dockerfile).toContain("/etc/cmux/blesh-cache-seed");
+    expect(dockerfile).toContain("/usr/local/share/blesh/cache.d/0");
+    expect(dockerfile).toContain("/usr/local/share/blesh/cache.d/1000");
+    // The bake must prove every seeded TERM generated, not just the first two.
+    for (const term of ["xterm-256color", "screen-256color", "tmux-256color", "linux"]) {
+      expect(dockerfile).toContain(`test -s /etc/cmux/blesh-cache-seed/blesh/*/term.${term}`);
+    }
+    // Per-file seeding with the same freshness rule ble.sh applies, so durable
+    // homes from older images (stale or missing entries) reseed too.
+    expect(bashrc).toContain("/etc/cmux/blesh-cache-seed/blesh/*/term.*");
+    expect(bashrc).toContain('[ /usr/local/share/blesh/lib/init-term.sh -nt "$__cmux_dst" ]');
+    expect(bashrc.indexOf("blesh-cache-seed")).toBeLessThan(
+      bashrc.indexOf("source /usr/local/share/blesh/ble.sh"),
+    );
     // half-life prompt with the machine name kept (\h): machines are addressed by name.
     expect(bashrc).toContain("PS1='\\[\\e[38;5;135m\\]\\u@\\h");
     expect(dockerfile).toContain("echo 'set -g default-shell /bin/bash' >> /etc/tmux.conf");
-    for (const target of ["/etc/bash.bashrc", "/etc/skel/.bashrc", "/root/.bashrc", "/home/cua/.bashrc"]) {
+    for (const target of ["/etc/bash.bashrc", "/etc/skel/.bashrc", "/root/.bashrc", "/home/cmux/.bashrc", "/home/cua/.bashrc"]) {
       expect(dockerfile).toContain(`'[ -f /etc/cmux/bashrc ] && . /etc/cmux/bashrc' >> ${target}`);
     }
   });
 
-  test("ble.sh highlights stay foreground-only for dark terminal themes", () => {
-    // The stock ble.sh faces paint light backgrounds under ghost text and
-    // transiently-invalid input, flashing the line background per keystroke
-    // on dark themes (Monokai). The bashrc overrides them after sourcing.
-    expect(bashrc).toContain("ble-face auto_complete=fg=");
-    expect(bashrc).toContain("ble-face syntax_error=fg=");
-    expect(bashrc).toContain("ble-face argument_error=fg=");
-    for (const line of bashrc.split("\n").filter((l) => l.trimStart().startsWith("ble-face"))) {
+  test("ble.sh integration stays minimal: no token highlighting, ghost text only", () => {
+    // User feedback 2026-08-31: any token highlighting (colored backgrounds
+    // under mistyped commands included) reads as noise. The bashrc turns the
+    // highlight layers off entirely and keeps only gray history ghost text.
+    expect(bashrc).toContain("bleopt highlight_syntax= highlight_filename= highlight_variable=");
+    const faceLines = bashrc.split("\n").filter((l) => l.trimStart().startsWith("ble-face"));
+    expect(faceLines).toEqual(["  ble-face auto_complete=fg=245"]);
+    for (const line of faceLines) {
       expect(line).not.toContain("bg=");
     }
   });
@@ -139,7 +177,7 @@ describe("Blaxel baked image template", () => {
     expect(dockerfile).toContain(
       "'[ -f /etc/cmux/agent-config.sh ] && . /etc/cmux/agent-config.sh' > /etc/profile.d/cmux-agents.sh",
     );
-    for (const target of ["/etc/bash.bashrc", "/etc/skel/.bashrc", "/root/.bashrc", "/home/cua/.bashrc"]) {
+    for (const target of ["/etc/bash.bashrc", "/etc/skel/.bashrc", "/root/.bashrc", "/home/cmux/.bashrc", "/home/cua/.bashrc"]) {
       expect(dockerfile).toContain(
         `'[ -f /etc/cmux/agent-config.sh ] && . /etc/cmux/agent-config.sh' >> ${target}`,
       );
@@ -168,11 +206,13 @@ describe("Blaxel baked image template", () => {
     expect(agentConfig).toContain("{env:OPENAI_API_KEY}");
     expect(agentConfig).toContain('[ ! -e "$HOME/.config/opencode/opencode.json" ]');
     // The Dockerfile proves generation under a throwaway HOME and proves the
-    // image ships no generated config for /root.
+    // image ships no generated config for /root or the work user's home.
     expect(dockerfile).toContain("test ! -e /root/.codex/config.toml");
     expect(dockerfile).toContain("test ! -e /root/.pi/agent/models.json");
     expect(dockerfile).toContain("test ! -e /root/.config/opencode/opencode.json");
     expect(dockerfile).toContain("test ! -e /root/.config/cmux/model-plane.env");
+    expect(dockerfile).toContain("test ! -e /home/cmux/.codex/config.toml");
+    expect(dockerfile).toContain("test ! -e /home/cmux/.config/cmux/model-plane.env");
   });
 
   test("declares the Blaxel template with the ports cmux opens", () => {

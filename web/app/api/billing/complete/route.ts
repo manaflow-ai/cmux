@@ -8,7 +8,9 @@ import {
 import { captureBillingError } from "../../../../services/errors";
 import {
   isCmuxCheckoutSession,
+  hasConflictingFounderMetadata,
   recordCheckoutCompletion as recordCheckoutCompletionDefault,
+  recordFoundersCheckoutCompletion as recordFoundersCheckoutCompletionDefault,
 } from "../../../../services/billing/purchase";
 import { isStripeBillingConfigured, stripe } from "../../../../services/billing/stripe";
 import {
@@ -21,12 +23,14 @@ type BillingCompleteDependencies = {
   isConfigured: () => boolean;
   stripe: typeof stripe;
   recordCheckoutCompletion: typeof recordCheckoutCompletionDefault;
+  recordFoundersCheckoutCompletion?: typeof recordFoundersCheckoutCompletionDefault;
 };
 
 const defaultDependencies: BillingCompleteDependencies = {
   isConfigured: isStripeBillingConfigured,
   stripe,
   recordCheckoutCompletion: recordCheckoutCompletionDefault,
+  recordFoundersCheckoutCompletion: recordFoundersCheckoutCompletionDefault,
 };
 
 export const GET = makeBillingCompleteHandler();
@@ -57,7 +61,11 @@ export function makeBillingCompleteHandler(
         const session = await dependencies.stripe().checkout.sessions.retrieve(sessionId, {
           expand: ["subscription", "customer"],
         });
-        if (!isCmuxCheckoutSession(session)) {
+        const expandedSubscriptionValue = expandedSubscription(session);
+        if (hasConflictingFounderMetadata(session, expandedSubscriptionValue)) {
+          return NextResponse.redirect(new URL("/pricing?billing=error", request.url));
+        }
+        if (!isCmuxCheckoutSession(session, expandedSubscriptionValue)) {
           return NextResponse.redirect(new URL("/pricing?billing=error", request.url));
         }
         const scheme =
@@ -67,13 +75,25 @@ export function makeBillingCompleteHandler(
           session.payment_status === "paid" ||
           session.payment_status === "no_payment_required"
         ) {
-          const completion = await dependencies.recordCheckoutCompletion({
-            session,
-            subscription: expandedSubscription(session),
-            customer: expandedCustomer(session),
-          });
+          const isFounderCheckout =
+            session.metadata?.founders_edition === "true" ||
+            expandedSubscriptionValue?.metadata?.founders_edition === "true";
+          const completion = isFounderCheckout
+            ? await (dependencies.recordFoundersCheckoutCompletion ?? recordFoundersCheckoutCompletionDefault)({
+                session,
+                subscription: expandedSubscriptionValue,
+                customer: expandedCustomer(session),
+              })
+            : await dependencies.recordCheckoutCompletion({
+                session,
+                subscription: expandedSubscriptionValue,
+                customer: expandedCustomer(session),
+              });
           if ("skipped" in completion) {
-            return NextResponse.redirect(new URL("/pricing?billing=account_deletion", request.url));
+            const reason = completion.skipped === "account_deletion_in_progress"
+              ? "account_deletion"
+              : "error";
+            return NextResponse.redirect(new URL(`/pricing?billing=${reason}`, request.url));
           }
           if (session.metadata?.plan === "team") {
             return NextResponse.redirect(

@@ -269,6 +269,15 @@ enum SurfaceBrowserPlaceholder {
                 .joined()
         } ?? ""
         let spinnerHTML = spinner ? "<div class=\"spinner\" role=\"progressbar\"></div>" : ""
+        // The spinner's stylesheet ships only with a spinner: the failed page
+        // must carry no trace of one (the tests assert on the whole document).
+        let spinnerCSS = spinner ? """
+
+          .spinner { width: 22px; height: 22px; margin: 0 auto 14px; border-radius: 50%;
+                     border: 2px solid rgba(216,222,233,0.25); border-top-color: #d8dee9;
+                     animation: spin 0.9s linear infinite; }
+          @keyframes spin { to { transform: rotate(360deg); } }
+        """ : ""
         return """
         <!doctype html>
         <html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
@@ -279,11 +288,7 @@ enum SurfaceBrowserPlaceholder {
                  font: 14px -apple-system, BlinkMacSystemFont, "Helvetica Neue", sans-serif; }
           main { text-align: center; max-width: 36em; padding: 0 1.5em; }
           h1 { font-size: 15px; font-weight: 500; margin: 0 0 0.6em; }
-          p { margin: 0.3em 0; opacity: 0.8; word-break: break-word; }
-          .spinner { width: 22px; height: 22px; margin: 0 auto 14px; border-radius: 50%;
-                     border: 2px solid rgba(216,222,233,0.25); border-top-color: #d8dee9;
-                     animation: spin 0.9s linear infinite; }
-          @keyframes spin { to { transform: rotate(360deg); } }
+          p { margin: 0.3em 0; opacity: 0.8; word-break: break-word; }\(spinnerCSS)
         </style></head>
         <body><main>\(spinnerHTML)<h1>\(escape(title))</h1>\(detailHTML)</main></body></html>
         """

@@ -119,7 +119,7 @@ describe("devbox image template", () => {
     expect(body(agentConfig)).toBe(body(readBlaxel("agent-config.sh")));
   });
 
-  test("agent pins match the Blaxel template ARG for ARG", () => {
+  test("agent and CUA driver pins match the Blaxel template", () => {
     const blaxelDockerfile = readBlaxel("Dockerfile");
     const args = [
       "CMUX_IMAGE_CLAUDE_CODE_VERSION",
@@ -142,18 +142,38 @@ describe("devbox image template", () => {
       "@earendil-works/pi-coding-agent",
       "agent-browser",
     ]);
+
+    const cuaVersion = (source: string): string | undefined =>
+      /CUA_DRIVER_RS_VERSION=(\S+)/.exec(source)?.[1];
+    const devboxCuaVersion = cuaVersion(dockerfile);
+    expect({ tool: "cua-driver", pin: devboxCuaVersion }).toEqual({
+      tool: "cua-driver",
+      pin: cuaVersion(blaxelDockerfile),
+    });
+    expect(readScript("build-devbox-freestyle.ts")).toContain(
+      `CUA_DRIVER_RS_VERSION=${devboxCuaVersion}`,
+    );
   });
 
-  test("ble.sh highlights stay foreground-only for dark terminal themes", () => {
-    expect(bashrc).toContain("ble-face auto_complete=fg=");
-    expect(bashrc).toContain("ble-face syntax_error=fg=");
-    expect(bashrc).toContain("ble-face argument_error=fg=");
-    for (const line of bashrc.split("\n").filter((l) => l.trimStart().startsWith("ble-face"))) {
+  test("ble.sh integration stays minimal: no token highlighting, ghost text only", () => {
+    // User feedback 2026-08-31: any token highlighting (colored backgrounds
+    // under mistyped commands included) reads as noise. The bashrc turns the
+    // highlight layers off entirely and keeps only gray history ghost text.
+    expect(bashrc).toContain("bleopt highlight_syntax= highlight_filename= highlight_variable=");
+    const faceLines = bashrc.split("\n").filter((l) => l.trimStart().startsWith("ble-face"));
+    expect(faceLines).toEqual(["  ble-face auto_complete=fg=245"]);
+    for (const line of faceLines) {
       expect(line).not.toContain("bg=");
     }
-    expect(bashrc).toContain("source /usr/local/share/blesh/ble.sh --noattach");
-    expect(bashrc).toContain("ble-attach");
-    expect(bashrc).toContain('cp /etc/cmux/seed-history "$HOME/.bash_history"');
+  });
+
+  test("bakes ble.sh cache seeds for every shared devbox provider", () => {
+    // The shared bashrc guard is useful only when each bake creates the seed.
+    for (const term of ["xterm-256color", "screen-256color", "tmux-256color", "linux"]) {
+      expect(dockerfile).toContain(`test -s /etc/cmux/blesh-cache-seed/blesh/*/term.${term}`);
+    }
+    expect(dockerfile).toContain("/usr/local/share/blesh/cache.d/0");
+    expect(readScript("build-devbox-freestyle.ts")).toContain("blesh-cache-seed");
   });
 
   test("stays within the E2B Dockerfile-parser restrictions", () => {
@@ -219,6 +239,24 @@ describe("devbox image template", () => {
     expect(freestyleScript).toContain("ExecStart=/usr/local/bin/cmux-devbox-boot");
     expect(freestyleScript).toContain("cmux-tui-daemon.service");
     expect(freestyleScript).toContain("Restart=always");
+  });
+
+  test("the Freestyle replay carries the ble.sh cache bake", () => {
+    // The replay embeds its own copy of the Dockerfile bake; pin the guards
+    // and both cache targets so the provider-specific path cannot silently
+    // drift while the Dockerfile path stays correct.
+    const freestyleScript = readScript("build-devbox-freestyle.ts");
+    expect(freestyleScript).toContain("mkdir -p /etc/cmux/blesh-cache-seed");
+    for (const term of ["xterm-256color", "screen-256color", "tmux-256color", "linux"]) {
+      expect(freestyleScript).toContain(
+        `test -s /etc/cmux/blesh-cache-seed/blesh/*/term.${term}`,
+      );
+    }
+    expect(freestyleScript).toContain("/usr/local/share/blesh/cache.d/0/");
+    expect(freestyleScript).toContain("/usr/local/share/blesh/cache.d/1000/");
+    expect(freestyleScript).toContain(
+      "chown -R 1000:1000 /usr/local/share/blesh/cache.d/1000",
+    );
   });
 
   test("the beta SDK serves the bake, verify, and beta driver arm; the legacy arm stays on 0.1.51", () => {

@@ -26,7 +26,11 @@ enum SessionPersistencePolicy {
     static let sidebarMinimumWidthRange: ClosedRange<Double> = 120...260
     static let maximumSidebarWidth: Double = 600
     static let minimumWindowWidth: Double = 300
-    static let minimumWindowHeight: Double = 200
+    // Below ~400pt the chrome cannot lay out without overlap: the sidebar
+    // footer (account/help/update pill) collides with workspace rows and the
+    // update pill clips at the window edge. User resizes stop here via
+    // minSize/contentMinSize; programmatic paths via CmuxMainWindow.setFrame.
+    static let minimumWindowHeight: Double = 400
     static let autosaveInterval: TimeInterval = 8.0
     static let maxWindowsPerSnapshot: Int = 12
     static let maxWorkspacesPerWindow: Int = 128
@@ -1850,6 +1854,10 @@ struct SessionWorkspaceSnapshot: Codable, Sendable {
     var customizationDirectory: String? = nil
     var usesWorkspaceDirectoryCustomization: Bool? = nil // `nil` infers a legacy local root.
     var isPinned: Bool
+    /// Whether notification side effects are muted for this workspace. The
+    /// optional form keeps manifests written before per-workspace mute support
+    /// backwards-compatible; missing values restore as `false`.
+    var isMuted: Bool? = nil
     var groupId: UUID? = nil
     var isManuallyUnread: Bool? = nil
     var hasUnreadIndicator: Bool? = nil

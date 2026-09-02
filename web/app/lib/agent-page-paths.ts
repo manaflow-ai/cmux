@@ -10,6 +10,7 @@ import { changelogPath } from "./changelog";
 import {
   englishFallbackContentLocales,
   fallbackContentLocales,
+  jobsContentLocales,
   featureWorkflowContentLocales,
   managedPoliciesDocsLocales,
   remoteTmuxDocsLocales,
@@ -131,6 +132,16 @@ export const agentReadablePages = [
   { path: "/ios", title: "cmux iOS" },
   { path: "/browser", title: "cmux Browser" },
   ...agentReadableDownloadPages,
+  {
+    path: "/jobs",
+    title: "Founding Engineer jobs at cmux",
+    locales: jobsContentLocales,
+  },
+  {
+    path: "/jobs/founding-designer",
+    title: "Founding Designer jobs at cmux",
+    locales: jobsContentLocales,
+  },
   { path: "/pricing", title: "Pricing", locales: fallbackContentLocales },
   { path: "/support", title: "Support" },
   { path: "/enterprise", title: "Enterprise" },

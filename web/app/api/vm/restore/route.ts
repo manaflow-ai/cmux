@@ -1,20 +1,17 @@
 import { unauthorized, verifyRequest, type AuthedUser } from "../../../../services/vms/auth";
+import { assertVmCreateEnabled } from "../../../../services/vms/config";
 import { defaultProviderId } from "../../../../services/vms/drivers";
+import { isVmCreateDisabledError } from "../../../../services/vms/errors";
+import { captureVmProvisionOutcome } from "../../../../services/vms/observability";
 import {
   jsonResponse,
   requestedVmTeamIdFromRequest,
-  vmBillingTeamErrorResponse,
   vmCreateLikeErrorResponse,
   vmErrorResponse,
   withAuthedVmApiRoute,
-  vmRequiresProResponse,
+  resolveVmProvisioningAccountScope,
 } from "../../../../services/vms/routeHelpers";
 import { setSpanAttributes } from "../../../../services/telemetry";
-import {
-  isVmBillingTeamResolutionError,
-  isVmProGateBlocked,
-  resolveVmEntitlements,
-} from "../../../../services/vms/entitlements";
 import { restoreVm, runVmWorkflow } from "../../../../services/vms/workflows";
 import { VmTimingRecorder } from "../../../../services/vms/timings";
 import { authProviderErrorResponse } from "../../../../services/vms/authErrors";
@@ -25,6 +22,10 @@ import {
   stringField,
 } from "../../../../services/vms/routeInput";
 
+// Restore cold-provisions a machine from a snapshot; same budget and
+// rationale as POST /api/vm (see app/api/vm/route.ts).
+export const maxDuration = 600;
+
 export async function POST(request: Request): Promise<Response> {
   return withAuthedVmApiRoute(
     request,
@@ -34,7 +35,10 @@ export async function POST(request: Request): Promise<Response> {
     async ({ user: initialUser, span, authDurationMs, routeStartedAtMs, setResponseFinalizer }) => {
       const timing = new VmTimingRecorder(span, "restore", { startedAt: routeStartedAtMs });
       timing.record("auth", authDurationMs);
-      setResponseFinalizer((response) => timing.finish({ status: response.status }));
+      setResponseFinalizer((response) => {
+        timing.finish({ status: response.status });
+        captureVmProvisionOutcome({ userId: initialUser.id, operation: "restore", response, span });
+      });
       const parsedBody = await parseRequiredObjectBody(request, {
         operation: "restore",
         action: "Send `{ \"snapshotId\": \"...\" }`.",
@@ -61,7 +65,6 @@ export async function POST(request: Request): Promise<Response> {
       }
       const providerResult = providerField(body);
       if (!providerResult.ok) return providerResult.response;
-      const provider = providerResult.provider ?? defaultProviderId();
       let user: AuthedUser = initialUser;
       const requestedBillingTeamId = stringField(body, "billingTeamId") ?? stringField(body, "teamId") ?? requestedVmTeamIdFromRequest(request);
       if (requestedBillingTeamId && !user.teamIds.includes(requestedBillingTeamId)) {
@@ -74,18 +77,29 @@ export async function POST(request: Request): Promise<Response> {
         if (!refreshedUser) return unauthorized();
         user = refreshedUser;
       }
-      let entitlements;
+      const account = await resolveVmProvisioningAccountScope(user, request, { requestedBillingTeamId });
+      if (!account.ok) return account.response;
+      const entitlements = account.entitlements;
+
+      // Restore provisions a brand-new machine on `provider`; check the
+      // environment kill switch only after the paid-plan boundary so a free
+      // caller cannot be diverted into provider/config work first.
+      const provider = providerResult.provider ?? defaultProviderId();
       try {
-        entitlements = resolveVmEntitlements(user, process.env, {
-          requestedBillingTeamId,
-          requireTeam: true,
-        });
+        assertVmCreateEnabled(provider);
       } catch (err) {
-        if (isVmBillingTeamResolutionError(err)) return vmBillingTeamErrorResponse(err);
+        if (isVmCreateDisabledError(err)) {
+          return vmErrorResponse({
+            error: "vm_create_disabled",
+            status: 503,
+            message: "Cloud VM creation is disabled for this environment.",
+            action: "Ask an admin to enable Cloud VM creation, then retry.",
+            reason: "Cloud VM creation is disabled.",
+            phase: "create",
+            retryable: true,
+          });
+        }
         throw err;
-      }
-      if (isVmProGateBlocked(entitlements)) {
-        return vmRequiresProResponse();
       }
       const idempotencyKey = idempotencyKeyFromRequest(request);
       setSpanAttributes(span, {

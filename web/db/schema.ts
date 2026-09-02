@@ -696,6 +696,30 @@ export const proWelcomeFulfillments = pgTable(
   ],
 );
 
+/**
+ * Durable idempotency ledger for the sign-in link sent after a paid checkout.
+ * It is separate from the Pro welcome ledger because the two messages have
+ * different owners and retry policies.
+ */
+export const billingEmailVerificationDeliveries = pgTable(
+  "billing_email_verification_deliveries",
+  {
+    checkoutSessionId: text("checkout_session_id").primaryKey(),
+    stackUserId: text("stack_user_id").notNull(),
+    email: text("email").notNull(),
+    deliveryStartedAt: timestamp("delivery_started_at", { withTimezone: true }),
+    attemptLeaseExpiresAt: timestamp("attempt_lease_expires_at", {
+      withTimezone: true,
+    }),
+    sentAt: timestamp("sent_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    index("billing_email_verification_deliveries_stack_user_idx").on(table.stackUserId),
+  ],
+);
+
 export const billingEmailClaims = pgTable(
   "billing_email_claims",
   {
