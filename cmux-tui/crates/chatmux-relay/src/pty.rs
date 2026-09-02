@@ -1703,7 +1703,10 @@ impl Inner {
             self.retire_if_current(&pty_id, &current_attachment);
             return;
         }
-        (context.send)(Value::Object(opened_frame));
+        (context.send_live)(
+            Value::Object(opened_frame),
+            Arc::clone(&current_attachment.delivery_live),
+        );
 
         // Output only AFTER pty_opened (ordering): banner, then scrollback
         // replay, then live bytes.
@@ -1911,12 +1914,15 @@ impl Inner {
         drop(_delivery);
         drop(_operation);
         drop(_publication);
-        (auth.send)(json!({
-            "version": PTY_PROTOCOL_VERSION,
-            "type": "pty_exit",
-            "ptyId": pty_id,
-            "code": code,
-        }));
+        (auth.send_live)(
+            json!({
+                "version": PTY_PROTOCOL_VERSION,
+                "type": "pty_exit",
+                "ptyId": pty_id,
+                "code": code,
+            }),
+            Arc::new(AtomicBool::new(true)),
+        );
     }
 
     /// Detach, NOT kill: idempotent, unknown ptyId tolerated.
