@@ -1284,14 +1284,19 @@ final class DockSplitStore: BonsplitDelegate, FilePreviewTabMetadataHost {
             .map { _ in () }
             panelCancellables[panel.id] = terminalSearchChanges
                 .merge(with: terminalSelectionChanges)
-                .receive(on: DispatchQueue.main)
                 .sink { [weak self] _ in
-                    self?.invalidateDockMenuCapabilities()
+                    // Combine's `.receive(on: .main)` guarantees the GCD main
+                    // queue, not the Swift MainActor executor. DockSplitStore
+                    // is MainActor-isolated, so hop explicitly instead of
+                    // synchronously touching it from a publisher callback.
+                    Task { @MainActor [weak self] in
+                        self?.invalidateDockMenuCapabilities()
+                    }
                 }
         }
         installAttentionRouting(for: panel)
         if let browser = panel as? BrowserPanel {
-            struct BrowserDockSubscriptionEvent {
+            struct BrowserDockSubscriptionEvent: Sendable {
                 let refreshCapabilities: Bool
                 let refreshMetadata: Bool
             }
@@ -1324,41 +1329,46 @@ final class DockSplitStore: BonsplitDelegate, FilePreviewTabMetadataHost {
             let cancellable = browserMetadataChanges
                 .merge(with: browserFindCapabilityChanges)
                 .merge(with: browserWebViewInstanceChanges)
-                .receive(on: DispatchQueue.main)
                 .sink { [weak self, weak browser] event in
-                    guard let self, let browser else { return }
-                    if event.refreshCapabilities {
-                        self.invalidateDockMenuCapabilities()
+                    // Combine publisher delivery may occur on a GCD queue that
+                    // is not the Swift MainActor. Keep the entire metadata
+                    // mutation transaction on the actor rather than relying on
+                    // `.receive(on: .main)` (which can trip an executor check).
+                    Task { @MainActor [weak self, weak browser] in
+                        guard let self, let browser else { return }
+                        if event.refreshCapabilities {
+                            self.invalidateDockMenuCapabilities()
+                        }
+                        guard event.refreshMetadata else {
+                            return
+                        }
+                        self.publishBrowserOpenTabSuggestion(for: browser)
+                        guard let tabId = self.surfaceId(forPanelId: browser.id),
+                              let existing = self.bonsplitController.tab(tabId) else { return }
+                        // Only push fields that actually changed. The combined stream
+                        // fires for any observed field, so an `isLoading` flicker during a
+                        // page load would otherwise re-publish the (unchanged) title and
+                        // favicon, mutating the @Observable BonsplitController and
+                        // re-rendering the Dock tree for nothing. Mirrors the main area's
+                        // guarded path in Workspace.installBrowserPanelSubscription.
+                        let resolvedTitle = browser.displayTitle
+                        let favicon = browser.faviconPNGData
+                        let titleUpdate: String? =
+                            existing.hasCustomTitle || existing.title == resolvedTitle
+                            ? nil
+                            : resolvedTitle
+                        let faviconUpdate: Data?? = existing.iconImageData == favicon ? nil : .some(favicon)
+                        let loadingUpdate: Bool? = existing.isLoading == browser.isLoading ? nil : browser.isLoading
+                        let mutedUpdate: Bool? = existing.isAudioMuted == browser.isMuted ? nil : browser.isMuted
+                        guard titleUpdate != nil || faviconUpdate != nil || loadingUpdate != nil || mutedUpdate != nil else { return }
+                        self.bonsplitController.updateTab(
+                            tabId,
+                            title: titleUpdate,
+                            iconImageData: faviconUpdate,
+                            isLoading: loadingUpdate,
+                            isAudioMuted: mutedUpdate
+                        )
                     }
-                    guard event.refreshMetadata else {
-                        return
-                    }
-                    self.publishBrowserOpenTabSuggestion(for: browser)
-                    guard let tabId = self.surfaceId(forPanelId: browser.id),
-                          let existing = self.bonsplitController.tab(tabId) else { return }
-                    // Only push fields that actually changed. The combined stream
-                    // fires for any observed field, so an `isLoading` flicker during a
-                    // page load would otherwise re-publish the (unchanged) title and
-                    // favicon, mutating the @Observable BonsplitController and
-                    // re-rendering the Dock tree for nothing. Mirrors the main area's
-                    // guarded path in Workspace.installBrowserPanelSubscription.
-                    let resolvedTitle = browser.displayTitle
-                    let favicon = browser.faviconPNGData
-                    let titleUpdate: String? =
-                        existing.hasCustomTitle || existing.title == resolvedTitle
-                        ? nil
-                        : resolvedTitle
-                    let faviconUpdate: Data?? = existing.iconImageData == favicon ? nil : .some(favicon)
-                    let loadingUpdate: Bool? = existing.isLoading == browser.isLoading ? nil : browser.isLoading
-                    let mutedUpdate: Bool? = existing.isAudioMuted == browser.isMuted ? nil : browser.isMuted
-                    guard titleUpdate != nil || faviconUpdate != nil || loadingUpdate != nil || mutedUpdate != nil else { return }
-                    self.bonsplitController.updateTab(
-                        tabId,
-                        title: titleUpdate,
-                        iconImageData: faviconUpdate,
-                        isLoading: loadingUpdate,
-                        isAudioMuted: mutedUpdate
-                    )
                 }
             panelCancellables[panel.id] = cancellable
             publishBrowserOpenTabSuggestion(for: browser)
