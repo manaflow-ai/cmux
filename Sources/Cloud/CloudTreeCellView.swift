@@ -49,7 +49,7 @@ final class CloudTreeCellView: NSTableCellView {
         style: CloudTreeStyle = CloudTreeStyleStore.current
     ) {
         displayHost.rootView = AnyView(
-            CloudTreeRowContentView(kind: node.kind, style: style)
+            CloudTreeRowContentView(kind: node.kind, titlePrefix: node.displayPrefix, style: style)
                 .frame(maxWidth: .infinity, alignment: .leading)
         )
         if CloudTreeRowHoverButtons.hasButtons(for: node.kind) {
