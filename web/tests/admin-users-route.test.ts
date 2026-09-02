@@ -562,10 +562,11 @@ describe("admin pro-users routes", () => {
     const response = await GET_PRO_USERS(new NextRequest("https://cmux.com/api/admin/pro-users"));
     expect(response.status).toBe(200);
     expect(response.headers.get("cache-control")).toBe("no-store");
-    const body = (await response.json()) as { subscribers: Array<Record<string, unknown>> };
+    const body = (await response.json()) as { subscribers: Array<Record<string, unknown>>; truncated: Record<string, boolean> };
     expect(body.subscribers).toEqual([
       { userId: "u1", email: "pat@example.com", subscriptionId: "sub_1", status: "active", cancelAtPeriodEnd: false, currentPeriodEnd: null },
     ]);
+    expect(body.truncated).toEqual({ subscribers: false, teamSubscriptions: false, pendingGrants: false });
   });
 
   test("the scan validates its query and returns paid manual overrides", async () => {

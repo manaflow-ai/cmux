@@ -29,6 +29,8 @@ import {
 
 export const PRO_LIST_SCAN_PAGE_SIZE = 100;
 export const PRO_LIST_MAX_ROWS = 5000;
+/** Stack lookups issued at once while resolving team display names. */
+export const PRO_LIST_TEAM_LOOKUP_CONCURRENCY = 8;
 
 export type StripeProSubscriber = {
   readonly userId: string;
@@ -64,10 +66,22 @@ export type ManualTeamGrant = {
   readonly lastGrant: AdminPlanGrantRecord | null;
 };
 
+/** A list plus whether the hard row cap cut it off. */
+export type CappedList<Row> = {
+  readonly rows: readonly Row[];
+  /** True when more rows exist than PRO_LIST_MAX_ROWS; the UI must say so. */
+  readonly truncated: boolean;
+};
+
 export type ProListSnapshot = {
   readonly subscribers: readonly StripeProSubscriber[];
   readonly teamSubscriptions: readonly StripeTeamSubscription[];
   readonly pendingGrants: readonly AdminPendingGrantRow[];
+  readonly truncated: {
+    readonly subscribers: boolean;
+    readonly teamSubscriptions: boolean;
+    readonly pendingGrants: boolean;
+  };
 };
 
 export type ProListScanPage<Row> = {
@@ -95,9 +109,9 @@ export type ProListStackApp = {
 /** Every account with an active Stripe Pro row, newest period first, one row per user. */
 export async function listStripeProSubscribers(
   options: { readonly db?: ProListDb } = {},
-): Promise<StripeProSubscriber[]> {
+): Promise<CappedList<StripeProSubscriber>> {
   const db = options.db ?? cloudDb();
-  const rows = await db
+  const fetched = await db
     .select({
       userId: stripeSubscriptions.stackUserId,
       subscriptionId: stripeSubscriptions.id,
@@ -117,7 +131,9 @@ export async function listStripeProSubscribers(
       ),
     )
     .orderBy(desc(stripeSubscriptions.currentPeriodEnd), desc(stripeSubscriptions.updatedAt))
-    .limit(PRO_LIST_MAX_ROWS);
+    .limit(PRO_LIST_MAX_ROWS + 1);
+  const truncated = fetched.length > PRO_LIST_MAX_ROWS;
+  const rows = fetched.slice(0, PRO_LIST_MAX_ROWS);
   const seen = new Set<string>();
   const out: StripeProSubscriber[] = [];
   for (const row of rows) {
@@ -132,16 +148,24 @@ export async function listStripeProSubscribers(
       currentPeriodEnd: row.currentPeriodEnd ? row.currentPeriodEnd.toISOString() : null,
     });
   }
-  return out;
+  return { rows: out, truncated };
 }
 
-/** Every team with an active Stripe Team row, with its Stack display name when reachable. */
+/**
+ * Every team with an active Stripe Team row, with its Stack display name
+ * when reachable. Name lookups run a few at a time so a large roster cannot
+ * open thousands of Stack requests at once.
+ */
 export async function listStripeTeamSubscriptions(
-  options: { readonly db?: ProListDb; readonly app?: ProListStackApp } = {},
-): Promise<StripeTeamSubscription[]> {
+  options: {
+    readonly db?: ProListDb;
+    readonly app?: ProListStackApp;
+    readonly concurrency?: number;
+  } = {},
+): Promise<CappedList<StripeTeamSubscription>> {
   const db = options.db ?? cloudDb();
   const app = options.app ?? defaultProListStackApp();
-  const rows = await db
+  const fetched = await db
     .select({
       teamId: stripeSubscriptions.stackTeamId,
       subscriptionId: stripeSubscriptions.id,
@@ -160,15 +184,19 @@ export async function listStripeTeamSubscriptions(
       ),
     )
     .orderBy(desc(stripeSubscriptions.currentPeriodEnd), desc(stripeSubscriptions.updatedAt))
-    .limit(PRO_LIST_MAX_ROWS);
+    .limit(PRO_LIST_MAX_ROWS + 1);
+  const truncated = fetched.length > PRO_LIST_MAX_ROWS;
+  const rows = fetched.slice(0, PRO_LIST_MAX_ROWS);
   const seen = new Set<string>();
   const unique = rows.filter((row) => {
     if (!row.teamId || seen.has(row.teamId)) return false;
     seen.add(row.teamId);
     return true;
   });
-  return await Promise.all(
-    unique.map(async (row) => {
+  const resolved = await mapWithConcurrency(
+    unique,
+    options.concurrency ?? PRO_LIST_TEAM_LOOKUP_CONCURRENCY,
+    async (row): Promise<StripeTeamSubscription> => {
       const team = await app.getTeam(row.teamId!).catch(() => null);
       return {
         teamId: row.teamId!,
@@ -179,16 +207,35 @@ export async function listStripeTeamSubscriptions(
         cancelAtPeriodEnd: Boolean(row.cancelAtPeriodEnd),
         currentPeriodEnd: row.currentPeriodEnd ? row.currentPeriodEnd.toISOString() : null,
       };
-    }),
+    },
   );
+  return { rows: resolved, truncated };
+}
+
+/** Runs `work` over `items` with at most `limit` in flight, preserving order. */
+export async function mapWithConcurrency<Item, Result>(
+  items: readonly Item[],
+  limit: number,
+  work: (item: Item) => Promise<Result>,
+): Promise<Result[]> {
+  const results: Result[] = new Array(items.length);
+  let next = 0;
+  const workers = Array.from({ length: Math.max(1, Math.min(limit, items.length)) }, async () => {
+    while (next < items.length) {
+      const index = next++;
+      results[index] = await work(items[index]!);
+    }
+  });
+  await Promise.all(workers);
+  return results;
 }
 
 /** Every open pending email grant, newest first. */
 export async function listAllPendingEmailGrants(
   options: { readonly db?: ProListDb } = {},
-): Promise<AdminPendingGrantRow[]> {
+): Promise<CappedList<AdminPendingGrantRow>> {
   const db = options.db ?? cloudDb();
-  const rows = await db
+  const fetched = await db
     .select({
       id: adminPlanGrants.id,
       email: adminPlanGrants.email,
@@ -199,14 +246,17 @@ export async function listAllPendingEmailGrants(
     .from(adminPlanGrants)
     .where(and(isNull(adminPlanGrants.appliedAt), isNull(adminPlanGrants.revokedAt)))
     .orderBy(desc(adminPlanGrants.createdAt))
-    .limit(PRO_LIST_MAX_ROWS);
-  return rows.map((row) => ({
-    id: row.id,
-    email: row.email,
-    plan: row.plan,
-    grantedByEmail: row.grantedByEmail ?? null,
-    createdAt: row.createdAt.toISOString(),
-  }));
+    .limit(PRO_LIST_MAX_ROWS + 1);
+  return {
+    truncated: fetched.length > PRO_LIST_MAX_ROWS,
+    rows: fetched.slice(0, PRO_LIST_MAX_ROWS).map((row) => ({
+      id: row.id,
+      email: row.email,
+      plan: row.plan,
+      grantedByEmail: row.grantedByEmail ?? null,
+      createdAt: row.createdAt.toISOString(),
+    })),
+  };
 }
 
 /** One page of the Stack user directory, keeping only accounts with a paid manual override. */
