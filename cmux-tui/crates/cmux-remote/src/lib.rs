@@ -20,6 +20,8 @@ pub mod daemon;
 pub mod http;
 pub mod identity;
 pub mod link;
+pub use mux_client::MuxLineClient;
+mod mux_client;
 mod mux_codec;
 mod mux_input;
 mod mux_lanes;

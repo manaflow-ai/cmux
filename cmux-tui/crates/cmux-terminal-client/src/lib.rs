@@ -1,6 +1,7 @@
 use std::collections::BTreeMap;
-use std::ffi::{CStr, c_char, c_void};
+use std::ffi::{CStr, CString, c_char, c_void};
 use std::future::Future;
+use std::path::Path;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration as StdDuration, Instant};
@@ -9,11 +10,17 @@ use base64::Engine;
 use bytes::Bytes;
 use cmux_remote::connection::{ClientConnection, ClientConnectionConfig, ReconnectPolicy};
 use cmux_remote::crypto::{ClientAuthMode, StaticIdentity};
-use cmux_remote::identity::EnrollmentInvitation;
-use cmux_remote::provider::{
-    ConnectRequest, IrohProvider, IrohProviderConfig, ROUTING_DIRECT_ADDRS, ROUTING_NODE_ID,
-    ROUTING_RELAY_URL, TransportProvider,
+use cmux_remote::MuxLineClient;
+use cmux_remote::identity::{
+    ClientIdentityStore, EnrollmentInvitation, KnownDaemon, KnownDaemonAuth,
+    credential_free_route_hint,
 };
+use cmux_remote::provider::{
+    ConnectRequest, Dialer, DirectWebSocketProvider, IrohProvider, IrohProviderConfig,
+    OsTcpDialer, ROUTING_DIRECT_ADDRS, ROUTING_NODE_ID, ROUTING_RELAY_URL, TransportProvider,
+    WireGuardDialer,
+};
+use cmux_wg::{WgConfig, WgNet};
 use cmux_remote::service::{EndpointRole, ServiceMultiplexer, ServiceStream};
 use cmux_remote_protocol::{Lane, LanePolicy, Service, ServiceControl, SessionId};
 use cmux_tui_core::apply_terminal_color_overrides;
@@ -28,6 +35,7 @@ use ghostty_vt::{
     Callbacks, CellWidth, KeyAction, KeyEncoder, RenderState, Terminal, key_input_from_chord,
 };
 use serde::Serialize;
+use serde_json::{Value, json};
 use tokio::runtime::Runtime;
 use url::Url;
 use zeroize::Zeroizing;
@@ -40,12 +48,107 @@ const TERMINAL_RECONNECT_MAX_DELAY: StdDuration = StdDuration::from_secs(4);
 pub struct CmuxTerminalClient {
     runtime: Runtime,
     connection: Arc<ClientConnection>,
-    provider: Arc<IrohProvider>,
+    transport: ClientTransport,
     multiplexer: Arc<ServiceMultiplexer>,
     state: Arc<Mutex<ClientState>>,
     updates: Arc<ClientUpdates>,
+    raw_output: Arc<RawOutput>,
     terminal: Mutex<Option<ActiveTerminal>>,
+    mux: tokio::sync::Mutex<Option<Arc<MuxLineClient>>>,
     next_request: AtomicU64,
+}
+
+/// The carrier a client was connected over. Iroh owns an endpoint that must
+/// be closed; a direct WebSocket provider owns nothing past its links.
+enum ClientTransport {
+    Iroh(Arc<IrohProvider>),
+    Direct(Arc<DirectWebSocketProvider>),
+}
+
+impl ClientTransport {
+    async fn close(&self) {
+        match self {
+            Self::Iroh(provider) => provider.close().await,
+            Self::Direct(_) => {}
+        }
+    }
+}
+
+/// An in-process WireGuard tunnel shared by any number of clients. The
+/// driver runs on its own runtime so a client's runtime can be torn down
+/// without stopping the tunnel other clients still use.
+pub struct CmuxWireGuardNet {
+    _runtime: Runtime,
+    net: Arc<WgNet>,
+}
+
+/// Raw terminal output delivered to an embedding renderer instead of being
+/// decoded into text frames here.
+///
+/// `kind` is one of the `CMUX_TERMINAL_OUTPUT_*` constants in the header:
+/// `1` snapshot (the replay bytes for a fresh parser sized `cols` x `rows`),
+/// `2` output bytes, `3` resize (`cols` x `rows`, no bytes), `4` exit.
+type TerminalOutputCallback =
+    unsafe extern "C" fn(*mut c_void, u32, *const u8, usize, u16, u16);
+
+const OUTPUT_KIND_SNAPSHOT: u32 = 1;
+const OUTPUT_KIND_OUTPUT: u32 = 2;
+const OUTPUT_KIND_RESIZED: u32 = 3;
+const OUTPUT_KIND_EXIT: u32 = 4;
+
+#[derive(Clone, Copy)]
+struct OutputCallbackRegistration {
+    callback: TerminalOutputCallback,
+    context: usize,
+}
+
+#[derive(Default)]
+struct RawOutput {
+    callback: Mutex<Option<OutputCallbackRegistration>>,
+}
+
+impl RawOutput {
+    fn set_callback(&self, callback: Option<TerminalOutputCallback>, context: *mut c_void) {
+        *self.callback.lock().unwrap() = callback
+            .map(|callback| OutputCallbackRegistration { callback, context: context as usize });
+    }
+
+    fn is_installed(&self) -> bool {
+        self.callback.lock().unwrap().is_some()
+    }
+
+    fn emit(&self, event: &RawEvent) {
+        let registered = self.callback.lock().unwrap();
+        let Some(registered) = *registered else { return };
+        let (kind, bytes, cols, rows): (u32, &[u8], u16, u16) = match event {
+            RawEvent::Snapshot { cols, rows, replay } => {
+                (OUTPUT_KIND_SNAPSHOT, replay.as_slice(), *cols, *rows)
+            }
+            RawEvent::Output(bytes) => (OUTPUT_KIND_OUTPUT, bytes.as_ref(), 0, 0),
+            RawEvent::Resized { cols, rows } => (OUTPUT_KIND_RESIZED, &[], *cols, *rows),
+            RawEvent::Exit => (OUTPUT_KIND_EXIT, &[], 0, 0),
+        };
+        // SAFETY: the FFI caller owns the callback context; the registration
+        // mutex is held across the invocation so removal waits for it.
+        unsafe {
+            (registered.callback)(
+                registered.context as *mut c_void,
+                kind,
+                bytes.as_ptr(),
+                bytes.len(),
+                cols,
+                rows,
+            );
+        };
+    }
+}
+
+#[derive(Debug)]
+enum RawEvent {
+    Snapshot { cols: u16, rows: u16, replay: Vec<u8> },
+    Output(Bytes),
+    Resized { cols: u16, rows: u16 },
+    Exit,
 }
 
 type TerminalUpdateCallback = unsafe extern "C" fn(*mut c_void);
@@ -162,6 +265,8 @@ impl ActiveTerminal {
 }
 
 struct ClientState {
+    /// Deliver bytes to the embedding renderer instead of a local parser.
+    raw_mode: bool,
     terminal: Option<Terminal>,
     key_encoder: KeyEncoder,
     render: RenderState,
@@ -231,6 +336,7 @@ impl ClientState {
         terminal_id: TerminalPublicId,
     ) -> Result<Self, String> {
         Ok(Self {
+            raw_mode: false,
             terminal: None,
             key_encoder: KeyEncoder::new().map_err(|error| error.to_string())?,
             render: RenderState::new().map_err(|error| error.to_string())?,
@@ -301,29 +407,40 @@ impl ClientState {
         Ok(encoded)
     }
 
-    fn apply(&mut self, frame: Frame) -> Result<FrameEffect, String> {
+    fn apply(&mut self, frame: Frame) -> Result<(FrameEffect, Option<RawEvent>), String> {
+        let mut event = None;
         let effect = match frame.kind {
             MessageKind::Snapshot => {
                 let snapshot = decode_host_snapshot_payload(&frame.payload)
                     .map_err(|error| error.to_string())?;
-                let mut terminal =
-                    Terminal::new(snapshot.cols, snapshot.rows, 100_000, Callbacks::default())
+                let terminal = if self.raw_mode {
+                    event = Some(RawEvent::Snapshot {
+                        cols: snapshot.cols,
+                        rows: snapshot.rows,
+                        replay: snapshot.replay,
+                    });
+                    None
+                } else {
+                    let mut terminal =
+                        Terminal::new(snapshot.cols, snapshot.rows, 100_000, Callbacks::default())
+                            .map_err(|error| error.to_string())?;
+                    terminal
+                        .resize(
+                            snapshot.cols,
+                            snapshot.rows,
+                            u32::from(snapshot.cell_pixels.0),
+                            u32::from(snapshot.cell_pixels.1),
+                        )
                         .map_err(|error| error.to_string())?;
-                terminal
-                    .resize(
-                        snapshot.cols,
-                        snapshot.rows,
-                        u32::from(snapshot.cell_pixels.0),
-                        u32::from(snapshot.cell_pixels.1),
-                    )
-                    .map_err(|error| error.to_string())?;
-                terminal
-                    .apply_vt_replay_parts(
-                        &snapshot.replay,
-                        &snapshot.kitty_image_aliases,
-                        snapshot.kitty_state,
-                    )
-                    .map_err(|error| error.to_string())?;
+                    terminal
+                        .apply_vt_replay_parts(
+                            &snapshot.replay,
+                            &snapshot.kitty_image_aliases,
+                            snapshot.kitty_state,
+                        )
+                        .map_err(|error| error.to_string())?;
+                    Some(terminal)
+                };
                 self.cols = snapshot.cols;
                 self.rows = snapshot.rows;
                 self.cell_pixels = snapshot.cell_pixels;
@@ -333,7 +450,7 @@ impl ClientState {
                 self.local_parser_cursor = frame.sequence;
                 self.source_cursor = frame.sequence;
                 self.expected_sequence = frame.sequence.checked_add(1);
-                self.terminal = Some(terminal);
+                self.terminal = terminal;
                 self.snapshot_applied = true;
                 self.status = "snapshot".into();
                 self.render_dirty = true;
@@ -344,12 +461,16 @@ impl ClientState {
             {
                 let colors = decode_terminal_color_overrides(&frame.payload)
                     .map_err(|error| error.to_string())?;
-                apply_terminal_color_overrides(
-                    self.terminal
-                        .as_mut()
-                        .ok_or_else(|| "Colors arrived before snapshot".to_string())?,
-                    &colors,
-                );
+                // In raw mode the embedding renderer owns palette state; the
+                // application colors arrive again inside the replay bytes.
+                if !self.raw_mode {
+                    apply_terminal_color_overrides(
+                        self.terminal
+                            .as_mut()
+                            .ok_or_else(|| "Colors arrived before snapshot".to_string())?,
+                        &colors,
+                    );
+                }
                 self.bootstrap_frames = self.bootstrap_frames.saturating_add(1);
                 self.render_dirty = true;
                 FrameEffect::Continue
@@ -365,11 +486,18 @@ impl ClientState {
             }
             MessageKind::Output => {
                 self.require_sequence(frame.sequence)?;
-                let terminal = self
-                    .terminal
-                    .as_mut()
-                    .ok_or_else(|| "output arrived before snapshot".to_string())?;
-                terminal.vt_write(&frame.payload);
+                if self.raw_mode {
+                    if !self.snapshot_applied {
+                        return Err("output arrived before snapshot".into());
+                    }
+                    event = Some(RawEvent::Output(Bytes::from(frame.payload.clone())));
+                } else {
+                    let terminal = self
+                        .terminal
+                        .as_mut()
+                        .ok_or_else(|| "output arrived before snapshot".to_string())?;
+                    terminal.vt_write(&frame.payload);
+                }
                 self.raw_bytes = self.raw_bytes.saturating_add(frame.payload.len() as u64);
                 self.raw_frames = self.raw_frames.saturating_add(1);
                 self.local_parser_cursor = frame.sequence;
@@ -388,11 +516,18 @@ impl ClientState {
                 } else {
                     self.cell_pixels
                 };
-                self.terminal
-                    .as_mut()
-                    .ok_or_else(|| "resize arrived before snapshot".to_string())?
-                    .resize(cols, rows, u32::from(cell_pixels.0), u32::from(cell_pixels.1))
-                    .map_err(|error| error.to_string())?;
+                if self.raw_mode {
+                    if !self.snapshot_applied {
+                        return Err("resize arrived before snapshot".into());
+                    }
+                    event = Some(RawEvent::Resized { cols, rows });
+                } else {
+                    self.terminal
+                        .as_mut()
+                        .ok_or_else(|| "resize arrived before snapshot".to_string())?
+                        .resize(cols, rows, u32::from(cell_pixels.0), u32::from(cell_pixels.1))
+                        .map_err(|error| error.to_string())?;
+                }
                 self.cols = cols;
                 self.rows = rows;
                 self.cell_pixels = cell_pixels;
@@ -406,6 +541,9 @@ impl ClientState {
                 self.ready = false;
                 self.exited = true;
                 self.status = "exited".into();
+                if self.raw_mode {
+                    event = Some(RawEvent::Exit);
+                }
                 FrameEffect::Stop
             }
             MessageKind::ResyncRequired => {
@@ -448,7 +586,7 @@ impl ClientState {
             }
             other => return Err(format!("unexpected smart terminal frame {other:?}")),
         };
-        Ok(effect)
+        Ok((effect, event))
     }
 
     fn require_sequence(&mut self, sequence: u64) -> Result<(), String> {
@@ -464,6 +602,11 @@ impl ClientState {
     }
 
     fn materialize_frame(&mut self) -> Result<(), String> {
+        // Raw mode has no local parser; the embedding renderer holds the
+        // screen, so there is nothing to materialize.
+        if self.raw_mode {
+            return Ok(());
+        }
         // Snapshot and Colors are one bootstrap transaction. Do not expose
         // their renderable result until the host commits the same boundary
         // with Ready.
@@ -716,6 +859,7 @@ async fn receive_frames(
     stream: Arc<ServiceStream>,
     state: Arc<Mutex<ClientState>>,
     updates: Arc<ClientUpdates>,
+    raw_output: Arc<RawOutput>,
 ) -> StreamOutcome {
     let mut decoder = FrameDecoder::new(MAX_FRAME_PAYLOAD);
     loop {
@@ -731,8 +875,14 @@ async fn receive_frames(
                         let mut outcome = None;
                         for frame in frames {
                             let applied = state.lock().unwrap().apply(frame);
+                            // The state lock is released before the embedding
+                            // renderer runs, so a callback may call back into
+                            // this API without deadlocking.
+                            if let Ok((_, Some(event))) = &applied {
+                                raw_output.emit(event);
+                            }
                             updates.notify();
-                            match applied {
+                            match applied.map(|(effect, _)| effect) {
                                 Ok(FrameEffect::Continue) => {}
                                 Ok(FrameEffect::Restart) => {
                                     outcome = Some(StreamOutcome::Restart);
@@ -796,6 +946,7 @@ struct TerminalStreamSupervisor {
     close_notify: Arc<tokio::sync::Notify>,
     state: Arc<Mutex<ClientState>>,
     updates: Arc<ClientUpdates>,
+    raw_output: Arc<RawOutput>,
 }
 
 impl TerminalStreamSupervisor {
@@ -809,10 +960,13 @@ impl TerminalStreamSupervisor {
             close_notify,
             state,
             updates,
+            raw_output,
         } = self;
         let mut stream = initial_stream;
         loop {
-            let outcome = receive_frames(stream.clone(), state.clone(), updates.clone()).await;
+            let outcome =
+                receive_frames(stream.clone(), state.clone(), updates.clone(), raw_output.clone())
+                    .await;
             let current = streams.send_replace(None);
             if let Some(current) = current {
                 let _ = current.close().await;
@@ -984,6 +1138,7 @@ fn start_terminal_tasks(
     terminal_id: TerminalPublicId,
     state: Arc<Mutex<ClientState>>,
     updates: Arc<ClientUpdates>,
+    raw_output: Arc<RawOutput>,
 ) -> ActiveTerminal {
     let closed = Arc::new(AtomicBool::new(false));
     let close_notify = Arc::new(tokio::sync::Notify::new());
@@ -1005,6 +1160,7 @@ fn start_terminal_tasks(
             close_notify: close_notify.clone(),
             state: state.clone(),
             updates: updates.clone(),
+            raw_output,
         }
         .run(),
     );
@@ -1111,7 +1267,7 @@ impl CmuxTerminalClient {
             .as_ref()
             .map(|path| format!("{:?}", path.kind).to_lowercase())
             .unwrap_or_else(|| snapshot.transport.route.clone());
-        let next_state = match ClientState::new(
+        let mut next_state = match ClientState::new(
             snapshot.transport.provider,
             path,
             snapshot.generation,
@@ -1125,6 +1281,9 @@ impl CmuxTerminalClient {
                 return Err(error);
             }
         };
+        // The delivery mode is fixed per attach: a renderer that installs its
+        // callback after the snapshot would miss the replay.
+        next_state.raw_mode = self.raw_output.is_installed();
         *self.state.lock().unwrap() = next_state;
         self.updates.notify();
         *terminal = Some(start_terminal_tasks(
@@ -1134,6 +1293,7 @@ impl CmuxTerminalClient {
             terminal_id,
             self.state.clone(),
             self.updates.clone(),
+            self.raw_output.clone(),
         ));
         Ok(())
     }
@@ -1259,27 +1419,8 @@ unsafe fn connect_terminal_client(
     match connection {
         Ok((stream, connection, provider, multiplexer, state)) => {
             let updates = Arc::new(ClientUpdates::default());
-            let diagnostics_connection = connection.clone();
-            let diagnostics_state = state.clone();
-            let diagnostics_updates = updates.clone();
-            let mut generation = connection.subscribe_generation();
-            runtime.spawn(async move {
-                while generation.changed().await.is_ok() {
-                    let snapshot = diagnostics_connection.snapshot().await;
-                    let path = snapshot
-                        .transport
-                        .selected_path
-                        .as_ref()
-                        .map(|path| format!("{:?}", path.kind).to_lowercase())
-                        .unwrap_or_else(|| snapshot.transport.route.clone());
-                    let mut state = diagnostics_state.lock().unwrap();
-                    state.transport_provider = snapshot.transport.provider;
-                    state.transport_path = path;
-                    state.generation = snapshot.generation;
-                    drop(state);
-                    diagnostics_updates.notify();
-                }
-            });
+            let raw_output = Arc::new(RawOutput::default());
+            spawn_diagnostics(&runtime, &connection, &state, &updates);
             let terminal = start_terminal_tasks(
                 &runtime,
                 stream,
@@ -1287,15 +1428,18 @@ unsafe fn connect_terminal_client(
                 terminal_id,
                 state.clone(),
                 updates.clone(),
+                raw_output.clone(),
             );
             Box::into_raw(Box::new(CmuxTerminalClient {
                 runtime,
                 connection,
-                provider,
+                transport: ClientTransport::Iroh(provider),
                 multiplexer,
                 state,
                 updates,
+                raw_output,
                 terminal: Mutex::new(Some(terminal)),
+                mux: tokio::sync::Mutex::new(None),
                 next_request: AtomicU64::new(1),
             }))
         }
@@ -1472,6 +1616,7 @@ pub unsafe extern "C" fn cmux_terminal_client_disconnect(client: *mut CmuxTermin
     // SAFETY: ownership of a pointer returned by connect transfers exactly once.
     let client = unsafe { Box::from_raw(client) };
     client.updates.set_callback(None, std::ptr::null_mut());
+    client.raw_output.set_callback(None, std::ptr::null_mut());
     // Connection teardown may wait on the carrier. Transfer ownership to a
     // background thread so the C call is nonblocking for AppKit.
     let _ = std::thread::Builder::new().name("cmux-terminal-disconnect".into()).spawn(move || {
@@ -1480,9 +1625,12 @@ pub unsafe extern "C" fn cmux_terminal_client_disconnect(client: *mut CmuxTermin
             if let Some(terminal) = terminal {
                 terminal.close().await;
             }
+            if let Some(mux) = client.mux.lock().await.take() {
+                let _ = mux.close().await;
+            }
             client.multiplexer.shutdown().await;
             let _ = client.connection.close().await;
-            client.provider.close().await;
+            client.transport.close().await;
         });
     });
 }
@@ -1812,6 +1960,619 @@ pub unsafe extern "C" fn cmux_terminal_client_has_exited(
     client.state.lock().unwrap().exited
 }
 
+
+/// Keep the diagnostics snapshot current across carrier generations.
+fn spawn_diagnostics(
+    runtime: &Runtime,
+    connection: &Arc<ClientConnection>,
+    state: &Arc<Mutex<ClientState>>,
+    updates: &Arc<ClientUpdates>,
+) {
+    let connection = connection.clone();
+    let state = state.clone();
+    let updates = updates.clone();
+    let mut generation = connection.subscribe_generation();
+    runtime.spawn(async move {
+        while generation.changed().await.is_ok() {
+            let snapshot = connection.snapshot().await;
+            let path = snapshot
+                .transport
+                .selected_path
+                .as_ref()
+                .map(|path| format!("{:?}", path.kind).to_lowercase())
+                .unwrap_or_else(|| snapshot.transport.route.clone());
+            let mut state = state.lock().unwrap();
+            state.transport_provider = snapshot.transport.provider;
+            state.transport_path = path;
+            state.generation = snapshot.generation;
+            drop(state);
+            updates.notify();
+        }
+    });
+}
+
+/// Placeholder for a client that has not attached a terminal yet.
+fn unattached_terminal_id() -> TerminalPublicId {
+    TerminalPublicId::parse("term_00000000000000000000000000000000")
+        .expect("placeholder terminal id is well-formed")
+}
+
+/// Largest carrier frame on a direct WebSocket route; matches the sidecar.
+const DIRECT_ROUTE_MAX_FRAME_BYTES: usize = 65_535;
+
+struct RouteConnectOptions<'a> {
+    route: &'a str,
+    state_dir: &'a Path,
+    device_name: &'a str,
+    invitation_uri: Option<&'a str>,
+    wireguard: Option<Arc<WgNet>>,
+}
+
+struct RouteConnection {
+    transport: ClientTransport,
+    connection: Arc<ClientConnection>,
+    multiplexer: Arc<ServiceMultiplexer>,
+    state: Arc<Mutex<ClientState>>,
+}
+
+/// Pick the enrolled daemon a bare route refers to, the way the sidecar does:
+/// the one whose route hints contain this route, or the only one known.
+fn select_enrolled_daemon(daemons: Vec<KnownDaemon>, route: &str) -> Result<KnownDaemon, String> {
+    let hint = credential_free_route_hint(route).map_err(|error| error.to_string())?;
+    let matching = daemons
+        .iter()
+        .filter(|daemon| daemon.route_hints.iter().any(|known| known == &hint))
+        .cloned()
+        .collect::<Vec<_>>();
+    let selected = match matching.as_slice() {
+        [daemon] => daemon.clone(),
+        [] if daemons.len() == 1 => daemons[0].clone(),
+        [] => {
+            return Err("no enrolled daemon matches this route; connect with an invitation".into());
+        }
+        _ => return Err("multiple enrolled daemons match this route".into()),
+    };
+    if selected.auth == KnownDaemonAuth::Carrier {
+        return Err("this daemon was enrolled through a trusted carrier, not a device key".into());
+    }
+    Ok(selected)
+}
+
+async fn connect_route_client(options: RouteConnectOptions<'_>) -> Result<RouteConnection, String> {
+    let RouteConnectOptions { route, state_dir, device_name, invitation_uri, wireguard } = options;
+    let parsed = Url::parse(route).map_err(|error| format!("route: {error}"))?;
+    let store = ClientIdentityStore::load_or_create(state_dir)
+        .map_err(|error| format!("client identity: {error}"))?;
+    let invitation = invitation_uri
+        .map(|uri| EnrollmentInvitation::from_uri(uri).map_err(|error| format!("invitation: {error}")))
+        .transpose()?;
+
+    let (transport, endpoint, routing): (ClientTransport, Url, BTreeMap<String, String>) =
+        match parsed.scheme() {
+            "iroh" => {
+                let (endpoint, routing) = resolve_iroh_route(route)?;
+                let provider = Arc::new(
+                    IrohProvider::new(IrohProviderConfig {
+                        discovery_n0: true,
+                        ..IrohProviderConfig::default()
+                    })
+                    .map_err(|error| error.to_string())?,
+                );
+                (ClientTransport::Iroh(provider), endpoint, routing)
+            }
+            "ws" | "wss" => {
+                let dialer: Arc<dyn Dialer> = match wireguard {
+                    Some(net) => Arc::new(WireGuardDialer::new(net)),
+                    None => Arc::new(OsTcpDialer),
+                };
+                let provider = Arc::new(DirectWebSocketProvider::with_dialer(
+                    DIRECT_ROUTE_MAX_FRAME_BYTES,
+                    dialer,
+                ));
+                (ClientTransport::Direct(provider), parsed.clone(), BTreeMap::new())
+            }
+            other => return Err(format!("unsupported route scheme {other:?}")),
+        };
+
+    let (auth, expected_daemon, known) = match &invitation {
+        Some(invitation) => {
+            let daemon_key: [u8; 32] = base64::engine::general_purpose::URL_SAFE_NO_PAD
+                .decode(&invitation.daemon_public_key)
+                .map_err(|error| format!("daemon key: {error}"))?
+                .try_into()
+                .map_err(|bytes: Vec<u8>| format!("daemon key is {} bytes", bytes.len()))?;
+            let secret = invitation.secret_bytes().map_err(|error| error.to_string())?;
+            (
+                ClientAuthMode::Invitation {
+                    id: invitation.id.clone(),
+                    secret: Zeroizing::new(secret),
+                },
+                daemon_key,
+                None,
+            )
+        }
+        None => {
+            let known = select_enrolled_daemon(store.known_daemons().await, route)?;
+            let key = store
+                .daemon_key(&known.fingerprint)
+                .await
+                .map_err(|error| error.to_string())?
+                .ok_or_else(|| "enrolled daemon key is missing".to_string())?;
+            (ClientAuthMode::Enrolled, key, Some(known))
+        }
+    };
+
+    let mut session_bytes = [0u8; 16];
+    getrandom::fill(&mut session_bytes).map_err(|error| error.to_string())?;
+    let session = SessionId(session_bytes);
+    let group = match &transport {
+        ClientTransport::Iroh(provider) => provider
+            .connect(ConnectRequest { endpoint, session, lane_policy: LanePolicy::Isolated, routing })
+            .await
+            .map_err(|error| format!("Iroh connect: {error}"))?,
+        ClientTransport::Direct(provider) => provider
+            .connect(ConnectRequest { endpoint, session, lane_policy: LanePolicy::Isolated, routing })
+            .await
+            .map_err(|error| format!("direct connect: {error}"))?,
+    };
+    let connection = ClientConnection::connect(
+        group,
+        ClientConnectionConfig {
+            identity: store.identity(),
+            expected_daemon: Some(expected_daemon),
+            auth,
+            device_name: device_name.into(),
+            session,
+            lane_policy: LanePolicy::Isolated,
+            limits: Default::default(),
+            reconnect: ReconnectPolicy::default(),
+        },
+    )
+    .await
+    .map_err(|error| format!("Noise handshake: {error}"))?;
+
+    // Remember the daemon so the next connect on this route needs no invitation.
+    let remembered = match (&invitation, &known) {
+        (Some(invitation), _) => {
+            let mut hints = vec![route.to_string()];
+            for hint in &invitation.route_hints {
+                if !hints.contains(hint) {
+                    hints.push(hint.clone());
+                }
+            }
+            store
+                .pin_daemon(invitation.daemon_name.clone(), connection.daemon_public_key(), hints)
+                .await
+                .map(|_| ())
+        }
+        (None, Some(known)) => {
+            store.remember_verified_route(&known.fingerprint, route).await.map(|_| ())
+        }
+        (None, None) => Ok(()),
+    };
+    if let Err(error) = remembered {
+        let _ = connection.close().await;
+        return Err(format!("client state: {error}"));
+    }
+
+    let snapshot = connection.snapshot().await;
+    let path = snapshot
+        .transport
+        .selected_path
+        .as_ref()
+        .map(|path| format!("{:?}", path.kind).to_lowercase())
+        .unwrap_or_else(|| snapshot.transport.route.clone());
+    let state = Arc::new(Mutex::new(
+        ClientState::new(
+            snapshot.transport.provider,
+            path,
+            snapshot.generation,
+            unattached_terminal_id(),
+        )
+        .map_err(|error| format!("libghostty: {error}"))?,
+    ));
+    let multiplexer = ServiceMultiplexer::new(connection.clone(), EndpointRole::Client);
+    Ok(RouteConnection { transport, connection, multiplexer, state })
+}
+
+unsafe fn optional_str_from_ffi<'a>(value: *const c_char, what: &str) -> Result<Option<&'a str>, String> {
+    if value.is_null() {
+        return Ok(None);
+    }
+    // SAFETY: checked non-null; the C API requires a NUL-terminated string.
+    unsafe { CStr::from_ptr(value) }
+        .to_str()
+        .map(Some)
+        .map_err(|error| format!("{what} is not UTF-8: {error}"))
+}
+
+unsafe fn required_str_from_ffi<'a>(value: *const c_char, what: &str) -> Result<&'a str, String> {
+    // SAFETY: forwards the documented pointer contract.
+    unsafe { optional_str_from_ffi(value, what) }?.ok_or_else(|| format!("{what} is null"))
+}
+
+/// Connects to a daemon by route with a persistent device identity.
+///
+/// `route` is `ws://`, `wss://`, or `iroh://`. `state_dir` holds this device's
+/// key and the daemons it has enrolled with (created 0700 when missing).
+/// `invitation_uri` enrolls on first contact and may be NULL afterwards, when
+/// the enrolled key is used. `wireguard` may be NULL; when set, addresses
+/// inside that tunnel's routes are dialed through it. `timeout_milliseconds`
+/// of zero means no deadline. No terminal is attached; call
+/// [`cmux_terminal_client_attach`] after installing an output callback.
+///
+/// # Safety
+///
+/// String arguments must be NUL-terminated and readable for the call.
+/// `wireguard` must be null or a live handle from [`cmux_wireguard_net_start`]
+/// that outlives every client using it. `error_buffer` follows the connect
+/// buffer contract. A non-null result is owned and must be passed exactly
+/// once to [`cmux_terminal_client_disconnect`].
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn cmux_terminal_client_connect_route(
+    route: *const c_char,
+    state_dir: *const c_char,
+    device_name: *const c_char,
+    invitation_uri: *const c_char,
+    wireguard: *const CmuxWireGuardNet,
+    error_buffer: *mut c_char,
+    error_capacity: usize,
+    timeout_milliseconds: u64,
+) -> *mut CmuxTerminalClient {
+    let fail = |error: String| {
+        copy_utf8(&error, error_buffer, error_capacity);
+        std::ptr::null_mut()
+    };
+    let strings = || -> Result<_, String> {
+        // SAFETY: each string forwards the documented pointer contract.
+        unsafe {
+            Ok((
+                required_str_from_ffi(route, "route")?,
+                required_str_from_ffi(state_dir, "state_dir")?,
+                required_str_from_ffi(device_name, "device_name")?,
+                optional_str_from_ffi(invitation_uri, "invitation_uri")?,
+            ))
+        }
+    };
+    let (route, state_dir, device_name, invitation_uri) = match strings() {
+        Ok(values) => values,
+        Err(error) => return fail(error),
+    };
+    if device_name.trim().is_empty() {
+        return fail("device_name is empty".into());
+    }
+    // SAFETY: null is permitted; otherwise the caller guarantees a live handle.
+    let wireguard = unsafe { wireguard.as_ref() }.map(|net| net.net.clone());
+    let runtime = match Runtime::new() {
+        Ok(runtime) => runtime,
+        Err(error) => return fail(error.to_string()),
+    };
+    let connect = connect_route_client(RouteConnectOptions {
+        route,
+        state_dir: Path::new(state_dir),
+        device_name,
+        invitation_uri,
+        wireguard,
+    });
+    let connected = if timeout_milliseconds == 0 {
+        runtime.block_on(connect)
+    } else {
+        runtime.block_on(connect_with_timeout(
+            connect,
+            StdDuration::from_millis(timeout_milliseconds),
+        ))
+    };
+    match connected {
+        Ok(RouteConnection { transport, connection, multiplexer, state }) => {
+            let updates = Arc::new(ClientUpdates::default());
+            spawn_diagnostics(&runtime, &connection, &state, &updates);
+            Box::into_raw(Box::new(CmuxTerminalClient {
+                runtime,
+                connection,
+                transport,
+                multiplexer,
+                state,
+                updates,
+                raw_output: Arc::new(RawOutput::default()),
+                terminal: Mutex::new(None),
+                mux: tokio::sync::Mutex::new(None),
+                next_request: AtomicU64::new(1),
+            }))
+        }
+        Err(error) => fail(error),
+    }
+}
+
+/// Starts an in-process WireGuard tunnel from wg-quick config text.
+///
+/// The text must carry `PrivateKey`; it is parsed in memory and never written.
+/// The returned tunnel can back any number of clients and stays up until
+/// [`cmux_wireguard_net_free`].
+///
+/// # Safety
+///
+/// `config` must be a readable NUL-terminated string for the call.
+/// `error_buffer` follows the connect buffer contract. A non-null result must
+/// be freed exactly once, after every client that used it has disconnected.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn cmux_wireguard_net_start(
+    config: *const c_char,
+    error_buffer: *mut c_char,
+    error_capacity: usize,
+) -> *mut CmuxWireGuardNet {
+    let fail = |error: String| {
+        copy_utf8(&error, error_buffer, error_capacity);
+        std::ptr::null_mut()
+    };
+    // SAFETY: forwards the documented pointer contract.
+    let text = match unsafe { required_str_from_ffi(config, "config") } {
+        Ok(text) => Zeroizing::new(text.to_owned()),
+        Err(error) => return fail(error),
+    };
+    let parsed = match WgConfig::parse_wg_quick(&text) {
+        Ok(parsed) => parsed,
+        Err(error) => return fail(format!("wireguard config: {error}")),
+    };
+    let runtime = match tokio::runtime::Builder::new_multi_thread()
+        .worker_threads(1)
+        .enable_all()
+        .thread_name("cmux-wireguard")
+        .build()
+    {
+        Ok(runtime) => runtime,
+        Err(error) => return fail(error.to_string()),
+    };
+    match runtime.block_on(WgNet::start_with_new_socket(parsed)) {
+        Ok(net) => Box::into_raw(Box::new(CmuxWireGuardNet { _runtime: runtime, net: Arc::new(net) })),
+        Err(error) => fail(format!("wireguard: {error}")),
+    }
+}
+
+/// Stops the tunnel and frees the handle.
+///
+/// # Safety
+///
+/// `net` must be null or a handle from [`cmux_wireguard_net_start`] that no
+/// live client still references. The pointer must not be used afterward.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn cmux_wireguard_net_free(net: *mut CmuxWireGuardNet) {
+    if net.is_null() {
+        return;
+    }
+    // SAFETY: ownership transfers exactly once per the documented contract.
+    let net = unsafe { Box::from_raw(net) };
+    // The driver task lives on this runtime; drop it off the caller's thread so
+    // an AppKit or UIKit caller never blocks on socket teardown.
+    let _ = std::thread::Builder::new()
+        .name("cmux-wireguard-free".into())
+        .spawn(move || drop(net));
+}
+
+/// Installs the raw output callback, or clears it with NULL.
+///
+/// Install before attaching a terminal: the delivery mode is fixed when the
+/// attach begins, so a client attached without a callback keeps decoding text
+/// frames locally until it is detached and attached again.
+///
+/// # Safety
+///
+/// `client` must be a live handle. `context` must remain valid until the
+/// callback is cleared or the client is disconnected. The callback runs on
+/// internal worker threads; calls are serialized.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn cmux_terminal_client_set_output_callback(
+    client: *mut CmuxTerminalClient,
+    callback: Option<TerminalOutputCallback>,
+    context: *mut c_void,
+) {
+    if client.is_null() {
+        return;
+    }
+    // SAFETY: the caller guarantees a live handle.
+    let client = unsafe { &*client };
+    client.raw_output.set_callback(callback, context);
+}
+
+/// Bytes of a `cmux.protocol/2` request id or idempotency key.
+fn random_token() -> Result<String, String> {
+    let mut bytes = [0u8; 16];
+    getrandom::fill(&mut bytes).map_err(|error| error.to_string())?;
+    Ok(bytes.iter().map(|byte| format!("{byte:02x}")).collect())
+}
+
+impl CmuxTerminalClient {
+    async fn mux_client(&self) -> Result<Arc<MuxLineClient>, String> {
+        let mut slot = self.mux.lock().await;
+        if let Some(existing) = slot.as_ref() {
+            return Ok(existing.clone());
+        }
+        let opened = Arc::new(
+            MuxLineClient::open(&self.multiplexer)
+                .await
+                .map_err(|error| format!("open mux control: {error}"))?,
+        );
+        *slot = Some(opened.clone());
+        Ok(opened)
+    }
+
+    /// Issue one `cmux.protocol/2` operation and return its `result`.
+    fn resource_operation(
+        &self,
+        operation: &str,
+        mut params: serde_json::Map<String, Value>,
+        mutation: bool,
+        timeout: Option<StdDuration>,
+    ) -> Result<Value, String> {
+        params.entry("machine").or_insert_with(|| json!("current"));
+        params.entry("session").or_insert_with(|| json!("current"));
+        let mut request = json!({
+            "protocol": "cmux.protocol/2",
+            "type": "request",
+            "id": random_token()?,
+            "operation": operation,
+            "params": Value::Object(params),
+        });
+        if mutation {
+            request["idempotency_key"] = json!(random_token()?);
+        }
+        let call = async {
+            let mux = self.mux_client().await?;
+            match mux.request(&request).await {
+                Ok(reply) => Ok(reply),
+                Err(error) => {
+                    // A failed stream is not reused; the next call reopens it.
+                    self.mux.lock().await.take();
+                    let _ = mux.close().await;
+                    Err(format!("{operation}: {error}"))
+                }
+            }
+        };
+        let reply = match timeout {
+            Some(timeout) => match self
+                .runtime
+                .block_on(async { tokio::time::timeout(timeout, call).await })
+            {
+                Ok(reply) => reply?,
+                Err(_) => {
+                    // The reply may still arrive later on this stream and would
+                    // be mistaken for nothing, but a stale reply must never be
+                    // matched to a future request; drop the stream instead.
+                    if let Some(mux) = self.runtime.block_on(self.mux.lock()).take() {
+                        self.runtime.block_on(mux.close()).ok();
+                    }
+                    return Err(format!("{operation}: {CONNECTION_TIMEOUT_ERROR}"));
+                }
+            },
+            None => self.runtime.block_on(call)?,
+        };
+        if reply.get("ok").and_then(Value::as_bool) == Some(true) {
+            return reply.get("result").cloned().ok_or_else(|| format!("{operation}: no result"));
+        }
+        let error = reply.get("error");
+        let code = error.and_then(|error| error.get("code")).and_then(Value::as_str).unwrap_or("error");
+        let message = error
+            .and_then(|error| error.get("message"))
+            .and_then(Value::as_str)
+            .unwrap_or("operation failed");
+        Err(format!("{operation}: {code}: {message}"))
+    }
+}
+
+fn json_to_c_string(value: &Value) -> Result<*mut c_char, String> {
+    let text = serde_json::to_string(value).map_err(|error| error.to_string())?;
+    CString::new(text).map(CString::into_raw).map_err(|error| error.to_string())
+}
+
+fn timeout_from_millis(milliseconds: u64) -> Option<StdDuration> {
+    (milliseconds != 0).then(|| StdDuration::from_millis(milliseconds))
+}
+
+/// Lists the daemon's terminals as the JSON array `terminal.list` returns.
+///
+/// Returns an owned NUL-terminated UTF-8 string to free with
+/// [`cmux_terminal_client_string_free`], or NULL with the error written.
+///
+/// # Safety
+///
+/// `client` must be a live handle. `error_buffer` follows the connect buffer
+/// contract.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn cmux_terminal_client_list_terminals(
+    client: *mut CmuxTerminalClient,
+    error_buffer: *mut c_char,
+    error_capacity: usize,
+    timeout_milliseconds: u64,
+) -> *mut c_char {
+    if client.is_null() {
+        copy_utf8("client is null", error_buffer, error_capacity);
+        return std::ptr::null_mut();
+    }
+    // SAFETY: the caller guarantees a live handle.
+    let client = unsafe { &*client };
+    let result = client
+        .resource_operation(
+            "terminal.list",
+            serde_json::Map::new(),
+            false,
+            timeout_from_millis(timeout_milliseconds),
+        )
+        .and_then(|value| json_to_c_string(&value));
+    match result {
+        Ok(text) => text,
+        Err(error) => {
+            copy_utf8(&error, error_buffer, error_capacity);
+            std::ptr::null_mut()
+        }
+    }
+}
+
+/// Creates a workspace holding one new terminal (`workspace.create` with
+/// `initial_content: terminal`) and returns the mutation result JSON, whose
+/// `created.terminal` names the terminal to attach.
+///
+/// # Safety
+///
+/// `client` must be a live handle. `name` may be NULL. `error_buffer` follows
+/// the connect buffer contract.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn cmux_terminal_client_create_terminal(
+    client: *mut CmuxTerminalClient,
+    name: *const c_char,
+    error_buffer: *mut c_char,
+    error_capacity: usize,
+    timeout_milliseconds: u64,
+) -> *mut c_char {
+    if client.is_null() {
+        copy_utf8("client is null", error_buffer, error_capacity);
+        return std::ptr::null_mut();
+    }
+    // SAFETY: the caller guarantees a live handle.
+    let client = unsafe { &*client };
+    // SAFETY: null is permitted; otherwise NUL-terminated per the contract.
+    let name = match unsafe { optional_str_from_ffi(name, "name") } {
+        Ok(name) => name,
+        Err(error) => {
+            copy_utf8(&error, error_buffer, error_capacity);
+            return std::ptr::null_mut();
+        }
+    };
+    let mut params = serde_json::Map::new();
+    params.insert("initial_content".into(), json!("terminal"));
+    if let Some(name) = name {
+        params.insert("name".into(), json!(name));
+    }
+    let result = client
+        .resource_operation(
+            "workspace.create",
+            params,
+            true,
+            timeout_from_millis(timeout_milliseconds),
+        )
+        .and_then(|value| json_to_c_string(&value));
+    match result {
+        Ok(text) => text,
+        Err(error) => {
+            copy_utf8(&error, error_buffer, error_capacity);
+            std::ptr::null_mut()
+        }
+    }
+}
+
+/// Frees a string returned by this library.
+///
+/// # Safety
+///
+/// `text` must be null or a pointer returned by this library that has not
+/// been freed.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn cmux_terminal_client_string_free(text: *mut c_char) {
+    if text.is_null() {
+        return;
+    }
+    // SAFETY: ownership transfers exactly once per the documented contract.
+    drop(unsafe { CString::from_raw(text) });
+}
+
 #[cfg(test)]
 mod tests {
     use std::ffi::{CStr, c_void};
@@ -1917,7 +2678,7 @@ mod tests {
         payload.extend_from_slice(&RESIZE_ACK_CANONICAL_CHANGED.to_le_bytes());
         let mut acknowledgement = Frame::new(MessageKind::ResizeAck, payload);
         acknowledgement.request_id = request.request_id;
-        assert_eq!(state.apply(acknowledgement).unwrap(), FrameEffect::Continue);
+        assert_eq!(state.apply(acknowledgement).unwrap().0, FrameEffect::Continue);
         assert!(delivery.is_acknowledged(request.request_id));
         assert_eq!(
             state.resize_acknowledgement,
@@ -1953,7 +2714,7 @@ mod tests {
         state.apply(output).unwrap();
         let mut exit = Frame::new(MessageKind::Exit, Vec::new());
         exit.sequence = boundary + 2;
-        assert_eq!(state.apply(exit).unwrap(), FrameEffect::Stop);
+        assert_eq!(state.apply(exit).unwrap().0, FrameEffect::Stop);
         state.materialize_frame().unwrap();
 
         assert!(state.frame_text.contains("final output"), "{}", state.frame_text);
@@ -2067,6 +2828,136 @@ mod tests {
                 generation: right_generation,
             }),
         )
+    }
+
+    #[test]
+    fn raw_mode_forwards_replay_output_resize_and_exit_without_a_local_parser() {
+        let mut state =
+            ClientState::new("test".into(), "memory".into(), 1, test_terminal_id()).unwrap();
+        state.raw_mode = true;
+        let mut snapshot = Frame::new(MessageKind::Snapshot, test_snapshot_payload(b"prompt> "));
+        snapshot.sequence = 7;
+        let (effect, event) = state.apply(snapshot).unwrap();
+        assert_eq!(effect, FrameEffect::Continue);
+        match event {
+            Some(RawEvent::Snapshot { cols, rows, replay }) => {
+                assert_eq!((cols, rows), (80, 24));
+                assert_eq!(replay, b"prompt> ");
+            }
+            _ => panic!("snapshot did not surface replay bytes"),
+        }
+        assert!(state.terminal.is_none(), "raw mode must not build a libghostty terminal");
+        assert!(state.snapshot_applied);
+
+        let mut ready = Frame::new(MessageKind::Ready, Vec::new());
+        ready.sequence = 7;
+        let (_, event) = state.apply(ready).unwrap();
+        assert!(event.is_none());
+        assert!(state.ready);
+
+        let mut output = Frame::new(MessageKind::Output, b"hello\r\n".to_vec());
+        output.sequence = 8;
+        match state.apply(output).unwrap() {
+            (FrameEffect::Continue, Some(RawEvent::Output(bytes))) => {
+                assert_eq!(bytes.as_ref(), b"hello\r\n");
+            }
+            _ => panic!("output did not surface bytes"),
+        }
+        assert_eq!(state.raw_frames, 1);
+
+        let mut resized = Frame::new(MessageKind::Resized, vec![100, 0, 30, 0]);
+        resized.sequence = 9;
+        match state.apply(resized).unwrap() {
+            (FrameEffect::Continue, Some(RawEvent::Resized { cols, rows })) => {
+                assert_eq!((cols, rows), (100, 30));
+            }
+            _ => panic!("resize did not surface geometry"),
+        }
+        assert_eq!((state.cols, state.rows), (100, 30));
+
+        state.materialize_frame().unwrap();
+        assert!(state.frame_text.is_empty(), "raw mode materializes nothing");
+
+        let mut exit = Frame::new(MessageKind::Exit, Vec::new());
+        exit.sequence = 10;
+        match state.apply(exit).unwrap() {
+            (FrameEffect::Stop, Some(RawEvent::Exit)) => {}
+            _ => panic!("exit did not surface"),
+        }
+        assert!(state.exited);
+    }
+
+    #[test]
+    fn raw_mode_rejects_output_before_snapshot() {
+        let mut state =
+            ClientState::new("test".into(), "memory".into(), 1, test_terminal_id()).unwrap();
+        state.raw_mode = true;
+        let mut output = Frame::new(MessageKind::Output, b"early".to_vec());
+        output.sequence = 1;
+        assert!(state.apply(output).unwrap_err().contains("before snapshot"));
+    }
+
+    #[test]
+    fn raw_output_callback_is_emitted_only_while_registered() {
+        static CALLS: AtomicU64 = AtomicU64::new(0);
+        unsafe extern "C" fn record(
+            context: *mut c_void,
+            kind: u32,
+            bytes: *const u8,
+            length: usize,
+            cols: u16,
+            rows: u16,
+        ) {
+            assert_eq!(context as usize, 0x1234);
+            assert_eq!(kind, OUTPUT_KIND_SNAPSHOT);
+            // SAFETY: the emitter passes a live slice for the call.
+            let bytes = unsafe { std::slice::from_raw_parts(bytes, length) };
+            assert_eq!(bytes, b"abc");
+            assert_eq!((cols, rows), (3, 1));
+            CALLS.fetch_add(1, Ordering::Relaxed);
+        }
+        let output = RawOutput::default();
+        let event = RawEvent::Snapshot { cols: 3, rows: 1, replay: b"abc".to_vec() };
+        output.emit(&event);
+        assert_eq!(CALLS.load(Ordering::Relaxed), 0);
+        output.set_callback(Some(record), 0x1234 as *mut c_void);
+        assert!(output.is_installed());
+        output.emit(&event);
+        assert_eq!(CALLS.load(Ordering::Relaxed), 1);
+        output.set_callback(None, std::ptr::null_mut());
+        output.emit(&event);
+        assert_eq!(CALLS.load(Ordering::Relaxed), 1);
+    }
+
+    #[test]
+    fn enrolled_daemon_selection_matches_route_hints() {
+        let daemon = |fingerprint: &str, hints: &[&str], auth: KnownDaemonAuth| KnownDaemon {
+            fingerprint: fingerprint.into(),
+            name: fingerprint.into(),
+            public_key: String::new(),
+            // Stored hints are normalized the way the identity store does it.
+            route_hints: hints.iter().map(|hint| credential_free_route_hint(hint).unwrap()).collect(),
+            auth,
+            first_seen_at_unix: 0,
+            last_used_at_unix: 0,
+        };
+        let route = "ws://[fd7a::10]:1337/v1/link";
+        let a = daemon("a", &[route], KnownDaemonAuth::Enrolled);
+        let b = daemon("b", &["ws://[fd7a::11]:1337/v1/link"], KnownDaemonAuth::Enrolled);
+        assert_eq!(
+            select_enrolled_daemon(vec![a.clone(), b.clone()], route).unwrap().fingerprint,
+            "a"
+        );
+        assert_eq!(select_enrolled_daemon(vec![b.clone()], route).unwrap().fingerprint, "b");
+        assert!(
+            select_enrolled_daemon(vec![a.clone(), a], route).unwrap_err().contains("multiple")
+        );
+        assert!(
+            select_enrolled_daemon(vec![b.clone(), b], route).unwrap_err().contains("invitation")
+        );
+        assert!(select_enrolled_daemon(Vec::new(), route).unwrap_err().contains("invitation"));
+        let carrier = daemon("c", &[route], KnownDaemonAuth::Carrier);
+        assert!(select_enrolled_daemon(vec![carrier], route).unwrap_err().contains("carrier"));
     }
 
     fn test_snapshot_payload(replay: &[u8]) -> Vec<u8> {
@@ -2205,7 +3096,7 @@ mod tests {
         state.apply(ready).unwrap();
         let mut exit = Frame::new(MessageKind::Exit, Vec::new());
         exit.sequence = boundary + 1;
-        assert_eq!(state.apply(exit).unwrap(), FrameEffect::Stop);
+        assert_eq!(state.apply(exit).unwrap().0, FrameEffect::Stop);
 
         state.status = "stream-closed".into();
         assert!(state.exited);
@@ -2379,6 +3270,7 @@ mod tests {
                 stream,
                 state.clone(),
                 Arc::new(ClientUpdates::default()),
+                Arc::new(RawOutput::default()),
             ));
 
             let encoded =
@@ -2424,6 +3316,7 @@ mod tests {
                 stream,
                 state.clone(),
                 Arc::new(ClientUpdates::default()),
+                Arc::new(RawOutput::default()),
             ));
 
             let boundary = 10;
@@ -2538,6 +3431,7 @@ mod tests {
                 terminal_id,
                 state.clone(),
                 Arc::new(ClientUpdates::default()),
+                Arc::new(RawOutput::default()),
             );
 
             tokio::time::timeout(std::time::Duration::from_secs(3), async {
@@ -2611,6 +3505,7 @@ mod tests {
                 terminal_id,
                 state.clone(),
                 Arc::new(ClientUpdates::default()),
+                Arc::new(RawOutput::default()),
             );
 
             tokio::time::timeout(std::time::Duration::from_secs(3), async {

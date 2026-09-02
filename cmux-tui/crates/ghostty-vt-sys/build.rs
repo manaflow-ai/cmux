@@ -145,6 +145,10 @@ fn zig_target_for_rust_target(target: &str) -> Option<&'static str> {
         // pairs with cargo-zigbuild for the Rust link step.
         "x86_64-apple-darwin" => Some("x86_64-macos"),
         "aarch64-apple-darwin" => Some("aarch64-macos"),
+        // The iOS app links cmux-terminal-client as a static library inside an
+        // xcframework (.github/workflows/cmux-terminal-client-xcframework.yml).
+        "aarch64-apple-ios" => Some("aarch64-ios"),
+        "aarch64-apple-ios-sim" => Some("aarch64-ios-simulator"),
         "x86_64-unknown-linux-gnu" => Some("x86_64-linux-gnu"),
         "aarch64-unknown-linux-gnu" => Some("aarch64-linux-gnu"),
         "x86_64-unknown-linux-musl" => Some("x86_64-linux-musl"),

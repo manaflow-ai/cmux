@@ -18,6 +18,7 @@ base64.workspace = true
 bytes.workspace = true
 cmux-remote.workspace = true
 cmux-remote-protocol.workspace = true
+cmux-wg.workspace = true
 cmux-tui-core.workspace = true
 getrandom.workspace = true
 ghostty-vt.workspace = true
@@ -29,3 +30,4 @@ zeroize.workspace = true
 
 [dev-dependencies]
 async-trait.workspace = true
+tempfile = "3"
