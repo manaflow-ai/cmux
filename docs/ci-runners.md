@@ -1,9 +1,10 @@
 # CI runners
 
-Every CI/CD job picks its runner from a repository variable instead of a
-hardcoded label. Linux uses Blacksmith. macOS uses ephemeral Tart VMs on the
-cmux Mac fleet. Changing a runner type is a single repository-variable update
-that takes effect on the next workflow run.
+Most CI/CD jobs pick their runner from a repository variable. Linux uses
+Blacksmith. macOS uses ephemeral Tart VMs on the cmux Mac fleet. The manual
+E2E security lane is a deliberate exception and uses the fixed GitHub-hosted
+`macos-15` label. Changing a variable-backed runner takes effect on the next
+workflow run.
 
 | Variable            | Used by                                                    | Active value                | Fallback baked into the workflow |
 | ------------------- | ---------------------------------------------------------- | --------------------------- | -------------------------------- |
@@ -81,21 +82,35 @@ gh variable list --repo manaflow-ai/cmux
 
 ## Manual runs
 
-`perf-activation.yml` and `test-e2e.yml` keep a `runner` choice input that
-defaults to `auto`. Manual `auto` runs follow `MACOS_RUNNER_15` then the Warp
-fallback, so flipping the repo variable redirects those workflows. An explicit
-manual choice wins over the variable; both dropdowns expose Blacksmith, Warp,
-and `depot-macos-*` choices, with a Depot identity guard for GUI-activation
-runs. `test-e2e.yml` also exposes `tart-canary`, `tart-dual`, and `tart-small`
-for targeted fleet validation. These choices are available only through
-`workflow_dispatch`.
+`perf-activation.yml` keeps its `runner` choice for performance experiments.
+`test-e2e.yml` is a read-only manual check on the fixed GitHub-hosted
+`macos-15` runner. Its optional `ref` input must be a full commit SHA that is
+equal to, or an ancestor of, protected `main`; `scripts/run-e2e.sh` resolves a
+branch name to a SHA before dispatching. The E2E workflow has no custom secrets,
+write token, or self-hosted runner input.
+
+`build-ghosttykit.yml` runs automatically when the protected `main` branch
+changes the `ghostty` gitlink. It has no manual dispatch. The build job uses the
+review-protected `sdk-release` environment, and its source gate verifies that
+the gitlink names the in-organization Ghostty fork, points to an immutable
+commit reachable from that fork's `main`, and still matches the checked-out
+submodule. A maintainer must approve the environment before the release token
+is available.
+
+`nightly.yml` runs only from protected `main` pushes and schedules. `release.yml`
+is an unprivileged observer for semantic-version tag pushes. It has no token
+permissions, secrets, checkout, or release actions. A completed observer run
+starts `release-trusted.yml`, which GitHub resolves from protected `main`; that
+dispatcher validates the observer workflow, tag ref, source SHA, and main
+ancestry before any signing or publishing step. Release jobs use the validated
+source SHA and do not accept a caller-selected branch.
 
 ## Guard
 
 `tests/test_ci_self_hosted_guard.sh` (run by the `workflow-guard-tests` job)
-asserts that no job pins a bare GitHub-hosted runner (`ubuntu-*` / `macos-NN`):
-every job must route through a runner repo variable so the overflow switch stays
-a single variable flip. It also asserts every paid macOS job references
+asserts that product jobs route through a runner repo variable, with the
+fixed-hosted CLA and read-only E2E control-plane jobs as explicit exceptions.
+The guard also asserts every paid macOS job references
 `vars.MACOS_RUNNER_*` or a Blacksmith/Warp/Depot label so it can never silently
 fall back to a free runner. Bare paid-provider labels (`blacksmith-*`, `warp-*`,
 `depot-*`) stay allowed for deliberate single-runner pins. Keep new labels in

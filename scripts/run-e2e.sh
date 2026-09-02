@@ -27,7 +27,8 @@ Arguments:
                  use cmuxUITests/Class or cmuxTests/Class for explicit targets.
 
 Options:
-  --ref <ref>      Branch or SHA to test (default: current branch)
+  --ref <ref>      Branch or full SHA to test; branches are resolved to a SHA
+                   before dispatch (default: protected main)
   --wait           Wait for the run to complete and print result
   --no-video       Disable video recording
   --timeout <sec>  Per-test timeout in seconds (default: 120)
@@ -71,10 +72,28 @@ done
 # Build workflow dispatch fields
 FIELDS=(-f "test_filter=$TEST_FILTER" -f "record_video=$RECORD_VIDEO" -f "test_timeout=$TIMEOUT")
 if [ -n "$REF" ]; then
-  FIELDS+=(-f "ref=$REF")
+  # The workflow accepts only immutable commit IDs. Resolve a branch through
+  # the commits API at dispatch time so the selected revision cannot move
+  # between this command and the hosted job's checkout.
+  if [[ "$REF" =~ ^[0-9a-fA-F]{40}$ ]]; then
+    RESOLVED_REF="$(printf '%s' "$REF" | tr '[:upper:]' '[:lower:]')"
+  else
+    case "$REF" in
+      *$'\n'*|*$'\r'*)
+        echo "Invalid --ref: branch names must not contain control characters" >&2
+        exit 1
+        ;;
+    esac
+    RESOLVED_REF="$(gh api --method GET "$REPO/commits" -f "sha=$REF" --jq '.[0].sha')"
+    if ! [[ "$RESOLVED_REF" =~ ^[0-9a-f]{40}$ ]]; then
+      echo "Could not resolve --ref '$REF' to a commit SHA" >&2
+      exit 1
+    fi
+  fi
+  FIELDS+=(-f "ref=$RESOLVED_REF")
 fi
 
-echo "Triggering $WORKFLOW with test_filter=$TEST_FILTER ref=${REF:-<default>} video=$RECORD_VIDEO timeout=$TIMEOUT"
+echo "Triggering $WORKFLOW with test_filter=$TEST_FILTER ref=${RESOLVED_REF:-<protected-main>} video=$RECORD_VIDEO timeout=$TIMEOUT"
 gh workflow run "$WORKFLOW" --repo "$REPO" "${FIELDS[@]}"
 
 # Wait a moment for the run to register

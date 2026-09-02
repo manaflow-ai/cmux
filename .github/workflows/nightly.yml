@@ -8,29 +8,146 @@ on:
   schedule:
     - cron: "17 */6 * * *"
     - cron: "47 8 * * *"
-  workflow_dispatch:
-    inputs:
-      force:
-        description: Force a nightly build even if main has no new commits
-        required: false
-        default: false
-        type: boolean
 
 concurrency:
   group: nightly-build-${{ github.ref_name }}
   # Queue concurrent runs instead of canceling them so no build is lost.
   cancel-in-progress: false
 
-permissions:
-  contents: write
-  attestations: write
-  id-token: write
+permissions: {}
 
 env:
   CREATE_DMG_VERSION: 8.0.0
 
 jobs:
+  # Push and schedule runs resolve one protected, immutable source before any
+  # build job starts. Manual dispatch is intentionally not enabled because
+  # GitHub would execute the workflow definition from a caller-selected branch.
+  validate-source:
+    runs-on: ubuntu-24.04 # github-hosted-required: source trust gate requires an isolated runner
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    outputs:
+      source_sha: ${{ steps.source.outputs.source_sha }}
+    steps:
+      - name: Validate protected nightly source
+        id: source
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
+        env:
+          REPOSITORY: ${{ github.repository }}
+          EVENT_NAME: ${{ github.event_name }}
+          EVENT_REF: ${{ github.ref }}
+          EVENT_REF_TYPE: ${{ github.ref_type }}
+          EVENT_SHA: ${{ github.sha }}
+          WORKFLOW_SHA: ${{ github.workflow_sha }}
+          WORKFLOW_REF: ${{ github.workflow_ref }}
+          REF_PROTECTED: ${{ github.ref_protected }}
+        with:
+          script: |
+            const { owner, repo } = context.repo;
+            const repository = process.env.REPOSITORY;
+            const eventName = process.env.EVENT_NAME;
+            const eventRef = process.env.EVENT_REF;
+            const eventRefType = process.env.EVENT_REF_TYPE;
+            const eventSha = process.env.EVENT_SHA;
+            const workflowSha = process.env.WORKFLOW_SHA;
+            const workflowRef = process.env.WORKFLOW_REF;
+            const refProtected = process.env.REF_PROTECTED === 'true';
+            const shaPattern = /^[0-9a-f]{40}$/;
+            const fail = (message) => {
+              core.setFailed(message);
+              throw new Error(message);
+            };
+
+            const expectedRepository = 'manaflow-ai/cmux';
+            if (repository !== expectedRepository || `${owner}/${repo}` !== expectedRepository) {
+              fail(`Nightly guard must run in ${expectedRepository}, found ${repository}`);
+            }
+            if (!shaPattern.test(eventSha)) {
+              fail(`GitHub supplied an invalid source SHA: ${eventSha}`);
+            }
+            if (!shaPattern.test(workflowSha)) {
+              fail(`GitHub supplied an invalid workflow SHA: ${workflowSha}`);
+            }
+            if (eventRef !== 'refs/heads/main') {
+              fail(`Nightly source must be refs/heads/main, found ${eventRef}`);
+            }
+            if (eventRefType !== 'branch' || !refProtected) {
+              fail('Nightly source must be a protected branch');
+            }
+            const workflowPath = '.github/workflows/nightly.yml';
+            const expectedWorkflowRef = `${expectedRepository}/${workflowPath}@${eventRef}`;
+            if (workflowRef !== expectedWorkflowRef) {
+              fail(`Nightly workflow identity ${workflowRef} does not match ${expectedWorkflowRef}`);
+            }
+
+            // workflowSha identifies the revision that supplied this workflow,
+            // which can be older than the scheduled or pushed source commit.
+            // Bind the exact workflow blob to that source before any build job
+            // receives its SHA output.
+            const workflowComparison = await github.rest.repos.compareCommits({
+              owner,
+              repo,
+              base: workflowSha,
+              head: eventSha,
+            });
+            if (!['ahead', 'identical'].includes(workflowComparison.data.status)) {
+              fail(`Nightly workflow ${workflowSha} is not an ancestor of source ${eventSha}`);
+            }
+            const workflowAtSource = await github.rest.repos.getContent({
+              owner,
+              repo,
+              path: workflowPath,
+              ref: eventSha,
+            });
+            const workflowAtDefinition = await github.rest.repos.getContent({
+              owner,
+              repo,
+              path: workflowPath,
+              ref: workflowSha,
+            });
+            if (
+              Array.isArray(workflowAtSource.data) ||
+              Array.isArray(workflowAtDefinition.data) ||
+              workflowAtSource.data.type !== 'file' ||
+              workflowAtDefinition.data.type !== 'file' ||
+              workflowAtSource.data.sha !== workflowAtDefinition.data.sha
+            ) {
+              fail('Nightly workflow definition changed between workflow and source revisions');
+            }
+
+            const mainSha = (await github.rest.repos.getBranch({
+              owner,
+              repo,
+              branch: 'main',
+            })).data.commit.sha;
+            if (!shaPattern.test(mainSha)) {
+              fail(`GitHub returned an invalid protected main SHA: ${mainSha}`);
+            }
+
+            if (eventName === 'push' || eventName === 'schedule') {
+              const comparison = await github.rest.repos.compareCommits({
+                owner,
+                repo,
+                base: eventSha,
+                head: mainSha,
+              });
+              if (!['ahead', 'identical'].includes(comparison.data.status)) {
+                fail(`Nightly source ${eventSha} is not an ancestor of protected main ${mainSha}`);
+              }
+            } else {
+              fail(`Unsupported nightly event: ${eventName}`);
+            }
+
+            core.setOutput('source_sha', eventSha);
+            core.notice(`Validated immutable nightly source ${eventSha}`);
+
   decide:
+    needs: validate-source
+    if: (github.event_name == 'push' || github.event_name == 'schedule') && github.ref == 'refs/heads/main' && github.ref_protected == true
+    permissions:
+      contents: read
     runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     outputs:
       should_build: ${{ steps.decide.outputs.should_build }}
@@ -42,10 +159,9 @@ jobs:
         id: decide
         uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
         env:
-          FORCE_BUILD: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.force == 'true' && 'true' || 'false' }}
+          VALIDATED_SHA: ${{ needs.validate-source.outputs.source_sha }}
         with:
           script: |
-            const forceBuild = process.env.FORCE_BUILD === 'true';
             const { owner, repo } = context.repo;
             const requestedRef = context.ref.startsWith('refs/heads/')
               ? context.ref.replace('refs/heads/', '')
@@ -55,7 +171,7 @@ jobs:
             // Pin every run to the revision that triggered it. In particular,
             // queued main pushes must each build their own merge commit instead
             // of all resolving to whichever commit is newest when `decide` runs.
-            const headSha = context.sha;
+            const headSha = process.env.VALIDATED_SHA;
 
             let nightlySha = null;
             if (isMainRef) {
@@ -80,7 +196,7 @@ jobs:
               }
             }
 
-            const shouldBuild = !isMainRef || forceBuild || nightlySha !== headSha;
+            const shouldBuild = nightlySha !== headSha;
             core.setOutput('should_build', shouldBuild ? 'true' : 'false');
             core.setOutput('head_sha', headSha);
             core.setOutput('short_sha', headSha.slice(0, 7));
@@ -91,7 +207,7 @@ jobs:
                 [{data: 'requested ref', header: true}, requestedRef],
                 [{data: 'build HEAD', header: true}, headSha],
                 [{data: 'nightly tag', header: true}, nightlySha ?? '(missing)'],
-                [{data: 'force build', header: true}, String(forceBuild)],
+                [{data: 'force build', header: true}, 'false (manual dispatch disabled)'],
                 [{data: 'should build', header: true}, String(shouldBuild)],
                 [{data: 'should publish', header: true}, String(isMainRef)],
               ])
@@ -99,7 +215,9 @@ jobs:
 
   refresh-compilation-cache:
     needs: decide
-    if: github.event_name == 'schedule' && github.event.schedule == '17 */6 * * *'
+    if: github.event_name == 'schedule' && github.event.schedule == '17 */6 * * *' && github.ref == 'refs/heads/main' && github.ref_protected == true
+    permissions:
+      contents: read
     # Match the PR Release-build runner and Xcode so its compilation cache is reusable.
     runs-on: ${{ vars.MACOS_RUNNER_26_RELEASE || 'blacksmith-6vcpu-macos-26' }}
     timeout-minutes: 45
@@ -122,6 +240,17 @@ jobs:
           persist-credentials: false
           ref: ${{ needs.decide.outputs.head_sha }}
           submodules: recursive
+
+      - name: Verify immutable checkout
+        env:
+          EXPECTED_SHA: ${{ needs.decide.outputs.head_sha }}
+        run: |
+          set -euo pipefail
+          actual_sha="$(git rev-parse HEAD)"
+          [[ "$actual_sha" == "$EXPECTED_SHA" ]] || {
+            echo "Checkout $actual_sha does not match validated source $EXPECTED_SHA" >&2
+            exit 1
+          }
 
       - name: Select Xcode
         run: ./scripts/select-ci-xcode.sh
@@ -202,7 +331,9 @@ jobs:
 
   build-nightly-ghostty-cli-helper:
     needs: decide
-    if: needs.decide.outputs.should_build == 'true' && (github.event_name != 'schedule' || github.event.schedule == '47 8 * * *')
+    if: needs.decide.outputs.should_build == 'true' && (github.event_name != 'schedule' || github.event.schedule == '47 8 * * *') && github.ref == 'refs/heads/main' && github.ref_protected == true
+    permissions:
+      contents: read
     # Zig 0.15.2 cannot link the real helper on macOS 26. Match the stable
     # release workflow by building and verifying it on macOS 15 instead.
     runs-on: ${{ vars.MACOS_RUNNER_15 || 'blacksmith-6vcpu-macos-15' }}
@@ -223,6 +354,17 @@ jobs:
           persist-credentials: false
           ref: ${{ needs.decide.outputs.head_sha }}
           submodules: recursive
+
+      - name: Verify immutable checkout
+        env:
+          EXPECTED_SHA: ${{ needs.decide.outputs.head_sha }}
+        run: |
+          set -euo pipefail
+          actual_sha="$(git rev-parse HEAD)"
+          [[ "$actual_sha" == "$EXPECTED_SHA" ]] || {
+            echo "Checkout $actual_sha does not match validated source $EXPECTED_SHA" >&2
+            exit 1
+          }
 
       - name: Install Zig
         run: ./scripts/install-zig-ci.sh
@@ -251,7 +393,9 @@ jobs:
 
   build-nightly-app:
     needs: decide
-    if: needs.decide.outputs.should_build == 'true' && (github.event_name != 'schedule' || github.event.schedule == '47 8 * * *')
+    if: needs.decide.outputs.should_build == 'true' && (github.event_name != 'schedule' || github.event.schedule == '47 8 * * *') && github.ref == 'refs/heads/main' && github.ref_protected == true
+    permissions:
+      contents: read
     # Match the cache warmer and stable release app build exactly. Keeping the
     # runner and pinned Xcode identical makes their compilation caches reusable.
     runs-on: ${{ vars.MACOS_RUNNER_26_NIGHTLY_BUILD || 'blacksmith-12vcpu-macos-26' }}
@@ -275,6 +419,17 @@ jobs:
           persist-credentials: false
           ref: ${{ needs.decide.outputs.head_sha }}
           submodules: recursive
+
+      - name: Verify immutable checkout
+        env:
+          EXPECTED_SHA: ${{ needs.decide.outputs.head_sha }}
+        run: |
+          set -euo pipefail
+          actual_sha="$(git rev-parse HEAD)"
+          [[ "$actual_sha" == "$EXPECTED_SHA" ]] || {
+            echo "Checkout $actual_sha does not match validated source $EXPECTED_SHA" >&2
+            exit 1
+          }
 
       - name: Select Xcode
         run: ./scripts/select-ci-xcode.sh
@@ -378,7 +533,11 @@ jobs:
 
   build-sign-notarize-nightly:
     needs: [decide, build-nightly-ghostty-cli-helper, build-nightly-app]
-    if: needs.decide.outputs.should_build == 'true' && (github.event_name != 'schedule' || github.event.schedule == '47 8 * * *')
+    if: needs.decide.outputs.should_build == 'true' && (github.event_name != 'schedule' || github.event.schedule == '47 8 * * *') && github.ref == 'refs/heads/main' && github.ref_protected == true
+    permissions:
+      contents: write
+      attestations: write
+      id-token: write
     # Sign and notarize on the same macOS 26 lane proven by stable releases.
     runs-on: ${{ vars.MACOS_RUNNER_26 || 'blacksmith-6vcpu-macos-26' }}
     # Start the standalone helper submission before remote-daemon preparation so
@@ -406,6 +565,17 @@ jobs:
           persist-credentials: false
           ref: ${{ needs.decide.outputs.head_sha }}
           submodules: recursive
+
+      - name: Verify immutable checkout
+        env:
+          EXPECTED_SHA: ${{ needs.decide.outputs.head_sha }}
+        run: |
+          set -euo pipefail
+          actual_sha="$(git rev-parse HEAD)"
+          [[ "$actual_sha" == "$EXPECTED_SHA" ]] || {
+            echo "Checkout $actual_sha does not match validated source $EXPECTED_SHA" >&2
+            exit 1
+          }
 
       - name: Select Xcode
         run: ./scripts/select-ci-xcode.sh
@@ -471,7 +641,7 @@ jobs:
             echo "Missing SPARKLE_PRIVATE_KEY secret" >&2
             exit 1
           fi
-          DERIVED_PUBLIC_KEY=$(swift scripts/derive_sparkle_public_key.swift "$SPARKLE_PRIVATE_KEY")
+          DERIVED_PUBLIC_KEY=$(swift scripts/derive_sparkle_public_key.swift --stdin <<<"$SPARKLE_PRIVATE_KEY")
           echo "Derived Sparkle public key: $DERIVED_PUBLIC_KEY"
           echo "SPARKLE_PUBLIC_KEY=$DERIVED_PUBLIC_KEY" >> "$GITHUB_ENV"
 

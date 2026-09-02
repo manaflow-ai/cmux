@@ -40,7 +40,7 @@ assert "SignedHeaders=cache-control;host;x-amz-content-sha256;x-amz-date" in aut
 assert len(headers["x-amz-content-sha256"]) == 64, headers
 PY
 
-if grep -R "resolve-aws-cli.sh" "$ROOT_DIR/.github/workflows/nightly.yml" "$ROOT_DIR/.github/workflows/release.yml"; then
+if grep -R "resolve-aws-cli.sh" "$ROOT_DIR/.github/workflows/nightly.yml" "$ROOT_DIR/.github/workflows/release-trusted.yml"; then
   echo "FAIL: appcast R2 uploads must not depend on an AWS CLI resolver"
   exit 1
 fi
@@ -49,8 +49,8 @@ if ! grep -Fq "scripts/ci/upload-r2-object.py" "$ROOT_DIR/.github/workflows/nigh
   echo "FAIL: nightly workflow must use the Python R2 uploader"
   exit 1
 fi
-if ! grep -Fq "scripts/ci/upload-r2-object.py" "$ROOT_DIR/.github/workflows/release.yml"; then
-  echo "FAIL: release workflow must use the Python R2 uploader"
+if ! grep -Fq "scripts/ci/upload-r2-object.py" "$ROOT_DIR/.github/workflows/release-trusted.yml"; then
+  echo "FAIL: trusted release workflow must use the Python R2 uploader"
   exit 1
 fi
 
