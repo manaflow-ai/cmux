@@ -347,8 +347,18 @@ def has_trusted_workflow_review(
 
     head_sha = _as_sha(head_sha, "head SHA")
     author = pull.get("user")
-    author_id = author.get("id") if isinstance(author, Mapping) else None
-    author_login = author.get("login") if isinstance(author, Mapping) else None
+    if not isinstance(author, Mapping):
+        raise GateError("pull request author identity is malformed")
+    author_id = author.get("id")
+    author_login = author.get("login")
+    if (
+        not isinstance(author_id, int)
+        or isinstance(author_id, bool)
+        or author_id <= 0
+        or not isinstance(author_login, str)
+        or not author_login.strip()
+    ):
+        raise GateError("pull request author identity is malformed")
     latest: dict[int, tuple[tuple[dt.datetime, int], Mapping[str, Any]]] = {}
     seen_review_ids: set[int] = set()
 
