@@ -137,6 +137,15 @@ impl<'a> RosterEvent<'a> {
         value.as_str().and_then(|value| value.parse::<u64>().ok()).or_else(|| value.as_u64())
     }
 
+    /// A plugin can report when it observed a terminal, but it cannot make
+    /// that evidence newer than the host commit that admitted it. Keeping
+    /// older timestamps preserves the delayed-append fence, while clamping a
+    /// future timestamp prevents a buggy or hostile plugin from outranking a
+    /// live hook indefinitely.
+    fn plugin_observed_at_ms(&self) -> Option<u64> {
+        self.normalized_u64("observed_at_ms").map(|observed| observed.min(self.committed_at_ms))
+    }
+
     fn plugin_event(&self) -> bool {
         if self.producer_id == AGENT_HOOK_PRODUCER_ID
             || !valid_component(self.producer_id)
@@ -361,7 +370,10 @@ impl AgentRoster {
             if !valid_component(plugin_id) {
                 return Vec::new();
             }
-            let cutoff = event.normalized_u64("observed_at_ms").unwrap_or(event.committed_at_ms);
+            let cutoff = event
+                .normalized_u64("observed_at_ms")
+                .unwrap_or(event.committed_at_ms)
+                .min(event.committed_at_ms);
             let generation = event.normalized("plugin_generation");
             let generation_number = generation.and_then(|value| value.parse::<u64>().ok());
             if generation.is_some() && generation_number.is_none() {
@@ -421,7 +433,7 @@ impl AgentRoster {
                     return Vec::new();
                 }
                 let updated_at_ms =
-                    event.normalized_u64("observed_at_ms").unwrap_or(event.committed_at_ms);
+                    event.plugin_observed_at_ms().unwrap_or(event.committed_at_ms);
                 let producer_generation = event
                     .normalized("plugin_generation")
                     .and_then(|value| value.parse::<u64>().ok())
