@@ -12,27 +12,30 @@ struct CloudWireGuardHubProcessSpawner: CloudWireGuardHubSpawning {
         let stderr = Pipe()
         process.standardOutput = stdout
         process.standardError = stderr
-        let wrapper = CloudWireGuardHubFoundationProcess(process: process)
+        let wrapper = CloudWireGuardHubFoundationProcess(process: process, stdout: stdout.fileHandleForReading)
         process.terminationHandler = { terminated in
             wrapper.didExit(status: terminated.terminationStatus)
         }
         try process.run()
-        wrapper.drain(stdout.fileHandleForReading)
         wrapper.drain(stderr.fileHandleForReading)
         return wrapper
     }
 }
 
-/// ``CloudWireGuardHubProcess`` over a running Foundation `Process`.
+/// ``CloudWireGuardHubProcess`` over a running Foundation `Process`. stdout is
+/// handed to the hub as lines (its `hub-ready` announcement lives there); stderr is
+/// kept as a short tail for error messages.
 final class CloudWireGuardHubFoundationProcess: CloudWireGuardHubProcess, @unchecked Sendable {
     private let process: Process
     private let lock = NSLock()
     private var tail: [String] = []
     private var status: Int32?
     private var exitHandler: (@Sendable (Int32) -> Void)?
+    let stdoutLines: AsyncStream<String>
 
-    init(process: Process) {
+    init(process: Process, stdout: FileHandle) {
         self.process = process
+        stdoutLines = CloudLinkPipe.lines(from: stdout)
     }
 
     var isRunning: Bool { process.isRunning }

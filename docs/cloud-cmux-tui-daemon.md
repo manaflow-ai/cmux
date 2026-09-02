@@ -189,8 +189,9 @@ Public hosts and older clients dial directly, exactly as before.
 The hub has its own tunnel identity (`VMTunnelManager.Identity.app`:
 `mac-<uuid>-app`, `app.key`, `cmux-app.conf`), never the `cmux vpn up` key,
 because one WireGuard key supports one live session. `CloudWireGuardHub` owns
-the lifecycle: the first link starts it (enroll, write config, spawn, wait for
-the socket to accept), links hold leases, and it stops 10 s after the last
+the lifecycle: the first link starts it (enroll, write config, spawn, wait for the hub's
+`hub-ready` stdout line, whose `routes` are the authoritative membership set),
+links hold leases, and it stops 10 s after the last
 release. An unexpected exit while leased restarts it with 1/2/4/8/16 s backoff;
 the links' own reconnect loops then find the socket again. A `cmux vm tui` pane
 execs its own client the app cannot watch, so `vm.cmux_remote_info` pins the

@@ -82,8 +82,11 @@ actor CloudWireGuardHub {
         /// Where the hub's SOCKS5 unix socket lives; the parent directory is 0700.
         let socketURL: URL
         let spawner: any CloudWireGuardHubSpawning
-        /// Resolves once `socketPath` accepts a connection; throws on timeout.
-        let waitUntilReady: @Sendable (_ socketPath: String) async throws -> Void
+        /// The one sanity check after the hub announces readiness: does a listener
+        /// accept at the announced socket. Injected so tests need no real socket.
+        let verifySocket: @Sendable (_ socketPath: String) -> Bool
+        /// How long to wait for the hub's `hub-ready` line before giving up.
+        let readyTimeout: Duration
         /// Cancellable delay; production uses `ContinuousClock`.
         let sleep: @Sendable (Duration) async throws -> Void
         /// Delays before each restart after an unexpected exit; its count bounds the attempts.
@@ -93,6 +96,8 @@ actor CloudWireGuardHub {
 
         static let defaultRestartBackoff: [Duration] = [.seconds(1), .seconds(2), .seconds(4), .seconds(8), .seconds(16)]
         static let defaultIdleGrace: Duration = .seconds(10)
+        /// Enrollment is done before the spawn; the hub only has to handshake and bind.
+        static let defaultReadyTimeout: Duration = .seconds(20)
     }
 
     private enum State {
@@ -133,9 +138,8 @@ actor CloudWireGuardHub {
             clientURL: clientURL,
             socketURL: manager.stateDir.appendingPathComponent("hub-\(getpid()).sock", isDirectory: false),
             spawner: CloudWireGuardHubProcessSpawner(),
-            waitUntilReady: { socketPath in
-                try await CloudWireGuardHubSocketReadiness.wait(socketPath: socketPath, timeout: .seconds(20))
-            },
+            verifySocket: { socketPath in CloudWireGuardHubReadyEvent.accepts(socketPath) },
+            readyTimeout: Configuration.defaultReadyTimeout,
             sleep: { duration in try await ContinuousClock().sleep(for: duration) },
             restartBackoff: Configuration.defaultRestartBackoff,
             idleGrace: Configuration.defaultIdleGrace
@@ -277,15 +281,18 @@ actor CloudWireGuardHub {
             exit.resolve(status)
             Task { await self?.processDidExit(status: status, generation: startGeneration) }
         }
-        let waitUntilReady = configuration.waitUntilReady
-        let outcome: Result<Void, Error> = await withTaskGroup(of: Result<Void, Error>.self) { group in
+        // Readiness is the hub's own `hub-ready` stdout line (the same contract as a
+        // sidecar's `connection-snapshot` line): whichever comes first of that line,
+        // the process exiting, or the bounded timeout decides the start.
+        let lines = process.stdoutLines
+        let sleep = configuration.sleep
+        let readyTimeout = configuration.readyTimeout
+        let outcome: Result<CloudWireGuardHubReadyEvent, Error> = await withTaskGroup(of: Result<CloudWireGuardHubReadyEvent, Error>.self) { group in
             group.addTask {
-                do {
-                    try await waitUntilReady(socketPath)
-                    return .success(())
-                } catch {
-                    return .failure(error)
+                for await line in lines {
+                    if let event = CloudWireGuardHubReadyEvent(line: line) { return .success(event) }
                 }
+                return .failure(HubError.notReady("stdout closed before hub-ready"))
             }
             group.addTask {
                 if let status = await exit.result {
@@ -293,13 +300,22 @@ actor CloudWireGuardHub {
                 }
                 return .failure(HubError.notReady("hub exited"))
             }
+            group.addTask {
+                do {
+                    try await sleep(readyTimeout)
+                } catch {
+                    return .failure(CancellationError())
+                }
+                return .failure(HubError.notReady("no hub-ready line within \(readyTimeout)"))
+            }
             let first = await group.next() ?? .failure(HubError.notReady("no readiness signal"))
             group.cancelAll()
             return first
         }
+        let event: CloudWireGuardHubReadyEvent
         switch outcome {
-        case .success:
-            break
+        case .success(let ready):
+            event = ready
         case .failure(let error):
             process.terminate()
             if let hubError = error as? HubError { throw hubError }
@@ -308,8 +324,14 @@ actor CloudWireGuardHub {
         guard process.isRunning else {
             throw HubError.exitedDuringStart(status: process.exitStatus ?? -1, output: process.outputTail)
         }
+        guard configuration.verifySocket(event.socketPath) else {
+            process.terminate()
+            throw HubError.notReady("hub announced \(event.socketPath) but nothing accepts there")
+        }
         lastError = nil
-        return Ready(socketPath: socketPath, routes: enrollment.routes)
+        // The hub's own view of AllowedIPs is authoritative; the enrollment response is
+        // the fallback for a hub build that omits them.
+        return Ready(socketPath: event.socketPath, routes: event.routes.isEmpty ? enrollment.routes : event.routes)
     }
 
     private func processDidExit(status: Int32, generation exitGeneration: UInt64) {
@@ -379,6 +401,8 @@ protocol CloudWireGuardHubProcess: AnyObject, Sendable {
     var exitStatus: Int32? { get }
     /// The last few lines the process wrote, for error messages.
     var outputTail: String { get }
+    /// The process's stdout, one line at a time; ends at EOF. Consumed once by the hub.
+    var stdoutLines: AsyncStream<String> { get }
     func terminate()
     /// Registers the one exit callback; a process that already exited calls it at once.
     func onExit(_ handler: @escaping @Sendable (Int32) -> Void)
