@@ -28,8 +28,11 @@ export default async function DashboardLayout({
       <StackProvider app={getStackServerApp()}>
         <StackTheme>
           <DashboardQueryProvider>
+            {/* This shared-layout boundary covers a cold dashboard entry. It is
+                above the work that reruns between sibling tabs, and the route
+                has no loading.tsx, so navigation keeps the current tab visible. */}
             <DashboardShell vaultEnabled={isVaultEnabled()}>
-              <Suspense fallback={<DashboardSkeleton />}>{children}</Suspense>
+              {children}
             </DashboardShell>
           </DashboardQueryProvider>
         </StackTheme>

@@ -103,7 +103,11 @@ final class MarkdownPanel: Panel, ObservableObject, FilePreviewTextEditingPanel 
     private var saveGeneration: Int = 0
     private var activeSaveGeneration: Int?
     private var pendingSearchNeedle: String?
+    /// Set when activation asks a preview panel to focus before SwiftUI has
+    /// mounted its WKWebView. The renderer fulfills this at window attach.
+    private var pendingPreviewFocus = false
     private weak var textView: NSTextView?
+    private let selectionReader = NativeTextSurfaceSelectionReader()
     private var isClosed: Bool = false
     // NotificationCenter token; removal is thread-safe so deinit can drop it.
     private nonisolated(unsafe) var typographyDefaultsObserver: NSObjectProtocol?
@@ -138,6 +142,7 @@ final class MarkdownPanel: Panel, ObservableObject, FilePreviewTextEditingPanel 
         startWatching()
         observeTypographyDefaults()
         rendererSession.onMarkdownRendered = { [weak self] in
+            self?.replayPendingPreviewFocusAfterWindowAttach()
             self?.replayActiveFindAfterRender()
         }
     }
@@ -371,19 +376,46 @@ final class MarkdownPanel: Panel, ObservableObject, FilePreviewTextEditingPanel 
     // MARK: - Panel protocol
 
     func focus() {
-        guard displayMode == .text else { return }
-        _ = textView?.window?.makeFirstResponder(textView)
-        applyPendingSearchNeedleIfPossible()
+        if displayMode == .text {
+            pendingPreviewFocus = false
+            _ = textView?.window?.makeFirstResponder(textView)
+            applyPendingSearchNeedleIfPossible()
+            return
+        }
+        // Preview mode: the rendered web view is the panel's keyboard
+        // surface. Taking first responder on activation is what moves the
+        // keyboard out of wherever it was (for example the right-sidebar
+        // file list after a click- or drag-open), so the find/shortcut
+        // router targets this panel — the same behavior terminal and
+        // browser panels have. No-op while the web view is not mounted;
+        // the drop/open paths also hand off focus at the coordinator level.
+        guard let webView = rendererSession.webView, let window = webView.window else {
+            pendingPreviewFocus = true
+            return
+        }
+        let didBecomeFirstResponder = window.makeFirstResponder(webView)
+            && window.firstResponder === webView
+        pendingPreviewFocus = !didBecomeFirstResponder
+    }
+
+    /// Completes a preview focus request recorded before the renderer view was
+    /// attached to its window. The callback is event-driven, so it cannot
+    /// steal focus after this panel has been unfocused in the meantime.
+    func replayPendingPreviewFocusAfterWindowAttach() {
+        guard pendingPreviewFocus, displayMode == .preview else { return }
+        focus()
     }
 
     func unfocus() {
-        // No-op for read-only panel.
+        pendingPreviewFocus = false
     }
 
     func close() {
         isClosed = true
+        pendingPreviewFocus = false
         searchState = nil
         rendererSession.close()
+        selectionReader.close()
         GlobalSearchCoordinator.shared.purgePanel(id: id)
         textView = nil
         stopWatching()
@@ -407,6 +439,19 @@ final class MarkdownPanel: Panel, ObservableObject, FilePreviewTextEditingPanel 
             // text mode has the NSTextView's native find panel instead.
             hideFind()
             focus()
+        }
+    }
+
+    func readSurfaceSelection() async -> SurfaceSelectionReadResult {
+        switch displayMode {
+        case .text:
+            return .snapshot(await selectionReader.read(
+                textView: textView,
+                kind: .markdown,
+                filePath: filePath
+            ))
+        case .preview:
+            return await rendererSession.readSurfaceSelection(filePath: filePath)
         }
     }
 

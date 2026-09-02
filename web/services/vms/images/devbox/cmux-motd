@@ -1,0 +1,55 @@
+#!/bin/sh
+# cmux Cloud login banner (/etc/update-motd.d/00-cmux).
+#
+# Rendered by pam_motd on SSH and console logins (sshd's PrintMotd is off;
+# PAM assembles /run/motd.dynamic from this directory). The stock Ubuntu
+# scripts in /etc/update-motd.d are left in place but made non-executable
+# by the bake, and Freestyle's static /etc/motd is emptied, so this is the
+# whole banner. Shells the cmux-tui daemon opens in panes do not go through
+# PAM and never see this.
+#
+# This is `cmux welcome` (CLI/cmux.swift printWelcome) with the `cmux cloud`
+# logo variant from the CLI's cloud SSH wrapper (CMUX_CLOUD_WELCOME): same
+# true-color gradient, same shortcuts, same links. Keep the three in sync.
+# Offline and instant: nothing here runs a tool.
+reset='\033[0m'
+bold='\033[1m'
+tagline='\033[38;2;130;130;140m'
+subdued='\033[2m'
+c1='\033[38;2;0;212;255m'
+c2='\033[38;2;24;181;250m'
+c3='\033[38;2;48;150;245m'
+c4='\033[38;2;72;119;241m'
+c5='\033[38;2;96;88;239m'
+c6='\033[38;2;110;73;238m'
+c7='\033[38;2;124;58;237m'
+
+printf '\n'
+printf "${c1}  ::${reset}\n"
+printf "${c2}    ::::              ${c1}c${c2}m${c3}u${c7}x cloud${reset}\n"
+printf "${c3}      ::::::${reset}\n"
+printf "${c4}        ::::::${reset}        ${tagline}persistent cloud VM${reset}\n"
+printf "${c5}      ::::::${reset}          ${tagline}ready for coding agents${reset}\n"
+printf "${c6}    ::::${reset}\n"
+printf "${c7}  ::${reset}\n"
+printf '\n'
+printf "  ${bold}Shortcuts${reset}\n"
+printf '\n'
+printf "  ${bold}⌘N${reset}${subdued}                  New workspace${reset}\n"
+printf "  ${bold}⌘T${reset}${subdued}                  New tab${reset}\n"
+printf "  ${bold}⌘P${reset}${subdued}                  Go to workspace${reset}\n"
+printf "  ${bold}⌘B${reset}${subdued}                  Toggle Left Sidebar${reset}\n"
+printf "  ${bold}⌘⌥B${reset}${subdued}                 Toggle Right Sidebar${reset}\n"
+printf "  ${bold}⌘D${reset}${subdued}                  Split right${reset}\n"
+printf "  ${bold}⌘⇧D${reset}${subdued}                 Split down${reset}\n"
+printf "  ${bold}⌘⇧P${reset}${subdued}                 Command palette${reset}\n"
+printf "  ${bold}⌘⇧R${reset}${subdued}                 Rename workspace${reset}\n"
+printf "  ${bold}⌘⇧L${reset}${subdued}                 New browser${reset}\n"
+printf "  ${bold}⌘⇧U${reset}${subdued}                 Jump to latest unread${reset}\n"
+printf "  ${bold}⌥⌘U${reset}${subdued}                 Toggle unread${reset}\n"
+printf '\n'
+printf "  ${bold}Docs${reset}${subdued}                https://cmux.com/docs${reset}\n"
+printf "  ${bold}Discord${reset}${subdued}             https://discord.gg/xsgFEVrWCZ${reset}\n"
+printf "  ${bold}GitHub${reset}${subdued}              https://github.com/manaflow-ai/cmux (please leave a star ⭐)${reset}\n"
+printf "  ${bold}Email${reset}${subdued}               founders@manaflow.com${reset}\n"
+printf '\n'

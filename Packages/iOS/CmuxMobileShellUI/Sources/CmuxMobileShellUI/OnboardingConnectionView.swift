@@ -8,6 +8,8 @@ struct OnboardingConnectionView: View {
     let phase: OnboardingConnectionPhase
     let connectionMethod: MobileConnectionMethod
     let onSelectConnectionMethod: (MobileConnectionMethod) -> Void
+    var keepAwakeOffer: OnboardingKeepAwakeOffer?
+    var onSetKeepAwake: (Bool) async -> Void = { _ in }
     @Environment(\.verticalSizeClass) private var verticalSizeClass
     /// Names the minimum Mac version for this app version in the connect
     /// copy. Optional so previews without the app root keep versionless copy.
@@ -34,6 +36,12 @@ struct OnboardingConnectionView: View {
     /// on; once connected it disappears (Settings keeps the control).
     private var showsMethodPicker: Bool {
         phase == .idle || phase == .fallback
+    }
+
+    /// The Keep Mac Awake ask takes the decision slot the picker vacated:
+    /// it exists only once the Mac is connected and its state is known.
+    private var visibleKeepAwakeOffer: OnboardingKeepAwakeOffer? {
+        phase == .ready ? keepAwakeOffer : nil
     }
 
     private var visual: some View {
@@ -65,6 +73,13 @@ struct OnboardingConnectionView: View {
                         method: connectionMethod,
                         density: density,
                         onSelect: onSelectConnectionMethod
+                    )
+                }
+                if let visibleKeepAwakeOffer {
+                    OnboardingKeepAwakeCard(
+                        offer: visibleKeepAwakeOffer,
+                        density: density,
+                        onSet: onSetKeepAwake
                     )
                 }
             }

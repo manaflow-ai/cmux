@@ -1498,6 +1498,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             store: WorkstreamStore(
                 transport: NullWorkstreamTransport(),
                 persistence: WorkstreamPersistence(fileURL: WorkstreamPersistence.defaultFileURL()),
+                workstreamIDNormalizer: { rawValue, source in
+                    FeedWorkstreamIdentifier.canonicalizedRawValue(
+                        agentID: source,
+                        rawValue: rawValue
+                    )
+                },
                 titleProvider: Self.feedWorkstreamTitle(for:)
             )
         )
@@ -7754,6 +7760,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         keyboardFocusCoordinator(for: window)?.syncAfterResponderChange()
     }
 
+    /// Hands keyboard focus from the right sidebar to the workspace's focused
+    /// panel, when the sidebar currently owns it. Used after a sidebar-origin
+    /// action opens a panel in the main area (for example a file drag-drop):
+    /// the drag never resigns the sidebar's first responder, so without this
+    /// the find/shortcut router keeps targeting the sidebar. No-op when the
+    /// sidebar does not own focus.
+    @discardableResult
+    func restoreMainPanelKeyboardFocusFromRightSidebar(in window: NSWindow?) -> Bool {
+        keyboardFocusCoordinator(for: window)?
+            .restoreFocusedPanelFocusFromRightSidebarIfNeeded() ?? false
+    }
+
     @discardableResult
     func focusRightSidebarInActiveMainWindow(
         mode requestedMode: RightSidebarMode? = nil,
@@ -8603,22 +8621,29 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                     )
                     return
                 }
+                // Create hands the request to the shared create coordinator and
+                // the sheet closes at once: the placeholder workspace's loading
+                // pane and the Machines panel's pending row show Base coming up,
+                // and the person keeps working meanwhile (#11397).
                 let model = NewMachineModel(
                     mode: .base(workspaceID: workspace.id),
                     plan: MachineSnapshotBuilder.planSnapshot(activeCount: page?.vms.count ?? 0, limits: page?.limits),
                     imageKinds: page?.limits?.imageKinds ?? [],
-                    launch: { [weak self] arguments, completion in
+                    submit: { [weak self] request in
                         guard let self else { return false }
-                        return self.launchCloudVMBaseOpen(
-                            workspace: workspace,
-                            socketPath: socketPath,
-                            preferredWindow: launchWindow,
-                            arguments: arguments,
-                            onCompletion: { result in
-                                completion(result)
-                                onCompletion?(result)
-                            }
-                        )
+                        return MachineCreateCoordinator.shared.start(request) { [weak self] arguments, completion in
+                            guard let self else { return false }
+                            return self.launchCloudVMBaseOpen(
+                                workspace: workspace,
+                                socketPath: socketPath,
+                                preferredWindow: launchWindow,
+                                arguments: arguments,
+                                onCompletion: { result in
+                                    completion(result)
+                                    onCompletion?(result)
+                                }
+                            )
+                        }
                     }
                 )
                 model.onFinished = { outcome in
@@ -9830,7 +9855,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
 
         let cascadeOffset: CGFloat = 24
-        let minimumWindowSize = NSSize(width: 460, height: 360)
+        let minimumWindowSize = NSSize(width: 460, height: CmuxMainWindow.minimumContentSize.height)
         var frame = window.frame
         frame.origin = NSPoint(
             x: sourceFrame.minX + cascadeOffset,

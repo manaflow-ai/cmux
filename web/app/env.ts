@@ -199,16 +199,33 @@ export const env = createEnv({
     // unavailable.
     STRIPE_SECRET_KEY: z.string().min(1).optional(),
     STRIPE_WEBHOOK_SECRET: z.string().min(1).optional(),
-    STRIPE_PRO_MONTHLY_PRICE_ID: z.string().min(1).optional(),
-    // Deliberately distinct from the legacy STRIPE_PRO_YEARLY_PRICE_ID,
-    // which can refer to the grandfathered $240/year price.
+    // Price-id overrides carry the amount in their name, and every retired
+    // name fails env validation instead of silently pinning checkout to a
+    // grandfathered Price (Stripe amounts are immutable; see plans.ts).
+    STRIPE_PRO_MONTHLY_PRICE_ID: retiredEnvValue(
+      "STRIPE_PRO_MONTHLY_PRICE_ID",
+      "STRIPE_PRO_MONTHLY_50_PRICE_ID",
+    ),
+    STRIPE_PRO_MONTHLY_50_PRICE_ID: z.string().min(1).optional(),
     STRIPE_PRO_YEARLY_PRICE_ID: retiredEnvValue(
       "STRIPE_PRO_YEARLY_PRICE_ID",
-      "STRIPE_PRO_YEARLY_288_PRICE_ID",
+      "STRIPE_PRO_YEARLY_480_PRICE_ID",
     ),
-    STRIPE_PRO_YEARLY_288_PRICE_ID: z.string().min(1).optional(),
-    STRIPE_TEAM_MONTHLY_PRICE_ID: z.string().min(1).optional(),
-    STRIPE_TEAM_YEARLY_PRICE_ID: z.string().min(1).optional(),
+    STRIPE_PRO_YEARLY_288_PRICE_ID: retiredEnvValue(
+      "STRIPE_PRO_YEARLY_288_PRICE_ID",
+      "STRIPE_PRO_YEARLY_480_PRICE_ID",
+    ),
+    STRIPE_PRO_YEARLY_480_PRICE_ID: z.string().min(1).optional(),
+    STRIPE_TEAM_MONTHLY_PRICE_ID: retiredEnvValue(
+      "STRIPE_TEAM_MONTHLY_PRICE_ID",
+      "STRIPE_TEAM_MONTHLY_60_PRICE_ID",
+    ),
+    STRIPE_TEAM_MONTHLY_60_PRICE_ID: z.string().min(1).optional(),
+    STRIPE_TEAM_YEARLY_PRICE_ID: retiredEnvValue(
+      "STRIPE_TEAM_YEARLY_PRICE_ID",
+      "STRIPE_TEAM_YEARLY_576_PRICE_ID",
+    ),
+    STRIPE_TEAM_YEARLY_576_PRICE_ID: z.string().min(1).optional(),
     CMUX_APP_PRICING_CHECKOUT_URL: z.string().url().optional(),
     CMUX_APP_PRICING_RELAY_SECRET: z.string().min(32).optional(),
     // App Store Connect API for server-side TestFlight enrollment. Optional:
@@ -222,6 +239,12 @@ export const env = createEnv({
     CMUX_TESTFLIGHT_APP_ID: z.string().min(1).optional(),
     CMUX_PRO_TESTFLIGHT_GROUP_ID: z.string().min(1).optional(),
     SENTRY_DSN: z.string().url().optional(),
+    // Cloud VM provisioning is paid-plan-only by default. The allow switch is
+    // intentionally opt-in for controlled demos/rollbacks; the legacy require
+    // flag remains accepted by the entitlement layer for migration parity.
+    CMUX_VM_ALLOW_FREE_PROVISIONING: z.string().optional(),
+    CMUX_VM_REQUIRE_PRO: z.string().optional(),
+    CMUX_VM_DEFAULT_PLAN: z.string().optional(),
     // Hosted coderouter requires an active personal cmux Pro subscription.
     // Self-hosted deployments leave this unset (or set it to "0").
     CODEROUTER_HOSTED_PRO_REQUIRED: requireVercelProductionValue(
@@ -372,12 +395,16 @@ export const env = createEnv({
     STRIPE_SECRET_KEY: trimEnv(process.env.STRIPE_SECRET_KEY),
     STRIPE_WEBHOOK_SECRET: trimEnv(process.env.STRIPE_WEBHOOK_SECRET),
     STRIPE_PRO_MONTHLY_PRICE_ID: trimEnv(process.env.STRIPE_PRO_MONTHLY_PRICE_ID),
+    STRIPE_PRO_MONTHLY_50_PRICE_ID: trimEnv(process.env.STRIPE_PRO_MONTHLY_50_PRICE_ID),
     STRIPE_PRO_YEARLY_PRICE_ID: trimEnv(process.env.STRIPE_PRO_YEARLY_PRICE_ID),
     STRIPE_PRO_YEARLY_288_PRICE_ID: trimEnv(
       process.env.STRIPE_PRO_YEARLY_288_PRICE_ID,
     ),
+    STRIPE_PRO_YEARLY_480_PRICE_ID: trimEnv(process.env.STRIPE_PRO_YEARLY_480_PRICE_ID),
     STRIPE_TEAM_MONTHLY_PRICE_ID: trimEnv(process.env.STRIPE_TEAM_MONTHLY_PRICE_ID),
+    STRIPE_TEAM_MONTHLY_60_PRICE_ID: trimEnv(process.env.STRIPE_TEAM_MONTHLY_60_PRICE_ID),
     STRIPE_TEAM_YEARLY_PRICE_ID: trimEnv(process.env.STRIPE_TEAM_YEARLY_PRICE_ID),
+    STRIPE_TEAM_YEARLY_576_PRICE_ID: trimEnv(process.env.STRIPE_TEAM_YEARLY_576_PRICE_ID),
     CMUX_APP_PRICING_CHECKOUT_URL: trimEnv(
       process.env.CMUX_APP_PRICING_CHECKOUT_URL,
     ),
@@ -391,6 +418,9 @@ export const env = createEnv({
     CMUX_TESTFLIGHT_APP_ID: trimEnv(process.env.CMUX_TESTFLIGHT_APP_ID),
     CMUX_PRO_TESTFLIGHT_GROUP_ID: trimEnv(process.env.CMUX_PRO_TESTFLIGHT_GROUP_ID),
     SENTRY_DSN: trimEnv(process.env.SENTRY_DSN),
+    CMUX_VM_ALLOW_FREE_PROVISIONING: trimEnv(process.env.CMUX_VM_ALLOW_FREE_PROVISIONING),
+    CMUX_VM_REQUIRE_PRO: trimEnv(process.env.CMUX_VM_REQUIRE_PRO),
+    CMUX_VM_DEFAULT_PLAN: trimEnv(process.env.CMUX_VM_DEFAULT_PLAN),
     CODEROUTER_HOSTED_PRO_REQUIRED: trimEnv(
       process.env.CODEROUTER_HOSTED_PRO_REQUIRED,
     ),

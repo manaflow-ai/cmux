@@ -19,6 +19,10 @@ queue (scripts/iphone-install-queue.sh) and auto-installs when the phone
 reconnects. Unless a simulator is named explicitly, the simulator leg uses the
 tag's own isolated device ("cmux-dev-<slug>"), created on demand.
 
+When a trusted phone leg is enabled, the simulator app is installed but not
+launched. The simulator's agent auto-pair would replace the phone's personal
+Mac pairing; use --simulator-only for a connected simulator run.
+
 Every device build requires the same-tag Mac dev build (the iOS app is unusable
 without its Mac); when it is missing, the Mac tag is built first, and the reload
 refuses to ship a phone-only build if that fails.
@@ -80,6 +84,12 @@ ALLOW_DEVICE_REGISTRATION=0
 NO_SIGN_IN=0
 NO_ATTACH=0
 NO_SETUP=0
+# A combined phone + simulator reload uses different auth profiles for each
+# surface. Launching the simulator first would sign the shared tagged Mac into
+# the agent account and invalidate the physical phone's personal pairing. Keep
+# the simulator installed but unlaunched during a trusted phone reload; use
+# --simulator-only for a connected simulator run.
+SIMULATOR_LAUNCH=1
 # Disable AArch64 GlobalISel codegen for this build. Xcode 26's Swift frontend
 # can miscompile under -O/wholemodule on the GlobalISel path, surfacing as bogus
 # "undefined symbol: _abort/_free/..." link failures. Mirrors scripts/reload.sh.
@@ -257,15 +267,30 @@ fi
 # server. A physical device cannot: localhost is the phone itself, so Debug
 # device builds use staging unless the caller supplies a reachable override.
 # Production-auth builds retain production origins. Explicit overrides always
-# win, including the shared CMUX_DEV_API_BASE_URL used by tagged Mac builds.
+# win for Debug builds, including the shared CMUX_DEV_API_BASE_URL used by
+# tagged Mac builds. --prod-auth is fail-closed: it cannot be combined with a
+# staging/loopback origin.
+cmux_ios_require_production_origin() {
+  local label="$1"
+  local value="$2"
+  if [[ -n "$value" && "$value" != "https://cmux.com" ]]; then
+    echo "error: --prod-auth cannot use $label '$value'; production builds must use https://cmux.com" >&2
+    return 1
+  fi
+}
+
 cmux_ios_resolve_api_base_url() {
   local target="$1"
   local explicit_base_url="${CMUX_IOS_API_BASE_URL:-${CMUX_DEV_API_BASE_URL:-}}"
 
+  if [[ "$PROD_AUTH" -eq 1 ]]; then
+    cmux_ios_require_production_origin "the API origin" "$explicit_base_url" || return 1
+    printf '%s' "https://cmux.com"
+    return 0
+  fi
+
   if [[ -n "$explicit_base_url" ]]; then
     printf '%s' "$explicit_base_url"
-  elif [[ "$PROD_AUTH" -eq 1 ]]; then
-    printf '%s' "https://cmux.com"
   elif [[ -n "${CMUX_VM_API_BASE_URL:-}" ]]; then
     printf '%s' "$CMUX_VM_API_BASE_URL"
   elif [[ "$target" == "physical_device" ]]; then
@@ -283,14 +308,24 @@ cmux_ios_resolve_api_base_url() {
 cmux_ios_resolve_iroh_broker_base_url() {
   local explicit_base_url="${CMUX_IOS_IROH_BROKER_BASE_URL:-${CMUX_IROH_BROKER_BASE_URL:-}}"
 
+  if [[ "$PROD_AUTH" -eq 1 ]]; then
+    cmux_ios_require_production_origin "the Iroh broker origin" "$explicit_base_url" || return 1
+    printf '%s' "https://cmux.com"
+    return 0
+  fi
+
   if [[ -n "$explicit_base_url" ]]; then
     printf '%s' "$explicit_base_url"
-  elif [[ "$PROD_AUTH" -eq 1 ]]; then
-    printf '%s' "https://cmux.com"
   else
     printf '%s' "https://cmux-staging.vercel.app"
   fi
 }
+
+if [[ "$PROD_AUTH" -eq 1 ]]; then
+  cmux_ios_require_production_origin "the presence origin" "${CMUX_PRESENCE_BASE_URL:-}" || exit 1
+  CMUX_PRESENCE_BASE_URL="https://presence.cmux.dev"
+  export CMUX_PRESENCE_BASE_URL
+fi
 
 CMUX_IOS_SIMULATOR_API_BASE_URL_VALUE="$(cmux_ios_resolve_api_base_url simulator)"
 CMUX_IOS_DEVICE_API_BASE_URL_VALUE="$(cmux_ios_resolve_api_base_url physical_device)"
@@ -769,7 +804,7 @@ PY
   xcrun simctl boot "$SIM_ID" >/dev/null 2>&1 || true
   xcrun simctl install "$SIM_ID" "$APP_PATH"
 
-  if [[ "$LAUNCH" -eq 1 ]]; then
+  if [[ "$LAUNCH" -eq 1 && "$SIMULATOR_LAUNCH" -eq 1 ]]; then
     xcrun simctl terminate "$SIM_ID" "$BUNDLE_ID" >/dev/null 2>&1 || true
     if [[ "$NO_SETUP" -eq 1 || "$NO_SIGN_IN" -eq 1 ]]; then
       xcrun simctl launch "$SIM_ID" "$BUNDLE_ID" >/dev/null
@@ -778,6 +813,8 @@ PY
       echo "error: repair the tagged Mac/Iroh route, or pass --no-attach, --no-sign-in, or --no-setup explicitly" >&2
       return 1
     fi
+  elif [[ "$LAUNCH" -eq 1 ]]; then
+    echo "==> simulator installed but not launched because the trusted phone reload owns the tagged Mac pairing"
   fi
 
   cat <<EOF
@@ -1109,6 +1146,11 @@ EOF
 }
 
 echo "==> iOS reload starting (tag: $TAG)"
+
+if [[ "$RELOAD_DEVICE" -eq 1 && "$LAUNCH" -eq 1 && "$NO_SETUP" -eq 0 && "$NO_SIGN_IN" -eq 0 && "$NO_ATTACH" -eq 0 ]]; then
+  SIMULATOR_LAUNCH=0
+  echo "==> combined phone reload will install but not launch the simulator to preserve the personal Mac pairing"
+fi
 
 if [[ "$RELOAD_SIMULATOR" -eq 1 ]]; then
   reload_simulator

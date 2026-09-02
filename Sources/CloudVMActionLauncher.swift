@@ -10,6 +10,9 @@ final class CloudVMActionLauncher {
         let terminationStatus: Int32
         let output: String
         let workspaceId: UUID?
+        /// The machine the CLI reported creating, parsed from its stable
+        /// `machine=<id>` token — never from localized display text.
+        var machineId: String? = nil
 
         var succeeded: Bool {
             terminationStatus == 0
@@ -118,7 +121,8 @@ final class CloudVMActionLauncher {
                     Completion(
                         terminationStatus: terminationStatus,
                         output: output,
-                        workspaceId: Self.createdWorkspaceId(from: output)
+                        workspaceId: Self.createdWorkspaceId(from: output),
+                        machineId: Self.createdMachineId(from: output)
                     )
                 )
                 if terminationStatus == 0, presentOutputOnSuccess, !Self.shared.isShuttingDown, !suppressPresentation {
@@ -193,6 +197,20 @@ final class CloudVMActionLauncher {
         }
     }
 
+    /// `cmux vm new` prints `OK machine=<id>` the moment the machine exists,
+    /// before it tries to open it, so a failed open still reports the machine.
+    private static func createdMachineId(from output: String) -> String? {
+        for token in output.split(whereSeparator: \.isWhitespace) {
+            let string = String(token)
+            guard string.hasPrefix("machine=") else { continue }
+            let id = String(string.dropFirst("machine=".count))
+            if !id.isEmpty, id.allSatisfy({ $0.isLetter || $0.isNumber || $0 == "-" || $0 == "_" }) {
+                return id
+            }
+        }
+        return nil
+    }
+
     private static func createdWorkspaceId(from output: String) -> UUID? {
         for token in output.split(whereSeparator: \.isWhitespace) {
             let string = String(token)
@@ -208,11 +226,11 @@ final class CloudVMActionLauncher {
     private func presentStartFailure(summary: String, output: String, action: String, preferredWindow: NSWindow?) {
         let trimmedOutput = output.trimmingCharacters(in: .whitespacesAndNewlines)
         let limitedOutput = String(trimmedOutput.prefix(2000))
-        let safeOutput = sanitizedCloudVMStartOutput(limitedOutput)
+        let safeOutput = Self.sanitizedCloudVMStartOutput(limitedOutput)
         // When the whole transcript is held back (it mentions backend internals),
         // still tell the person *why* it failed: the CLI's first line is the
         // human-readable reason ("Cloud VM state is unavailable (HTTP 503 …)").
-        let reason = safeOutput.isEmpty ? firstSafeLine(of: limitedOutput) : nil
+        let reason = safeOutput.isEmpty ? Self.firstSafeLine(of: limitedOutput) : nil
         let whatToTry = String(localized: "command.cloudVM.failed.whatToTry", defaultValue: "What to try:")
         let details = String(localized: "command.cloudVM.failed.details", defaultValue: "Details:")
         var sections = [
@@ -242,9 +260,18 @@ final class CloudVMActionLauncher {
         }
     }
 
+    /// What replaces output that cannot be shown: the person is told details
+    /// exist without the transcript leaking anything the redaction blocks.
+    nonisolated static var hiddenOutputPlaceholder: String {
+        String(
+            localized: "command.cloudVM.failed.details.hidden",
+            defaultValue: "Additional technical details are available in logs."
+        )
+    }
+
     /// The first line of CLI output that passes the same redaction as the full
     /// transcript, with an "Error:" prefix dropped. Nil when no line is safe.
-    private func firstSafeLine(of output: String) -> String? {
+    nonisolated static func firstSafeLine(of output: String) -> String? {
         for rawLine in output.split(whereSeparator: \.isNewline) {
             var line = rawLine.trimmingCharacters(in: .whitespaces)
             if line.lowercased().hasPrefix("error:") {
@@ -252,12 +279,12 @@ final class CloudVMActionLauncher {
             }
             guard !line.isEmpty else { continue }
             let safe = sanitizedCloudVMStartOutput(line)
-            if !safe.isEmpty { return String(safe.prefix(240)) }
+            if !safe.isEmpty, safe != hiddenOutputPlaceholder { return String(safe.prefix(240)) }
         }
         return nil
     }
 
-    private func sanitizedCloudVMStartOutput(_ output: String) -> String {
+    nonisolated static func sanitizedCloudVMStartOutput(_ output: String) -> String {
         let trimmed = output.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return "" }
         let lowercased = trimmed.lowercased()
@@ -275,7 +302,6 @@ final class CloudVMActionLauncher {
             "cookie",
             "credential",
             "database",
-            "daytona",
             "e2b",
             "freestyle",
             "http://",
@@ -307,7 +333,6 @@ final class CloudVMActionLauncher {
             "cookie",
             "credential",
             "database",
-            "daytona",
             "e2b",
             "freestyle",
             "itemid",
@@ -339,10 +364,7 @@ final class CloudVMActionLauncher {
               !containsLikelyEmail,
               !containsLikelyIPAddress,
               !containsLikelyFilesystemPath else {
-            return String(
-                localized: "command.cloudVM.failed.details.hidden",
-                defaultValue: "Additional technical details are available in logs."
-            )
+            return hiddenOutputPlaceholder
         }
         return trimmed
     }

@@ -3,6 +3,7 @@ import CmuxAuthRuntime
 public import CmuxIrohTransport
 import CmuxIrxTransport
 public import CmuxMobileRPC
+import CmuxMobileShellModel
 public import Foundation
 
 /// iOS composition root for the irx transport (the from-scratch iroh rebuild
@@ -42,6 +43,17 @@ public actor MobileIrxRuntimeComposition {
         case peerNotDiscovered
     }
 
+    /// Dial-gate refusals from the device-list lease. Deliberately NOT
+    /// ``IrxAdmissionDenied``: the peer engine treats these as ordinary
+    /// transient failures (backoff + redial), because a stale lease or a
+    /// directory that has not yet caught up heals as soon as the control
+    /// plane re-stamps. A revoked entry, by contrast, throws
+    /// `IrxAdmissionDenied(.revoked)` and parks the engine.
+    public enum DeviceListDialRefusal: Error, Sendable {
+        case staleLease
+        case unknownEndpoint
+    }
+
     /// One journal for every irx component on the phone; the JSONL file lives
     /// in the app container's Documents so the soak analyzer can pull it with
     /// `simctl get_app_container`.
@@ -65,6 +77,9 @@ public actor MobileIrxRuntimeComposition {
     private let clientNamespace: String
     public nonisolated let tag: String
     private let stateDirectory: URL
+    /// The app's signed Keychain access group; scopes the Release device-list
+    /// and broker-cache Keychain items.
+    private let keychainAccessGroup: String?
 
     private weak var auth: AuthCoordinator?
     /// Identity donor (identity adoption): the legacy composition owns the
@@ -74,8 +89,25 @@ public actor MobileIrxRuntimeComposition {
     private var endpointSupervisor: IrxEndpointSupervisor?
     private var autopilot: IrxRelayCredentialAutopilot?
     private var identity: IrxIdentity?
+    /// The always-on fact channel to the per-account control-plane DO.
+    /// Never on the dial path; delivers pushed passes, hint updates, and the
+    /// device-list directory (the dial-gate authority).
+    private var controlPlane: IrxControlPlaneClient?
+    private var controlPlaneBaseURL: URL?
+    /// The current device-list lease: consulted by the dial gate. nil until
+    /// a directory has EVER been received or restored (the bootstrap
+    /// exception: a fresh install may dial before its first directory).
+    private let deviceListBox = IrxDeviceListCurrent()
+    /// Durable lease storage (Keychain in Release, dev file store in DEBUG).
+    private var deviceListStore: IrxDeviceListStore?
     private var provisioningTask: Task<Void, Never>?
     private var provisionInFlight: Task<IrxBrokerService, any Error>?
+    /// Auth observation stays alive for the lifetime of the composition. A
+    /// successful first provision must not terminate it, otherwise an
+    /// implicit token clear or account switch leaves the endpoint running.
+    private var authObservationTask: Task<Void, Never>?
+    private var activeAccountID: String?
+    private var lifecycleEpoch: UInt64 = 0
     /// One reconnect owner per Mac endpoint (contract: the single dialer).
     private var enginesByPeer: [String: IrxPeerEngine] = [:]
     /// Route material per peer, refreshed on every transport request.
@@ -94,7 +126,7 @@ public actor MobileIrxRuntimeComposition {
         keychainAccessGroup: String? = nil,
         defaults: UserDefaults = .standard
     ) {
-        _ = keychainAccessGroup
+        self.keychainAccessGroup = keychainAccessGroup
         _ = defaults
         let appNamespace = injectedAppNamespace
             ?? MobileIOSAppNamespace(bundleIdentifier: bundleIdentifier)
@@ -124,31 +156,16 @@ public actor MobileIrxRuntimeComposition {
         IrxStateLocation.removeLegacySharedDirectory(base: appSupport)
     }
 
-    /// irx mints its own durable device UUID (persisted beside the identity),
-    /// giving the irx binding its own broker slot: it can never reincarnate
-    /// the legacy runtime's binding out from under another build.
-    private func irxDeviceID() -> String {
-        let url = stateDirectory.appendingPathComponent("device-id")
-        if let existing = try? String(contentsOf: url, encoding: .utf8),
-            !existing.isEmpty
-        {
-            return existing.trimmingCharacters(in: .whitespacesAndNewlines)
-        }
-        let minted = UUID().uuidString.lowercased()
-        try? FileManager.default.createDirectory(
-            at: stateDirectory, withIntermediateDirectories: true)
-        try? minted.write(to: url, atomically: true, encoding: .utf8)
-        return minted
-    }
-
     // MARK: - Lifecycle
 
     public func configure(
         auth: AuthCoordinator,
-        legacy: MobileIrohRuntimeComposition? = nil
+        legacy: MobileIrohRuntimeComposition? = nil,
+        controlPlaneBaseURL: URL? = nil
     ) {
         self.auth = auth
         legacyComposition = legacy
+        self.controlPlaneBaseURL = controlPlaneBaseURL
         Self.journal.record(
             "client-runtime", "configured",
             [
@@ -158,43 +175,392 @@ public actor MobileIrxRuntimeComposition {
                 "broker": brokerBaseURL?.host() ?? "-",
             ]
         )
-        // Proactive provisioning so the user-visible connect is warm:
-        // identity, binding, discovery, relay credentials all resolve in the
-        // background at launch, never on the dial path.
+        authObservationTask?.cancel()
         provisioningTask?.cancel()
-        provisioningTask = Task { [weak self] in
-            // Capped exponential backoff: a persistent broker-side failure
-            // must degrade to a gentle poll, never a 2s hammer (each failed
-            // attempt can hit registration, and registration writes bump the
-            // account route revision fleet-wide).
-            var delay: Duration = .seconds(2)
-            while !Task.isCancelled {
-                if await self?.provisionIfPossible() == true {
-                    return
-                }
-                try? await Task.sleep(for: delay)
-                delay = min(delay * 2, .seconds(30))
+        provisioningTask = nil
+        lifecycleEpoch &+= 1
+        // Proactive provisioning is event-driven on auth. The observation task
+        // never exits after a successful provision, so implicit sign-out and
+        // account switches receive the same teardown as explicit sign-out.
+        authObservationTask = Task { [weak self, weak auth] in
+            guard let auth else { return }
+            await auth.awaitBootstrapped()
+            guard !Task.isCancelled else { return }
+            Self.journal.record("client-runtime", "auth-gate-bootstrapped")
+            for await identity in await auth.authenticatedSessionIdentities() {
+                guard !Task.isCancelled else { return }
+                await self?.applyAuthIdentity(identity)
             }
         }
     }
 
-    /// Foreground kick: re-check credential freshness immediately (iOS
-    /// suspension pauses the autopilot's sleep).
-    public func didBecomeActive() async {
-        await autopilot?.kick()
-        for engine in enginesByPeer.values {
-            await engine.warmUp(trigger: "foreground")
+    private func applyAuthIdentity(
+        _ sessionIdentity: AuthenticatedSessionIdentity?
+    ) async {
+        guard let sessionIdentity else {
+            await handleSignOut()
+            return
+        }
+        guard activeAccountID != sessionIdentity.accountID || broker == nil else {
+            // A same-account refresh does not replace a healthy runtime. If a
+            // prior task was cancelled before publication, restart it.
+            if provisioningTask == nil {
+                startProvisioning(for: sessionIdentity)
+            }
+            return
+        }
+        if activeAccountID != nil || broker != nil {
+            await handleSignOut()
+        }
+        activeAccountID = sessionIdentity.accountID
+        startProvisioning(for: sessionIdentity)
+    }
+
+    private func isCurrent(_ epoch: UInt64) -> Bool {
+        epoch == lifecycleEpoch && activeAccountID != nil
+    }
+
+    private func requireCurrent(_ epoch: UInt64) throws {
+        guard isCurrent(epoch) else { throw CancellationError() }
+    }
+
+    private func requireLifecycle(_ epoch: UInt64) throws {
+        guard epoch == lifecycleEpoch else { throw CancellationError() }
+    }
+
+    private func startProvisioning(for sessionIdentity: AuthenticatedSessionIdentity) {
+        provisioningTask?.cancel()
+        let epoch = lifecycleEpoch
+        provisioningTask = Task { [weak self] in
+            guard let self else { return }
+            _ = await self.provisionSignedInWithRetry(
+                sessionIdentity: sessionIdentity,
+                epoch: epoch
+            )
         }
     }
 
-    private func provisionIfPossible() async -> Bool {
+    /// Provisions with capped backoff. Returns true on success; returns
+    /// false immediately when not signed in (the caller's auth signal owns
+    /// the next attempt, so no pre-auth retries ever run).
+    private func provisionSignedInWithRetry(
+        sessionIdentity: AuthenticatedSessionIdentity,
+        epoch: UInt64
+    ) async -> Bool {
         guard let auth else { return false }
-        guard let session = try? await auth.authenticatedSessionSnapshot() else {
+        Self.journal.record("client-runtime", "auth-gate-snapshot-check")
+        guard await auth.isAuthenticatedSessionIdentityCurrent(sessionIdentity) else {
+            Self.journal.record("client-runtime", "auth-gate-not-signed-in")
+            return false
+        }
+        Self.journal.record("client-runtime", "auth-gate-signed-in")
+        var delay: Duration = .seconds(1)
+        while !Task.isCancelled {
+            guard lifecycleEpoch == epoch,
+                  await auth.isAuthenticatedSessionIdentityCurrent(sessionIdentity)
+            else { return false }
+            if await provisionIfPossible(
+                sessionIdentity: sessionIdentity,
+                epoch: epoch
+            ) { return true }
+            try? await Task.sleep(for: delay)
+            delay = min(delay * 2, .seconds(30))
+        }
+        return false
+    }
+
+    /// Foreground kick: re-check credential freshness immediately (iOS
+    /// suspension pauses the autopilot's sleep) and reconnect the control
+    /// socket, which resyncs facts from the persisted revision.
+    public func didBecomeActive() async {
+        await autopilot?.kick()
+        await controlPlane?.kick()
+        for engine in enginesByPeer.values {
+            await engine.foregroundKick()
+        }
+    }
+
+    // MARK: - Control-plane fact ingestion
+
+    private func startControlPlane(identity: IrxIdentity) {
+        guard controlPlane == nil, let controlPlaneBaseURL, let auth else { return }
+        let epoch = lifecycleEpoch
+        let client = IrxControlPlaneClient(
+            configuration: .init(
+                socketURL: controlPlaneBaseURL
+                    .appendingPathComponent("v1/control/socket"),
+                endpointIDHex: identity.endpointIDHex,
+                // Phase A: passes stay on the HTTPS autopilot (now hardened
+                // with stale-connection retry). The broker's mint endpoint
+                // requires an endpoint-signed proof for non-legacy
+                // namespaces, which the DO cannot mint bearer-only; flip
+                // this when proof pass-through ships.
+                wantPasses: false,
+                cacheDirectory: stateDirectory,
+                clientInfo: IrxCtlClientInfo(
+                    deviceID: identity.deviceID,
+                    platform: "ios",
+                    appVersion: IrxCtlClientInfo.appVersionString(
+                        infoDictionary: Bundle.main.infoDictionary),
+                    releaseTrack: Self.clientReleaseTrack(),
+                    capabilities: ["cmux.irx.v2", "list-auth"]
+                ),
+                clientNamespace: clientNamespace
+            ),
+            tokenPair: { [weak auth] in
+                guard let auth else { return nil }
+                let session = try await auth.authenticatedSessionSnapshot()
+                return (session.accessToken, session.refreshToken)
+            },
+            handlers: .init(
+                onRelayPasses: { [weak self] credentials in
+                    guard let self, await self.isCurrent(epoch) else { return false }
+                    return await self.ingestPushedPasses(credentials)
+                },
+                onHintUpdate: { [weak self] endpointIDHex, relayURL in
+                    guard let self, await self.isCurrent(epoch) else { return false }
+                    return await self.ingestHintUpdate(
+                        endpointIDHex: endpointIDHex, relayURL: relayURL)
+                },
+                onDirectory: { _ in true },
+                onSnapshotComplete: { _ in },
+                onDirectoryFact: { [weak self] fact in
+                    guard let self, await self.isCurrent(epoch) else { return false }
+                    return await self.applyDeviceListFact(fact)
+                },
+                onFreshness: { [weak self] rev, issuedAt in
+                    guard let self, await self.isCurrent(epoch) else { return }
+                    await self.applyDeviceListFreshness(rev: rev, issuedAt: issuedAt)
+                }
+            ),
+            journal: Self.journal
+        )
+        controlPlane = client
+        Task { await client.start() }
+    }
+
+    // MARK: - Device list (dial-gate authority)
+
+    /// The phone's iteration of the device-list apply: persist, swap the
+    /// dial-gate box, project into the UI state, acknowledge the revision.
+    /// (Enforcement on LIVE sessions is the Mac's job; the phone's gate
+    /// bites at the next dial.)
+    private func applyDeviceListFact(_ fact: IrxCtlDirectoryFact) async -> Bool {
+        if let current = deviceListBox.current, fact.rev <= current.rev {
+            Self.journal.record(
+                "client-runtime", "device-list-stale-rev",
+                ["rev": String(fact.rev), "have": String(current.rev)]
+            )
+            return true
+        }
+        let snapshot = IrxDeviceListSnapshot(
+            fact: fact,
+            receivedAtWall: Date(),
+            receivedAtMonotonic: .now
+        )
+        if let deviceListStore {
+            guard await deviceListStore.persist(snapshot) else { return false }
+        }
+        deviceListBox.replace(snapshot)
+        Self.journal.record(
+            "client-runtime", "device-list-applied",
+            ["rev": String(fact.rev), "entries": String(snapshot.entries.count)]
+        )
+        await projectDeviceListForUI(snapshot)
+        return true
+    }
+
+    private func applyDeviceListFreshness(rev: Int, issuedAt: Date) async {
+        guard
+            let updated = deviceListBox.restamp(
+                rev: rev,
+                issuedAt: issuedAt,
+                receivedAtWall: Date(),
+                receivedAtMonotonic: .now
+            )
+        else { return }
+        if let deviceListStore {
+            await deviceListStore.persist(updated)
+        }
+        Self.journal.record(
+            "client-runtime", "device-list-restamped", ["rev": String(rev)]
+        )
+    }
+
+    /// Mirrors the lease into the @Observable UI state (Computers rows read
+    /// it to badge seeded Macs).
+    private func projectDeviceListForUI(_ snapshot: IrxDeviceListSnapshot) async {
+        let fresh = snapshot.isFresh(now: .now)
+        var byEndpoint: [String: MobileMacListAuthState.Entry] = [:]
+        var byDevice: [String: MobileMacListAuthState.Entry] = [:]
+        for (endpointIDHex, entry) in snapshot.entries {
+            let projected = MobileMacListAuthState.Entry(
+                status: entry.status,
+                revoked: entry.revoked,
+                isFresh: fresh,
+                appVersion: entry.appVersion,
+                minimumSupportedVersion: snapshot.minimumSupportedMacVersion
+            )
+            byEndpoint[endpointIDHex] = projected
+            if let deviceID = entry.deviceID {
+                byDevice[deviceID] = projected
+            }
+        }
+        await MainActor.run {
+            MobileMacListAuthState.shared.replace(
+                entriesByEndpointID: byEndpoint,
+                entriesByDeviceID: byDevice,
+                minimumSupportedMacVersion: snapshot.minimumSupportedMacVersion
+            )
+        }
+    }
+
+    /// UI/programmatic lookup: the peer's list-auth stance right now.
+    public func deviceListEntry(
+        endpointIDHex: String
+    ) -> (status: String, revoked: Bool, fresh: Bool)? {
+        guard let snapshot = deviceListBox.current,
+            let entry = snapshot.entries[endpointIDHex]
+        else { return nil }
+        return (entry.status, entry.revoked, snapshot.isFresh(now: .now))
+    }
+
+    /// Sign-out: drop the lease everywhere (memory, durable store, UI), so
+    /// the next account starts from its own directory.
+    public func handleSignOut() async {
+        lifecycleEpoch &+= 1
+        activeAccountID = nil
+        provisioningTask?.cancel()
+        provisioningTask = nil
+        provisionInFlight?.cancel()
+        provisionInFlight = nil
+
+        // Stop every live authority before erasing its persisted state. The
+        // broker and endpoint both carry endpoint identity in memory, while
+        // their epoch fences prevent late network completions from restoring
+        // a cache entry after this method returns.
+        let controlPlane = self.controlPlane
+        self.controlPlane = nil
+        await controlPlane?.stop()
+        let autopilot = self.autopilot
+        self.autopilot = nil
+        await autopilot?.stop()
+        let supervisor = self.endpointSupervisor
+        self.endpointSupervisor = nil
+        await supervisor?.deactivate()
+        let engines = Array(enginesByPeer.values)
+        enginesByPeer.removeAll()
+        for engine in engines {
+            await engine.stop(code: .userRequested)
+        }
+        // irx adopts the legacy identity repository, so the donor must run its
+        // sign-out preparation even when legacy transport is dormant. This is
+        // what removes the Ed25519 endpoint key and queues any binding revoke
+        // for an implicit token clear or account switch.
+        if let legacyComposition {
+            let preparation = await legacyComposition.beginSignOutPreparation()
+            _ = await preparation.value
+        }
+        let broker = self.broker
+        self.broker = nil
+        await broker?.deactivate()
+        identity = nil
+        routesByPeer.removeAll()
+        claimedControlSessions.removeAll()
+        claimedEventSessions.removeAll()
+
+        deviceListBox.clear()
+        if let deviceListStore {
+            await deviceListStore.clear()
+        }
+        deviceListStore = nil
+        await MainActor.run {
+            MobileMacListAuthState.shared.clear()
+        }
+        Self.journal.record("client-runtime", "device-list-signed-out")
+    }
+
+    /// The lease's durable backend, matching the identity/credential stores'
+    /// DEBUG/#else split exactly.
+    private nonisolated static func deviceListSecureStore(
+        stateDirectory: URL,
+        keychainAccessGroup: String?
+    ) -> any CmxIrohSecureCredentialStoring {
+        #if DEBUG
+        CmxIrohDevelopmentFileCredentialStore(
+            directory: stateDirectory.appendingPathComponent(
+                "device-list", isDirectory: true)
+        )
+        #else
+        CmxIrohKeychainCredentialStore(
+            service: "com.cmuxterm.irx.device-list.v1",
+            accessGroup: keychainAccessGroup
+        )
+        #endif
+    }
+
+    /// The phone build's control-plane release track. Conservative: DEBUG is
+    /// "dev"; a bundle id carrying a ".beta" segment is "beta"; everything
+    /// else reports "appstore" (TestFlight and App Store share a bundle id,
+    /// so the wire cannot distinguish them here).
+    private nonisolated static func clientReleaseTrack(
+        bundleIdentifier: String? = Bundle.main.bundleIdentifier
+    ) -> String {
+        #if DEBUG
+        return "dev"
+        #else
+        return (bundleIdentifier ?? "").contains(".beta") ? "beta" : "appstore"
+        #endif
+    }
+
+    /// Pushed passes flow through the broker's mint rules (fleet allowlist,
+    /// identity binding, monotonic freshness), then rotate make-before-break
+    /// and reset the autopilot timer so push and fallback never double-mint.
+    private func ingestPushedPasses(_ credentials: [IrxRelayCredential]) async -> Bool {
+        guard let broker, let endpointSupervisor, let autopilot else { return false }
+        guard let accepted = await broker.acceptPushedRelayCredentials(credentials)
+        else { return false }
+        await endpointSupervisor.rotateCredentials(accepted)
+        await autopilot.kick()
+        return true
+    }
+
+    /// The event-driven relay race: a pushed hint that disagrees with the
+    /// route an in-flight dial used cancels that dial and redials at the
+    /// true relay. An admitted session is never touched, and an agreeing
+    /// hint (the overwhelmingly common case) is a no-op.
+    private func ingestHintUpdate(endpointIDHex: String, relayURL: String) async -> Bool {
+        let existing = routesByPeer[endpointIDHex]
+        guard existing?.relayURL != relayURL else { return true }
+        routesByPeer[endpointIDHex] = (relayURL, existing?.directAddresses ?? [])
+        Self.journal.record(
+            "client-runtime", "hint-adopted",
+            [
+                "peer": String(endpointIDHex.prefix(12)),
+                "relay": relayURL,
+                "was": existing?.relayURL ?? "-",
+            ]
+        )
+        if let engine = enginesByPeer[endpointIDHex] {
+            await engine.relayHintChanged(trigger: "ctl-hint-update")
+        }
+        return true
+    }
+
+    private func provisionIfPossible(
+        sessionIdentity: AuthenticatedSessionIdentity,
+        epoch: UInt64
+    ) async -> Bool {
+        guard let auth else { return false }
+        guard lifecycleEpoch == epoch,
+              await auth.isAuthenticatedSessionIdentityCurrent(sessionIdentity),
+              let session = try? await auth.authenticatedSessionSnapshot(),
+              session.accountID == sessionIdentity.accountID else {
             return false
         }
         _ = session
         do {
-            _ = try await provisionedBroker()
+            _ = try await provisionedBroker(epoch: epoch)
             Self.journal.record("client-runtime", "provisioned")
             return true
         } catch {
@@ -212,24 +578,33 @@ public actor MobileIrxRuntimeComposition {
     /// half-initialized broker behind: an unregistered client 403s every
     /// later call, which is exactly the poisoned state this single-flight
     /// all-or-nothing shape forbids.
-    private func provisionedBroker() async throws -> IrxBrokerService {
+    private func provisionedBroker(epoch: UInt64? = nil) async throws -> IrxBrokerService {
+        if let epoch {
+            try requireCurrent(epoch)
+        }
         if let broker { return broker }
         if let provisionInFlight {
             return try await provisionInFlight.value
         }
+        let operationEpoch = epoch ?? lifecycleEpoch
         let task = Task<IrxBrokerService, any Error> {
-            try await self.provisionOnce()
+            try await self.provisionOnce(epoch: operationEpoch)
         }
         provisionInFlight = task
         defer { provisionInFlight = nil }
         return try await task.value
     }
 
-    private func provisionOnce() async throws -> IrxBrokerService {
+    private func provisionOnce(epoch: UInt64) async throws -> IrxBrokerService {
+        try requireLifecycle(epoch)
         guard let auth, let brokerBaseURL else {
             throw CompositionError.notSignedIn
         }
         let session = try await auth.authenticatedSessionSnapshot()
+        try requireLifecycle(epoch)
+        guard activeAccountID == nil || activeAccountID == session.accountID else {
+            throw CancellationError()
+        }
         // IDENTITY ADOPTION: same identity/device/app-instance as the legacy
         // stack, so the binding refreshes in place and stored routes + pair
         // grants stay valid across the transport switch.
@@ -239,6 +614,7 @@ public actor MobileIrxRuntimeComposition {
         else {
             throw CompositionError.notSignedIn
         }
+        try requireLifecycle(epoch)
         let identity = IrxIdentity(
             privateKeyData: adopted.material.secretKey.bytes,
             deviceID: adopted.deviceID,
@@ -252,7 +628,11 @@ public actor MobileIrxRuntimeComposition {
                 platform: .ios,
                 displayName: nil,
                 cacheDirectory: stateDirectory,
-                identityGeneration: adopted.material.generation
+                identityGeneration: adopted.material.generation,
+                // Release: broker caches live in the Keychain, scoped per
+                // account + backend; DEBUG stays on the JSON files.
+                accountID: session.accountID,
+                keychainAccessGroup: keychainAccessGroup
             ),
             identity: identity,
             accessTokenPair: { [weak auth] in
@@ -285,6 +665,7 @@ public actor MobileIrxRuntimeComposition {
         let cachedBinding = await broker.cachedBinding()
         let cachedTrust = await broker.cachedTrust()
         let cachedCredentials = await broker.cachedRelayCredentials()
+        try requireLifecycle(epoch)
         if cachedBinding == nil || cachedTrust == nil {
             // First run for this identity: the full serial path, correctness
             // over speed (registration must precede mint/discovery).
@@ -310,14 +691,39 @@ public actor MobileIrxRuntimeComposition {
             }
         }
         let credentials = try await pilot.usableCredentials()
+        try requireLifecycle(epoch)
         // Fire-and-forget relay-link warm-up: bind + come online now, in
         // parallel with whatever the UI is doing.
         Task { _ = try? await supervisor.readyEndpoint(credentials: credentials) }
         await pilot.start()
+        guard isCurrent(epoch) else {
+            await pilot.stop()
+            await supervisor.deactivate()
+            await broker.deactivate()
+            throw CancellationError()
+        }
         self.identity = identity
         self.broker = broker
         endpointSupervisor = supervisor
         autopilot = pilot
+        // DEVICE LIST: restore the persisted lease before any dial so the
+        // gate (and the UI projection) work offline; the control-plane
+        // socket then refreshes it with live directory facts.
+        let listStore = IrxDeviceListStore(
+            secureStore: Self.deviceListSecureStore(
+                stateDirectory: stateDirectory,
+                keychainAccessGroup: keychainAccessGroup
+            ),
+            accountID: session.accountID,
+            backendHost: brokerBaseURL.host() ?? "unknown-broker",
+            journal: Self.journal
+        )
+        deviceListStore = listStore
+        if let persisted = await listStore.loadPersisted() {
+            deviceListBox.replace(persisted)
+            await projectDeviceListForUI(persisted)
+        }
+        startControlPlane(identity: identity)
         return broker
     }
 
@@ -416,15 +822,43 @@ public actor MobileIrxRuntimeComposition {
         return engine
     }
 
-    /// One dial: cached grant + cached credentials + ready endpoint, then
-    /// connect + one-round-trip admission. Broker calls happen only on cache
-    /// misses (first pairing with this Mac, or a stale grant).
+    /// Refuses a dial the device list forbids. FAIL CLOSED only when there
+    /// is something to judge: a snapshot exists (entry missing/revoked, or
+    /// the whole lease stale). BOOTSTRAP EXCEPTION: when NO directory has
+    /// ever been received or restored (fresh install, first ever dial racing
+    /// the first control-plane hello), the dial proceeds; the Mac's own list
+    /// judge remains the authority that actually admits.
+    private func enforceDialGate(peerHex: String) throws {
+        guard let snapshot = deviceListBox.current else { return }
+        let refuse: (String) -> Void = { reason in
+            Self.journal.record(
+                "client-dial", "dial-refused",
+                ["reason": reason, "peer": String(peerHex.prefix(12))]
+            )
+        }
+        guard snapshot.isFresh(now: .now) else {
+            refuse("stale")
+            throw DeviceListDialRefusal.staleLease
+        }
+        guard let entry = snapshot.entries[peerHex] else {
+            refuse("absent")
+            throw DeviceListDialRefusal.unknownEndpoint
+        }
+        if entry.revoked {
+            refuse("revoked")
+            throw IrxAdmissionDenied(code: .revoked)
+        }
+    }
+
+    /// One dial: cached credentials + ready endpoint, then connect + one
+    /// GRANTLESS round-trip admission (the Mac judges our TLS key against
+    /// its device list; no pair-grant fetch sits on this path anymore).
     private func dialOnce(peerHex: String) async throws -> IrxClientSession {
         let broker = try await provisionedBroker()
         guard let supervisor = endpointSupervisor, let autopilot else {
             throw CompositionError.notSignedIn
         }
-        let grant = try await resolvedGrant(peerHex: peerHex, broker: broker)
+        try enforceDialGate(peerHex: peerHex)
         let credentials = try await autopilot.usableCredentials()
         var relayURL = routesByPeer[peerHex]?.relayURL
         if relayURL == nil {
@@ -456,51 +890,25 @@ public actor MobileIrxRuntimeComposition {
         )
         let connection = try await supervisor.dial(
             address: address, credentials: credentials)
-        do {
-            let (admit, control) = try await IrxAdmission.performClient(
-                connection: connection,
-                grantJWS: grant.grantJWS,
-                journal: Self.journal
-            )
-            // Credit the server-opened events lane now that admission holds.
-            await connection.raiseRemoteStreamCredit(bi: 0, uni: 4)
-            return IrxClientSession(
-                connection: connection,
-                admit: admit,
-                control: control,
-                establishedAt: Date()
-            )
-        } catch let denial as IrxAdmissionDenied {
-            // A revoked/expired/mismatched grant can be stale cache: drop it
-            // so the NEXT dial re-mints instead of re-presenting the corpse.
-            if denial.code == .invalidGrant || denial.code == .grantExpired
-                || denial.code == .revoked
-            {
-                await broker.dropGrant(acceptorEndpointIDHex: peerHex)
-            }
-            throw denial
+        // Grantless hello v2: no pair-grant fetch or mint precedes the dial.
+        // (Old Macs that still require a grant deny with `invalid-grant`;
+        // the engine parks until they update - list-auth Macs deploy first.)
+        let (admit, control) = try await IrxAdmission.performClient(
+            connection: connection,
+            journal: Self.journal
+        )
+        // Credit the server-opened events lane now that admission holds.
+        await connection.raiseRemoteStreamCredit(bi: 0, uni: 4)
+        // Automatic path mode: authorize NAT traversal so iroh can upgrade
+        // this session off the relay make-before-break (direct/LAN paths).
+        if !Self.forceRelayOnly {
+            await connection.authorizeDirectPaths()
         }
-    }
-
-    private func resolvedGrant(
-        peerHex: String,
-        broker: IrxBrokerService
-    ) async throws -> IrxGrantSnapshot {
-        if let cached = await broker.cachedGrant(acceptorEndpointIDHex: peerHex) {
-            return cached
-        }
-        // First contact with this Mac: find its binding, mint a grant.
-        let discovery = try await broker.discover()
-        guard
-            let acceptorBinding = discovery.bindings.first(where: {
-                $0.endpointID.endpointID == peerHex && $0.platform == .mac
-            })
-        else {
-            throw CompositionError.peerNotDiscovered
-        }
-        return try await broker.issuePairGrant(
-            acceptorBindingID: acceptorBinding.bindingID,
-            acceptorEndpointIDHex: peerHex
+        return IrxClientSession(
+            connection: connection,
+            admit: admit,
+            control: control,
+            establishedAt: Date()
         )
     }
 

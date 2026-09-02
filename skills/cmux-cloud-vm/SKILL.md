@@ -12,7 +12,7 @@ Everything the Cloud sidebar can do, from the CLI — plus agent-only primitives
 | Term | Meaning |
 |------|---------|
 | **Machine** | A persistent cloud VM (`cmux vm ls`). Sleeps when idle (free while asleep), wakes on connect or exec. `/root` is a 16 GB persistent volume; the rest of the filesystem is disposable compute. |
-| **Contents** | Ubuntu 22.04 (xfce desktop image, the default): node 22, bun, uv, git, gh, ripgrep, fd, jq, tmux, xdotool. **Claude Code, Codex, OpenCode, and Pi are preinstalled** under `/root/.npm-global/bin`. The desktop runs TigerVNC + noVNC and the CUA driver (`cua-computer-server`) for computer-use agents. Provisioning runs in the background on first boot — `cat /tmp/cmux/provision.log` on a brand-new machine if a tool is missing. |
+| **Contents** | Ubuntu (shared devbox image): node, bun, uv, git, gh, ripgrep, fd, jq, tmux, xdotool. **Claude Code, Codex, OpenCode, and Pi are preinstalled**. Machines are shell-only today — no provider ships a desktop image, so there is no VNC screen to open. Provisioning runs in the background on first boot — `cat /tmp/cmux/provision.log` on a brand-new machine if a tool is missing. |
 | **Session** | Every machine runs the **cmux-tui remote daemon**: its own workspaces → terminals, visible in `cmux vm tree`. A terminal you start there keeps running when the Mac disconnects. |
 | **Surface** | A terminal, VNC screen or browser — on This Mac or on a machine — with a stable id `<machine>/<kind>/<key>` (`cmux surface ls --json`). Panes *project* surfaces: `cmux surface open <id>` reuses the pane already showing one, or lands it at a pane edge you choose; closing a pane never kills a machine's terminal. |
 | **Base** | The one pinned persistent machine (`cmux vm base open`) — use it for the user's ongoing work. |
@@ -62,7 +62,12 @@ cmux vm agent --agent opencode --no-open --json -- "add a README"             # 
 cmux vm exec <id> -- <command...>       # one command, non-interactive, ~30 s default cap
 cmux vm push <id> ./repo work/repo && cmux vm pull <id> work/repo/out.tgz
 cmux vm wait <id> --wake                # block until ready and awake
+cmux vm terminal send <id> <term> 'bun test' --keys enter     # drive a machine terminal headlessly: type, then press keys (no pane, no focus)
+cmux vm terminal wait <id> <term> --pattern 'pass|fail' --timeout 300   # block until the screen matches; exit 1 on timeout
+cmux vm terminal read <id> <term>       # the visible screen — what a person at that terminal sees
 ```
+
+`terminal send/wait/read` is the interactive counterpart of `exec`: a REPL, a TUI, a long test run, or another agent's session on the machine can be driven and observed without attaching a pane or stealing focus. Start the program with `cmux surface new-terminal --machine <id> --no-open -- <cmd>` (its `term_…` id comes back on the OK line), then loop send → wait → read.
 
 `vm agent` starts the agent as a **detached terminal in the machine's cmux-tui session**: it survives closed panes and reconnects from any device (`cmux vm open <machine>/<ws>/<term>`). Long shell work should also be backgrounded (see recipes) — never hold a long `exec` open.
 

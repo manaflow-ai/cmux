@@ -46,6 +46,10 @@ final class HostSettingsActions: SettingsHostActions {
     /// window instead of stacking duplicates.
     private var configWindow: NSWindow?
     private var configWindowCloseObserver: WindowCloseObserver?
+    /// Owns the currently requested sound preview so a new selection cancels
+    /// the old one and closing Settings does not leave an untracked playback
+    /// task behind.
+    private var notificationSoundPreviewTask: Task<Void, Never>?
 
     init(
         configFileURL: URL,
@@ -58,6 +62,7 @@ final class HostSettingsActions: SettingsHostActions {
 
     deinit {
         appIconModeObservation?.invalidate()
+        notificationSoundPreviewTask?.cancel()
     }
 
     private func startObservingAppIconMode() {
@@ -317,7 +322,9 @@ final class HostSettingsActions: SettingsHostActions {
     func cloudMachinesPlanSummary() async -> CloudMachinesPlanSummary? {
         guard let client = VMClient.shared else { return nil }
         guard let page = try? await client.listPage(), let limits = page.limits else { return nil }
-        let isPaid = limits.planId != "free"
+        // Same classifier as the Machines panel so Settings and the panel never
+        // disagree about an unknown plan id (both fail closed to "not paid").
+        let isPaid = MachinePlanSnapshot.isPaidPlanID(limits.planId)
         let planLabel = isPaid
             ? limits.planId.capitalized
             : String(localized: "settings.cloudMachines.plan.free", defaultValue: "Free")
@@ -428,7 +435,16 @@ final class HostSettingsActions: SettingsHostActions {
     }
 
     func previewNotificationSound(value: String, customFilePath: String) {
-        NotificationSoundSettings.previewSound(value: value, customFilePath: customFilePath)
+        notificationSoundPreviewTask?.cancel()
+        let task = Task { @MainActor [weak self] in
+            _ = await NotificationSoundSettings.previewSound(
+                value: value,
+                customFilePath: customFilePath
+            )
+            guard !Task.isCancelled else { return }
+            self?.notificationSoundPreviewTask = nil
+        }
+        notificationSoundPreviewTask = task
     }
 
     func browserHistoryEntryCount() -> Int? {
@@ -516,7 +532,13 @@ final class HostSettingsActions: SettingsHostActions {
     }
 
     func irohSettingsController() -> (any CmxIrohSettingsControlling)? {
-        MobileHostIrohRuntime.shared
+        // Exactly one runtime owns the transport slot (gated in
+        // MobileHostService.configure); Settings must read the same one, or
+        // the Networking section reports the dormant stack's stale state.
+        if MobileHostIrxRuntime.isEnabled {
+            return MobileHostIrxRuntime.shared
+        }
+        return MobileHostIrohRuntime.shared
     }
 
     /// Maps the host's ``MobileHostServiceStatus`` into the settings package's

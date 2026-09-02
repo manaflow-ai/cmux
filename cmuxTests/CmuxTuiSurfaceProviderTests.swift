@@ -116,6 +116,82 @@ import Testing
         #expect(CmuxTuiSnapshotParser.workspaces(fromSnapshot: [:]).isEmpty)
     }
 
+    @Test func zeroViewTerminalGetsAStableFocusedProjectionTarget() throws {
+        let target = try #require(
+            CmuxTuiSnapshotParser.terminalProjectionTarget(from: Self.sessionSnapshot)
+        )
+        #expect(target == CloudTuiTerminalProjectionTarget(
+            workspaceID: "ws_main",
+            screenID: "screen_1",
+            paneID: "pane_1",
+            index: 2
+        ))
+    }
+
+    @Test func projectionTargetSkipsAnEmptyFocusedWorkspace() throws {
+        var snapshot = Self.sessionSnapshot
+        snapshot["screens"] = [
+            ["id": "screen_api", "workspace_id": "ws_api", "focused": true],
+        ]
+        snapshot["panes"] = [
+            ["id": "pane_api", "screen_id": "screen_api", "focused": true],
+        ]
+        snapshot["tabs"] = []
+        let target = try #require(
+            CmuxTuiSnapshotParser.terminalProjectionTarget(from: snapshot)
+        )
+        #expect(target.workspaceID == "ws_api")
+        #expect(target.screenID == "screen_api")
+        #expect(target.paneID == "pane_api")
+        #expect(target.index == 0)
+    }
+
+    @Test func terminalProjectionArgvUsesTheRemoteDestination() {
+        let target = CloudTuiTerminalProjectionTarget(
+            workspaceID: "ws_main", screenID: "screen_1", paneID: "pane_1", index: 2
+        )
+        #expect(
+            CloudTuiCommandLine.projectTerminalArguments(
+                socketPath: "/k.sock", terminalID: "term_detached", target: target
+            ) == [
+                "--socket", "/k.sock", "--json", "terminal", "term_detached", "project",
+                "--workspace", "ws_main", "--screen", "screen_1", "--pane", "pane_1",
+                "--index", "2",
+            ]
+        )
+    }
+
+    @Test func terminalProjectionArgvCanFenceAConcurrentSnapshotMutation() {
+        let target = CloudTuiTerminalProjectionTarget(
+            workspaceID: "ws_main", screenID: "screen_1", paneID: "pane_1", index: 0
+        )
+        #expect(
+            CloudTuiCommandLine.projectTerminalArguments(
+                socketPath: "/k.sock",
+                terminalID: "term_detached",
+                target: target,
+                expectedRevision: "42",
+                idempotencyKey: "projection-1"
+            ).suffix(4).elementsEqual([
+                "--expected-revision", "42", "--idempotency-key", "projection-1"
+            ])
+        )
+    }
+
+    @Test func resourceRevisionAcceptsOnlyDecimalSnapshotCursors() {
+        #expect(
+            CmuxTuiSnapshotParser.resourceRevision(
+                from: ["cursor": ["revision": "42"]]
+            ) == "42"
+        )
+        #expect(
+            CmuxTuiSnapshotParser.resourceRevision(
+                from: ["cursor": ["revision": "1.0"]]
+            ) == nil
+        )
+        #expect(CmuxTuiSnapshotParser.resourceRevision(from: [:]) == nil)
+    }
+
     @Test func resourceKindWireFormAcceptsTheOldScreenName() throws {
         #expect(SurfaceResourceKind(wire: "display") == .display)
         #expect(SurfaceResourceKind(wire: "screen") == .display, "pre-rename apps and persisted sessions say screen")
@@ -166,6 +242,32 @@ import Testing
             == ["--socket", "/tmp/s.sock", "--json", "workspace", "ws_1", "close"])
     }
 
+    @Test func headlessTerminalIOArgvFollowsTheCLIGrammar() {
+        // Verified live against a machine: `write --text` types as-is (no newline),
+        // `keys` takes bare key names, `screen read` / `screen wait --pattern` read back.
+        #expect(CloudTuiCommandLine.writeArguments(socketPath: "/tmp/s.sock", terminalID: "term_1", text: "echo hi $((6*7))")
+            == ["--socket", "/tmp/s.sock", "--json", "terminal", "term_1", "write", "--text", "echo hi $((6*7))"])
+        #expect(CloudTuiCommandLine.keysArguments(socketPath: "/tmp/s.sock", terminalID: "term_1", keys: ["ctrl+c", "enter"])
+            == ["--socket", "/tmp/s.sock", "--json", "terminal", "term_1", "keys", "ctrl+c", "enter"])
+        #expect(CloudTuiCommandLine.screenReadArguments(socketPath: "/tmp/s.sock", terminalID: "term_1")
+            == ["--socket", "/tmp/s.sock", "--json", "terminal", "term_1", "screen", "read"])
+        #expect(CloudTuiCommandLine.screenWaitArguments(socketPath: "/tmp/s.sock", terminalID: "term_1", pattern: "pass|fail", timeoutMs: 5000)
+            == ["--socket", "/tmp/s.sock", "--json", "terminal", "term_1", "screen", "wait", "--pattern", "pass|fail", "--timeout-ms", "5000"])
+        // No timeout (or a non-positive one) leaves the daemon default in charge.
+        #expect(CloudTuiCommandLine.screenWaitArguments(socketPath: "/tmp/s.sock", terminalID: "term_1", pattern: "λ", timeoutMs: nil).contains("--timeout-ms") == false)
+        #expect(CloudTuiCommandLine.screenWaitArguments(socketPath: "/tmp/s.sock", terminalID: "term_1", pattern: "λ", timeoutMs: 0).contains("--timeout-ms") == false)
+    }
+
+    @Test @MainActor func waitTimeoutNormalizesToTheDaemonDefaultAndClamps() {
+        // The link headroom is computed from the same value the daemon uses, so a
+        // non-positive request cannot cut the link off before the daemon's default.
+        #expect(CmuxTuiSurfaceProvider.clampedWaitTimeoutMs(nil) == CmuxTuiSurfaceProvider.defaultWaitTimeoutMs)
+        #expect(CmuxTuiSurfaceProvider.clampedWaitTimeoutMs(0) == CmuxTuiSurfaceProvider.defaultWaitTimeoutMs)
+        #expect(CmuxTuiSurfaceProvider.clampedWaitTimeoutMs(-5) == CmuxTuiSurfaceProvider.defaultWaitTimeoutMs)
+        #expect(CmuxTuiSurfaceProvider.clampedWaitTimeoutMs(1) == 1)
+        #expect(CmuxTuiSurfaceProvider.clampedWaitTimeoutMs(Int.max) == CmuxTuiSurfaceProvider.maxWaitTimeoutMs)
+    }
+
     @Test func emptyAndMalformedSnapshotsProduceNothing() {
         #expect(CmuxTuiSnapshotParser.terminals(fromSnapshot: [:], machine: Self.machine).isEmpty)
         #expect(CmuxTuiSnapshotParser.terminals(fromSnapshot: ["workspaces": [["name": "no id"]]], machine: Self.machine).isEmpty)
@@ -201,8 +303,8 @@ import Testing
         """
         #expect(CmuxTuiSnapshotParser.listeningPorts(fromSocketListing: ss) == [1337, 3000, 5901])
         #expect(CmuxTuiSnapshotParser.internalPorts.isSuperset(of: [1337, 5901, 6901]))
-        #expect(CmuxTuiSnapshotParser.machineHasDesktop(image: "blaxel/xfce-vnc:latest"))
-        #expect(!CmuxTuiSnapshotParser.machineHasDesktop(image: "blaxel/base-image:latest"))
+        #expect(CmuxTuiSnapshotParser.machineHasDesktop(image: "cmux-xfce-vnc:latest"))
+        #expect(!CmuxTuiSnapshotParser.machineHasDesktop(image: "cmuxd-ws:tooling-20260509f"))
 
         let display = CmuxTuiSnapshotParser.display(machine: Self.machine)
         #expect(display.id == SurfaceResourceID(machine: Self.machine, kind: .display, key: "display:1"))
@@ -284,7 +386,9 @@ import Testing
         #expect(failed.contains("Couldn’t open &lt;m&gt;:3000"))
         #expect(failed.contains("HTTP 503 &lt;vm_image_unavailable&gt; &amp; more"))
         #expect(!failed.contains("<vm_image_unavailable>"))
-        #expect(!failed.contains("spinner"))
+        // No spinner ELEMENT in the failed state; the shared stylesheet still declares
+        // `.spinner`, so a bare substring check would always fail.
+        #expect(!failed.contains("class=\"spinner\""))
         #expect(failed.contains("open it again from the sidebar"))
         #expect(SurfaceBrowserPlaceholder.escape("a\"b'c") == "a&quot;b&#39;c")
     }

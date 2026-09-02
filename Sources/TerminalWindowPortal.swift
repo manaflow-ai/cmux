@@ -703,6 +703,7 @@ final class WindowTerminalPortal: NSObject {
         weak var hostedView: GhosttySurfaceScrollView?
         weak var anchorView: NSView?
         var visibleInUI: Bool
+        var awaitingGeometrySettlement: Bool
         var zPriority: Int
         var transientRecoveryRetriesRemaining: Int
     }
@@ -780,8 +781,17 @@ final class WindowTerminalPortal: NSObject {
         geometryObservers.append(center.addObserver(
             forName: NSWindow.didResizeNotification,
             object: window,
-            queue: .main
+            queue: nil
         ) { [weak self] notification in
+            // queue nil on purpose: NSWindow posts didResize synchronously
+            // from inside setFrame on the main thread, so this handler runs
+            // while the resize tick's transaction is still open — the only
+            // point where hosted frames can land in the SAME commit as the
+            // window's new size. A .main operation queue defers the handler
+            // by a runloop turn, and during a live resize that turn is the
+            // visible difference between the terminal tracking the window
+            // edge and trailing it by a frame for the whole drag.
+            guard Thread.isMainThread else { return }
             MainActor.assumeIsolated {
 #if DEBUG
                 // Standing tripwire for PROGRAMMATIC window growth — the
@@ -805,7 +815,21 @@ final class WindowTerminalPortal: NSObject {
                 }
 #endif
                 guard let self, self.selfFrameWriteDepth == 0 else { return }
-                self.scheduleExternalGeometrySynchronize()
+                if self.isWindowLiveResizeActive {
+                    // Live resize: run the pass INSIDE this tick so hosted
+                    // frames commit together with the window's new size. The
+                    // pass forces subtree layout first (fresh anchor frames)
+                    // and every synchronous-redraw path is already gated off
+                    // while live resize is active (see synchronizeHostedView
+                    // and reconcileVisibleHostedViewsAfterGeometrySync), so
+                    // it cannot reach the open-transaction Metal wedge that
+                    // displayIfNeeded would risk here. Re-entrant echoes die
+                    // in currentlySynchronizingPortalId and the geometry
+                    // signature check.
+                    self.synchronizeAllEntriesFromExternalGeometryChange()
+                } else {
+                    self.scheduleExternalGeometrySynchronize()
+                }
             }
         })
         geometryObservers.append(center.addObserver(
@@ -1001,7 +1025,8 @@ final class WindowTerminalPortal: NSObject {
         }
     }
 
-    private func synchronizeLayoutHierarchy() {
+    @discardableResult
+    private func synchronizeLayoutHierarchy() -> Bool {
         // Idempotence at the choke point. Several paths funnel here (window
         // notifications, anchor geometry callbacks, deferred full syncs,
         // transient recovery), each forcing subtree layout — and each layout
@@ -1012,7 +1037,7 @@ final class WindowTerminalPortal: NSObject {
         // and the echo dies here, whichever path carried it. AppKit still
         // runs pending inner layout before display on its own.
         let signature = externalGeometrySignature()
-        if let last = lastHierarchySyncSignature, last == signature { return }
+        if let last = lastHierarchySyncSignature, last == signature { return true }
 #if DEBUG
         RemoteTmuxSizingDiagnostics.fullHierarchySyncCount += 1
 #endif
@@ -1022,9 +1047,11 @@ final class WindowTerminalPortal: NSObject {
         hostView.layoutSubtreeIfNeeded()
         _ = synchronizeHostFrameToReference()
         lastHierarchySyncSignature = externalGeometrySignature()
+        return false
     }
 
     private var lastHierarchySyncSignature: ExternalGeometrySignature?
+    private var geometrySettlementPassesRemaining = 4
 
     @discardableResult
     private func synchronizeHostFrameToReference() -> Bool {
@@ -1096,9 +1123,19 @@ final class WindowTerminalPortal: NSObject {
         // here in one cheap comparison; any real change differs somewhere
         // and syncs fully.
         guard ensureInstalled() else { return }
-        synchronizeLayoutHierarchy()
+        let hierarchyWasAlreadySettled = synchronizeLayoutHierarchy()
         synchronizeAllHostedViews(excluding: nil)
         reconcileVisibleHostedViewsAfterGeometrySync(reason: "portal.externalGeometrySync")
+        if hierarchyWasAlreadySettled {
+            finishVisibleEntryGeometrySettlements()
+        } else if entriesByHostedId.values.contains(where: { $0.visibleInUI && $0.awaitingGeometrySettlement }) {
+            if geometrySettlementPassesRemaining > 0 {
+                geometrySettlementPassesRemaining -= 1
+                scheduleExternalGeometrySynchronize(forceImmediate: false)
+            } else {
+                finishVisibleEntryGeometrySettlements()
+            }
+        }
     }
 
 #if DEBUG
@@ -1445,6 +1482,7 @@ final class WindowTerminalPortal: NSObject {
         )
 #endif
         if let hostedView = entry.hostedView {
+            hostedView.finishPortalGeometrySettlement()
             if let restoredMask = preAdoptionAutoresizingMaskByHostedId.removeValue(forKey: hostedId) {
                 hostedView.autoresizingMask = restoredMask
             }
@@ -1460,6 +1498,8 @@ final class WindowTerminalPortal: NSObject {
     func hideEntry(forHostedId hostedId: ObjectIdentifier) {
         guard var entry = entriesByHostedId[hostedId] else { return }
         entry.visibleInUI = false
+        entry.hostedView?.finishPortalGeometrySettlement()
+        entry.awaitingGeometrySettlement = false
         entry.transientRecoveryRetriesRemaining = 0
         entriesByHostedId[hostedId] = entry
         entry.hostedView?.isHidden = true
@@ -1478,7 +1518,16 @@ final class WindowTerminalPortal: NSObject {
         let becameVisible = visibleInUI && !entry.visibleInUI
         let becameHidden = !visibleInUI && entry.visibleInUI
         entry.visibleInUI = visibleInUI
-        if !visibleInUI { entry.transientRecoveryRetriesRemaining = 0 }
+        if becameVisible {
+            lastHierarchySyncSignature = nil
+            geometrySettlementPassesRemaining = 4
+            entry.awaitingGeometrySettlement = true
+            entry.hostedView?.beginPortalGeometrySettlement()
+        } else if !visibleInUI {
+            entry.awaitingGeometrySettlement = false
+            entry.hostedView?.finishPortalGeometrySettlement()
+            entry.transientRecoveryRetriesRemaining = 0
+        }
         entriesByHostedId[hostedId] = entry
         // A view that just became visible may still hold the frame it was
         // born with (bind can seed from a pre-settle anchor reading, and a
@@ -1592,6 +1641,7 @@ final class WindowTerminalPortal: NSObject {
             hostedView: hostedView,
             anchorView: anchorView,
             visibleInUI: visibleInUI,
+            awaitingGeometrySettlement: visibleInUI,
             zPriority: zPriority,
             transientRecoveryRetriesRemaining: 0
         )
@@ -1601,6 +1651,11 @@ final class WindowTerminalPortal: NSObject {
             return previousAnchor !== anchorView
         }()
         let becameVisible = (previousEntry?.visibleInUI ?? false) == false && visibleInUI
+        if becameVisible || (visibleInUI && didChangeAnchor) {
+            lastHierarchySyncSignature = nil
+            geometrySettlementPassesRemaining = 4
+            hostedView.beginPortalGeometrySettlement()
+        }
         let priorityIncreased = zPriority > (previousEntry?.zPriority ?? Int.min)
 #if DEBUG
         if previousEntry == nil || didChangeAnchor || becameVisible || priorityIncreased || hostedView.superview !== hostView {
@@ -1765,6 +1820,16 @@ final class WindowTerminalPortal: NSObject {
         }
     }
 
+    private func finishVisibleEntryGeometrySettlements() {
+        for hostedId in entriesByHostedId.keys {
+            guard var entry = entriesByHostedId[hostedId], entry.visibleInUI,
+                  entry.awaitingGeometrySettlement, let hostedView = entry.hostedView else { continue }
+            entry.awaitingGeometrySettlement = false
+            entriesByHostedId[hostedId] = entry
+            hostedView.finishPortalGeometrySettlement()
+        }
+    }
+
     private func scheduleDeferredFullSynchronizeAll(includeVisibleReconcile: Bool = false) {
         if includeVisibleReconcile {
             deferredFullSyncIncludesVisibleReconcile = true
@@ -1776,7 +1841,12 @@ final class WindowTerminalPortal: NSObject {
             self.hasDeferredFullSyncScheduled = false
             let reconcileVisible = self.deferredFullSyncIncludesVisibleReconcile
             self.deferredFullSyncIncludesVisibleReconcile = false
-            self.synchronizeAllHostedViews(excluding: nil)
+            // This callback is also the bind path's first settlement pass. Run
+            // the hierarchy once and retain its fingerprint result so an
+            // unstable first pass cannot flush an intermediate PTY size.
+            guard self.ensureInstalled(syncLayout: false) else { return }
+            let hierarchyWasAlreadySettled = self.synchronizeLayoutHierarchy()
+            self.synchronizeAllHostedViews(excluding: nil, syncLayout: false)
             if reconcileVisible {
                 // syncLayout false: this runs off a layout callback during
                 // divider/sidebar drags, where a synchronous display wedges
@@ -1784,6 +1854,16 @@ final class WindowTerminalPortal: NSObject {
                 self.reconcileVisibleHostedViewsAfterGeometrySync(
                     reason: "portal.deferredFullSync", syncLayout: false
                 )
+            }
+            if hierarchyWasAlreadySettled {
+                self.finishVisibleEntryGeometrySettlements()
+            } else if self.entriesByHostedId.values.contains(where: { $0.visibleInUI && $0.awaitingGeometrySettlement }) {
+                if self.geometrySettlementPassesRemaining > 0 {
+                    self.geometrySettlementPassesRemaining -= 1
+                    self.scheduleExternalGeometrySynchronize(forceImmediate: false)
+                } else {
+                    self.finishVisibleEntryGeometrySettlements()
+                }
             }
         }
     }
@@ -2207,7 +2287,14 @@ final class WindowTerminalPortal: NSObject {
             // normal frame-change refresh path won't run. Nudge geometry + redraw so newly
             // revealed terminals don't sit on a stale/blank IOSurface until later focus churn.
             hostedView.reconcileGeometryNow()
-            if syncLayout {
+            // Mid window live-resize the pass runs synchronously inside the
+            // resize tick's still-open transaction (see the didResize
+            // observer), where refreshSurfaceNow's displayIfNeeded reaches
+            // ghostty's Metal drawFrame and wedges on a present only that
+            // transaction can commit. Unlike the frame-change branch above,
+            // a reveal cannot skip its redraw outright — the surface would
+            // sit blank until later churn — so defer it one main-queue turn.
+            if syncLayout, !isWindowLiveResizeActive {
                 hostedView.refreshSurfaceNow(reason: "portal.reveal")
             } else {
                 deferSurfaceRefresh(forHostedId: hostedId, reason: "portal.reveal.deferred")

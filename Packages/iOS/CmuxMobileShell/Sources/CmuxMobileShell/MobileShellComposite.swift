@@ -1316,6 +1316,12 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// pre-mutation state.
     private var foregroundWorkspaceMutationRefreshPending = false
     private var foregroundWorkspaceMutationRefreshGeneration = UUID()
+    /// The live demonstration-content session while the signed-in account is
+    /// server-flagged for it (`nil` otherwise). All behavior lives in
+    /// `MobileShellComposite+DemoContent.swift`; visible state flows through
+    /// the observable stores this session seeds, so the session itself needs
+    /// no observation.
+    @ObservationIgnored var demoContentSession: MobileDemoContentSession?
     @ObservationIgnored var notificationFeedSnapshotsByMac: [String: NotificationFeedMacSnapshot] = [:]
     @ObservationIgnored var notificationFeedKnownRevisionsByMac: [String: Int] = [:]
     @ObservationIgnored var notificationFeedSuccessfulMacIDs: Set<String> = []
@@ -2041,6 +2047,10 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         let wasSignedIn = isSignedIn
         isSignedIn = true
         clearPairingError()
+        // Every auth sync re-evaluates the account's server-written
+        // demonstration flag, so activation follows session restore and
+        // account switches, not just the sign-in edge below.
+        refreshDemonstrationContentActivation()
         // Fire only on the signed-out→signed-in edge (this is called on every
         // auth-state sync), so identify + the sign-in-completed funnel event are
         // emitted once per sign-in.
@@ -2057,6 +2067,9 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     }
 
     public func signOut() {
+        // The next account must never inherit this account's demonstration
+        // seeds; sign-out's own teardown clears the paired-Mac list.
+        deactivateDemonstrationContent()
         cancelComputerVisibilityMutations()
         // Reset analytics identity to anonymous on the signed-in→signed-out edge
         // only (this is called on every unauthenticated auth-state sync).
@@ -3103,8 +3116,16 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             hiddenIDs.contains(mac.id)
                 || (mac.instanceTag == nil && hiddenIDs.contains(mac.macDeviceID))
         }
-        let activeMac = loadedActiveMac.flatMap { isHidden($0) ? nil : $0 }
-        let allMacs = loadedMacs.filter { !isHidden($0) }
+        // The demonstration computer is never a dial candidate: it has no
+        // transport, and running it through the reconnect machinery (registry
+        // route refresh, dial-failure cleanup) would degrade its locally
+        // served, always-connected state.
+        let activeMac = loadedActiveMac.flatMap {
+            isHidden($0) || isDemonstrationPairedMac($0) ? nil : $0
+        }
+        let allMacs = loadedMacs.filter {
+            !isHidden($0) && !isDemonstrationPairedMac($0)
+        }
         // Candidate Macs in priority order: the active Mac first, then every
         // other saved Mac. Rows with no locally usable route stay in the list so
         // one authenticated registry snapshot can upgrade an older Tailscale
@@ -3861,6 +3882,13 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// back to the unscoped all-users query, so a shared device never exposes
     /// another user's Macs in the switcher.
     public func loadPairedMacs() async {
+        // The demo-content paired-Mac decorator reads the account's
+        // demonstration flag lazily on every load, so any load can reveal the
+        // Demo Mac row. Re-evaluate activation at the same moment: the flag
+        // can arrive through session revalidation AFTER the last auth sync
+        // (a cached identity card predating the flag decodes as not-flagged),
+        // and without this the row would render with zero seeded workspaces.
+        refreshDemonstrationContentActivation(reloadPairedMacs: false)
         let startedAt = appDiagnosticNow()
         recordAppEvent(.computerListRefreshStarted)
         guard let pairedMacStore,
@@ -3969,8 +3997,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// active row) is reconnected. A no-op when already connected to that Mac.
     /// - Parameters:
     ///   - macDeviceID: The stored physical Mac to switch to.
-    ///   - instanceTag: Exact saved app instance to switch to, or `nil` for
-    ///     legacy device-level routing.
+    ///   - instanceTag: Exact saved app instance to switch to, or `nil` to
+    ///     resolve the most recently seen instance for device-level routing.
     /// - Returns: `true` if the foreground connection now targets that Mac (or
     ///   already did), `false` if the switch could not connect — so callers like
     ///   `openWorkspace` can avoid selecting a workspace whose Mac is not live.
@@ -3980,6 +4008,17 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         macDeviceID: String,
         instanceTag: String? = nil
     ) async -> Bool {
+        // The demonstration computer has no transport to switch to: its
+        // seeded workspaces are already live, so a "switch" (opening one of
+        // its rows) succeeds immediately without touching the foreground
+        // connection a real Mac may hold.
+        if demonstrationOwnsMac(deviceID: macDeviceID, instanceTag: instanceTag) {
+            recordAppEvent(.computerSelected, correlationID: macDeviceID)
+            // Self-heal so the caller's row resolution finds the seeded
+            // workspaces even when a teardown removed the session.
+            _ = demonstrationSessionForInteraction()
+            return true
+        }
         let startedAt = appDiagnosticNow()
         recordAppEvent(.computerSelected, correlationID: macDeviceID)
         recordAppEvent(.computerSwitchStarted, correlationID: macDeviceID)
@@ -4090,26 +4129,10 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             await restoreMacSwitchBaselineIfCancelled(switchAttemptID)
             return false
         }
-        let matchesTarget: (MobilePairedMac) -> Bool = { mac in
-            MacPairingKey(mac) == MacPairingKey(
-                macDeviceID: macDeviceID,
-                instanceTag: instanceTag
-            )
-        }
-        let targetMatches = storeMacs.filter(matchesTarget)
-        // A device-only request against MULTIPLE stored sibling builds is
-        // ambiguous: the store orders by recency, not build authority, so
-        // dialing `first` could disconnect the current focus in favor of an
-        // arbitrary sibling. Fail the switch; pairing-aware callers pass the
-        // tag, and legacy device-only entry points must not guess.
-        if instanceTag == nil,
-           Set(targetMatches.map(MacPairingKey.init)).count > 1 {
-            mobileShellLog.error(
-                "switchToMac: device-only request is ambiguous across stored sibling builds mac=\(macDeviceID, privacy: .public)"
-            )
-            return false
-        }
-        guard let refreshedTarget = targetMatches.first else {
+        guard let refreshedTarget = storeMacs.mostRecentPairedMac(
+            macDeviceID: macDeviceID,
+            instanceTag: instanceTag
+        ) else {
             if !hasActiveMacConnection,
                await restorePreviousMacIfNeeded(macSwitchRestoreBaseline, switchAttemptID: switchAttemptID) {
                 macSwitchRestoreBaseline = nil
@@ -4844,6 +4867,16 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         }
 
         let attemptID = beginPairingAttempt(method: "qr")
+
+        // A pairing attempt begins with fresh interactive auth (a QR scan, or
+        // the injected dev attach that fires only after sign-in completes), so
+        // a token-gate suppression window left by a fetch that raced that
+        // sign-in is stale input. Without this, pairing fails fast
+        // (`requestTimedOut` within milliseconds) for up to 30s after launch
+        // and never persists the ticket's routes — the exact race the dev
+        // launcher hits on every forced fresh sign-in.
+        await stackTokenGate.resetTimedOutSuppression()
+        await stackTokenForceRefreshGate.resetTimedOutSuppression()
 
         // Offline preflight: fail fast instead of stacking per-route connect
         // timeouts into the opaque ~60s wait. Skipped only when no route is
@@ -6032,6 +6065,13 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     }
 
     func secondaryAggregationCandidateMacs(from visibleLoadedMacs: [MobilePairedMac]) -> [MobilePairedMac] {
+        // The demonstration row is never an aggregation dial target. Presence
+        // filtering already excludes it today, but the exclusion must not
+        // depend on the presence service's contents: its state is seeded
+        // locally, never fetched over a control subscription.
+        let visibleLoadedMacs = visibleLoadedMacs.filter {
+            !isDemonstrationPairedMac($0)
+        }
         let supportedRouteKinds = runtime?.supportedRouteKinds ?? []
         // Filter exact saved instances by live presence before coalescing their
         // shared physical-Mac identity. Otherwise a fresher offline tag can win
@@ -7158,6 +7198,9 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// unavailable, not leave them connected/actionable until a stream callback
     /// happens to run.
     func markSecondaryMacUnavailable(_ ownerKey: MacPairingKey) {
+        // The demonstration entry is served locally; no transport or refresh
+        // failure can make it unavailable.
+        guard ownerKey != Self.demonstrationPairingKey else { return }
         guard var state = workspacesByMac[ownerKey] else { return }
         state.status = .unavailable
         state.workspaceGroupsAreAuthoritative = false
@@ -8431,7 +8474,11 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         // list and the back-button count. Only when the Mac advertises read-state
         // actions and the workspace is actually unread, so older Macs and
         // already-read workspaces send nothing.
-        if supportsWorkspaceReadStateActions, workspaceHadUnread {
+        if demonstrationOwnsWorkspaceRow(resolvedRowID) {
+            if workspaceHadUnread {
+                clearDemonstrationWorkspaceUnread(resolvedRowID)
+            }
+        } else if supportsWorkspaceReadStateActions, workspaceHadUnread {
             await setWorkspaceUnread(id: resolvedRowID, false)
         }
     }
@@ -8456,7 +8503,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             count: text.utf8.count
         )
         terminalInputText = ""
-        guard remoteClient != nil else {
+        let selectedTerminalIsDemonstration = terminalID.map(demonstrationOwnsSurface) ?? false
+        guard remoteClient != nil || selectedTerminalIsDemonstration else {
             recordAppEvent(
                 .terminalInputDropped,
                 correlationID: terminalID,
@@ -8991,7 +9039,11 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         // Empty text is "nothing to send", which is a success from the caller's
         // point of view (an images-only send has no text to keep on failure).
         guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return true }
-        guard remoteClient != nil else { return false }
+        // Demonstration terminals are served locally, so they need no live
+        // client; without this the composer fails its connection gate before
+        // reaching the demo paste fence and shows the send-failure banner.
+        guard remoteClient != nil
+            || demonstrationOwnsSurface(terminalID.rawValue) else { return false }
         // Reject a re-entrant send (e.g. a double tap on Send) so the same text
         // is not pasted twice. The flag is set/cleared on the main actor around
         // the await, so no second call can slip past it.
@@ -9257,6 +9309,12 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         #if DEBUG
         mobileShellLog.debug("enqueue raw terminal input byteCount=\(text.utf8.count, privacy: .public)")
         #endif
+        // Demonstration terminals answer locally, outside the send-status
+        // pipeline (a keystroke to the engine can never fail).
+        if let terminalID = selectedTerminalID,
+           handleDemonstrationTerminalInput(text, surfaceID: terminalID.rawValue) {
+            return
+        }
         // The explicit selection id, not `selectedWorkspace`: its first-row
         // fallback would pair a foreign workspace id with the held terminal
         // id when the selected row is transiently absent mid-reconnect.
@@ -9290,6 +9348,12 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// Enqueue raw UTF-8 input for the terminal identified by `surfaceID`.
     public func sendTerminalRawInput(_ data: Data, surfaceID: String) {
         guard let text = String(data: data, encoding: .utf8), !text.isEmpty else {
+            return
+        }
+        // The on-screen keyboard's key bytes enter HERE (the Ghostty surface
+        // delegate), not through the awaiting funnel: demonstration surfaces
+        // answer from the local engine, outside the send-status pipeline.
+        if handleDemonstrationTerminalInput(text, surfaceID: surfaceID) {
             return
         }
         guard let workspaceID = workspaceID(forTerminalID: surfaceID) else { return }
@@ -9376,6 +9440,13 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         guard let text = String(data: data, encoding: .utf8) else {
             return
         }
+        // Demonstration surfaces answer locally and are keyed by surface id
+        // alone. The workspace resolution below deliberately scopes to the
+        // foreground pairing, which the demo Mac never is, so without this
+        // branch demo keystrokes would silently drop.
+        if handleDemonstrationTerminalInput(text, surfaceID: surfaceID) {
+            return
+        }
         guard let workspaceID = workspaceID(forTerminalID: surfaceID) else { return }
         await enqueueTerminalRawInputAwaitingDrain(
             text,
@@ -9390,6 +9461,12 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         terminalID: MobileTerminalPreview.ID
     ) async {
         guard !text.isEmpty else { return }
+        // Demonstration terminals answer locally: the engine echoes the
+        // typed bytes back through the same output stream, so this is the
+        // one branch point between "send to the Mac" and "send to the demo".
+        if handleDemonstrationTerminalInput(text, surfaceID: terminalID.rawValue) {
+            return
+        }
         guard remoteClient != nil else { return }
         switch rawTerminalInputBuffer.enqueue(
             text,
@@ -10587,8 +10664,16 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             // Cancel the live secondary subscriptions (slice 3) and keep only the
             // now-offline foreground Mac's last-known workspaces for the offline
             // view; the derived list recomputes to just the offline Mac's rows.
+            // The demonstration Mac's entry is also retained: it has no
+            // subscription or transport, so unlike a real secondary nothing
+            // re-establishes it, and dropping it here made every failed dial
+            // of an unreachable real Mac erase the demo workspaces. Demo state
+            // is invariant to real-connection teardown by design.
             teardownSecondaryMacSubscriptions()
-            workspacesByMac = workspacesByMac.filter { $0.key == offlineForegroundKey }
+            workspacesByMac = workspacesByMac.filter {
+                $0.key == offlineForegroundKey
+                    || $0.key == Self.demonstrationPairingKey
+            }
         }
         // The retained foreground entry still carries its last-known
         // `status: .connected`; `macConnectionStatuses` (the Computers screen's
@@ -10597,7 +10682,11 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         // it to `.unavailable` to match the global connection state.
         let offlineDeviceID = offlineForegroundKey.canonicalMacDeviceID
         let keysToDowngrade = workspacesByMac.keys.filter { key in
-            key == offlineForegroundKey
+            // The demonstration entry keeps its connected presentation: it is
+            // served locally and its liveness is unrelated to the torn-down
+            // real connection.
+            guard key != Self.demonstrationPairingKey else { return false }
+            return key == offlineForegroundKey
                 || (!preservingOtherMacWorkspaceState
                     && offlineForegroundKey != .anonymousForeground
                     && key.canonicalMacDeviceID == offlineDeviceID)
@@ -12551,6 +12640,21 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         workspaceID: MobileWorkspacePreview.ID,
         terminalID: MobileTerminalPreview.ID
     ) async -> Bool {
+        // Demonstration terminals accept the composed block locally: the
+        // engine consumes the text like a paste (interior newlines execute
+        // per line) and the submit key runs the final line. Every composer
+        // route (text-only, attachments+text) funnels through here, so this
+        // is the one branch between "paste to the Mac" and "paste to the demo".
+        if demonstrationOwnsSurface(terminalID.rawValue) {
+            var pasted = text
+            if submitKey == "return" {
+                pasted += "\r"
+            }
+            return handleDemonstrationTerminalInput(
+                pasted,
+                surfaceID: terminalID.rawValue
+            )
+        }
         guard let client = remoteClient else {
             #if DEBUG
             mobileShellLog.info("skip remote terminal paste remoteClient=0")
@@ -14204,6 +14308,18 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     ) {
         if let replayBarrierToken, terminalReplayBarrierTokensBySurfaceID[surfaceID] != replayBarrierToken { return }; let replayBarrierTokenForRequest = replayBarrierToken
             ?? terminalReplayBarrierTokensBySurfaceID[surfaceID]
+        // Every replay entry point (cold attach, view reset, resync sweeps)
+        // funnels here: demonstration surfaces answer from the local engine
+        // and release any barrier so canned output is never gated on a Mac.
+        if demonstrationOwnsSurface(surfaceID) {
+            clearTerminalReplayBarrierIfCurrent(
+                surfaceID: surfaceID,
+                token: replayBarrierTokenForRequest,
+                reason: "demo_content"
+            )
+            deliverDemonstrationTerminalReplay(surfaceID: surfaceID)
+            return
+        }
         if replayBarrierToken == nil, terminalViewportReplayBarrierPendingAckTokensBySurfaceID[surfaceID] != nil {
             // A pending viewport acknowledgement owns the next replay
             // decision. Record the suppressed request as owed output so the

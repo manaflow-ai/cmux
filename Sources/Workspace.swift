@@ -173,6 +173,7 @@ extension Workspace {
             customDescription: customDescription,
             customColor: customColor,
             isPinned: isPinned,
+            isMuted: isMuted,
             groupId: groupId,
             isManuallyUnread: isWorkspaceManuallyUnread,
             hasUnreadIndicator: hasWorkspaceUnreadIndicator,
@@ -319,6 +320,7 @@ extension Workspace {
         setCustomDescription(snapshot.customDescription)
         setCustomColor(snapshot.customColor)
         isPinned = snapshot.isPinned
+        isMuted = snapshot.isMuted ?? false
         groupId = snapshot.groupId
         restoreTodoState(from: snapshot)
 
@@ -2541,6 +2543,11 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
     }
 
     @Published var isPinned: Bool = false
+    /// Suppresses notification history/recording, unread badges, sound,
+    /// desktop banners, pane flashes, phone forwarding, command hooks, and
+    /// reorder effects for this workspace. Persisted in the session manifest
+    /// so an intentional mute survives relaunch.
+    @Published var isMuted: Bool = false
     /// Identifier of the WorkspaceGroup this workspace belongs to, or nil if ungrouped.
     /// The group entity itself lives in `TabManager.workspaceGroups`.
     @Published var groupId: UUID?
@@ -12563,12 +12570,16 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
                 targetIndex: index
             ).isEmpty
         case .split(let paneId, let orientation, let insertFirst):
-            return splitPaneWithFileSurface(
+            guard let panel = splitPaneWithFileSurface(
                 targetPane: paneId,
                 orientation: orientation,
                 insertFirst: insertFirst,
                 filePath: entry.filePath
-            ) != nil
+            ) else {
+                return false
+            }
+            handKeyboardFocusFromRightSidebarAfterFileOpen(to: panel)
+            return true
         }
     }
 
@@ -12585,6 +12596,8 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
 
         switch request.destination {
         case .insert(let paneId, let index):
+            // openFileSurfaces(focus: true) performs the sidebar focus
+            // handoff itself.
             return !openFileSurfaces(
                 inPane: paneId,
                 filePaths: entries.map(\.filePath),
@@ -12609,8 +12622,25 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
                 filePaths: entries.dropFirst().map(\.filePath),
                 focus: true
             )
+            handKeyboardFocusFromRightSidebarAfterFileOpen(to: firstPanel)
             return true
         }
+    }
+
+    /// A sidebar-initiated open (click on a file row, or a drag whose
+    /// mouse-down made the sidebar first responder) never resigns the
+    /// sidebar's keyboard focus by itself, and a freshly created panel's
+    /// view may not be mounted yet when activation asks it to take first
+    /// responder. Without this handoff the find/shortcut router keeps
+    /// targeting the sidebar (Cmd+F lands in its file search instead of the
+    /// just-opened document). Hand keyboard focus to the opened panel the
+    /// same way the text-drop path does; the call is a no-op when the
+    /// sidebar does not own focus (opens from Finder, the CLI, or between
+    /// panes).
+    func handKeyboardFocusFromRightSidebarAfterFileOpen(to panel: any Panel) {
+        _ = AppDelegate.shared?.restoreMainPanelKeyboardFocusFromRightSidebar(
+            in: activationWindow(for: panel)
+        )
     }
 
     @discardableResult
@@ -14596,10 +14626,15 @@ extension Workspace: BonsplitDelegate {
 
     func splitTabBar(_ controller: BonsplitController, didChangeGeometry snapshot: LayoutSnapshot) {
         tmuxLayoutSnapshot = snapshot
+        _ = surfaceList.registerGeometryChange()
+        let topologyChanged = surfaceList.lastGeometryChangeChangedMembership
         NotificationCenter.default.post(
             name: .workspacePaneGeometryDidChange,
             object: self,
-            userInfo: [GhosttyNotificationKey.tabId: id]
+            userInfo: [
+                GhosttyNotificationKey.tabId: id,
+                GhosttyNotificationKey.topologyChanged: topologyChanged,
+            ]
         )
         // Every order/membership mutation (same-pane reorder, cross-pane move,
         // split, close) routes through here. A pure reorder mutates only
@@ -14607,7 +14642,6 @@ extension Workspace: BonsplitDelegate {
         // would miss it. Bump `paneLayoutVersion` only when the ordered panel-id
         // sequence actually changed, so divider drags and selection-only events
         // (also routed here) do not fire `objectWillChange` app-wide.
-        surfaceList.registerGeometryChange()
         scheduleTerminalGeometryReconcile()
         if !isDetachingCloseTransaction {
             scheduleFocusReconcile()

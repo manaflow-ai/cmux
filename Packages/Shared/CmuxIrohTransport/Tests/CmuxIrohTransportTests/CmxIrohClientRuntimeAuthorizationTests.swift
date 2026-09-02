@@ -183,7 +183,7 @@ extension CmxIrohClientRuntimeTests {
             binding: discovery.bindings[0],
             discovery: discovery,
             relay: relay,
-            registrationError: CmxIrohTrustBrokerClientError.connectivity
+            registrationError: CmxIrohTrustBrokerClientError.connectivity(nil)
         )
         let recorder = ClientRuntimeTestRecorder()
         let runtime = try CmxIrohClientRuntime(

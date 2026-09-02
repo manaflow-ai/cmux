@@ -15,7 +15,6 @@ COMPAT_FILE="$ROOT_DIR/.github/workflows/ci-macos-compat.yml"
 E2E_FILE="$ROOT_DIR/.github/workflows/test-e2e.yml"
 TMUX_CORPUS_FILE="$ROOT_DIR/.github/workflows/tmux-corpus.yml"
 IOS_FILE="$ROOT_DIR/.github/workflows/test-ios.yml"
-
 check_macos_runner() {
   local file="$1" job="$2"
   if ! awk -v job="$job" '
@@ -1106,7 +1105,7 @@ check_tmux_terminal_nightly_isolation() {
 }
 
 check_no_bare_github_hosted_runners() {
-  # Every job must route its runner through a repo variable (LINUX_RUNNER,
+  # Every product CI job must route its runner through a repo variable (LINUX_RUNNER,
   # MACOS_RUNNER_*) so the Blacksmith<->Warp / Blacksmith<->macos-26 overflow
   # switch is a single repo-variable flip with no PR. A bare GitHub-hosted
   # label (ubuntu-*, macos-NN) cannot be redirected, so it is forbidden.
@@ -1114,7 +1113,11 @@ check_no_bare_github_hosted_runners() {
   # deliberate single-runner pins such as the testmanagerd-wedged
   # `app-host-unit-tests` job.
   local hits
-  hits="$(grep -rnE "runs-on:[[:space:]]*(ubuntu-[a-z0-9.]+|macos-[a-z0-9]+)([[:space:]]*$|[[:space:]]+#)" "$ROOT_DIR/.github/workflows" | grep -v "github-hosted-required" || true)"
+  # cla-policy-guard.yml is CLA control plane: it must run on a GitHub-hosted
+  # ephemeral runner that no repo variable can redirect, and every edit to it
+  # needs a trusted approval through the CLA policy validator, so the marker
+  # comment cannot be added there. Exempt the file here instead.
+  hits="$(grep -rnE "runs-on:[[:space:]]*(ubuntu-[a-z0-9.]+|macos-[a-z0-9]+)([[:space:]]*$|[[:space:]]+#)" "$ROOT_DIR/.github/workflows" | grep -v "github-hosted-required" | grep -v "/cla-policy-guard.yml:" || true)"
   if [[ -n "$hits" ]]; then
     echo "FAIL: these jobs use a bare GitHub-hosted runner; route them through vars.LINUX_RUNNER / vars.MACOS_RUNNER_IOS so Blacksmith<->overflow stays a repo-variable flip:"
     echo "$hits"

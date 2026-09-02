@@ -24,15 +24,14 @@ import {
 } from "../../../services/vms/errors";
 import {
   defaultMemoryMbForPlan,
+  memoryOptionsMbForPlan,
   isPaidVmPlan,
   isVmBillingTeamResolutionError,
-  isVmProGateBlocked,
   maxMemoryMbForPlan,
   resolveVmEntitlements,
   vmFreeAccessWindowDays,
 } from "../../../services/vms/entitlements";
 import {
-  imageUsesBakedFreestyleSignedAdmin,
   inferVmProviderForImage,
   resolveVmImage,
 } from "../../../services/vms/images/resolver";
@@ -53,7 +52,7 @@ import {
   vmWorkflowErrorResponse,
   withAuthedVmApiRoute,
   vmActiveLimitExceededResponse,
-  vmRequiresProResponse,
+  resolveVmProvisioningAccountScope,
 } from "../../../services/vms/routeHelpers";
 import { vmRequestLocale } from "../../../services/vms/vmErrorMessages";
 import { captureVmProvisionOutcome } from "../../../services/vms/observability";
@@ -65,7 +64,6 @@ import {
 import { recordSpanError, setSpanAttributes } from "../../../services/telemetry";
 import {
   measureVmAsync,
-  measureVmSync,
   VmTimingRecorder,
 } from "../../../services/vms/timings";
 import { authProviderErrorResponse } from "../../../services/vms/authErrors";
@@ -139,6 +137,10 @@ export async function GET(request: Request): Promise<Response> {
         capabilities: vmCapabilitiesFor(entry.provider),
         createdAt: entry.createdAt,
         displayName: entry.displayName,
+        // The machine's address on its owner's private network (reachable over
+        // the WireGuard tunnel); null for machines created before private
+        // networking. Clients surface it as "Copy IP Address".
+        address: { ipv4: entry.addressIpv4, ipv6: entry.addressIpv6 },
         // Server-authoritative expiry of the free access window for this machine
         // (epoch ms); null on paid plans or when the window is disabled. Clients
         // render countdowns from this instead of re-deriving the policy.
@@ -159,7 +161,9 @@ export async function GET(request: Request): Promise<Response> {
           ),
           // Kinds a client may request (and the image each resolves to) for the
           // default provider, so a "new machine" dialog offers only kinds that work.
-          imageKinds: listVmImageKinds(defaultProviderId()),
+          imageKinds: listVmImageKinds(defaultProviderId(), process.env, {
+            memoryMb: defaultMemoryMbForPlan(listEntitlements.planId, process.env),
+          }),
         }
         : undefined;
       return jsonResponse({ vms, limits });
@@ -303,44 +307,6 @@ export async function POST(request: Request): Promise<Response> {
           provider: candidate.provider as ProviderId | undefined,
           billingTeamId: typeof bodyBillingTeamId === "string" ? bodyBillingTeamId.trim() : undefined,
         };
-        // An explicit manifest image names its own provider: the CLI sends
-        // provider-specific image ids without a provider field, and the
-        // deployment default must not reroute them under the wrong provider.
-        const provider = body.provider ?? inferVmProviderForImage(body.image) ?? defaultProviderId();
-        let imageSelection;
-        try {
-          assertVmCreateEnabled(provider);
-          imageSelection = resolveVmImage(provider, body.image, process.env, { kind: body.kind });
-        } catch (err) {
-          if (isVmCreateDisabledError(err)) {
-            return vmErrorResponse({
-              error: "vm_create_disabled",
-              status: 503,
-              message: "Cloud VM creation is disabled for this environment.",
-              action: "Ask an admin to enable Cloud VM creation, then retry.",
-              reason: "Cloud VM creation is disabled.",
-            });
-          }
-          if (isVmImageConfigError(err)) {
-            const described = reportVmImageConfigError(err);
-            return vmErrorResponse({
-              error: "vm_image_config_error",
-              status: 503,
-              message: described.message,
-              action: described.action,
-              reason: "Cloud VM image configuration is unavailable.",
-              details: described.details,
-              diagnostics: {
-                provider,
-                image: err.image,
-                envVar: err.envVar,
-                configReason: err.reason,
-              },
-            });
-          }
-          throw err;
-        }
-        const image = imageSelection.image;
         // Idempotency-Key is standard HTTP; we also accept x-cmux-idempotency-key for CLI
         // callers that don't know about RFC-style keys. Trim + clamp to a reasonable length
         // so we don't store unbounded idempotency metadata.
@@ -350,13 +316,6 @@ export async function POST(request: Request): Promise<Response> {
           ""
         ).trim();
         const idempotencyKey = rawKey ? rawKey.slice(0, 128) : undefined;
-        setSpanAttributes(span, {
-          "cmux.vm.provider": provider,
-          "cmux.vm.image_set": image.length > 0,
-          "cmux.vm.image_version": imageSelection.imageVersion,
-          "cmux.vm.image_manifest": !!imageSelection.manifestEntry,
-          "cmux.idempotency_key_set": !!idempotencyKey,
-        });
 
         const requestedBillingTeamId = body.billingTeamId || requestedVmTeamIdFromRequest(request);
         if (requestedBillingTeamId && !user.teamIds.includes(requestedBillingTeamId)) {
@@ -393,19 +352,11 @@ export async function POST(request: Request): Promise<Response> {
         } catch (err) {
           console.error("[VM] Pro plan reconcile failed", err);
         }
-        let entitlements;
-        try {
-          entitlements = measureVmSync(timing, "entitlements", () =>
-            resolveVmEntitlements(user, process.env, {
-              requestedBillingTeamId,
-            })
-          );
-        } catch (err) {
-          if (isVmBillingTeamResolutionError(err)) {
-            return billingTeamErrorResponse(err);
-          }
-          throw err;
-        }
+        const account = await measureVmAsync(timing, "entitlements", () =>
+          resolveVmProvisioningAccountScope(user, request, { requestedBillingTeamId })
+        );
+        if (!account.ok) return account.response;
+        const entitlements = account.entitlements;
         setSpanAttributes(span, {
           "cmux.billing.team_id_set": !!entitlements.billingTeamId,
           "cmux.billing.customer_type": entitlements.billingCustomerType,
@@ -414,27 +365,78 @@ export async function POST(request: Request): Promise<Response> {
           "cmux.vm.max_active": entitlements.maxActiveVms,
         });
 
-        if (isVmProGateBlocked(entitlements)) {
-          return vmRequiresProResponse();
-        }
-
         const maxMemoryMb = maxMemoryMbForPlan(entitlements.planId, process.env);
+        const memoryOptionsMb = memoryOptionsMbForPlan(entitlements.planId, process.env);
+        const planMemoryMb = defaultMemoryMbForPlan(entitlements.planId, process.env);
+        const requestedMemoryMb = candidate.memoryMb as number | undefined;
+        // Every plan sells exactly the plan machine, so a size the plan does
+        // not offer resolves to that machine instead of failing the create.
+        // Clients ship their own size table and always trail the server: the
+        // 2026-09-02 pricing change (#11610) left every installed nightly
+        // sending its old 24 GB default and the server rejecting each create
+        // with `vm_memory_exceeds_plan` until the next nightly published. The
+        // server owns the machine spec, so a stale client must still get a
+        // machine; the mismatch is recorded on the span for Axiom.
         const memoryMb =
-          candidate.memoryMb === undefined
-            ? defaultMemoryMbForPlan(entitlements.planId, process.env)
-            : candidate.memoryMb as number;
-        if (memoryMb > maxMemoryMb) {
-          return vmErrorResponse({
-            error: "vm_memory_exceeds_plan",
-            status: 400,
-            message: "The requested Cloud VM size exceeds this plan's memory limit.",
-            action: `Choose a size at or below ${maxMemoryMb} MB, or upgrade the plan before retrying.`,
-            details: { requestedMemoryMb: memoryMb, maxMemoryMb, planId: entitlements.planId },
-          });
-        }
+          requestedMemoryMb === undefined || memoryOptionsMb.includes(requestedMemoryMb)
+            ? requestedMemoryMb ?? planMemoryMb
+            : planMemoryMb;
         setSpanAttributes(span, {
           "cmux.vm.memory_mb": memoryMb,
           "cmux.vm.max_memory_mb": maxMemoryMb,
+          "cmux.vm.memory_requested_mb": requestedMemoryMb,
+          "cmux.vm.memory_coerced": requestedMemoryMb !== undefined && requestedMemoryMb !== memoryMb,
+        });
+
+        // Resolve provider/image only after the paid-plan boundary. A free or
+        // unknown plan must receive `vm_requires_pro` without consulting
+        // provider configuration, image manifests, or provider SDKs.
+        // An explicit manifest image names its own provider: the CLI sends
+        // provider-specific image ids without a provider field, and the
+        // deployment default must not reroute them under the wrong provider.
+        const provider = body.provider ?? inferVmProviderForImage(body.image) ?? defaultProviderId();
+        let imageSelection;
+        try {
+          assertVmCreateEnabled(provider);
+          // The plan's memory picks the snapshot size (one snapshot per size on
+          // Freestyle), so the machine boots at its shape with nothing to resize.
+          imageSelection = resolveVmImage(provider, body.image, process.env, { kind: body.kind, memoryMb });
+        } catch (err) {
+          if (isVmCreateDisabledError(err)) {
+            return vmErrorResponse({
+              error: "vm_create_disabled",
+              status: 503,
+              message: "Cloud VM creation is disabled for this environment.",
+              action: "Ask an admin to enable Cloud VM creation, then retry.",
+              reason: "Cloud VM creation is disabled.",
+            });
+          }
+          if (isVmImageConfigError(err)) {
+            const described = reportVmImageConfigError(err);
+            return vmErrorResponse({
+              error: "vm_image_config_error",
+              status: 503,
+              message: described.message,
+              action: described.action,
+              reason: "Cloud VM image configuration is unavailable.",
+              details: described.details,
+              diagnostics: {
+                provider,
+                image: err.image,
+                envVar: err.envVar,
+                configReason: err.reason,
+              },
+            });
+          }
+          throw err;
+        }
+        const image = imageSelection.image;
+        setSpanAttributes(span, {
+          "cmux.vm.provider": provider,
+          "cmux.vm.image_set": image.length > 0,
+          "cmux.vm.image_version": imageSelection.imageVersion,
+          "cmux.vm.image_manifest": !!imageSelection.manifestEntry,
+          "cmux.idempotency_key_set": !!idempotencyKey,
         });
 
         // Wire the machine to coderouter: mint a per-machine route token and
@@ -461,7 +463,6 @@ export async function POST(request: Request): Promise<Response> {
             imageVersion: imageSelection.imageVersion,
             provider,
             idempotencyKey,
-            bakedFreestyleSignedAdmin: imageUsesBakedFreestyleSignedAdmin(provider, image),
             persistentHome: candidate.persistentHome === true,
             perMachineHome: candidate.perMachineHome === true,
             memoryMb,
@@ -524,6 +525,7 @@ export async function POST(request: Request): Promise<Response> {
           image: created.image,
           imageVersion: created.imageVersion,
           kind: imageSelection.kind,
+          ...(imageSelection.size ? { size: imageSelection.size } : {}),
           createdAt: created.createdAt,
         });
       }

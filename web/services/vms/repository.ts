@@ -10,7 +10,9 @@ import {
   cloudVmBases,
   cloudVmBillingGrants,
   cloudVmLeases,
+  cloudVmNetworks,
   cloudVmSessions,
+  cloudVmTunnels,
   cloudVms,
   cloudVmUsageEvents,
 } from "../../db/schema";
@@ -44,9 +46,14 @@ export type CloudVmAccessLeaseRow = CloudVmLeaseRow & {
   readonly providerVmId: string;
 };
 export type CloudVmSessionRow = typeof cloudVmSessions.$inferSelect;
+export type CloudVmNetworkRow = typeof cloudVmNetworks.$inferSelect;
+export type CloudVmTunnelRow = typeof cloudVmTunnels.$inferSelect;
 export type CloudVmLeaseKind = typeof cloudVmLeases.$inferInsert.kind;
 export type CloudVmStatus = CloudVmRow["status"];
 export type CloudVmSessionStatus = CloudVmSessionRow["status"];
+// Reaper batches are capped at 100. Keep repository calls bounded even if a
+// future caller passes a malformed or oversized name list.
+const VM_REAPER_REFERENCE_NAME_LIMIT = 100;
 
 export type BeginCreateResult =
   | { readonly inserted: true; readonly vm: CloudVmRow }
@@ -74,6 +81,67 @@ export type BillingGrantClaim =
 
 export type VmRepositoryShape = {
   readonly listUserVms: (userId: string, billingTeamId?: string | null) => Effect.Effect<CloudVmRow[], VmDatabaseError>;
+  /**
+   * Private-network and tunnel bookkeeping. Optional as a group so test
+   * doubles built before the feature keep compiling; the live layer always
+   * provides them and workflows treat absence as "no networking".
+   */
+  /** The owner's private-network row for one provider, or null when they have none yet. */
+  readonly findNetwork?: (
+    userId: string,
+    provider: ProviderId,
+  ) => Effect.Effect<CloudVmNetworkRow | null, VmDatabaseError>;
+  /**
+   * Record the owner's network. Idempotent by (user, provider): concurrent
+   * creates resolve to one row, and a re-provisioned network overwrites the
+   * provider id rather than adding a second row nobody reads.
+   */
+  readonly upsertNetwork?: (input: {
+    readonly userId: string;
+    readonly provider: ProviderId;
+    readonly providerNetworkId: string;
+    readonly slug?: string | null;
+    readonly cidr?: string | null;
+    readonly cidrV6?: string | null;
+  }) => Effect.Effect<CloudVmNetworkRow, VmDatabaseError>;
+  readonly deleteNetwork?: (id: string) => Effect.Effect<void, VmDatabaseError>;
+  /** The live (unrevoked) tunnel row for one of the owner's devices. */
+  readonly findTunnel?: (input: {
+    readonly userId: string;
+    readonly deviceFingerprint: string;
+  }) => Effect.Effect<CloudVmTunnelRow | null, VmDatabaseError>;
+  readonly listUserTunnels?: (userId: string) => Effect.Effect<CloudVmTunnelRow[], VmDatabaseError>;
+  readonly insertTunnel?: (input: {
+    readonly userId: string;
+    readonly networkId: string;
+    readonly provider: ProviderId;
+    readonly providerTunnelId: string;
+    readonly deviceFingerprint: string;
+    readonly deviceName?: string | null;
+    readonly clientPublicKey: string;
+    readonly addressV4?: string | null;
+    readonly addressV6?: string | null;
+  }) => Effect.Effect<CloudVmTunnelRow, VmDatabaseError>;
+  /** Refresh a tunnel row after the provider handed back its current state. */
+  readonly updateTunnel?: (input: {
+    readonly id: string;
+    readonly clientPublicKey?: string;
+    readonly deviceName?: string | null;
+    readonly addressV4?: string | null;
+    readonly addressV6?: string | null;
+    readonly configIssued?: boolean;
+  }) => Effect.Effect<CloudVmTunnelRow, VmDatabaseError>;
+  /** Mark a tunnel revoked, keeping the row for audit. Returns false when already revoked. */
+  readonly revokeTunnel?: (id: string) => Effect.Effect<boolean, VmDatabaseError>;
+  /**
+   * Merge fields into a VM row's providerMetadata (existing keys win only when
+   * the patch omits them). Used to backfill data learned after create, e.g.
+   * private-network addresses read during an attach.
+   */
+  readonly mergeProviderMetadata?: (input: {
+    readonly id: string;
+    readonly patch: Readonly<Record<string, unknown>>;
+  }) => Effect.Effect<void, VmDatabaseError>;
   readonly claimBillingGrant: (input: {
     readonly billingCustomerType: string;
     readonly billingCustomerId: string;
@@ -91,7 +159,7 @@ export type VmRepositoryShape = {
     readonly provider: ProviderId;
     readonly image: string;
     readonly imageVersion?: string | null;
-    readonly maxActiveVms: number;
+    readonly maxActiveVms: number | null;
     readonly idempotencyKey?: string;
   }) => Effect.Effect<BeginCreateResult, VmDatabaseError | VmCreateDisabledError | VmAccountDeletionInProgressError | VmLimitExceededError>;
   readonly beginBaseOpen: (input: {
@@ -102,7 +170,7 @@ export type VmRepositoryShape = {
     readonly provider: ProviderId;
     readonly image: string;
     readonly imageVersion?: string | null;
-    readonly maxActiveVms: number;
+    readonly maxActiveVms: number | null;
     readonly baseName?: string;
   }) => Effect.Effect<BeginBaseCreateResult, VmCreateDisabledError | VmAccountDeletionInProgressError | VmDatabaseError | VmLimitExceededError>;
   readonly beginBaseReset: (input: {
@@ -113,7 +181,7 @@ export type VmRepositoryShape = {
     readonly provider: ProviderId;
     readonly image: string;
     readonly imageVersion?: string | null;
-    readonly maxActiveVms: number;
+    readonly maxActiveVms: number | null;
     readonly baseName?: string;
     readonly reason?: string | null;
   }) => Effect.Effect<Extract<BeginBaseCreateResult, { readonly kind: "create" }>, VmCreateDisabledError | VmAccountDeletionInProgressError | VmCreateInProgressError | VmDatabaseError | VmLimitExceededError>;
@@ -146,11 +214,27 @@ export type VmRepositoryShape = {
     readonly userId: string;
     readonly billingTeamId?: string | null;
     readonly providerVmId: string;
-    readonly maxActiveVms: number;
+    readonly maxActiveVms: number | null;
   }) => Effect.Effect<CloudVmRow | null, VmDatabaseError | VmLimitExceededError>;
   readonly reconciliationCandidates: (input: {
     readonly limit: number;
   }) => Effect.Effect<CloudVmRow[], VmDatabaseError>;
+  /** Live VM rows that currently claim a persistent home volume. */
+  readonly listLiveHomeVolumeNames?: (input: {
+    readonly provider: ProviderId;
+    /** Candidate names only; an empty list must not trigger an unbounded scan. */
+    readonly volumeNames: readonly string[];
+  }) => Effect.Effect<readonly string[], VmDatabaseError>;
+  /** Oldest provisioning rows for the bounded resource reaper. */
+  readonly stuckProvisioningCandidates?: (input: {
+    readonly before: Date;
+    readonly limit: number;
+  }) => Effect.Effect<CloudVmRow[], VmDatabaseError>;
+  readonly recentReaperReportKeys: (input: {
+    readonly eventType: string;
+    readonly keys: readonly string[];
+    readonly since: Date;
+  }) => Effect.Effect<string[], VmDatabaseError>;
   readonly markProviderObservedStatus: (input: {
     readonly id: string;
     readonly providerVmId: string;
@@ -392,7 +476,162 @@ function baseName(value: string | null | undefined) {
   return trimmed || "base";
 }
 
+function boundedReaperVolumeNames(names: readonly string[]): string[] {
+  const normalized = [...new Set(names.map((name) => name.trim()).filter(Boolean))];
+  if (normalized.length > VM_REAPER_REFERENCE_NAME_LIMIT) {
+    throw new Error(
+      `VM reaper reference query has ${normalized.length} names; maximum is ${VM_REAPER_REFERENCE_NAME_LIMIT}`,
+    );
+  }
+  return normalized;
+}
+
+function boundedReaperKeys(keys: readonly string[]): string[] {
+  const normalized = [...new Set(keys.map((key) => key.trim()).filter(Boolean))];
+  if (normalized.length > VM_REAPER_REFERENCE_NAME_LIMIT) {
+    throw new Error(
+      `VM reaper report key query has ${normalized.length} keys; maximum is ${VM_REAPER_REFERENCE_NAME_LIMIT}`,
+    );
+  }
+  return normalized;
+}
+
 export const VmRepositoryLive = Layer.succeed(VmRepository, {
+  findNetwork: (userId, provider) =>
+    dbEffect("findNetwork", async () => {
+      const db = cloudDb();
+      const [row] = await db
+        .select()
+        .from(cloudVmNetworks)
+        .where(and(eq(cloudVmNetworks.userId, userId), eq(cloudVmNetworks.provider, provider)))
+        .limit(1);
+      return row ?? null;
+    }),
+
+  upsertNetwork: (input) =>
+    dbEffect("upsertNetwork", async () => {
+      const db = cloudDb();
+      const [row] = await db
+        .insert(cloudVmNetworks)
+        .values({
+          userId: input.userId,
+          provider: input.provider,
+          providerNetworkId: input.providerNetworkId,
+          slug: input.slug ?? null,
+          cidr: input.cidr ?? null,
+          cidrV6: input.cidrV6 ?? null,
+        })
+        .onConflictDoUpdate({
+          target: [cloudVmNetworks.userId, cloudVmNetworks.provider],
+          set: {
+            providerNetworkId: input.providerNetworkId,
+            slug: input.slug ?? null,
+            cidr: input.cidr ?? null,
+            cidrV6: input.cidrV6 ?? null,
+            updatedAt: new Date(),
+          },
+        })
+        .returning();
+      if (!row) throw new Error("upsertNetwork returned no row");
+      return row;
+    }),
+
+  deleteNetwork: (id) =>
+    dbEffect("deleteNetwork", async () => {
+      const db = cloudDb();
+      await db.delete(cloudVmNetworks).where(eq(cloudVmNetworks.id, id));
+    }),
+
+  findTunnel: (input) =>
+    dbEffect("findTunnel", async () => {
+      const db = cloudDb();
+      const [row] = await db
+        .select()
+        .from(cloudVmTunnels)
+        .where(and(
+          eq(cloudVmTunnels.userId, input.userId),
+          eq(cloudVmTunnels.deviceFingerprint, input.deviceFingerprint),
+          isNull(cloudVmTunnels.revokedAt),
+        ))
+        .limit(1);
+      return row ?? null;
+    }),
+
+  listUserTunnels: (userId) =>
+    dbEffect("listUserTunnels", async () => {
+      const db = cloudDb();
+      return await db
+        .select()
+        .from(cloudVmTunnels)
+        .where(and(eq(cloudVmTunnels.userId, userId), isNull(cloudVmTunnels.revokedAt)))
+        .orderBy(desc(cloudVmTunnels.createdAt));
+    }),
+
+  insertTunnel: (input) =>
+    dbEffect("insertTunnel", async () => {
+      const db = cloudDb();
+      const [row] = await db
+        .insert(cloudVmTunnels)
+        .values({
+          userId: input.userId,
+          networkId: input.networkId,
+          provider: input.provider,
+          providerTunnelId: input.providerTunnelId,
+          deviceFingerprint: input.deviceFingerprint,
+          deviceName: input.deviceName ?? null,
+          clientPublicKey: input.clientPublicKey,
+          addressV4: input.addressV4 ?? null,
+          addressV6: input.addressV6 ?? null,
+          lastConfigIssuedAt: new Date(),
+        })
+        .returning();
+      if (!row) throw new Error("insertTunnel returned no row");
+      return row;
+    }),
+
+  updateTunnel: (input) =>
+    dbEffect("updateTunnel", async () => {
+      const db = cloudDb();
+      const [row] = await db
+        .update(cloudVmTunnels)
+        .set({
+          ...(input.clientPublicKey ? { clientPublicKey: input.clientPublicKey } : {}),
+          ...(input.deviceName === undefined ? {} : { deviceName: input.deviceName }),
+          ...(input.addressV4 === undefined ? {} : { addressV4: input.addressV4 }),
+          ...(input.addressV6 === undefined ? {} : { addressV6: input.addressV6 }),
+          ...(input.configIssued ? { lastConfigIssuedAt: new Date() } : {}),
+          updatedAt: new Date(),
+        })
+        .where(eq(cloudVmTunnels.id, input.id))
+        .returning();
+      if (!row) throw new Error(`updateTunnel found no tunnel ${input.id}`);
+      return row;
+    }),
+
+  revokeTunnel: (id) =>
+    dbEffect("revokeTunnel", async () => {
+      const db = cloudDb();
+      const rows = await db
+        .update(cloudVmTunnels)
+        .set({ revokedAt: new Date(), updatedAt: new Date() })
+        .where(and(eq(cloudVmTunnels.id, id), isNull(cloudVmTunnels.revokedAt)))
+        .returning({ id: cloudVmTunnels.id });
+      return rows.length > 0;
+    }),
+
+  mergeProviderMetadata: (input) =>
+    dbEffect("mergeProviderMetadata", async () => {
+      const db = cloudDb();
+      await db
+        .update(cloudVms)
+        .set({
+          // jsonb || jsonb merges at the top level: patch keys win, others stay.
+          providerMetadata: sql`${cloudVms.providerMetadata} || ${JSON.stringify(input.patch)}::jsonb`,
+          updatedAt: new Date(),
+        })
+        .where(eq(cloudVms.id, input.id));
+    }),
+
   listUserVms: (userId, billingTeamId) =>
     dbEffect("listUserVms", async () => {
       const db = cloudDb();
@@ -518,11 +757,12 @@ export const VmRepositoryLive = Layer.succeed(VmRepository, {
                 ),
               );
             const activeCount = Number(active?.total ?? 0);
-            if (activeCount >= input.maxActiveVms) {
+            const limit = input.maxActiveVms;
+            if (limit !== null && activeCount >= limit) {
               throw new VmLimitExceededError({
                 kind: "active_vms",
                 billingTeamId: input.billingTeamId,
-                limit: input.maxActiveVms,
+                limit,
               });
             }
 
@@ -618,11 +858,12 @@ export const VmRepositoryLive = Layer.succeed(VmRepository, {
                 eq(cloudVms.billingTeamId, input.billingTeamId),
               ));
             const activeCount = Number(active?.total ?? 0);
-            if (activeCount >= input.maxActiveVms) {
+            const limit = input.maxActiveVms;
+            if (limit !== null && activeCount >= limit) {
               throw new VmLimitExceededError({
                 kind: "active_vms",
                 billingTeamId: input.billingTeamId,
-                limit: input.maxActiveVms,
+                limit,
               });
             }
 
@@ -821,11 +1062,12 @@ export const VmRepositoryLive = Layer.succeed(VmRepository, {
             .from(cloudVms)
             .where(and(...activePredicates));
           const activeCount = Number(active?.total ?? 0);
-          if (activeCount >= input.maxActiveVms) {
+          const limit = input.maxActiveVms;
+          if (limit !== null && activeCount >= limit) {
             throw new VmLimitExceededError({
               kind: "active_vms",
               billingTeamId: input.billingTeamId,
-              limit: input.maxActiveVms,
+              limit,
             });
           }
 
@@ -1119,11 +1361,12 @@ export const VmRepositoryLive = Layer.succeed(VmRepository, {
             .from(cloudVms)
             .where(and(inArray(cloudVms.status, ["provisioning", "running"]), teamScope));
           const activeCount = Number(active?.total ?? 0);
-          if (activeCount >= input.maxActiveVms) {
+          const limit = input.maxActiveVms;
+          if (limit !== null && activeCount >= limit) {
             throw new VmLimitExceededError({
               kind: "active_vms",
               billingTeamId: input.billingTeamId ?? input.userId,
-              limit: input.maxActiveVms,
+              limit,
             });
           }
 
@@ -1155,6 +1398,69 @@ export const VmRepositoryLive = Layer.succeed(VmRepository, {
         .from(cloudVms)
         .where(and(ne(cloudVms.status, "destroyed"), isNotNull(cloudVms.providerVmId)))
         .orderBy(asc(cloudVms.updatedAt))
+        .limit(input.limit);
+    }),
+
+  listLiveHomeVolumeNames: (input) =>
+    dbEffect("listLiveHomeVolumeNames", async () => {
+      const volumeNames = boundedReaperVolumeNames(input.volumeNames);
+      // Never fall back to the old unbounded inventory query. The reaper
+      // supplies a bounded chunk, and an empty chunk is fail-closed.
+      if (volumeNames.length === 0) return [];
+      const db = cloudDb();
+      const homeVolume = sql<string | null>`${cloudVms.providerMetadata}->>'homeVolume'`;
+      const rows = await db
+        .select({ homeVolume })
+        .from(cloudVms)
+        .where(and(
+          eq(cloudVms.provider, input.provider),
+          inArray(homeVolume, volumeNames),
+          inArray(cloudVms.status, ["provisioning", "running", "paused"]),
+          sql`${homeVolume} is not null and ${homeVolume} <> ''`,
+        ));
+      return rows
+        .map((row) => row.homeVolume?.trim())
+        .filter((name): name is string => !!name);
+    }),
+
+  recentReaperReportKeys: (input) =>
+    dbEffect("recentReaperReportKeys", async () => {
+      const keys = boundedReaperKeys(input.keys);
+      // An empty key list must never become an unbounded usage-event scan.
+      if (keys.length === 0) return [];
+      const db = cloudDb();
+      // Every orphan-volume event type (base, unknown-attachment,
+      // unknown-reference) is a system event keyed by volume name; only
+      // VM-row events (stuck provisioning) key by vmId.
+      const reportKey = input.eventType.startsWith("vm.reaper.orphan_volume")
+        ? sql<string | null>`${cloudVmUsageEvents.metadata}->>'volumeName'`
+        : sql<string | null>`${cloudVmUsageEvents.vmId}::text`;
+      const rows = await db
+        .select({ key: reportKey })
+        .from(cloudVmUsageEvents)
+        .where(and(
+          eq(cloudVmUsageEvents.eventType, input.eventType),
+          gt(cloudVmUsageEvents.createdAt, input.since),
+          inArray(reportKey, keys),
+        ));
+      return [...new Set(
+        rows
+          .map((row) => row.key?.trim())
+          .filter((key): key is string => !!key),
+      )];
+    }),
+
+  stuckProvisioningCandidates: (input) =>
+    dbEffect("stuckProvisioningCandidates", async () => {
+      const db = cloudDb();
+      return await db
+        .select()
+        .from(cloudVms)
+        .where(and(
+          eq(cloudVms.status, "provisioning"),
+          lt(cloudVms.updatedAt, input.before),
+        ))
+        .orderBy(asc(cloudVms.updatedAt), asc(cloudVms.id))
         .limit(input.limit);
     }),
 
