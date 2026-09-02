@@ -377,6 +377,7 @@ fn run_stdin_pump(
 ) {
     let mut line = String::new();
     let mut stop_event = None;
+    let mut pending_resize = None;
     loop {
         let bytes_read = match read_pipe_io_line(reader, &mut line) {
             Ok(bytes_read) => bytes_read,
@@ -398,6 +399,16 @@ fn run_stdin_pump(
                     break;
                 };
                 let handle = PipeIoSurfaceHandle { remote, surface };
+                if let Some((cols, rows)) = pending_resize.take() {
+                    if let Err(error) = handle.resize(cols, rows) {
+                        stop_event = Some(if crate::session::is_pipe_io_retryable_error(&error) {
+                            PipeIoEvent::TransportLost
+                        } else {
+                            PipeIoEvent::StdinError
+                        });
+                        break;
+                    }
+                }
                 if handle.write_bytes(&bytes).is_err() {
                     // The transport owns loss reporting; input can only stop
                     // early.
@@ -406,19 +417,24 @@ fn run_stdin_pump(
                 }
             }
             Ok(PipeIoRequest::Resize { cols, rows }) => {
-                let Some(remote) = remote.upgrade() else {
-                    stop_event = Some(PipeIoEvent::TransportLost);
-                    break;
-                };
-                let handle = PipeIoSurfaceHandle { remote, surface };
-                // Diagnostics only; the exit JSON stays the final stderr line
-                // and embedders skip lines without an "exit" key.
-                match handle.resize(cols, rows) {
-                    Ok(_accepted) => {}
-                    Err(_error) => {}
-                }
+                pending_resize = Some((cols, rows));
             }
             Ok(PipeIoRequest::ClaimGeometry) => {
+                if let Some((cols, rows)) = pending_resize.take() {
+                    let Some(remote) = remote.upgrade() else {
+                        stop_event = Some(PipeIoEvent::TransportLost);
+                        break;
+                    };
+                    let handle = PipeIoSurfaceHandle { remote, surface };
+                    if let Err(error) = handle.resize(cols, rows) {
+                        stop_event = Some(if crate::session::is_pipe_io_retryable_error(&error) {
+                            PipeIoEvent::TransportLost
+                        } else {
+                            PipeIoEvent::StdinError
+                        });
+                        break;
+                    }
+                }
                 let Some(remote) = remote.upgrade() else {
                     stop_event = Some(PipeIoEvent::TransportLost);
                     break;
@@ -429,7 +445,14 @@ fn run_stdin_pump(
                 // for every claim.
                 match remote.notify_claim_terminal_geometry(surface) {
                     Ok(()) => (),
-                    Err(_error) => (),
+                    Err(error) => {
+                        stop_event = Some(if crate::session::is_pipe_io_retryable_error(&error) {
+                            PipeIoEvent::TransportLost
+                        } else {
+                            PipeIoEvent::StdinError
+                        });
+                        break;
+                    }
                 }
             }
             Ok(PipeIoRequest::Unknown) => {}

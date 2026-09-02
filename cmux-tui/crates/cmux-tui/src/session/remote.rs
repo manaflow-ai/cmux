@@ -1698,6 +1698,10 @@ impl PipeIoByteBudget {
         }
     }
 
+    pub(crate) fn exceeds_limit(&self, bytes: usize) -> bool {
+        bytes > self.limit
+    }
+
     pub(crate) fn release(&self, bytes: usize) {
         if bytes == 0 {
             return;
@@ -3259,19 +3263,21 @@ impl RemoteSession {
             let event = event();
             let retained_bytes = event.retained_bytes();
             if !tap.byte_budget.try_reserve(retained_bytes) {
-                Some(tap.token.clone())
+                Some((tap.token.clone(), tap.byte_budget.exceeds_limit(retained_bytes)))
             } else {
                 match tap.sender.try_send(event) {
                     Ok(()) => None,
                     Err(TrySendError::Full(_) | TrySendError::Disconnected(_)) => {
                         tap.byte_budget.release(retained_bytes);
-                        Some(tap.token.clone())
+                        Some((tap.token.clone(), false))
                     }
                 }
             }
         };
-        if let Some(token) = stalled_token {
-            if self.signal_pipe_io_event(Some(surface), Some(&token), PipeIoEvent::TransportLost) {
+        if let Some((token, over_limit)) = stalled_token {
+            let event =
+                if over_limit { PipeIoEvent::StdinError } else { PipeIoEvent::TransportLost };
+            if self.signal_pipe_io_event(Some(surface), Some(&token), event) {
                 self.disconnect_transport();
             }
         }
@@ -3296,22 +3302,24 @@ impl RemoteSession {
             }
             let retained_bytes = event.retained_bytes();
             if !tap.byte_budget.try_reserve(retained_bytes) {
-                Some(tap.token.clone())
+                Some((tap.token.clone(), tap.byte_budget.exceeds_limit(retained_bytes)))
             } else {
                 match tap.sender.try_send(event) {
                     Ok(()) => None,
                     Err(TrySendError::Full(_) | TrySendError::Disconnected(_)) => {
                         tap.byte_budget.release(retained_bytes);
-                        Some(tap.token.clone())
+                        Some((tap.token.clone(), false))
                     }
                 }
             }
         };
-        if let Some(token) = stalled_token {
+        if let Some((token, over_limit)) = stalled_token {
+            let event =
+                if over_limit { PipeIoEvent::StdinError } else { PipeIoEvent::TransportLost };
             // Signal only the tap that observed the stall. A replacement tap
             // may have been installed while this reader thread released the
             // mutex; it must not be torn down by an older relay.
-            if self.signal_pipe_io_event(Some(surface), Some(&token), PipeIoEvent::TransportLost) {
+            if self.signal_pipe_io_event(Some(surface), Some(&token), event) {
                 self.disconnect_transport();
             }
         }
