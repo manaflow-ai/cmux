@@ -176,6 +176,18 @@ describe("Stack Auth throttle circuit", () => {
     expect(getUser).toHaveBeenCalledTimes(2);
   });
 
+  test("a subrouter-path throttle does not open the native circuit", async () => {
+    setSystemTime(BASE + 180_000);
+    failStackOnce(new Error("Rate limited, no retry-after header received"));
+
+    await expect(verifyRequest(nativeRequest("subrouter-1"), {
+      subrouterAuthorizationSignal: new AbortController().signal,
+    })).rejects.toThrow(/rate limited/i);
+    const user = await verifyRequest(nativeRequest("native-after-subrouter"));
+    expect(user?.id).toBe("user-1");
+    expect(getUser).toHaveBeenCalledTimes(2);
+  });
+
   test("cookie verification is never short-circuited by a native throttle", async () => {
     setSystemTime(BASE + 120_000);
     failStackOnce(new AggregateError([

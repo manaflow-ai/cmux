@@ -512,7 +512,7 @@ export async function verifyRequest(
         options.subrouterAuthorizationSignal,
       );
     } catch (error) {
-      if (hasAuthRateLimitSignal(error)) throw recordStackThrottle(error);
+      if (cacheable && hasAuthRateLimitSignal(error)) throw recordStackThrottle(error);
       throw error;
     }
     if (user) {
