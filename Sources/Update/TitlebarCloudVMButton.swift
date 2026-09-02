@@ -386,26 +386,11 @@ struct TitlebarCloudVMButton: View {
     @MainActor
     static func appendCloudVMMenuItems(to menu: NSMenu) {
         menu.addItem(mouseDownMenuItem(
-            title: String(localized: "command.cloudVM.open.title", defaultValue: "Open Base"),
+            title: String(localized: "command.cloudVM.new.title", defaultValue: "New Cloud VM"),
             action: {
-                CloudVMMenuTarget.shared.open()
+                CloudVMMenuTarget.shared.newMachine()
             }
         ))
-        menu.addItem(NSMenuItem.separator())
-        menu.addItem(menuItem(
-            title: String(localized: "command.cloudVM.fork.title", defaultValue: "Fork Cloud VM"),
-            action: #selector(CloudVMMenuTarget.fork)
-        ))
-        menu.addItem(menuItem(
-            title: String(localized: "command.cloudVM.snapshot.title", defaultValue: "Checkpoint Cloud VM"),
-            action: #selector(CloudVMMenuTarget.snapshot)
-        ))
-        menu.addItem(menuItem(
-            title: String(localized: "command.cloudVM.restore.title", defaultValue: "Restore Checkpoint..."),
-            action: #selector(CloudVMMenuTarget.restore)
-        ))
-        menu.addItem(NSMenuItem.separator())
-        menu.addItem(advancedMenuItem())
     }
 
     private static func menuItem(title: String, action: Selector) -> NSMenuItem {
@@ -415,40 +400,8 @@ struct TitlebarCloudVMButton: View {
     }
 
     private static func mouseDownMenuItem(title: String, action: @escaping () -> Void) -> NSMenuItem {
-        let item = menuItem(title: title, action: #selector(CloudVMMenuTarget.open))
+        let item = menuItem(title: title, action: #selector(CloudVMMenuTarget.newMachine))
         item.view = MouseDownMenuItemView(title: title, action: action)
-        return item
-    }
-
-    private static func advancedMenuItem() -> NSMenuItem {
-        let item = NSMenuItem(
-            title: String(localized: "command.cloudVM.advanced.title", defaultValue: "Advanced"),
-            action: nil,
-            keyEquivalent: ""
-        )
-        let submenu = NSMenu()
-        submenu.addItem(menuItem(
-            title: String(localized: "command.cloudVM.status.title", defaultValue: "Status"),
-            action: #selector(CloudVMMenuTarget.status)
-        ))
-        submenu.addItem(menuItem(
-            title: String(localized: "command.cloudVM.ports.title", defaultValue: "Ports"),
-            action: #selector(CloudVMMenuTarget.ports)
-        ))
-        submenu.addItem(NSMenuItem.separator())
-        submenu.addItem(menuItem(
-            title: String(localized: "command.cloudVM.promoteTemplate.title", defaultValue: "Promote to Template"),
-            action: #selector(CloudVMMenuTarget.promoteTemplate)
-        ))
-        submenu.addItem(menuItem(
-            title: String(localized: "command.cloudVM.tools.title", defaultValue: "Inspect Tools"),
-            action: #selector(CloudVMMenuTarget.tools)
-        ))
-        submenu.addItem(menuItem(
-            title: String(localized: "command.cloudVM.handoff.title", defaultValue: "Agent Handoff"),
-            action: #selector(CloudVMMenuTarget.handoff)
-        ))
-        item.submenu = submenu
         return item
     }
 }
@@ -457,39 +410,11 @@ struct TitlebarCloudVMButton: View {
 private final class CloudVMMenuTarget: NSObject {
     static let shared = CloudVMMenuTarget()
 
-    @objc func open() {
-        _ = AppDelegate.shared?.performCloudVMAction(debugSource: "titlebar.cloudVM.menu.open")
-    }
-
-    @objc func fork() {
-        _ = AppDelegate.shared?.performCurrentCloudVMCommand(.fork, debugSource: "titlebar.cloudVM.menu.fork")
-    }
-
-    @objc func snapshot() {
-        _ = AppDelegate.shared?.performCurrentCloudVMCommand(.snapshot, debugSource: "titlebar.cloudVM.menu.snapshot")
-    }
-
-    @objc func restore() {
-        _ = AppDelegate.shared?.performCloudVMRestoreCommand(debugSource: "titlebar.cloudVM.menu.restore")
-    }
-
-    @objc func promoteTemplate() {
-        _ = AppDelegate.shared?.performCurrentCloudVMCommand(.promoteTemplate, debugSource: "titlebar.cloudVM.menu.promoteTemplate")
-    }
-
-    @objc func status() {
-        _ = AppDelegate.shared?.performCurrentCloudVMCommand(.status, debugSource: "titlebar.cloudVM.menu.status")
-    }
-
-    @objc func ports() {
-        _ = AppDelegate.shared?.performCurrentCloudVMCommand(.ports, debugSource: "titlebar.cloudVM.menu.ports")
-    }
-
-    @objc func tools() {
-        _ = AppDelegate.shared?.performCurrentCloudVMCommand(.tools, debugSource: "titlebar.cloudVM.menu.tools")
-    }
-
-    @objc func handoff() {
-        _ = AppDelegate.shared?.performCurrentCloudVMCommand(.handoff, debugSource: "titlebar.cloudVM.menu.handoff")
+    /// Same path as the Machines panel ＋ button and the command palette: the
+    /// New Machine sheet, with the plan meter read from the fleet page first.
+    @objc func newMachine() {
+        NewMachineSheetPresenter.shared.presentNewMachineFetchingPlan(
+            preferredWindow: NSApp.keyWindow ?? NSApp.mainWindow
+        )
     }
 }
