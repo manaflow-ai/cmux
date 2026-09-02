@@ -1804,7 +1804,7 @@ impl Inner {
         {
             return;
         }
-        let _delivery = attachment.delivery_gate.lock().expect("attachment delivery lock");
+        let delivery = attachment.delivery_gate.lock().expect("attachment delivery lock");
         // Retirement takes the same delivery gate before revocation. Recheck
         // after a wait so a claim made before detach cannot call the
         // transport after that attachment has been revoked or removed.
@@ -1813,6 +1813,10 @@ impl Inner {
         {
             return;
         }
+        // The gate protects the final lifecycle check. Do not hold it across
+        // the transport callback because a stalled sink must not block detach
+        // or trust revocation.
+        drop(delivery);
         (auth.send)(json!({
             "version": PTY_PROTOCOL_VERSION,
             "type": "pty_output",
@@ -1877,6 +1881,7 @@ impl Inner {
         }
         // Exit publication crosses the transport boundary. Release the
         // lifecycle state before invoking the callback.
+        drop(_delivery);
         drop(_operation);
         drop(_publication);
         (auth.send)(json!({
