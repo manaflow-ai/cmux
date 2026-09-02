@@ -1029,7 +1029,7 @@ pub fn verify_bundled_manifest_checksums() -> Result<(), String> {
             return Err(format!("manifest checksum record has no entry for {filename}"));
         };
         let actual_digest = format!("{:x}", Sha256::digest(content.as_bytes()));
-        if !actual_digest.eq_ignore_ascii_case(*expected_digest) {
+        if !actual_digest.eq_ignore_ascii_case(expected_digest) {
             return Err(format!(
                 "bundled manifest {filename} checksum {actual_digest} does not match {expected_digest}"
             ));
