@@ -2616,6 +2616,7 @@ mod tests {
             let live_owner = owner.clone();
             let live_trust_for_auth = live_trust.clone();
             let live_owner_for_auth = live_owner.clone();
+            let observe_trust = trust == "observe";
             FrameContext {
                 send: Arc::new(move |frame| sent.lock().unwrap().push(frame)),
                 buffered_amount: Arc::new(move || buffered.load(Ordering::SeqCst)),
@@ -2625,7 +2626,7 @@ mod tests {
                 live_auth: Arc::new(move || (live_trust.clone(), live_owner.clone())),
                 live_authorized: Arc::new(move |actor| {
                     !live_trust_for_auth.is_empty()
-                        && (trust != "observe" || live_owner_for_auth.as_deref() == Some(actor))
+                        && (!observe_trust || live_owner_for_auth.as_deref() == Some(actor))
                 }),
                 transport_id: None,
                 cancellation: CancellationToken::new(),
