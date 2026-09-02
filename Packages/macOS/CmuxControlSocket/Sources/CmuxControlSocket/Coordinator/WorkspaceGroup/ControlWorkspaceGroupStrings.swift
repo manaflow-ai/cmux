@@ -21,6 +21,9 @@ public struct ControlWorkspaceGroupStrings: Sendable, Equatable {
     /// `workspaceGroup.error.closeWorkspacesMustBeBoolean` — explicit
     /// destructive intent must be a JSON boolean.
     public let closeWorkspacesMustBeBoolean: String
+    /// `workspaceGroup.error.emptyPinnedCannotUngroup` — a pinned empty group
+    /// must be removed through the explicit Delete Group action.
+    public let emptyPinnedCannotUngroup: String
 
     /// Creates the localized message bundle.
     ///
@@ -30,15 +33,18 @@ public struct ControlWorkspaceGroupStrings: Sendable, Equatable {
     ///     message.
     ///   - invalidReferenceWorkspace: The invalid-reference-workspace message.
     ///   - closeWorkspacesMustBeBoolean: The malformed destructive-intent message.
+    ///   - emptyPinnedCannotUngroup: The protected empty-group message.
     public init(
         allChildrenAreAnchors: String,
         workspaceIsOtherGroupAnchor: String,
         invalidReferenceWorkspace: String,
-        closeWorkspacesMustBeBoolean: String
+        closeWorkspacesMustBeBoolean: String,
+        emptyPinnedCannotUngroup: String
     ) {
         self.allChildrenAreAnchors = allChildrenAreAnchors
         self.workspaceIsOtherGroupAnchor = workspaceIsOtherGroupAnchor
         self.invalidReferenceWorkspace = invalidReferenceWorkspace
         self.closeWorkspacesMustBeBoolean = closeWorkspacesMustBeBoolean
+        self.emptyPinnedCannotUngroup = emptyPinnedCannotUngroup
     }
 }

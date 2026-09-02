@@ -190,6 +190,33 @@ import Testing
         #expect(derived.first { $0.rpcWorkspaceID.rawValue == "w2" }?.actionCapabilities == backgroundCapabilities)
     }
 
+    @Test func emptyGroupCarriesOwningMacActionCapabilities() throws {
+        let capabilities = MobileWorkspaceActionCapabilities(
+            supportsGroupActions: true,
+            supportsWorkspaceCreateInGroup: true
+        )
+        let emptyGroup = MobileWorkspaceGroupPreview(
+            id: "empty-group",
+            name: "Pinned",
+            isPinned: true,
+            isEmpty: true
+        )
+        let state = MacWorkspaceState(
+            macDeviceID: "mac-a",
+            groups: [emptyGroup],
+            status: .connected,
+            actionCapabilities: capabilities
+        )
+
+        let groups = MobileWorkspaceAggregation().derivedGroups(
+            statesByMac: ["mac-a": state],
+            foregroundMacDeviceID: "mac-a"
+        )
+
+        let derivedGroup = try #require(groups.first)
+        #expect(derivedGroup.actionCapabilities == capabilities)
+    }
+
     @Test func emptyStateMapDerivesEmptyList() {
         #expect(derivedWorkspaces(statesByMac: [:], foregroundMacDeviceID: "mac-a").isEmpty)
     }

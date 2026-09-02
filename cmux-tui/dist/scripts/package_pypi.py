@@ -19,6 +19,26 @@ VERSION_RE = re.compile(r"^(?:[0-9]+\.[0-9]+\.[0-9]+|[0-9]+\.[0-9]+\.[0-9]+\.dev
 DIST_NAME = "cmux"
 PACKAGE_NAME = "cmux_tui"
 ZIP_TIMESTAMP = (1980, 1, 1, 0, 0, 0)
+PROJECT_SUMMARY = "cmux \u2014 a tmux-like terminal multiplexer TUI backed by libghostty-vt"
+PROJECT_DESCRIPTION = """# cmux
+
+cmux is a tmux-like terminal multiplexer TUI backed by
+[libghostty-vt](https://github.com/ghostty-org/ghostty). It keeps machines,
+sessions, workspaces, screens, panes, tabs, terminals, and browser panes in
+one scriptable interface.
+
+This PyPI distribution provides the standalone `cmux` command for macOS and
+Linux:
+
+```bash
+python -m pip install cmux
+cmux
+```
+
+For one-off use, run `uvx cmux` or `pipx run cmux`. See the
+[cmux-tui documentation](https://github.com/manaflow-ai/cmux/tree/main/cmux-tui)
+for CLI commands, configuration, remote sessions, and SDKs.
+"""
 
 
 @dataclass(frozen=True)
@@ -134,10 +154,12 @@ Tag: py3-none-{tag}
                 f"""Metadata-Version: 2.1
 Name: {DIST_NAME}
 Version: {version}
-Summary: cmux \u2014 a tmux-like terminal multiplexer TUI backed by libghostty-vt
+Summary: {PROJECT_SUMMARY}
 License: MIT
 Project-URL: Source, https://github.com/manaflow-ai/cmux
-"""
+Description-Content-Type: text/markdown
+
+{PROJECT_DESCRIPTION}"""
             ),
             0o644,
         ),

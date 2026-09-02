@@ -314,13 +314,14 @@ final class SidebarGroupHeaderTableCellView: NSTableCellView {
         )
     }
 
-    /// Inverse of the press treatment: previewing a different row must peel a
-    /// pending header's optimistic anchor-active visuals. The authoritative
-    /// apply reconfigures only rows whose model changed, and a replaced
-    /// preview never changes this header's model — without an explicit clear
-    /// the painted treatment would linger indefinitely.
-    func clearOptimisticAnchorActive() {
-        guard let model, !model.isAnchorActive else { return }
+    /// Rollback for optimistic press paint: reapplies the stored model
+    /// unconditionally, mirroring the workspace cell. This must not skip
+    /// active models — `showOptimisticDeselection` can clear a header whose
+    /// model is still anchor-active, and a press that never produces an
+    /// authoritative apply (swallowed, superseded, became a drag) would
+    /// otherwise leave that header visually deselected until the next render.
+    func restoreStoredModelPaint() {
+        guard let model else { return }
         applyModel(model)
     }
 
@@ -554,6 +555,10 @@ final class SidebarGroupHeaderTableCellView: NSTableCellView {
     private func makeHeaderMenu() -> NSMenu {
         guard let model, let actions else { return NSMenu() }
         let menu = trackedMenu()
+        // Resolve availability at menu-open time. The row may have retained an
+        // older anchor snapshot while the group was being promoted, but the
+        // action bundle owns the authoritative live notification check.
+        let notificationState = actions.notificationState()
         menu.addItem(menuItem(
             String(localized: "workspaceGroup.plus.contextMenu.newWorkspace", defaultValue: "New Workspace in Group"),
             action: actions.onTapPlus
@@ -572,37 +577,39 @@ final class SidebarGroupHeaderTableCellView: NSTableCellView {
         menu.addItem(.separator())
         menu.addItem(menuItem(
             String(localized: "workspaceGroup.contextMenu.markRead", defaultValue: "Mark Group as Read"),
-            enabled: model.canMarkRead,
+            enabled: notificationState.canMarkRead,
             action: actions.onMarkRead
         ))
         menu.addItem(menuItem(
             String(localized: "workspaceGroup.contextMenu.markUnread", defaultValue: "Mark Group as Unread"),
-            enabled: model.canMarkUnread,
+            enabled: notificationState.canMarkUnread,
             action: actions.onMarkUnread
         ))
         menu.addItem(menuItem(
             String(localized: "workspaceGroup.contextMenu.clearLatestNotifications", defaultValue: "Clear Latest Notifications"),
-            enabled: model.hasLatestNotifications,
+            enabled: notificationState.hasLatestNotifications,
             action: actions.onClearLatestNotifications
         ))
         menu.addItem(.separator())
         menu.addItem(menuItem(
             String(localized: "workspaceGroup.contextMenu.markAllRead", defaultValue: "Mark All Workspaces in Group as Read"),
-            enabled: model.canMarkAllRead,
+            enabled: notificationState.canMarkAllRead,
             action: actions.onMarkAllRead
         ))
         menu.addItem(menuItem(
             String(localized: "workspaceGroup.contextMenu.markAllUnread", defaultValue: "Mark All Workspaces in Group as Unread"),
-            enabled: model.canMarkAllUnread,
+            enabled: notificationState.canMarkAllUnread,
             action: actions.onMarkAllUnread
         ))
         menu.addItem(.separator())
         appendConfigAndDocsItems(to: menu)
         menu.addItem(.separator())
-        menu.addItem(menuItem(
-            String(localized: "workspaceGroup.contextMenu.ungroup", defaultValue: "Ungroup Workspaces"),
-            action: actions.onUngroup
-        ))
+        if !model.isPinned || model.memberCount > 0 {
+            menu.addItem(menuItem(
+                String(localized: "workspaceGroup.contextMenu.ungroup", defaultValue: "Ungroup Workspaces"),
+                action: actions.onUngroup
+            ))
+        }
         menu.addItem(menuItem(
             String(localized: "workspaceGroup.contextMenu.delete", defaultValue: "Delete Group"),
             action: actions.onDelete

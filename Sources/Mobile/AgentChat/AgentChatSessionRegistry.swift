@@ -499,6 +499,7 @@ final class AgentChatSessionRegistry {
             record.transcriptPath = transcriptPath
         }
         record.lastActivityAt = event.receivedAt
+        Self.applyChildRunEvent(&record, event: event)
 
         let previous = records[sessionID]
         record.setHookLifecycleState(Self.nextState(previous: record.state, event: event))

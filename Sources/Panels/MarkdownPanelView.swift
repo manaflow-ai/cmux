@@ -85,7 +85,10 @@ struct MarkdownPanelView: View {
                 fontFamily: panel.fontFamily,
                 maxContentWidth: panel.maxContentWidth,
                 session: panel.rendererSession,
-                onRequestPanelFocus: onRequestPanelFocus
+                onRequestPanelFocus: onRequestPanelFocus,
+                onViewAttachedToWindow: { [weak panel] in
+                    panel?.replayPendingPreviewFocusAfterWindowAttach()
+                }
             )
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .opacity(panel.displayMode == .preview ? 1 : 0)
@@ -102,6 +105,21 @@ struct MarkdownPanelView: View {
                     wordWrap: fileEditorWordWrap
                 )
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
+            }
+
+            if panel.displayMode == .preview, let searchState = panel.searchState {
+                BrowserSearchOverlay(
+                    panelId: panel.id,
+                    searchState: searchState,
+                    focusRequestGeneration: panel.searchFocusRequestGeneration,
+                    canApplyFocusRequest: { generation in
+                        panel.canApplySearchFocusRequest(generation)
+                    },
+                    onNext: { panel.findNext() },
+                    onPrevious: { panel.findPrevious() },
+                    onClose: { panel.hideFind() },
+                    onFieldDidFocus: {}
+                )
             }
         }
     }

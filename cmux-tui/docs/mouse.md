@@ -53,13 +53,15 @@ Right-click anywhere inside the sidebar, including its top pad, empty space, fil
 
 Each context menu includes Keyboard shortcuts, which opens the same modal as `Ctrl-b ?`. The modal has a visible `[Esc close]` button and a terminal-style scrollbar when its rows overflow, with wheel, track-click, and thumb-drag control. Every menu action with a configured key shows the resolved shortcut on the right. Remapped prefix and action keys appear immediately, and unbound actions omit the shortcut.
 
-Menus draw bordered overlays. Divider rows collapse as needed to keep every action visible when the flat menu would fit. When rows overflow, the menu draws the shared native scrollbar and supports wheel, track click, and thumb drag. Up and Down move the selected row, Enter activates it, and Esc closes the menu. A right press, drag to a row, and release activates that row. A plain right-click opens the menu and leaves it open.
+Menus draw bordered overlays. Divider rows collapse as needed to keep every action visible when the flat menu would fit. When rows overflow, the menu draws the shared native scrollbar and supports wheel, track click, and thumb drag. Up and Down move the selected row, Home and End jump to the first and last action, Enter activates it, and Esc closes the menu. A right press, drag to a row, and release activates that row. A plain right-click opens the menu and leaves it open.
 
 ## Selection and Clipboard
 
 Clicks, releases, and motion inside a PTY pane are forwarded when the inner app enables terminal mouse tracking. cmux uses Ghostty's encoder so X10, UTF-8, SGR, URxvt, and SGR pixel modes follow the app's terminal state. Hold Shift to bypass mouse reporting and use cmux text selection.
 
 Drag inside a PTY pane to select text when mouse tracking is disabled or Shift is held. Releasing copies non-empty selected text to the host clipboard with OSC 52. The selection stores absolute scrollback rows, so it remains stable while the viewport scrolls.
+
+Double-click a terminal word, or its surrounding whitespace run, to select the complete Ghostty-defined word. Keep the button down after the second press and drag to extend the selection by complete words in either direction. A third nearby click selects the complete logical line and line drag extends it. A click that is too slow, too far away, on another screen, or on another UI target starts a new selection gesture.
 
 Holding a selection drag at the top or bottom content edge auto-scrolls and extends the selection. Typing clears the selection. If the selected surface exits, the selection is cleared.
 

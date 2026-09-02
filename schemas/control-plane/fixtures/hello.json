@@ -1,0 +1,14 @@
+{
+  "v": 1,
+  "type": "hello",
+  "payload": {
+    "endpointId": "8de4b1c22a10",
+    "haveRev": 41,
+    "wantPasses": true,
+    "deviceId": "77116c35-0000-4000-8000-000000000002",
+    "platform": "ios",
+    "appVersion": "1.5.2",
+    "releaseTrack": "beta",
+    "capabilities": ["cmux.irx.v1", "cmux.ctl.ack"]
+  }
+}

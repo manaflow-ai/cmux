@@ -883,7 +883,6 @@ final class CommandPaletteCloudCommandTests: XCTestCase {
     func testCloudCommandPaletteIncludesCloudWorkspaceActions() {
         let commandIds = Set(ContentView.commandPaletteCloudCommandContributions().map(\.commandId))
 
-        XCTAssertTrue(commandIds.contains(ContentView.commandPaletteCloudOpenCommandId))
         XCTAssertTrue(commandIds.contains(ContentView.commandPaletteCloudForkCommandId))
         XCTAssertTrue(commandIds.contains(ContentView.commandPaletteCloudSnapshotCommandId))
         XCTAssertTrue(commandIds.contains(ContentView.commandPaletteCloudRestoreCommandId))
@@ -1243,6 +1242,7 @@ final class RightSidebarModeShortcutHintTests: XCTestCase {
         XCTAssertEqual(RightSidebarMode.sessions.shortcutAction, .switchRightSidebarToSessions)
         XCTAssertEqual(RightSidebarMode.feed.shortcutAction, .switchRightSidebarToFeed)
         XCTAssertEqual(RightSidebarMode.dock.shortcutAction, .switchRightSidebarToDock)
+        XCTAssertEqual(RightSidebarMode.machines.shortcutAction, .switchRightSidebarToMachines)
     }
 
     func testModeShortcutsUsePrivateControlDigitDefaults() {

@@ -3,6 +3,7 @@ import { after, NextRequest, NextResponse } from "next/server";
 import { eq } from "drizzle-orm";
 
 import { validatedNativeCallbackScheme } from "../../../lib/native-callback";
+import { requestOrigin, requestWithOrigin } from "../../../lib/request-origin";
 import {
   CHECKOUT_RELAY_EXPIRES_PARAM,
   CHECKOUT_RELAY_SIGNATURE_PARAM,
@@ -14,7 +15,12 @@ import {
 } from "../../../lib/billing";
 import { cloudDb } from "../../../../db/client";
 import { stripeCustomers } from "../../../../db/schema";
-import { resolveProPlanStatus } from "../../../../services/billing/pro";
+import {
+  isStripePortalRecoverable,
+  resolveProPlanStatus,
+  stripeBillingStatusForTeam,
+  stripeBillingStatusForUser,
+} from "../../../../services/billing/pro";
 import { captureBillingError } from "../../../../services/errors";
 import {
   isStripeBillingConfigured,
@@ -45,7 +51,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
   if (request.nextUrl.searchParams.get("format") !== "json") return response;
   const location = response.headers.get("location");
   return NextResponse.json({
-    url: location ?? new URL("/pricing?billing=error", request.url).toString(),
+    url: location ?? new URL("/pricing?billing=error", requestOrigin(request)).toString(),
   });
 }
 
@@ -56,7 +62,7 @@ async function resolveCheckout(request: NextRequest): Promise<NextResponse> {
       cmux_ios_app_store: request.nextUrl.searchParams.get("cmux_ios_app_store"),
     })
   ) {
-    return NextResponse.redirect(appStorePricingUnavailableURL(request.nextUrl));
+    return NextResponse.redirect(appStorePricingUnavailableURL(requestWithOrigin(request).nextUrl));
   }
 
   const plan = checkoutPlan(request.nextUrl.searchParams.get("plan"));
@@ -74,7 +80,7 @@ async function resolveCheckout(request: NextRequest): Promise<NextResponse> {
     hasRelayAssertion
   ) {
     return NextResponse.redirect(
-      new URL("/pricing?billing=invalid_relay", request.url),
+      new URL("/pricing?billing=invalid_relay", requestOrigin(request)),
     );
   }
   const callbackScheme =
@@ -94,18 +100,18 @@ async function resolveCheckout(request: NextRequest): Promise<NextResponse> {
 
   const stackServerApp = await checkoutStackServerApp();
   if (!stackServerApp) {
-    return NextResponse.redirect(new URL("/pricing?billing=unavailable", request.url));
+    return NextResponse.redirect(new URL("/pricing?billing=unavailable", requestOrigin(request)));
   }
 
   if (!plan) {
-    return NextResponse.redirect(new URL("/pricing?billing=invalid_plan", request.url));
+    return NextResponse.redirect(new URL("/pricing?billing=invalid_plan", requestOrigin(request)));
   }
   if (!interval) {
-    return NextResponse.redirect(new URL("/pricing?billing=invalid_plan", request.url));
+    return NextResponse.redirect(new URL("/pricing?billing=invalid_plan", requestOrigin(request)));
   }
 
   if (!isStripeBillingConfigured()) {
-    return NextResponse.redirect(new URL("/pricing?billing=unavailable", request.url));
+    return NextResponse.redirect(new URL("/pricing?billing=unavailable", requestOrigin(request)));
   }
 
   if (plan === "pro") {
@@ -126,7 +132,7 @@ async function resolveCheckout(request: NextRequest): Promise<NextResponse> {
   }
   // checkoutPlan only yields "pro" | "team" | null (null handled above); this is
   // unreachable but keeps GET returning a NextResponse instead of possibly-undefined.
-  return NextResponse.redirect(new URL("/pricing?billing=invalid_plan", request.url));
+  return NextResponse.redirect(new URL("/pricing?billing=invalid_plan", requestOrigin(request)));
 }
 
 async function stripeProCheckout(
@@ -142,19 +148,31 @@ async function stripeProCheckout(
     if (isAccountDeletionInProgress(user)) {
       return accountDeletionCheckoutRedirect(request);
     }
+    // `or: "anonymous"` creates/returns the real Stack anonymous principal.
+    // Keep that id as the source of truth for Stripe and checkout analytics.
+    const stackUserId = checkoutPrincipalId(user.id, "user");
 
-    const status = await resolveProPlanStatus(user);
+    const stripeBillingStatus = await stripeBillingStatusForUser(stackUserId);
+    const status = await resolveProPlanStatus(user, { stripeBillingStatus });
+    // Keep stale Upgrade links from opening a second subscription. Any
+    // currently active row (even behind a newer canceled one) means the portal
+    // is the right destination; the portal also recovers past-due/unpaid and
+    // cancel-at-period-end states, but it cannot start a new subscription
+    // after a terminal cancellation.
+    if (stripeBillingStatus.hasActiveSubscription || isStripePortalRecoverable(stripeBillingStatus)) {
+      return NextResponse.redirect(new URL("/api/billing/portal", requestOrigin(request)));
+    }
     if (status.isPro) {
-      return NextResponse.redirect(new URL("/pricing?welcome=active", request.url));
+      return NextResponse.redirect(new URL("/pricing?welcome=active", requestOrigin(request)));
     }
 
     const successUrl =
-      `${request.nextUrl.origin}/api/billing/complete` +
+      `${requestOrigin(request)}/api/billing/complete` +
       `?session_id={CHECKOUT_SESSION_ID}&cmux_scheme=${encodeURIComponent(callbackScheme)}`;
-    const cancelUrl = new URL("/pricing?billing=cancelled", request.nextUrl.origin);
+    const cancelUrl = new URL("/pricing?billing=cancelled", requestOrigin(request));
     cancelUrl.searchParams.set("interval", interval);
     const metadata = {
-      stackUserId: user.id,
+      stackUserId,
       plan: "pro",
       app: "cmux",
       billingInterval: interval,
@@ -169,18 +187,25 @@ async function stripeProCheckout(
           quantity: 1,
         },
       ],
-      client_reference_id: user.id,
+      client_reference_id: stackUserId,
       metadata,
       subscription_data: { metadata },
-      customer_email: !user.isAnonymous && user.primaryEmail ? user.primaryEmail : undefined,
+      customer: stripeBillingStatus.customerId ?? undefined,
+      customer_email: stripeBillingStatus.customerId
+        ? undefined
+        : !user.isAnonymous && user.primaryEmail
+          ? user.primaryEmail
+          : undefined,
       allow_promotion_codes: true,
       success_url: successUrl,
       cancel_url: cancelUrl.toString(),
     });
-    if (!session.url) throw new Error("Stripe Checkout Session did not include a URL");
+    if (!usableCheckoutSession(session)) {
+      throw new Error("Stripe Checkout Session did not include an id and URL");
+    }
     deferCheckoutAnalytics(() => captureBillingCheckoutStarted({
       sessionId: session.id,
-      subject: { scope: "user", stackUserId: user.id },
+      subject: { scope: "user", stackUserId },
       plan: "pro",
       billingInterval: interval,
     }));
@@ -191,7 +216,7 @@ async function stripeProCheckout(
       plan: "pro",
       interval,
     });
-    return NextResponse.redirect(new URL("/pricing?billing=error", request.url));
+    return NextResponse.redirect(new URL("/pricing?billing=error", requestOrigin(request)));
   }
 }
 
@@ -209,17 +234,24 @@ async function stripeTeamCheckout(
     if (isAccountDeletionInProgress(user)) {
       return accountDeletionCheckoutRedirect(request);
     }
+    const stackUserId = checkoutPrincipalId(user.id, "user");
     const team = await checkoutTeamCustomer(user);
-    const resolvedTeamId = team.id;
-    if (!resolvedTeamId) {
-      throw new Error("Stack team checkout customer is missing an id");
-    }
+    const resolvedTeamId = checkoutPrincipalId(team.id, "team");
     teamId = resolvedTeamId;
 
+    const stripeBillingStatus = await stripeBillingStatusForTeam(resolvedTeamId);
+    // Same rule as personal checkout: an already-paying team manages billing
+    // in the portal; checkout would create a duplicate subscription.
+    if (stripeBillingStatus.hasActiveSubscription || isStripePortalRecoverable(stripeBillingStatus)) {
+      const portalURL = new URL("/api/billing/portal", requestOrigin(request));
+      portalURL.searchParams.set("scope", "team");
+      return NextResponse.redirect(portalURL);
+    }
+
     const successUrl =
-      `${request.nextUrl.origin}/api/billing/complete` +
+      `${requestOrigin(request)}/api/billing/complete` +
       `?session_id={CHECKOUT_SESSION_ID}&cmux_scheme=${encodeURIComponent(callbackScheme)}`;
-    const cancelUrl = new URL("/pricing?billing=cancelled", request.nextUrl.origin);
+    const cancelUrl = new URL("/pricing?billing=cancelled", requestOrigin(request));
     cancelUrl.searchParams.set("interval", interval);
     const metadata = {
       stackTeamId: resolvedTeamId,
@@ -229,7 +261,8 @@ async function stripeTeamCheckout(
       nativeCallbackScheme: callbackScheme,
     };
 
-    const customerId = await stripeCustomerForTeam(team, user.id);
+    const customerId =
+      stripeBillingStatus.customerId ?? await stripeCustomerForTeam(team, stackUserId);
     const session = await stripe().checkout.sessions.create({
       mode: "subscription",
       line_items: [
@@ -250,7 +283,9 @@ async function stripeTeamCheckout(
       success_url: successUrl,
       cancel_url: cancelUrl.toString(),
     });
-    if (!session.url) throw new Error("Stripe Checkout Session did not include a URL");
+    if (!usableCheckoutSession(session)) {
+      throw new Error("Stripe Checkout Session did not include an id and URL");
+    }
     deferCheckoutAnalytics(() => captureBillingCheckoutStarted({
       sessionId: session.id,
       subject: { scope: "team", stackTeamId: resolvedTeamId },
@@ -265,13 +300,33 @@ async function stripeTeamCheckout(
       interval,
       stackTeamId: teamId,
     });
-    return NextResponse.redirect(new URL("/pricing?billing=error", request.url));
+    return NextResponse.redirect(new URL("/pricing?billing=error", requestOrigin(request)));
   }
 }
 
 function accountDeletionCheckoutRedirect(request: NextRequest) {
   return NextResponse.redirect(
-    new URL("/pricing?billing=account_deletion_in_progress", request.url),
+    new URL("/pricing?billing=account_deletion_in_progress", requestOrigin(request)),
+  );
+}
+
+function checkoutPrincipalId(value: unknown, kind: "user" | "team"): string {
+  if (typeof value !== "string" || value.trim().length === 0) {
+    throw new Error(`Stack ${kind} checkout principal is missing an id`);
+  }
+  return value;
+}
+
+function usableCheckoutSession(
+  value: unknown,
+): value is { readonly id: string; readonly url: string } {
+  if (!value || typeof value !== "object") return false;
+  const session = value as { readonly id?: unknown; readonly url?: unknown };
+  return (
+    typeof session.id === "string" &&
+    session.id.trim().length > 0 &&
+    typeof session.url === "string" &&
+    session.url.trim().length > 0
   );
 }
 

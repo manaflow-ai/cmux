@@ -480,8 +480,7 @@ enum BrowserLinkOpenSettings {
 
     static let browserHostWhitelistKey = "browserHostWhitelist"
     static let defaultBrowserHostWhitelist: String = ""
-    static let browserExternalOpenPatternsKey = "browserExternalOpenPatterns"
-    static let defaultBrowserExternalOpenPatterns: String = ""
+    static let browserExternalOpenPatternsKey = BrowserExternalURLPolicy.userDefaultsKey
 
     static func openTerminalLinksInCmuxBrowser(defaults: UserDefaults = .standard) -> Bool {
         guard BrowserAvailabilitySettings.isEnabled(defaults: defaults) else { return false }
@@ -533,39 +532,6 @@ enum BrowserLinkOpenSettings {
             .filter { !$0.isEmpty }
     }
 
-    static func externalOpenPatterns(defaults: UserDefaults = .standard) -> [String] {
-        let raw = defaults.string(forKey: browserExternalOpenPatternsKey) ?? defaultBrowserExternalOpenPatterns
-        return raw
-            .components(separatedBy: .newlines)
-            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
-            .filter { !$0.isEmpty && !$0.hasPrefix("#") }
-    }
-
-    static func shouldOpenExternally(_ url: URL, defaults: UserDefaults = .standard) -> Bool {
-        shouldOpenExternally(url.absoluteString, defaults: defaults)
-    }
-
-    static func shouldOpenExternally(_ rawURL: String, defaults: UserDefaults = .standard) -> Bool {
-        let target = rawURL.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !target.isEmpty else { return false }
-        guard BrowserAvailabilitySettings.isEnabled(defaults: defaults) else { return true }
-
-        for rawPattern in externalOpenPatterns(defaults: defaults) {
-            guard let (isRegex, value) = parseExternalPattern(rawPattern) else { continue }
-            if isRegex {
-                guard let regex = try? NSRegularExpression(pattern: value, options: [.caseInsensitive]) else { continue }
-                let range = NSRange(target.startIndex..<target.endIndex, in: target)
-                if regex.firstMatch(in: target, options: [], range: range) != nil {
-                    return true
-                }
-            } else if target.range(of: value, options: [.caseInsensitive]) != nil {
-                return true
-            }
-        }
-
-        return false
-    }
-
     /// Check whether a hostname matches the configured whitelist.
     /// Empty whitelist means "allow all" (no filtering).
     /// Supports exact match and wildcard prefix (`*.example.com`).
@@ -605,18 +571,6 @@ enum BrowserLinkOpenSettings {
         return host == pattern
     }
 
-    private static func parseExternalPattern(_ rawPattern: String) -> (isRegex: Bool, value: String)? {
-        let trimmed = rawPattern.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return nil }
-
-        if trimmed.lowercased().hasPrefix("re:") {
-            let regexPattern = String(trimmed.dropFirst(3)).trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !regexPattern.isEmpty else { return nil }
-            return (isRegex: true, value: regexPattern)
-        }
-
-        return (isRegex: false, value: trimmed)
-    }
 }
 
 enum BrowserAvailabilitySettings {
@@ -681,8 +635,46 @@ enum BrowserInsecureHTTPSettings {
 
     static func isHostAllowed(_ host: String, rawAllowlist: String?) -> Bool {
         guard let normalizedHost = normalizeHost(host) else { return false }
+        // Private-network addresses skip the warning outright: the modal's
+        // rationale — "traffic can be read or modified on the network" — is
+        // about the public Internet, and traffic to these ranges never crosses
+        // it. cmux Cloud machines live here (their VPC addresses, reached
+        // through the user's WireGuard tunnel, which encrypts the path anyway),
+        // so warning on every http://10.x panel would train people to click
+        // through the one dialog that matters on public sites.
+        if isPrivateNetworkHost(normalizedHost) { return true }
         return normalizedAllowlistPatterns(rawValue: rawAllowlist).contains { pattern in
             hostMatchesPattern(normalizedHost, pattern: pattern)
+        }
+    }
+
+    /// Whether the (normalized) host is a literal address in a range that is
+    /// not publicly routable: RFC 1918 IPv4, IPv4 link-local, IPv6 unique-local
+    /// (`fc00::/7` — cmux VPC addresses are here) and IPv6 link-local. Names
+    /// are never matched — only literals, so DNS can't smuggle a public host in.
+    static func isPrivateNetworkHost(_ normalizedHost: String) -> Bool {
+        // IPv6 literal (normalizeHost strips brackets and lowercases).
+        if normalizedHost.contains(":") {
+            var addr = in6_addr()
+            guard inet_pton(AF_INET6, normalizedHost, &addr) == 1 else { return false }
+            let bytes = withUnsafeBytes(of: addr) { Array($0) }
+            let first = bytes[0]
+            if first == 0xfc || first == 0xfd { return true }               // fc00::/7 unique-local
+            if first == 0xfe, (bytes[1] & 0xc0) == 0x80 { return true }     // fe80::/10 link-local
+            return false
+        }
+        // IPv4 literal.
+        var addr4 = in_addr()
+        guard inet_pton(AF_INET, normalizedHost, &addr4) == 1 else { return false }
+        let value = UInt32(bigEndian: addr4.s_addr)
+        let octet1 = UInt8(truncatingIfNeeded: value >> 24)
+        let octet2 = UInt8(truncatingIfNeeded: value >> 16)
+        switch octet1 {
+        case 10: return true                                                // 10.0.0.0/8
+        case 172: return (16...31).contains(octet2)                         // 172.16.0.0/12
+        case 192: return octet2 == 168                                      // 192.168.0.0/16
+        case 169: return octet2 == 254                                      // 169.254.0.0/16 link-local
+        default: return false
         }
     }
 
@@ -1155,7 +1147,7 @@ private func browserPresentExternalNavigationPrompt(
     }
 }
 
-private func browserPresentExternalNavigationFailure(
+func browserPresentExternalNavigationFailure(
     for url: URL,
     in webView: WKWebView,
     presentAlert: BrowserAlertPresenter = browserPresentAlert
@@ -1994,6 +1986,7 @@ final class BrowserPanel: Panel, ObservableObject {
 
     /// The workspace ID this panel belongs to
     private(set) var workspaceId: UUID
+    private let externalNavigationHandler: BrowserExternalNavigationHandler
 
     @Published private(set) var profileID: UUID
     @Published private(set) var historyStore: BrowserHistoryStore
@@ -2307,6 +2300,9 @@ final class BrowserPanel: Panel, ObservableObject {
     private var lockedPortalHost: PortalHostLock?
     private var webViewCancellables = Set<AnyCancellable>()
     private(set) var navigationDelegate: BrowserNavigationDelegate?
+    /// Provenance for an app-owned local document, retained across WebView replacement.
+    private var trustedLocalFileURL: URL?
+    private var pendingTrustedLocalFileURL: URL?
     private var uiDelegate: BrowserUIDelegate?
     var downloadDelegate: BrowserDownloadDelegate?
     private let webAuthnCoordinator = BrowserWebAuthnCoordinator()
@@ -3062,9 +3058,11 @@ final class BrowserPanel: Panel, ObservableObject {
             self?.screenshotCopiedToken &+= 1
         }
         webView.onContextMenuOpenLinkInNewTab = { [weak self] url in
-            self?.openLinkInNewTab(url: url)
+            self?.openContextMenuLinkInNewTab(url: url)
         }
-        configureMoveTabToNewWorkspaceContextMenu(for: webView); configureNavigationDelegateCallbacks()
+        configureMoveTabToNewWorkspaceContextMenu(for: webView)
+        navigationDelegate?.resetTrustedInternalNavigationState()
+        configureNavigationDelegateCallbacks()
         automationDocumentReadiness.bind(to: webViewInstanceID, hasCommittedDocument: webView.backForwardList.currentItem != nil)
         automationNavigationCoordinator.bind(to: webViewInstanceID)
         webView.cmuxDownloadDelegate = downloadDelegate
@@ -3251,6 +3249,8 @@ final class BrowserPanel: Panel, ObservableObject {
         navigationDelegate.didChooseMainFrameDownloadPolicy = { [weak self] webView, navigation in
             MainActor.assumeIsolated {
                 guard let self, self.isCurrentWebView(webView, instanceID: boundWebViewInstanceID) else { return }
+                self.failTrustedLocalFileNavigation()
+                (webView as? CmuxWebView)?.clearTrustedInternalNavigationGrants()
                 self.automationNavigationCoordinator.didChooseDownloadPolicy(
                     instanceID: boundWebViewInstanceID,
                     navigationID: navigation.map { ObjectIdentifier($0) }
@@ -3279,6 +3279,8 @@ final class BrowserPanel: Panel, ObservableObject {
                       self.isCurrentWebView(webView, instanceID: boundWebViewInstanceID) else {
                     return
                 }
+                self.failTrustedLocalFileNavigation()
+                (webView as? CmuxWebView)?.clearTrustedInternalNavigationGrants()
                 guard let restoreAttemptID,
                       restoreAttemptID == self.currentDiscardRestoreAttemptID else {
                     return
@@ -3414,6 +3416,7 @@ final class BrowserPanel: Panel, ObservableObject {
     }
 
     init(
+        id: UUID = UUID(),
         workspaceId: UUID,
         profileID: UUID? = nil,
         initialURL: URL? = nil,
@@ -3432,9 +3435,10 @@ final class BrowserPanel: Panel, ObservableObject {
         // Register fallback defaults and normalize legacy/out-of-range settings once
         // per process, before any setting is read below or by the SwiftUI view.
         Self.bootstrapBrowserDefaultsIfNeeded()
-        self.id = UUID()
+        self.id = id
         self.mobileBrowserDialogBroker = MobileBrowserDialogBroker(panelID: self.id.uuidString)
         self.workspaceId = workspaceId
+        self.externalNavigationHandler = BrowserExternalNavigationHandler()
         let resolvedProfileID = Self.resolvedProfileID(requested: profileID)
         self.profileID = resolvedProfileID
         self.insecureHTTPBypassHostOnce = BrowserInsecureHTTPSettings.normalizeHost(bypassInsecureHTTPHostOnce ?? "")
@@ -3500,7 +3504,9 @@ final class BrowserPanel: Panel, ObservableObject {
         BrowserProfileStore.shared.noteUsed(resolvedProfileID)
 
         // Set up navigation delegate
-        let navDelegate = BrowserNavigationDelegate()
+        let navDelegate = BrowserNavigationDelegate(
+            externalNavigationHandler: externalNavigationHandler
+        )
         navDelegate.owner = self
         navDelegate.openInNewTab = { [weak self] url in
             self?.openLinkInNewTab(url: url)
@@ -3684,11 +3690,16 @@ final class BrowserPanel: Panel, ObservableObject {
         self.navigationDelegate = navDelegate
 
         // Set up UI delegate (handles cmd+click, target=_blank, and context menu)
-        let browserUIDelegate = BrowserUIDelegate()
+        let browserUIDelegate = BrowserUIDelegate(
+            externalNavigationHandler: externalNavigationHandler
+        )
         browserUIDelegate.owner = self
         browserUIDelegate.openInNewTab = { [weak self] url in
             guard let self else { return }
             self.openLinkInNewTab(url: url)
+        }
+        browserUIDelegate.openAppLinkInBrowserSplit = { [weak self] url in
+            self?.openAppLinkInBrowserSplit?(url) ?? false
         }
         browserUIDelegate.requestNavigation = { [weak self] in self?.requestNavigation($0, intent: $1) }
         browserUIDelegate.recordPDFPrintIntent = { [weak navDelegate] in navDelegate?.recordPDFPrintIntentIfNeeded($0, sourceFrame: $1) }
@@ -4969,6 +4980,8 @@ final class BrowserPanel: Panel, ObservableObject {
     func close() {
         cancelHiddenWebViewDiscard()
         isClosingWebViewLifecycle = true
+        trustedLocalFileURL = nil
+        pendingTrustedLocalFileURL = nil
         automationNavigationCoordinator.invalidate()
         navigationDelegate?.cancelPendingAuthenticationPrompts()
         mobileBrowserDialogBroker.resolveAll()
@@ -5395,7 +5408,9 @@ final class BrowserPanel: Panel, ObservableObject {
         onNavigationStarted: ((WKNavigation?) -> Void)? = nil
     ) -> WKNavigation? {
         let request = URLRequest(url: url)
-        if !BrowserURLAllowlistPolicy(defaults: .standard).allows(url) {
+        let policy = BrowserURLAllowlistPolicy(defaults: .standard)
+        (webView as? CmuxWebView)?.clearTrustedInternalNavigationGrants()
+        if !policy.allowsTrustedInternalURL(url) {
             navigationDelegate?.blockURLAllowlistNavigation(url, in: webView)
             onNavigationStarted?(nil)
             return nil
@@ -5412,6 +5427,7 @@ final class BrowserPanel: Panel, ObservableObject {
         return navigateWithoutInsecureHTTPPrompt(
             request: request,
             recordTypedNavigation: recordTypedNavigation,
+            trustedInternalNavigation: true,
             onNavigationStarted: onNavigationStarted
         )
     }
@@ -5424,11 +5440,13 @@ final class BrowserPanel: Panel, ObservableObject {
         cachePolicy: URLRequest.CachePolicy = .useProtocolCachePolicy,
         onNavigationStarted: ((WKNavigation?) -> Void)? = nil
     ) -> WKNavigation? {
+        (webView as? CmuxWebView)?.clearTrustedInternalNavigationGrants()
         let request = URLRequest(url: url, cachePolicy: cachePolicy)
         return navigateWithoutInsecureHTTPPrompt(
             request: request,
             recordTypedNavigation: recordTypedNavigation,
             preserveRestoredSessionHistory: preserveRestoredSessionHistory,
+            trustedInternalNavigation: true,
             onNavigationStarted: onNavigationStarted
         )
     }
@@ -5438,6 +5456,7 @@ final class BrowserPanel: Panel, ObservableObject {
         request: URLRequest,
         recordTypedNavigation: Bool,
         preserveRestoredSessionHistory: Bool = false,
+        trustedInternalNavigation: Bool = false,
         onNavigationStarted: ((WKNavigation?) -> Void)? = nil
     ) -> WKNavigation? {
         guard let url = request.url else {
@@ -5445,10 +5464,21 @@ final class BrowserPanel: Panel, ObservableObject {
             return nil
         }
         cancelHiddenWebViewDiscard()
-        guard BrowserURLAllowlistPolicy(defaults: .standard).allows(url) else {
+        let policy = BrowserURLAllowlistPolicy(defaults: .standard)
+        let policyAllowsURL = trustedInternalNavigation
+            ? policy.allowsTrustedInternalURL(url)
+            : policy.allows(url)
+        guard policyAllowsURL else {
             onNavigationStarted?(nil)
             navigationDelegate?.blockURLAllowlistNavigation(url, in: webView)
             return nil
+        }
+        if trustedInternalNavigation {
+            if url.isFileURL {
+                beginTrustedLocalFileNavigation(url)
+            } else {
+                clearTrustedLocalFileDocumentIfNeeded(for: url)
+            }
         }
         if usesRemoteWorkspaceProxy, remoteProxyEndpoint == nil {
             pendingRemoteNavigation?.onNavigationStarted?(nil)
@@ -5524,12 +5554,19 @@ final class BrowserPanel: Panel, ObservableObject {
         }
         noteDiscardedWebViewRestoreNavigationStarted()
         userStoppedLoadSinceWebViewReplacement = false
+        (webView as? CmuxWebView)?.clearTrustedInternalNavigationGrants()
+        let trustedInternalNavigation = BrowserURLAllowlistPolicy
+            .trustedInternalSchemes
+            .contains(originalURL.scheme?.lowercased() ?? "")
+        if trustedInternalNavigation, originalURL.isFileURL {
+            beginTrustedLocalFileNavigation(originalURL)
+        } else {
+            clearTrustedLocalFileDocumentIfNeeded(for: originalURL)
+        }
         let startedNavigation = browserLoadRequest(
             effectiveRequest,
             in: webView,
-            trustedInternalNavigation: BrowserURLAllowlistPolicy
-                .trustedInternalSchemes
-                .contains(originalURL.scheme?.lowercased() ?? "")
+            trustedInternalNavigation: trustedInternalNavigation
         )
         if startedNavigation == nil {
             noteDiscardedWebViewRestoreNavigationDidNotCommit(reason: "navigation_not_started")
@@ -5970,6 +6007,8 @@ extension BrowserPanel {
 
         pageTitle = ""
         currentURL = nil
+        trustedLocalFileURL = nil
+        pendingTrustedLocalFileURL = nil
         renderedPDFDocumentURL = nil
         hiddenWebViewDiscardManager.updateRestoredSessionRenderIntent(nil)
         faviconPNGData = nil
@@ -6030,10 +6069,69 @@ func resolveBrowserNavigableURL(_ input: String) -> URL? {
 }
 
 extension BrowserPanel {
+    /// Records a local file navigation started by cmux itself.
+    func beginTrustedLocalFileNavigation(_ url: URL) {
+        guard url.isFileURL,
+              url.scheme?.lowercased() == "file",
+              BrowserURLAllowlistPolicy(defaults: .standard).allowsTrustedInternalURL(url) else { return }
+        pendingTrustedLocalFileURL = url
+    }
+
+    /// Promotes the pending local file navigation to the current document.
+    func commitTrustedLocalFileNavigation(_ url: URL) {
+        guard pendingTrustedLocalFileURL != nil else { return }
+        pendingTrustedLocalFileURL = nil
+        trustedLocalFileURL = url.isFileURL
+            && url.scheme?.lowercased() == "file"
+            && BrowserURLAllowlistPolicy(defaults: .standard).allowsTrustedInternalURL(url)
+            ? url
+            : nil
+    }
+
+    /// Drops a pending local file navigation after it fails or is superseded.
+    func failTrustedLocalFileNavigation() {
+        pendingTrustedLocalFileURL = nil
+    }
+
+    /// Returns whether `url` is the app-owned local document for this panel.
+    func isTrustedLocalFileDocument(_ url: URL) -> Bool {
+        guard let trustedURL = trustedLocalFileURL ?? pendingTrustedLocalFileURL else { return false }
+        return trustedURL.isFileURL
+            && url.isFileURL
+            && trustedURL.scheme?.lowercased() == url.scheme?.lowercased()
+            && trustedURL.host?.lowercased() == url.host?.lowercased()
+            && trustedURL.port == url.port
+            && trustedURL.user == url.user
+            && trustedURL.password == url.password
+            && trustedURL.path == url.path
+            && url.scheme?.lowercased() == "file"
+    }
+
+    /// Clears local-file provenance when a different main-frame URL takes over.
+    func clearTrustedLocalFileDocumentIfNeeded(for url: URL) {
+        guard isTrustedLocalFileDocument(url) else {
+            pendingTrustedLocalFileURL = nil
+            trustedLocalFileURL = nil
+            return
+        }
+    }
+
     private func cancelInFlightNavigationBeforeHistoryTraversal() {
         guard webView.isLoading || isMainFrameProvisionalNavigationActive else { return }
         webView.stopLoading()
         isMainFrameProvisionalNavigationActive = false
+    }
+
+    private func markTrustedInternalNavigationIfNeeded(for url: URL?) {
+        (webView as? CmuxWebView)?.clearTrustedInternalNavigationGrants()
+        guard let url,
+              let scheme = url.scheme?.lowercased(),
+              BrowserURLAllowlistPolicy.trustedInternalSchemes.contains(scheme),
+              BrowserURLAllowlistPolicy(defaults: .standard).allowsTrustedInternalURL(url) else {
+            return
+        }
+        beginTrustedLocalFileNavigation(url)
+        (webView as? CmuxWebView)?.markTrustedInternalNavigation(url)
     }
 
     @discardableResult
@@ -6073,7 +6171,9 @@ extension BrowserPanel {
                     preserveRestoredSessionHistory: true
                 )
             case .nativeGoBack:
-                webView.applyBrowserUserAgentPolicy(for: webView.backForwardList.backItem?.url)
+                let targetURL = webView.backForwardList.backItem?.url
+                markTrustedInternalNavigationIfNeeded(for: targetURL)
+                webView.applyBrowserUserAgentPolicy(for: targetURL)
                 webView.goBack()
             case .nativeGoForward, .refreshOnly:
                 refreshNavigationAvailability()
@@ -6081,7 +6181,9 @@ extension BrowserPanel {
             return
         }
 
-        webView.applyBrowserUserAgentPolicy(for: webView.backForwardList.backItem?.url)
+        let targetURL = webView.backForwardList.backItem?.url
+        markTrustedInternalNavigationIfNeeded(for: targetURL)
+        webView.applyBrowserUserAgentPolicy(for: targetURL)
         webView.goBack()
     }
 
@@ -6099,7 +6201,9 @@ extension BrowserPanel {
             )
             switch decision {
             case .nativeGoForward:
-                webView.applyBrowserUserAgentPolicy(for: webView.backForwardList.forwardItem?.url)
+                let targetURL = webView.backForwardList.forwardItem?.url
+                markTrustedInternalNavigationIfNeeded(for: targetURL)
+                webView.applyBrowserUserAgentPolicy(for: targetURL)
                 webView.goForward()
             case .navigate(let targetURL):
                 refreshNavigationAvailability()
@@ -6114,7 +6218,9 @@ extension BrowserPanel {
             return
         }
 
-        webView.applyBrowserUserAgentPolicy(for: webView.backForwardList.forwardItem?.url)
+        let targetURL = webView.backForwardList.forwardItem?.url
+        markTrustedInternalNavigationIfNeeded(for: targetURL)
+        webView.applyBrowserUserAgentPolicy(for: targetURL)
         webView.goForward()
     }
 
@@ -6126,6 +6232,23 @@ extension BrowserPanel {
         )
     }
 
+    /// Routes the context-menu tab action through configured external rules.
+    func openContextMenuLinkInNewTab(url: URL) {
+        switch externalNavigationHandler.openConfiguredExternallyResult(
+            url,
+            navigationType: .linkActivated,
+            targetFrameIsMain: true
+        ) {
+        case .opened:
+            return
+        case .failed:
+            browserPresentExternalNavigationFailure(for: url, in: webView)
+            return
+        case .notConfigured:
+            openLinkInNewTab(url: url)
+        }
+    }
+
     /// Opens a request in a sibling browser tab without dropping request metadata.
     func openLinkInNewTab(request: URLRequest, bypassInsecureHTTPHostOnce: String? = nil) {
         guard let seed = browserNewTabNavigationSeed(
@@ -6134,6 +6257,7 @@ extension BrowserPanel {
         ) else {
             return
         }
+
 #if DEBUG
         cmuxDebugLog(
             "browser.newTab.open.begin panel=\(id.uuidString.prefix(5)) " +
@@ -6244,6 +6368,7 @@ extension BrowserPanel {
         if prepareForReload(reason: "reload", mode: .soft) {
             return nil
         }
+        markTrustedInternalNavigationIfNeeded(for: webView.url ?? currentURL)
         return webView.reload()
     }
 
@@ -6252,6 +6377,7 @@ extension BrowserPanel {
         if prepareForReload(reason: "hardReload", mode: .hard) {
             return
         }
+        markTrustedInternalNavigationIfNeeded(for: webView.url ?? currentURL)
         webView.reloadFromOrigin()
     }
 
@@ -6999,7 +7125,49 @@ extension BrowserPanel {
 
     // MARK: - Find in Page
 
+    /// Whether the current page is a ready diff viewer app. The diff viewer
+    /// virtualizes rows, so the generic in-page find script cannot see most
+    /// of the diff; find-family shortcuts are forwarded to the app instead.
+    var isDiffViewerFindOwner: Bool {
+        (webView as? CmuxWebView)?.isDiffViewerFindOwner == true
+    }
+
+    private func performDiffViewerFindActionOrFallback(
+        _ action: CmuxWebView.DiffViewerFindAction,
+        fallback: @escaping @MainActor () -> Void
+    ) {
+        guard let cmuxWebView = webView as? CmuxWebView else {
+            fallback()
+            return
+        }
+        cmuxWebView.performDiffViewerFindAction(action, fallback: fallback)
+    }
+
     func startFind() {
+        performDiffViewerFindActionOrFallback(.open) { [weak self] in
+            self?.presentNativeFindBar()
+        }
+    }
+
+    func findNext() {
+        performDiffViewerFindActionOrFallback(.next) { [weak self] in
+            self?.performNativeFindNext()
+        }
+    }
+
+    func findPrevious() {
+        performDiffViewerFindActionOrFallback(.previous) { [weak self] in
+            self?.performNativeFindPrevious()
+        }
+    }
+
+    func hideFind() {
+        performDiffViewerFindActionOrFallback(.close) { [weak self] in
+            self?.hideNativeFind()
+        }
+    }
+
+    private func presentNativeFindBar() {
         clearBrowserFocusMode(reason: "startFind")
         preferredFocusIntent = .findField
         let created = searchState == nil
@@ -7042,21 +7210,21 @@ extension BrowserPanel {
         NotificationCenter.default.post(name: .browserSearchFocus, object: id, userInfo: [FindFocusNotificationKey.selectAll: selectAll])
     }
 
-    func findNext() {
+    private func performNativeFindNext() {
         Task { @MainActor [weak self] in
             guard let self else { return }
             self.applyFindMatchCount(await self.findService.next())
         }
     }
 
-    func findPrevious() {
+    private func performNativeFindPrevious() {
         Task { @MainActor [weak self] in
             guard let self else { return }
             self.applyFindMatchCount(await self.findService.previous())
         }
     }
 
-    func hideFind() {
+    private func hideNativeFind() {
         let shouldRestoreWebViewFocus = searchState != nil && preferredFocusIntent == .findField
         invalidateSearchFocusRequests(reason: "hideFind")
         searchState = nil
@@ -8257,13 +8425,25 @@ class BrowserDownloadDelegate: NSObject, WKDownloadDelegate {
 
 // MARK: - UI Delegate
 
-private class BrowserUIDelegate: BrowserPDFPreviewActionUIDelegate {
+@MainActor
+private final class BrowserUIDelegate: BrowserPDFPreviewActionUIDelegate {
+    private let externalNavigationHandler: BrowserExternalNavigationHandler
     weak var owner: BrowserPanel?
     var openInNewTab: ((URL) -> Void)?
+    var openAppLinkInBrowserSplit: ((URL) -> Bool)?
     var requestNavigation: ((URLRequest, BrowserInsecureHTTPNavigationIntent) -> Void)?; var recordPDFPrintIntent: ((URLRequest, WKFrameInfo?) -> Void)?
     var presentAlert: BrowserAlertPresenter = browserPresentAlert
     var openPopup: ((WKWebViewConfiguration, WKWindowFeatures) -> WKWebView?)?
     var closeRequested: ((WKWebView) -> Void)?
+
+    init(
+        externalNavigationHandler: BrowserExternalNavigationHandler
+    ) {
+        self.externalNavigationHandler = externalNavigationHandler
+        super.init()
+    }
+
+    deinit {}
 
     func webViewDidClose(_ webView: WKWebView) {
         closeRequested?(webView)
@@ -8321,6 +8501,35 @@ private class BrowserUIDelegate: BrowserPDFPreviewActionUIDelegate {
             "windowFeatures={\(windowFeaturesSummary)}"
         )
 #endif
+        if let url = navigationAction.request.url {
+            if navigationAction.navigationType == .linkActivated,
+               navigationAction.targetFrame?.isMainFrame != false,
+               let appLink = BrowserAppLinkOpenRequest(
+                   url: url,
+                   webOrigin: AuthEnvironment.appSessionHandoffOrigin
+               ),
+               openAppLinkInBrowserSplit?(appLink.destinationURL) == true {
+                return nil
+            }
+            switch externalNavigationHandler.openConfiguredExternallyResult(
+                url,
+                navigationType: navigationAction.navigationType,
+                targetFrameIsMain: navigationAction.targetFrame?.isMainFrame
+            ) {
+            case .opened:
+                return nil
+            case .failed:
+                browserPresentExternalNavigationFailure(
+                    for: url,
+                    in: webView,
+                    presentAlert: presentAlert
+                )
+                return nil
+            case .notConfigured:
+                break
+            }
+        }
+
         if let url = navigationAction.request.url,
            navigationAction.targetFrame?.isMainFrame != false,
            url.scheme?.lowercased() != AuthEnvironment.callbackScheme.lowercased(),
@@ -11351,35 +11560,5 @@ extension BrowserPanel {
 #else
         return nil
 #endif
-    }
-}
-
-/// Bridges `BrowserOmnibarPageFocusRepository` to a panel's live `WKWebView`.
-///
-/// Holds the panel weakly so the panel (which owns the repository, which owns
-/// this adapter) does not form a retain cycle. Always reads `panel.webView` at
-/// call time because the panel reassigns its web view across navigations and
-/// profile switches.
-@MainActor
-private final class BrowserOmnibarPageFocusAdapter: BrowserOmnibarScriptEvaluating {
-    private weak var panel: BrowserPanel?
-
-    init(panel: BrowserPanel) {
-        self.panel = panel
-    }
-
-    func evaluateOmnibarPageFocusScript(
-        _ script: String,
-        completion: @escaping @MainActor (Any?, (any Error)?) -> Void
-    ) {
-        guard let panel else {
-            completion(nil, nil)
-            return
-        }
-        panel.webView.evaluateJavaScript(script) { result, error in
-            MainActor.assumeIsolated {
-                completion(result, error)
-            }
-        }
     }
 }

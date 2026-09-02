@@ -127,7 +127,13 @@ extension CLINotifyProcessIntegrationRegressionTests {
 
         try FileManager.default.createDirectory(at: worktree, withIntermediateDirectories: true)
         if transcriptBacked {
-            try #"{"type":"event_msg","payload":{"type":"task_complete"}}"#
+            // The resume verifier requires exact session metadata before a
+            // rollout can establish durable ownership. Keep the terminal event
+            // as well so this remains a completed, transcript-backed turn.
+            try #"""
+            {"type":"session_meta","payload":{"id":"\#(sessionId)","source":"cli","originator":"codex-tui"}}
+            {"type":"event_msg","payload":{"type":"task_complete"}}
+            """#
                 .write(to: transcript, atomically: true, encoding: .utf8)
         }
         try writeCodexHookStore(

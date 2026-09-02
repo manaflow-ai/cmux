@@ -8,12 +8,12 @@ public import CmuxTerminalCore
 /// registry.
 public final class TerminalSurfaceRegistryIncrementalTraversal {
     let registry: TerminalSurfaceRegistry
-    var cursor: TerminalSurfaceRegistryWeakNode?
+    var cursor: TerminalSurfaceWeakRegistration?
     var isFinished = false
 
     init(
         registry: TerminalSurfaceRegistry,
-        cursor: TerminalSurfaceRegistryWeakNode?
+        cursor: TerminalSurfaceWeakRegistration?
     ) {
         self.registry = registry
         self.cursor = cursor

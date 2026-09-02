@@ -194,7 +194,11 @@ extension CLINotifyProcessIntegrationRegressionTests {
         return handled
     }
 
-    func startBridgeReadyThenCloseServer(listenerFD: Int32) -> XCTestExpectation {
+    func startBridgeReadyThenCloseServer(
+        listenerFD: Int32,
+        replay: Data = Data(),
+        liveOutput: Data = Data()
+    ) -> XCTestExpectation {
         let handled = expectation(description: "pty bridge ready close server handled")
         DispatchQueue.global(qos: .userInitiated).async {
             defer { handled.fulfill() }
@@ -221,9 +225,15 @@ extension CLINotifyProcessIntegrationRegressionTests {
                 pending.append(buffer, count: count)
             }
 
-            let payload: [String: Any] = ["type": "ready", "attachment_token": "attach-token"]
+            let payload: [String: Any] = [
+                "type": "ready",
+                "attachment_token": "attach-token",
+                "replay_bytes": replay.count,
+            ]
             guard var data = try? JSONSerialization.data(withJSONObject: payload, options: []) else { return }
             data.append(0x0A)
+            data.append(contentsOf: replay)
+            data.append(contentsOf: liveOutput)
             data.withUnsafeBytes { rawBuffer in
                 guard let base = rawBuffer.bindMemory(to: UInt8.self).baseAddress else { return }
                 var remaining = rawBuffer.count

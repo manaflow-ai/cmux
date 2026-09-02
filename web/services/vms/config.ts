@@ -7,33 +7,56 @@ export function assertVmCreateEnabled(
   provider: ProviderId,
   env: VmRuntimeEnv = process.env,
 ): void {
-  if (isFalseFlag(env.CMUX_VM_CREATE_ENABLED)) {
-    throw new VmCreateDisabledError({
-      provider,
-      reason: "Cloud VM creation is disabled",
-    });
+  const reason = vmCreateDisabledReason(provider, env);
+  if (reason) {
+    throw new VmCreateDisabledError({ provider, reason });
   }
+}
 
-  const providerKey = providerEnabledEnvKey(provider);
-  if (isFalseFlag(env[providerKey])) {
-    throw new VmCreateDisabledError({
-      provider,
-      reason: `${provider} VM creation is disabled`,
-    });
+/**
+ * Why creating a machine on `provider` is disabled, or null when creation is
+ * allowed. Workflow code (Effect) uses this instead of the throwing assert so
+ * a flipped kill switch is a typed failure, not a thrown defect.
+ */
+export function vmCreateDisabledReason(
+  provider: ProviderId,
+  env: VmRuntimeEnv = process.env,
+): string | null {
+  if (isFalseFlag(env.CMUX_VM_CREATE_ENABLED)) {
+    return "Cloud VM creation is disabled";
   }
+  if (isFalseFlag(env[providerEnabledEnvKey(provider)])) {
+    return `${provider} VM creation is disabled`;
+  }
+  return null;
 }
 
 export function providerEnabledEnvKey(provider: ProviderId): string {
   switch (provider) {
-    case "e2b":
-      return "CMUX_VM_E2B_ENABLED";
     case "freestyle":
       return "CMUX_VM_FREESTYLE_ENABLED";
-    case "daytona":
-      return "CMUX_VM_DAYTONA_ENABLED";
     default:
       return assertNever(provider);
   }
+}
+
+/**
+ * Whether new machines join their owner's private network — the default.
+ *
+ * This is one switch rather than two because the network and the closed
+ * inbound port are the same decision: a machine placed on the VPC is reached
+ * at its private address and opens no public port, and a machine kept off it
+ * is reached at its public IPv6 and must open one. Splitting them would let a
+ * deployment configure a machine that is on the network but still publicly
+ * exposed, or on the network but addressed publicly and therefore unreachable.
+ *
+ * Setting `CMUX_VM_PRIVATE_NETWORK_ENABLED=0` is the complete rollback: later
+ * creates go back to the public-IPv6 posture, and machines already on a network
+ * keep working, because reachability is resolved per machine from the addresses
+ * it actually holds.
+ */
+export function vmPrivateNetworkEnabled(env: VmRuntimeEnv = process.env): boolean {
+  return !isFalseFlag(env.CMUX_VM_PRIVATE_NETWORK_ENABLED);
 }
 
 export function isDeployedRuntime(env: VmRuntimeEnv = process.env): boolean {

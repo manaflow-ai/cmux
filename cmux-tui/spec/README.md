@@ -1,9 +1,20 @@
 # cmux-tui programmability contracts
 
-cmux-tui has one stable public resource protocol and several explicitly
-separate internal or privileged protocols.
+cmux-tui exposes two different client protocols. Use the resource API for new
+integrations. Use the raw mux protocol only when implementing cmux's own
+frontend or a compatibility adapter.
 
-## Public API
+## Choose a protocol
+
+| Use case | Protocol | Stability |
+| --- | --- | --- |
+| New CLI, SDK, plugin, or external integration | `cmux.protocol/2` (resource API v2) | Public compatibility boundary |
+| cmux frontend, renderer, or migration adapter | Private mux protocol v12 | Negotiated implementation protocol |
+
+The two protocols do not share envelopes, IDs, capability negotiation, or
+version numbers. A client must not infer support for one from the other.
+
+## Public resource API
 
 `cmux.protocol/2` is the compatibility boundary for the noun-first CLI and
 high-level SDKs:
@@ -27,7 +38,7 @@ Public IDs are typed opaque strings. Internal mux positions, storage keys,
 numeric identities, and private renderer lifecycle values cannot cross this
 boundary.
 
-## Raw and implementation protocols
+## Private mux protocol
 
 The authenticated remote daemon has an independent protocol version.
 [`remote-daemon.md`](remote-daemon.md) and [`remote-rpc.md`](remote-rpc.md)
@@ -48,9 +59,9 @@ documented for cmux frontends and compatibility adapters:
 | [`native-frontend.md`](native-frontend.md) | Native TUI integration boundaries |
 | [`session-journal.md`](session-journal.md) | Canonical event storage, hooks, agent ownership, and restoration |
 
-Private protocol-v12 compatibility does not imply `cmux.protocol/2`
-compatibility. High-level SDK packages expose it only through a path named
-`raw`.
+The private protocol is not a second public API. High-level SDK packages expose
+it only through a path named `raw`, so callers opt into its compatibility
+constraints explicitly.
 
 The remote daemon, machine-provider, provider-management, terminal-host, and
 machine-agent protocols each have their own version and authority boundary:

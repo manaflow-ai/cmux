@@ -381,7 +381,9 @@ jobs:
     if: needs.decide.outputs.should_build == 'true' && (github.event_name != 'schedule' || github.event.schedule == '47 8 * * *')
     # Sign and notarize on the same macOS 26 lane proven by stable releases.
     runs-on: ${{ vars.MACOS_RUNNER_26 || 'blacksmith-6vcpu-macos-26' }}
-    timeout-minutes: 40
+    # Start the standalone helper submission early so
+    # Apple's first wait overlaps useful work; finish it before the final DMG.
+    timeout-minutes: 60
     env:
       CMUX_CI_XCODE_APP: ${{ vars.CMUX_CI_XCODE_APP_MACOS_26 }}
       CMUX_CI_REQUIRED_MACOS_SDK_MAJOR: "26"
@@ -437,6 +439,9 @@ jobs:
         with:
           node-version: "20"
 
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+
       - name: Install build deps
         run: |
           CMUX_NODE_BIN="$(command -v node)"
@@ -451,12 +456,6 @@ jobs:
           EOF
           chmod +x "$wrapper_dir/create-dmg"
           echo "$wrapper_dir" >> "$GITHUB_PATH"
-
-      - name: Setup Go
-        uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6.4.0
-        with:
-          go-version-file: daemon/remote/go.mod
-          cache-dependency-path: daemon/remote/go.sum
 
       - name: Derive Sparkle public key from private key
         env:
@@ -482,6 +481,11 @@ jobs:
           mkdir -p "$(dirname "$DEST")"
           install -m 755 nightly-inputs/ghostty/ghostty "$DEST"
           echo "Injected Ghostty CLI helper architectures: $(lipo -archs "$DEST")"
+
+      - name: Bundle the cmux-tui client
+        run: |
+          set -euo pipefail
+          ./scripts/install-cmux-tui-client.sh build-universal/Build/Products/Release/cmux.app
 
       - name: Run bundled Ghostty theme picker helper regression
         run: |
@@ -537,7 +541,6 @@ jobs:
           {
             echo "NIGHTLY_BUILD=${NIGHTLY_BUILD}"
             echo "NIGHTLY_MARKETING_VERSION=${NIGHTLY_MARKETING_VERSION}"
-            echo "NIGHTLY_REMOTE_DAEMON_VERSION=${NIGHTLY_MARKETING_VERSION}"
             echo "NIGHTLY_DMG_IMMUTABLE=${NIGHTLY_DMG_IMMUTABLE}"
           } >> "$GITHUB_ENV"
 
@@ -580,52 +583,6 @@ jobs:
           echo "Nightly immutable DMG: ${NIGHTLY_DMG_IMMUTABLE}"
           echo "Commit SHA: ${SHORT_SHA}"
 
-      - name: Build remote daemon nightly assets and inject manifest
-        run: |
-          set -euo pipefail
-          # Build with --asset-suffix so manifest download URLs point to
-          # immutable, build-specific asset names (e.g. cmuxd-remote-darwin-arm64-2362248028801).
-          # This prevents checksum mismatches when a newer nightly overwrites
-          # the shared "latest" assets on the release.
-          ./scripts/build_remote_daemon_release_assets.sh \
-            --version "$NIGHTLY_REMOTE_DAEMON_VERSION" \
-            --release-tag "nightly" \
-            --repo "manaflow-ai/cmux" \
-            --output-dir "remote-daemon-assets" \
-            --asset-suffix "$NIGHTLY_BUILD"
-          MANIFEST_JSON="$(python3 -c 'import json,sys; print(json.dumps(json.load(open(sys.argv[1], encoding="utf-8")), separators=(",",":")))' "remote-daemon-assets/cmuxd-remote-manifest-${NIGHTLY_BUILD}.json")"
-          APP_PLIST="build-universal/Build/Products/Release/cmux NIGHTLY.app/Contents/Info.plist"
-          if [ ! -f "$APP_PLIST" ]; then
-            echo "Missing nightly app Info.plist at $APP_PLIST" >&2
-            exit 1
-          fi
-          plutil -remove CMUXRemoteDaemonManifestJSON "$APP_PLIST" >/dev/null 2>&1 || true
-          plutil -insert CMUXRemoteDaemonManifestJSON -string "$MANIFEST_JSON" "$APP_PLIST"
-          # Also create unsuffixed "latest" copies for the release page and
-          # any tooling that fetches the generic asset names. The manifest's
-          # downloadURLs still point to the versioned filenames (intentional:
-          # the live manifest is used by the client-side checksum fallback
-          # which only reads sha256, not downloadURL). The unsuffixed copies
-          # are convenience aliases and don't carry build-provenance
-          # attestation (attested versioned files are canonical).
-          for platform in darwin-arm64 darwin-amd64 linux-arm64 linux-amd64; do
-            cp "remote-daemon-assets/cmuxd-remote-${platform}-${NIGHTLY_BUILD}" \
-               "remote-daemon-assets/cmuxd-remote-${platform}"
-          done
-          # Regenerate unsuffixed checksums with generic filenames so
-          # `shasum -c cmuxd-remote-checksums.txt` works against the aliases.
-          (
-            cd remote-daemon-assets
-            shasum -a 256 \
-              cmuxd-remote-darwin-arm64 \
-              cmuxd-remote-darwin-amd64 \
-              cmuxd-remote-linux-arm64 \
-              cmuxd-remote-linux-amd64 \
-              > cmuxd-remote-checksums.txt
-          )
-          cp "remote-daemon-assets/cmuxd-remote-manifest-${NIGHTLY_BUILD}.json" \
-             "remote-daemon-assets/cmuxd-remote-manifest.json"
-
       - name: Import signing cert
         env:
           APPLE_CERTIFICATE_BASE64: ${{ secrets.APPLE_CERTIFICATE_BASE64 }}
@@ -649,6 +606,21 @@ jobs:
           ./scripts/import-apple-developer-id-intermediates.sh build.keychain
           security set-key-partition-list -S apple-tool:,apple: -s -k "$KEYCHAIN_PASSWORD" build.keychain
           security list-keychains -d user -s build.keychain
+
+      - name: Start Computer Use helper notarization
+        env:
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+        run: |
+          state="$RUNNER_TEMP/cmux-computer-use-notarization.state"
+          rm -f "$state"
+          ./scripts/ci/notarize-computer-use-helper.sh \
+            --start "$state" \
+            "build-universal/Build/Products/Release/cmux NIGHTLY.app" \
+            cmux.nightly.entitlements \
+            "$APPLE_SIGNING_IDENTITY"
 
       - name: Embed nightly provisioning profile
         env:
@@ -699,7 +671,8 @@ jobs:
           for APP_PATH in \
             "build-universal/Build/Products/Release/cmux NIGHTLY.app"
           do
-            ./scripts/sign-cmux-bundle.sh \
+            CMUX_SIGN_MODE=all-except-computer-use \
+              ./scripts/sign-cmux-bundle.sh \
               "$APP_PATH" \
               cmux.nightly.entitlements \
               "$APPLE_SIGNING_IDENTITY"
@@ -711,6 +684,7 @@ jobs:
           APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
           APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          CMUX_COMPUTER_USE_NOTARY_SUBMISSION_FILE: ${{ runner.temp }}/cmux-computer-use-notarization.state
         run: |
           ./scripts/ci/notarize-nightly-dmg.sh \
             "build-universal/Build/Products/Release/cmux NIGHTLY.app" \
@@ -730,31 +704,6 @@ jobs:
           # installs to migrate onto the unified nightly appcast.
           cp appcast.xml appcast-universal.xml
 
-      - name: Attest remote daemon nightly assets
-        id: attest-remote-daemon-nightly-assets
-        continue-on-error: true
-        uses: actions/attest-build-provenance@a2bbfa25375fe432b6a289bc6b6cd05ecd0c4c32 # v4.1.0
-        with:
-          subject-path: |
-            remote-daemon-assets/cmuxd-remote-darwin-arm64-${{ env.NIGHTLY_BUILD }}
-            remote-daemon-assets/cmuxd-remote-darwin-amd64-${{ env.NIGHTLY_BUILD }}
-            remote-daemon-assets/cmuxd-remote-linux-arm64-${{ env.NIGHTLY_BUILD }}
-            remote-daemon-assets/cmuxd-remote-linux-amd64-${{ env.NIGHTLY_BUILD }}
-            remote-daemon-assets/cmuxd-remote-checksums-${{ env.NIGHTLY_BUILD }}.txt
-            remote-daemon-assets/cmuxd-remote-manifest-${{ env.NIGHTLY_BUILD }}.json
-
-      - name: Retry remote daemon nightly asset attestation
-        if: steps.attest-remote-daemon-nightly-assets.outcome == 'failure'
-        uses: actions/attest-build-provenance@a2bbfa25375fe432b6a289bc6b6cd05ecd0c4c32 # v4.1.0
-        with:
-          subject-path: |
-            remote-daemon-assets/cmuxd-remote-darwin-arm64-${{ env.NIGHTLY_BUILD }}
-            remote-daemon-assets/cmuxd-remote-darwin-amd64-${{ env.NIGHTLY_BUILD }}
-            remote-daemon-assets/cmuxd-remote-linux-arm64-${{ env.NIGHTLY_BUILD }}
-            remote-daemon-assets/cmuxd-remote-linux-amd64-${{ env.NIGHTLY_BUILD }}
-            remote-daemon-assets/cmuxd-remote-checksums-${{ env.NIGHTLY_BUILD }}.txt
-            remote-daemon-assets/cmuxd-remote-manifest-${{ env.NIGHTLY_BUILD }}.json
-
       - name: Upload branch nightly artifacts
         if: needs.decide.outputs.should_publish != 'true'
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
@@ -763,7 +712,6 @@ jobs:
           path: |
             cmux-nightly-macos*.dmg
             appcast.xml
-            remote-daemon-assets/cmuxd-remote-*
             appcast-universal.xml
           if-no-files-found: error
 
@@ -800,7 +748,6 @@ jobs:
             cmux-nightly-macos-${{ github.run_id }}*.dmg
             cmux-nightly-macos.dmg
             appcast.xml
-            remote-daemon-assets/cmuxd-remote-*
             appcast-universal.xml
           overwrite_files: true
 

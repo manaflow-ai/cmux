@@ -1,5 +1,7 @@
 import AppKit
+import CMUXAgentLaunch
 import CmuxControlSocket
+import CmuxSettings
 import Foundation
 import Testing
 #if canImport(cmux_DEV)
@@ -111,13 +113,86 @@ struct AgentNotificationRegressionTests {
         }
     }
 
+    private func firstPolicyCompletion(
+        from stream: AsyncStream<Void>,
+        within timeout: Duration
+    ) async -> Void? {
+        await withTaskGroup(of: Void?.self) { group in
+            group.addTask {
+                var iterator = stream.makeAsyncIterator()
+                return await iterator.next()
+            }
+            group.addTask {
+                try? await Task.sleep(for: timeout)
+                return nil
+            }
+            let value = await group.next() ?? nil
+            group.cancelAll()
+            return value
+        }
+    }
+
     private func waitForFile(at url: URL) async -> Bool {
+        await waitForFile(at: url, timeout: .seconds(15))
+    }
+
+    private func waitForFile(at url: URL, timeout: Duration) async -> Bool {
         // Generous for loaded CI runners; only slows the failure path.
-        let deadline = ContinuousClock.now + .seconds(15)
+        let deadline = ContinuousClock.now + timeout
         while !FileManager.default.fileExists(atPath: url.path), ContinuousClock.now < deadline {
             try? await Task.sleep(for: .milliseconds(10))
         }
         return FileManager.default.fileExists(atPath: url.path)
+    }
+
+    @Test("Muted workspaces do not execute notification policy hooks")
+    func mutedWorkspaceSkipsPolicyHooks() async throws {
+        let marker = FileManager.default.temporaryDirectory.appendingPathComponent(
+            "cmux-muted-hook-\(UUID().uuidString)",
+            isDirectory: false
+        )
+        let fixture = try makeFixture(
+            policyHookCommand: "touch '\(marker.path)'; cat"
+        )
+        defer {
+            fixture.restore()
+            try? FileManager.default.removeItem(at: marker)
+        }
+
+        fixture.source.isMuted = true
+        fixture.store.addNotification(
+            tabId: fixture.source.id,
+            surfaceId: fixture.panelId,
+            title: "Muted",
+            subtitle: "",
+            body: "Hook must not run"
+        )
+
+        #expect(!(await waitForFile(at: marker, timeout: .milliseconds(500))))
+        #expect(fixture.store.notifications.isEmpty)
+    }
+
+    @Test("Feed notification admission follows a moved surface to its muted owner")
+    func feedNotificationAdmissionUsesLiveSurfaceOwner() async throws {
+        let fixture = try makeFixture()
+        defer { fixture.restore() }
+        try movePanel(fixture)
+        fixture.destination.isMuted = true
+
+        let event = WorkstreamEvent(
+            sessionId: "claude-feed-live-owner",
+            hookEventName: .permissionRequest,
+            source: "claude",
+            workspaceId: fixture.source.id.uuidString,
+            surfaceId: fixture.panelId.uuidString
+        )
+        let decision = await FeedCoordinator.shared.feedNotificationDeliveryDecision(
+            for: event,
+            effects: TerminalNotificationPolicyEffects()
+        )
+
+        #expect(decision.disposition == .muted)
+        #expect(decision.effects == .allSuppressed)
     }
 
     @Test("Workspace clear resolves a repeated pending surface only once")
@@ -253,6 +328,57 @@ struct AgentNotificationRegressionTests {
         #expect(recorded.first?.surfaceId == fixture.panelId)
     }
 
+    @Test("Policy-suppressed delivery does not expose a dismiss handle")
+    func policySuppressedDeliveryOmitsNotificationID() async throws {
+        let fixture = try makeFixture(
+            policyHookCommand: #"sed 's/"record":true/"record":false/'"#
+        )
+        defer { fixture.restore() }
+
+        let completion = AsyncStream.makeStream(
+            of: Void.self,
+            bufferingPolicy: .bufferingNewest(1)
+        )
+        defer { completion.continuation.finish() }
+
+        try await confirmation("policy-suppressed notification completed") { completed in
+            let signalCompletion: () -> Void = {
+                completed()
+                completion.continuation.yield(())
+            }
+            fixture.store.configureNotificationDeliveryHandlerForTesting { _, _ in signalCompletion() }
+            fixture.store.configureSuppressedNotificationFeedbackHandlerForTesting { _, _ in signalCompletion() }
+            let routing = ControlRoutingSelectors(
+                hasWindowIDParam: false,
+                windowID: nil,
+                groupID: nil,
+                workspaceID: fixture.source.id,
+                surfaceID: nil,
+                paneID: nil
+            )
+            let result = TerminalController.shared.controlNotificationCreateForTarget(
+                routing: routing,
+                workspaceID: fixture.source.id,
+                surfaceID: fixture.panelId,
+                title: "Suppressed",
+                subtitle: "",
+                body: "No stored notification"
+            )
+
+            guard case .delivered(_, _, _, let notificationID) = result else {
+                Issue.record("Expected policy-suppressed delivery, got \(result)")
+                return
+            }
+            #expect(notificationID == nil)
+            let didComplete = await firstPolicyCompletion(
+                from: completion.stream,
+                within: .seconds(15)
+            ) != nil
+            #expect(didComplete, "Policy evaluation must reach a side-effect completion callback")
+        }
+        #expect(fixture.store.notifications.allSatisfy { $0.title != "Suppressed" })
+    }
+
     @Test("Policy-delayed relay delivery stays in its authorized workspace")
     func policyDelayedRelayDeliveryDoesNotCrossWorkspaceBoundary() async throws {
         let fixture = try makeFixture(policyHookCommand: "cat")
@@ -334,6 +460,9 @@ struct AgentNotificationRegressionTests {
 
     @Test("Session persistence preserves source-confined notification provenance")
     func sessionPersistencePreservesSourceConfinement() throws {
+        let soundContext = try #require(
+            NotificationSoundOverrideContext(agentID: "claude", alertType: .turnDone)
+        )
         let notification = TerminalNotification(
             id: UUID(),
             tabId: UUID(),
@@ -343,7 +472,8 @@ struct AgentNotificationRegressionTests {
             subtitle: "Completed",
             body: "Must remain source-confined",
             createdAt: Date(timeIntervalSince1970: 1_700_000_000),
-            isRead: false
+            isRead: false,
+            soundContext: soundContext
         )
 
         let data = try JSONEncoder().encode(SessionNotificationSnapshot(notification: notification))
@@ -355,6 +485,42 @@ struct AgentNotificationRegressionTests {
         )
 
         #expect(!restored.retargetsToLiveSurfaceOwner)
+        #expect(restored.soundContext == soundContext)
+    }
+
+    @Test("Surface rebind preserves notification sound context")
+    @MainActor
+    func surfaceRebindPreservesSoundContext() throws {
+        let store = TerminalNotificationStore.shared
+        let sourceTabId = UUID()
+        let destinationTabId = UUID()
+        let surfaceId = UUID()
+        let soundContext = try #require(
+            NotificationSoundOverrideContext(agentID: "codex", alertType: .needsInput)
+        )
+        let notification = TerminalNotification(
+            id: UUID(),
+            tabId: sourceTabId,
+            surfaceId: surfaceId,
+            retargetsToLiveSurfaceOwner: true,
+            title: "Context move",
+            subtitle: "Needs input",
+            body: "Keep the selected sound",
+            createdAt: Date(),
+            isRead: false,
+            soundContext: soundContext
+        )
+        store.replaceNotificationsForTesting([notification])
+        defer { store.replaceNotificationsForTesting([]) }
+
+        store.rebindSurfaceNotifications(
+            fromTabId: sourceTabId,
+            toTabId: destinationTabId,
+            surfaceId: surfaceId
+        )
+
+        #expect(store.notifications.first?.tabId == destinationTabId)
+        #expect(store.notifications.first?.soundContext == soundContext)
     }
 
     @Test("Legacy session notifications retain trusted local move behavior")

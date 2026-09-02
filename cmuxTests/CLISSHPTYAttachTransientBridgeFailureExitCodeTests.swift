@@ -1,4 +1,5 @@
 import Darwin
+import CmuxFoundation
 import Foundation
 import XCTest
 
@@ -29,6 +30,26 @@ extension CLINotifyProcessIntegrationRegressionTests {
             ],
             expectedStatus: 255
         )
+    }
+
+    func testManagedSSHPTYAttachRetryLogsDiagnosticWithoutPrintingIt() throws {
+        let debugLogURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-managed-ssh-pty-retry-\(UUID().uuidString).log")
+        defer { try? FileManager.default.removeItem(at: debugLogURL) }
+
+        try assertSSHPTYAttachBridgeRPCFailureExitCode(
+            socketName: "sshptyquiet",
+            error: [
+                "code": "remote_pty_error",
+                "message": "remote daemon is not ready",
+            ],
+            expectedStatus: SSHPTYAttachExitCode.daemonNotReady.rawValue,
+            managedReconnect: true,
+            debugLogURL: debugLogURL
+        )
+
+        let debugLog = try String(contentsOf: debugLogURL, encoding: .utf8)
+        XCTAssertTrue(debugLog.contains("remote daemon is not ready"), debugLog)
     }
 
     func testSSHPTYAttachBridgeRPCTransientFailureWithoutPendingWrapperRetryCleansUp() throws {
@@ -65,7 +86,9 @@ extension CLINotifyProcessIntegrationRegressionTests {
         socketName: String,
         error: [String: Any],
         expectedStatus: Int32,
-        wrapperRetryPending: Bool = true
+        wrapperRetryPending: Bool = true,
+        managedReconnect: Bool = false,
+        debugLogURL: URL? = nil
     ) throws {
         let cliPath = try bundledCLIPath()
         let socketPath = makeSocketPath(socketName)
@@ -120,6 +143,14 @@ extension CLINotifyProcessIntegrationRegressionTests {
         } else {
             environment.removeValue(forKey: "CMUX_SSH_PTY_ATTACH_WRAPPER_CAN_RETRY")
         }
+        if managedReconnect {
+            environment["CMUX_SSH_PTY_ATTACH_MANAGED_RECONNECT"] = "1"
+        } else {
+            environment.removeValue(forKey: "CMUX_SSH_PTY_ATTACH_MANAGED_RECONNECT")
+        }
+        if let debugLogURL {
+            environment["CMUX_DEBUG_LOG"] = debugLogURL.path
+        }
 
         let result = runProcess(
             executablePath: cliPath,
@@ -138,6 +169,9 @@ extension CLINotifyProcessIntegrationRegressionTests {
         wait(for: [socketHandled], timeout: 5)
         XCTAssertFalse(result.timedOut, result.stderr)
         XCTAssertEqual(result.status, expectedStatus, result.stderr)
+        if managedReconnect {
+            XCTAssertEqual(result.stderr, "")
+        }
 
         let methods = state.snapshot().compactMap { self.jsonObject($0)?["method"] as? String }
         XCTAssertTrue(methods.contains("workspace.remote.pty_bridge"), "\(methods)")
@@ -179,6 +213,15 @@ extension CLINotifyProcessIntegrationRegressionTests {
         ])
         try writeSSHPTYReconnectTestShell(at: fakeSSH, lines: [
             "#!/bin/sh",
+            "for arg in \"$@\"; do",
+            "  if [ \"$arg\" = \"-O\" ]; then",
+            "    exit 0",
+            "  fi",
+            "  if [ \"$arg\" = \"-G\" ]; then",
+            "    printf 'controlpath /tmp/cmux-ssh-%s-test-control\\n' \"$(id -u)\"",
+            "    exit 0",
+            "  fi",
+            "done",
             "count=$(cat \"${CMUX_TEST_AUTH_ATTEMPTS}\" 2>/dev/null || printf 0)",
             "count=$((count + 1))",
             "printf '%s' \"$count\" > \"${CMUX_TEST_AUTH_ATTEMPTS}\"",
@@ -250,6 +293,15 @@ extension CLINotifyProcessIntegrationRegressionTests {
 
         try writeSSHPTYReconnectTestShell(at: fakeAuth, lines: [
             "#!/bin/sh",
+            "for arg in \"$@\"; do",
+            "  if [ \"$arg\" = \"-O\" ]; then",
+            "    exit 0",
+            "  fi",
+            "  if [ \"$arg\" = \"-G\" ]; then",
+            "    printf 'controlpath /tmp/cmux-ssh-%s-test-control\\n' \"$(id -u)\"",
+            "    exit 0",
+            "  fi",
+            "done",
             "case \" $* \" in",
             "  *\" -T example.test true \"*) ;;",
             "  *) exit 0 ;;",

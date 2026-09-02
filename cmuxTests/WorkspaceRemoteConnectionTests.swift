@@ -643,7 +643,7 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
             terminalStartupCommand: "cmux vm-pty-attach --id abcd1234",
             daemonWebSocketEndpoint: WorkspaceRemoteWebSocketDaemonEndpoint(
                 url: "wss://sandbox.example/rpc",
-                headers: ["e2b-traffic-access-token": "header-a"],
+                headers: ["x-cloud-traffic-token": "header-a"],
                 token: "token-a",
                 sessionId: "sess-a",
                 expiresAtUnix: 1_800_000_000
@@ -664,7 +664,7 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
             terminalStartupCommand: "cmux vm-pty-attach --id abcd1234",
             daemonWebSocketEndpoint: WorkspaceRemoteWebSocketDaemonEndpoint(
                 url: "wss://sandbox.example/rpc",
-                headers: ["e2b-traffic-access-token": "header-b"],
+                headers: ["x-cloud-traffic-token": "header-b"],
                 token: "token-b",
                 sessionId: "sess-b",
                 expiresAtUnix: 1_800_000_100
@@ -1060,11 +1060,11 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
         workspace.configureRemoteConnection(config, autoConnect: false)
         let panelID = try XCTUnwrap(workspace.focusedTerminalPanel?.id)
         workspace.markRemoteTerminalSessionEnded(surfaceId: panelID, relayPort: nil)
-        let replacement = workspace.createReplacementTerminalPanel()
+        let replacement = try XCTUnwrap(workspace.createReplacementTerminalPanel())
         let firstReplacementCommand = replacement.surface.initialCommand
 
         workspace.markRemoteTerminalSessionEnded(surfaceId: panelID, relayPort: 64034)
-        let secondReplacement = workspace.createReplacementTerminalPanel()
+        let secondReplacement = try XCTUnwrap(workspace.createReplacementTerminalPanel())
 
         XCTAssertNotNil(firstReplacementCommand)
         XCTAssertNil(secondReplacement.surface.initialCommand)
@@ -1713,7 +1713,7 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
         workspace.configureRemoteConnection(config, autoConnect: false)
         let workspacePane = try XCTUnwrap(workspace.bonsplitController.allPaneIds.first)
         let panelID = try XCTUnwrap(workspace.focusedTerminalPanel?.id)
-        let dock = workspace.dockSplit
+        let dock = workspace.requiredDockSplitForTesting
         defer { dock.closeAllPanels() }
         let dockPane = try XCTUnwrap(dock.bonsplitController.allPaneIds.first)
 

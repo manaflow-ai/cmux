@@ -250,7 +250,7 @@ struct MobileIrohRuntimeCompositionTests {
         _ = try #require(readiness.completeFailure(
             revision: 1,
             accountID: "account-a",
-            error: CmxIrohTrustBrokerClientError.connectivity,
+            error: CmxIrohTrustBrokerClientError.connectivity(nil),
             retryAfterSeconds: nil,
             now: start
         ))
@@ -517,15 +517,26 @@ struct MobileIrohRuntimeCompositionTests {
         await catalog.activate(scope: 4)
         await catalog.replace(with: discovery, scope: 4)
 
+        let lanePolicy = MobileMacBuildCompatibilityPolicy.development(
+            expectedInstanceTag: "lane-a",
+            additionalInstanceTags: MobileMacTagAllowlist(tags: ["lane-b"])
+        )
         let development = await catalog.liveMacCandidates(
             preferredTag: "lane-a",
-            compatibleWith: .development
+            compatibleWith: lanePolicy
         )
         #expect(development.map(\.instanceTag) == ["lane-a", "lane-b"])
 
+        // Without a grant the sibling lane is filtered out entirely.
+        let isolated = await catalog.liveMacCandidates(
+            preferredTag: "lane-a",
+            compatibleWith: .development(expectedInstanceTag: "lane-a")
+        )
+        #expect(isolated.map(\.instanceTag) == ["lane-a"])
+
         let boundedDevelopment = await catalog.liveMacCandidates(
             preferredTag: "lane-a",
-            compatibleWith: .development,
+            compatibleWith: lanePolicy,
             limit: 1
         )
         #expect(boundedDevelopment.map(\.instanceTag) == ["lane-a"])

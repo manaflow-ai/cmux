@@ -141,6 +141,9 @@ extension TerminalSurface {
            let s = liveSurfaceForGhosttyAccess(reason: "reconcileAttachedWindow") {
             ghostty_surface_set_display_id(s, displayID)
         }
+        if isViewInWindow {
+            onManualWindowAttached?()
+        }
         rendererPresentationReadinessDidChange()
     }
 
@@ -287,12 +290,14 @@ extension TerminalSurface {
 #endif
     }
 
-    /// Explicitly free the Ghostty runtime surface. Idempotent — safe to call
-    /// before deinit; deinit will skip the free if already torn down.
+    /// Explicitly retire this model and free its Ghostty runtime surface.
+    /// Idempotent — safe to call before deinit; deinit will skip the work if
+    /// already torn down.
     @MainActor
     public func teardownSurface() {
         recordTeardownRequest(reason: "surface.teardown")
         markPortalLifecycleClosed(reason: "teardown")
+        retireSurfaceRegistryRegistrationIfNeeded()
         backgroundSurfaceStartSource = .normal
         cancelAgentCommandShimInstallLifecycle()
         closeHeadlessStartupWindowIfNeeded()
@@ -521,6 +526,19 @@ extension TerminalSurface {
         return true
     }
 
+    /// Sets the transport-only command used when a deferred restore is cancelled.
+    ///
+    /// Persistent SSH restores keep their PTY attached after cancellation, but
+    /// must omit the embedded agent-resume payload. The value is captured when
+    /// admission is cancelled and remains in force for later runtime retries.
+    ///
+    /// - Parameter command: The transport-only command to run after cancellation.
+    @MainActor
+    public func setStartupRestoreAdmissionFallbackCommand(_ command: String?) {
+        guard startupRestoreAdmissionPhase == .awaitingAdmission else { return }
+        startupRestoreAdmissionFallbackCommand = command?.isEmpty == false ? command : nil
+    }
+
     /// Primes the initial input for the next runtime spawn only.
     public func prepareNextRuntimeInitialInput(_ input: String?) {
         let trimmedInput = input?.isEmpty == false ? input : nil
@@ -547,6 +565,9 @@ extension TerminalSurface {
         if attachedView === view && surface != nil {
             releaseHeadlessStartupWindowIfNeeded(for: view)
             flushPendingManualSizeReportIfAttached()
+            if isViewInWindow {
+                onManualWindowAttached?()
+            }
 #if DEBUG
             logDebugEvent("surface.attach.reuse surface=\(id.uuidString.prefix(5)) view=\(Unmanaged.passUnretained(view as NSView).toOpaque())")
 #endif
@@ -572,6 +593,10 @@ extension TerminalSurface {
 
         attachedView = view
         releaseHeadlessStartupWindowIfNeeded(for: view)
+
+        if isViewInWindow {
+            onManualWindowAttached?()
+        }
 
         // Ordinary portal attachment can arrive before AppKit has put the view in
         // a window. Defer those. Startup and cold-input paths install the owned
@@ -796,7 +821,6 @@ extension TerminalSurface {
         if runtimeInitialInput != nil {
             nextRuntimeInitialInput = nil
         }
-
         // Session scrollback replay must be one-shot. Reusing it on a later runtime
         // surface recreation would inject stale restored output into a live shell.
         additionalEnvironment.removeValue(forKey: scrollbackReplayEnvironmentKey)

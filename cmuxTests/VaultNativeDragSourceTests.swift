@@ -230,7 +230,7 @@ struct VaultNativeDragSourceTests {
         #expect(startedEntry == entry)
     }
 
-    @Test("A completed native drag releases ownership before the next duplicate drag")
+    @Test("Repeated native drags reclaim superseded duplicate ownership")
     func completedDragReleasesOwnershipForNextDuplicate() throws {
         let registry = SessionDragRegistry()
         let tabDragTransferRegistry = TabDragTransferRegistry()
@@ -250,7 +250,13 @@ struct VaultNativeDragSourceTests {
         let frame = sourceView.bounds
         let image = NSImage(size: frame.size)
 
+        var previousSource: SessionDragSessionSource?
         for expectedStartCount in 1...3 {
+            if let previousSource {
+                // The new threshold-crossing event is the native boundary for
+                // the previous source, even when its endedAt callback was lost.
+                #expect(registry.entry(id: previousSource.dragID) == nil)
+            }
             #expect(coordinator.beginSessionDrag(
                 entry,
                 registry: registry,
@@ -266,19 +272,113 @@ struct VaultNativeDragSourceTests {
             let dragID = source.dragID
             #expect(registry.entry(id: dragID) == entry)
             #expect(source.dragID == dragID)
-            #expect(!coordinator.beginSessionDrag(
-                entry,
-                registry: registry,
-                tabDragTransferRegistry: tabDragTransferRegistry,
-                from: sourceView,
-                event: event,
-                frame: frame,
-                image: image
-            ))
-
-            source.finishDrag()
-            #expect(registry.entry(id: dragID) == nil)
+            previousSource = source
         }
+        previousSource?.finishDrag()
+        #expect(previousSource.flatMap { registry.entry(id: $0.dragID) } == nil)
+    }
+
+    @Test("An invalid replacement leaves the active native drag untouched")
+    func invalidReplacementDoesNotRetireActiveSource() throws {
+        let registry = SessionDragRegistry()
+        let transferRegistry = TabDragTransferRegistry()
+        var startedSource: SessionDragSessionSource?
+        let coordinator = SessionDragCoordinator(
+            startDraggingSession: { _, _, _, source in
+                startedSource = source
+            }
+        )
+        let sourceView = NSView(frame: NSRect(x: 0, y: 0, width: 240, height: 28))
+        let event = try Self.mouseEvent(
+            type: .leftMouseDown,
+            location: NSPoint(x: 20, y: 14),
+            windowNumber: 0
+        )
+        let firstEntry = Self.makeEntry(title: "active source", identifier: "active")
+        let replacementEntry = Self.makeEntry(title: "invalid replacement", identifier: "invalid")
+        let frame = sourceView.bounds
+
+        #expect(coordinator.beginSessionDrag(
+            firstEntry,
+            registry: registry,
+            tabDragTransferRegistry: transferRegistry,
+            from: sourceView,
+            event: event,
+            frame: frame,
+            image: NSImage(size: frame.size)
+        ))
+        let firstSource = try #require(startedSource)
+        #expect(registry.entry(id: firstSource.dragID) == firstEntry)
+
+        #expect(!coordinator.beginSessionDrag(
+            replacementEntry,
+            registry: registry,
+            tabDragTransferRegistry: transferRegistry,
+            from: sourceView,
+            event: event,
+            frame: .zero,
+            image: NSImage(size: frame.size)
+        ))
+        #expect(registry.entry(id: firstSource.dragID) == firstEntry)
+        #expect(transferRegistry.resolve(from: NSPasteboard(name: .drag)) != nil)
+
+        firstSource.finishDrag()
+        #expect(registry.entry(id: firstSource.dragID) == nil)
+    }
+
+    @Test("A new native drag reclaims a source whose endedAt callback was lost")
+    func newNativeDragReclaimsSupersededSource() throws {
+        let registry = SessionDragRegistry()
+        let tabDragTransferRegistry = TabDragTransferRegistry()
+        var startedSources: [SessionDragSessionSource] = []
+        let coordinator = SessionDragCoordinator(
+            startDraggingSession: { _, _, _, source in
+                startedSources.append(source)
+            }
+        )
+        let sourceView = NSView(frame: NSRect(x: 0, y: 0, width: 240, height: 28))
+        let event = try Self.mouseEvent(
+            type: .leftMouseDown,
+            location: NSPoint(x: 20, y: 14),
+            windowNumber: 0
+        )
+        let firstEntry = Self.makeEntry(title: "First superseded drag", identifier: "first")
+        let secondEntry = Self.makeEntry(title: "Second drag", identifier: "second")
+        let frame = sourceView.bounds
+        let image = NSImage(size: frame.size)
+
+        #expect(coordinator.beginSessionDrag(
+            firstEntry,
+            registry: registry,
+            tabDragTransferRegistry: tabDragTransferRegistry,
+            from: sourceView,
+            event: event,
+            frame: frame,
+            image: image
+        ))
+        let firstSource = try #require(startedSources.first)
+        let firstDragID = firstSource.dragID
+        #expect(registry.entry(id: firstDragID) == firstEntry)
+
+        // The next threshold-crossing mouse gesture is proof that AppKit has
+        // left the previous native drag loop, even when it omitted endedAt.
+        #expect(coordinator.beginSessionDrag(
+            secondEntry,
+            registry: registry,
+            tabDragTransferRegistry: tabDragTransferRegistry,
+            from: sourceView,
+            event: event,
+            frame: frame,
+            image: image
+        ))
+        let secondSource = try #require(startedSources.last)
+        #expect(secondSource.dragID != firstDragID)
+        #expect(registry.entry(id: firstDragID) == nil)
+        #expect(registry.entry(id: secondSource.dragID) == secondEntry)
+
+        firstSource.finishDrag()
+        secondSource.finishDrag()
+        #expect(registry.entry(id: secondSource.dragID) == nil)
     }
 
     private static func makeEntry(

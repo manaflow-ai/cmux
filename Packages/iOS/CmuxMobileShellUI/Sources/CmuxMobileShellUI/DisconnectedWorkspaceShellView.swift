@@ -56,6 +56,7 @@ struct DisconnectedWorkspaceShellView: View {
     }
 
     #if os(iOS)
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     /// The computer a reconnect attempt is in flight for. Also the re-entry
     /// guard: while non-nil, row taps are ignored.
     @State private var connectingMacID: String?
@@ -213,6 +214,15 @@ struct DisconnectedWorkspaceShellView: View {
             }
         }
         .listStyle(.insetGrouped)
+        // The visibility switches mutate the store asynchronously, so a row's
+        // move between the shown and hidden runs of the section lands after
+        // the toggle's own transaction has ended; animating on membership
+        // keeps that reorder smooth. Keyed on ids only, so the 10s presence
+        // refresh (same rows, new status text) doesn't animate.
+        .animation(
+            reduceMotion ? nil : .smooth(duration: 0.3),
+            value: computers.map(\.id) + ["hidden"] + (store?.hiddenComputers.map(\.id) ?? [])
+        )
         .refreshable {
             // Same refresh the 10s loop performs (plus registry), so a pull
             // updates the presence/last-seen the rows lead with, not just the

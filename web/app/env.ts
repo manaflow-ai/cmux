@@ -165,6 +165,7 @@ export const env = createEnv({
     CMUX_FEEDBACK_FROM_EMAIL: z.string().email(),
     // Rate-limit rule ids are all optional: an unset id means that route runs
     // without rate limiting (the operator removed the limits deliberately).
+    CMUX_BILLING_RECOVERY_RATE_LIMIT_ID: z.string().min(1).optional(),
     CMUX_FEEDBACK_RATE_LIMIT_ID: z.string().min(1).optional(),
     CMUX_CLIENT_CONFIG_RATE_LIMIT_ID: z.string().min(1).optional(),
     CMUX_ANALYTICS_RATE_LIMIT_ID: z.string().min(1).optional(),
@@ -188,22 +189,43 @@ export const env = createEnv({
     // sender (defaults to austin@manaflow.ai) so the verified Resend domain can
     // change without a code edit.
     STRIPE_FOUNDERS_WEBHOOK_SECRET: z.string().min(1).optional(),
+    // The dedicated personal Pro welcome endpoint is opt-in. Keep the legacy
+    // billing-webhook sender active until the Stripe endpoint is registered
+    // and verified in production.
+    CMUX_PERSONAL_PRO_WELCOME_ENABLED: z.enum(["0", "1"]).optional(),
     CMUX_FOUNDERS_FROM_EMAIL: z.string().email().optional(),
     CMUX_PRO_FROM_EMAIL: z.string().email().optional(),
     // Direct Stripe billing for cmux Pro. Optional: when unset, checkout is
     // unavailable.
     STRIPE_SECRET_KEY: z.string().min(1).optional(),
     STRIPE_WEBHOOK_SECRET: z.string().min(1).optional(),
-    STRIPE_PRO_MONTHLY_PRICE_ID: z.string().min(1).optional(),
-    // Deliberately distinct from the legacy STRIPE_PRO_YEARLY_PRICE_ID,
-    // which can refer to the grandfathered $240/year price.
+    // Price-id overrides carry the amount in their name, and every retired
+    // name fails env validation instead of silently pinning checkout to a
+    // grandfathered Price (Stripe amounts are immutable; see plans.ts).
+    STRIPE_PRO_MONTHLY_PRICE_ID: retiredEnvValue(
+      "STRIPE_PRO_MONTHLY_PRICE_ID",
+      "STRIPE_PRO_MONTHLY_50_PRICE_ID",
+    ),
+    STRIPE_PRO_MONTHLY_50_PRICE_ID: z.string().min(1).optional(),
     STRIPE_PRO_YEARLY_PRICE_ID: retiredEnvValue(
       "STRIPE_PRO_YEARLY_PRICE_ID",
-      "STRIPE_PRO_YEARLY_288_PRICE_ID",
+      "STRIPE_PRO_YEARLY_480_PRICE_ID",
     ),
-    STRIPE_PRO_YEARLY_288_PRICE_ID: z.string().min(1).optional(),
-    STRIPE_TEAM_MONTHLY_PRICE_ID: z.string().min(1).optional(),
-    STRIPE_TEAM_YEARLY_PRICE_ID: z.string().min(1).optional(),
+    STRIPE_PRO_YEARLY_288_PRICE_ID: retiredEnvValue(
+      "STRIPE_PRO_YEARLY_288_PRICE_ID",
+      "STRIPE_PRO_YEARLY_480_PRICE_ID",
+    ),
+    STRIPE_PRO_YEARLY_480_PRICE_ID: z.string().min(1).optional(),
+    STRIPE_TEAM_MONTHLY_PRICE_ID: retiredEnvValue(
+      "STRIPE_TEAM_MONTHLY_PRICE_ID",
+      "STRIPE_TEAM_MONTHLY_60_PRICE_ID",
+    ),
+    STRIPE_TEAM_MONTHLY_60_PRICE_ID: z.string().min(1).optional(),
+    STRIPE_TEAM_YEARLY_PRICE_ID: retiredEnvValue(
+      "STRIPE_TEAM_YEARLY_PRICE_ID",
+      "STRIPE_TEAM_YEARLY_576_PRICE_ID",
+    ),
+    STRIPE_TEAM_YEARLY_576_PRICE_ID: z.string().min(1).optional(),
     CMUX_APP_PRICING_CHECKOUT_URL: z.string().url().optional(),
     CMUX_APP_PRICING_RELAY_SECRET: z.string().min(32).optional(),
     // App Store Connect API for server-side TestFlight enrollment. Optional:
@@ -217,6 +239,12 @@ export const env = createEnv({
     CMUX_TESTFLIGHT_APP_ID: z.string().min(1).optional(),
     CMUX_PRO_TESTFLIGHT_GROUP_ID: z.string().min(1).optional(),
     SENTRY_DSN: z.string().url().optional(),
+    // Cloud VM provisioning is paid-plan-only by default. The allow switch is
+    // intentionally opt-in for controlled demos/rollbacks; the legacy require
+    // flag remains accepted by the entitlement layer for migration parity.
+    CMUX_VM_ALLOW_FREE_PROVISIONING: z.string().optional(),
+    CMUX_VM_REQUIRE_PRO: z.string().optional(),
+    CMUX_VM_DEFAULT_PLAN: z.string().optional(),
     // Hosted coderouter requires an active personal cmux Pro subscription.
     // Self-hosted deployments leave this unset (or set it to "0").
     CODEROUTER_HOSTED_PRO_REQUIRED: requireVercelProductionValue(
@@ -234,6 +262,10 @@ export const env = createEnv({
     // /api/enterprise/contact route falls back to the waitlist webhook, then
     // skips Slack if neither is set.
     SLACK_ENTERPRISE_WEBHOOK_URL: z.string().url().optional(),
+    // Slack Incoming Webhook for support requests. Optional: the
+    // /api/support/contact route falls back to the enterprise webhook, then
+    // the waitlist webhook, then skips Slack if none is set.
+    SLACK_SUPPORT_WEBHOOK_URL: z.string().url().optional(),
     // Temporary retirement credentials for DB-mapped tenants created before
     // hosted Stack onboarding. Remove after subrouter_tenants is empty.
     SUBROUTER_BASE_URL: z.string().url().optional(),
@@ -324,6 +356,12 @@ export const env = createEnv({
     // Optional dedicated rule. Preferences deliberately fall back to the token
     // rule so existing deployments keep one shared account-scoped limiter.
     CMUX_RELAY_PREFERENCES_RATE_LIMIT_ID: z.string().min(1).optional(),
+    // Shared secret for the relay fleet's per-connection access-control hook
+    // (POST /api/relay/allow). Optional: when unset the route answers 503 and
+    // the fleet fails closed for new endpoint admissions. Same base64 shape as
+    // CMUX_IROH_MINT_HMAC_SECRET_B64.
+    CMUX_RELAY_ALLOW_HMAC_SECRET_B64:
+      z.string().max(512).regex(/^[A-Za-z0-9+/]{43,}={0,2}$/).optional(),
   },
   client: {
     NEXT_PUBLIC_STACK_PROJECT_ID: z.string().min(1),
@@ -331,6 +369,9 @@ export const env = createEnv({
   },
   runtimeEnv: {
     RESEND_API_KEY: trimEnv(process.env.RESEND_API_KEY),
+    CMUX_BILLING_RECOVERY_RATE_LIMIT_ID: trimEnv(
+      process.env.CMUX_BILLING_RECOVERY_RATE_LIMIT_ID,
+    ),
     CMUX_FEEDBACK_FROM_EMAIL: trimEnv(process.env.CMUX_FEEDBACK_FROM_EMAIL),
     CMUX_FEEDBACK_RATE_LIMIT_ID: trimEnv(process.env.CMUX_FEEDBACK_RATE_LIMIT_ID),
     CMUX_CLIENT_CONFIG_RATE_LIMIT_ID: trimEnv(process.env.CMUX_CLIENT_CONFIG_RATE_LIMIT_ID),
@@ -346,17 +387,24 @@ export const env = createEnv({
     CMUX_APNS_KEY_ID: trimEnv(process.env.CMUX_APNS_KEY_ID),
     CMUX_APNS_TEAM_ID: trimEnv(process.env.CMUX_APNS_TEAM_ID),
     STRIPE_FOUNDERS_WEBHOOK_SECRET: trimEnv(process.env.STRIPE_FOUNDERS_WEBHOOK_SECRET),
+    CMUX_PERSONAL_PRO_WELCOME_ENABLED: trimEnv(
+      process.env.CMUX_PERSONAL_PRO_WELCOME_ENABLED,
+    ),
     CMUX_FOUNDERS_FROM_EMAIL: trimEnv(process.env.CMUX_FOUNDERS_FROM_EMAIL),
     CMUX_PRO_FROM_EMAIL: trimEnv(process.env.CMUX_PRO_FROM_EMAIL),
     STRIPE_SECRET_KEY: trimEnv(process.env.STRIPE_SECRET_KEY),
     STRIPE_WEBHOOK_SECRET: trimEnv(process.env.STRIPE_WEBHOOK_SECRET),
     STRIPE_PRO_MONTHLY_PRICE_ID: trimEnv(process.env.STRIPE_PRO_MONTHLY_PRICE_ID),
+    STRIPE_PRO_MONTHLY_50_PRICE_ID: trimEnv(process.env.STRIPE_PRO_MONTHLY_50_PRICE_ID),
     STRIPE_PRO_YEARLY_PRICE_ID: trimEnv(process.env.STRIPE_PRO_YEARLY_PRICE_ID),
     STRIPE_PRO_YEARLY_288_PRICE_ID: trimEnv(
       process.env.STRIPE_PRO_YEARLY_288_PRICE_ID,
     ),
+    STRIPE_PRO_YEARLY_480_PRICE_ID: trimEnv(process.env.STRIPE_PRO_YEARLY_480_PRICE_ID),
     STRIPE_TEAM_MONTHLY_PRICE_ID: trimEnv(process.env.STRIPE_TEAM_MONTHLY_PRICE_ID),
+    STRIPE_TEAM_MONTHLY_60_PRICE_ID: trimEnv(process.env.STRIPE_TEAM_MONTHLY_60_PRICE_ID),
     STRIPE_TEAM_YEARLY_PRICE_ID: trimEnv(process.env.STRIPE_TEAM_YEARLY_PRICE_ID),
+    STRIPE_TEAM_YEARLY_576_PRICE_ID: trimEnv(process.env.STRIPE_TEAM_YEARLY_576_PRICE_ID),
     CMUX_APP_PRICING_CHECKOUT_URL: trimEnv(
       process.env.CMUX_APP_PRICING_CHECKOUT_URL,
     ),
@@ -370,6 +418,9 @@ export const env = createEnv({
     CMUX_TESTFLIGHT_APP_ID: trimEnv(process.env.CMUX_TESTFLIGHT_APP_ID),
     CMUX_PRO_TESTFLIGHT_GROUP_ID: trimEnv(process.env.CMUX_PRO_TESTFLIGHT_GROUP_ID),
     SENTRY_DSN: trimEnv(process.env.SENTRY_DSN),
+    CMUX_VM_ALLOW_FREE_PROVISIONING: trimEnv(process.env.CMUX_VM_ALLOW_FREE_PROVISIONING),
+    CMUX_VM_REQUIRE_PRO: trimEnv(process.env.CMUX_VM_REQUIRE_PRO),
+    CMUX_VM_DEFAULT_PLAN: trimEnv(process.env.CMUX_VM_DEFAULT_PLAN),
     CODEROUTER_HOSTED_PRO_REQUIRED: trimEnv(
       process.env.CODEROUTER_HOSTED_PRO_REQUIRED,
     ),
@@ -379,6 +430,7 @@ export const env = createEnv({
     CMUX_VM_ALERT_EXPIRED_LEASES: trimEnv(process.env.CMUX_VM_ALERT_EXPIRED_LEASES),
     SLACK_WAITLIST_WEBHOOK_URL: trimEnv(process.env.SLACK_WAITLIST_WEBHOOK_URL),
     SLACK_ENTERPRISE_WEBHOOK_URL: trimEnv(process.env.SLACK_ENTERPRISE_WEBHOOK_URL),
+    SLACK_SUPPORT_WEBHOOK_URL: trimEnv(process.env.SLACK_SUPPORT_WEBHOOK_URL),
     SUBROUTER_BASE_URL: trimEnv(process.env.SUBROUTER_BASE_URL),
     SUBROUTER_ADMIN_TOKEN: trimEnv(process.env.SUBROUTER_ADMIN_TOKEN),
     SUBROUTER_HOSTED_URL: trimEnv(process.env.SUBROUTER_HOSTED_URL),
@@ -420,6 +472,9 @@ export const env = createEnv({
     CMUX_RELAY_TOKEN_RATE_LIMIT_ID: trimEnv(process.env.CMUX_RELAY_TOKEN_RATE_LIMIT_ID),
     CMUX_RELAY_PREFERENCES_RATE_LIMIT_ID: trimEnv(
       process.env.CMUX_RELAY_PREFERENCES_RATE_LIMIT_ID,
+    ),
+    CMUX_RELAY_ALLOW_HMAC_SECRET_B64: trimEnv(
+      process.env.CMUX_RELAY_ALLOW_HMAC_SECRET_B64,
     ),
     NEXT_PUBLIC_STACK_PROJECT_ID: stackEnv(
       process.env.NEXT_PUBLIC_STACK_PROJECT_ID,

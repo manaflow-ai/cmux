@@ -5,10 +5,18 @@ import com.cmux.raw.Json;
 import com.cmux.raw.JsonException;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
+import java.net.StandardProtocolFamily;
+import java.net.UnixDomainSocketAddress;
 import java.nio.ByteBuffer;
 import java.nio.channels.ByteChannel;
 import java.nio.channels.ClosedChannelException;
+import java.nio.channels.ClosedByInterruptException;
+import java.nio.channels.ServerSocketChannel;
+import java.nio.channels.SocketChannel;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.time.Duration;
 import java.util.Map;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutionException;
@@ -16,18 +24,95 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicReference;
 
 public final class UnixTransportTest {
     private static final int MAX_REQUEST_BYTES = 1_048_576;
     private static final int MAX_RESPONSE_BYTES = 1_048_576;
 
     public static void main(String[] args) throws Exception {
+        boundedConnectUsesUnixChannel();
+        rejectsInvalidConnectTimeout();
+        interruptedConnectClosesChannel();
         largeFrameUsesBufferedReads();
         coalescedOpenResponsePreservesStreamItem();
         idleReadHasNoTransportDeadline();
         rejectsInvalidUtf8();
         enforcesResponseSizeLimit();
         rejectsEofInsideFrame();
+    }
+
+    private static void boundedConnectUsesUnixChannel() throws Exception {
+        Path socket = Files.createTempFile("cmux-java-connect", ".sock");
+        Files.deleteIfExists(socket);
+        AtomicReference<Throwable> failure = new AtomicReference<>();
+        CountDownLatch acceptedSignal = new CountDownLatch(1);
+        Thread server = null;
+        try (ServerSocketChannel listener =
+                ServerSocketChannel.open(StandardProtocolFamily.UNIX)) {
+            listener.bind(UnixDomainSocketAddress.of(socket));
+            server = new Thread(() -> {
+                try (SocketChannel accepted = listener.accept()) {
+                    // The connect path only needs a listener. No protocol frame is required.
+                    check(accepted.isOpen(), "connect test accepted channel");
+                } catch (Throwable error) {
+                    failure.set(error);
+                } finally {
+                    acceptedSignal.countDown();
+                }
+            }, "cmux-java-connect-test-server");
+            server.start();
+            try (SocketChannel client = UnixSocketConnector.open(
+                    socket,
+                    Duration.ofSeconds(1)
+                )) {
+                check(client.isBlocking(), "bounded connector returns blocking channel");
+            }
+            check(
+                acceptedSignal.await(2, TimeUnit.SECONDS),
+                "connect test server accepted client before listener closes"
+            );
+        } finally {
+            if (server != null) {
+                server.join(2_000);
+                check(!server.isAlive(), "connect test server stopped");
+            }
+            Files.deleteIfExists(socket);
+        }
+        if (failure.get() != null) {
+            throw new AssertionError("connect test server failed", failure.get());
+        }
+    }
+
+    private static void rejectsInvalidConnectTimeout() throws Exception {
+        expect(
+            IllegalArgumentException.class,
+            () -> UnixSocketConnector.open(
+                Path.of("/tmp/cmux-java-invalid-connect-timeout"),
+                Duration.ZERO
+            ),
+            "zero connect timeout"
+        );
+    }
+
+    private static void interruptedConnectClosesChannel() throws Exception {
+        Thread.currentThread().interrupt();
+        try {
+            expect(
+                ClosedByInterruptException.class,
+                () -> UnixSocketConnector.open(
+                    Path.of("/tmp/cmux-java-interrupted-connect"),
+                    Duration.ofSeconds(1)
+                ),
+                "interrupted connect"
+            );
+            check(
+                Thread.currentThread().isInterrupted(),
+                "interrupted connect restores interrupt status"
+            );
+        } finally {
+            Thread.interrupted();
+        }
     }
 
     private static void largeFrameUsesBufferedReads() throws Exception {
@@ -160,6 +245,7 @@ public final class UnixTransportTest {
                 "session socket closed".equals(error.getMessage()),
                 "EOF reports a closed session socket"
             );
+            check(!channel.isOpen(), "EOF closes transport channel");
         }
     }
 

@@ -34,6 +34,16 @@ This package owns the listener server (`SocketControlServer`: reservation, bind/
 - `ControlClientRateLimiter` — per-connection token-bucket backpressure for
   high-frequency list/tree/top/read-text polling.
 
+Accept-source recovery is bounded by the policy's configured maximum backoff
+(5 seconds by default). A fatal descriptor error or a persistent accept-failure
+streak emits `socket.listener.rearm.started`, parks the listener for the
+reported `delayMs`, and then emits `socket.listener.rearm.ready` when the host
+claims the generation. A successful restart preserving the failure streak emits
+`socket.listener.rearm.completed`; `socket.listener.rearm.failed` marks a
+restart that could not bind. The interval is the recovery-clock delay supplied
+to the host, so a host that does not claim the generation must surface that
+failure rather than silently treating the listener as healthy.
+
 Stage failures carry stable `stage` strings (`SocketStageFailure`) that feed telemetry breadcrumbs and the fallback policy; do not rename existing stages.
 
 ## Testing

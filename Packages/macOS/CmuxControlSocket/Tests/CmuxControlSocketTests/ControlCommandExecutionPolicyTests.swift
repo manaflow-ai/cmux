@@ -29,12 +29,13 @@ struct ControlCommandExecutionPolicyTests {
     @Test func fixedWorkerSetRunsOnTheSocketWorker() {
         for method in [
             "system.ping", "system.capabilities", "auth.status", "auth.sign_in_url",
-            "feed.push", "browser.download.wait", "system.top", "system.memory",
+            "feed.jump", "feed.push", "browser.download.wait", "system.top", "system.memory",
             "workspace.remote.pty_bridge", "workspace.env", "sidebar.custom.reload",
             "sidebar.custom.open",
             "debug.sidebar.simulate_drag", "debug.mobile.transport.disconnect",
             "debug.window.screenshot", "mobile.attach_ticket.create",
             "mobile.terminal.set_font", "mobile.task.models.list",
+            "mobile.compatible_tags.get", "mobile.compatible_tags.set",
             "mobile.panel.artifact.stat", "mobile.panel.artifact.fetch",
             "mobile.panel.artifact.thumbnail",
             // JavaScript-evaluating browser methods block on page JS and must
@@ -61,7 +62,7 @@ struct ControlCommandExecutionPolicyTests {
             "workspace.create", "browser.url.get",
             "browser.open_split", "browser.get.title", "browser.frame.main",
             "mobile.terminal.create", "mobile.task.attachment.upload",
-            "feed.jump", "vmx.create", "",
+            "vmx.create", "",
             // Focus-intent verbs stay on the main lane until the mutations
             // tranche decides them deliberately.
             "surface.focus", "workspace.select", "pane.focus", "window.focus",

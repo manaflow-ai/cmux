@@ -145,3 +145,13 @@ One state machine on each side, event-driven:
   ring produced no consumable frame for N seconds, restart the worker
   attachment and force a keyframe. If the viewer has credit outstanding and
   no frame for N seconds, it re-sends `start`.
+- Manual refresh: the pane's Refresh Simulator menu item and the refresh
+  buttons on stalled/unavailable overlays are the equivalent of the Mac
+  pane's Reconnect button. They always invoke `mobile.simulator.recover`
+  (capability `simulator.recover.v1`, the same `recover()` that button
+  runs), then feed one `refreshRequested` lifecycle event, which tears down
+  and reattaches through the same single path with backoff reset, escaping
+  even host-`closed` terminal states (e.g. taking back a superseded
+  stream). Unconditional because the phone cannot always see which Mac-side
+  state wedged the pane; refresh is explicit user intent, so briefly
+  restarting a healthy stream is acceptable.

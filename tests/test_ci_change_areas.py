@@ -29,30 +29,28 @@ def assert_areas(
     *,
     macos: bool,
     web: bool,
-    go: bool,
     agent_session_web: bool = False,
 ) -> None:
     actual = module.classify_files(paths)
     assert actual.macos is macos, (paths, actual)
     assert actual.web is web, (paths, actual)
-    assert actual.go is go, (paths, actual)
     assert actual.agent_session_web is agent_session_web, (paths, actual)
 
 
 def test_docs_only_skips_expensive_areas() -> None:
-    assert_areas(["docs/ci.md", "README.md"], macos=False, web=False, go=False)
+    assert_areas(["docs/ci.md", "README.md"], macos=False, web=False)
 
 
 def test_cli_contract_doc_runs_macos_contract_tests() -> None:
-    assert_areas(["docs/cli-contract.md"], macos=True, web=False, go=False)
+    assert_areas(["docs/cli-contract.md"], macos=True, web=False)
 
 
 def test_changelog_runs_web_validation() -> None:
-    assert_areas(["CHANGELOG.md"], macos=True, web=True, go=False)
+    assert_areas(["CHANGELOG.md"], macos=True, web=True)
 
 
 def test_web_only_runs_web_without_macos() -> None:
-    assert_areas(["web/app/page.tsx", "webviews/src/diff/App.tsx"], macos=False, web=True, go=False)
+    assert_areas(["web/app/page.tsx", "webviews/src/diff/App.tsx"], macos=False, web=True)
 
 
 def test_cmux_tui_only_skips_macos() -> None:
@@ -62,12 +60,11 @@ def test_cmux_tui_only_skips_macos() -> None:
         ["cmux-tui/crates/cmux-tui-core/src/browser.rs", "cmux-tui/README.md", "cmux-tui/docs/protocol.md"],
         macos=False,
         web=False,
-        go=False,
     )
 
 
 def test_website_only_does_not_run_agent_session_resource_check() -> None:
-    assert_areas(["web/app/page.tsx"], macos=False, web=True, go=False, agent_session_web=False)
+    assert_areas(["web/app/page.tsx"], macos=False, web=True, agent_session_web=False)
 
 
 def test_agent_session_webview_sources_run_bundled_asset_check() -> None:
@@ -75,7 +72,6 @@ def test_agent_session_webview_sources_run_bundled_asset_check() -> None:
         ["webviews/src/agent-session/shared/message.test.ts"],
         macos=True,
         web=True,
-        go=False,
         agent_session_web=True,
     )
 
@@ -85,7 +81,6 @@ def test_markdown_viewer_resources_run_webviews_asset_guard() -> None:
         ["Resources/markdown-viewer/webviews-app/index.js", "Resources/markdown-viewer/marked.min.js"],
         macos=True,
         web=True,
-        go=False,
         agent_session_web=True,
     )
 
@@ -95,7 +90,6 @@ def test_markdown_viewer_webview_app_does_not_run_agent_session_resource_check()
         ["Resources/markdown-viewer/webviews-app/index.js"],
         macos=True,
         web=True,
-        go=False,
         agent_session_web=False,
     )
 
@@ -105,7 +99,6 @@ def test_root_agent_web_dependencies_run_web_and_macos() -> None:
         ["package.json", "bun.lock"],
         macos=True,
         web=True,
-        go=False,
         agent_session_web=True,
     )
 
@@ -115,37 +108,23 @@ def test_agent_session_resources_run_web_and_macos() -> None:
         ["Resources/agent-session-react/index.js"],
         macos=True,
         web=True,
-        go=False,
         agent_session_web=True,
     )
     assert_areas(
         ["Resources/agent-session-solid/index.js"],
         macos=True,
         web=True,
-        go=False,
         agent_session_web=True,
     )
-    assert_areas(["Resources/agent-session-backup/index.js"], macos=True, web=False, go=False)
+    assert_areas(["Resources/agent-session-backup/index.js"], macos=True, web=False)
 
 
 def test_ios_only_skips_main_macos_ci() -> None:
-    assert_areas(["ios/cmux/ContentView.swift"], macos=False, web=False, go=False)
-
-
-def test_remote_daemon_runs_go_only() -> None:
-    assert_areas(["daemon/remote/main.go"], macos=False, web=False, go=True)
-
-
-def test_remote_daemon_asset_builder_runs_go_validation() -> None:
-    assert_areas(["scripts/build_remote_daemon_release_assets.sh"], macos=True, web=False, go=True)
-
-
-def test_remote_daemon_manifest_generator_runs_go_validation() -> None:
-    assert_areas(["scripts/generate_remote_daemon_release_manifest.py"], macos=True, web=False, go=True)
+    assert_areas(["ios/cmux/ContentView.swift"], macos=False, web=False)
 
 
 def test_app_source_runs_macos() -> None:
-    assert_areas(["Sources/AppDelegate.swift"], macos=True, web=False, go=False)
+    assert_areas(["Sources/AppDelegate.swift"], macos=True, web=False)
 
 
 def test_workflow_changes_run_everything() -> None:
@@ -153,7 +132,6 @@ def test_workflow_changes_run_everything() -> None:
         [".github/workflows/ci.yml"],
         macos=True,
         web=True,
-        go=True,
         agent_session_web=True,
     )
 
@@ -233,6 +211,87 @@ def run_linux_preflight(needs: dict[str, object]) -> subprocess.CompletedProcess
     )
 
 
+def run_app_host_unit_test_step(
+    shard_mode: str = "selectors",
+) -> tuple[subprocess.CompletedProcess[str], bool]:
+    script = workflow_job_step_script("app-host-unit-tests", "Run unit tests")
+    script = script.replace("${{ matrix.shard }}", "1")
+
+    with tempfile.TemporaryDirectory() as temp_dir:
+        root = Path(temp_dir)
+        runner_temp = root / "runner"
+        fake_bin = root / "bin"
+        ci_scripts = root / "scripts" / "ci"
+        runner_temp.mkdir()
+        fake_bin.mkdir()
+        ci_scripts.mkdir(parents=True)
+
+        shard_helper = ci_scripts / "cmux_unit_test_shard.py"
+        shard_helper.write_text(
+            """
+import os
+import sys
+from pathlib import Path
+
+mode = os.environ.get("CMUX_TEST_SHARD_MODE", "selectors")
+if mode == "fail":
+    raise SystemExit(23)
+output = Path(sys.argv[sys.argv.index("--output") + 1])
+output.parent.mkdir(parents=True, exist_ok=True)
+selectors = "" if mode == "empty" else "-only-testing:cmuxTests/FakeTests\\n"
+output.write_text(selectors, encoding="utf-8")
+""".lstrip(),
+            encoding="utf-8",
+        )
+
+        console_runner = ci_scripts / "run-in-console-session.sh"
+        console_runner.write_text(
+            """
+#!/bin/bash
+set -euo pipefail
+counter="${CMUX_TEST_BATCH_COUNTER:?}"
+printf 'invoked\n' > "${CMUX_TEST_RUNNER_MARKER:?}"
+iteration=0
+if [ -f "$counter" ]; then
+  iteration="$(cat "$counter")"
+fi
+iteration=$((iteration + 1))
+printf '%s\n' "$iteration" > "$counter"
+if [ "$iteration" -eq 1 ]; then
+  echo "Executed 2 tests, with 2 failures (0 unexpected)"
+  exit 1
+fi
+echo "simulated app-host crash before test summary" >&2
+exit 9
+""".lstrip(),
+            encoding="utf-8",
+        )
+        console_runner.chmod(0o755)
+
+        fake_sleep = fake_bin / "sleep"
+        fake_sleep.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
+        fake_sleep.chmod(0o755)
+
+        runner_marker = root / "runner-invoked"
+        result = subprocess.run(
+            ["bash", "-c", script],
+            cwd=root,
+            env={
+                **os.environ,
+                "PATH": f"{fake_bin}:{os.environ['PATH']}",
+                "RUNNER_TEMP": str(runner_temp),
+                "CMUX_DERIVED_DATA_PATH": str(root / "derived-data"),
+                "CMUX_TEST_BATCH_COUNTER": str(root / "batch-counter"),
+                "CMUX_TEST_RUNNER_MARKER": str(runner_marker),
+                "CMUX_TEST_SHARD_MODE": shard_mode,
+            },
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+        )
+        return result, runner_marker.exists()
+
+
 def linux_preflight_needs(
     *,
     outputs: dict[str, str] | None = None,
@@ -241,7 +300,6 @@ def linux_preflight_needs(
     route_outputs = {
         "macos": "true",
         "web": "true",
-        "go": "true",
         "agent_session_web": "true",
     }
     if outputs:
@@ -250,7 +308,6 @@ def linux_preflight_needs(
         "changes": "success",
         "workflow-guard-tests": "success",
         "ghosttykit-release-check": "success",
-        "remote-daemon-tests": "success",
         "web-typecheck": "success",
         "react-apps-check": "success",
         "diff-sidecar-check": "success",
@@ -319,7 +376,7 @@ def test_workflow_self_change_guard_runs_before_detector_imports() -> None:
     result, outputs = run_detect_step_for_paths(["scripts/ci/subprocess.py"])
 
     assert "CI router changed; running all CI areas." in result.stdout
-    assert outputs == ["macos=true", "web=true", "go=true", "agent_session_web=true"]
+    assert outputs == ["macos=true", "web=true", "agent_session_web=true"]
 
 
 def test_workflow_diff_failure_runs_all_areas() -> None:
@@ -349,7 +406,6 @@ def test_workflow_diff_failure_runs_all_areas() -> None:
         assert output_path.read_text(encoding="utf-8").splitlines() == [
             "macos=true",
             "web=true",
-            "go=true",
             "agent_session_web=true",
         ]
 
@@ -433,7 +489,6 @@ def test_workflow_routes_from_shallow_synthetic_merge() -> None:
         assert output_path.read_text(encoding="utf-8").splitlines() == [
             "macos=false",
             "web=true",
-            "go=false",
             "agent_session_web=false",
         ]
 
@@ -442,7 +497,7 @@ def test_workflow_empty_diff_runs_all_areas() -> None:
     result, outputs = run_detect_step_for_paths([])
 
     assert "PR diff is empty; running all CI areas." in result.stdout
-    assert outputs == ["macos=true", "web=true", "go=true", "agent_session_web=true"]
+    assert outputs == ["macos=true", "web=true", "agent_session_web=true"]
 
 
 def test_router_changes_run_everything() -> None:
@@ -450,27 +505,24 @@ def test_router_changes_run_everything() -> None:
         ["scripts/ci/detect_ci_change_areas.py"],
         macos=True,
         web=True,
-        go=True,
         agent_session_web=True,
     )
     assert_areas(
         ["scripts/ci/subprocess.py"],
         macos=True,
         web=True,
-        go=True,
         agent_session_web=True,
     )
     assert_areas(
         ["tests/test_ci_change_areas.py"],
         macos=True,
         web=True,
-        go=True,
         agent_session_web=True,
     )
 
 
 def test_ghosttykit_checksum_pin_runs_macos() -> None:
-    assert_areas(["scripts/ghosttykit-checksums.txt"], macos=True, web=False, go=False)
+    assert_areas(["scripts/ghosttykit-checksums.txt"], macos=True, web=False)
 
 
 def test_ghosttykit_checksum_pr_uses_release_guard_only() -> None:
@@ -483,7 +535,6 @@ def test_ghosttykit_checksum_pr_uses_release_guard_only() -> None:
     assert outputs == [
         "macos=false",
         "web=false",
-        "go=false",
         "agent_session_web=false",
     ]
 
@@ -505,7 +556,6 @@ def test_ghosttykit_guard_wiring_pr_stays_on_release_guard() -> None:
     assert outputs == [
         "macos=false",
         "web=false",
-        "go=false",
         "agent_session_web=false",
     ]
 
@@ -517,17 +567,16 @@ def test_workflow_only_pr_keeps_fail_open_routing() -> None:
     assert outputs == [
         "macos=true",
         "web=true",
-        "go=true",
         "agent_session_web=true",
     ]
 
 
 def test_app_bundled_markdown_runs_macos() -> None:
-    assert_areas(["THIRD_PARTY_LICENSES.md"], macos=True, web=False, go=False)
+    assert_areas(["THIRD_PARTY_LICENSES.md"], macos=True, web=False)
 
 
 def test_swift_warning_budget_runs_macos() -> None:
-    assert_areas([".github/swift-warning-budget.tsv"], macos=True, web=False, go=False)
+    assert_areas([".github/swift-warning-budget.tsv"], macos=True, web=False)
 
 
 def test_cli_writes_github_outputs() -> None:
@@ -553,11 +602,10 @@ def test_cli_writes_github_outputs() -> None:
             stderr=subprocess.PIPE,
         )
 
-        assert "Resolved areas: macos=false web=true go=false" in result.stdout
+        assert "Resolved areas: macos=false web=true" in result.stdout
         assert output_path.read_text(encoding="utf-8").splitlines() == [
             "macos=false",
             "web=true",
-            "go=false",
             "agent_session_web=false",
         ]
 
@@ -586,11 +634,10 @@ def test_cli_empty_diff_runs_all_areas() -> None:
         )
 
         assert "PR diff is empty; running all CI areas." in result.stdout
-        assert "Resolved areas: macos=true web=true go=true agent_session_web=true" in result.stdout
+        assert "Resolved areas: macos=true web=true agent_session_web=true" in result.stdout
         assert output_path.read_text(encoding="utf-8").splitlines() == [
             "macos=true",
             "web=true",
-            "go=true",
             "agent_session_web=true",
         ]
 
@@ -604,7 +651,7 @@ def test_non_pr_events_run_all_areas() -> None:
         stderr=subprocess.PIPE,
     )
 
-    assert "Resolved areas: macos=true web=true go=true agent_session_web=true" in result.stdout
+    assert "Resolved areas: macos=true web=true agent_session_web=true" in result.stdout
 
 
 def test_ci_status_job_accepts_skipped_routed_jobs() -> None:
@@ -613,7 +660,6 @@ def test_ci_status_job_accepts_skipped_routed_jobs() -> None:
     for job_name in [
         "changes",
         "workflow-guard-tests",
-        "remote-daemon-tests",
         "web-typecheck",
         "react-apps-check",
         "diff-sidecar-check",
@@ -647,7 +693,7 @@ def test_macos_jobs_wait_for_linux_preflight() -> None:
     # The staged macOS jobs must gate on their direct needs explicitly.
     # A bare `if: needs.changes.outputs.macos == 'true'` keeps the implicit
     # success() gate, which GitHub evaluates over the transitive needs chain:
-    # routed linux jobs that legitimately skip (web/go/agent-session paths)
+    # routed linux jobs that legitimately skip (web/agent-session paths)
     # then mark every macOS job skipped even though linux-preflight succeeded.
     for job_name in [
         "app-host-unit-tests",
@@ -677,7 +723,6 @@ def test_linux_preflight_blocks_macos_on_cheap_layer_failure() -> None:
     assert "      - changes" in block
     assert "      - workflow-guard-tests" in block
     assert "      - ghosttykit-release-check" in block
-    assert "      - remote-daemon-tests" in block
     assert "      - web-typecheck" in block
     assert "      - react-apps-check" in block
     assert "      - diff-sidecar-check" in block
@@ -692,23 +737,23 @@ def test_linux_preflight_blocks_macos_on_cheap_layer_failure() -> None:
 
 def test_linux_preflight_fails_when_routed_job_skips() -> None:
     result = run_linux_preflight(
-        linux_preflight_needs(results={"remote-daemon-tests": "skipped"})
+        linux_preflight_needs(results={"web-typecheck": "skipped"})
     )
 
     assert result.returncode != 0
-    assert "remote-daemon-tests: skipped (route go=true)" in result.stderr
+    assert "web-typecheck: skipped (route web=true)" in result.stderr
 
 
 def test_linux_preflight_allows_unrouted_job_skip() -> None:
     result = run_linux_preflight(
         linux_preflight_needs(
-            outputs={"go": "false"},
-            results={"remote-daemon-tests": "skipped"},
+            outputs={"web": "false"},
+            results={"web-typecheck": "skipped"},
         )
     )
 
     assert result.returncode == 0, result.stderr
-    assert "remote-daemon-tests: skipped" in result.stdout
+    assert "web-typecheck: skipped" in result.stdout
 
 
 def test_macos_jobs_use_lane_specific_xcode_pin_vars() -> None:
@@ -771,6 +816,40 @@ def test_remote_tmux_layout_identity_uses_a_nontolerant_focused_gate() -> None:
     assert block.index(step) < block.index("- name: Run unit tests")
 
 
+def test_settings_store_noop_persistence_uses_a_nontolerant_focused_gate() -> None:
+    block = workflow_job_block("app-host-unit-tests")
+    step = "Run settings file-store no-op persistence regression"
+    selector = "-only-testing:cmuxTests/KeyboardShortcutSettingsFileStoreNoOpPersistenceTests"
+
+    assert step in block
+    assert selector in block
+    assert block.index(step) < block.index("- name: Run unit tests")
+
+
+def test_determinism_workflow_runs_self_test_before_strict_scan() -> None:
+    script = workflow_job_step_script("workflow-guard-tests", "Validate test determinism gate")
+
+    assert "scripts/check-test-determinism.py --self-test" in script
+    assert "scripts/check-test-determinism.py --strict" in script
+    assert script.index("--self-test") < script.index("--strict")
+
+
+def test_app_host_multi_batch_failure_cannot_reuse_prior_expected_summary() -> None:
+    result, runner_invoked = run_app_host_unit_test_step()
+
+    assert runner_invoked
+    assert result.returncode != 0, result.stdout
+    assert "simulated app-host crash before test summary" in result.stdout
+
+
+def test_app_host_rejects_failed_or_empty_shard_generation() -> None:
+    for shard_mode in ("fail", "empty"):
+        result, runner_invoked = run_app_host_unit_test_step(shard_mode)
+
+        assert result.returncode != 0, (shard_mode, result.stdout)
+        assert not runner_invoked, (shard_mode, result.stdout)
+
+
 def test_agent_session_web_resources_runs_only_for_agent_session_web_area() -> None:
     block = workflow_job_block("agent-session-web-resources")
 
@@ -780,8 +859,8 @@ def test_agent_session_web_resources_runs_only_for_agent_session_web_area() -> N
 def test_perf_activation_workflow_keeps_required_status_while_gating_benchmark() -> None:
     result, outputs = run_detect_step_for_paths(["docs/ci-runners.md"], PERF_ACTIVATION_WORKFLOW)
 
-    assert "Resolved areas: macos=false web=false go=false" in result.stdout
-    assert outputs == ["macos=false", "web=false", "go=false", "agent_session_web=false"]
+    assert "Resolved areas: macos=false web=false" in result.stdout
+    assert outputs == ["macos=false", "web=false", "agent_session_web=false"]
 
     benchmark = workflow_job_block("activation-session-benchmark", PERF_ACTIVATION_WORKFLOW)
     sentinel = workflow_job_block("activation-session", PERF_ACTIVATION_WORKFLOW)

@@ -40,7 +40,6 @@ struct WorkspaceDetailContainer: View {
         Group {
             if let workspace {
                 WorkspaceDetailView(
-                    host: store.connectedHostName,
                     connectionStatus: workspace.macConnectionStatus ?? store.macConnectionStatus,
                     workspace: workspace,
                     store: store,

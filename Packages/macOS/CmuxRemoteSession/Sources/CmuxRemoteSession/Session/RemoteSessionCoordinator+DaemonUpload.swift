@@ -94,20 +94,40 @@ extension RemoteSessionCoordinator {
         watchdog_pid=
         temp_path=\(quotedRemoteTempPath)
         pid_path=\(quotedRemoteTempPIDPath)
-        printf '%s\\n' "$$" > "$pid_path"
-        trap 'if [ -n "$cat_pid" ]; then kill "$cat_pid" 2>/dev/null || true; fi; if [ -n "$watchdog_pid" ]; then kill "$watchdog_pid" 2>/dev/null || true; fi; rm -f -- "$temp_path" "$pid_path"; exit 1' HUP INT TERM
+        lock_path="$pid_path.lock"
+        trap 'if [ -n "$cat_pid" ]; then kill "$cat_pid" 2>/dev/null || true; fi; if [ -n "$watchdog_pid" ]; then kill "$watchdog_pid" 2>/dev/null || true; fi; rm -f -- "$temp_path" "$pid_path"; rmdir "$lock_path" 2>/dev/null || true; exit 1' HUP INT TERM
         # POSIX shells give an asynchronous command /dev/null for stdin unless
         # the parent explicitly preserves the descriptor first. Without this
         # dup, cat exits 0 after writing an empty payload even though ssh had
         # a file-backed stdin stream to forward.
         exec 3<&0
-        cat <&3 > "$temp_path" &
+        # Keep the shell PID marker for stale-file detection. Recovery never
+        # signals a marker PID because numeric PIDs can be reused.
+        set -C
+        # Create the owner marker atomically after noclobber is enabled.
+        if ! printf '%s\\n' "$$" > "$pid_path"; then
+          exit 76
+        fi
+        # Open the payload once with noclobber, then write through the
+        # descriptor. This refuses a pre-existing payload symlink or file.
+        if ! exec 4> "$temp_path"; then
+          exit 76
+        fi
+        cat <&3 >&4 &
         cat_pid=$!
-        printf '%s\\n' "$cat_pid" > "$pid_path"
         (
           stall_checks=0
           previous_size=0
           while kill -0 "$cat_pid" 2>/dev/null; do
+            # Serialize the heartbeat with stale-file recovery. mkdir is an
+            # atomic directory claim on the remote filesystem.
+            if mkdir "$lock_path" 2>/dev/null; then
+              if ! touch "$pid_path" 2>/dev/null; then
+                rmdir "$lock_path" 2>/dev/null || true
+                exit 0
+              fi
+              rmdir "$lock_path" 2>/dev/null || true
+            fi
             current_size="$(wc -c < "$temp_path" 2>/dev/null || printf '0')"
             set -- $current_size
             current_size="${1:-0}"
@@ -119,8 +139,9 @@ extension RemoteSessionCoordinator {
               stall_checks=$((stall_checks + 1))
             fi
             if [ "$stall_checks" -ge \(Self.daemonUploadStallCheckLimit) ]; then
-              printf 'cmux daemon upload stalled after %ss without byte progress (received=%s expected=%s)\\n' \
-                \(Self.daemonUploadStallCheckIntervalSeconds * Self.daemonUploadStallCheckLimit) "$current_size" \(artifact.byteCount) >&2
+              # Abort silently. The local SSH result is mapped to a generic
+              # user error and bounded detail is retained in debugLog.
+              # without byte progress
               kill "$cat_pid" 2>/dev/null || true
               exit 0
             fi
@@ -132,9 +153,9 @@ extension RemoteSessionCoordinator {
         cat_status=$?
         cat_pid=
         exec 3<&-
+        exec 4>&-
         if [ -n "$watchdog_pid" ]; then kill "$watchdog_pid" 2>/dev/null || true; wait "$watchdog_pid" 2>/dev/null || true; fi
         watchdog_pid=
-        rm -f -- "$pid_path"
         if [ "$cat_status" -ne 0 ]; then rm -f -- "$temp_path"; fi
         trap - HUP INT TERM
         exit "$cat_status"
@@ -232,25 +253,24 @@ extension RemoteSessionCoordinator {
         expectedSHA256: String
     ) -> String {
         let expectedSize = String(max(0, expectedByteCount))
+        let remoteTempPIDPath = "\(remoteTempPath).pid"
         return """
         temp_path=\(remoteTempPath.shellSingleQuoted)
+        pid_path=\(remoteTempPIDPath.shellSingleQuoted)
         final_path=\(remotePath.shellSingleQuoted)
         expected_size=\(expectedSize.shellSingleQuoted)
         expected_sha=\(expectedSHA256.shellSingleQuoted)
         if [ ! -s "$temp_path" ]; then
-          printf '%s\\n' 'cmux daemon verification failed: temporary payload is empty' >&2
           exit 74
         fi
         set -- $(wc -c < "$temp_path" 2>/dev/null)
         actual_size="${1:-}"
         case "$actual_size" in
           ''|*[!0-9]*)
-            printf '%s\\n' 'cmux daemon verification failed: could not read temporary payload size' >&2
             exit 74
             ;;
         esac
         if [ "$actual_size" != "$expected_size" ]; then
-          printf 'cmux daemon verification failed: size mismatch expected=%s actual=%s\\n' "$expected_size" "$actual_size" >&2
           exit 74
         fi
         actual_sha=
@@ -261,14 +281,19 @@ extension RemoteSessionCoordinator {
           set -- $(shasum -a 256 "$temp_path" 2>/dev/null)
           actual_sha="${1:-}"
         else
-          printf '%s\\n' 'cmux daemon verification failed: remote host has no SHA-256 utility (sha256sum or shasum)' >&2
           exit 75
         fi
         if [ "$actual_sha" != "$expected_sha" ]; then
-          printf 'cmux daemon verification failed: SHA-256 mismatch expected=%s actual=%s\\n' "$expected_sha" "${actual_sha:-missing}" >&2
           exit 74
         fi
-        chmod 755 "$temp_path" && mv -f "$temp_path" "$final_path"
+        if chmod 755 "$temp_path" && mv -f "$temp_path" "$final_path"; then
+          # Keep the marker until promotion succeeds. If this shell is
+          # interrupted before this point, age-based recovery can reclaim the
+          # payload instead of leaving an unmarked temporary file.
+          rm -f -- "$pid_path" || true
+        else
+          exit 1
+        fi
         """
     }
 
@@ -367,27 +392,57 @@ extension RemoteSessionCoordinator {
     ) -> String {
         let quotedRemotePath = remotePath.shellSingleQuoted
         let processCleanup = """
+        cmux_is_fresh() {
+          cmux_fresh_marker="$(find "$1" -mmin -30 2>/dev/null)" || return 2
+          [ -n "$cmux_fresh_marker" ]
+        }
+        # Reclaim only markers whose heartbeat is older than the conservative
+        # age window. A live marker belongs to a concurrent upload and must
+        # not be signaled or glob-deleted. The lock makes the age check and
+        # removal one ownership transaction with the upload heartbeat.
         for cmux_pid_file in \(quotedRemotePath).tmp-*.pid; do
           [ -r "$cmux_pid_file" ] || continue
-          cmux_pid="$(cat "$cmux_pid_file" 2>/dev/null || true)"
-          case "$cmux_pid" in
-            ''|0|1|*[!0-9]*) ;;
-            *) [ "$cmux_pid" = "$$" ] || kill "$cmux_pid" 2>/dev/null || true ;;
-          esac
+          cmux_lock_path="$cmux_pid_file.lock"
+          if [ -e "$cmux_lock_path" ]; then
+            cmux_is_fresh "$cmux_lock_path"
+            cmux_lock_age_status=$?
+            if [ "$cmux_lock_age_status" -ne 1 ]; then
+              continue
+            fi
+            rmdir "$cmux_lock_path" 2>/dev/null || continue
+          fi
+          if ! mkdir "$cmux_lock_path" 2>/dev/null; then
+            continue
+          fi
+          cmux_is_fresh "$cmux_pid_file"
+          cmux_marker_age_status=$?
+          if [ "$cmux_marker_age_status" -ne 1 ]; then
+            rmdir "$cmux_lock_path" 2>/dev/null || true
+            continue
+          fi
+          cmux_temp_path="${cmux_pid_file%.pid}"
+          rm -f -- "$cmux_temp_path" "$cmux_pid_file"
+          rmdir "$cmux_lock_path" 2>/dev/null || true
         done
         """
-        let specificRemoveTargets: String
+        let currentCleanup: String
         if let currentTemporaryPath {
             let quotedCurrentTemporaryPath = currentTemporaryPath.shellSingleQuoted
             let quotedCurrentPIDPath = "\(currentTemporaryPath).pid".shellSingleQuoted
-            specificRemoveTargets =
-                " \(quotedCurrentTemporaryPath) \(quotedCurrentPIDPath)"
+            currentCleanup = """
+            # A numeric PID is not a process identity. It can be reused by an
+            # unrelated process between reading the marker and signaling it.
+            # Never signal from a marker; the upload owner's trap handles its
+            # own children, while recovery only removes its files.
+            rm -f -- \(quotedCurrentTemporaryPath) \(quotedCurrentPIDPath)
+            rmdir \(quotedCurrentPIDPath).lock 2>/dev/null || true
+            """
         } else {
-            specificRemoveTargets = ""
+            currentCleanup = ":"
         }
         return """
         \(processCleanup)
-        rm -f -- \(quotedRemotePath).tmp-* \(quotedRemotePath).tmp-*.pid\(specificRemoveTargets)
+        \(currentCleanup)
         """
     }
 

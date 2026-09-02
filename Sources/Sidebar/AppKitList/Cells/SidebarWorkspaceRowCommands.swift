@@ -52,7 +52,7 @@ struct SidebarWorkspaceRowCommands {
 #endif
         var selectedTabIds = readSelectedTabIds()
         let workspaceIds = tabManager.tabs.map(\.id)
-        let anchorIds = Set(tabManager.workspaceGroups.map(\.anchorWorkspaceId))
+        let anchorIds = Set(tabManager.workspaceGroups.compactMap(\.liveAnchorWorkspaceId))
         let selectionKindPolicy = SidebarSelectionKindPolicy()
         let shiftAnchorIndex = isShift
             ? SidebarWorkspaceSelectionSyncPolicy().shiftClickAnchorIndex(
@@ -75,7 +75,9 @@ struct SidebarWorkspaceRowCommands {
                     .map(\.id)
             )
             let anchorIdsByGroup: [UUID: UUID] = Dictionary(
-                uniqueKeysWithValues: tabManager.workspaceGroups.map { ($0.id, $0.anchorWorkspaceId) }
+                uniqueKeysWithValues: tabManager.workspaceGroups.compactMap { group in
+                    group.liveAnchorWorkspaceId.map { (group.id, $0) }
+                }
             )
             let visibleRangeIds = tabManager.tabs[lower...upper].compactMap { tab -> UUID? in
                 if let gid = tab.groupId,
@@ -309,6 +311,9 @@ struct SidebarWorkspaceRowMenuBuilder {
         guard let tabManager = commands.tabManager else { return menu }
 
         addPinItem(to: menu, tabManager: tabManager)
+        if let notificationStore = commands.notificationStore {
+            addNotificationMuteItem(to: menu, notificationStore: notificationStore)
+        }
         addGroupSection(to: menu, tabManager: tabManager)
         menu.addItem(.separator())
         // Legacy parity: the todo section renders only while the feature is
@@ -319,7 +324,7 @@ struct SidebarWorkspaceRowMenuBuilder {
         }
         addRenameAndDescriptionItems(to: menu, tabManager: tabManager)
         addRemoteSection(to: menu, tabManager: tabManager)
-        addColorMenu(to: menu, tabManager: tabManager)
+        addColorMenu(to: menu)
         addSSHErrorItem(to: menu)
         menu.addItem(.separator())
         addMoveItems(to: menu, tabManager: tabManager)
@@ -388,7 +393,7 @@ struct SidebarWorkspaceRowMenuBuilder {
         let targetWorkspaces = targetIds.compactMap { id in
             tabManager.tabs.first(where: { $0.id == id })
         }
-        let existingAnchorIds = Set(tabManager.workspaceGroups.map(\.anchorWorkspaceId))
+        let existingAnchorIds = Set(tabManager.workspaceGroups.compactMap(\.liveAnchorWorkspaceId))
         let eligibleTargets = targetWorkspaces.filter { !existingAnchorIds.contains($0.id) }
         let eligibleTargetIds = eligibleTargets.map(\.id)
         guard !eligibleTargetIds.isEmpty else { return }
@@ -573,7 +578,7 @@ struct SidebarWorkspaceRowMenuBuilder {
         })
     }
 
-    private func addColorMenu(to menu: NSMenu, tabManager: TabManager) {
+    private func addColorMenu(to menu: NSMenu) {
         let submenu = NSMenu()
         submenu.autoenablesItems = false
         let palette = WorkspaceTabColorSettings.palette()
@@ -599,18 +604,16 @@ struct SidebarWorkspaceRowMenuBuilder {
         if !palette.isEmpty {
             submenu.addItem(.separator())
         }
-        for entry in palette {
-            let colorItem = item(entry.name) { [commands] in
-                commands.applyTabColor(entry.hex)
+        SidebarWorkspaceRowColorMenu(
+            currentColorHex: tab.customColor,
+            colorScheme: commands.colorScheme
+        ).addPaletteItems(
+            to: submenu,
+            palette: palette,
+            apply: { [commands] hex in
+                commands.applyTabColor(hex)
             }
-            let swatch = WorkspaceTabColorSettings.displayNSColor(
-                hex: entry.hex,
-                colorScheme: commands.colorScheme,
-                forceBright: false
-            ) ?? NSColor(hex: entry.hex) ?? .gray
-            colorItem.image = SidebarWorkspaceRowMenuBuilder.coloredCircleImage(color: swatch)
-            submenu.addItem(colorItem)
-        }
+        )
         let parent = item(String(localized: "contextMenu.workspaceColor", defaultValue: "Workspace Color")) {}
         parent.submenu = submenu
         menu.addItem(parent)
@@ -778,6 +781,33 @@ struct SidebarWorkspaceRowMenuBuilder {
         ) {}
         parent.submenu = submenu
         menu.addItem(parent)
+    }
+
+    private func addNotificationMuteItem(
+        to menu: NSMenu,
+        notificationStore: TerminalNotificationStore
+    ) {
+        let allMuted = notificationStore.allWorkspaceNotificationsMuted(forTabIds: targetIds)
+        let title = allMuted
+            ? (isMulti ? NotificationMuteMenuOption.unmuteWorkspaces : .unmuteWorkspace).title
+            : (isMulti ? NotificationMuteMenuOption.muteWorkspaces : .muteWorkspace).title
+        let item = item(title, enabled: !targetIds.isEmpty) { [weak notificationStore, commands] in
+            guard let notificationStore else { return }
+            let shouldMute = !notificationStore.allWorkspaceNotificationsMuted(
+                forTabIds: commands.contextMenuWorkspaceIds
+            )
+            _ = notificationStore.setWorkspaceNotificationsMuted(
+                shouldMute,
+                forTabIds: commands.contextMenuWorkspaceIds
+            )
+            commands.refreshSnapshot()
+        }
+        item.image = RenderableSystemSymbol.configuredAppKitImage(
+            systemName: allMuted ? "bell" : "bell.slash",
+            pointSize: 13,
+            weight: nil
+        )
+        menu.addItem(item)
     }
 
     private func addCopyAndFinderItems(to menu: NSMenu, tabManager: TabManager) {

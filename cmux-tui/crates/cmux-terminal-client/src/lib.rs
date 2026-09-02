@@ -136,6 +136,7 @@ struct ActiveTerminal {
     terminal_id: TerminalPublicId,
     streams: tokio::sync::watch::Sender<Option<Arc<ServiceStream>>>,
     closed: Arc<AtomicBool>,
+    close_notify: Arc<tokio::sync::Notify>,
     command_sender: tokio::sync::mpsc::Sender<Bytes>,
     resize_delivery: Arc<ResizeDelivery>,
     receiver_task: tokio::task::JoinHandle<()>,
@@ -146,6 +147,7 @@ struct ActiveTerminal {
 impl ActiveTerminal {
     async fn close(self) {
         self.closed.store(true, Ordering::Release);
+        self.close_notify.notify_waiters();
         self.receiver_task.abort();
         self.command_task.abort();
         self.resize_task.abort();
@@ -785,58 +787,84 @@ async fn receive_frames(
     }
 }
 
-async fn supervise_terminal_stream(
+struct TerminalStreamSupervisor {
     multiplexer: Arc<ServiceMultiplexer>,
     terminal_id: TerminalPublicId,
     initial_stream: Arc<ServiceStream>,
     streams: tokio::sync::watch::Sender<Option<Arc<ServiceStream>>>,
     closed: Arc<AtomicBool>,
+    close_notify: Arc<tokio::sync::Notify>,
     state: Arc<Mutex<ClientState>>,
     updates: Arc<ClientUpdates>,
-) {
-    let mut stream = initial_stream;
-    loop {
-        let outcome = receive_frames(stream.clone(), state.clone(), updates.clone()).await;
-        let current = streams.send_replace(None);
-        if let Some(current) = current {
-            let _ = current.close().await;
-        }
-        if outcome == StreamOutcome::Stop {
-            closed.store(true, Ordering::Release);
-            return;
-        }
-        if closed.load(Ordering::Acquire) {
-            return;
-        }
-        if let Err(error) = state.lock().unwrap().prepare_handshake(terminal_id.clone()) {
-            set_client_status(&state, &updates, format!("resync: {error}"));
-            return;
-        }
-        updates.notify();
-        let mut attempt: u32 = 0;
+}
+
+impl TerminalStreamSupervisor {
+    async fn run(self) {
+        let Self {
+            multiplexer,
+            terminal_id,
+            initial_stream,
+            streams,
+            closed,
+            close_notify,
+            state,
+            updates,
+        } = self;
+        let mut stream = initial_stream;
         loop {
+            let outcome = receive_frames(stream.clone(), state.clone(), updates.clone()).await;
+            let current = streams.send_replace(None);
+            if let Some(current) = current {
+                let _ = current.close().await;
+            }
+            if outcome == StreamOutcome::Stop {
+                closed.store(true, Ordering::Release);
+                close_notify.notify_waiters();
+                return;
+            }
             if closed.load(Ordering::Acquire) {
                 return;
             }
-            match open_terminal_stream(&multiplexer, &terminal_id).await {
-                Ok(next) => {
-                    stream = next;
-                    streams.send_replace(Some(stream.clone()));
-                    break;
+            if let Err(error) = state.lock().unwrap().prepare_handshake(terminal_id.clone()) {
+                set_client_status(&state, &updates, format!("resync: {error}"));
+                return;
+            }
+            updates.notify();
+            let mut attempt: u32 = 0;
+            loop {
+                if closed.load(Ordering::Acquire) {
+                    return;
                 }
-                Err(error) => {
-                    attempt = attempt.saturating_add(1);
-                    if attempt >= TERMINAL_RECONNECT_MAX_ATTEMPTS {
-                        set_client_status(&state, &updates, format!("reconnect-failed: {error}"));
-                        closed.store(true, Ordering::Release);
-                        return;
+                match open_terminal_stream(&multiplexer, &terminal_id).await {
+                    Ok(next) => {
+                        stream = next;
+                        streams.send_replace(Some(stream.clone()));
+                        break;
                     }
-                    set_client_status(
-                        &state,
-                        &updates,
-                        format!("reconnect {attempt}/{TERMINAL_RECONNECT_MAX_ATTEMPTS}: {error}"),
-                    );
-                    tokio::time::sleep(terminal_reconnect_delay(&terminal_id, attempt)).await;
+                    Err(error) => {
+                        attempt = attempt.saturating_add(1);
+                        if attempt >= TERMINAL_RECONNECT_MAX_ATTEMPTS {
+                            set_client_status(
+                                &state,
+                                &updates,
+                                format!("reconnect-failed: {error}"),
+                            );
+                            closed.store(true, Ordering::Release);
+                            close_notify.notify_waiters();
+                            return;
+                        }
+                        set_client_status(
+                            &state,
+                            &updates,
+                            format!(
+                                "reconnect {attempt}/{TERMINAL_RECONNECT_MAX_ATTEMPTS}: {error}"
+                            ),
+                        );
+                        tokio::select! {
+                            _ = tokio::time::sleep(terminal_reconnect_delay(&terminal_id, attempt)) => {}
+                            _ = close_notify.notified() => return,
+                        }
+                    }
                 }
             }
         }
@@ -958,6 +986,7 @@ fn start_terminal_tasks(
     updates: Arc<ClientUpdates>,
 ) -> ActiveTerminal {
     let closed = Arc::new(AtomicBool::new(false));
+    let close_notify = Arc::new(tokio::sync::Notify::new());
     let (streams, mut command_streams) = tokio::sync::watch::channel(Some(stream.clone()));
     let resize_streams = streams.subscribe();
     let resize_delivery = Arc::new(ResizeDelivery::default());
@@ -966,15 +995,19 @@ fn start_terminal_tasks(
         state.resize_delivery = Some(resize_delivery.clone());
         state.resize_acknowledgement = None;
     }
-    let receiver_task = runtime.spawn(supervise_terminal_stream(
-        multiplexer,
-        terminal_id.clone(),
-        stream,
-        streams.clone(),
-        closed.clone(),
-        state.clone(),
-        updates.clone(),
-    ));
+    let receiver_task = runtime.spawn(
+        TerminalStreamSupervisor {
+            multiplexer,
+            terminal_id: terminal_id.clone(),
+            initial_stream: stream,
+            streams: streams.clone(),
+            closed: closed.clone(),
+            close_notify: close_notify.clone(),
+            state: state.clone(),
+            updates: updates.clone(),
+        }
+        .run(),
+    );
     let (command_sender, mut commands) = tokio::sync::mpsc::channel::<Bytes>(256);
     let command_state = state.clone();
     let command_updates = updates.clone();
@@ -1039,6 +1072,7 @@ fn start_terminal_tasks(
         terminal_id,
         streams,
         closed,
+        close_notify,
         command_sender,
         resize_delivery,
         receiver_task,

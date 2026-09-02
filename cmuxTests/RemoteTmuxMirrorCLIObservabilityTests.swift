@@ -124,6 +124,23 @@ struct RemoteTmuxMirrorCLIObservabilityTests {
         #expect(current.surfaceTypeRawValue == PanelType.terminal.rawValue)
     }
 
+    @Test func legacySocketReadTargetProjectsTheActiveInnerPane() throws {
+        let harness = try Harness()
+        defer { harness.tearDown() }
+
+        let activeTmuxPaneID = try #require(harness.mirror.paneIDsInOrder.last)
+        let activePanel = try #require(harness.mirror.panel(forPane: activeTmuxPaneID))
+        let target = try #require(
+            harness.workspace.controlSocketTerminalInputTarget(
+                for: harness.outerPanelID
+            )
+        )
+
+        #expect(target.surfaceID == activePanel.id)
+        #expect(target.panel === activePanel)
+        #expect(target.surface === activePanel.surface)
+    }
+
     @Test func defaultTriggerFlashProjectsTheActiveInnerPane() throws {
         do {
             let harness = try Harness()

@@ -583,20 +583,25 @@ def test_base_debug_cli_discovers_cmux_tag(cli_path: str) -> bool:
         print(f"FAIL: socket server failed to start: {server.error}")
         return False
 
-    env = os.environ.copy()
-    env["CMUX_SOCKET_PATH"] = "/tmp/cmux.sock"
-    env["CMUX_TAG"] = tag
-    env["CMUX_CLI_SENTRY_DISABLED"] = "1"
-    env["CMUX_CLAUDE_HOOK_SENTRY_DISABLED"] = "1"
-
     try:
-        with tempfile.TemporaryDirectory(prefix="cmux-cli-base-debug-app-") as apps:
+        with temporary_socket_home("cmux-cli-autodiscover-home-") as home, \
+                tempfile.TemporaryDirectory(prefix="cmux-cli-base-debug-app-") as apps:
             debug_cli = bundled_cli_for_variant(
                 cli_path,
                 apps,
                 "cmux DEV issue3542",
                 "com.cmuxterm.app.debug",
             )
+            env = os.environ.copy()
+            env["HOME"] = home
+            env["CFFIXED_USER_HOME"] = home
+            # CMUX_SOCKET_PATH is an explicit pin for the CLI. Leave it unset
+            # here so the base debug bundle derives its tag-scoped default.
+            env.pop("CMUX_SOCKET_PATH", None)
+            env.pop("CMUX_SOCKET", None)
+            env["CMUX_TAG"] = tag
+            env["CMUX_CLI_SENTRY_DISABLED"] = "1"
+            env["CMUX_CLAUDE_HOOK_SENTRY_DISABLED"] = "1"
             proc = subprocess.run(
                 [debug_cli, "ping"],
                 text=True,

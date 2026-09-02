@@ -299,16 +299,31 @@ public struct BrowserURLAllowlistPolicy: Equatable, Sendable {
     /// Callers must use this only for a navigation they initiated themselves;
     /// WebKit delegate callbacks use ``allows(_:)`` so page scripts cannot
     /// turn `file:`, `data:`, `blob:`, or `javascript:` into an origin-policy
-    /// bypass.
+    /// bypass. Local file URLs must be absolute, have no credentials or port,
+    /// and be hostless (or use the `localhost` host); network-host and relative
+    /// file URLs remain denied.
     public func allowsTrustedInternalURL(_ url: URL) -> Bool {
+        guard let scheme = url.scheme?.lowercased() else { return !isActive }
+        if scheme == "file" { return isLocalFileURL(url) }
         guard isActive else { return true }
-        guard let scheme = url.scheme?.lowercased() else { return false }
         return Self.trustedInternalSchemes.contains(scheme) || allows(url)
     }
 
     private static func patterns(from values: [String]) -> [BrowserURLAllowlistPattern] {
         var seen = Set<BrowserURLAllowlistPattern>()
         return values.compactMap { BrowserURLAllowlistPattern($0) }.filter { seen.insert($0).inserted }
+    }
+
+    private func isLocalFileURL(_ url: URL) -> Bool {
+        guard url.isFileURL,
+              url.path.hasPrefix("/"),
+              url.user == nil,
+              url.password == nil,
+              url.port == nil else {
+            return false
+        }
+        guard let host = url.host?.lowercased() else { return true }
+        return host.isEmpty || host == "localhost"
     }
 
     private static func stringValues(from rawValue: Any?) -> [String] {

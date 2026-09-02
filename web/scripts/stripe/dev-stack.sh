@@ -67,17 +67,12 @@ if ! command -v curl >/dev/null 2>&1; then
 fi
 
 stripe_config="$(stripe config --list 2>/dev/null || true)"
+# Stripe CLI has printed this as `test_mode_api_key = 'sk_...'` and, in newer
+# releases, as `test_mode_api_key=sk_...`; accept both.
 STRIPE_SECRET_KEY="$(
   printf '%s\n' "$stripe_config" \
-    | awk '
-      $1 == "test_mode_api_key" {
-        value = $0
-        sub(/^[^:=]+[[:space:]]*[:=]?[[:space:]]*/, "", value)
-        gsub(/["'\'']/, "", value)
-        print value
-        exit
-      }
-    '
+    | sed -n -E "s/^[[:space:]]*test_mode_api_key[[:space:]]*[:=][[:space:]]*['\"]?(sk_test_[A-Za-z0-9]+)['\"]?.*$/\1/p" \
+    | head -n 1
 )"
 
 if [[ -z "$STRIPE_SECRET_KEY" || "$STRIPE_SECRET_KEY" != sk_test_* ]]; then

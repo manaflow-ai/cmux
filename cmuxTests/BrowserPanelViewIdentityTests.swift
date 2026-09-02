@@ -13,7 +13,7 @@ import WebKit
 #endif
 
 @MainActor
-@Suite struct BrowserPanelViewIdentityTests {
+@Suite(.serialized) struct BrowserPanelViewIdentityTests {
     @Test func externalPortalGeometrySyncDoesNotDriveSwiftUILayout() async throws {
         let referenceView = LayoutCountingBrowserReferenceView(rootView: EmptyView())
         referenceView.frame = NSRect(x: 0, y: 0, width: 640, height: 480)
@@ -45,14 +45,16 @@ import WebKit
         let expectedFrameInWindow = anchor.convert(anchor.bounds, to: nil)
 
         NotificationCenter.default.post(name: NSWindow.didResizeNotification, object: window)
-        await waitForNextMainActorTurn()
-        await waitForNextMainActorTurn()
-
+        // Assert before AppKit can service the intentionally dirty host on a later run-loop turn.
         #expect(
             referenceView.layoutPassCount == 0,
             "The browser portal must consume settled geometry without synchronously laying out SwiftUI's hosting view."
         )
         #expect(referenceView.needsLayout)
+
+        await waitForNextMainActorTurn()
+        await waitForNextMainActorTurn()
+
         let snapshot = try #require(
             portal.debugSnapshot(forWebViewId: ObjectIdentifier(webView))
         )
@@ -92,15 +94,21 @@ import WebKit
         webView.layoutPassCount = 0
 
         portal.forceRefreshWebView(withId: ObjectIdentifier(webView), reason: "test")
-        await waitForNextMainActorTurn()
-        await waitForNextMainActorTurn()
 
-        #expect(webView.layoutPassCount > 0, "The deferred refresh must still flush the portal-owned WebKit subtree.")
+        // Observe the synchronous boundary before yielding to AppKit's display
+        // cycle. Once the run loop spins, a dirty NSHostingView may be laid out
+        // by the window system independently of the portal's deferred WebKit
+        // refresh, so that later pass cannot be attributed to this call.
         #expect(
             referenceView.layoutPassCount == 0,
             "A portal presentation refresh must not synchronously lay out SwiftUI's hosting view."
         )
         #expect(referenceView.needsLayout)
+
+        await waitForNextMainActorTurn()
+        await waitForNextMainActorTurn()
+
+        #expect(webView.layoutPassCount > 0, "The deferred refresh must still flush the portal-owned WebKit subtree.")
     }
 
     @Test func portalAnchorInstallationDefersLayoutToAppKit() throws {
@@ -325,7 +333,8 @@ private struct BrowserPanelReplacementHarness: View {
             onRequestPanelFocus: {},
             onResumeAgentHibernation: {},
             onAutoResumeAgentHibernation: {},
-            onTriggerFlash: {}
+            onTriggerFlash: {},
+            onRequestDeferredBrowserMaterialization: {}
         )
     }
 }
