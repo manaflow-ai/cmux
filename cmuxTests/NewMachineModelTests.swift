@@ -81,7 +81,7 @@ final class NewMachineModelTests: XCTestCase {
 
     func testDefaultInvocationRequestsDesktopByKindWithoutPinningAnImage() {
         let (model, _) = makeModel()
-        XCTAssertEqual(model.cliArguments, ["vm", "new", "--desktop", "--size", "24576"])
+        XCTAssertEqual(model.cliArguments, ["vm", "new", "--desktop", "--size", "20480"])
         XCTAssertFalse(model.cliArguments.contains("--image"))
     }
 
@@ -115,21 +115,21 @@ final class NewMachineModelTests: XCTestCase {
 
     // MARK: Plan ceilings
 
-    func testFreePlanCapsSizeAtTwentyFourGigabytes() {
+    func testFreePlanGetsThePlanMachine() {
         let (model, _) = makeModel(plan: MachinePlanSnapshot(activeCount: 0, maxActiveVms: 1, planId: "free"))
-        XCTAssertEqual(model.memoryOptions, [2048, 4096, 8192, 16384, 24576])
-        XCTAssertEqual(model.memoryMb, 24576)
+        XCTAssertEqual(model.memoryOptions, [2048, 4096, 8192, 16384, 20480])
+        XCTAssertEqual(model.memoryMb, 20480)
     }
 
-    func testPaidPlanUnlocksThirtyTwoGigabytesButDefaultsToTwentyFour() {
-        let (model, _) = makeModel(plan: MachinePlanSnapshot(activeCount: 2, maxActiveVms: 5, planId: "pro"))
-        XCTAssertEqual(model.memoryOptions.last, 32768)
-        XCTAssertEqual(model.memoryMb, 24576)
+    func testPaidPlanGetsThePlanMachineAndDefaultsToIt() {
+        let (model, _) = makeModel(plan: MachinePlanSnapshot(activeCount: 2, maxActiveVms: 50, planId: "pro"))
+        XCTAssertEqual(model.memoryOptions.last, 20480)
+        XCTAssertEqual(model.memoryMb, 20480)
     }
 
-    func testUnknownPlanUsesTheFreeCeiling() {
+    func testUnknownPlanUsesThePlanMachineCeiling() {
         let (model, _) = makeModel(plan: nil)
-        XCTAssertEqual(model.memoryOptions.last, 24576)
+        XCTAssertEqual(model.memoryOptions.last, 20480)
         XCTAssertNil(model.planMeterText)
         XCTAssertNil(model.freeAccessNoteText)
     }

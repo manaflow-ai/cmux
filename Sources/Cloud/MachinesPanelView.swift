@@ -523,12 +523,13 @@ struct MachinesPanelView: View {
 
     /// Free plans: "Upgrade to use more than 1 machine" — the ceiling plus the
     /// way past it in one line. A plan with no machines at all has no ceiling
-    /// to cite: upgrading is what grants access in the first place.
+    /// to cite: upgrading is what grants access in the first place (the paid
+    /// allowance itself is stated on /pricing, not guessed here).
     private func upgradeNudgeLabel(_ plan: MachinePlanSnapshot) -> String {
         guard let maxActiveVms = plan.maxActiveVms, maxActiveVms > 0 else {
             return String(
                 localized: "machines.empty.upgrade.none",
-                defaultValue: "Subscribe to cmux Pro for unlimited machines"
+                defaultValue: "Subscribe to cmux Pro to create Cloud machines"
             )
         }
         if plan.isSingleMachinePlan {
@@ -543,9 +544,10 @@ struct MachinesPanelView: View {
         )
     }
 
-    /// Paid plans: "Your plan includes unlimited machines" under the create
-    /// button, so the empty state answers "what do I get" before the meter
-    /// shows a count.
+    /// Paid plans: "Your plan includes 50 machines" under the create button,
+    /// so the empty state answers "what do I get" before the meter shows a
+    /// count. The uncapped wording only appears when an operator lifted the
+    /// cap.
     private func planIncludesLabel(_ plan: MachinePlanSnapshot) -> String {
         guard let maxActiveVms = plan.maxActiveVms else {
             return String(

@@ -32,15 +32,18 @@ final class NewMachineModel {
 
     /// Memory sizes the backend accepts (`VM_MEMORY_OPTIONS_MB` in
     /// `web/services/vms/entitlements.ts`); the plan ceiling trims the tail.
-    static let memoryOptionsMb: [Int] = [2048, 4096, 8192, 16384, 24576, 32768]
-    /// Mirrors `maxMemoryMbForPlan`: the free machine is a full-size computer;
-    /// paid plans unlock the largest size.
+    static let memoryOptionsMb: [Int] = [2048, 4096, 8192, 16384, planMachineMemoryMb]
+    /// The plan machine (`PLAN_MACHINE_MEMORY_MB`): 20 GB, 5 vCPU, 200 GB disk.
+    static let planMachineMemoryMb = 20480
+    /// Mirrors `maxMemoryMbForPlan`: every plan, free included, gets the plan
+    /// machine; the paywall is machine count and the free access window.
     static func maxMemoryMb(planId: String?) -> Int {
-        planId == nil || planId == "free" ? 24576 : 32768
+        _ = planId
+        return planMachineMemoryMb
     }
-    /// Mirrors `defaultMemoryMbForPlan`: 24 GB, never above the plan's max.
+    /// Mirrors `defaultMemoryMbForPlan`: the plan machine, never above the max.
     static func defaultMemoryMb(planId: String?) -> Int {
-        min(24576, maxMemoryMb(planId: planId))
+        min(planMachineMemoryMb, maxMemoryMb(planId: planId))
     }
 
     let mode: Mode

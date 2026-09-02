@@ -126948,13 +126948,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Subscribe to cmux Pro for unlimited machines"
+            "value": "Subscribe to cmux Pro to create Cloud machines"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux Pro に登録するとマシンを無制限に利用できます"
+            "value": "cmux Pro に登録すると Cloud マシンを作成できます"
           }
         }
       }
@@ -149068,13 +149068,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "20 hrs/mo, then usage-based"
+            "value": "Included"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "月 20 時間、その後は従量課金"
+            "value": "含まれます"
           }
         }
       }
@@ -149085,13 +149085,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Pooled, usage-based"
+            "value": "Included"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "共有、従量課金"
+            "value": "含まれます"
           }
         }
       }
@@ -149126,6 +149126,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "1"
+          }
+        }
+      }
+    },
+    "pricing.native.compare.concurrent.paid": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "50"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "50"
           }
         }
       }
@@ -149850,13 +149867,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Model gateway with usage and cost analytics"
+            "value": "Unlimited workspaces"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "使用量とコスト分析付きのモデルゲートウェイ"
+            "value": "ワークスペースは無制限"
           }
         }
       }
@@ -149867,13 +149884,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "20 active compute-hours per month, then usage-based"
+            "value": "Up to 50 Cloud VMs, each with 5 vCPU, 20 GB RAM, and 200 GB disk"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "月20時間のアクティブ計算時間、その後は従量課金"
+            "value": "最大 50 台の Cloud VM、各 5 vCPU / 20 GB RAM / 200 GB ディスク"
           }
         }
       }
@@ -149918,13 +149935,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "$30"
+            "value": "$50"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "$30"
+            "value": "$50"
           }
         }
       }
@@ -150088,13 +150105,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Pick a VM size per agent. You are billed per active compute-hour, and idle VMs suspend automatically. Pro includes 20 hours per month on the 4 vCPU / 16 GB size."
+            "value": "Every Cloud VM is 5 vCPU, 20 GB RAM, and 200 GB disk. Pro and Team include up to 50 machines with no metering or overages."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "エージェントごとに VM サイズを選びます。課金はアクティブなコンピュート時間単位で、アイドル状態の VM は自動停止します。Pro には 4 vCPU / 16 GB サイズで月 20 時間が含まれます。"
+            "value": "すべての Cloud VM は 5 vCPU / 20 GB RAM / 200 GB ディスクです。Pro と Team には最大 50 台のマシンが含まれ、従量課金や超過料金はありません。"
           }
         }
       }
@@ -150275,13 +150292,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Pooled Cloud VM compute hours"
+            "value": "The same Cloud VM allowance as Pro"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "共有 Cloud VM コンピュート時間"
+            "value": "Pro と同じ Cloud VM 枠"
           }
         }
       }
@@ -150343,13 +150360,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "$35"
+            "value": "$60"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "$35"
+            "value": "$60"
           }
         }
       }
@@ -158176,13 +158193,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Cloud dev boxes, the iOS app, and cmux AI. $30/month, or $288/year."
+            "value": "Cloud dev boxes, the iOS app, and cmux AI. $50/month, or $480/year."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "クラウド開発マシン、iOSアプリ、cmux AI。月額$30、または年額$288。"
+            "value": "クラウド開発マシン、iOSアプリ、cmux AI。月額$50、または年額$480。"
           }
         }
       }

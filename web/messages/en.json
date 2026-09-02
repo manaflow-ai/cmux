@@ -200,17 +200,16 @@
         "name": "cmux Pro",
         "activeBody": "Your plan renews on {date}.",
         "pendingBody": "Your plan is scheduled to end on {date}.",
-        "monthlyPrice": "$30/mo",
-        "annualPrice": "$24/mo, billed annually",
-        "legacyAnnualPrice": "$20/mo, billed annually"
+        "monthlyPrice": "${amount}/mo",
+        "annualPrice": "${monthly}/mo, billed annually"
       },
       "team": {
         "name": "cmux Team",
         "fallbackName": "your team",
         "activeBody": "{team} renews on {date}.",
         "pendingBody": "{team} is scheduled to end on {date}.",
-        "price": "$35/seat/mo",
-        "annualPrice": "$28/seat/mo, billed annually"
+        "price": "${amount}/seat/mo",
+        "annualPrice": "${monthly}/seat/mo, billed annually"
       },
       "details": {
         "renewsOn": "Renews on",
@@ -573,12 +572,12 @@
     },
     "pro": {
       "name": "Pro",
-      "price": "$30",
       "cta": "Get Pro",
       "featuresLead": "Everything in Free, plus:",
       "features": [
         "Cloud agents on Cloud VMs in isolated remote sandboxes",
-        "Unlimited active Cloud VMs",
+        "Up to 50 Cloud VMs, each with 5 vCPU, 20 GB RAM, and 200 GB disk",
+        "Unlimited workspaces",
         "The cmux iOS app and email support"
       ],
       "vaultFeatures": [
@@ -591,7 +590,6 @@
     },
     "team": {
       "name": "Team",
-      "price": "$35",
       "cta": "Get Teams",
       "featuresLead": "Everything in Pro, plus:",
       "features": [
@@ -671,9 +669,23 @@
         {
           "label": "Concurrent Cloud VMs",
           "free": "false",
+          "pro": "50",
+          "team": "50",
+          "enterprise": "Custom"
+        },
+        {
+          "label": "Cloud VM size",
+          "free": "false",
+          "pro": "5 vCPU, 20 GB RAM, 200 GB disk",
+          "team": "5 vCPU, 20 GB RAM, 200 GB disk",
+          "enterprise": "Custom"
+        },
+        {
+          "label": "Workspaces",
+          "free": "Unlimited",
           "pro": "Unlimited",
           "team": "Unlimited",
-          "enterprise": "Custom"
+          "enterprise": "Unlimited"
         },
         {
           "label": "iOS app",
@@ -744,7 +756,7 @@
         },
         {
           "q": "What are Cloud VMs?",
-          "a": "Persistent Linux machines in the cloud: pets, not cattle. Following the Zen of cmux, a machine is a primitive, not a managed solution: it keeps its files, installed tools, and state, and what you build on it is yours. Agents clone repositories, run commands, and open pull requests there without touching your Mac. Pro and Team include unlimited active machines."
+          "a": "Persistent Linux machines in the cloud: pets, not cattle. Following the Zen of cmux, a machine is a primitive, not a managed solution: it keeps its files, installed tools, and state, and what you build on it is yours. Agents clone repositories, run commands, and open pull requests there without touching your Mac. Pro and Team include up to 50 machines, each with 5 vCPU, 20 GB of RAM, and 200 GB of disk."
         },
         {
           "q": "What is cmux Vault?",
@@ -757,7 +769,7 @@
         },
         {
           "q": "How does billing work?",
-          "a": "Pro is $30/mo, or $24/mo when billed annually (a 20% savings). Team is $35/user/mo, or $28/user/mo when billed annually. Paid plans include unlimited active Cloud VMs, with no metering or overages. The terminal and local agents stay free."
+          "a": "Pro is $50/mo, or $40/mo when billed annually (a 20% savings). Team is $60/user/mo, or $48/user/mo when billed annually. Paid plans include up to 50 Cloud VMs, with no metering or overages. The terminal and local agents stay free."
         },
         {
           "q": "Can I self-host the cloud?",
@@ -765,7 +777,7 @@
         },
         {
           "q": "Do you have a team plan?",
-          "a": "Yes. Team is $35/user/mo, or $28/user/mo when billed annually, with centralized billing for your whole team and priority support."
+          "a": "Yes. Team is $60/user/mo, or $48/user/mo when billed annually, with centralized billing for your whole team and priority support."
         }
       ]
     },

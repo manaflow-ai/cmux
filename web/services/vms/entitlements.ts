@@ -1,6 +1,16 @@
 import type { AuthedUser } from "./auth";
 import type { BillingCustomerType } from "./billingGateway";
 import { FOUNDERS_PLAN_ID, PRO_PLAN_ID, TEAM_PLAN_ID } from "../billing/pro";
+import { PAID_MAX_ACTIVE_VMS_DEFAULT, PLAN_MACHINE_MEMORY_MB } from "./machineSpec";
+
+export {
+  PAID_MAX_ACTIVE_VMS_DEFAULT,
+  PLAN_MACHINE_MEMORY_MB,
+  VM_DISK_MB_DEFAULT,
+  VM_MEMORY_MB_PER_VCPU,
+  vcpusForMemoryMb,
+  vmDiskMb,
+} from "./machineSpec";
 
 export type VmEntitlements = {
   readonly planId: string;
@@ -115,10 +125,11 @@ function resolveBillingContext(
 }
 
 /**
- * Machine sizes a person can pick, as memory in MB. Providers scale vCPUs with
- * memory (a 4 GB machine reports 2 cpus), so memory is the whole size story.
+ * Machine sizes a person can pick, as memory in MB. vCPUs follow memory
+ * (vcpusForMemoryMb), so memory is the whole size story. The plan machine is
+ * the largest entry; a plan ceiling trims the tail.
  */
-export const VM_MEMORY_OPTIONS_MB: readonly number[] = [2048, 4096, 8192, 16384, 24576, 32768];
+export const VM_MEMORY_OPTIONS_MB: readonly number[] = [2048, 4096, 8192, 16384, PLAN_MACHINE_MEMORY_MB];
 
 /** Largest machine a plan may create. Env-overridable per plan. */
 export function maxMemoryMbForPlan(
@@ -130,12 +141,18 @@ export function maxMemoryMbForPlan(
   const specific = env[`CMUX_VM_PLAN_${planKey}_MAX_MEMORY_MB`];
   if (specific?.trim()) return positiveInteger(specific, `CMUX_VM_PLAN_${planKey}_MAX_MEMORY_MB`);
   if (normalized === "free") {
-    // The free machine is the product demo: one full-size computer, not a
-    // cut-down teaser. The paywall is the 7-day access window and the
-    // machine count, never the machine's usefulness.
-    return positiveInteger(env.CMUX_VM_FREE_MAX_MEMORY_MB ?? "24576", "CMUX_VM_FREE_MAX_MEMORY_MB");
+    // The free machine is the product demo: the same full-size computer a
+    // paid plan gets, not a cut-down teaser. The paywall is the 7-day access
+    // window and the machine count, never the machine's usefulness.
+    return positiveInteger(
+      env.CMUX_VM_FREE_MAX_MEMORY_MB ?? String(PLAN_MACHINE_MEMORY_MB),
+      "CMUX_VM_FREE_MAX_MEMORY_MB",
+    );
   }
-  return positiveInteger(env.CMUX_VM_PAID_MAX_MEMORY_MB ?? "32768", "CMUX_VM_PAID_MAX_MEMORY_MB");
+  return positiveInteger(
+    env.CMUX_VM_PAID_MAX_MEMORY_MB ?? String(PLAN_MACHINE_MEMORY_MB),
+    "CMUX_VM_PAID_MAX_MEMORY_MB",
+  );
 }
 
 /** Size a plan gets when it doesn't ask for one; never above the plan's max. */
@@ -149,15 +166,22 @@ export function defaultMemoryMbForPlan(
   const raw = specific?.trim()
     ? positiveInteger(specific, `CMUX_VM_PLAN_${planKey}_DEFAULT_MEMORY_MB`)
     : normalized === "free"
-      ? positiveInteger(env.CMUX_VM_FREE_DEFAULT_MEMORY_MB ?? "24576", "CMUX_VM_FREE_DEFAULT_MEMORY_MB")
-      : positiveInteger(env.CMUX_VM_PAID_DEFAULT_MEMORY_MB ?? "24576", "CMUX_VM_PAID_DEFAULT_MEMORY_MB");
+      ? positiveInteger(
+        env.CMUX_VM_FREE_DEFAULT_MEMORY_MB ?? String(PLAN_MACHINE_MEMORY_MB),
+        "CMUX_VM_FREE_DEFAULT_MEMORY_MB",
+      )
+      : positiveInteger(
+        env.CMUX_VM_PAID_DEFAULT_MEMORY_MB ?? String(PLAN_MACHINE_MEMORY_MB),
+        "CMUX_VM_PAID_DEFAULT_MEMORY_MB",
+      );
   return Math.min(raw, maxMemoryMbForPlan(planId, env));
 }
 
 /**
  * Active-machine ceiling for a plan, or null when there is none. Paid plans
- * are uncapped: the subscription is the paywall and machine count is not a
- * quota. Free plans stay capped (zero unless free provisioning is allowed).
+ * get the allowance sold on /pricing (PAID_MAX_ACTIVE_VMS_DEFAULT), counted
+ * per billing team. Free plans stay capped (zero unless free provisioning is
+ * allowed).
  */
 export function maxActiveVmsForPlan(
   planId: string | null | undefined,
@@ -299,11 +323,14 @@ function activeVmLimitForPlan(planId: string, env: Record<string, string | undef
     return nonNegativeInteger(env.CMUX_VM_FREE_MAX_ACTIVE_VMS ?? "0", "CMUX_VM_FREE_MAX_ACTIVE_VMS");
   }
 
-  // Paid plans have no machine cap. A plan-specific env override remains as an
-  // operator-only brake for an incident; unset means unlimited.
+  // Paid plans get the advertised allowance. A plan-specific override wins
+  // over the paid-wide one; both exist only as operator brakes for an
+  // incident, never as the place the product number lives.
   const specific = env[`CMUX_VM_PLAN_${planKey}_MAX_ACTIVE_VMS`];
   if (specific?.trim()) return positiveInteger(specific, `CMUX_VM_PLAN_${planKey}_MAX_ACTIVE_VMS`);
-  return null;
+  const paid = env.CMUX_VM_PAID_MAX_ACTIVE_VMS;
+  if (paid?.trim()) return positiveInteger(paid, "CMUX_VM_PAID_MAX_ACTIVE_VMS");
+  return PAID_MAX_ACTIVE_VMS_DEFAULT;
 }
 
 function normalizedPlanId(planId: string): string {

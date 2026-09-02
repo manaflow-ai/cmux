@@ -405,12 +405,12 @@ describe("VM REST auth", () => {
       billingCustomerType: "team",
       billingTeamId: "team-1",
       billingPlanId: "pro",
-      maxActiveVms: null,
+      maxActiveVms: 50,
       provider: "freestyle",
       image: "snapshot-test",
       imageVersion: null,
       idempotencyKey: "idem-1",
-      memoryMb: 24576,
+      memoryMb: 20480,
     }));
     expect(listTeams).not.toHaveBeenCalled();
     expect(runVmWorkflow).toHaveBeenCalled();
@@ -607,7 +607,7 @@ describe("VM REST auth", () => {
     const payload = await response.json();
     expect(payload).toMatchObject({
       error: "vm_memory_exceeds_plan",
-      details: { requestedMemoryMb: 32768, maxMemoryMb: 24576, planId: "free" },
+      details: { requestedMemoryMb: 32768, maxMemoryMb: 20480, planId: "free" },
     });
     expect(runVmWorkflow).not.toHaveBeenCalled();
   });
@@ -1390,7 +1390,7 @@ describe("VM REST auth", () => {
       billingCustomerType: "team",
       billingTeamId: "team-2",
       billingPlanId: "team",
-      maxActiveVms: null,
+      maxActiveVms: 50,
     }));
     expect(runVmWorkflow).toHaveBeenCalled();
   });

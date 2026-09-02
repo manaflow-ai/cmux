@@ -123,15 +123,15 @@ describe("dashboard billing page", () => {
   test("renders annual Pro and Team pricing from the billing upsell", async () => {
     const html = await renderBillingPage({ interval: "year" });
 
-    expect(html).toContain("$24");
-    expect(html).toContain("$28");
+    expect(html).toContain("$40");
+    expect(html).toContain("$48");
     expect(html).toContain("/mo");
     expect(html).toContain("/user/mo");
     expect(html).toContain("/mo, billed yearly");
     expect(html).toContain("/user/mo, billed yearly");
     expect(html).not.toContain("/mo.");
-    expect(html).not.toContain("Billed $288 annually · save 20%");
-    expect(html).not.toContain("Billed $336 annually · save 20%");
+    expect(html).not.toContain("$24");
+    expect(html).not.toContain("$28");
     expect(html).toContain(
       'href="/api/billing/checkout?plan=pro&amp;cmux_external_browser=1&amp;interval=year"',
     );
@@ -148,29 +148,43 @@ describe("dashboard billing page", () => {
 
     expect(html).toContain("cmux Pro");
     expect(html).toContain("Your plan renews on");
-    expect(html).toContain("$30/mo");
+    expect(html).toContain("$50/mo");
     expect(html).toContain("Cancel plan");
     expect(html).toContain('action="/api/billing/subscription"');
     expect(html).toContain('href="/api/billing/portal"');
   });
 
-  test("labels new and grandfathered annual Stripe prices", async () => {
-    subscriptionRows = [
-      stripeSubscriptionRow({
-        cancelAtPeriodEnd: false,
-        lookupKey: "cmux-pro-yearly-288",
-      }),
-    ];
+  test("prices every Stripe Pro subscription from its own price amount", async () => {
     customerRows = [{ id: "cus_123" }];
-    expect(await renderBillingPage()).toContain("$24/mo, billed annually");
-
-    subscriptionRows = [
-      stripeSubscriptionRow({
-        cancelAtPeriodEnd: false,
-        lookupKey: "cmux-pro-yearly",
-      }),
+    const cases: Array<[string | undefined, number, "month" | "year", string]> = [
+      ["cmux-pro-yearly-480", 48000, "year", "$40/mo, billed annually"],
+      ["cmux-pro-yearly-288", 28800, "year", "$24/mo, billed annually"],
+      ["cmux-pro-yearly", 24000, "year", "$20/mo, billed annually"],
+      ["cmux-pro-monthly", 3000, "month", "$30/mo"],
+      // Stack-era Prices carry no lookup key at all.
+      [undefined, 3000, "month", "$30/mo"],
     ];
-    expect(await renderBillingPage()).toContain("$20/mo, billed annually");
+    for (const [lookupKey, unitAmount, recurringInterval, expected] of cases) {
+      subscriptionRows = [
+        stripeSubscriptionRow({
+          cancelAtPeriodEnd: false,
+          lookupKey,
+          unitAmount,
+          recurringInterval,
+        }),
+      ];
+      expect(await renderBillingPage()).toContain(expected);
+    }
+  });
+
+  test("omits the price metric when Stripe sent no amount", async () => {
+    customerRows = [{ id: "cus_123" }];
+    subscriptionRows = [
+      stripeSubscriptionRow({ cancelAtPeriodEnd: false, unitAmount: null }),
+    ];
+    const html = await renderBillingPage();
+    expect(html).toContain("cmux Pro");
+    expect(html).not.toContain(">Price<");
   });
 
   test("renders pending cancellation with resume and end-date copy", async () => {
@@ -223,7 +237,7 @@ describe("dashboard billing page", () => {
     expect(html).toContain("Team Pro renews on");
     expect(html).toContain("Seats");
     expect(html).toContain(">4<");
-    expect(html).toContain("$35/seat/mo");
+    expect(html).toContain("$60/seat/mo");
     expect(html).toContain('name="scope" value="team"');
     expect(html).toContain('href="/api/billing/portal?scope=team"');
   });
@@ -240,13 +254,15 @@ describe("dashboard billing page", () => {
           plan: "team",
           scope: "team",
           seats: 4,
-          lookupKey: "cmux-team-yearly-336",
+          lookupKey: "cmux-team-yearly-576",
+          unitAmount: 57600,
+          recurringInterval: "year",
         }),
       ],
     ];
     customerRows = [{ id: "cus_team" }];
 
-    expect(await renderBillingPage()).toContain("$28/seat/mo, billed annually");
+    expect(await renderBillingPage()).toContain("$48/seat/mo, billed annually");
   });
 
   test("uses the current Stripe price interval over stale checkout metadata", async () => {
@@ -262,6 +278,7 @@ describe("dashboard billing page", () => {
           scope: "team",
           seats: 4,
           lookupKey: "cmux-team-monthly",
+          unitAmount: 3500,
           billingInterval: "year",
         }),
       ],
@@ -281,6 +298,7 @@ describe("dashboard billing page", () => {
           scope: "team",
           seats: 4,
           lookupKey: "operator-managed-annual-price",
+          unitAmount: 33600,
           recurringInterval: "year",
         }),
       ],
@@ -288,11 +306,13 @@ describe("dashboard billing page", () => {
     expect(await renderBillingPage()).toContain("$28/seat/mo, billed annually");
   });
 
-  test("localizes active annual Pro prices", () => {
+  test("localizes active Pro and Team price templates", () => {
+    expect(enMessages.dashboard.billing.pro.monthlyPrice).toBe("${amount}/mo");
     expect(enMessages.dashboard.billing.pro.annualPrice).toBe(
-      "$24/mo, billed annually",
+      "${monthly}/mo, billed annually",
     );
-    expect(jaMessages.dashboard.billing.pro.annualPrice).toBe("$24/月（年払い）");
+    expect(jaMessages.dashboard.billing.pro.annualPrice).toBe("${monthly}/月（年払い）");
+    expect(jaMessages.dashboard.billing.team.price).toBe("${amount}/シート/月");
   });
 
   test("renders active Stripe Team for a paid team when no team is selected", async () => {
@@ -383,9 +403,10 @@ function stripeSubscriptionRow({
   plan = "pro",
   scope = "user",
   seats = null,
-  lookupKey = "cmux-pro-monthly",
+  lookupKey = "cmux-pro-monthly-50",
+  unitAmount = 5000,
   billingInterval,
-  recurringInterval,
+  recurringInterval = "month",
 }: {
   cancelAtPeriodEnd: boolean;
   status?: string;
@@ -393,6 +414,7 @@ function stripeSubscriptionRow({
   scope?: string;
   seats?: number | null;
   lookupKey?: string;
+  unitAmount?: number | null;
   billingInterval?: "month" | "year";
   recurringInterval?: "month" | "year";
 }) {
@@ -412,7 +434,8 @@ function stripeSubscriptionRow({
           {
             price: {
               lookup_key: lookupKey,
-              recurring: recurringInterval ? { interval: recurringInterval } : undefined,
+              unit_amount: unitAmount,
+              recurring: { interval: recurringInterval },
             },
           },
         ],
