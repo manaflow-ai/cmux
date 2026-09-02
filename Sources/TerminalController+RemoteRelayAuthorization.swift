@@ -220,7 +220,7 @@ extension TerminalController {
             authorizedParams["workspace_id"] = .string(
                 resolvedWorkspaceID.uuidString
             )
-            if containsTopLevelSelector(foundationParams, keys: ["surface_id"]) {
+            if Self.containsTopLevelSelector(foundationParams, keys: ["surface_id"]) {
                 guard let resolvedSurfaceID = resolvedSelectors.1,
                       snapshot.surfaceIDs.contains(resolvedSurfaceID) else {
                     return deniedRemoteRelayRequest(
