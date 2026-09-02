@@ -493,8 +493,12 @@ class PiCmuxCommandDispatcher {
             return;
           }
           const status = typeof code === "number" ? code : null;
-          const error = inputError ?? outputError;
-          const reason = commandFailureReason(status, error);
+          const error = outputError ?? inputError;
+          // stdin EPIPE after a clean exit is benign. stdout/stderr errors are
+          // not: close can still report 0 with incomplete output.
+          const reason = outputError !== undefined && (status === 0 || status === null)
+            ? "spawn-error"
+            : commandFailureReason(status, error);
           settle({
             ok: reason === undefined,
             status,

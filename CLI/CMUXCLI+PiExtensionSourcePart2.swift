@@ -27,14 +27,7 @@ async function sendHook(
     context,
   );
   if (result.ok) rememberSurfaceTarget(dispatcher, sessionId, result);
-  if (!result.ok && !result.surfaceUnavailable) {
-    warn(context, "cmux hook command failed", {
-      subcommand,
-      status: result.status,
-      stderr_available: result.stderr.trim().length > 0,
-      error_available: result.error !== undefined,
-    });
-  }
+  // dispatcher.run already logs hook failures (including surfaceUnavailable).
   // Return true when skipped (surfaceUnavailable) to match CMUX_PI_HOOKS_DISABLED semantics
   return result.ok || result.surfaceUnavailable;
 }
