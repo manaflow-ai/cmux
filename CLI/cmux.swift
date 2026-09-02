@@ -4305,14 +4305,11 @@ struct CMUXCLI {
     // never pins an image id unless the person passes `--image`: a pinned id
     // that drifted from the web deploy's manifest failed every create with
     // `vm_image_config_error`.
-    /// `--size` spellings → memory in MB. vCPUs scale with memory.
+    /// `--size` spellings → memory in MB. Every plan sells exactly the plan
+    /// machine (5 vCPU / 20 GB / 200 GB), so 20g is the only preset; the
+    /// backend refuses other sizes with `vm_memory_unsupported`.
     private static let cloudVMSizeAliases: [String: Int] = [
-        "2g": 2048, "2gb": 2048, "small": 2048,
-        "4g": 4096, "4gb": 4096, "medium": 4096,
-        "8g": 8192, "8gb": 8192, "large": 8192,
-        "16g": 16384, "16gb": 16384, "xl": 16384,
-        "24g": 24576, "24gb": 24576,
-        "32g": 32768, "32gb": 32768, "xxl": 32768,
+        "20g": 20480, "20gb": 20480,
     ]
     static func parseCloudVMSize(_ raw: String) -> Int? {
         let key = raw.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
@@ -18433,19 +18430,25 @@ struct CMUXCLI {
             """
         case "vpn":
             return """
-            Usage: cmux vpn <up|down|status|revoke>
+            Usage: cmux vpn <up|down|status|revoke|hosts>
 
             The WireGuard tunnel between this Mac and your private Cloud VM
             network. Cloud machines have no public ports, so `cmux vm` attach,
             exec, and port verbs need this tunnel up.
 
-            up      Enroll this Mac (first run) and bring the tunnel up.
-                    Uses wg-quick and prompts for sudo; install with
-                    `brew install wireguard-tools`.
+            up      Enroll this Mac (first run), bring the tunnel up, and sync
+                    internal hostnames. Uses wg-quick and prompts for sudo;
+                    install with `brew install wireguard-tools`.
             down    Take the tunnel down. Enrollment is kept.
             status  Show tunnel state, config path, and backend.
-            revoke  Take the tunnel down and unenroll this Mac. The server
-                    deletes its side, so the saved config stops working.
+            revoke  Take the tunnel down, unenroll this Mac, and clear its
+                    internal hostnames. The server deletes its side, so the
+                    saved config stops working.
+            hosts   Write every machine's <name>.internal into /etc/hosts (a
+                    managed block; your own entries are untouched), so
+                    http://<name>.internal:<port> resolves system-wide.
+                    `up` already runs this; call it again after `cmux vm new`
+                    to pick up a machine created since.
 
             The cmux app writes the config to ~/.cmuxterm/wireguard/cmux.conf
             with the private key generated on this Mac; the key never leaves it.
