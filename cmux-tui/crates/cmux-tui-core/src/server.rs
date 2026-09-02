@@ -19,6 +19,8 @@
 //! ```
 
 use std::collections::{BTreeMap, HashMap, HashSet, VecDeque};
+#[cfg(unix)]
+use std::ffi::CString;
 use std::io::{BufRead, BufReader, Read, Write};
 #[cfg(unix)]
 use std::mem::{offset_of, size_of};
@@ -29,6 +31,9 @@ use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 use std::sync::{Arc, Condvar, Mutex, Weak};
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
+
+#[cfg(unix)]
+use std::os::unix::ffi::OsStrExt;
 
 fn retry_accept_error(kind: std::io::ErrorKind) -> bool {
     // A queued client can terminate before accept completes. Keep serving
@@ -4889,19 +4894,159 @@ fn connect_error_proves_stale(error: &std::io::Error) -> bool {
     matches!(error.kind(), std::io::ErrorKind::ConnectionRefused | std::io::ErrorKind::NotFound)
 }
 
+#[cfg(unix)]
+fn rename_no_replace(from: &Path, to: &Path) -> std::io::Result<()> {
+    let from = CString::new(from.as_os_str().as_bytes())
+        .map_err(|_| std::io::Error::new(std::io::ErrorKind::InvalidInput, "path has NUL"))?;
+    let to = CString::new(to.as_os_str().as_bytes())
+        .map_err(|_| std::io::Error::new(std::io::ErrorKind::InvalidInput, "path has NUL"))?;
+
+    #[cfg(target_vendor = "apple")]
+    {
+        // SAFETY: both pointers reference live NUL-terminated path strings.
+        // RENAME_EXCL leaves an existing target intact.
+        if unsafe { libc::renamex_np(from.as_ptr(), to.as_ptr(), libc::RENAME_EXCL) } == 0 {
+            return Ok(());
+        }
+    }
+    #[cfg(any(target_os = "linux", target_os = "android"))]
+    {
+        // SAFETY: both pointers reference live NUL-terminated path strings.
+        // RENAME_NOREPLACE leaves an existing target intact.
+        if unsafe {
+            libc::syscall(
+                libc::SYS_renameat2,
+                libc::AT_FDCWD,
+                from.as_ptr(),
+                libc::AT_FDCWD,
+                to.as_ptr(),
+                libc::RENAME_NOREPLACE,
+            )
+        } == 0
+        {
+            return Ok(());
+        }
+    }
+    #[cfg(not(any(target_vendor = "apple", target_os = "linux", target_os = "android")))]
+    {
+        let _ = (from, to);
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::Unsupported,
+            "atomic no-replace rename is unavailable on this Unix target",
+        ));
+    }
+    Err(std::io::Error::last_os_error())
+}
+
+#[cfg(unix)]
+static CLEANUP_TOMBSTONE_COUNTER: AtomicU64 = AtomicU64::new(0);
+
+#[cfg(unix)]
+fn move_to_cleanup_tombstone(path: &Path) -> std::io::Result<Option<PathBuf>> {
+    let Some(name) = path.file_name() else { return Ok(None) };
+    for _ in 0..128 {
+        let counter = CLEANUP_TOMBSTONE_COUNTER.fetch_add(1, Ordering::Relaxed);
+        let mut tombstone_name = name.to_os_string();
+        tombstone_name.push(format!(".cmux-cleanup-{}-{counter}", std::process::id()));
+        let tombstone = path.with_file_name(tombstone_name);
+        match rename_no_replace(path, &tombstone) {
+            Ok(()) => return Ok(Some(tombstone)),
+            Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => continue,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+            Err(error) => return Err(error),
+        }
+    }
+    Err(std::io::Error::new(
+        std::io::ErrorKind::AlreadyExists,
+        "could not allocate a cleanup tombstone",
+    ))
+}
+
+/// Remove a publication only after atomically moving it to a private
+/// tombstone. A successor can bind the original path during this operation,
+/// but it is never unlinked: no-replace restore leaves that successor intact.
+fn remove_path_if_identity(
+    path: &Path,
+    observed_identity: SocketPathIdentity,
+) -> std::io::Result<bool> {
+    #[cfg(unix)]
+    {
+        let Some(tombstone) = move_to_cleanup_tombstone(path)? else { return Ok(false) };
+        let matches = match observed_identity.matches_path(&tombstone) {
+            Ok(matches) => matches,
+            Err(error) => {
+                let _ = rename_no_replace(&tombstone, path);
+                return Err(error);
+            }
+        };
+        if matches {
+            match std::fs::remove_file(&tombstone) {
+                Ok(()) => return Ok(true),
+                Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(false),
+                Err(error) => {
+                    let _ = rename_no_replace(&tombstone, path);
+                    return Err(error);
+                }
+            }
+        }
+        match rename_no_replace(&tombstone, path) {
+            Ok(()) => {}
+            Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {}
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+            Err(error) => return Err(error),
+        }
+        return Ok(false);
+    }
+    #[cfg(not(unix))]
+    {
+        let _ = (path, observed_identity);
+        // Without an atomic no-replace rename, fail closed rather than unlink
+        // a path after a check that an external binder can race.
+        Ok(false)
+    }
+}
+
+#[cfg(unix)]
+fn remove_non_socket_path(path: &Path) -> std::io::Result<bool> {
+    let Some(tombstone) = move_to_cleanup_tombstone(path)? else { return Ok(false) };
+    let metadata = match std::fs::symlink_metadata(&tombstone) {
+        Ok(metadata) => metadata,
+        Err(error) => {
+            let _ = rename_no_replace(&tombstone, path);
+            return Err(error);
+        }
+    };
+    use std::os::unix::fs::FileTypeExt;
+    if metadata.file_type().is_socket() {
+        match rename_no_replace(&tombstone, path) {
+            Ok(()) => return Ok(false),
+            Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => return Ok(false),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(false),
+            Err(error) => return Err(error),
+        }
+    }
+    match std::fs::remove_file(&tombstone) {
+        Ok(()) => Ok(true),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(false),
+        Err(error) => {
+            let _ = rename_no_replace(&tombstone, path);
+            Err(error)
+        }
+    }
+}
+
+#[cfg(not(unix))]
+fn remove_non_socket_path(path: &Path) -> std::io::Result<bool> {
+    let _ = path;
+    Ok(false)
+}
+
 /// Remove a stale socket only when the path still names the observed socket.
 fn remove_stale_socket_if_unchanged(
     path: &Path,
     observed_identity: SocketPathIdentity,
 ) -> std::io::Result<bool> {
-    if !observed_identity.matches_path(path)? {
-        return Ok(false);
-    }
-    match std::fs::remove_file(path) {
-        Ok(()) => Ok(true),
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(false),
-        Err(error) => Err(error),
-    }
+    remove_path_if_identity(path, observed_identity)
 }
 
 struct ListenerControl {
@@ -4942,10 +5087,10 @@ impl ServedSocketLease {
     /// Capture a bound listener only while its pathname still names it.
     pub fn claim_bound(path: PathBuf, listener: &transport::Listener) -> std::io::Result<Self> {
         let identity = SocketPathIdentity::capture(&path)?;
-        if listener.matches_path(&path)? == Some(false) {
+        if listener.matches_path(&path)? != Some(true) {
             return Err(std::io::Error::new(
                 std::io::ErrorKind::AddrNotAvailable,
-                "session socket path changed while claiming listener",
+                "session socket listener identity could not be verified",
             ));
         }
         Ok(Self { path, identity, linked: true, listener: None })
@@ -4987,13 +5132,7 @@ impl ServedSocketLease {
         // Keep the start lock while closing this listener. A successor cannot
         // bind and reuse its identity between shutdown and the fenced check.
         self.stop_listener();
-        if self.identity.matches_path(&self.path)? {
-            match std::fs::remove_file(&self.path) {
-                Ok(()) => {}
-                Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
-                Err(error) => return Err(error),
-            }
-        }
+        let _ = remove_path_if_identity(&self.path, self.identity)?;
         Ok(())
     }
 
@@ -5287,7 +5426,7 @@ pub fn serve_paused(mux: Arc<Mux>, path: Option<PathBuf>) -> anyhow::Result<Pend
                 "session socket {} is already in use (another instance running?)",
                 path.display()
             ),
-            Err(_) => {
+            Err(error) if connect_error_proves_stale(&error) => {
                 if let Some(identity) = stale_identity {
                     if !remove_stale_socket_if_unchanged(&path, identity)? && path.exists() {
                         anyhow::bail!(
@@ -5296,9 +5435,10 @@ pub fn serve_paused(mux: Arc<Mux>, path: Option<PathBuf>) -> anyhow::Result<Pend
                         );
                     }
                 } else {
-                    std::fs::remove_file(&path)?;
+                    let _ = remove_non_socket_path(&path)?;
                 }
             }
+            Err(error) => return Err(error).context("session socket probe failed"),
         }
     }
     let listener = transport::listen(&path)?;
