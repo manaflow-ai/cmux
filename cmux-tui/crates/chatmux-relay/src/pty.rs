@@ -3401,6 +3401,33 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn transport_close_checks_matching_attachment_after_other_open_reservation() {
+        let h = harness(None, None);
+        h.open_with_transport("p1", "main", "transport-a").await;
+        let attachment_generation =
+            h.manager.inner.attachments.lock().unwrap().get("p1").expect("attachment").generation;
+        let replacement_generation =
+            h.manager.inner.next_generation.fetch_add(1, Ordering::Relaxed);
+        h.manager.inner.opening_state.lock().unwrap().ids.insert(
+            "p1".to_owned(),
+            OpeningEntry {
+                transport_id: Some("transport-b".to_owned()),
+                generation: replacement_generation,
+            },
+        );
+
+        h.manager.inner.close_if_transport("p1", Some("transport-a"), Some(attachment_generation));
+
+        assert!(!h.manager.has_attachment("p1"));
+        let opening = h.manager.inner.opening_state.lock().unwrap();
+        assert!(!opening.cancelled.contains_key("p1"));
+        assert_eq!(
+            opening.ids.get("p1").map(|entry| entry.generation),
+            Some(replacement_generation)
+        );
+    }
+
+    #[tokio::test]
     async fn shell_open_output_input_resize_flow_round_trip() {
         let h = harness(None, None);
         h.open("p1", "main", Value::Null, "supervised", h.owner.clone()).await;
