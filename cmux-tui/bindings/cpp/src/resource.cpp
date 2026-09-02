@@ -663,6 +663,11 @@ void inject_routing(
             ErrorCode::invalid_argument,
             "manifest_version must be positive, permissions must contain 1 to 32 entries, and events must contain 1 to 64 entries");
     }
+    if (!journal_detail::valid_journal_sensitivity(manifest.max_sensitivity)) {
+        return make_error(
+            ErrorCode::invalid_argument,
+            "journal producer manifest has an invalid max_sensitivity");
+    }
     if (manifest.max_sensitivity == JournalSensitivity::secret) {
         return make_error(
             ErrorCode::invalid_argument,
@@ -696,6 +701,13 @@ void inject_routing(
             return make_error(
                 ErrorCode::invalid_argument,
                 "journal event schema_version must be positive");
+        }
+        if (!journal_detail::valid_journal_class(event.class_) ||
+            !journal_detail::valid_journal_replay(event.replay) ||
+            !journal_detail::valid_journal_sensitivity(event.sensitivity)) {
+            return make_error(
+                ErrorCode::invalid_argument,
+                "journal event schema contains an invalid enum value");
         }
         if (event.sensitivity == JournalSensitivity::secret ||
             journal_detail::sensitivity_rank(event.sensitivity) >
@@ -741,6 +753,12 @@ void inject_routing(
                 ErrorCode::invalid_argument,
                 "journal correlation identifiers must contain 1 to 128 bytes");
         }
+    }
+    if (event.sensitivity &&
+        !journal_detail::valid_journal_sensitivity(*event.sensitivity)) {
+        return make_error(
+            ErrorCode::invalid_argument,
+            "journal event sensitivity is invalid");
     }
     if (event.sensitivity == JournalSensitivity::secret) {
         return make_error(
@@ -1171,6 +1189,18 @@ Result<Json::Object> SessionJournalOptions::to_params() const {
             ErrorCode::invalid_argument,
             "journal cursor and start are mutually exclusive");
     }
+    if (start && *start != JournalStart::tail &&
+        *start != JournalStart::beginning) {
+        return make_error(
+            ErrorCode::invalid_argument,
+            "journal start is invalid");
+    }
+    if (filter.max_sensitivity &&
+        !journal_detail::valid_journal_sensitivity(*filter.max_sensitivity)) {
+        return make_error(
+            ErrorCode::invalid_argument,
+            "journal max_sensitivity is invalid");
+    }
     if (filter.max_sensitivity == JournalSensitivity::secret) {
         return make_error(
             ErrorCode::invalid_argument,
@@ -1197,6 +1227,11 @@ Result<Json::Object> SessionJournalOptions::to_params() const {
     if (!filter.classes.empty()) {
         Json::Array values;
         for (const auto value : filter.classes) {
+            if (!journal_detail::valid_journal_class(value)) {
+                return make_error(
+                    ErrorCode::invalid_argument,
+                    "journal class filter contains an invalid enum value");
+            }
             switch (value) {
                 case JournalClass::state: values.emplace_back("state"); break;
                 case JournalClass::observation: values.emplace_back("observation"); break;

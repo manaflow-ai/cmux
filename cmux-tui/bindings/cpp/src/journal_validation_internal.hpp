@@ -8,6 +8,40 @@
 
 namespace cmux::journal_detail {
 
+[[nodiscard]] inline bool valid_journal_class(JournalClass value) noexcept {
+    switch (value) {
+        case JournalClass::state:
+        case JournalClass::observation:
+        case JournalClass::effect:
+        case JournalClass::checkpoint:
+            return true;
+    }
+    return false;
+}
+
+[[nodiscard]] inline bool valid_journal_replay(
+    JournalReplayPolicy value) noexcept {
+    switch (value) {
+        case JournalReplayPolicy::required:
+        case JournalReplayPolicy::advisory:
+        case JournalReplayPolicy::never:
+            return true;
+    }
+    return false;
+}
+
+[[nodiscard]] inline bool valid_journal_sensitivity(
+    JournalSensitivity value) noexcept {
+    switch (value) {
+        case JournalSensitivity::public_:
+        case JournalSensitivity::metadata:
+        case JournalSensitivity::sensitive:
+        case JournalSensitivity::secret:
+            return true;
+    }
+    return false;
+}
+
 [[nodiscard]] inline unsigned sensitivity_rank(JournalSensitivity value) noexcept {
     switch (value) {
         case JournalSensitivity::public_: return 0;
