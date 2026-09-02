@@ -2094,6 +2094,20 @@ line_regex = ["^working$", "^missing line$"]
     }
 
     #[test]
+    fn screen_detect_grok_blank_braille_does_not_override_idle_progress() {
+        let grok = ManifestSet::bundled().identify("grok").unwrap();
+
+        let idle = grok.detect(DetectionInput {
+            screen: "",
+            osc_title: "\u{2800} custom session title",
+            osc_progress: "4;0;0",
+        });
+
+        assert_eq!(idle.state, ScreenState::Idle);
+        assert_eq!(idle.matched_rule.as_deref(), Some("osc_progress_idle"));
+    }
+
+    #[test]
     fn screen_detect_grok_local_patch_rejects_older_remote_manifest() {
         let bundled = include_str!("../manifests/grok.toml");
         let upstream =
@@ -2164,6 +2178,18 @@ line_regex = ["^working$", "^missing line$"]
             (
                 "id = \"x\"\n[[rules]]\nid = \"same\"\nstate = \"idle\"\ncontains = [\"a\"]\n[[rules]]\nid = \"same\"\nstate = \"working\"\ncontains = [\"b\"]\n",
                 "duplicate rule ids",
+            ),
+            (
+                "id = \"x\"\n[[rules]]\nid = \"empty\"\nstate = \"idle\"\ncontains = [\"\"]\n",
+                "empty contains matcher",
+            ),
+            (
+                "id = \"x\"\n[[rules]]\nid = \"empty\"\nstate = \"idle\"\nregex = [\"\"]\n",
+                "empty regex matcher",
+            ),
+            (
+                "id = \"x\"\n[[rules]]\nid = \"empty\"\nstate = \"idle\"\nline_regex = [\"\"]\n",
+                "empty line regex matcher",
             ),
         ] {
             assert!(compile_manifest_source(source).is_err(), "{why}");

@@ -19,7 +19,7 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use cmux::{
     Client, Config, JournalAppendResult, JournalClass, JournalEventSchema, JournalIngress,
     JournalProducerManifest, JournalReplayPolicy, JournalSensitivity, JournalSubject,
-    MutationOptions, ReadScreenOptions, Session, Terminal,
+    MutationOptions, ReadScreenOptions, Selector, Session, SessionId, Terminal,
 };
 use serde_json::json;
 
@@ -121,12 +121,13 @@ enum PublishResult {
 pub fn run(socket: &str, session_name: &str, plugin_id: &str) -> Result<(), String> {
     let plugin_generation =
         std::env::var("CMUX_PLUGIN_GENERATION").ok().filter(|value| !value.is_empty());
+    let session_selector = configured_session_selector(session_name)?;
     let mut state = ScannerState::new();
     loop {
         let config = Config::from_socket_path(socket);
         match Client::connect(config) {
             Ok(client) => {
-                let session = client.current_session();
+                let session = client.session(session_selector.clone());
                 if let Err(error) = register_manifest(&session, plugin_id) {
                     eprintln!("cmux-agent-screen-detection: manifest registration failed: {error}");
                     thread::sleep(RECONNECT_INTERVAL);
@@ -144,6 +145,10 @@ pub fn run(socket: &str, session_name: &str, plugin_id: &str) -> Result<(), Stri
         }
         thread::sleep(RECONNECT_INTERVAL);
     }
+}
+
+fn configured_session_selector(_session_name: &str) -> Result<Selector<SessionId>, String> {
+    Ok(Selector::current())
 }
 
 fn register_manifest(session: &Session, plugin_id: &str) -> Result<(), String> {
@@ -945,6 +950,14 @@ fn emission_idempotency_key(nonce: &str, sequence: u64) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn configured_session_selector_does_not_fall_back_to_current() {
+        let id = SessionId::parse("session_00000000000000000000000000000001").unwrap();
+        assert_eq!(configured_session_selector(id.as_str()).unwrap(), Selector::id(id));
+        assert_eq!(configured_session_selector("secondary").unwrap(), Selector::name("secondary"));
+        assert!(configured_session_selector("   ").is_err());
+    }
 
     fn cached(
         checked_at: Instant,

@@ -1146,6 +1146,7 @@ mod tests {
     #[test]
     fn classification_matches_connection_control_exceptions() {
         assert_eq!(operation_class(ops::TERMINAL_COPY), OperationClass::Read);
+        assert_eq!(operation_class(ops::SESSION_JOURNAL_PRODUCER_LIST), OperationClass::Read);
         assert_eq!(operation_class(ops::REQUEST_CANCEL), OperationClass::ConnectionControl);
         assert_eq!(operation_class(ops::TERMINAL_VIEWER_RESIZE), OperationClass::ConnectionControl);
         assert_eq!(operation_class(ops::TAB_CREATE_TERMINAL), OperationClass::Mutation);

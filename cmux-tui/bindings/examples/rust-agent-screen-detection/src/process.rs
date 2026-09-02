@@ -2107,6 +2107,15 @@ mod tests {
     }
 
     #[test]
+    fn malformed_versioned_muse_names_are_not_identified() {
+        for name in ["muse-bin-1garbage", "muse-bin-1", "muse-bin-1.2_unsafe"] {
+            let job =
+                ForegroundJob { process_group_id: 7, processes: vec![process(7, name, &[name])] };
+            assert!(identify_job(ManifestSet::bundled(), &job).is_none(), "{name}");
+        }
+    }
+
+    #[test]
     fn process_identity_hints_prefer_cmux_and_keep_herdr_compatibility() {
         assert_eq!(
             parse_agent_env_hint(b"PATH=/bin\0HERDR_AGENT=claude\0TERM=xterm\0"),

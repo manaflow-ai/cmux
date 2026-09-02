@@ -563,7 +563,7 @@ impl ScreenDetectTracker {
         entry.visible_working = false;
         entry.last_visible_blocker_refresh = None;
         let next = (agent.to_string(), AgentState::Idle);
-        if entry.emitted.as_ref() == Some(&next) {
+        if entry.emitted.as_ref() == Some(&next) && !entry.identity_presence_needed {
             entry.identity_presence_needed = false;
             return None;
         }
@@ -1279,6 +1279,30 @@ mod tests {
         assert!(tracker.note_foreground_job_at("term_a", Some("codex"), Some(42), at(700)));
         assert!(tracker.startup_grace_active("term_a", at(700 + AGENT_STARTUP_GRACE_MS - 1)));
         assert!(!tracker.startup_grace_active("term_a", at(700 + AGENT_STARTUP_GRACE_MS)));
+    }
+
+    #[test]
+    fn same_agent_process_replacement_republishes_idle_presence() {
+        let mut tracker = ScreenDetectTracker::default();
+        let t0 = Instant::now();
+
+        assert!(tracker.note_foreground_job_at("term_a", Some("codex"), Some(41), t0));
+        let first = tracker.record_identity_presence_at("term_a", "codex", t0).unwrap();
+        tracker.commit_emission(&first);
+        assert!(!tracker.needs_identity_presence("term_a", "codex"));
+
+        assert!(tracker.note_foreground_job_at(
+            "term_a",
+            Some("codex"),
+            Some(42),
+            t0 + Duration::from_millis(1),
+        ));
+        assert!(tracker.needs_identity_presence("term_a", "codex"));
+        let replacement = tracker
+            .record_identity_presence_at("term_a", "codex", t0 + Duration::from_millis(1))
+            .expect("replacement must emit presence even when state stays idle");
+        assert_eq!(replacement.agent, "codex");
+        assert_eq!(replacement.state, AgentState::Idle);
     }
 
     #[test]
