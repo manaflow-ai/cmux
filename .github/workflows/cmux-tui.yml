@@ -371,6 +371,9 @@ jobs:
           EXACT_COMMIT: ${{ inputs.commit }}
         run: test "$(git rev-parse HEAD)" = "$EXACT_COMMIT"
 
+      - name: Hosted artifact retention tests
+        run: ./scripts/test-hosted-retention.sh
+
       - name: Use short temporary directory for macOS socket tests
         if: runner.os == 'macOS'
         run: echo "TMPDIR=/tmp" >> "$GITHUB_ENV"
