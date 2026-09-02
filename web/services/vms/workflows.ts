@@ -1633,6 +1633,7 @@ export function execVm(input: {
     );
     const result = yield* providers.exec(vm.provider, input.providerVmId, input.command, {
       timeoutMs: input.timeoutMs,
+      providerMetadata: vm.providerMetadata,
     });
     yield* repo.recordUsageEvent({
       userId: input.userId,
@@ -1827,7 +1828,9 @@ export function approveVmCmuxRemoteEnrollment(input: {
         }),
       );
     }
-    return yield* providers.approveCmuxRemoteEnrollment(vm.provider, input.providerVmId, input.invitationId);
+    return yield* providers.approveCmuxRemoteEnrollment(vm.provider, input.providerVmId, input.invitationId, {
+      providerMetadata: vm.providerMetadata,
+    });
   });
 }
 
