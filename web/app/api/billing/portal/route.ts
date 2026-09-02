@@ -43,7 +43,7 @@ export async function GET(request: NextRequest) {
   try {
     const user = await currentStackUser(getStackServerApp);
     if (!user) {
-      return NextResponse.redirect(new URL("/pricing", request.url), 302);
+      return NextResponse.redirect(new URL("/pricing", requestOrigin(request)), 302);
     }
     stackUserId = user.id;
 
@@ -124,7 +124,7 @@ function billingPortalScope(raw: string | null): "user" | "team" {
 }
 
 function pricingRedirect(request: NextRequest, billing: "unavailable" | "error") {
-  return NextResponse.redirect(new URL(`/pricing?billing=${billing}`, request.url), 302);
+  return NextResponse.redirect(new URL(`/pricing?billing=${billing}`, requestOrigin(request)), 302);
 }
 
 function isStripePortalConfigurationError(error: unknown): boolean {
