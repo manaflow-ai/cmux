@@ -2,7 +2,7 @@ import { spawn } from "node:child_process";
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { describe, expect, setDefaultTimeout, test } from "bun:test";
+import { describe, expect, test } from "bun:test";
 import {
   CMUX_CLOUD_LAYOUT,
   cmuxTuiDaemonCommand,
@@ -18,12 +18,6 @@ const SHA = "c7a3155341a85a2f10a873d69a041bdf1855ec059a802e58e0779a7a6bdec607";
 const COMMIT = "5a4780614cecd8e8ef040a24478f928ef31cc4ae";
 const MANIFEST = `https://files.cmux.com/cmux-tui/${COMMIT}/manifest.json`;
 const URL = `https://files.cmux.com/cmux-tui/${COMMIT}/cmux-tui-x86_64-unknown-linux-musl`;
-
-// The supervisor fixtures intentionally exercise a two-second shutdown grace
-// period and can be scheduled behind other process-heavy files on CI. Keep
-// Bun's harness timeout above that contract while the assertions retain their
-// own tighter readiness/deadline checks.
-setDefaultTimeout(10_000);
 
 function withEnv(values: Record<string, string | undefined>, run: () => void) {
   const previous: Record<string, string | undefined> = {};
