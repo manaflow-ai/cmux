@@ -13545,6 +13545,13 @@ mod tests {
         assert!(retry_accept_error(std::io::ErrorKind::ConnectionReset));
     }
 
+    #[test]
+    fn listener_accept_retry_budget_stops_persistent_resource_errors() {
+        assert!(accept_retry_allowed(0));
+        assert!(accept_retry_allowed(ACCEPT_RETRY_LIMIT - 1));
+        assert!(!accept_retry_allowed(ACCEPT_RETRY_LIMIT));
+    }
+
     #[cfg(unix)]
     #[test]
     fn listener_accept_retries_descriptor_exhaustion() {
