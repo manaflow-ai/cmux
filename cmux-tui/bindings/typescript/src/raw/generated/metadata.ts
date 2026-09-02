@@ -1,10 +1,10 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 65aa592727bc414fe3e66ac125c9b8541a1926bbe9eaa572acc66b4681bf6589. */
+/* cmux-tui mux protocol 12, IR 3abe68cfbb73abb8aab5265d34cdafd7207a111cbe9e1923c8637f5376abb929. */
 
 
 export const SDK_SCHEMA_VERSION = 2 as const;
 export const MUX_PROTOCOL_VERSION = 12 as const;
-export const SDK_IR_SHA256 = "65aa592727bc414fe3e66ac125c9b8541a1926bbe9eaa572acc66b4681bf6589" as const;
+export const SDK_IR_SHA256 = "3abe68cfbb73abb8aab5265d34cdafd7207a111cbe9e1923c8637f5376abb929" as const;
 export const PROTOCOL = {
   "id_type": "uint64",
   "javascript_id_policy": "All protocol identifiers are uint64 JSON numbers. JavaScript and TypeScript SDKs must decode them losslessly as bigint (or validated decimal strings at their public boundary), and must not expose IEEE-754 number ids. Pairing request ids, revisions, timestamps, frame sequences, and reservation ids follow the same rule.",
@@ -534,6 +534,14 @@ export const COMMAND_METADATA = {
     "authority": "control",
     "since": 5,
     "capability": null,
+    "fields": {},
+    "stream": null,
+    "constraints": []
+  },
+  "machine-usage": {
+    "authority": "control",
+    "since": 12,
+    "capability": "machine-usage-v1",
     "fields": {},
     "stream": null,
     "constraints": []
@@ -1378,6 +1386,14 @@ export const EVENT_METADATA = {
   "layout-changed": {
     "since": 6,
     "capability": null,
+    "streams": [
+      "subscribe"
+    ],
+    "emission": "emitted"
+  },
+  "machine-usage-changed": {
+    "since": 12,
+    "capability": "machine-usage-v1",
     "streams": [
       "subscribe"
     ],
@@ -3497,6 +3513,73 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
             "name": "Tab"
           },
           "kind": "array"
+        }
+      }
+    },
+    "kind": "object"
+  },
+  "MachineUsage": {
+    "additional_properties": false,
+    "constraints": [
+      "period_days is the trailing window length in days.",
+      "api_equivalent_usd is the list-price equivalent of the machine's model traffic in that window."
+    ],
+    "fields": {
+      "api_equivalent_usd": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "float64"
+        }
+      },
+      "as_of": {
+        "nullable": true,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "period_days": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint32"
+        }
+      },
+      "total_tokens": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
+        }
+      },
+      "vm_id": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      }
+    },
+    "kind": "object"
+  },
+  "MachineUsageResult": {
+    "additional_properties": false,
+    "constraints": [
+      "usage is null when the daemon has no readout (not a Cloud VM, endpoint unavailable, or usage not ready)."
+    ],
+    "fields": {
+      "usage": {
+        "nullable": true,
+        "presence": "required",
+        "type": {
+          "kind": "ref",
+          "name": "MachineUsage"
         }
       }
     },
@@ -8023,6 +8106,17 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
       "name": "Tree"
     }
   },
+  "machine-usage": {
+    "request": {
+      "additional_properties": false,
+      "fields": {},
+      "kind": "object"
+    },
+    "result": {
+      "kind": "ref",
+      "name": "MachineUsageResult"
+    }
+  },
   "mark-workspaces-provider-managed": {
     "request": {
       "additional_properties": false,
@@ -11244,6 +11338,28 @@ export const EVENT_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
         "type": {
           "kind": "ref",
           "name": "Id"
+        }
+      }
+    },
+    "kind": "object"
+  },
+  "machine-usage-changed": {
+    "additional_properties": false,
+    "fields": {
+      "event": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "literal",
+          "value": "machine-usage-changed"
+        }
+      },
+      "usage": {
+        "nullable": true,
+        "presence": "required",
+        "type": {
+          "kind": "ref",
+          "name": "MachineUsage"
         }
       }
     },

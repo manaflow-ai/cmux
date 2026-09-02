@@ -162,6 +162,7 @@
       "list-clients",
       "list-terminals",
       "list-workspaces",
+      "machine-usage",
       "move-tab",
       "move-terminal",
       "move-workspace",
@@ -338,6 +339,12 @@
     },
     {
       "name": "layout-changed",
+      "streams": [
+        "subscribe"
+      ]
+    },
+    {
+      "name": "machine-usage-changed",
       "streams": [
         "subscribe"
       ]

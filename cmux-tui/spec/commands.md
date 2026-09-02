@@ -401,6 +401,39 @@ Example:
 {"id":4,"ok":true,"data":[{"client":1,"transport":"unix","name":"host","kind":"tui","connected_seconds":12,"attached":[7],"sizes":[{"surface":7,"cols":120,"rows":36,"size_participating":true}],"self":true}]}
 ```
 
+### machine-usage
+
+| Field | Value |
+| --- | --- |
+| name | `machine-usage` |
+| status | implemented |
+| since | protocol 12 additive extension; capability `machine-usage-v1` |
+
+Returns the machine-level model spend readout hosted by this daemon. Inside a cmux Cloud VM the daemon polls coderouter for the trailing-window totals of the machine's model traffic; anywhere else, or while coderouter has no ready totals, `usage` is null and frontends hide the readout. Servers advertise `machine-usage-v1` in `identify.capabilities`.
+
+Params: none.
+
+Result:
+
+```text
+object{
+  usage:object{
+    vm_id:string,
+    period_days:uint32,
+    total_tokens:uint64,
+    api_equivalent_usd:float64,
+    as_of:string|null
+  }|null
+}
+```
+
+Example:
+
+```json
+{"id":9,"cmd":"machine-usage"}
+{"id":9,"ok":true,"data":{"usage":{"vm_id":"3f1c...","period_days":30,"total_tokens":184220,"api_equivalent_usd":1.23,"as_of":"2026-09-01T00:00:00Z"}}}
+```
+
 ### register-browser-provider / get-browser-provider
 
 | Field | Value |

@@ -14,6 +14,8 @@ const VM_UUID_PATTERN =
 
 export type TeamMachine = {
   readonly vmId: string;
+  /** The provider's machine id, the `id` that `GET /api/vm` lists. */
+  readonly providerVmId: string | null;
   readonly displayName: string | null;
   readonly destroyed: boolean;
   readonly createdAt: string;
@@ -34,6 +36,7 @@ function teamScope(teamId: string) {
 
 function machineFromRow(row: {
   id: string;
+  providerVmId: string | null;
   displayName: string | null;
   status: string;
   createdAt: Date;
@@ -41,6 +44,7 @@ function machineFromRow(row: {
   const displayName = row.displayName?.trim() ?? "";
   return {
     vmId: row.id,
+    providerVmId: row.providerVmId?.trim() || null,
     displayName: displayName ? displayName : null,
     destroyed: row.status === "destroyed",
     createdAt: row.createdAt.toISOString(),
@@ -56,6 +60,7 @@ export async function findTeamMachine(
   const [row] = await cloudDb()
     .select({
       id: cloudVms.id,
+      providerVmId: cloudVms.providerVmId,
       displayName: cloudVms.displayName,
       status: cloudVms.status,
       createdAt: cloudVms.createdAt,
@@ -72,6 +77,7 @@ export async function listTeamMachines(
   const rows = await cloudDb()
     .select({
       id: cloudVms.id,
+      providerVmId: cloudVms.providerVmId,
       displayName: cloudVms.displayName,
       status: cloudVms.status,
       createdAt: cloudVms.createdAt,

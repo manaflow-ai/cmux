@@ -73,8 +73,8 @@ use crate::workspace_registry::TerminalLifecycle;
 use crate::{
     AgentRecord, AgentSource, AgentState, AttachFrame, BrowserAttachState, BrowserFrameStream,
     DefaultColors, Direction, GraphicsStatus, JournalClass, JournalSensitivity, JournalSubject,
-    LayoutLeafSpec, LayoutRatioError, LayoutSpec, LayoutUndoResult, Mux, MuxEvent, Node,
-    NotificationLevel, PairingDecision, PaneId, RenderAttachFrame, RenderAttachStream, Rgb,
+    LayoutLeafSpec, LayoutRatioError, LayoutSpec, LayoutUndoResult, MachineUsage, Mux, MuxEvent,
+    Node, NotificationLevel, PairingDecision, PaneId, RenderAttachFrame, RenderAttachStream, Rgb,
     ScreenId, SidebarPluginStatus, SplitDir, SplitId, SurfaceId, SurfaceKind, SurfaceNotification,
     SurfaceRenderFrame, TerminalColors, TreeDelta, TreeDeltaKind, ViewportWidthError, WorkspaceId,
     WorkspaceMutation, ZoomMode, assign_short_ids,
@@ -108,6 +108,8 @@ pub const PROVIDER_MANAGED_WORKSPACE_GUARD_CAPABILITY: &str =
     "provider-managed-workspace-authority-v2";
 pub const BROWSER_PROVIDER_CAPABILITY: &str = "browser-provider-v1";
 pub const CLIENT_FOCUS_CAPABILITY: &str = "client-focus-v1";
+/// The daemon answers `machine-usage` and emits `machine-usage-changed`.
+pub const MACHINE_USAGE_CAPABILITY: &str = "machine-usage-v1";
 const INITIAL_BROWSER_RESIZE_TIMEOUT: Duration = Duration::from_secs(10);
 pub const STABLE_SPLIT_IDS_PROTOCOL_VERSION: u32 = 8;
 pub const STACK_LAYOUT_PROTOCOL_VERSION: u32 = 9;
@@ -127,6 +129,20 @@ fn validate_client_focus_id(client_id: &str) -> anyhow::Result<()> {
         anyhow::bail!("bad request: invalid client_id");
     }
     Ok(())
+}
+
+/// `machine-usage` result and `machine-usage-changed` payload body: `usage`
+/// is the readout object or null when the daemon has none.
+fn machine_usage_json(usage: Option<&MachineUsage>) -> Value {
+    json!({
+        "usage": usage.map(|usage| json!({
+            "vm_id": usage.vm_id,
+            "period_days": usage.period_days,
+            "total_tokens": usage.total_tokens,
+            "api_equivalent_usd": usage.api_equivalent_usd,
+            "as_of": usage.as_of,
+        })),
+    })
 }
 
 fn advertised_capabilities(bounded_clear_history_fallback_writes: bool) -> Vec<&'static str> {
@@ -150,6 +166,7 @@ fn advertised_capabilities(bounded_clear_history_fallback_writes: bool) -> Vec<&
         PROVIDER_MANAGED_WORKSPACE_GUARD_CAPABILITY,
         BROWSER_PROVIDER_CAPABILITY,
         CLIENT_FOCUS_CAPABILITY,
+        MACHINE_USAGE_CAPABILITY,
     ];
     if bounded_clear_history_fallback_writes {
         capabilities.push(CLEAR_HISTORY_KEY_CAPABILITY);
@@ -630,6 +647,8 @@ enum Command {
         capabilities: Option<Vec<String>>,
     },
     ListClients,
+    /// Read the machine-level model spend readout hosted by this daemon.
+    MachineUsage,
     /// Publish the native browser process's live CDP targets. This is an
     /// owner-only, connection-scoped lease and never enters the journal.
     RegisterBrowserProvider {
@@ -11124,6 +11143,7 @@ fn handle_command_with_cancellation(
             Ok(json!({}))
         }
         Command::ListClients => Ok(mux.control_clients_json(client)),
+        Command::MachineUsage => Ok(machine_usage_json(mux.machine_usage().as_ref())),
         Command::RegisterBrowserProvider {
             provider_id,
             endpoint,
@@ -13091,6 +13111,11 @@ fn subscribed_event_json(event: &MuxEvent) -> Value {
             }),
         },
         MuxEvent::Status(message) => json!({"event": "status", "message": message}),
+        MuxEvent::MachineUsageChanged(usage) => {
+            let mut payload = machine_usage_json(usage.as_ref());
+            payload["event"] = json!("machine-usage-changed");
+            payload
+        }
         MuxEvent::ConfigReloadRequested => json!({"event": "config-reload-requested"}),
         MuxEvent::WindowTitleRequested(title) => {
             json!({"event": "window-title-requested", "title": title})

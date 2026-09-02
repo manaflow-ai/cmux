@@ -30,6 +30,8 @@ export type VmUsageResponse = {
 
 export type TeamMachineUsage = {
   readonly vmId: string;
+  /** The id `GET /api/vm` lists for this machine; clients key rows by it. */
+  readonly providerVmId: string | null;
   readonly displayName: string | null;
   readonly totals: VmUsageTotals;
 };
@@ -109,6 +111,7 @@ export function teamMachineUsage(
       if (!usage && machine.destroyed) return [];
       return [{
         vmId: machine.vmId,
+        providerVmId: machine.providerVmId,
         displayName: machine.displayName,
         totals: usage ? publicTotals(usage) : ZERO_TOTALS,
         createdAt: machine.createdAt,
@@ -118,7 +121,7 @@ export function teamMachineUsage(
       right.totals.totalTokens - left.totals.totalTokens ||
       right.createdAt.localeCompare(left.createdAt)
     )
-    .map(({ vmId, displayName, totals }) => ({ vmId, displayName, totals }));
+    .map(({ vmId, providerVmId, displayName, totals }) => ({ vmId, providerVmId, displayName, totals }));
 }
 
 export function teamVmUsageResponse(
