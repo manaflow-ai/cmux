@@ -64,6 +64,8 @@ const realWithVaultUserQuotaLock = vaultUsageModule.withVaultUserQuotaLock;
 const vmErrorsModule = await import("../services/vms/errors");
 const workflowsModule = await import("../services/vms/workflows");
 const realDestroyVm = workflowsModule.destroyVm;
+const realDeletePrivateNetworkingForAccountDeletion =
+  workflowsModule.deletePrivateNetworkingForAccountDeletion;
 const realListUserVms = workflowsModule.listUserVms;
 const realRevokeUserIdentityLeasesForAccountDeletion = workflowsModule.revokeUserIdentityLeasesForAccountDeletion;
 const realRunVmWorkflow = workflowsModule.runVmWorkflow as (...args: unknown[]) => unknown;
@@ -210,6 +212,10 @@ const revokeUserIdentityLeasesForAccountDeletion = mock((...args: unknown[]) => 
     afterBatch: input?.afterBatch,
   };
 });
+const deletePrivateNetworkingForAccountDeletion = mock((...args: unknown[]) => {
+  const [userId] = args as [string];
+  return { kind: "deletePrivateNetworking" as const, userId };
+});
 const destroyVm = mock((...args: unknown[]) => {
   const [input] = args as [{
     readonly userId: string;
@@ -238,6 +244,10 @@ const runVmWorkflow = mock(async (...args: unknown[]) => {
     routeEvents.push("revoke-identities");
     if (revokeIdentityLeasesError) throw revokeIdentityLeasesError;
     return revokedIdentityLeaseCount;
+  }
+  if (program.kind === "deletePrivateNetworking") {
+    routeEvents.push("delete-private-networking");
+    return { tunnels: 0, networks: 0 };
   }
   routeEvents.push("destroy-vm");
   const destroyVmFailure = destroyVmFailureErrorsByProviderId.get(program.input.providerVmId);
@@ -394,6 +404,7 @@ type WorkflowProgram =
       readonly userId: string;
       readonly afterBatch?: () => unknown;
     }
+  | { readonly kind: "deletePrivateNetworking"; readonly userId: string }
   | {
       readonly kind: "destroyVm";
       readonly input: {
@@ -596,6 +607,11 @@ mock.module("../services/vms/workflows", () => ({
     if (input.userId === ACCOUNT_USER_ID) return destroyVm(...args);
     return realDestroyVm(...args);
   }) as typeof realDestroyVm,
+  deletePrivateNetworkingForAccountDeletion: ((...args: Parameters<typeof realDeletePrivateNetworkingForAccountDeletion>) => {
+    const [userId] = args;
+    if (userId === ACCOUNT_USER_ID) return deletePrivateNetworkingForAccountDeletion(...args);
+    return realDeletePrivateNetworkingForAccountDeletion(...args);
+  }) as typeof realDeletePrivateNetworkingForAccountDeletion,
   revokeUserIdentityLeasesForAccountDeletion: ((...args: Parameters<typeof realRevokeUserIdentityLeasesForAccountDeletion>) => {
     const [userId] = args;
     if (userId === ACCOUNT_USER_ID) return revokeUserIdentityLeasesForAccountDeletion(...args);
@@ -884,6 +900,7 @@ describe("account deletion route", () => {
       "list-vms",
       "destroy-vm",
       "destroy-vm",
+      "delete-private-networking",
       "vault-delete",
       "vault-delete",
       "vault-delete",
@@ -2344,6 +2361,7 @@ describe("account deletion route", () => {
       "list-vms",
       "destroy-vm",
       "destroy-vm",
+      "delete-private-networking",
       "transaction",
       "transaction-lock",
       "stack-delete",
@@ -2568,6 +2586,7 @@ function isAccountDeletionWorkflowProgram(program: unknown): boolean {
   if (candidate.kind === "revokeUserIdentityLeasesForAccountDeletion") {
     return candidate.userId === ACCOUNT_USER_ID;
   }
+  if (candidate.kind === "deletePrivateNetworking") return candidate.userId === ACCOUNT_USER_ID;
   if (candidate.kind === "destroyVm") return candidate.input?.userId === ACCOUNT_USER_ID;
   return false;
 }
