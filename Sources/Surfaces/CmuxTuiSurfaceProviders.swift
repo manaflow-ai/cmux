@@ -1,3 +1,4 @@
+import CmuxFoundation
 import Foundation
 
 /// Owns one ``CmuxTuiSurfaceProvider`` per cloud machine and keeps the catalog's machine
@@ -304,8 +305,10 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
             where reconnectableSessionIDs.contains(ObjectIdentifier(session)) {
                 session.reconnect(socketPath: connected.socketPath)
             }
+            let privateAddress = summary.preferredPrivateAddress
             for port in await ports(client: client, force: force) {
-                resources.append(CmuxTuiSnapshotParser.portBrowser(machine: machine, port: port))
+                let directURL = privateAddress.map { CmuxInternalHostnames.directPortURL(privateAddress: $0, port: port) }
+                resources.append(CmuxTuiSnapshotParser.portBrowser(machine: machine, port: port, directURL: directURL))
             }
         } catch {
             let status = await links.status(machineID: machineID)
@@ -452,7 +455,20 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
             guard let port = resource.port ?? (desktop ? CmuxTuiSnapshotParser.desktopPort : nil) else {
                 throw SurfaceCatalogError.unsupported("browser \(resource.id) has no port")
             }
-            if let url = endpointURL(port: port, desktop: desktop) {
+            // A forwarded-port row (`portBrowser`, id key "port:<n>") already
+            // carries the URL to open — its own private address over the
+            // WireGuard tunnel — and must navigate there directly, never
+            // through the endpoint()/openPort proxy below: Freestyle's public
+            // platform has no port-forwarding proxy for arbitrary ports, so
+            // that call fails outright for exactly the machines this exists
+            // for. A regular daemon browser's `url` is a different thing (the
+            // remote tab's own address, not a locally-openable link) and must
+            // still go through the proxy/CDP path, so this only ever fires
+            // for the id shape `portBrowser` mints.
+            if !desktop, resource.id.key.hasPrefix("port:"),
+               let directURLString = resource.url, let directURL = URL(string: directURLString) {
+                created = try SurfacePaneFactory.makeBrowserPane(url: directURL, at: destination, focus: focus)
+            } else if let url = endpointURL(port: port, desktop: desktop) {
                 created = try SurfacePaneFactory.makeBrowserPane(url: url, at: destination, focus: focus)
             } else {
                 // Optimistic: the pane exists before its endpoint does. Minting the preview
