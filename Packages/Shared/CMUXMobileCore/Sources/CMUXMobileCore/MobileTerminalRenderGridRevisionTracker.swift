@@ -70,7 +70,8 @@ public struct MobileTerminalRenderGridRevisionTracker: Sendable {
         fullFrame: MobileTerminalRenderGridFrame,
         content: MobileTerminalRenderGridContent? = nil
     ) -> Identity {
-        _ = observe(fullFrame: fullFrame, content: content)
+        let renderedContent = content ?? fullFrame.renderedContent()
+        updateContentRevision(renderedContent)
         emissionRevision &+= 1
         if emissionRevision == 0 {
             emissionRevision = 1
@@ -92,14 +93,21 @@ public struct MobileTerminalRenderGridRevisionTracker: Sendable {
         fullFrame: MobileTerminalRenderGridFrame,
         content: MobileTerminalRenderGridContent? = nil
     ) -> Identity {
-        let renderedContent = content ?? fullFrame.renderedContent()
-        if lastContent != renderedContent {
-            renderRevision &+= 1
-            if renderRevision == 0 {
-                renderRevision = 1
-            }
-            lastContent = renderedContent
+        // Once a real event has established the producer baseline, a
+        // request/response replay must not replace it with a capture carrying
+        // a different scrollback budget. Such a replacement would make the
+        // next event look like a content change even when only the requested
+        // history depth changed. The event producer remains the authority for
+        // subsequent revisions; observations still return its current token.
+        guard emissionRevision == 0 else {
+            return Identity(
+                renderEpoch: renderEpoch,
+                renderRevision: renderRevision,
+                emissionRevision: 0
+            )
         }
+        let renderedContent = content ?? fullFrame.renderedContent()
+        updateContentRevision(renderedContent)
         // Observation is deliberately not an emission. Returning the current
         // emission counter here would let a request/response projection reuse
         // an unrelated live-frame identity as a delta baseline.
@@ -108,6 +116,18 @@ public struct MobileTerminalRenderGridRevisionTracker: Sendable {
             renderRevision: renderRevision,
             emissionRevision: 0
         )
+    }
+
+    private mutating func updateContentRevision(
+        _ renderedContent: MobileTerminalRenderGridContent
+    ) {
+        if lastContent != renderedContent {
+            renderRevision &+= 1
+            if renderRevision == 0 {
+                renderRevision = 1
+            }
+            lastContent = renderedContent
+        }
     }
 
 }

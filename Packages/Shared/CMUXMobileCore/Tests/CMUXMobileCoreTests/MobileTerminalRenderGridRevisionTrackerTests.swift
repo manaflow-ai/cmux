@@ -128,6 +128,38 @@ private struct RenderGridRevisionFixture {
     #expect(observed.emissionRevision == 0)
 }
 
+@Test func observingAReplayWithDifferentScrollbackDoesNotPerturbEmissionBaseline() throws {
+    let eventFrame = try MobileTerminalRenderGridFrame(
+        surfaceID: "surface-a",
+        stateSeq: 1,
+        columns: 8,
+        rows: 1,
+        rowSpans: [.init(row: 0, column: 0, text: "visible")]
+    )
+    let replayFrame = try MobileTerminalRenderGridFrame(
+        surfaceID: "surface-a",
+        stateSeq: 1,
+        columns: 8,
+        rows: 1,
+        rowSpans: [.init(row: 0, column: 0, text: "visible")],
+        scrollbackRows: 2,
+        scrollbackSpans: [
+            .init(row: 0, column: 0, text: "older"),
+            .init(row: 1, column: 0, text: "newer"),
+        ]
+    )
+    var tracker = MobileTerminalRenderGridRevisionTracker(renderEpoch: "epoch-1")
+
+    let first = tracker.record(fullFrame: eventFrame)
+    let observed = tracker.observe(fullFrame: replayFrame)
+    let nextEvent = tracker.record(fullFrame: eventFrame)
+
+    #expect(observed.renderRevision == first.renderRevision)
+    #expect(observed.emissionRevision == 0)
+    #expect(nextEvent.renderRevision == first.renderRevision)
+    #expect(nextEvent.emissionRevision == first.emissionRevision + 1)
+}
+
 @Test func resizeAdvancesContentRevision() throws {
     var fixture = RenderGridRevisionFixture()
     let baseline = try fixture.record(text: "size", columns: 12, rows: 2)

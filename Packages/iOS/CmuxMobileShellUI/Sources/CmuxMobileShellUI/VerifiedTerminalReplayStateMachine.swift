@@ -288,7 +288,17 @@ final class VerifiedTerminalReplayStateMachine {
         grantedRows: Int = 0
     ) {
         guard !renderEpoch.isEmpty else { return }
-        let effectiveFloor = renderEmissionRevisionFloor ?? renderRevisionFloor
+        // A zero emission floor is the producer's explicit "identity
+        // unavailable" value (request/response observations do not claim an
+        // emitted frame). Fall back to the legacy content floor in that case
+        // so an unavailable emission identity cannot weaken the stale-frame
+        // fence.
+        let effectiveFloor = if let emissionFloor = renderEmissionRevisionFloor,
+                                emissionFloor > 0 {
+            emissionFloor
+        } else {
+            renderRevisionFloor
+        }
         viewportEmissionRevisionFloors[renderEpoch] = max(
             viewportEmissionRevisionFloors[renderEpoch] ?? 0,
             effectiveFloor
