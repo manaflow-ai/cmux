@@ -2007,6 +2007,7 @@ pub struct Mux {
     /// registry, then state.
     workspace_registry: SignaledMutex<WorkspaceRegistry>,
     session_public_id: SessionPublicId,
+    machine_public_id: crate::resource::MachinePublicId,
     state: Mutex<State>,
     subscribers: MuxEventBroadcaster,
     config_reload: Mutex<ConfigReloadState>,
@@ -2182,14 +2183,16 @@ impl Mux {
         target: crate::ResourceTarget,
         selectors: &crate::ResourceSelectors,
     ) -> Result<crate::ResolvedResourcePath, ResourceError> {
-        let registry = self.workspace_registry.lock().unwrap();
+        // Session and machine identity never change for the life of a mux, so
+        // selector resolution must not queue behind the registry mutex, which
+        // the journal writer holds across every fsync.
         let state = self.state.lock().unwrap();
         resolve_resource_selectors(
             &state,
             ResourceSelectorContext {
-                machine_id: registry.machine_id(),
+                machine_id: &self.machine_public_id,
                 machine_name: None,
-                session_id: registry.session_id(),
+                session_id: &self.session_public_id,
                 session_name: &self.session,
             },
             target,
@@ -2373,6 +2376,7 @@ impl Mux {
         } = restore_public_projections(&state, registry.public_projections()?)?;
         let journal_producers = registry.journal_producer_manifests()?;
         let session_public_id = registry.session_id().clone();
+        let machine_public_id = registry.machine_id().clone();
         let journal_kernel = crate::journal_kernel::JournalKernel::new(
             registry.session_journal_database_path(),
             &journal_producers,
@@ -2386,6 +2390,7 @@ impl Mux {
         let mux = Arc::new(Mux {
             workspace_registry: SignaledMutex::new(registry),
             session_public_id,
+            machine_public_id,
             state: Mutex::new(state),
             subscribers: MuxEventBroadcaster::default(),
             config_reload: Mutex::new(ConfigReloadState::default()),
