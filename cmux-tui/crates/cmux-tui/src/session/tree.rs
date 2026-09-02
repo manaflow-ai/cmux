@@ -1238,6 +1238,34 @@ mod tests {
     }
 
     #[test]
+    fn title_updates_reuse_the_existing_location_index() {
+        let mut tree = parse_tree(&json!({
+            "workspaces": [{
+                "id": 1,
+                "active": true,
+                "screens": [{
+                    "id": 2,
+                    "active": true,
+                    "active_pane": 3,
+                    "layout": {"type": "leaf", "pane": 3},
+                    "panes": [{
+                        "id": 3,
+                        "active_tab": 0,
+                        "tabs": [{"surface": 7, "title": "first"}]
+                    }]
+                }]
+            }]
+        }));
+
+        let index_before = tree.location_index();
+        assert!(tree.update_surface_title(7, "renamed".to_string()));
+        let index_after = tree.location_index();
+
+        assert!(std::ptr::eq(index_before, index_after));
+        assert_eq!(tree.surface(7).map(|tab| tab.title.as_str()), Some("renamed"));
+    }
+
+    #[test]
     fn terminal_resolution_ignores_internal_ids_and_browser_tabs() {
         let tree = parse_tree(&json!({
             "workspaces": [{
