@@ -45,11 +45,11 @@ CLA_SIGNATURES_PATH_PATTERN = %r{\Asignatures/version[0-9]+(?:\.[0-9]+)?/cla\.js
 # The privileged workflow is an explicit reviewed policy, not an extensible
 # script. Its candidate structure is checked as data, and every policy change
 # requires trusted review without a fragile follow-up hash bump.
-EXPECTED_GUARD_WORKFLOW_DIGEST = "01b3eed13d54db27ed195781dc0f6926a04cb9557de81f50762b532ea14e4440"
+EXPECTED_GUARD_WORKFLOW_DIGEST = "9fa2952791cfd01c5a74ca92640a9e1827fe5c98b7807167856da4381ea124b5"
 # The guard workflow remains pinned to its reviewed immutable bytes. The CLA
 # policy itself is validated structurally, then authorized by an exact-head
 # trusted review.
-EXPECTED_GUARD_SCRIPT_DIGEST = "57618a0fea7538553c786eaf348352e2a4fefa662a5587aedab136be1911f221"
+EXPECTED_GUARD_SCRIPT_DIGEST = "246720b32a6ffad5784f46a6e01c677bc8f67186fb9ac2a694bd2e58d3c081cc"
 # Migration marker for the base v2 guard validator. That validator requires
 # the literal EXPECTED_WORKFLOW_DIGEST while it checks this candidate. The v3
 # validator does not use this inert marker for policy authorization.
