@@ -721,6 +721,13 @@ pub(super) fn resolve_socket(global: &GlobalArgs) -> anyhow::Result<PathBuf> {
 /// Resolve a socket and report whether it belongs to cmux's private runtime
 /// directory. Environment-selected and explicit paths remain caller-managed.
 pub(super) fn resolve_socket_with_origin(global: &GlobalArgs) -> anyhow::Result<(PathBuf, bool)> {
+    resolve_socket_with_env(global, |name| std::env::var_os(name))
+}
+
+pub(super) fn resolve_socket_with_env(
+    global: &GlobalArgs,
+    env: impl Fn(&str) -> Option<std::ffi::OsString>,
+) -> anyhow::Result<(PathBuf, bool)> {
     if let Some(path) = &global.socket {
         return Ok((path.clone(), false));
     }
@@ -728,7 +735,7 @@ pub(super) fn resolve_socket_with_origin(global: &GlobalArgs) -> anyhow::Result<
         return Ok((cmux_tui_core::server::try_default_socket_path(session)?, true));
     }
     for name in ["CMUX_TUI_SOCKET", "CMUX_MUX_SOCKET"] {
-        if let Some(path) = std::env::var_os(name)
+        if let Some(path) = env(name)
             && !path.is_empty()
         {
             return Ok((PathBuf::from(path), false));

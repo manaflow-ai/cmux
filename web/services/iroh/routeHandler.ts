@@ -4,6 +4,7 @@ import type * as Layer from "effect/Layer";
 import { after } from "next/server";
 import { env } from "../../app/env";
 import { unauthorized, verifyRequest, type AuthedUser } from "../vms/auth";
+import { authProviderErrorResponse } from "../vms/authErrors";
 import { enforceBrowserMutationProtection, jsonResponse } from "../vms/routeHelpers";
 import { irohExpectedError } from "./errors";
 import {
@@ -48,8 +49,13 @@ export async function handleIrohRoute(
   let user: AuthedUser | null;
   try {
     user = await verify(request, { allowCookie: false });
-  } catch {
-    return jsonResponse({ error: "unauthorized" }, 401);
+  } catch (error) {
+    // A Stack Auth throttle or outage is not the caller's fault. Answering 401
+    // told every host that its credentials were rejected, and the irx host
+    // retries a 401 every few seconds with the same tokens, which kept Stack's
+    // project-wide limit exhausted for every other route. 429 + Retry-After
+    // (or 503) lets clients honor the broker cooldown instead.
+    return authProviderErrorResponse(error, `iroh.${operation}.auth`);
   }
   if (!user) return unauthorized();
   const clientNamespace = request.headers.get("x-cmux-app-namespace") ?? "legacy";

@@ -23,6 +23,7 @@
 
 use std::collections::HashMap;
 use std::path::{Component, Path, PathBuf};
+use std::sync::Arc;
 
 use serde_json::{Map, Value, json};
 
@@ -41,6 +42,7 @@ pub const MAX_PATH_CHARS: usize = 4_096;
 const MAX_RUNTIME_ENVIRONMENT_ENTRIES: usize = 64;
 const MAX_RUNTIME_ENVIRONMENT_BYTES: usize = 256_000;
 const MAX_RUNTIME_FILES: usize = 8;
+pub(crate) const MAX_BLOCKING_FILE_ACTIONS: usize = 8;
 
 // ---------------------------------------------------------------------------
 // Path policy (pure)
@@ -563,7 +565,8 @@ fn open_options_no_follow(read: bool) -> std::fs::OpenOptions {
 fn read_utf8_no_follow(path: &HostScopedPath) -> Result<String, HostError> {
     use std::io::Read as _;
     #[cfg(unix)]
-    let file = open_beneath(&path.anchor, &path.relative, libc::O_RDONLY, false)?;
+    let file =
+        open_beneath(&path.anchor, &path.relative, libc::O_RDONLY | libc::O_NONBLOCK, false)?;
     #[cfg(not(unix))]
     let mut file = open_options_no_follow(true).open(&path.path).map_err(|error| {
         if is_eloop(&error) {
@@ -600,12 +603,17 @@ fn write_utf8_no_follow(path: &HostScopedPath, content: &str) -> Result<(), Host
     // roots, even when the final file check rejects the write.
     enforce_canonical_roots(parent, &path.roots).map_err(HostError::Refusal)?;
     #[cfg(unix)]
-    let mut file = open_beneath(
+    let mut file = match open_beneath(
         &path.anchor,
         &path.relative,
-        libc::O_WRONLY | libc::O_CREAT | libc::O_TRUNC,
+        libc::O_WRONLY | libc::O_CREAT | libc::O_TRUNC | libc::O_NONBLOCK,
         true,
-    )?;
+    ) {
+        Err(HostError::Io(error)) if error.raw_os_error() == Some(libc::ENXIO) => {
+            return Err(HostError::Refusal("write only supports regular files".to_owned()));
+        }
+        result => result?,
+    };
     #[cfg(not(unix))]
     let mut file = {
         create_parent_dirs_no_symlink(parent)?;
@@ -623,6 +631,9 @@ fn write_utf8_no_follow(path: &HostScopedPath, content: &str) -> Result<(), Host
             }
         })?
     };
+    if !file.metadata()?.file_type().is_file() {
+        return Err(HostError::Refusal("write only supports regular files".to_owned()));
+    }
     file.write_all(content.as_bytes())?;
     Ok(())
 }
@@ -673,15 +684,12 @@ struct ScopedDirEntry {
 
 struct ScopedDirEntries {
     entries: Vec<ScopedDirEntry>,
-    total: usize,
+    truncated: bool,
 }
 
 /// Read a bounded directory listing.
 ///
-/// The caller needs the total count to report omitted entries, but must not
-/// retain an attacker-controlled number of directory entries in memory. Keep
-/// at most the response cap while continuing the directory walk only to count
-/// the remaining names.
+/// Keep at most one entry beyond the response cap, then stop scanning.
 fn read_dir_scoped(path: &HostScopedPath) -> Result<ScopedDirEntries, HostError> {
     #[cfg(unix)]
     {
@@ -701,7 +709,7 @@ fn read_dir_scoped(path: &HostScopedPath) -> Result<ScopedDirEntries, HostError>
             return Err(HostError::Io(std::io::Error::last_os_error()));
         }
         let mut entries = Vec::with_capacity(MAX_LISTING_ENTRIES.min(64));
-        let mut total = 0_usize;
+        let mut truncated = false;
         loop {
             let entry = unsafe { libc::readdir(stream) };
             if entry.is_null() {
@@ -712,34 +720,38 @@ fn read_dir_scoped(path: &HostScopedPath) -> Result<ScopedDirEntries, HostError>
             if name == b"." || name == b".." {
                 continue;
             }
-            total = total.saturating_add(1);
             if entries.len() < MAX_LISTING_ENTRIES {
                 entries.push(ScopedDirEntry {
                     name: std::ffi::OsString::from_vec(name.to_vec()),
                     is_dir: entry.d_type == libc::DT_DIR,
                 });
+            } else {
+                truncated = true;
+                break;
             }
         }
         if unsafe { libc::closedir(stream) } != 0 {
             return Err(HostError::Io(std::io::Error::last_os_error()));
         }
-        Ok(ScopedDirEntries { entries, total })
+        Ok(ScopedDirEntries { entries, truncated })
     }
     #[cfg(not(unix))]
     {
         let mut entries = Vec::with_capacity(MAX_LISTING_ENTRIES.min(64));
-        let mut total = 0_usize;
+        let mut truncated = false;
         for entry in std::fs::read_dir(&path.path).map_err(HostError::Io)? {
             let entry = entry.map_err(HostError::Io)?;
-            total = total.saturating_add(1);
             if entries.len() < MAX_LISTING_ENTRIES {
                 entries.push(ScopedDirEntry {
                     name: entry.file_name(),
                     is_dir: entry.file_type().map_err(HostError::Io)?.is_dir(),
                 });
+            } else {
+                truncated = true;
+                break;
             }
         }
-        Ok(ScopedDirEntries { entries, total })
+        Ok(ScopedDirEntries { entries, truncated })
     }
 }
 
@@ -1370,6 +1382,10 @@ pub struct ActionContext {
     pub home: PathBuf,
     /// Scrubbed base environment for spawns.
     pub env: HashMap<String, String>,
+    /// Process-owned capacity retained by file work that outlives a socket.
+    pub file_slots: Arc<tokio::sync::Semaphore>,
+    #[cfg(test)]
+    pub(crate) test_file_operation_barrier: Option<Arc<std::sync::Barrier>>,
 }
 
 fn frame_roots(frame: &Value) -> Result<Option<Vec<String>>, &'static str> {
@@ -1461,6 +1477,115 @@ fn fail_result(version: i64, action_id: &str, code: &str, message: &str) -> Valu
     })
 }
 
+#[derive(Clone)]
+struct OwnedPathScope {
+    local_roots: Option<Vec<String>>,
+    server_roots: Option<Vec<String>>,
+    home: PathBuf,
+    workdir: String,
+}
+
+#[cfg(unix)]
+fn prepare_grep_paths(
+    scope: OwnedPathScope,
+    raw: String,
+) -> Result<(std::fs::File, String, std::fs::File, String), BlockingFsError> {
+    let path = scope.resolve(&raw, false)?;
+    let (path_guard, process_path) =
+        inherited_path(&path).map_err(|error| operation_error(error, true))?;
+    let command_cwd = scope.resolve(".", false)?;
+    let (cwd_guard, command_cwd_path) =
+        inherited_directory_path(&command_cwd).map_err(|error| operation_error(error, true))?;
+    Ok((path_guard, process_path, cwd_guard, command_cwd_path))
+}
+
+enum BlockingFsError {
+    Refusal(String),
+    Io(std::io::Error),
+}
+
+impl OwnedPathScope {
+    fn resolve(
+        &self,
+        raw_path: &str,
+        allow_missing: bool,
+    ) -> Result<HostScopedPath, BlockingFsError> {
+        let root_lists: RootLists<'_> = [self.local_roots.as_deref(), self.server_roots.as_deref()];
+        match resolve_scoped_host_path(
+            raw_path,
+            &root_lists,
+            &self.home,
+            &self.workdir,
+            allow_missing,
+        ) {
+            Ok(Ok(path)) => Ok(path),
+            Ok(Err(message)) => Err(BlockingFsError::Refusal(message)),
+            Err(error) => Err(BlockingFsError::Io(error)),
+        }
+    }
+}
+
+enum BoundedFileOperation {
+    Read { path: String },
+    Write { path: String, content: String },
+    List { path: String },
+}
+
+enum BoundedFileOutput {
+    Read(String),
+    Written,
+    Listing(String),
+}
+
+fn operation_error(error: HostError, symlink_loop_is_refusal: bool) -> BlockingFsError {
+    match error {
+        HostError::Refusal(message) => BlockingFsError::Refusal(message),
+        HostError::Io(error) if symlink_loop_is_refusal && is_eloop(&error) => {
+            BlockingFsError::Refusal("path contains a symlink loop".to_owned())
+        }
+        HostError::Io(error) => BlockingFsError::Io(error),
+    }
+}
+
+fn perform_bounded_file_operation(
+    scope: OwnedPathScope,
+    operation: BoundedFileOperation,
+) -> Result<BoundedFileOutput, BlockingFsError> {
+    match operation {
+        BoundedFileOperation::Read { path } => {
+            let path = scope.resolve(&path, false)?;
+            read_utf8_no_follow(&path)
+                .map(BoundedFileOutput::Read)
+                .map_err(|error| operation_error(error, true))
+        }
+        BoundedFileOperation::Write { path, content } => {
+            let path = scope.resolve(&path, true)?;
+            write_utf8_no_follow(&path, &content)
+                .map(|()| BoundedFileOutput::Written)
+                .map_err(|error| operation_error(error, true))
+        }
+        BoundedFileOperation::List { path } => {
+            let path = scope.resolve(&path, false)?;
+            let entries = read_dir_scoped(&path).map_err(|error| operation_error(error, false))?;
+            let mut names: Vec<String> = entries
+                .entries
+                .into_iter()
+                .map(|entry| {
+                    let name = entry.name.to_string_lossy().into_owned();
+                    if entry.is_dir { format!("{name}/") } else { name }
+                })
+                .collect();
+            names.sort();
+            let more = if entries.truncated {
+                "\n…[more entries omitted]".to_owned()
+            } else {
+                String::new()
+            };
+            Ok(BoundedFileOutput::Listing(format!("{}{more}", names.join("\n"))))
+        }
+    }
+}
+
 /// Execute one action_request frame. Returns the `action_result` frame to
 /// send back (never fails).
 pub async fn perform_action(frame: &Value, context: &ActionContext) -> Value {
@@ -1511,6 +1636,12 @@ pub async fn perform_action(frame: &Value, context: &ActionContext) -> Value {
         Some(roots) => expand_path(&roots[0], &home, &home).display().to_string(),
         None => home.display().to_string(),
     };
+    let path_scope = OwnedPathScope {
+        local_roots: context.local_roots.clone(),
+        server_roots: server_roots.clone(),
+        home: home.clone(),
+        workdir: workdir.clone(),
+    };
     let scoped = |raw: &str, allow_missing: bool| {
         resolve_scoped_host_path(raw, &root_lists, &home, &workdir, allow_missing)
     };
@@ -1519,86 +1650,103 @@ pub async fn perform_action(frame: &Value, context: &ActionContext) -> Value {
     let io_fail =
         |_error: std::io::Error| fail_result(version, &action_id, "failed", "operation failed");
 
-    match verb.as_str() {
+    let file_operation = match verb.as_str() {
         "read" => {
-            let Some(raw) = args.get("path").and_then(Value::as_str).filter(|p| !p.is_empty())
+            let Some(path) = args
+                .get("path")
+                .and_then(Value::as_str)
+                .filter(|path| !path.is_empty())
+                .map(str::to_owned)
             else {
                 return fail("failed", "read: path is required");
             };
-            let path = match scoped(raw, false) {
-                Ok(Ok(path)) => path,
-                Ok(Err(message)) => return fail("path_forbidden", &message),
-                Err(error) => return io_fail(error),
-            };
-            match read_utf8_no_follow(&path) {
-                Ok(content) => ok_result(version, &action_id, json!({ "content": content })),
-                Err(HostError::Refusal(message)) => fail("path_forbidden", &message),
-                Err(HostError::Io(error)) if is_eloop(&error) => {
-                    fail("path_forbidden", "path contains a symlink loop")
-                }
-                Err(HostError::Io(error)) => io_fail(error),
-            }
+            Some(BoundedFileOperation::Read { path })
         }
         "write" => {
-            let Some(raw) = args.get("path").and_then(Value::as_str).filter(|p| !p.is_empty())
+            let Some(path) = args
+                .get("path")
+                .and_then(Value::as_str)
+                .filter(|path| !path.is_empty())
+                .map(str::to_owned)
             else {
                 return fail("failed", "write: path is required");
             };
-            let path = match scoped(raw, true) {
-                Ok(Ok(path)) => path,
-                Ok(Err(message)) => return fail("path_forbidden", &message),
-                Err(error) => return io_fail(error),
-            };
-            let content = args.get("content").and_then(Value::as_str).unwrap_or_default();
-            match write_utf8_no_follow(&path, content) {
-                Ok(()) => ok_result(version, &action_id, json!({})),
-                Err(HostError::Refusal(message)) => fail("path_forbidden", &message),
-                Err(HostError::Io(error)) if is_eloop(&error) => {
-                    fail("path_forbidden", "path contains a symlink loop")
-                }
-                Err(HostError::Io(error)) => io_fail(error),
-            }
+            let content =
+                args.get("content").and_then(Value::as_str).unwrap_or_default().to_owned();
+            Some(BoundedFileOperation::Write { path, content })
         }
         "ls" => {
-            let raw =
-                args.get("path").and_then(Value::as_str).filter(|p| !p.is_empty()).unwrap_or(".");
-            let path = match scoped(raw, false) {
-                Ok(Ok(path)) => path,
-                Ok(Err(message)) => return fail("path_forbidden", &message),
-                Err(error) => return io_fail(error),
-            };
-            let entries = match read_dir_scoped(&path) {
-                Ok(entries) => entries,
-                Err(HostError::Refusal(message)) => return fail("path_forbidden", &message),
-                Err(HostError::Io(error)) => return io_fail(error),
-            };
-            let mut names: Vec<String> = Vec::new();
-            let total = entries.total;
-            for entry in entries.entries {
-                let name = entry.name.to_string_lossy().into_owned();
-                names.push(if entry.is_dir { format!("{name}/") } else { name });
-            }
-            names.sort();
-            let more = if total > MAX_LISTING_ENTRIES {
-                format!("\n…[{} more entries]", total - MAX_LISTING_ENTRIES)
-            } else {
-                String::new()
-            };
-            ok_result(
-                version,
-                &action_id,
-                json!({ "listing": format!("{}{more}", names.join("\n")) }),
-            )
+            let path = args
+                .get("path")
+                .and_then(Value::as_str)
+                .filter(|path| !path.is_empty())
+                .unwrap_or(".")
+                .to_owned();
+            Some(BoundedFileOperation::List { path })
         }
+        _ => None,
+    };
+    if let Some(operation) = file_operation {
+        let file_permit = match Arc::clone(&context.file_slots).try_acquire_owned() {
+            Ok(permit) => permit,
+            Err(_) => {
+                return fail(
+                    "busy",
+                    "relay file actions are busy; retry or restart the relay if this persists",
+                );
+            }
+        };
+        #[cfg(test)]
+        let test_barrier = context.test_file_operation_barrier.clone();
+        // The connection task selects its cancellation token against this
+        // await. Tokio keeps a started blocking task alive after the future
+        // is dropped, so the closure retains every descriptor guard through
+        // the bounded operation instead of returning a checked path. It also
+        // retains process-owned capacity across reconnects, which bounds
+        // kernel calls that cannot be interrupted in user space.
+        let output = match tokio::task::spawn_blocking(move || {
+            let _file_permit = file_permit;
+            #[cfg(test)]
+            if let Some(barrier) = test_barrier {
+                barrier.wait();
+            }
+            perform_bounded_file_operation(path_scope, operation)
+        })
+        .await
+        {
+            Ok(Ok(output)) => output,
+            Ok(Err(BlockingFsError::Refusal(message))) => {
+                return fail("path_forbidden", &message);
+            }
+            Ok(Err(BlockingFsError::Io(error))) => return io_fail(error),
+            Err(_) => return fail("failed", "operation failed"),
+        };
+        return match output {
+            BoundedFileOutput::Read(content) => {
+                ok_result(version, &action_id, json!({ "content": content }))
+            }
+            BoundedFileOutput::Written => ok_result(version, &action_id, json!({})),
+            BoundedFileOutput::Listing(listing) => {
+                ok_result(version, &action_id, json!({ "listing": listing }))
+            }
+        };
+    }
+
+    match verb.as_str() {
         "grep" => {
+            let file_permit = match Arc::clone(&context.file_slots).try_acquire_owned() {
+                Ok(permit) => permit,
+                Err(_) => {
+                    return fail(
+                        "busy",
+                        "relay file actions are busy; retry or restart the relay if this persists",
+                    );
+                }
+            };
             let raw =
                 args.get("path").and_then(Value::as_str).filter(|p| !p.is_empty()).unwrap_or(".");
-            let path = match scoped(raw, false) {
-                Ok(Ok(path)) => path,
-                Ok(Err(message)) => return fail("path_forbidden", &message),
-                Err(error) => return io_fail(error),
-            };
-            let pattern = args.get("pattern").and_then(Value::as_str).unwrap_or_default();
+            let pattern =
+                args.get("pattern").and_then(Value::as_str).unwrap_or_default().to_owned();
             if pattern.is_empty() {
                 return fail("failed", "grep: pattern is required");
             }
@@ -1606,26 +1754,35 @@ pub async fn perform_action(frame: &Value, context: &ActionContext) -> Value {
                 return fail("unsupported_verb", "grep is not available on Windows relays yet");
             }
             #[cfg(unix)]
-            let (_path_guard, process_path) = match inherited_path(&path) {
-                Ok(value) => value,
-                Err(HostError::Refusal(message)) => return fail("path_forbidden", &message),
-                Err(HostError::Io(error)) => return io_fail(error),
-            };
+            let (_path_guard, process_path, _cwd_guard, command_cwd_path) =
+                match tokio::task::spawn_blocking({
+                    let scope = path_scope.clone();
+                    let raw = raw.to_owned();
+                    move || prepare_grep_paths(scope, raw)
+                })
+                .await
+                {
+                    Ok(Ok(value)) => value,
+                    Ok(Err(BlockingFsError::Refusal(message))) => {
+                        return fail("path_forbidden", &message);
+                    }
+                    Ok(Err(BlockingFsError::Io(error))) => return io_fail(error),
+                    Err(_) => return fail("failed", "operation failed"),
+                };
             #[cfg(not(unix))]
-            let process_path = path.path.display().to_string();
-            let command_cwd = match scoped(".", false) {
+            let path = match scoped(raw, false) {
                 Ok(Ok(path)) => path,
                 Ok(Err(message)) => return fail("path_forbidden", &message),
                 Err(error) => return io_fail(error),
             };
-            #[cfg(unix)]
-            let (_cwd_guard, command_cwd_path) = match inherited_directory_path(&command_cwd) {
-                Ok(value) => value,
-                Err(HostError::Refusal(message)) => return fail("path_forbidden", &message),
-                Err(HostError::Io(error)) => return io_fail(error),
-            };
             #[cfg(not(unix))]
-            let command_cwd_path = command_cwd.path.display().to_string();
+            let process_path = path.path.display().to_string();
+            #[cfg(not(unix))]
+            let command_cwd_path = match scoped(".", false) {
+                Ok(Ok(path)) => path.path.display().to_string(),
+                Ok(Err(message)) => return fail("path_forbidden", &message),
+                Err(error) => return io_fail(error),
+            };
             #[cfg(unix)]
             let command_cwd_fd = {
                 use std::os::fd::AsRawFd as _;
@@ -1633,25 +1790,34 @@ pub async fn perform_action(frame: &Value, context: &ActionContext) -> Value {
             };
             #[cfg(not(unix))]
             let command_cwd_fd = None;
-            let outcome = run_spec(
-                RunSpec::Argv {
-                    file: "grep",
-                    args: vec![
-                        "-rIn".to_owned(),
-                        "--exclude-dir=.git".to_owned(),
-                        "--exclude-dir=node_modules".to_owned(),
-                        "-e".to_owned(),
-                        pattern.to_owned(),
-                        "--".to_owned(),
-                        process_path,
-                    ],
-                },
-                Path::new(&command_cwd_path),
-                command_cwd_fd,
-                timeout_ms,
-                &env,
-            )
-            .await;
+            let outcome = tokio::spawn(async move {
+                let _file_permit = file_permit;
+                #[cfg(unix)]
+                let _path_guard = _path_guard;
+                #[cfg(unix)]
+                let _cwd_guard = _cwd_guard;
+                run_spec(
+                    RunSpec::Argv {
+                        file: "grep",
+                        args: vec![
+                            "-rIn".to_owned(),
+                            "--exclude-dir=.git".to_owned(),
+                            "--exclude-dir=node_modules".to_owned(),
+                            "-e".to_owned(),
+                            pattern,
+                            "--".to_owned(),
+                            process_path,
+                        ],
+                    },
+                    Path::new(&command_cwd_path),
+                    command_cwd_fd,
+                    timeout_ms,
+                    &env,
+                )
+                .await
+            })
+            .await
+            .unwrap_or(RunOutcome::Failed { message: "process failed to start".to_owned() });
             run_reply(version, &action_id, outcome, args.get("limit"), Some(200), timeout_ms)
         }
         "find" => {
@@ -1784,7 +1950,14 @@ mod tests {
     }
 
     fn ctx(trust: &str, roots: Option<Vec<String>>, home: PathBuf) -> ActionContext {
-        ActionContext { trust: trust.to_owned(), local_roots: roots, home, env: HashMap::new() }
+        ActionContext {
+            trust: trust.to_owned(),
+            local_roots: roots,
+            home,
+            env: HashMap::new(),
+            file_slots: Arc::new(tokio::sync::Semaphore::new(MAX_BLOCKING_FILE_ACTIONS)),
+            test_file_operation_barrier: None,
+        }
     }
 
     fn scratch(name: &str) -> PathBuf {
@@ -1933,6 +2106,136 @@ mod tests {
     }
 
     #[cfg(unix)]
+    #[tokio::test(flavor = "current_thread")]
+    async fn connection_cancellation_wins_while_file_open_is_blocked() {
+        use std::os::unix::ffi::OsStrExt as _;
+        use tokio_util::sync::CancellationToken;
+
+        let root = scratch("blocked-open-cancellation");
+        let fifo = root.join("blocked.fifo");
+        let fifo_name = std::ffi::CString::new(fifo.as_os_str().as_bytes()).unwrap();
+        assert_eq!(unsafe { libc::mkfifo(fifo_name.as_ptr(), 0o600) }, 0);
+
+        let roots = vec![root.display().to_string()];
+        let mut context = ctx("supervised", Some(roots.clone()), root.clone());
+        let barrier = Arc::new(std::sync::Barrier::new(2));
+        context.test_file_operation_barrier = Some(Arc::clone(&barrier));
+        let cancellation = CancellationToken::new();
+        let worker_cancellation = cancellation.clone();
+        let unblock = std::thread::spawn(move || {
+            std::thread::sleep(std::time::Duration::from_millis(25));
+            worker_cancellation.cancel();
+            std::thread::sleep(std::time::Duration::from_millis(175));
+            barrier.wait();
+        });
+
+        let frame = json!({ "verb": "read", "actionId": "blocked", "allowedRoots": roots,
+                            "args": { "path": "blocked.fifo" } });
+        let result = tokio::select! {
+            biased;
+            _ = cancellation.cancelled() => None,
+            result = perform_action(&frame, &context) => Some(result),
+        };
+
+        assert!(result.is_none(), "connection cancellation must not wait for a blocked file open");
+        assert_eq!(
+            context.file_slots.available_permits(),
+            MAX_BLOCKING_FILE_ACTIONS - 1,
+            "cancelled connections must not release capacity held by blocking work"
+        );
+        unblock.join().unwrap();
+        tokio::time::timeout(std::time::Duration::from_secs(1), async {
+            while context.file_slots.available_permits() != MAX_BLOCKING_FILE_ACTIONS {
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .expect("file action capacity must return after the blocking operation finishes");
+        std::fs::remove_dir_all(&root).ok();
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn file_actions_reject_fifos_without_blocking() {
+        use std::os::unix::ffi::OsStrExt as _;
+
+        let root = scratch("special-file-refusal");
+        let fifo = root.join("blocked.fifo");
+        let fifo_name = std::ffi::CString::new(fifo.as_os_str().as_bytes()).unwrap();
+        assert_eq!(unsafe { libc::mkfifo(fifo_name.as_ptr(), 0o600) }, 0);
+        let roots = vec![root.display().to_string()];
+        let context = ctx("supervised", Some(roots.clone()), root.clone());
+
+        for (verb, args) in [
+            ("read", json!({ "path": "blocked.fifo" })),
+            ("write", json!({ "path": "blocked.fifo", "content": "no" })),
+        ] {
+            let frame = json!({
+                "verb": verb,
+                "actionId": verb,
+                "allowedRoots": roots,
+                "args": args,
+            });
+            let result = tokio::time::timeout(
+                std::time::Duration::from_secs(1),
+                perform_action(&frame, &context),
+            )
+            .await
+            .expect("special-file refusal must not block");
+            assert_eq!(result["code"], "path_forbidden", "{result}");
+        }
+
+        std::fs::remove_dir_all(&root).ok();
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn read_fifo_returns_path_forbidden_without_hanging() {
+        use std::os::unix::ffi::OsStrExt as _;
+
+        let root = scratch("read-fifo");
+        let fifo = root.join("blocked.fifo");
+        let fifo_name = std::ffi::CString::new(fifo.as_os_str().as_bytes()).unwrap();
+        assert_eq!(unsafe { libc::mkfifo(fifo_name.as_ptr(), 0o600) }, 0);
+        let roots = vec![root.display().to_string()];
+        let context = ctx("supervised", Some(roots.clone()), root.clone());
+        let read = tokio::time::timeout(
+            std::time::Duration::from_secs(1),
+            perform_action(
+                &json!({ "verb": "read", "actionId": "read-fifo", "allowedRoots": roots,
+                         "args": { "path": "blocked.fifo" } }),
+                &context,
+            ),
+        )
+        .await
+        .expect("FIFO reads must not block");
+        assert_eq!(read["code"], "path_forbidden", "{read}");
+        std::fs::remove_dir_all(&root).ok();
+    }
+
+    #[tokio::test]
+    async fn file_action_capacity_is_bounded_across_connections() {
+        let root = scratch("file-capacity");
+        std::fs::write(root.join("note.txt"), "hello").unwrap();
+        let roots = vec![root.display().to_string()];
+        let context = ctx("supervised", Some(roots.clone()), root.clone());
+        let _capacity = Arc::clone(&context.file_slots)
+            .try_acquire_many_owned(MAX_BLOCKING_FILE_ACTIONS as u32)
+            .unwrap();
+
+        let read = perform_action(
+            &json!({ "verb": "read", "actionId": "busy", "allowedRoots": roots,
+                     "args": { "path": "note.txt" } }),
+            &context,
+        )
+        .await;
+
+        assert_eq!(read["ok"], false);
+        assert_eq!(read["code"], "busy");
+        std::fs::remove_dir_all(&root).ok();
+    }
+
+    #[cfg(unix)]
     #[tokio::test]
     async fn grep_accepts_a_regular_file_path() {
         let root = scratch("grep-file");
@@ -1991,7 +2294,7 @@ mod tests {
         .await;
         assert_eq!(ls["ok"], true, "{ls}");
         let listing = ls["result"]["listing"].as_str().unwrap();
-        assert!(listing.contains("…[5 more entries]"));
+        assert!(listing.contains("…[more entries omitted]"));
         assert_eq!(listing.lines().count(), MAX_LISTING_ENTRIES + 1);
         std::fs::remove_dir_all(&root).ok();
     }
@@ -2036,7 +2339,7 @@ mod tests {
         .await;
 
         let output = listing["result"]["listing"].as_str().unwrap();
-        assert!(output.ends_with("\n…[1 more entries]"));
+        assert!(output.ends_with("\n…[more entries omitted]"));
         assert_eq!(output.matches(".txt").count(), MAX_LISTING_ENTRIES);
         std::fs::remove_dir_all(&root).ok();
     }
@@ -2054,6 +2357,28 @@ mod tests {
         .await;
         assert_eq!(read["ok"], false);
         assert_eq!(read["code"], "path_forbidden");
+        std::fs::remove_dir_all(&root).ok();
+    }
+
+    #[tokio::test]
+    async fn grep_returns_busy_when_file_action_capacity_is_exhausted() {
+        let root = scratch("grep-capacity");
+        std::fs::write(root.join("note.txt"), "needle").unwrap();
+        let roots = vec![root.display().to_string()];
+        let context = ctx("supervised", Some(roots.clone()), root.clone());
+        let _capacity = Arc::clone(&context.file_slots)
+            .try_acquire_many_owned(MAX_BLOCKING_FILE_ACTIONS as u32)
+            .unwrap();
+
+        let grep = perform_action(
+            &json!({ "verb": "grep", "actionId": "grep-busy", "allowedRoots": roots,
+                     "args": { "path": ".", "pattern": "needle" } }),
+            &context,
+        )
+        .await;
+
+        assert_eq!(grep["ok"], false);
+        assert_eq!(grep["code"], "busy");
         std::fs::remove_dir_all(&root).ok();
     }
 

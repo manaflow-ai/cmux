@@ -11636,6 +11636,9 @@ final class GhosttySurfaceScrollView: NSView {
             // observer replays it when the window returns on screen.
             surfaceView.terminalSurface?.applyVisibilityOcclusion(visible)
         }
+        if wasVisible != visible {
+            surfaceView.terminalSurface?.onManualVisibilityChanged?(visible)
+        }
 #if DEBUG
         if wasVisible != visible {
             let transition = "\(wasVisible ? 1 : 0)->\(visible ? 1 : 0)"

@@ -1,3 +1,4 @@
+import CmuxFoundation
 import Foundation
 
 /// Owns one ``CmuxTuiSurfaceProvider`` per cloud machine and keeps the catalog's machine
@@ -167,8 +168,8 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
     private(set) var info: SurfaceMachineInfo
 
     private var summary: VMSummary
-    private let links: CloudMachineLinkManager
-    private unowned let catalog: SurfaceCatalog
+    let links: CloudMachineLinkManager
+    unowned let catalog: SurfaceCatalog
     private var changeWatcher: Task<Void, Never>?
     private var refreshDebounce: Task<Void, Never>?
     private var portsCache: (ports: [Int], at: Date)?
@@ -180,10 +181,21 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
     private var endpointPrefetch: Task<Void, Never>?
     /// Panels this provider created (or replaced) in this process. A projection whose
     /// panel is not here came back from a restored session as a placeholder shell.
-    private var materializedPanels: Set<UUID> = []
+    var materializedPanels: Set<UUID> = []
+    /// Native cloud terminals own a manual attachment separate from their
+    /// catalog projection. The provider retains it for the life of the pane.
+    var manualMirrorSessions: [UUID: CloudTuiManualMirrorSession] = [:]
+    /// Numeric cmux-tui surface ids are process-local. Re-read the legacy tree
+    /// when the link socket generation changes or an attachment disconnects,
+    /// then reuse the result for the rest of that socket generation.
+    private var manualMirrorSurfaceIDsSocketPath: String?
     /// Terminal → tab from the last snapshot, so an exited terminal (whose own selector
     /// no longer resolves in cmux-tui) can still be closed through its tab.
     private var tabByTerminal: [String: String] = [:]
+    /// Coalesces concurrent first opens of a zero-view terminal. `terminal.project` is a
+    /// mutation, so two local panes racing on the same pool row must share one remote view.
+    // Internal so the manual-mirror extension can share the provider-owned task map.
+    var remoteTerminalProjectionTasks: [String: Task<Void, Error>] = [:]
 
     init(summary: VMSummary, links: CloudMachineLinkManager, catalog: SurfaceCatalog) {
         machineID = summary.id
@@ -208,6 +220,11 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
         refreshDebounce = nil
         endpointPrefetch?.cancel()
         endpointPrefetch = nil
+        for session in manualMirrorSessions.values { session.stop() }
+        manualMirrorSessions.removeAll()
+        manualMirrorSurfaceIDsSocketPath = nil
+        for task in remoteTerminalProjectionTasks.values { task.cancel() }
+        remoteTerminalProjectionTasks.removeAll()
     }
 
     // MARK: - SurfaceProvider
@@ -221,7 +238,7 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
     func refresh(force: Bool) async {
         let machine = self.machine
         var resources: [SurfaceResource] = []
-        if CmuxTuiSnapshotParser.machineHasDesktop(image: summary.image) {
+        if summary.resolvedKind.hasDesktop {
             resources.append(CmuxTuiSnapshotParser.display(machine: machine))
         }
         guard isAwake, let client = VMClient.shared else {
@@ -235,7 +252,7 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
         if !resources.isEmpty, catalog.snapshot.resources(on: machine).isEmpty {
             catalog.replaceResources(resources, on: machine, info: info)
         }
-        if CmuxTuiSnapshotParser.machineHasDesktop(image: summary.image) {
+        if summary.resolvedKind.hasDesktop {
             prefetchDesktopEndpoint()
         }
         async let stats = try? client.stats(id: machineID)
@@ -255,8 +272,43 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
                 tabByTerminal = CmuxTuiSnapshotParser.tabByTerminal(fromSnapshot: object)
                 remoteWorkspaces = CmuxTuiSnapshotParser.workspaces(fromSnapshot: object)
             }
+            let needsSurfaceIDRefresh = !manualMirrorSessions.isEmpty
+                && (manualMirrorSurfaceIDsSocketPath != connected.socketPath
+                    || manualMirrorSessions.values.contains { $0.phase == .disconnected })
+            var reconnectableSessionIDs = Set<ObjectIdentifier>(
+                manualMirrorSessions.values.map { ObjectIdentifier($0) }
+            )
+            if needsSurfaceIDRefresh {
+                let sessions = Array(manualMirrorSessions.values)
+                let resolutions = await resolveManualMirrorSessions(
+                    sessions,
+                    socketPath: connected.socketPath,
+                    link: link
+                )
+                var allSurfaceIDsResolved = true
+                for session in sessions {
+                    switch resolutions[session.terminalID] {
+                    case let .resolved(surfaceID):
+                        session.updateRemoteSurfaceID(surfaceID)
+                        reconnectableSessionIDs.insert(ObjectIdentifier(session))
+                    case .none, .noPlacement, .unsupported, .failed:
+                        session.markSurfaceResolutionUnavailable()
+                        reconnectableSessionIDs.remove(ObjectIdentifier(session))
+                        allSurfaceIDsResolved = false
+                    }
+                }
+                if allSurfaceIDsResolved {
+                    manualMirrorSurfaceIDsSocketPath = connected.socketPath
+                }
+            }
+            for session in manualMirrorSessions.values
+            where reconnectableSessionIDs.contains(ObjectIdentifier(session)) {
+                session.reconnect(socketPath: connected.socketPath)
+            }
+            let privateAddress = summary.preferredPrivateAddress
             for port in await ports(client: client, force: force) {
-                resources.append(CmuxTuiSnapshotParser.portBrowser(machine: machine, port: port))
+                let directURL = privateAddress.map { CmuxInternalHostnames.directPortURL(privateAddress: $0, port: port) }
+                resources.append(CmuxTuiSnapshotParser.portBrowser(machine: machine, port: port, directURL: directURL))
             }
         } catch {
             let status = await links.status(machineID: machineID)
@@ -392,14 +444,31 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
         let created: (workspaceID: UUID, panelID: UUID)
         switch resource.kind {
         case .terminal:
-            let command = try await attachCommand(terminalID: resource.id.key)
-            created = try SurfacePaneFactory.makeTerminalPane(initialCommand: command, workingDirectory: nil, at: destination, focus: focus)
+            let manual = try await materializeManualMirrorTerminal(
+                resource,
+                at: destination,
+                focus: focus
+            )
+            created = (manual.workspaceID, manual.panelID)
         case .display, .browser:
             let desktop = resource.kind == .display
             guard let port = resource.port ?? (desktop ? CmuxTuiSnapshotParser.desktopPort : nil) else {
                 throw SurfaceCatalogError.unsupported("browser \(resource.id) has no port")
             }
-            if let url = endpointURL(port: port, desktop: desktop) {
+            // A forwarded-port row (`portBrowser`, id key "port:<n>") already
+            // carries the URL to open — its own private address over the
+            // WireGuard tunnel — and must navigate there directly, never
+            // through the endpoint()/openPort proxy below: Freestyle's public
+            // platform has no port-forwarding proxy for arbitrary ports, so
+            // that call fails outright for exactly the machines this exists
+            // for. A regular daemon browser's `url` is a different thing (the
+            // remote tab's own address, not a locally-openable link) and must
+            // still go through the proxy/CDP path, so this only ever fires
+            // for the id shape `portBrowser` mints.
+            if !desktop, resource.id.key.hasPrefix("port:"),
+               let directURLString = resource.url, let directURL = URL(string: directURLString) {
+                created = try SurfacePaneFactory.makeBrowserPane(url: directURL, at: destination, focus: focus)
+            } else if let url = endpointURL(port: port, desktop: desktop) {
                 created = try SurfacePaneFactory.makeBrowserPane(url: url, at: destination, focus: focus)
             } else {
                 // Optimistic: the pane exists before its endpoint does. Minting the preview
@@ -509,11 +578,13 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
     /// The terminal lives in the machine's session; only the local pane went away.
     func projectionDidEnd(_ projection: SurfaceProjection) {
         materializedPanels.remove(projection.panelID)
+        manualMirrorSessions.removeValue(forKey: projection.panelID)?.stop()
     }
 
     @discardableResult
     func discardMaterialization(_ projection: SurfaceProjection) -> Bool {
         materializedPanels.remove(projection.panelID)
+        manualMirrorSessions.removeValue(forKey: projection.panelID)?.stop()
         SurfacePaneFactory.close(panelID: projection.panelID, in: projection.workspaceID)
         return false
     }
@@ -526,7 +597,7 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
             name: summary.preferredName,
             status: summary.status,
             image: summary.image,
-            hasDesktop: CmuxTuiSnapshotParser.machineHasDesktop(image: summary.image),
+            hasDesktop: summary.resolvedKind.hasDesktop,
             memoryMb: stats?.memoryTotalMb,
             diskMb: stats?.diskTotalMb,
             linkState: linkState,
@@ -534,16 +605,9 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
             cpuPercent: stats?.cpuPercent,
             memoryUsedMb: stats?.memoryUsedMb,
             diskUsedMb: stats?.diskUsedMb,
-            remoteWorkspaces: remoteWorkspaces
+            remoteWorkspaces: remoteWorkspaces,
+            privateAddress: summary.preferredPrivateAddress
         )
-    }
-
-    private func attachCommand(terminalID: String) async throws -> String {
-        let connected = try await links.connected(machineID: machineID)
-        guard let clientURL = CloudTuiClientPaths.clientURL() else {
-            throw CloudMachineLinkManager.ManagerError.clientMissing
-        }
-        return CloudTuiCommandLine.attachShellCommand(clientPath: clientURL.path, socketPath: connected.socketPath, terminalID: terminalID)
     }
 
     /// The tokened wrapper URL the control plane mints for a port; the desktop adds the
@@ -615,7 +679,7 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
 
     /// Daemon deltas arrive in bursts; one re-read per burst is plenty. The delay is a
     /// deliberate coalescing window, cancelled by the next burst.
-    private func scheduleRefresh() {
+    func scheduleRefresh() {
         refreshDebounce?.cancel()
         refreshDebounce = Task { [weak self] in
             try? await Task.sleep(for: .milliseconds(400))
@@ -640,21 +704,11 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
                 materializedPanels.insert(projection.panelID)
                 Task { @MainActor [weak self] in
                     guard let self else { return }
-                    do {
-                        let command = try await self.attachCommand(terminalID: terminal.id.key)
-                        let created = try SurfacePaneFactory.makeTerminalPane(
-                            initialCommand: command,
-                            workingDirectory: nil,
-                            at: .tab(workspaceID: projection.workspaceID, paneID: paneID, index: nil),
-                            focus: false
-                        )
-                        self.materializedPanels.insert(created.panelID)
-                        self.catalog.endProjections(panelID: projection.panelID)
-                        self.catalog.record(SurfaceProjection(resource: terminal.id, workspaceID: created.workspaceID, panelID: created.panelID))
-                        SurfacePaneFactory.close(panelID: projection.panelID, in: projection.workspaceID)
-                    } catch {
-                        self.materializedPanels.remove(projection.panelID)
-                    }
+                    await self.reprojectManualMirror(
+                        resource: terminal,
+                        projection: projection,
+                        paneID: paneID
+                    )
                 }
             }
         }

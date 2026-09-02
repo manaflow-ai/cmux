@@ -696,11 +696,19 @@ struct RemoteTmuxMirrorPaneInputMappingTests {
             subtitle: "",
             body: "Body"
         )
-        #expect(notificationResult == .delivered(
-            workspaceID: harness.workspace.id,
-            surfaceID: expectedInputPanel.id,
-            windowID: harness.windowId
-        ))
+        guard case .delivered(
+            let workspaceID,
+            let surfaceID,
+            let windowID,
+            let notificationID
+        ) = notificationResult else {
+            Issue.record("Expected a delivered projected tmux notification, got \(notificationResult)")
+            return
+        }
+        #expect(workspaceID == harness.workspace.id)
+        #expect(surfaceID == expectedInputPanel.id)
+        #expect(windowID == harness.windowId)
+        #expect(notificationID != nil)
         TerminalNotificationStore.shared.clearNotifications(forTabId: harness.workspace.id, surfaceId: expectedInputPanel.id)
         #expect(TerminalController.shared.resolveTerminalPanel(
             from: containerPanelId.uuidString,
