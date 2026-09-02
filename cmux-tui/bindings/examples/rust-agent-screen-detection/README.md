@@ -54,7 +54,9 @@ process generation without removing observations from a replacement process.
 The manifests are derived from herdr at manifest snapshot commit
 `2290257acb2085ce6842ba5c7e3ca50c3ba64f02` under Apache-2.0. The adapted
 detector engine follows source reference commit
-`7b675f42af35508eab66ac42fe1598628597a893`. See
+`7b675f42af35508eab66ac42fe1598628597a893`. The Claude manifest includes the
+upstream background-shell correction from
+`987b070fbfa187e85009b45cd7e208fc6175ff6a`. See
 `manifests/LICENSE`, `manifests/README.md`, and `ATTRIBUTIONS.md`. The
 Manaflow portions use MIT; the package includes that text in `LICENSE-MIT`.
 The checked-in `manifests/SHA256SUMS` record is verified before the bundled

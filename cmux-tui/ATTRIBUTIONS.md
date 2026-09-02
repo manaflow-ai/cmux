@@ -11,17 +11,19 @@
 - Manifest snapshot commit: `2290257acb2085ce6842ba5c7e3ca50c3ba64f02`
 - First-acquisition OSC retention commit: `82e6a80eb3ae39fb3d3ebd4d1fed19389767e605`
 - Included manifest fixes: Claude MCP elicitation `f807b697353cfa00aa912c7cde4830e863001cf5`,
+  Claude background-shell state `987b070fbfa187e85009b45cd7e208fc6175ff6a`,
   Codex weak-blocker scope `f457cff4f2648eee85d176f8a41861241d4e8428`, and
   Copilot background-agent activity `2290257acb2085ce6842ba5c7e3ca50c3ba64f02`.
 
 Derived material and vendored material:
 
-- `bindings/examples/rust-agent-screen-detection/manifests/*.toml`: 20
+- `bindings/examples/rust-agent-screen-detection/manifests/*.toml`: 19
   manifests are unchanged from the manifest snapshot's
-  `src/detect/manifests/`; `grok.toml` carries a documented cmux precedence
-  correction. Never refresh them from herdr's update endpoint.
-  Re-vendor the files from the exact snapshot commit and reapply the Grok patch
-  when changing the pin.
+  `src/detect/manifests/`; `claude.toml` is byte-identical to upstream commit
+  `987b070fbfa187e85009b45cd7e208fc6175ff6a`, and `grok.toml` carries a
+  documented cmux precedence correction. Never refresh them from herdr's
+  update endpoint. Re-vendor the 19 files from the exact snapshot, Claude from
+  its stated commit, and reapply the Grok patch when changing the pin.
 - `bindings/examples/rust-agent-screen-detection/src/manifest.rs`: the
   manifest engine (rule grammar, region extraction, gate evaluation,
   validation limits), ported from `src/detect/manifest.rs`.
@@ -58,16 +60,21 @@ Derived material and vendored material:
 - `bindings/examples/rust-agent-screen-detection/manifests/grok.toml`: the
   local `2026.07.16.2.1` patch gives idle OSC progress precedence over a
   generic custom title and keeps explicit braille-spinner activity stronger.
+- `bindings/examples/rust-agent-screen-detection/manifests/claude.toml`: the
+  upstream `2026.08.31.1` file removes background-shell activity as a working
+  signal, so an idle prompt or a permission blocker stays authoritative.
 - The plugin's `manifests/SHA256SUMS` record is checked before bundled
   compilation to catch accidental drift. It is not a cryptographic release
   signature for remote updates.
 
 The capability audit was rerun against herdr's agent-surface revision
-`8633a398e653eee47b375c963996c78a8a14aa48`. Comparing `src/detect` with the
-manifest snapshot found one detector-source change: the exact Pi bundled CLI
-path correction from `b1ff4582e9688f52ffb943cfa8bee4871ae122e4`. The userland
-`process.rs` adaptation covers both direct and `dist/bundle/cli.js` entrypoints
-and rejects lookalike scripts. The first-acquisition OSC retention fix in
+`987b070fbfa187e85009b45cd7e208fc6175ff6a`. Comparing `src/detect` with the
+manifest snapshot found the exact Pi bundled CLI path correction from
+`b1ff4582e9688f52ffb943cfa8bee4871ae122e4` and the Claude background-shell
+manifest correction from `987b070fbfa187e85009b45cd7e208fc6175ff6a`.
+The userland package ports and tests both. The `process.rs` adaptation covers
+both direct and `dist/bundle/cli.js` entrypoints and rejects lookalike scripts.
+The first-acquisition OSC retention fix in
 `82e6a80eb3ae39fb3d3ebd4d1fed19389767e605` is adapted in the userland tracker
 with a local revision fence. The foreground group-leader CWD fix in
 `3a3792622e59c7f2dc20f9c0236167161e4a5035` is already covered by the generic
@@ -88,10 +95,10 @@ across host versions. Review the Windows changes before publishing a Windows
 package.
 
 The herdr repository tip checked on 2026-09-02 is
-`d08e44686d8b19bd9555cc99ec9068d9fde05f16`. The commits after the
-agent-surface revision only change client terminal geometry and detach
-handling; they do not change `src/detect`, manifests, or the agent API. The
-agent-surface revision is therefore the reproducible capability-audit pin.
+`5a2dee700eeeea68267a4d16777307632f77172f`. The commits after the
+agent-surface revision change client mouse selection and Windows worktree
+removal; they do not change `src/detect` or the manifests. The agent-surface
+revision is therefore the reproducible capability-audit pin.
 
 Files that port herdr logic carry a header comment naming the upstream
 file and the modifications.

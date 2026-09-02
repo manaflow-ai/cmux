@@ -1,7 +1,7 @@
 id = "claude"
-version = "2026.08.29.1"
+version = "2026.08.31.1"
 min_engine_version = 2
-updated_at = "2026-08-29T00:00:00Z"
+updated_at = "2026-08-31T00:00:00Z"
 aliases = ["claude-code"]
 
 [[rules]]
@@ -23,14 +23,6 @@ any = [
   { line_regex = ['^\s*[⏸⏵].*esc to interrupt(?:\s|·|$)'] },
   { line_regex = ['^\s*[\x{002A}\x{00B7}\x{2722}\x{2736}\x{273B}\x{273D}]\s+\S.*…(?:\s+\(\d+[smh](?:\s|·)|\s*$)'] },
 ]
-
-[[rules]]
-id = "background_shell_working"
-state = "working"
-priority = 965
-region = "bottom_non_empty_lines(5)"
-visible_working = true
-line_regex = ['^\s*[⏸⏵].*·\s+[1-9]\d*\s+shells?\s+(?:·|$)']
 
 [[rules]]
 id = "background_agents_working"

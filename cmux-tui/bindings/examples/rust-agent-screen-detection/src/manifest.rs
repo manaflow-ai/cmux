@@ -4,7 +4,10 @@
 //! `7b675f42af35508eab66ac42fe1598628597a893` (Apache-2.0, see
 //! `manifests/LICENSE`), modified by manaflow: agents are identified by
 //! manifest id/alias strings instead of a closed enum, and the engine adds
-//! bounded source loading and explain output for a userland plugin.
+//! bounded source loading and explain output for a userland plugin. Claude
+//! background-shell regression fixtures are adapted from herdr's
+//! `src/detect/manifest/tests.rs` at commit
+//! `987b070fbfa187e85009b45cd7e208fc6175ff6a`.
 
 use std::cmp::Ordering;
 use std::collections::{HashMap, hash_map::Entry};
@@ -1916,7 +1919,7 @@ line_regex = ["^working$", "^missing line$"]
     #[test]
     fn screen_detect_imported_claude_mcp_elicitation_is_blocked() {
         let claude = ManifestSet::bundled().identify("claude").unwrap();
-        assert_eq!(claude.version().map(ToString::to_string).as_deref(), Some("2026.08.29.1"));
+        assert_eq!(claude.version().map(ToString::to_string).as_deref(), Some("2026.08.31.1"));
 
         let blocked = claude.detect(input(
             "MCP server \u{201C}calendar\u{201D} requests your input\n\

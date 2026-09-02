@@ -8,12 +8,14 @@ The files under `manifests/` are derived from the herdr project:
 * Manifest snapshot revision: `2290257acb2085ce6842ba5c7e3ca50c3ba64f02`
 * First-acquisition OSC retention: `82e6a80eb3ae39fb3d3ebd4d1fed19389767e605`
 * Included manifest fixes: Claude MCP elicitation `f807b697353cfa00aa912c7cde4830e863001cf5`,
+  Claude background-shell state `987b070fbfa187e85009b45cd7e208fc6175ff6a`,
   Codex weak-blocker scope `f457cff4f2648eee85d176f8a41861241d4e8428`, and
   Copilot background-agent activity `2290257acb2085ce6842ba5c7e3ca50c3ba64f02`.
 * License: Apache-2.0, reproduced in `manifests/LICENSE`
-* Unchanged vendored material: 20 of the 21 `manifests/*.toml` files, copied
-  from `src/detect/manifests/` at the manifest snapshot revision. `grok.toml`
-  is the one local correction described below.
+* Unchanged vendored material: 19 of the 21 `manifests/*.toml` files, copied
+  from `src/detect/manifests/` at the manifest snapshot revision. `claude.toml`
+  is byte-identical to upstream commit `987b070fbfa187e85009b45cd7e208fc6175ff6a`.
+  `grok.toml` is the local correction described below.
 * Local correction: `manifests/grok.toml` keeps a static custom title from
   masking Grok's idle OSC progress and adds an explicit spinner rule. Its
   numeric patch version is `2026.07.16.2.1`; the upstream file is
@@ -26,10 +28,11 @@ compilation. It detects accidental drift, not a cryptographic release
 signature for remote updates.
 
 The attribution and capability audit was rerun against herdr's agent-surface
-revision `8633a398e653eee47b375c963996c78a8a14aa48` after the pinned snapshot.
-The only `src/detect` change after that snapshot is the exact Pi bundled CLI
-path correction in `b1ff4582e9688f52ffb943cfa8bee4871ae122e4`; this package
-adapts and tests both supported entrypoints. It also found the
+revision `987b070fbfa187e85009b45cd7e208fc6175ff6a` after the pinned snapshot.
+The package adapts and tests the exact Pi bundled CLI path correction in
+`b1ff4582e9688f52ffb943cfa8bee4871ae122e4`. It also vendors and tests the
+Claude background-shell state correction in
+`987b070fbfa187e85009b45cd7e208fc6175ff6a`. The audit found the
 first-acquisition OSC retention fix in
 `82e6a80eb3ae39fb3d3ebd4d1fed19389767e605`; `src/detect.rs` ports that policy
 with a local revision fence because the generic host API cannot clear OSC
@@ -56,10 +59,10 @@ before it promises upgrades across host versions. Recheck these upstream
 areas before publishing a Windows package.
 
 The herdr repository tip checked on 2026-09-02 is
-`d08e44686d8b19bd9555cc99ec9068d9fde05f16`. The commits after the
-agent-surface revision only change client terminal geometry and detach
-handling; they do not change `src/detect`, manifests, or the agent API. The
-agent-surface revision is the reproducible capability-audit pin.
+`5a2dee700eeeea68267a4d16777307632f77172f`. The commits after the
+agent-surface revision change client mouse selection and Windows worktree
+removal; they do not change `src/detect` or the manifests. The agent-surface
+revision is the reproducible capability-audit pin.
 
 The original cmux portions of this package are licensed under MIT. The full
 text is in `LICENSE-MIT`. The Apache-2.0 text for the derived herdr material is
@@ -68,7 +71,9 @@ in `manifests/LICENSE`.
 The detector engine in `src/manifest.rs` is adapted from herdr's
 `src/detect/manifest.rs` semantics. It keeps the attribution above and adds
 bounded recursion, case-normalized process aliases, and a public plugin
-boundary.
+boundary. Its Claude background-shell regression fixtures are adapted from
+herdr's `src/detect/manifest/tests.rs` at
+`987b070fbfa187e85009b45cd7e208fc6175ff6a`.
 
 The package does not copy herdr's application, API server, sound assets, or
 other multiplexer code. Only the listed detector files and manifests contain
