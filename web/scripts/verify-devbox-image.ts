@@ -86,7 +86,11 @@ const CHECKS: readonly string[] = [
 // bound to THIS machine's instance id, not the builder's.
 const INSTANCE_ID =
   "curl -sf -m 2 -H \"X-aws-ec2-metadata-token: $(curl -sf -m 2 -X PUT http://169.254.169.254/latest/api/token -H 'X-metadata-token-ttl-seconds: 60')\" http://169.254.169.254/latest/meta-data/instance-id";
-const REMOTE_IDENTITY = "/root/.local/state/cmux/remote/identity.json";
+// cmux-remote keys per-session state by the base64url session name under its
+// default root state dir; the Noise static identity lives in auth/.
+const REMOTE_IDENTITY = `/root/.local/state/cmux/remote/sessions/${Buffer.from(CMUX_TUI_SESSION).toString("base64url")}/auth/identity.json`;
+// cmux-tui's own per-machine secrets, regenerated on first start after the bake wiped them.
+const MACHINE_SECRETS = "/root/.local/state/cmux-tui/sessions/machine-id /root/.local/state/cmux-tui/sessions/resource-effect-pepper";
 const DAEMON_CHECKS: readonly string[] = [
   // [s]tart: the pattern must not match the exec shell carrying this very command line.
   "pgrep -f 'cmux-tui server [s]tart' >/dev/null && echo daemon-running",
@@ -268,10 +272,8 @@ if (provider === "freestyle") {
     try {
       const exec2 = execFor(second.vm);
       await waitForBakedDaemon("freestyle", exec2);
-      const [a, b] = await Promise.all([
-        exec(`sha256sum ${REMOTE_IDENTITY} | cut -c1-64`, 30_000),
-        exec2(`sha256sum ${REMOTE_IDENTITY} | cut -c1-64`, 30_000),
-      ]);
+      const digest = `cat ${REMOTE_IDENTITY} ${MACHINE_SECRETS} | sha256sum | cut -c1-64`;
+      const [a, b] = await Promise.all([exec(digest, 30_000), exec2(digest, 30_000)]);
       const digestA = a.output.trim();
       const digestB = b.output.trim();
       if (a.exitCode !== 0 || b.exitCode !== 0 || digestA.length !== 64 || digestB.length !== 64) {
@@ -280,7 +282,7 @@ if (provider === "freestyle") {
       if (digestA === digestB) {
         throw new Error(`two machines from ${image} share one daemon identity (${digestA.slice(0, 12)}…)`);
       }
-      console.log(`daemon identities differ across machines: ${digestA.slice(0, 12)}… vs ${digestB.slice(0, 12)}…`);
+      console.log(`daemon identity + machine secrets differ across machines: ${digestA.slice(0, 12)}… vs ${digestB.slice(0, 12)}…`);
     } finally {
       await second.vm.delete();
       console.log(`deleted ${second.vmId}`);
