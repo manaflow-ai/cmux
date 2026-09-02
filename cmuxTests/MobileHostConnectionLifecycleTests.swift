@@ -13,7 +13,7 @@ import Testing
 
 @MainActor
 extension MobileHostAuthorizationTests {
-    @Test func renderCaptureRevisionStaysStableWhenTheSameFrameIsReplayed() {
+    @Test func testRenderCaptureRevisionStaysStableWhenTheSameFrameIsReplayed() {
         let surfaceID = UUID()
         let first = MobileTerminalByteTee.shared.nextRenderCaptureIdentity(
             surfaceID: surfaceID
