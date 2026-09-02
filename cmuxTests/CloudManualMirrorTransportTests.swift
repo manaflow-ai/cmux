@@ -316,6 +316,39 @@ struct CloudManualMirrorTransportTests {
     }
 
     @Test
+    func identifyCommandUsesTheSameRawCommandBridge() throws {
+        let arguments = try #require(
+            CloudTuiCommandLine.identifyArguments(socketPath: "/tmp/cmux.sock")
+        )
+        let requestIndex = try #require(arguments.firstIndex(of: "--request-json")) + 1
+        let request = try #require(
+            JSONSerialization.jsonObject(with: Data(arguments[requestIndex].utf8)) as? [String: Any]
+        )
+        #expect(request["cmd"] as? String == "identify")
+    }
+
+    @Test
+    func identifyParserAcceptsOnlyIntegralProtocolNumbers() throws {
+        let parser = CloudTuiLegacySnapshotParser()
+        let response = try Self.line([
+            "id": 1,
+            "ok": true,
+            "data": ["protocol": 12],
+        ])
+        #expect(parser.protocolVersion(from: response) == 12)
+        #expect(
+            parser.protocolVersion(
+                from: Data(#"{"id":1,"ok":true,"data":{"protocol":12.0}}"#.utf8)
+            ) == nil
+        )
+        #expect(
+            parser.protocolVersion(
+                from: try Self.line(["id": 1, "ok": false, "data": ["protocol": 12]])
+            ) == nil
+        )
+    }
+
+    @Test
     func resolvedTerminalResponseBridgesSurfaceHandle() throws {
         let data = try JSONSerialization.data(withJSONObject: [
             "surface": 23,

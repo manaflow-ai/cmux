@@ -153,6 +153,23 @@ struct CloudTuiCommandLine: Sendable {
             "cmd": "resolve-terminal",
             "terminal_id": payload,
         ]
+        return rawCommandArguments(socketPath: socketPath, request: request)
+    }
+
+    /// Returns the raw `identify` command used to negotiate the daemon protocol
+    /// before selecting a compatibility-only resolver path.
+    static func identifyArguments(socketPath: String) -> [String]? {
+        rawCommandArguments(
+            socketPath: socketPath,
+            request: ["id": 1, "cmd": "identify"]
+        )
+    }
+
+    /// Encodes one private JSON command through the CLI's raw command bridge.
+    private static func rawCommandArguments(
+        socketPath: String,
+        request: [String: Any]
+    ) -> [String]? {
         guard let data = try? JSONSerialization.data(withJSONObject: request),
               let encoded = String(data: data, encoding: .utf8) else {
             return nil

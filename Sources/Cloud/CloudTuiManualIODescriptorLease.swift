@@ -12,6 +12,11 @@ final class CloudTuiManualIODescriptorLease: @unchecked Sendable {
         self.descriptor = descriptor
     }
 
+    // The descriptor is closed by `closeIfReady()` only after every registered
+    // dispatch source has cancelled. Closing here would race a source that
+    // still holds an internal reference to the descriptor.
+    deinit {}
+
     /// Registers one dispatch source before it is activated.
     func registerSource() {
         remainingSources += 1

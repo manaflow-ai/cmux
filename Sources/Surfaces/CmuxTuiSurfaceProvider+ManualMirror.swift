@@ -343,7 +343,18 @@ extension CmuxTuiSurfaceProvider {
                 return .failed
             }
         } catch {
-            return isUnsupportedModernResolverError(error) ? .unsupported : .failed
+            if isExplicitUnsupportedResolverError(error) {
+                return .unsupported
+            }
+            // A pre-protocol-9 daemon has no generation-aware resolver. Probe
+            // the authoritative identify response before allowing the legacy
+            // tree fallback; all other failures remain fail-closed.
+            guard let identifyArguments = CloudTuiCommandLine.identifyArguments(socketPath: socketPath),
+                  let identify = try? await link.run(arguments: identifyArguments),
+                  let protocolVersion = parser.protocolVersion(from: identify) else {
+                return .failed
+            }
+            return protocolVersion < 9 ? .unsupported : .failed
         }
     }
 
@@ -388,10 +399,18 @@ extension CmuxTuiSurfaceProvider {
         return results
     }
 
-    nonisolated private static func isUnsupportedModernResolverError(_ error: Error) -> Bool {
-        let text = CloudMachineLink.errorText(error).lowercased()
-        return text.contains("unknown command")
-            || text.contains("unsupported")
-            || text.contains("unrecognized command")
+    nonisolated private static func isExplicitUnsupportedResolverError(_ error: Error) -> Bool {
+        guard case let CloudMachineLink.LinkError.exited(_, output) = error else { return false }
+        let lines = output.split(whereSeparator: \.isNewline)
+        for line in lines {
+            guard let data = String(line).data(using: .utf8),
+                  let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
+            else { continue }
+            if object["code"] as? String == "operation.unsupported"
+                || object["error_code"] as? String == "operation.unsupported" {
+                return true
+            }
+        }
+        return false
     }
 }

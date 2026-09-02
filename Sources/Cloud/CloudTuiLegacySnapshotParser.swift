@@ -32,6 +32,31 @@ struct CloudTuiLegacySnapshotParser: Sendable {
         return .surface(surface)
     }
 
+    /// Reads the protocol integer from an `identify` response envelope. A
+    /// malformed, failed, fractional, or boolean response returns `nil` so a
+    /// caller cannot infer compatibility from an unreliable value.
+    func protocolVersion(from data: Data) -> Int? {
+        guard let root = try? JSONSerialization.jsonObject(with: data),
+              let object = root as? [String: Any],
+              (object["ok"] as? Bool) == true,
+              let data = object["data"] as? [String: Any],
+              let number = data["protocol"] as? NSNumber,
+              CFGetTypeID(number) != CFBooleanGetTypeID() else {
+            return nil
+        }
+        let type = String(cString: number.objCType)
+        switch type {
+        case "c", "s", "i", "l", "q":
+            let value = number.int64Value
+            return value >= 0 && value <= Int64(Int.max) ? Int(value) : nil
+        case "C", "S", "I", "L", "Q":
+            let value = number.uint64Value
+            return value <= UInt64(Int.max) ? Int(value) : nil
+        default:
+            return nil
+        }
+    }
+
     /// Finds the numeric surface backing `terminalID` in a legacy tree payload.
     func surfaceID(from data: Data, terminalID: String) -> UInt64? {
         guard let root = try? JSONSerialization.jsonObject(with: data),
