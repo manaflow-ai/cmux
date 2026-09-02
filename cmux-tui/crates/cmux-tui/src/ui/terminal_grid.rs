@@ -1,7 +1,7 @@
 use std::borrow::Cow;
 
 use cmux_tui_core::{Rect, SurfaceRenderFrame};
-use ghostty_vt::{Cell as VtCell, CellWidth, ColorSpec, Rgb};
+use ghostty_vt::{Cell as VtCell, CellWidth, ColorSpec, CursorInfo, Rgb};
 use ratatui::Frame;
 use ratatui::buffer::Buffer;
 use ratatui::layout::Rect as RatatuiRect;
@@ -127,15 +127,45 @@ fn draw_render_frame_with_catalog(
         );
     }
 
-    render
-        .frame
-        .cursor
-        .filter(|cursor| {
-            cursor.x >= source_x
-                && usize::from(cursor.x - source_x) < live_cols
-                && (cursor.y as usize) < live_rows
-        })
-        .map(|cursor| (rect.x + cursor.x - source_x, rect.y + cursor.y))
+    render.frame.cursor.and_then(|cursor| {
+        cropped_cursor_position(
+            cursor,
+            render.frame.styled_rows(),
+            source_x,
+            live_cols,
+            live_rows,
+        )
+        .map(|(x, y)| (rect.x + x, rect.y + y))
+    })
+}
+
+/// Return a cursor position that is drawable in a horizontally cropped frame.
+/// Ghostty can report a cursor on a wide grapheme's trailing spacer. That
+/// spacer is not an independent drawable cell, so place the cursor on the
+/// grapheme lead before applying crop bounds.
+fn cropped_cursor_position(
+    cursor: CursorInfo,
+    rows: &[Vec<VtCell>],
+    source_x: u16,
+    live_cols: usize,
+    live_rows: usize,
+) -> Option<(u16, u16)> {
+    let mut x = cursor.x;
+    if x > 0
+        && rows
+            .get(cursor.y as usize)
+            .and_then(|row| row.get(x as usize))
+            .is_some_and(|cell| cell.width == CellWidth::SpacerTail)
+        && rows
+            .get(cursor.y as usize)
+            .and_then(|row| row.get((x - 1) as usize))
+            .is_some_and(|cell| cell.width == CellWidth::Wide)
+    {
+        x -= 1;
+    }
+
+    (x >= source_x && usize::from(x - source_x) < live_cols && (cursor.y as usize) < live_rows)
+        .then_some((x - source_x, cursor.y))
 }
 
 fn partial_wide_cell(
