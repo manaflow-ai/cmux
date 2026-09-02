@@ -13,6 +13,7 @@ import {
   parseCmuxTuiManifest,
   parseEnrollmentInvitationUri,
 } from "../services/vms/drivers/blaxel";
+import { cmuxTuiPersistentMountWait } from "../services/vms/drivers/cmuxTuiDaemon";
 
 const SHA = "c7a3155341a85a2f10a873d69a041bdf1855ec059a802e58e0779a7a6bdec607";
 const COMMIT = "5a4780614cecd8e8ef040a24478f928ef31cc4ae";
@@ -253,6 +254,70 @@ describe("cmux-tui install and daemon commands", () => {
     }
   });
 
+  test("accepts a mount that arrives during the poll handoff", async () => {
+    const root = mkdtempSync(join(tmpdir(), "cmux-tui-mount-handoff-"));
+    const fakeBin = join(root, "fake-bin");
+    const backing = join(root, "backing");
+    const state = join(root, "state");
+    mkdirSync(fakeBin, { recursive: true });
+    mkdirSync(state, { recursive: true });
+    const writeExecutable = (name: string, contents: string) => {
+      const file = join(fakeBin, name);
+      writeFileSync(file, contents);
+      chmodSync(file, 0o755);
+    };
+    writeExecutable("mountpoint", [
+      "#!/bin/sh",
+      "path=\"$2\"",
+      "if [ \"$path\" = \"$CMUX_TEST_BACKING\" ] && [ -e \"$CMUX_TEST_STATE/mounted\" ]; then exit 0; fi",
+      "exit 1",
+      "",
+    ].join("\n"));
+    writeExecutable("findmnt", [
+      "#!/bin/sh",
+      "case \"$1\" in",
+      "  --help) printf '%s\\n' '--poll --timeout'; exit 0 ;;",
+      "  --poll=*) : > \"$CMUX_TEST_STATE/mounted\"; exit 1 ;;",
+      "esac",
+      "exit 1",
+      "",
+    ].join("\n"));
+    const layout = { user: "cmux", home: join(root, "home"), volumeBackingPath: backing } as const;
+    const command = `${cmuxTuiPersistentMountWait(layout, true)} printf ready`;
+    let child: ReturnType<typeof spawn> | undefined;
+    try {
+      child = spawn("/bin/sh", ["-c", command], {
+        env: {
+          ...process.env,
+          PATH: [fakeBin, process.env.PATH || ""].join(":"),
+          CMUX_TEST_BACKING: backing,
+          CMUX_TEST_STATE: state,
+        },
+        stdio: ["ignore", "pipe", "ignore"],
+      });
+      const result = await new Promise<{ code: number; stdout: string }>((resolve, reject) => {
+        const timer = setTimeout(() => {
+          child?.kill("SIGKILL");
+          reject(new Error("mount handoff test timed out"));
+        }, 2_000);
+        let stdout = "";
+        child?.stdout?.on("data", (chunk: Buffer) => { stdout += chunk.toString(); });
+        child?.once("error", (error) => {
+          clearTimeout(timer);
+          reject(error);
+        });
+        child?.once("exit", (code) => {
+          clearTimeout(timer);
+          resolve({ code: code ?? -1, stdout });
+        });
+      });
+      expect(result).toEqual({ code: 0, stdout: "ready" });
+    } finally {
+      child?.kill("SIGKILL");
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
   test("fails closed when the mount poller returns an error", async () => {
     const root = mkdtempSync(join(tmpdir(), "cmux-tui-poll-failure-"));
     const fakeBin = join(root, "fake-bin");
@@ -453,6 +518,79 @@ describe("cmux-tui install and daemon commands", () => {
       expect(exitCode).toBe(75);
       expect(existsSync(join(state, "daemon-ready"))).toBe(true);
       expect(existsSync(join(state, "daemon-term"))).toBe(true);
+    } finally {
+      child?.kill("SIGKILL");
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test("force-stops a daemon that ignores TERM after mount loss", async () => {
+    const root = mkdtempSync(join(tmpdir(), "cmux-tui-unresponsive-daemon-"));
+    const fakeBin = join(root, "fake-bin");
+    const backing = join(root, "backing");
+    const state = join(root, "state");
+    mkdirSync(fakeBin, { recursive: true });
+    mkdirSync(join(backing, ".cmux", "bin"), { recursive: true });
+    mkdirSync(state, { recursive: true });
+    const writeExecutable = (name: string, contents: string) => {
+      const file = join(fakeBin, name);
+      writeFileSync(file, contents);
+      chmodSync(file, 0o755);
+    };
+    writeExecutable("mountpoint", [
+      "#!/bin/sh",
+      "path=\"$2\"",
+      "if [ \"$path\" = \"$CMUX_TEST_BACKING\" ]; then [ ! -e \"$CMUX_TEST_STATE/backing-unmounted\" ]; exit $?; fi",
+      "exit 1",
+      "",
+    ].join("\n"));
+    writeExecutable("findmnt", [
+      "#!/bin/sh",
+      "case \"$1\" in",
+      "  --help) printf '%s\\n' '--poll'; exit 0 ;;",
+      "  --poll=*) while [ ! -e \"$CMUX_TEST_STATE/daemon-ready\" ]; do sleep 0.01; done; : > \"$CMUX_TEST_STATE/backing-unmounted\"; exit 0 ;;",
+      "esac",
+      "exit 1",
+      "",
+    ].join("\n"));
+    const daemonBinary = join(backing, ".cmux", "bin", "cmux-tui");
+    writeFileSync(daemonBinary, [
+      "#!/bin/sh",
+      "trap ':' TERM INT HUP",
+      ": > \"$CMUX_TEST_STATE/daemon-ready\"",
+      "while :; do :; done",
+      "",
+    ].join("\n"));
+    chmodSync(daemonBinary, 0o755);
+    const layout = { user: "cmux", home: join(root, "home"), volumeBackingPath: backing } as const;
+    const command = cmuxTuiDaemonCommand(undefined, layout);
+    let child: ReturnType<typeof spawn> | undefined;
+    try {
+      child = spawn("/bin/sh", ["-c", command], {
+        env: {
+          ...process.env,
+          PATH: [fakeBin, process.env.PATH || ""].join(":"),
+          CMUX_TEST_BACKING: backing,
+          CMUX_TEST_STATE: state,
+        },
+        stdio: "ignore",
+      });
+      const exitCode = await new Promise<number>((resolve, reject) => {
+        const timer = setTimeout(() => {
+          child?.kill("SIGKILL");
+          reject(new Error("unresponsive daemon shutdown timed out"));
+        }, 5_000);
+        child?.once("error", (error) => {
+          clearTimeout(timer);
+          reject(error);
+        });
+        child?.once("exit", (code) => {
+          clearTimeout(timer);
+          resolve(code ?? -1);
+        });
+      });
+      expect(exitCode).toBe(75);
+      expect(existsSync(join(state, "daemon-ready"))).toBe(true);
     } finally {
       child?.kill("SIGKILL");
       rmSync(root, { recursive: true, force: true });
