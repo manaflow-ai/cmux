@@ -1432,9 +1432,9 @@ impl Inner {
     ) {
         let mut opening = self.opening_state.lock().expect("opening state lock");
         if let Some(entry) = opening.ids.get(pty_id) {
-            if generation.is_none_or(|expected| entry.generation == expected)
-                && entry.transport_id.as_deref() == transport_id
-            {
+            let owns_opening =
+                transport_id.is_none() || entry.transport_id.as_deref() == transport_id;
+            if generation.is_none_or(|expected| entry.generation == expected) && owns_opening {
                 opening.cancelled.insert(pty_id.to_owned(), entry.generation);
             }
             return;
