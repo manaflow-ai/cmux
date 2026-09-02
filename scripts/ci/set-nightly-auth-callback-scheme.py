@@ -30,12 +30,20 @@ def _is_auth_url_type(entry: dict[str, Any], base_scheme: str) -> bool:
     if isinstance(name, str) and name.strip().lower().endswith(AUTH_NAME_SUFFIX):
         return True
 
+    return bool(_matching_scheme_indices(entry, base_scheme))
+
+
+def _matching_scheme_indices(entry: dict[str, Any], base_scheme: str) -> list[int]:
     if not base_scheme:
-        return False
+        return []
     schemes = entry.get("CFBundleURLSchemes")
-    return isinstance(schemes, list) and any(
-        _normalized_scheme(scheme) == base_scheme for scheme in schemes
-    )
+    if not isinstance(schemes, list):
+        return []
+    return [
+        index
+        for index, scheme in enumerate(schemes)
+        if _normalized_scheme(scheme) == base_scheme
+    ]
 
 
 def _auth_url_type_index(url_types: list[Any], base_scheme: str) -> int:
@@ -93,7 +101,13 @@ def set_auth_callback_scheme(path: Path, callback_scheme: str, base_scheme: str 
     if not isinstance(schemes, list) or not schemes:
         raise ValueError(f"auth URL type at index {index} has no URL scheme")
 
-    schemes[0] = callback_scheme
+    matching_scheme_indices = _matching_scheme_indices(entry, _normalized_scheme(base_scheme))
+    if len(matching_scheme_indices) > 1:
+        raise ValueError(
+            f"auth URL type at index {index} contains the base scheme more than once"
+        )
+    target_scheme_index = matching_scheme_indices[0] if matching_scheme_indices else 0
+    schemes[target_scheme_index] = normalized_callback
     fmt = plistlib.FMT_BINARY if raw.startswith(b"bplist") else plistlib.FMT_XML
     mode = stat.S_IMODE(path.stat().st_mode)
     _write_plist_atomically(path, plist, fmt, mode)

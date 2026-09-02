@@ -70,7 +70,7 @@ class NightlyAuthCallbackSchemeTests(unittest.TestCase):
                 plist,
                 [
                     {"CFBundleURLName": "web", "CFBundleURLSchemes": ["http", "https"]},
-                    {"CFBundleURLName": "callback", "CFBundleURLSchemes": ["cmux"]},
+                    {"CFBundleURLName": "callback", "CFBundleURLSchemes": ["legacy-auth", "cmux"]},
                 ],
             )
 
@@ -79,7 +79,7 @@ class NightlyAuthCallbackSchemeTests(unittest.TestCase):
             self.assertEqual(result.returncode, 0, result.stderr)
             self.assertEqual(
                 self._read(plist)["CFBundleURLTypes"][1]["CFBundleURLSchemes"],
-                ["cmux-nightly"],
+                ["legacy-auth", "cmux-nightly"],
             )
 
     def test_ambiguous_auth_entries_fail_closed_without_mutating_the_file(self) -> None:
