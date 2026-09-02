@@ -242,6 +242,47 @@ struct MemoryPressureStateTrackerTests {
         #expect(sample.missingProcessCount == 0)
     }
 
+    @Test func implausibleCoalitionFootprintFallsBackToCompleteTree() {
+        let process = CmuxTopProcessInfo(
+            pid: 42,
+            parentPID: 1,
+            name: "cmux",
+            path: nil,
+            ttyDevice: nil,
+            cmuxWorkspaceID: nil,
+            cmuxSurfaceID: nil,
+            cmuxAttributionReason: nil,
+            processGroupID: 42,
+            terminalProcessGroupID: 42,
+            cpuPercent: 0,
+            memoryBytes: 4_000,
+            memorySource: .physicalFootprint,
+            residentBytes: 4_000,
+            residentMemorySource: .residentSize,
+            virtualBytes: 0,
+            threadCount: 1
+        )
+        let snapshot = CmuxTopProcessSnapshot(
+            processes: [process],
+            sampledAt: Date(timeIntervalSince1970: 0),
+            includesProcessDetails: false,
+            includesCMUXScope: false
+        )
+        let sampler = DarwinMemoryPressureAggregateSampler(
+            processID: 42,
+            snapshotProvider: { snapshot },
+            coalitionSampler: FixedMemoryPressureCoalitionSampler(bytes: 9_000),
+            physicalMemoryProvider: { 8_000 },
+            availableMemoryProvider: { nil }
+        )
+
+        let sample = sampler.sample(at: Date(timeIntervalSince1970: 1))
+
+        #expect(sample.source == .descendantProcessTree)
+        #expect(sample.aggregateBytes == 4_000)
+        #expect(sample.missingProcessCount == 0)
+    }
+
     @Test func aggregatePressureIsRecordedWithoutRaisingSystemSeverity() {
         let policy = MemoryPressureAggregatePolicy(
             warningCoalitionFraction: 0.5,

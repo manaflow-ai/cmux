@@ -53,7 +53,9 @@ nonisolated struct DarwinMemoryPressureAggregateSampler: MemoryPressureAggregate
         let physicalMemoryBytes = physicalMemoryProvider()
         let availableMemoryBytes = availableMemoryProvider()
         if let coalitionUsage = coalitionSampler.usage(forProcessID: processID),
-           coalitionUsage.physicalFootprintBytes > 0 {
+           coalitionUsage.physicalFootprintBytes > 0,
+           physicalMemoryBytes > 0,
+           coalitionUsage.physicalFootprintBytes <= physicalMemoryBytes {
             // Coalition accounting already covers cmux and its descendants;
             // avoid a full process-table walk on the normal path. The count is
             // intentionally zero because no descendant enumeration occurred.

@@ -408,7 +408,7 @@ struct AgentHibernationPlannerSwiftTests {
                     isProtected: false,
                     lifecycle: .idle,
                     hasUnconfirmedTerminalInput: false,
-                    lastActivityAt: now
+                    lastActivityAt: now - 120
                 ),
                 .init(
                     key: secondIdle,

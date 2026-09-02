@@ -66,10 +66,11 @@ enum AgentHibernationPlanner {
                     input.lifecycle.allowsHibernation &&
                     !input.isTemporarilyUnableToProtect &&
                     !input.hasUnconfirmedTerminalInput &&
-                    (
-                        trigger.isMemoryPressure ||
-                            now - input.lastActivityAt >= settings.idleSeconds
-                    )
+                    // Pressure never bypasses the ordinary inactivity proof:
+                    // a lifecycle state can lag a just-completed turn, so the
+                    // configured idle interval remains required for every
+                    // trigger.
+                    now - input.lastActivityAt >= settings.idleSeconds
             }
 
         guard !trigger.isMemoryPressure else {
