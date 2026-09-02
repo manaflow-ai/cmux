@@ -41,7 +41,7 @@ pub use stream::LengthDelimitedLink;
 pub use unix::UnixProvider;
 #[cfg(feature = "wireguard-transport")]
 pub use dial::WireGuardDialer;
-pub use dial::{DialedStream, Dialer, OsTcpDialer, resolve_dial_target};
+pub use dial::{DialedIo, DialedStream, Dialer, OsTcpDialer, resolve_dial_target};
 pub use websocket::{
     AxumWebSocketLink, DirectWebSocketProvider, TungsteniteWebSocketLink, connect_websocket,
     connect_websocket_via,

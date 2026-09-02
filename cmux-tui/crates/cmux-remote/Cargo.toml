@@ -60,7 +60,7 @@ cmux-tui-source-watch = { path = "../.." }
 
 [dev-dependencies]
 cmux-relay = { path = "../cmux-relay" }
-cmux-wg = { workspace = true, features = ["test-support"] }
+cmux-wg.workspace = true
 rcgen = "0.14"
 tempfile = "3"
 tokio = { workspace = true, features = ["test-util"] }
