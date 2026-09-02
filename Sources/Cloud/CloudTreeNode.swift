@@ -343,12 +343,14 @@ enum CloudTreeNodeBuilder {
         let tabID: String?
     }
 
-    /// Indexes local projections by their complete remote placement. The cloud
-    /// tree is rebuilt often, so `localWorkspaceShowing` must not rescan every
-    /// projection and resource for every remote workspace row.
-    private struct LocalWorkspacePlacementIndex {
+    /// Indexes local projections by their complete remote placement and by
+    /// open-state identity. The cloud tree is rebuilt often, so neither
+    /// `localWorkspaceShowing` nor leaf rows should rescan every projection.
+    private struct LocalProjectionIndex {
         private var exact: [RemotePlacementIdentity: [UUID]] = [:]
         private var legacy: [SurfaceResourceID: [UUID]] = [:]
+        private var openResources: Set<SurfaceResourceID> = []
+        private var openPlacements: Set<RemotePlacementIdentity> = []
 
         init(snapshot: SurfaceCatalogSnapshot) {
             var projectionCountByResource: [SurfaceResourceID: Int] = [:]
@@ -362,12 +364,14 @@ enum CloudTreeNodeBuilder {
             }
 
             for projection in snapshot.projections {
+                openResources.insert(projection.resource)
                 if let remoteWorkspaceID = projection.remoteWorkspaceID {
                     let identity = RemotePlacementIdentity(
                         resource: projection.resource,
                         workspaceID: remoteWorkspaceID,
                         tabID: projection.remoteTabID
                     )
+                    openPlacements.insert(identity)
                     exact[identity, default: []].append(projection.workspaceID)
                 } else if projection.remoteTabID == nil,
                           projectionCountByResource[projection.resource] == 1,
@@ -378,6 +382,15 @@ enum CloudTreeNodeBuilder {
                     legacy[projection.resource, default: []].append(projection.workspaceID)
                 }
             }
+        }
+
+        func isOpen(_ resource: SurfaceResourceID, remoteView: SurfaceRemoteView?) -> Bool {
+            guard let remoteView else { return openResources.contains(resource) }
+            return openPlacements.contains(RemotePlacementIdentity(
+                resource: resource,
+                workspaceID: remoteView.workspace.id,
+                tabID: remoteView.tabID
+            ))
         }
 
         func localWorkspaceShowing(
@@ -449,10 +462,15 @@ enum CloudTreeNodeBuilder {
         localWorkspaces: [CloudTreeLocalWorkspace],
         includeLocalMachine: Bool = CloudTreeNodeBuilder.includesLocalMachine
     ) -> [CloudTreeNode] {
-        let placementIndex = LocalWorkspacePlacementIndex(snapshot: snapshot)
+        let projectionIndex = LocalProjectionIndex(snapshot: snapshot)
         var nodes: [CloudTreeNode] = []
         if includeLocalMachine, let local = snapshot.machines.first(where: { $0.id.isLocal }) {
-            nodes.append(localMachineNode(info: local, snapshot: snapshot, localWorkspaces: localWorkspaces))
+            nodes.append(localMachineNode(
+                info: local,
+                snapshot: snapshot,
+                localWorkspaces: localWorkspaces,
+                projectionIndex: projectionIndex
+            ))
         }
         // Creates the person just started go first: they are what the person is
         // waiting on, and a failed one must not hide below a long fleet.
@@ -471,7 +489,7 @@ enum CloudTreeNodeBuilder {
                     machine: .cloud(machine.id),
                     info: info,
                     snapshot: snapshot,
-                    placementIndex: placementIndex
+                    projectionIndex: projectionIndex
                 )
             ))
         }
@@ -495,7 +513,7 @@ enum CloudTreeNodeBuilder {
                     machine: info.id,
                     info: info,
                     snapshot: snapshot,
-                    placementIndex: placementIndex
+                    projectionIndex: projectionIndex
                 )
             ))
         }
@@ -582,7 +600,7 @@ enum CloudTreeNodeBuilder {
         placements: [SurfaceResourcePlacement],
         snapshot: SurfaceCatalogSnapshot
     ) -> UUID? {
-        LocalWorkspacePlacementIndex(snapshot: snapshot).localWorkspaceShowing(
+        LocalProjectionIndex(snapshot: snapshot).localWorkspaceShowing(
             remoteWorkspaceID: remoteWorkspaceID,
             placements: placements
         )
@@ -613,7 +631,8 @@ enum CloudTreeNodeBuilder {
     private static func localMachineNode(
         info: SurfaceMachineInfo,
         snapshot: SurfaceCatalogSnapshot,
-        localWorkspaces: [CloudTreeLocalWorkspace]
+        localWorkspaces: [CloudTreeLocalWorkspace],
+        projectionIndex: LocalProjectionIndex
     ) -> CloudTreeNode {
         let resources = snapshot.resources(on: .local)
         let terminals = resources.filter { $0.kind == .terminal }
@@ -651,11 +670,15 @@ enum CloudTreeNodeBuilder {
                     terminalCount: projected.count,
                     isSelected: workspace.isSelected
                 )),
-                children: projected.map { terminalNode($0, snapshot: snapshot) },
+                children: projected.map {
+                    terminalNode($0, snapshot: snapshot, projectionIndex: projectionIndex)
+                },
                 dragGroup: SurfaceResourceGroup(title: title, resources: (projected + projectedBrowsers).map(\.id))
             )
         }
-        children.append(contentsOf: unplaced.map { terminalNode($0, snapshot: snapshot) })
+        children.append(contentsOf: unplaced.map {
+            terminalNode($0, snapshot: snapshot, projectionIndex: projectionIndex)
+        })
         if children.isEmpty {
             children.append(placeholder(.local, text: String(localized: "cloudTree.placeholder.noLocalTerminals", defaultValue: "No terminals open"), style: .dimmed))
         }
@@ -668,7 +691,7 @@ enum CloudTreeNodeBuilder {
                         id: nodeID(resource: browser.id),
                         kind: .browser(CloudTreeBrowserRow(
                             resource: browser,
-                            isOpen: snapshot.isOpen(browser.id),
+                            isOpen: projectionIndex.isOpen(browser.id, remoteView: nil),
                             workspaceTitle: workspaceOf(browser.id).flatMap { titles[$0] },
                             remoteView: nil
                         ))
@@ -701,7 +724,7 @@ enum CloudTreeNodeBuilder {
         machine: SurfaceMachineID,
         info: SurfaceMachineInfo?,
         snapshot: SurfaceCatalogSnapshot,
-        placementIndex: LocalWorkspacePlacementIndex
+        projectionIndex: LocalProjectionIndex
     ) -> [CloudTreeNode] {
         // The catalog has not registered this machine yet: nothing to expand.
         guard let info else { return [] }
@@ -754,6 +777,7 @@ enum CloudTreeNodeBuilder {
                         terminalNode(
                             $0,
                             snapshot: snapshot,
+                            projectionIndex: projectionIndex,
                             viewBadge: $0.remoteViews?.count,
                             remoteView: $0.remoteViews?.count == 1 ? $0.remoteViews?.first : nil
                         )
@@ -831,7 +855,7 @@ enum CloudTreeNodeBuilder {
                     let shownDisplayPlacements: [RemoteResourcePlacement] = workspaceDisplayPlacements.isEmpty
                         ? displays.map { RemoteResourcePlacement(resource: $0, workspace: workspace, view: nil) }
                         : workspaceDisplayPlacements
-                    let openInLocal = placementIndex.localWorkspaceShowing(
+                    let openInLocal = projectionIndex.localWorkspaceShowing(
                         remoteWorkspaceID: workspace.id,
                         placements: placements,
                     )
@@ -842,6 +866,7 @@ enum CloudTreeNodeBuilder {
                             terminalNode(
                                 placement.resource,
                                 snapshot: snapshot,
+                                projectionIndex: projectionIndex,
                                 id: nodeID(
                                     resource: placement.resource.id,
                                     inRemoteWorkspace: workspace.id,
@@ -858,7 +883,7 @@ enum CloudTreeNodeBuilder {
                                 ),
                                 kind: .browser(CloudTreeBrowserRow(
                                     resource: placement.resource,
-                                    isOpen: snapshot.isOpen(placement.resource.id),
+                                    isOpen: projectionIndex.isOpen(placement.resource.id, remoteView: placement.view),
                                     workspaceTitle: nil,
                                     remoteView: placement.view
                                 ))
@@ -919,7 +944,7 @@ enum CloudTreeNodeBuilder {
                 children: browsers.map {
                     CloudTreeNode(id: nodeID(resource: $0.id), kind: .browser(CloudTreeBrowserRow(
                         resource: $0,
-                        isOpen: snapshot.isOpen($0.id),
+                        isOpen: projectionIndex.isOpen($0.id, remoteView: nil),
                         workspaceTitle: nil,
                         remoteView: $0.remoteViews?.count == 1 ? $0.remoteViews?.first : nil
                     )))
@@ -932,6 +957,7 @@ enum CloudTreeNodeBuilder {
     private static func terminalNode(
         _ resource: SurfaceResource,
         snapshot: SurfaceCatalogSnapshot,
+        projectionIndex: LocalProjectionIndex,
         id: String? = nil,
         viewBadge: Int? = nil,
         remoteView: SurfaceRemoteView? = nil
@@ -940,7 +966,7 @@ enum CloudTreeNodeBuilder {
             id: id ?? nodeID(resource: resource.id),
             kind: .terminal(CloudTreeTerminalRow(
                 resource: resource,
-                isOpen: snapshot.isOpen(resource.id),
+                isOpen: projectionIndex.isOpen(resource.id, remoteView: remoteView),
                 viewBadge: viewBadge,
                 remoteView: remoteView
             ))

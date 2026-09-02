@@ -558,10 +558,17 @@ final class MachinesPanelModelTests: XCTestCase {
             SurfaceRemoteView(tabID: "tab_build", workspace: workspace, name: "build"),
             SurfaceRemoteView(tabID: "tab_shell", workspace: workspace, name: "shell"),
         ]
+        let localWorkspaceID = UUID()
         let snapshot = SurfaceCatalogSnapshot(
             machines: [machineInfo(machine, remoteWorkspaces: [workspace])],
             resources: [resource],
-            projections: []
+            projections: [SurfaceProjection(
+                resource: resource.id,
+                workspaceID: localWorkspaceID,
+                panelID: UUID(),
+                remoteWorkspaceID: workspace.id,
+                remoteTabID: "tab_build"
+            )]
         )
 
         let nodes = CloudTreeNodeBuilder.nodes(
@@ -578,6 +585,7 @@ final class MachinesPanelModelTests: XCTestCase {
 
         XCTAssertEqual(terminalRows.map { $0.remoteView?.tabID }, ["tab_build", "tab_shell"])
         XCTAssertEqual(terminalRows.map(\.displayTitle), ["build", "shell"])
+        XCTAssertEqual(terminalRows.map(\.isOpen), [true, false], "open state must stay scoped to the exact remote tab")
         XCTAssertEqual(
             workspaceNode?.children.map(\.id),
             [
