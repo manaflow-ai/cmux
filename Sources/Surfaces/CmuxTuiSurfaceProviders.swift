@@ -565,12 +565,12 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
         at destination: SurfaceDestination,
         focus: Bool
     ) async throws -> (workspaceID: UUID, panelID: UUID) {
-        let connected = try await links.connected(machineID: machineID)
         guard let clientURL = CloudTuiClientPaths.clientURL() else {
             throw CloudMachineLinkManager.ManagerError.clientMissing
         }
         if manualIOService.isEnabled,
            await manualIOService.clientSupportsPipeIO(clientURL: clientURL) {
+            let connected = try await links.connected(machineID: machineID)
             let attach = CloudTuiManualIOAttach(
                 clientPath: clientURL.path,
                 socketPath: connected.socketPath,
@@ -581,6 +581,7 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
             )
             return try SurfacePaneFactory.makeCloudTuiTerminalPane(attach: attach, at: destination, focus: focus)
         }
+        let connected = try await links.connected(machineID: machineID)
         let command = CloudTuiCommandLine.attachShellCommand(
             clientPath: clientURL.path,
             socketPath: connected.socketPath,

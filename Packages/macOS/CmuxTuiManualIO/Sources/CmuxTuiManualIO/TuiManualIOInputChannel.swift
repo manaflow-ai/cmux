@@ -1,4 +1,5 @@
 public import Foundation
+import CmuxFoundation
 
 /// Bridges encoded Ghostty input to one relay stdin handle.
 ///
@@ -61,7 +62,7 @@ public final class TuiManualIOInputChannel: @unchecked Sendable {
         enqueue(bytes: line.count) { [weak self] in
             defer { self?.releaseQueued(bytes: line.count) }
             do {
-                try target.write(contentsOf: line)
+                try target.writeProcessPipeInput(line)
             } catch {
                 self?.detachIfCurrent(target)
             }
@@ -93,9 +94,9 @@ public final class TuiManualIOInputChannel: @unchecked Sendable {
             defer { self?.releaseQueued(bytes: queuedBytes) }
             do {
                 if sendClaim {
-                    try target.write(contentsOf: claimLine)
+                    try target.writeProcessPipeInput(claimLine)
                 }
-                try target.write(contentsOf: line)
+                try target.writeProcessPipeInput(line)
             } catch {
                 self?.detachIfCurrent(target)
             }

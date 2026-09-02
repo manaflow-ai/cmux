@@ -445,7 +445,12 @@ final class TuiManualIOPump {
                 self.surface?.processRemoteOutput(chunk)
                 reader.release(chunk)
                 self.everRenderedAttach = true
-                self.consecutiveUnexplainedFailures = 0
+                // The first replay chunk is not proof of stable liveness.
+                // Reset the failure streak only after output arrives while
+                // the relay was already live.
+                if self.state == .live, !self.isReconnecting {
+                    self.consecutiveUnexplainedFailures = 0
+                }
                 if self.state == .connecting || self.isReconnecting {
                     self.state = .live
                 }

@@ -13,9 +13,13 @@ let package = Package(
             targets: ["CmuxTuiManualIO"]
         ),
     ],
+    dependencies: [
+        .package(path: "../CmuxFoundation"),
+    ],
     targets: [
         .target(
             name: "CmuxTuiManualIO",
+            dependencies: ["CmuxFoundation"],
             swiftSettings: [
                 .swiftLanguageMode(.v6),
                 .enableUpcomingFeature("ExistentialAny"),
