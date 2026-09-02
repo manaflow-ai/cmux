@@ -40580,6 +40580,13 @@ export default CMUXSessionRestore;
         return URL(fileURLWithPath: expanded).standardizedFileURL
     }
 
+    private func serveWebUsageOverview() -> String {
+        String(
+            localized: "cli.serveWeb.overview",
+            defaultValue: "serve-web [start|status|pair|grants|revoke|stop] [--bind <127.0.0.1|100.64.0.0/10>] [--port <n>] [--label <name>] [--show-token]"
+        )
+    }
+
     private func usage() -> String {
         return """
         cmux - control cmux via Unix socket
@@ -40632,7 +40639,7 @@ export default CMUXSessionRestore;
           version
           capabilities
           events [--after <seq>] [--cursor-file <path>] [--name <event>] [--category <category>] [--reconnect] [--limit <n>] [--no-ack] [--no-heartbeat]
-          serve-web [start|status|pair|grants|revoke|stop] [--bind <127.0.0.1|100.64.0.0/10>] [--port <n>] [--label <name>] [--show-token]
+          \(serveWebUsageOverview())
           auth <status|login|logout>
           login | logout                                      (aliases for auth login/logout)
           \(localizedCoderouterAliases())

@@ -6061,18 +6061,27 @@ class TerminalController {
         normalizeLineEndings: Bool = true
     ) -> String? {
         guard terminalPanel != nil || terminalTarget != nil else { return nil }
-        var actionSucceeded = false
-        let exportedPath = GhosttyApp.terminalPasteboard.captureNextStandardClipboardWrite {
-            let ok = terminalTarget?.performInternalBindingAction(bindingAction)
-                ?? terminalPanel?.performInternalBindingAction(bindingAction)
-                ?? false
-            actionSucceeded = ok
-            return ok
+        let exportedPath: String?
+        if let terminalTarget {
+            exportedPath = captureTerminalVTExportPath(
+                terminalTarget: terminalTarget,
+                bindingAction: bindingAction
+            )
+        } else if let terminalPanel {
+            var actionSucceeded = false
+            let rawPath = GhosttyApp.terminalPasteboard.captureNextStandardClipboardWrite {
+                let ok = terminalPanel.performInternalBindingAction(bindingAction)
+                actionSucceeded = ok
+                return ok
+            }
+            #if DEBUG
+            cmuxDebugLog("mobile.vtExport action=\(bindingAction) succeeded=\(actionSucceeded) hasPath=\(rawPath != nil)")
+            #endif
+            exportedPath = Self.normalizedExportedScreenPath(rawPath)
+        } else {
+            return nil
         }
-        #if DEBUG
-        cmuxDebugLog("mobile.vtExport action=\(bindingAction) succeeded=\(actionSucceeded) hasPath=\(exportedPath != nil)")
-        #endif
-        guard let exportedPath = Self.normalizedExportedScreenPath(exportedPath) else {
+        guard let exportedPath else {
             return nil
         }
 

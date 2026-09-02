@@ -17,7 +17,8 @@ nonisolated private let webClientBridgeLog = Logger(
 /// and browser-grant bookkeeping.
 actor WebClientBridgeService {
     static let protocolIdentifier = WebClientWebSocketTransport.protocolIdentifier
-    nonisolated private static let defaultPort = 7683
+    nonisolated static let defaultAddress = "127.0.0.1"
+    nonisolated static let defaultPort = 7683
     nonisolated private static let maximumPort = 65535
     nonisolated private static let maximumPendingHandshakeCount = 16
 
@@ -50,7 +51,10 @@ actor WebClientBridgeService {
 
     /// Starts the bridge on an explicit address. The default is loopback and
     /// the listener is never created until this method is called.
-    func start(address rawAddress: String = "127.0.0.1", port rawPort: Int = defaultPort) async -> MobileHostRPCResult {
+    func start(
+        address rawAddress: String = WebClientBridgeService.defaultAddress,
+        port rawPort: Int = WebClientBridgeService.defaultPort
+    ) async -> MobileHostRPCResult {
         guard MobileRemoteControlPolicy.isEnabled else {
             return .failure(MobileHostRPCError(
                 code: "remote_control_disabled",
@@ -573,13 +577,7 @@ actor WebClientBridgeService {
         parameters.allowLocalEndpointReuse = true
         parameters.defaultProtocolStack.applicationProtocols.insert(websocketOptions, at: 0)
         guard let endpointPort = NWEndpoint.Port(rawValue: UInt16(port)) else {
-            // Port zero is valid for an OS-assigned ephemeral listener.
-            guard port == 0 else { throw WebClientBridgeBindAddress.ValidationError.unsupported }
-            parameters.requiredLocalEndpoint = .hostPort(
-                host: NWEndpoint.Host(address.host),
-                port: .any
-            )
-            return try NWListener(using: parameters, on: .any)
+            throw WebClientBridgeBindAddress.ValidationError.unsupported
         }
         parameters.requiredLocalEndpoint = .hostPort(
             host: NWEndpoint.Host(address.host),

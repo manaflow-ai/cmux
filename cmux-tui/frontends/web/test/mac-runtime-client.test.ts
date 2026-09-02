@@ -250,6 +250,46 @@ describe("MacRuntimeClient", () => {
     await client.close();
   });
 
+  it("recovers from a terminal-byte sequence gap with a fresh replay", async () => {
+    const { client, socket } = await connectedClient();
+    const attaching = client.attachSurface(42n);
+    respond(socket, await waitForRequest(socket, "terminal.attach"));
+    const initialReplayRequest = await waitForRequest(socket, "terminal.replay");
+    const stream = await attaching;
+    respond(socket, initialReplayRequest, {
+      seq: "0",
+      columns: 80,
+      rows: 24,
+      snapshot_data_b64: "YQ==",
+    });
+    await stream.next();
+
+    socket.receive({
+      kind: "event",
+      topic: "terminal.bytes",
+      payload: {
+        surface_id: "42",
+        seq: "3",
+        data_b64: "eA==",
+      },
+    });
+    const recovering = stream.next();
+    const recoveryRequest = await waitForRequest(socket, "terminal.replay", 1);
+    respond(socket, recoveryRequest, {
+      seq: "3",
+      columns: 100,
+      rows: 30,
+      snapshot_data_b64: "Yg==",
+    });
+
+    const replay = await recovering;
+    expect(replay).toMatchObject({ event: "vt-state", cols: 100, rows: 30 });
+    expect(Array.from(replay.data as Uint8Array)).toEqual([98]);
+
+    stream.close();
+    await client.close();
+  });
+
   it("chunks terminal input below the browser-to-Mac message ceiling", async () => {
     const { client, socket } = await connectedClient();
     const input = "\u0000".repeat(600);

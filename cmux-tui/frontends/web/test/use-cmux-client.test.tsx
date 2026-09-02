@@ -75,6 +75,7 @@ vi.mock("../src/lib/macRuntimeClient", () => ({
 }));
 
 import { useCmuxClient } from "../src/hooks/useCmuxClient";
+import { t } from "../src/i18n";
 
 describe("useCmuxClient", () => {
   beforeEach(() => {
@@ -132,9 +133,7 @@ describe("useCmuxClient", () => {
       }
 
       expect(result.current.status).toBe("error");
-      expect(result.current.error).toBe(
-        "The Mac app could not reauthenticate. Paste a current grant token to reconnect.",
-      );
+      expect(result.current.error).toBe(t("macBridgeReconnectFailed"));
       const instancesAfterGiveUp = macMocks.instances;
       await act(async () => {
         await vi.advanceTimersByTimeAsync(30_000);

@@ -147,6 +147,20 @@ describe("TerminalPane split dividers", () => {
     expect(container.querySelector("button.pane-clients-trigger")).toBeNull();
   });
 
+  it("leaves native context menus available in read-only mode", () => {
+    const props = terminalPaneProps(vi.fn(async () => true));
+    const { container } = render(
+      <TerminalPane {...props} supportsMutations={false} screen={terminalScreenView()} />,
+    );
+    const tab = container.querySelector<HTMLElement>(".tab-wrap");
+    const pane = container.querySelector<HTMLElement>(".terminal-panel");
+    expect(tab).not.toBeNull();
+    expect(pane).not.toBeNull();
+    expect(fireEvent.contextMenu(tab!, { clientX: 12, clientY: 20 })).toBe(true);
+    expect(fireEvent.contextMenu(pane!, { clientX: 24, clientY: 32 })).toBe(true);
+    expect(container.querySelector('[role="menu"]')).toBeNull();
+  });
+
   it("renders a divider for a split and hides it while zoomed", () => {
     const props = terminalPaneProps(vi.fn(async () => true));
     const { queryByRole, rerender } = render(<TerminalPane {...props} screen={screenView(0.5)} />);
@@ -202,6 +216,27 @@ describe("TerminalPane split dividers", () => {
     fireEvent.keyDown(divider, { key: "ArrowRight" });
 
     await waitFor(() => expect(onSetSplitRatio).toHaveBeenCalledWith(42n, 0.55));
+  });
+
+  it("invalidates scheduled keyboard resize work when entering read-only mode", async () => {
+    vi.useFakeTimers();
+    try {
+      const onSetSplitRatio = vi.fn(async () => true);
+      const props = terminalPaneProps(onSetSplitRatio);
+      const { getByRole, rerender } = render(
+        <TerminalPane {...props} supportsMutations screen={screenView(0.5)} />,
+      );
+      fireEvent.keyDown(getByRole("separator"), { key: "ArrowRight" });
+
+      rerender(<TerminalPane {...props} supportsMutations={false} screen={screenView(0.5)} />);
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(100);
+      });
+
+      expect(onSetSplitRatio).not.toHaveBeenCalled();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("queues repeated arrow-key adjustments without dropping input", async () => {

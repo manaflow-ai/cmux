@@ -1,4 +1,4 @@
-import { memo, useCallback, useMemo, useReducer, useRef, useState } from "react";
+import { memo, useCallback, useEffect, useMemo, useReducer, useRef, useState } from "react";
 import type { ClientInfo, CmuxClient, Id, LivePane, Tab } from "cmux/raw";
 import { t } from "../i18n";
 import type { PaneLayoutView } from "../lib/layout";
@@ -82,7 +82,7 @@ function TabButton({ tab, index, pane, supportsMutations, onSelect, onNewTab, on
   };
 
   return (
-    <span className="tab-wrap" {...trigger}>
+    <span className="tab-wrap" {...(supportsMutations ? trigger : {})}>
       {supportsMutations && rename?.kind === "surface" && rename.id === tab.surface ? (
         <InlineRename
           value={rename.value}
@@ -195,9 +195,9 @@ function PaneLeaf({
     <section
       aria-label={t("pane", { number: String(paneId) })}
       className={`terminal-panel${active ? " active-pane" : ""}`}
-      {...contextTrigger}
+      {...(supportsMutations ? contextTrigger : {})}
       onPointerDown={(event) => {
-        startLongPress(event);
+        if (supportsMutations) startLongPress(event);
         if ((event.target as HTMLElement).closest(".tab-bar, .extra-keys")) return;
         if (!active) onSelectPane(paneId);
       }}
@@ -429,12 +429,28 @@ function LayoutGroupNode({ node, screen, paneById, basis, ...actions }: LayoutGr
     scheduled: ReturnType<typeof setTimeout> | null;
     split: Id;
   } | null>(null);
+  const supportsMutationsRef = useRef(supportsMutations);
   const drag = useRef<{
     pointerId: number;
     bounds: DOMRect;
     initialRatio: number;
     lastRatio: number;
   } | null>(null);
+
+  useEffect(() => {
+    const becameReadOnly = supportsMutationsRef.current && !supportsMutations;
+    supportsMutationsRef.current = supportsMutations;
+    if (!becameReadOnly) return;
+    keyboardGeneration.current += 1;
+    if (keyboardResize.current?.scheduled !== null && keyboardResize.current?.scheduled !== undefined) {
+      clearTimeout(keyboardResize.current.scheduled);
+    }
+    keyboardResize.current = null;
+    activeRequestId.current = null;
+    drag.current = null;
+    setPendingRatio(null);
+    setPreviewRatio(null);
+  }, [supportsMutations]);
 
   // Derived, not effect-driven: a pending commit is only trusted while it
   // still addresses this divider and the authoritative ratio hasn't moved
@@ -456,7 +472,12 @@ function LayoutGroupNode({ node, screen, paneById, basis, ...actions }: LayoutGr
   const reconcileDividerRef = useCallback((divider: HTMLDivElement | null) => {
     if (divider === null) {
       keyboardGeneration.current += 1;
+      if (keyboardResize.current?.scheduled !== null && keyboardResize.current?.scheduled !== undefined) {
+        clearTimeout(keyboardResize.current.scheduled);
+      }
       keyboardResize.current = null;
+      activeRequestId.current = null;
+      drag.current = null;
       return;
     }
     if (!pendingConfirmed) return;
@@ -475,7 +496,7 @@ function LayoutGroupNode({ node, screen, paneById, basis, ...actions }: LayoutGr
     : { top: `${firstPercent}%` };
 
   const commitRatio = (previousRatio: number, nextRatio: number) => {
-    if (!supportsMutations) return;
+    if (!supportsMutations || !supportsMutationsRef.current) return;
     const ratio = splitRatioToCommit(previousRatio, nextRatio);
     if (ratio === null) {
       setPreviewRatio(null);
@@ -504,18 +525,24 @@ function LayoutGroupNode({ node, screen, paneById, basis, ...actions }: LayoutGr
     if (keyboardResize.current !== resize || keyboardGeneration.current !== resize.generation) return;
     if (resize.scheduled !== null) clearTimeout(resize.scheduled);
     resize.scheduled = setTimeout(() => {
-      if (keyboardResize.current !== resize || keyboardGeneration.current !== resize.generation) return;
+      if (!supportsMutationsRef.current
+        || keyboardResize.current !== resize
+        || keyboardGeneration.current !== resize.generation) return;
       resize.scheduled = null;
       pumpKeyboardResize(resize);
     }, KEYBOARD_RESIZE_DEBOUNCE_MS);
   }
 
   function pumpKeyboardResize(resize: NonNullable<typeof keyboardResize.current>) {
-    if (keyboardResize.current !== resize || resize.inFlightRatio !== null) return;
+    if (!supportsMutationsRef.current
+      || keyboardResize.current !== resize
+      || resize.inFlightRatio !== null) return;
     const ratio = resize.desiredRatio;
     resize.inFlightRatio = ratio;
     void actions.onSetSplitRatio(resize.split, ratio).catch(() => false).then((succeeded) => {
-      if (keyboardResize.current !== resize || keyboardGeneration.current !== resize.generation) return;
+      if (!supportsMutationsRef.current
+        || keyboardResize.current !== resize
+        || keyboardGeneration.current !== resize.generation) return;
       resize.inFlightRatio = null;
       if (!succeeded) {
         keyboardGeneration.current += 1;

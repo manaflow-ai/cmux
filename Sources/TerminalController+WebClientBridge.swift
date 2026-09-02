@@ -173,7 +173,7 @@ extension TerminalController {
                 }
                 address = value
             } else {
-                address = "127.0.0.1"
+                address = WebClientBridgeService.defaultAddress
             }
             let port: Int
             if v2HasNonNullParam(params, "port") {
@@ -189,7 +189,7 @@ extension TerminalController {
                 }
                 port = value
             } else {
-                port = 7683
+                port = WebClientBridgeService.defaultPort
             }
             return v2AsyncResultCall(id: id, timeoutSeconds: 10) {
                 let result = await MobileHostService.shared.webClientBridgeService.start(

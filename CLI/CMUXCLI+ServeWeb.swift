@@ -44,7 +44,7 @@ extension CMUXCLI {
         case "start", "serve":
             let bind = optionValue(args, name: "--bind")
                 ?? optionValue(args, name: "--address")
-                ?? "127.0.0.1"
+                ?? WebClientBridgeService.defaultAddress
             let port = try webPort(optionValue(args, name: "--port"))
             let label = optionValue(args, name: "--label")
             let start = try client.sendV2(
@@ -219,7 +219,7 @@ extension CMUXCLI {
     }
 
     private func webPort(_ raw: String?) throws -> Int {
-        guard let raw else { return 7683 }
+        guard let raw else { return WebClientBridgeService.defaultPort }
         guard let port = Int(raw), (0 ... 65535).contains(port) else {
             throw CLIError(message: String(
                 localized: "cli.serveWeb.invalidPort",

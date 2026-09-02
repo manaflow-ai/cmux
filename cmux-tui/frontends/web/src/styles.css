@@ -133,7 +133,7 @@ button { color: inherit; touch-action: manipulation; }
 .pane-rule { flex: 1 1 auto; min-width: 0; height: var(--tui-cell-height); border-top: 1px solid currentColor; transform: translateY(calc(var(--tui-cell-height) / 2)); }
 .pane-clients-trigger { flex: 0 0 auto; height: var(--tui-cell-height); padding: 0 calc(var(--tui-cell-width) / 2); border: 0; background: var(--terminal-background); color: currentColor; font: inherit; line-height: var(--tui-cell-height); white-space: nowrap; cursor: pointer; }
 .pane-clients-trigger:hover, .pane-clients-trigger[aria-expanded="true"] { color: var(--status-active-fg); background: var(--status-active-bg); }
-.pane-clients-label { flex: 0 0 auto; height: var(--tui-cell-height); padding: 0 calc(var(--tui-cell-width) / 2); color: currentColor; line-height: var(--tui-cell-height); white-space: nowrap; }
+.pane-clients-label { flex: 0 0 auto; height: var(--tui-cell-height); padding: 0 calc(var(--tui-cell-width) / 2); color: currentcolor; line-height: var(--tui-cell-height); white-space: nowrap; }
 .tab-wrap { display: flex; flex: 0 1 auto; min-width: var(--tui-cell-width); height: var(--tui-cell-height); }
 .tab-bar button { display: flex; min-width: calc(var(--tui-cell-width) * 7); max-width: calc(var(--tui-cell-width) * 18); height: var(--tui-cell-height); min-height: var(--tui-cell-height); align-items: center; padding: 0 var(--tui-cell-width) 0 0; overflow: hidden; border: 0; background: var(--tab-bg); color: #a8a8a8; line-height: var(--tui-cell-height); white-space: nowrap; cursor: pointer; }
 .tab-bar button:hover { color: var(--status-active-fg); }

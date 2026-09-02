@@ -272908,6 +272908,31 @@
         "zh-Hant": { "stringUnit": { "state": "translated", "value": "Usage: cmux serve-web [start|status|pair|grants|revoke|stop] [options]\n\nStart the opt-in Mac browser bridge on an explicit loopback or\nTailscale address. start prints a single-display per-client grant token to the protected handoff channel;\ntokens are never put in a URL.\n\nOptions:\n  --bind <127.0.0.1|100.64.0.0/10>  Explicit listener address\n  --port <n>                     TCP port (default: 7683)\n  --label <name>                 Label for a new grant\n  --show-token                  Include the token in --json output" } }
       }
     },
+    "cli.serveWeb.overview": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "serve-web [start|status|pair|grants|revoke|stop] [--bind <127.0.0.1|100.64.0.0/10>] [--port <n>] [--label <name>] [--show-token]" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "serve-web [start|status|pair|grants|revoke|stop] [--bind <127.0.0.1|100.64.0.0/10>] [--port <n>] [--label <name>] [--show-token]" } },
+        "ar": { "stringUnit": { "state": "translated", "value": "serve-web [start|status|pair|grants|revoke|stop] [--bind <127.0.0.1|100.64.0.0/10>] [--port <n>] [--label <name>] [--show-token]" } },
+        "bs": { "stringUnit": { "state": "translated", "value": "serve-web [start|status|pair|grants|revoke|stop] [--bind <127.0.0.1|100.64.0.0/10>] [--port <n>] [--label <name>] [--show-token]" } },
+        "da": { "stringUnit": { "state": "translated", "value": "serve-web [start|status|pair|grants|revoke|stop] [--bind <127.0.0.1|100.64.0.0/10>] [--port <n>] [--label <name>] [--show-token]" } },
+        "de": { "stringUnit": { "state": "translated", "value": "serve-web [start|status|pair|grants|revoke|stop] [--bind <127.0.0.1|100.64.0.0/10>] [--port <n>] [--label <name>] [--show-token]" } },
+        "es": { "stringUnit": { "state": "translated", "value": "serve-web [start|status|pair|grants|revoke|stop] [--bind <127.0.0.1|100.64.0.0/10>] [--port <n>] [--label <name>] [--show-token]" } },
+        "fr": { "stringUnit": { "state": "translated", "value": "serve-web [start|status|pair|grants|revoke|stop] [--bind <127.0.0.1|100.64.0.0/10>] [--port <n>] [--label <name>] [--show-token]" } },
+        "it": { "stringUnit": { "state": "translated", "value": "serve-web [start|status|pair|grants|revoke|stop] [--bind <127.0.0.1|100.64.0.0/10>] [--port <n>] [--label <name>] [--show-token]" } },
+        "km": { "stringUnit": { "state": "translated", "value": "serve-web [start|status|pair|grants|revoke|stop] [--bind <127.0.0.1|100.64.0.0/10>] [--port <n>] [--label <name>] [--show-token]" } },
+        "ko": { "stringUnit": { "state": "translated", "value": "serve-web [start|status|pair|grants|revoke|stop] [--bind <127.0.0.1|100.64.0.0/10>] [--port <n>] [--label <name>] [--show-token]" } },
+        "nb": { "stringUnit": { "state": "translated", "value": "serve-web [start|status|pair|grants|revoke|stop] [--bind <127.0.0.1|100.64.0.0/10>] [--port <n>] [--label <name>] [--show-token]" } },
+        "pl": { "stringUnit": { "state": "translated", "value": "serve-web [start|status|pair|grants|revoke|stop] [--bind <127.0.0.1|100.64.0.0/10>] [--port <n>] [--label <name>] [--show-token]" } },
+        "pt-BR": { "stringUnit": { "state": "translated", "value": "serve-web [start|status|pair|grants|revoke|stop] [--bind <127.0.0.1|100.64.0.0/10>] [--port <n>] [--label <name>] [--show-token]" } },
+        "ru": { "stringUnit": { "state": "translated", "value": "serve-web [start|status|pair|grants|revoke|stop] [--bind <127.0.0.1|100.64.0.0/10>] [--port <n>] [--label <name>] [--show-token]" } },
+        "th": { "stringUnit": { "state": "translated", "value": "serve-web [start|status|pair|grants|revoke|stop] [--bind <127.0.0.1|100.64.0.0/10>] [--port <n>] [--label <name>] [--show-token]" } },
+        "tr": { "stringUnit": { "state": "translated", "value": "serve-web [start|status|pair|grants|revoke|stop] [--bind <127.0.0.1|100.64.0.0/10>] [--port <n>] [--label <name>] [--show-token]" } },
+        "uk": { "stringUnit": { "state": "translated", "value": "serve-web [start|status|pair|grants|revoke|stop] [--bind <127.0.0.1|100.64.0.0/10>] [--port <n>] [--label <name>] [--show-token]" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "serve-web [start|status|pair|grants|revoke|stop] [--bind <127.0.0.1|100.64.0.0/10>] [--port <n>] [--label <name>] [--show-token]" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "serve-web [start|status|pair|grants|revoke|stop] [--bind <127.0.0.1|100.64.0.0/10>] [--port <n>] [--label <name>] [--show-token]" } }
+      }
+    },
     "cli.serveWeb.invalidPort": {
       "extractionState": "manual",
       "localizations": {
@@ -273177,7 +273202,7 @@
     "webClientBridge.error.topicsRequired": {
       "extractionState": "manual",
       "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "topics is required" } },
+        "en": { "stringUnit": { "state": "translated", "value": "topics must be provided" } },
         "ja": { "stringUnit": { "state": "translated", "value": "topicsを指定してください" } }
       }
     },
