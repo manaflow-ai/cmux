@@ -823,7 +823,6 @@ struct DockControlDefinitionDecodingTests {
         let defaults = UserDefaults.standard
         let dockEnabledKey = RightSidebarBetaFeatureSettings.dockEnabledKey
         let previousDockEnabled = defaults.object(forKey: dockEnabledKey)
-        defaults.set(true, forKey: dockEnabledKey)
         AppDelegate.shared = appDelegate
         appDelegate.tabManager = manager
         TerminalController.shared.setActiveTabManager(manager)
@@ -849,6 +848,11 @@ struct DockControlDefinitionDecodingTests {
 
         #expect(store.focusedPanelId == firstPanelId)
 
+        // AppDelegate/TabManager setup may reconcile persisted sidebar mode
+        // before the socket call. Set the beta gate after that lifecycle work
+        // so this fixture never depends on another suite's global defaults.
+        defaults.set(true, forKey: dockEnabledKey)
+        #expect(RightSidebarMode.dock.isAvailable())
         let result = try v2Result(
             method: "surface.focus",
             params: ["surface_id": secondPanelId.uuidString]
