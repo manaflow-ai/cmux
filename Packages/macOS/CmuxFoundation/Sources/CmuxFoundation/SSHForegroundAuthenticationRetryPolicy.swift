@@ -145,8 +145,23 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
                     # size while retaining the kernel start time and pid version.
                     bsd_flavor = 3
                     uniqidentifier_flavor = 17
-                    proc_bsdinfo_size = 136
-                    proc_uniqidentifierinfo_size = 56
+                    proc_bsdinfo_scalar_size = 4
+                    proc_bsdinfo_status_offset = proc_bsdinfo_scalar_size
+                    proc_bsdinfo_pid_offset = proc_bsdinfo_scalar_size * 3
+                    proc_bsdinfo_ppid_offset = proc_bsdinfo_pid_offset + proc_bsdinfo_scalar_size
+                    proc_bsdinfo_comm_offset = proc_bsdinfo_scalar_size * 12
+                    proc_bsdinfo_name_offset = proc_bsdinfo_comm_offset + 16
+                    proc_bsdinfo_nfiles_offset = proc_bsdinfo_name_offset + 32
+                    proc_bsdinfo_pgid_offset = proc_bsdinfo_nfiles_offset + proc_bsdinfo_scalar_size
+                    proc_bsdinfo_start_tvsec_offset = proc_bsdinfo_pgid_offset + proc_bsdinfo_scalar_size * 5
+                    proc_bsdinfo_start_tvusec_offset = proc_bsdinfo_start_tvsec_offset + 8
+                    proc_bsdinfo_size = proc_bsdinfo_start_tvusec_offset + 8
+                    proc_uniqidentifierinfo_uuid_size = 16
+                    proc_uniqidentifierinfo_unique_id_size = 8
+                    proc_uniqidentifierinfo_pidversion_offset =
+                      proc_uniqidentifierinfo_uuid_size + proc_uniqidentifierinfo_unique_id_size * 2
+                    proc_uniqidentifierinfo_size =
+                      proc_uniqidentifierinfo_pidversion_offset + 4 + 4 + 8 + 8
                     bsd_buffer = Fiddle::Pointer.malloc(proc_bsdinfo_size)
                     uniqidentifier_buffer = Fiddle::Pointer.malloc(proc_uniqidentifierinfo_size)
                     bsd_written = CmuxLibproc.proc_pidinfo(
@@ -162,15 +177,12 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
                     uniqidentifier_bytes = uniqidentifier_buffer.to_s(uniqidentifier_written)
                     uint32 = ->(bytes, offset) { bytes.byteslice(offset, 4).unpack1("L<") }
                     uint64 = ->(bytes, offset) { bytes.byteslice(offset, 8).unpack1("Q<") }
-                    observed_pid = uint32.call(bsd_bytes, 12)
-                    parent = uint32.call(bsd_bytes, 16)
-                    group = uint32.call(bsd_bytes, 100)
-                    status = uint32.call(bsd_bytes, 4)
-                    seconds = uint64.call(bsd_bytes, 120)
-                    microseconds = uint64.call(bsd_bytes, 128)
-                    # `proc_uniqidentifierinfo` stores its UUID first, then the
-                    # process and parent unique IDs, followed by `p_idversion`.
-                    proc_uniqidentifierinfo_pidversion_offset = 16 + 8 + 8
+                    observed_pid = uint32.call(bsd_bytes, proc_bsdinfo_pid_offset)
+                    parent = uint32.call(bsd_bytes, proc_bsdinfo_ppid_offset)
+                    group = uint32.call(bsd_bytes, proc_bsdinfo_pgid_offset)
+                    status = uint32.call(bsd_bytes, proc_bsdinfo_status_offset)
+                    seconds = uint64.call(bsd_bytes, proc_bsdinfo_start_tvsec_offset)
+                    microseconds = uint64.call(bsd_bytes, proc_bsdinfo_start_tvusec_offset)
                     version = uint32.call(uniqidentifier_bytes, proc_uniqidentifierinfo_pidversion_offset)
                     exit 1 unless observed_pid == pid && parent == expected_parent &&
                       group > 0 && status != 5 && seconds > 0 &&
@@ -239,9 +251,23 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
                   # private record-size assumptions.
                   bsd_flavor = 3
                   uniqidentifier_flavor = 17
-                  proc_bsdinfo_size = 136
-                  proc_uniqidentifierinfo_size = 56
-                  proc_uniqidentifierinfo_pidversion_offset = 16 + 8 + 8
+                  proc_bsdinfo_scalar_size = 4
+                  proc_bsdinfo_status_offset = proc_bsdinfo_scalar_size
+                  proc_bsdinfo_pid_offset = proc_bsdinfo_scalar_size * 3
+                  proc_bsdinfo_ppid_offset = proc_bsdinfo_pid_offset + proc_bsdinfo_scalar_size
+                  proc_bsdinfo_comm_offset = proc_bsdinfo_scalar_size * 12
+                  proc_bsdinfo_name_offset = proc_bsdinfo_comm_offset + 16
+                  proc_bsdinfo_nfiles_offset = proc_bsdinfo_name_offset + 32
+                  proc_bsdinfo_pgid_offset = proc_bsdinfo_nfiles_offset + proc_bsdinfo_scalar_size
+                  proc_bsdinfo_start_tvsec_offset = proc_bsdinfo_pgid_offset + proc_bsdinfo_scalar_size * 5
+                  proc_bsdinfo_start_tvusec_offset = proc_bsdinfo_start_tvsec_offset + 8
+                  proc_bsdinfo_size = proc_bsdinfo_start_tvusec_offset + 8
+                  proc_uniqidentifierinfo_uuid_size = 16
+                  proc_uniqidentifierinfo_unique_id_size = 8
+                  proc_uniqidentifierinfo_pidversion_offset =
+                    proc_uniqidentifierinfo_uuid_size + proc_uniqidentifierinfo_unique_id_size * 2
+                  proc_uniqidentifierinfo_size =
+                    proc_uniqidentifierinfo_pidversion_offset + 4 + 4 + 8 + 8
                   bsd_buffer = Fiddle::Pointer.malloc(proc_bsdinfo_size)
                   uniqidentifier_buffer = Fiddle::Pointer.malloc(proc_uniqidentifierinfo_size)
                   bsd_written = CmuxLibproc.proc_pidinfo(
@@ -258,9 +284,12 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
                   uint32 = ->(bytes, offset) { bytes.byteslice(offset, 4).unpack1("L<") }
                   uint64 = ->(bytes, offset) { bytes.byteslice(offset, 8).unpack1("Q<") }
                   observed = [
-                    uint32.call(bsd_bytes, 12), uint32.call(bsd_bytes, 16),
-                    uint32.call(bsd_bytes, 100), uint32.call(bsd_bytes, 4),
-                    uint64.call(bsd_bytes, 120), uint64.call(bsd_bytes, 128),
+                    uint32.call(bsd_bytes, proc_bsdinfo_pid_offset),
+                    uint32.call(bsd_bytes, proc_bsdinfo_ppid_offset),
+                    uint32.call(bsd_bytes, proc_bsdinfo_pgid_offset),
+                    uint32.call(bsd_bytes, proc_bsdinfo_status_offset),
+                    uint64.call(bsd_bytes, proc_bsdinfo_start_tvsec_offset),
+                    uint64.call(bsd_bytes, proc_bsdinfo_start_tvusec_offset),
                     uint32.call(uniqidentifier_bytes, proc_uniqidentifierinfo_pidversion_offset)
                   ]
                   expected = [pid, parent, group, nil, seconds, microseconds, version]
@@ -1048,13 +1077,27 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
 
               bsd_flavor = 3
               uniqidentifier_flavor = 17
-              proc_bsdinfo_size = 136
-              proc_uniqidentifierinfo_size = 56
+              proc_bsdinfo_scalar_size = 4
+              proc_bsdinfo_status_offset = proc_bsdinfo_scalar_size
+              proc_bsdinfo_pid_offset = proc_bsdinfo_scalar_size * 3
+              proc_bsdinfo_ppid_offset = proc_bsdinfo_pid_offset + proc_bsdinfo_scalar_size
+              proc_bsdinfo_comm_offset = proc_bsdinfo_scalar_size * 12
+              proc_bsdinfo_name_offset = proc_bsdinfo_comm_offset + 16
+              proc_bsdinfo_nfiles_offset = proc_bsdinfo_name_offset + 32
+              proc_bsdinfo_pgid_offset = proc_bsdinfo_nfiles_offset + proc_bsdinfo_scalar_size
+              proc_bsdinfo_start_tvsec_offset = proc_bsdinfo_pgid_offset + proc_bsdinfo_scalar_size * 5
+              proc_bsdinfo_start_tvusec_offset = proc_bsdinfo_start_tvsec_offset + 8
+              proc_bsdinfo_size = proc_bsdinfo_start_tvusec_offset + 8
+              proc_uniqidentifierinfo_uuid_size = 16
+              proc_uniqidentifierinfo_unique_id_size = 8
               uint32 = ->(bytes, offset) { bytes.byteslice(offset, 4).unpack1("L<") }
               uint64 = ->(bytes, offset) { bytes.byteslice(offset, 8).unpack1("Q<") }
               # `proc_uniqidentifierinfo` stores its UUID first, then the
               # process and parent unique IDs, followed by `p_idversion`.
-              proc_uniqidentifierinfo_pidversion_offset = 16 + 8 + 8
+              proc_uniqidentifierinfo_pidversion_offset =
+                proc_uniqidentifierinfo_uuid_size + proc_uniqidentifierinfo_unique_id_size * 2
+              proc_uniqidentifierinfo_size =
+                proc_uniqidentifierinfo_pidversion_offset + 4 + 4 + 8 + 8
               process_identity = lambda do |pid|
                 bsd_buffer = Fiddle::Pointer.malloc(proc_bsdinfo_size)
                 uniqidentifier_buffer = Fiddle::Pointer.malloc(proc_uniqidentifierinfo_size)
@@ -1070,12 +1113,12 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
                 bsd_bytes = bsd_buffer.to_s(bsd_written)
                 uniqidentifier_bytes = uniqidentifier_buffer.to_s(uniqidentifier_written)
                 [
-                  uint32.call(bsd_bytes, 12), # pbi_pid
-                  uint32.call(bsd_bytes, 16), # pbi_ppid
-                  uint32.call(bsd_bytes, 100), # pbi_pgid
-                  uint32.call(bsd_bytes, 4), # pbi_status
-                  uint64.call(bsd_bytes, 120), # pbi_start_tvsec
-                  uint64.call(bsd_bytes, 128), # pbi_start_tvusec
+                  uint32.call(bsd_bytes, proc_bsdinfo_pid_offset), # pbi_pid
+                  uint32.call(bsd_bytes, proc_bsdinfo_ppid_offset), # pbi_ppid
+                  uint32.call(bsd_bytes, proc_bsdinfo_pgid_offset), # pbi_pgid
+                  uint32.call(bsd_bytes, proc_bsdinfo_status_offset), # pbi_status
+                  uint64.call(bsd_bytes, proc_bsdinfo_start_tvsec_offset), # pbi_start_tvsec
+                  uint64.call(bsd_bytes, proc_bsdinfo_start_tvusec_offset), # pbi_start_tvusec
                   uint32.call(uniqidentifier_bytes, proc_uniqidentifierinfo_pidversion_offset), # p_idversion
                 ]
               rescue ArgumentError, Fiddle::DLError, NoMethodError, RangeError, TypeError
