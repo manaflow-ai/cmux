@@ -250,6 +250,11 @@ extension TerminalController {
                 let manager = VMTunnelManager()
                 let fingerprint = (try? manager.deviceFingerprint()) ?? ""
                 let hasConfig = FileManager.default.fileExists(atPath: manager.configURL.path)
+                // The app hub is a second identity on the same network (`-app`); its
+                // process state comes from the registry that owns it.
+                let appManager = VMTunnelManager(identity: .app)
+                let hub = await MainActor.run { CmuxTuiSurfaceProviderRegistry.shared.wireGuardHub }
+                let hubStatus = await hub?.status()
                 return [
                     "config_path": manager.configURL.path,
                     "config_present": hasConfig,
@@ -257,6 +262,19 @@ extension TerminalController {
                     "interface_up": manager.wgQuickInterfaceUp(),
                     "device_fingerprint": fingerprint,
                     "network_extension_available": VMTunnelManager.networkExtensionAvailable(),
+                    "app_tunnel": [
+                        "device_fingerprint": (try? appManager.deviceFingerprint()) ?? "",
+                        "config_path": appManager.configURL.path,
+                        "config_present": FileManager.default.fileExists(atPath: appManager.configURL.path),
+                        "routes": appManager.configuredRoutes(),
+                        "hub_available": hub != nil,
+                        "hub_running": hubStatus?.running ?? false,
+                        "hub_socket": hubStatus?.socketPath ?? NSNull(),
+                        "hub_leases": hubStatus?.leases ?? 0,
+                        "hub_pinned": hubStatus?.pinnedByExternalClient ?? false,
+                        "hub_restart_attempts": hubStatus?.restartAttempts ?? 0,
+                        "hub_last_error": hubStatus?.lastError ?? NSNull(),
+                    ] as [String: Any],
                 ]
             }
         case "vm.tunnel_revoke":
@@ -325,6 +343,15 @@ extension TerminalController {
                         "invitation_id": invitation.invitationId,
                         "expires_at_unix": invitation.expiresAtUnix,
                     ]
+                }
+                // A `vm tui` pane execs its own client, which the app cannot watch, so a
+                // private-network route pins the hub for the rest of the app session.
+                let hub = await MainActor.run { CmuxTuiSurfaceProviderRegistry.shared.wireGuardHub }
+                if let hub, CloudMachineLinkManager.usesWireGuardHub(route: endpoint.route, clientCapabilities: clientCapabilities, enrolledRoutes: []) {
+                    let ready = try await hub.pinForExternalClient()
+                    if CloudMachineLinkManager.usesWireGuardHub(route: endpoint.route, clientCapabilities: clientCapabilities, enrolledRoutes: ready.routes) {
+                        payload["wireguard_hub_socket"] = ready.socketPath
+                    }
                 }
                 return payload
             }
