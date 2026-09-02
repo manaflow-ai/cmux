@@ -944,6 +944,7 @@ mod detach {
                     drop(stdout);
                     child.release();
                 }
+                Err(mpsc::SendError(Ok(None))) => {}
                 Err(mpsc::SendError(Err(_))) => {}
             }
         });
