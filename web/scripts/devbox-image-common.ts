@@ -198,8 +198,10 @@ export type DevboxManifestEntry = {
   provider: DevboxProvider;
   version: string;
   imageId: string;
+  /** Legacy: nothing reads it; kept so old entries parse. */
   envVar: string;
-  defaultForLocalDev: boolean;
+  /** Legacy: local dev uses the same `defaultForKind` entry as production. */
+  defaultForLocalDev?: boolean;
   kind?: DevboxImageKind;
   defaultForKind?: boolean;
   cmuxdRemoteCommit: string;
@@ -226,7 +228,6 @@ export function manifestEntrySkeleton(
     version,
     imageId,
     envVar,
-    defaultForLocalDev: false,
     ...(kind ? { kind } : {}),
     // The session daemon is cmux-tui, installed at create time from the pinned
     // artifacts manifest; no cmuxd-remote build is baked.
@@ -297,8 +298,6 @@ export function writeImageManifest(manifest: DevboxImageManifest, file = imageMa
 export type PromoteImageOptions = {
   /** Kinds this image serves. Each gets its own entry flagged `defaultForKind`. */
   readonly kinds: readonly DevboxImageKind[];
-  /** Also make this image the provider's local-dev default (no env var set). */
-  readonly localDevDefault?: boolean;
   /** Human-readable validation summary appended to `notes`. */
   readonly validationNotes?: string;
 };
@@ -307,7 +306,7 @@ export type PromoteImageOptions = {
  * Appends a verified image to the manifest as the default for every kind in
  * `kinds`, demoting the provider's previous defaults for those kinds. Pure:
  * returns a new manifest and never mutates the input. Existing entries are
- * only ever flag-flipped, never removed, so rollback stays a one-line env or
+ * only ever flag-flipped, never removed, so rollback stays a one-line
  * manifest change.
  */
 export function promoteImageManifestEntry(
@@ -341,16 +340,14 @@ export function promoteImageManifestEntry(
     if (candidate.provider !== entry.provider) return candidate;
     const next: DevboxManifestEntry = { ...candidate };
     if (next.defaultForKind && kinds.includes(next.kind ?? "base")) next.defaultForKind = false;
-    if (options.localDevDefault && next.defaultForLocalDev) next.defaultForLocalDev = false;
     return next;
   });
   const notes = [entry.notes, options.validationNotes].filter(Boolean).join(" ");
-  const promoted = kinds.map((kind, index): DevboxManifestEntry => ({
+  const promoted = kinds.map((kind): DevboxManifestEntry => ({
     ...entry,
     version: kinds.length > 1 && kind !== kinds[0] ? `${entry.version}-${kind}` : entry.version,
     kind,
     defaultForKind: true,
-    defaultForLocalDev: options.localDevDefault === true && index === 0,
     ...(notes ? { notes } : {}),
   }));
   return { schemaVersion: manifest.schemaVersion, images: [...demoted, ...promoted] };
@@ -363,7 +360,6 @@ export function promoteImageManifestEntry(
 export function imageManifestProblems(manifest: DevboxImageManifest): string[] {
   const problems: string[] = [];
   const defaults = new Map<string, DevboxManifestEntry[]>();
-  const localDefaults = new Map<string, DevboxManifestEntry[]>();
   for (const entry of manifest.images) {
     for (const field of ["provider", "version", "imageId", "envVar", "builtAt", "validationStatus"] as const) {
       if (!entry[field]) problems.push(`${entry.version ?? entry.imageId ?? "?"}: missing ${field}`);
@@ -381,9 +377,6 @@ export function imageManifestProblems(manifest: DevboxImageManifest): string[] {
       const key = `${entry.provider}/${entry.kind ?? "base"}`;
       defaults.set(key, [...(defaults.get(key) ?? []), entry]);
     }
-    if (entry.defaultForLocalDev) {
-      localDefaults.set(entry.provider, [...(localDefaults.get(entry.provider) ?? []), entry]);
-    }
   }
   const versions = manifest.images.map((entry) => `${entry.provider}/${entry.version}`);
   for (const dup of versions.filter((v, i) => versions.indexOf(v) !== i)) {
@@ -392,11 +385,6 @@ export function imageManifestProblems(manifest: DevboxImageManifest): string[] {
   for (const [key, entries] of defaults) {
     if (entries.length > 1) {
       problems.push(`${key}: ${entries.length} entries flagged defaultForKind (${entries.map((e) => e.version).join(", ")})`);
-    }
-  }
-  for (const [provider, entries] of localDefaults) {
-    if (entries.length > 1) {
-      problems.push(`${provider}: ${entries.length} entries flagged defaultForLocalDev (${entries.map((e) => e.version).join(", ")})`);
     }
   }
   return problems;

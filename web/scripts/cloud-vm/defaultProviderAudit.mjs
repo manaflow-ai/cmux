@@ -53,52 +53,31 @@ export function auditProviderReadiness(provider, env, manifest) {
     return { provider, envVar: null, image: null, problems };
   }
 
+  // The checked-in manifest is the only source of truth for images: deployed
+  // runtimes serve the entry flagged defaultForKind (services/vms/images/
+  // resolver.ts). No env var selects an image any more; a lingering selector
+  // is stale configuration that would mislead whoever reads the deployment.
   const envVar = entries[0].envVar;
-  let image = env[envVar]?.trim() || null;
-  let imageSource = "env";
-  if (!image) {
-    // No env override: deployed runtimes serve the manifest entry flagged
-    // defaultForKind (services/vms/images/resolver.ts), so the manifest is the
-    // source of truth and the env var is only a rollback override. Every kind
-    // default must be a validated entry.
-    const kindDefaults = entries.filter((entry) => entry.defaultForKind === true);
-    for (const entry of kindDefaults.filter((entry) => entry.validationStatus !== "passed")) {
-      problems.push(
-        `manifest default ${entry.version} (${entry.kind ?? "base"}) for ${provider} has ` +
-        `validationStatus ${entry.validationStatus}, not passed`,
-      );
-    }
-    const baseDefault = kindDefaults.find((entry) => (entry.kind ?? "base") === "base");
-    if (baseDefault) {
-      image = baseDefault.imageId;
-      imageSource = "manifest";
-    } else {
-      problems.push(
-        `${envVar} is not set and the manifest has no validated base default for ` +
-        `${provider}; deployed runtimes fail closed on imageless creates`,
-      );
-    }
-  }
-  if (!image) {
-    // Reported above.
-  } else if (image === SENSITIVE_PLACEHOLDER) {
+  const kindDefaults = entries.filter((entry) => entry.defaultForKind === true);
+  for (const entry of kindDefaults.filter((entry) => entry.validationStatus !== "passed")) {
     problems.push(
-      `${envVar} is stored as a Sensitive env var, so its value cannot be audited; ` +
-      "store it as a plain env var (image ids are configuration, not secrets)",
+      `manifest default ${entry.version} (${entry.kind ?? "base"}) for ${provider} has ` +
+      `validationStatus ${entry.validationStatus}, not passed`,
     );
-  } else {
-    const entry = entries.find((candidate) => candidate.imageId === image || candidate.version === image);
-    if (!entry) {
-      problems.push(
-        `${envVar}=${image} is not listed in the image manifest for ${provider}; ` +
-        "deployed runtimes will reject it with vm_image_config_error",
-      );
-    } else if (entry.validationStatus !== "passed") {
-      problems.push(
-        `${envVar} selects manifest entry ${entry.version} whose validationStatus is ` +
-        `${entry.validationStatus}, not passed`,
-      );
-    }
+  }
+  const baseDefault = kindDefaults.find((entry) => (entry.kind ?? "base") === "base");
+  const image = baseDefault?.imageId ?? null;
+  if (!baseDefault) {
+    problems.push(
+      `the manifest has no validated base default for ${provider} (no entry flagged ` +
+      "defaultForKind); deployed runtimes fail closed on imageless creates",
+    );
+  }
+  if (envVar && env[envVar] !== undefined) {
+    problems.push(
+      `${envVar} is set but ignored: the manifest is the source of truth for images; ` +
+      "remove it from the deployment",
+    );
   }
 
   const credentialKeys = PROVIDER_CREDENTIAL_KEYS[provider];
@@ -127,7 +106,7 @@ export function auditProviderReadiness(provider, env, manifest) {
     problems.push(`${enabledKey} disables provider ${provider}, so the selected default cannot create VMs`);
   }
 
-  return { provider, envVar, image, imageSource, problems };
+  return { provider, envVar, image, imageSource: "manifest", problems };
 }
 
 function isFalseFlag(value) {

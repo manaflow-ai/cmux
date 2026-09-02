@@ -63,22 +63,21 @@ describe("promoteImageManifestEntry", () => {
   test("appends one entry per kind, flags them default, and demotes the provider's old defaults", () => {
     const next = promoteImageManifestEntry(base, passedEntry(), {
       kinds: ["desktop", "base"],
-      localDevDefault: true,
       validationNotes: "Validated in test.",
     });
     // Pure: the input is untouched.
     expect(base.images[0].defaultForKind).toBe(true);
     expect(imageManifestProblems(next)).toEqual([]);
     expect(next.images).toHaveLength(5);
-    expect(next.images.slice(0, 3).map((e) => [e.version, e.defaultForKind, e.defaultForLocalDev])).toEqual([
-      ["freestyle-old-desktop", false, false],
-      ["freestyle-old-base", false, false],
+    expect(next.images.slice(0, 3).map((e) => [e.version, e.defaultForKind])).toEqual([
+      ["freestyle-old-desktop", false],
+      ["freestyle-old-base", false],
       // Another provider's defaults are not this promotion's business.
-      ["e2b-x", true, false],
+      ["e2b-x", true],
     ]);
     expect(next.images.slice(3)).toMatchObject([
-      { version: "freestyle-cmux-devbox-test", kind: "desktop", defaultForKind: true, defaultForLocalDev: true },
-      { version: "freestyle-cmux-devbox-test-base", kind: "base", defaultForKind: true, defaultForLocalDev: false },
+      { version: "freestyle-cmux-devbox-test", kind: "desktop", defaultForKind: true },
+      { version: "freestyle-cmux-devbox-test-base", kind: "base", defaultForKind: true },
     ]);
     expect(next.images[3].notes).toBe("cmux devbox epoch test Validated in test.");
   });
@@ -91,8 +90,6 @@ describe("promoteImageManifestEntry", () => {
       ["e2b-x", "base", true],
       ["freestyle-cmux-devbox-test", "base", true],
     ]);
-    // Local-dev default stays with the old desktop entry when not requested.
-    expect(next.images[0].defaultForLocalDev).toBe(true);
   });
 
   test("refuses anything the verifier has not passed", () => {
@@ -127,7 +124,6 @@ describe("imageManifestProblems", () => {
     expect(problems).toEqual(expect.arrayContaining([
       expect.stringContaining("b: defaultForKind but validationStatus is unknown"),
       expect.stringContaining("freestyle/base: 2 entries flagged defaultForKind"),
-      expect.stringContaining("freestyle: 2 entries flagged defaultForLocalDev"),
       expect.stringContaining("freestyle/d: version listed more than once"),
     ]));
   });

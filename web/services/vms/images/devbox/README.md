@@ -71,9 +71,10 @@ half-life prompt, seeded history) through the `/etc/bash.bashrc` chain.
 ## Promote: bake, verify, record (one command)
 
 The checked-in manifest (`web/services/vms/images/manifest.json`) is the
-source of truth for the image users get: the resolver serves the entry
-flagged `defaultForKind` when no image env var overrides it, in deployed
-runtimes too. `promote-devbox-image.ts` is the only sanctioned writer:
+only source of truth for the image users get: the resolver serves the entry
+flagged `defaultForKind`, in local dev and every deployed runtime alike, and
+no env var selects or overrides it. `promote-devbox-image.ts` is the only
+sanctioned writer:
 
 ```bash
 # from web/, with the Freestyle key in env
@@ -88,9 +89,8 @@ unreachable from production.
 It runs the stale-checkout preflight (`CMUX_BAKE_ALLOW_BRANCH=1` for
 deliberate branch bakes), the bake, then `verify-devbox-image.ts`; only a
 passing verify writes the manifest, appending one entry per kind flagged
-`defaultForKind` (and `defaultForLocalDev`) while demoting the provider's
-previous defaults. Existing entries are never removed, so rollback is a
-manifest revert or an env override. It also moves the
+`defaultForKind` while demoting the provider's previous defaults. Existing
+entries are never removed, so rollback is a manifest revert. It also moves the
 `cmux-devbox` snapshot slug onto the new id as a dashboard convenience;
 production boots from the immutable `sh-…` id, never the slug. The last
 stdout line is `IMAGE_ID <id>`; `--out <json>` writes the summary.

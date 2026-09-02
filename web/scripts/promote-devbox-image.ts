@@ -7,7 +7,7 @@
  *
  * Usage:
  *   bun scripts/promote-devbox-image.ts freestyle [--slug cmux-devbox-<tag>]
- *       [--kinds desktop,base] [--pointer-slug cmux-devbox] [--no-local-dev-default]
+ *       [--kinds desktop,base] [--pointer-slug cmux-devbox]
  *       [--image <existing snapshot id>] [--skip-verify] [--out <json>]
  *       [--replace-slug] [--no-desktop] [--dry-run]
  *
@@ -74,7 +74,6 @@ const kinds = requestedKinds as DevboxImageKind[];
 if (kinds.includes("desktop") && !withDesktop) {
   throw new Error("--kinds desktop needs a desktop bake (drop --no-desktop)");
 }
-const localDevDefault = !hasFlag("--no-local-dev-default");
 const pointerSlug = argValue("--pointer-slug") ?? "cmux-devbox";
 const skipVerify = hasFlag("--skip-verify");
 const dryRun = hasFlag("--dry-run");
@@ -158,7 +157,7 @@ if (skipVerify) {
 const manifest = readImageManifest();
 const next = skipVerify
   ? { ...manifest, images: [...manifest.images, { ...entry, kind: kinds[0], notes: [entry.notes, validationNotes].filter(Boolean).join(" ") }] }
-  : promoteImageManifestEntry(manifest, entry, { kinds, localDevDefault, validationNotes });
+  : promoteImageManifestEntry(manifest, entry, { kinds, validationNotes });
 const problems = imageManifestProblems(next);
 if (problems.length > 0) {
   throw new Error(`refusing to write an inconsistent manifest:\n  ${problems.join("\n  ")}`);

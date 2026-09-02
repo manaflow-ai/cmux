@@ -4,8 +4,8 @@ name: Cloud VM devbox bake
 # machine from it, records the verified image id in
 # web/services/vms/images/manifest.json as the default for its kinds, and
 # opens a pull request with that manifest diff. Merging the PR is the
-# promotion: the checked-in manifest is what deployed runtimes serve when no
-# image env var overrides it.
+# promotion: the checked-in manifest is the only source of truth for the
+# image deployed runtimes serve.
 #
 # Manual only. A bake plus verify runs 10-20 minutes of real provider VM
 # time and creates (then deletes) one builder VM and one verify VM.
@@ -141,7 +141,7 @@ jobs:
           - Kinds served (flagged \`defaultForKind\`): ${KINDS}
           - Manifest versions: ${VERSIONS}
 
-          Merging this PR promotes the image: deployed runtimes serve the manifest default when no image env var overrides it. Rollback is a revert of this PR (the old entries stay listed) or an env override to a previous \`validationStatus: passed\` entry.
+          Merging this PR promotes the image: the manifest is the only source of truth, and deployed runtimes serve its \`defaultForKind\` entries. Rollback is a revert of this PR (the old entries stay listed).
 
           🤖 Generated with [Claude Code](https://claude.com/claude-code)
           EOF
