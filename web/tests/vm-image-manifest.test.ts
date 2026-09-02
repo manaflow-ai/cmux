@@ -56,7 +56,9 @@ describe("promoteImageManifestEntry", () => {
         defaultForLocalDev: true,
       }),
       passedEntry({ version: "freestyle-old-base", imageId: "sh-old", kind: "base", defaultForKind: true }),
-      passedEntry({ provider: "e2b", version: "e2b-x", imageId: "cmux-devbox:x", envVar: "E2B_CMUXD_WS_TEMPLATE", kind: "base", defaultForKind: true }),
+      // ProviderId has one member today; the cast keeps the provider-scoped
+      // demotion under test for the day a second provider returns.
+      passedEntry({ provider: "e2b" as DevboxManifestEntry["provider"], version: "e2b-x", imageId: "cmux-devbox:x", envVar: "E2B_CMUXD_WS_TEMPLATE", kind: "base", defaultForKind: true }),
     ],
   };
 

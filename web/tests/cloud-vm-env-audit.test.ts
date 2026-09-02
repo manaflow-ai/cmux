@@ -89,7 +89,7 @@ describe("cloud VM provider coherence audit", () => {
   test("the manifest's validated base default is the deployed image", () => {
     // The committed manifest is the only source of truth (resolver
     // defaultForKind). A clean env is one with the API key set.
-    const result = auditProviderReadiness("freestyle", { FREESTYLE_API_KEY: "x" }, realManifest) as {
+    const result = auditProviderReadiness("freestyle", { FREESTYLE_API_KEY: "x" }, realManifest) as unknown as {
       image: string | null;
       imageSource: string;
       problems: string[];
