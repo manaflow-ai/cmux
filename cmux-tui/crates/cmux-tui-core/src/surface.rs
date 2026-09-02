@@ -1218,6 +1218,9 @@ type PtyGeometryTestHook = Arc<dyn Fn(PtyGeometryTestStep) + Send + Sync>;
 #[cfg(test)]
 type DeferredCellPixelAckTestHook = Arc<dyn Fn() + Send + Sync>;
 
+#[cfg(test)]
+type KittyLimitsTestHook = Arc<dyn Fn() + Send + Sync>;
+
 pub struct PtySurface {
     pub(crate) meta: SurfaceMeta,
     terminal: Arc<PtyTerminalRuntime>,
@@ -1445,6 +1448,8 @@ pub struct PtyTerminalRuntime {
     geometry_test_hook: Mutex<Option<PtyGeometryTestHook>>,
     #[cfg(test)]
     deferred_cell_pixel_ack_test_hook: Mutex<Option<DeferredCellPixelAckTestHook>>,
+    #[cfg(test)]
+    kitty_limits_test_hook: Mutex<Option<KittyLimitsTestHook>>,
     #[cfg(test)]
     test_master_control: Option<Arc<TestMasterPtyControl>>,
     #[cfg(test)]
@@ -2345,6 +2350,8 @@ impl Surface {
         let (frame_requests, frame_rx) = sync_channel(1);
         #[cfg(test)]
         let frame_producer_before_upgrade = Arc::new(Mutex::new(None));
+        #[cfg(test)]
+        let kitty_limits_test_hook = Mutex::new(None);
         let surface = Arc::new(Surface::Pty(PtySurface {
             meta: SurfaceMeta {
                 id,
@@ -2399,6 +2406,7 @@ impl Surface {
                 geometry_test_hook: Mutex::new(None),
                 #[cfg(test)]
                 deferred_cell_pixel_ack_test_hook: Mutex::new(None),
+                kitty_limits_test_hook,
                 #[cfg(test)]
                 test_master_control: None,
                 #[cfg(test)]
@@ -2820,6 +2828,8 @@ impl Surface {
         let (frame_requests, frame_rx) = sync_channel(1);
         #[cfg(test)]
         let frame_producer_before_upgrade = Arc::new(Mutex::new(None));
+        #[cfg(test)]
+        let kitty_limits_test_hook = Mutex::new(None);
         let surface = Arc::new(Surface::Pty(PtySurface {
             meta: SurfaceMeta {
                 id,
@@ -2874,6 +2884,7 @@ impl Surface {
                 geometry_test_hook: Mutex::new(None),
                 #[cfg(test)]
                 deferred_cell_pixel_ack_test_hook: Mutex::new(None),
+                kitty_limits_test_hook,
                 #[cfg(test)]
                 test_master_control: None,
                 #[cfg(test)]
@@ -3858,6 +3869,8 @@ impl Surface {
         let (frame_requests, frame_rx) = sync_channel(1);
         #[cfg(test)]
         let frame_producer_before_upgrade = Arc::new(Mutex::new(None));
+        #[cfg(test)]
+        let kitty_limits_test_hook = Mutex::new(None);
         let command = opts
             .command
             .clone()
@@ -3915,6 +3928,7 @@ impl Surface {
                 geometry_test_hook: Mutex::new(None),
                 #[cfg(test)]
                 deferred_cell_pixel_ack_test_hook: Mutex::new(None),
+                kitty_limits_test_hook,
                 #[cfg(test)]
                 test_master_control: None,
                 #[cfg(test)]
@@ -4087,6 +4101,7 @@ impl Surface {
         let (frame_requests, _frame_rx) = sync_channel(1);
         let test_master_control = Arc::new(TestMasterPtyControl::default());
         let frame_producer_before_upgrade = Arc::new(Mutex::new(None));
+        let kitty_limits_test_hook = Mutex::new(None);
 
         let surface = Arc::new(Surface::Pty(PtySurface {
             meta: SurfaceMeta {
@@ -4142,6 +4157,7 @@ impl Surface {
                 kitty_graphics_limits: Box::new(Mutex::new(initial_kitty_limits)),
                 geometry_test_hook: Mutex::new(None),
                 deferred_cell_pixel_ack_test_hook: Mutex::new(None),
+                kitty_limits_test_hook,
                 test_master_control: Some(test_master_control),
                 vt_replay_builds: AtomicUsize::new(0),
                 mux,
@@ -4403,6 +4419,8 @@ impl Surface {
         if !graphics_changed {
             return Ok(());
         }
+        #[cfg(test)]
+        pty.run_kitty_limits_test_hook();
         let generation = pty.render_generation.fetch_add(1, Ordering::AcqRel) + 1;
         pty.request_frame(generation);
         Ok(())
@@ -6224,6 +6242,14 @@ impl PtySurface {
         let hook = self.geometry_test_hook.lock().unwrap().clone();
         if let Some(hook) = hook {
             hook(step);
+        }
+    }
+
+    #[cfg(test)]
+    fn run_kitty_limits_test_hook(&self) {
+        let hook = self.kitty_limits_test_hook.lock().unwrap().clone();
+        if let Some(hook) = hook {
+            hook();
         }
     }
 
@@ -8312,6 +8338,35 @@ mod tests {
                 Ok(AttachFrame::Resized { .. } | AttachFrame::ResizedWithColors { .. })
             ),
             "a byte-stream mirror was left on the pre-eviction Kitty scene"
+        );
+    }
+
+    #[test]
+    fn kitty_limit_generation_stays_paired_with_terminal_mutation() {
+        let mux = Mux::new_for_test("kitty-limit-generation", SurfaceOptions::default());
+        let surface = Surface::spawn_for_test(
+            1,
+            SurfaceOptions::default(),
+            Arc::downgrade(&mux),
+        )
+        .unwrap();
+        let (probe_tx, probe_rx) = std::sync::mpsc::channel();
+        let weak_surface = Arc::downgrade(&surface);
+        surface.as_pty().unwrap().kitty_limits_test_hook.lock().unwrap().replace(Arc::new(
+            move || {
+                let probe = weak_surface
+                    .upgrade()
+                    .and_then(|surface| surface.try_pointer_snapshot());
+                probe_tx.send(probe).unwrap();
+            },
+        ));
+
+        surface.set_kitty_graphics_limits(0, 0, 0, 0).unwrap();
+
+        assert_eq!(
+            probe_rx.recv_timeout(Duration::from_secs(1)).unwrap(),
+            Some(PointerSnapshotProbe::Contended),
+            "terminal mutation and its render generation must share the terminal lock"
         );
     }
 
