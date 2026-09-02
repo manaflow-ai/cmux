@@ -394,6 +394,15 @@ void ghostty_surface_free(void *surface) {
     }
 }
 void ghostty_surface_free_text(void) {}
+bool ghostty_surface_read_selection_clipboard_text(
+    void *surface,
+    uintptr_t max_bytes,
+    void *selection) {
+    (void)surface;
+    (void)max_bytes;
+    (void)selection;
+    return false;
+}
 float ghostty_surface_font_size(void *surface) {
     return surface == cmux_test_font_surface
         ? cmux_test_font_runtime_points
