@@ -492,6 +492,7 @@ struct RemoteResumeBindingTests {
 
         let workspace = try #require(manager.selectedWorkspace)
         let surfaceID = try #require(workspace.focusedPanelId)
+        let remoteSurfaceID = UUID()
         workspace.configureRemoteConnection(remoteConfiguration(), autoConnect: false)
         let relayToken = try #require(workspace.remoteConfiguration?.relayToken)
         let rewriter = WorkspaceRemoteRelayCommandRewriter(
@@ -510,6 +511,37 @@ struct RemoteResumeBindingTests {
         )
         let pingEnvelope = try v2Envelope(requestData: ping)
         #expect(pingEnvelope["ok"] as? Bool == true, "\(pingEnvelope)")
+
+        let readSelection = rewriter.rewriteRemoteRelayCommandLine(
+            try requestData([
+                "id": "relay-read-selection",
+                "method": "surface.read_selection",
+                "params": [
+                    "workspace_id": workspace.id.uuidString,
+                    "surface_id": remoteSurfaceID.uuidString,
+                ],
+            ]),
+            workspaceAliases: [:],
+            surfaceAliases: [remoteSurfaceID: surfaceID]
+        )
+        let readSelectionLine = try #require(String(data: readSelection, encoding: .utf8))
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        let parsedReadSelection: ControlRequest
+        switch ControlRequestParser().request(fromLine: readSelectionLine) {
+        case .success(let request):
+            parsedReadSelection = request
+        case .failure(let error):
+            Issue.record("Expected an authenticated selection request, got parse error \(error)")
+            return
+        }
+        let readSelectionAuthorization = TerminalController.shared
+            .authorizeRemoteRelayRequest(parsedReadSelection)
+        #expect(readSelectionAuthorization.errorResponse == nil)
+        #expect(readSelectionAuthorization.request.method == "surface.read_selection")
+        #expect(
+            readSelectionAuthorization.request.params["surface_id"]
+                == .string(surfaceID.uuidString)
+        )
 
         let forbidden = rewriter.rewriteRemoteRelayCommandLine(
             try requestData([

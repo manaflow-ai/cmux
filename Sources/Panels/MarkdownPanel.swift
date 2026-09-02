@@ -107,6 +107,7 @@ final class MarkdownPanel: Panel, ObservableObject, FilePreviewTextEditingPanel 
     /// mounted its WKWebView. The renderer fulfills this at window attach.
     private var pendingPreviewFocus = false
     private weak var textView: NSTextView?
+    private let selectionReader = NativeTextSurfaceSelectionReader()
     private var isClosed: Bool = false
     // NotificationCenter token; removal is thread-safe so deinit can drop it.
     private nonisolated(unsafe) var typographyDefaultsObserver: NSObjectProtocol?
@@ -414,6 +415,7 @@ final class MarkdownPanel: Panel, ObservableObject, FilePreviewTextEditingPanel 
         pendingPreviewFocus = false
         searchState = nil
         rendererSession.close()
+        selectionReader.close()
         GlobalSearchCoordinator.shared.purgePanel(id: id)
         textView = nil
         stopWatching()
@@ -437,6 +439,19 @@ final class MarkdownPanel: Panel, ObservableObject, FilePreviewTextEditingPanel 
             // text mode has the NSTextView's native find panel instead.
             hideFind()
             focus()
+        }
+    }
+
+    func readSurfaceSelection() async -> SurfaceSelectionReadResult {
+        switch displayMode {
+        case .text:
+            return .snapshot(await selectionReader.read(
+                textView: textView,
+                kind: .markdown,
+                filePath: filePath
+            ))
+        case .preview:
+            return await rendererSession.readSurfaceSelection(filePath: filePath)
         }
     }
 

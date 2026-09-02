@@ -330,6 +330,9 @@ public protocol Panel: AnyObject, Identifiable, ObservableObject where ID == UUI
     /// Unfocus the panel
     func unfocus()
 
+    /// Read the panel's live user selection without changing focus or UI state.
+    func readSurfaceSelection() async -> SurfaceSelectionReadResult
+
     /// Trigger a focus flash animation for this panel.
     func triggerFlash(reason: WorkspaceAttentionFlashReason)
 
@@ -358,6 +361,11 @@ public protocol Panel: AnyObject, Identifiable, ObservableObject where ID == UUI
 extension Panel {
     public var displayIcon: String? { nil }
     public var isDirty: Bool { false }
+
+    /// Captures the panel's current selection without changing focus or state.
+    public func readSurfaceSelection() async -> SurfaceSelectionReadResult {
+        .unsupported
+    }
 
     func captureFocusIntent(in window: NSWindow?) -> PanelFocusIntent {
         _ = window

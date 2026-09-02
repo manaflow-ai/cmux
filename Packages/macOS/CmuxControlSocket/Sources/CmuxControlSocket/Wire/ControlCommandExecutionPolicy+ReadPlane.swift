@@ -35,6 +35,7 @@ extension ControlCommandExecutionPolicy {
         "surface.list",
         "surface.current",
         "surface.read_text",
+        "surface.read_selection",
         "pane.list",
         "pane.surfaces",
         "list_windows",

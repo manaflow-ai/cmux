@@ -18,6 +18,11 @@ extension TerminalController {
         }
     }
 
+    /// Reopens opaque-handle discovery after a topology notification.
+    func invalidateSocketHandleTopologyRefresh() {
+        controlCommandCoordinator.invalidateHandleTopologyRefresh()
+    }
+
     private func publishSocketReadSnapshot() {
         let requests: [ControlRequest] = [
             ControlRequest(id: nil, method: "window.list", params: [:]),
@@ -46,5 +51,6 @@ extension TerminalController {
         socketReadSnapshotStore.publish(
             ControlReadSnapshot(generation: nextGeneration, responses: responses)
         )
+        controlCommandCoordinator.markHandleTopologyRefreshCompleted()
     }
 }
