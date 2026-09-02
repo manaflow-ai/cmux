@@ -6202,9 +6202,34 @@ impl Mux {
             && !self.agent_roster_fold_worker_running.load(Ordering::Acquire)
         {
             if let Some(handle) = self.agent_roster_fold_worker_handle.lock().unwrap().take() {
-                let _ = handle.join();
+                Self::join_agent_roster_fold_worker(handle);
             }
         }
+    }
+
+    /// A worker can be the last owner of its mux. In that case dropping the
+    /// mux runs this cleanup on the worker itself, and joining its own handle
+    /// would deadlock or panic. Hand the join to a short-lived reaper so the
+    /// worker still gets joined after it finishes unwinding the mux.
+    fn join_agent_roster_fold_worker(handle: std::thread::JoinHandle<()>) {
+        if handle.thread().id() == std::thread::current().id() {
+            let spawn = std::thread::Builder::new().name("agent-roster-fold-reaper".into()).spawn(
+                move || {
+                    if handle.join().is_err() {
+                        eprintln!(
+                            "cmux-tui: agent roster fold worker panicked during self-join handoff"
+                        );
+                    }
+                },
+            );
+            if let Err(error) = spawn {
+                eprintln!(
+                    "cmux-tui: hand off agent roster fold worker self-join to reaper failed: {error}"
+                );
+            }
+            return;
+        }
+        let _ = handle.join();
     }
 
     fn run_agent_roster_fold_worker(mux: Weak<Self>, signal: Arc<JournalEventSignal>) {
@@ -18007,7 +18032,7 @@ impl Drop for Mux {
         if let Ok(handle) = self.agent_roster_fold_worker_handle.get_mut()
             && let Some(handle) = handle.take()
         {
-            let _ = handle.join();
+            Self::join_agent_roster_fold_worker(handle);
         }
         self.finalize_terminal_journal("mux drop");
         self.journal_kernel.shutdown();
