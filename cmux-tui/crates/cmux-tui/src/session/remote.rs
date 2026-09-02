@@ -1253,6 +1253,7 @@ struct InteractiveWaitUntilWrittenGate {
 struct InteractiveWriter {
     shared: Arc<InteractiveWriterShared>,
     abort: Arc<dyn RemoteTransportAbort>,
+    worker: Mutex<Option<std::thread::JoinHandle<()>>>,
 }
 
 impl InteractiveWriter {
@@ -1270,10 +1271,10 @@ impl InteractiveWriter {
             wait_until_written_gate: Mutex::new(None),
         });
         let worker_shared = shared.clone();
-        std::thread::Builder::new()
+        let worker = std::thread::Builder::new()
             .name("remote-input-writer".into())
             .spawn(move || interactive_writer_worker(worker_shared, writer))?;
-        Ok(Self { shared, abort })
+        Ok(Self { shared, abort, worker: Mutex::new(Some(worker)) })
     }
 
     fn enqueue(&self, message: String, measure_latency: bool) -> io::Result<u64> {
@@ -1409,6 +1410,24 @@ impl InteractiveWriter {
         let _ = self.abort.abort();
     }
 
+    fn abort_transport(&self) {
+        let _ = self.abort.abort();
+    }
+
+    fn join_worker(&self) {
+        let current = std::thread::current().id();
+        let handle = {
+            let mut worker = self.worker.lock().unwrap_or_else(|poison| poison.into_inner());
+            if worker.as_ref().is_some_and(|handle| handle.thread().id() == current) {
+                return;
+            }
+            worker.take()
+        };
+        if let Some(handle) = handle {
+            let _ = handle.join();
+        }
+    }
+
     fn close(&self) {
         self.request_close();
         let deadline = Instant::now() + remote_write_timeout();
@@ -1436,6 +1455,7 @@ impl InteractiveWriter {
                 "remote writer did not close before its deadline",
             ));
         }
+        self.join_worker();
     }
 }
 
@@ -1450,6 +1470,7 @@ impl Drop for InteractiveWriter {
                 "remote writer owner was dropped",
             ));
         }
+        self.join_worker();
     }
 }
 
@@ -1567,6 +1588,7 @@ enum DisconnectState {
 
 pub struct RemoteSession {
     interactive_writer: InteractiveWriter,
+    reader_worker: Mutex<Option<std::thread::JoinHandle<()>>>,
     /// The first terminal state wins. Local shutdown is kept separate from a
     /// reader failure so closing our own transport does not report a fake
     /// remote diagnostic.
@@ -1928,6 +1950,7 @@ impl RemoteSession {
             .map_err(|error| anyhow::anyhow!("cannot start remote interactive writer: {error}"))?;
         let session = Arc::new(RemoteSession {
             interactive_writer,
+            reader_worker: Mutex::new(None),
             disconnect_state: Mutex::new(DisconnectState::default()),
             pending: Mutex::new(PendingRemoteRequests::default()),
             next_id: AtomicU64::new(1),
@@ -1960,39 +1983,43 @@ impl RemoteSession {
         });
 
         let reader_session = Arc::downgrade(&session);
-        std::thread::Builder::new().name("remote-reader".into()).spawn(move || {
-            let mut report_progress = |partial: &[u8]| {
-                if let Some(session) = reader_session.upgrade() {
-                    session.report_read_progress(partial);
-                }
-            };
-            let reason = loop {
-                let received = reader.receive_with_progress(&mut report_progress);
-                if let Some(reason) = remote_reader_end_reason(&received) {
-                    break Some(reason);
-                }
-                let Ok(Some(mut message)) = received else { unreachable!("end reason handled") };
-                if message.len() > REMOTE_SESSION_MESSAGE_MAX_BYTES {
-                    break Some(remote_reader_message_too_large(&mut message));
-                }
-                let value = match serde_json::from_str::<Value>(&message) {
-                    Ok(value) => value,
-                    Err(error) => {
-                        let reason = format!("remote JSON decode failed: {error}");
-                        zeroize_string(&mut message);
-                        break Some(reason);
+        let reader_worker =
+            std::thread::Builder::new().name("remote-reader".into()).spawn(move || {
+                let mut report_progress = |partial: &[u8]| {
+                    if let Some(session) = reader_session.upgrade() {
+                        session.report_read_progress(partial);
                     }
                 };
-                zeroize_string(&mut message);
-                let Some(session) = reader_session.upgrade() else { break None };
-                session.handle_line(value);
-            };
-            // Connection lost: retain the reason before telling the app to quit.
-            if let Some(session) = reader_session.upgrade() {
-                session.disconnect_transport_with_reason(reason);
-                session.emit(MuxEvent::Empty);
-            }
-        })?;
+                let reason = loop {
+                    let received = reader.receive_with_progress(&mut report_progress);
+                    if let Some(reason) = remote_reader_end_reason(&received) {
+                        break Some(reason);
+                    }
+                    let Ok(Some(mut message)) = received else {
+                        unreachable!("end reason handled")
+                    };
+                    if message.len() > REMOTE_SESSION_MESSAGE_MAX_BYTES {
+                        break Some(remote_reader_message_too_large(&mut message));
+                    }
+                    let value = match serde_json::from_str::<Value>(&message) {
+                        Ok(value) => value,
+                        Err(error) => {
+                            let reason = format!("remote JSON decode failed: {error}");
+                            zeroize_string(&mut message);
+                            break Some(reason);
+                        }
+                    };
+                    zeroize_string(&mut message);
+                    let Some(session) = reader_session.upgrade() else { break None };
+                    session.handle_line(value);
+                };
+                // Connection lost: retain the reason before telling the app to quit.
+                if let Some(session) = reader_session.upgrade() {
+                    session.disconnect_transport_with_reason(reason);
+                    session.emit(MuxEvent::Empty);
+                }
+            })?;
+        *session.reader_worker.lock().unwrap() = Some(reader_worker);
 
         if let Err(error) = session.initialize(subscribe) {
             session.disconnect_transport();
@@ -2982,6 +3009,22 @@ impl RemoteSession {
         drop(state);
         self.begin_shutdown();
         self.interactive_writer.close();
+        self.interactive_writer.abort_transport();
+        self.join_reader_worker();
+    }
+
+    fn join_reader_worker(&self) {
+        let current = std::thread::current().id();
+        let handle = {
+            let mut worker = self.reader_worker.lock().unwrap_or_else(|poison| poison.into_inner());
+            if worker.as_ref().is_some_and(|handle| handle.thread().id() == current) {
+                return;
+            }
+            worker.take()
+        };
+        if let Some(handle) = handle {
+            let _ = handle.join();
+        }
     }
 
     /// Returns the first reason recorded when the remote reader stopped.
@@ -3589,6 +3632,7 @@ fn local_hostname() -> Option<String> {
 
 impl Drop for RemoteSession {
     fn drop(&mut self) {
+        self.disconnect_transport();
         let Some(dir) = self.frame_dump_dir.as_deref() else {
             return;
         };
@@ -3895,6 +3939,7 @@ fn test_session_with_writer(
 ) -> Arc<RemoteSession> {
     Arc::new(RemoteSession {
         interactive_writer: InteractiveWriter::spawn(writer, Arc::new(NoopTransportAbort)).unwrap(),
+        reader_worker: Mutex::new(None),
         disconnect_state: Mutex::new(DisconnectState::default()),
         pending: Mutex::new(PendingRemoteRequests::default()),
         next_id: AtomicU64::new(1),
@@ -5137,6 +5182,7 @@ mod tests {
     ) -> Arc<RemoteSession> {
         Arc::new(RemoteSession {
             interactive_writer: InteractiveWriter::spawn(writer, abort).unwrap(),
+            reader_worker: Mutex::new(None),
             disconnect_state: Mutex::new(DisconnectState::default()),
             pending: Mutex::new(PendingRemoteRequests::default()),
             next_id: AtomicU64::new(1),
@@ -6426,6 +6472,81 @@ mod tests {
             .expect("transport shutdown must join the writer");
     }
 
+    #[cfg(unix)]
+    #[test]
+    fn malformed_json_cancels_a_pending_request_and_preserves_decode_reason() {
+        let (client, server) = UnixStream::pair().unwrap();
+        let (release_tx, release_rx) = channel();
+        let peer = std::thread::spawn(move || {
+            let mut peer = BufReader::new(server);
+            for expected_command in ["identify", "set-client-info", "subscribe"] {
+                let mut line = String::new();
+                peer.read_line(&mut line).unwrap();
+                let request: Value = serde_json::from_str(&line).unwrap();
+                assert_eq!(request["cmd"], expected_command);
+                let data = if expected_command == "identify" {
+                    json!({
+                        "app": "cmux-tui",
+                        "protocol": SUPPORTED_PROTOCOL_VERSION,
+                        "capabilities": ["browser-pointer-frame-guard-v1"],
+                    })
+                } else {
+                    Value::Null
+                };
+                writeln!(
+                    peer.get_mut(),
+                    "{}",
+                    json!({"id": request["id"], "ok": true, "data": data})
+                )
+                .unwrap();
+            }
+
+            let mut line = String::new();
+            peer.read_line(&mut line).unwrap();
+            let request: Value = serde_json::from_str(&line).unwrap();
+            assert_eq!(request["cmd"], "wait-for-malformed");
+            peer.get_mut().write_all(b"not-json\n").unwrap();
+            release_rx.recv().unwrap();
+        });
+        let session = RemoteSession::connect_stream(Box::new(client)).unwrap();
+        let request_session = session.clone();
+        let (done_tx, done_rx) = channel();
+        let request = std::thread::spawn(move || {
+            done_tx.send(request_session.request(json!({"cmd": "wait-for-malformed"}))).unwrap();
+        });
+
+        let result = match done_rx.recv_timeout(Duration::from_secs(2)) {
+            Ok(result) => result,
+            Err(error) => {
+                session.begin_shutdown();
+                request.join().unwrap();
+                release_tx.send(()).unwrap();
+                peer.join().unwrap();
+                panic!("malformed JSON did not cancel the request promptly: {error}");
+            }
+        };
+        request.join().unwrap();
+        release_tx.send(()).unwrap();
+        peer.join().unwrap();
+
+        let error = result.unwrap_err();
+        assert!(
+            matches!(
+                error.downcast_ref::<RemoteRequestError>(),
+                Some(RemoteRequestError::Shutdown)
+            ),
+            "expected shutdown after malformed JSON canceled the request, got {error:?}"
+        );
+        assert!(
+            session
+                .transport_disconnect_reason()
+                .is_some_and(|reason| reason.starts_with("remote JSON decode failed:")),
+            "malformed JSON decode reason was not preserved: {:?}",
+            session.transport_disconnect_reason()
+        );
+        assert!(session.pending.lock().unwrap().is_empty());
+    }
+
     #[test]
     fn transport_disconnect_reason_is_first_writer_wins() {
         let session = test_session(Box::new(CloseTrackingWriter {
@@ -7055,81 +7176,6 @@ mod tests {
         );
         assert!(started.elapsed() < Duration::from_secs(2));
         assert!(session.shutdown.load(Ordering::Acquire));
-        assert!(session.pending.lock().unwrap().is_empty());
-    }
-
-    #[cfg(unix)]
-    #[test]
-    fn malformed_json_cancels_a_pending_request_and_preserves_decode_reason() {
-        let (client, server) = UnixStream::pair().unwrap();
-        let (release_tx, release_rx) = channel();
-        let peer = std::thread::spawn(move || {
-            let mut peer = BufReader::new(server);
-            for expected_command in ["identify", "set-client-info", "subscribe"] {
-                let mut line = String::new();
-                peer.read_line(&mut line).unwrap();
-                let request: Value = serde_json::from_str(&line).unwrap();
-                assert_eq!(request["cmd"], expected_command);
-                let data = if expected_command == "identify" {
-                    json!({
-                        "app": "cmux-tui",
-                        "protocol": SUPPORTED_PROTOCOL_VERSION,
-                        "capabilities": ["browser-pointer-frame-guard-v1"],
-                    })
-                } else {
-                    Value::Null
-                };
-                writeln!(
-                    peer.get_mut(),
-                    "{}",
-                    json!({"id": request["id"], "ok": true, "data": data})
-                )
-                .unwrap();
-            }
-
-            let mut line = String::new();
-            peer.read_line(&mut line).unwrap();
-            let request: Value = serde_json::from_str(&line).unwrap();
-            assert_eq!(request["cmd"], "wait-for-malformed");
-            peer.get_mut().write_all(b"not-json\n").unwrap();
-            release_rx.recv().unwrap();
-        });
-        let session = RemoteSession::connect_stream(Box::new(client)).unwrap();
-        let request_session = session.clone();
-        let (done_tx, done_rx) = channel();
-        let request = std::thread::spawn(move || {
-            done_tx.send(request_session.request(json!({"cmd": "wait-for-malformed"}))).unwrap();
-        });
-
-        let result = match done_rx.recv_timeout(Duration::from_secs(2)) {
-            Ok(result) => result,
-            Err(error) => {
-                session.begin_shutdown();
-                request.join().unwrap();
-                release_tx.send(()).unwrap();
-                peer.join().unwrap();
-                panic!("malformed JSON did not cancel the request promptly: {error}");
-            }
-        };
-        request.join().unwrap();
-        release_tx.send(()).unwrap();
-        peer.join().unwrap();
-
-        let error = result.unwrap_err();
-        assert!(
-            matches!(
-                error.downcast_ref::<RemoteRequestError>(),
-                Some(RemoteRequestError::Shutdown)
-            ),
-            "expected shutdown after malformed JSON canceled the request, got {error:?}"
-        );
-        assert!(
-            session
-                .transport_disconnect_reason()
-                .is_some_and(|reason| reason.starts_with("remote JSON decode failed:")),
-            "malformed JSON decode reason was not preserved: {:?}",
-            session.transport_disconnect_reason()
-        );
         assert!(session.pending.lock().unwrap().is_empty());
     }
 
