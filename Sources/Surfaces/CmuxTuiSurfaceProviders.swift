@@ -246,7 +246,7 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
     func refresh(force: Bool) async {
         let machine = self.machine
         var resources: [SurfaceResource] = []
-        if CmuxTuiSnapshotParser.machineHasDesktop(image: summary.image) {
+        if summary.resolvedKind.hasDesktop {
             resources.append(CmuxTuiSnapshotParser.display(machine: machine))
         }
         guard isAwake, let client = VMClient.shared else {
@@ -260,7 +260,7 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
         if !resources.isEmpty, catalog.snapshot.resources(on: machine).isEmpty {
             catalog.replaceResources(resources, on: machine, info: info)
         }
-        if CmuxTuiSnapshotParser.machineHasDesktop(image: summary.image) {
+        if summary.resolvedKind.hasDesktop {
             prefetchDesktopEndpoint()
         }
         async let stats = try? client.stats(id: machineID)
@@ -612,7 +612,7 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
             name: summary.preferredName,
             status: summary.status,
             image: summary.image,
-            hasDesktop: CmuxTuiSnapshotParser.machineHasDesktop(image: summary.image),
+            hasDesktop: summary.resolvedKind.hasDesktop,
             memoryMb: stats?.memoryTotalMb,
             diskMb: stats?.diskTotalMb,
             linkState: linkState,

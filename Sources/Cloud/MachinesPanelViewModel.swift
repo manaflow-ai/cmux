@@ -82,7 +82,8 @@ struct MachinePlanSnapshot: Equatable {
     }
 
     let activeCount: Int
-    let maxActiveVms: Int
+    /// Active-machine ceiling; nil when the plan has no cap (every paid plan).
+    let maxActiveVms: Int?
     let planId: String
     /// Days the plan keeps a machine reachable after creation; 0 = no window.
     var freeAccessWindowDays: Int = 0
@@ -90,7 +91,11 @@ struct MachinePlanSnapshot: Equatable {
     var freeAccessExpiresAt: Date? = nil
     var freeAccessBanner: FreeAccessBanner = .none
 
-    var isAtLimit: Bool { activeCount >= maxActiveVms }
+    /// An uncapped plan is never at the limit.
+    var isAtLimit: Bool {
+        guard let maxActiveVms else { return false }
+        return activeCount >= maxActiveVms
+    }
     /// Only plans the backend accepts for provisioning are paid. Unknown plan
     /// ids fail closed here too, so a stale metadata value cannot hide the
     /// upgrade affordance after the server returns `vm_requires_pro`.
@@ -109,7 +114,15 @@ struct MachinePlanSnapshot: Equatable {
     var isSingleMachinePlan: Bool { maxActiveVms == 1 }
 
     /// The header meter text, singular/plural chosen by the plan's ceiling.
+    /// Uncapped plans read "3 machines": there is no "of N" to show.
     var countLabel: String {
+        guard let maxActiveVms else {
+            if activeCount == 1 {
+                return String(localized: "machines.meter.count.unlimited.single", defaultValue: "1 machine")
+            }
+            let format = String(localized: "machines.meter.count.unlimited", defaultValue: "%1$d machines")
+            return String(format: format, activeCount)
+        }
         if isSingleMachinePlan {
             let format = String(localized: "machines.meter.count.single", defaultValue: "%1$d of 1 machine")
             return String(format: format, activeCount)
