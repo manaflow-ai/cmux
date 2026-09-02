@@ -129,8 +129,6 @@ fn parse_agent_state(value: &Value) -> Result<AgentState, ResourceError> {
 
 fn parse_agent_source(value: &str) -> Result<AgentSource, ResourceError> {
     match value {
-        "plugin" => Ok(AgentSource::Plugin),
-        "detected" => Ok(AgentSource::Detected),
         "hook" => Ok(AgentSource::Hook),
         "socket" => Ok(AgentSource::Socket),
         _ => Err(validation_error("invalid agent report source", json!({"source":value}))),
@@ -743,6 +741,18 @@ mod tests {
         .unwrap();
         assert_eq!(listed.as_array().unwrap().len(), 1);
         assert_eq!(listed[0]["id"], first["value"]["id"]);
+    }
+
+    #[test]
+    fn public_agent_report_rejects_internal_plugin_and_detected_sources() {
+        for source in ["plugin", "detected"] {
+            assert!(
+                parse_agent_source(source).is_err(),
+                "{source} is an internal projection source"
+            );
+        }
+        assert!(parse_agent_source("hook").is_ok());
+        assert!(parse_agent_source("socket").is_ok());
     }
 
     #[test]
