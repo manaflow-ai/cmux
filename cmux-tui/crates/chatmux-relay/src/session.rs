@@ -584,7 +584,9 @@ fn make_context(
 ) -> FrameContext {
     let sender = out.clone();
     let pending_send = Arc::clone(pending);
+    let pending_send_live = Arc::clone(pending);
     let pending_probe = Arc::clone(pending);
+    let live_sender = out.clone();
     FrameContext {
         send: Arc::new(move |frame: Value| {
             let size = serde_json::to_string(&frame).map(|text| text.len() as u64).unwrap_or(0);
@@ -606,6 +608,17 @@ fn make_context(
                 );
                 pending_send
                     .fetch_sub(size.min(pending_send.load(Ordering::SeqCst)), Ordering::SeqCst);
+            }
+        }),
+        send_live: Arc::new(move |frame: Value, live: Arc<AtomicBool>| {
+            let Some(text) = serde_json::to_string(&frame).ok() else { return };
+            let size = text.len() as u64;
+            pending_send_live.fetch_add(size, Ordering::SeqCst);
+            if live_sender.try_watch_text_with_token(text, Some(live)).is_err() {
+                pending_send_live.fetch_sub(
+                    size.min(pending_send_live.load(Ordering::SeqCst)),
+                    Ordering::SeqCst,
+                );
             }
         }),
         buffered_amount: Arc::new(move || pending_probe.load(Ordering::SeqCst)),
@@ -846,6 +859,8 @@ async fn relay_session(
             }
             Wake::Outbound(is_critical, Some(frame)) => {
                 if !frame.is_live() {
+                    let size = frame.text.len() as u64;
+                    pending.fetch_sub(size.min(pending.load(Ordering::SeqCst)), Ordering::SeqCst);
                     if let Some(ack) = frame.ack {
                         let _ = ack.send(());
                     }

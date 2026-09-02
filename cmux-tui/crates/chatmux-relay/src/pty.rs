@@ -320,6 +320,9 @@ pub trait PtyDeps: Send + Sync {
 #[derive(Clone)]
 pub struct FrameContext {
     pub send: Arc<dyn Fn(Value) + Send + Sync>,
+    /// Enqueue a stream frame with a liveness token. The transport writer
+    /// drops the frame when the attachment is revoked before socket delivery.
+    pub send_live: Arc<dyn Fn(Value, Arc<AtomicBool>) + Send + Sync>,
     pub buffered_amount: Arc<dyn Fn() -> u64 + Send + Sync>,
     pub trust: String,
     pub local_roots: Option<Vec<String>>,
@@ -370,6 +373,7 @@ struct AuthSnapshot {
     local_roots: Option<Vec<String>>,
     owner_user_id: Option<String>,
     send: Arc<dyn Fn(Value) + Send + Sync>,
+    send_live: Arc<dyn Fn(Value, Arc<AtomicBool>) + Send + Sync>,
     buffered_amount: Arc<dyn Fn() -> u64 + Send + Sync>,
     auth_generation: Option<u64>,
     transport_kind: TransportKind,
@@ -382,6 +386,7 @@ impl AuthSnapshot {
             local_roots: context.local_roots.clone(),
             owner_user_id: context.owner_user_id.clone(),
             send: Arc::clone(&context.send),
+            send_live: Arc::clone(&context.send_live),
             buffered_amount: Arc::clone(&context.buffered_amount),
             auth_generation: context.auth_generation,
             transport_kind: context.transport_kind,
@@ -467,6 +472,9 @@ struct Attachment {
     control_gate: Arc<Mutex<()>>,
     /// Serializes output and exit delivery for one attachment.
     delivery_gate: Arc<Mutex<()>>,
+    /// Cleared at the attachment retirement boundary. Queued stream frames
+    /// carry this token so the writer can discard them after revocation.
+    delivery_live: Arc<AtomicBool>,
     /// Serializes open success publication with attachment retirement. This
     /// is separate because start callbacks can emit output and re-enter the
     /// operation gate.
@@ -1590,6 +1598,7 @@ impl Inner {
                     operation_gate: Arc::new(Mutex::new(())),
                     control_gate: Arc::new(Mutex::new(())),
                     delivery_gate: Arc::new(Mutex::new(())),
+                    delivery_live: Arc::new(AtomicBool::new(true)),
                     publication_gate: Arc::clone(&publication_gate),
                     publication_state: Arc::new(AtomicU64::new(0)),
                     control,
@@ -1817,12 +1826,13 @@ impl Inner {
         // the transport callback because a stalled sink must not block detach
         // or trust revocation.
         drop(delivery);
-        (auth.send)(json!({
+        let frame = json!({
             "version": PTY_PROTOCOL_VERSION,
             "type": "pty_output",
             "ptyId": pty_id,
             "dataB64": BASE64.encode(chunk),
-        }));
+        });
+        (auth.send_live)(frame, Arc::clone(&attachment.delivery_live));
     }
 
     fn emit_exit(&self, pty_id: &str, code: i64, context: &FrameContext) {
@@ -2213,6 +2223,7 @@ impl Inner {
     }
 
     fn revoke_publication(attachment: &Attachment) {
+        attachment.delivery_live.store(false, Ordering::Release);
         attachment.publication_state.fetch_or(1, Ordering::AcqRel);
     }
 
@@ -4178,9 +4189,11 @@ mod tests {
     impl Harness {
         fn context(&self, trust: &str, owner: Option<String>) -> FrameContext {
             let sent = Arc::clone(&self.sent);
+            let sent_live = Arc::clone(&self.sent);
             let buffered = Arc::clone(&self.buffered);
             FrameContext {
                 send: Arc::new(move |frame| sent.lock().unwrap().push(frame)),
+                send_live: Arc::new(move |frame, _live| sent_live.lock().unwrap().push(frame)),
                 buffered_amount: Arc::new(move || buffered.load(Ordering::SeqCst)),
                 trust: trust.to_owned(),
                 local_roots: None,
@@ -5172,6 +5185,7 @@ mod tests {
                     operation_gate: Arc::new(Mutex::new(())),
                     control_gate: Arc::new(Mutex::new(())),
                     delivery_gate: Arc::new(Mutex::new(())),
+                    delivery_live: Arc::new(AtomicBool::new(true)),
                     publication_gate: Arc::new(Mutex::new(())),
                     publication_state: Arc::new(AtomicU64::new(0)),
                     control: slow,
@@ -5187,6 +5201,7 @@ mod tests {
                     operation_gate: Arc::new(Mutex::new(())),
                     control_gate: Arc::new(Mutex::new(())),
                     delivery_gate: Arc::new(Mutex::new(())),
+                    delivery_live: Arc::new(AtomicBool::new(true)),
                     publication_gate: Arc::new(Mutex::new(())),
                     publication_state: Arc::new(AtomicU64::new(0)),
                     control: Arc::new(fast),
@@ -5245,6 +5260,7 @@ mod tests {
                     operation_gate: Arc::new(Mutex::new(())),
                     control_gate: Arc::new(Mutex::new(())),
                     delivery_gate: Arc::new(Mutex::new(())),
+                    delivery_live: Arc::new(AtomicBool::new(true)),
                     publication_gate: Arc::new(Mutex::new(())),
                     publication_state: Arc::new(AtomicU64::new(0)),
                     control: Arc::new(BlockingControl {
@@ -5302,6 +5318,7 @@ mod tests {
                     operation_gate: Arc::new(Mutex::new(())),
                     control_gate: Arc::new(Mutex::new(())),
                     delivery_gate: Arc::new(Mutex::new(())),
+                    delivery_live: Arc::new(AtomicBool::new(true)),
                     publication_gate: Arc::new(Mutex::new(())),
                     publication_state: Arc::new(AtomicU64::new(0)),
                     control: Arc::new(BlockingControl {
@@ -5350,8 +5367,20 @@ mod tests {
             send: {
                 let entered = Arc::clone(&entered);
                 let release = Arc::clone(&release);
+                let sent = Arc::clone(&sent);
                 Arc::new(move |frame| {
                     sent.lock().unwrap().push(frame);
+                    entered.wait();
+                    release.wait();
+                })
+            },
+            send_live: {
+                let entered = Arc::clone(&entered);
+                let release = Arc::clone(&release);
+                Arc::new(move |frame, live| {
+                    if live.load(Ordering::Acquire) {
+                        sent.lock().unwrap().push(frame);
+                    }
                     entered.wait();
                     release.wait();
                 })
@@ -5380,6 +5409,7 @@ mod tests {
             operation_gate: Arc::new(Mutex::new(())),
             control_gate: Arc::new(Mutex::new(())),
             delivery_gate: Arc::new(Mutex::new(())),
+            delivery_live: Arc::new(AtomicBool::new(true)),
             publication_gate: Arc::new(Mutex::new(())),
             publication_state: Arc::new(AtomicU64::new(0)),
             control: Arc::new(pty),
@@ -5860,7 +5890,11 @@ mod tests {
         let sent_a = Arc::new(StdMutex::new(Vec::<Value>::new()));
         let sent_b = Arc::new(StdMutex::new(Vec::<Value>::new()));
         let context = |sent: Arc<StdMutex<Vec<Value>>>, transport: &str| FrameContext {
-            send: Arc::new(move |frame| sent.lock().unwrap().push(frame)),
+            send: {
+                let sent = Arc::clone(&sent);
+                Arc::new(move |frame| sent.lock().unwrap().push(frame))
+            },
+            send_live: Arc::new(move |frame, _live| sent.lock().unwrap().push(frame)),
             buffered_amount: Arc::new(|| 0),
             trust: "supervised".to_owned(),
             local_roots: None,
@@ -6040,6 +6074,7 @@ mod tests {
         let sink = Arc::clone(&sent);
         let context = FrameContext {
             send: Arc::new(move |frame| sink.lock().unwrap().push(frame)),
+            send_live: Arc::new(|_, _| {}),
             buffered_amount: Arc::new(|| 0),
             trust: "supervised".to_owned(),
             local_roots: None,

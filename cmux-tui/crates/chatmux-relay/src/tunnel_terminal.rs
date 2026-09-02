@@ -308,7 +308,10 @@ pub fn generate_session_name() -> Result<String, getrandom::Error> {
 // ---------------------------------------------------------------------------
 
 enum WriterMessage {
-    Frame(Vec<u8>),
+    Frame {
+        bytes: Vec<u8>,
+        live: Option<Arc<AtomicBool>>,
+    },
     /// Flush what is queued, then close the write half. The slot for this
     /// message is reserved when the connection starts.
     End,
@@ -403,7 +406,7 @@ impl Connection {
             self.finish();
             return;
         };
-        let _ = self.enqueue_frame(encoded, true);
+        let _ = self.enqueue_frame(encoded, true, None);
     }
 
     fn reserve_bytes(&self, length: usize, control: bool) -> bool {
@@ -430,7 +433,7 @@ impl Connection {
         }
     }
 
-    fn enqueue_frame(&self, frame: Vec<u8>, control: bool) -> bool {
+    fn enqueue_frame(&self, frame: Vec<u8>, control: bool, live: Option<Arc<AtomicBool>>) -> bool {
         let mut accepted = false;
         let mut reserved = 0_u64;
         {
@@ -442,7 +445,7 @@ impl Connection {
                 && self.reserve_bytes(frame.len(), control)
             {
                 reserved = frame.len() as u64;
-                if self.writer_tx.try_send(WriterMessage::Frame(frame)).is_ok() {
+                if self.writer_tx.try_send(WriterMessage::Frame { bytes: frame, live }).is_ok() {
                     accepted = true;
                 }
             }
@@ -472,7 +475,7 @@ impl Connection {
         if self.reserve_bytes(overflow.len(), true) {
             if let Some(permit) = self.overflow_permit.lock().expect("overflow permit lock").take()
             {
-                permit.send(WriterMessage::Frame(overflow));
+                permit.send(WriterMessage::Frame { bytes: overflow, live: None });
             } else {
                 self.pending_out.fetch_sub(overflow_bytes, Ordering::AcqRel);
             }
@@ -516,6 +519,10 @@ impl Connection {
     /// The manager's reply sink (FrameContext::send). Synchronous: enqueue
     /// only, never block.
     fn on_manager_frame(&self, frame: &Value) {
+        self.on_manager_frame_with_liveness(frame, None);
+    }
+
+    fn on_manager_frame_with_liveness(&self, frame: &Value, live: Option<Arc<AtomicBool>>) {
         if self.finished.load(Ordering::SeqCst) {
             return;
         }
@@ -550,7 +557,7 @@ impl Connection {
                     self.protocol_error("overflow");
                     return;
                 };
-                if !self.enqueue_frame(encoded, false) {
+                if !self.enqueue_frame(encoded, false, live) {
                     return;
                 }
                 // Socket-side congestion: pause the source through the
@@ -584,6 +591,7 @@ impl Connection {
 
     fn frame_context(self: &Arc<Self>) -> FrameContext {
         let sink = Arc::clone(self);
+        let live_sink = Arc::clone(self);
         let probe = Arc::clone(self);
         let authority = self.auth_state.read().ok().map(|state| state.clone()).unwrap_or_default();
         let auth = if authority.generation == self.auth_generation {
@@ -593,6 +601,9 @@ impl Connection {
         };
         FrameContext {
             send: Arc::new(move |frame: Value| sink.on_manager_frame(&frame)),
+            send_live: Arc::new(move |frame: Value, live: Arc<AtomicBool>| {
+                live_sink.on_manager_frame_with_liveness(&frame, Some(live));
+            }),
             buffered_amount: Arc::new(move || probe.pending_out.load(Ordering::SeqCst)),
             trust: auth.trust,
             local_roots: auth.local_roots,
@@ -809,7 +820,18 @@ async fn serve_connection(
         tokio::spawn(async move {
             while let Some(message) = writer_rx.recv().await {
                 match message {
-                    WriterMessage::Frame(frame) => {
+                    WriterMessage::Frame { bytes: frame, live } => {
+                        if live.as_ref().is_some_and(|live| !live.load(Ordering::Acquire)) {
+                            let length = frame.len() as u64;
+                            let previous =
+                                connection.pending_out.fetch_sub(length, Ordering::SeqCst);
+                            if previous.saturating_sub(length) < FLOW_RESUME_BYTES
+                                && connection.paused.swap(false, Ordering::SeqCst)
+                            {
+                                let _ = connection.flow_tx.send(false);
+                            }
+                            continue;
+                        }
                         let written = write_half.write_all(&frame).await;
                         // Every dequeued frame added exactly its length at
                         // enqueue, so this never underflows.
@@ -1306,10 +1328,10 @@ mod tests {
         let rig = rig().await;
         let (connection, mut writer_rx) = queue_connection(Arc::clone(&rig.manager)).await;
         let frame = encode_pty_frame(&vec![b'x'; MAX_TUNNEL_FRAME_BYTES]).expect("valid frame");
-        assert!(connection.enqueue_frame(frame, false));
+        assert!(connection.enqueue_frame(frame, false, None));
         connection.finish();
         drop(connection);
-        assert!(matches!(writer_rx.recv().await, Some(WriterMessage::Frame(_))));
+        assert!(matches!(writer_rx.recv().await, Some(WriterMessage::Frame { .. })));
         assert!(matches!(writer_rx.recv().await, Some(WriterMessage::End)));
         rig.cancel.cancel();
     }
@@ -1326,7 +1348,7 @@ mod tests {
             - RESERVED_WRITER_QUEUE_ITEMS
             - TUNNEL_CONTROL_QUEUE_RESERVE_ITEMS;
         for _ in 0..accepted_data {
-            assert!(connection.enqueue_frame(vec![b'x'], false));
+            assert!(connection.enqueue_frame(vec![b'x'], false, None));
         }
         connection.send_control(&json!({ "t": "error", "code": "failed" }));
         connection.finish();
@@ -1336,7 +1358,7 @@ mod tests {
         let mut saw_end = false;
         while let Some(message) = writer_rx.recv().await {
             match message {
-                WriterMessage::Frame(frame)
+                WriterMessage::Frame { bytes: frame, .. }
                     if frame.len() > HEADER_BYTES && frame[4] == FRAME_KIND_CONTROL =>
                 {
                     let payload = &frame[5..];
@@ -1347,7 +1369,7 @@ mod tests {
                     saw_end = true;
                     break;
                 }
-                WriterMessage::Frame(_) => {}
+                WriterMessage::Frame { .. } => {}
             }
         }
         assert!(saw_error, "control error must survive data saturation");
@@ -1363,16 +1385,16 @@ mod tests {
             - RESERVED_WRITER_QUEUE_ITEMS
             - TUNNEL_CONTROL_QUEUE_RESERVE_ITEMS;
         for _ in 0..accepted_data {
-            assert!(connection.enqueue_frame(vec![b'x'], false));
+            assert!(connection.enqueue_frame(vec![b'x'], false, None));
         }
-        assert!(!connection.enqueue_frame(vec![b'x'], false));
+        assert!(!connection.enqueue_frame(vec![b'x'], false, None));
         drop(connection);
 
         let mut saw_overflow = false;
         let mut saw_end = false;
         while let Some(message) = writer_rx.recv().await {
             match message {
-                WriterMessage::Frame(frame)
+                WriterMessage::Frame { bytes: frame, .. }
                     if frame.len() > HEADER_BYTES && frame[4] == FRAME_KIND_CONTROL =>
                 {
                     let payload = &frame[5..];
@@ -1383,7 +1405,7 @@ mod tests {
                     saw_end = true;
                     break;
                 }
-                WriterMessage::Frame(_) => {}
+                WriterMessage::Frame { .. } => {}
             }
         }
         assert!(saw_overflow, "overflow error must survive data saturation");
