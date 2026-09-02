@@ -402,6 +402,24 @@ import Testing
         #expect(String(decoding: data, as: UTF8.self) == "all of it")
     }
 
+    @Test func linkPipeDropsAnOversizedLineInsteadOfBufferingIt() async throws {
+        // The daemon caps a message at 4 MiB; a peer that withholds the newline must not
+        // pin Mac memory, and the line after the oversized one still arrives intact.
+        let pipe = Pipe()
+        let lines = CloudLinkPipe.lines(from: pipe.fileHandleForReading)
+        let writer = pipe.fileHandleForWriting
+        let chunk = Data(repeating: 0x41, count: 1024 * 1024)
+        let writeTask = Task.detached {
+            for _ in 0..<5 { writer.write(chunk) }
+            writer.write(Data("\nok\n".utf8))
+            try writer.close()
+        }
+        var received: [String] = []
+        for await line in lines { received.append(line) }
+        try await writeTask.value
+        #expect(received == ["ok"])
+    }
+
     @Test func linkFirstValueResolvesOnce() async {
         let socket = CloudLinkFirstValue<String>()
         async let awaited = socket.result
