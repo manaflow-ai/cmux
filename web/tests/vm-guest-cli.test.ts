@@ -1,13 +1,15 @@
 import { describe, expect, test } from "bun:test";
+import { spawnSync } from "node:child_process";
 
 import { GUEST_CMUX_SHIM, GUEST_CMUX_SHIM_PATH, guestCliInstallCommand } from "../services/vms/guestCli";
 
 // The in-VM `cmux` shim is shipped as driver-written bytes; a syntax error
 // would surface only inside a live machine, so validate it here.
 describe("in-VM cmux shim", () => {
-  test("is valid POSIX sh", async () => {
-    const proc = Bun.spawn(["sh", "-n"], { stdin: new Blob([GUEST_CMUX_SHIM]) });
-    expect(await proc.exited).toBe(0);
+  test("is valid POSIX sh", () => {
+    const result = spawnSync("sh", ["-n"], { input: GUEST_CMUX_SHIM, encoding: "utf8" });
+    expect(result.stderr).toBe("");
+    expect(result.status).toBe(0);
   });
 
   test("fronts the machine's own cmux-tui and the peer-link verbs", () => {

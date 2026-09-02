@@ -10,6 +10,7 @@ services/vms/
   billingGateway.ts   Stack Auth VM create-credit reservations
   entitlements.ts     Team plan and active VM limit resolution
   drivers/            Provider SDK adapter for Freestyle
+  privateNetwork.ts   Per-user private networks and WireGuard tunnel enrollment
   images/             Checked-in known-good provider image manifest
   errors.ts           Typed Effect errors for VM workflows
   config.ts           Runtime kill switches and deployment guards
@@ -28,6 +29,9 @@ db/
 - `/api/vm/:id`, authenticated `DELETE` destroy.
 - `/api/vm/:id/exec`, authenticated `POST` command execution.
 - `/api/vm/:id/attach-endpoint`, authenticated `POST` PTY/RPC attach lease minting.
+- `/api/vm/tunnel`, authenticated `POST` WireGuard tunnel enrollment for the calling
+  computer, `GET` tunnel/list state, `DELETE` unenrollment. Not Pro-gated: a lapsed
+  subscription must still be able to reach machines it already owns.
 
 There is no raw actor or provider protocol endpoint. The old `/api/rivet/*` gateway has been removed.
 
@@ -55,6 +59,10 @@ The auth regression tests live in `web/tests/vm-route-auth.test.ts`. They verify
 - `cloud_vms` owns VM lifecycle state, provider ids, image ids, billing team/plan ids, and per-user idempotency keys.
 - `cloud_vm_leases` stores hashed PTY/RPC/SSH lease tokens, provider identity handles, session ids, expiry, and revocation timestamps.
 - `cloud_vm_usage_events` records lifecycle, attach, SSH, and exec events with billing team/plan ids for billing and audit rollups.
+- `cloud_vm_networks` records the one provider private network per (user, provider).
+- `cloud_vm_tunnels` records each computer's WireGuard tunnel: provider tunnel id, device
+  fingerprint, the client's **public** key, and its address inside the network. No private
+  key is ever sent to or stored by the backend.
 
 Create idempotency is enforced by the partial unique index on `(user_id, idempotency_key)`. A retry with the same key returns the existing VM after provisioning succeeds. A concurrent retry while the first create is still provisioning returns `409` instead of starting a second paid provider VM.
 
@@ -201,6 +209,12 @@ Set these Vercel environment variables per production/staging environment:
   `CMUX_VM_ALLOW_FREE_PROVISIONING` is absent; prefer the clearly named allow switch for new
   deployments.
 - `CMUX_VM_FREESTYLE_ENABLED`, per-provider Freestyle create kill switch.
+- `CMUX_VM_PRIVATE_NETWORK_ENABLED`, private networking rollback switch. Unset/`1`: new
+  Freestyle machines join their owner's VPC, open no public inbound port, and are
+  attached at their private VPC address through the owner's WireGuard tunnel. `0`: later
+  creates revert to the public-IPv6 posture (inbound 1337 open). Machines keep working
+  across a flip either way, because reachability is resolved from the addresses each
+  machine actually holds.
 - `CMUX_VM_ALLOWED_ORIGINS`, optional comma-separated extra origins allowed for cookie mutations.
 - `FREESTYLE_API_KEY`, Freestyle provider key.
 - `FREESTYLE_SANDBOX_SNAPSHOT`, Freestyle snapshot id.
@@ -366,10 +380,18 @@ commit's `https://files.cmux.com/cmux-tui/<commit>/manifest.json` instead of the
 `latest`.
 
 There is no HTTP ingress proxy to arbitrary VM ports on the public platform (a TLS edge rule
-needs a customer-verified domain), so the daemon is reached directly at the VM's stable
-public IPv6: `ws://[<publicIpv6>]:1337/v1/link`. Creates state a mandatory `firewall` —
-outbound open, inbound only 1337 — and the daemon binds dual-stack (`[::]:1337`), re-asserted
-on every attach-time heal because a daemon bound `0.0.0.0` is unreachable at that address.
+needs a customer-verified domain), so the daemon is reached directly at a VM address.
+
+**Private networking is the default.** Every Freestyle machine joins the one VPC that
+belongs to its owner (provisioned on first create, slug `cmux-net-<hash>`); the owner's
+computers join the same VPC over WireGuard tunnels (`/api/vm/tunnel`, `cmux vpn up`). The
+route is then the VM's *private* address — `ws://[<vpc ipv6>]:1337/v1/link` — and creates
+state outbound-only firewall rules: no public inbound port at all. The VPC's single
+members-reach-each-other rule is what admits the owner's other machines and tunnels to the
+daemon port. Machines created before private networking (or while
+`CMUX_VM_PRIVATE_NETWORK_ENABLED=0`) keep the older posture: inbound 1337 open and the
+route at the stable public IPv6. The daemon binds dual-stack (`[::]:1337`), re-asserted on
+every attach-time heal, which is also what makes the VPC address reachable.
 The Noise handshake encrypts and authenticates the session end to end, so carrier TLS is not
 required; the route token exists only for the lease ledger. Creates take no ports field and
 no create-time env, so the coderouter model-plane vars are delivered by writing the persisted

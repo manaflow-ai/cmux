@@ -2,6 +2,7 @@ import { readFileSync } from "node:fs";
 import path from "node:path";
 import { describe, expect, test } from "bun:test";
 import {
+  FREESTYLE_NETWORK_FIREWALL_RULES,
   FreestyleProvider,
   freestyleCmuxRemoteRoute,
   freestyleDaemonHealthyCommand,
@@ -42,19 +43,69 @@ describe("FreestyleProvider transport contract", () => {
 });
 
 describe("Freestyle platform contract", () => {
-  test("firewall: outbound open, inbound only the daemon port", () => {
+  test("firewall on a private-network machine: outbound only, no inbound at all", () => {
+    // The VPC's members-reach-each-other rule is what admits the daemon port;
+    // an inbound rule here would re-expose 1337 to the Internet.
     expect(freestyleFirewallRules()).toEqual([
+      { action: "allow", source: {}, destination: { public: true } },
+    ]);
+  });
+
+  test("firewall without a network: inbound 1337 opens publicly, as before", () => {
+    expect(freestyleFirewallRules({ publicDaemonIngress: true })).toEqual([
       { action: "allow", source: {}, destination: { public: true } },
       { action: "allow", source: { public: true }, destination: { port: 1337, protocol: "tcp" } },
     ]);
   });
 
-  test("cmux-remote route is the public IPv6 straight to the daemon", () => {
-    expect(freestyleCmuxRemoteRoute("2602:f75c:0:1::2a", VM_ID)).toBe(
+  test("network firewall: one members-reach-each-other rule, nothing else", () => {
+    expect(FREESTYLE_NETWORK_FIREWALL_RULES).toEqual([
+      { action: "allow", source: {}, destination: {} },
+    ]);
+  });
+
+  test("cmux-remote route prefers the private VPC address and never falls back from it", () => {
+    // On a VPC: the private IPv6 wins even when a public address exists,
+    // because a VPC machine has no public inbound rule.
+    expect(
+      freestyleCmuxRemoteRoute(
+        {
+          publicIpv6: "2602:f75c:0:1::2a",
+          vpcs: [{ ipv4: "10.40.0.10", ipv6: "fd7a:115c:a1e0::a" }],
+        },
+        VM_ID,
+      ),
+    ).toBe("ws://[fd7a:115c:a1e0::a]:1337/v1/link");
+    // v4-only membership is the honest second choice, not a public fallback.
+    expect(
+      freestyleCmuxRemoteRoute(
+        { publicIpv6: "2602:f75c:0:1::2a", vpcs: [{ ipv4: "10.40.0.10", ipv6: null }] },
+        VM_ID,
+      ),
+    ).toBe("ws://10.40.0.10:1337/v1/link");
+    // A membership with no address is unreachable and must say so, not
+    // silently dial a public address the firewall will drop.
+    expect(() =>
+      freestyleCmuxRemoteRoute(
+        { publicIpv6: "2602:f75c:0:1::2a", vpcs: [{ ipv4: null, ipv6: null }] },
+        VM_ID,
+      ),
+    ).toThrow("no address");
+  });
+
+  test("cmux-remote route without a network is the public IPv6, as before", () => {
+    expect(freestyleCmuxRemoteRoute({ publicIpv6: "2602:f75c:0:1::2a" }, VM_ID)).toBe(
       "ws://[2602:f75c:0:1::2a]:1337/v1/link",
     );
-    expect(() => freestyleCmuxRemoteRoute(null, VM_ID)).toThrow("public IPv6");
-    expect(() => freestyleCmuxRemoteRoute("  ", VM_ID)).toThrow("public IPv6");
+    // The deprecated `networks` alias still resolves for older responses.
+    expect(
+      freestyleCmuxRemoteRoute(
+        { networks: [{ ipv6: "fd7a:115c:a1e0::b" }] },
+        VM_ID,
+      ),
+    ).toBe("ws://[fd7a:115c:a1e0::b]:1337/v1/link");
+    expect(() => freestyleCmuxRemoteRoute({ publicIpv6: null }, VM_ID)).toThrow("public IPv6");
+    expect(() => freestyleCmuxRemoteRoute({ publicIpv6: "  " }, VM_ID)).toThrow("public IPv6");
   });
 
   test("daemon health requires a v6-table listener; start installs the dual-stack override", () => {

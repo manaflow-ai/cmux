@@ -1,4 +1,4 @@
-import { Freestyle, FreestyleApiError, type VmData, type Vm } from "freestyle";
+import { Freestyle, FreestyleApiError, type TunnelData, type VmData, type Vm, type VpcData } from "freestyle";
 import { randomBytes } from "node:crypto";
 import {
   ProviderError,
@@ -8,10 +8,15 @@ import {
   type CmuxRemoteAttachOptions,
   type CmuxRemoteEndpoint,
   type CreateOptions,
+  type CreateProviderTunnelOptions,
   type ExecOptions,
   type ExecResult,
+  type ProviderNetwork,
+  type ProviderTunnel,
+  type RestoreOptions,
   type SnapshotRef,
   type VMHandle,
+  type VMPrivateNetworking,
   type VMProvider,
   type VMStatus,
 } from "./types";
@@ -42,13 +47,25 @@ import {
 // Machines attach through the cmux-tui remote daemon (transport `cmux-remote`,
 // docs/cloud-cmux-tui-daemon.md). The API has
 // no HTTP ingress proxy to arbitrary VM ports (TLS edge rules need a
-// customer-verified domain), so the route is the VM's stable public IPv6
-// straight to the daemon: `ws://[<publicIpv6>]:1337/v1/link`. The daemon's
-// Noise handshake encrypts and authenticates the session end to end (carrier
-// TLS is not required and the route token only feeds the lease ledger, exactly
-// like E2B's public proxy). The daemon must therefore bind dual-stack: the
-// baked systemd unit sets CMUX_TUI_REMOTE_WS_BIND=[::]:1337 and the driver
-// re-asserts it on heal.
+// customer-verified domain), so the route addresses the daemon directly.
+//
+// Every machine joins the one VPC that belongs to its owner, and the owner's
+// Mac joins the same VPC over a WireGuard tunnel, so the route is the VM's
+// *private* address: `ws://[<vpc ipv6>]:1337/v1/link`. Nothing on that path is
+// public — the machine opens no inbound port at all, and a caller with no
+// tunnel up simply cannot reach it. Machines created before private networking
+// (and any created while CMUX_VM_PRIVATE_NETWORK_ENABLED=0 rolls it back) keep
+// the older posture: inbound 1337 open to the Internet and the route pointed at
+// the stable public IPv6. Which posture a machine has is read from the machine
+// itself, never from the flag, so a rollback cannot strand a machine that is
+// already on a network.
+//
+// The daemon's Noise handshake encrypts and authenticates the session end to
+// end either way (carrier TLS is not required and the route token only feeds
+// the lease ledger). The daemon must bind dual-stack: the baked systemd unit
+// sets CMUX_TUI_REMOTE_WS_BIND=[::]:1337 and the driver re-asserts it on heal —
+// which is also what makes a VPC address reachable, since it is neither
+// loopback nor the public NIC.
 //
 // Creates take NO ports field, NO create-time env, and NO systemd injection;
 // `firewall` is mandatory. Model-plane env is delivered by writing the
@@ -100,33 +117,126 @@ function freestyleClient(timeoutMs = DEFAULT_TIMEOUT_MS): Freestyle {
 }
 
 /**
- * Outbound open (package installs, files.cmux.com, agents); inbound only the
- * cmux-tui daemon port. The mandatory `firewall` field defaults to NOTHING —
- * no outbound, no inbound — so both rules are stated. Session auth on 1337 is
- * the daemon's Noise device enrollment; the platform edge closing every other
- * port is the same posture the e2b driver builds by hand with iptables.
+ * The machine's own rules. The mandatory `firewall` field defaults to NOTHING —
+ * no outbound, no inbound — so every rule is stated here.
+ *
+ * Outbound is always open (package installs, files.cmux.com, agents). Inbound
+ * is the interesting half:
+ *
+ * - On a machine attached to its owner's VPC, **no inbound rule is written at
+ *   all**. Reaching the daemon is admitted by the VPC's own members-reach-each-
+ *   other rule (see `FREESTYLE_NETWORK_FIREWALL_RULES`), which covers the
+ *   owner's other machines and the owner's attached tunnel and nothing else.
+ *   Opening 1337 to the Internet as well would hand back exactly the exposure
+ *   the VPC exists to remove.
+ * - Without a VPC — a machine created before private networking, or one
+ *   created while CMUX_VM_PRIVATE_NETWORK_ENABLED=0 rolls the feature back —
+ *   inbound 1337 is opened publicly, because that is the only way such a
+ *   machine is reachable at all. Session auth is the daemon's Noise device
+ *   enrollment, the same posture the e2b driver builds by hand with iptables.
  */
-export function freestyleFirewallRules() {
-  return [
-    { action: "allow" as const, source: {}, destination: { public: true as const } },
-    {
-      action: "allow" as const,
-      source: { public: true as const },
-      destination: { port: CMUX_TUI_PORT, protocol: "tcp" as const },
-    },
-  ];
+export function freestyleFirewallRules(options?: { publicDaemonIngress?: boolean }) {
+  const rules: Array<{
+    action: "allow";
+    source: { public?: true };
+    destination: { public?: true; port?: number; protocol?: "tcp" };
+  }> = [{ action: "allow", source: {}, destination: { public: true } }];
+  if (options?.publicDaemonIngress) {
+    rules.push({
+      action: "allow",
+      source: { public: true },
+      destination: { port: CMUX_TUI_PORT, protocol: "tcp" },
+    });
+  }
+  return rules;
 }
 
-/** `ws://[<publicIpv6>]:1337/v1/link` — see the ingress note at the top of this file. */
-export function freestyleCmuxRemoteRoute(publicIpv6: string | null | undefined, vmId: string): string {
-  const ipv6 = publicIpv6?.trim();
+/**
+ * The rules created with an owner's VPC and deleted with it: members reach each
+ * other, and nothing else is implied. An attached tunnel counts as a member, so
+ * this one rule is what admits the owner's Mac to their machines' daemon port.
+ *
+ * Machines still state their own outbound rule; a network rule cannot grant it,
+ * because a bare endpoint inside a network's `firewall` block means the network
+ * being created rather than the Internet.
+ */
+export const FREESTYLE_NETWORK_FIREWALL_RULES = [
+  { action: "allow" as const, source: {}, destination: {} },
+];
+
+/** The addresses a route can be built from — the shape `vm.data()` returns. */
+export type FreestyleRouteAddresses = {
+  readonly publicIpv6?: string | null;
+  readonly vpcs?: readonly FreestyleNetworkAddress[] | null;
+  /** The deprecated alias for `vpcs`; read when an older response omits it. */
+  readonly networks?: readonly FreestyleNetworkAddress[] | null;
+};
+
+type FreestyleNetworkAddress = {
+  readonly ipv4?: string | null;
+  readonly ipv6?: string | null;
+};
+
+/**
+ * Where to dial the machine's daemon: its private VPC address when it has one,
+ * otherwise its stable public IPv6.
+ *
+ * Private wins unconditionally, and deliberately never falls back: a machine on
+ * a VPC has no public inbound rule, so a public route for it would not be a
+ * degraded path but a guaranteed timeout with a misleading address in the
+ * error. IPv6 is preferred within the network only because the daemon binds
+ * `[::]` — the IPv4 address is the honest second choice on a network whose v6
+ * allocation was declined, not a fallback for an unreachable v6.
+ */
+export function freestyleCmuxRemoteRoute(addresses: FreestyleRouteAddresses, vmId: string): string {
+  const networks = addresses.vpcs ?? addresses.networks ?? [];
+  for (const network of networks) {
+    const ipv6 = network.ipv6?.trim();
+    if (ipv6) return `ws://[${ipv6}]:${CMUX_TUI_PORT}/v1/link`;
+  }
+  for (const network of networks) {
+    const ipv4 = network.ipv4?.trim();
+    if (ipv4) return `ws://${ipv4}:${CMUX_TUI_PORT}/v1/link`;
+  }
+  if (networks.length > 0) {
+    throw new ProviderError(
+      "freestyle",
+      `VM ${vmId} is attached to a private network but holds no address on it, so its cmux-tui daemon is unreachable`,
+    );
+  }
+  const ipv6 = addresses.publicIpv6?.trim();
   if (!ipv6) {
     throw new ProviderError(
       "freestyle",
-      `VM ${vmId} has no public IPv6 address, so its cmux-tui daemon is unreachable (the platform has no HTTP ingress to arbitrary ports)`,
+      `VM ${vmId} has no private network address and no public IPv6 address, so its cmux-tui daemon is unreachable (the platform has no HTTP ingress to arbitrary ports)`,
     );
   }
   return `ws://[${ipv6}]:${CMUX_TUI_PORT}/v1/link`;
+}
+
+/** The Freestyle VPC/tunnel records mapped onto the driver-neutral shapes. */
+export function mapFreestyleNetwork(data: VpcData): ProviderNetwork {
+  return {
+    id: data.id,
+    slug: data.slug ?? null,
+    cidr: data.cidr ?? null,
+    cidrV6: data.cidrV6,
+  };
+}
+
+export function mapFreestyleTunnel(data: TunnelData, networkId: string): ProviderTunnel {
+  const attachment = data.attachments.find((entry) => entry.vpcId === networkId);
+  return {
+    id: data.tunnelId ?? data.id,
+    clientConfig: data.clientConfig,
+    clientPublicKey: data.clientPublicKey,
+    serverPublicKey: data.serverPublicKey,
+    endpointHost: data.endpointHost ?? null,
+    endpointPort: data.endpointPort,
+    routes: data.routes ?? [],
+    addressV4: attachment?.ipv4 ?? null,
+    addressV6: attachment?.ipv6 ?? null,
+  };
 }
 
 /**
@@ -213,6 +323,156 @@ function isNotFound(err: unknown): boolean {
   return err instanceof FreestyleApiError && (err.status === 404 || err.code === "NOT_FOUND");
 }
 
+/**
+ * The Freestyle-side half of cmux private networking: one VPC per owner, and
+ * one WireGuard tunnel per owner's computer attached to it.
+ *
+ * These are account-scoped resources, not machine-scoped ones — they outlive
+ * every machine on them — so nothing here takes a VM id. The control plane
+ * owns the mapping from cmux user to slug; this class only knows how to make
+ * the provider match what it is asked for.
+ */
+class FreestylePrivateNetworking implements VMPrivateNetworking {
+  async ensureNetwork(options: { slug: string; displayName?: string }): Promise<ProviderNetwork> {
+    const slug = options.slug.trim();
+    if (!slug) throw new ProviderError("freestyle", "ensureNetwork requires a slug");
+    return withVmSpan(
+      "cmux.vm.provider.ensure_network",
+      { "cmux.vm.provider": "freestyle", "cmux.vm.operation": "ensure_network", "cmux.vm.network.slug": slug },
+      async (span) => {
+        const fs = freestyleClient();
+        const existing = await this.readNetworkBySlug(fs, slug);
+        if (existing) {
+          setSpanAttributes(span, { "cmux.vm.network.id": existing.id, "cmux.vm.network.created": false });
+          return existing;
+        }
+        try {
+          // The CIDRs are deliberately left to the platform: a derived /24 out
+          // of 10.0.0.0/8 and a unique-local /64 both sit inside a tunnel's
+          // default routes, so no cmux code has to allocate address space or
+          // keep two accounts from colliding.
+          const { data } = await fs.vpc.create({
+            slug,
+            displayName: options.displayName,
+            firewall: { rules: FREESTYLE_NETWORK_FIREWALL_RULES },
+          });
+          setSpanAttributes(span, { "cmux.vm.network.id": data.id, "cmux.vm.network.created": true });
+          return mapFreestyleNetwork(data);
+        } catch (err) {
+          // Two machines created at once both miss the read and both create.
+          // The slug is unique per account, so the loser is told the name is
+          // taken — and the winner's network is the right answer for both.
+          const raced = await this.readNetworkBySlug(fs, slug);
+          if (raced) {
+            setSpanAttributes(span, { "cmux.vm.network.id": raced.id, "cmux.vm.network.created": false });
+            return raced;
+          }
+          throw new ProviderError("freestyle", `ensureNetwork(${slug})`, err);
+        }
+      },
+    );
+  }
+
+  async getNetwork(networkId: string): Promise<ProviderNetwork | null> {
+    try {
+      return mapFreestyleNetwork(await freestyleClient().vpc.get(networkId));
+    } catch (err) {
+      if (isNotFound(err)) return null;
+      throw new ProviderError("freestyle", `getNetwork(${networkId})`, err);
+    }
+  }
+
+  async deleteNetwork(networkId: string): Promise<void> {
+    try {
+      await freestyleClient().vpc.delete(networkId);
+    } catch (err) {
+      if (isNotFound(err)) return; // already gone; delete is idempotent
+      throw new ProviderError("freestyle", `deleteNetwork(${networkId})`, err);
+    }
+  }
+
+  async createTunnel(options: CreateProviderTunnelOptions): Promise<ProviderTunnel> {
+    const clientPublicKey = options.clientPublicKey.trim();
+    if (!clientPublicKey) {
+      throw new ProviderError("freestyle", "createTunnel requires the client's public key");
+    }
+    return withVmSpan(
+      "cmux.vm.provider.create_tunnel",
+      {
+        "cmux.vm.provider": "freestyle",
+        "cmux.vm.operation": "create_tunnel",
+        "cmux.vm.network.id": options.networkId,
+      },
+      async (span) => {
+        try {
+          // clientPublicKey is always supplied, so the platform never mints or
+          // holds a private key: the config comes back with a blank PrivateKey
+          // for the Mac to fill in from its own Keychain.
+          const data = await freestyleClient().tunnels.create({
+            slug: options.slug,
+            displayName: options.displayName,
+            clientPublicKey,
+            vpcs: [{ vpcId: options.networkId }],
+          });
+          const tunnel = mapFreestyleTunnel(data, options.networkId);
+          setSpanAttributes(span, { "cmux.vm.tunnel.id": tunnel.id });
+          return tunnel;
+        } catch (err) {
+          throw new ProviderError("freestyle", `createTunnel(${options.slug})`, err);
+        }
+      },
+    );
+  }
+
+  async getTunnel(tunnelId: string, networkId: string): Promise<ProviderTunnel | null> {
+    try {
+      const fs = freestyleClient();
+      let data = await fs.tunnels.get(tunnelId);
+      if (!data.attachments.some((entry) => entry.vpcId === networkId)) {
+        // The tunnel outlives its attachments, so a network detached by hand
+        // (or replaced after a network delete) leaves a live tunnel that routes
+        // nowhere. Re-attaching is what makes the config the caller already
+        // holds start working again, with nothing to re-download.
+        data = await fs.tunnels.attachVpc(tunnelId, networkId);
+      }
+      return mapFreestyleTunnel(data, networkId);
+    } catch (err) {
+      if (isNotFound(err)) return null;
+      throw new ProviderError("freestyle", `getTunnel(${tunnelId})`, err);
+    }
+  }
+
+  async rotateTunnelKey(tunnelId: string, clientPublicKey: string, networkId: string): Promise<ProviderTunnel> {
+    const key = clientPublicKey.trim();
+    if (!key) throw new ProviderError("freestyle", "rotateTunnelKey requires the client's public key");
+    try {
+      const data = await freestyleClient().tunnels.rotateKey(tunnelId, { clientPublicKey: key });
+      return mapFreestyleTunnel(data, networkId);
+    } catch (err) {
+      throw new ProviderError("freestyle", `rotateTunnelKey(${tunnelId})`, err);
+    }
+  }
+
+  async deleteTunnel(tunnelId: string): Promise<void> {
+    try {
+      await freestyleClient().tunnels.delete(tunnelId);
+    } catch (err) {
+      if (isNotFound(err)) return; // already gone; delete is idempotent
+      throw new ProviderError("freestyle", `deleteTunnel(${tunnelId})`, err);
+    }
+  }
+
+  /** A network by slug, or null when the account has none under that name. */
+  private async readNetworkBySlug(fs: Freestyle, slug: string): Promise<ProviderNetwork | null> {
+    try {
+      return mapFreestyleNetwork(await fs.vpc.get(slug));
+    } catch (err) {
+      if (isNotFound(err)) return null;
+      throw new ProviderError("freestyle", `getNetwork(${slug})`, err);
+    }
+  }
+}
+
 function errorMessage(err: unknown): string {
   return err instanceof Error ? err.message : String(err);
 }
@@ -232,6 +492,8 @@ export class FreestyleProvider implements VMProvider {
   /** The only session transport: the cmux-tui remote daemon (`openCmuxRemote`). */
   readonly attachTransports: readonly AttachTransport[] = ["cmux-remote"];
 
+  readonly privateNetworking: VMPrivateNetworking = new FreestylePrivateNetworking();
+
   async create(options: CreateOptions): Promise<VMHandle> {
     const image = options.image.trim();
     if (!image) {
@@ -248,13 +510,18 @@ export class FreestyleProvider implements VMProvider {
       async (span) => {
         try {
           const fs = freestyleClient(CREATE_TIMEOUT_MS);
+          const networkId = options.network?.id;
           const { vm, vmId } = await fs.vms.create({
             snapshotId: image,
             displayName: "cmux Cloud VM",
             metadata: { cmux: "cloud" },
-            firewall: { rules: freestyleFirewallRules() },
+            firewall: { rules: freestyleFirewallRules({ publicDaemonIngress: !networkId }) },
+            ...(networkId ? { vpcs: [{ vpcId: networkId, ipv4: true, ipv6: true }] } : {}),
           });
-          setSpanAttributes(span, { "cmux.vm.id": vmId });
+          setSpanAttributes(span, {
+            "cmux.vm.id": vmId,
+            "cmux.vm.network.private": !!networkId,
+          });
           try {
             await this.bootstrapCmuxTui(vm, vmId, options.envs);
           } catch (err) {
@@ -270,7 +537,14 @@ export class FreestyleProvider implements VMProvider {
             status: "running" as const,
             image,
             createdAt: Date.now(),
-            providerMetadata: { ...(options.providerMetadata ?? {}) },
+            // The network id is persisted so an operator can trace a machine to
+            // its owner's VPC without a provider round trip. Attach still reads
+            // the live address from vm.data(): this records which network the
+            // machine was placed on, never where to dial it.
+            providerMetadata: {
+              ...(options.providerMetadata ?? {}),
+              ...(networkId ? { networkId } : {}),
+            },
           };
         } catch (err) {
           throw err instanceof ProviderError ? err : new ProviderError("freestyle", `create(${image}) failed`, err);
@@ -407,7 +681,7 @@ export class FreestyleProvider implements VMProvider {
     );
   }
 
-  async restore(snapshotId: string): Promise<VMHandle> {
+  async restore(snapshotId: string, options?: RestoreOptions): Promise<VMHandle> {
     return withVmSpan(
       "cmux.vm.provider.restore",
       {
@@ -419,13 +693,18 @@ export class FreestyleProvider implements VMProvider {
       async (span) => {
         try {
           const fs = freestyleClient(CREATE_TIMEOUT_MS);
+          const networkId = options?.network?.id;
           const { vm, vmId } = await fs.vms.create({
             snapshotId,
             displayName: "cmux Cloud VM",
             metadata: { cmux: "cloud" },
-            firewall: { rules: freestyleFirewallRules() },
+            firewall: { rules: freestyleFirewallRules({ publicDaemonIngress: !networkId }) },
+            ...(networkId ? { vpcs: [{ vpcId: networkId, ipv4: true, ipv6: true }] } : {}),
           });
-          setSpanAttributes(span, { "cmux.vm.id": vmId });
+          setSpanAttributes(span, {
+            "cmux.vm.id": vmId,
+            "cmux.vm.network.private": !!networkId,
+          });
           // The snapshot carries the installed binary and the persisted
           // model-plane file; heal best-effort so the machine is attach-ready
           // without failing restore on a transient error.
@@ -436,6 +715,7 @@ export class FreestyleProvider implements VMProvider {
             status: "running" as const,
             image: snapshotId,
             createdAt: Date.now(),
+            ...(networkId ? { providerMetadata: { networkId } } : {}),
           };
         } catch (err) {
           throw new ProviderError("freestyle", `restore(${snapshotId})`, err);
@@ -453,7 +733,8 @@ export class FreestyleProvider implements VMProvider {
           const fs = freestyleClient(CMUX_TUI_INSTALL_TIMEOUT_MS + EXEC_OVERHEAD_TIMEOUT_MS);
           const vm = fs.vms.ref(vmId);
           const data = await vm.data();
-          const route = freestyleCmuxRemoteRoute(data.publicIpv6, vmId);
+          const route = freestyleCmuxRemoteRoute(data, vmId);
+          span.setAttribute("cmux.vm.network.private", (data.vpcs ?? data.networks ?? []).length > 0);
           await this.ensureCmuxTuiRunning(vm, vmId);
           const invoke = this.cmuxTuiInvoke(vm);
           // Direct-IPv6 carries no URL token; this one exists only for the
