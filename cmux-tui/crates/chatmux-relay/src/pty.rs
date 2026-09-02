@@ -3313,6 +3313,28 @@ mod tests {
         assert_eq!(h.manager.opening_count(), 0);
     }
 
+    #[test]
+    fn legacy_close_cancels_a_transport_owned_pending_open() {
+        let h = harness(None, None);
+        let generation = h.manager.inner.next_opening_generation.fetch_add(1, Ordering::Relaxed);
+        h.manager.inner.opening_state.lock().unwrap().ids.insert(
+            "p1".to_owned(),
+            OpeningEntry { transport_id: Some("transport-a".to_owned()), generation },
+        );
+        let started = TestArc::new(Barrier::new(2));
+        let manager = Arc::clone(&h.manager.inner);
+        let started_for_thread = TestArc::clone(&started);
+        let close = thread::spawn(move || {
+            started_for_thread.wait();
+            manager.close_if_transport("p1", None, Some(generation));
+        });
+        started.wait();
+        close.join().expect("legacy close callback");
+        let state = h.manager.inner.opening_state.lock().unwrap();
+        assert_eq!(state.cancelled.get("p1"), Some(&generation));
+        assert_eq!(state.ids.get("p1").map(|entry| entry.generation), Some(generation));
+    }
+
     #[tokio::test]
     async fn shell_open_output_input_resize_flow_round_trip() {
         let h = harness(None, None);
