@@ -82,6 +82,8 @@ def run_guard_fixture(
     main_blob: str,
     source_content: str | None = None,
     main_content: str | None = None,
+    tag_object_type: str = "commit",
+    tag_ref_sha: str | None = None,
     tag_target_sha: str | None = None,
     tag_name: str = "v1.2.3",
 ) -> subprocess.CompletedProcess[str]:
@@ -105,6 +107,7 @@ def run_guard_fixture(
     )
     source_content_b64 = base64.b64encode(source_content.encode()).decode()
     main_content_b64 = base64.b64encode(main_content.encode()).decode()
+    tag_ref_sha = tag_ref_sha or source_sha
     tag_target_sha = tag_target_sha or source_sha
     tag_name_literal = json.dumps(tag_name)
     harness = f"""
@@ -145,7 +148,8 @@ const github = {{ rest: {{
     }},
   }},
   git: {{
-    getRef: async () => ({{ data: {{ object: {{ type: 'commit', sha: '{tag_target_sha}' }} }} }}),
+    getRef: async () => ({{ data: {{ object: {{ type: '{tag_object_type}', sha: '{tag_ref_sha}' }} }} }}),
+    getTag: async () => ({{ data: {{ object: {{ sha: '{tag_target_sha}' }} }} }}),
   }},
 }} }};
 process.env.REPOSITORY = 'manaflow-ai/cmux';
@@ -275,7 +279,6 @@ class ReleaseTrustedWorkflowTests(unittest.TestCase):
         )
         sign_text = "\n".join(str(step) for step in sign_steps)
         for required in (
-            "skip_r2_upload",
             "Refusing to download or sign release assets",
             "Refusing to trust mutable release assets on a retry",
             "Revalidate release tag before GitHub publication",
@@ -284,7 +287,7 @@ class ReleaseTrustedWorkflowTests(unittest.TestCase):
             self.assertIn(required, sign_text)
         r2_recheck = next(step for step in sign_steps if step.get("name") == "Revalidate release tag before R2 publication")
         self.assertIn("gh api", r2_recheck["run"])
-        self.assertIn("skip_r2_upload", r2_recheck["if"])
+        self.assertEqual(r2_recheck["if"], "success()")
         r2_upload = next(step for step in sign_steps if step.get("name") == "Upload release appcast to R2")
         self.assertIn('[[ "${IS_PRERELEASE:-}" == true ]]', r2_upload["run"])
         self.assertNotIn('RELEASE_TAG" == *-*', r2_upload["run"])
@@ -355,6 +358,50 @@ class ReleaseTrustedWorkflowTests(unittest.TestCase):
         ):
             self.assertIn(required, cleanup_run)
         self.assertIn("CMUX_KEYCHAIN_CREATED", cleanup_run)
+
+    def test_release_asset_guard_uses_step_success_without_dead_outputs(self) -> None:
+        document = load()
+        sign_steps = document["jobs"]["build-sign-notarize"]["steps"]
+        guard = next(step for step in sign_steps if step.get("name") == "Guard immutable release assets")
+        guard_script = guard["with"]["script"]
+        for output_name in ("skip_all", "skip_upload", "skip_r2_upload", "release_state"):
+            self.assertNotIn(f"setOutput('{output_name}'", guard_script)
+        for step in sign_steps:
+            condition = str(step.get("if", ""))
+            self.assertNotIn("steps.guard_release_assets.outputs.skip_", condition)
+        r2_recheck = next(step for step in sign_steps if step.get("name") == "Revalidate release tag before R2 publication")
+        self.assertEqual(r2_recheck["if"], "success()")
+
+    def test_annotated_release_tag_target_is_bound_before_publication(self) -> None:
+        document = load()
+        script = script_for(document["jobs"]["validate-source"])
+        result = run_guard_fixture(
+            script,
+            wrapper_blob="same-protected-blob",
+            main_blob="same-protected-blob",
+            source_content=OBSERVER_CONTENT,
+            main_content=OBSERVER_CONTENT,
+            tag_object_type="tag",
+            tag_ref_sha="d" * 40,
+            tag_target_sha="a" * 40,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+
+    def test_moved_annotated_release_tag_is_rejected_before_publication(self) -> None:
+        document = load()
+        script = script_for(document["jobs"]["validate-source"])
+        result = run_guard_fixture(
+            script,
+            wrapper_blob="same-protected-blob",
+            main_blob="same-protected-blob",
+            source_content=OBSERVER_CONTENT,
+            main_content=OBSERVER_CONTENT,
+            tag_object_type="tag",
+            tag_ref_sha="d" * 40,
+            tag_ref_sha="c" * 40,
+        )
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("moved", result.stderr.lower())
 
     def test_signing_keychain_is_unique_and_cleanup_is_owned(self) -> None:
         document = load()
