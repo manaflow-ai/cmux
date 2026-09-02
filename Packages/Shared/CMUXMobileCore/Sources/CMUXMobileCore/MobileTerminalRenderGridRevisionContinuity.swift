@@ -15,6 +15,11 @@ public struct MobileTerminalRenderGridRevisionContinuity: Equatable, Sendable {
     public let renderRevision: UInt64
     /// Exact emitted-frame identity of the delivered frame.
     public let emissionRevision: UInt64
+    /// Whether ``emissionRevision`` came from an actual producer emission.
+    /// Legacy and connection-projected frames can carry a content revision
+    /// without an emission identity; those frames must not satisfy a delta's
+    /// ``deltaBaseEmissionRevision`` check.
+    public let emissionIdentityAvailable: Bool
 
     public init(
         renderEpoch: String,
@@ -24,6 +29,7 @@ public struct MobileTerminalRenderGridRevisionContinuity: Equatable, Sendable {
         self.renderEpoch = renderEpoch
         self.renderRevision = renderRevision
         self.emissionRevision = emissionRevision ?? renderRevision
+        self.emissionIdentityAvailable = emissionRevision.map { $0 > 0 } ?? false
     }
 
     /// The chain identity a consumer records after delivering `frame`.
@@ -33,6 +39,7 @@ public struct MobileTerminalRenderGridRevisionContinuity: Equatable, Sendable {
         self.emissionRevision = frame.emissionRevision > 0
             ? frame.emissionRevision
             : frame.renderRevision
+        self.emissionIdentityAvailable = frame.emissionRevision > 0
     }
 
     /// Whether `frame` may patch on top of the delivered state.
@@ -53,7 +60,8 @@ public struct MobileTerminalRenderGridRevisionContinuity: Equatable, Sendable {
         if let emissionBase = frame.deltaBaseEmissionRevision {
             guard !frame.renderEpoch.isEmpty,
                   frame.emissionRevision > emissionBase,
-                  let delivered else { return false }
+                  let delivered,
+                  delivered.emissionIdentityAvailable else { return false }
             return delivered.renderEpoch == frame.renderEpoch
                 && delivered.emissionRevision == emissionBase
         }

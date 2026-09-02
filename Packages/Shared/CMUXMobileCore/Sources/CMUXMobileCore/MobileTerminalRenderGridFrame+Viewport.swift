@@ -62,33 +62,50 @@ extension MobileTerminalRenderGridFrame {
         )
 
         var projectedCursor: Cursor?
-        if let cursor,
-           let lineIndex = visibleLines.firstIndex(where: { line in
-               guard line.sourceRow == cursor.row else { return false }
-               var position = 0
-               for cell in line.cells {
-                   if cursor.column >= cell.sourceColumn,
-                      cursor.column < cell.sourceColumn + max(cell.width, 1) {
-                       return true
-                   }
-                   position += cell.width
-               }
-               return position == 0 && cursor.column == 0
-           }),
-           lineIndex >= firstVisibleLine {
-            let line = visibleLines[lineIndex]
-            var column = 0
-            for cell in line.cells {
-                if cursor.column >= cell.sourceColumn,
-                   cursor.column < cell.sourceColumn + max(cell.width, 1) {
-                    break
-                }
-                column += cell.width
+        if let cursor {
+            let matchingLineIndices = visibleLines.indices.filter {
+                $0 >= firstVisibleLine && visibleLines[$0].sourceRow == cursor.row
             }
-            var mapped = cursor
-            mapped.row = lineIndex - firstVisibleLine
-            mapped.column = min(max(0, column), columns - 1)
-            projectedCursor = mapped
+            for lineIndex in matchingLineIndices {
+                let line = visibleLines[lineIndex]
+                var column = 0
+                for cell in line.cells {
+                    if cursor.column >= cell.sourceColumn,
+                       cursor.column < cell.sourceColumn + max(cell.width, 1) {
+                        var mapped = cursor
+                        mapped.row = lineIndex - firstVisibleLine
+                        mapped.column = min(max(0, column), columns - 1)
+                        projectedCursor = mapped
+                        break
+                    }
+                    column += cell.width
+                }
+                if projectedCursor != nil { break }
+            }
+
+            // `fromPlainRows` intentionally trims trailing default cells from
+            // spans. A cursor parked in one of those cells is still visible in
+            // the projected row; map it relative to the last wrapped line
+            // instead of dropping the cursor entirely. Empty rows retain the
+            // historical column-zero behavior.
+            if projectedCursor == nil, let lineIndex = matchingLineIndices.last {
+                let line = visibleLines[lineIndex]
+                let isEmptyRow = line.cells.allSatisfy {
+                    $0.styleID == 0 && $0.width == 1 && $0.text == " "
+                }
+                var mapped = cursor
+                mapped.row = lineIndex - firstVisibleLine
+                if isEmptyRow {
+                    mapped.column = 0
+                } else {
+                    let lineStart = line.cells.first?.sourceColumn ?? cursor.column
+                    mapped.column = min(
+                        max(0, cursor.column - lineStart),
+                        columns - 1
+                    )
+                }
+                projectedCursor = mapped
+            }
         }
 
         return (try? Self(
@@ -143,13 +160,8 @@ extension MobileTerminalRenderGridFrame {
         }
         var result: [ViewportLine] = []
         for sourceRow in 0..<max(0, rowCount) {
-            var cells = Array(repeating: ViewportCell(
-                text: " ", styleID: 0, width: 1, sourceColumn: 0
-            ), count: max(0, sourceColumns))
-            for index in cells.indices {
-                cells[index] = ViewportCell(
-                    text: " ", styleID: 0, width: 1, sourceColumn: index
-                )
+            var cells = (0..<max(0, sourceColumns)).map { index in
+                ViewportCell(text: " ", styleID: 0, width: 1, sourceColumn: index)
             }
             for span in spansByRow[sourceRow] ?? [] {
                 var column = span.column

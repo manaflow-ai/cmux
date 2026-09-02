@@ -61,6 +61,15 @@ extension TerminalController {
             }
             return response
         case "terminal.replay", "mobile.terminal.replay":
+            guard !(await session.isEmpty) else {
+                let params = request.params.mapValues(\.foundationObject)
+                return await v2MainAsync {
+                    self.v2Result(
+                        id: request.id?.foundationObject,
+                        self.v2MobileTerminalReplay(params: params)
+                    )
+                }
+            }
             let captured = await v2MainAsync {
                 let params = request.params.mapValues(\.foundationObject)
                 let hasOverride = self.mobileCanonicalTerminalTarget(params: params)
@@ -80,6 +89,15 @@ extension TerminalController {
             guard captured.hasOverride else { return captured.response }
             return await projectLocalViewportResponse(captured.response, session: session)
         case "terminal.scroll", "mobile.terminal.scroll":
+            guard !(await session.isEmpty) else {
+                let params = request.params.mapValues(\.foundationObject)
+                return await v2MainAsync {
+                    self.v2Result(
+                        id: request.id?.foundationObject,
+                        self.v2MobileTerminalScroll(params: params)
+                    )
+                }
+            }
             let captured = await v2MainAsync {
                 let params = request.params.mapValues(\.foundationObject)
                 let hasOverride = self.mobileCanonicalTerminalTarget(params: params)

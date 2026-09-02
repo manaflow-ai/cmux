@@ -99,3 +99,20 @@ import Testing
     #expect(projected.plainRows() == ["bottom"])
     #expect(projected.cursor == nil)
 }
+
+@Test func viewportProjectionPreservesCursorInTrimmedTrailingCells() throws {
+    let frame = try MobileTerminalRenderGridFrame.fromPlainRows(
+        surfaceID: "surface-a",
+        stateSeq: 1,
+        columns: 8,
+        rows: 1,
+        text: "hello",
+        cursor: .init(row: 0, column: 7)
+    )
+
+    let projected = frame.projectedViewport(columns: 4, rows: 1)
+
+    #expect(projected.plainRows() == ["o"])
+    #expect(projected.cursor?.row == 0)
+    #expect(projected.cursor?.column == 3)
+}

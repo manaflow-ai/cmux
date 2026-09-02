@@ -59,7 +59,9 @@ for delta-chain continuity. A delta carries
 `delta_base_emission_revision` (and the legacy
 `delta_base_render_revision` field for compatibility). Clients polling for
 changes should compare `render_epoch` + `render_revision`; clients validating a
-delta should compare the emission identity and its base.
+delta should compare the emission identity and its base. Legacy or
+connection-projected frames that have no emission identity cannot establish an
+emission-delta baseline; a consumer must request a full replay in that case.
 
 The content revision advances once per visible rendered batch, not once per raw
 PTY chunk. A resize is a content change even when no bytes were received.
