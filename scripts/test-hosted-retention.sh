@@ -6,7 +6,18 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 source "$ROOT/scripts/hosted-retention.sh"
 
 tmp="$(mktemp -d "${TMPDIR:-/tmp}/cmux-hosted-retention-test.XXXXXX")"
-trap 'rm -rf -- "$tmp"' EXIT
+stop_race_process() {
+  local race_pid
+  if [[ -f "$tmp/race-pid" ]] && race_pid="$(<"$tmp/race-pid")" && [[ "$race_pid" =~ ^[0-9]+$ ]]; then
+    kill "$race_pid" 2>/dev/null || true
+  fi
+  rm -f "$tmp/race-pid"
+}
+cleanup_test_processes() {
+  stop_race_process
+  rm -rf -- "$tmp"
+}
+trap cleanup_test_processes EXIT
 
 current_commit="aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
 new_commit="bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
@@ -21,6 +32,29 @@ set -euo pipefail
 
 if [[ "${CMUX_TEST_LSOF_MODE:-inactive}" == error ]]; then
   echo 'simulated lsof failure' >&2
+  exit 1
+fi
+
+if [[ "${CMUX_TEST_LSOF_MODE:-inactive}" == race ]]; then
+  if [[ ! -e "${CMUX_TEST_LSOF_STATE:-}" ]]; then
+    : > "$CMUX_TEST_LSOF_STATE"
+    (
+      exec 9<"$CMUX_TEST_RACE_BINARY"
+      exec tail -f /dev/null
+    ) &
+    printf '%s\n' "$!" > "$CMUX_TEST_RACE_PID_FILE"
+    exit 1
+  fi
+  race_match=0
+  for argument in "$@"; do
+    if [[ "$argument" == *"/${CMUX_TEST_RACE_COMMIT:-}/cmux-tui" ]]; then
+      printf 'n%s\n' "$argument"
+      race_match=1
+    fi
+  done
+  if (( race_match )); then
+    exit 0
+  fi
   exit 1
 fi
 
@@ -90,6 +124,10 @@ run_retention() {
   CMUX_TUI_HOSTED_RETENTION_STAT="$fake_stat" \
   CMUX_TEST_LSOF_MODE="${test_lsof_mode:-inactive}" \
   CMUX_TEST_ACTIVE_COMMIT="${test_active_commit:-}" \
+  CMUX_TEST_LSOF_STATE="${test_lsof_state:-$tmp/lsof-state}" \
+  CMUX_TEST_RACE_BINARY="${test_race_binary:-}" \
+  CMUX_TEST_RACE_COMMIT="${test_race_commit:-}" \
+  CMUX_TEST_RACE_PID_FILE="$tmp/race-pid" \
   CMUX_TEST_STAT_MODE="${test_stat_mode:-gnu}" \
   cmux_hosted_retention_run "$test_root/$test_current_commit" "$test_current_commit"
 }
@@ -127,6 +165,8 @@ assert_missing() {
 }
 
 make_baseline() {
+  stop_race_process
+  rm -f "$tmp/lsof-state"
   make_root
   make_artifact "$current_commit"
   make_artifact "$new_commit"
@@ -146,6 +186,9 @@ make_baseline() {
   test_stat_mode=gnu
   test_max_candidates=10000
   test_lsof_command="$fake_lsof"
+  test_lsof_state="$tmp/lsof-state"
+  test_race_binary=""
+  test_race_commit=""
 }
 
 # A dry run creates the preview. A destructive run with the same plan removes
@@ -160,6 +203,19 @@ assert_exists "$current_commit"
 assert_exists "$new_commit"
 assert_missing "$active_commit"
 assert_missing "$old_commit"
+assert_missing .retention.lock
+
+# The helper is also called directly by production scripts. Its EXIT cleanup
+# must remove private state when the caller does not wrap it in a conditional.
+make_baseline
+run_retention >"$tmp/stdout" 2>"$tmp/stderr"
+assert_exists .retention-preview
+test_dry_run=0
+test_confirm=1
+run_retention >"$tmp/stdout" 2>"$tmp/stderr"
+assert_missing "$active_commit"
+assert_missing "$old_commit"
+assert_missing .retention.lock
 
 # The preview binds the retention policy. Changing the count cannot reuse it.
 make_baseline
@@ -254,6 +310,31 @@ test_active_commit="$active_commit"
 expect_success
 assert_exists "$active_commit"
 assert_missing "$old_commit"
+assert_missing .retention.lock
+
+# A process can start using an artifact after the initial batch lsof check.
+# The cleanup must quarantine the directory and recheck the quarantined binary
+# before deleting it, then restore an artifact that became active.
+make_baseline
+expect_success
+test_dry_run=0
+test_confirm=1
+test_lsof_mode=race
+test_race_binary="$test_root/$active_commit/cmux-tui"
+test_race_commit="$active_commit"
+expect_success
+assert_exists "$active_commit"
+assert_missing "$old_commit"
+
+# A second retention process must not run concurrently with a destructive one.
+make_baseline
+expect_success
+mkdir "$test_root/.retention.lock"
+test_dry_run=0
+test_confirm=1
+expect_failure 2
+assert_exists "$active_commit"
+assert_exists "$old_commit"
 
 # A symlinked cleanup binary can make lsof report its target outside the
 # artifact tree. Fail closed instead of deleting that artifact when another
