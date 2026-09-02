@@ -2259,7 +2259,7 @@ describe("recordCheckoutCompletion", () => {
       ),
     ).toBe(true);
     expect(updateTeam).toHaveBeenCalledWith({
-      clientReadOnlyMetadata: { cmuxPlan: "team" },
+      clientReadOnlyMetadata: { cmuxPlan: "team", cmuxSeats: 4 },
     });
   });
 
@@ -2310,7 +2310,7 @@ describe("recordCheckoutCompletion", () => {
       ),
     ).toBe(true);
     expect(updateTeam).toHaveBeenCalledWith({
-      clientReadOnlyMetadata: { cmuxPlan: "team" },
+      clientReadOnlyMetadata: { cmuxPlan: "team", cmuxSeats: 4 },
     });
   });
 

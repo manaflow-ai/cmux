@@ -16,10 +16,11 @@ const USER: AuthedUser = {
   billingCustomerType: "team",
   billingTeamId: "selected-team-id",
   selectedTeamId: "selected-team-id",
-  teams: [{ id: "selected-team-id", displayName: null, billingPlanId: null }],
+  teams: [{ id: "selected-team-id", displayName: null, billingPlanId: null, billingSeats: null }],
   teamIds: ["selected-team-id"],
       userBillingPlanId: null,
       billingPlanId: null,
+      billingSeats: null,
       resolveSubrouterPermissions: async () => ({
         use: false,
         manageAccounts: false,
