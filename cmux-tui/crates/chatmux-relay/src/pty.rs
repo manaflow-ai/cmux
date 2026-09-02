@@ -2050,6 +2050,7 @@ impl Inner {
         let live_auth = Self::auth_snapshot(context);
         if !self.auth_allows(&live_auth, &current) {
             current.close_pending.store(false, Ordering::SeqCst);
+            drop(_publication);
             send_pty_error(
                 context,
                 pty_id,
@@ -2076,6 +2077,7 @@ impl Inner {
             removed.closing.store(true, Ordering::SeqCst);
             removed
         };
+        drop(_publication);
         removed.control.kill();
     }
 
@@ -2185,6 +2187,7 @@ impl Inner {
             attachment
         };
         let _ = attachment.control_ops.wait_sync_timeout(Some(CONTROL_OPERATION_DRAIN_TIMEOUT));
+        drop(_publication);
         attachment.control.kill();
     }
 }
