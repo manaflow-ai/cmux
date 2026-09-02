@@ -396,56 +396,6 @@ extension MobileHostIrxRuntime {
         }
     }
 
-    /// Restarts only credential renewal while a still-healthy endpoint keeps
-    /// serving existing sessions after a terminal mint response.
-    @discardableResult
-    private func scheduleAutopilotRecovery(
-        failure: IrxBrokerFailure,
-        accountID: String,
-        token: UUID
-    ) -> Bool {
-        guard autopilotRecoveryTask == nil else { return true }
-        guard terminalRecoveryCount < 3 else {
-            Self.journal.record(
-                "host-runtime", "autopilot-recovery-exhausted",
-                failure.journalAttributes
-            )
-            return false
-        }
-        let delay = activationRetryPolicy.retrySchedule.delay(
-            failureCount: terminalRecoveryCount,
-            retryAfterSeconds: nil,
-            jitterUnitInterval: 0
-        )
-        terminalRecoveryCount += 1
-        let clock = activationRetryClock
-        let deadline = clock.now().addingTimeInterval(delay)
-        var attributes = failure.journalAttributes
-        attributes["delay_s"] = String(Int(delay.rounded()))
-        Self.journal.record("host-runtime", "autopilot-retry-scheduled", attributes)
-        let retryID = UUID()
-        autopilotRecoveryID = retryID
-        autopilotRecoveryTask = Task { @MainActor [weak self] in
-            defer {
-                if let self, self.autopilotRecoveryID == retryID {
-                    self.autopilotRecoveryTask = nil
-                    self.autopilotRecoveryID = nil
-                }
-            }
-            do {
-                try await clock.sleep(until: deadline)
-            } catch {
-                return
-            }
-            guard let self,
-                  !Task.isCancelled,
-                  self.generationToken == token,
-                  self.activeAccountID == accountID else { return }
-            await self.autopilot?.kick()
-        }
-        return true
-    }
-
     func cleanupActivationResources(
         invalidateGeneration: Bool = false,
         stopAutopilot: Bool = true,
