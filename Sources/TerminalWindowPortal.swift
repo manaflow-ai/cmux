@@ -1122,10 +1122,7 @@ final class WindowTerminalPortal: NSObject {
         // carries the exact geometry the last pass left behind, so it dies
         // here in one cheap comparison; any real change differs somewhere
         // and syncs fully.
-        guard ensureInstalled() else {
-            finishVisibleEntryGeometrySettlements()
-            return
-        }
+        guard ensureInstalled() else { return }
         let hierarchyWasAlreadySettled = synchronizeLayoutHierarchy()
         synchronizeAllHostedViews(excluding: nil)
         reconcileVisibleHostedViewsAfterGeometrySync(reason: "portal.externalGeometrySync")
@@ -1654,7 +1651,7 @@ final class WindowTerminalPortal: NSObject {
             return previousAnchor !== anchorView
         }()
         let becameVisible = (previousEntry?.visibleInUI ?? false) == false && visibleInUI
-        if becameVisible {
+        if becameVisible || (visibleInUI && didChangeAnchor) {
             lastHierarchySyncSignature = nil
             geometrySettlementPassesRemaining = 4
             hostedView.beginPortalGeometrySettlement()
@@ -1847,10 +1844,7 @@ final class WindowTerminalPortal: NSObject {
             // This callback is also the bind path's first settlement pass. Run
             // the hierarchy once and retain its fingerprint result so an
             // unstable first pass cannot flush an intermediate PTY size.
-            guard self.ensureInstalled(syncLayout: false) else {
-                self.finishVisibleEntryGeometrySettlements()
-                return
-            }
+            guard self.ensureInstalled(syncLayout: false) else { return }
             let hierarchyWasAlreadySettled = self.synchronizeLayoutHierarchy()
             self.synchronizeAllHostedViews(excluding: nil, syncLayout: false)
             if reconcileVisible {
