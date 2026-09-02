@@ -19,7 +19,134 @@ private final class LayoutSyncingAnchorView: NSView {
     }
 }
 
+private final class LiveResizeProbeWindow: NSWindow {
+    var liveResizeActive = false
+
+    override var inLiveResize: Bool { liveResizeActive }
+}
+
 extension TerminalWindowPortalLifecycleTests {
+
+    /// A late native didResize notification can arrive after the portal has
+    /// committed the end pass while AppKit still reports inLiveResize. That
+    /// callback must not reopen the renderer gate without a new resize start.
+    @MainActor
+    func testLateDidResizeAfterEndDoesNotRelatchRendererPhase() throws {
+        let window = trackTestWindow(LiveResizeProbeWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 520, height: 340),
+            styleMask: [.titled, .closable, .resizable],
+            backing: .buffered,
+            defer: false
+        ))
+        defer {
+            NotificationCenter.default.post(name: NSWindow.willCloseNotification, object: window)
+            window.orderOut(nil)
+        }
+        realizeWindowLayout(window)
+        guard let contentView = window.contentView else {
+            XCTFail("Expected content view")
+            return
+        }
+
+        let portal = makeTrackedPortal(window: window)
+        let anchor = NSView(frame: NSRect(x: 8, y: 8, width: 240, height: 160))
+        contentView.addSubview(anchor)
+        let surface = makeTrackedTerminalSurface()
+        portal.bind(hostedView: surface.hostedView, to: anchor, visibleInUI: true)
+        portal.synchronizeHostedViewForAnchor(anchor)
+        drainMainQueue()
+        realizeWindowLayout(window)
+
+        let committedRendererSize = surface.hostedView.surfaceView.frame.size
+        window.liveResizeActive = true
+        portal.isWindowLiveResizeActiveOverrideForTesting = true
+        anchor.setFrameSize(NSSize(width: 200, height: 140))
+        portal.synchronizeHostedViewForAnchor(anchor)
+        XCTAssertEqual(surface.hostedView.surfaceView.frame.size, committedRendererSize)
+
+        // Keep AppKit's native signal true while the queued end pass commits;
+        // this models the ordering where didEnd clears later than the portal.
+        portal.isWindowLiveResizeActiveOverrideForTesting = false
+        let endTarget = NSSize(width: 220, height: 150)
+        anchor.setFrameSize(endTarget)
+        NotificationCenter.default.post(name: NSWindow.didEndLiveResizeNotification, object: window)
+        drainMainQueue()
+        drainMainQueue()
+        let rendererSizeAfterEnd = surface.hostedView.surfaceView.frame.size
+        XCTAssertNotEqual(rendererSizeAfterEnd, committedRendererSize)
+
+        // A stale didResize must not reopen the phase after the end pass.
+        NotificationCenter.default.post(name: NSWindow.didResizeNotification, object: window)
+        window.liveResizeActive = false
+        let settledTarget = NSSize(width: 196, height: 132)
+        anchor.setFrameSize(settledTarget)
+        portal.synchronizeHostedViewForAnchor(anchor)
+        drainMainQueue()
+        drainMainQueue()
+
+        XCTAssertEqual(surface.hostedView.frame.size, settledTarget)
+        XCTAssertNotEqual(
+            surface.hostedView.surfaceView.frame.size,
+            rendererSizeAfterEnd,
+            "A late didResize callback must not strand the renderer in the deferred phase"
+        )
+        withExtendedLifetime(surface) {}
+    }
+
+    /// A refresh queued by a pre-resize layout callback may execute after the
+    /// window enters live resize. Delivery must re-check the current phase and
+    /// wait for the final geometry pass instead of presenting in that gap.
+    @MainActor
+    func testQueuedRefreshCrossingLiveResizeBoundaryWaitsForFinalPass() throws {
+        let window = makeTestWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 520, height: 340),
+            styleMask: [.titled, .closable, .resizable]
+        )
+        defer {
+            NotificationCenter.default.post(name: NSWindow.willCloseNotification, object: window)
+            window.orderOut(nil)
+        }
+        realizeWindowLayout(window)
+        guard let contentView = window.contentView else {
+            XCTFail("Expected content view")
+            return
+        }
+
+        let portal = makeTrackedPortal(window: window)
+        let anchor = NSView(frame: NSRect(x: 8, y: 8, width: 240, height: 160))
+        contentView.addSubview(anchor)
+        let surface = makeTrackedTerminalSurface()
+        portal.bind(hostedView: surface.hostedView, to: anchor, visibleInUI: true)
+        portal.synchronizeHostedViewForAnchor(anchor)
+        drainMainQueue()
+        realizeWindowLayout(window)
+
+        surface.resetDebugForceRefreshCount()
+        anchor.setFrameSize(NSSize(width: 220, height: 150))
+        portal.synchronizeHostedViewForAnchor(anchor, syncLayout: false)
+
+        // The refresh was queued while the portal was at rest. Enter the live
+        // phase before that queue block runs to exercise the boundary race.
+        portal.isWindowLiveResizeActiveOverrideForTesting = true
+        portal.synchronizeHostedViewForAnchor(anchor, syncLayout: false)
+        drainMainQueue()
+        XCTAssertEqual(
+            surface.debugForceRefreshCount(),
+            0,
+            "A refresh queued before live resize must not present until final geometry commits"
+        )
+
+        portal.isWindowLiveResizeActiveOverrideForTesting = false
+        NotificationCenter.default.post(name: NSWindow.didEndLiveResizeNotification, object: window)
+        drainMainQueue()
+        drainMainQueue()
+        XCTAssertGreaterThan(
+            surface.debugForceRefreshCount(),
+            0,
+            "The held refresh must be delivered after the final live-resize pass"
+        )
+        withExtendedLifetime(surface) {}
+    }
 
     /// A geometry sync that runs inside an AppKit layout pass must not force a
     /// synchronous surface redraw. displayIfNeeded there reaches ghostty's

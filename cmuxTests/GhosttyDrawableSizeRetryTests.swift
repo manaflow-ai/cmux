@@ -91,6 +91,54 @@ struct GhosttyDrawableSizeRetryTests {
         #expect(realizedLayer.drawableSize == expectedDrawableSize)
     }
 
+    @Test func liveResizeEndBypassDoesNotPublishBeforePortalFinalPass() throws {
+        _ = NSApplication.shared
+
+        let initialSize = CGSize(width: 800, height: 600)
+        let targetSize = CGSize(width: 1296, height: 893)
+        let window = NSWindow(
+            contentRect: NSRect(origin: .zero, size: initialSize),
+            styleMask: [.titled, .closable, .resizable],
+            backing: .buffered,
+            defer: false
+        )
+        window.isReleasedWhenClosed = false
+        defer {
+            window.orderOut(nil)
+            window.close()
+        }
+
+        let terminalSurface = TerminalSurface(
+            tabId: UUID(),
+            context: GHOSTTY_SURFACE_CONTEXT_SPLIT,
+            configTemplate: nil,
+            workingDirectory: nil
+        )
+        let hostedView = terminalSurface.hostedView
+        hostedView.frame = NSRect(origin: .zero, size: initialSize)
+        window.contentView?.addSubview(hostedView)
+        window.makeKeyAndOrderFront(nil)
+        window.displayIfNeeded()
+        hostedView.layoutSubtreeIfNeeded()
+
+        let surfaceView = try #require(findGhosttyNSView(in: hostedView))
+        _ = surfaceView.forceRefreshSurface()
+        let initialDrawableSize = surfaceView.debugLastDrawableSizeForTesting()
+        hostedView.setWindowLiveResizeActive(true)
+
+        // GhosttyNSView.viewDidEndLiveResize uses bypass=true. The portal has
+        // not committed its final pane frame yet, so this callback must keep
+        // the last drawable epoch instead of publishing targetSize.
+        hostedView.frame.size = targetSize
+        surfaceView.frame.size = targetSize
+        surfaceView.viewDidEndLiveResize()
+
+        #expect(
+            surfaceView.debugLastDrawableSizeForTesting() == initialDrawableSize,
+            "The end callback must not publish a stale size before the portal final pass"
+        )
+    }
+
     private func findGhosttyNSView(in view: NSView) -> GhosttyNSView? {
         if let view = view as? GhosttyNSView {
             return view
