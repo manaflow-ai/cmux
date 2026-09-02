@@ -91,7 +91,8 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
     /// The helper takes one kernel process-table snapshot, indexes parent/child
     /// edges in one pass, and freezes the reachable tree with shell-builtin
     /// signals. Each accepted record carries its PID, parent, process group, and
-    /// microsecond kernel start identity.
+    /// a host process-start identity. Darwin uses the microsecond kernel start
+    /// token; other Unix hosts use their POSIX `ps` start tuple.
     /// A second snapshot must confirm the identity and stopped state before the
     /// helper sends `SIGKILL`. After `SIGTERM`, the helper waits for the
     /// per-attempt completion FIFO emitted by the authentication wrapper, then
@@ -156,18 +157,25 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
           fi
           cmux_ssh_auth_term_event_owned=0
           cmux_ssh_auth_term_event_received=0
+          cmux_ssh_auth_signal_backend=portable
+          cmux_ssh_auth_snapshot_format=
+          cmux_ssh_auth_cleanup_needs_root_abort=0
+          if [ "$(uname -s 2>/dev/null || true)" = Darwin ]; then
+            cmux_ssh_auth_signal_backend=darwin
+          fi
           : > "$cmux_ssh_auth_owned" || exit 0
           : > "$cmux_ssh_auth_pending" || exit 0
           : > "$cmux_ssh_auth_dynamic_members" || exit 0
           : > "$cmux_ssh_auth_marker_holders" || exit 0
 
           cmux_ssh_auth_take_snapshot() {
-            # `ps lstart` is only second-resolution. Read proc_bsdinfo directly
-            # so every snapshot carries the kernel birth timestamp instead of a
-            # value that can collide after rapid PID reuse. One Perl process
-            # walks the PID list, which keeps this path viable under fork
-            # pressure and avoids one child process per candidate.
-            /usr/bin/perl -e '
+            if [ "$cmux_ssh_auth_signal_backend" = darwin ]; then
+              # `ps lstart` is only second-resolution. Read proc_bsdinfo
+              # directly so every snapshot carries the kernel birth timestamp
+              # instead of a value that can collide after rapid PID reuse. One
+              # Perl process walks the PID list, which keeps this path viable
+              # under fork pressure and avoids one child process per candidate.
+              if /usr/bin/perl -e '
               use strict;
               use warnings;
               my $max_pid_count = 65536;
@@ -204,7 +212,52 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
                 next unless exists $state{$status};
                 print "$pid $parent $group $state{$status} K $seconds $microseconds 0 0\n";
               }
-            ' > "$cmux_ssh_auth_snapshot" 2>/dev/null
+              ' > "$cmux_ssh_auth_snapshot" 2>/dev/null &&
+                 [ -s "$cmux_ssh_auth_snapshot" ]; then
+                if [ -n "$cmux_ssh_auth_snapshot_format" ] &&
+                   [ "$cmux_ssh_auth_snapshot_format" != darwin ]; then
+                  cmux_ssh_auth_cleanup_needs_root_abort=1
+                  return 1
+                fi
+                cmux_ssh_auth_snapshot_format=darwin
+                return 0
+              fi
+              if [ -n "$cmux_ssh_auth_snapshot_format" ]; then
+                # Do not mix kernel identities with second-resolution ps rows.
+                # A later Darwin probe failure is handled by the root abort
+                # path instead of silently dropping the ownership journal.
+                cmux_ssh_auth_cleanup_needs_root_abort=1
+                return 1
+              fi
+              # Older or non-Darwin SSH targets can still provide a POSIX ps
+              # view. Switch the signal backend with the snapshot format so a
+              # failed Darwin probe cannot leave the caller waiting forever.
+              cmux_ssh_auth_signal_backend=portable
+            fi
+            cmux_ssh_auth_ps_command=$(command -v ps 2>/dev/null || true)
+            if [ -z "$cmux_ssh_auth_ps_command" ]; then
+              cmux_ssh_auth_cleanup_needs_root_abort=1
+              return 1
+            fi
+            "$cmux_ssh_auth_ps_command" -axo pid=,ppid=,pgid=,state=,lstart= 2>/dev/null |
+              /usr/bin/awk '
+                NF >= 9 {
+                  # Portable records use the complete ps start tuple as an
+                  # opaque identity. Darwin records use K_<sec>_<usec>.
+                  print $1, $2, $3, $4, "P_" $5 "_" $6 "_" $7 "_" $8 "_" $9, 0, 0, 0, 0
+                }
+              ' > "$cmux_ssh_auth_snapshot"
+            if [ ! -s "$cmux_ssh_auth_snapshot" ]; then
+              cmux_ssh_auth_cleanup_needs_root_abort=1
+              return 1
+            fi
+            if [ -n "$cmux_ssh_auth_snapshot_format" ] &&
+               [ "$cmux_ssh_auth_snapshot_format" != portable ]; then
+              cmux_ssh_auth_cleanup_needs_root_abort=1
+              return 1
+            fi
+            cmux_ssh_auth_snapshot_format=portable
+            return 0
           }
 
           cmux_ssh_auth_extract_tree() {
@@ -362,6 +415,33 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
             if [ ! -p "$cmux_ssh_auth_term_event_ack_fifo" ] || ! exec 10<> "$cmux_ssh_auth_term_event_ack_fifo"; then return 0; fi
             exec 9<> "$cmux_ssh_auth_term_event_fifo" || return 0
             cmux_ssh_auth_term_event_writer=
+            if [ "$cmux_ssh_auth_signal_backend" != darwin ]; then
+              # POSIX sh has no timed-read primitive. Use one bounded select
+              # call when Perl is available, and fail open when it is not.
+              cmux_ssh_auth_perl_command=$(command -v perl 2>/dev/null || true)
+              if [ -n "$cmux_ssh_auth_perl_command" ]; then
+                cmux_ssh_auth_term_event_writer=$(
+                  "$cmux_ssh_auth_perl_command" -MIO::Select -e '
+                    use strict;
+                    use warnings;
+                    use Fcntl qw(O_RDWR O_NONBLOCK);
+                    my ($path, $timeout) = @ARGV;
+                    sysopen(my $fifo, $path, O_RDWR | O_NONBLOCK) or exit 1;
+                    my $select = IO::Select->new($fifo);
+                    if ($select->can_read($timeout)) {
+                      my $line = <$fifo>;
+                      print $line if defined $line;
+                    }
+                  ' "$cmux_ssh_auth_term_event_fifo" 5 2>/dev/null || true
+                )
+              fi
+              if [ "$cmux_ssh_auth_term_event_writer" = "$cmux_ssh_auth_event_token" ]; then
+                cmux_ssh_auth_term_event_received=1
+              else
+                exec 9>&-
+              fi
+              return 0
+            fi
             # macOS /bin/sh accepts only an integer read timeout. Start this
             # bounded grace after TERM so scheduler pressure can delay the
             # handler without blocking cleanup forever. The FIFO stays open
@@ -390,18 +470,90 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
             exec 9>&-
           }
 
-          # Validate and signal an identity batch with macOS's audit-token
-          # process API. The shell/awk snapshot is only a candidate list. The
-          # audit token carries the kernel PID version, so the kernel rejects a
-          # signal after PID reuse instead of applying it to the new process.
+          # Validate and signal an identity batch. On Darwin, the shell/awk
+          # snapshot is fenced again with the kernel audit token, which carries
+          # the PID version. Other Unix hosts use a fresh POSIX ps snapshot and
+          # the shell's validated signal builtin instead of loading libproc.
           # STOP candidates are checked again after the signal and only a
           # confirmed stop enters the ownership journal. TERM and KILL are sent
           # only to a confirmed stopped identity. A stopped process cannot exit
           # and reuse its PID, which also closes the destructive KILL window.
+          cmux_ssh_auth_signal_portable_batch() {
+            cmux_ssh_auth_portable_signal_name="$1"
+            cmux_ssh_auth_portable_signal_input="$2"
+            cmux_ssh_auth_portable_signal_output="${3:-/dev/null}"
+            case "$cmux_ssh_auth_portable_signal_name" in
+              STOP) cmux_ssh_auth_portable_require_stopped=0 ;;
+              TERM|CONT|KILL) cmux_ssh_auth_portable_require_stopped=1 ;;
+              *) return 2 ;;
+            esac
+            cmux_ssh_auth_portable_candidates="$cmux_ssh_auth_state_dir/portable-candidates"
+            : > "$cmux_ssh_auth_portable_candidates" || return 1
+            if ! cmux_ssh_auth_filter_current_records \
+              "$cmux_ssh_auth_portable_signal_input" \
+              "$cmux_ssh_auth_portable_candidates" \
+              "$cmux_ssh_auth_portable_require_stopped"; then
+              return 1
+            fi
+            cmux_ssh_auth_portable_failed=0
+            while IFS=' ' read -r cmux_ssh_auth_portable_depth \
+              cmux_ssh_auth_portable_pid cmux_ssh_auth_portable_parent \
+              cmux_ssh_auth_portable_group cmux_ssh_auth_portable_state \
+              cmux_ssh_auth_portable_started; do
+              case "$cmux_ssh_auth_portable_pid" in
+                ''|*[!0-9]*) continue ;;
+              esac
+              case "$cmux_ssh_auth_portable_signal_name" in
+                STOP)
+                  case "$cmux_ssh_auth_portable_state" in *T*) continue ;; esac
+                  if kill -STOP "$cmux_ssh_auth_portable_pid" >/dev/null 2>&1; then
+                    printf '%s\n' \
+                      "$cmux_ssh_auth_portable_depth $cmux_ssh_auth_portable_pid $cmux_ssh_auth_portable_parent $cmux_ssh_auth_portable_group $cmux_ssh_auth_portable_state $cmux_ssh_auth_portable_started" \
+                      >> "$cmux_ssh_auth_portable_signal_output" || cmux_ssh_auth_portable_failed=1
+                  else
+                    cmux_ssh_auth_portable_failed=1
+                  fi
+                  ;;
+                TERM)
+                  if kill -TERM "$cmux_ssh_auth_portable_pid" >/dev/null 2>&1; then
+                    kill -CONT "$cmux_ssh_auth_portable_pid" >/dev/null 2>&1 || true
+                  else
+                    # A failed TERM must not strand a process that this helper
+                    # stopped. The caller will retry the identity-checked CONT.
+                    kill -CONT "$cmux_ssh_auth_portable_pid" >/dev/null 2>&1 || true
+                    cmux_ssh_auth_portable_failed=1
+                  fi
+                  ;;
+                CONT)
+                  case "$cmux_ssh_auth_portable_state" in *T*)
+                    kill -CONT "$cmux_ssh_auth_portable_pid" >/dev/null 2>&1 || cmux_ssh_auth_portable_failed=1
+                    ;;
+                  esac
+                  ;;
+                KILL)
+                  kill -KILL "$cmux_ssh_auth_portable_pid" >/dev/null 2>&1 || cmux_ssh_auth_portable_failed=1
+                  ;;
+              esac
+            done < "$cmux_ssh_auth_portable_candidates"
+            /bin/rm -f "$cmux_ssh_auth_portable_candidates" 2>/dev/null || true
+            [ "$cmux_ssh_auth_portable_failed" = 0 ]
+          }
+
           cmux_ssh_auth_signal_verified_batch() {
             cmux_ssh_auth_signal_name="$1"
             cmux_ssh_auth_signal_input="$2"
             cmux_ssh_auth_signal_output="${3:-/dev/null}"
+            if [ "$cmux_ssh_auth_signal_backend" != darwin ]; then
+              cmux_ssh_auth_signal_portable_batch \
+                "$cmux_ssh_auth_signal_name" \
+                "$cmux_ssh_auth_signal_input" \
+                "$cmux_ssh_auth_signal_output"
+              cmux_ssh_auth_signal_status=$?
+              if [ "$cmux_ssh_auth_signal_status" -ne 0 ]; then
+                cmux_ssh_auth_cleanup_needs_root_abort=1
+              fi
+              return "$cmux_ssh_auth_signal_status"
+            fi
             /usr/bin/ruby -rfiddle -rfiddle/import -e '
               signal_name, input_path, output_path = ARGV
               signals = { "STOP" => 17, "TERM" => 15, "CONT" => 19, "KILL" => 9 }
@@ -452,6 +604,7 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
               begin
                 input = File.open(input_path, "r")
                 output = File.open(output_path, "w")
+                signal_failed = false
                 input.each_line do |line|
                 fields = line.split
                 next unless fields.length == 6
@@ -507,15 +660,29 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
                     after, pid, group, expected_seconds, expected_microseconds
                   ) && after[3] == 4
                 else
-                  signal_exact.call(before, signals[signal_name])
+                  unless signal_exact.call(before, signals[signal_name])
+                    # A process may exit between validation and KILL. Treat
+                    # that race as success, but report a live matching stop so
+                    # the caller resumes it instead of declaring cleanup done.
+                    current = process_identity.call(pid)
+                    signal_failed = true if same_identity.call(
+                      current, pid, group, expected_seconds, expected_microseconds
+                    ) && current[3] == 4
+                  end
                 end
                 end
+                exit 1 if signal_failed
               ensure
                 input&.close
                 output&.close
               end
           ' "$cmux_ssh_auth_signal_name" "$cmux_ssh_auth_signal_input" \
               "$cmux_ssh_auth_signal_output" >/dev/null 2>&1
+            cmux_ssh_auth_signal_status=$?
+            if [ "$cmux_ssh_auth_signal_status" -ne 0 ]; then
+              cmux_ssh_auth_cleanup_needs_root_abort=1
+            fi
+            return "$cmux_ssh_auth_signal_status"
           }
 
           cmux_ssh_auth_resume_kernel_journal() {
@@ -572,11 +739,29 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
             cmux_ssh_auth_resume_kernel_journal "$cmux_ssh_auth_resume_path"
           }
 
+          cmux_ssh_auth_force_root_termination() {
+            case "$cmux_ssh_auth_tree_root_pid" in
+              ''|*[!0-9]*) return 0 ;;
+            esac
+            # The root PID is still the caller's unreaped child. If identity
+            # cleanup cannot produce a trustworthy snapshot, terminate that
+            # child so the caller's wait cannot hang indefinitely. Descendant
+            # cleanup remains best effort on hosts without a richer process API.
+            if kill -0 "$cmux_ssh_auth_tree_root_pid" >/dev/null 2>&1; then
+              kill -CONT "$cmux_ssh_auth_tree_root_pid" >/dev/null 2>&1 || true
+              kill -TERM "$cmux_ssh_auth_tree_root_pid" >/dev/null 2>&1 || true
+              kill -KILL "$cmux_ssh_auth_tree_root_pid" >/dev/null 2>&1 || true
+            fi
+          }
+
           cmux_ssh_auth_cleanup() {
             trap - EXIT HUP INT TERM
             if [ "$cmux_ssh_auth_cleanup_complete" != 1 ]; then
               cmux_ssh_auth_resume_file "$cmux_ssh_auth_pending"
               cmux_ssh_auth_resume_file "$cmux_ssh_auth_owned"
+              if [ "$cmux_ssh_auth_cleanup_needs_root_abort" = 1 ]; then
+                cmux_ssh_auth_force_root_termination
+              fi
             fi
             # Once the wrapper opens the per-attempt event FIFOs, marker
             # cleanup is handed to this helper. The wrapper may time out while
@@ -828,6 +1013,8 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
             "$cmux_ssh_auth_kill_candidates" /dev/null || cmux_ssh_auth_kill_failed=1
           if [ "$cmux_ssh_auth_kill_failed" = 0 ]; then
             cmux_ssh_auth_cleanup_complete=1
+          else
+            cmux_ssh_auth_cleanup_needs_root_abort=1
           fi
         )
         """#
