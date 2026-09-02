@@ -465,11 +465,9 @@ impl PtyManager {
                             control.write(&data)
                         });
                     if accepted == Some(false) {
-                        self.inner.emit_error_for_generation(
+                        send_pty_error(
                             context,
                             pty_id,
-                            attachment.generation,
-                            &attachment.publication_gate,
                             "input_overflow",
                             "terminal input queue is full; retry input",
                         );
