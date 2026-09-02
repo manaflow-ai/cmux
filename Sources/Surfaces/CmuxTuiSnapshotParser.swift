@@ -384,8 +384,13 @@ struct CmuxTuiSnapshotParser: Sendable {
         return pool.filter { !($0.kind == .display && pointed.contains($0.id)) } + parsed
     }
 
-    /// A forwarded port, shown as a browser resource.
-    static func portBrowser(machine: SurfaceMachineID, port: Int) -> SurfaceResource {
+    /// A forwarded port, shown as a browser resource. `directURL`, when
+    /// given, is where opening it actually navigates — the machine's private
+    /// address over the WireGuard tunnel, never a provider port-forwarding
+    /// proxy (Freestyle's public platform has none for arbitrary ports). nil
+    /// only for a machine with no private-network address yet, which falls
+    /// back to the legacy provider-minted-endpoint path.
+    static func portBrowser(machine: SurfaceMachineID, port: Int, directURL: String? = nil) -> SurfaceResource {
         SurfaceResource(
             id: SurfaceResourceID(machine: machine, kind: .browser, key: "port:\(port)"),
             title: ":\(port)",
@@ -394,7 +399,7 @@ struct CmuxTuiSnapshotParser: Sendable {
             agent: nil,
             remoteWorkspace: nil,
             port: port,
-            url: nil
+            url: directURL
         )
     }
 

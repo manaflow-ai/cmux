@@ -14,7 +14,7 @@ import Testing
 struct SSHStartupManualReconnectTests {
     private final class BundleToken {}
 
-    private struct ProcessRunResult {
+    struct ProcessRunResult {
         let status: Int32
         let stdout: String
         let stderr: String
@@ -35,7 +35,7 @@ struct SSHStartupManualReconnectTests {
         let temporaryDirectory: URL
     }
 
-    private final class MockSocketServerState: @unchecked Sendable {
+    final class MockSocketServerState: @unchecked Sendable {
         private let lock = NSLock()
         private var commands: [String] = []
 
@@ -1115,7 +1115,7 @@ struct SSHStartupManualReconnectTests {
         return handled
     }
 
-    private static func runProcess(
+    static func runProcess(
         executablePath: String,
         arguments: [String],
         environment: [String: String],
@@ -1161,7 +1161,7 @@ struct SSHStartupManualReconnectTests {
         return ProcessRunResult(status: process.terminationStatus, stdout: stdout, stderr: stderr, timedOut: timedOut)
     }
 
-    private static func writeShellFile(at url: URL, lines: [String]) throws {
+    static func writeShellFile(at url: URL, lines: [String]) throws {
         try lines.joined(separator: "\n")
             .appending("\n")
             .write(to: url, atomically: true, encoding: .utf8)
@@ -1209,12 +1209,12 @@ struct SSHStartupManualReconnectTests {
         try? FileManager.default.removeItem(at: prompt.temporaryDirectory)
     }
 
-    private static func makeSocketPath(_ name: String) -> String {
+    static func makeSocketPath(_ name: String) -> String {
         let shortID = UUID().uuidString.replacingOccurrences(of: "-", with: "").prefix(8)
         return "/tmp/cli-\(name.prefix(3))-\(shortID).sock"
     }
 
-    private static func bindUnixSocket(at path: String) throws -> Int32 {
+    static func bindUnixSocket(at path: String) throws -> Int32 {
         unlink(path)
         let fd = Darwin.socket(AF_UNIX, SOCK_STREAM, 0)
         guard fd >= 0 else {
@@ -1250,7 +1250,7 @@ struct SSHStartupManualReconnectTests {
         return fd
     }
 
-    private static func v2Response(
+    static func v2Response(
         id: String,
         ok: Bool,
         result: [String: Any]? = nil,
@@ -1263,7 +1263,7 @@ struct SSHStartupManualReconnectTests {
         return String(data: data ?? Data("{}".utf8), encoding: .utf8) ?? "{}"
     }
 
-    private static func malformedRequestResponse(raw: String) -> String {
+    static func malformedRequestResponse(raw: String) -> String {
         v2Response(
             id: "unknown",
             ok: false,
@@ -1271,12 +1271,12 @@ struct SSHStartupManualReconnectTests {
         )
     }
 
-    private static func jsonObject(_ line: String) -> [String: Any]? {
+    static func jsonObject(_ line: String) -> [String: Any]? {
         guard let data = line.data(using: .utf8) else { return nil }
         return try? JSONSerialization.jsonObject(with: data, options: []) as? [String: Any]
     }
 
-    private static func testError(_ message: String) -> NSError {
+    static func testError(_ message: String) -> NSError {
         NSError(domain: "cmux.tests", code: 1, userInfo: [NSLocalizedDescriptionKey: message])
     }
 }
