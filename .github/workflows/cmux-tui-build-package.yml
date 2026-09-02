@@ -431,6 +431,9 @@ jobs:
     runs-on: ${{ inputs.windows_runner != '' && inputs.windows_runner || vars.WINDOWS_RUNNER || 'windows-latest' }}
     timeout-minutes: 60
     env:
+      # windows-latest provides the GNU cross compiler through MSYS2 and LLVM's
+      # lld. Keep Cargo on the same GCC linker path used by the GNU target.
+      CARGO_TARGET_X86_64_PC_WINDOWS_GNU_LINKER: x86_64-w64-mingw32-gcc
       CARGO_TARGET_X86_64_PC_WINDOWS_GNU_RUSTFLAGS: -C link-arg=-fuse-ld=lld
     permissions:
       contents: read
@@ -471,10 +474,17 @@ jobs:
         run: |
           rustup target add x86_64-pc-windows-gnu
           printf '%s\n' 'C:\msys64\mingw64\bin' >> "$GITHUB_PATH"
+          llvm_bin='/c/Program Files/LLVM/bin'
+          test -x "$llvm_bin/ld.lld.exe"
+          printf '%s\n' 'C:\Program Files\LLVM\bin' >> "$GITHUB_PATH"
 
       - name: Verify LLVM GNU linker
         shell: bash
-        run: ld.lld --version
+        run: |
+          command -v x86_64-w64-mingw32-gcc
+          command -v ld.lld
+          x86_64-w64-mingw32-gcc --version
+          ld.lld --version
 
       - name: Build libghostty-vt + cmux-tui (Windows GNU)
         env:
