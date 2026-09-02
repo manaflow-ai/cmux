@@ -13255,8 +13255,12 @@ impl App {
         self.viewport_states.retain(|screen, _| live_screens.contains(screen));
         self.pane_focus_history.sync_membership(&tree);
         self.tree = tree;
-        let live_workspace_ids =
-            self.tree.workspaces().iter().map(|workspace| workspace.id).collect();
+        let live_workspace_ids = self
+            .tree
+            .workspaces()
+            .iter()
+            .map(|workspace| workspace.id)
+            .collect::<HashSet<WorkspaceId>>();
         self.agent_generations.retain(|workspace_id, _| live_workspace_ids.contains(workspace_id));
         self.bump_sidebar_generation();
         self.sidebar_workspace_selection = selected_workspace
