@@ -32,10 +32,10 @@ const currentDashboardRouteTree = encodeURIComponent(
   ]),
 );
 
-test("dashboard navigation payload has no dashboard-wide loading fallback", async ({
+test("dashboard keeps its cold fallback out of sibling navigation", async ({
   request,
 }) => {
-  const prefetchResponse = await request.get(
+  const appShellResponse = await request.get(
     "/dashboard/subrouter?_rsc=dashboard-prefetch-test",
     {
       headers: {
@@ -46,11 +46,11 @@ test("dashboard navigation payload has no dashboard-wide loading fallback", asyn
     },
   );
 
-  expect(prefetchResponse.ok()).toBe(true);
-  expect(prefetchResponse.headers()["content-type"]).toContain("text/x-component");
-  const prefetchPayload = await prefetchResponse.text();
-  expect(prefetchPayload).not.toContain('"loading":');
-  expect(prefetchPayload).not.toContain("animate-pulse");
+  expect(appShellResponse.ok()).toBe(true);
+  expect(appShellResponse.headers()["content-type"]).toContain("text/x-component");
+  const appShellPayload = await appShellResponse.text();
+  expect(appShellPayload).not.toContain('"loading":');
+  expect(appShellPayload).toContain("animate-pulse");
 
   const response = await request.get("/dashboard/subrouter?_rsc=dashboard-test", {
     headers: {
