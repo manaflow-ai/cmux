@@ -484,6 +484,7 @@ if ((${#cleanup_dirs[@]} > 0)); then
       echo "error: cannot determine whether hosted artifacts are active" >&2
       exit 2
     fi
+    active_artifact_paths="$(printf '%s\n' "$active_artifact_paths" | sed -n 's/^n//p')"
   fi
 fi
 

@@ -36,5 +36,9 @@ write_preview "$(( $(date +%s) - 601 ))"
 expect_invalid
 write_preview "$(( $(date +%s) + 1 ))"
 expect_invalid
+active_binary=/tmp/0000000000000000000000000000000000000001/cmux-tui
+active_lsof_output="n$active_binary"
+active_artifact_paths="$(printf '%s\n' "$active_lsof_output" | sed -n 's/^n//p')"
+printf '%s\n' "$active_artifact_paths" | grep -F -x -q -- "$active_binary"
 rm -f "$preview"
 echo 'hosted retention token behavior passed'
