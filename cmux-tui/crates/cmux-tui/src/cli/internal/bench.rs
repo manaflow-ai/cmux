@@ -8,8 +8,9 @@
 //! operation; it only sends existing commands. The output feeds the IX0
 //! baseline of `plans/cmux-tui-zero-wait-interaction.md`.
 
+use std::collections::HashMap;
 use std::io::{self, BufRead, BufReader, Read, Write};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Barrier, Mutex};
 use std::thread;
 use std::time::{Duration, Instant};
 
@@ -213,6 +214,56 @@ struct SessionGuard {
     owner: Option<crate::local_owner::EnsuredOwnerHandle>,
 }
 
+/// The order in which a create connection submits requests before it drains
+/// any response. Keeping typing after the creates in this batch makes the
+/// connection's head-of-line behavior observable.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum SubmissionKind {
+    Create { index: usize, kind: usize },
+    TypingSame { probe: usize },
+}
+
+fn same_connection_submission_plan(
+    creates: usize,
+    typing_probes: usize,
+) -> Vec<SubmissionKind> {
+    let mut submissions = Vec::with_capacity(creates + typing_probes);
+    submissions.extend((0..creates).map(|index| SubmissionKind::Create {
+        index,
+        kind: index % 3,
+    }));
+    submissions.extend(
+        (0..typing_probes).map(|probe| SubmissionKind::TypingSame { probe }),
+    );
+    submissions
+}
+
+struct PendingRequest {
+    id: u64,
+    sent: Instant,
+    kind: SubmissionKind,
+}
+
+/// Keep all create requests unread until the separate-connection probe has
+/// completed. The second barrier also prevents a create worker from draining
+/// its connection before the same-connection typing requests are submitted.
+struct ProbeGates {
+    creates_submitted: Barrier,
+    probes_submitted: Barrier,
+    release_workers: Barrier,
+}
+
+impl ProbeGates {
+    fn new(client_count: usize) -> Self {
+        let parties = client_count + 1;
+        Self {
+            creates_submitted: Barrier::new(parties),
+            probes_submitted: Barrier::new(parties),
+            release_workers: Barrier::new(parties),
+        }
+    }
+}
+
 fn execute(global: &GlobalArgs, plan: &BenchPlan) -> Result<Report, String> {
     let (socket, guard) = ensure_session(global)?;
 
@@ -233,31 +284,48 @@ fn execute(global: &GlobalArgs, plan: &BenchPlan) -> Result<Report, String> {
 
     let report = Arc::new(Mutex::new(Report::new(&socket)));
 
-    // Concurrent create loops.
+    // Concurrent create loops. Each worker submits its whole create batch
+    // before reading a response. That gives both typing probes the same
+    // in-flight create load to compare.
+    let client_count = plan.clients.max(1);
+    let gates = Arc::new(ProbeGates::new(client_count));
     let mut handles = Vec::new();
-    for client in 0..plan.clients.max(1) {
+    for client in 0..client_count {
         let socket = socket.clone();
         let events = Arc::clone(&events);
         let report = Arc::clone(&report);
         let creates = plan.creates_per_client;
         let pane = active_pane;
+        let gates = Arc::clone(&gates);
+        let same_connection = client == 0;
+        let typing_probes = plan.typing_probes;
         handles.push(thread::spawn(move || {
-            if let Err(error) = run_create_loop(&socket, creates, client, pane, &events, &report) {
+            if let Err(error) = run_create_loop(
+                &socket,
+                creates,
+                client,
+                pane,
+                same_connection,
+                typing_probes,
+                &events,
+                &report,
+                &gates,
+                baseline_surface,
+            ) {
                 report.lock().unwrap().errors.push(error);
             }
         }));
     }
 
-    // Typing probe on a separate connection while creates are in flight.
-    let mut probe = Conn::open(&socket)?;
-    probe.identify()?;
-    for _ in 0..plan.typing_probes {
-        let start = Instant::now();
-        match probe.request(json!({"cmd":"send","surface":baseline_surface,"text":"x"})) {
-            Ok(_) => report.lock().unwrap().typing_separate.record(start.elapsed()),
-            Err(error) => report.lock().unwrap().errors.push(format!("typing(separate): {error}")),
-        }
-    }
+    // Wait until every create connection has submitted its batch, then run
+    // the separate-connection probe while those requests remain unread.
+    let _ = gates.creates_submitted.wait();
+    run_separate_typing_probe(&socket, baseline_surface, plan.typing_probes, &report);
+
+    // Worker zero has now submitted its same-connection typing requests. Hold
+    // every worker at this barrier until both probes are on the wire.
+    let _ = gates.probes_submitted.wait();
+    let _ = gates.release_workers.wait();
 
     for handle in handles {
         let _ = handle.join();
@@ -265,20 +333,49 @@ fn execute(global: &GlobalArgs, plan: &BenchPlan) -> Result<Report, String> {
     stop.store(true, std::sync::atomic::Ordering::Release);
     let _ = subscriber_thread.join();
 
-    // Typing probe on the control connection after its own creates, for a
-    // same-connection head-of-line comparison.
-    for _ in 0..plan.typing_probes {
-        let start = Instant::now();
-        match control.request(json!({"cmd":"send","surface":baseline_surface,"text":"x"})) {
-            Ok(_) => report.lock().unwrap().typing_same.record(start.elapsed()),
-            Err(error) => report.lock().unwrap().errors.push(format!("typing(same): {error}")),
-        }
-    }
-
     drop(guard);
     Arc::try_unwrap(report)
         .map(|m| m.into_inner().unwrap())
         .map_err(|_| "report still shared".into())
+}
+
+fn run_separate_typing_probe(
+    socket: &std::path::Path,
+    surface: u64,
+    probes: usize,
+    report: &Arc<Mutex<Report>>,
+) {
+    let mut conn = match Conn::open(socket) {
+        Ok(conn) => conn,
+        Err(error) => {
+            report.lock().unwrap().errors.push(format!("typing(separate): {error}"));
+            return;
+        }
+    };
+    if let Err(error) = conn.identify() {
+        report.lock().unwrap().errors.push(format!("typing(separate): {error}"));
+        return;
+    }
+    for _ in 0..probes {
+        let start = Instant::now();
+        match conn.request(json!({"cmd":"send","surface":surface,"text":"x"})) {
+            Ok(_) => report.lock().unwrap().typing_separate.record(start.elapsed()),
+            Err(error) => report.lock().unwrap().errors.push(format!("typing(separate): {error}")),
+        }
+    }
+}
+
+fn command_for_submission(submission: SubmissionKind, pane: u64, surface: u64) -> Value {
+    match submission {
+        SubmissionKind::Create { index, .. } => match index % 3 {
+            0 => json!({"cmd":"new-workspace"}),
+            1 => json!({"cmd":"new-tab"}),
+            _ => json!({"cmd":"split","pane":pane,"dir":"right"}),
+        },
+        SubmissionKind::TypingSame { .. } => {
+            json!({"cmd":"send","surface":surface,"text":"x"})
+        }
+    }
 }
 
 fn run_create_loop(
@@ -286,71 +383,189 @@ fn run_create_loop(
     creates: usize,
     client: usize,
     pane: u64,
+    same_connection: bool,
+    typing_probes: usize,
     events: &Arc<Mutex<Vec<TimedEvent>>>,
     report: &Arc<Mutex<Report>>,
+    gates: &ProbeGates,
+    baseline_surface: u64,
 ) -> Result<(), String> {
-    let mut conn = Conn::open(socket)?;
-    conn.identify()?;
-    for index in 0..creates {
-        let kind = index % 3;
-        let command = match kind {
-            0 => json!({"cmd":"new-workspace"}),
-            1 => json!({"cmd":"new-tab"}),
-            _ => json!({"cmd":"split","pane":pane,"dir":"right"}),
-        };
-        let start = Instant::now();
-        let data = match conn.request(command) {
-            Ok(data) => data,
-            Err(error) => {
-                report.lock().unwrap().errors.push(format!("create[{client}:{kind}]: {error}"));
-                continue;
-            }
-        };
-        let response = start.elapsed();
-        let surface = data["surface"].as_u64();
-        let terminal_id = data.get("terminal_id").and_then(Value::as_str).map(str::to_owned);
-
-        {
-            let mut report = report.lock().unwrap();
-            report.create_response.record(response);
-            report.record_lifecycle(data.get("lifecycle").and_then(Value::as_str));
+    let mut setup_error = None;
+    let mut conn = match Conn::open(socket) {
+        Ok(conn) => Some(conn),
+        Err(error) => {
+            setup_error = Some(error);
+            None
         }
+    };
+    let identify_error = conn.as_mut().and_then(|connection| connection.identify().err());
+    if let Some(error) = identify_error {
+        setup_error = Some(error);
+        conn = None;
+    }
 
-        if let Some(surface_id) = surface {
-            // Give the delta a moment; it may already be recorded.
-            let delay = wait_for_visibility(events, start, surface_id, VISIBILITY_GRACE);
-            if let Some(delay) = delay {
-                report.lock().unwrap().create_visible.record(delay);
-            } else {
-                report.lock().unwrap().visibility_misses += 1;
-            }
-
-            if let Some(first_frame) = measure_first_frame(socket, surface_id) {
-                report.lock().unwrap().first_frame.record(first_frame);
-            }
-
-            // View-only close of this surface (default destroy for a tab).
-            let close_start = Instant::now();
-            match conn.request(json!({"cmd":"close-surface","surface":surface_id})) {
-                Ok(_) => report.lock().unwrap().close_surface.record(close_start.elapsed()),
-                Err(error) => report.lock().unwrap().errors.push(format!("close-surface: {error}")),
-            }
-        }
-
-        // For terminals with a stable id, also measure the process-terminating
-        // close, which blocks on host exit escalation (terminal.close_wait).
-        if let Some(terminal_id) = terminal_id {
-            let close_start = Instant::now();
-            match conn.request(json!({"cmd":"close-terminal","terminal_id":terminal_id})) {
-                Ok(_) => report.lock().unwrap().close_terminal.record(close_start.elapsed()),
+    let mut pending = Vec::new();
+    if let Some(connection) = conn.as_mut() {
+        let submissions = same_connection_submission_plan(
+            creates,
+            if same_connection { typing_probes } else { 0 },
+        );
+        for submission in submissions {
+            let sent = Instant::now();
+            match connection.send(command_for_submission(submission, pane, baseline_surface)) {
+                Ok(id) => pending.push(PendingRequest { id, sent, kind: submission }),
                 Err(error) => {
-                    // A tab close may already have retired it; not an error worth failing on.
-                    let _ = error;
+                    setup_error = Some(format!("create[{client}] send: {error}"));
+                    break;
                 }
             }
         }
     }
+
+    // All workers reach this point before any response is read. The main
+    // thread uses this barrier to start the separate-connection probe against
+    // the same in-flight create load.
+    let _ = gates.creates_submitted.wait();
+    let _ = gates.probes_submitted.wait();
+    let _ = gates.release_workers.wait();
+
+    let Some(mut conn) = conn else {
+        return Err(setup_error.unwrap_or_else(|| "create connection unavailable".into()));
+    };
+
+    let drain_error = drain_pending(
+        &mut conn,
+        pending,
+        client,
+        socket,
+        events,
+        report,
+    );
+    match (setup_error, drain_error) {
+        (None, result) => result,
+        (Some(setup_error), Ok(())) => Err(setup_error),
+        (Some(setup_error), Err(drain_error)) => {
+            Err(format!("{setup_error}; {drain_error}"))
+        }
+    }
+}
+
+fn drain_pending(
+    conn: &mut Conn,
+    pending: Vec<PendingRequest>,
+    client: usize,
+    socket: &std::path::Path,
+    events: &Arc<Mutex<Vec<TimedEvent>>>,
+    report: &Arc<Mutex<Report>>,
+) -> Result<(), String> {
+    let mut pending_by_id: HashMap<u64, PendingRequest> =
+        pending.into_iter().map(|request| (request.id, request)).collect();
+    let mut completed_creates = Vec::new();
+
+    while !pending_by_id.is_empty() {
+        let value = conn.read_value()?;
+        if value.get("event").is_some() {
+            continue;
+        }
+        let Some(id) = value.get("id").and_then(Value::as_u64) else {
+            continue;
+        };
+        let Some(request) = pending_by_id.remove(&id) else {
+            continue;
+        };
+        if value.get("ok").and_then(Value::as_bool) != Some(true) {
+            let error = value
+                .get("error")
+                .and_then(Value::as_str)
+                .unwrap_or("command failed");
+            match request.kind {
+                SubmissionKind::Create { kind, .. } => report
+                    .lock()
+                    .unwrap()
+                    .errors
+                    .push(format!("create[{client}:{kind}]: {error}")),
+                SubmissionKind::TypingSame { .. } => report
+                    .lock()
+                    .unwrap()
+                    .errors
+                    .push(format!("typing(same): {error}")),
+            }
+            continue;
+        }
+
+        match request.kind {
+            SubmissionKind::Create { kind, .. } => {
+                completed_creates.push((
+                    request.sent,
+                    request.sent.elapsed(),
+                    kind,
+                    value.get("data").cloned().unwrap_or(Value::Null),
+                ));
+            }
+            SubmissionKind::TypingSame { .. } => {
+                report.lock().unwrap().typing_same.record(request.sent.elapsed());
+            }
+        }
+    }
+
+    // No responses remain on this connection, so the close requests below
+    // cannot consume another pending request while we process each create.
+    for (sent, response, _kind, data) in completed_creates {
+        record_create_result(conn, sent, response, data, socket, events, report);
+    }
     Ok(())
+}
+
+fn record_create_result(
+    conn: &mut Conn,
+    sent: Instant,
+    response: Duration,
+    data: Value,
+    socket: &std::path::Path,
+    events: &Arc<Mutex<Vec<TimedEvent>>>,
+    report: &Arc<Mutex<Report>>,
+) {
+    let surface = data["surface"].as_u64();
+    let terminal_id = data.get("terminal_id").and_then(Value::as_str).map(str::to_owned);
+    {
+        let mut report = report.lock().unwrap();
+        report.create_response.record(response);
+        report.record_lifecycle(data.get("lifecycle").and_then(Value::as_str));
+    }
+
+    if let Some(surface_id) = surface {
+        // Give the delta a moment; it may already be recorded.
+        let delay = wait_for_visibility(events, sent, surface_id, VISIBILITY_GRACE);
+        if let Some(delay) = delay {
+            report.lock().unwrap().create_visible.record(delay);
+        } else {
+            report.lock().unwrap().visibility_misses += 1;
+        }
+
+        if let Some(first_frame) = measure_first_frame(socket, surface_id) {
+            report.lock().unwrap().first_frame.record(first_frame);
+        }
+
+        // View-only close of this surface (default destroy for a tab).
+        let close_start = Instant::now();
+        match conn.request(json!({"cmd":"close-surface","surface":surface_id})) {
+            Ok(_) => report.lock().unwrap().close_surface.record(close_start.elapsed()),
+            Err(error) => report.lock().unwrap().errors.push(format!("close-surface: {error}")),
+        }
+    }
+
+    // For terminals with a stable id, also measure the process-terminating
+    // close, which blocks on host exit escalation (terminal.close_wait).
+    if let Some(terminal_id) = terminal_id {
+        let close_start = Instant::now();
+        match conn.request(json!({"cmd":"close-terminal","terminal_id":terminal_id})) {
+            Ok(_) => report.lock().unwrap().close_terminal.record(close_start.elapsed()),
+            Err(error) => {
+                // A tab close may already have retired it; not an error worth failing on.
+                let _ = error;
+            }
+        }
+    }
 }
 
 fn wait_for_visibility(
@@ -371,6 +586,13 @@ fn wait_for_visibility(
     }
 }
 
+fn is_first_frame_for_surface(value: &Value, surface_id: u64) -> bool {
+    // Attach streams share the connection's event channel, so an unrelated
+    // render-state event must not satisfy this surface's frame measurement.
+    value.get("event").and_then(Value::as_str) == Some("render-state")
+        && value.get("surface").and_then(Value::as_u64) == Some(surface_id)
+}
+
 fn measure_first_frame(socket: &std::path::Path, surface_id: u64) -> Option<Duration> {
     let mut conn = Conn::open(socket).ok()?;
     conn.identify().ok()?;
@@ -383,7 +605,7 @@ fn measure_first_frame(socket: &std::path::Path, surface_id: u64) -> Option<Dura
             return None;
         }
         let value = conn.read_value().ok()?;
-        if value.get("event").and_then(Value::as_str) == Some("render-state") {
+        if is_first_frame_for_surface(&value, surface_id) {
             return Some(start.elapsed());
         }
         // A failed attach response ends the attempt.

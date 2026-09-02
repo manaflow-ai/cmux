@@ -108,7 +108,7 @@ The public resource roots are:
 ```text
 server   machine  session  client  workspace  screen  pane  tab
 terminal browser  notification  agent  sidebar
-pairing  projection  provider  raw  diag
+pairing  projection  provider  raw  diag  bench
 ```
 
 Structural resources may be addressed directly by opaque ID or through their
@@ -128,6 +128,10 @@ map every operational one-shot command and parameter in
 [`resource-operations-v2.json`](resource-operations-v2.json) to a public path.
 Sensitive renderer grants and connection-owned stream/viewer controls remain
 SDK and raw-only.
+
+`diag` and `bench` are local diagnostic scopes. `bench interact` uses the
+private control protocol internally to measure existing commands; it adds no
+resource operation or protocol command.
 
 ## Selectors
 
