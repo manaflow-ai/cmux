@@ -590,10 +590,7 @@ impl PendingOpenGuard {
         }
         self.state.store(STREAM_LOCAL_FIN | STREAM_REMOTE_FIN | STREAM_RESET, Ordering::Release);
         self.failure.send_replace(Some(StreamFailure::Reset(reason.into())));
-        self.closed
-            .lock()
-            .await
-            .insert_on(self.id, tombstone_lane_mask(self.service, default_lane(self.service)));
+        self.closed.lock().await.insert_on(self.id, legal_tombstone_lane_mask(self.service));
         self.registrations.lock().await.remove(&self.id);
         self.cleanup.spawn(
             self.endpoint.clone(),
@@ -624,10 +621,7 @@ impl Drop for PendingOpenGuard {
         let id = self.id;
         if let Ok(runtime) = tokio::runtime::Handle::try_current() {
             runtime.spawn(async move {
-                closed
-                    .lock()
-                    .await
-                    .insert_on(id, tombstone_lane_mask(service, default_lane(service)));
+                closed.lock().await.insert_on(id, legal_tombstone_lane_mask(service));
                 registrations.lock().await.remove(&id);
                 cleanup.spawn(endpoint, generation, lane, id, None);
             });
@@ -894,10 +888,7 @@ impl Drop for ServiceStream {
         let service = self.service;
         if let Ok(runtime) = tokio::runtime::Handle::try_current() {
             runtime.spawn(async move {
-                closed
-                    .lock()
-                    .await
-                    .insert_on(id, tombstone_lane_mask(service, default_lane(service)));
+                closed.lock().await.insert_on(id, legal_tombstone_lane_mask(service));
                 registrations.lock().await.remove(&id);
                 if !complete {
                     cleanup.spawn(endpoint, generation, lane, id, Some((state, service)));
@@ -1459,6 +1450,10 @@ fn lane_bit(lane: Lane) -> u8 {
 
 fn tombstone_lane_mask(service: Service, lane: Lane) -> u8 {
     if service == Service::MuxControl { MULTI_LANE_TERMINAL_MASK } else { lane_bit(lane) }
+}
+
+fn legal_tombstone_lane_mask(service: Service) -> u8 {
+    if service == Service::TcpTunnel { lane_bit(Lane::Tunnel) } else { MULTI_LANE_TERMINAL_MASK }
 }
 
 fn open_lane(service: Service) -> Lane {
